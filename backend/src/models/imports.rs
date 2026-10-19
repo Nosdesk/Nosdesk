@@ -162,11 +162,12 @@ pub struct ImportJobResponse {
     /// shows it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_name: Option<String>,
-    /// For a committed asset import, when Remove imported assets closes:
-    /// 30 days after the commit.
+    /// For a committed asset or documentation import, when Remove imported
+    /// assets (or pages) closes: 30 days after the commit.
     pub removal_closes_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// When Remove imported assets ran, by whom, and what it did
-    /// (`services::imports::remove::RemoveResult`).
+    /// When Remove imported assets (or pages) ran, by whom, and what it did
+    /// (`services::imports::remove::RemoveResult`, or for a documentation
+    /// import `services::imports::documentation::remove::RemoveResult`).
     pub removed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub removed_by: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -202,7 +203,7 @@ impl From<ImportJob> for ImportJobResponse {
         // Where the grid is stored stays on the server.
         lift("grid");
         let removal_closes_at = match (job.job_type.as_str(), job.status.as_str()) {
-            ("assets", "done") => job.completed_at.map(window_closes_at),
+            ("assets" | "documentation", "done") => job.completed_at.map(window_closes_at),
             _ => None,
         };
         let state = state_of(

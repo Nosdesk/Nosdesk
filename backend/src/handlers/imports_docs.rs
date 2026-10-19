@@ -22,6 +22,15 @@
 //!   job in `committing` (`records_committed` counts pages written), 409
 //!   `import_plan_changed` with the job holding the new plan.
 //!
+//! - `GET /admin/import/{id}/docs/remove` says what Remove imported pages
+//!   would do now: how many pages the import created, how many would move
+//!   to Trash, which are kept and why, and which collections it created
+//!   would be deleted. `POST` does it, once, within 30 days of the commit,
+//!   and answers with the job, its `remove_result` filled.
+//! - `GET /admin/import/{id}/docs/publish` says how many of the import's
+//!   pages Publish all would publish and how many are left as they are;
+//!   `POST` publishes them and answers with the same two counts.
+//!
 //! `GET /admin/import/{id}` follows a job through `checking` and
 //! `committing`, and puts back one whose process died. Every route is
 //! workspace-admin only; another workspace's job is 404.
@@ -38,8 +47,8 @@ use uuid::Uuid;
 use crate::errors;
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn, WorkspaceContext};
 use crate::handlers::imports::{
-    details_pruned, download_stem, expired, job_response, refused_response, stored_filename,
-    EXPIRED,
+    details_pruned, download_stem, expired, job_response, names_of, refused_response,
+    stored_filename, EXPIRED,
 };
 use crate::models::{ImportJob, ImportJobUpdate, NewImportJob};
 use crate::repository::documentation::PageAudience;
@@ -48,11 +57,11 @@ use crate::repository::imports as repo;
 use crate::services::docs_markdown::links::NoWorkspace;
 use crate::services::docs_markdown::tree::CollectionMode;
 use crate::services::imports::documentation::{
-    self as docs, check, commit, reconcile, report, DocsOptions, DocsRows, DocsSource, Duplicates,
-    PageOutcome, TreeView, JOB_TYPE, MAX_UPLOAD_BYTES,
+    self as docs, check, commit, reconcile, remove, report, CommitRecord, DocsOptions, DocsRows,
+    DocsSource, Duplicates, PageOutcome, TreeView, JOB_TYPE, MAX_UPLOAD_BYTES,
 };
 use crate::services::imports::refusal::Refused;
-use crate::services::search::SearchService;
+use crate::services::search::{indexing_tasks, SearchService};
 use crate::services::uploaded_archive::{spool, ArchiveError, ArchiveOptions, SafeArchive};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -66,7 +75,17 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::get().to(preview),
     )
     .route("/admin/import/{id}/docs/report", web::get().to(report_csv))
-    .route("/admin/import/{id}/docs/commit", web::post().to(commit_job));
+    .route("/admin/import/{id}/docs/commit", web::post().to(commit_job))
+    .service(
+        web::resource("/admin/import/{id}/docs/remove")
+            .route(web::get().to(removal_preview))
+            .route(web::post().to(remove_pages)),
+    )
+    .service(
+        web::resource("/admin/import/{id}/docs/publish")
+            .route(web::get().to(publish_preview))
+            .route(web::post().to(publish_all)),
+    );
 }
 
 /// The upload cap, when an app sets one other than [`MAX_UPLOAD_BYTES`]
@@ -841,6 +860,317 @@ pub async fn commit_job(
         Err(e) => {
             error!(id = %job.id, error = ?e, "failed to start a documentation commit");
             errors::internal("failed to start the import")
+        }
+    }
+}
+
+// ---- remove imported pages, publish all ----
+
+/// Why Remove imported pages or Publish all can't run on a job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Refusal {
+    /// A draft, or a commit that failed: nothing was imported.
+    NotImported,
+    /// Removal ran already; it runs once.
+    AlreadyRemoved,
+    /// 30 days after the commit.
+    WindowClosed,
+    /// The job's lock is held: a commit or another removal runs.
+    Busy,
+    /// Another documentation import is being committed.
+    TypeBusy,
+}
+
+impl Refusal {
+    fn response(self) -> HttpResponse {
+        match self {
+            Self::NotImported => errors::conflict_with_code(
+                "This import wasn't committed, so it created no pages.",
+                "import_not_committed",
+            ),
+            Self::AlreadyRemoved => errors::conflict_with_code(
+                "The pages this import created were already moved to Trash.",
+                "import_already_removed",
+            ),
+            Self::WindowClosed => errors::gone_with_code(
+                "Imported pages can be removed for 30 days after the import. That window has closed.",
+                "import_removal_window_closed",
+            ),
+            Self::Busy => errors::conflict_with_code(
+                "This import is being changed. Try again in a moment.",
+                "import_busy",
+            ),
+            Self::TypeBusy => errors::conflict_with_code(
+                "Another documentation import is being committed. Try again when it finishes.",
+                "import_type_busy",
+            ),
+        }
+    }
+}
+
+/// The pages a committed job wrote, or why there are none to act on.
+fn committed_record(job: &ImportJob) -> Result<CommitRecord, Refusal> {
+    match CommitRecord::from_value(job.record_ids.clone()) {
+        Some(record) if job.status == "done" && !record.pending => Ok(record),
+        _ => Err(Refusal::NotImported),
+    }
+}
+
+/// Whether removal can run on `job` at `now`: the pages it wrote, or the
+/// refusal.
+fn removal_record(
+    job: &ImportJob,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<CommitRecord, Refusal> {
+    let record = committed_record(job)?;
+    if job.removed_at.is_some() {
+        return Err(Refusal::AlreadyRemoved);
+    }
+    let open = job
+        .completed_at
+        .is_some_and(|at| now < crate::services::imports::remove::window_closes_at(at));
+    if !open {
+        return Err(Refusal::WindowClosed);
+    }
+    Ok(record)
+}
+
+/// Why a removal found nothing to move to Trash. The client words it from
+/// `args.reason`.
+fn nothing_to_remove(plan: &remove::RemovalPlan) -> HttpResponse {
+    let (reason, message) = if plan.created == 0 {
+        (
+            "none_created",
+            "This import created no pages, so there is nothing to remove.",
+        )
+    } else if plan.gone == plan.created {
+        (
+            "all_gone",
+            "The pages this import created were already deleted or moved to Trash.",
+        )
+    } else {
+        (
+            "all_changed",
+            "Every page this import created has been changed since, so nothing was moved to Trash.",
+        )
+    };
+    errors::with_fields(
+        actix_web::http::StatusCode::CONFLICT,
+        "import_nothing_to_remove",
+        message,
+        serde_json::json!({ "args": { "reason": reason } }),
+    )
+}
+
+enum Read<T> {
+    Ok(T),
+    Refused(Refusal),
+}
+
+/// `GET /admin/import/{id}/docs/remove`: what Remove imported pages would
+/// do now, for its dialog, with `closes_at`.
+pub async fn removal_preview(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    storage: ScopedStorage,
+    path: web::Path<Uuid>,
+) -> HttpResponse {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden(FORBIDDEN);
+    }
+    let id = path.into_inner();
+    let job = match load(&mut tc, &storage, id).await {
+        Ok(job) => job,
+        Err(resp) => return resp,
+    };
+    let record = match removal_record(&job, chrono::Utc::now()) {
+        Ok(record) => record,
+        Err(refusal) => return refusal.response(),
+    };
+    let read = tc.run(|conn| {
+        let mut plan = remove::plan(conn, &record, false)?;
+        let names = names_of(conn, remove::editors_of(&plan.kept))?;
+        remove::name_editors(&mut plan.kept, &names);
+        Ok::<_, diesel::result::Error>(plan)
+    });
+    match read {
+        Ok(plan) => {
+            let mut body = serde_json::to_value(&plan).unwrap_or_default();
+            body["closes_at"] = serde_json::to_value(
+                job.completed_at
+                    .map(crate::services::imports::remove::window_closes_at),
+            )
+            .unwrap_or_default();
+            HttpResponse::Ok().json(body)
+        }
+        Err(e) => {
+            error!(id = %id, error = ?e, "failed to plan removing imported pages");
+            errors::internal("failed to check the imported pages")
+        }
+    }
+}
+
+enum RemovalRun {
+    Done(ImportJob, Vec<i32>),
+    Refused(Refusal),
+    Nothing(remove::RemovalPlan),
+}
+
+/// `POST /admin/import/{id}/docs/remove`: move the pages the import created
+/// that nobody has touched since to Trash, delete the collections it
+/// created that end up empty, and record on the job when, by whom and what
+/// happened. Runs once, within 30 days of the commit, under the job's lock
+/// and the documentation import lock, so it never meets a commit.
+pub async fn remove_pages(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    storage: ScopedStorage,
+    search: web::Data<Arc<SearchService>>,
+    path: web::Path<Uuid>,
+) -> HttpResponse {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden(FORBIDDEN);
+    }
+    let id = path.into_inner();
+    if let Err(resp) = load(&mut tc, &storage, id).await {
+        return resp;
+    }
+    let result = tc.run(|conn| {
+        if !repo::try_lock_job(conn, id)? {
+            return Ok(RemovalRun::Refused(Refusal::Busy));
+        }
+        let job = repo::get_for_update(conn, id)?;
+        let record = match removal_record(&job, chrono::Utc::now()) {
+            Ok(record) => record,
+            Err(refusal) => return Ok(RemovalRun::Refused(refusal)),
+        };
+        if !repo::try_lock_type(conn, job.workspace_id, JOB_TYPE)?
+            || repo::other_documentation_commit(conn, id)?
+        {
+            return Ok(RemovalRun::Refused(Refusal::TypeBusy));
+        }
+        let plan = remove::plan(conn, &record, true)?;
+        if plan.deletable == 0 {
+            return Ok(RemovalRun::Nothing(plan));
+        }
+        let (outcome, trashed) = remove::remove(conn, plan)?;
+        let value = serde_json::to_value(&outcome)
+            .map_err(|e| diesel::result::Error::SerializationError(Box::new(e)))?;
+        let updated = repo::record_removal(conn, id, auth.user_uuid, value)?;
+        info!(
+            id = %id,
+            pages_trashed = outcome.deleted,
+            pages_kept = outcome.kept.len(),
+            collections_deleted = outcome.collections.deleted.len(),
+            "moved imported pages to Trash"
+        );
+        Ok::<_, diesel::result::Error>(RemovalRun::Done(updated, trashed))
+    });
+    match result {
+        Ok(RemovalRun::Done(job, trashed)) => {
+            // The moves committed: the search index drops the pages now.
+            for page in trashed {
+                indexing_tasks::spawn_delete_documentation(search.get_ref().clone(), page);
+            }
+            respond(&mut tc, job, actix_web::http::StatusCode::OK)
+        }
+        Ok(RemovalRun::Refused(refusal)) => refusal.response(),
+        Ok(RemovalRun::Nothing(plan)) => nothing_to_remove(&plan),
+        Err(diesel::result::Error::NotFound) => not_found(id),
+        Err(e) => {
+            error!(id = %id, error = ?e, "failed to remove imported pages");
+            errors::internal("Removing the imported pages failed and nothing was moved to Trash.")
+        }
+    }
+}
+
+/// `GET /admin/import/{id}/docs/publish`: `{publishable, left}`, the pages
+/// Publish all would publish and those changed since the import that it
+/// leaves as they are.
+pub async fn publish_preview(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    storage: ScopedStorage,
+    path: web::Path<Uuid>,
+) -> HttpResponse {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden(FORBIDDEN);
+    }
+    let id = path.into_inner();
+    let job = match load(&mut tc, &storage, id).await {
+        Ok(job) => job,
+        Err(resp) => return resp,
+    };
+    let record = match committed_record(&job) {
+        Ok(record) => record,
+        Err(refusal) => return refusal.response(),
+    };
+    match tc.run(|conn| remove::publish_plan(conn, &record, false)) {
+        Ok(plan) => HttpResponse::Ok().json(plan),
+        Err(e) => {
+            error!(id = %id, error = ?e, "failed to plan publishing imported pages");
+            errors::internal("failed to check the imported pages")
+        }
+    }
+}
+
+/// `POST /admin/import/{id}/docs/publish`: publish the import's pages still
+/// in draft that nobody has changed since, a status change only, and
+/// answer `{published, left}`.
+pub async fn publish_all(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    storage: ScopedStorage,
+    search: web::Data<Arc<SearchService>>,
+    path: web::Path<Uuid>,
+) -> HttpResponse {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden(FORBIDDEN);
+    }
+    let id = path.into_inner();
+    if let Err(resp) = load(&mut tc, &storage, id).await {
+        return resp;
+    }
+    let result = tc.run(|conn| {
+        if !repo::try_lock_job(conn, id)? {
+            return Ok(Read::Refused(Refusal::Busy));
+        }
+        let job = repo::get_for_update(conn, id)?;
+        let mut record = match committed_record(&job) {
+            Ok(record) => record,
+            Err(refusal) => return Ok(Read::Refused(refusal)),
+        };
+        let plan = remove::publish_plan(conn, &record, true)?;
+        let pages = remove::publish(conn, &mut record, &plan)?;
+        if !pages.is_empty() {
+            repo::update(
+                conn,
+                id,
+                ImportJobUpdate {
+                    record_ids: Some(serde_json::to_value(&record).ok()),
+                    ..Default::default()
+                },
+            )?;
+            info!(id = %id, pages_published = pages.len(), pages_left = plan.left, "published imported pages");
+        }
+        Ok::<_, diesel::result::Error>(Read::Ok((pages, plan.left)))
+    });
+    match result {
+        Ok(Read::Ok((pages, left))) => {
+            let published = pages.len();
+            for page in pages {
+                indexing_tasks::spawn_index_documentation(search.get_ref().clone(), page);
+            }
+            HttpResponse::Ok().json(serde_json::json!({
+                "published": published,
+                "left": left,
+            }))
+        }
+        Ok(Read::Refused(refusal)) => refusal.response(),
+        Err(diesel::result::Error::NotFound) => not_found(id),
+        Err(e) => {
+            error!(id = %id, error = ?e, "failed to publish imported pages");
+            errors::internal("Publishing the imported pages failed and nothing was published.")
         }
     }
 }

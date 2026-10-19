@@ -1676,7 +1676,7 @@ pub async fn list_jobs(
 }
 
 /// The names the workspace knows these people by.
-fn names_of(
+pub(crate) fn names_of(
     conn: &mut crate::db::DbConnection,
     uuids: Vec<Uuid>,
 ) -> Result<std::collections::HashMap<Uuid, String>, diesel::result::Error> {
@@ -3222,12 +3222,22 @@ pub(crate) fn job_response(
     conn: &mut crate::db::DbConnection,
     job: ImportJob,
 ) -> Result<ImportJobResponse, diesel::result::Error> {
+    let is_docs = job.job_type == documentation::JOB_TYPE;
     let mut result: Option<remove::RemoveResult> = job
         .remove_result
         .clone()
+        .filter(|_| !is_docs)
+        .and_then(|v| serde_json::from_value(v).ok());
+    let mut docs_result: Option<documentation::remove::RemoveResult> = job
+        .remove_result
+        .clone()
+        .filter(|_| is_docs)
         .and_then(|v| serde_json::from_value(v).ok());
     let mut people: Vec<Uuid> = job.created_by.into_iter().chain(job.removed_by).collect();
     if let Some(r) = &result {
+        people.extend(r.editors());
+    }
+    if let Some(r) = &docs_result {
         people.extend(r.editors());
     }
     people.sort_unstable();
@@ -3239,6 +3249,10 @@ pub(crate) fn job_response(
     response.created_by_name = created_by_name;
     response.removed_by_name = removed_by_name;
     if let Some(r) = result.as_mut() {
+        r.name_editors(&names);
+        response.remove_result = serde_json::to_value(r).ok();
+    }
+    if let Some(r) = docs_result.as_mut() {
         r.name_editors(&names);
         response.remove_result = serde_json::to_value(r).ok();
     }

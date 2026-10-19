@@ -25,6 +25,7 @@ pub mod commit;
 pub mod images;
 pub mod preview;
 pub mod reconcile;
+pub mod remove;
 pub mod report;
 pub mod web;
 
@@ -527,7 +528,7 @@ pub struct RecordedPage {
     pub source: String,
     pub collection_id: Option<i32>,
     /// `updated_at` after the commit wrote its body, as the page row
-    /// holds it.
+    /// holds it; once Publish all published the page, the one it left.
     pub updated_at: chrono::NaiveDateTime,
     /// SHA-256 of the `yjs_document` the commit wrote, hex.
     pub hash: String,

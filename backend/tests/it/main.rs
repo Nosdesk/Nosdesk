@@ -84,6 +84,7 @@ mod imports_catalog;
 mod imports_data_shape;
 mod imports_docs_commit;
 mod imports_docs_flow;
+mod imports_docs_remove;
 mod imports_files;
 mod imports_history;
 mod imports_key_only;
