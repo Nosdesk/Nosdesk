@@ -32,20 +32,15 @@ use unic_langid::LanguageIdentifier;
 use uuid::Uuid;
 use yrs::types::text::YChange;
 use yrs::types::Attrs;
-use yrs::{
-    updates::decoder::Decode, Any, Doc, Options, Out, ReadTxn, Text, Transact, Update, WriteTxn,
-    Xml, XmlElementRef, XmlFragment, XmlOut, XmlTextRef,
-};
+use yrs::{Any, Out, ReadTxn, Text, Transact, Xml, XmlElementRef, XmlFragment, XmlOut, XmlTextRef};
 
 use crate::db::DbConnection;
 use crate::repository;
 use crate::repository::PageAudience;
+use crate::services::yjs::{any_string, attr_string, load, FRAGMENT};
 use crate::utils::i18n;
 
 const MAX_EMBED_DEPTH: usize = 10;
-
-/// The XmlFragment y-prosemirror binds the editor to.
-const FRAGMENT: &str = "prosemirror";
 
 /// Rewrites the destinations a document points at as it is written: page
 /// links and image sources, for an export whose files sit side by side.
@@ -64,20 +59,6 @@ pub trait Links {
 pub struct KeepLinks;
 
 impl Links for KeepLinks {}
-
-fn load(yjs_document: &[u8]) -> Option<Doc> {
-    let doc = Doc::with_options(Options {
-        skip_gc: true,
-        ..Default::default()
-    });
-    {
-        let mut txn = doc.transact_mut();
-        let _ = txn.get_or_insert_xml_fragment(FRAGMENT);
-    }
-    let update = Update::decode_v1(yjs_document).ok()?;
-    doc.transact_mut().apply_update(update).ok()?;
-    Some(doc)
-}
 
 fn non_empty(markdown: String) -> Option<String> {
     let trimmed = markdown.trim_end();
@@ -220,27 +201,6 @@ fn linked_ticket_numbers(
 }
 
 // Attributes.
-
-fn any_string(value: &Any) -> Option<String> {
-    match value {
-        Any::Null | Any::Undefined => None,
-        Any::String(s) => Some(s.to_string()),
-        Any::Number(n) if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 => {
-            Some(format!("{}", *n as i64))
-        }
-        Any::Number(n) => Some(n.to_string()),
-        Any::BigInt(n) => Some(n.to_string()),
-        Any::Bool(b) => Some(b.to_string()),
-        _ => None,
-    }
-}
-
-fn attr_string<T: ReadTxn>(elem: &XmlElementRef, txn: &T, name: &str) -> Option<String> {
-    match elem.get_attribute(txn, name)? {
-        Out::Any(value) => any_string(&value),
-        other => Some(other.to_string(txn)),
-    }
-}
 
 /// A whole-number attr (`level`, `order`, `colspan`), when it holds one.
 /// Older writers stored `level` as a string.

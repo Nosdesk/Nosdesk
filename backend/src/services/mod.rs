@@ -43,3 +43,4 @@ pub mod webhooks;
 pub mod workspace_archive;
 pub mod workspace_export;
 pub mod workspace_import;
+pub mod yjs;

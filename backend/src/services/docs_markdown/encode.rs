@@ -30,8 +30,7 @@ use yrs::{
 
 use super::ir::{Block, Document, Inline, ListItem, Marks, Table, Text};
 
-/// The XmlFragment y-prosemirror binds the editor to.
-pub const FRAGMENT: &str = "prosemirror";
+pub use crate::services::yjs::FRAGMENT;
 
 /// Encode a document as a Yjs v1 update.
 pub fn encode(document: &Document) -> Vec<u8> {

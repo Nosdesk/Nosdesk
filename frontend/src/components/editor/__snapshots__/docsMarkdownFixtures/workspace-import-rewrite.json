@@ -1,0 +1,182 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "See "
+        },
+        {
+          "type": "ticket_link",
+          "attrs": {
+            "ychange": null,
+            "ticketId": "9041",
+            "href": "/tickets/id/9041"
+          }
+        },
+        {
+          "type": "text",
+          "text": " and https://old.example/acme/tickets/12, ask "
+        },
+        {
+          "type": "mention",
+          "attrs": {
+            "ychange": null,
+            "uuid": "0190b000-0000-7000-8000-00000000000a",
+            "name": "Ana",
+            "avatarUrl": null
+          }
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "strong"
+            }
+          ],
+          "text": " or ask"
+        },
+        {
+          "type": "text",
+          "text": "@Gone today."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "image",
+          "attrs": {
+            "ychange": null,
+            "src": "/uploads/tickets/9041/notes/a.png",
+            "alt": "diagram",
+            "title": null,
+            "width": null,
+            "align": null
+          }
+        },
+        {
+          "type": "text",
+          "text": " then lost"
+        },
+        {
+          "type": "image",
+          "attrs": {
+            "ychange": null,
+            "src": "https://cdn.example/x.png",
+            "alt": "outside",
+            "title": null,
+            "width": null,
+            "align": null
+          }
+        }
+      ]
+    },
+    {
+      "type": "embedded_document",
+      "attrs": {
+        "ychange": null,
+        "documentUuid": "0190b000-0000-7000-8000-0000000000d1",
+        "documentTitle": "Runbook"
+      }
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Old page"
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "@Gone"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": null,
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "mention",
+                      "attrs": {
+                        "ychange": null,
+                        "uuid": "0190b000-0000-7000-8000-00000000000a",
+                        "name": "Ana",
+                        "avatarUrl": null
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": " owns it"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
