@@ -10,9 +10,13 @@ use yrs::{
 
 use super::*;
 use crate::services::docs_markdown::encode::decode::to_json;
+use crate::services::docs_markdown::import_tests::archive;
 use crate::services::docs_markdown::ir::{
-    Alignment, Block, Document, Image, Inline, Link, ListItem, Marks, Table, TableCell, Text,
+    Alignment, Block, Document, Image, ImageAlign, Inline, Link, ListItem, Marks, Table, TableCell,
+    Text,
 };
+use crate::services::docs_markdown::links::Workspace;
+use crate::services::docs_markdown::tree::{self, ImportOptions};
 use crate::services::docs_markdown::{self, normalise, DefaultResolver, Notes};
 
 // Building documents from ProseMirror JSON, the way y-prosemirror writes
@@ -119,11 +123,52 @@ fn doc(content: Vec<Value>) -> Value {
     json!({ "type": "doc", "content": content })
 }
 
-/// The document the importer reads back from `markdown`, as JSON.
+/// The workspace an export came from, holding every user, ticket and page
+/// its documents name.
+struct Origin;
+
+const ORIGIN: &str = "22222222-2222-4222-8222-222222222222";
+
+impl Workspace for Origin {
+    fn is_this_workspace(&self, uuid: &str) -> bool {
+        uuid == ORIGIN
+    }
+    fn user_exists(&self, _uuid: &str) -> bool {
+        true
+    }
+    fn ticket_exists(&self, _ticket_id: &str) -> bool {
+        true
+    }
+    fn page_exists(&self, _uuid: &str) -> bool {
+        true
+    }
+}
+
+/// The document the importer reads back from `markdown`, written as one page
+/// of an export v2 zip and read through the import's profile, tree and HTML
+/// path, as JSON.
 fn reimported(markdown: &str) -> Value {
-    to_json(&docs_markdown::encode(
-        &docs_markdown::convert(markdown).document,
-    ))
+    let manifest = json!({
+        "format": "nosdesk-docs",
+        "format_version": 2,
+        "workspace_uuid": ORIGIN,
+        "exported_at": "2026-10-19T00:00:00Z",
+        "collections": [],
+        "pages": [{
+            "uuid": "rt-page", "title": "Round trip", "slug": "round-trip",
+            "path": "round-trip.md", "parent": null, "collection": null,
+            "order": null, "status": "published", "icon": null
+        }]
+    })
+    .to_string();
+    let page = format!("---\ntitle: \"Round trip\"\nuuid: rt-page\n---\n\n{markdown}\n");
+    let mut zip = archive(&[
+        ("nosdesk-docs.json", manifest.as_bytes()),
+        ("round-trip.md", page.as_bytes()),
+    ]);
+    let built = tree::build(&mut zip, &ImportOptions::default(), &Origin).expect("imports");
+    assert_eq!(built.plan.pages.len(), 1);
+    to_json(&docs_markdown::encode(&built.documents[0]))
 }
 
 // Inline marks.
@@ -666,11 +711,12 @@ fn a_pipe_table_round_trips() {
 }
 
 // The round trip: any document the importer could have written comes back
-// unchanged from its export. Mentions, ticket links, embedded pages, image
+// unchanged from its export, read through the import path into the
+// workspace it came from. Mentions, ticket links, embedded pages, image
 // widths and the tables a pipe table can't hold (spans, header columns,
-// several blocks in a cell) are written as HTML elements, which the importer
-// reads as text until it reads those elements; they are left out of the
-// generated documents until then. Column widths are never exported.
+// header cells below the first row, several blocks or a list in a cell,
+// mixed alignment) are written as HTML, which the importer reads back.
+// Column widths are never exported.
 
 struct Rng(u64);
 
@@ -802,16 +848,38 @@ fn gen_marks(rng: &mut Rng) -> Marks {
     }
 }
 
+/// Names chosen to collide with Markdown and HTML.
+const NAMES: &[&str] = &["Ana", "Bo \"B\" <ops>", "日本 語", "a*b_c [x]", "&amp; Co"];
+
 fn gen_inlines(rng: &mut Rng) -> Vec<Inline> {
     (0..=rng.below(6))
-        .map(|_| match rng.below(10) {
+        .map(|_| match rng.below(13) {
             0 => Inline::Image(Image {
                 src: rng.pick(IMAGE_SRCS).to_string(),
                 alt: rng.percent(70).then(|| gen_text(rng)),
                 title: rng.percent(30).then(|| rng.pick(TITLES).to_string()),
-                ..Image::default()
+                width: rng.percent(30).then(|| 1 + rng.below(1200) as u32),
+                align: rng
+                    .percent(20)
+                    .then(|| *rng.pick(&[ImageAlign::Left, ImageAlign::Center, ImageAlign::Right])),
             }),
             1 => Inline::HardBreak,
+            2 => Inline::Mention {
+                uuid: rng
+                    .pick(&["u-1", "0b9e6c1a-7d1f-4c55-9a51-3c1f2a7e9d10"])
+                    .to_string(),
+                name: rng.pick(NAMES).to_string(),
+                avatar_url: rng
+                    .percent(50)
+                    .then(|| "/api/files/avatars/a b.png".to_string()),
+            },
+            3 => {
+                let id = *rng.pick(&["42", "7"]);
+                Inline::TicketLink {
+                    ticket_id: id.to_string(),
+                    href: format!("/tickets/{id}"),
+                }
+            }
             _ => Inline::Text(Text {
                 text: gen_text(rng),
                 marks: gen_marks(rng),
@@ -842,6 +910,80 @@ fn gen_code(rng: &mut Rng) -> Block {
             .percent(50)
             .then(|| rng.pick(&["rust", "sh", "c++", "objective-c"]).to_string()),
         text: text.join("\n"),
+    }
+}
+
+/// A table a pipe table can't hold: header cells anywhere, spans, several
+/// blocks or a list in a cell, an alignment per cell. The normaliser evens
+/// it out as an import would.
+fn gen_html_table(rng: &mut Rng) -> Block {
+    let columns = 1 + rng.below(3);
+    let rows = (0..=rng.below(3))
+        .map(|r| {
+            (0..columns)
+                .map(|c| {
+                    let header = if r == 0 {
+                        rng.percent(70)
+                    } else {
+                        rng.percent(if c == 0 { 40 } else { 10 })
+                    };
+                    let blocks = if rng.percent(60) {
+                        vec![Block::Paragraph(gen_inlines(rng))]
+                    } else {
+                        gen_cell_blocks(rng)
+                    };
+                    TableCell {
+                        header,
+                        colspan: if rng.percent(15) { 2 } else { 1 },
+                        rowspan: if rng.percent(15) { 2 } else { 1 },
+                        colwidth: None,
+                        align: *rng.pick(&[
+                            None,
+                            None,
+                            Some(Alignment::Left),
+                            Some(Alignment::Center),
+                            Some(Alignment::Right),
+                        ]),
+                        blocks,
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    Block::Table(Table { rows })
+}
+
+/// Blocks a cell may hold.
+fn gen_cell_blocks(rng: &mut Rng) -> Vec<Block> {
+    (0..=rng.below(3))
+        .map(|_| match rng.below(4) {
+            0 => Block::BulletList(gen_cell_items(rng)),
+            1 => Block::OrderedList {
+                order: *rng.pick(&[0, 1, 3]),
+                items: gen_cell_items(rng),
+            },
+            2 => gen_code(rng),
+            _ => Block::Paragraph(gen_inlines(rng)),
+        })
+        .collect()
+}
+
+fn gen_cell_items(rng: &mut Rng) -> Vec<ListItem> {
+    (0..=rng.below(2))
+        .map(|_| ListItem {
+            blocks: vec![Block::Paragraph(gen_inlines(rng))],
+        })
+        .collect()
+}
+
+fn gen_embed(rng: &mut Rng) -> Block {
+    Block::EmbeddedDocument {
+        document_uuid: rng
+            .pick(&["d-1", "6d1c2f0e-5b7a-4f1e-8c39-0a4b2e7d9f11"])
+            .to_string(),
+        document_title: rng
+            .pick(&["VPN & Wi-Fi", "Setup", "\"Quoted\" <x>"])
+            .to_string(),
     }
 }
 
@@ -898,6 +1040,9 @@ fn gen_items(rng: &mut Rng, depth: usize) -> Vec<ListItem> {
 fn gen_blocks(rng: &mut Rng, depth: usize, most: usize) -> Vec<Block> {
     (0..rng.below(most + 1))
         .map(|_| {
+            if rng.percent(4) {
+                return gen_embed(rng);
+            }
             let roll = if depth >= 3 {
                 rng.below(6)
             } else {
@@ -933,56 +1078,25 @@ fn gen_document(rng: &mut Rng) -> Document {
     // Tables sit at the top level only.
     if rng.percent(40) {
         let at = rng.below(blocks.len() + 1);
-        blocks.insert(at, gen_table(rng));
+        let table = if rng.percent(50) {
+            gen_table(rng)
+        } else {
+            gen_html_table(rng)
+        };
+        blocks.insert(at, table);
     }
     blocks.push(Block::Paragraph(gen_inlines(rng)));
     normalise::normalise(Document { blocks }, &DefaultResolver, &mut Notes::default())
-}
-
-/// Leaves out what doesn't come back yet:
-///
-/// - A paragraph of nothing but line breaks: `<br>` alone on a line is an
-///   HTML block, which the importer reads as text.
-/// - A quote whose first text starts `[!`: the importer reads an Obsidian
-///   callout from the unescaped text, so `> \[!NOTE\]` still becomes one.
-///
-/// Empty paragraphs and bold or italic on code are already gone after
-/// normalising.
-fn representable(document: &Document) -> bool {
-    fn inlines_ok(inlines: &[Inline]) -> bool {
-        inlines.is_empty() || !inlines.iter().all(|i| matches!(i, Inline::HardBreak))
-    }
-    fn reads_as_callout(blocks: &[Block]) -> bool {
-        matches!(
-            blocks.first(),
-            Some(Block::Paragraph(inlines))
-                if matches!(inlines.first(), Some(Inline::Text(t)) if t.text.starts_with("[!"))
-        )
-    }
-    fn blocks_ok(blocks: &[Block]) -> bool {
-        blocks.iter().all(|block| match block {
-            Block::Paragraph(inlines) => inlines_ok(inlines),
-            Block::Heading { .. } => true,
-            Block::Blockquote(inner) => !reads_as_callout(inner) && blocks_ok(inner),
-            Block::BulletList(items) | Block::OrderedList { items, .. } => {
-                items.iter().all(|item| blocks_ok(&item.blocks))
-            }
-            _ => true,
-        })
-    }
-    blocks_ok(&document.blocks)
 }
 
 #[test]
 fn any_document_round_trips_through_its_export() {
     let mut checked = 0;
     let mut with_tables = 0;
+    let mut with_html = 0;
     for seed in 1..=3000u64 {
         let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
         let source = gen_document(&mut rng);
-        if !representable(&source) {
-            continue;
-        }
         let bytes = docs_markdown::encode(&source);
         let markdown = yjs_to_markdown(&bytes).unwrap_or_default();
         let expected = to_json(&bytes);
@@ -995,8 +1109,12 @@ fn any_document_round_trips_through_its_export() {
         if source.blocks.iter().any(|b| matches!(b, Block::Table(_))) {
             with_tables += 1;
         }
+        if markdown.contains("<table>") || markdown.contains("data-mention") {
+            with_html += 1;
+        }
     }
-    assert!(checked > 2000, "only {checked} documents checked");
+    assert_eq!(checked, 3000);
+    assert!(with_html > 1000, "only {with_html} documents with HTML");
     assert!(
         with_tables > 600,
         "only {with_tables} documents with a table"

@@ -401,6 +401,7 @@ impl<T: ReadTxn> Writer<'_, '_, T> {
     fn blocks(&mut self, children: &[XmlOut], container: Container) -> String {
         let mut out = String::new();
         let mut previous: Option<Written> = None;
+        let mut previous_text = String::new();
         for (index, child) in children.iter().enumerate() {
             let (text, written) = match child {
                 XmlOut::Element(elem) => self.block(elem, previous),
@@ -424,15 +425,20 @@ impl<T: ReadTxn> Writer<'_, '_, T> {
                 // An empty first item can't interrupt a paragraph: its
                 // marker would read as a setext underline.
                 let starts_empty = !text.split('\n').next().unwrap_or_default().contains(' ');
+                // A paragraph line that reads as an HTML block (`<br>` or an
+                // `<img>` alone) runs on to the next blank line, so a list
+                // after it can't follow tight.
                 let tight = container == Container::Item
                     && (before == Written::EmptyParagraph
                         || (before == Written::Paragraph
                             && !starts_empty
+                            && !opens_html_block(&previous_text)
                             && matches!(child, XmlOut::Element(e) if self.is_tight_list(e))));
                 out.push_str(if tight { "\n" } else { "\n\n" });
             }
             out.push_str(&text);
             previous = Some(written);
+            previous_text = text;
         }
         out
     }
@@ -1508,6 +1514,15 @@ fn quote(body: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Whether `markdown`'s first line opens an HTML block, which runs on until
+/// a blank line.
+fn opens_html_block(markdown: &str) -> bool {
+    matches!(
+        Parser::new_ext(markdown, crate::services::docs_markdown::parse::options()).next(),
+        Some(Event::Start(Tag::HtmlBlock))
+    )
 }
 
 // Checking inline Markdown by parsing it back.

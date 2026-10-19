@@ -68,6 +68,9 @@ fn has_drive_letter(name: &str) -> bool {
 pub struct IgnoreRules {
     /// Any segment starting with `.` (dot files and dot folders).
     pub dot_names: bool,
+    /// Dot names kept despite `dot_names`: a source's own asset folder and
+    /// config (`.gitbook/`, `.gitbook.yaml`).
+    pub kept_dot_names: Vec<String>,
     /// Folder names ignored at any depth, with everything under them.
     pub folders: Vec<String>,
     /// File names ignored at any depth.
@@ -85,17 +88,21 @@ impl IgnoreRules {
     pub fn os_metadata() -> Self {
         Self {
             dot_names: false,
+            kept_dot_names: Vec::new(),
             folders: vec!["__MACOSX".into()],
             files: vec![".DS_Store".into(), "Thumbs.db".into(), "desktop.ini".into()],
         }
     }
 
-    /// The documentation import's list: dot names, OS clutter, tool state
-    /// (`.git`, `.obsidian`, `.trash`, `node_modules`) and generated sites
-    /// (`site`, `build`, `_site`).
+    /// The documentation import's list: dot names (but GitBook's), OS
+    /// clutter, tool state (`.git`, `.obsidian`, `.trash`, `node_modules`)
+    /// and generated sites (`site`, `build`, `_site`).
     pub fn documentation_sources() -> Self {
         let mut rules = Self::os_metadata();
         rules.dot_names = true;
+        // GitBook keeps its images in `.gitbook/assets/` and its root in
+        // `.gitbook.yaml`.
+        rules.kept_dot_names = vec![".gitbook".into(), ".gitbook.yaml".into()];
         rules.folders.extend(
             [
                 ".git",
@@ -118,7 +125,9 @@ impl IgnoreRules {
         let last = segments.len() - 1;
         segments.iter().enumerate().any(|(i, segment)| {
             let folder = i < last || is_dir;
-            (self.dot_names && segment.starts_with('.'))
+            (self.dot_names
+                && segment.starts_with('.')
+                && !self.kept_dot_names.iter().any(|k| k == segment))
                 || (folder && self.folders.iter().any(|f| f == segment))
                 || (!folder && self.files.iter().any(|f| f == segment))
         })
@@ -189,6 +198,8 @@ mod tests {
         );
         assert!(!rules.ignores("docs/build", false));
         assert!(!rules.ignores("docs/setup/vpn.md", false));
+        assert!(!rules.ignores(".gitbook/assets/diagram.png", false));
+        assert!(!rules.ignores("book/.gitbook.yaml", false));
     }
 
     #[test]

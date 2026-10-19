@@ -692,6 +692,165 @@ fn inline_html_maps_formatting_and_drops_the_rest() {
     assert_eq!(n.count(NoteCode::HtmlRemoved), 1);
 }
 
+// The gaps the export round trip found.
+
+#[test]
+fn cells_past_the_header_are_counted_from_the_source() {
+    let md = "| a | b |\n|---|---|\n| 1 | 2 | 3 | 4 |\n| 5 | 6 |\n| x \\| y | `p|q` |\n";
+    let n = notes(md);
+    assert_eq!(n.count(NoteCode::TableCellsDropped), 2, "{n:?}");
+    let Block::Table(table) = &blocks(md)[0] else {
+        panic!("a table");
+    };
+    assert!(table.rows.iter().all(|row| row.len() == 2));
+    assert_eq!(
+        notes("| a | b |\n|---|---|\n| 1 | 2 |").count(NoteCode::TableCellsDropped),
+        0
+    );
+}
+
+#[test]
+fn an_escaped_marker_opening_a_quote_is_text() {
+    let md = "> \\[!NOTE\\]\n> Body.";
+    assert_eq!(
+        blocks(md),
+        vec![Block::Blockquote(vec![para(vec![text("[!NOTE] Body.")])])]
+    );
+    assert_eq!(notes(md).count(NoteCode::CalloutsAsQuotes), 0);
+    assert_eq!(
+        blocks("> > \\[!tip] Nested\n"),
+        vec![Block::Blockquote(vec![Block::Blockquote(vec![para(
+            vec![text("[!tip] Nested")]
+        )])])]
+    );
+}
+
+#[test]
+fn a_paragraph_of_line_breaks_is_a_paragraph() {
+    assert_eq!(blocks("<br>"), vec![para(vec![Inline::HardBreak])]);
+    assert_eq!(
+        blocks("a\n\n<br>\n<br>\n\nb"),
+        vec![
+            para(vec![text("a")]),
+            para(vec![Inline::HardBreak, Inline::HardBreak]),
+            para(vec![text("b")]),
+        ]
+    );
+    assert_eq!(
+        blocks("- <br>\n"),
+        vec![Block::BulletList(vec![item(vec![para(vec![
+            Inline::HardBreak
+        ])])])]
+    );
+}
+
+#[test]
+fn inline_html_links_and_images_keep_their_attributes() {
+    assert_eq!(
+        blocks("Go <a href=\"https://e.example/x?a=1&amp;b=2\" title=\"T\">there</a> now <a name=\"x\">here</a>."),
+        vec![para(vec![
+            text("Go "),
+            linked("there", "https://e.example/x?a=1&b=2", Some("T")),
+            text(" now here."),
+        ])]
+    );
+    assert_eq!(
+        blocks("See <img src=\"https://img.example/a.png\" alt=\"A\" width=\"240\" data-align=\"right\"> here"),
+        vec![para(vec![
+            text("See "),
+            Inline::Image(Image {
+                src: "https://img.example/a.png".into(),
+                alt: Some("A".into()),
+                title: None,
+                width: Some(240),
+                align: Some(super::ir::ImageAlign::Right),
+            }),
+            text(" here"),
+        ])]
+    );
+}
+
+#[test]
+fn a_stray_closing_anchor_leaves_a_markdown_link_open() {
+    assert_eq!(
+        blocks("[a</a>b](https://x.example)"),
+        vec![para(vec![linked("ab", "https://x.example", None)])]
+    );
+}
+
+#[test]
+fn editor_spans_become_text_with_no_workspace() {
+    let md = "Hi <span data-mention=\"true\" data-uuid=\"u\" data-name=\"Ana\">@Ana</span>, \
+              <span data-ticket-link=\"true\" data-ticket-id=\"4\" data-href=\"/tickets/4\">Ticket #9</span>.";
+    assert_eq!(blocks(md), vec![para(vec![text("Hi @Ana, Ticket #9.")])]);
+    let n = notes(md);
+    assert_eq!(n.count(NoteCode::MentionsAsText), 1);
+    assert_eq!(n.count(NoteCode::TicketLinksAsText), 1);
+}
+
+#[test]
+fn editor_spans_stay_nodes_when_the_resolver_keeps_them() {
+    struct Keep;
+    impl super::Resolver for Keep {
+        fn link(&self, href: &str) -> Option<String> {
+            DefaultResolver.link(href)
+        }
+        fn image(&self, src: &str) -> Option<String> {
+            DefaultResolver.image(src)
+        }
+        fn mention(&self, _uuid: &str) -> bool {
+            true
+        }
+        fn ticket(&self, _id: &str, href: &str) -> Option<String> {
+            Some(href.to_string())
+        }
+        fn embed(&self, uuid: &str) -> Option<String> {
+            Some(uuid.to_string())
+        }
+    }
+    let md = "<span data-mention=\"true\" data-uuid=\"u\" data-name=\"Ana &amp; Bo\" data-avatar-url=\"https://evil.example/a.png\">@Ana</span> \
+              <span data-ticket-link=\"true\" data-ticket-id=\"4\" data-href=\"/tickets/4\">Ticket #9</span>\n\n\
+              <div data-embedded-document=\"true\" data-document-uuid=\"d\" data-document-title=\"VPN\">VPN</div>\n";
+    let converted = super::convert_with(md, &Keep);
+    assert_eq!(
+        converted.document.blocks,
+        vec![
+            para(vec![
+                Inline::Mention {
+                    uuid: "u".into(),
+                    name: "Ana & Bo".into(),
+                    avatar_url: None,
+                },
+                text(" "),
+                Inline::TicketLink {
+                    ticket_id: "4".into(),
+                    href: "/tickets/4".into(),
+                },
+            ]),
+            Block::EmbeddedDocument {
+                document_uuid: "d".into(),
+                document_title: "VPN".into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn html_tables_read_back_as_tables() {
+    let md = "<table>\n<tr><th colspan=\"2\" align=\"center\"><p>wide</p></th></tr>\n\
+              <tr><th><p>side</p></th><td><p>one</p><p>two</p></td></tr>\n</table>\n";
+    let Block::Table(table) = &blocks(md)[0] else {
+        panic!("a table");
+    };
+    assert_eq!(table.rows[0][0].colspan, 2);
+    assert_eq!(table.rows[0][0].align, Some(Alignment::Center));
+    assert!(table.rows[1][0].header);
+    assert_eq!(
+        table.rows[1][1].blocks,
+        vec![para(vec![text("one")]), para(vec![text("two")])]
+    );
+}
+
 #[test]
 fn front_matter_is_metadata_not_body() {
     let converted = convert("---\ntitle: X\n---\n\nBody");
