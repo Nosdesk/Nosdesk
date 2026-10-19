@@ -49,6 +49,7 @@ pub mod requester_identities;
 pub mod rules;
 pub mod saved_views;
 pub mod search_query_log;
+pub mod search_reindex;
 pub mod sla;
 pub mod sla_admin;
 pub mod sync_history;

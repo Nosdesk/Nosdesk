@@ -44,6 +44,16 @@ pub(crate) async fn call_admin_route(
     ws: &WorkspaceSeed,
     req: http_test::TestRequest,
 ) -> (StatusCode, web::Bytes) {
+    call_admin_route_with_search(pool, ws, req, None).await
+}
+
+/// [`call_admin_route`], with the search index the import reindexes.
+pub(crate) async fn call_admin_route_with_search(
+    pool: &TestPool,
+    ws: &WorkspaceSeed,
+    req: http_test::TestRequest,
+    search: Option<std::sync::Arc<backend::services::search::SearchService>>,
+) -> (StatusCode, web::Bytes) {
     let admin = Uuid::now_v7();
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
@@ -67,17 +77,19 @@ pub(crate) async fn call_admin_route(
     };
     let corr = Uuid::now_v7();
     let actor = ActorContext::user(admin, Some(corr)).with_workspace(ws.workspace_id);
+    let mut app = App::new().app_data(web::Data::new(pool.clone()));
+    if let Some(search) = search {
+        app = app.app_data(web::Data::new(search));
+    }
     let app = http_test::init_service(
-        App::new()
-            .app_data(web::Data::new(pool.clone()))
-            .wrap_fn(move |req, srv| {
-                req.extensions_mut().insert(workspace.clone());
-                req.extensions_mut().insert(claims.clone());
-                req.extensions_mut()
-                    .insert(RequestContext::new(corr, actor.clone()));
-                srv.call(req)
-            })
-            .service(web::scope("/api").configure(backend::handlers::workspace_export::config)),
+        app.wrap_fn(move |req, srv| {
+            req.extensions_mut().insert(workspace.clone());
+            req.extensions_mut().insert(claims.clone());
+            req.extensions_mut()
+                .insert(RequestContext::new(corr, actor.clone()));
+            srv.call(req)
+        })
+        .service(web::scope("/api").configure(backend::handlers::workspace_export::config)),
     )
     .await;
     let resp = http_test::call_service(&app, req.to_request()).await;

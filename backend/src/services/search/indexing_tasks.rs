@@ -140,3 +140,41 @@ pub fn spawn_delete_project(search_service: Arc<SearchService>, project_id: i32)
         svc.delete_project(project_id)
     });
 }
+
+/// A requested workspace reindex.
+pub enum WorkspaceReindex {
+    /// A pass started on a blocking thread; the handle resolves when it (and
+    /// any pass queued behind it) has committed.
+    Started(
+        tokio::task::JoinHandle<
+            Result<
+                super::workspace_reindex::WorkspaceIndexStats,
+                Box<dyn std::error::Error + Send + Sync>,
+            >,
+        >,
+    ),
+    /// A reindex of the workspace was already pending or running, and covers
+    /// this request.
+    Joined,
+}
+
+/// Rebuild one workspace's search documents in the background
+/// (`SearchService::reindex_workspace`). Other workspaces' documents are left
+/// alone. Call after committing rows written outside the incremental index
+/// hooks, such as a workspace import.
+pub fn spawn_reindex_workspace(
+    search_service: Arc<SearchService>,
+    workspace_id: i32,
+) -> WorkspaceReindex {
+    use super::workspace_reindex::Admission;
+    if search_service.admit_workspace_reindex(workspace_id) == Admission::Joined {
+        return WorkspaceReindex::Joined;
+    }
+    WorkspaceReindex::Started(tokio::task::spawn_blocking(move || {
+        let result = search_service.run_admitted_workspace_reindex(workspace_id);
+        if let Err(e) = &result {
+            error!(workspace_id, error = ?e, "Failed to reindex a workspace");
+        }
+        result
+    }))
+}
