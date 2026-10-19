@@ -527,6 +527,7 @@ async fn documentation_config_routes_registered() {
             ("GET", "/documentation/pages"),
             ("POST", "/documentation/pages"),
             ("GET", "/documentation/pages/export"),
+            ("GET", "/documentation/export.zip"),
             ("GET", "/documentation/pages/top-level"),
             ("GET", "/documentation/pages/uncollected"),
             ("POST", "/documentation/pages/reorder"),

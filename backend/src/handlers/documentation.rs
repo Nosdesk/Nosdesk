@@ -46,6 +46,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/documentation/pages/export",
         web::get().to(crate::handlers::export_documentation_pages),
     )
+    // Before `documentation_collections::config`'s `/documentation/{id}`.
+    .route(
+        "/documentation/export.zip",
+        web::get().to(export_documentation_zip),
+    )
     .route(
         "/documentation/pages/top-level",
         web::get().to(crate::handlers::get_top_level_documentation_pages),
@@ -380,7 +385,10 @@ pub struct CreateDocumentationPageRequest {
 /// article content. Pre-Phase-1 pages were authored from a ticket and
 /// stored their content in the ticket's article_content row; the join
 /// table now expresses that relationship as a 'resolves' link.
-fn resolve_yjs_document(page: &DocumentationPage, conn: &mut DbConnection) -> Option<Vec<u8>> {
+pub(crate) fn resolve_yjs_document(
+    page: &DocumentationPage,
+    conn: &mut DbConnection,
+) -> Option<Vec<u8>> {
     page.yjs_document.clone().or_else(|| {
         repository::documentation_page_tickets::most_recent_resolves_ticket_id(conn, page.id)
             .ok()
@@ -1745,6 +1753,58 @@ pub async fn export_documentation_pages(mut tc: TenantConn, auth: AuthContext) -
             HttpResponse::Ok().json(export_pages)
         }
         Err(_) => errors::internal("Failed to fetch pages for export"),
+    }
+}
+
+/// `GET /documentation/export.zip`: every page the caller may read as
+/// Markdown files with a manifest and their images (`services::docs_export`).
+/// Staff only, and filtered by the same audience as the JSON export.
+pub async fn export_documentation_zip(
+    req: actix_web::HttpRequest,
+    mut tc: TenantConn,
+    auth: AuthContext,
+    ws: WorkspaceContext,
+    storage: crate::extractors::ScopedStorage,
+) -> HttpResponse {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can export documentation",
+        );
+    }
+    let audience = repository::PageAudience::from_auth(&auth);
+    let export = match tc
+        .run(|conn| crate::services::docs_export::build(conn, &audience, ws.workspace_uuid))
+    {
+        Ok(export) => export,
+        Err(e) => {
+            error!(error = %e, "documentation export failed to read pages");
+            return errors::internal("Failed to export documentation");
+        }
+    };
+    let file = match crate::services::docs_export::write_zip(export, storage.get()).await {
+        Ok(file) => file,
+        Err(e) => {
+            error!(error = %e, "documentation export failed to write the zip");
+            return errors::internal("Failed to export documentation");
+        }
+    };
+    let name = format!("nosdesk-docs-{}.zip", chrono::Utc::now().format("%Y-%m-%d"));
+    match actix_files::NamedFile::from_file(file, &name) {
+        Ok(named) => {
+            let mut response = named
+                .use_etag(false)
+                .use_last_modified(false)
+                .into_response(&req);
+            response.headers_mut().insert(
+                actix_web::http::header::CACHE_CONTROL,
+                actix_web::http::header::HeaderValue::from_static("no-store"),
+            );
+            response
+        }
+        Err(e) => {
+            error!(error = %e, "documentation export failed to send the zip");
+            errors::internal("Failed to export documentation")
+        }
     }
 }
 
