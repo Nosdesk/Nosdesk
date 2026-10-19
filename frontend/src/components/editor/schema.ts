@@ -1,6 +1,15 @@
 import { Schema } from 'prosemirror-model';
+import { tableNodes } from 'prosemirror-tables';
 import { assetUrl, assetPath } from '@nosdesk/core/transport';
-import type { NodeSpec, MarkSpec, DOMOutputSpec } from 'prosemirror-model';
+import type { Node as ProseMirrorNode, NodeSpec, MarkSpec, DOMOutputSpec } from 'prosemirror-model';
+
+/**
+ * The document schema's version. The collaboration server holds a table of
+ * the first version that knows each node type, and refuses a client below a
+ * document's requirement, so an older client never receives (and deletes) a
+ * node it can't build. 2 = tables.
+ */
+export const EDITOR_SCHEMA_VERSION = 2;
 
 const brDOM: DOMOutputSpec = ['br'];
 
@@ -17,8 +26,9 @@ const calcYchangeDomAttrs = (
   return result;
 };
 
-// Specs for the nodes defined in this schema
-export const nodes: {[key: string]: NodeSpec} = {
+// Specs for the nodes every editor shares: the comment composer's whole
+// schema, and the base of the documentation schema below.
+const commentNodes: {[key: string]: NodeSpec} = {
   // The top level document node
   doc: {
     content: 'block+'
@@ -399,6 +409,113 @@ export const marks: {[key: string]: MarkSpec} = {
   }
 };
 
-// This schema roughly corresponds to the document schema used by
-// CommonMark, plus the list elements from prosemirror-schema-list
-export const schema = new Schema({ nodes, marks }); 
+const CELL_ALIGNMENTS = ['left', 'center', 'right'] as const;
+type CellAlign = (typeof CELL_ALIGNMENTS)[number];
+
+function cellAlign(value: unknown): CellAlign | null {
+  return CELL_ALIGNMENTS.includes(value as CellAlign) ? (value as CellAlign) : null;
+}
+
+// `align` is validated as a string only: a value a later version adds must not
+// make this client throw on the cell, because y-prosemirror deletes what it
+// can't build. Values it doesn't know render unaligned.
+const baseTableNodes = tableNodes({
+  cellContent: 'cell_block+',
+  cellAttributes: {
+    align: {
+      default: null,
+      validate: 'string|null',
+      getFromDOM(dom: HTMLElement) {
+        const fromClass = /(?:^|\s)align-(left|center|right)(?:\s|$)/.exec(dom.className);
+        return cellAlign(fromClass?.[1])
+          ?? cellAlign(dom.style.textAlign)
+          ?? cellAlign(dom.getAttribute('align'));
+      },
+    },
+  },
+});
+
+/** The first row's column widths, one entry per column (null = unset). */
+function columnWidths(table: ProseMirrorNode): (number | null)[] {
+  const widths: (number | null)[] = [];
+  let columns = 0;
+  table.forEach((row, _offset, index) => {
+    let rowColumns = 0;
+    row.forEach((cell) => {
+      const span = Number(cell.attrs.colspan) || 1;
+      const colwidth = cell.attrs.colwidth as number[] | null;
+      for (let i = 0; i < span; i++) {
+        if (index === 0) widths.push(colwidth?.[i] ?? null);
+        rowColumns++;
+      }
+    });
+    columns = Math.max(columns, rowColumns);
+  });
+  while (widths.length < columns) widths.push(null);
+  return widths;
+}
+
+function cellSpec(base: NodeSpec): NodeSpec {
+  return {
+    ...base,
+    attrs: { ...base.attrs, ychange: { default: null } },
+    toDOM(node) {
+      const [tag, attrs] = base.toDOM!(node) as [string, Record<string, string>, 0];
+      const align = cellAlign(node.attrs.align);
+      const domAttrs = { ...attrs };
+      if (align) domAttrs.class = `align-${align}`;
+      return [tag, calcYchangeDomAttrs(node.attrs, domAttrs), 0];
+    },
+  };
+}
+
+// Tables live at the top level only: `table` is outside the `block` group, so
+// no list, quote or cell can hold one. Cells hold `cell_block`s.
+const tableSpecs: {[key: string]: NodeSpec} = {
+  table: {
+    ...baseTableNodes.table,
+    attrs: { ychange: { default: null } },
+    toDOM(node) {
+      const cols = columnWidths(node).map((width): DOMOutputSpec =>
+        width != null && width > 0 ? ['col', { width: String(width) }] : ['col']
+      );
+      return [
+        'div',
+        { class: 'table-scroll' },
+        ['table', calcYchangeDomAttrs(node.attrs), ['colgroup', ...cols], ['tbody', 0]],
+      ];
+    },
+  },
+  table_row: {
+    ...baseTableNodes.table_row,
+    attrs: { ychange: { default: null } },
+    toDOM(node) { return ['tr', calcYchangeDomAttrs(node.attrs), 0]; },
+  },
+  table_cell: cellSpec(baseTableNodes.table_cell),
+  table_header: cellSpec(baseTableNodes.table_header),
+};
+
+const CELL_BLOCK_NODES = ['paragraph', 'bullet_list', 'ordered_list', 'code_block'];
+
+// Specs for the documentation editor: the shared nodes, the `cell_block`
+// group, and tables. Paragraph stays first so it is what `createAndFill`
+// picks for a new block or cell.
+export const nodes: {[key: string]: NodeSpec} = {
+  ...Object.fromEntries(
+    Object.entries(commentNodes).map(([name, spec]) => [
+      name,
+      CELL_BLOCK_NODES.includes(name) ? { ...spec, group: `${spec.group} cell_block` } : spec,
+    ])
+  ),
+  doc: { content: '(block | table)+' },
+  ...tableSpecs,
+};
+
+// The documentation and ticket-note editor (CollaborativeEditor), and every
+// reader of saved pages. Roughly CommonMark, plus lists, mentions, ticket
+// links, embeds and tables.
+export const schema = new Schema({ nodes, marks });
+
+// The comment composer (SimpleEditor). No tables: comments go out by email,
+// where tables render unevenly, so a pasted table arrives as text.
+export const commentSchema = new Schema({ nodes: commentNodes, marks }); 

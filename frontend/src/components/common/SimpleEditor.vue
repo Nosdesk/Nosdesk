@@ -16,7 +16,8 @@ import { EditorView } from 'prosemirror-view';
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
 import { EditorState } from 'prosemirror-state';
-import { schema } from '@/components/editor/schema';
+import { commentSchema as schema } from '@/components/editor/schema';
+import { tablesToTextHtml } from '@/components/editor/tableText';
 import Spinner from '@/components/common/Spinner.vue';
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap } from 'prosemirror-commands';
@@ -347,6 +348,9 @@ onMounted(() => {
         emit('update:modelValue', html);
       }
     },
+    // Comments hold no tables (they go out by email): a pasted one arrives
+    // as text.
+    transformPastedHTML: tablesToTextHtml,
     handlePaste(_view, event) {
       // Image-file paste: short-circuit PM's default paste pipeline
       // (which would otherwise inline a data: URL or drop the bytes
