@@ -3210,14 +3210,6 @@ docs-index-new-page = Nouvelle page
 # Docs : barre d'outils de l'index (DocumentationIndexToolbar)
 docs-index-toolbar-search = Rechercher dans la documentation
 # MACHINE TRANSLATION, pending native review
-docs-index-toolbar-search-placeholder = Rechercher dans la documentation…
-docs-index-toolbar-stats = { $pages ->
-    [one] { $pages } page
-   *[other] { $pages } pages
-  } dans { $collections ->
-    [one] { $collections } collection
-   *[other] { $collections } collections
-  }
 docs-index-library-heading = Bibliothèque
 docs-index-library-count = { $count ->
     [one] { $count } collection
@@ -3240,21 +3232,26 @@ docs-index-drafts-strip-suffix = { $count ->
    *[other] ne sont pas encore dans une collection
   }
 docs-index-drafts-strip-review = Passer en revue →
-docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = Nouvelle collection
-docs-index-toolbar-more = Plus
 docs-index-toolbar-more-aria = Actions documentation
 docs-index-toolbar-scan-gaps = Analyser les lacunes de connaissances
 docs-index-toolbar-scan-no-results = Aucune nouvelle lacune trouvée
 docs-index-toolbar-scan-success = { $created } nouvelles lacunes · { $updated } mises à jour
 docs-index-toolbar-scan-error = Échec de l'analyse. Réessayez.
-docs-index-toolbar-maintenance-heading = Maintenance
-docs-index-toolbar-archived = Pages archivées
-docs-index-toolbar-trash = Corbeille
 docs-index-toolbar-publish-heading = Publication
 docs-index-toolbar-admin-heading = Administration
 docs-index-toolbar-public-site = Voir le site public
 docs-index-toolbar-guest-settings = Accès invités
+
+# Docs : onglets et actions du bandeau de l'index (machine, à relire par un locuteur natif)
+docs-index-tabs-aria = Vues de la documentation
+docs-index-tab-library = Bibliothèque
+docs-index-tab-drafts = Brouillons
+docs-index-tab-archived = Archivées
+docs-index-tab-trash = Corbeille
+docs-index-toolbar-search-button = Rechercher
+docs-index-toolbar-more-actions = Plus d'actions
+docs-index-toolbar-knowledge-heading = Connaissances
 
 docs-index-stat-collections = { $count ->
     [one] { $count } collection
@@ -3330,7 +3327,6 @@ docs-index-chip-trash = { $count ->
 docs-drafts-title = Hors collection
 docs-drafts-heading = Hors collection
 docs-drafts-description = Pages non encore assignées à une collection
-docs-drafts-back = Retour à la documentation
 docs-drafts-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3341,7 +3337,6 @@ docs-drafts-count = { $count ->
 docs-archived-title = Archivées
 docs-archived-heading = Archivées
 docs-archived-description = Pages qui ont été archivées
-docs-archived-back = Retour à la documentation
 docs-archived-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3355,7 +3350,6 @@ docs-archived-restore = Restaurer
 docs-trash-title = Corbeille
 docs-trash-heading = Corbeille
 docs-trash-description = Les pages supprimées peuvent être restaurées ou supprimées définitivement
-docs-trash-back = Retour à la documentation
 docs-trash-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -5695,7 +5689,6 @@ docs-collection-manager-saving = Enregistrement...
 
 # Docs : navigateur de collections (CollectionBrowser)
 docs-collection-browser-heading = Collections
-docs-collection-browser-new = Nouveau
 docs-collection-browser-name-placeholder = Nom de la collection...
 docs-collection-browser-cancel = Annuler
 docs-collection-browser-create = Créer
