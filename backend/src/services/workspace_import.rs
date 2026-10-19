@@ -292,7 +292,7 @@ pub fn import_workspace(
             mode: opts.mode,
             runner: opts.runner.clone(),
         };
-        let plan = plan::plan_import(
+        let mut plan = plan::plan_import(
             conn,
             contents,
             &target,
@@ -307,7 +307,7 @@ pub fn import_workspace(
         }
         let alloc = plan.allocate(conn)?;
         let (tables_imported, rows_imported) =
-            crate::services::workspace_archive::apply::load(conn, &plan, &alloc)?;
+            crate::services::workspace_archive::apply::load(conn, &mut plan, &alloc)?;
 
         Ok(ImportResult {
             workspace_id,

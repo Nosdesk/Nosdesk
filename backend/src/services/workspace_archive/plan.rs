@@ -28,6 +28,7 @@ use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use super::policy::{self, Class};
+use super::refs::{self, Entity, ReferenceReport};
 use crate::db::DbConnection;
 use crate::middleware::workspace_context::DeploymentMode;
 use crate::services::backup::BackupError;
@@ -68,6 +69,10 @@ pub const SWITCHED_OFF: &[(&str, &str, &str, &str)] = &[
     ("webhooks", "enabled", "true", "false"),
     ("plugins", "state", "\"installed\"", "\"disabled\""),
 ];
+
+/// Why a row stays out when a reference it can't do without names a row the
+/// import doesn't load ([`refs`]); a key of [`TableReport::dropped`].
+pub const UNRESOLVED_REFERENCE: &str = "unresolved_reference";
 
 /// Instance-unique capability tokens a new value replaces on import.
 pub const REGENERATED: &[(&str, &str)] = &[("tickets", "guest_lookup_token")];
@@ -401,6 +406,9 @@ pub struct ImportReport {
     pub people: Vec<Person>,
     pub counts: PeopleCounts,
     pub handover: Vec<Handover>,
+    /// References inside JSON, HTML and documents the import couldn't keep,
+    /// and what it did instead ([`refs`]).
+    pub references: Vec<ReferenceReport>,
     pub refusals: Vec<PlanRefusal>,
 }
 
@@ -450,6 +458,8 @@ pub struct ImportPlan {
     /// The archive workspace's `settings`, which the target takes.
     pub workspace_settings: Option<Value>,
     pub report: ImportReport,
+    /// What the reference pass reads from other tables.
+    ref_context: refs::Context,
 }
 
 /// The new key of every archive row with one, by table.
@@ -574,9 +584,16 @@ impl ImportPlan {
         let missing = |column: &str| {
             BackupError::CorruptedBackup(format!("{}.{column} has no allocated key", table.name))
         };
+        let lookup = LoadLookup { alloc };
         let mut out = Vec::with_capacity(table.rows.len());
         for row in &table.rows {
             let mut row = row.clone();
+            // References inside JSON, HTML and documents, by archive key
+            // (the plan already settled the ones that can't be kept).
+            if refs::rewrite_row(&table.name, &mut row, &self.ref_context, &lookup, None).is_some()
+            {
+                continue;
+            }
             if table.key != Key::None {
                 if let Some(old) = row.get("id") {
                     let new = alloc
@@ -599,6 +616,60 @@ impl ImportPlan {
             out.push(row);
         }
         Ok(out)
+    }
+}
+
+/// The reference pass's lookup while planning: people through the people
+/// map; a row by whether the plan loads it (keys are allocated later), or,
+/// for a uuid the plan regenerated, its new uuid.
+struct PlanLookup<'a> {
+    people: &'a [Person],
+    by_archive: &'a HashMap<Uuid, usize>,
+    present: HashMap<Entity, HashSet<String>>,
+    row_uuids: &'a HashMap<String, HashMap<String, String>>,
+}
+
+impl refs::Lookup for PlanLookup<'_> {
+    fn user(&self, uuid: &str) -> Option<String> {
+        let uuid = Uuid::parse_str(uuid).ok()?;
+        self.by_archive
+            .get(&uuid)
+            .map(|i| self.people[*i].target_uuid.to_string())
+    }
+
+    fn key(&self, entity: Entity, key: &str) -> Option<String> {
+        let (table, column) = entity.key()?;
+        if column != "id" {
+            if let Some(new) = self.row_uuids.get(table).and_then(|m| m.get(key)) {
+                return Some(new.clone());
+            }
+        }
+        self.present
+            .get(&entity)
+            .is_some_and(|keys| keys.contains(key))
+            .then(|| key.to_string())
+    }
+}
+
+/// The reference pass's lookup as rows load: every kept row by its new key.
+/// People and uuids are already the target's.
+struct LoadLookup<'a> {
+    alloc: &'a Allocation,
+}
+
+impl refs::Lookup for LoadLookup<'_> {
+    fn user(&self, uuid: &str) -> Option<String> {
+        Some(uuid.to_string())
+    }
+
+    fn key(&self, entity: Entity, key: &str) -> Option<String> {
+        let (table, column) = entity.key()?;
+        if column != "id" {
+            return Some(key.to_string());
+        }
+        self.alloc
+            .new_key(table, &Value::String(key.to_string()))
+            .and_then(key_text)
     }
 }
 
@@ -1013,6 +1084,7 @@ pub fn plan_import(
         .collect();
 
     let mut handover = HandoverTally::default();
+    let mut row_uuids: HashMap<String, HashMap<String, String>> = HashMap::new();
     let mut tables: HashMap<String, TablePlan> = HashMap::new();
     for name in &carried {
         let class = policy::table(name).map_or(Class::Move, |t| t.class);
@@ -1076,7 +1148,14 @@ pub fn plan_import(
                 row.insert("workspace_id".into(), Value::from(target.workspace_id));
             }
             if options.regenerate_row_uuids && row.get("uuid").is_some_and(Value::is_string) {
-                row.insert("uuid".into(), Value::String(Uuid::now_v7().to_string()));
+                let new = Uuid::now_v7().to_string();
+                if let Some(old) = row.get("uuid").and_then(key_text) {
+                    row_uuids
+                        .entry(name.clone())
+                        .or_default()
+                        .insert(old, new.clone());
+                }
+                row.insert("uuid".into(), Value::String(new));
             }
             rows.push(row);
         }
@@ -1134,6 +1213,22 @@ pub fn plan_import(
             }
         }
     }
+
+    let ref_context = refs::Context::from_rows(
+        tables.get("asset_kinds").into_iter().flat_map(|t| &t.rows),
+        tables
+            .get("user_field_schema")
+            .into_iter()
+            .flat_map(|t| &t.rows),
+    );
+    let references = resolve_references(
+        &mut tables,
+        &mut table_reports,
+        &ref_context,
+        &people,
+        &by_archive,
+        &row_uuids,
+    );
 
     check_references(&mut tables, &mut refusals);
     check_collisions(conn, &tables, &catalog, &mut refusals)?;
@@ -1196,9 +1291,69 @@ pub fn plan_import(
             people,
             counts,
             handover: handover.into_items(),
+            references,
             refusals,
         },
+        ref_context,
     })
+}
+
+/// Settle every reference inside JSON, HTML and documents ([`refs`]): people
+/// land on their target account, a regenerated uuid takes its new value,
+/// and a reference to a row the plan doesn't load is cleared, its rule
+/// drafted or its row left out. Ids keep their archive value until
+/// [`ImportPlan::rows`] gives them their new key.
+fn resolve_references(
+    tables: &mut HashMap<String, TablePlan>,
+    reports: &mut BTreeMap<String, TableReport>,
+    ctx: &refs::Context,
+    people: &[Person],
+    by_archive: &HashMap<Uuid, usize>,
+    row_uuids: &HashMap<String, HashMap<String, String>>,
+) -> Vec<ReferenceReport> {
+    let mut present: HashMap<Entity, HashSet<String>> = HashMap::new();
+    for entity in Entity::ALL {
+        let Some((table, column)) = entity.key() else {
+            continue;
+        };
+        let keys = tables
+            .get(table)
+            .into_iter()
+            .flat_map(|t| &t.rows)
+            .filter_map(|row| row.get(column))
+            .filter_map(|v| refs::canonical(*entity, v))
+            .collect();
+        present.insert(*entity, keys);
+    }
+    let lookup = PlanLookup {
+        people,
+        by_archive,
+        present,
+        row_uuids,
+    };
+    let mut tally = refs::Tally::default();
+    let mut names: Vec<String> = tables.keys().cloned().collect();
+    names.sort_unstable();
+    for name in names {
+        if refs::references_of(&name).next().is_none() {
+            continue;
+        }
+        let Some(table) = tables.get_mut(&name) else {
+            continue;
+        };
+        let mut dropped = 0usize;
+        table.rows.retain_mut(|row| {
+            let out = refs::rewrite_row(&name, row, ctx, &lookup, Some(&mut tally)).is_some();
+            dropped += usize::from(out);
+            !out
+        });
+        if dropped > 0 {
+            if let Some(report) = reports.get_mut(&name) {
+                *report.dropped.entry(UNRESOLVED_REFERENCE).or_default() += dropped;
+            }
+        }
+    }
+    tally.into_reports()
 }
 
 /// The JSON of `columns` in `row`, or `None` when any is null or absent (a
@@ -3139,6 +3294,180 @@ mod tests {
                     .get("new_assignee_uuid"),
                 Some(&1)
             );
+        });
+    }
+
+    /// References inside JSON, HTML and documents: the plan settles the
+    /// ones it can't keep and reports them, and the loaded rows carry the
+    /// new keys of the rest.
+    #[test]
+    fn references_inside_json_html_and_documents_follow_the_plan() {
+        use crate::services::docs_markdown::encode::{decode, encode_with_client_id};
+        use crate::services::docs_markdown::ir::{Block, Document, Inline};
+        use crate::services::workspace_archive::refs::{bytea, bytea_value, Effect};
+
+        run(|c| {
+            let ws = workspace(c);
+            let person = p(Some(&format!("refs-{}@example.com", tag())), Some("agent"));
+            let who = person.uuid;
+            let stranger = Uuid::now_v7();
+            let note = encode_with_client_id(
+                &Document {
+                    blocks: vec![Block::Paragraph(vec![
+                        Inline::TicketLink {
+                            ticket_id: "41".into(),
+                            href: "/tickets/id/41".into(),
+                        },
+                        Inline::text(" for "),
+                        Inline::Mention {
+                            uuid: stranger.to_string(),
+                            name: "Stranger".into(),
+                            avatar_url: None,
+                        },
+                    ])],
+                },
+                1,
+            );
+            let comment = format!(
+                "<p><span data-ticket-link=\"true\" data-ticket-id=\"41\" \
+                 data-href=\"/tickets/id/41\"></span> \
+                 <span data-ticket-link=\"true\" data-ticket-id=\"99\" \
+                 data-href=\"/tickets/99\"></span> \
+                 <span data-mention=\"true\" data-uuid=\"{who}\" data-name=\"Me\">@Me</span> \
+                 <span data-mention=\"true\" data-uuid=\"{stranger}\" data-name=\"S\">@S</span></p>"
+            );
+            let contents = archive(
+                &[person],
+                vec![
+                    (
+                        "tickets",
+                        vec![json!({"id": 41, "uuid": Uuid::now_v7(), "number": 7,
+                                    "workspace_id": SOURCE_WS})],
+                    ),
+                    (
+                        "comments",
+                        vec![json!({"id": 3, "ticket_id": 41, "user_uuid": who,
+                                    "content": comment, "workspace_id": SOURCE_WS})],
+                    ),
+                    (
+                        "article_contents",
+                        vec![json!({"id": 2, "ticket_id": 41, "workspace_id": SOURCE_WS,
+                                    "yjs_document": bytea_value(&note),
+                                    "yjs_state_vector": "\\x00", "yjs_client_id": 1})],
+                    ),
+                    (
+                        "tags",
+                        vec![json!({"id": 5, "name": "vip", "workspace_id": SOURCE_WS})],
+                    ),
+                    (
+                        "rules",
+                        vec![json!({"id": 8, "name": "Tag", "trigger_kind": "manual",
+                                    "state": "live", "conditions": [], "trigger_config": {},
+                                    "actions": [{"kind": "add_tags",
+                                                 "config": {"tag_ids": [5, 6]}}],
+                                    "workspace_id": SOURCE_WS})],
+                    ),
+                    (
+                        "saved_views",
+                        vec![
+                            json!({"id": 1, "uuid": Uuid::now_v7(), "scope": "project",
+                                   "scope_id": "77", "name": "Gone", "dataset": "tickets",
+                                   "created_by": who, "shape": {}, "viz_config": {},
+                                   "filter": {}, "workspace_id": SOURCE_WS}),
+                            json!({"id": 2, "uuid": Uuid::now_v7(), "scope": "workspace",
+                                   "scope_id": null, "name": "Kept", "dataset": "tickets",
+                                   "created_by": who, "shape": {}, "viz_config": {},
+                                   "filter": {"scope": {"project_ids": [77]}},
+                                   "workspace_id": SOURCE_WS}),
+                        ],
+                    ),
+                ],
+            );
+            let plan = plan_for(
+                c,
+                &contents,
+                ws,
+                DeploymentMode::SelfHosted,
+                Runner::Operator { user: None },
+            );
+            assert!(plan.importable(), "{:?}", plan.report.refusals);
+
+            let reported: Vec<(&str, &str, Effect, usize)> = plan
+                .report
+                .references
+                .iter()
+                .map(|r| (r.table.as_str(), r.column.as_str(), r.effect, r.count))
+                .collect();
+            for line in [
+                ("rules", "actions", Effect::Cleared, 1),
+                ("rules", "state", Effect::RuleDrafted, 1),
+                ("saved_views", "scope_id", Effect::RowDropped, 1),
+                ("saved_views", "filter", Effect::PredicateDropped, 1),
+                ("comments", "content", Effect::TicketLinkAsText, 1),
+                ("comments", "content", Effect::MentionAsText, 1),
+                ("article_contents", "yjs_document", Effect::MentionAsText, 1),
+            ] {
+                assert!(reported.contains(&line), "{line:?} not in {reported:?}");
+            }
+            assert_eq!(
+                table(&plan, "saved_views")
+                    .dropped
+                    .get("unresolved_reference"),
+                Some(&1)
+            );
+
+            let alloc = plan.allocate(c).expect("allocate");
+            let rows_of = |name: &str| {
+                plan.rows(
+                    plan.tables().iter().find(|t| t.name == name).unwrap(),
+                    &alloc,
+                )
+                .expect("rows")
+            };
+            let new = |table: &str, old: i64| {
+                alloc
+                    .new_key(table, &Value::from(old))
+                    .and_then(Value::as_i64)
+                    .expect("allocated")
+            };
+            let ticket = new("tickets", 41);
+
+            let rules = rows_of("rules");
+            assert_eq!(rules[0]["state"], "draft");
+            assert_eq!(
+                rules[0]["actions"][0]["config"]["tag_ids"],
+                json!([new("tags", 5)])
+            );
+
+            let views = rows_of("saved_views");
+            assert_eq!(views.len(), 1);
+            assert_eq!(views[0]["filter"]["scope"]["project_ids"], "all");
+
+            let comments = rows_of("comments");
+            let content = comments[0]["content"].as_str().unwrap();
+            let target = plan.person(who).unwrap().target_uuid;
+            assert!(
+                content.contains(&format!("data-ticket-id=\"{ticket}\"")),
+                "{content}"
+            );
+            assert!(
+                content.contains(&format!("data-uuid=\"{target}\"")),
+                "{content}"
+            );
+            assert!(content.contains("/tickets/99 "), "{content}");
+            assert!(content.contains(" @S</p>"), "{content}");
+            assert!(!content.contains(&stranger.to_string()), "{content}");
+
+            let articles = rows_of("article_contents");
+            assert_eq!(articles[0]["ticket_id"], ticket);
+            let doc = decode::to_json(&bytea(&articles[0]["yjs_document"]).expect("hex"));
+            let inline = &doc["content"][0]["content"];
+            assert_eq!(inline[0]["attrs"]["ticketId"], ticket.to_string());
+            assert_eq!(inline[0]["attrs"]["href"], format!("/tickets/id/{ticket}"));
+            // The unplaced mention joined the text run before it.
+            assert_eq!(inline[1]["text"], " for @Stranger");
+            assert_eq!(inline.as_array().map(Vec::len), Some(2));
+            assert_eq!(articles[0]["yjs_client_id"], Value::Null);
         });
     }
 }
