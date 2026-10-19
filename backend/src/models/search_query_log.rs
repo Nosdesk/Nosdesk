@@ -11,4 +11,6 @@ pub struct NewSearchQueryLog {
     pub query_norm: String,
     pub result_count: i32,
     pub searched_at: chrono::NaiveDateTime,
+    /// Who ran the search; the detector reads a person's searches as a chain.
+    pub user_uuid: Option<uuid::Uuid>,
 }

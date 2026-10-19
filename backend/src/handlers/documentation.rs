@@ -212,6 +212,16 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/knowledge-gaps/detect-stale-docs",
         web::post().to(crate::handlers::knowledge_gaps::detect_stale_docs),
     )
+    // Literal segments before `/knowledge-gaps/{id}`, which would otherwise
+    // take them as an id and answer 405.
+    .route(
+        "/knowledge-gaps/dismiss",
+        web::post().to(crate::handlers::knowledge_gaps::dismiss_knowledge_gaps),
+    )
+    .route(
+        "/knowledge-gaps/reopen",
+        web::post().to(crate::handlers::knowledge_gaps::reopen_knowledge_gaps),
+    )
     .route(
         "/knowledge-gaps/{id}",
         web::get().to(crate::handlers::knowledge_gaps::get_knowledge_gap),

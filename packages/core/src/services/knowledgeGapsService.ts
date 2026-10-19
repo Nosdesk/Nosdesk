@@ -160,6 +160,21 @@ export const dismissKnowledgeGap = async (gapId: number): Promise<KnowledgeGap |
   }
 }
 
+/** Dismiss several gaps at once. Throws when the request fails, so the
+ *  queue can report it; resolves to the ids the server dismissed (a gap
+ *  already closed is left out). */
+export const dismissKnowledgeGaps = async (ids: number[]): Promise<number[]> => {
+  const response = await apiClient.post('/knowledge-gaps/dismiss', { ids })
+  return (response.data?.ids ?? []) as number[]
+}
+
+/** Undo a dismissal: the gaps go back to the queue as they were. Throws when
+ *  the request fails; resolves to the ids the server reopened. */
+export const reopenKnowledgeGaps = async (ids: number[]): Promise<number[]> => {
+  const response = await apiClient.post('/knowledge-gaps/reopen', { ids })
+  return (response.data?.ids ?? []) as number[]
+}
+
 export const resolveKnowledgeGap = async (
   gapId: number,
   pageId: number,
@@ -202,6 +217,9 @@ export interface DetectClustersResponse {
   clusters_detected: number
   gaps_created: number
   gaps_updated: number
+  /** Open gaps the run dismissed because their evidence no longer counts
+   *  (searches typed letter by letter, counted before they were settled). */
+  gaps_retired?: number
 }
 
 /** Trigger backend cluster detection. Idempotent: re-running with
@@ -265,6 +283,8 @@ export default {
   listKnowledgeGaps,
   getKnowledgeGap,
   dismissKnowledgeGap,
+  dismissKnowledgeGaps,
+  reopenKnowledgeGaps,
   resolveKnowledgeGap,
   detectClusters,
   detectFailedSearches,

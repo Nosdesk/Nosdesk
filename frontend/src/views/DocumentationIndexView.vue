@@ -125,12 +125,8 @@ function pageAuthor(page: Page) {
 
 const gapTitle = useGapTitle()
 
-function isSearchGap(title: string): boolean {
-  return title.startsWith('Customers searched:')
-}
-
 function gapImpactLabel(gap: KnowledgeGap): string {
-  return isSearchGap(gap.title)
+  return gap.primary_signal_type === 'failed_search'
     ? t('docs-index-gap-impact-searches', { count: gap.impact_score })
     : t('docs-index-gap-impact-tickets', { count: gap.impact_score })
 }

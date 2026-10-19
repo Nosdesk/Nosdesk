@@ -9,6 +9,9 @@
 //! - A ticket a live page already resolves can't be flagged.
 //! - Detection doesn't recreate a dismissed gap from the same evidence, only
 //!   from evidence that arrived after the dismissal.
+//!
+//! How searches are counted (typing chains, short queries, retiring gaps
+//! raised from keystrokes) is in `knowledge_gap_failed_searches`.
 
 #![allow(clippy::expect_used)]
 
@@ -84,6 +87,14 @@ fn set_status(conn: &mut DbConnection, page_id: i32, status: DocumentationStatus
         },
     )
     .expect("update page status");
+}
+
+/// `n` people to search as. One person's repeated search is one typing
+/// chain, so separate searches come from separate people here.
+fn searchers(conn: &mut DbConnection, n: usize) -> Vec<uuid::Uuid> {
+    (0..n)
+        .map(|i| crate::common::insert_user(conn, &format!("Searcher {i}")).uuid)
+        .collect()
 }
 
 fn resolves_link_exists(conn: &mut DbConnection, page_id: i32, ticket_id: i32) -> bool {
@@ -258,8 +269,9 @@ fn detection_does_not_recreate_a_dismissed_gap_without_new_evidence() {
     let db = crate::common::TestDb::new();
     let mut conn = db.conn();
     let author = crate::common::insert_user(&mut conn, "Admin");
-    for _ in 0..2 {
-        search_query_log::log_query(&mut conn, "reset mfa", 0).expect("log");
+    let people = searchers(&mut conn, 4);
+    for p in &people[..2] {
+        search_query_log::log_query(&mut conn, Some(*p), "reset mfa", 0).expect("log");
     }
 
     let first = gaps::run_failed_search_detection(&mut conn, None, 30, 2).expect("detect");
@@ -271,8 +283,8 @@ fn detection_does_not_recreate_a_dismissed_gap_without_new_evidence() {
     assert_eq!(again.gaps_created, 0);
 
     // Two more failed searches after the dismissal: that's new demand.
-    for _ in 0..2 {
-        search_query_log::log_query(&mut conn, "Reset MFA", 0).expect("log");
+    for p in &people[2..] {
+        search_query_log::log_query(&mut conn, Some(*p), "Reset MFA", 0).expect("log");
     }
     let later = gaps::run_failed_search_detection(&mut conn, None, 30, 2).expect("detect");
     assert_eq!(later.gaps_created, 1);
@@ -286,16 +298,17 @@ fn searches_after_a_dismissal_are_new_evidence_when_the_database_clock_lags() {
     let db = crate::common::TestDb::new();
     let mut conn = db.conn();
     let author = crate::common::insert_user(&mut conn, "Admin");
+    let people = searchers(&mut conn, 4);
     conn.transaction::<_, diesel::result::Error, _>(|tx| {
-        for _ in 0..2 {
-            search_query_log::log_query(tx, "unlock account", 0)?;
+        for p in &people[..2] {
+            search_query_log::log_query(tx, Some(*p), "unlock account", 0)?;
         }
         let first = gaps::run_failed_search_detection(tx, None, 30, 2)?;
         assert_eq!(first.gaps_created, 1);
         gaps::dismiss_gap(tx, first.new_gap_ids[0], author.uuid)?;
 
-        for _ in 0..2 {
-            search_query_log::log_query(tx, "Unlock account", 0)?;
+        for p in &people[2..] {
+            search_query_log::log_query(tx, Some(*p), "Unlock account", 0)?;
         }
         let later = gaps::run_failed_search_detection(tx, None, 30, 2)?;
         assert_eq!(
@@ -313,8 +326,8 @@ async fn the_hourly_job_detects_gaps_in_each_workspace() {
     let pool = db.pool_with_size(3);
     {
         let mut conn = pool.get().expect("conn");
-        for _ in 0..2 {
-            search_query_log::log_query(&mut conn, "printer offline", 0).expect("log");
+        for p in searchers(&mut conn, 2) {
+            search_query_log::log_query(&mut conn, Some(p), "printer offline", 0).expect("log");
         }
     }
 
@@ -344,8 +357,8 @@ fn the_queue_labels_a_gap_by_its_main_signal() {
     let db = crate::common::TestDb::new();
     let mut conn = db.conn();
     let author = crate::common::insert_user(&mut conn, "Writer");
-    for _ in 0..2 {
-        search_query_log::log_query(&mut conn, "wifi password", 0).expect("log");
+    for p in searchers(&mut conn, 2) {
+        search_query_log::log_query(&mut conn, Some(p), "wifi password", 0).expect("log");
     }
     let search_gap = gaps::run_failed_search_detection(&mut conn, None, 30, 2)
         .expect("detect")

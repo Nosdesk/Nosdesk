@@ -568,6 +568,8 @@ async fn documentation_config_routes_registered() {
             ("POST", "/knowledge-gaps/detect-clusters"),
             ("POST", "/knowledge-gaps/detect-failed-searches"),
             ("POST", "/knowledge-gaps/detect-stale-docs"),
+            ("POST", "/knowledge-gaps/dismiss"),
+            ("POST", "/knowledge-gaps/reopen"),
             ("GET", "/knowledge-gaps/1"),
             ("POST", "/knowledge-gaps/1/dismiss"),
             ("POST", "/knowledge-gaps/1/resolve"),
