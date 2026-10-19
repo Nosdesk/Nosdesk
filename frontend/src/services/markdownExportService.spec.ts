@@ -1,35 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { yamlString } from './markdownExportService'
+import { fileNameFromDisposition } from './markdownExportService'
 
-describe('yamlString', () => {
-  it('quotes a plain value', () => {
-    expect(yamlString('Getting started')).toBe('"Getting started"')
+describe('fileNameFromDisposition', () => {
+  it('reads a quoted file name', () => {
+    expect(fileNameFromDisposition('attachment; filename="nosdesk-docs-2026-10-19.zip"')).toBe(
+      'nosdesk-docs-2026-10-19.zip'
+    )
   })
 
-  it('escapes double quotes', () => {
-    expect(yamlString('a "b" c')).toBe('"a \\"b\\" c"')
+  it('prefers the encoded name', () => {
+    expect(
+      fileNameFromDisposition(`attachment; filename="docs.zip"; filename*=UTF-8''d%C3%B6cs.zip`)
+    ).toBe('döcs.zip')
   })
 
-  // The original bug: quotes were escaped but backslashes were not, so the
-  // escape character itself leaked through into the frontmatter.
-  it('escapes backslashes before quotes', () => {
-    expect(yamlString('a\\b')).toBe('"a\\\\b"')
-    expect(yamlString('a\\"b')).toBe('"a\\\\\\"b"')
+  it('reads an unquoted name', () => {
+    expect(fileNameFromDisposition('attachment; filename=docs.zip')).toBe('docs.zip')
   })
 
-  it('does not leave a trailing backslash unterminated', () => {
-    const out = yamlString('ends with\\')
-    expect(out).toBe('"ends with\\\\"')
-    // An odd number of trailing backslashes would swallow the closing quote.
-    expect(out.match(/\\*"$/)?.[0].length ?? 0).toBe(3)
-  })
-
-  it('drops control characters rather than emitting invalid escapes', () => {
-    expect(yamlString(`a${String.fromCharCode(1)}b${String.fromCharCode(127)}c`)).toBe('"abc"')
-  })
-
-  it('tolerates empty and nullish input', () => {
-    expect(yamlString('')).toBe('""')
-    expect(yamlString(undefined as unknown as string)).toBe('""')
+  it('is null without a header', () => {
+    expect(fileNameFromDisposition(undefined)).toBeNull()
+    expect(fileNameFromDisposition('inline')).toBeNull()
   })
 })

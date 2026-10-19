@@ -205,6 +205,8 @@ ammonia = "4"
 # Markdown parser for documentation import (`services::docs_markdown`).
 # CommonMark plus the GFM extensions; the HTML renderer is not used.
 pulldown-cmark = { version = "0.13", default-features = false }
+# Unnamed temporary files the documentation export zip is written to.
+tempfile = "3"
 # DNS resolver for pre-flight MX lookup on guest-submitted email addresses.
 # Catches `random@nonexistentdomain.tld` before we waste an invitation email on it.
 hickory-resolver = { version = "0.26", features = ["tokio"] }
@@ -270,7 +272,6 @@ actix-test = "0.1"
 awc = "3"
 futures-util = "0.3"
 mockall = "0.13.0"
-tempfile = "3"
 # Certificates for the stand-in TLS Postgres server in the LISTEN connection
 # tests. aws_lc_rs because aws-lc-rs is already in the tree.
 rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }

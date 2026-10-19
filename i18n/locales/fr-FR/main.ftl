@@ -2026,7 +2026,6 @@ admin-backup-delete-title = Supprimer
 admin-backup-docs-heading = Exporter la documentation en Markdown
 admin-backup-docs-description = Exportez toutes les pages de documentation en fichiers markdown dans une archive ZIP
 admin-backup-docs-export = Exporter en Markdown
-admin-backup-docs-exporting = Export { $current }/{ $total }...
 admin-backup-docs-preparing = Préparation...
 admin-backup-docs-error = Échec de l'export de la documentation. Consultez la console pour plus de détails.
 admin-backup-restore-heading = Restaurer depuis une sauvegarde

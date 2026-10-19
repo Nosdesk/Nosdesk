@@ -172,18 +172,14 @@
             </div>
           </div>
 
-          <!-- Export button with progress -->
           <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 sm:pl-12">
             <Button
               @click="exportDocumentation"
               :loading="isExportingDocs"
               icon="download"
             >
-              {{ isExportingDocs ? (docsExportProgress ? t('admin-backup-docs-exporting', { current: docsExportProgress.current, total: docsExportProgress.total }) : $t('admin-backup-docs-preparing')) : $t('admin-backup-docs-export') }}
+              {{ isExportingDocs ? $t('admin-backup-docs-preparing') : $t('admin-backup-docs-export') }}
             </Button>
-            <span v-if="docsExportProgress" class="text-xs sm:text-sm text-secondary">
-              {{ docsExportProgress.currentPage }}
-            </span>
           </div>
         </div>
       </div>
@@ -404,7 +400,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import backupService from '@/services/backupService';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
-import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
+import { downloadDocumentationExport } from '@/services/markdownExportService';
 import type { BackupJob, RestorePreview } from '@nosdesk/core/types/backup';
 import { formatFileSize } from '@nosdesk/core/utils/formatFileSize';
 import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig';
@@ -452,7 +448,6 @@ const refusalFor = (error: unknown) => {
 
 // Documentation export state
 const isExportingDocs = ref(false);
-const docsExportProgress = ref<ExportProgress | null>(null);
 
 // Computed
 const exportJobs = computed(() =>
@@ -525,17 +520,13 @@ const doDeleteJob = async () => {
 
 const exportDocumentation = async () => {
   isExportingDocs.value = true;
-  docsExportProgress.value = null;
   try {
-    await downloadDocumentationExport((progress) => {
-      docsExportProgress.value = progress;
-    });
+    await downloadDocumentationExport();
   } catch (error) {
     console.error('Failed to export documentation:', error);
     toast.error(t('admin-backup-docs-error'));
   } finally {
     isExportingDocs.value = false;
-    docsExportProgress.value = null;
   }
 };
 

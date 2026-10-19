@@ -2022,7 +2022,6 @@ admin-backup-delete-title = Verwijderen
 admin-backup-docs-heading = Documentatie exporteren naar Markdown
 admin-backup-docs-description = Exporteer alle documentatiepagina's als markdown-bestanden in een ZIP-archief
 admin-backup-docs-export = Exporteren als Markdown
-admin-backup-docs-exporting = Exporteren { $current }/{ $total }...
 admin-backup-docs-preparing = Voorbereiden...
 admin-backup-docs-error = Kon documentatie niet exporteren. Bekijk de console voor details.
 admin-backup-restore-heading = Herstellen vanaf back-up
