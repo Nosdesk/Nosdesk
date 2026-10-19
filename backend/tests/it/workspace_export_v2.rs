@@ -9,6 +9,8 @@ use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Nullable, Text, Uuid as SqlUuid};
 use uuid::Uuid;
 
+use backend::middleware::workspace_context::DeploymentMode;
+use backend::services::workspace_archive::plan::Runner;
 use backend::services::workspace_archive::policy::ARCHIVE_USER_COLUMNS;
 use backend::services::workspace_import::{
     import_workspace, read_archive, ArchiveContents, ImportOptions,
@@ -404,6 +406,8 @@ async fn an_imported_email_is_unverified_whatever_the_archive_says() {
         slug_override: Some(format!("unverified-{}", Uuid::now_v7().simple())),
         uuid_override: None,
         regenerate_uuids: true,
+        mode: DeploymentMode::SelfHosted,
+        runner: Runner::Operator { user: None },
     };
     let actor = ActorContext::user(ws.admin_uuid, None);
     with_actor_bypass_context(&mut conn, &actor, |c| {

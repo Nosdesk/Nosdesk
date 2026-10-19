@@ -125,7 +125,10 @@ pub async fn import_workspace(
     mut pc: PlatformConn,
     mut payload: Multipart,
 ) -> Result<HttpResponse, ApiError> {
-    rbac::require_platform_admin(&req)?;
+    let claims = rbac::require_platform_admin(&req)?;
+    let runner = crate::services::workspace_archive::plan::Runner::Operator {
+        user: uuid::Uuid::parse_str(&claims.sub).ok(),
+    };
 
     let mut archive: Vec<u8> = Vec::new();
     let mut password: Option<String> = None;
@@ -211,14 +214,25 @@ pub async fn import_workspace(
         slug_override,
         uuid_override: None,
         regenerate_uuids,
+        mode: crate::middleware::workspace_context::DeploymentMode::current(),
+        runner,
     };
 
-    // 1. Import the rows (sync, BYPASSRLS, atomic).
+    // 1. Import the rows (sync, BYPASSRLS, atomic). A plan refusal is the
+    //    archive's problem (400), named by table.
+    let mut refused: Option<String> = None;
     let result = match pc.run(|conn| {
-        crate::services::workspace_import::import_workspace(conn, &contents, &opts)
-            .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+        crate::services::workspace_import::import_workspace(conn, &contents, &opts).map_err(|e| {
+            if crate::services::workspace_import::plan_refusals(&e).is_some() {
+                refused = Some(e.to_string());
+            }
+            diesel::result::Error::QueryBuilderError(e.to_string().into())
+        })
     }) {
         Ok(r) => r,
+        Err(_) if refused.is_some() => {
+            return Err(ApiError::BadRequest(refused.unwrap_or_default()))
+        }
         Err(e) => return Err(ApiError::Database(e)),
     };
 
@@ -266,6 +280,7 @@ pub async fn import_workspace(
         "rows_imported": result.rows_imported,
         "files_restored": files_restored,
         "files_skipped": files_skipped,
+        "report": result.report,
     })))
 }
 

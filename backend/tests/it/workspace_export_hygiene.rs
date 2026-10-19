@@ -13,9 +13,11 @@ use diesel::sql_types::{BigInt, Integer, Text};
 use uuid::Uuid;
 
 use backend::extractors::WorkspaceContext;
+use backend::middleware::workspace_context::DeploymentMode;
 use backend::middleware::RequestContext;
 use backend::models::{Claims, NewImportValueAnswer};
 use backend::repository::imports as import_repo;
+use backend::services::workspace_archive::plan::Runner;
 use backend::services::workspace_import::{
     import_workspace, read_archive, ArchiveContents, ImportOptions,
 };
@@ -276,6 +278,8 @@ async fn an_older_archive_with_import_history_imports_without_it() {
         slug_override: Some(format!("older-{}", Uuid::now_v7().simple())),
         uuid_override: None,
         regenerate_uuids: true,
+        mode: DeploymentMode::SelfHosted,
+        runner: Runner::Operator { user: None },
     };
     let actor = ActorContext::system(REF);
     let mut conn = pool.get().expect("conn");

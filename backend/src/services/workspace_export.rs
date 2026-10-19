@@ -528,7 +528,9 @@ fn source_origin(meta: &WorkspaceMeta) -> Option<String> {
 /// workspace-scoped tables only (so the export can scope each by `workspace_id`).
 /// Introspected from `pg_constraint` so a new user-referencing column is picked
 /// up automatically. Used to collect every referenced user into the export.
-fn user_referencing_columns(conn: &mut DbConnection) -> Result<Vec<(String, String)>, BackupError> {
+pub(crate) fn user_referencing_columns(
+    conn: &mut DbConnection,
+) -> Result<Vec<(String, String)>, BackupError> {
     #[derive(QueryableByName)]
     struct Ref {
         #[diesel(sql_type = Text)]
