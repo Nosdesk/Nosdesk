@@ -70,6 +70,10 @@ pub const SWITCHED_OFF: &[(&str, &str, &str, &str)] = &[
     ("plugins", "state", "\"installed\"", "\"disabled\""),
 ];
 
+/// Why a row stays out when a reference it can't do without names a row the
+/// import doesn't load ([`refs`]); a key of [`TableReport::dropped`].
+pub const UNRESOLVED_REFERENCE: &str = "unresolved_reference";
+
 /// Instance-unique capability tokens a new value replaces on import.
 pub const REGENERATED: &[(&str, &str)] = &[("tickets", "guest_lookup_token")];
 
@@ -1345,7 +1349,7 @@ fn resolve_references(
         });
         if dropped > 0 {
             if let Some(report) = reports.get_mut(&name) {
-                *report.dropped.entry("unresolved_reference").or_default() += dropped;
+                *report.dropped.entry(UNRESOLVED_REFERENCE).or_default() += dropped;
             }
         }
     }

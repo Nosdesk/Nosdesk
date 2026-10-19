@@ -232,6 +232,20 @@ async fn source(pool: &TestPool) -> Source {
         .bind::<Integer, _>(seed.workspace_id)
         .execute(&mut conn)
         .expect("email settings");
+        // A live rule tagging with one of the workspace's tags and one the
+        // export doesn't carry.
+        diesel::sql_query(
+            "WITH tag AS (INSERT INTO tags (workspace_id, name) VALUES ($1, 'vip') RETURNING id) \
+             INSERT INTO rules (workspace_id, name, trigger_kind, actions, state) \
+             SELECT $1, 'Tag VIPs', 'manual', \
+                    jsonb_build_array(jsonb_build_object('kind', 'add_tags', 'config', \
+                      jsonb_build_object('tag_ids', jsonb_build_array(tag.id, 2147480000)))), \
+                    'live' \
+             FROM tag",
+        )
+        .bind::<Integer, _>(seed.workspace_id)
+        .execute(&mut conn)
+        .expect("rule");
         diesel::sql_query(
             "INSERT INTO site_settings (workspace_id, app_name, primary_color) \
              VALUES ($1, $2, '#123456') \
@@ -569,6 +583,37 @@ async fn importing_into_workspace_one_serves_the_imported_tickets() {
         "switched_off",
     ] {
         assert!(handover.contains(kind), "{kind} reported: {handover}");
+    }
+    // References inside JSON: the rule keeps the imported tag under its new
+    // id, loses the one the export doesn't carry, turns draft, and the
+    // report says so.
+    #[derive(QueryableByName)]
+    struct RuleTags {
+        #[diesel(sql_type = Text)]
+        state: String,
+        #[diesel(sql_type = Bool)]
+        tagged: bool,
+    }
+    let rule: RuleTags = diesel::sql_query(
+        "SELECT r.state::text AS state, \
+                r.actions -> 0 -> 'config' -> 'tag_ids' = jsonb_build_array(t.id) AS tagged \
+         FROM rules r JOIN tags t ON t.workspace_id = r.workspace_id AND t.name = 'vip' \
+         WHERE r.workspace_id = 1 AND r.name = 'Tag VIPs'",
+    )
+    .get_result(&mut pool.get().expect("conn"))
+    .expect("rule");
+    assert_eq!(rule.state, "draft");
+    assert!(rule.tagged, "the rule names the imported tag's new id");
+    let references = serde_json::to_value(&applied.report.references).expect("references");
+    for (column, effect) in [("actions", "cleared"), ("state", "rule_drafted")] {
+        assert!(
+            references
+                .as_array()
+                .is_some_and(|lines| lines.iter().any(|l| {
+                    l["table"] == "rules" && l["column"] == column && l["effect"] == effect
+                })),
+            "rules.{column} {effect} reported: {references}"
+        );
     }
 }
 

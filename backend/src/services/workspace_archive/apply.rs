@@ -325,7 +325,7 @@ pub fn import_into(
             return Err(ApplyError::NotUntouched { found });
         }
 
-        let plan = plan::plan_import(conn, contents, target, options)?;
+        let mut plan = plan::plan_import(conn, contents, target, options)?;
         if !plan.importable() {
             return Err(ApplyError::Refused(ImportRefusal::Plan(
                 plan.report.refusals.clone(),
@@ -339,7 +339,7 @@ pub fn import_into(
             target.mode == DeploymentMode::Hosted,
         )?;
         let cleared = clear(conn, workspace_id, |class| class == Target::Replace)?;
-        let (tables_imported, rows_imported) = load(conn, &plan, &alloc)?;
+        let (tables_imported, rows_imported) = load(conn, &mut plan, &alloc)?;
         if let Some(kept) = kept {
             repository::site_settings::restore_kept_branding(conn, workspace_id, &kept)?;
         }
@@ -361,26 +361,101 @@ pub fn import_into(
 }
 
 /// Load the plan's new people, their emails, then every table's rows in
-/// load order. Returns `(tables, rows)` loaded.
+/// load order. Returns `(tables, rows)` loaded. A row [`ImportPlan::rows`]
+/// leaves out at load (a reference the plan kept that has no new key) is
+/// counted in the report with the rows the plan left out for the same
+/// reason.
 pub(crate) fn load(
     conn: &mut DbConnection,
-    plan: &ImportPlan,
+    plan: &mut ImportPlan,
     alloc: &plan::Allocation,
 ) -> Result<(usize, i64), BackupError> {
     load_rows(conn, "users", &plan.new_users(), "")?;
     insert_primary_emails(conn, plan)?;
     let mut rows_loaded = 0i64;
+    let mut skipped: Vec<(String, usize)> = Vec::new();
     for table in plan.tables() {
         let rows = plan.rows(table, alloc)?;
+        if rows.len() < table.row_count() {
+            skipped.push((table.name.clone(), table.row_count() - rows.len()));
+        }
         let suffix = if table.skip_conflicts {
             "ON CONFLICT DO NOTHING"
         } else {
             ""
         };
-        load_rows(conn, &table.name, &rows, suffix)?;
+        if table.name == "rule_versions" {
+            replace_written_rule_versions(conn, &rows)?;
+        }
+        if table.name == "rules" {
+            // The version the insert trigger writes names the session's
+            // actor, which may be a system actor with no account; it is
+            // replaced by the archive's own below, so it names the rule's
+            // creator instead.
+            let actor = session_actor(conn)?;
+            set_session_actor(conn, "")?;
+            load_rows(conn, &table.name, &rows, suffix)?;
+            set_session_actor(conn, &actor)?;
+        } else {
+            load_rows(conn, &table.name, &rows, suffix)?;
+        }
         rows_loaded += rows.len() as i64;
     }
+    for (name, n) in skipped {
+        if let Some(report) = plan.report.tables.iter_mut().find(|t| t.table == name) {
+            report.planned = report.planned.saturating_sub(n);
+            *report
+                .dropped
+                .entry(plan::UNRESOLVED_REFERENCE)
+                .or_default() += n;
+        }
+    }
     Ok((plan.tables().len(), rows_loaded))
+}
+
+/// The transaction's `app.actor_uuid`, empty when unset.
+fn session_actor(conn: &mut DbConnection) -> Result<String, BackupError> {
+    #[derive(QueryableByName)]
+    struct Setting {
+        #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+        value: Option<String>,
+    }
+    sql_query("SELECT current_setting('app.actor_uuid', true) AS value")
+        .get_result::<Setting>(conn)
+        .map(|s| s.value.unwrap_or_default())
+        .map_err(BackupError::DatabaseError)
+}
+
+fn set_session_actor(conn: &mut DbConnection, actor: &str) -> Result<(), BackupError> {
+    sql_query("SELECT set_config('app.actor_uuid', $1, true)")
+        .bind::<Text, _>(actor)
+        .execute(conn)
+        .map(|_| ())
+        .map_err(BackupError::DatabaseError)
+}
+
+/// `rules_version_on_insert` writes version 1 of each rule as the rule loads;
+/// the archive carries the rule's own history, version 1 included. Remove
+/// the versions the trigger wrote that the archive's rows replace (the rule
+/// ids are this import's own, so nothing else matches).
+fn replace_written_rule_versions(conn: &mut DbConnection, rows: &[Row]) -> Result<(), BackupError> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let keys: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| serde_json::json!({"rule_id": r.get("rule_id"), "version": r.get("version")}))
+        .collect();
+    let payload = serde_json::to_string(&keys).map_err(BackupError::JsonError)?;
+    sql_query(
+        "DELETE FROM public.rule_versions v \
+         USING jsonb_to_recordset($1::jsonb) AS a(rule_id integer, version integer) \
+         WHERE v.rule_id = a.rule_id AND v.version = a.version",
+    )
+    .bind::<Text, _>(payload)
+    .execute(conn)
+    .map_err(BackupError::DatabaseError)?;
+    Ok(())
 }
 
 /// Insert `rows` into `table` in batches, through the column policy

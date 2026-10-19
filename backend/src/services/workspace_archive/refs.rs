@@ -860,7 +860,7 @@ pub fn rewrite_row(
         }
     }
     if drop {
-        return Some("unresolved_reference");
+        return Some(super::plan::UNRESOLVED_REFERENCE);
     }
     if draft {
         let state = row.get("state").and_then(Value::as_str);
