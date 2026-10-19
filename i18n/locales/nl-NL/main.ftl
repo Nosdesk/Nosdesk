@@ -5089,6 +5089,54 @@ editor-insert-menu-embed-document = Document insluiten
 editor-insert-menu-image = Afbeelding
 editor-insert-menu-take-photo = Foto maken
 
+# Editor: tabelbediening (machine, nog na te kijken door moedertaalspreker).
+editor-toolbar-table = Tabel
+editor-insert-menu-table = Tabel
+editor-table-actions = Tabelacties
+editor-table-add-row = Rij toevoegen
+editor-table-add-column = Kolom toevoegen
+editor-table-insert-row-here = Hier een rij invoegen
+editor-table-insert-column-here = Hier een kolom invoegen
+editor-table-row-actions = Acties voor rij { $row }
+editor-table-column-actions = Acties voor kolom { $column }
+editor-table-menu-row = Rij { $row }
+editor-table-menu-column = Kolom { $column }
+editor-table-menu-table = Tabel
+editor-table-menu-cells = Geselecteerde cellen
+editor-table-insert-row-above = Rij erboven invoegen
+editor-table-insert-row-below = Rij eronder invoegen
+editor-table-insert-column-left = Kolom links invoegen
+editor-table-insert-column-right = Kolom rechts invoegen
+editor-table-move-up = Omhoog
+editor-table-move-down = Omlaag
+editor-table-move-left = Naar links
+editor-table-move-right = Naar rechts
+editor-table-header-row = Koprij
+editor-table-header-column = Kopkolom
+editor-table-align-left = Links uitlijnen
+editor-table-align-center = Centreren
+editor-table-align-right = Rechts uitlijnen
+editor-table-reset-width = Breedte herstellen
+editor-table-reset-widths = Kolombreedtes herstellen
+editor-table-clear = Inhoud wissen
+editor-table-delete-row = Rij verwijderen
+editor-table-delete-column = Kolom verwijderen
+editor-table-delete-table = Tabel verwijderen
+editor-table-merge = Cellen samenvoegen
+editor-table-split = Cel splitsen
+editor-table-copy-markdown = Kopiëren als Markdown
+editor-table-bar-merge = Samenvoegen
+editor-table-bar-split = Splitsen
+editor-table-bar-clear = Wissen
+editor-table-bar-clear-title = Inhoud wissen (Backspace)
+editor-table-bar-more = Meer
+editor-table-deleted = Tabel verwijderd
+editor-table-undo = Ongedaan maken
+editor-table-copied-markdown = Gekopieerd als Markdown
+editor-table-copied-html = Gekopieerd als HTML
+editor-table-copied-html-detail = Deze tabel bevat meer dan een Markdown-tabel kan bevatten, zoals samengevoegde cellen of een kopkolom, dus wordt hij als HTML-tabel gekopieerd.
+editor-table-copy-failed = Kan de tabel niet naar het klembord kopiëren.
+
 # Editor: prompt voor codeblok-taal (CollaborativeEditor)
 editor-code-block-language-prompt = Taal voor syntaxisaccentuering (optioneel):
 
