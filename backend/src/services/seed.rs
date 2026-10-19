@@ -295,6 +295,38 @@ mod inline_tests {
         let encoded = String::from_utf8_lossy(&bytes);
         assert!(encoded.contains("https://nosdesk.com/docs/guide/ticket-queue"));
     }
+
+    /// The demo onboarding ticket's body goes through the same converter as
+    /// `seed_demo` and comes out holding a real table node.
+    #[test]
+    fn demo_onboarding_ticket_body_holds_a_table() {
+        use crate::services::docs_markdown::encode::decode;
+
+        fn has_table(node: &serde_json::Value) -> bool {
+            node["type"] == "table"
+                || node["content"]
+                    .as_array()
+                    .is_some_and(|children| children.iter().any(has_table))
+        }
+
+        let demo: serde_json::Value =
+            serde_json::from_str(include_str!("../../seeds/demo.json")).expect("demo.json parses");
+        let body = demo["tickets"]
+            .as_array()
+            .expect("tickets")
+            .iter()
+            .find(|t| {
+                t["title"]
+                    .as_str()
+                    .is_some_and(|s| s.starts_with("New starter onboarding"))
+            })
+            .and_then(|t| t["body_md"].as_str())
+            .expect("onboarding ticket body");
+        assert!(convert(body).notes.is_empty());
+        let bytes = super::markdown_to_yjs(body).expect("body converts");
+        let doc = decode::to_json(&bytes);
+        assert!(has_table(&doc), "{doc}");
+    }
 }
 
 #[cfg(test)]

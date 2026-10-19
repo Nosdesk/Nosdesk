@@ -178,20 +178,27 @@
               "content": [
                 {
                   "type": "text",
+                  "text": "Format text from the editor toolbar, and add tables, images, and code blocks from its Insert menu"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
                   "text": "Type "
-                },
-                {
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "code"
-                    }
-                  ],
-                  "text": "/"
-                },
-                {
-                  "type": "text",
-                  "text": " in the editor for formatting commands, and "
                 },
                 {
                   "type": "text",
@@ -204,7 +211,7 @@
                 },
                 {
                   "type": "text",
-                  "text": " to mention a teammate"
+                  "text": " in a page to mention a teammate"
                 }
               ]
             }
