@@ -4,8 +4,11 @@
 //! three audit substrates. `GET /api/admin/audit/export` — the same
 //! filtered set as a JSON download.
 //!
-//! Both are gated by [`rbac::require_audit_read`] (admin / audit
-//! reviewer role AND the `audit:read` scope). Each request opens its
+//! Both are gated by [`rbac::require_audit_read`] (the `audit:read`
+//! scope AND a workspace admin, platform admin or audit reviewer role).
+//! Workspace admins read the workspace-scoped tiers (1 and 3); the
+//! instance-wide sign-in and security events (tier 2) are for platform
+//! audit readers only. Each request opens its
 //! transaction with `SET LOCAL nosdesk.in_audit_read = 'true'` so the
 //! audit trigger short-circuits (D5: no recursive audit rows), and
 //! emits exactly one tier-1 meta event recording who read/exported
@@ -33,8 +36,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     )
     // Item C/W5: unified audit feed over all three
     // substrates (sync_actions + security_events +
-    // audit_log), gated by the audit:read scope and the
-    // admin / audit-reviewer roles.
+    // audit_log), gated by the audit:read scope and a
+    // workspace admin or platform audit-reader role.
     .route("/admin/audit", web::get().to(crate::handlers::audit::list))
     .route(
         "/admin/audit/export",
@@ -66,8 +69,19 @@ pub struct ListResponse {
     pub next_cursor: Option<String>,
 }
 
-fn build_filter(q: &ListQuery) -> repo::AuditFilter {
-    repo::AuditFilter {
+/// Build the repository filter for this reader. A reader without access
+/// to the instance-wide tier asking for it explicitly is refused rather
+/// than handed an empty page.
+fn build_filter(
+    q: &ListQuery,
+    access: &rbac::AuditReadAccess,
+) -> Result<repo::AuditFilter, ApiError> {
+    if q.tier == Some(2) && !access.instance_events {
+        return Err(ApiError::Forbidden(
+            "Sign-in and security events are readable by platform audit readers only".into(),
+        ));
+    }
+    Ok(repo::AuditFilter {
         actor_uuid: q.actor_uuid,
         // Default to the last 7 days: the feed spans three append-only
         // tables and an unbounded scan is the wrong default.
@@ -78,7 +92,8 @@ fn build_filter(q: &ListQuery) -> repo::AuditFilter {
         event_prefix: q.event_prefix.clone(),
         tier: q.tier,
         severity: q.severity.clone(),
-    }
+        include_instance_events: access.instance_events,
+    })
 }
 
 /// One JSON object summarising the filter for the self-audit event.
@@ -90,6 +105,7 @@ fn filter_summary(f: &repo::AuditFilter) -> serde_json::Value {
         "event_prefix": f.event_prefix,
         "tier": f.tier,
         "severity": f.severity,
+        "instance_events": f.include_instance_events,
     })
 }
 
@@ -105,7 +121,7 @@ pub async fn list(
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
 ) -> Result<HttpResponse, ApiError> {
-    rbac::require_audit_read(&req)?;
+    let access = rbac::require_audit_read(&req)?;
 
     let cursor = match query.cursor.as_deref().map(decode_cursor) {
         Some(Ok(c)) => Some(c),
@@ -117,7 +133,7 @@ pub async fn list(
         None => None,
     };
 
-    let filter = build_filter(&query);
+    let filter = build_filter(&query, &access)?;
     let limit = query.limit.unwrap_or(50);
 
     let result = tc.run(|conn| {
@@ -148,9 +164,9 @@ pub async fn export(
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
 ) -> Result<HttpResponse, ApiError> {
-    rbac::require_audit_read(&req)?;
+    let access = rbac::require_audit_read(&req)?;
 
-    let filter = build_filter(&query);
+    let filter = build_filter(&query, &access)?;
 
     let result = tc.run(|conn| {
         arm_read_guard(conn)?;

@@ -25,24 +25,56 @@ pub fn role_can_read_audit(claims: &Claims) -> bool {
     PlatformRole::from_db(&claims.platform_role).can_read_audit()
 }
 
+/// What an audit reader may see, as decided by [`require_audit_read`].
+#[derive(Debug, Clone)]
+pub struct AuditReadAccess {
+    pub claims: Claims,
+    /// True when the reader may see the instance-wide sign-in and
+    /// security events (tier 2, `security_events`). That table carries
+    /// no workspace key, so only platform audit readers (platform admin,
+    /// audit reviewer) see it. Workspace admins read tiers 1 and 3 only,
+    /// which RLS scopes to their workspace.
+    pub instance_events: bool,
+}
+
+const AUDIT_READ_DENIED: &str =
+    "This action requires the audit:read scope and a workspace admin, platform admin or audit-reviewer role";
+
 /// Gate for the unified audit endpoints. Authorisation is the
-/// intersection of role and scope: the role must permit audit reads
-/// (admin / audit_reviewer) AND the credential must carry the
-/// `audit:read` scope (or the `full` superscope a session always has).
-/// This lets a SIEM pull use an `audit:read`-only token bound to an
-/// AuditReviewer service account without holding broader privileges,
-/// while a `full` admin session works unchanged.
-pub fn require_audit_read(req: &HttpRequest) -> Result<Claims, ApiError> {
+/// intersection of role and scope: the credential must carry the
+/// `audit:read` scope (or the `full` superscope a session always has),
+/// AND the principal must be a platform audit reader (platform admin /
+/// audit reviewer) or an owner/admin of the resolved workspace.
+///
+/// Platform audit readers see every tier. Workspace admins see the
+/// workspace-scoped tiers only; [`AuditReadAccess::instance_events`]
+/// tells the handler which. An `audit:read`-only token bound to an
+/// audit-reviewer service account still serves a SIEM pull without
+/// broader privileges.
+pub fn require_audit_read(req: &HttpRequest) -> Result<AuditReadAccess, ApiError> {
     let claims = require_auth(req)?;
 
-    let scope_ok = ScopeSet::parse(&claims.scope).grants(Domain::Audit, Action::Read);
-    if !(role_can_read_audit(&claims) && scope_ok) {
-        return Err(ApiError::Forbidden(
-            "This action requires the audit:read scope and an admin or audit-reviewer role".into(),
-        ));
+    if !ScopeSet::parse(&claims.scope).grants(Domain::Audit, Action::Read) {
+        return Err(ApiError::Forbidden(AUDIT_READ_DENIED.into()));
     }
 
-    Ok(claims)
+    // A platform audit reader may hold no membership in the workspace it
+    // reads, so it is decided before the membership lookup.
+    if role_can_read_audit(&claims) {
+        return Ok(AuditReadAccess {
+            claims,
+            instance_events: true,
+        });
+    }
+
+    match require_workspace_role(req, crate::models::WorkspaceRole::Admin) {
+        Ok(claims) => Ok(AuditReadAccess {
+            claims,
+            instance_events: false,
+        }),
+        Err(ApiError::Forbidden(_)) => Err(ApiError::Forbidden(AUDIT_READ_DENIED.into())),
+        Err(e) => Err(e),
+    }
 }
 
 /// Extract claims from request and check if user is authenticated
@@ -315,16 +347,21 @@ mod tests {
     // Scope parsing / validity is covered in `utils::scopes`; here we
     // only exercise the audit gate's role-AND-scope intersection below.
 
+    // The workspace-admin path needs a membership row, so it is covered
+    // with a database in tests/it/audit_workspace_access.rs.
+
     #[test]
     fn require_audit_read_allows_admin_session() {
         let req = req_with_claims(Some(claims_role_scope("admin", "full")));
-        assert!(require_audit_read(&req).is_ok());
+        let access = require_audit_read(&req).expect("platform admin allowed");
+        assert!(access.instance_events);
     }
 
     #[test]
     fn require_audit_read_allows_audit_reviewer_session() {
         let req = req_with_claims(Some(claims_role_scope("audit_reviewer", "full")));
-        assert!(require_audit_read(&req).is_ok());
+        let access = require_audit_read(&req).expect("audit reviewer allowed");
+        assert!(access.instance_events);
     }
 
     #[test]
@@ -335,9 +372,11 @@ mod tests {
     }
 
     #[test]
-    fn require_audit_read_rejects_technician() {
-        let req = req_with_claims(Some(claims_role_scope("technician", "full")));
-        let err = require_audit_read(&req).expect_err("technician forbidden");
+    fn require_audit_read_rejects_missing_scope_before_role() {
+        // A plain user's token without audit:read is refused on scope
+        // alone, before any membership lookup.
+        let req = req_with_claims(Some(claims_role_scope("technician", "tickets:read")));
+        let err = require_audit_read(&req).expect_err("missing scope forbidden");
         assert_eq!(err.status_code(), actix_web::http::StatusCode::FORBIDDEN);
     }
 

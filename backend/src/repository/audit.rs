@@ -11,10 +11,10 @@
 //!
 //! Workspace scoping: `sync_actions` and `audit_log` carry
 //! `workspace_id` and are filtered by RLS under the tenant connection.
-//! `security_events` is platform-wide (no workspace_id); in the
-//! single-tenant V1 build that is the whole instance. Hosted
-//! multi-tenant will need a tenant key on security_events before this
-//! feed is exposed cross-tenant.
+//! `security_events` is instance-wide (no workspace_id), so its branch
+//! is included only when [`AuditFilter::include_instance_events`] is
+//! set, which the handler does for platform audit readers alone.
+//! Workspace admins read the two RLS-scoped tiers.
 
 use crate::db::DbConnection;
 use crate::repository::audit_log::DiffEntry;
@@ -94,6 +94,10 @@ pub struct AuditFilter {
     /// 1, 2, or 3.
     pub tier: Option<i16>,
     pub severity: Option<String>,
+    /// Include tier 2 (`security_events`). It has no workspace key, so
+    /// this stays false (the default) for anyone but a platform audit
+    /// reader.
+    pub include_instance_events: bool,
 }
 
 /// Keyset cursor describing the last row of the previous page.
@@ -171,6 +175,7 @@ SELECT u.*, usr.name AS actor_name FROM ( \
          NULL::text[], NULL::uuid, \
          host(ip_address)::text, severity, NULL::uuid \
   FROM security_events \
+  WHERE $11::boolean \
   UNION ALL \
   SELECT 3::smallint, id::bigint, occurred_at, \
          actor_uuid, CASE WHEN actor_uuid IS NULL THEN 'system' ELSE 'user' END, \
@@ -214,6 +219,7 @@ pub fn list(
         .bind::<Nullable<SmallInt>, _>(cursor.map(|c| c.tier))
         .bind::<Nullable<BigInt>, _>(cursor.map(|c| c.row_id))
         .bind::<BigInt, _>(limit + 1)
+        .bind::<diesel::sql_types::Bool, _>(filter.include_instance_events)
         .load(conn)?;
 
     let mut entries: Vec<AuditEntry> = rows.into_iter().map(into_entry).collect();
