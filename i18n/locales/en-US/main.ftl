@@ -1718,6 +1718,9 @@ admin-data-import-notice = Data imports may trigger notifications to affected us
 admin-data-import-status-available = Available
 admin-data-import-status-coming-soon = Coming Soon
 admin-data-import-status-beta = Beta
+admin-data-import-status-new = New
+admin-data-import-docs-title = Documentation
+admin-data-import-docs-description = Markdown files, a Notion, Obsidian or GitBook export, or a Nosdesk export.
 admin-data-import-microsoft-title = Microsoft Graph
 admin-data-import-microsoft-description = Import users, groups and devices from Microsoft Entra ID
 admin-data-import-csv-title = CSV Import
@@ -3276,6 +3279,7 @@ docs-index-toolbar-publish-heading = Publishing
 docs-index-toolbar-admin-heading = Admin
 docs-index-toolbar-public-site = View public site
 docs-index-toolbar-guest-settings = Guest access settings
+docs-index-toolbar-import = Import documents
 
 # Docs: documentation index band tabs and actions
 docs-index-tabs-aria = Documentation views
@@ -3926,6 +3930,7 @@ import-matches-noun = { $type ->
 import-matches-nouns = { $type ->
     [users] users
     [tickets] tickets
+    [documentation] documentation
    *[assets] assets
 }
 import-matches-title = Saved matches
@@ -4289,6 +4294,8 @@ import-history-state-imported = Imported
 import-history-state-expired = Expired
 import-history-draft-on-map = Draft on Map columns
 import-history-draft-on-review = Draft on Review
+import-history-draft-on-pages = Draft on Pages
+import-history-docs-importing = Importing
 import-history-count-new = { $count } new
 import-history-count-updated = { $count } updated
 import-history-count-unchanged = { $count } unchanged
@@ -7251,6 +7258,7 @@ admin-ldap-preview-members = { $count } members
 admin-ldap-preview-not-found = group not found in directory
 admin-ldap-preview-default = Everyone else → Member
 route-title-admin-csv-import = CSV import
+route-title-admin-docs-import = Import documentation
 route-title-admin-import-saved-matches = Saved matches
 route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Backup and restore
@@ -8798,3 +8806,596 @@ portal-new-next-2 = They reply here, and each reply reaches you by email too.
 portal-new-next-3 = When it's sorted, you confirm it's fixed.
 portal-approvals-intro = Requests that need your OK before the team starts on them.
 portal-approval-ask = Do you approve this request?
+
+# Documentation import (Data import > Documentation)
+docs-import-title = Import documentation
+docs-import-subtitle = Bring pages in from Markdown files or an export from another tool.
+docs-import-step-pages = Pages
+docs-import-nothing-changes = Nothing in your workspace changes until you press Import on the Review step.
+docs-import-error-generic = The import failed. Try again, or start a new one.
+docs-import-check-failed = The check stopped before it finished. Nothing was imported. Check the pages again.
+docs-import-commit-failed = Nothing was imported. Try Import again.
+docs-import-report-failed = The conversion report couldn't be downloaded. Try again.
+docs-import-untitled = Untitled
+
+# Start
+docs-import-start-heading = Import documentation
+docs-import-drop-idle = Drop a .zip or .md files here, or click to choose
+docs-import-drop-release = Release to upload
+docs-import-drop-hint = .zip or .md, up to 200 MB and 2,000 pages
+docs-import-files-count = { $count ->
+    [one] 1 file
+   *[other] { $count } files
+}
+docs-import-uploading = Uploading { $name }
+docs-import-uploading-progress = { $loaded } of { $total } · you can keep this tab in the background
+docs-import-reading = Reading the pages
+docs-import-start-sources = Markdown files, or an export from Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline or Nosdesk. The source is detected; you can change it on the next step.
+docs-import-start-images = Images in the archive come across. Images linked from the web are downloaded unless you say otherwise.
+docs-import-start-attachments = PDF and Office attachments stay out for now; each page that links one is listed.
+docs-import-comes-across-heading = What comes across
+docs-import-comes-across-1 = Headings, text formatting, links, lists, quotes, code, tables and images, as the editor supports them. Pages keep their tree and order. Links between pages are rewritten to the new pages.
+docs-import-comes-across-2 = Callouts become quotes with a bold label, checklists become bullet lists with ☐ and ☑, and anything that changes is listed at Review, page by page, before you import.
+
+# Refusals
+docs-import-refused-not-a-zip = This file isn't a zip we can read.
+docs-import-refused-inner-zip = The zip inside it, { $part }, isn't a zip we can read.
+docs-import-refused-encrypted = This zip is password-protected. Export it again without a password.
+docs-import-refused-too-many-pages = The import has { $count } pages. The limit is { $max }. Export one part at a time.
+docs-import-refused-too-many-files = The zip holds more than { $max } files. Export one part at a time.
+docs-import-refused-no-markdown = There are no Markdown files in this zip.
+docs-import-refused-source-later = This is a { $source } export. BookStack and Confluence exports are coming in a later update.
+docs-import-refused-mixed-files = Choose one .zip, or only .md files.
+docs-import-refused-too-large = { $name } is { $size }. The limit is { $max }. Export one part at a time.
+docs-import-refused-unsafe-path = The zip has a file name we can't accept: { $name }
+docs-import-refused-duplicate-entry = The zip holds { $name } more than once.
+docs-import-refused-compression-ratio = { $name } unpacks to far more than its packed size, so the zip isn't read.
+docs-import-refused-entry-too-large = { $name } is larger than { $max }.
+docs-import-refused-unpacked-too-large = The zip unpacks to more than { $max }. Export one part at a time.
+docs-import-refused-entry-damaged = { $name } is damaged in the zip. Export it again.
+docs-import-refused-unreadable-upload = The upload couldn't be read. Try again.
+docs-import-refused-no-file = Choose a file to import.
+docs-import-refused-unreadable = This file couldn't be read as documentation.
+docs-import-refused-timed-out = Reading the pages took too long. Import a smaller part at a time.
+docs-import-refused-collection-missing = The collection to import into no longer exists. Choose another.
+docs-import-refused-busy = This import is being checked or committed. Try again in a moment.
+docs-import-refused-check-running = This import is being checked.
+docs-import-refused-commit-running = This import is being committed.
+docs-import-refused-type-busy = Another documentation import is being committed. Try again when it finishes.
+docs-import-refused-committed = This import has been committed; its options can't change.
+docs-import-refused-not-checked = This import hasn't been checked yet. Check the pages first.
+docs-import-refused-expired = This import can't be resumed. Start a new one.
+
+# Pages: the source line
+docs-import-source-looks-like = Looks like { $profile } · { $pages ->
+    [one] 1 page
+   *[other] { $pages } pages
+}, { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}
+docs-import-source-read-as = Read as { $profile } · { $pages ->
+    [one] 1 page
+   *[other] { $pages } pages
+}, { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}
+docs-import-source-rereading = Reading the pages again
+docs-import-source-change = Change
+docs-import-source-change-label = Read this archive as
+docs-import-profile-detected = { $profile } (detected)
+docs-import-profile-notion = a Notion export
+docs-import-profile-nosdesk-v2 = a Nosdesk export
+docs-import-profile-nosdesk-v1 = an older Nosdesk export
+docs-import-profile-obsidian = an Obsidian vault
+docs-import-profile-gitbook = a GitBook export
+docs-import-profile-mkdocs = an MkDocs site
+docs-import-profile-docusaurus = a Docusaurus site
+docs-import-profile-outline = an Outline export
+docs-import-profile-plain = a plain folder
+docs-import-profile-option-notion = Notion export
+docs-import-profile-option-nosdesk-v2 = Nosdesk export
+docs-import-profile-option-nosdesk-v1 = Older Nosdesk export
+docs-import-profile-option-obsidian = Obsidian vault
+docs-import-profile-option-gitbook = GitBook
+docs-import-profile-option-mkdocs = MkDocs
+docs-import-profile-option-docusaurus = Docusaurus
+docs-import-profile-option-outline = Outline export
+docs-import-profile-option-plain = Plain folder
+
+# Pages: the tree
+docs-import-tree-title = Pages as they'll appear in Nosdesk
+docs-import-tree-expand-all = Expand all
+docs-import-tree-collapse-all = Collapse all
+docs-import-tree-expand = Expand { $title }
+docs-import-tree-collapse = Collapse { $title }
+docs-import-tree-tick = Import { $title }
+docs-import-tree-tick-with-children = { $count ->
+    [one] Import { $title } and its page
+   *[other] Import { $title } and its { $count } pages
+}
+docs-import-tree-left-out = Left out
+docs-import-tree-no-content = No content
+docs-import-tree-page-count = { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}
+docs-import-tree-note-count = { $count ->
+    [one] 1 note
+   *[other] { $count } notes
+}
+docs-import-tree-head-new = new collection
+docs-import-tree-head-existing = existing collection
+docs-import-tree-head-none = no collection
+docs-import-tree-no-collection = Drafts
+docs-import-tree-count = { $ticked } of { $total } pages will be imported
+docs-import-tree-count-unticked = { $count } unticked
+docs-import-tree-count-left-out = { $count } left out by a pattern
+docs-import-tree-follow = Untick a section and its pages follow
+
+# Pages: where it goes
+docs-import-where-title = Where it goes
+docs-import-where-collection = Collection
+docs-import-where-suggested = { $name } already exists in Documentation with { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}, so it's selected. Choose New collection to keep this import apart.
+docs-import-where-existing = Existing collection
+docs-import-where-existing-desc = New pages go after its existing pages.
+docs-import-where-existing-none = There are no collections yet.
+docs-import-where-collection-option = { $name } ({ $count ->
+    [one] 1 page
+   *[other] { $count } pages
+})
+docs-import-where-under = Under page
+docs-import-where-top-level = Top level of the collection
+docs-import-where-under-option = Under { $title }
+docs-import-where-new = New collection
+docs-import-where-name = Collection name
+docs-import-where-new-clash = A collection called { $name } already exists. Both will show in Documentation.
+docs-import-where-per-folder = One collection per top-level folder
+docs-import-where-per-folder-desc = { $count ->
+    [one] 1 collection: { $names }.
+   *[other] { $count } collections: { $names }.
+} A folder's own page becomes the first page of its collection.
+docs-import-where-as-source = As the export says
+docs-import-where-as-source-desc = { $count ->
+    [one] 1 collection, as it was in Nosdesk.
+   *[other] { $count } collections, as they were in Nosdesk.
+}
+docs-import-status-label = Status
+docs-import-status-drafts = Drafts
+docs-import-status-published = Published
+docs-import-status-as-files = As the files say
+docs-import-status-drafts-help = Only staff can see them until you publish them.
+docs-import-status-published-help = Everyone who can see the collection sees them at once, conversion notes and all.
+docs-import-status-as-files-help = Pages the files mark as drafts stay drafts; the rest are published.
+docs-import-status-as-files-notion = Notion exports carry no status, so every page would be a draft.
+docs-import-web-label = Images linked from the web
+docs-import-web-download = Download them
+docs-import-web-links = Keep them as links
+docs-import-web-download-help = { $count ->
+    [0] No page links an image from the web.
+    [one] 1 image links to the web. It's downloaded into Nosdesk at the check, so Review shows whether it came through.
+   *[other] { $count } images link to the web. They're downloaded into Nosdesk at the check, so Review shows which ones came through.
+}
+docs-import-web-links-help = { $count ->
+    [0] No page links an image from the web.
+   *[other] Kept links won't show in Nosdesk: pages can only show images stored here. Linked images would appear as their alt text.
+}
+docs-import-leave-out-label = Leave out files matching
+docs-import-leave-out-placeholder = e.g. **/archive/**
+docs-import-leave-out-add = Add
+docs-import-leave-out-remove = Remove { $pattern }
+docs-import-leave-out-help = Archive paths, matched against the file names. Press Enter to add.
+docs-import-leave-out-matches = { $count ->
+    [one] 1 page matches.
+   *[other] { $count } pages match.
+}
+docs-import-too-many-patterns = Too many pages are unticked one by one to send. Untick their section instead, or add a pattern under Leave out.
+docs-import-pattern-too-long = A pattern is longer than 500 characters. Shorten it.
+docs-import-choose-collection = Choose the collection to import into.
+
+# Pages: the action bar
+docs-import-change-file = Change file
+docs-import-change-file-title = Discard this file?
+docs-import-change-file-message = Nothing has been imported. Your choices under Where it goes are kept for the next file.
+docs-import-change-file-confirm = Discard file
+docs-import-tick-one = Tick at least one page
+docs-import-check = { $count ->
+    [one] Check 1 page
+   *[other] Check { $count } pages
+}
+docs-import-checking = Checking pages
+docs-import-checking-line = Checking { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}: converting, reading { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}, looking for pages already in Nosdesk. Nothing is written.
+docs-import-checking-line-web = Checking { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}: converting, reading { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}, downloading { $web } from the web, looking for pages already in Nosdesk. Nothing is written.
+
+# Review
+docs-import-dest-new = into a new collection, { $name }
+docs-import-dest-existing = into { $name }
+docs-import-dest-existing-under = into { $name } under { $under }
+docs-import-dest-many = { $count ->
+    [one] into 1 new collection
+   *[other] into { $count } new collections
+}
+docs-import-headline-checked = { $count ->
+    [one] 1 page checked.
+   *[other] { $count } pages checked.
+}
+docs-import-headline-imported = { $count ->
+    [one] 1 will be imported
+   *[other] { $count } will be imported
+} { $dest }, { $status ->
+    [published] published
+    [as_files] as the files say
+   *[drafts] as drafts
+}{ $copies ->
+    [0] {""}
+   *[other] {" "}({ $copies } as copies)
+}.
+docs-import-headline-nothing = Nothing would be imported.
+docs-import-headline-skipped = { $count } skipped: already in Nosdesk.
+docs-import-headline-errors = { $count ->
+    [one] 1 couldn't be converted and is imported empty.
+   *[other] { $count } couldn't be converted and are imported empty.
+}
+docs-import-tile-new = New pages
+docs-import-tile-new-copies = { $count } as copies
+docs-import-tile-new-errors = { $count } imported empty
+docs-import-tile-new-sections = { $count ->
+    [one] 1 section page with no content
+   *[other] { $count } section pages with no content
+}
+docs-import-tile-images = Images
+docs-import-tile-images-problems = { $count } with problems
+docs-import-tile-images-web = { $count } from the web
+docs-import-tile-images-left-out = { $count } left out
+docs-import-tile-links = Links rewritten
+docs-import-tile-links-kept = { $count } kept as text
+docs-import-tile-links-all = All links resolve
+docs-import-tile-skipped = Skipped
+docs-import-tile-skipped-already = { $count } already in Nosdesk
+docs-import-already-title = { $count ->
+    [one] 1 page was imported before
+   *[other] { $count } pages were imported before
+}
+docs-import-already-names-more = { $names } and { $count } more
+docs-import-already-by-source = matched by their path in an earlier import into the same collection.
+docs-import-already-by-uuid = they come from this workspace's export.
+docs-import-already-by-both = matched by an earlier import, or they come from this workspace's export.
+docs-import-already-label = Pages already in Nosdesk
+docs-import-already-skip = Skip them
+docs-import-already-copy = Import as copies
+docs-import-already-skip-help = The pages in Nosdesk keep their content. Nothing is updated in place.
+docs-import-already-copy-help = A second page with the same title is created next to the existing one. Nothing is updated in place.
+docs-import-conversion-title = What changes in conversion
+docs-import-conversion-clean = Every page converts as it is.
+docs-import-conversion-footer = Nothing changes silently. Every line here is in the conversion report, page by page.
+docs-import-show-pages = Show pages
+docs-import-line-pages = { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}
+docs-import-line-errors = { $count ->
+    [one] 1 page couldn't be converted. It's imported with an empty body.
+   *[other] { $count } pages couldn't be converted. They're imported with an empty body.
+}
+docs-import-line-sections = { $count ->
+    [one] 1 section page has no content: { $names }. It gets an empty body you can fill in.
+   *[other] { $count } section pages have no content: { $names }. They get an empty body you can fill in.
+}
+docs-import-line-front-matter = Front matter fields that aren't imported: { $fields }.
+
+# Conversion notes, one per kind of change
+docs-import-note-tables-hoisted = { $count ->
+    [one] 1 table inside a list or quote moved after it
+   *[other] { $count } tables inside a list or quote moved after it
+}
+docs-import-note-table-rows-padded = { $count ->
+    [one] 1 table had its rows evened out
+   *[other] { $count } tables had their rows evened out
+}
+docs-import-note-table-cells-flattened = { $count ->
+    [one] 1 table cell held content a cell can't, now kept as text
+   *[other] { $count } table cells held content a cell can't, now kept as text
+}
+docs-import-note-checklists-as-bullets = { $count ->
+    [one] 1 checklist became a bullet list
+   *[other] { $count } checklists became bullet lists
+}
+docs-import-note-strikethrough-removed = { $count ->
+    [one] Strikethrough or highlight removed in 1 place; the text is kept
+   *[other] Strikethrough or highlight removed in { $count } places; the text is kept
+}
+docs-import-note-callouts-as-quotes = { $count ->
+    [one] 1 callout became a quote
+   *[other] { $count } callouts became quotes
+}
+docs-import-note-formulas-as-code = { $count ->
+    [one] 1 formula became code
+   *[other] { $count } formulas became code
+}
+docs-import-note-links-dropped = { $count ->
+    [one] 1 link goes somewhere a page can't link to. The text is kept.
+   *[other] { $count } links go somewhere a page can't link to. The text is kept.
+}
+docs-import-note-images-dropped = { $count ->
+    [one] 1 image has a source a page can't show. The alt text is kept.
+   *[other] { $count } images have a source a page can't show. The alt text is kept.
+}
+docs-import-note-html-removed = { $count ->
+    [one] Embedded HTML removed in 1 place (scripts, styles, frames)
+   *[other] Embedded HTML removed in { $count } places (scripts, styles, frames)
+}
+docs-import-note-html-as-text = { $count ->
+    [one] HTML kept as its text in 1 place
+   *[other] HTML kept as its text in { $count } places
+}
+docs-import-note-nesting-flattened = { $count ->
+    [one] Nesting deeper than the editor allows flattened in 1 place
+   *[other] Nesting deeper than the editor allows flattened in { $count } places
+}
+docs-import-note-table-cells-dropped = { $count ->
+    [one] 1 table row had more cells than its header; the extra cells were dropped
+   *[other] { $count } table rows had more cells than their header; the extra cells were dropped
+}
+docs-import-note-mentions-as-text = { $count ->
+    [one] 1 mention became text: the person isn't in this workspace
+   *[other] { $count } mentions became text: the people aren't in this workspace
+}
+docs-import-note-ticket-links-as-text = { $count ->
+    [one] 1 ticket link became text: the ticket isn't in this workspace
+   *[other] { $count } ticket links became text: the tickets aren't in this workspace
+}
+docs-import-note-embeds-as-text = { $count ->
+    [one] 1 embedded page became its title: the page isn't in the import
+   *[other] { $count } embedded pages became their titles: the pages aren't in the import
+}
+docs-import-note-links-unresolved = { $count ->
+    [one] 1 link points to a page that isn't in the import. The text is kept.
+   *[other] { $count } links point to pages that aren't in the import. The text is kept.
+}
+docs-import-note-links-ambiguous = { $count ->
+    [one] 1 link by name matched more than one page; it goes to the nearest
+   *[other] { $count } links by name matched more than one page; each goes to the nearest
+}
+docs-import-note-attachments-left-out = { $count ->
+    [one] 1 attachment left out: PDF and Office files aren't imported yet. The link keeps its text.
+   *[other] { $count } attachments left out: PDF and Office files aren't imported yet. The links keep their text.
+}
+docs-import-note-front-matter-ignored = { $count ->
+    [one] 1 front matter block couldn't be read and was left out
+   *[other] { $count } front matter blocks couldn't be read and were left out
+}
+docs-import-note-title-shortened = { $count ->
+    [one] 1 title was longer than 255 characters and was shortened
+   *[other] { $count } titles were longer than 255 characters and were shortened
+}
+docs-import-note-not-utf8 = { $count ->
+    [one] 1 file wasn't UTF-8; some characters may be wrong
+   *[other] { $count } files weren't UTF-8; some characters may be wrong
+}
+docs-import-note-source-syntax-removed = { $count ->
+    [one] Syntax only the source tool understands removed in 1 place
+   *[other] Syntax only the source tool understands removed in { $count } places
+}
+docs-import-note-database-rows-cut = { $count ->
+    [one] 1 Notion database had more rows than a page shows; the first 200 are kept
+   *[other] { $count } Notion databases had more rows than a page shows; the first 200 are kept
+}
+docs-import-note-images-unreadable = { $count ->
+    [one] 1 image couldn't be read. The alt text is kept.
+   *[other] { $count } images couldn't be read. The alt text is kept.
+}
+docs-import-note-svg-images-refused = { $count ->
+    [one] 1 SVG image left out: SVG can carry scripts. The alt text is kept.
+   *[other] { $count } SVG images left out: SVG can carry scripts. The alt text is kept.
+}
+docs-import-note-web-images-not-fetched = { $count ->
+    [one] 1 image from the web couldn't be downloaded. The alt text is kept.
+   *[other] { $count } images from the web couldn't be downloaded. The alt text is kept.
+}
+
+# Why one image won't come across
+docs-import-image-unreadable = couldn't be read
+docs-import-image-too-large = is larger than 10 MB
+docs-import-image-not-an-image = isn't an image
+docs-import-image-svg = is an SVG, which can't be imported
+docs-import-image-refused-address = has an address that can't be downloaded from
+docs-import-image-timed-out = took too long to download
+docs-import-image-fetch-failed = couldn't be downloaded
+docs-import-image-over-limit = is past the 500 web images one import downloads
+
+# Review: the page list
+docs-import-list-title = Pages
+docs-import-filter-label = Show
+docs-import-filter-all = All { $count }
+docs-import-filter-notes = With notes { $count }
+docs-import-filter-skipped = Skipped { $count }
+docs-import-filter-errors = Errors { $count }
+docs-import-chip-sections = Section pages with no content
+docs-import-chip-images = Image problems
+docs-import-chip-links = Links kept as text
+docs-import-chip-changed = Changed since check
+docs-import-chip-errors = Pages that couldn't be converted
+docs-import-chip-clear = Show every page
+docs-import-list-keys = ↑ ↓ move · Enter previews
+docs-import-list-loading = Reading the pages
+docs-import-list-failed = The pages couldn't be loaded. Reload to try again.
+docs-import-list-empty = No pages match.
+docs-import-list-empty-notes = No notes. Every page converts cleanly.
+docs-import-list-empty-skipped = Nothing skipped.
+docs-import-list-empty-errors = No errors. Every page converts.
+docs-import-col-page = Page
+docs-import-col-outcome = Outcome
+docs-import-col-notes = Notes
+docs-import-top-level = Top level
+docs-import-no-notes = No notes
+docs-import-pager = { $from } to { $to } of { $total }
+docs-import-pager-prev = Previous
+docs-import-pager-next = Next
+docs-import-outcome-new = New
+docs-import-outcome-copy = Copy
+docs-import-outcome-skipped = Skipped
+docs-import-outcome-error = Error
+docs-import-outcome-left = Not imported
+docs-import-row-already-skip = Already in Nosdesk, so it's skipped
+docs-import-row-already-copy = Already in Nosdesk, so a copy is made
+docs-import-row-changed = Changed since check: this page is in Nosdesk now
+docs-import-row-image-problem = { $name } { $problem }
+docs-import-row-attachment = Attachment left out: { $name }
+docs-import-row-unresolved = Link kept as text: { $name } isn't in the import
+docs-import-row-section = Section page with no content
+
+# Review: the preview
+docs-import-preview-title = Preview
+docs-import-preview-select = Select a page to see how it will look
+docs-import-preview-empty = The converted page, read only, in the editor's own view.
+docs-import-preview-read-only = Read only · the page as it will be written · images show as their file
+docs-import-preview-loading = Converting the page
+docs-import-preview-failed = The preview couldn't be loaded. Select the page again.
+docs-import-preview-schema-failed = The preview failed the editor's schema check. This is a bug in the converter, not in your page: { $reason }
+docs-import-preview-error-line = { $count ->
+    [one] This page is imported with an empty body. The other page imports as planned.
+   *[other] This page is imported with an empty body. The other { $count } pages import as planned.
+}
+docs-import-preview-aria = Preview of { $title }
+docs-import-preview-prev = Previous
+docs-import-preview-next = Next
+docs-import-preview-was-callout = Was a callout
+docs-import-preview-was-checklist = Was a checklist
+docs-import-preview-table-moved = Moved out of the list
+docs-import-preview-image-web = from the web
+docs-import-preview-image-problem = { $problem } · alt text kept: { $alt }
+docs-import-preview-image-aria = Image: { $name }
+docs-import-preview-image-aria-problem = Image not imported: { $name }
+
+# Review: the action bar and confirmation
+docs-import-review-back = Back to Pages
+docs-import-report = Download conversion report (.csv)
+docs-import-review-skip-reason = { $count ->
+    [one] 1 page won't be imported
+   *[other] { $count } pages won't be imported
+}
+docs-import-review-import = { $count ->
+    [one] Import 1 page
+   *[other] Import { $count } pages
+}
+docs-import-review-importing = Importing
+docs-import-review-nothing = Nothing to import
+docs-import-confirm-title = { $count ->
+    [one] Import 1 page?
+   *[other] Import { $count } pages?
+}
+docs-import-confirm-message = { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+} and { $images ->
+    [one] 1 image
+   *[other] { $images } images
+} will be added { $dest }, { $status ->
+    [published] published
+    [as_files] as the files say
+   *[drafts] as drafts
+}.
+docs-import-confirm-skipped = { $count ->
+    [one] 1 page already in Nosdesk will be skipped.
+   *[other] { $count } pages already in Nosdesk will be skipped.
+}
+docs-import-confirm-copies = { $count ->
+    [one] 1 page already in Nosdesk will be imported as a copy.
+   *[other] { $count } pages already in Nosdesk will be imported as copies.
+}
+docs-import-confirm-errors = { $count ->
+    [one] 1 page that couldn't be converted will be imported empty.
+   *[other] { $count } pages that couldn't be converted will be imported empty.
+}
+docs-import-confirm-published = Everyone who can see the collection will see them at once.
+docs-import-plan-changed = Something changed since you checked. Review the new plan below; the numbers and the Import button are updated.
+docs-import-plan-changed-more = { $count ->
+    [one] Something changed since you checked: 1 more page is already in Nosdesk. Review the new plan below; the numbers and the Import button are updated.
+   *[other] Something changed since you checked: { $count } more pages are already in Nosdesk. Review the new plan below; the numbers and the Import button are updated.
+}
+
+# Done
+docs-import-importing-title = { $count ->
+    [one] Importing 1 page
+   *[other] Importing { $count } pages
+}
+docs-import-importing-progress = { $written } of { $total } pages written
+docs-import-importing-finishing = Finishing: links, embeds and the search index
+docs-import-importing-leave = You can leave this page. The import keeps running and shows here, and in Recent imports, when it's done. The count updates about every half minute.
+docs-import-done-heading = Import complete
+docs-import-done-summary = { $count ->
+    [one] 1 page imported into { $where }
+   *[other] { $count } pages imported into { $where }
+}, { $status ->
+    [published] published
+    [as_files] as the files say
+   *[drafts] as drafts
+}.
+docs-import-done-many = { $count ->
+    [one] 1 new collection
+   *[other] { $count } new collections
+}
+docs-import-done-images = { $count ->
+    [one] 1 image stored.
+   *[other] { $count } images stored.
+}
+docs-import-done-skipped = { $count ->
+    [one] 1 page already in Nosdesk was skipped.
+   *[other] { $count } pages already in Nosdesk were skipped.
+}
+docs-import-done-errors = { $count ->
+    [one] 1 page couldn't be converted and was imported empty.
+   *[other] { $count } pages couldn't be converted and were imported empty.
+}
+docs-import-done-drafts = The pages are drafts: only staff can see them. Read a few, then publish them.
+docs-import-done-revision = Each page's first revision says "Imported from { $file }".
+docs-import-done-open = Open { $name }
+docs-import-done-open-docs = Open Documentation
+docs-import-done-another = Import another file
+docs-import-conversion-done-title = What changed in conversion
+docs-import-conversion-done-footer = The conversion report lists every page with its notes.
+
+# Import detail
+docs-import-detail-state = { $count ->
+    [one] Imported: 1 page
+   *[other] Imported: { $count } pages
+} { $status ->
+    [published] published
+    [as_files] as the files say
+   *[drafts] as drafts
+}
+docs-import-detail-source = Source
+docs-import-detail-files = { $count ->
+    [one] 1 file
+   *[other] { $count } files
+}
+docs-import-detail-into-existing = Into { $name } (existing)
+docs-import-detail-into-new = Into { $name } (new)
+docs-import-detail-into-many = { $count ->
+    [one] Into 1 new collection
+   *[other] Into { $count } new collections
+}
+docs-import-detail-web-download = Web images downloaded
+docs-import-detail-web-links = Web images kept as links
+docs-import-detail-dup-skip = Pages already in Nosdesk skipped
+docs-import-detail-dup-copy = Pages already in Nosdesk imported as copies
+docs-import-detail-left-out = Left out: { $patterns }
+docs-import-detail-tree-title = Pages this import wrote
+docs-import-detail-tree-footer = Skipped and not imported rows are what the check found; they wrote nothing.
+docs-import-detail-kept = Details are kept for 30 days. The counts and options stay after that.

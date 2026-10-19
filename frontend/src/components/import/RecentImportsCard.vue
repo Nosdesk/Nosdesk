@@ -85,7 +85,7 @@ const counts = (item: ImportJobListItem) => countsLine(t, item)
             v-if="rowAction(item) === 'resume'"
             variant="secondary"
             size="sm"
-            :to="resumeTarget(item.id)"
+            :to="resumeTarget(item.id, item.job_type)"
             data-test="recent-import-resume"
           >
             {{ $t('import-history-resume') }}

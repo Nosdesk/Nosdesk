@@ -4,6 +4,8 @@
  * with no wording here shows the server's English.
  */
 
+import { formatFileSize } from '@nosdesk/core/utils/formatFileSize'
+
 type Translate = (key: string, args?: Record<string, string | number>) => string
 
 const REFUSAL_KEYS: Record<string, string> = {
@@ -34,7 +36,41 @@ const REFUSAL_KEYS: Record<string, string> = {
   import_too_many_rows: 'import-refused-too-many-rows',
   import_no_rows: 'import-refused-no-rows',
   import_parse_timed_out: 'import-refused-timed-out',
+  // Documentation imports.
+  archive_unreadable: 'docs-import-refused-not-a-zip',
+  archive_too_many_entries: 'docs-import-refused-too-many-files',
+  archive_encrypted: 'docs-import-refused-encrypted',
+  archive_unsafe_path: 'docs-import-refused-unsafe-path',
+  archive_duplicate_entry: 'docs-import-refused-duplicate-entry',
+  archive_compression_ratio: 'docs-import-refused-compression-ratio',
+  archive_entry_too_large: 'docs-import-refused-entry-too-large',
+  archive_too_large: 'docs-import-refused-unpacked-too-large',
+  archive_entry_missing: 'docs-import-refused-entry-damaged',
+  archive_entry_corrupt: 'docs-import-refused-entry-damaged',
+  archive_io: 'docs-import-refused-unreadable-upload',
+  upload_unreadable: 'docs-import-refused-unreadable-upload',
+  upload_not_saved: 'docs-import-refused-unreadable-upload',
+  import_no_file: 'docs-import-refused-no-file',
+  upload_too_large: 'docs-import-refused-too-large',
+  docs_import_mixed_files: 'docs-import-refused-mixed-files',
+  docs_import_unreadable: 'docs-import-refused-unreadable',
+  docs_import_timed_out: 'docs-import-refused-timed-out',
+  docs_import_no_markdown: 'docs-import-refused-no-markdown',
+  docs_import_too_many_pages: 'docs-import-refused-too-many-pages',
+  docs_import_source_later: 'docs-import-refused-source-later',
+  docs_import_collection_missing: 'docs-import-refused-collection-missing',
+  import_job_busy: 'docs-import-refused-busy',
+  import_check_running: 'docs-import-refused-check-running',
+  import_commit_running: 'docs-import-refused-commit-running',
+  import_type_busy: 'docs-import-refused-type-busy',
+  import_committed: 'docs-import-refused-committed',
+  import_not_checked: 'docs-import-refused-not-checked',
+  import_expired: 'docs-import-refused-expired',
+  import_file_missing: 'import-file-missing',
 }
+
+/** Refusals whose `max` is a size in bytes, shown as one. */
+const SIZE_ARGS = new Set(['upload_too_large', 'archive_entry_too_large', 'archive_too_large'])
 
 export interface ErrorBody {
   error?: string
@@ -48,11 +84,24 @@ export function errorBody(e: unknown): ErrorBody | undefined {
 }
 
 /** A refusal's wording by its code, else the server's English; `null`
- *  when the body says neither. */
-export function refusalText(t: Translate, body: ErrorBody | undefined): string | null {
+ *  when the body says neither. `extra` fills arguments the server doesn't
+ *  send (the file's name and size). */
+export function refusalText(
+  t: Translate,
+  body: ErrorBody | undefined,
+  extra: Record<string, string | number> = {},
+): string | null {
   if (!body) return null
   const key = body.code ? REFUSAL_KEYS[body.code] : undefined
-  if (key) return t(key, body.args ?? {})
+  if (key) {
+    const args: Record<string, string | number> = { ...extra, ...(body.args ?? {}) }
+    if (body.code && SIZE_ARGS.has(body.code) && typeof args.max === 'number') {
+      args.max = formatFileSize(args.max)
+    }
+    // The zip inside a split export has its own wording.
+    if (body.code === 'archive_unreadable' && args.part) return t('docs-import-refused-inner-zip', args)
+    return t(key, args)
+  }
   return typeof body.error === 'string' ? body.error : null
 }
 

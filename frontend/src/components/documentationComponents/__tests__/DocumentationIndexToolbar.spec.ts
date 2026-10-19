@@ -132,6 +132,7 @@ function makeRouter(): Router {
       { path: '/documentation/trash', name: 'documentation-trash', component: view, meta: { requiresAuth: true } },
       { path: '/documentation/:path', name: 'documentation-page', component: view, meta: { requiresAuth: true } },
       { path: '/admin/guest-access', name: 'admin-guest-access', component: view, meta: { requiresAuth: true } },
+      { path: '/admin/data-import/documentation', name: 'admin-docs-import', component: view, meta: { requiresAuth: true } },
     ]),
   })
   installSlugCarrier(router)
@@ -306,6 +307,7 @@ describe('DocumentationIndexToolbar actions', () => {
       'publish-heading',
       'public-site',
       'admin-heading',
+      'import-docs',
       'guest-settings',
     ])
   })
@@ -328,6 +330,34 @@ describe('DocumentationIndexToolbar actions', () => {
     wrapper!.findComponent(MenuList).vm.$emit('select', 'guest-settings')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('admin-guest-access')
+  })
+})
+
+describe('DocumentationIndexToolbar Import documents', () => {
+  beforeEach(() => {
+    auth.admin = false
+    auth.technician = true
+  })
+
+  it('is offered to admins only, in the Admin group', async () => {
+    await mountAt('/documentation')
+    expect((await openMenu()).map((i) => i.id)).not.toContain('import-docs')
+    wrapper!.unmount()
+    auth.admin = true
+    await mountAt('/documentation')
+    const ids = (await openMenu()).map((i) => i.id)
+    expect(ids.indexOf('import-docs')).toBe(ids.indexOf('admin-heading') + 1)
+  })
+
+  it('opens the documentation import by route name, under the workspace on Cloud', async () => {
+    auth.admin = true
+    routing = 'path'
+    slug = 'acme'
+    await mountAt('/acme/documentation')
+    await openMenu()
+    wrapper!.findComponent(MenuList).vm.$emit('select', 'import-docs')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('admin-docs-import')
   })
 })
 

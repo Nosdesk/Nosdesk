@@ -9,6 +9,7 @@
  * detail is removed (`pruned_at`) it is counts, options and mapping only.
  */
 import type {
+  AnyImportJobType,
   ImportJob,
   ImportJobListItem,
   ImportJobState,
@@ -54,6 +55,12 @@ export function rowAction(item: Pick<ImportJobListItem, 'state'>): 'resume' | 'v
 export function countsLine(t: Translate, item: ImportJobListItem): string {
   if (item.state === 'expired') return t('import-history-state-expired')
   if (item.state === 'draft') {
+    if (item.job_type === 'documentation') {
+      if (item.status === 'committing') return t('import-history-docs-importing')
+      return item.status === 'parsed' || item.status === 'checking'
+        ? t('import-history-draft-on-pages')
+        : t('import-history-draft-on-review')
+    }
     return item.status === 'parsed' ? t('import-history-draft-on-map') : t('import-history-draft-on-review')
   }
   if (item.removed) return t('import-history-count-removed', { ...item.removed })
@@ -120,8 +127,9 @@ export function optionsLine(t: Translate, type: ImportJobType, options: ImportOp
   return parts.join(' · ')
 }
 
-/** Where a draft resumes: the import wizard at its step. */
-export function resumeTarget(id: string) {
+/** Where a draft resumes: its type's import wizard, at its step. */
+export function resumeTarget(id: string, jobType?: AnyImportJobType) {
+  if (jobType === 'documentation') return { name: 'admin-docs-import', query: { job: id } }
   return { path: '/admin/data-import/csv', query: { job: id } }
 }
 

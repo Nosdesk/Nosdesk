@@ -11,7 +11,7 @@ interface ImportOption {
   descriptionKey: string;
   icon: IconName;
   route: string;
-  status: 'available' | 'coming-soon' | 'beta';
+  status: 'available' | 'coming-soon' | 'beta' | 'new';
 }
 
 const fluent = useFluent();
@@ -33,6 +33,13 @@ const importOptions: ImportOption[] = [
     status: 'available'
   },
   {
+    titleKey: 'admin-data-import-docs-title',
+    descriptionKey: 'admin-data-import-docs-description',
+    icon: 'book',
+    route: '/admin/data-import/documentation',
+    status: 'new'
+  },
+  {
     titleKey: 'admin-data-import-api-title',
     descriptionKey: 'admin-data-import-api-description',
     icon: 'api',
@@ -52,7 +59,8 @@ const importOptions: ImportOption[] = [
 const statusBadges = computed<Record<string, { text: string; class: string }>>(() => ({
   'available': { text: t('admin-data-import-status-available'), class: 'bg-status-success/15 text-status-success' },
   'coming-soon': { text: t('admin-data-import-status-coming-soon'), class: 'bg-accent/15 text-accent' },
-  'beta': { text: t('admin-data-import-status-beta'), class: 'bg-accent/15 text-accent' }
+  'beta': { text: t('admin-data-import-status-beta'), class: 'bg-accent/15 text-accent' },
+  'new': { text: t('admin-data-import-status-new'), class: 'bg-status-info/15 text-status-info' }
 }));
 </script>
 
@@ -69,10 +77,10 @@ const statusBadges = computed<Record<string, { text: string; class: string }>>((
         <component
           v-for="item in importOptions"
           :key="item.route"
-          :is="item.status === 'available' ? 'RouterLink' : 'div'"
-          :to="item.status === 'available' ? item.route : undefined"
+          :is="item.status !== 'coming-soon' ? 'RouterLink' : 'div'"
+          :to="item.status !== 'coming-soon' ? item.route : undefined"
           class="flex items-center gap-3 sm:gap-4 px-4 py-4 transition-colors"
-          :class="item.status === 'available'
+          :class="item.status !== 'coming-soon'
             ? 'hover:bg-surface-hover cursor-pointer group'
             : 'opacity-60'"
         >
@@ -94,7 +102,7 @@ const statusBadges = computed<Record<string, { text: string; class: string }>>((
             <p class="text-xs text-secondary mt-0.5 line-clamp-2 sm:line-clamp-1">{{ $t(item.descriptionKey) }}</p>
           </div>
           <Icon
-            v-if="item.status === 'available'"
+            v-if="item.status !== 'coming-soon'"
             name="chevronRight"
             class="text-tertiary group-hover:text-secondary transition-colors flex-shrink-0"
           />
