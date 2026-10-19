@@ -24,6 +24,7 @@ pub mod dashboard_stats;
 pub mod directory;
 pub mod documentation;
 pub mod documentation_collections;
+pub mod documentation_imports;
 pub mod documentation_page_tickets;
 pub mod documentation_starred_pages;
 pub mod documentation_subscriptions;

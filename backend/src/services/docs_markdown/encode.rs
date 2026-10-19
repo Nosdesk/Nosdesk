@@ -259,26 +259,34 @@ fn mark_attributes(marks: &Marks) -> HashMap<Arc<str>, Any> {
 }
 
 /// Reads a y-prosemirror document back as ProseMirror JSON, the way
-/// `yXmlFragmentToProsemirrorJSON` does. For tests and fixture checks.
-#[cfg(test)]
-pub(crate) mod decode {
+/// `yXmlFragmentToProsemirrorJSON` does: what a client builds from the
+/// update. The import preview, tests and fixture checks read it.
+pub mod decode {
     use serde_json::{json, Map, Value};
     use yrs::types::text::YChange;
     use yrs::types::Attrs;
     use yrs::updates::decoder::Decode;
     use yrs::{Any, Doc, Out, Text, Transact, Update, WriteTxn, Xml, XmlFragment, XmlOut};
 
+    /// The document an update holds. Panics on an update that doesn't
+    /// decode; [`try_to_json`] for one that may not.
     pub fn to_json(update: &[u8]) -> Value {
+        #[allow(clippy::expect_used)]
+        try_to_json(update).expect("valid update")
+    }
+
+    /// The document an update holds, `None` when it doesn't decode.
+    pub fn try_to_json(update: &[u8]) -> Option<Value> {
         let doc = Doc::new();
         let mut txn = doc.transact_mut();
-        let decoded = Update::decode_v1(update).expect("valid update");
-        txn.apply_update(decoded).expect("update applies");
+        let decoded = Update::decode_v1(update).ok()?;
+        txn.apply_update(decoded).ok()?;
         let fragment = txn.get_or_insert_xml_fragment(super::FRAGMENT);
         let content: Vec<Value> = fragment
             .children(&txn)
             .flat_map(|child| node(&txn, child))
             .collect();
-        json!({ "type": "doc", "content": content })
+        Some(json!({ "type": "doc", "content": content }))
     }
 
     fn node<T: yrs::ReadTxn>(txn: &T, child: XmlOut) -> Vec<Value> {

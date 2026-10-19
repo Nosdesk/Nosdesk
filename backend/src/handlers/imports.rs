@@ -55,6 +55,10 @@
 //! - `GET  /admin/import/template/{type}?kind=` returns a CSV header
 //!   row the admin can fill in; for assets, with the kind's attributes.
 //!
+//! - `POST /admin/import?type=documentation` and the
+//!   `/admin/import/{id}/docs/...` routes import documentation from a zip of
+//!   Markdown (`handlers::imports_docs`).
+//!
 //! Every route is workspace-admin only, and files are read before any
 //! transaction opens.
 //!
@@ -79,6 +83,7 @@ use crate::models::{
 };
 use crate::repository::assets::AssetDeletedObserver;
 use crate::repository::imports as repo;
+use crate::services::imports::documentation;
 use crate::services::imports::files::{self, FileError};
 use crate::services::imports::history::{self, JobState};
 use crate::services::imports::mapping::{self, ColumnMapping, ImportSource, StoredSource};
@@ -171,6 +176,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/admin/import/{id}/invites",
         web::post().to(crate::handlers::imports::send_invites),
     )
+    .configure(crate::handlers::imports_docs::config)
     .service(
         web::resource("/admin/import/{id}")
             .route(web::get().to(crate::handlers::imports::get_job))
@@ -198,7 +204,7 @@ enum ReadOutcome {
 
 /// A file that can't be imported: 400 with the refusal's code, its English
 /// and the values the client words it with.
-fn refused_response(refused: Refused) -> HttpResponse {
+pub(crate) fn refused_response(refused: Refused) -> HttpResponse {
     errors::with_fields(
         actix_web::http::StatusCode::BAD_REQUEST,
         refused.code,
@@ -215,6 +221,7 @@ pub async fn upload(
     auth: AuthContext,
     storage: ScopedStorage,
     query: web::Query<UploadQuery>,
+    req: HttpRequest,
     mut payload: Multipart,
 ) -> impl Responder {
     // Bulk import can create/update users (including their roles),
@@ -224,6 +231,12 @@ pub async fn upload(
         return errors::forbidden("Import requires workspace admin");
     }
     let user_uuid = auth.user_uuid;
+
+    // A documentation import streams a zip of Markdown; everything else
+    // here reads a spreadsheet.
+    if query.job_type == crate::services::imports::documentation::JOB_TYPE {
+        return crate::handlers::imports_docs::upload(tc, auth, storage, req, payload).await;
+    }
 
     let job_type = match parse_type(query.job_type.as_str()) {
         Ok(t) => t,
@@ -770,6 +783,9 @@ pub async fn put_type(
 
 /// Why a job's type can't change now, if it can't.
 fn type_precondition(job: &ImportJob) -> Option<String> {
+    if job.job_type == documentation::JOB_TYPE {
+        return Some("a documentation import can't be read as another type".to_string());
+    }
     if expired(job) {
         return Some(EXPIRED.to_string());
     }
@@ -1678,6 +1694,7 @@ fn names_of(
 pub async fn get_job(
     mut tc: TenantConn,
     auth: AuthContext,
+    storage: ScopedStorage,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     // Job rows carry import previews that can include other users'
@@ -1686,6 +1703,24 @@ pub async fn get_job(
         return errors::forbidden("Import requires workspace admin");
     }
     let id = path.into_inner();
+    // A documentation import's background run that died is put back first.
+    let settled = tc.run(|conn| {
+        let job = repo::get(conn, id)?;
+        if documentation::reconcile::stalled(&job, chrono::Utc::now()) {
+            return documentation::reconcile::settle(conn, id);
+        }
+        Ok(Vec::new())
+    });
+    match settled {
+        Ok(keys) => documentation::reconcile::remove_stored(storage.get(), keys).await,
+        Err(diesel::result::Error::NotFound) => {
+            return errors::not_found_msg(format!("import job {id} not found"));
+        }
+        Err(e) => {
+            error!(error = ?e, "failed to load import job");
+            return errors::internal("failed to load import job");
+        }
+    }
     let read = tc.run(|conn| {
         let mut job = repo::get(conn, id)?;
         // A running commit hasn't written the job yet; say so, so a client
@@ -2439,7 +2474,7 @@ pub async fn error_report(
 
 /// The uploaded file's name without its extension, reduced to characters
 /// safe in a `Content-Disposition` filename.
-fn download_stem(filename: &str) -> String {
+pub(crate) fn download_stem(filename: &str) -> String {
     let stem = std::path::Path::new(filename)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -3183,7 +3218,7 @@ fn page_response(
 
 /// The job as a page shows it: with the names of who uploaded it, who
 /// removed its assets and who edited the ones kept.
-fn job_response(
+pub(crate) fn job_response(
     conn: &mut crate::db::DbConnection,
     job: ImportJob,
 ) -> Result<ImportJobResponse, diesel::result::Error> {
@@ -3410,7 +3445,7 @@ async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u
 
 /// The upload's name as stored: `import_jobs.filename` holds 255
 /// characters.
-fn stored_filename(name: &str) -> String {
+pub(crate) fn stored_filename(name: &str) -> String {
     name.chars().take(255).collect()
 }
 
@@ -3429,11 +3464,11 @@ fn mark_failed(conn: &mut crate::db::DbConnection, id: Uuid, message: &str) {
     }
 }
 
-const EXPIRED: &str =
+pub(crate) const EXPIRED: &str =
     "This draft expired 30 days after its last change and can't go on. Upload the file again.";
 
 /// A draft past the window or pruned: it can't be changed or committed.
-fn expired(job: &ImportJob) -> bool {
+pub(crate) fn expired(job: &ImportJob) -> bool {
     history::state_of(
         &job.status,
         job.updated_at,
@@ -3445,6 +3480,6 @@ fn expired(job: &ImportJob) -> bool {
 const DETAILS_PRUNED: &str = "This import's details were kept for 30 days and have been removed. Its counts, options and mapping are kept.";
 
 /// The answer for a job whose per-row detail the prune dropped.
-fn details_pruned() -> HttpResponse {
+pub(crate) fn details_pruned() -> HttpResponse {
     errors::gone_with_code(DETAILS_PRUNED, "import_details_pruned")
 }

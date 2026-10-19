@@ -25,7 +25,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::ir::{Block, Document, Inline, ListItem};
 use super::normalise::{Resolver, WikiEmbed, WIKILINK_PREFIX};
@@ -294,7 +294,8 @@ enum Outcome {
 }
 
 /// What a page's links and images did, for Review.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LinkReport {
     /// Links rewritten to pages in the import, counted once per target.
     pub rewritten: u32,
@@ -764,14 +765,27 @@ pub fn strip_notion_id(name: &str) -> &str {
     }
 }
 
+/// Where a placeholder sits: a link takes a page's route, an image a stored
+/// file's source, an embedded page the page's uuid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Link,
+    Image,
+    Embed,
+}
+
+/// What [`fill_placeholders`] asks of its caller.
+pub type Fill<'a> = &'a dyn Fn(&Placeholder, Slot) -> Option<String>;
+
 /// Replace every placeholder in a converted document. `fill` returns the
-/// final destination, or `None` to drop it (a link keeps its text, an image
-/// its alt text, an embedded page its title).
-pub fn fill_placeholders(document: &mut Document, fill: &dyn Fn(&Placeholder) -> Option<String>) {
+/// final destination for the slot the placeholder sits in, or `None` to drop
+/// it (a link keeps its text, an image its alt text, an embedded page its
+/// title).
+pub fn fill_placeholders(document: &mut Document, fill: Fill<'_>) {
     fill_blocks(&mut document.blocks, fill);
 }
 
-fn fill_blocks(blocks: &mut [Block], fill: &dyn Fn(&Placeholder) -> Option<String>) {
+fn fill_blocks(blocks: &mut [Block], fill: Fill<'_>) {
     for block in blocks.iter_mut() {
         match block {
             Block::Paragraph(inlines)
@@ -790,7 +804,7 @@ fn fill_blocks(blocks: &mut [Block], fill: &dyn Fn(&Placeholder) -> Option<Strin
                 document_title,
             } => {
                 if let Some(placeholder) = Placeholder::parse(document_uuid) {
-                    match fill(&placeholder) {
+                    match fill(&placeholder, Slot::Embed) {
                         Some(uuid) => *document_uuid = uuid,
                         None => {
                             *block = Block::Paragraph(vec![Inline::text(document_title.clone())]);
@@ -803,13 +817,13 @@ fn fill_blocks(blocks: &mut [Block], fill: &dyn Fn(&Placeholder) -> Option<Strin
     }
 }
 
-fn fill_items(items: &mut [ListItem], fill: &dyn Fn(&Placeholder) -> Option<String>) {
+fn fill_items(items: &mut [ListItem], fill: Fill<'_>) {
     for item in items {
         fill_blocks(&mut item.blocks, fill);
     }
 }
 
-fn fill_inlines(inlines: &mut Vec<Inline>, fill: &dyn Fn(&Placeholder) -> Option<String>) {
+fn fill_inlines(inlines: &mut Vec<Inline>, fill: Fill<'_>) {
     for inline in inlines.iter_mut() {
         match inline {
             Inline::Text(text) => {
@@ -818,7 +832,7 @@ fn fill_inlines(inlines: &mut Vec<Inline>, fill: &dyn Fn(&Placeholder) -> Option
                     .link
                     .as_ref()
                     .and_then(|link| Placeholder::parse(&link.href))
-                    .map(|p| fill(&p));
+                    .map(|p| fill(&p, Slot::Link));
                 if let Some(filled) = filled {
                     match filled {
                         Some(href) => {
@@ -832,7 +846,7 @@ fn fill_inlines(inlines: &mut Vec<Inline>, fill: &dyn Fn(&Placeholder) -> Option
             }
             Inline::Image(image) => {
                 if let Some(placeholder) = Placeholder::parse(&image.src) {
-                    match fill(&placeholder) {
+                    match fill(&placeholder, Slot::Image) {
                         Some(src) => image.src = src,
                         None => {
                             let alt = image.alt.clone().unwrap_or_default();
@@ -883,5 +897,48 @@ mod tests {
         }
         assert_eq!(Placeholder::parse("nosdesk-import:page/x"), None);
         assert_eq!(Placeholder::parse("https://x"), None);
+    }
+
+    #[test]
+    fn a_page_fills_by_slot() {
+        use super::super::ir::{Link, Marks};
+        let page = Placeholder::Page(3).to_href();
+        let mut document = Document {
+            blocks: vec![
+                Block::Paragraph(vec![Inline::marked(
+                    "Setup",
+                    Marks {
+                        link: Some(Link {
+                            href: page.clone(),
+                            title: None,
+                        }),
+                        ..Marks::default()
+                    },
+                )]),
+                Block::EmbeddedDocument {
+                    document_uuid: page,
+                    document_title: "Setup".into(),
+                },
+            ],
+        };
+        fill_placeholders(&mut document, &|p, slot| match (p, slot) {
+            (Placeholder::Page(3), Slot::Link) => Some("/documentation/41".into()),
+            (Placeholder::Page(3), Slot::Embed) => Some("0199-uuid".into()),
+            _ => None,
+        });
+        let Block::Paragraph(inlines) = &document.blocks[0] else {
+            panic!("a paragraph");
+        };
+        let Inline::Text(text) = &inlines[0] else {
+            panic!("text");
+        };
+        assert_eq!(text.marks.link.as_ref().unwrap().href, "/documentation/41");
+        assert_eq!(
+            document.blocks[1],
+            Block::EmbeddedDocument {
+                document_uuid: "0199-uuid".into(),
+                document_title: "Setup".into(),
+            }
+        );
     }
 }

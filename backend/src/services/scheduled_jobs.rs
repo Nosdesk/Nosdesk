@@ -670,6 +670,7 @@ pub async fn prune_import_history(pool: Pool) -> Result<()> {
         Some(lock) => lock,
         None => return Ok(()),
     };
+    reconcile_documentation_imports(&pool).await?;
     let cutoff = chrono::Utc::now() - crate::services::imports::history::details_window();
     prune_import_history_before(&pool, cutoff).await?;
     sweep_import_files_in(
@@ -678,6 +679,42 @@ pub async fn prune_import_history(pool: Pool) -> Result<()> {
         chrono::Utc::now() - chrono::Duration::days(1),
     )
     .await
+}
+
+/// Put back the documentation imports whose background check or commit
+/// died with its process (`services::imports::documentation::reconcile`),
+/// deleting the images a commit that didn't finish stored.
+pub async fn reconcile_documentation_imports(pool: &Pool) -> Result<()> {
+    use crate::services::imports::documentation::{reconcile, STALLED_AFTER};
+    let cutoff = chrono::Utc::now()
+        - chrono::Duration::from_std(STALLED_AFTER).unwrap_or(chrono::Duration::minutes(5));
+    let stalled =
+        // cross-tenant: finds the stalled jobs across every workspace; each is put back pinned to its own workspace below.
+        crate::sync::session::background_run(pool, "scheduler:documentation_import_scan", |conn| {
+            crate::repository::imports::stalled_documentation_jobs(conn, cutoff, 100)
+        })
+        .map_err(|e| anyhow::anyhow!("scan stalled documentation imports: {e}"))?;
+    let storage = crate::utils::storage::process_storage();
+    for (workspace_id, id) in stalled {
+        match crate::sync::session::run_in_workspace(
+            pool,
+            "scheduler:documentation_import_reconcile",
+            workspace_id,
+            |conn| reconcile::settle(conn, id),
+        ) {
+            Ok(keys) => {
+                let scoped = crate::utils::storage::WorkspaceScopedStorage::arc(
+                    storage.clone(),
+                    workspace_id,
+                );
+                reconcile::remove_stored(scoped, keys).await;
+            }
+            Err(e) => {
+                warn!(workspace_id, job_id = %id, error = ?e, "scheduler: documentation import reconcile failed")
+            }
+        }
+    }
+    Ok(())
 }
 
 /// One pass of [`prune_import_history`] with `cutoff` in place of 30 days
