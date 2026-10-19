@@ -1668,7 +1668,11 @@ pub async fn list_jobs(
                 removed: r
                     .removed
                     .zip(r.removed_of)
-                    .map(|(deleted, created)| RemovedCounts { deleted, created }),
+                    .map(|(deleted, created)| RemovedCounts {
+                        deleted,
+                        created,
+                        kept: r.removed_kept.unwrap_or(0),
+                    }),
             }
         })
         .collect();

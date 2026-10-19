@@ -4292,6 +4292,8 @@ import-history-load-failed = Recent imports didn't load.
 import-history-state-draft = Draft
 import-history-state-imported = Imported
 import-history-state-expired = Expired
+import-history-state-removed = Removed
+import-history-count-removed-pages = { $deleted } removed · { $kept } kept
 import-history-draft-on-map = Draft on Map columns
 import-history-draft-on-review = Draft on Review
 import-history-draft-on-pages = Draft on Pages
@@ -8917,6 +8919,11 @@ docs-import-tree-tick-with-children = { $count ->
 }
 docs-import-tree-left-out = Left out
 docs-import-tree-no-content = No content
+docs-import-tree-database = Database
+docs-import-tree-image-count = { $count ->
+    [one] 1 image
+   *[other] { $count } images
+}
 docs-import-tree-page-count = { $count ->
     [one] 1 page
    *[other] { $count } pages
@@ -8993,7 +9000,7 @@ docs-import-leave-out-matches = { $count ->
     [one] 1 page matches.
    *[other] { $count } pages match.
 }
-docs-import-too-many-patterns = Too many pages are unticked one by one to send. Untick their section instead, or add a pattern under Leave out.
+docs-import-too-many-typed-patterns = Leave out takes at most 100 patterns. Remove some.
 docs-import-pattern-too-long = A pattern is longer than 500 characters. Shorten it.
 docs-import-choose-collection = Choose the collection to import into.
 
@@ -9252,6 +9259,8 @@ docs-import-outcome-copy = Copy
 docs-import-outcome-skipped = Skipped
 docs-import-outcome-error = Error
 docs-import-outcome-left = Not imported
+docs-import-outcome-trash = In Trash
+docs-import-outcome-kept = Kept
 docs-import-row-already-skip = Already in Nosdesk, so it's skipped
 docs-import-row-already-copy = Already in Nosdesk, so a copy is made
 docs-import-row-changed = Changed since check: this page is in Nosdesk now
@@ -9337,7 +9346,7 @@ docs-import-importing-title = { $count ->
 }
 docs-import-importing-progress = { $written } of { $total } pages written
 docs-import-importing-finishing = Finishing: links, embeds and the search index
-docs-import-importing-leave = You can leave this page. The import keeps running and shows here, and in Recent imports, when it's done. The count updates about every half minute.
+docs-import-importing-leave = You can leave this page. The import keeps running and shows here, and in Recent imports, when it's done.
 docs-import-done-heading = Import complete
 docs-import-done-summary = { $count ->
     [one] 1 page imported into { $where }
@@ -9363,7 +9372,7 @@ docs-import-done-errors = { $count ->
     [one] 1 page couldn't be converted and was imported empty.
    *[other] { $count } pages couldn't be converted and were imported empty.
 }
-docs-import-done-drafts = The pages are drafts: only staff can see them. Read a few, then publish them.
+docs-import-done-drafts = The pages are drafts: only staff can see them. Read a few, then publish them all here or one at a time.
 docs-import-done-revision = Each page's first revision says "Imported from { $file }".
 docs-import-done-open = Open { $name }
 docs-import-done-open-docs = Open Documentation
@@ -9397,5 +9406,107 @@ docs-import-detail-dup-skip = Pages already in Nosdesk skipped
 docs-import-detail-dup-copy = Pages already in Nosdesk imported as copies
 docs-import-detail-left-out = Left out: { $patterns }
 docs-import-detail-tree-title = Pages this import wrote
-docs-import-detail-tree-footer = Skipped and not imported rows are what the check found; they wrote nothing.
+docs-import-detail-tree-footer = Titles open the page. Skipped and not imported rows are what the check found; they wrote nothing.
 docs-import-detail-kept = Details are kept for 30 days. The counts and options stay after that.
+docs-import-detail-state-removed = { $count ->
+    [one] Removed: 1 page moved to Trash on { $date }
+   *[other] Removed: { $count } pages moved to Trash on { $date }
+}, { $kept } kept
+
+# Publish all
+docs-import-publish-button = { $count ->
+    [one] Publish 1 page
+   *[other] Publish all { $count } pages
+}
+docs-import-publish-title = { $count ->
+    [one] Publish 1 page?
+   *[other] Publish { $count } pages?
+}
+docs-import-publish-message = Everyone in the workspace who can see { $collection } will see them. Pages someone has already changed or published since the import are left as they are.
+docs-import-publish-these-collections = these collections
+docs-import-publish-confirm = { $count ->
+    [one] Publish 1 page
+   *[other] Publish { $count } pages
+}
+docs-import-published = { $count ->
+    [one] 1 page published
+   *[other] { $count } pages published
+}
+docs-import-published-left = { $count ->
+    [one] 1 left as it was (changed since the import)
+   *[other] { $count } left as they were (changed since the import)
+}
+docs-import-publish-failed = Publishing the pages failed and nothing was published.
+
+# Remove imported pages
+docs-import-remove-button = Remove imported pages
+docs-import-remove-window = Moves them to Trash. Only pages nobody has changed since. Until { $date }.
+docs-import-remove-running = Still removing. This page updates when it finishes.
+docs-import-remove-still-running-later = Removing is taking longer than usual. Come back to this page later to see what it did.
+docs-import-remove-load-failed = Couldn't check the imported pages. Try again.
+docs-import-remove-failed = Removing the imported pages failed and nothing was moved to Trash.
+docs-import-remove-not-committed = This import wasn't committed, so it created no pages.
+docs-import-remove-already-removed = The pages this import created were already moved to Trash.
+docs-import-action-busy = This import is being changed. Try again in a moment.
+docs-import-remove-nothing-none-created = This import created no pages, so there is nothing to remove.
+docs-import-remove-nothing-all-gone = The pages this import created were already deleted or moved to Trash.
+docs-import-remove-nothing-all-changed = Every page this import created has been changed since, so none can be moved to Trash.
+docs-import-remove-title = { $count ->
+    [one] Move 1 page to Trash?
+   *[other] Move { $count } pages to Trash?
+}
+docs-import-remove-title-none = Nothing to move to Trash
+docs-import-remove-confirm = { $count ->
+    [one] Move 1 page to Trash
+   *[other] Move { $count } pages to Trash
+}
+docs-import-remove-untouched = { $created ->
+    [one] Of the 1 page this import created,
+   *[other] Of the { $created } pages this import created,
+} { $count ->
+    [one] 1 is untouched and goes to Trash, where it can be restored.
+   *[other] { $count } are untouched and go to Trash, where they can be restored.
+}
+docs-import-remove-changed = { $count ->
+    [one] 1 has changed since and is kept.
+   *[other] { $count } have changed since and are kept.
+}
+docs-import-remove-gone = { $count ->
+    [one] 1 was already deleted or moved to Trash.
+   *[other] { $count } were already deleted or moved to Trash.
+}
+docs-import-remove-existing-keeps = { $name } keeps its other pages.
+docs-import-remove-collection-if-empty = The collection is deleted if it ends up empty.
+docs-import-remove-collections-if-empty = Collections that end up empty are deleted.
+docs-import-remove-once = This can be done once, until { $date }.
+docs-import-remove-which-kept = { $count ->
+    [one] Which page is kept?
+   *[other] Which { $count } are kept?
+}
+docs-import-remove-reason-edited = Edited on { $date }
+docs-import-remove-reason-edited-by = Edited on { $date } by { $name }
+docs-import-remove-reason-pages-added = { $count ->
+    [one] Has 1 page added since
+   *[other] Has { $count } pages added since
+}
+docs-import-remove-reason-moved = Moved to another collection
+docs-import-remove-reason-kept-under = { $count ->
+    [one] Kept because 1 page under it changed
+   *[other] Kept because { $count } pages under it changed
+}
+docs-import-remove-result = { $count ->
+    [one] 1 page moved to Trash.
+   *[other] { $count } pages moved to Trash.
+} { $kept } kept.
+docs-import-remove-result-restore = Restore any of them from Trash as usual.
+docs-import-remove-result-existing = { $name } was kept: it still has its other pages.
+docs-import-remove-result-collection-deleted = { $name } was deleted because it ended up empty.
+docs-import-remove-result-collection-kept = { $count ->
+    [one] { $name } was kept: 1 page remains in it.
+   *[other] { $name } was kept: { $count } pages remain in it.
+}
+docs-import-remove-result-collections-deleted = { $count ->
+    [one] 1 collection that ended up empty was deleted.
+   *[other] { $count } collections that ended up empty were deleted.
+}
+docs-import-remove-result-collections-kept = The collections were kept: they still have pages.

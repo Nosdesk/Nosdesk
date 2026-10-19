@@ -45,11 +45,11 @@ import {
   buildTree,
   collectionGroups,
   defaultMode,
+  excludedIndices,
   layoutOf,
+  offFromIndices,
   optionsPayload,
   patternsProblem,
-  splitPatterns,
-  tickPatterns,
   type PagesChoices,
 } from '@/components/import/docsImport/docsTreeModel'
 import { detailPath, resumeTarget } from '@/components/import/historyModel'
@@ -240,7 +240,10 @@ function loadChoices(found: DocsImportJob, keep: Partial<PagesChoices> = {}) {
   loading = true
   const view = found.source?.tree
   const o = found.options ?? {}
-  const split = view ? splitPatterns(buildTree(view.pages), o.leave_out ?? []) : { off: new Set<string>(), typed: [] }
+  const split = {
+    off: view ? offFromIndices(buildTree(view.pages), o.exclude_pages) : new Set<string>(),
+    typed: o.leave_out ?? [],
+  }
   const next: PagesChoices = {
     profile: o.profile ?? null,
     mode: o.collections ?? (view ? defaultMode(view.profile) : 'new'),
@@ -477,10 +480,9 @@ function resetToStart() {
 
 async function check() {
   if (!job.value || busy.value) return
-  const patterns = [...choices.value.typed, ...tickPatterns(tree.value, off.value)]
-  const problem = patternsProblem(patterns)
+  const problem = patternsProblem(choices.value.typed)
   if (problem) {
-    errorMessage.value = t(problem === 'too_many' ? 'docs-import-too-many-patterns' : 'docs-import-pattern-too-long')
+    errorMessage.value = t(problem === 'too_many' ? 'docs-import-too-many-typed-patterns' : 'docs-import-pattern-too-long')
     return
   }
   if (choices.value.mode === 'existing' && choices.value.collectionId == null) {
@@ -493,7 +495,7 @@ async function check() {
   changed.value = new Set()
   const id = job.value.id
   try {
-    const payload = optionsPayload(choices.value, tickPatterns(tree.value, off.value), 'check')
+    const payload = optionsPayload(choices.value, excludedIndices(tree.value, off.value), 'check')
     job.value = await docsImportService.putOptions(id, payload, true)
     duplicates.value = choices.value.duplicates
     await waitForCheck(id)
@@ -610,6 +612,15 @@ async function commit() {
   } finally {
     if (busy.value === 'commit') busy.value = null
   }
+}
+
+/** Remove imported pages ran (or was refused): show the job as it is now,
+ *  and Recent imports its new state. */
+function onUpdated(updated: DocsImportJob) {
+  if (job.value?.id !== updated.id) return
+  job.value = updated
+  queryCache.invalidateQueries({ key: ['import-jobs'] })
+  queryCache.invalidateQueries({ key: ['import-job', updated.id] })
 }
 
 async function waitForCommit(id: string) {
@@ -890,6 +901,7 @@ function goTo(target: Step) {
           @report="downloadReport"
           @another="importAnother"
           @recent="router.push({ name: 'admin-data-import' })"
+          @updated="onUpdated"
         />
         <p v-if="job.status === 'done'" class="text-sm">
           <RouterLink :class="linkClass" :to="{ name: 'admin-data-import' }" data-test="docs-done-recent">

@@ -12,6 +12,8 @@
 //!   Otherwise it starts the check in the background and answers 202 with
 //!   the job in `checking`; the job lands in `dry_run_done` (or back in
 //!   `parsed` with `error_message` when the file can't be imported so).
+//!   The check leaves out `exclude_pages`, indices into `source.tree`, with
+//!   the pages under them; an index past the tree is 400.
 //! - `GET /admin/import/{id}/docs/pages?filter=all|notes|skipped|errors&offset=&limit=`
 //!   pages through every page's result (25 by default).
 //! - `GET /admin/import/{id}/docs/pages/{index}/preview` returns one page as
@@ -19,7 +21,8 @@
 //! - `GET /admin/import/{id}/docs/report` downloads the conversion report.
 //! - `POST /admin/import/{id}/docs/commit` takes `{duplicates?}`, checks the
 //!   plan still holds and starts the commit in the background: 202 with the
-//!   job in `committing` (`records_committed` counts pages written), 409
+//!   job in `committing` (`records_committed` counts pages written, updated
+//!   after each batch), 409
 //!   `import_plan_changed` with the job holding the new plan.
 //!
 //! - `GET /admin/import/{id}/docs/remove` says what Remove imported pages
@@ -256,7 +259,7 @@ async fn read_tree(
         let files = archive.entries().len();
         let built = crate::services::docs_markdown::tree::build(
             &mut archive,
-            &options.tree_options(&archive_name),
+            &options.tree_options(&archive_name, None),
             &NoWorkspace,
         )?;
         Ok((TreeView::of(&built.plan, &built.documents), files))
@@ -467,6 +470,10 @@ pub async fn put_options(
     if let Some(message) = options.invalid() {
         return errors::bad_request(message);
     }
+    let shown = DocsSource::from_job(&job).map_or(0, |s| s.tree.pages.len());
+    if options.exclude_pages.iter().any(|i| *i >= shown) {
+        return errors::bad_request("A page to leave out isn't in the tree. Read the pages again.");
+    }
     let audience = PageAudience::from_auth(&auth);
     match tc.run(|conn| destination_problem(conn, &audience, &options)) {
         Ok(None) => {}
@@ -530,6 +537,7 @@ pub async fn put_options(
         workspace_uuid: workspace.workspace_uuid,
         filename: job.filename.clone(),
         options,
+        shown: DocsSource::from_job(&job).map(|s| s.tree),
         kept_web,
     });
     info!(id = %id, "documentation check started");

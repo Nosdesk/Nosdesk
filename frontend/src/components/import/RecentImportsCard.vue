@@ -2,7 +2,8 @@
 /**
  * The hub's Recent imports card: the newest jobs that reached Map, each
  * with when and who, the file and type, its state (Draft, Imported,
- * Expired), what it did or where it stopped, and Resume or View. On a
+ * Expired, or Removed for documentation whose pages went to Trash), what it
+ * did or where it stopped, and Resume or View. On a
  * phone each job is a two-line card and the counts line carries the state.
  */
 import { useFluent } from 'fluent-vue'
@@ -20,13 +21,12 @@ import {
 
 import {
   RECENT_LIMIT,
-  STATE_KEY,
-  STATE_TONE,
   countsLine,
   detailPath,
   fileLabel,
   resumeTarget,
   rowAction,
+  statePill,
 } from './historyModel'
 
 const fluent = useFluent()
@@ -71,9 +71,9 @@ const counts = (item: ImportJobListItem) => countsLine(t, item)
         </span>
         <span class="hidden md:block">
           <StatusPill
-            v-if="item.state"
-            :label="$t(STATE_KEY[item.state])"
-            :tone="STATE_TONE[item.state]"
+            v-if="statePill(item)"
+            :label="$t(statePill(item)!.key)"
+            :tone="statePill(item)!.tone"
             data-test="recent-import-state"
           />
         </span>

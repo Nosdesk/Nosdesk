@@ -100,6 +100,13 @@ function onRemoved(updated: ImportJob) {
   queryCache.invalidateQueries({ key: ['import-jobs'] })
 }
 
+/** Remove imported pages ran on a documentation import (or was refused):
+ *  the page shows the job as it is now, and Recent imports its state. */
+function onDocsUpdated(updated: DocsImportJob) {
+  queryCache.setQueryData(importJobQueryKey(updated.id), updated as unknown as ImportJob)
+  queryCache.invalidateQueries({ key: ['import-jobs'] })
+}
+
 const imported = computed(() => job.value?.state === 'imported')
 const kept = computed(() => !!job.value && detailsKept(job.value))
 
@@ -243,7 +250,7 @@ const linkClass =
       <ErrorBanner v-if="jobQuery.error.value" :message="$t('import-detail-load-failed')" />
 
       <template v-else-if="docsJob && docsJob.state !== 'draft'">
-        <DocsImportDetail :job="docsJob" />
+        <DocsImportDetail :job="docsJob" @updated="onDocsUpdated" />
         <p class="text-sm">
           <RouterLink :class="linkClass" to="/admin/data-import" data-test="import-detail-recent">
             {{ $t('import-history-title') }}

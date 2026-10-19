@@ -109,6 +109,23 @@ describe('RecentImportsCard', () => {
     )
   })
 
+  it('shows a documentation import whose pages were moved to Trash as Removed', async () => {
+    api.list.mockResolvedValue([
+      item({
+        id: 'docs-3',
+        job_type: 'documentation',
+        filename: 'IT-Handbook.zip',
+        sheet: null,
+        removed: { deleted: 34, created: 36, kept: 2 },
+      }),
+    ])
+    await mountCard()
+    const row = wrapper!.find('[data-test="recent-import"]')
+    expect(row.find('[data-test="recent-import-state"]').text()).toBe('import-history-state-removed')
+    expect(row.find('[data-test="recent-import-counts"]').text()).toBe('import-history-count-removed-pages')
+    expect(row.find('[data-test="recent-import-view"]').attributes('href')).toBe('/admin/data-import/imports/docs-3')
+  })
+
   it('says so when nothing has been imported', async () => {
     api.list.mockResolvedValue([])
     await mountCard()

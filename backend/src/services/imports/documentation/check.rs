@@ -21,7 +21,7 @@ use super::web::{self, WebFetcher};
 use super::{
     note_lines, preview_key, upload_key, CommitRecord, Destination, DocsOptions, DocsRows,
     DocsSummary, Duplicate, Duplicates, FoundBy, ImageKind, ImageProblem, PageImage, PageOutcome,
-    PageRow, TenantWorkspace, WebImage, WebImages, CONVERT_BUDGET, JOB_TYPE,
+    PageRow, TenantWorkspace, TreeView, WebImage, WebImages, CONVERT_BUDGET, JOB_TYPE,
 };
 use crate::extractors::TenantConn;
 use crate::models::ImportJobUpdate;
@@ -45,6 +45,8 @@ pub struct CheckRun {
     pub workspace_uuid: Uuid,
     pub filename: String,
     pub options: DocsOptions,
+    /// The tree the admin unticked pages in (the job's `source.tree`).
+    pub shown: Option<TreeView>,
     /// An earlier check's web images, downloaded already.
     pub kept_web: BTreeMap<String, WebImage>,
 }
@@ -363,7 +365,7 @@ async fn check(run: &CheckRun) -> Result<Checked, Failure> {
     let workspace = TenantWorkspace::new(run.tc.clone(), run.workspace_uuid);
     let (built, archive) = build(
         opened.archive,
-        run.options.tree_options(&run.filename),
+        run.options.tree_options(&run.filename, run.shown.as_ref()),
         workspace,
     )
     .await?;

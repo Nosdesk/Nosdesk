@@ -24,7 +24,7 @@ import {
 } from '@nosdesk/core/services/docsImportService'
 
 import { IMAGE_PROBLEM_KEY, type NoteLine, type RowOutcome } from './docsReviewModel'
-import { shortPath } from './docsTreeModel'
+import { previewPath } from './docsTreeModel'
 import { mountPreview, type PreviewHandle, type PreviewLabels } from './docsPreviewView'
 
 const props = withDefaults(
@@ -39,8 +39,10 @@ const props = withDefaults(
     /** In the sheet, whose header carries the title: the path and outcome
      *  lead the body instead. */
     headless?: boolean
+    /** The folder the source sits in, left off the path shown. */
+    root?: string | null
   }>(),
-  { outcome: null, notes: () => [], others: 0, headless: false },
+  { outcome: null, notes: () => [], others: 0, headless: false, root: null },
 )
 
 const emit = defineEmits<{
@@ -139,14 +141,14 @@ const OUTCOME: Record<RowOutcome, { key: string; tone: StatusPillTone }> = {
     <div v-if="!headless" class="flex items-center gap-2 px-3 py-2 border-b border-default bg-surface-alt min-w-0">
       <div class="flex-1 min-w-0 flex flex-col">
         <b class="text-sm font-semibold text-primary truncate">{{ row ? row.title : $t('docs-import-preview-title') }}</b>
-        <span class="text-2xs text-tertiary truncate" :class="row ? 'font-mono' : ''" :title="row?.path">
-          {{ row ? shortPath(row.path) : $t('docs-import-preview-select') }}
+        <span class="text-2xs text-tertiary truncate" :class="row ? 'font-mono' : ''" :title="row?.path" data-test="docs-preview-path">
+          {{ row ? previewPath(row.path, root) : $t('docs-import-preview-select') }}
         </span>
       </div>
       <StatusPill v-if="row && outcome" :label="$t(OUTCOME[outcome].key)" :tone="OUTCOME[outcome].tone" />
     </div>
     <div v-else-if="row" class="flex items-center gap-2 px-3 py-2 border-b border-default min-w-0">
-      <span class="flex-1 min-w-0 text-2xs font-mono text-tertiary truncate" :title="row.path">{{ shortPath(row.path) }}</span>
+      <span class="flex-1 min-w-0 text-2xs font-mono text-tertiary truncate" :title="row.path" data-test="docs-preview-path">{{ previewPath(row.path, root) }}</span>
       <StatusPill v-if="outcome" :label="$t(OUTCOME[outcome].key)" :tone="OUTCOME[outcome].tone" />
     </div>
 

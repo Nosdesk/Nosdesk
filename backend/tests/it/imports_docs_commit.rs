@@ -629,3 +629,114 @@ async fn web_images_are_downloaded_or_kept_as_links() {
         vec!["http://10.0.0.1/rack.png".to_string()]
     );
 }
+
+/// Audit rows for job `id`.
+fn job_audit_rows(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> i64 {
+    count(
+        pool,
+        ws,
+        &format!(
+            "SELECT count(*) AS n FROM audit_log WHERE table_name = 'import_jobs' AND pk_text = '{id}'"
+        ),
+    )
+}
+
+/// Unticked pages are left out by their index in the tree Pages showed,
+/// with the pages under them; out-of-range indices are refused; the
+/// committed job names each page it wrote, by path, with its id.
+#[actix_web::test]
+async fn unticked_pages_are_left_out_and_the_job_names_the_pages_it_wrote() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = import_workspaces(&pool);
+    let ws = &seeded.a;
+    private_storage();
+    let job = uploaded(&pool, ws, "IT-Handbook.zip", &handbook()).await;
+    let id = id_of(&job);
+    let tree = job["source"]["tree"]["pages"].as_array().unwrap().clone();
+    let index_of = |title: &str| {
+        tree.iter()
+            .find(|p| p["title"] == title)
+            .unwrap_or_else(|| panic!("no {title} in {tree:?}"))["index"]
+            .as_u64()
+            .unwrap()
+    };
+    let network = index_of("Network");
+    assert_eq!(tree[network as usize]["kind"], "page");
+
+    let (status, body, _) = call_docs(
+        &pool,
+        ws,
+        ws.admin_uuid,
+        crate::imports_docs_flow::options_request(
+            &id,
+            serde_json::json!({ "exclude_pages": [tree.len()] }),
+            true,
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let job = checked(
+        &pool,
+        ws,
+        &id,
+        serde_json::json!({ "exclude_pages": [network] }),
+    )
+    .await;
+    assert_eq!(job["options"]["exclude_pages"][0], network);
+    assert_eq!(job["summary"]["would_create"], 1, "{job}");
+    let job = committed(&pool, ws, &id, serde_json::json!({})).await;
+    assert_eq!(job["status"], "done", "{job}");
+    assert_eq!(job["records_committed"], 1);
+
+    let written = pages(&pool, ws);
+    let titles: Vec<&str> = written.iter().map(|p| p.title.as_str()).collect();
+    assert_eq!(titles, vec!["Getting started"]);
+    let named = job["pages_written"].as_array().expect("pages_written");
+    assert_eq!(named.len(), 1, "{job}");
+    assert_eq!(named[0]["id"], written[0].id);
+    assert_eq!(named[0]["path"], "getting-started.md");
+}
+
+/// The commit records its progress after each batch of pages, through the
+/// heartbeat, which leaves no audit row: a large import is audited exactly
+/// as often as a small one.
+#[actix_web::test]
+async fn progress_by_batch_leaves_no_audit_rows() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = import_workspaces(&pool);
+    let ws = &seeded.a;
+    private_storage();
+
+    let audited_commit = |zip: Vec<u8>, name: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let id = id_of(&uploaded(&pool, ws, name, &zip).await);
+            checked(&pool, ws, &id, serde_json::json!({})).await;
+            let before = job_audit_rows(&pool, ws, &id);
+            let job = committed(&pool, ws, &id, serde_json::json!({})).await;
+            assert_eq!(job["status"], "done", "{job}");
+            (job, job_audit_rows(&pool, ws, &id) - before)
+        }
+    };
+
+    let (_, small) = audited_commit(zip_of(&[("one.md", b"# One\n\nOne.")]), "one.zip").await;
+    let bodies: Vec<(String, String)> = (0..80)
+        .map(|i| {
+            (
+                format!("page-{i:03}.md"),
+                format!("# Page {i}\n\nBody {i}."),
+            )
+        })
+        .collect();
+    let files: Vec<(&str, &[u8])> = bodies
+        .iter()
+        .map(|(n, b)| (n.as_str(), b.as_bytes()))
+        .collect();
+    let (job, large) = audited_commit(zip_of(&files), "many.zip").await;
+    assert_eq!(job["records_committed"], 80);
+    assert_eq!(large, small, "batches of progress add no audit rows");
+}

@@ -4,12 +4,10 @@
  * follow, leave-out patterns matched as the server matches them, and the
  * options the step sends.
  *
- * The server has one way to leave pages out: `leave_out`, a list of globs
- * over archive paths. A tick is turned into patterns at Check: an unticked
- * page's own file, exactly (a leading `/` anchors it to the archive root),
- * and its folder with everything under it. Those patterns are kept apart
- * from the ones the admin types, which are the only ones shown as chips, and
- * the two are told apart again when a checked job is resumed.
+ * Two things leave pages out: the patterns the admin types (`leave_out`,
+ * globs over archive paths) and the ticks, sent at Check as the indices of
+ * the unticked pages in the tree the server last read (`exclude_pages`);
+ * the server leaves out everything under an unticked page with it.
  *
  * Pages are keyed by `path`: reading the tree again (another profile) gives
  * every page a new index, but the same file keeps its path.
@@ -17,6 +15,7 @@
 import type {
   DocsCollectionMode,
   DocsOptions,
+  DocsPageKind,
   DocsProfile,
   DocsTreePage,
   DocsTreeView,
@@ -226,58 +225,26 @@ export function treeCounts(tree: Tree, off: OffSet, patterns: string[]): TreeCou
   return { total: tree.all.length, ticked, unticked, leftOut }
 }
 
-/** The patterns that leave the unticked pages out: for each unticked page
- *  whose parent is ticked, its file exactly and its folder with everything
- *  in it, plus any page under it whose file sits elsewhere. */
-export function tickPatterns(tree: Tree, off: OffSet): string[] {
-  const out: string[] = []
-  const add = (p: string) => {
-    if (!out.includes(p)) out.push(p)
-  }
-  for (const node of tree.all) {
-    if (!isSelfOff(node, off) || ancestors(node).some((a) => isSelfOff(a, off))) continue
-    const folder = node.page.folder
-    if (node.page.file) add(`/${node.page.file}`)
-    if (folder) add(`/${folder}/**`)
-    for (const d of descendants(node)) {
-      const file = d.page.file
-      if (file && !(folder && file.startsWith(`${folder}/`))) add(`/${file}`)
-      if (d.page.folder && !(folder && d.page.folder.startsWith(`${folder}/`))) add(`/${d.page.folder}/**`)
-    }
-  }
-  return out
+/** The indices of the unticked pages, for `exclude_pages`: only the top
+ *  of each unticked branch, since the server leaves out what is under it. */
+export function excludedIndices(tree: Tree, off: OffSet): number[] {
+  return tree.all
+    .filter((node) => isSelfOff(node, off) && !ancestors(node).some((a) => isSelfOff(a, off)))
+    .map((node) => node.page.index)
 }
 
-/** A stored `leave_out` told apart again: patterns a tick made (an exact
- *  file or folder of a page in the tree) become unticked pages, the rest
- *  are the admin's. */
-export function splitPatterns(tree: Tree, stored: string[]): { off: Set<string>; typed: string[] } {
-  const byFile = new Map<string, TreeNode>()
-  const byFolder = new Map<string, TreeNode>()
-  for (const node of tree.all) {
-    if (node.page.file) byFile.set(node.page.file, node)
-    if (node.page.folder) byFolder.set(node.page.folder, node)
-  }
+/** A stored `exclude_pages` as unticked pages, by path. */
+export function offFromIndices(tree: Tree, indices: number[] | undefined): Set<string> {
   const off = new Set<string>()
-  const typed: string[] = []
-  for (const pattern of stored) {
-    const file = pattern.startsWith('/') ? byFile.get(pattern.slice(1)) : undefined
-    const folder =
-      pattern.startsWith('/') && pattern.endsWith('/**') ? byFolder.get(pattern.slice(1, -3)) : undefined
-    const node = file ?? folder
+  for (const index of indices ?? []) {
+    const node = tree.byIndex.get(index)
     if (node) off.add(node.page.path)
-    else typed.push(pattern)
   }
-  // Only the top unticked page of a branch needs to stay unticked itself.
-  for (const path of [...off]) {
-    const node = tree.byPath.get(path)
-    if (node && ancestors(node).some((a) => off.has(a.page.path))) off.delete(path)
-  }
-  return { off, typed }
+  return off
 }
 
-/** Why the patterns can't be sent, if they can't: the server takes at most
- *  100, each up to 500 characters. */
+/** Why the typed patterns can't be sent, if they can't: the server takes at
+ *  most 100, each up to 500 characters. */
 export function patternsProblem(patterns: string[]): 'too_many' | 'too_long' | null {
   if (patterns.length > MAX_PATTERNS) return 'too_many'
   if (patterns.some((p) => p.length > MAX_PATTERN_CHARS)) return 'too_long'
@@ -339,12 +306,12 @@ export interface PagesChoices {
   typed: string[]
 }
 
-/** The options for a check (`leave_out` holds the typed patterns and the
- *  ticks'), or for reading the tree again (`leave_out` empty, so unticked
- *  pages stay in the tree, greyed). */
+/** The options for a check (the typed patterns, and the unticked pages by
+ *  index), or for reading the tree again (neither, so every page stays in
+ *  the tree and the step greys them). */
 export function optionsPayload(
   choices: PagesChoices,
-  tickPats: string[],
+  excluded: number[],
   purpose: 'check' | 'reread',
 ): DocsOptions {
   const options: DocsOptions = {
@@ -352,7 +319,8 @@ export function optionsPayload(
     status: choices.status,
     web_images: choices.webImages,
     duplicates: choices.duplicates,
-    leave_out: purpose === 'check' ? [...choices.typed, ...tickPats.filter((p) => !choices.typed.includes(p))] : [],
+    leave_out: purpose === 'check' ? [...choices.typed] : [],
+    exclude_pages: purpose === 'check' ? [...excluded] : [],
   }
   if (choices.profile) options.profile = choices.profile
   if (choices.mode === 'existing') {
@@ -407,4 +375,17 @@ export function collectionGroups(
  *  their first eight. */
 export function shortPath(path: string): string {
   return path.replace(/\s([0-9a-f]{8})[0-9a-f]{24}(?=\/|\.|$)/gi, ' $1')
+}
+
+/** A page's path as the preview shows it: below the folder the source sits
+ *  in, with Notion's ids shortened. */
+export function previewPath(path: string, root: string | null | undefined): string {
+  const inside = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path
+  return shortPath(inside)
+}
+
+/** What the page stands for. A tree read before the server said falls back
+ *  on whether the page has a file. */
+export function pageKind(page: DocsTreePage): DocsPageKind {
+  return page.kind ?? (page.file ? 'page' : 'section')
 }

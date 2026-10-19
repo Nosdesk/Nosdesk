@@ -4,16 +4,18 @@ import type { DocsTreePage, DocsTreeView } from '@nosdesk/core/services/docsImpo
 import {
   buildTree,
   collectionGroups,
+  excludedIndices,
   globMatch,
   informativeFile,
   isMixed,
   isOff,
   leftOutBy,
+  offFromIndices,
   optionsPayload,
+  pageKind,
   patternsProblem,
+  previewPath,
   shortPath,
-  splitPatterns,
-  tickPatterns,
   toggle,
   treeCounts,
   type PagesChoices,
@@ -106,20 +108,18 @@ describe('ticks', () => {
     expect([...toggle(node('Onboarding.md'), off)]).toEqual([])
   })
 
-  it('turns unticked branches into exact patterns, and reads them back', () => {
-    const off = new Set(['Onboarding.md', 'Network/VPN.md'])
-    const patterns = tickPatterns(tree(), off)
-    expect(patterns).toEqual(['/Onboarding.md', '/Onboarding/**', '/Network/VPN.md'])
-    // Every page of the branch is matched by them, nothing else.
-    const matched = PAGES.filter((p) => p.file && patterns.some((g) => globMatch(g, p.file!))).map((p) => p.title)
-    expect(matched).toEqual(['Onboarding', 'Day one', 'Laptop', 'VPN'])
-
-    const back = splitPatterns(tree(), [...patterns, '**/archive/**'])
-    expect([...back.off].sort()).toEqual(['Network/VPN.md', 'Onboarding.md'])
-    expect(back.typed).toEqual(['**/archive/**'])
+  it('sends the top of each unticked branch by index, and reads them back', () => {
+    // A page unticked under an unticked parent goes with it: one index.
+    const off = new Set(['Onboarding.md', 'Onboarding/Day one.md', 'Network/VPN.md'])
+    const indices = excludedIndices(tree(), off)
+    expect(indices).toEqual([0, 4])
+    expect([...offFromIndices(tree(), indices)].sort()).toEqual(['Network/VPN.md', 'Onboarding.md'])
+    // An index the tree no longer has is dropped.
+    expect([...offFromIndices(tree(), [99])]).toEqual([])
+    expect([...offFromIndices(tree(), undefined)]).toEqual([])
   })
 
-  it('refuses more patterns than the server takes', () => {
+  it('refuses more typed patterns than the server takes', () => {
     expect(patternsProblem(Array.from({ length: 101 }, (_, i) => `/${i}.md`))).toBe('too_many')
     expect(patternsProblem(['x'.repeat(501)])).toBe('too_long')
     expect(patternsProblem(['**/archive/**'])).toBeNull()
@@ -137,17 +137,20 @@ describe('leave-out patterns', () => {
 })
 
 describe('optionsPayload', () => {
-  it('sends the ticks and typed patterns at Check, and none when reading the tree again', () => {
+  it('sends the unticked pages and typed patterns at Check, and neither when reading the tree again', () => {
     const choices = { ...CHOICES, typed: ['**/archive/**'], collectionName: ' IT Handbook ' }
-    expect(optionsPayload(choices, ['/Onboarding.md'], 'check')).toEqual({
+    expect(optionsPayload(choices, [0, 4], 'check')).toEqual({
       collections: 'new',
       collection_name: 'IT Handbook',
       status: 'drafts',
       web_images: 'download',
       duplicates: 'skip',
-      leave_out: ['**/archive/**', '/Onboarding.md'],
+      leave_out: ['**/archive/**'],
+      exclude_pages: [0, 4],
     })
-    expect(optionsPayload(choices, ['/Onboarding.md'], 'reread').leave_out).toEqual([])
+    const reread = optionsPayload(choices, [0, 4], 'reread')
+    expect(reread.leave_out).toEqual([])
+    expect(reread.exclude_pages).toEqual([])
   })
 
   it('names the collection and page only for an existing collection, and the profile when forced', () => {
@@ -193,5 +196,25 @@ describe('file names', () => {
     )
     expect(informativeFile(page(0, 'Network', null, null, 'Network'))).toBeNull()
     expect(shortPath('IT 9f3c1e2d4b5a6c7d8e9f0a1b2c3d4e5f/VPN 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d.md')).toBe('IT 9f3c1e2d/VPN 1a2b3c4d.md')
+  })
+
+  it('shows a preview path below the archive root, ids shortened', () => {
+    const root = 'Export-0a1b2c3d'
+    expect(previewPath(`${root}/IT 9f3c1e2d4b5a6c7d8e9f0a1b2c3d4e5f/VPN 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d.md`, root)).toBe(
+      'IT 9f3c1e2d/VPN 1a2b3c4d.md',
+    )
+    // A root that only shares a prefix with the path stays.
+    expect(previewPath('Export-0a1b2c3d-2/VPN.md', root)).toBe('Export-0a1b2c3d-2/VPN.md')
+    expect(previewPath('docs/VPN.md', '')).toBe('docs/VPN.md')
+    expect(previewPath('docs/VPN.md', undefined)).toBe('docs/VPN.md')
+  })
+})
+
+describe('page kinds', () => {
+  it('reads the kind the server sent, or falls back on whether there is a file', () => {
+    expect(pageKind({ ...page(0, 'Vendors', null, null, 'Vendors'), kind: 'database' })).toBe('database')
+    expect(pageKind({ ...page(1, 'Dell', 0, 'Vendors/Dell.md'), kind: 'database_row' })).toBe('database_row')
+    expect(pageKind(page(2, 'Network', null, null, 'Network'))).toBe('section')
+    expect(pageKind(page(3, 'VPN', null, 'VPN.md'))).toBe('page')
   })
 })

@@ -114,7 +114,7 @@ fn page_href(built: &Built, title: &str) -> String {
 
 /// Every link href, image src and embedded page uuid in a document, in
 /// order; a link split across runs once.
-fn destinations(document: &Document) -> Vec<String> {
+pub(crate) fn destinations(document: &Document) -> Vec<String> {
     fn inlines(list: &[Inline], out: &mut Vec<String>) {
         let mut last: Option<String> = None;
         for inline in list {

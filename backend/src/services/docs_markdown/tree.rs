@@ -22,7 +22,7 @@
 //! the title.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -103,6 +103,63 @@ pub struct ImportOptions {
     pub status: StatusMode,
     /// Globs of archive paths left out (`**/archive/**`).
     pub leave_out: Vec<String>,
+    /// Pages the admin unticked, left out with everything under them.
+    pub exclude: ExcludedPages,
+}
+
+/// Pages left out by what they are rather than where they sit in the
+/// tree, so a tree read under other leave-out patterns finds them still: a
+/// page goes when its file or its folder is listed, or, for a page with
+/// neither (a nav heading), its titles from the top down.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExcludedPages {
+    pub files: BTreeSet<String>,
+    pub folders: BTreeSet<String>,
+    pub trails: BTreeSet<Vec<String>>,
+}
+
+impl ExcludedPages {
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.folders.is_empty() && self.trails.is_empty()
+    }
+
+    /// Leave out the page with this file, folder and trail of titles.
+    pub fn add(&mut self, file: Option<&str>, folder: Option<&str>, trail: &[String]) {
+        if let Some(file) = file {
+            self.files.insert(file.to_string());
+        }
+        if let Some(folder) = folder {
+            self.folders.insert(folder.to_string());
+        }
+        if file.is_none() && folder.is_none() {
+            self.trails.insert(trail.to_vec());
+        }
+    }
+
+    pub fn matches(&self, file: Option<&str>, folder: Option<&str>, trail: &[String]) -> bool {
+        match (file, folder) {
+            (None, None) => self.trails.contains(trail),
+            _ => {
+                file.is_some_and(|f| self.files.contains(f))
+                    || folder.is_some_and(|f| self.folders.contains(f))
+            }
+        }
+    }
+}
+
+/// What a page stands for, for the tree's icon and pills.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PageKind {
+    /// A Markdown file.
+    #[default]
+    Page,
+    /// A folder with no page file of its own: a page with no content.
+    Section,
+    /// A Notion database, its rows shown as a table.
+    Database,
+    /// A row of a Notion database, as its own page.
+    DatabaseRow,
 }
 
 /// A collection the import creates.
@@ -131,6 +188,7 @@ pub struct PlannedPage {
     pub order: u32,
     /// The collection a top-level page goes in, by index.
     pub collection: Option<usize>,
+    pub kind: PageKind,
     pub status: PageStatus,
     pub icon: Option<String>,
     /// A slug to keep when it is free.
@@ -157,6 +215,8 @@ pub struct LeftOut {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Plan {
     pub profile: ProfileKind,
+    /// The folder the source sits in inside the archive, if any.
+    pub root: String,
     /// What detection said, when an override replaced it.
     pub detected: Option<ProfileKind>,
     pub collections: Vec<PlannedCollection>,
@@ -1014,7 +1074,8 @@ impl Planner<'_> {
                 _ => CollectionMode::New,
             },
         };
-        let (collections, top) = self.collections(mode, &mut nodes, &drafts);
+        let (collections, mut top) = self.collections(mode, &mut nodes, &drafts);
+        let excluded_files = self.leave_out_pages(&mut nodes, &drafts, &mut top);
 
         // Pages in tree order, parents first.
         let mut order: Vec<(usize, Option<usize>, u32, Option<usize>)> = Vec::new();
@@ -1036,7 +1097,9 @@ impl Planner<'_> {
         // The link index.
         let mut index = LinkIndex::new(&self.root);
         for key in self.files {
-            index.add_file(key);
+            if !excluded_files.contains(key) {
+                index.add_file(key);
+            }
         }
         for (i, (node, ..)) in order.iter().enumerate() {
             let node_ref = &nodes[*node];
@@ -1133,6 +1196,14 @@ impl Planner<'_> {
                 }
             };
             totals.merge(&notes);
+            let kind = match (&node_ref.file, &node_ref.csv) {
+                (Some(_), _) if parent_node.is_some_and(|p| nodes[p].csv.is_some()) => {
+                    PageKind::DatabaseRow
+                }
+                (Some(_), _) => PageKind::Page,
+                (None, Some(_)) => PageKind::Database,
+                (None, None) => PageKind::Section,
+            };
             let manifest = node_ref.manifest.as_ref();
             pages.push(PlannedPage {
                 index: i,
@@ -1142,6 +1213,7 @@ impl Planner<'_> {
                 parent: parent_node.and_then(|p| index_of.get(&p).copied()),
                 order: *position,
                 collection: *collection,
+                kind,
                 status: self.status(draft.peek.fields.as_ref(), manifest),
                 icon: manifest
                     .and_then(|m| m.icon.clone())
@@ -1168,6 +1240,7 @@ impl Planner<'_> {
         Ok(Built {
             plan: Plan {
                 profile: self.kind,
+                root: self.root.clone(),
                 detected: self.detected,
                 collections,
                 pages,
@@ -1178,6 +1251,40 @@ impl Planner<'_> {
             },
             documents,
         })
+    }
+
+    /// Take the pages the admin unticked out of the tree, with everything
+    /// under them, before it is numbered. Returns the files they stood for
+    /// (their Markdown and a database's CSV), which are left out: a link to
+    /// one is kept as text, as for a file a pattern leaves out.
+    fn leave_out_pages(
+        &mut self,
+        nodes: &mut [Node],
+        drafts: &[Option<Draft>],
+        top: &mut Vec<(usize, Option<usize>)>,
+    ) -> HashSet<String> {
+        let mut files = HashSet::new();
+        if self.options.exclude.is_empty() {
+            return files;
+        }
+        let mut gone = Vec::new();
+        let mut trail = Vec::new();
+        let options = self.options;
+        let excluded = &options.exclude;
+        top.retain(|(node, _)| {
+            !drop_if_excluded(nodes, drafts, excluded, *node, &mut trail, &mut gone)
+        });
+        for node in gone {
+            for key in [&nodes[node].file, &nodes[node].csv].into_iter().flatten() {
+                if files.insert(key.clone()) {
+                    self.left_out.push(LeftOut {
+                        path: key.clone(),
+                        reason: "excluded",
+                    });
+                }
+            }
+        }
+        files
     }
 
     fn compare(&self, nodes: &[Node], drafts: &[Option<Draft>], a: usize, b: usize) -> Ordering {
@@ -1496,6 +1603,45 @@ impl Planner<'_> {
             blocks: vec![Block::Table(Table { rows })],
         }
     }
+}
+
+/// Whether `node` is excluded; if so, it and everything under it go in
+/// `gone`, and otherwise its excluded children leave it.
+fn drop_if_excluded(
+    nodes: &mut [Node],
+    drafts: &[Option<Draft>],
+    excluded: &ExcludedPages,
+    node: usize,
+    trail: &mut Vec<String>,
+    gone: &mut Vec<usize>,
+) -> bool {
+    trail.push(
+        drafts[node]
+            .as_ref()
+            .map(|d| d.title.clone())
+            .unwrap_or_default(),
+    );
+    let hit = excluded.matches(
+        nodes[node].file.as_deref(),
+        nodes[node].folder.as_deref(),
+        trail,
+    );
+    if hit {
+        let mut stack = vec![node];
+        while let Some(n) = stack.pop() {
+            gone.push(n);
+            stack.extend(nodes[n].children.iter().copied());
+        }
+    } else {
+        let children = nodes[node].children.clone();
+        let kept: Vec<usize> = children
+            .into_iter()
+            .filter(|c| !drop_if_excluded(nodes, drafts, excluded, *c, trail, gone))
+            .collect();
+        nodes[node].children = kept;
+    }
+    trail.pop();
+    hit
 }
 
 fn walk(

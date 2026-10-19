@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
  * A past documentation import: what it read, the options it ran with, its
- * counts, and the tree with each page's outcome, then Open and the
- * conversion report. Thirty days after the import the per-page detail is
+ * counts, and the tree with each page's outcome (each written page's title
+ * opens it), then Open, Publish all, the conversion report and Remove
+ * imported pages. Thirty days after the import the per-page detail is
  * removed: the page then shows the counts and options, and says so.
  */
 import { computed, ref } from 'vue'
@@ -25,6 +26,9 @@ import { useSyncDocsStore } from '@nosdesk/core/sync/stores/documentation'
 
 import { errorBody, refusalText } from '../refusals'
 import DocsPageTree, { type TreeOutcome } from './DocsPageTree.vue'
+import DocsPublishAction from './DocsPublishAction.vue'
+import DocsRemoveBlock from './DocsRemoveBlock.vue'
+import { destinationOf, removedState } from './docsRemoveModel'
 import {
   collectionAfterImport,
   outcomeOf,
@@ -34,6 +38,11 @@ import {
 import { buildTree, collectionGroups } from './docsTreeModel'
 
 const props = defineProps<{ job: DocsImportJob }>()
+
+const emit = defineEmits<{
+  /** The job after Remove imported pages, or as it is now after a refusal. */
+  updated: [job: DocsImportJob]
+}>()
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -70,15 +79,27 @@ const groups = computed(() => {
   }, existing)
 })
 
-/** Each page's outcome by path; a page the import left out has no row. */
+/** The page each written page became, by path. */
+const links = computed(() => new Map((props.job.pages_written ?? []).map((p) => [p.path, p.id])))
+
+/** Each page's outcome by path; a page the import left out has no row.
+ *  Once Remove imported pages ran, a page it wrote went to Trash or was
+ *  kept. */
 const outcomes = computed(() => {
   const out = new Map<string, TreeOutcome>()
   const rows = rowsQuery.data.value
   if (!rows) return out
   const byPath = new Map(rows.map((r) => [r.path, r]))
+  const removed = props.job.remove_result
+  const kept = new Set((removed?.kept ?? []).map((k) => k.id))
+  const trashed = new Set(removed?.deleted_ids ?? [])
   for (const node of tree.value.all) {
     const row = byPath.get(node.page.path)
-    out.set(node.page.path, row ? outcomeOf(row, choice.value) : 'left')
+    let outcome: TreeOutcome = row ? outcomeOf(row, choice.value) : 'left'
+    const id = links.value.get(node.page.path)
+    if (id != null && kept.has(id)) outcome = 'kept'
+    else if (id != null && trashed.has(id)) outcome = 'trash'
+    out.set(node.page.path, outcome)
   }
   return out
 })
@@ -104,6 +125,7 @@ const subtitle = computed(() =>
 const stateLabel = computed(() => {
   const s = summary.value
   if (!s) return ''
+  if (props.job.remove_result) return removedState(t, props.job, formatCompactDate)
   return t('docs-import-detail-state', {
     count: props.job.records_committed ?? counts.value?.imported ?? 0,
     status: s.status,
@@ -133,7 +155,7 @@ const optionsLabel = computed(() => {
   bits.push(t(`docs-import-status-${s.status.replace(/_/g, '-')}`))
   bits.push(s.web_images_choice === 'download' ? t('docs-import-detail-web-download') : t('docs-import-detail-web-links'))
   bits.push(s.duplicates_choice === 'skip' ? t('docs-import-detail-dup-skip') : t('docs-import-detail-dup-copy'))
-  const typed = props.job.options?.leave_out?.filter((p) => !p.startsWith('/')) ?? []
+  const typed = props.job.options?.leave_out ?? []
   if (typed.length > 0) bits.push(t('docs-import-detail-left-out', { patterns: typed.join(', ') }))
   return bits.join(' · ')
 })
@@ -156,6 +178,10 @@ const tiles = computed(() => {
 })
 
 const collectionTarget = computed(() => collectionAfterImport(summary.value, docs.allCollections))
+const dest = computed(() => ({
+  ...destinationOf(summary.value),
+  ...(collectionTarget.value ? { name: collectionTarget.value.name } : {}),
+}))
 
 function open() {
   const target = collectionTarget.value
@@ -228,6 +254,7 @@ async function downloadReport() {
         mode="detail"
         :outcomes="outcomes"
         :note-counts="noteCounts"
+        :links="links"
         :label="$t('docs-import-detail-tree-title')"
       />
       <p class="px-3 py-2 border-t border-default bg-surface-alt text-xs text-tertiary">
@@ -239,6 +266,7 @@ async function downloadReport() {
       <Button icon="openExternal" data-test="docs-detail-open" @click="open">
         {{ collectionTarget ? $t('docs-import-done-open', { name: collectionTarget.name }) : $t('docs-import-done-open-docs') }}
       </Button>
+      <DocsPublishAction v-if="summary" :job="job" :summary="summary" :collection="collectionTarget?.name ?? null" />
       <Button
         v-if="kept"
         variant="secondary"
@@ -254,5 +282,7 @@ async function downloadReport() {
     <p class="text-sm text-tertiary" data-test="import-detail-kept">
       {{ kept ? $t('docs-import-detail-kept') : $t('import-detail-kept-30-days') }}
     </p>
+
+    <DocsRemoveBlock :job="job" :dest="dest" @updated="emit('updated', $event)" />
   </div>
 </template>

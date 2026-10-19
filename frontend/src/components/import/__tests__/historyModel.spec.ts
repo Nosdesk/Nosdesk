@@ -14,6 +14,7 @@ import {
   reportOffered,
   resumeTarget,
   rowAction,
+  statePill,
 } from '../historyModel'
 
 /** Echoes the key and its arguments, so the words chosen are visible. */
@@ -99,6 +100,19 @@ describe('Recent imports rows', () => {
     expect(countsLine(t, item({ removed: { deleted: 398, created: 407 } }))).toBe(
       'import-history-count-removed(deleted=398,created=407)',
     )
+  })
+
+  it('shows a documentation import whose pages were removed as Removed, with what moved and what was kept', () => {
+    const docs = item({ job_type: 'documentation', removed: { deleted: 34, created: 36, kept: 2 } })
+    expect(countsLine(t, docs)).toBe('import-history-count-removed-pages(deleted=34,kept=2)')
+    expect(statePill(docs)).toEqual({ key: 'import-history-state-removed', tone: 'neutral' })
+    // An asset import keeps its state; a draft or expired job its own.
+    expect(statePill(item({ removed: { deleted: 2, created: 3, kept: 1 } }))).toEqual({
+      key: 'import-history-state-imported',
+      tone: 'positive',
+    })
+    expect(statePill(item({ job_type: 'documentation', state: 'draft' }))?.key).toBe('import-history-state-draft')
+    expect(statePill(item({ state: null }))).toBeNull()
   })
 
   it('says where a draft stopped, and that an expired one expired', () => {

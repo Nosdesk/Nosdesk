@@ -3,9 +3,10 @@
  * Done for a documentation import. The commit runs in the background, so
  * Done first follows it ("Importing 36 pages", with the pages written so
  * far; the admin can leave and come back), then says what it did, with the
- * collection to open and the conversion report.
+ * collection to open, Publish all, the conversion report, and Remove
+ * imported pages.
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
@@ -14,7 +15,10 @@ import SectionCard from '@/components/common/SectionCard.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import type { DocsImportJob, DocsSummary } from '@nosdesk/core/services/docsImportService'
 
+import DocsPublishAction from './DocsPublishAction.vue'
+import DocsRemoveBlock from './DocsRemoveBlock.vue'
 import { noteText, summaryCounts } from './docsReviewModel'
+import { destinationOf } from './docsRemoveModel'
 
 const props = defineProps<{
   job: DocsImportJob
@@ -29,6 +33,8 @@ const emit = defineEmits<{
   report: []
   another: []
   recent: []
+  /** The job after Remove imported pages, or as it is now after a refusal. */
+  updated: [job: DocsImportJob]
 }>()
 
 const fluent = useFluent()
@@ -40,6 +46,11 @@ const importing = computed(() => props.job.status === 'committing')
 const total = computed(() => counts.value.imported)
 const written = computed(() => Math.min(props.job.records_committed ?? 0, total.value))
 const pct = computed(() => (total.value > 0 ? Math.round((written.value / total.value) * 100) : 0))
+
+const dest = computed(() => ({ ...destinationOf(props.summary), name: props.collection ?? destinationOf(props.summary).name }))
+const removed = computed(() => !!props.job.removed_at || !!props.job.remove_result)
+/** Publish all ran here: the drafts line no longer applies. */
+const published = ref(false)
 
 const where = computed(() =>
   props.collection ?? t('docs-import-done-many', { count: props.summary.destination.new_collections.length }),
@@ -127,7 +138,7 @@ const noteLines = computed(() =>
       </template>
       <div class="px-4 py-3 flex flex-col gap-1.5 text-sm">
         <p class="text-primary" data-test="docs-done-headline">{{ doneLine }}</p>
-        <p v-if="summary.status === 'drafts'" class="text-secondary">{{ $t('docs-import-done-drafts') }}</p>
+        <p v-if="summary.status === 'drafts' && !removed && !published" class="text-secondary">{{ $t('docs-import-done-drafts') }}</p>
         <p class="text-xs text-tertiary">{{ $t('docs-import-done-revision', { file: job.filename }) }}</p>
       </div>
     </Callout>
@@ -148,6 +159,7 @@ const noteLines = computed(() =>
       <Button icon="openExternal" data-test="docs-done-open" @click="emit('open')">
         {{ collection ? $t('docs-import-done-open', { name: collection }) : $t('docs-import-done-open-docs') }}
       </Button>
+      <DocsPublishAction :job="job" :summary="summary" :collection="collection" @published="published = true" />
       <Button
         v-if="!job.pruned_at"
         variant="secondary"
@@ -175,5 +187,7 @@ const noteLines = computed(() =>
         {{ $t('docs-import-conversion-done-footer') }}
       </p>
     </SectionCard>
+
+    <DocsRemoveBlock :job="job" :dest="dest" @updated="emit('updated', $event)" />
   </section>
 </template>

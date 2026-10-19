@@ -613,7 +613,7 @@ export interface ImportJobListItem {
   /** Once the job has been checked. */
   counts: ImportCounts | null
   /** Once Remove imported assets ran: assets deleted of those created. */
-  removed?: { deleted: number; created: number } | null
+  removed?: { deleted: number; created: number; kept?: number } | null
 }
 
 export const importJobsQueryKey = (limit: number) => ['import-jobs', limit] as const
