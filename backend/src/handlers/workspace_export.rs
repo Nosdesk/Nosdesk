@@ -29,9 +29,9 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 
 #[derive(Debug, Deserialize)]
 pub struct WorkspaceExportRequest {
-    /// When present, the archive is sealed (AES-256-GCM) and sensitive auth
-    /// fields are kept. Absent yields a plaintext zip with `SENSITIVE_FIELDS`
-    /// stripped. Carried in the body (never the URL) so it isn't logged/cached.
+    /// When present, the archive is sealed (AES-256-GCM) and the archive
+    /// policy's secret columns are kept. Absent yields a plaintext zip without
+    /// them. Carried in the body (never the URL) so it isn't logged/cached.
     #[serde(default)]
     pub password: Option<String>,
 }

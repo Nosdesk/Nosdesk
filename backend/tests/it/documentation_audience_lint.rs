@@ -32,6 +32,8 @@ const TABLE_READERS: &[&str] = &[
     "models/documentation.rs",
     "models/documentation_collections.rs",
     "schema_joins.rs",
+    // The archive policy names every workspace table to classify it.
+    "services/workspace_archive/policy.rs",
 ];
 
 #[test]
