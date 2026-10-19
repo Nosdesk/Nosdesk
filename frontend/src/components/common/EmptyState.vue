@@ -114,9 +114,10 @@ const icons = {
       </p>
     </div>
 
-    <!-- Action button -->
+    <!-- Actions: a slot for more than one, else the single action button -->
+    <slot v-if="$slots.actions" name="actions" />
     <Button
-      v-if="actionLabel"
+      v-else-if="actionLabel"
       :size="variant === 'compact' ? 'sm' : variant === 'card' ? 'md' : 'lg'"
       :class="{
         'min-w-[140px]': variant === 'page' || !variant,

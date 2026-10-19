@@ -3190,14 +3190,6 @@ docs-index-new-page = Nieuwe pagina
 # Docs: indexwerkbalk (DocumentationIndexToolbar)
 docs-index-toolbar-search = Documentatie doorzoeken
 # MACHINE TRANSLATION, pending native review
-docs-index-toolbar-search-placeholder = Documentatie doorzoeken…
-docs-index-toolbar-stats = { $pages ->
-    [one] { $pages } pagina
-   *[other] { $pages } pagina's
-  } in { $collections ->
-    [one] { $collections } collectie
-   *[other] { $collections } collecties
-  }
 docs-index-library-heading = Bibliotheek
 docs-index-library-count = { $count ->
     [one] { $count } collectie
@@ -3220,21 +3212,26 @@ docs-index-drafts-strip-suffix = { $count ->
    *[other] zitten nog niet in een collectie
   }
 docs-index-drafts-strip-review = Bekijken →
-docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = Nieuwe collectie
-docs-index-toolbar-more = Meer
 docs-index-toolbar-more-aria = Documentatie-acties
 docs-index-toolbar-scan-gaps = Scannen op kennislacunes
 docs-index-toolbar-scan-no-results = Geen nieuwe lacunes gevonden
 docs-index-toolbar-scan-success = { $created } nieuwe lacunes · { $updated } bijgewerkt
 docs-index-toolbar-scan-error = Scan mislukt. Probeer het opnieuw.
-docs-index-toolbar-maintenance-heading = Onderhoud
-docs-index-toolbar-archived = Gearchiveerde pagina's
-docs-index-toolbar-trash = Prullenbak
 docs-index-toolbar-publish-heading = Publicatie
 docs-index-toolbar-admin-heading = Beheer
 docs-index-toolbar-public-site = Publieke site bekijken
 docs-index-toolbar-guest-settings = Gasttoegang
+
+# Docs: tabbladen en acties in de indexbalk (machine, nog na te kijken door moedertaalspreker)
+docs-index-tabs-aria = Documentatieweergaven
+docs-index-tab-library = Bibliotheek
+docs-index-tab-drafts = Concepten
+docs-index-tab-archived = Gearchiveerd
+docs-index-tab-trash = Prullenbak
+docs-index-toolbar-search-button = Zoeken
+docs-index-toolbar-more-actions = Meer acties
+docs-index-toolbar-knowledge-heading = Kennis
 
 docs-index-stat-collections = { $count ->
     [one] { $count } collectie
@@ -3304,7 +3301,6 @@ docs-index-chip-trash = { $count } in prullenbak
 docs-drafts-title = Niet in een collectie
 docs-drafts-heading = Niet in een collectie
 docs-drafts-description = Pagina's die nog niet aan een collectie zijn toegewezen
-docs-drafts-back = Terug naar Documentatie
 docs-drafts-count = { $count ->
     [one] { $count } pagina
    *[other] { $count } pagina's
@@ -3315,7 +3311,6 @@ docs-drafts-count = { $count ->
 docs-archived-title = Gearchiveerd
 docs-archived-heading = Gearchiveerd
 docs-archived-description = Pagina's die zijn gearchiveerd
-docs-archived-back = Terug naar Documentatie
 docs-archived-count = { $count ->
     [one] { $count } pagina
    *[other] { $count } pagina's
@@ -3329,7 +3324,6 @@ docs-archived-restore = Herstellen
 docs-trash-title = Prullenbak
 docs-trash-heading = Prullenbak
 docs-trash-description = Verwijderde pagina's kunnen worden hersteld of permanent worden verwijderd
-docs-trash-back = Terug naar Documentatie
 docs-trash-count = { $count ->
     [one] { $count } pagina
    *[other] { $count } pagina's
@@ -5669,7 +5663,6 @@ docs-collection-manager-saving = Opslaan...
 
 # Docs: collectie-overzicht (CollectionBrowser)
 docs-collection-browser-heading = Collecties
-docs-collection-browser-new = Nieuw
 docs-collection-browser-name-placeholder = Naam van de collectie...
 docs-collection-browser-cancel = Annuleren
 docs-collection-browser-create = Aanmaken

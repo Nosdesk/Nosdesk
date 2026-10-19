@@ -2145,17 +2145,12 @@ docs-index-new-page = New page
 
 # Docs: documentation index toolbar (DocumentationIndexToolbar)
 docs-index-toolbar-search = Search documentation
-docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = New collection
-docs-index-toolbar-more = More
 docs-index-toolbar-more-aria = Documentation actions
 docs-index-toolbar-scan-gaps = Scan for knowledge gaps
 docs-index-toolbar-scan-no-results = No new gaps found
 docs-index-toolbar-scan-success = { $created } new gaps · { $updated } updated
 docs-index-toolbar-scan-error = Gap scan failed. Try again.
-docs-index-toolbar-maintenance-heading = Maintenance
-docs-index-toolbar-archived = Archived pages
-docs-index-toolbar-trash = Trash
 docs-index-toolbar-publish-heading = Publishing
 docs-index-toolbar-admin-heading = Admin
 docs-index-toolbar-public-site = View public site
@@ -2227,7 +2222,6 @@ docs-index-chip-trash = { $count } in trash
 # Documentation drafts (DocumentationDraftsView): pages not yet
 # assigned to a collection.
 docs-drafts-description = Pages not yet sorted into a collection
-docs-drafts-back = Back to Documentation
 docs-drafts-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -2238,7 +2232,6 @@ docs-drafts-count = { $count ->
 docs-archived-title = Archived
 docs-archived-heading = Archived
 docs-archived-description = Pages that have been archived
-docs-archived-back = Back to Documentation
 docs-archived-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -2252,7 +2245,6 @@ docs-archived-restore = Restore
 docs-trash-title = Trash
 docs-trash-heading = Trash
 docs-trash-description = Deleted pages can be restored or permanently removed
-docs-trash-back = Back to Documentation
 docs-trash-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3015,7 +3007,6 @@ docs-collection-manager-saving = Saving...
 
 # Docs: collection browser (CollectionBrowser)
 docs-collection-browser-heading = Collections
-docs-collection-browser-new = New
 docs-collection-browser-name-placeholder = Collection name...
 docs-collection-browser-cancel = Cancel
 docs-collection-browser-create = Create
