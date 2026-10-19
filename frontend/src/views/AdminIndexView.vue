@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import IconButton from '@/components/common/IconButton.vue'
 import { ref, computed } from 'vue';
+import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import {
   adminNavGroups,
+  adminNavItemHref,
+  type AdminNavItem,
   filterAdminNavGroups,
   filterAdminNavGroupsForRole
 } from '@/components/admin/adminNavData';
 import { useAuthStore } from '@/stores/auth';
-import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
+import { getControlPlaneUrl, isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
+import { openExternalUrl } from '@/platform';
 import Icon from '@/components/common/Icon.vue';
 
 const fluent = useFluent();
@@ -21,9 +25,20 @@ const roleGroups = computed(() =>
     isAdmin: authStore.isAdmin,
     isAuditReviewer: authStore.isAuditReviewer,
     isPlatformAdmin: authStore.isPlatformAdmin,
-    isHosted: isHostedDeployment()
+    isHosted: isHostedDeployment(),
+    isOwner: authStore.isOwner,
+    controlPlaneUrl: getControlPlaneUrl()
   })
 );
+// An item that leaves the app (Plan and billing on Cloud) is a real link for
+// hover and copy, opened through the platform so the native shell hands it to
+// the system browser.
+const hrefOf = (item: AdminNavItem) => adminNavItemHref(item, getControlPlaneUrl());
+function openIfExternal(item: AdminNavItem, event: MouseEvent) {
+  if (item.route) return;
+  event.preventDefault();
+  void openExternalUrl(hrefOf(item));
+}
 const filteredGroups = computed(() =>
   filterAdminNavGroups(roleGroups.value, searchQuery.value, (key) => fluent.$t(key))
 );
@@ -71,11 +86,13 @@ const filteredGroups = computed(() =>
             {{ $t(group.labelKey) }}
           </h2>
           <div class="bg-surface border border-default rounded-xl overflow-hidden divide-y divide-default">
-            <RouterLink
+            <component
+              :is="item.route ? RouterLink : 'a'"
               v-for="item in group.items"
-              :key="item.route"
-              :to="item.route"
+              :key="item.route ?? item.controlPlanePath"
+              v-bind="item.route ? { to: item.route } : { href: hrefOf(item), target: '_blank', rel: 'noopener' }"
               class="flex items-center gap-3 px-4 py-3.5 hover:bg-surface-hover transition-colors group"
+              @click="openIfExternal(item, $event)"
             >
               <div
                 class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center bg-accent/15 text-accent"
@@ -87,9 +104,9 @@ const filteredGroups = computed(() =>
                 <p class="text-xs text-secondary mt-0.5 line-clamp-1">{{ $t(item.descriptionKey) }}</p>
               </div>
               <span class="text-tertiary group-hover:text-secondary transition-colors flex-shrink-0 inline-flex">
-                <Icon name="chevronRight" />
+                <Icon :name="item.route ? 'chevronRight' : 'openExternal'" />
               </span>
-            </RouterLink>
+            </component>
           </div>
         </div>
 

@@ -257,11 +257,9 @@ bug-report-modal-title = Report a problem
 bug-report-modal-description-label = What happened?
 bug-report-modal-description-placeholder = e.g. tried to save a comment and saw a red banner; was on the assignee dropdown just before.
 bug-report-modal-description-hint = A sentence or two is plenty.
-bug-report-modal-attachments-hint = We attach the current page, build version, and the last few navigations and API calls. Stays inside this workspace.
 bug-report-modal-cancel = Cancel
 bug-report-modal-submit = Send report
 bug-report-success-toast-title = Report sent
-bug-report-success-toast-body = Thanks. An admin can find it in this workspace's diagnostics.
 bug-report-error-toast-title = Couldn't send report
 bug-report-error-toast-body = Try again in a moment.
 

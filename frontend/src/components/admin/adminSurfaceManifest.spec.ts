@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { adminNavGroups, filterAdminNavGroupsForRole } from './adminNavData'
+import { adminNavGroups, adminNavItemHref, filterAdminNavGroups, filterAdminNavGroupsForRole } from './adminNavData'
 import { ADMIN_SURFACE_TIER } from './adminSurfaceManifest'
 
 /**
@@ -11,7 +11,11 @@ import { ADMIN_SURFACE_TIER } from './adminSurfaceManifest'
  * production.
  */
 describe('admin surface gating manifest', () => {
-  const navItems = adminNavGroups.flatMap((g) => g.items)
+  // In-app pages only: an item that opens the Nosdesk account dashboard has
+  // no admin route to gate.
+  const navItems = adminNavGroups
+    .flatMap((g) => g.items)
+    .filter((i): i is typeof i & { route: string } => typeof i.route === 'string')
 
   it('classifies every admin nav route (a new surface must declare a tier)', () => {
     const unclassified = navItems.map((i) => i.route).filter((route) => !(route in ADMIN_SURFACE_TIER))
@@ -80,6 +84,45 @@ describe('a hosted workspace admin', () => {
     const platform = Object.entries(ADMIN_SURFACE_TIER)
       .filter(([, tier]) => tier === 'platform')
       .map(([route]) => route);
-    expect(routes.filter(r => platform.includes(r))).toEqual([]);
+    expect(routes.filter(r => r && platform.includes(r))).toEqual([]);
   });
 });
+
+describe('Plan and billing', () => {
+  const cp = 'https://manage.example.com'
+  const titles = (opts: { isHosted: boolean; isOwner: boolean; isPlatformAdmin?: boolean; controlPlaneUrl?: string }) =>
+    filterAdminNavGroupsForRole(adminNavGroups, {
+      isAdmin: true,
+      isAuditReviewer: false,
+      isPlatformAdmin: opts.isPlatformAdmin ?? false,
+      isHosted: opts.isHosted,
+      isOwner: opts.isOwner,
+      controlPlaneUrl: opts.controlPlaneUrl,
+    }).flatMap(g => g.items)
+
+  it('is offered to a Cloud owner, linking to the account dashboard', () => {
+    const item = titles({ isHosted: true, isOwner: true, controlPlaneUrl: cp })
+      .find(i => i.titleKey === 'admin-nav-plan-billing-title')
+    expect(item).toBeTruthy()
+    expect(adminNavItemHref(item!, `${cp}/`)).toBe(`${cp}/account/billing`)
+    // Searchable by what a trialist types.
+    const found = filterAdminNavGroups([{ labelKey: 'g', items: [item!] }], 'cancel', (k) => k)
+    expect(found).toHaveLength(1)
+  })
+
+  it('is not offered to a Cloud admin who is not the owner', () => {
+    const keys = titles({ isHosted: true, isOwner: false, isPlatformAdmin: true, controlPlaneUrl: cp }).map(i => i.titleKey)
+    expect(keys).not.toContain('admin-nav-plan-billing-title')
+  })
+
+  it('is not offered on self-hosted, which keeps License', () => {
+    const keys = titles({ isHosted: false, isOwner: true, isPlatformAdmin: true, controlPlaneUrl: cp }).map(i => i.titleKey)
+    expect(keys).not.toContain('admin-nav-plan-billing-title')
+    expect(keys).toContain('admin-nav-license-title')
+  })
+
+  it('is not offered while the account dashboard address is unknown', () => {
+    const keys = titles({ isHosted: true, isOwner: true }).map(i => i.titleKey)
+    expect(keys).not.toContain('admin-nav-plan-billing-title')
+  })
+})

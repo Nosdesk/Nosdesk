@@ -369,7 +369,11 @@ user-menu-account = Account
 user-menu-administration = Beheer
 # MACHINE TRANSLATION, pending native review
 user-menu-team = Team
+# MACHINE TRANSLATION, pending native review
+user-menu-plan-billing = Abonnement en facturering
 user-menu-help = Help
+# MACHINE TRANSLATION, pending native review
+user-menu-contact-support = Contact met support
 user-menu-report-problem = Probleem melden
 user-menu-sign-out = Afmelden
 user-menu-guest-name = Gast
@@ -378,13 +382,25 @@ bug-report-modal-title = Probleem melden
 bug-report-modal-description-label = Wat is er gebeurd?
 bug-report-modal-description-placeholder = bv. ik probeerde een reactie op te slaan en kreeg een rode banner; stond net daarvoor op het menu voor toewijzing.
 bug-report-modal-description-hint = Een of twee zinnen zijn genoeg.
-bug-report-modal-attachments-hint = We voegen de huidige pagina, de buildversie, en de laatste navigaties en API-aanroepen toe. Blijft binnen deze werkruimte.
+# MACHINE TRANSLATION, pending native review
+bug-report-modal-attachments-hint-self-hosted = We voegen de huidige pagina, de buildversie, en de laatste navigaties en API-aanroepen toe. Het rapport blijft op deze server, waar de beheerders het kunnen lezen.
+bug-report-modal-attachments-hint-hosted = We voegen de huidige pagina, de buildversie, en de laatste navigaties en API-aanroepen toe. Het rapport gaat naar het Nosdesk-team.
+bug-report-modal-support-hint = Voor vragen over je account of facturering, neem contact op met support:
 bug-report-modal-cancel = Annuleren
 bug-report-modal-submit = Rapport verzenden
 bug-report-success-toast-title = Rapport verzonden
-bug-report-success-toast-body = Bedankt. Een beheerder kan het terugvinden in het diagnostieklogboek van deze werkruimte.
+# MACHINE TRANSLATION, pending native review
+bug-report-success-toast-body-self-hosted = Bedankt. De beheerders van deze server kunnen het lezen.
+bug-report-success-toast-body-hosted = Bedankt. Het is onderweg naar het Nosdesk-team.
 bug-report-error-toast-title = Kan rapport niet verzenden
 bug-report-error-toast-body = Probeer het zo opnieuw.
+
+# Contact met support (alleen Cloud).
+# MACHINE TRANSLATION, pending native review
+contact-support-title = Contact met support
+contact-support-body = Voor vragen over je account, abonnement of facturering kun je het Nosdesk-team mailen.
+support-address-copy = Adres kopiëren
+support-address-copied = Adres gekopieerd
 
 # Tickets — lege staten + bulkactiebalk.
 ticket-list-loading = Tickets laden…
@@ -8982,6 +8998,9 @@ date-picker-calendar-aria = Kalender
 # MACHINE TRANSLATION, pending native review
 admin-nav-license-title = Licentie
 admin-nav-license-description = Licentiestatus, de pushrelay van Nosdesk Cloud en abonnementen.
+# MACHINE TRANSLATION, pending native review
+admin-nav-plan-billing-title = Abonnement en facturering
+admin-nav-plan-billing-description = Proefperiode, betaalmethode en facturen. Opent je Nosdesk-account.
 route-title-admin-license = Licentie
 admin-license-title = Licentie
 admin-license-description = Waarvoor deze server een licentie heeft, en hoe pushmeldingen de mobiele app bereiken.

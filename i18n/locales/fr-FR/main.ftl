@@ -373,7 +373,11 @@ user-menu-administration = Administration
 # MACHINE TRANSLATION, pending native review
 user-menu-team = Équipe
 # MACHINE TRANSLATION, pending native review
+user-menu-plan-billing = Offre et facturation
+# MACHINE TRANSLATION, pending native review
 user-menu-help = Aide
+# MACHINE TRANSLATION, pending native review
+user-menu-contact-support = Contacter le support
 user-menu-report-problem = Signaler un problème
 user-menu-sign-out = Se déconnecter
 user-menu-guest-name = Invité
@@ -382,13 +386,25 @@ bug-report-modal-title = Signaler un problème
 bug-report-modal-description-label = Que s'est-il passé ?
 bug-report-modal-description-placeholder = ex. j'ai essayé d'enregistrer un commentaire et j'ai vu une bannière rouge ; j'étais sur le menu de l'assigné juste avant.
 bug-report-modal-description-hint = Une ou deux phrases suffisent.
-bug-report-modal-attachments-hint = Nous joignons la page actuelle, la version du build, et les dernières navigations et appels API. Tout reste dans cet espace de travail.
+# MACHINE TRANSLATION, pending native review
+bug-report-modal-attachments-hint-self-hosted = Nous joignons la page actuelle, la version du build, et les dernières navigations et appels API. Le rapport reste sur ce serveur, où ses administrateurs peuvent le lire.
+bug-report-modal-attachments-hint-hosted = Nous joignons la page actuelle, la version du build, et les dernières navigations et appels API. Le rapport est envoyé à l'équipe Nosdesk.
+bug-report-modal-support-hint = Pour une question sur votre compte ou la facturation, contactez le support :
 bug-report-modal-cancel = Annuler
 bug-report-modal-submit = Envoyer le rapport
 bug-report-success-toast-title = Rapport envoyé
-bug-report-success-toast-body = Merci. Un administrateur peut le retrouver dans le diagnostic de cet espace.
+# MACHINE TRANSLATION, pending native review
+bug-report-success-toast-body-self-hosted = Merci. Les administrateurs de ce serveur peuvent le lire.
+bug-report-success-toast-body-hosted = Merci. Il a été transmis à l'équipe Nosdesk.
 bug-report-error-toast-title = Impossible d'envoyer le rapport
 bug-report-error-toast-body = Veuillez réessayer dans un instant.
+
+# Contacter le support (Cloud uniquement).
+# MACHINE TRANSLATION, pending native review
+contact-support-title = Contacter le support
+contact-support-body = Pour toute question sur votre compte, votre offre ou la facturation, écrivez à l'équipe Nosdesk.
+support-address-copy = Copier l'adresse
+support-address-copied = Adresse copiée
 
 # Tickets — états vides + barre d'actions groupées.
 ticket-list-loading = Chargement des tickets…
@@ -8991,6 +9007,9 @@ date-picker-calendar-aria = Calendrier
 # MACHINE TRANSLATION, pending native review
 admin-nav-license-title = Licence
 admin-nav-license-description = État de la licence, relais push Nosdesk Cloud et offres.
+# MACHINE TRANSLATION, pending native review
+admin-nav-plan-billing-title = Offre et facturation
+admin-nav-plan-billing-description = Essai, moyen de paiement et factures. Ouvre votre compte Nosdesk.
 route-title-admin-license = Licence
 admin-license-title = Licence
 admin-license-description = Ce que couvre la licence de ce serveur, et comment les notifications push atteignent l'application mobile.

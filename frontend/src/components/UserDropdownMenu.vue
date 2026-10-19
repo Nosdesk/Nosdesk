@@ -31,6 +31,9 @@ import MenuList, { type MenuItem } from './common/MenuList.vue'
 import MenuRow from './common/MenuItem.vue'
 import { ICON_REGISTRY } from './common/icons'
 import BugReportModal from './BugReportModal.vue'
+import ContactSupportModal from './ContactSupportModal.vue'
+import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig'
+import { controlPlaneBillingUrl, openControlPlaneBilling } from '@/services/nosdeskAccount'
 
 interface Props {
   showMenu: boolean
@@ -110,18 +113,30 @@ const items = computed<MenuItem[]>(() => {
   if (wsRole === 'owner' || wsRole === 'admin') {
     out.push({ id: 'team', label: fluent.$t('user-menu-team'), icon: ICON_REGISTRY.team.d })
   }
+  // Cloud: the workspace owner holds the Nosdesk account that pays, so the
+  // billing page is theirs. It lives on the control-plane dashboard; admins
+  // and agents can't act there, so they see nothing.
+  const hosted = isHostedDeploymentRef.value
+  if (hosted && wsRole === 'owner' && controlPlaneBillingUrl()) {
+    out.push({ id: 'billing', label: fluent.$t('user-menu-plan-billing'), icon: ICON_REGISTRY.openExternal.d })
+  }
   if (authStore.isAdmin) {
     out.push({ id: 'admin', label: fluent.$t('user-menu-administration'), icon: ICON_REGISTRY.admin.d })
   }
   // The one pulled link to the seeded Getting Started page (first-run
   // plan, slice 6): no tour, no checklist, just where the guide lives.
   out.push({ id: 'help', label: fluent.$t('user-menu-help'), icon: ICON_REGISTRY.book.d, divider: true })
+  // Cloud: a person to write to about the account, which a bug report is not.
+  if (hosted) {
+    out.push({ id: 'contact-support', label: fluent.$t('user-menu-contact-support'), icon: ICON_REGISTRY.email.d })
+  }
   out.push({ id: 'report-problem', label: fluent.$t('user-menu-report-problem'), icon: ICON_REGISTRY.warning.d })
   out.push({ id: 'logout', label: fluent.$t('user-menu-sign-out'), danger: true })
   return out
 })
 
 const bugReportOpen = ref(false)
+const contactSupportOpen = ref(false)
 
 function handleProfileClick() {
   if (authStore.user) router.push(`/users/${authStore.user.uuid}`)
@@ -149,8 +164,14 @@ function handleSelect(id: string) {
     case 'admin':
       router.push('/admin')
       break
+    case 'billing':
+      void openControlPlaneBilling()
+      break
     case 'help':
       router.push('/documentation/collections/getting-started')
+      break
+    case 'contact-support':
+      contactSupportOpen.value = true
       break
     case 'report-problem':
       bugReportOpen.value = true
@@ -206,4 +227,5 @@ function handleSelect(id: string) {
   </ResponsiveMenu>
 
   <BugReportModal :is-open="bugReportOpen" @close="bugReportOpen = false" />
+  <ContactSupportModal :is-open="contactSupportOpen" @close="contactSupportOpen = false" />
 </template>

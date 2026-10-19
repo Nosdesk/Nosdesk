@@ -398,7 +398,9 @@ user-menu-workspace-current = Current
 user-menu-account = Account
 user-menu-administration = Administration
 user-menu-team = Team
+user-menu-plan-billing = Plan and billing
 user-menu-help = Help
+user-menu-contact-support = Contact support
 user-menu-report-problem = Report a problem
 user-menu-sign-out = Sign out
 user-menu-guest-name = Guest
@@ -409,13 +411,22 @@ bug-report-modal-title = Report a problem
 bug-report-modal-description-label = What happened?
 bug-report-modal-description-placeholder = e.g. tried to save a comment and saw a red banner; was on the assignee dropdown just before.
 bug-report-modal-description-hint = A sentence or two is plenty.
-bug-report-modal-attachments-hint = We attach the current page, build version, and the last few navigations and API calls. Stays inside this workspace.
+bug-report-modal-attachments-hint-self-hosted = We attach the current page, build version, and the last few navigations and API calls. The report stays on this server, for its administrators to read.
+bug-report-modal-attachments-hint-hosted = We attach the current page, build version, and the last few navigations and API calls. The report goes to the Nosdesk team.
+bug-report-modal-support-hint = For account or billing questions, contact support:
 bug-report-modal-cancel = Cancel
 bug-report-modal-submit = Send report
 bug-report-success-toast-title = Report sent
-bug-report-success-toast-body = Thanks. An admin can find it in this workspace's diagnostics.
+bug-report-success-toast-body-self-hosted = Thanks. This server's administrators can read it.
+bug-report-success-toast-body-hosted = Thanks. It's on its way to the Nosdesk team.
 bug-report-error-toast-title = Couldn't send report
 bug-report-error-toast-body = Try again in a moment.
+
+# Contact support (Cloud only).
+contact-support-title = Contact support
+contact-support-body = For questions about your account, plan or billing, email the Nosdesk team.
+support-address-copy = Copy address
+support-address-copied = Address copied
 
 # Tickets list — empty states + bulk-action bar + chrome.
 ticket-list-loading = Loading tickets…
@@ -8270,6 +8281,8 @@ date-picker-calendar-aria = Calendar
 # relay, offline instance id.
 admin-nav-license-title = License
 admin-nav-license-description = License status, the Nosdesk Cloud push relay, and plans.
+admin-nav-plan-billing-title = Plan and billing
+admin-nav-plan-billing-description = Trial, payment method and invoices. Opens your Nosdesk account.
 route-title-admin-license = License
 admin-license-title = License
 admin-license-description = What this server is licensed for, and how push notifications reach the mobile app.
