@@ -13,6 +13,13 @@
  * - a plus on the boundary between two rows or columns (pointer devices);
  * - add bars after the last row and column.
  *
+ * Beside the overlay, under the edge fades, sits the column resize guide:
+ * one line down the whole table on the border that prosemirror-tables'
+ * column resizing has under the pointer (its `activeHandle`), following the
+ * border while it is dragged and gone on release. The library's own handle
+ * is a widget in each cell of the column, which the row borders break up,
+ * so main.css hides it.
+ *
  * Handles belong to the cell you are in: nothing is drawn at rest, a hover
  * shows a faint pill, the caret's row and column a solid one, and a
  * selected row, column or table the accent. On touch the handles show for
@@ -27,7 +34,7 @@ import { Plugin, PluginKey, Selection } from 'prosemirror-state'
 import type { EditorState } from 'prosemirror-state'
 import type { Node as ProseMirrorNode } from 'prosemirror-model'
 import type { EditorView, NodeView, ViewMutationRecord } from 'prosemirror-view'
-import { TableMap, cellAround, updateColumnsOnResize } from 'prosemirror-tables'
+import { TableMap, cellAround, columnResizingPluginKey, updateColumnsOnResize } from 'prosemirror-tables'
 import { ICON_REGISTRY } from '@/components/common/icons'
 import { MIN_COLUMN_WIDTH } from './tablePlugins'
 import { insertColumnAt, insertRowAt, selectAllCells, selectColumn, selectRow } from './tableCommands'
@@ -80,6 +87,9 @@ function controlButton(className: string, title: string, icon?: keyof typeof ICO
   return button
 }
 
+/** The resize guide's width in CSS pixels (`.pm-table__guide`). */
+const GUIDE_WIDTH = 2
+
 const IDLE: TableUiState = { tablePos: -1, row: -1, col: -1, rows: [], cols: [], all: false, cells: false }
 
 /** Node views by editor, so the plugin can reach those of its own view. */
@@ -112,6 +122,15 @@ export class TableNodeView implements NodeView {
   private hoverCol = -1
   private frame = 0
   private resizeObserver: ResizeObserver | null = null
+  private guide: HTMLDivElement
+  /** The resize handle's cell when it is in this table, -1 otherwise. */
+  private resizeHandle = -1
+  private resizeDragging = false
+  /** A drag ended on `resizeHandle`: no guide until the handle moves. */
+  private resizeReleased = false
+  /** The guide's left edge in the scroller's content, null while hidden. */
+  private guideX: number | null = null
+  private readonly onDragMove = () => this.scheduleLayout()
 
   constructor(
     private node: ProseMirrorNode,
@@ -144,7 +163,11 @@ export class TableNodeView implements NodeView {
     this.addRow = controlButton('pm-table__addbar pm-table__addbar--row', t('editor-table-add-row'), 'add')
     sideclip.append(this.addColumn)
     this.ui.append(this.corner, colclip, this.rowstrip, sideclip, this.addRow)
-    this.dom.append(this.scroll, this.ui)
+    const guideclip = element('div', 'pm-table__guideclip')
+    guideclip.setAttribute('aria-hidden', 'true')
+    this.guide = element('div', 'pm-table__guide')
+    guideclip.append(this.guide)
+    this.dom.append(this.scroll, guideclip, this.ui)
 
     updateColumnsOnResize(node, this.colgroup, this.table, MIN_COLUMN_WIDTH)
 
@@ -244,6 +267,7 @@ export class TableNodeView implements NodeView {
   destroy(): void {
     registryOf(this.view).delete(this)
     this.resizeObserver?.disconnect()
+    this.followDrag(false)
     if (this.frame) cancelAnimationFrame(this.frame)
   }
 
@@ -251,6 +275,7 @@ export class TableNodeView implements NodeView {
     const x = -this.scroll.scrollLeft
     this.colstrip.style.transform = `translateX(${x}px)`
     this.addColumn.style.transform = `translateX(${x}px)`
+    if (this.guideX !== null) this.guide.style.transform = `translateX(${this.guideX + x}px)`
     this.updateFade()
   }
 
@@ -344,8 +369,58 @@ export class TableNodeView implements NodeView {
     this.addColumn.style.left = `${tableRect.width + 2}px`
     this.addColumn.style.height = `${tableRect.height}px`
     this.addRow.style.width = `${Math.min(tableRect.width, this.scroll.clientWidth)}px`
+    this.placeGuide(tableRect)
     this.onScroll()
     this.applyState()
+  }
+
+  /**
+   * Follow prosemirror-tables' column resizing: `handle` is the cell whose
+   * right border is under the pointer (-1 for none), `dragging` whether
+   * that border is being dragged.
+   */
+  setResize(handle: number, dragging: boolean): void {
+    const pos = this.pos
+    const mine =
+      !this.host.touch && this.view.editable && pos !== null && handle > pos && handle < pos + this.node.nodeSize
+    const next = mine ? handle : -1
+    const nextDragging = mine && dragging
+    if (next !== this.resizeHandle || nextDragging) this.resizeReleased = false
+    else if (this.resizeDragging) this.resizeReleased = true
+    this.resizeHandle = next
+    this.resizeDragging = nextDragging
+    this.followDrag(nextDragging)
+    if (next < 0 || this.resizeReleased) this.hideGuide()
+    else this.scheduleLayout()
+  }
+
+  /** While a border is dragged, lay out on every pointer move. */
+  private followDrag(on: boolean): void {
+    const win = this.view.dom.ownerDocument.defaultView
+    if (!win) return
+    win.removeEventListener('mousemove', this.onDragMove)
+    if (on) win.addEventListener('mousemove', this.onDragMove)
+  }
+
+  private hideGuide(): void {
+    this.guideX = null
+    this.guide.classList.remove('is-on')
+  }
+
+  /** Put the guide on the resize handle's border, centred on it. */
+  private placeGuide(tableRect: DOMRect): void {
+    if (this.resizeHandle < 0 || this.resizeReleased) return this.hideGuide()
+    const cell = this.view.nodeDOM(this.resizeHandle) as HTMLElement | null
+    if (!cell?.getBoundingClientRect) return this.hideGuide()
+    const edge = cell.getBoundingClientRect().right - tableRect.left
+    // Kept inside the table, so the last column's guide is not half clipped.
+    const left = Math.max(0, Math.min(edge - GUIDE_WIDTH / 2, tableRect.width - GUIDE_WIDTH))
+    const domRect = this.dom.getBoundingClientRect()
+    // Table coordinates plus the table's place in the scrolled content.
+    this.guideX = left + tableRect.left + this.scroll.scrollLeft - domRect.left
+    this.guide.style.top = `${tableRect.top - domRect.top}px`
+    this.guide.style.height = `${tableRect.height}px`
+    this.guide.classList.add('is-on')
   }
 
   private makeHandle(kind: 'row' | 'col'): HTMLButtonElement {
@@ -468,6 +543,14 @@ export function createTableControlsPlugin(onState: (state: TableUiState | null, 
     key: new PluginKey('tableControls'),
     view(view) {
       let editable = view.editable
+      let resize = { handle: -1, dragging: false }
+      const syncResize = () => {
+        const state = columnResizingPluginKey.getState(view.state)
+        const next = { handle: state?.activeHandle ?? -1, dragging: !!state?.dragging }
+        if (next.handle === resize.handle && next.dragging === resize.dragging) return
+        resize = next
+        for (const nodeView of registryOf(view)) nodeView.setResize(next.handle, next.dragging)
+      }
       const sync = (docChanged: boolean) => {
         editable = view.editable
         const ui = editable ? tableUiState(view.state) : null
@@ -481,7 +564,10 @@ export function createTableControlsPlugin(onState: (state: TableUiState | null, 
       return {
         update(view, prev) {
           const changed = prev.doc !== view.state.doc
-          if (changed || !prev.selection.eq(view.state.selection) || editable !== view.editable) sync(changed)
+          const editableChanged = editable !== view.editable
+          if (changed || !prev.selection.eq(view.state.selection) || editableChanged) sync(changed)
+          if (editableChanged) resize = { handle: -1, dragging: false }
+          syncResize()
         },
         destroy() {
           onState(null, view.state)

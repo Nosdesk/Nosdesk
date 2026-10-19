@@ -3849,6 +3849,30 @@ defineExpose({
     opacity: 1;
 }
 
+/* The column resize guide: one line from the table's top border to its
+   bottom one, over the header tint and selected cells and under the edge
+   fades, clipped to the scroller so it scrolls with the table. */
+.pm-table__guideclip {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.pm-table__guide {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 2px;
+    background-color: var(--color-accent);
+    display: none;
+}
+
+.pm-table__guide.is-on {
+    display: block;
+}
+
 .pm-table__ui {
     position: absolute;
     inset: 0;
@@ -3868,9 +3892,11 @@ defineExpose({
     -webkit-tap-highlight-color: transparent;
 }
 
-/* No controls read only, over a revision, or where tables aren't allowed. */
-.ProseMirror[contenteditable="false"] .pm-table__ui,
-.table-controls-off .pm-table__ui {
+/* No controls read only, over a revision, or where tables aren't allowed,
+   and no resize guide on touch, where columns are not dragged. */
+.ProseMirror[contenteditable="false"] :is(.pm-table__ui, .pm-table__guideclip),
+.table-controls-off :is(.pm-table__ui, .pm-table__guideclip),
+.pm-table.is-touch .pm-table__guideclip {
     display: none;
 }
 
@@ -4553,6 +4579,7 @@ defineExpose({
 
   /* No table controls on paper */
   .pm-table__ui,
+  .pm-table__guideclip,
   .pm-table::before,
   .pm-table::after {
     display: none !important;
