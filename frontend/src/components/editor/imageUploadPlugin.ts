@@ -411,8 +411,11 @@ export function createImageUploadPlugin(options: ImageUploadPluginOptions): Plug
         const clipboardData = event.clipboardData;
         if (!clipboardData) return false;
 
+        const html = clipboardData.getData('text/html');
+        // A table wins over images: Excel puts a picture of the copied range
+        // beside its table, and the table is what was meant.
+        if (/<table[\s>]/i.test(html)) return false;
         const imageFiles = imageFilesFrom(clipboardData.files);
-        const html = imageFiles.length ? '' : clipboardData.getData('text/html');
         const batch = imageFiles.length
           ? imageFiles.map((file) => ({ file, alt: file.name }))
           : html.includes('data:image')
