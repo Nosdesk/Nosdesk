@@ -2426,6 +2426,8 @@ diesel::table! {
         organisation_id -> Nullable<Int4>,
         custom_domain -> Nullable<Text>,
         seat_limit -> Nullable<Int4>,
+        data_epoch -> Nullable<Uuid>,
+        resync_floor -> Nullable<Int8>,
     }
 }
 

@@ -195,6 +195,7 @@ mod webhook_outbox_durability;
 mod workflow_state_restore;
 mod workflow_states_per_workspace;
 mod workspace_branding;
+mod workspace_data_epoch;
 mod workspace_export_hygiene;
 mod workspace_export_v2;
 mod workspace_file_purge;
