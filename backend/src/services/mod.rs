@@ -38,6 +38,7 @@ pub mod sync_outbox;
 pub mod template_vars;
 pub mod ticket_updates;
 pub mod transactional_email;
+pub mod uploaded_archive;
 pub mod webhooks;
 pub mod workspace_export;
 pub mod workspace_import;
