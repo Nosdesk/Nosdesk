@@ -1997,8 +1997,7 @@ html[data-theme="red-horizon"] body,
 }
 
 /* Editing: a cell selection tints its cells, every cell selected outlines
-   the table, a column border under the pointer shows its resize handle, and
-   the gap cursor (beside a table at the document's edge) is a short caret
+   the table, and the gap cursor (beside a table at the document's edge) is a short caret
    line. */
 .ProseMirror .table-scroll .selectedCell {
   border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-default));
@@ -2018,16 +2017,10 @@ html[data-theme="red-horizon"] body,
   outline-offset: -1px;
 }
 
-.ProseMirror .table-scroll .column-resize-handle {
-  position: absolute;
-  top: 0;
-  right: -2px;
-  bottom: 0;
-  width: 3px;
-  background-color: var(--color-accent);
-  pointer-events: none;
-  z-index: 3;
-}
+/* prosemirror-tables draws a handle inside each cell of the column, which
+   the row borders break into segments. The table view draws one guide line
+   over the whole table instead (`.pm-table__guide`). */
+.ProseMirror .table-scroll .column-resize-handle { display: none; }
 
 .ProseMirror .table-scroll .column-resize-dragging { user-select: none; }
 

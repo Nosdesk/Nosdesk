@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import type { Node } from 'prosemirror-model'
-import { CellSelection, TableMap } from 'prosemirror-tables'
+import { CellSelection, TableMap, columnResizingPluginKey } from 'prosemirror-tables'
 import { schema } from './schema'
 import { allowTables, resetTablesAllowed } from './tablesAllowed'
 import { createTableGuardPlugin } from './tableGuard'
@@ -35,11 +35,15 @@ const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() 
 
 function open(
   start: Node,
-  { editable = true, touch = false }: { editable?: boolean; touch?: boolean } = {},
+  {
+    editable = true,
+    touch = false,
+    resizable = false,
+  }: { editable?: boolean; touch?: boolean; resizable?: boolean } = {},
 ): { view: EditorView; openMenu: ReturnType<typeof vi.fn>; states: (TableUiState | null)[] } {
   const openMenu = vi.fn((_kind: TableMenuKind, _index: number, _anchor: HTMLElement) => {})
   const states: (TableUiState | null)[] = []
-  const tables = createTablePlugins({ docId: () => DOC_ID, resizable: false })
+  const tables = createTablePlugins({ docId: () => DOC_ID, resizable })
   const mount = document.createElement('div')
   document.body.append(mount)
   const view = new EditorView(mount, {
@@ -162,5 +166,125 @@ describe('the table view', () => {
   it('marks the touch layout', () => {
     const { view } = open(doc(p('x'), grid()), { touch: true })
     expect(wrap(view).classList.contains('is-touch')).toBe(true)
+  })
+})
+
+describe('the column resize guide', () => {
+  // A 3 by 2 table, 400 wide and 90 tall, at (100, 50); columns split at 300.
+  const merged = () =>
+    table(
+      tr(th('Name'), th('Owner')),
+      tr(schema.nodes.table_cell.create({ colspan: 2 }, p('Spans both'))),
+      tr(td('Mail'), td('Bo')),
+    )
+
+  function rect(left: number, top: number, width: number, height: number): DOMRect {
+    return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }
+  }
+
+  /** Lay the table out at fixed coordinates, the first column `split` wide. */
+  function stubLayout(view: EditorView, split: { at: number }) {
+    const el = wrap(view)
+    el.getBoundingClientRect = () => rect(100, 50, 400, 120)
+    el.querySelector('table')!.getBoundingClientRect = () => rect(100, 50, 400, 90)
+    for (const cell of Array.from(el.querySelectorAll('td, th')) as HTMLElement[]) {
+      const first = cell.previousElementSibling === null
+      const spans = cell.getAttribute('colspan') === '2'
+      cell.getBoundingClientRect = () =>
+        spans ? rect(100, 80, 400, 30) : first ? rect(100, 50, split.at - 100, 30) : rect(split.at, 50, 500 - split.at, 30)
+    }
+  }
+
+  const cellPos = (view: EditorView, row: number, col: number) => {
+    const map = TableMap.get(view.state.doc.nodeAt(TABLE_POS)!)
+    return TABLE_POS + 1 + map.map[row * map.width + col]!
+  }
+  const meta = (view: EditorView, value: object) =>
+    view.dispatch(view.state.tr.setMeta(columnResizingPluginKey, value))
+  const guide = (view: EditorView) => wrap(view).querySelector('.pm-table__guideclip > .pm-table__guide') as HTMLElement
+  const shown = (view: EditorView) => guide(view).classList.contains('is-on')
+  const x = (view: EditorView) => Number(/translateX\((-?[\d.]+)px\)/.exec(guide(view).style.transform)![1])
+
+  it('sits beside the controls overlay, hidden at rest', () => {
+    const { view } = open(doc(p('x'), grid()), { resizable: true })
+    expect(wrap(view).querySelector(':scope > .table-scroll + .pm-table__guideclip + .pm-table__ui')).not.toBeNull()
+    expect(shown(view)).toBe(false)
+  })
+
+  it('draws one line down the whole table on the hovered border', async () => {
+    const { view } = open(doc(p('x'), merged()), { resizable: true })
+    stubLayout(view, { at: 300 })
+    meta(view, { setHandle: cellPos(view, 2, 0) })
+    await nextFrame()
+    expect(shown(view)).toBe(true)
+    expect(wrap(view).querySelectorAll('.pm-table__guide')).toHaveLength(1)
+    // Centred on the border at 300, 200 into the table.
+    expect(x(view)).toBe(199)
+    expect(guide(view).style.top).toBe('0px')
+    expect(guide(view).style.height).toBe('90px')
+  })
+
+  it('stays inside the table on its last border', async () => {
+    const { view } = open(doc(p('x'), merged()), { resizable: true })
+    stubLayout(view, { at: 300 })
+    meta(view, { setHandle: cellPos(view, 1, 0) })
+    await nextFrame()
+    expect(x(view)).toBe(398)
+  })
+
+  it('moves with the table as it scrolls sideways', async () => {
+    const { view } = open(doc(p('x'), merged()), { resizable: true })
+    stubLayout(view, { at: 300 })
+    meta(view, { setHandle: cellPos(view, 0, 0) })
+    await nextFrame()
+    const scroller = wrap(view).querySelector('.table-scroll') as HTMLElement
+    scroller.scrollLeft = 50
+    scroller.dispatchEvent(new Event('scroll'))
+    expect(x(view)).toBe(149)
+  })
+
+  it('follows the border while it is dragged and goes on release', async () => {
+    const { view } = open(doc(p('x'), merged()), { resizable: true })
+    const split = { at: 300 }
+    stubLayout(view, split)
+    meta(view, { setHandle: cellPos(view, 0, 0) })
+    meta(view, { setDragging: { startX: 300, startWidth: 200 } })
+    await nextFrame()
+    expect(x(view)).toBe(199)
+
+    split.at = 360
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 360 }))
+    await nextFrame()
+    expect(shown(view)).toBe(true)
+    expect(x(view)).toBe(259)
+
+    meta(view, { setDragging: null })
+    expect(shown(view)).toBe(false)
+    // Still on the same border: no guide until the pointer finds one again.
+    await nextFrame()
+    expect(shown(view)).toBe(false)
+    meta(view, { setDragging: { startX: 360, startWidth: 260 } })
+    await nextFrame()
+    expect(shown(view)).toBe(true)
+  })
+
+  it('goes when the pointer leaves the border', async () => {
+    const { view } = open(doc(p('x'), merged()), { resizable: true })
+    stubLayout(view, { at: 300 })
+    meta(view, { setHandle: cellPos(view, 0, 0) })
+    await nextFrame()
+    expect(shown(view)).toBe(true)
+    meta(view, { setHandle: -1 })
+    expect(shown(view)).toBe(false)
+  })
+
+  it('is never drawn read only or on touch', async () => {
+    for (const options of [{ editable: false }, { touch: true }]) {
+      const { view } = open(doc(p('x'), merged()), { resizable: true, ...options })
+      stubLayout(view, { at: 300 })
+      meta(view, { setHandle: cellPos(view, 0, 0) })
+      await nextFrame()
+      expect(shown(view)).toBe(false)
+    }
   })
 })
