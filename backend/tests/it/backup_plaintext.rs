@@ -1,5 +1,5 @@
-//! A backup made without a password leaves credentials out
-//! (`SENSITIVE_FIELDS`) and still restores: tokens and recovery codes stay
+//! A backup made without a password leaves credentials out (the archive
+//! policy's secret columns) and still restores: tokens and recovery codes stay
 //! behind, webhooks come back off with a new secret, and a user whose MFA
 //! secret was left out comes back without MFA.
 
@@ -23,6 +23,8 @@ struct Webhook {
     secret: String,
     #[diesel(sql_type = Bool)]
     enabled: bool,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    headers: Option<String>,
 }
 
 #[derive(QueryableByName)]
@@ -41,10 +43,12 @@ fn count(conn: &mut PgConnection, table: &str) -> i64 {
 }
 
 fn webhook(conn: &mut PgConnection, id: i32) -> Webhook {
-    diesel::sql_query("SELECT secret, enabled FROM webhooks WHERE id = $1")
-        .bind::<diesel::sql_types::Integer, _>(id)
-        .get_result(conn)
-        .expect("webhook")
+    diesel::sql_query(
+        "SELECT secret, enabled, headers::text AS headers FROM webhooks WHERE id = $1",
+    )
+    .bind::<diesel::sql_types::Integer, _>(id)
+    .get_result(conn)
+    .expect("webhook")
 }
 
 #[test]
@@ -100,6 +104,9 @@ fn a_backup_without_a_password_restores_without_its_credentials() {
     assert!(!after.enabled, "off until the receiver has the new secret");
     assert!(after.secret.starts_with("whsec_") && after.secret.len() == 70);
     assert_ne!(after.secret, before.secret);
+    // Both of the webhook's left-out columns are handled: the headers take
+    // their default.
+    assert_eq!(after.headers.as_deref(), Some("{}"));
     let mfa: Mfa =
         diesel::sql_query("SELECT mfa_enabled, mfa_secret_kek_id FROM users WHERE uuid = $1")
             .bind::<SqlUuid, _>(admin)

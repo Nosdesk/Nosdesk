@@ -31,8 +31,7 @@ const REF: &str = "test:workspace_export_hygiene";
 const HEADER: &str =
     "name,kind,asset_tag,serial_number,manufacturer,model,location,notes,quantity,unit,low_stock_threshold";
 
-/// Sealed, so the export keeps the fixture webhook's secret, which a plaintext
-/// export strips and the import then can't insert.
+/// Sealed, so the export keeps the fixture webhook's secret.
 const PASSWORD: &str = "hygiene-password";
 
 const LEFT_OUT: &[&str] = &["imports/", "exports/", "temp/", "workspace-imports/"];

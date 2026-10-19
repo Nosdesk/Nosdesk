@@ -38,6 +38,7 @@ use diesel::sql_types::{BigInt, Text};
 use serde_json::{json, Value};
 
 use crate::services::backup::{sha256_hex, table_exists_in_db, unseal_inner_zip, BackupError};
+use crate::services::workspace_archive::{policy, rows};
 use crate::services::workspace_export::WorkspaceExportManifest;
 
 /// Envelope magic for a sealed archive (mirrors `backup::ENCRYPTED_MAGIC`); a
@@ -346,12 +347,11 @@ pub fn import_workspace(
         // partial workspace behind. `workspaces` and `users` are handled
         // separately below and are legitimately present.
         //
-        // A table the export now leaves out (an archive from before it joined
-        // `EXCLUDE_FROM_WORKSPACE_EXPORT`) is skipped, not refused.
+        // A table the archive policy keeps out (an archive from before the
+        // policy did) is skipped, not refused.
         let allowed = crate::services::workspace_export::discover_workspace_tables(conn)?;
         let allowed: HashSet<&str> = allowed.iter().map(String::as_str).collect();
-        let skipped =
-            |t: &str| crate::services::workspace_export::EXCLUDE_FROM_WORKSPACE_EXPORT.contains(&t);
+        let skipped = policy::skipped_on_import;
         let mut rejected: Vec<&str> = contents
             .tables
             .keys()
@@ -412,63 +412,47 @@ pub fn import_workspace(
     })
 }
 
-/// The public-schema columns of `table` except `id`, in definition order. Used
-/// to build an explicit column list so `id` is omitted and drawn from the
-/// sequence. Names come from the catalog (safe); callers quote them.
-fn table_columns_except_id(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-) -> Result<Vec<String>, BackupError> {
-    #[derive(QueryableByName)]
-    struct Col {
-        #[diesel(sql_type = Text)]
-        column_name: String,
-    }
-    let rows: Vec<Col> = sql_query(
-        "SELECT column_name FROM information_schema.columns \
-         WHERE table_schema = 'public' AND table_name = $1 AND column_name <> 'id' \
-         ORDER BY ordinal_position",
-    )
-    .bind::<Text, _>(table)
-    .load(conn)
-    .map_err(BackupError::DatabaseError)?;
-    Ok(rows.into_iter().map(|c| c.column_name).collect())
-}
-
-/// Insert one JSON row into `table`, omitting `id` (drawn fresh from the
-/// sequence) and returning the new id as i64. `table` is validated against the
-/// catalog before it's interpolated; columns come from `information_schema`.
+/// Insert one archive row into `table`, omitting `id` (drawn fresh from the
+/// sequence) and returning the new id as i64; `None` when the column policy
+/// skips the row. Only the columns the row carries load, so the rest take their
+/// defaults.
 fn insert_row_returning_id(
     conn: &mut crate::db::DbConnection,
     table: &str,
-    row_json: &str,
-) -> Result<i64, BackupError> {
-    if !table_exists_in_db(conn, table)? {
-        return Err(BackupError::CorruptedBackup(format!(
-            "archive references unknown table: {table}"
-        )));
-    }
-    let cols = table_columns_except_id(conn, table)?;
-    let col_list = cols
-        .iter()
-        .map(|c| format!("\"{c}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let query = format!(
-        "INSERT INTO \"{table}\" ({col_list}) \
-         SELECT {col_list} FROM jsonb_populate_record(NULL::\"{table}\", $1::jsonb) \
-         RETURNING id::bigint AS new_id"
-    );
+    row: &serde_json::Map<String, Value>,
+) -> Result<Option<i64>, BackupError> {
     #[derive(QueryableByName)]
     struct IdRow {
         #[diesel(sql_type = BigInt)]
         new_id: i64,
     }
-    let r: IdRow = sql_query(&query)
-        .bind::<Text, _>(row_json)
-        .get_result(conn)
+    let (query, payload) =
+        row_statement(conn, table, row, &["id"], "RETURNING id::bigint AS new_id")?;
+    let ids: Vec<IdRow> = sql_query(&query)
+        .bind::<Text, _>(payload)
+        .load(conn)
         .map_err(BackupError::DatabaseError)?;
-    Ok(r.new_id)
+    Ok(ids.first().map(|r| r.new_id))
+}
+
+/// The statement that loads one archive row into `table` through the column
+/// policy (`rows::load_statement`, which also validates `table`), and its `$1`.
+fn row_statement(
+    conn: &mut crate::db::DbConnection,
+    table: &str,
+    row: &serde_json::Map<String, Value>,
+    omit: &[&str],
+    suffix: &str,
+) -> Result<(String, String), BackupError> {
+    if !table_exists_in_db(conn, table)? {
+        return Err(BackupError::CorruptedBackup(format!(
+            "archive references unknown table: {table}"
+        )));
+    }
+    let keys: HashSet<String> = row.keys().cloned().collect();
+    let query = rows::load_statement(conn, table, &keys, omit, suffix)?;
+    let payload = serde_json::to_string(&[row]).map_err(BackupError::JsonError)?;
+    Ok((query, payload))
 }
 
 /// True if `table` has an `id` column. Composite-PK junction tables don't; they
@@ -499,32 +483,16 @@ fn table_has_id_column(
     Ok(r.exists)
 }
 
-/// Insert one JSON row into an id-less (composite-PK) `table`, all columns,
-/// no RETURNING. FK columns must already be remapped by the caller. `table` is
-/// validated before interpolation; columns come from `information_schema`.
+/// Insert one archive row into an id-less (composite-PK) `table`. FK columns
+/// must already be remapped by the caller.
 fn insert_row(
     conn: &mut crate::db::DbConnection,
     table: &str,
-    row_json: &str,
+    row: &serde_json::Map<String, Value>,
 ) -> Result<(), BackupError> {
-    if !table_exists_in_db(conn, table)? {
-        return Err(BackupError::CorruptedBackup(format!(
-            "archive references unknown table: {table}"
-        )));
-    }
-    // `table_columns_except_id` returns ALL columns for an id-less table.
-    let cols = table_columns_except_id(conn, table)?;
-    let col_list = cols
-        .iter()
-        .map(|c| format!("\"{c}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let query = format!(
-        "INSERT INTO \"{table}\" ({col_list}) \
-         SELECT {col_list} FROM jsonb_populate_record(NULL::\"{table}\", $1::jsonb)"
-    );
+    let (query, payload) = row_statement(conn, table, row, &[], "")?;
     sql_query(&query)
-        .bind::<Text, _>(row_json)
+        .bind::<Text, _>(payload)
         .execute(conn)
         .map_err(BackupError::DatabaseError)?;
     Ok(())
@@ -565,8 +533,9 @@ fn create_target_workspace(
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
-    let json = serde_json::to_string(&Value::Object(new_obj)).map_err(BackupError::JsonError)?;
-    let new_id = insert_row_returning_id(conn, "workspaces", &json)? as i32;
+    let new_id = insert_row_returning_id(conn, "workspaces", &new_obj)?.ok_or_else(|| {
+        BackupError::CorruptedBackup("the workspaces row did not load".to_string())
+    })? as i32;
     Ok((new_id, slug))
 }
 
@@ -586,17 +555,6 @@ fn upsert_members(
             "target has no users table".to_string(),
         ));
     }
-    let cols = table_columns_except_id(conn, "users")?;
-    let col_list = cols
-        .iter()
-        .map(|c| format!("\"{c}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let query = format!(
-        "INSERT INTO users ({col_list}) \
-         SELECT {col_list} FROM jsonb_populate_record(NULL::users, $1::jsonb) \
-         ON CONFLICT (uuid) DO NOTHING"
-    );
     let mut n = 0i64;
     for user in users {
         // Security: never let an imported archive seed a platform-privileged
@@ -609,9 +567,12 @@ fn upsert_members(
             .ok_or_else(|| BackupError::CorruptedBackup("users row is not an object".to_string()))?
             .clone();
         obj.insert("platform_role".to_string(), json!("user"));
-        let json = serde_json::to_string(&Value::Object(obj)).map_err(BackupError::JsonError)?;
+        // The column policy applies: a plaintext archive's user without an MFA
+        // secret loads without MFA.
+        let (query, payload) =
+            row_statement(conn, "users", &obj, &[], "ON CONFLICT (uuid) DO NOTHING")?;
         sql_query(&query)
-            .bind::<Text, _>(json)
+            .bind::<Text, _>(payload)
             .execute(conn)
             .map_err(BackupError::DatabaseError)?;
         n += 1;
@@ -692,9 +653,7 @@ fn remap_insert_table(
 
         if !has_id {
             // Junction row: FKs are already remapped; insert verbatim, no id.
-            let json =
-                serde_json::to_string(&Value::Object(new_obj)).map_err(BackupError::JsonError)?;
-            insert_row(conn, table, &json)?;
+            insert_row(conn, table, &new_obj)?;
             continue;
         }
 
@@ -709,9 +668,11 @@ fn remap_insert_table(
             }
         }
 
-        let json =
-            serde_json::to_string(&Value::Object(new_obj)).map_err(BackupError::JsonError)?;
-        let new_id = insert_row_returning_id(conn, table, &json)?;
+        // A row the column policy skips gets no new id; a row that references
+        // it is refused as absent from the export.
+        let Some(new_id) = insert_row_returning_id(conn, table, &new_obj)? else {
+            continue;
+        };
         this_map.insert(old_id, new_id);
         if !selfs.is_empty() {
             pending_self.push((new_id, selfs));

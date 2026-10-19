@@ -19,15 +19,15 @@
 //! and folded into the archive under `files/{logical}` by
 //! [`assemble_workspace_archive`]. The handler orchestrates the two.
 //!
-//! Excluded: the partitioned `audit_log` + `sync_actions` (audit trail + sync
-//! stream — high-churn, not core tenant data, and partitioned parents that
-//! complicate a scoped dump), export jobs, and CSV import history. Files under
-//! earlier exports, CSV import uploads, staged uploads and workspace imports
-//! stay out too ([`is_exported_file`]).
+//! Which tables it carries is the workspace archive policy
+//! (`workspace_archive::policy`): not the audit trail, the sync stream or export
+//! jobs, and never credentials, capabilities, delivery queues and logs, or CSV
+//! import history. Files under earlier exports, CSV import uploads, staged
+//! uploads and workspace imports stay out too ([`is_exported_file`]).
 //!
 //! Password policy mirrors the whole-DB backup: a password seals the archive
-//! (AES-256-GCM) and keeps sensitive auth fields; no password yields a plaintext
-//! zip with `SENSITIVE_FIELDS` stripped.
+//! (AES-256-GCM) and keeps the policy's secret columns; no password yields a
+//! plaintext zip without them.
 
 use std::collections::HashMap;
 use std::io::{Cursor, Write};
@@ -42,9 +42,8 @@ use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
 use crate::db::DbConnection;
-use crate::services::backup::{
-    seal_inner_zip, sha256_hex, table_exists_in_db, BackupError, SENSITIVE_FIELDS,
-};
+use crate::services::backup::{seal_inner_zip, sha256_hex, table_exists_in_db, BackupError};
+use crate::services::workspace_archive::{policy, rows};
 
 /// Shared zip entry options (Deflated, 0644), matching the whole-DB backup.
 fn zip_options() -> SimpleFileOptions {
@@ -57,24 +56,6 @@ fn zip_options() -> SimpleFileOptions {
 /// crypto-envelope version `seal_inner_zip` stamps (that's the wire/crypto
 /// format; this is the payload shape the Phase 2 import reads).
 const WORKSPACE_EXPORT_FORMAT_VERSION: u32 = 1;
-
-/// Workspace-scoped tables excluded from the export, and skipped by the import
-/// when an older archive carries them. `audit_log` and `sync_actions` are the
-/// partitioned, high-churn audit trail and sync outbox, not core tenant data,
-/// and their partitioned shape complicates a scoped dump (matching the whole-DB
-/// backup's parent-only handling).
-// `workspace_export_jobs` carries a workspace_id but is operational metadata (job
-// status + storage keys), not tenant content, so it is excluded like audit_log.
-// `import_jobs` and `import_value_answers` are CSV import history and saved
-// matches: they name the source's rows, and their uuid keys are ones the import
-// can't remap.
-pub(crate) const EXCLUDE_FROM_WORKSPACE_EXPORT: &[&str] = &[
-    "audit_log",
-    "sync_actions",
-    "workspace_export_jobs",
-    "import_jobs",
-    "import_value_answers",
-];
 
 /// Storage prefixes an export leaves out: earlier exports, CSV import uploads
 /// and grids, uploads not yet attached, and workspace archives waiting to
@@ -139,10 +120,11 @@ struct RowText {
     row_text: String,
 }
 
-/// Discover the workspace-scoped tables: every public ordinary/partitioned-parent
-/// base table carrying a live `workspace_id` column, minus the excluded ones.
-/// Introspected (not hardcoded) so a future migration's tenant table is picked
-/// up automatically, the same pattern the whole-DB backup uses.
+/// Discover the workspace-scoped tables an archive carries: every public
+/// ordinary/partitioned-parent base table with a live `workspace_id` column
+/// whose policy class is carried (`policy::carried`). Introspected (not
+/// hardcoded) so a future migration's tenant table is picked up automatically,
+/// the same pattern the whole-DB backup uses.
 ///
 /// Also the import's allowlist (`workspace_import::import_workspace`). Sharing
 /// one definition is the point: "what may be exported" and "what may be
@@ -152,6 +134,14 @@ struct RowText {
 pub(crate) fn discover_workspace_tables(
     conn: &mut DbConnection,
 ) -> Result<Vec<String>, BackupError> {
+    Ok(all_workspace_tables(conn)?
+        .into_iter()
+        .filter(|t| policy::carried(t))
+        .collect())
+}
+
+/// Every workspace-scoped table, carried or not.
+pub(crate) fn all_workspace_tables(conn: &mut DbConnection) -> Result<Vec<String>, BackupError> {
     #[derive(QueryableByName)]
     struct TableName {
         #[diesel(sql_type = Text)]
@@ -174,38 +164,7 @@ pub(crate) fn discover_workspace_tables(
     .load(conn)
     .map_err(BackupError::DatabaseError)?;
 
-    Ok(rows
-        .into_iter()
-        .map(|r| r.table_name)
-        .filter(|t| !EXCLUDE_FROM_WORKSPACE_EXPORT.contains(&t.as_str()))
-        .collect())
-}
-
-/// The per-row `SELECT` projection: `row_to_json(t)` kept as text end-to-end so
-/// `NUMERIC` precision survives, with `SENSITIVE_FIELDS` stripped inside Postgres
-/// (`::jsonb - 'key'`) for plaintext exports. Identical policy to
-/// `backup::export_table_data`.
-fn row_projection(table_name: &str, include_sensitive: bool) -> String {
-    let strip_fields: &[&str] = if include_sensitive {
-        &[]
-    } else {
-        SENSITIVE_FIELDS
-            .iter()
-            .find(|(t, _)| *t == table_name)
-            .map(|(_, fields)| *fields)
-            .unwrap_or(&[])
-    };
-
-    if strip_fields.is_empty() {
-        "row_to_json(t)::text".to_string()
-    } else {
-        let mut expr = "row_to_json(t)::jsonb".to_string();
-        for f in strip_fields {
-            let escaped = f.replace('\'', "''");
-            expr.push_str(&format!(" - '{escaped}'"));
-        }
-        format!("({expr})::text")
-    }
+    Ok(rows.into_iter().map(|r| r.table_name).collect())
 }
 
 /// Assemble a set of row-text JSON objects into a JSON-array text payload,
@@ -242,7 +201,7 @@ fn dump_scoped(
             "Refusing to export unknown table: {table_name}"
         )));
     }
-    let row_expr = row_projection(table_name, include_sensitive);
+    let row_expr = rows::export_row_sql(table_name, include_sensitive);
     let query = format!("SELECT {row_expr} AS row_text FROM {table_name} t WHERE {where_sql}");
     let rows: Vec<RowText> = sql_query(&query)
         .bind::<Integer, _>(workspace_id)
