@@ -8,6 +8,8 @@ use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Nullable, SmallInt, Text, Uuid as SqlUuid};
 use uuid::Uuid;
 
+use backend::middleware::workspace_context::DeploymentMode;
+use backend::services::workspace_archive::plan::Runner;
 use backend::services::workspace_export::export_workspace;
 use backend::services::workspace_import::{import_workspace, read_archive, ImportOptions};
 use backend::sync::actor::ActorContext;
@@ -155,6 +157,8 @@ fn a_plaintext_export_with_a_webhook_imports() {
         slug_override: Some(format!("plain-{}", Uuid::now_v7().simple())),
         uuid_override: None,
         regenerate_uuids: true,
+        mode: DeploymentMode::SelfHosted,
+        runner: Runner::Operator { user: None },
     };
     let result = with_actor_bypass_context(&mut conn, &actor, |c| {
         as_diesel(import_workspace(c, &contents, &opts))

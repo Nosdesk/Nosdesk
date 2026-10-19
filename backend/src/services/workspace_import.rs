@@ -1,34 +1,27 @@
-//! Workspace-scoped import — Phase 2 of the tenant export/import primitive.
+//! Workspace import: reads an export archive (see `workspace_export`) and
+//! loads it through the import plan (`workspace_archive::plan`).
 //!
-//! Reads a Phase 1 export archive (see `workspace_export`) and reconstructs the
-//! workspace in THIS database as a NEW workspace with a fresh integer id,
-//! remapping every integer primary key and foreign key so it can't collide with
-//! the pooled cell's other tenants. Users are matched/upserted by `uuid`
-//! (global, never remapped). The whole import runs in one transaction and rolls
-//! back on any error.
+//! [`read_archive`] unseals, verifies and version-checks the archive.
+//! [`import_workspace`] loads it as a NEW workspace: it creates the workspace
+//! row, plans the import into it (people map, keys, collisions), then writes
+//! the plan's people and rows. Every integer and uuid key is drawn afresh and
+//! rewritten across the foreign-key graph; every user reference goes through
+//! the people map, which never attaches an existing account by its archive
+//! uuid. The whole import runs in one transaction and rolls back on any error.
 //!
 //! Execution model: the import runs on a BYPASSRLS connection (the caller wraps
 //! it in `with_actor_bypass_context` / `PlatformConn`) and sets
 //! `nosdesk.in_audit_read = 'true'` for the transaction, which short-circuits
 //! both audit-capture triggers. Sync events are never generated (the import
 //! writes raw, not through `sync::emit`), and FK integrity comes from the
-//! topological insert order — so no `session_replication_role` / superuser is
-//! required, and it works on the pooled hosted connection. Integer primary keys
-//! are drawn fresh from each table's sequence and old ids are rewritten across
-//! the FK graph; users are matched/upserted by uuid (never remapped).
-//!
-//! Composite-PK junction tables (no `id` column) are inserted verbatim after
-//! their FK columns are remapped — nothing references them by id.
+//! plan's load order, so no `session_replication_role` or superuser is needed.
 //!
 //! Known assumption: an integer FK from a tenant table to a table OUTSIDE the
 //! import set (a global lookup like `notification_types`, seeded with fixed ids
-//! by the migrations) keeps its original id. This is correct only when the target
-//! was seeded from the same migrations (the realistic hosted case); a divergent
-//! target fails the FK loudly (closed, never silent). Cross-table FK cycles are
-//! rejected rather than deferred, and a NOT-NULL self-reference would break the
-//! null-then-update pass — neither occurs in the current schema.
+//! by the migrations) keeps its original id. The version gate makes that hold:
+//! both servers run the same migrations.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::io::Read;
 
 use diesel::deserialize::QueryableByName;
@@ -37,9 +30,13 @@ use diesel::sql_query;
 use diesel::sql_types::{BigInt, Text};
 use serde_json::{json, Value};
 
+use crate::middleware::workspace_context::DeploymentMode;
 use crate::services::backup::{sha256_hex, table_exists_in_db, unseal_inner_zip, BackupError};
-use crate::services::workspace_archive::{policy, rows};
+use crate::services::workspace_archive::plan::{self, ImportReport, PlanRefusal, Runner};
+use crate::services::workspace_archive::rows;
 use crate::services::workspace_export::WorkspaceExportManifest;
+
+pub use crate::services::workspace_archive::plan::{discover_fk_edges, topological_order, FkEdge};
 
 /// Envelope magic for a sealed archive (mirrors `backup::ENCRYPTED_MAGIC`); a
 /// plaintext archive is a bare zip (`PK\x03\x04`).
@@ -52,16 +49,6 @@ pub struct ArchiveContents {
     pub tables: HashMap<String, Vec<Value>>,
     /// `files/{path}` entries: the archive-relative path and the bytes.
     pub files: Vec<(String, Vec<u8>)>,
-}
-
-/// A single-column integer foreign-key edge: `child_table.child_column`
-/// references `parent_table.id`. Drives both the remap (rewrite the child column
-/// via the parent's id map) and the topological insert order.
-#[derive(Debug, Clone)]
-pub struct FkEdge {
-    pub child_table: String,
-    pub child_column: String,
-    pub parent_table: String,
 }
 
 /// Why an export can't be imported here. A workspace moves only between
@@ -79,6 +66,8 @@ pub enum ImportRefusal {
     /// Made at a schema this server doesn't know: a development build, or
     /// migrations edited after they shipped.
     Unknown { export_version: String },
+    /// The import plan refuses it (`workspace_archive::plan::PlanRefusal`).
+    Plan(Vec<PlanRefusal>),
 }
 
 impl std::fmt::Display for ImportRefusal {
@@ -110,6 +99,10 @@ impl std::fmt::Display for ImportRefusal {
                  doesn't recognise, as a development build's does. Export the workspace again \
                  from a server running Nosdesk {current}."
             ),
+            ImportRefusal::Plan(refusals) => {
+                let messages: Vec<String> = refusals.iter().map(|r| r.to_string()).collect();
+                f.write_str(&messages.join(" "))
+            }
         }
     }
 }
@@ -226,133 +219,6 @@ pub fn read_archive(
     })
 }
 
-/// Discover integer foreign-key edges (child column → `parent.id`) among
-/// `tables`, from `pg_constraint`: single-column keys, and the two-column keys
-/// between workspace tables, `(workspace_id, x_id)` → `(workspace_id, id)`,
-/// whose edge is `x_id`. Only FKs whose referenced column is `id` are returned —
-/// those are the integer keys a remap must rewrite. User FKs (referencing
-/// `users.uuid`) are intentionally excluded; users are resolved by uuid, not
-/// remapped.
-pub fn discover_fk_edges(
-    conn: &mut crate::db::DbConnection,
-    tables: &HashSet<String>,
-) -> Result<Vec<FkEdge>, BackupError> {
-    #[derive(QueryableByName)]
-    struct EdgeRow {
-        #[diesel(sql_type = Text)]
-        child_table: String,
-        #[diesel(sql_type = Text)]
-        child_column: String,
-        #[diesel(sql_type = Text)]
-        parent_table: String,
-        #[diesel(sql_type = Text)]
-        parent_column: String,
-    }
-
-    let rows: Vec<EdgeRow> = sql_query(
-        "SELECT con.conrelid::regclass::text AS child_table, \
-                child_col.attname AS child_column, \
-                con.confrelid::regclass::text AS parent_table, \
-                parent_col.attname AS parent_column \
-         FROM pg_constraint con \
-         CROSS JOIN LATERAL unnest(con.conkey, con.confkey) AS k(child_attnum, parent_attnum) \
-         JOIN pg_attribute child_col \
-           ON child_col.attrelid = con.conrelid AND child_col.attnum = k.child_attnum \
-         JOIN pg_attribute parent_col \
-           ON parent_col.attrelid = con.confrelid AND parent_col.attnum = k.parent_attnum \
-         WHERE con.contype = 'f' \
-           AND con.connamespace = 'public'::regnamespace \
-           AND (array_length(con.conkey, 1) = 1 \
-                OR (array_length(con.conkey, 1) = 2 \
-                    AND child_col.attname <> 'workspace_id' \
-                    AND EXISTS ( \
-                        SELECT 1 FROM unnest(con.conkey, con.confkey) AS w(child_attnum, parent_attnum) \
-                        JOIN pg_attribute wc \
-                          ON wc.attrelid = con.conrelid AND wc.attnum = w.child_attnum \
-                        JOIN pg_attribute wp \
-                          ON wp.attrelid = con.confrelid AND wp.attnum = w.parent_attnum \
-                        WHERE wc.attname = 'workspace_id' AND wp.attname = 'workspace_id')))",
-    )
-    .load(conn)
-    .map_err(BackupError::DatabaseError)?;
-
-    Ok(rows
-        .into_iter()
-        .filter(|e| e.parent_column == "id")
-        .filter(|e| tables.contains(&e.child_table) && tables.contains(&e.parent_table))
-        .map(|e| FkEdge {
-            child_table: e.child_table,
-            child_column: e.child_column,
-            parent_table: e.parent_table,
-        })
-        .collect())
-}
-
-/// Topologically order `tables` so a parent inserts before its children, given
-/// the integer-FK `edges`. Self-references (a table pointing at itself) are
-/// ignored for ordering — they're handled by a per-table second pass during the
-/// insert, so they can't create a false cycle. A genuine cross-table cycle
-/// returns an error (the caller can fall back to deferred handling).
-pub fn topological_order(tables: &[String], edges: &[FkEdge]) -> Result<Vec<String>, BackupError> {
-    let set: HashSet<&str> = tables.iter().map(|s| s.as_str()).collect();
-    let mut indegree: HashMap<&str, usize> = tables.iter().map(|t| (t.as_str(), 0)).collect();
-    let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
-
-    for e in edges {
-        // child depends on parent; skip self-refs and edges outside the set.
-        if e.child_table == e.parent_table {
-            continue;
-        }
-        if !set.contains(e.child_table.as_str()) || !set.contains(e.parent_table.as_str()) {
-            continue;
-        }
-        children
-            .entry(e.parent_table.as_str())
-            .or_default()
-            .push(e.child_table.as_str());
-        *indegree.get_mut(e.child_table.as_str()).unwrap() += 1;
-    }
-
-    // Kahn's algorithm; drain zero-indegree nodes in a stable (sorted) order so
-    // the output is deterministic across runs.
-    let mut queue: VecDeque<&str> = {
-        let mut zero: Vec<&str> = indegree
-            .iter()
-            .filter(|(_, d)| **d == 0)
-            .map(|(t, _)| *t)
-            .collect();
-        zero.sort_unstable();
-        zero.into_iter().collect()
-    };
-
-    let mut order: Vec<String> = Vec::with_capacity(tables.len());
-    while let Some(node) = queue.pop_front() {
-        order.push(node.to_string());
-        if let Some(kids) = children.get(node) {
-            let mut ready: Vec<&str> = Vec::new();
-            for &child in kids {
-                let d = indegree.get_mut(child).unwrap();
-                *d -= 1;
-                if *d == 0 {
-                    ready.push(child);
-                }
-            }
-            ready.sort_unstable();
-            for c in ready {
-                queue.push_back(c);
-            }
-        }
-    }
-
-    if order.len() != tables.len() {
-        return Err(BackupError::CorruptedBackup(
-            "foreign-key cycle among tenant tables; cannot topologically order for import"
-                .to_string(),
-        ));
-    }
-    Ok(order)
-}
-
 /// Caller-supplied import parameters.
 pub struct ImportOptions {
     /// Override the workspace slug. Default keeps the exported slug (region move
@@ -366,8 +232,13 @@ pub struct ImportOptions {
     /// migration (identity continuity, no collision). Set true to clone a
     /// workspace into the SAME database, where the globally-unique uuids would
     /// otherwise collide. Only the row's own `uuid` identity column is minted;
-    /// `*_uuid` foreign keys (e.g. user references) are always preserved.
+    /// User references go through the people map either way.
     pub regenerate_uuids: bool,
+    /// Which mapping rules people follow. Explicit, never read from the
+    /// environment here.
+    pub mode: DeploymentMode,
+    /// Who runs the import: only their own emails merge into their account.
+    pub runner: Runner,
 }
 
 /// Summary of a completed import. File restore happens separately in the handler
@@ -377,7 +248,12 @@ pub struct ImportResult {
     pub slug: String,
     pub tables_imported: usize,
     pub rows_imported: i64,
+    /// The plan's report: per-table counts, the people map, handover items.
+    pub report: ImportReport,
 }
+
+/// Rows per insert statement.
+const LOAD_BATCH: usize = 500;
 
 /// Import a workspace's ROWS from an already-read archive into THIS database as a
 /// new workspace. Must be called on a BYPASSRLS connection (via
@@ -385,6 +261,9 @@ pub struct ImportResult {
 /// transaction and rolls back on any error. The caller reads the archive
 /// ([`read_archive`]) and, after this returns, restores `contents.files` through
 /// the storage abstraction (async) so file migration works on local and S3.
+///
+/// A plan refusal comes back as [`BackupError::NotImportable`] with
+/// [`ImportRefusal::Plan`].
 pub fn import_workspace(
     conn: &mut crate::db::DbConnection,
     contents: &ArchiveContents,
@@ -398,92 +277,96 @@ pub fn import_workspace(
         sql_query("SET LOCAL nosdesk.in_audit_read = 'true'").execute(conn)?;
 
         // The archive decides which tables get written, and this runs BYPASSRLS
-        // with the audit triggers suppressed above. `table_exists_in_db` (in the
-        // insert helpers) only asserts a table EXISTS, so without this an
-        // archive naming a global/platform table would have its rows inserted
-        // there, unaudited. Platform-admin gated, so this is not an escalation
-        // path; it matters because the archive itself is an untrusted input
-        // (operators accept export files to perform migrations).
-        //
-        // Checked before anything is written, so a rejected archive leaves no
-        // partial workspace behind. `workspaces` and `users` are handled
-        // separately below and are legitimately present, as is `user_emails`.
-        //
-        // A table the archive policy keeps out (an archive from before the
-        // policy did) is skipped, not refused.
-        let allowed = crate::services::workspace_export::discover_workspace_tables(conn)?;
-        let allowed: HashSet<&str> = allowed.iter().map(String::as_str).collect();
-        let skipped = policy::skipped_on_import;
-        let mut rejected: Vec<&str> = contents
-            .tables
-            .keys()
-            .map(String::as_str)
-            .filter(|t| !is_people_or_workspace(t))
-            .filter(|t| !skipped(t))
-            .filter(|t| !allowed.contains(t))
-            .collect();
-        if !rejected.is_empty() {
-            rejected.sort_unstable();
+        // with the audit triggers suppressed above, so an archive naming a
+        // global or platform table is refused before anything is written. The
+        // archive is untrusted input even behind the platform-admin gate.
+        let outside = plan::tables_outside_workspace(conn, contents)?;
+        if !outside.is_empty() {
             return Err(BackupError::CorruptedBackup(format!(
                 "archive names tables that are not workspace-scoped: {}",
-                rejected.join(", ")
+                outside.join(", ")
             )));
         }
 
-        let (new_ws_id, slug) = create_target_workspace(conn, contents, opts)?;
-        let created = upsert_members(conn, contents)?;
-        insert_primary_emails(conn, contents, &created)?;
+        let (workspace_id, slug) = create_target_workspace(conn, contents, opts)?;
+        let target = plan::ImportTarget {
+            workspace_id,
+            mode: opts.mode,
+            runner: opts.runner.clone(),
+        };
+        let plan = plan::plan_import(
+            conn,
+            contents,
+            &target,
+            plan::PlanOptions {
+                regenerate_row_uuids: opts.regenerate_uuids,
+            },
+        )?;
+        if !plan.importable() {
+            return Err(BackupError::NotImportable(ImportRefusal::Plan(
+                plan.report.refusals.clone(),
+            )));
+        }
+        let alloc = plan.allocate(conn)?;
 
-        let tenant_tables: Vec<String> = contents
-            .tables
-            .keys()
-            .filter(|t| !is_people_or_workspace(t))
-            .filter(|t| !skipped(t))
-            .cloned()
-            .collect();
-        let tenant_set: HashSet<String> = tenant_tables.iter().cloned().collect();
-        let edges = discover_fk_edges(conn, &tenant_set)?;
-        let order = topological_order(&tenant_tables, &edges)?;
+        load_rows(conn, "users", &plan.new_users(), "")?;
+        insert_primary_emails(conn, &plan)?;
 
-        // table -> (old id -> new id), built as we go so a child can look up its
-        // already-imported parent.
-        let mut id_maps: HashMap<String, HashMap<i64, i64>> = HashMap::new();
         let mut rows_imported = 0i64;
-        for table in &order {
-            let rows = contents
-                .tables
-                .get(table)
-                .map(|v| v.as_slice())
-                .unwrap_or(&[]);
-            rows_imported += remap_insert_table(
-                conn,
-                table,
-                rows,
-                &edges,
-                new_ws_id,
-                opts.regenerate_uuids,
-                &mut id_maps,
-            )?;
+        for table in plan.tables() {
+            let rows = plan.rows(table, &alloc)?;
+            let suffix = if table.skip_conflicts {
+                "ON CONFLICT DO NOTHING"
+            } else {
+                ""
+            };
+            load_rows(conn, &table.name, &rows, suffix)?;
+            rows_imported += rows.len() as i64;
         }
 
         Ok(ImportResult {
-            workspace_id: new_ws_id,
+            workspace_id,
             slug,
-            tables_imported: order.len(),
+            tables_imported: plan.tables().len(),
             rows_imported,
+            report: plan.report,
         })
     })
 }
 
-/// The archive tables the import writes itself rather than as tenant tables.
-fn is_people_or_workspace(table: &str) -> bool {
-    matches!(table, "workspaces" | "users" | "user_emails")
+/// Insert `rows` into `table` in batches, through the column policy
+/// (`rows::load_statement`): only the columns the rows carry, so the rest take
+/// their defaults.
+fn load_rows(
+    conn: &mut crate::db::DbConnection,
+    table: &str,
+    rows: &[plan::Row],
+    suffix: &str,
+) -> Result<(), BackupError> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    if !table_exists_in_db(conn, table)? {
+        return Err(BackupError::CorruptedBackup(format!(
+            "archive references unknown table: {table}"
+        )));
+    }
+    for batch in rows.chunks(LOAD_BATCH) {
+        let keys: std::collections::HashSet<String> =
+            batch.iter().flat_map(|r| r.keys().cloned()).collect();
+        let query = rows::load_statement(conn, table, &keys, &[], suffix)?;
+        let payload = serde_json::to_string(batch).map_err(BackupError::JsonError)?;
+        sql_query(&query)
+            .bind::<Text, _>(payload)
+            .execute(conn)
+            .map_err(BackupError::DatabaseError)?;
+    }
+    Ok(())
 }
 
 /// Insert one archive row into `table`, omitting `id` (drawn fresh from the
 /// sequence) and returning the new id as i64; `None` when the column policy
-/// skips the row. Only the columns the row carries load, so the rest take their
-/// defaults.
+/// skips the row.
 fn insert_row_returning_id(
     conn: &mut crate::db::DbConnection,
     table: &str,
@@ -494,76 +377,25 @@ fn insert_row_returning_id(
         #[diesel(sql_type = BigInt)]
         new_id: i64,
     }
-    let (query, payload) =
-        row_statement(conn, table, row, &["id"], "RETURNING id::bigint AS new_id")?;
+    if !table_exists_in_db(conn, table)? {
+        return Err(BackupError::CorruptedBackup(format!(
+            "archive references unknown table: {table}"
+        )));
+    }
+    let keys = row.keys().cloned().collect();
+    let query = rows::load_statement(
+        conn,
+        table,
+        &keys,
+        &["id"],
+        "RETURNING id::bigint AS new_id",
+    )?;
+    let payload = serde_json::to_string(&[row]).map_err(BackupError::JsonError)?;
     let ids: Vec<IdRow> = sql_query(&query)
         .bind::<Text, _>(payload)
         .load(conn)
         .map_err(BackupError::DatabaseError)?;
     Ok(ids.first().map(|r| r.new_id))
-}
-
-/// The statement that loads one archive row into `table` through the column
-/// policy (`rows::load_statement`, which also validates `table`), and its `$1`.
-fn row_statement(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-    row: &serde_json::Map<String, Value>,
-    omit: &[&str],
-    suffix: &str,
-) -> Result<(String, String), BackupError> {
-    if !table_exists_in_db(conn, table)? {
-        return Err(BackupError::CorruptedBackup(format!(
-            "archive references unknown table: {table}"
-        )));
-    }
-    let keys: HashSet<String> = row.keys().cloned().collect();
-    let query = rows::load_statement(conn, table, &keys, omit, suffix)?;
-    let payload = serde_json::to_string(&[row]).map_err(BackupError::JsonError)?;
-    Ok((query, payload))
-}
-
-/// True if `table` has an `id` column. Composite-PK junction tables don't; they
-/// insert verbatim (no sequence id, no RETURNING). `table` is validated first.
-fn table_has_id_column(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-) -> Result<bool, BackupError> {
-    if !table_exists_in_db(conn, table)? {
-        return Err(BackupError::CorruptedBackup(format!(
-            "archive references unknown table: {table}"
-        )));
-    }
-    #[derive(QueryableByName)]
-    struct ExistsRow {
-        #[diesel(sql_type = diesel::sql_types::Bool)]
-        exists: bool,
-    }
-    let r: ExistsRow = sql_query(
-        "SELECT EXISTS ( \
-            SELECT 1 FROM information_schema.columns \
-            WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'id' \
-         ) AS exists",
-    )
-    .bind::<Text, _>(table)
-    .get_result(conn)
-    .map_err(BackupError::DatabaseError)?;
-    Ok(r.exists)
-}
-
-/// Insert one archive row into an id-less (composite-PK) `table`. FK columns
-/// must already be remapped by the caller.
-fn insert_row(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-    row: &serde_json::Map<String, Value>,
-) -> Result<(), BackupError> {
-    let (query, payload) = row_statement(conn, table, row, &[], "")?;
-    sql_query(&query)
-        .bind::<Text, _>(payload)
-        .execute(conn)
-        .map_err(BackupError::DatabaseError)?;
-    Ok(())
 }
 
 /// Create the target workspace from the exported `workspaces` row, taking a fresh
@@ -607,61 +439,8 @@ fn create_target_workspace(
     Ok((new_id, slug))
 }
 
-/// Upsert the exported member users by uuid. Users are global and referenced by
-/// uuid (never remapped), so an existing user with the same uuid is kept as-is
-/// (`ON CONFLICT (uuid) DO NOTHING`) and only genuinely new users are inserted.
-/// Returns the uuids of the users it created.
-fn upsert_members(
-    conn: &mut crate::db::DbConnection,
-    contents: &ArchiveContents,
-) -> Result<HashSet<String>, BackupError> {
-    #[derive(QueryableByName)]
-    struct Created {
-        #[diesel(sql_type = Text)]
-        uuid: String,
-    }
-    let mut created = HashSet::new();
-    let users = match contents.tables.get("users") {
-        Some(u) => u,
-        None => return Ok(created),
-    };
-    if !table_exists_in_db(conn, "users")? {
-        return Err(BackupError::CorruptedBackup(
-            "target has no users table".to_string(),
-        ));
-    }
-    for user in users {
-        // Security: never let an imported archive seed a platform-privileged
-        // global account. New users land as the baseline `platform_role = 'user'`;
-        // platform roles are per-cell and granted in the target, and workspace
-        // membership carries its own role. (Existing users are untouched — ON
-        // CONFLICT DO NOTHING.)
-        let mut obj = user
-            .as_object()
-            .ok_or_else(|| BackupError::CorruptedBackup("users row is not an object".to_string()))?
-            .clone();
-        obj.insert("platform_role".to_string(), json!("user"));
-        // The column policy applies: a plaintext archive's user without an MFA
-        // secret loads without MFA.
-        let (query, payload) = row_statement(
-            conn,
-            "users",
-            &obj,
-            &[],
-            "ON CONFLICT (uuid) DO NOTHING RETURNING uuid::text AS uuid",
-        )?;
-        let rows: Vec<Created> = sql_query(&query)
-            .bind::<Text, _>(payload)
-            .load(conn)
-            .map_err(BackupError::DatabaseError)?;
-        created.extend(rows.into_iter().map(|r| r.uuid));
-    }
-    Ok(created)
-}
-
-/// Give each user the import created the primary email the archive carries
-/// for them. An address another account already holds stays with it, and
-/// that person arrives without one.
+/// Give each account the plan creates the primary email the archive carries
+/// for them (placeholders get none).
 ///
 /// Only the address and its type come from the archive, which is untrusted:
 /// the row is unverified with no `source`, whatever the archive says, so an
@@ -670,41 +449,9 @@ fn upsert_members(
 /// by accepting an invitation, as anyone added by an admin does.
 fn insert_primary_emails(
     conn: &mut crate::db::DbConnection,
-    contents: &ArchiveContents,
-    created: &HashSet<String>,
+    plan: &plan::ImportPlan,
 ) -> Result<(), BackupError> {
-    let Some(emails) = contents.tables.get("user_emails") else {
-        return Ok(());
-    };
-    let mut done: HashSet<&str> = HashSet::new();
-    for email in emails {
-        let obj = email.as_object().ok_or_else(|| {
-            BackupError::CorruptedBackup("user_emails row is not an object".to_string())
-        })?;
-        let Some(owner) = obj
-            .get("user_uuid")
-            .and_then(Value::as_str)
-            .filter(|uuid| created.contains(*uuid))
-        else {
-            continue;
-        };
-        let address = obj
-            .get("email")
-            .and_then(Value::as_str)
-            .map(crate::utils::normalize_email)
-            .unwrap_or_default();
-        if address.is_empty() || !done.insert(owner) {
-            continue;
-        }
-        // The two types the product writes; anything else is the default.
-        let email_type = if obj.get("email_type").and_then(Value::as_str) == Some("work") {
-            "work"
-        } else {
-            "personal"
-        };
-        let owner = uuid::Uuid::parse_str(owner).map_err(|_| {
-            BackupError::CorruptedBackup("user_emails row has an invalid user_uuid".to_string())
-        })?;
+    for (owner, address, email_type) in plan.new_emails() {
         sql_query(
             "INSERT INTO public.user_emails \
                (user_uuid, email, email_type, is_primary, is_verified, source, created_by, \
@@ -712,8 +459,7 @@ fn insert_primary_emails(
              VALUES ($1, $2, $3, true, false, NULL, \
                (SELECT u.uuid FROM public.users u \
                 WHERE u.uuid = NULLIF(current_setting('app.actor_uuid', true), '')::uuid), \
-               now(), now()) \
-             ON CONFLICT DO NOTHING",
+               now(), now())",
         )
         .bind::<diesel::sql_types::Uuid, _>(owner)
         .bind::<Text, _>(address)
@@ -724,128 +470,13 @@ fn insert_primary_emails(
     Ok(())
 }
 
-/// Insert one tenant table's rows with id remap. Parents are already imported
-/// (topological order), so inter-table integer FKs rewrite via their maps;
-/// `workspace_id` is set to the new workspace; self-references are nulled then
-/// fixed in a second pass once this table's own old→new map is complete.
-fn remap_insert_table(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-    rows: &[Value],
-    edges: &[FkEdge],
-    new_ws_id: i32,
-    regenerate_uuids: bool,
-    id_maps: &mut HashMap<String, HashMap<i64, i64>>,
-) -> Result<i64, BackupError> {
-    let fk_cols: Vec<(String, String)> = edges
-        .iter()
-        .filter(|e| e.child_table == table && e.parent_table != table)
-        .map(|e| (e.child_column.clone(), e.parent_table.clone()))
-        .collect();
-    let self_ref_cols: Vec<String> = edges
-        .iter()
-        .filter(|e| e.child_table == table && e.parent_table == table)
-        .map(|e| e.child_column.clone())
-        .collect();
-
-    // Composite-PK junction tables (project_tickets, ticket_tags, cycle_tickets,
-    // ticket_watchers, ...) have no integer `id`. Nothing references them by id,
-    // so they need no old->new map and no RETURNING — just FK rewrites + a plain
-    // insert. Tables WITH an `id` draw a fresh one from the sequence and build the
-    // map their children read.
-    let has_id = table_has_id_column(conn, table)?;
-
-    let mut this_map: HashMap<i64, i64> = HashMap::new();
-    // (new id, [(self-ref column, old referenced id)]) for the second pass.
-    let mut pending_self: Vec<(i64, Vec<(String, i64)>)> = Vec::new();
-
-    for row in rows {
-        let obj = row
-            .as_object()
-            .ok_or_else(|| BackupError::CorruptedBackup(format!("{table} row is not an object")))?;
-        let mut new_obj = obj.clone();
-
-        if new_obj.contains_key("workspace_id") {
-            new_obj.insert("workspace_id".to_string(), json!(new_ws_id));
-        }
-
-        // Mint a fresh identity uuid for same-DB clones. Only the row's own
-        // `uuid` column; `*_uuid` FK columns are left untouched.
-        if regenerate_uuids {
-            if let Some(v) = new_obj.get("uuid") {
-                if v.is_string() {
-                    new_obj.insert("uuid".to_string(), json!(uuid::Uuid::new_v4().to_string()));
-                }
-            }
-        }
-
-        for (col, parent) in &fk_cols {
-            if let Some(old_fk) = new_obj.get(col).and_then(Value::as_i64) {
-                let parent_map = id_maps.get(parent).ok_or_else(|| {
-                    BackupError::CorruptedBackup(format!(
-                        "{table}.{col}: parent {parent} not imported before child"
-                    ))
-                })?;
-                let new_fk = *parent_map.get(&old_fk).ok_or_else(|| {
-                    BackupError::CorruptedBackup(format!(
-                        "{table}.{col} references {parent} id {old_fk} absent from the export"
-                    ))
-                })?;
-                new_obj.insert(col.clone(), json!(new_fk));
-            }
-        }
-
-        if !has_id {
-            // Junction row: FKs are already remapped; insert verbatim, no id.
-            insert_row(conn, table, &new_obj)?;
-            continue;
-        }
-
-        let old_id = obj.get("id").and_then(Value::as_i64).ok_or_else(|| {
-            BackupError::CorruptedBackup(format!("{table} row missing integer id"))
-        })?;
-        let mut selfs: Vec<(String, i64)> = Vec::new();
-        for col in &self_ref_cols {
-            if let Some(old_ref) = new_obj.get(col).and_then(Value::as_i64) {
-                selfs.push((col.clone(), old_ref));
-                new_obj.insert(col.clone(), Value::Null);
-            }
-        }
-
-        // A row the column policy skips gets no new id; a row that references
-        // it is refused as absent from the export.
-        let Some(new_id) = insert_row_returning_id(conn, table, &new_obj)? else {
-            continue;
-        };
-        this_map.insert(old_id, new_id);
-        if !selfs.is_empty() {
-            pending_self.push((new_id, selfs));
-        }
+/// The plan refusals in `err`, if it is one.
+pub fn plan_refusals(err: &BackupError) -> Option<&[PlanRefusal]> {
+    match err {
+        BackupError::NotImportable(ImportRefusal::Plan(refusals)) => Some(refusals),
+        _ => None,
     }
-
-    for (new_id, selfs) in &pending_self {
-        for (col, old_ref) in selfs {
-            let new_ref = *this_map.get(old_ref).ok_or_else(|| {
-                BackupError::CorruptedBackup(format!(
-                    "{table}.{col} self-reference {old_ref} absent from the export"
-                ))
-            })?;
-            let q = format!("UPDATE \"{table}\" SET \"{col}\" = $1 WHERE id = $2");
-            sql_query(&q)
-                .bind::<BigInt, _>(new_ref)
-                .bind::<BigInt, _>(*new_id)
-                .execute(conn)
-                .map_err(BackupError::DatabaseError)?;
-        }
-    }
-
-    let n = rows.len() as i64;
-    if has_id {
-        id_maps.insert(table.to_string(), this_map);
-    }
-    Ok(n)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1189,6 +820,8 @@ mod tests {
             // Same-DB round trip: mint fresh row uuids so the globally-unique
             // identity columns don't collide with the source workspace's rows.
             regenerate_uuids: true,
+            mode: DeploymentMode::SelfHosted,
+            runner: Runner::Operator { user: None },
         };
         let contents = read_archive(&archive, None).expect("read archive");
 
@@ -1325,6 +958,8 @@ mod tests {
             slug_override: Some(format!("rejected-{unique}")),
             uuid_override: Some("00000000-0000-0000-0000-0000000000fe".to_string()),
             regenerate_uuids: true,
+            mode: DeploymentMode::SelfHosted,
+            runner: Runner::Operator { user: None },
         };
 
         let err = with_actor_bypass_context(&mut conn, &actor, |c| {
