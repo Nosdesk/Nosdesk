@@ -1,10 +1,16 @@
 import type { IconName } from '@/components/common/icons';
+import { CONTROL_PLANE_BILLING_PATH } from '@/services/nosdeskAccount';
 
 export interface AdminNavItem {
   titleKey: string;
   descriptionKey: string;
   icon: IconName;
-  route: string;
+  /** In-app admin page. Absent on an item that leaves the app
+   * (`controlPlanePath`). */
+  route?: string;
+  /** A page on the Nosdesk account dashboard (hosted), opened in a new tab.
+   * Shown only when the control-plane URL is known. */
+  controlPlanePath?: string;
   keywords: string[];
   /** Visible to the standalone audit_reviewer role (Item C/D4). When
    * false/undefined the item is admin-only. */
@@ -14,6 +20,10 @@ export interface AdminNavItem {
   platformAdminOnly?: boolean;
   /** Hidden on hosted deployments, where Nosdesk runs the instance. */
   selfHostedOnly?: boolean;
+  /** Shown only on hosted deployments. */
+  hostedOnly?: boolean;
+  /** Shown only to the workspace owner. */
+  ownerOnly?: boolean;
 }
 
 export interface AdminNavGroup {
@@ -249,6 +259,17 @@ export const adminNavGroups: AdminNavGroup[] = [
         selfHostedOnly: true
       },
       {
+        // The Cloud counterpart of License: the owner's plan, trial, payment
+        // method and invoices, on the Nosdesk account dashboard.
+        titleKey: 'admin-nav-plan-billing-title',
+        descriptionKey: 'admin-nav-plan-billing-description',
+        icon: 'document',
+        controlPlanePath: CONTROL_PLANE_BILLING_PATH,
+        keywords: ['billing', 'plan', 'trial', 'cancel', 'payment', 'card', 'invoice', 'receipt', 'subscription', 'upgrade', 'pricing'],
+        hostedOnly: true,
+        ownerOnly: true
+      },
+      {
         titleKey: 'admin-nav-auth-providers-title',
         descriptionKey: 'admin-nav-auth-providers-description',
         icon: 'lock',
@@ -310,13 +331,25 @@ export const allAdminNavItems = adminNavGroups.flatMap(g => g.items);
  */
 export function filterAdminNavGroupsForRole(
   groups: AdminNavGroup[],
-  opts: { isAdmin: boolean; isAuditReviewer: boolean; isPlatformAdmin: boolean; isHosted?: boolean },
+  opts: {
+    isAdmin: boolean;
+    isAuditReviewer: boolean;
+    isPlatformAdmin: boolean;
+    isHosted?: boolean;
+    isOwner?: boolean;
+    controlPlaneUrl?: string;
+  },
 ): AdminNavGroup[] {
-  if (opts.isHosted) {
-    groups = groups
-      .map(group => ({ ...group, items: group.items.filter(i => !i.selfHostedOnly) }))
-      .filter(group => group.items.length > 0);
-  }
+  groups = groups
+    .map(group => ({
+      ...group,
+      items: group.items.filter(i =>
+        (opts.isHosted ? !i.selfHostedOnly : !i.hostedOnly) &&
+        (!i.ownerOnly || opts.isOwner) &&
+        (!i.controlPlanePath || !!opts.controlPlaneUrl)
+      ),
+    }))
+    .filter(group => group.items.length > 0);
   if (opts.isAdmin) {
     if (opts.isPlatformAdmin) return groups;
     // A per-workspace admin who isn't a platform operator: hide cross-tenant
@@ -334,11 +367,18 @@ export function filterAdminNavGroupsForRole(
 }
 
 /** Check if a given route path is active for a nav item (handles sub-routes) */
-export function isAdminRouteActive(currentPath: string, itemRoute: string): boolean {
+export function isAdminRouteActive(currentPath: string, itemRoute: string | undefined): boolean {
+  if (!itemRoute) return false;
   if (currentPath === itemRoute) return true;
   if (currentPath.startsWith(itemRoute + '/')) return true;
   if (itemRoute === '/admin/groups' && /^\/admin\/groups\/[^/]+\/configure/.test(currentPath)) return true;
   return false;
+}
+
+/** The new-tab address of an item that leaves the app, or `''`. */
+export function adminNavItemHref(item: AdminNavItem, controlPlaneUrl: string): string {
+  if (!item.controlPlanePath || !controlPlaneUrl) return '';
+  return `${controlPlaneUrl.replace(/\/$/, '')}${item.controlPlanePath}`;
 }
 
 /**
