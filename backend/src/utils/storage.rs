@@ -97,6 +97,27 @@ pub trait Storage: Send + Sync {
     /// Retrieve a file by path
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError>;
 
+    /// [`Storage::put_file`] from a local file, for uploads too large to
+    /// hold in memory. The default reads the file whole; the backends
+    /// stream it.
+    async fn put_file_from_path(
+        &self,
+        local: &Path,
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let data = tokio::fs::read(local).await?;
+        self.put_file(&data, path, content_type).await
+    }
+
+    /// Copy a stored file to a local file (created or truncated) and return
+    /// its size. The default reads the file whole; the backends stream it.
+    async fn get_file_to_path(&self, path: &str, local: &Path) -> Result<u64, StorageError> {
+        let data = self.get_file(path).await?;
+        tokio::fs::write(local, &data).await?;
+        Ok(data.len() as u64)
+    }
+
     /// Delete a file by path
     async fn delete_file(&self, path: &str) -> Result<(), StorageError>;
 
@@ -216,6 +237,40 @@ impl Storage for LocalStorage {
         let full_path = self.full_path(path)?;
         match std::fs::read(&full_path) {
             Ok(data) => Ok(data),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                Err(StorageError::NotFound(format!("File not found: {path}")))
+            }
+            Err(e) => Err(StorageError::Io(e)),
+        }
+    }
+
+    async fn put_file_from_path(
+        &self,
+        local: &Path,
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let relative_path = path.trim_start_matches('/').to_string();
+        let full_path = self.full_path(&relative_path)?;
+        self.ensure_directory_exists(&full_path)?;
+        let size = tokio::fs::copy(local, &full_path).await?;
+        Ok(StoredFile {
+            id: relative_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&relative_path)
+                .to_string(),
+            url: self.get_public_url(&relative_path),
+            path: relative_path,
+            size,
+            content_type: content_type.to_string(),
+        })
+    }
+
+    async fn get_file_to_path(&self, path: &str, local: &Path) -> Result<u64, StorageError> {
+        let full_path = self.full_path(path)?;
+        match tokio::fs::copy(&full_path, local).await {
+            Ok(size) => Ok(size),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 Err(StorageError::NotFound(format!("File not found: {path}")))
             }
@@ -430,6 +485,59 @@ impl Storage for S3Storage {
         Ok(bytes.to_vec())
     }
 
+    async fn put_file_from_path(
+        &self,
+        local: &Path,
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let key = checked_path(path)?.trim_start_matches('/').to_string();
+        let size = tokio::fs::metadata(local).await?.len();
+        let body = aws_sdk_s3::primitives::ByteStream::from_path(local)
+            .await
+            .map_err(|e| StorageError::UploadFailed(format!("S3 body from file failed: {e}")))?;
+        self.client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(&key)
+            .body(body)
+            .content_type(content_type)
+            .send()
+            .await
+            .map_err(|e| StorageError::UploadFailed(format!("S3 put_object failed: {e}")))?;
+        Ok(StoredFile {
+            id: key.rsplit('/').next().unwrap_or(&key).to_string(),
+            url: self.get_public_url(&key),
+            path: key,
+            size,
+            content_type: content_type.to_string(),
+        })
+    }
+
+    async fn get_file_to_path(&self, path: &str, local: &Path) -> Result<u64, StorageError> {
+        use aws_sdk_s3::operation::get_object::GetObjectError;
+        let out = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(checked_path(path)?)
+            .send()
+            .await
+            .map_err(|e| match &e {
+                aws_sdk_s3::error::SdkError::ServiceError(se)
+                    if matches!(se.err(), GetObjectError::NoSuchKey(_)) =>
+                {
+                    StorageError::NotFound(format!("File not found: {path}"))
+                }
+                _ => StorageError::Backend(format!("S3 get_object failed: {e}")),
+            })?;
+        let mut body = out.body.into_async_read();
+        let mut file = tokio::fs::File::create(local).await?;
+        let size = tokio::io::copy(&mut body, &mut file).await?;
+        tokio::io::AsyncWriteExt::flush(&mut file).await?;
+        Ok(size)
+    }
+
     async fn delete_file(&self, path: &str) -> Result<(), StorageError> {
         // S3 delete is idempotent: deleting a missing key succeeds, so a
         // double-delete is a no-op just like the local backend.
@@ -625,6 +733,33 @@ impl Storage for WorkspaceScopedStorage {
 
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         self.inner.get_file(&self.physical(path)).await
+    }
+
+    async fn put_file_from_path(
+        &self,
+        local: &Path,
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let stored = self
+            .inner
+            .put_file_from_path(local, &self.physical(path), content_type)
+            .await?;
+        let logical_path = self.logical(&stored.path).to_string();
+        let url = self.inner.get_public_url(&logical_path);
+        Ok(StoredFile {
+            id: stored.id,
+            url,
+            path: logical_path,
+            size: stored.size,
+            content_type: stored.content_type,
+        })
+    }
+
+    async fn get_file_to_path(&self, path: &str, local: &Path) -> Result<u64, StorageError> {
+        self.inner
+            .get_file_to_path(&self.physical(path), local)
+            .await
     }
 
     async fn delete_file(&self, path: &str) -> Result<(), StorageError> {
