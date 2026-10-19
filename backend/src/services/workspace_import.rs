@@ -662,6 +662,12 @@ fn upsert_members(
 /// Give each user the import created the primary email the archive carries
 /// for them. An address another account already holds stays with it, and
 /// that person arrives without one.
+///
+/// Only the address and its type come from the archive, which is untrusted:
+/// the row is unverified with no `source`, whatever the archive says, so an
+/// archive can't vouch for an address (`is_verified` is the inbound-mail
+/// impersonation guard) or tie it to a sign-in provider. The person proves it
+/// by accepting an invitation, as anyone added by an admin does.
 fn insert_primary_emails(
     conn: &mut crate::db::DbConnection,
     contents: &ArchiveContents,
@@ -670,20 +676,50 @@ fn insert_primary_emails(
     let Some(emails) = contents.tables.get("user_emails") else {
         return Ok(());
     };
+    let mut done: HashSet<&str> = HashSet::new();
     for email in emails {
         let obj = email.as_object().ok_or_else(|| {
             BackupError::CorruptedBackup("user_emails row is not an object".to_string())
         })?;
-        let owner = obj.get("user_uuid").and_then(Value::as_str);
-        if !owner.is_some_and(|uuid| created.contains(uuid)) {
+        let Some(owner) = obj
+            .get("user_uuid")
+            .and_then(Value::as_str)
+            .filter(|uuid| created.contains(*uuid))
+        else {
+            continue;
+        };
+        let address = obj
+            .get("email")
+            .and_then(Value::as_str)
+            .map(crate::utils::normalize_email)
+            .unwrap_or_default();
+        if address.is_empty() || !done.insert(owner) {
             continue;
         }
-        let (query, payload) =
-            row_statement(conn, "user_emails", obj, &["id"], "ON CONFLICT DO NOTHING")?;
-        sql_query(&query)
-            .bind::<Text, _>(payload)
-            .execute(conn)
-            .map_err(BackupError::DatabaseError)?;
+        // The two types the product writes; anything else is the default.
+        let email_type = if obj.get("email_type").and_then(Value::as_str) == Some("work") {
+            "work"
+        } else {
+            "personal"
+        };
+        let owner = uuid::Uuid::parse_str(owner).map_err(|_| {
+            BackupError::CorruptedBackup("user_emails row has an invalid user_uuid".to_string())
+        })?;
+        sql_query(
+            "INSERT INTO public.user_emails \
+               (user_uuid, email, email_type, is_primary, is_verified, source, created_by, \
+                created_at, updated_at) \
+             VALUES ($1, $2, $3, true, false, NULL, \
+               (SELECT u.uuid FROM public.users u \
+                WHERE u.uuid = NULLIF(current_setting('app.actor_uuid', true), '')::uuid), \
+               now(), now()) \
+             ON CONFLICT DO NOTHING",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(owner)
+        .bind::<Text, _>(address)
+        .bind::<Text, _>(email_type)
+        .execute(conn)
+        .map_err(BackupError::DatabaseError)?;
     }
     Ok(())
 }

@@ -10,7 +10,11 @@ use diesel::sql_types::{Bool, Integer, Nullable, Text, Uuid as SqlUuid};
 use uuid::Uuid;
 
 use backend::services::workspace_archive::policy::ARCHIVE_USER_COLUMNS;
-use backend::services::workspace_import::{read_archive, ArchiveContents};
+use backend::services::workspace_import::{
+    import_workspace, read_archive, ArchiveContents, ImportOptions,
+};
+use backend::sync::actor::ActorContext;
+use backend::sync::session::with_actor_bypass_context;
 
 use crate::common::{insert_plain_user, seed_two_workspaces, test_storage, TestDb, TestPool};
 use crate::workspace_export_hygiene::call_admin_route;
@@ -18,6 +22,23 @@ use crate::workspace_export_hygiene::call_admin_route;
 const PASSWORD: &str = "export-v2-password";
 const MFA_SECRET_HEX: &str = "5345435245544d4641";
 const PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c2VjcmV0aGFzaA$c2VjcmV0aGFzaHZhbHVl";
+
+const EMAIL_QUERY: &str = "SELECT email, is_primary, is_verified, source, \
+     created_by::text AS created_by FROM user_emails WHERE user_uuid = $1";
+
+#[derive(QueryableByName)]
+struct Email {
+    #[diesel(sql_type = Text)]
+    email: String,
+    #[diesel(sql_type = Bool)]
+    is_primary: bool,
+    #[diesel(sql_type = Bool)]
+    is_verified: bool,
+    #[diesel(sql_type = Nullable<Text>)]
+    source: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    created_by: Option<String>,
+}
 
 struct Person {
     uuid: Uuid,
@@ -241,13 +262,6 @@ async fn an_export_carries_people_without_credentials_and_imports() {
     let imported = result["workspace_id"].as_i64().expect("workspace id") as i32;
 
     #[derive(QueryableByName)]
-    struct Email {
-        #[diesel(sql_type = Text)]
-        email: String,
-        #[diesel(sql_type = Bool)]
-        is_primary: bool,
-    }
-    #[derive(QueryableByName)]
     struct Back {
         #[diesel(sql_type = Bool)]
         mfa_enabled: bool,
@@ -260,14 +274,17 @@ async fn an_export_carries_people_without_credentials_and_imports() {
         password_hash: Option<String>,
     }
     let mut conn = pool.get().expect("conn");
-    let emails: Vec<Email> =
-        diesel::sql_query("SELECT email, is_primary FROM user_emails WHERE user_uuid = $1")
-            .bind::<SqlUuid, _>(person.uuid)
-            .load(&mut conn)
-            .expect("emails");
+    let emails: Vec<Email> = diesel::sql_query(EMAIL_QUERY)
+        .bind::<SqlUuid, _>(person.uuid)
+        .load(&mut conn)
+        .expect("emails");
     assert_eq!(emails.len(), 1);
     assert_eq!(emails[0].email, person.primary);
     assert!(emails[0].is_primary);
+    assert!(
+        !emails[0].is_verified,
+        "verified again by accepting an invitation"
+    );
     let back: Back = diesel::sql_query("SELECT mfa_enabled, avatar_url FROM users WHERE uuid = $1")
         .bind::<SqlUuid, _>(person.uuid)
         .get_result(&mut conn)
@@ -344,4 +361,80 @@ async fn an_export_from_another_release_is_refused_by_name() {
         "{body}"
     );
     assert!(!body.contains("invalid archive"), "{body}");
+}
+
+/// The archive is untrusted: an imported address arrives unverified, with no
+/// sign-in source, normalised, and created by whoever ran the import, whatever
+/// the archive's row says.
+#[actix_web::test]
+async fn an_imported_email_is_unverified_whatever_the_archive_says() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let _ = test_storage();
+    let seeded = seed_two_workspaces(&mut pool.get().expect("conn"));
+    let ws = &seeded.a;
+    let person = add_person(&pool, ws.workspace_id);
+    let archive = export(&pool, ws, Some(PASSWORD)).await;
+    let mut contents = read_archive(&archive, Some(PASSWORD)).expect("read archive");
+
+    let claimed = format!("  Someone.Else-{}@Example.COM ", Uuid::now_v7().simple());
+    let row = contents
+        .tables
+        .get_mut("user_emails")
+        .expect("user_emails")
+        .iter_mut()
+        .find(|e| e["user_uuid"] == person.uuid.to_string())
+        .expect("the person's email");
+    let row = row.as_object_mut().expect("email row");
+    row.insert("email".to_string(), claimed.clone().into());
+    row.insert("is_verified".to_string(), true.into());
+    row.insert("source".to_string(), "https://login.example.com".into());
+    row.insert("email_type".to_string(), "<script>".into());
+
+    let mut conn = pool.get().expect("conn");
+    diesel::sql_query("DELETE FROM workspace_members WHERE user_uuid = $1")
+        .bind::<SqlUuid, _>(person.uuid)
+        .execute(&mut conn)
+        .expect("remove membership");
+    diesel::sql_query("DELETE FROM users WHERE uuid = $1")
+        .bind::<SqlUuid, _>(person.uuid)
+        .execute(&mut conn)
+        .expect("remove person");
+    let opts = ImportOptions {
+        slug_override: Some(format!("unverified-{}", Uuid::now_v7().simple())),
+        uuid_override: None,
+        regenerate_uuids: true,
+    };
+    let actor = ActorContext::user(ws.admin_uuid, None);
+    with_actor_bypass_context(&mut conn, &actor, |c| {
+        import_workspace(c, &contents, &opts)
+            .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+    })
+    .expect("the archive imports");
+
+    #[derive(QueryableByName)]
+    struct EmailType {
+        #[diesel(sql_type = Text)]
+        email_type: String,
+    }
+    let emails: Vec<Email> = diesel::sql_query(EMAIL_QUERY)
+        .bind::<SqlUuid, _>(person.uuid)
+        .load(&mut conn)
+        .expect("emails");
+    assert_eq!(emails.len(), 1);
+    assert_eq!(emails[0].email, claimed.trim().to_lowercase());
+    assert!(emails[0].is_primary);
+    assert!(!emails[0].is_verified, "never verified by the archive");
+    assert_eq!(emails[0].source, None, "no sign-in source from the archive");
+    assert_eq!(
+        emails[0].created_by.as_deref(),
+        Some(ws.admin_uuid.to_string().as_str()),
+        "created by whoever ran the import"
+    );
+    let kind: EmailType =
+        diesel::sql_query("SELECT email_type FROM user_emails WHERE user_uuid = $1")
+            .bind::<SqlUuid, _>(person.uuid)
+            .get_result(&mut conn)
+            .expect("email type");
+    assert_eq!(kind.email_type, "personal");
 }
