@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
+import { workspacePath } from '@/router/workspaceRouting'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@nosdesk/core/services/documentationService'
 import { computed, ref } from 'vue'
@@ -42,10 +43,11 @@ const itemRef = ref<HTMLElement | null>(null)
 // Current level (0-based)
 const currentLevel = computed(() => props.level ?? 0)
 
-// Check if this page is currently active
+// Check if this page is currently active. The path inside the workspace,
+// since on Cloud `route.path` starts with the workspace slug.
 const isActive = computed(() => {
   const pageSlug = props.page.slug || String(props.page.id)
-  return route.path === `/documentation/${pageSlug}`
+  return workspacePath(route) === `/documentation/${pageSlug}`
 })
 
 // Check if this page has children

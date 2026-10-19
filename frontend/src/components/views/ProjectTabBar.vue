@@ -38,9 +38,8 @@ const tabs = computed<Tab[]>(() => [
 ])
 
 const activeId = computed<string>(() => {
-  const path = route.path
-  if (path.endsWith('/gantt')) return 'gantt'
-  if (path.endsWith('/cycles')) return 'cycles'
+  if (route.name === 'project-gantt') return 'gantt'
+  if (route.name === 'project-cycles') return 'cycles'
   return 'board'
 })
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AssetImg from "@/components/common/AssetImg.vue";
 import { RouterLink, useRoute } from "vue-router";
+import { workspacePath } from "@/router/workspaceRouting";
 import DocumentationNav from "@/components/documentationComponents/DocumentationNav.vue";
 import RecentTickets from "@/components/RecentTickets.vue";
 import CollapsibleSection from "@/components/common/CollapsibleSection.vue";
@@ -107,7 +108,7 @@ interface NavLink {
     to: string;
     icon: string;
     text: string;
-    /** True for paths whose `route.path === path` should be the
+    /** True for paths whose exact match should be the
      *  only "active" trigger. Without this, e.g. `/` would
      *  match every route (since every path starts with `/`). */
     exact?: boolean;
@@ -357,12 +358,15 @@ function onDialogBackdropClick(event: MouseEvent) {
     }
 }
 
-// Helper function to check if a route is active
+// Whether a nav link's page is open. Links are bare app paths, so they are
+// compared to the path inside the workspace: on Cloud `route.path` starts
+// with the workspace slug (`/acme/tickets`).
 const isRouteActive = (path: string, exact = false) => {
+    const current = workspacePath(route);
     if (exact) {
-        return route.path === path;
+        return current === path;
     }
-    return route.path.startsWith(path);
+    return current.startsWith(path);
 };
 
 /** Active when at least one overflow link matches the current route,

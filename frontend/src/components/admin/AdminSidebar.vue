@@ -2,6 +2,7 @@
 import IconButton from '@/components/common/IconButton.vue'
 import { ref, computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
+import { workspacePath } from '@/router/workspaceRouting';
 import { useFluent } from 'fluent-vue';
 import {
   adminNavGroups,
@@ -38,7 +39,9 @@ const filteredGroups = computed(() =>
   filterAdminNavGroups(roleGroups.value, searchQuery.value, (key) => fluent.$t(key))
 );
 
-const isActive = (itemRoute: string | undefined) => isAdminRouteActive(route.path, itemRoute);
+// Nav items are bare app paths; on Cloud the route path starts with the
+// workspace slug, so compare the path inside the workspace.
+const isActive = (itemRoute: string | undefined) => isAdminRouteActive(workspacePath(route), itemRoute);
 
 // An item that leaves the app (Plan and billing on Cloud) is a real link for
 // hover and copy, opened through the platform so the native shell hands it to
