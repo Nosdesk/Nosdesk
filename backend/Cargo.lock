@@ -1317,6 +1317,7 @@ dependencies = [
  "openidconnect",
  "pdfium-render",
  "postgres-native-tls",
+ "pulldown-cmark",
  "qrcode",
  "querystring",
  "quick-xml 0.42.0",
@@ -5414,6 +5415,17 @@ checksum = "4488a4a36b9a4ba6b9334a32a39971f77c1436ec82c38707bce707699cc3bbcb"
 dependencies = [
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "pulldown-cmark"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+dependencies = [
+ "bitflags 2.11.1",
+ "memchr",
+ "unicase",
 ]
 
 [[package]]

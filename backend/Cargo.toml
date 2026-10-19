@@ -202,6 +202,9 @@ html-escape = "0.2"
 # in `services::channels::email_sanitise`; the frontend still
 # layers DOMPurify before iframe injection as defence-in-depth.
 ammonia = "4"
+# Markdown parser for documentation import (`services::docs_markdown`).
+# CommonMark plus the GFM extensions; the HTML renderer is not used.
+pulldown-cmark = { version = "0.13", default-features = false }
 # DNS resolver for pre-flight MX lookup on guest-submitted email addresses.
 # Catches `random@nonexistentdomain.tld` before we waste an invitation email on it.
 hickory-resolver = { version = "0.26", features = ["tokio"] }

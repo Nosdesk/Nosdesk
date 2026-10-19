@@ -1,0 +1,447 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Nosdesk is a helpdesk with a knowledge base built in. It tracks support tickets, groups work into projects and cycles, and keeps a record of the devices you support. Documentation lives here too, including the page you are reading."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Start here"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Tickets are where most of the work happens. Incoming email becomes a ticket, and your replies go back to the requester. See "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://nosdesk.com/docs/guide/ticket-queue",
+                "title": null
+              }
+            }
+          ],
+          "text": "working the ticket queue"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "For a tour of the sidebar, search, and your dashboard, read "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://nosdesk.com/docs/guide/getting-around",
+                "title": null
+              }
+            }
+          ],
+          "text": "finding your way around"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Notifications cover mentions, assignments, and SLA breaches, and you choose which of them interrupt you. See "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://nosdesk.com/docs/guide/notifications",
+                "title": null
+              }
+            }
+          ],
+          "text": "notifications and mentions"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Documentation"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "You are reading a page in the Getting Started collection. Pages live in collections, and a page can belong to more than one."
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Add a page with the + button in the sidebar, and drag pages to nest them"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Type "
+                },
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ],
+                  "text": "/"
+                },
+                {
+                  "type": "text",
+                  "text": " in the editor for formatting commands, and "
+                },
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ],
+                  "text": "@"
+                },
+                {
+                  "type": "text",
+                  "text": " to mention a teammate"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Several people can edit a page at once, and everyone sees the changes as they happen"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Paste a ticket URL into a page to link it to that ticket"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Collection visibility controls which groups can read a collection"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "More in "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://nosdesk.com/docs/guide/knowledge-base",
+                "title": null
+              }
+            }
+          ],
+          "text": "writing and sharing documentation"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Projects and assets"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Projects and cycles group work over time. See "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://nosdesk.com/docs/guide/projects-and-cycles",
+                "title": null
+              }
+            }
+          ],
+          "text": "projects and cycles"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Assets track the devices you support and connect them to the tickets about them. See "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://nosdesk.com/docs/guide/assets-and-devices",
+                "title": null
+              }
+            }
+          ],
+          "text": "assets and devices"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "For administrators"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Email, authentication, SLA policies, and workspace settings are under Settings. The "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://nosdesk.com/docs/operations/configuration",
+                "title": null
+              }
+            }
+          ],
+          "text": "configuration guide"
+        },
+        {
+          "type": "text",
+          "text": " walks through the options."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Full documentation lives at "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://nosdesk.com/docs",
+                "title": null
+              }
+            }
+          ],
+          "text": "nosdesk.com/docs"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    }
+  ]
+}
