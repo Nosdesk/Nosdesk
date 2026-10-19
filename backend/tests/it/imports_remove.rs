@@ -591,7 +591,7 @@ async fn untouched_assets_are_deleted_with_sync_actions_and_an_audit_entry() {
     assert_eq!(status, StatusCode::OK, "{list}");
     assert_eq!(
         list["jobs"][0]["removed"],
-        serde_json::json!({ "deleted": 2, "created": 3 })
+        serde_json::json!({ "deleted": 2, "created": 3, "kept": 1 })
     );
 }
 

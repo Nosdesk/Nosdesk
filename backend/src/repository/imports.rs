@@ -123,6 +123,7 @@ pub struct ImportJobListRow {
     /// created.
     pub removed: Option<i32>,
     pub removed_of: Option<i32>,
+    pub removed_kept: Option<i32>,
 }
 
 /// The workspace's newest jobs that reached Map (the upload read, whatever
@@ -155,6 +156,7 @@ pub fn list_reached_map(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<
             sql::<Nullable<Integer>>("(import_jobs.summary->>'rows_with_errors')::int"),
             sql::<Nullable<Integer>>("(import_jobs.remove_result->>'deleted')::int"),
             sql::<Nullable<Integer>>("(import_jobs.remove_result->>'created')::int"),
+            sql::<Nullable<Integer>>("jsonb_array_length(import_jobs.remove_result->'kept')"),
         ))
         .load(conn)
 }

@@ -621,6 +621,7 @@ function confirm() {
           :outcome="selectedRow ? outcomeOf(selectedRow, duplicates) : null"
           :notes="selectedRow ? notesOf(selectedRow) : []"
           :others="counts.imported - (selectedRow && outcomeOf(selectedRow, duplicates) !== 'skipped' ? 1 : 0)"
+          :root="job.source?.tree.root"
           @open="openLinked"
         />
       </div>
@@ -641,6 +642,7 @@ function confirm() {
         :outcome="selectedRow ? outcomeOf(selectedRow, duplicates) : null"
         :notes="selectedRow ? notesOf(selectedRow) : []"
         :others="counts.imported - 1"
+        :root="job.source?.tree.root"
         headless
         @open="openLinked"
       />

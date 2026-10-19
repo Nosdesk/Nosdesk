@@ -4715,6 +4715,10 @@ import-history-state-imported = Importé
 # MT: pending native review (fr-FR)
 import-history-state-expired = Expiré
 # MT: pending native review (fr-FR)
+import-history-state-removed = Retiré
+# MT: pending native review (fr-FR)
+import-history-count-removed-pages = { $deleted } retirées · { $kept } conservées
+# MT: pending native review (fr-FR)
 import-history-draft-on-map = Brouillon à l'étape Colonnes
 # MT: pending native review (fr-FR)
 import-history-draft-on-review = Brouillon à l'étape Vérification
@@ -9736,6 +9740,13 @@ docs-import-tree-left-out = Exclue
 # MT: pending native review (fr-FR)
 docs-import-tree-no-content = Sans contenu
 # MT: pending native review (fr-FR)
+docs-import-tree-database = Base de données
+# MT: pending native review (fr-FR)
+docs-import-tree-image-count = { $count ->
+    [one] 1 image
+   *[other] { $count } images
+}
+# MT: pending native review (fr-FR)
 docs-import-tree-page-count = { $count ->
     [one] 1 page
    *[other] { $count } pages
@@ -9856,7 +9867,7 @@ docs-import-leave-out-matches = { $count ->
    *[other] { $count } pages correspondent.
 }
 # MT: pending native review (fr-FR)
-docs-import-too-many-patterns = Trop de pages sont décochées une par une pour être envoyées. Décochez plutôt leur section, ou ajoutez un motif sous Exclure.
+docs-import-too-many-typed-patterns = Exclure accepte au plus 100 motifs. Supprimez-en quelques-uns.
 # MT: pending native review (fr-FR)
 docs-import-pattern-too-long = Un motif dépasse 500 caractères. Raccourcissez-le.
 # MT: pending native review (fr-FR)
@@ -10224,6 +10235,10 @@ docs-import-outcome-error = Erreur
 # MT: pending native review (fr-FR)
 docs-import-outcome-left = Non importée
 # MT: pending native review (fr-FR)
+docs-import-outcome-trash = Dans la corbeille
+# MT: pending native review (fr-FR)
+docs-import-outcome-kept = Conservée
+# MT: pending native review (fr-FR)
 docs-import-row-already-skip = Déjà dans Nosdesk, elle est donc ignorée
 # MT: pending native review (fr-FR)
 docs-import-row-already-copy = Déjà dans Nosdesk, une copie est donc créée
@@ -10345,7 +10360,7 @@ docs-import-importing-progress = { $written } pages écrites sur { $total }
 # MT: pending native review (fr-FR)
 docs-import-importing-finishing = Finalisation : liens, intégrations et index de recherche
 # MT: pending native review (fr-FR)
-docs-import-importing-leave = Vous pouvez quitter cette page. L'import continue et s'affiche ici, ainsi que dans Imports récents, une fois terminé. Le compteur se met à jour environ toutes les trente secondes.
+docs-import-importing-leave = Vous pouvez quitter cette page. L'import continue et s'affiche ici, ainsi que dans Imports récents, une fois terminé.
 # MT: pending native review (fr-FR)
 docs-import-done-heading = Import terminé
 # MT: pending native review (fr-FR)
@@ -10378,7 +10393,7 @@ docs-import-done-errors = { $count ->
    *[other] { $count } pages n'ont pas pu être converties et ont été importées vides.
 }
 # MT: pending native review (fr-FR)
-docs-import-done-drafts = Les pages sont des brouillons : seul le personnel peut les voir. Relisez-en quelques-unes, puis publiez-les.
+docs-import-done-drafts = Les pages sont des brouillons : seul le personnel peut les voir. Relisez-en quelques-unes, puis publiez-les toutes ici ou une par une.
 # MT: pending native review (fr-FR)
 docs-import-done-revision = La première révision de chaque page indique « Importé depuis { $file } ».
 # MT: pending native review (fr-FR)
@@ -10429,6 +10444,152 @@ docs-import-detail-left-out = Exclus : { $patterns }
 # MT: pending native review (fr-FR)
 docs-import-detail-tree-title = Pages écrites par cet import
 # MT: pending native review (fr-FR)
-docs-import-detail-tree-footer = Les lignes ignorées et non importées correspondent à ce que la vérification a trouvé ; elles n'ont rien écrit.
+docs-import-detail-tree-footer = Les titres ouvrent la page. Les lignes ignorées et non importées correspondent à ce que la vérification a trouvé ; elles n'ont rien écrit.
 # MT: pending native review (fr-FR)
 docs-import-detail-kept = Les détails sont conservés pendant 30 jours. Les chiffres et les options restent ensuite.
+# MT: pending native review (fr-FR)
+docs-import-detail-state-removed = { $count ->
+    [one] Retiré : 1 page déplacée dans la corbeille le { $date }
+   *[other] Retiré : { $count } pages déplacées dans la corbeille le { $date }
+}, { $kept } conservées
+
+# Publish all
+# MT: pending native review (fr-FR)
+docs-import-publish-button = { $count ->
+    [one] Publier 1 page
+   *[other] Publier les { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-publish-title = { $count ->
+    [one] Publier 1 page ?
+   *[other] Publier { $count } pages ?
+}
+# MT: pending native review (fr-FR)
+docs-import-publish-message = Toutes les personnes de l'espace de travail qui peuvent voir { $collection } les verront. Les pages que quelqu'un a déjà modifiées ou publiées depuis l'import restent telles quelles.
+# MT: pending native review (fr-FR)
+docs-import-publish-these-collections = ces collections
+# MT: pending native review (fr-FR)
+docs-import-publish-confirm = { $count ->
+    [one] Publier 1 page
+   *[other] Publier { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-published = { $count ->
+    [one] 1 page publiée
+   *[other] { $count } pages publiées
+}
+# MT: pending native review (fr-FR)
+docs-import-published-left = { $count ->
+    [one] 1 laissée telle quelle (modifiée depuis l'import)
+   *[other] { $count } laissées telles quelles (modifiées depuis l'import)
+}
+# MT: pending native review (fr-FR)
+docs-import-publish-failed = La publication des pages a échoué et rien n'a été publié.
+
+# Remove imported pages
+# MT: pending native review (fr-FR)
+docs-import-remove-button = Retirer les pages importées
+# MT: pending native review (fr-FR)
+docs-import-remove-window = Les déplace dans la corbeille. Uniquement les pages que personne n'a modifiées depuis. Jusqu'au { $date }.
+# MT: pending native review (fr-FR)
+docs-import-remove-running = Retrait en cours. Cette page se met à jour une fois terminé.
+# MT: pending native review (fr-FR)
+docs-import-remove-still-running-later = Le retrait prend plus de temps que d'habitude. Revenez sur cette page plus tard pour voir ce qu'il a fait.
+# MT: pending native review (fr-FR)
+docs-import-remove-load-failed = Impossible de vérifier les pages importées. Réessayez.
+# MT: pending native review (fr-FR)
+docs-import-remove-failed = Le retrait des pages importées a échoué et rien n'a été déplacé dans la corbeille.
+# MT: pending native review (fr-FR)
+docs-import-remove-not-committed = Cet import n'a pas été validé, il n'a donc créé aucune page.
+# MT: pending native review (fr-FR)
+docs-import-remove-already-removed = Les pages créées par cet import ont déjà été déplacées dans la corbeille.
+# MT: pending native review (fr-FR)
+docs-import-action-busy = Cet import est en cours de modification. Réessayez dans un instant.
+# MT: pending native review (fr-FR)
+docs-import-remove-nothing-none-created = Cet import n'a créé aucune page, il n'y a donc rien à retirer.
+# MT: pending native review (fr-FR)
+docs-import-remove-nothing-all-gone = Les pages créées par cet import ont déjà été supprimées ou déplacées dans la corbeille.
+# MT: pending native review (fr-FR)
+docs-import-remove-nothing-all-changed = Chaque page créée par cet import a été modifiée depuis, aucune ne peut donc être déplacée dans la corbeille.
+# MT: pending native review (fr-FR)
+docs-import-remove-title = { $count ->
+    [one] Déplacer 1 page dans la corbeille ?
+   *[other] Déplacer { $count } pages dans la corbeille ?
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-title-none = Rien à déplacer dans la corbeille
+# MT: pending native review (fr-FR)
+docs-import-remove-confirm = { $count ->
+    [one] Déplacer 1 page dans la corbeille
+   *[other] Déplacer { $count } pages dans la corbeille
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-untouched = { $created ->
+    [one] Sur la page créée par cet import,
+   *[other] Sur les { $created } pages créées par cet import,
+} { $count ->
+    [one] 1 est intacte et va dans la corbeille, où elle peut être restaurée.
+   *[other] { $count } sont intactes et vont dans la corbeille, où elles peuvent être restaurées.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-changed = { $count ->
+    [one] 1 a été modifiée depuis et est conservée.
+   *[other] { $count } ont été modifiées depuis et sont conservées.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-gone = { $count ->
+    [one] 1 était déjà supprimée ou dans la corbeille.
+   *[other] { $count } étaient déjà supprimées ou dans la corbeille.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-existing-keeps = { $name } conserve ses autres pages.
+# MT: pending native review (fr-FR)
+docs-import-remove-collection-if-empty = La collection est supprimée si elle se retrouve vide.
+# MT: pending native review (fr-FR)
+docs-import-remove-collections-if-empty = Les collections qui se retrouvent vides sont supprimées.
+# MT: pending native review (fr-FR)
+docs-import-remove-once = Cette action n'est possible qu'une fois, jusqu'au { $date }.
+# MT: pending native review (fr-FR)
+docs-import-remove-which-kept = { $count ->
+    [one] Quelle page est conservée ?
+   *[other] Quelles sont les { $count } pages conservées ?
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-edited = Modifiée le { $date }
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-edited-by = Modifiée le { $date } par { $name }
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-pages-added = { $count ->
+    [one] 1 page ajoutée depuis
+   *[other] { $count } pages ajoutées depuis
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-moved = Déplacée dans une autre collection
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-kept-under = { $count ->
+    [one] Conservée car 1 page en dessous a été modifiée
+   *[other] Conservée car { $count } pages en dessous ont été modifiées
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-result = { $count ->
+    [one] 1 page déplacée dans la corbeille.
+   *[other] { $count } pages déplacées dans la corbeille.
+} { $kept } conservées.
+# MT: pending native review (fr-FR)
+docs-import-remove-result-restore = Restaurez-les depuis la corbeille comme d'habitude.
+# MT: pending native review (fr-FR)
+docs-import-remove-result-existing = { $name } a été conservée : elle contient encore ses autres pages.
+# MT: pending native review (fr-FR)
+docs-import-remove-result-collection-deleted = { $name } a été supprimée car elle s'est retrouvée vide.
+# MT: pending native review (fr-FR)
+docs-import-remove-result-collection-kept = { $count ->
+    [one] { $name } a été conservée : 1 page y reste.
+   *[other] { $name } a été conservée : { $count } pages y restent.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-result-collections-deleted = { $count ->
+    [one] 1 collection qui s'est retrouvée vide a été supprimée.
+   *[other] { $count } collections qui se sont retrouvées vides ont été supprimées.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-result-collections-kept = Les collections ont été conservées : elles contiennent encore des pages.

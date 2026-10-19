@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import type { DocsTreePage } from '@nosdesk/core/services/docsImportService'
 
 import { mountWithProviders } from '@/test/mountWithProviders'
@@ -109,6 +110,80 @@ describe('DocsPageTree', () => {
       'docs-import-outcome-new',
       'docs-import-outcome-skipped',
       'docs-import-outcome-error',
+      'docs-import-outcome-left',
+    ])
+  })
+
+  it('shows what each page is and how many images it has on Pages', () => {
+    const kinds = buildTree([
+      { ...page(0, 'Hardware', null, 'Hardware.md', 'Hardware'), kind: 'page', images: 3 },
+      { ...page(1, 'Vendors', 0, null, 'Hardware/Vendors'), kind: 'database' },
+      { ...page(2, 'Dell', 1, 'Hardware/Vendors/Dell.md'), kind: 'database_row', images: 1 },
+      { ...page(3, 'Network', null, null, 'Network'), kind: 'section' },
+    ])
+    mount({
+      tree: kinds,
+      groups: [{ key: 'new', name: 'IT Handbook', kind: 'new' as const, nodes: kinds.roots }],
+      expanded: new Set(['Hardware.md', 'Hardware/Vendors']),
+    })
+    const row = (i: number) => items()[i]
+    expect(row(1).find('[data-test="docs-tree-database"]').text()).toBe('docs-import-tree-database')
+    expect(row(1).find('[data-test="docs-tree-no-content"]').exists()).toBe(false)
+    expect(row(3).find('[data-test="docs-tree-no-content"]').exists()).toBe(true)
+    expect(wrapper!.findAll('[data-test="docs-tree-database"]')).toHaveLength(1)
+    expect(row(0).find('[data-test="docs-tree-images"]').text()).toBe('docs-import-tree-image-count')
+    expect(row(2).find('[data-test="docs-tree-images"]').exists()).toBe(true)
+    expect(row(3).find('[data-test="docs-tree-images"]').exists()).toBe(false)
+    // A tree read before kinds were kept: a page with no file has no content.
+    wrapper!.unmount()
+    mount()
+    expect(items()[3].find('[data-test="docs-tree-no-content"]').exists()).toBe(true)
+  })
+
+  it('links each page the import wrote on the detail page, and shows Trash and Kept after removal', async () => {
+    const view = { template: '<div />' }
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: view },
+        { path: '/documentation/:path', name: 'documentation-page', component: view },
+      ],
+    })
+    await router.push('/')
+    wrapper = mountWithProviders(
+      DocsPageTree,
+      {
+        tree,
+        groups,
+        expanded: new Set(['Onboarding.md']),
+        label: 'Pages',
+        mode: 'detail',
+        outcomes: new Map([
+          ['Onboarding.md', 'kept'],
+          ['Onboarding/Day one.md', 'trash'],
+          ['Onboarding/Laptop.md', 'skipped'],
+          ['Network', 'left'],
+        ]),
+        links: new Map([
+          ['Onboarding.md', 41],
+          ['Onboarding/Day one.md', 42],
+        ]),
+      },
+      {},
+      [router],
+    )
+    await flushPromises()
+    const links = wrapper.findAll('[data-test="docs-tree-link"]')
+    expect(links.map((l) => [l.text(), l.attributes('href')])).toEqual([
+      ['Onboarding', '/documentation/41'],
+      ['Day one', '/documentation/42'],
+    ])
+    expect(links[0].attributes('tabindex')).toBe('-1')
+    expect(wrapper.findAll('[data-test="docs-tree-title"]').map((t) => t.text())).toEqual(['Laptop', 'Network'])
+    expect(wrapper.findAll('[data-test="docs-tree-outcome"]').map((p) => p.text())).toEqual([
+      'docs-import-outcome-kept',
+      'docs-import-outcome-trash',
+      'docs-import-outcome-skipped',
       'docs-import-outcome-left',
     ])
   })

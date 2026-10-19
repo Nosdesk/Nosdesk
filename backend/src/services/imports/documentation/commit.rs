@@ -25,18 +25,18 @@
 //! whose process died is put back by [`super::reconcile`].
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::background::{db, Heartbeat};
+use super::background::{db, Heartbeat, Progress};
 use super::check::{self, effective_mode, find_duplicates, outcome_of, Failure};
 use super::images::{self, MAX_IMAGE_BYTES};
 use super::{
-    nothing_imported, parents_first, CommitRecord, DocsOptions, DocsRows, DocsSummary, Duplicates,
-    ImageKind, PageOutcome, PageRow, RecordedPage, TenantWorkspace, WebImages, JOB_TYPE,
+    nothing_imported, parents_first, CommitRecord, DocsOptions, DocsRows, DocsSource, DocsSummary,
+    Duplicates, ImageKind, PageOutcome, PageRow, RecordedPage, TenantWorkspace, WebImages,
+    JOB_TYPE,
 };
 use crate::extractors::TenantConn;
 use crate::models::{
@@ -260,7 +260,7 @@ pub struct CommitRun {
 /// Start the commit in the background.
 pub fn spawn(run: CommitRun) {
     tokio::spawn(async move {
-        let progress = Arc::new(AtomicI32::new(0));
+        let progress = Progress::new();
         let heartbeat = Heartbeat::start(
             run.tc.clone(),
             run.job_id,
@@ -453,7 +453,7 @@ async fn image_bytes(
 
 async fn commit(
     run: &CommitRun,
-    progress: &Arc<AtomicI32>,
+    progress: &Arc<Progress>,
     stored: &mut Vec<String>,
 ) -> Result<Vec<DocumentationPage>, Failure> {
     let id = run.job_id;
@@ -474,7 +474,10 @@ async fn commit(
     let workspace = TenantWorkspace::new(run.tc.clone(), run.workspace_uuid);
     let (built, archive) = check::build(
         opened.archive,
-        options.tree_options(&run.filename),
+        options.tree_options(
+            &run.filename,
+            DocsSource::from_job(&job).map(|s| s.tree).as_ref(),
+        ),
         workspace,
     )
     .await?;
@@ -638,7 +641,7 @@ struct Write {
     record: CommitRecord,
     actor: Uuid,
     summary_text: String,
-    progress: Arc<AtomicI32>,
+    progress: Arc<Progress>,
 }
 
 /// A page written, for the record.
@@ -946,7 +949,7 @@ impl Write {
                 updated_at: page.updated_at,
                 hash: hex::encode(Sha256::digest(&update)),
             });
-            progress.fetch_add(1, Ordering::Relaxed);
+            progress.page_written();
             pages_out.push(page);
         }
 

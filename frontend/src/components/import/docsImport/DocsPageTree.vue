@@ -3,8 +3,10 @@
  * The pages of a documentation import as a tree, the way Nosdesk will show
  * them. On Pages each page has a tick (children follow their parent, a
  * parent with some children off shows a dash) and pages a leave-out
- * pattern takes are greyed with the pattern; on an import's detail page each
- * page carries its outcome instead.
+ * pattern takes are greyed with the pattern; each page shows what it stands
+ * for (no content, a Notion database) and its counts of pages and images.
+ * On an import's detail page each page carries its outcome instead, and the
+ * title of a page the import wrote opens it.
  *
  * A WAI-ARIA tree: one tab stop, arrow keys move, Right and Left expand and
  * collapse (or move to the child or parent), Home and End jump, Space ticks,
@@ -13,6 +15,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
+import { RouterLink } from 'vue-router'
 
 import Icon from '@/components/common/Icon.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
@@ -23,6 +26,7 @@ import {
   isMixed,
   isOff,
   leftOutBy,
+  pageKind,
   type CollectionGroup,
   type OffSet,
   type Tree,
@@ -30,7 +34,9 @@ import {
 } from './docsTreeModel'
 import type { RowOutcome } from './docsReviewModel'
 
-export type TreeOutcome = RowOutcome | 'left'
+/** A page's outcome on the detail page: the check's, or once Remove
+ *  imported pages ran, whether it went to Trash or was kept. */
+export type TreeOutcome = RowOutcome | 'left' | 'trash' | 'kept'
 
 const props = withDefaults(
   defineProps<{
@@ -45,6 +51,8 @@ const props = withDefaults(
     outcomes?: ReadonlyMap<string, TreeOutcome>
     /** Each page's note count by path (detail). */
     noteCounts?: ReadonlyMap<string, number>
+    /** The page each written page became, by path (detail). */
+    links?: ReadonlyMap<string, number>
     /** Paths of the expanded pages. */
     expanded: ReadonlySet<string>
     label: string
@@ -55,6 +63,7 @@ const props = withDefaults(
     patterns: () => [],
     outcomes: () => new Map(),
     noteCounts: () => new Map(),
+    links: () => new Map(),
   },
 )
 
@@ -209,11 +218,20 @@ const OUTCOME: Record<TreeOutcome, { key: string; tone: StatusPillTone }> = {
   skipped: { key: 'docs-import-outcome-skipped', tone: 'neutral' },
   error: { key: 'docs-import-outcome-error', tone: 'critical' },
   left: { key: 'docs-import-outcome-left', tone: 'neutral' },
+  trash: { key: 'docs-import-outcome-trash', tone: 'neutral' },
+  kept: { key: 'docs-import-outcome-kept', tone: 'caution' },
 }
 
 function icon(node: TreeNode) {
-  if (!node.page.file) return 'folder'
+  const kind = pageKind(node.page)
+  if (kind === 'section') return 'folder'
+  if (kind === 'database') return 'table'
   return node.children.length > 0 ? 'book' : 'document'
+}
+
+/** The written page a title opens, if any. */
+function linkOf(node: TreeNode): number | null {
+  return props.mode === 'detail' ? (props.links.get(node.page.path) ?? null) : null
 }
 
 function tickLabel(node: TreeNode): string {
@@ -321,6 +339,13 @@ watch(items, (list) => {
               ]"
               data-test="docs-tree-title"
             >{{ row.node!.page.title }}</label>
+            <RouterLink
+              v-else-if="linkOf(row.node!) != null"
+              :to="{ name: 'documentation-page', params: { path: String(linkOf(row.node!)) } }"
+              tabindex="-1"
+              class="text-sm min-w-0 break-words text-accent hover:underline"
+              data-test="docs-tree-link"
+            >{{ row.node!.page.title }}</RouterLink>
             <span
               v-else
               class="text-sm min-w-0 break-words"
@@ -340,11 +365,29 @@ watch(items, (list) => {
                 <StatusPill :label="$t('docs-import-tree-left-out')" tone="neutral" :dot="false" data-test="docs-tree-left-out" />
                 <span class="hidden sm:inline text-2xs font-mono text-tertiary">{{ leftOut(row.node!) }}</span>
               </template>
-              <StatusPill v-else-if="!row.node!.page.file" :label="$t('docs-import-tree-no-content')" tone="neutral" :dot="false" />
+              <StatusPill
+                v-else-if="pageKind(row.node!.page) === 'section'"
+                :label="$t('docs-import-tree-no-content')"
+                tone="neutral"
+                :dot="false"
+                data-test="docs-tree-no-content"
+              />
+              <StatusPill
+                v-if="pageKind(row.node!.page) === 'database'"
+                :label="$t('docs-import-tree-database')"
+                tone="info"
+                :dot="false"
+                data-test="docs-tree-database"
+              />
               <span
                 v-if="row.node!.children.length > 0 && !leftOut(row.node!)"
                 class="hidden sm:inline text-2xs text-tertiary whitespace-nowrap"
               >{{ $t('docs-import-tree-page-count', { count: row.node!.children.length }) }}</span>
+              <span
+                v-if="(row.node!.page.images ?? 0) > 0 && !leftOut(row.node!)"
+                class="hidden sm:inline text-2xs text-tertiary whitespace-nowrap"
+                data-test="docs-tree-images"
+              >{{ $t('docs-import-tree-image-count', { count: row.node!.page.images ?? 0 }) }}</span>
             </template>
             <template v-else>
               <StatusPill

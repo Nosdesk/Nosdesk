@@ -15,7 +15,8 @@
 //!    and pages, their bodies, embeds and first revision, and the job's
 //!    `done`. Nothing is written to documentation tables before it.
 //!
-//! A background run marks the job alive every [`HEARTBEAT`]; one silent for
+//! A background run marks the job alive every [`HEARTBEAT`] (a commit also
+//! records its pages written after every [`PROGRESS_BATCH`]); one silent for
 //! [`STALLED_AFTER`] died with its process and is put back
 //! ([`reconcile`]) on the next request for the job or by the daily prune.
 
@@ -42,7 +43,7 @@ use crate::repository::documentation_imports as docs_repo;
 use crate::services::docs_markdown::links::{LinkReport, Workspace};
 use crate::services::docs_markdown::profiles::ProfileKind;
 use crate::services::docs_markdown::tree::{
-    self, CollectionMode, ImportOptions as TreeOptions, Plan, StatusMode,
+    self, CollectionMode, ExcludedPages, ImportOptions as TreeOptions, PageKind, Plan, StatusMode,
 };
 use crate::services::docs_markdown::{NoteCode, Notes};
 
@@ -54,6 +55,10 @@ pub const MAX_UPLOAD_BYTES: u64 = 200 * 1024 * 1024;
 
 /// How often a background run marks the job alive.
 pub const HEARTBEAT: Duration = Duration::from_secs(30);
+
+/// Pages a commit writes between recording its progress, besides the
+/// heartbeat's.
+pub const PROGRESS_BATCH: i32 = 25;
 
 /// A background run silent this long died with its process.
 pub const STALLED_AFTER: Duration = Duration::from_secs(5 * 60);
@@ -118,6 +123,9 @@ pub struct DocsOptions {
     pub web_images: WebImages,
     /// Archive paths left out, as globs (`**/archive/**`).
     pub leave_out: Vec<String>,
+    /// Pages left out by their index in the tree Pages shows (the job's
+    /// `source.tree`), with everything under them.
+    pub exclude_pages: Vec<usize>,
     pub duplicates: Duplicates,
 }
 
@@ -143,12 +151,20 @@ impl DocsOptions {
                 "at most 100 patterns to leave out, each up to 500 characters".to_string(),
             );
         }
+        if self.exclude_pages.len() > tree::MAX_PAGES {
+            return Some(format!("at most {} pages to leave out", tree::MAX_PAGES));
+        }
         None
     }
 
-    /// The converter's options.
-    pub fn tree_options(&self, archive_name: &str) -> TreeOptions {
+    /// The converter's options. `shown` is the tree the admin unticked
+    /// pages in; without it no page is left out by index (reading the tree
+    /// again shows every page).
+    pub fn tree_options(&self, archive_name: &str, shown: Option<&TreeView>) -> TreeOptions {
         TreeOptions {
+            exclude: shown
+                .map(|t| t.excluded(&self.exclude_pages))
+                .unwrap_or_default(),
             profile: self.profile,
             collections: self.collections,
             collection_name: self
@@ -183,12 +199,21 @@ pub struct TreePage {
     pub order: u32,
     /// The new collection a top-level page goes in, by index.
     pub collection: Option<usize>,
+    #[serde(default)]
+    pub kind: PageKind,
+    /// Images the page shows, wherever they come from.
+    #[serde(default)]
+    pub images: u32,
 }
 
 /// The tree an upload or a profile change reads: what Pages shows.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TreeView {
     pub profile: ProfileKind,
+    /// The folder the source sits in inside the archive, if any; page paths
+    /// start with it.
+    #[serde(default)]
+    pub root: String,
     /// What detection said, when a chosen profile replaced it.
     pub detected: Option<ProfileKind>,
     /// The collections the import would create, by name.
@@ -219,6 +244,7 @@ impl TreeView {
         }
         TreeView {
             profile: plan.profile,
+            root: plan.root.clone(),
             detected: plan.detected,
             collections: plan.collections.iter().map(|c| c.name.clone()).collect(),
             pages: plan
@@ -237,6 +263,14 @@ impl TreeView {
                     parent: p.parent,
                     order: p.order,
                     collection: p.collection,
+                    kind: p.kind,
+                    images: documents.get(p.index).map_or(0, |d| {
+                        let mut seen = std::collections::BTreeSet::new();
+                        images::for_each_image(d, &mut |image| {
+                            seen.insert(image.src.clone());
+                        });
+                        seen.len() as u32
+                    }),
                 })
                 .collect(),
             section_pages: plan.section_pages,
@@ -244,6 +278,33 @@ impl TreeView {
             web_images: web_images.len() as u32,
             left_out: plan.left_out.len(),
         }
+    }
+}
+
+impl TreeView {
+    /// The pages at these indices, as the converter finds them again: each
+    /// by its file, its folder, or its titles from the top. Indices past
+    /// the tree are ignored.
+    pub fn excluded(&self, indices: &[usize]) -> ExcludedPages {
+        let mut out = ExcludedPages::default();
+        let by_index: HashMap<usize, &TreePage> = self.pages.iter().map(|p| (p.index, p)).collect();
+        for index in indices {
+            let Some(page) = by_index.get(index) else {
+                continue;
+            };
+            let mut trail = vec![page.title.clone()];
+            let mut at = page.parent;
+            while let Some(parent) = at.and_then(|p| by_index.get(&p)) {
+                if trail.len() > self.pages.len() {
+                    break;
+                }
+                trail.push(parent.title.clone());
+                at = parent.parent;
+            }
+            trail.reverse();
+            out.add(page.file.as_deref(), page.folder.as_deref(), &trail);
+        }
+        out
     }
 }
 
@@ -676,7 +737,7 @@ pub fn default_tree(
 ) -> Result<TreeView, crate::services::imports::refusal::Refused> {
     let built = tree::build(
         archive,
-        &DocsOptions::default().tree_options(archive_name),
+        &DocsOptions::default().tree_options(archive_name, None),
         workspace,
     )?;
     Ok(TreeView::of(&built.plan, &built.documents))
@@ -711,6 +772,219 @@ mod tests {
         };
         assert!(stray.invalid().is_some());
         assert!(serde_json::from_value::<DocsOptions>(serde_json::json!({ "nope": 1 })).is_err());
+    }
+
+    use crate::services::docs_markdown::import_tests::{archive, destinations, Here};
+    use crate::services::docs_markdown::links::Placeholder;
+
+    fn nowhere() -> Here {
+        Here {
+            users: vec![],
+            tickets: vec![],
+            pages: vec![],
+            images: vec![],
+        }
+    }
+
+    /// The archive read under `options` (and the tree it was shown in),
+    /// with its tree.
+    fn read(
+        files: &[(&str, &str)],
+        options: &DocsOptions,
+        shown: Option<&TreeView>,
+    ) -> (tree::Built, TreeView) {
+        let files: Vec<(&str, &[u8])> = files.iter().map(|(n, t)| (*n, t.as_bytes())).collect();
+        let built = tree::build(
+            &mut archive(&files),
+            &options.tree_options("handbook.zip", shown),
+            &nowhere(),
+        )
+        .expect("builds");
+        let view = TreeView::of(&built.plan, &built.documents);
+        (built, view)
+    }
+
+    fn titles(view: &TreeView) -> Vec<String> {
+        view.pages
+            .iter()
+            .map(|p| {
+                let mut depth = 0;
+                let mut at = p.parent;
+                while let Some(i) = at {
+                    depth += 1;
+                    at = view.pages[i].parent;
+                }
+                format!("{}{}", "  ".repeat(depth), p.title)
+            })
+            .collect()
+    }
+
+    fn index_in(view: &TreeView, title: &str) -> usize {
+        view.pages
+            .iter()
+            .find(|p| p.title == title)
+            .unwrap_or_else(|| panic!("no {title}"))
+            .index
+    }
+
+    const HANDBOOK: &[(&str, &str)] = &[
+        (
+            "Handbook/start.md",
+            "# Start\n\nSee [VPN](network/vpn.md) and [Wi-Fi](network/wifi.md).\n\n![a](a.png) ![b](https://example.com/b.png) ![a again](a.png)\n",
+        ),
+        ("Handbook/network/index.md", "# Network\n\nAbout."),
+        ("Handbook/network/vpn.md", "# VPN\n\nConnect."),
+        ("Handbook/network/wifi.md", "# Wi-Fi\n\nJoin."),
+        ("Handbook/network/old/plan.md", "# Old plan\n\nGone."),
+        ("Handbook/guides/one.md", "# One\n\nFirst."),
+        ("Handbook/guides/two.md", "# Two\n\nSecond."),
+        ("Handbook/a.png", "png"),
+    ];
+
+    #[test]
+    fn unticked_pages_leave_with_everything_under_them() {
+        let (_, shown) = read(HANDBOOK, &DocsOptions::default(), None);
+        assert_eq!(shown.root, "Handbook");
+        assert_eq!(
+            titles(&shown),
+            vec![
+                "Guides",
+                "  One",
+                "  Two",
+                "Network",
+                "  Old",
+                "    Old plan",
+                "  VPN",
+                "  Wi-Fi",
+                "Start"
+            ]
+        );
+
+        let options = DocsOptions {
+            exclude_pages: vec![index_in(&shown, "Network"), index_in(&shown, "Two")],
+            ..DocsOptions::default()
+        };
+        let (built, view) = read(HANDBOOK, &options, Some(&shown));
+        assert_eq!(titles(&view), vec!["Guides", "  One", "Start"]);
+
+        // Links to a page left out are kept as text, as for a file a
+        // pattern leaves out.
+        let start = &built.documents[index_in(&view, "Start")];
+        let hrefs = destinations(start);
+        assert!(
+            !hrefs
+                .iter()
+                .any(|h| matches!(Placeholder::parse(h), Some(Placeholder::Page(_)))),
+            "{hrefs:?}"
+        );
+        let mut left: Vec<(&str, &str)> = built
+            .plan
+            .left_out
+            .iter()
+            .map(|l| (l.path.as_str(), l.reason))
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            vec![
+                ("Handbook/guides/two.md", "excluded"),
+                ("Handbook/network/index.md", "excluded"),
+                ("Handbook/network/old/plan.md", "excluded"),
+                ("Handbook/network/vpn.md", "excluded"),
+                ("Handbook/network/wifi.md", "excluded"),
+            ]
+        );
+
+        // Without the tree they were unticked in, indices mean nothing.
+        let (_, all) = read(HANDBOOK, &options, None);
+        assert_eq!(all.pages.len(), shown.pages.len());
+    }
+
+    #[test]
+    fn unticked_pages_are_found_again_under_leave_out_patterns() {
+        let (_, shown) = read(HANDBOOK, &DocsOptions::default(), None);
+        // A pattern takes a page above the unticked one, so its index moves.
+        let options = DocsOptions {
+            leave_out: vec!["**/guides/**".into()],
+            exclude_pages: vec![index_in(&shown, "VPN"), index_in(&shown, "Old")],
+            ..DocsOptions::default()
+        };
+        let (_, view) = read(HANDBOOK, &options, Some(&shown));
+        assert_eq!(titles(&view), vec!["Network", "  Wi-Fi", "Start"]);
+    }
+
+    #[test]
+    fn an_unticked_nav_heading_leaves_no_empty_section() {
+        let files: &[(&str, &str)] = &[
+            (
+                "mkdocs.yml",
+                "site_name: IT\nnav:\n  - Home: index.md\n  - Guides:\n    - Setup: guides/setup.md\n    - guides/vpn.md\n",
+            ),
+            ("docs/index.md", "Welcome"),
+            ("docs/guides/setup.md", "Setup"),
+            ("docs/guides/vpn.md", "# VPN\n\nVPN."),
+        ];
+        let (_, shown) = read(files, &DocsOptions::default(), None);
+        assert_eq!(titles(&shown), vec!["Home", "Guides", "  Setup", "  VPN"]);
+        let options = DocsOptions {
+            exclude_pages: vec![index_in(&shown, "Guides")],
+            ..DocsOptions::default()
+        };
+        let (_, view) = read(files, &options, Some(&shown));
+        assert_eq!(titles(&view), vec!["Home"]);
+    }
+
+    #[test]
+    fn the_tree_says_what_each_page_is_and_its_images() {
+        let (_, view) = read(HANDBOOK, &DocsOptions::default(), None);
+        let page = |title: &str| view.pages[index_in(&view, title)].clone();
+        assert_eq!(page("Guides").kind, PageKind::Section);
+        assert_eq!(page("Old").kind, PageKind::Section);
+        assert_eq!(page("Network").kind, PageKind::Page);
+        assert_eq!(page("Start").kind, PageKind::Page);
+        // One archive image twice and one from the web.
+        assert_eq!(page("Start").images, 2);
+        assert_eq!(page("VPN").images, 0);
+
+        let wiki = "0123456789abcdef0123456789abcdef";
+        let wiki_md = format!("Wiki {wiki}.md");
+        let csv = format!("Wiki {wiki}/Tasks cccccccccccccccccccccccccccccccc.csv");
+        let row = format!(
+            "Wiki {wiki}/Tasks cccccccccccccccccccccccccccccccc/One dddddddddddddddddddddddddddddddd.md"
+        );
+        let notion: Vec<(&str, &str)> = vec![
+            (&wiki_md, "# Wiki\n\nHome."),
+            (&csv, "Name,Status\nOne,Done\n"),
+            (&row, "# One\n\nStatus: Done"),
+        ];
+        let (_, view) = read(&notion, &DocsOptions::default(), None);
+        let page = |title: &str| view.pages[index_in(&view, title)].clone();
+        assert_eq!(page("Wiki").kind, PageKind::Page);
+        assert_eq!(page("Tasks").kind, PageKind::Database);
+        assert_eq!(page("One").kind, PageKind::DatabaseRow);
+
+        // A tree stored before these were kept still reads.
+        let mut value = serde_json::to_value(&view).unwrap();
+        for p in value["pages"].as_array_mut().unwrap() {
+            let p = p.as_object_mut().unwrap();
+            p.remove("kind");
+            p.remove("images");
+        }
+        value.as_object_mut().unwrap().remove("root");
+        let old: TreeView = serde_json::from_value(value).expect("reads");
+        assert_eq!(old.pages[0].kind, PageKind::Page);
+        assert_eq!(old.root, "");
+    }
+
+    #[test]
+    fn excluded_pages_past_the_tree_are_ignored_and_capped() {
+        let (_, shown) = read(HANDBOOK, &DocsOptions::default(), None);
+        assert!(shown.excluded(&[999]).is_empty());
+        let too_many = DocsOptions {
+            exclude_pages: (0..=tree::MAX_PAGES).collect(),
+            ..DocsOptions::default()
+        };
+        assert!(too_many.invalid().is_some());
     }
 
     #[test]

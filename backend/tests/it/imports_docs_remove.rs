@@ -328,7 +328,7 @@ async fn untouched_pages_go_to_trash_and_the_empty_collection_goes() {
         .expect("listed");
     assert_eq!(
         row["removed"],
-        serde_json::json!({ "deleted": 4, "created": 4 })
+        serde_json::json!({ "deleted": 4, "created": 4, "kept": 0 })
     );
 
     // A page restores from Trash as usual.

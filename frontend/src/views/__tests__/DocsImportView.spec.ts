@@ -20,6 +20,10 @@ const api = vi.hoisted(() => ({
   report: vi.fn(),
   commit: vi.fn(),
   remove: vi.fn(),
+  publishPlan: vi.fn(),
+  publishAll: vi.fn(),
+  removalPlan: vi.fn(),
+  removePages: vi.fn(),
 }))
 
 vi.mock('@nosdesk/core/services/docsImportService', async (importOriginal) => {
@@ -34,6 +38,10 @@ vi.mock('@nosdesk/core/services/docsImportService', async (importOriginal) => {
       preview: (...a: unknown[]) => api.preview(...a),
       report: (...a: unknown[]) => api.report(...a),
       commit: (...a: unknown[]) => api.commit(...a),
+      publishPlan: (...a: unknown[]) => api.publishPlan(...a),
+      publishAll: (...a: unknown[]) => api.publishAll(...a),
+      removalPlan: (...a: unknown[]) => api.removalPlan(...a),
+      removePages: (...a: unknown[]) => api.removePages(...a),
     },
   }
 })
@@ -152,6 +160,7 @@ async function mountAt(path: string) {
       { path: '/admin/data-import/imports/:id', name: 'admin-import-detail', component: view },
       { path: '/documentation', name: 'documentation', component: view },
       { path: '/documentation/collections/:slug', name: 'collection-view', component: view },
+      { path: '/documentation/:path', name: 'documentation-page', component: view },
     ],
   })
   await router.push(path)
@@ -229,7 +238,7 @@ describe('DocsImportView: Pages', () => {
     expect(find('docs-check').text()).toContain('docs-import-check')
   })
 
-  it('checks the ticked pages, with unticked ones left out by exact patterns, then opens Review', async () => {
+  it('checks the ticked pages, with unticked ones left out by index, then opens Review', async () => {
     vi.useFakeTimers()
     api.get.mockResolvedValueOnce(job('parsed'))
     await mountAt('/admin/data-import/documentation?job=job-1')
@@ -243,7 +252,7 @@ describe('DocsImportView: Pages', () => {
     await flushPromises()
     const [, options, check] = api.putOptions.mock.calls[0]
     expect(check).toBe(true)
-    expect(options).toMatchObject({ collections: 'new', status: 'drafts', leave_out: ['/Onboarding.md', '/Onboarding/**'] })
+    expect(options).toMatchObject({ collections: 'new', status: 'drafts', leave_out: [], exclude_pages: [0] })
     expect(find('docs-checking').exists()).toBe(true)
 
     await vi.advanceTimersByTimeAsync(1600)
@@ -272,7 +281,7 @@ describe('DocsImportView: Pages', () => {
     await flushPromises()
     const [, options, check] = api.putOptions.mock.calls[0]
     expect(check).toBe(false)
-    expect(options).toMatchObject({ profile: 'obsidian', leave_out: [] })
+    expect(options).toMatchObject({ profile: 'obsidian', leave_out: [], exclude_pages: [] })
   })
 })
 
@@ -311,6 +320,20 @@ describe('DocsImportView: Review', () => {
     ])
     await find('docs-list-chip-clear').trigger('click')
     expect(wrapper!.findAll('[data-test="docs-list-row"]')).toHaveLength(4)
+  })
+
+  it('heads the preview with the path below the archive root, ids shortened', async () => {
+    const rooted = job('dry_run_done')
+    rooted.source!.tree.root = 'Onboarding'
+    api.get.mockResolvedValue(rooted)
+    api.allPages.mockResolvedValue(
+      ROWS.map((r) => (r.index === 0 ? { ...r, path: 'Onboarding/Day one 9f3c1e2d4b5a6c7d8e9f0a1b2c3d4e5f.md' } : r)),
+    )
+    await mountAt('/admin/data-import/documentation?job=job-1')
+    await wrapper!.findAll('[data-test="docs-list-row"]')[0].trigger('click')
+    await flushPromises()
+    const paths = wrapper!.findAll('[data-test="docs-preview-path"]').map((p) => p.text())
+    expect(paths).toContain('Day one 9f3c1e2d.md')
   })
 
   it('shows a changed plan in place when the commit is refused', async () => {
@@ -354,6 +377,41 @@ describe('DocsImportView: Done', () => {
     expect(find('docs-import-error').text()).toContain('Storage is full')
   })
 
+  it('offers Publish all and Remove imported pages, and shows the removal in place', async () => {
+    api.get.mockResolvedValue(job('done', { removal_closes_at: '2099-11-18T00:00:00Z' }))
+    api.publishPlan.mockResolvedValue({ publishable: 3, left: 0 })
+    await mountAt('/admin/data-import/documentation?job=job-1')
+    expect(find('docs-publish-button').text()).toBe('docs-import-publish-button')
+    expect(find('docs-remove-window').text()).toBe('docs-import-remove-window')
+    expect(find('docs-done').text()).toContain('docs-import-done-drafts')
+
+    api.removalPlan.mockResolvedValue({ created: 3, deletable: 3, gone: 0, kept: [], collections: { deleted: [], kept: [] } })
+    await find('docs-remove-button').trigger('click')
+    await flushPromises()
+    expect(find('confirm-message').text()).toContain('docs-import-remove-collection-if-empty')
+    api.removePages.mockResolvedValue(
+      job('done', {
+        removal_closes_at: '2099-11-18T00:00:00Z',
+        removed_at: '2026-10-21T00:00:00Z',
+        remove_result: {
+          kind: 'documentation',
+          created: 3,
+          deleted: 3,
+          gone: 0,
+          deleted_ids: [1, 2, 3],
+          kept: [],
+          collections: { deleted: [{ id: 3, name: 'IT Handbook', pages: 0 }], kept: [] },
+        },
+      }),
+    )
+    await find('confirm-ok').trigger('click')
+    await flushPromises()
+    expect(api.removePages).toHaveBeenCalledWith('job-1')
+    expect(find('docs-remove-result').text()).toContain('docs-import-remove-result-collection-deleted')
+    expect(find('docs-publish-button').exists()).toBe(false)
+    expect(find('docs-done').text()).not.toContain('docs-import-done-drafts')
+  })
+
   it('opens the collection the pages went into', async () => {
     store.collections = [{ id: 3, name: 'IT Handbook', slug: 'it-handbook', is_system: false }]
     api.get.mockResolvedValue(job('done'))
@@ -366,6 +424,21 @@ describe('DocsImportView: Done', () => {
 })
 
 describe('DocsImportView: resume', () => {
+  it('restores the unticked pages and typed patterns a check was sent with', async () => {
+    api.get.mockResolvedValue(job('parsed', { options: { exclude_pages: [0], leave_out: ['**/archive/**'] } }))
+    await mountAt('/admin/data-import/documentation?job=job-1')
+    const ticks = wrapper!.findAll<HTMLInputElement>('[data-test="docs-tree-tick"]')
+    expect(ticks[0].element.checked).toBe(false)
+    expect(ticks[ticks.length - 1].element.checked).toBe(true)
+    expect(find('docs-pages').text()).toContain('**/archive/**')
+
+    api.putOptions.mockResolvedValue(job('checking'))
+    api.get.mockResolvedValue(job('checking'))
+    await find('docs-check').trigger('click')
+    await flushPromises()
+    expect(api.putOptions.mock.calls[0][1]).toMatchObject({ exclude_pages: [0], leave_out: ['**/archive/**'] })
+  })
+
   it('sends an import past its 30 days to its detail page, and another type to its wizard', async () => {
     api.get.mockResolvedValue(job('done', { pruned_at: '2026-11-20T00:00:00Z' }))
     await mountAt('/admin/data-import/documentation?job=job-1')

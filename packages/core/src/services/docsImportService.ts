@@ -14,6 +14,9 @@
  *  - `commit` answers 202 in `committing` (`records_committed` counts the
  *    pages written) or 409 `import_plan_changed` with the job's new plan
  *    under `job`.
+ *  - Once done, `publishPlan` and `publishAll` publish the import's
+ *    untouched drafts; `removalPlan` and `removePages` move its untouched
+ *    pages to Trash, once, within 30 days.
  *
  * `get` follows a job through both background runs.
  */
@@ -66,8 +69,15 @@ export interface DocsOptions {
   web_images?: DocsWebImages
   /** Archive paths left out, as globs. */
   leave_out?: string[]
+  /** Pages left out by their index in `source.tree`, with the pages under
+   *  them. */
+  exclude_pages?: number[]
   duplicates?: DocsDuplicates
 }
+
+/** What a page stands for: a Markdown file, a folder with no page of its
+ *  own (no content), a Notion database, or one of its rows. */
+export type DocsPageKind = 'page' | 'section' | 'database' | 'database_row'
 
 /** A page of the tree as Pages shows it. */
 export interface DocsTreePage {
@@ -81,10 +91,17 @@ export interface DocsTreePage {
   order: number
   /** The new collection a top-level page goes in, by index. */
   collection: number | null
+  /** Missing on a tree read before it was kept. */
+  kind?: DocsPageKind
+  /** Images the page shows. */
+  images?: number
 }
 
 export interface DocsTreeView {
   profile: DocsProfile
+  /** The folder the source sits in inside the archive; page paths start
+   *  with it. */
+  root?: string
   /** What detection said, when a chosen profile replaced it. */
   detected: DocsProfile | null
   /** The collections the import would create, by name. */
@@ -262,12 +279,79 @@ export interface DocsImportJob {
   completed_at: string | null
   /** A checked job's summary; `{kind, run}` while a check runs. */
   summary: DocsSummary | { kind: 'documentation'; run: string } | null
-  /** While committing, the pages written so far (updated about every 30
-   *  seconds); once done, every page written. */
+  /** While committing, the pages written so far (updated after each batch
+   *  of pages); once done, every page written. */
   records_committed: number | null
   error_message: string | null
   source: DocsSource | null
   options: DocsOptions | null
+  /** Once done: until when Remove imported pages runs. */
+  removal_closes_at?: string | null
+  removed_at?: string | null
+  removed_by_name?: string | null
+  remove_result?: DocsRemoveResult | null
+  /** Once done: each page written, by its path in the tree, with its id. */
+  pages_written?: DocsWrittenPage[]
+}
+
+export interface DocsWrittenPage {
+  index: number
+  path: string
+  id: number
+}
+
+/** Why a page the import created is kept by Remove imported pages. The
+ *  first reason is the one shown. */
+export type DocsKeptReason =
+  | { code: 'edited'; at: string; by?: string; by_name?: string }
+  | { code: 'pages_added'; count: number }
+  | { code: 'moved' }
+  | { code: 'kept_pages_under'; count: number }
+
+export interface DocsKeptPage {
+  id: number
+  title: string
+  reasons: DocsKeptReason[]
+}
+
+export interface DocsCollectionOutcome {
+  id: number
+  name: string
+  /** Pages left in it, outside Trash. */
+  pages: number
+}
+
+/** What Remove imported pages would do now. */
+export interface DocsRemovalPlan {
+  created: number
+  deletable: number
+  gone: number
+  kept: DocsKeptPage[]
+  collections: { deleted: DocsCollectionOutcome[]; kept: DocsCollectionOutcome[] }
+  closes_at?: string | null
+}
+
+/** What it did, as the job keeps it. */
+export interface DocsRemoveResult {
+  kind: 'documentation'
+  created: number
+  deleted: number
+  gone: number
+  deleted_ids: number[]
+  kept: DocsKeptPage[]
+  collections: { deleted: DocsCollectionOutcome[]; kept: DocsCollectionOutcome[] }
+}
+
+/** Publish all: the drafts it publishes, and the pages changed since the
+ *  import that it leaves as they are. */
+export interface DocsPublishPlan {
+  publishable: number
+  left: number
+}
+
+export interface DocsPublished {
+  published: number
+  left: number
 }
 
 /** The checked summary, when the job has one. */
@@ -280,6 +364,7 @@ export const docsPagesQueryKey = (jobId: string, updatedAt: string) =>
   ['docs-import-pages', jobId, updatedAt] as const
 export const docsPreviewQueryKey = (jobId: string, updatedAt: string, index: number) =>
   ['docs-import-preview', jobId, updatedAt, index] as const
+export const docsPublishQueryKey = (jobId: string) => ['docs-import-publish', jobId] as const
 
 /** The largest page of results the server sends. */
 const PAGE_LIMIT = 200
@@ -360,6 +445,29 @@ export const docsImportService = {
       `/admin/import/${jobId}/docs/commit`,
       duplicates ? { duplicates } : {},
     )
+    return data
+  },
+
+  /** How many of the import's pages Publish all would publish now. */
+  async publishPlan(jobId: string): Promise<DocsPublishPlan> {
+    const { data } = await apiClient.get<DocsPublishPlan>(`/admin/import/${jobId}/docs/publish`)
+    return data
+  },
+
+  async publishAll(jobId: string): Promise<DocsPublished> {
+    const { data } = await apiClient.post<DocsPublished>(`/admin/import/${jobId}/docs/publish`)
+    return data
+  },
+
+  /** What Remove imported pages would do now, for its dialog. */
+  async removalPlan(jobId: string): Promise<DocsRemovalPlan> {
+    const { data } = await apiClient.get<DocsRemovalPlan>(`/admin/import/${jobId}/docs/remove`)
+    return data
+  },
+
+  /** Move the untouched pages to Trash; answers with the job. */
+  async removePages(jobId: string): Promise<DocsImportJob> {
+    const { data } = await apiClient.post<DocsImportJob>(`/admin/import/${jobId}/docs/remove`)
     return data
   },
 }

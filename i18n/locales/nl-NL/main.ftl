@@ -4705,6 +4705,10 @@ import-history-state-imported = Geïmporteerd
 # MT: pending native review (nl-NL)
 import-history-state-expired = Verlopen
 # MT: pending native review (nl-NL)
+import-history-state-removed = Verwijderd
+# MT: pending native review (nl-NL)
+import-history-count-removed-pages = { $deleted } verwijderd · { $kept } behouden
+# MT: pending native review (nl-NL)
 import-history-draft-on-map = Concept bij Kolommen
 # MT: pending native review (nl-NL)
 import-history-draft-on-review = Concept bij Controle
@@ -9727,6 +9731,13 @@ docs-import-tree-left-out = Uitgesloten
 # MT: pending native review (nl-NL)
 docs-import-tree-no-content = Geen inhoud
 # MT: pending native review (nl-NL)
+docs-import-tree-database = Database
+# MT: pending native review (nl-NL)
+docs-import-tree-image-count = { $count ->
+    [one] 1 afbeelding
+   *[other] { $count } afbeeldingen
+}
+# MT: pending native review (nl-NL)
 docs-import-tree-page-count = { $count ->
     [one] 1 pagina
    *[other] { $count } pagina's
@@ -9847,7 +9858,7 @@ docs-import-leave-out-matches = { $count ->
    *[other] { $count } pagina's komen overeen.
 }
 # MT: pending native review (nl-NL)
-docs-import-too-many-patterns = Er zijn te veel pagina's één voor één uitgevinkt om te verzenden. Vink in plaats daarvan hun sectie uit, of voeg een patroon toe onder Uitsluiten.
+docs-import-too-many-typed-patterns = Uitsluiten accepteert maximaal 100 patronen. Verwijder er een paar.
 # MT: pending native review (nl-NL)
 docs-import-pattern-too-long = Een patroon is langer dan 500 tekens. Maak het korter.
 # MT: pending native review (nl-NL)
@@ -10215,6 +10226,10 @@ docs-import-outcome-error = Fout
 # MT: pending native review (nl-NL)
 docs-import-outcome-left = Niet geïmporteerd
 # MT: pending native review (nl-NL)
+docs-import-outcome-trash = In prullenbak
+# MT: pending native review (nl-NL)
+docs-import-outcome-kept = Behouden
+# MT: pending native review (nl-NL)
 docs-import-row-already-skip = Staat al in Nosdesk, wordt dus overgeslagen
 # MT: pending native review (nl-NL)
 docs-import-row-already-copy = Staat al in Nosdesk, er wordt dus een kopie gemaakt
@@ -10336,7 +10351,7 @@ docs-import-importing-progress = { $written } van { $total } pagina's geschreven
 # MT: pending native review (nl-NL)
 docs-import-importing-finishing = Afronden: links, insluitingen en de zoekindex
 # MT: pending native review (nl-NL)
-docs-import-importing-leave = U kunt deze pagina verlaten. De import loopt door en verschijnt hier, en bij Recente imports, zodra hij klaar is. De teller wordt ongeveer elke halve minuut bijgewerkt.
+docs-import-importing-leave = U kunt deze pagina verlaten. De import loopt door en verschijnt hier, en bij Recente imports, zodra hij klaar is.
 # MT: pending native review (nl-NL)
 docs-import-done-heading = Import voltooid
 # MT: pending native review (nl-NL)
@@ -10369,7 +10384,7 @@ docs-import-done-errors = { $count ->
    *[other] { $count } pagina's konden niet worden geconverteerd en zijn leeg geïmporteerd.
 }
 # MT: pending native review (nl-NL)
-docs-import-done-drafts = De pagina's zijn concepten: alleen medewerkers kunnen ze zien. Lees er een paar en publiceer ze dan.
+docs-import-done-drafts = De pagina's zijn concepten: alleen medewerkers kunnen ze zien. Lees er een paar en publiceer ze dan allemaal hier of een voor een.
 # MT: pending native review (nl-NL)
 docs-import-done-revision = De eerste revisie van elke pagina vermeldt "Geïmporteerd uit { $file }".
 # MT: pending native review (nl-NL)
@@ -10420,6 +10435,152 @@ docs-import-detail-left-out = Uitgesloten: { $patterns }
 # MT: pending native review (nl-NL)
 docs-import-detail-tree-title = Pagina's die deze import schreef
 # MT: pending native review (nl-NL)
-docs-import-detail-tree-footer = Overgeslagen en niet geïmporteerde rijen zijn wat de controle vond; ze hebben niets geschreven.
+docs-import-detail-tree-footer = Titels openen de pagina. Overgeslagen en niet geïmporteerde rijen zijn wat de controle vond; ze hebben niets geschreven.
 # MT: pending native review (nl-NL)
 docs-import-detail-kept = Details worden 30 dagen bewaard. De aantallen en opties blijven daarna staan.
+# MT: pending native review (nl-NL)
+docs-import-detail-state-removed = { $count ->
+    [one] Verwijderd: 1 pagina naar de prullenbak verplaatst op { $date }
+   *[other] Verwijderd: { $count } pagina's naar de prullenbak verplaatst op { $date }
+}, { $kept } behouden
+
+# Publish all
+# MT: pending native review (nl-NL)
+docs-import-publish-button = { $count ->
+    [one] 1 pagina publiceren
+   *[other] Alle { $count } pagina's publiceren
+}
+# MT: pending native review (nl-NL)
+docs-import-publish-title = { $count ->
+    [one] 1 pagina publiceren?
+   *[other] { $count } pagina's publiceren?
+}
+# MT: pending native review (nl-NL)
+docs-import-publish-message = Iedereen in de werkruimte die { $collection } kan zien, ziet ze. Pagina's die iemand sinds de import al heeft gewijzigd of gepubliceerd, blijven zoals ze zijn.
+# MT: pending native review (nl-NL)
+docs-import-publish-these-collections = deze collecties
+# MT: pending native review (nl-NL)
+docs-import-publish-confirm = { $count ->
+    [one] 1 pagina publiceren
+   *[other] { $count } pagina's publiceren
+}
+# MT: pending native review (nl-NL)
+docs-import-published = { $count ->
+    [one] 1 pagina gepubliceerd
+   *[other] { $count } pagina's gepubliceerd
+}
+# MT: pending native review (nl-NL)
+docs-import-published-left = { $count ->
+    [one] 1 gelaten zoals hij was (gewijzigd sinds de import)
+   *[other] { $count } gelaten zoals ze waren (gewijzigd sinds de import)
+}
+# MT: pending native review (nl-NL)
+docs-import-publish-failed = Het publiceren van de pagina's is mislukt en er is niets gepubliceerd.
+
+# Remove imported pages
+# MT: pending native review (nl-NL)
+docs-import-remove-button = Geïmporteerde pagina's verwijderen
+# MT: pending native review (nl-NL)
+docs-import-remove-window = Verplaatst ze naar de prullenbak. Alleen pagina's die sindsdien door niemand zijn gewijzigd. Tot { $date }.
+# MT: pending native review (nl-NL)
+docs-import-remove-running = Nog bezig met verwijderen. Deze pagina wordt bijgewerkt zodra het klaar is.
+# MT: pending native review (nl-NL)
+docs-import-remove-still-running-later = Het verwijderen duurt langer dan normaal. Kom later terug naar deze pagina om te zien wat er is gebeurd.
+# MT: pending native review (nl-NL)
+docs-import-remove-load-failed = De geïmporteerde pagina's konden niet worden gecontroleerd. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-remove-failed = Het verwijderen van de geïmporteerde pagina's is mislukt en er is niets naar de prullenbak verplaatst.
+# MT: pending native review (nl-NL)
+docs-import-remove-not-committed = Deze import is niet uitgevoerd en heeft dus geen pagina's gemaakt.
+# MT: pending native review (nl-NL)
+docs-import-remove-already-removed = De pagina's die deze import heeft gemaakt, zijn al naar de prullenbak verplaatst.
+# MT: pending native review (nl-NL)
+docs-import-action-busy = Deze import wordt gewijzigd. Probeer het zo opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-remove-nothing-none-created = Deze import heeft geen pagina's gemaakt, dus er is niets te verwijderen.
+# MT: pending native review (nl-NL)
+docs-import-remove-nothing-all-gone = De pagina's die deze import heeft gemaakt, zijn al verwijderd of naar de prullenbak verplaatst.
+# MT: pending native review (nl-NL)
+docs-import-remove-nothing-all-changed = Elke pagina die deze import heeft gemaakt, is sindsdien gewijzigd, dus er kan niets naar de prullenbak.
+# MT: pending native review (nl-NL)
+docs-import-remove-title = { $count ->
+    [one] 1 pagina naar de prullenbak verplaatsen?
+   *[other] { $count } pagina's naar de prullenbak verplaatsen?
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-title-none = Niets om naar de prullenbak te verplaatsen
+# MT: pending native review (nl-NL)
+docs-import-remove-confirm = { $count ->
+    [one] 1 pagina naar de prullenbak verplaatsen
+   *[other] { $count } pagina's naar de prullenbak verplaatsen
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-untouched = { $created ->
+    [one] Van de 1 pagina die deze import heeft gemaakt,
+   *[other] Van de { $created } pagina's die deze import heeft gemaakt,
+} { $count ->
+    [one] is er 1 ongewijzigd en gaat die naar de prullenbak, waar hij kan worden teruggezet.
+   *[other] zijn er { $count } ongewijzigd en gaan die naar de prullenbak, waar ze kunnen worden teruggezet.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-changed = { $count ->
+    [one] 1 is sindsdien gewijzigd en blijft behouden.
+   *[other] { $count } zijn sindsdien gewijzigd en blijven behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-gone = { $count ->
+    [one] 1 was al verwijderd of in de prullenbak.
+   *[other] { $count } waren al verwijderd of in de prullenbak.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-existing-keeps = { $name } houdt zijn andere pagina's.
+# MT: pending native review (nl-NL)
+docs-import-remove-collection-if-empty = De collectie wordt verwijderd als hij leeg raakt.
+# MT: pending native review (nl-NL)
+docs-import-remove-collections-if-empty = Collecties die leeg raken, worden verwijderd.
+# MT: pending native review (nl-NL)
+docs-import-remove-once = Dit kan één keer, tot { $date }.
+# MT: pending native review (nl-NL)
+docs-import-remove-which-kept = { $count ->
+    [one] Welke pagina blijft behouden?
+   *[other] Welke { $count } blijven behouden?
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-edited = Bewerkt op { $date }
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-edited-by = Bewerkt op { $date } door { $name }
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-pages-added = { $count ->
+    [one] Er is sindsdien 1 pagina toegevoegd
+   *[other] Er zijn sindsdien { $count } pagina's toegevoegd
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-moved = Verplaatst naar een andere collectie
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-kept-under = { $count ->
+    [one] Behouden omdat 1 pagina eronder is gewijzigd
+   *[other] Behouden omdat { $count } pagina's eronder zijn gewijzigd
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-result = { $count ->
+    [one] 1 pagina naar de prullenbak verplaatst.
+   *[other] { $count } pagina's naar de prullenbak verplaatst.
+} { $kept } behouden.
+# MT: pending native review (nl-NL)
+docs-import-remove-result-restore = Zet ze zoals gewoonlijk terug vanuit de prullenbak.
+# MT: pending native review (nl-NL)
+docs-import-remove-result-existing = { $name } is behouden: er staan nog andere pagina's in.
+# MT: pending native review (nl-NL)
+docs-import-remove-result-collection-deleted = { $name } is verwijderd omdat hij leeg raakte.
+# MT: pending native review (nl-NL)
+docs-import-remove-result-collection-kept = { $count ->
+    [one] { $name } is behouden: er staat nog 1 pagina in.
+   *[other] { $name } is behouden: er staan nog { $count } pagina's in.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-result-collections-deleted = { $count ->
+    [one] 1 collectie die leeg raakte, is verwijderd.
+   *[other] { $count } collecties die leeg raakten, zijn verwijderd.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-result-collections-kept = De collecties zijn behouden: er staan nog pagina's in.

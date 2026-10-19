@@ -38,6 +38,18 @@ export const STATE_KEY: Record<ImportJobState, string> = {
   expired: 'import-history-state-expired',
 }
 
+/** The state pill: Draft, Imported or Expired, and Removed for a
+ *  documentation import whose pages were moved to Trash. */
+export function statePill(
+  item: Pick<ImportJobListItem, 'state' | 'job_type' | 'removed'>,
+): { key: string; tone: StatusPillTone } | null {
+  if (!item.state) return null
+  if (item.job_type === 'documentation' && item.state === 'imported' && item.removed) {
+    return { key: 'import-history-state-removed', tone: 'neutral' }
+  }
+  return { key: STATE_KEY[item.state], tone: STATE_TONE[item.state] }
+}
+
 /** The row's action: a draft resumes, an import opens its detail, an
  *  expired draft has none. */
 export function rowAction(item: Pick<ImportJobListItem, 'state'>): 'resume' | 'view' | null {
@@ -62,6 +74,9 @@ export function countsLine(t: Translate, item: ImportJobListItem): string {
         : t('import-history-draft-on-review')
     }
     return item.status === 'parsed' ? t('import-history-draft-on-map') : t('import-history-draft-on-review')
+  }
+  if (item.removed && item.job_type === 'documentation') {
+    return t('import-history-count-removed-pages', { deleted: item.removed.deleted, kept: item.removed.kept ?? 0 })
   }
   if (item.removed) return t('import-history-count-removed', { ...item.removed })
   const c = item.counts

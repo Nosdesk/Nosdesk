@@ -129,3 +129,30 @@ export function removalRefusalText(t: Translate, body: ErrorBody | undefined): s
       return null
   }
 }
+
+/** Why Remove imported pages or Publish all was refused, worded for pages.
+ *  `closes` fills the closed window's date. `null` for a failure that isn't
+ *  a refusal. */
+export function docsActionRefusalText(t: Translate, body: ErrorBody | undefined, closes = ''): string | null {
+  switch (body?.code) {
+    case 'import_not_committed':
+      return t('docs-import-remove-not-committed')
+    case 'import_already_removed':
+      return t('docs-import-remove-already-removed')
+    case 'import_removal_window_closed':
+      return t('import-remove-window-closed', { date: closes })
+    case 'import_busy':
+      return t('docs-import-action-busy')
+    case 'import_type_busy':
+      return t('docs-import-refused-type-busy')
+    case 'import_nothing_to_remove': {
+      const reason = body.args?.reason
+      if (reason === 'none_created' || reason === 'all_gone' || reason === 'all_changed') {
+        return t(`docs-import-remove-nothing-${reason.replace(/_/g, '-')}`)
+      }
+      return typeof body.error === 'string' ? body.error : null
+    }
+    default:
+      return null
+  }
+}
