@@ -83,6 +83,31 @@ describe('the en-US wording', () => {
     )
   })
 
+  it('words every documentation refusal the plan lists', () => {
+    expect(refusalText(real, { code: 'archive_unreadable', args: {} })).toBe("This file isn't a zip we can read.")
+    expect(refusalText(real, { code: 'archive_unreadable', args: { part: 'part-2.zip' } })).toBe(
+      "The zip inside it, part-2.zip, isn't a zip we can read.",
+    )
+    expect(refusalText(real, { code: 'archive_encrypted', args: { name: 'a.md' } })).toBe(
+      'This zip is password-protected. Export it again without a password.',
+    )
+    expect(refusalText(real, { code: 'docs_import_too_many_pages', args: { count: 2431, max: 2000 } })).toBe(
+      'The import has 2,431 pages. The limit is 2,000. Export one part at a time.',
+    )
+    expect(refusalText(real, { code: 'docs_import_no_markdown', args: {} })).toBe('There are no Markdown files in this zip.')
+    expect(refusalText(real, { code: 'docs_import_source_later', args: { source: 'BookStack' } })).toBe(
+      'This is a BookStack export. BookStack and Confluence exports are coming in a later update.',
+    )
+    expect(refusalText(real, { code: 'docs_import_mixed_files', args: {} })).toBe('Choose one .zip, or only .md files.')
+    expect(
+      refusalText(real, { code: 'upload_too_large', args: { max: 200 * 1024 * 1024 } }, { name: 'IT-Handbook.zip', size: '312 MB' }),
+    ).toBe('IT-Handbook.zip is 312 MB. The limit is 200 MB. Export one part at a time.')
+    expect(refusalText(real, { code: 'import_expired', args: {} })).toBe("This import can't be resumed. Start a new one.")
+    expect(refusalText(real, { code: 'docs_import_collection_missing', args: {} })).toBe(
+      "The collection to import into no longer exists. Choose another.",
+    )
+  })
+
   it('names what existing records are matched by for each type', () => {
     expect(real('import-options-match-label', { type: 'assets' })).toBe('Match existing assets by')
     expect(real('import-options-match-label', { type: 'users' })).toBe('Match existing users by')

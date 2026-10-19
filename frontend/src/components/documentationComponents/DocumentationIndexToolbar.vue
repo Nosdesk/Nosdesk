@@ -4,7 +4,8 @@
  * states of the same pages, so they lead as pill view tabs (the tickets and
  * asset headers use the same pattern) with their counts on the tabs. The
  * actions sit at the end: a search scoped to documentation, New collection,
- * and an overflow menu grouped as Knowledge, Publishing and Admin.
+ * and an overflow menu grouped as Knowledge, Publishing and Admin (Import
+ * documents and guest settings).
  *
  * The band renders on all four routes it switches between. The selected tab
  * comes from the route name and the tabs navigate by name, because the hosted
@@ -140,6 +141,7 @@ const menuItems = computed((): MenuItem[] => {
 
   if (isAdmin.value) {
     group('admin-heading', t('docs-index-toolbar-admin-heading'))
+    items.push({ id: 'import-docs', label: t('docs-index-toolbar-import'), icon: ICON_REGISTRY.download.d })
     items.push({ id: 'guest-settings', label: t('docs-index-toolbar-guest-settings'), icon: ICON_REGISTRY.settings.d })
   }
 
@@ -188,6 +190,9 @@ function handleMenuSelect(id: string) {
       break
     case 'public-site':
       window.open(portalUrl('/docs'), '_blank', 'noopener,noreferrer')
+      break
+    case 'import-docs':
+      void router.push({ name: 'admin-docs-import' })
       break
     case 'guest-settings':
       void router.push({ name: 'admin-guest-access' })

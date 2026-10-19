@@ -48,7 +48,7 @@ import ImportMapStep from '@/components/import/ImportMapStep.vue'
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 import ImportSheetPanel from '@/components/import/ImportSheetPanel.vue'
 import ImportValuesStep from '@/components/import/ImportValuesStep.vue'
-import { detailPath, doneHeadline, reportOffered } from '@/components/import/historyModel'
+import { detailPath, doneHeadline, reportOffered, resumeTarget } from '@/components/import/historyModel'
 import ImportRemoveBlock from '@/components/import/ImportRemoveBlock.vue'
 import ImportSignInLine from '@/components/import/ImportSignInLine.vue'
 import { errorBody, refusalText } from '@/components/import/refusals'
@@ -229,6 +229,11 @@ async function resume(id: string) {
   busy.value = 'resume'
   try {
     const found = await importService.get(id)
+    // A documentation import goes on in its own wizard.
+    if ((found.job_type as string) === 'documentation') {
+      router.replace(resumeTarget(found.id, 'documentation'))
+      return
+    }
     // A past import whose detail is gone reads on its own page; a draft
     // past its 30 days can't go on.
     if (found.status === 'done' && found.pruned_at) {

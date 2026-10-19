@@ -37,7 +37,10 @@ let wrapper: VueWrapper | null = null
 async function mountCard() {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/:any(.*)*', component: { template: '<div />' } }],
+    routes: [
+      { path: '/admin/data-import/documentation', name: 'admin-docs-import', component: { template: '<div />' } },
+      { path: '/:any(.*)*', component: { template: '<div />' } },
+    ],
   })
   await router.push('/admin/data-import')
   await router.isReady()
@@ -85,6 +88,25 @@ describe('RecentImportsCard', () => {
     expect(rows[2].text()).toContain('import-history-cannot-resume')
     expect(rows[1].text()).toContain('Inventory.xlsx · Cameras')
     expect(rows[1].text()).toContain('Priya Nair')
+  })
+
+  it('lists a documentation import, resuming its draft in its own wizard', async () => {
+    api.list.mockResolvedValue([
+      item({ id: 'docs-1', job_type: 'documentation', filename: 'IT-Handbook.zip', sheet: null, status: 'checking', state: 'draft', counts: null }),
+      item({ id: 'docs-2', job_type: 'documentation', filename: 'IT-Handbook.zip', sheet: null, counts: { new: 36, updated: 0, unchanged: 0, skipped: 3 } }),
+    ])
+    await mountCard()
+    const rows = wrapper!.findAll('[data-test="recent-import"]')
+    expect(rows.map((r) => r.find('[data-test="recent-import-counts"]').text())).toEqual([
+      'import-history-draft-on-pages',
+      'import-history-count-new · import-history-count-skipped',
+    ])
+    expect(rows[0].find('[data-test="recent-import-resume"]').attributes('href')).toBe(
+      '/admin/data-import/documentation?job=docs-1',
+    )
+    expect(rows[1].find('[data-test="recent-import-view"]').attributes('href')).toBe(
+      '/admin/data-import/imports/docs-2',
+    )
   })
 
   it('says so when nothing has been imported', async () => {

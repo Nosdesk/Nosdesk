@@ -980,6 +980,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-csv-import' }
         },
         {
+          path: 'data-import/documentation',
+          name: 'admin-docs-import',
+          component: () => import('../views/DocsImportView.vue'),
+          meta: { titleKey: 'route-title-admin-docs-import' }
+        },
+        {
           path: 'data-import/matches',
           name: 'admin-import-saved-matches',
           component: () => import('../views/SavedMatchesView.vue'),

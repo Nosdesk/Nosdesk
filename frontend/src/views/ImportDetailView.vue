@@ -19,6 +19,8 @@ import Button from '@/components/common/Button.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import ImportRemoveBlock from '@/components/import/ImportRemoveBlock.vue'
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
+import DocsImportDetail from '@/components/import/docsImport/DocsImportDetail.vue'
+import { DOCS_JOB_TYPE, type DocsImportJob } from '@nosdesk/core/services/docsImportService'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
 import {
@@ -55,16 +57,21 @@ const jobQuery = useQuery({
 })
 const job = computed(() => jobQuery.data.value)
 
+/** A documentation import reads as one, on its own page. */
+const docsJob = computed(() =>
+  job.value && (job.value.job_type as string) === DOCS_JOB_TYPE ? (job.value as unknown as DocsImportJob) : null,
+)
+
 // A draft goes on in the wizard.
 watch(job, (j) => {
-  if (j?.state === 'draft') router.replace(resumeTarget(j.id))
+  if (j?.state === 'draft') router.replace(resumeTarget(j.id, j.job_type))
 })
 
 const jobType = computed(() => job.value?.job_type ?? 'assets')
 const fieldsQuery = useQuery({
   key: () => importFieldsQueryKey(jobType.value),
   query: () => importService.fields(jobType.value),
-  enabled: () => !!job.value,
+  enabled: () => !!job.value && !docsJob.value,
 })
 const fields = computed(() => fieldsQuery.data.value ?? [])
 
@@ -78,7 +85,7 @@ const queryCache = useQueryCache()
 const webhooksQuery = useQuery({
   key: ['webhooks'],
   query: () => webhookService.listWebhooks(),
-  enabled: () => !!job.value && removalState(job.value) === 'offer',
+  enabled: () => !!job.value && !docsJob.value && removalState(job.value) === 'offer',
 })
 const webhooksHearAssets = computed(() => webhookHearsAssets(webhooksQuery.data.value ?? []))
 
@@ -234,6 +241,15 @@ const linkClass =
 
     <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-4xl">
       <ErrorBanner v-if="jobQuery.error.value" :message="$t('import-detail-load-failed')" />
+
+      <template v-else-if="docsJob && docsJob.state !== 'draft'">
+        <DocsImportDetail :job="docsJob" />
+        <p class="text-sm">
+          <RouterLink :class="linkClass" to="/admin/data-import" data-test="import-detail-recent">
+            {{ $t('import-history-title') }}
+          </RouterLink>
+        </p>
+      </template>
 
       <template v-else-if="job && job.state !== 'draft'">
         <div class="flex flex-col gap-2">

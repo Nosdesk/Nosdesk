@@ -24,7 +24,11 @@ vi.mock('@/composables/useKnowledgeGaps', async () => {
 vi.mock('@/components/common/PullToRefresh.vue', () => ({
   default: defineComponent({ template: '<div />' }),
 }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isTechnician: false }) }))
+const auth = vi.hoisted(() => ({ admin: false }))
+vi.mock('@/stores/auth', async () => {
+  const { ref } = await import('vue')
+  return { useAuthStore: () => ({ isTechnician: ref(false), isAdmin: ref(auth.admin) }) }
+})
 
 const openCreateCollection = vi.hoisted(() => vi.fn())
 vi.mock('@/components/documentationComponents/DocumentationIndexToolbar.vue', () => ({
@@ -44,15 +48,20 @@ let wrapper: VueWrapper | null = null
 async function mountView() {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', name: 'documentation', component: { template: '<div />' } }],
+    routes: [
+      { path: '/admin/data-import/documentation', name: 'admin-docs-import', component: { template: '<div />' } },
+      { path: '/:pathMatch(.*)*', name: 'documentation', component: { template: '<div />' } },
+    ],
   })
   await router.push('/documentation')
   await router.isReady()
   wrapper = mountWithProviders(DocumentationIndexView, {}, {}, [router])
   await flushPromises()
+  return router
 }
 
 afterEach(() => {
+  auth.admin = false
   wrapper?.unmount()
   wrapper = null
   pool.reset()
@@ -74,6 +83,19 @@ describe('DocumentationIndexView empty state', () => {
     expect(createNewPage).toHaveBeenCalledTimes(1)
     await buttons[1].trigger('click')
     expect(openCreateCollection).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers Import documents to an admin only, opening the documentation import', async () => {
+    await mountView()
+    expect(wrapper!.find('[data-testid="docs-index-empty-import"]').exists()).toBe(false)
+    wrapper!.unmount()
+    auth.admin = true
+    const router = await mountView()
+    const button = wrapper!.find('[data-testid="docs-index-empty-import"]')
+    expect(button.text()).toBe('docs-index-toolbar-import')
+    await button.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('admin-docs-import')
   })
 
   it('shows the Library once a collection exists, without a New link in its header', async () => {

@@ -1647,6 +1647,12 @@ admin-data-import-notice = Imports kunnen meldingen naar betrokken gebruikers tr
 admin-data-import-status-available = Beschikbaar
 admin-data-import-status-coming-soon = Binnenkort beschikbaar
 admin-data-import-status-beta = Bèta
+# MT: pending native review (nl-NL)
+admin-data-import-status-new = Nieuw
+# MT: pending native review (nl-NL)
+admin-data-import-docs-title = Documentatie
+# MT: pending native review (nl-NL)
+admin-data-import-docs-description = Markdown-bestanden, een export uit Notion, Obsidian of GitBook, of een Nosdesk-export.
 admin-data-import-microsoft-title = Microsoft Graph
 # TODO native-review nl-NL for the key below.
 admin-data-import-microsoft-description = Importeer gebruikers, groepen en apparaten uit Microsoft Entra ID
@@ -3238,6 +3244,8 @@ docs-index-toolbar-publish-heading = Publicatie
 docs-index-toolbar-admin-heading = Beheer
 docs-index-toolbar-public-site = Publieke site bekijken
 docs-index-toolbar-guest-settings = Gasttoegang
+# MT: pending native review (nl-NL)
+docs-index-toolbar-import = Documenten importeren
 
 # Docs: tabbladen en acties in de indexbalk (machine, nog na te kijken door moedertaalspreker)
 docs-index-tabs-aria = Documentatieweergaven
@@ -4157,6 +4165,7 @@ import-matches-noun = { $type ->
 import-matches-nouns = { $type ->
     [users] gebruikers
     [tickets] tickets
+    [documentation] documentatie
    *[assets] assets
 }
 # MT: pending native review (nl-NL)
@@ -4699,6 +4708,10 @@ import-history-state-expired = Verlopen
 import-history-draft-on-map = Concept bij Kolommen
 # MT: pending native review (nl-NL)
 import-history-draft-on-review = Concept bij Controle
+# MT: pending native review (nl-NL)
+import-history-draft-on-pages = Concept bij Pagina's
+# MT: pending native review (nl-NL)
+import-history-docs-importing = Bezig met importeren
 # MT: pending native review (nl-NL)
 import-history-count-new = { $count } nieuw
 # MT: pending native review (nl-NL)
@@ -7813,6 +7826,8 @@ admin-ldap-preview-not-found = groep niet gevonden in directory
 admin-ldap-preview-default = Iedereen anders → Lid
 route-title-admin-csv-import = CSV-import
 # MT: pending native review (nl-NL)
+route-title-admin-docs-import = Documentatie importeren
+# MT: pending native review (nl-NL)
 route-title-admin-import-saved-matches = Opgeslagen koppelingen
 # MT: pending native review (nl-NL)
 route-title-admin-import-detail = Import
@@ -9525,3 +9540,886 @@ portal-new-next-2 = Ze antwoorden hier, en elk antwoord krijgt u ook per e-mail.
 portal-new-next-3 = Is het geregeld, dan bevestigt u dat het opgelost is.
 portal-approvals-intro = Verzoeken die uw akkoord nodig hebben voordat het team begint.
 portal-approval-ask = Keurt u dit verzoek goed?
+
+# Documentatie importeren (Gegevens importeren > Documentatie), machine, nog na te kijken door moedertaalspreker
+# MT: pending native review (nl-NL)
+docs-import-title = Documentatie importeren
+# MT: pending native review (nl-NL)
+docs-import-subtitle = Haal pagina's binnen uit Markdown-bestanden of een export uit een andere tool.
+# MT: pending native review (nl-NL)
+docs-import-step-pages = Pagina's
+# MT: pending native review (nl-NL)
+docs-import-nothing-changes = Er verandert niets in uw werkruimte totdat u op de stap Controle op Importeren klikt.
+# MT: pending native review (nl-NL)
+docs-import-error-generic = Het importeren is mislukt. Probeer het opnieuw of start een nieuwe import.
+# MT: pending native review (nl-NL)
+docs-import-check-failed = De controle stopte voordat deze klaar was. Er is niets geïmporteerd. Controleer de pagina's opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-commit-failed = Er is niets geïmporteerd. Klik opnieuw op Importeren.
+# MT: pending native review (nl-NL)
+docs-import-report-failed = Het conversierapport kon niet worden gedownload. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-untitled = Naamloos
+# MT: pending native review (nl-NL)
+docs-import-start-heading = Documentatie importeren
+# MT: pending native review (nl-NL)
+docs-import-drop-idle = Sleep een .zip of .md-bestanden hierheen, of klik om te kiezen
+# MT: pending native review (nl-NL)
+docs-import-drop-release = Loslaten om te uploaden
+# MT: pending native review (nl-NL)
+docs-import-drop-hint = .zip of .md, tot 200 MB en 2.000 pagina's
+# MT: pending native review (nl-NL)
+docs-import-files-count = { $count ->
+    [one] 1 bestand
+   *[other] { $count } bestanden
+}
+# MT: pending native review (nl-NL)
+docs-import-uploading = { $name } uploaden
+# MT: pending native review (nl-NL)
+docs-import-uploading-progress = { $loaded } van { $total } · u kunt dit tabblad op de achtergrond laten staan
+# MT: pending native review (nl-NL)
+docs-import-reading = Pagina's lezen
+# MT: pending native review (nl-NL)
+docs-import-start-sources = Markdown-bestanden, of een export uit Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline of Nosdesk. De bron wordt herkend; u kunt deze in de volgende stap wijzigen.
+# MT: pending native review (nl-NL)
+docs-import-start-images = Afbeeldingen in het archief komen mee. Afbeeldingen die naar het web linken worden gedownload, tenzij u anders aangeeft.
+# MT: pending native review (nl-NL)
+docs-import-start-attachments = PDF- en Office-bijlagen blijven voorlopig buiten; elke pagina die er een linkt wordt vermeld.
+# MT: pending native review (nl-NL)
+docs-import-comes-across-heading = Wat er meekomt
+# MT: pending native review (nl-NL)
+docs-import-comes-across-1 = Koppen, tekstopmaak, links, lijsten, citaten, code, tabellen en afbeeldingen, voor zover de editor ze ondersteunt. Pagina's behouden hun structuur en volgorde. Links tussen pagina's verwijzen naar de nieuwe pagina's.
+# MT: pending native review (nl-NL)
+docs-import-comes-across-2 = Callouts worden citaten met een vetgedrukt label, takenlijsten worden opsommingen met ☐ en ☑, en alles wat verandert staat per pagina vermeld bij Controle, voordat u importeert.
+# MT: pending native review (nl-NL)
+docs-import-refused-not-a-zip = Dit bestand is geen zip die we kunnen lezen.
+# MT: pending native review (nl-NL)
+docs-import-refused-inner-zip = De zip erin, { $part }, is geen zip die we kunnen lezen.
+# MT: pending native review (nl-NL)
+docs-import-refused-encrypted = Deze zip is met een wachtwoord beveiligd. Exporteer hem opnieuw zonder wachtwoord.
+# MT: pending native review (nl-NL)
+docs-import-refused-too-many-pages = De import bevat { $count } pagina's. De limiet is { $max }. Exporteer één deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-too-many-files = De zip bevat meer dan { $max } bestanden. Exporteer één deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-no-markdown = Deze zip bevat geen Markdown-bestanden.
+# MT: pending native review (nl-NL)
+docs-import-refused-source-later = Dit is een { $source }-export. Exports uit BookStack en Confluence komen in een latere update.
+# MT: pending native review (nl-NL)
+docs-import-refused-mixed-files = Kies één .zip, of alleen .md-bestanden.
+# MT: pending native review (nl-NL)
+docs-import-refused-too-large = { $name } is { $size }. De limiet is { $max }. Exporteer één deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-unsafe-path = De zip bevat een bestandsnaam die we niet kunnen accepteren: { $name }
+# MT: pending native review (nl-NL)
+docs-import-refused-duplicate-entry = De zip bevat { $name } meer dan eens.
+# MT: pending native review (nl-NL)
+docs-import-refused-compression-ratio = { $name } pakt uit tot veel meer dan de gecomprimeerde grootte, daarom wordt de zip niet gelezen.
+# MT: pending native review (nl-NL)
+docs-import-refused-entry-too-large = { $name } is groter dan { $max }.
+# MT: pending native review (nl-NL)
+docs-import-refused-unpacked-too-large = De zip pakt uit tot meer dan { $max }. Exporteer één deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-entry-damaged = { $name } is beschadigd in de zip. Exporteer opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-refused-unreadable-upload = De upload kon niet worden gelezen. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-refused-no-file = Kies een bestand om te importeren.
+# MT: pending native review (nl-NL)
+docs-import-refused-unreadable = Dit bestand kon niet als documentatie worden gelezen.
+# MT: pending native review (nl-NL)
+docs-import-refused-timed-out = Het lezen van de pagina's duurde te lang. Importeer een kleiner deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-collection-missing = De collectie om in te importeren bestaat niet meer. Kies een andere.
+# MT: pending native review (nl-NL)
+docs-import-refused-busy = Deze import wordt gecontroleerd of vastgelegd. Probeer het zo opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-refused-check-running = Deze import wordt gecontroleerd.
+# MT: pending native review (nl-NL)
+docs-import-refused-commit-running = Deze import wordt vastgelegd.
+# MT: pending native review (nl-NL)
+docs-import-refused-type-busy = Er wordt al een andere documentatie-import vastgelegd. Probeer het opnieuw zodra die klaar is.
+# MT: pending native review (nl-NL)
+docs-import-refused-committed = Deze import is vastgelegd; de opties kunnen niet meer wijzigen.
+# MT: pending native review (nl-NL)
+docs-import-refused-not-checked = Deze import is nog niet gecontroleerd. Controleer eerst de pagina's.
+# MT: pending native review (nl-NL)
+docs-import-refused-expired = Deze import kan niet worden hervat. Start een nieuwe.
+# MT: pending native review (nl-NL)
+docs-import-source-looks-like = Lijkt op { $profile } · { $pages ->
+    [one] 1 pagina
+   *[other] { $pages } pagina's
+}, { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+}
+# MT: pending native review (nl-NL)
+docs-import-source-read-as = Gelezen als { $profile } · { $pages ->
+    [one] 1 pagina
+   *[other] { $pages } pagina's
+}, { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+}
+# MT: pending native review (nl-NL)
+docs-import-source-rereading = Pagina's opnieuw lezen
+# MT: pending native review (nl-NL)
+docs-import-source-change = Wijzigen
+# MT: pending native review (nl-NL)
+docs-import-source-change-label = Dit archief lezen als
+# MT: pending native review (nl-NL)
+docs-import-profile-detected = { $profile } (herkend)
+# MT: pending native review (nl-NL)
+docs-import-profile-notion = een Notion-export
+# MT: pending native review (nl-NL)
+docs-import-profile-nosdesk-v2 = een Nosdesk-export
+# MT: pending native review (nl-NL)
+docs-import-profile-nosdesk-v1 = een oudere Nosdesk-export
+# MT: pending native review (nl-NL)
+docs-import-profile-obsidian = een Obsidian-vault
+# MT: pending native review (nl-NL)
+docs-import-profile-gitbook = een GitBook-export
+# MT: pending native review (nl-NL)
+docs-import-profile-mkdocs = een MkDocs-site
+# MT: pending native review (nl-NL)
+docs-import-profile-docusaurus = een Docusaurus-site
+# MT: pending native review (nl-NL)
+docs-import-profile-outline = een Outline-export
+# MT: pending native review (nl-NL)
+docs-import-profile-plain = een gewone map
+# MT: pending native review (nl-NL)
+docs-import-profile-option-notion = Notion-export
+# MT: pending native review (nl-NL)
+docs-import-profile-option-nosdesk-v2 = Nosdesk-export
+# MT: pending native review (nl-NL)
+docs-import-profile-option-nosdesk-v1 = Oudere Nosdesk-export
+# MT: pending native review (nl-NL)
+docs-import-profile-option-obsidian = Obsidian-vault
+# MT: pending native review (nl-NL)
+docs-import-profile-option-gitbook = GitBook
+# MT: pending native review (nl-NL)
+docs-import-profile-option-mkdocs = MkDocs
+# MT: pending native review (nl-NL)
+docs-import-profile-option-docusaurus = Docusaurus
+# MT: pending native review (nl-NL)
+docs-import-profile-option-outline = Outline-export
+# MT: pending native review (nl-NL)
+docs-import-profile-option-plain = Gewone map
+# MT: pending native review (nl-NL)
+docs-import-tree-title = Pagina's zoals ze in Nosdesk verschijnen
+# MT: pending native review (nl-NL)
+docs-import-tree-expand-all = Alles uitklappen
+# MT: pending native review (nl-NL)
+docs-import-tree-collapse-all = Alles inklappen
+# MT: pending native review (nl-NL)
+docs-import-tree-expand = { $title } uitklappen
+# MT: pending native review (nl-NL)
+docs-import-tree-collapse = { $title } inklappen
+# MT: pending native review (nl-NL)
+docs-import-tree-tick = { $title } importeren
+# MT: pending native review (nl-NL)
+docs-import-tree-tick-with-children = { $count ->
+    [one] { $title } en de bijbehorende pagina importeren
+   *[other] { $title } en de { $count } bijbehorende pagina's importeren
+}
+# MT: pending native review (nl-NL)
+docs-import-tree-left-out = Uitgesloten
+# MT: pending native review (nl-NL)
+docs-import-tree-no-content = Geen inhoud
+# MT: pending native review (nl-NL)
+docs-import-tree-page-count = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+}
+# MT: pending native review (nl-NL)
+docs-import-tree-note-count = { $count ->
+    [one] 1 opmerking
+   *[other] { $count } opmerkingen
+}
+# MT: pending native review (nl-NL)
+docs-import-tree-head-new = nieuwe collectie
+# MT: pending native review (nl-NL)
+docs-import-tree-head-existing = bestaande collectie
+# MT: pending native review (nl-NL)
+docs-import-tree-head-none = geen collectie
+# MT: pending native review (nl-NL)
+docs-import-tree-no-collection = Concepten
+# MT: pending native review (nl-NL)
+docs-import-tree-count = { $ticked } van { $total } pagina's worden geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-tree-count-unticked = { $count } uitgevinkt
+# MT: pending native review (nl-NL)
+docs-import-tree-count-left-out = { $count } uitgesloten door een patroon
+# MT: pending native review (nl-NL)
+docs-import-tree-follow = Vink een sectie uit en de pagina's eronder volgen
+# MT: pending native review (nl-NL)
+docs-import-where-title = Bestemming
+# MT: pending native review (nl-NL)
+docs-import-where-collection = Collectie
+# MT: pending native review (nl-NL)
+docs-import-where-suggested = { $name } bestaat al in Documentatie met { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+}, daarom is deze geselecteerd. Kies Nieuwe collectie om deze import apart te houden.
+# MT: pending native review (nl-NL)
+docs-import-where-existing = Bestaande collectie
+# MT: pending native review (nl-NL)
+docs-import-where-existing-desc = Nieuwe pagina's komen na de bestaande pagina's.
+# MT: pending native review (nl-NL)
+docs-import-where-existing-none = Er zijn nog geen collecties.
+# MT: pending native review (nl-NL)
+docs-import-where-collection-option = { $name } ({ $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+})
+# MT: pending native review (nl-NL)
+docs-import-where-under = Onder pagina
+# MT: pending native review (nl-NL)
+docs-import-where-top-level = Bovenste niveau van de collectie
+# MT: pending native review (nl-NL)
+docs-import-where-under-option = Onder { $title }
+# MT: pending native review (nl-NL)
+docs-import-where-new = Nieuwe collectie
+# MT: pending native review (nl-NL)
+docs-import-where-name = Naam van de collectie
+# MT: pending native review (nl-NL)
+docs-import-where-new-clash = Er bestaat al een collectie met de naam { $name }. Beide worden getoond in Documentatie.
+# MT: pending native review (nl-NL)
+docs-import-where-per-folder = Eén collectie per map op het bovenste niveau
+# MT: pending native review (nl-NL)
+docs-import-where-per-folder-desc = { $count ->
+    [one] 1 collectie: { $names }.
+   *[other] { $count } collecties: { $names }.
+} De eigen pagina van een map wordt de eerste pagina van de collectie.
+# MT: pending native review (nl-NL)
+docs-import-where-as-source = Zoals in de export
+# MT: pending native review (nl-NL)
+docs-import-where-as-source-desc = { $count ->
+    [one] 1 collectie, zoals die in Nosdesk was.
+   *[other] { $count } collecties, zoals ze in Nosdesk waren.
+}
+# MT: pending native review (nl-NL)
+docs-import-status-label = Status
+# MT: pending native review (nl-NL)
+docs-import-status-drafts = Concepten
+# MT: pending native review (nl-NL)
+docs-import-status-published = Gepubliceerd
+# MT: pending native review (nl-NL)
+docs-import-status-as-files = Zoals de bestanden aangeven
+# MT: pending native review (nl-NL)
+docs-import-status-drafts-help = Alleen medewerkers kunnen ze zien totdat u ze publiceert.
+# MT: pending native review (nl-NL)
+docs-import-status-published-help = Iedereen die de collectie kan zien, ziet ze meteen, inclusief de conversie-opmerkingen.
+# MT: pending native review (nl-NL)
+docs-import-status-as-files-help = Pagina's die de bestanden als concept markeren blijven concepten; de rest wordt gepubliceerd.
+# MT: pending native review (nl-NL)
+docs-import-status-as-files-notion = Notion-exports bevatten geen status, dus elke pagina zou een concept worden.
+# MT: pending native review (nl-NL)
+docs-import-web-label = Afbeeldingen gelinkt vanaf het web
+# MT: pending native review (nl-NL)
+docs-import-web-download = Downloaden
+# MT: pending native review (nl-NL)
+docs-import-web-links = Als links behouden
+# MT: pending native review (nl-NL)
+docs-import-web-download-help = { $count ->
+    [0] Geen enkele pagina linkt een afbeelding vanaf het web.
+    [one] 1 afbeelding linkt naar het web. Deze wordt bij de controle in Nosdesk gedownload, zodat Controle laat zien of hij is overgekomen.
+   *[other] { $count } afbeeldingen linken naar het web. Ze worden bij de controle in Nosdesk gedownload, zodat Controle laat zien welke zijn overgekomen.
+}
+# MT: pending native review (nl-NL)
+docs-import-web-links-help = { $count ->
+    [0] Geen enkele pagina linkt een afbeelding vanaf het web.
+   *[other] Behouden links worden niet getoond in Nosdesk: pagina's kunnen alleen afbeeldingen tonen die hier zijn opgeslagen. Gelinkte afbeeldingen zouden als hun alt-tekst verschijnen.
+}
+# MT: pending native review (nl-NL)
+docs-import-leave-out-label = Bestanden uitsluiten die overeenkomen met
+# MT: pending native review (nl-NL)
+docs-import-leave-out-placeholder = bijv. **/archive/**
+# MT: pending native review (nl-NL)
+docs-import-leave-out-add = Toevoegen
+# MT: pending native review (nl-NL)
+docs-import-leave-out-remove = { $pattern } verwijderen
+# MT: pending native review (nl-NL)
+docs-import-leave-out-help = Paden in het archief, vergeleken met de bestandsnamen. Druk op Enter om toe te voegen.
+# MT: pending native review (nl-NL)
+docs-import-leave-out-matches = { $count ->
+    [one] 1 pagina komt overeen.
+   *[other] { $count } pagina's komen overeen.
+}
+# MT: pending native review (nl-NL)
+docs-import-too-many-patterns = Er zijn te veel pagina's één voor één uitgevinkt om te verzenden. Vink in plaats daarvan hun sectie uit, of voeg een patroon toe onder Uitsluiten.
+# MT: pending native review (nl-NL)
+docs-import-pattern-too-long = Een patroon is langer dan 500 tekens. Maak het korter.
+# MT: pending native review (nl-NL)
+docs-import-choose-collection = Kies de collectie om in te importeren.
+# MT: pending native review (nl-NL)
+docs-import-change-file = Ander bestand
+# MT: pending native review (nl-NL)
+docs-import-change-file-title = Dit bestand verwerpen?
+# MT: pending native review (nl-NL)
+docs-import-change-file-message = Er is niets geïmporteerd. Uw keuzes onder Bestemming blijven bewaard voor het volgende bestand.
+# MT: pending native review (nl-NL)
+docs-import-change-file-confirm = Bestand verwerpen
+# MT: pending native review (nl-NL)
+docs-import-tick-one = Vink minstens één pagina aan
+# MT: pending native review (nl-NL)
+docs-import-check = { $count ->
+    [one] 1 pagina controleren
+   *[other] { $count } pagina's controleren
+}
+# MT: pending native review (nl-NL)
+docs-import-checking = Pagina's controleren
+# MT: pending native review (nl-NL)
+docs-import-checking-line = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+} controleren: converteren, { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+} lezen, zoeken naar pagina's die al in Nosdesk staan. Er wordt niets geschreven.
+# MT: pending native review (nl-NL)
+docs-import-checking-line-web = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+} controleren: converteren, { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+} lezen, { $web } downloaden van het web, zoeken naar pagina's die al in Nosdesk staan. Er wordt niets geschreven.
+# MT: pending native review (nl-NL)
+docs-import-dest-new = in een nieuwe collectie, { $name }
+# MT: pending native review (nl-NL)
+docs-import-dest-existing = in { $name }
+# MT: pending native review (nl-NL)
+docs-import-dest-existing-under = in { $name } onder { $under }
+# MT: pending native review (nl-NL)
+docs-import-dest-many = { $count ->
+    [one] in 1 nieuwe collectie
+   *[other] in { $count } nieuwe collecties
+}
+# MT: pending native review (nl-NL)
+docs-import-headline-checked = { $count ->
+    [one] 1 pagina gecontroleerd.
+   *[other] { $count } pagina's gecontroleerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-headline-imported = { $count ->
+    [one] 1 wordt geïmporteerd
+   *[other] { $count } worden geïmporteerd
+} { $dest }, { $status ->
+    [published] gepubliceerd
+    [as_files] zoals de bestanden aangeven
+   *[drafts] als concept
+}{ $copies ->
+    [0] {""}
+   *[other] {" "}({ $copies } als kopie)
+}.
+# MT: pending native review (nl-NL)
+docs-import-headline-nothing = Er zou niets worden geïmporteerd.
+# MT: pending native review (nl-NL)
+docs-import-headline-skipped = { $count } overgeslagen: staan al in Nosdesk.
+# MT: pending native review (nl-NL)
+docs-import-headline-errors = { $count ->
+    [one] 1 kon niet worden geconverteerd en wordt leeg geïmporteerd.
+   *[other] { $count } konden niet worden geconverteerd en worden leeg geïmporteerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-tile-new = Nieuwe pagina's
+# MT: pending native review (nl-NL)
+docs-import-tile-new-copies = { $count } als kopie
+# MT: pending native review (nl-NL)
+docs-import-tile-new-errors = { $count } leeg geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-tile-new-sections = { $count ->
+    [one] 1 sectiepagina zonder inhoud
+   *[other] { $count } sectiepagina's zonder inhoud
+}
+# MT: pending native review (nl-NL)
+docs-import-tile-images = Afbeeldingen
+# MT: pending native review (nl-NL)
+docs-import-tile-images-problems = { $count } met problemen
+# MT: pending native review (nl-NL)
+docs-import-tile-images-web = { $count } van het web
+# MT: pending native review (nl-NL)
+docs-import-tile-images-left-out = { $count } uitgesloten
+# MT: pending native review (nl-NL)
+docs-import-tile-links = Links herschreven
+# MT: pending native review (nl-NL)
+docs-import-tile-links-kept = { $count } als tekst behouden
+# MT: pending native review (nl-NL)
+docs-import-tile-links-all = Alle links worden gevonden
+# MT: pending native review (nl-NL)
+docs-import-tile-skipped = Overgeslagen
+# MT: pending native review (nl-NL)
+docs-import-tile-skipped-already = { $count } al in Nosdesk
+# MT: pending native review (nl-NL)
+docs-import-already-title = { $count ->
+    [one] 1 pagina is al eerder geïmporteerd
+   *[other] { $count } pagina's zijn al eerder geïmporteerd
+}
+# MT: pending native review (nl-NL)
+docs-import-already-names-more = { $names } en { $count } meer
+# MT: pending native review (nl-NL)
+docs-import-already-by-source = gevonden via hun pad in een eerdere import in dezelfde collectie.
+# MT: pending native review (nl-NL)
+docs-import-already-by-uuid = ze komen uit de export van deze werkruimte.
+# MT: pending native review (nl-NL)
+docs-import-already-by-both = gevonden via een eerdere import, of ze komen uit de export van deze werkruimte.
+# MT: pending native review (nl-NL)
+docs-import-already-label = Pagina's die al in Nosdesk staan
+# MT: pending native review (nl-NL)
+docs-import-already-skip = Overslaan
+# MT: pending native review (nl-NL)
+docs-import-already-copy = Als kopie importeren
+# MT: pending native review (nl-NL)
+docs-import-already-skip-help = De pagina's in Nosdesk behouden hun inhoud. Er wordt niets ter plekke bijgewerkt.
+# MT: pending native review (nl-NL)
+docs-import-already-copy-help = Naast de bestaande pagina wordt een tweede pagina met dezelfde titel gemaakt. Er wordt niets ter plekke bijgewerkt.
+# MT: pending native review (nl-NL)
+docs-import-conversion-title = Wat er verandert bij de conversie
+# MT: pending native review (nl-NL)
+docs-import-conversion-clean = Elke pagina wordt ongewijzigd geconverteerd.
+# MT: pending native review (nl-NL)
+docs-import-conversion-footer = Niets verandert ongemerkt. Elke regel hier staat per pagina in het conversierapport.
+# MT: pending native review (nl-NL)
+docs-import-show-pages = Pagina's tonen
+# MT: pending native review (nl-NL)
+docs-import-line-pages = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+}
+# MT: pending native review (nl-NL)
+docs-import-line-errors = { $count ->
+    [one] 1 pagina kon niet worden geconverteerd. Deze wordt geïmporteerd met een lege inhoud.
+   *[other] { $count } pagina's konden niet worden geconverteerd. Ze worden geïmporteerd met een lege inhoud.
+}
+# MT: pending native review (nl-NL)
+docs-import-line-sections = { $count ->
+    [one] 1 sectiepagina heeft geen inhoud: { $names }. Deze krijgt een lege inhoud die u kunt invullen.
+   *[other] { $count } sectiepagina's hebben geen inhoud: { $names }. Ze krijgen een lege inhoud die u kunt invullen.
+}
+# MT: pending native review (nl-NL)
+docs-import-line-front-matter = Front matter-velden die niet worden geïmporteerd: { $fields }.
+# MT: pending native review (nl-NL)
+docs-import-note-tables-hoisted = { $count ->
+    [one] 1 tabel in een lijst of citaat is erna geplaatst
+   *[other] { $count } tabellen in een lijst of citaat zijn erna geplaatst
+}
+# MT: pending native review (nl-NL)
+docs-import-note-table-rows-padded = { $count ->
+    [one] Bij 1 tabel zijn de rijen gelijkgetrokken
+   *[other] Bij { $count } tabellen zijn de rijen gelijkgetrokken
+}
+# MT: pending native review (nl-NL)
+docs-import-note-table-cells-flattened = { $count ->
+    [one] 1 tabelcel bevatte inhoud die een cel niet kan bevatten, nu als tekst behouden
+   *[other] { $count } tabelcellen bevatten inhoud die een cel niet kan bevatten, nu als tekst behouden
+}
+# MT: pending native review (nl-NL)
+docs-import-note-checklists-as-bullets = { $count ->
+    [one] 1 takenlijst werd een opsomming
+   *[other] { $count } takenlijsten werden opsommingen
+}
+# MT: pending native review (nl-NL)
+docs-import-note-strikethrough-removed = { $count ->
+    [one] Doorhaling of markering op 1 plek verwijderd; de tekst blijft behouden
+   *[other] Doorhaling of markering op { $count } plekken verwijderd; de tekst blijft behouden
+}
+# MT: pending native review (nl-NL)
+docs-import-note-callouts-as-quotes = { $count ->
+    [one] 1 callout werd een citaat
+   *[other] { $count } callouts werden citaten
+}
+# MT: pending native review (nl-NL)
+docs-import-note-formulas-as-code = { $count ->
+    [one] 1 formule werd code
+   *[other] { $count } formules werden code
+}
+# MT: pending native review (nl-NL)
+docs-import-note-links-dropped = { $count ->
+    [one] 1 link gaat naar een bestemming waar een pagina niet naar kan linken. De tekst blijft behouden.
+   *[other] { $count } links gaan naar bestemmingen waar een pagina niet naar kan linken. De tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-images-dropped = { $count ->
+    [one] 1 afbeelding heeft een bron die een pagina niet kan tonen. De alt-tekst blijft behouden.
+   *[other] { $count } afbeeldingen hebben een bron die een pagina niet kan tonen. De alt-tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-html-removed = { $count ->
+    [one] Ingesloten HTML op 1 plek verwijderd (scripts, stijlen, frames)
+   *[other] Ingesloten HTML op { $count } plekken verwijderd (scripts, stijlen, frames)
+}
+# MT: pending native review (nl-NL)
+docs-import-note-html-as-text = { $count ->
+    [one] HTML op 1 plek als tekst behouden
+   *[other] HTML op { $count } plekken als tekst behouden
+}
+# MT: pending native review (nl-NL)
+docs-import-note-nesting-flattened = { $count ->
+    [one] Nesting dieper dan de editor toestaat op 1 plek platgemaakt
+   *[other] Nesting dieper dan de editor toestaat op { $count } plekken platgemaakt
+}
+# MT: pending native review (nl-NL)
+docs-import-note-table-cells-dropped = { $count ->
+    [one] 1 tabelrij had meer cellen dan de kop; de extra cellen zijn verwijderd
+   *[other] { $count } tabelrijen hadden meer cellen dan de kop; de extra cellen zijn verwijderd
+}
+# MT: pending native review (nl-NL)
+docs-import-note-mentions-as-text = { $count ->
+    [one] 1 vermelding werd tekst: de persoon zit niet in deze werkruimte
+   *[other] { $count } vermeldingen werden tekst: de personen zitten niet in deze werkruimte
+}
+# MT: pending native review (nl-NL)
+docs-import-note-ticket-links-as-text = { $count ->
+    [one] 1 ticketlink werd tekst: het ticket staat niet in deze werkruimte
+   *[other] { $count } ticketlinks werden tekst: de tickets staan niet in deze werkruimte
+}
+# MT: pending native review (nl-NL)
+docs-import-note-embeds-as-text = { $count ->
+    [one] 1 ingesloten pagina werd haar titel: de pagina zit niet in de import
+   *[other] { $count } ingesloten pagina's werden hun titels: de pagina's zitten niet in de import
+}
+# MT: pending native review (nl-NL)
+docs-import-note-links-unresolved = { $count ->
+    [one] 1 link verwijst naar een pagina die niet in de import zit. De tekst blijft behouden.
+   *[other] { $count } links verwijzen naar pagina's die niet in de import zitten. De tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-links-ambiguous = { $count ->
+    [one] 1 link op naam kwam overeen met meer dan één pagina; hij gaat naar de dichtstbijzijnde
+   *[other] { $count } links op naam kwamen overeen met meer dan één pagina; elk gaat naar de dichtstbijzijnde
+}
+# MT: pending native review (nl-NL)
+docs-import-note-attachments-left-out = { $count ->
+    [one] 1 bijlage uitgesloten: PDF- en Office-bestanden worden nog niet geïmporteerd. De link behoudt zijn tekst.
+   *[other] { $count } bijlagen uitgesloten: PDF- en Office-bestanden worden nog niet geïmporteerd. De links behouden hun tekst.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-front-matter-ignored = { $count ->
+    [one] 1 front matter-blok kon niet worden gelezen en is weggelaten
+   *[other] { $count } front matter-blokken konden niet worden gelezen en zijn weggelaten
+}
+# MT: pending native review (nl-NL)
+docs-import-note-title-shortened = { $count ->
+    [one] 1 titel was langer dan 255 tekens en is ingekort
+   *[other] { $count } titels waren langer dan 255 tekens en zijn ingekort
+}
+# MT: pending native review (nl-NL)
+docs-import-note-not-utf8 = { $count ->
+    [one] 1 bestand was geen UTF-8; sommige tekens kunnen onjuist zijn
+   *[other] { $count } bestanden waren geen UTF-8; sommige tekens kunnen onjuist zijn
+}
+# MT: pending native review (nl-NL)
+docs-import-note-source-syntax-removed = { $count ->
+    [one] Syntaxis die alleen de brontool begrijpt op 1 plek verwijderd
+   *[other] Syntaxis die alleen de brontool begrijpt op { $count } plekken verwijderd
+}
+# MT: pending native review (nl-NL)
+docs-import-note-database-rows-cut = { $count ->
+    [one] 1 Notion-database had meer rijen dan een pagina toont; de eerste 200 zijn behouden
+   *[other] { $count } Notion-databases hadden meer rijen dan een pagina toont; de eerste 200 zijn behouden
+}
+# MT: pending native review (nl-NL)
+docs-import-note-images-unreadable = { $count ->
+    [one] 1 afbeelding kon niet worden gelezen. De alt-tekst blijft behouden.
+   *[other] { $count } afbeeldingen konden niet worden gelezen. De alt-tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-svg-images-refused = { $count ->
+    [one] 1 SVG-afbeelding uitgesloten: SVG kan scripts bevatten. De alt-tekst blijft behouden.
+   *[other] { $count } SVG-afbeeldingen uitgesloten: SVG kan scripts bevatten. De alt-tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-web-images-not-fetched = { $count ->
+    [one] 1 afbeelding van het web kon niet worden gedownload. De alt-tekst blijft behouden.
+   *[other] { $count } afbeeldingen van het web konden niet worden gedownload. De alt-tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-image-unreadable = kon niet worden gelezen
+# MT: pending native review (nl-NL)
+docs-import-image-too-large = is groter dan 10 MB
+# MT: pending native review (nl-NL)
+docs-import-image-not-an-image = is geen afbeelding
+# MT: pending native review (nl-NL)
+docs-import-image-svg = is een SVG, die niet kan worden geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-image-refused-address = heeft een adres waarvan niet kan worden gedownload
+# MT: pending native review (nl-NL)
+docs-import-image-timed-out = deed te lang over het downloaden
+# MT: pending native review (nl-NL)
+docs-import-image-fetch-failed = kon niet worden gedownload
+# MT: pending native review (nl-NL)
+docs-import-image-over-limit = valt buiten de 500 webafbeeldingen die één import downloadt
+# MT: pending native review (nl-NL)
+docs-import-list-title = Pagina's
+# MT: pending native review (nl-NL)
+docs-import-filter-label = Tonen
+# MT: pending native review (nl-NL)
+docs-import-filter-all = Alle { $count }
+# MT: pending native review (nl-NL)
+docs-import-filter-notes = Met opmerkingen { $count }
+# MT: pending native review (nl-NL)
+docs-import-filter-skipped = Overgeslagen { $count }
+# MT: pending native review (nl-NL)
+docs-import-filter-errors = Fouten { $count }
+# MT: pending native review (nl-NL)
+docs-import-chip-sections = Sectiepagina's zonder inhoud
+# MT: pending native review (nl-NL)
+docs-import-chip-images = Afbeeldingsproblemen
+# MT: pending native review (nl-NL)
+docs-import-chip-links = Links als tekst behouden
+# MT: pending native review (nl-NL)
+docs-import-chip-changed = Gewijzigd sinds de controle
+# MT: pending native review (nl-NL)
+docs-import-chip-errors = Pagina's die niet konden worden geconverteerd
+# MT: pending native review (nl-NL)
+docs-import-chip-clear = Alle pagina's tonen
+# MT: pending native review (nl-NL)
+docs-import-list-keys = ↑ ↓ verplaatsen · Enter voorbeeld
+# MT: pending native review (nl-NL)
+docs-import-list-loading = Pagina's lezen
+# MT: pending native review (nl-NL)
+docs-import-list-failed = De pagina's konden niet worden geladen. Herlaad om het opnieuw te proberen.
+# MT: pending native review (nl-NL)
+docs-import-list-empty = Geen pagina's gevonden.
+# MT: pending native review (nl-NL)
+docs-import-list-empty-notes = Geen opmerkingen. Elke pagina wordt netjes geconverteerd.
+# MT: pending native review (nl-NL)
+docs-import-list-empty-skipped = Niets overgeslagen.
+# MT: pending native review (nl-NL)
+docs-import-list-empty-errors = Geen fouten. Elke pagina wordt geconverteerd.
+# MT: pending native review (nl-NL)
+docs-import-col-page = Pagina
+# MT: pending native review (nl-NL)
+docs-import-col-outcome = Resultaat
+# MT: pending native review (nl-NL)
+docs-import-col-notes = Opmerkingen
+# MT: pending native review (nl-NL)
+docs-import-top-level = Bovenste niveau
+# MT: pending native review (nl-NL)
+docs-import-no-notes = Geen opmerkingen
+# MT: pending native review (nl-NL)
+docs-import-pager = { $from } tot { $to } van { $total }
+# MT: pending native review (nl-NL)
+docs-import-pager-prev = Vorige
+# MT: pending native review (nl-NL)
+docs-import-pager-next = Volgende
+# MT: pending native review (nl-NL)
+docs-import-outcome-new = Nieuw
+# MT: pending native review (nl-NL)
+docs-import-outcome-copy = Kopie
+# MT: pending native review (nl-NL)
+docs-import-outcome-skipped = Overgeslagen
+# MT: pending native review (nl-NL)
+docs-import-outcome-error = Fout
+# MT: pending native review (nl-NL)
+docs-import-outcome-left = Niet geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-row-already-skip = Staat al in Nosdesk, wordt dus overgeslagen
+# MT: pending native review (nl-NL)
+docs-import-row-already-copy = Staat al in Nosdesk, er wordt dus een kopie gemaakt
+# MT: pending native review (nl-NL)
+docs-import-row-changed = Gewijzigd sinds de controle: deze pagina staat nu in Nosdesk
+# MT: pending native review (nl-NL)
+docs-import-row-image-problem = { $name } { $problem }
+# MT: pending native review (nl-NL)
+docs-import-row-attachment = Bijlage uitgesloten: { $name }
+# MT: pending native review (nl-NL)
+docs-import-row-unresolved = Link als tekst behouden: { $name } zit niet in de import
+# MT: pending native review (nl-NL)
+docs-import-row-section = Sectiepagina zonder inhoud
+# MT: pending native review (nl-NL)
+docs-import-preview-title = Voorbeeld
+# MT: pending native review (nl-NL)
+docs-import-preview-select = Selecteer een pagina om te zien hoe die eruitziet
+# MT: pending native review (nl-NL)
+docs-import-preview-empty = De geconverteerde pagina, alleen-lezen, in de weergave van de editor.
+# MT: pending native review (nl-NL)
+docs-import-preview-read-only = Alleen-lezen · de pagina zoals die wordt geschreven · afbeeldingen worden als bestand getoond
+# MT: pending native review (nl-NL)
+docs-import-preview-loading = Pagina converteren
+# MT: pending native review (nl-NL)
+docs-import-preview-failed = Het voorbeeld kon niet worden geladen. Selecteer de pagina opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-preview-schema-failed = Het voorbeeld voldeed niet aan de schemacontrole van de editor. Dit is een fout in de converter, niet in uw pagina: { $reason }
+# MT: pending native review (nl-NL)
+docs-import-preview-error-line = { $count ->
+    [one] Deze pagina wordt geïmporteerd met een lege inhoud. De andere pagina wordt geïmporteerd zoals gepland.
+   *[other] Deze pagina wordt geïmporteerd met een lege inhoud. De andere { $count } pagina's worden geïmporteerd zoals gepland.
+}
+# MT: pending native review (nl-NL)
+docs-import-preview-aria = Voorbeeld van { $title }
+# MT: pending native review (nl-NL)
+docs-import-preview-prev = Vorige
+# MT: pending native review (nl-NL)
+docs-import-preview-next = Volgende
+# MT: pending native review (nl-NL)
+docs-import-preview-was-callout = Was een callout
+# MT: pending native review (nl-NL)
+docs-import-preview-was-checklist = Was een takenlijst
+# MT: pending native review (nl-NL)
+docs-import-preview-table-moved = Uit de lijst gehaald
+# MT: pending native review (nl-NL)
+docs-import-preview-image-web = van het web
+# MT: pending native review (nl-NL)
+docs-import-preview-image-problem = { $problem } · alt-tekst behouden: { $alt }
+# MT: pending native review (nl-NL)
+docs-import-preview-image-aria = Afbeelding: { $name }
+# MT: pending native review (nl-NL)
+docs-import-preview-image-aria-problem = Afbeelding niet geïmporteerd: { $name }
+# MT: pending native review (nl-NL)
+docs-import-review-back = Terug naar Pagina's
+# MT: pending native review (nl-NL)
+docs-import-report = Conversierapport downloaden (.csv)
+# MT: pending native review (nl-NL)
+docs-import-review-skip-reason = { $count ->
+    [one] 1 pagina wordt niet geïmporteerd
+   *[other] { $count } pagina's worden niet geïmporteerd
+}
+# MT: pending native review (nl-NL)
+docs-import-review-import = { $count ->
+    [one] 1 pagina importeren
+   *[other] { $count } pagina's importeren
+}
+# MT: pending native review (nl-NL)
+docs-import-review-importing = Bezig met importeren
+# MT: pending native review (nl-NL)
+docs-import-review-nothing = Niets te importeren
+# MT: pending native review (nl-NL)
+docs-import-confirm-title = { $count ->
+    [one] 1 pagina importeren?
+   *[other] { $count } pagina's importeren?
+}
+# MT: pending native review (nl-NL)
+docs-import-confirm-message = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+} en { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+} worden toegevoegd { $dest }, { $status ->
+    [published] gepubliceerd
+    [as_files] zoals de bestanden aangeven
+   *[drafts] als concept
+}.
+# MT: pending native review (nl-NL)
+docs-import-confirm-skipped = { $count ->
+    [one] 1 pagina die al in Nosdesk staat wordt overgeslagen.
+   *[other] { $count } pagina's die al in Nosdesk staan worden overgeslagen.
+}
+# MT: pending native review (nl-NL)
+docs-import-confirm-copies = { $count ->
+    [one] 1 pagina die al in Nosdesk staat wordt als kopie geïmporteerd.
+   *[other] { $count } pagina's die al in Nosdesk staan worden als kopie geïmporteerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-confirm-errors = { $count ->
+    [one] 1 pagina die niet kon worden geconverteerd wordt leeg geïmporteerd.
+   *[other] { $count } pagina's die niet konden worden geconverteerd worden leeg geïmporteerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-confirm-published = Iedereen die de collectie kan zien, ziet ze meteen.
+# MT: pending native review (nl-NL)
+docs-import-plan-changed = Er is iets veranderd sinds uw controle. Bekijk het nieuwe plan hieronder; de aantallen en de knop Importeren zijn bijgewerkt.
+# MT: pending native review (nl-NL)
+docs-import-plan-changed-more = { $count ->
+    [one] Er is iets veranderd sinds uw controle: nog 1 pagina staat al in Nosdesk. Bekijk het nieuwe plan hieronder; de aantallen en de knop Importeren zijn bijgewerkt.
+   *[other] Er is iets veranderd sinds uw controle: nog { $count } pagina's staan al in Nosdesk. Bekijk het nieuwe plan hieronder; de aantallen en de knop Importeren zijn bijgewerkt.
+}
+# MT: pending native review (nl-NL)
+docs-import-importing-title = { $count ->
+    [one] 1 pagina importeren
+   *[other] { $count } pagina's importeren
+}
+# MT: pending native review (nl-NL)
+docs-import-importing-progress = { $written } van { $total } pagina's geschreven
+# MT: pending native review (nl-NL)
+docs-import-importing-finishing = Afronden: links, insluitingen en de zoekindex
+# MT: pending native review (nl-NL)
+docs-import-importing-leave = U kunt deze pagina verlaten. De import loopt door en verschijnt hier, en bij Recente imports, zodra hij klaar is. De teller wordt ongeveer elke halve minuut bijgewerkt.
+# MT: pending native review (nl-NL)
+docs-import-done-heading = Import voltooid
+# MT: pending native review (nl-NL)
+docs-import-done-summary = { $count ->
+    [one] 1 pagina geïmporteerd in { $where }
+   *[other] { $count } pagina's geïmporteerd in { $where }
+}, { $status ->
+    [published] gepubliceerd
+    [as_files] zoals de bestanden aangeven
+   *[drafts] als concept
+}.
+# MT: pending native review (nl-NL)
+docs-import-done-many = { $count ->
+    [one] 1 nieuwe collectie
+   *[other] { $count } nieuwe collecties
+}
+# MT: pending native review (nl-NL)
+docs-import-done-images = { $count ->
+    [one] 1 afbeelding opgeslagen.
+   *[other] { $count } afbeeldingen opgeslagen.
+}
+# MT: pending native review (nl-NL)
+docs-import-done-skipped = { $count ->
+    [one] 1 pagina die al in Nosdesk stond is overgeslagen.
+   *[other] { $count } pagina's die al in Nosdesk stonden zijn overgeslagen.
+}
+# MT: pending native review (nl-NL)
+docs-import-done-errors = { $count ->
+    [one] 1 pagina kon niet worden geconverteerd en is leeg geïmporteerd.
+   *[other] { $count } pagina's konden niet worden geconverteerd en zijn leeg geïmporteerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-done-drafts = De pagina's zijn concepten: alleen medewerkers kunnen ze zien. Lees er een paar en publiceer ze dan.
+# MT: pending native review (nl-NL)
+docs-import-done-revision = De eerste revisie van elke pagina vermeldt "Geïmporteerd uit { $file }".
+# MT: pending native review (nl-NL)
+docs-import-done-open = { $name } openen
+# MT: pending native review (nl-NL)
+docs-import-done-open-docs = Documentatie openen
+# MT: pending native review (nl-NL)
+docs-import-done-another = Nog een bestand importeren
+# MT: pending native review (nl-NL)
+docs-import-conversion-done-title = Wat er veranderde bij de conversie
+# MT: pending native review (nl-NL)
+docs-import-conversion-done-footer = Het conversierapport vermeldt elke pagina met haar opmerkingen.
+# MT: pending native review (nl-NL)
+docs-import-detail-state = { $count ->
+    [one] Geïmporteerd: 1 pagina
+   *[other] Geïmporteerd: { $count } pagina's
+} { $status ->
+    [published] gepubliceerd
+    [as_files] zoals de bestanden aangeven
+   *[drafts] als concept
+}
+# MT: pending native review (nl-NL)
+docs-import-detail-source = Bron
+# MT: pending native review (nl-NL)
+docs-import-detail-files = { $count ->
+    [one] 1 bestand
+   *[other] { $count } bestanden
+}
+# MT: pending native review (nl-NL)
+docs-import-detail-into-existing = In { $name } (bestaand)
+# MT: pending native review (nl-NL)
+docs-import-detail-into-new = In { $name } (nieuw)
+# MT: pending native review (nl-NL)
+docs-import-detail-into-many = { $count ->
+    [one] In 1 nieuwe collectie
+   *[other] In { $count } nieuwe collecties
+}
+# MT: pending native review (nl-NL)
+docs-import-detail-web-download = Webafbeeldingen gedownload
+# MT: pending native review (nl-NL)
+docs-import-detail-web-links = Webafbeeldingen als links behouden
+# MT: pending native review (nl-NL)
+docs-import-detail-dup-skip = Pagina's die al in Nosdesk stonden overgeslagen
+# MT: pending native review (nl-NL)
+docs-import-detail-dup-copy = Pagina's die al in Nosdesk stonden als kopie geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-detail-left-out = Uitgesloten: { $patterns }
+# MT: pending native review (nl-NL)
+docs-import-detail-tree-title = Pagina's die deze import schreef
+# MT: pending native review (nl-NL)
+docs-import-detail-tree-footer = Overgeslagen en niet geïmporteerde rijen zijn wat de controle vond; ze hebben niets geschreven.
+# MT: pending native review (nl-NL)
+docs-import-detail-kept = Details worden 30 dagen bewaard. De aantallen en opties blijven daarna staan.

@@ -590,11 +590,16 @@ export interface ImportCounts {
   skipped: number
 }
 
+/** Every job type Recent imports and the import detail show: the
+ *  spreadsheet types and documentation (`docsImportService`). */
+export type AnyImportJobType = ImportJobType | 'documentation'
+
 /** One job on Recent imports. */
 export interface ImportJobListItem {
   id: string
-  job_type: ImportJobType
-  status: ImportJobStatus
+  job_type: AnyImportJobType
+  /** `checking` is a documentation import's background check. */
+  status: ImportJobStatus | 'checking'
   state: ImportJobState | null
   filename: string
   /** The workbook sheet, for an .xlsx. */

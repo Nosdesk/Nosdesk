@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useDocPages, toPage } from '@/composables/useDocPages'
@@ -41,6 +43,9 @@ const { createNewPage } = useDocumentation()
 const { allTree: pages } = useDocPages()
 const docs = useSyncDocsStore()
 const { gaps, isLoading: gapsLoading } = useKnowledgeGaps()
+
+const { isAdmin } = storeToRefs(useAuthStore())
+const router = useRouter()
 
 const docNavStore = useDocumentationNavStore()
 const { starredPages } = storeToRefs(docNavStore)
@@ -180,6 +185,16 @@ usePageCreateAction(handleCreatePage)
                   </Button>
                   <Button size="sm" variant="secondary" icon="folder" @click="openCreateCollection">
                     {{ $t('docs-index-toolbar-new-collection') }}
+                  </Button>
+                  <Button
+                    v-if="isAdmin"
+                    size="sm"
+                    variant="secondary"
+                    icon="download"
+                    data-testid="docs-index-empty-import"
+                    @click="router.push({ name: 'admin-docs-import' })"
+                  >
+                    {{ $t('docs-index-toolbar-import') }}
                   </Button>
                 </div>
               </template>
