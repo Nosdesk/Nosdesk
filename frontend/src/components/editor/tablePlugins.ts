@@ -26,7 +26,6 @@ import { GapCursor, gapCursor } from 'prosemirror-gapcursor'
 import {
   CellSelection,
   TableMap,
-  TableView,
   cellAround,
   columnResizing,
   columnResizingPluginKey,
@@ -43,11 +42,13 @@ import { tablesAllowed } from './tablesAllowed'
 import { cellsToTsv, textToTableSlice, tidyPastedTableHtml } from './tableClipboard'
 import {
   addRowBelowAndEnter,
+  deleteSelectedCellsTable,
   deleteSelectedTable,
   emptyRow,
   nextCellOrNewRow,
   placeTable,
   resetColumnWidthAtHandle,
+  selectAllInTable,
 } from './tableCommands'
 
 /** Narrowest a column can be dragged, and the floor for unsized columns. */
@@ -213,13 +214,26 @@ function inTable(command: Command): Command {
   }
 }
 
+/** `command`, then `after` once it has applied. */
+function andThen(command: Command, after: (() => void) | undefined): Command {
+  return (state, dispatch, view) => {
+    if (!command(state, dispatch, view)) return false
+    if (dispatch) after?.()
+    return true
+  }
+}
+
 /**
  * The table keymap. It goes after the list keymap, so Tab in a list inside a
  * cell indents the item, and after the editor's own Mod-Enter, so a code
  * block in a cell still exits on it; and before `baseKeymap`.
+ * `onTableDeleted` runs after Backspace or Delete removes a whole table.
  */
-export function tableKeymap(docId: () => string): Plugin {
-  const deleteCells = chainCommands(deleteSelectedTable, deleteCellSelection)
+export function tableKeymap(docId: () => string, onTableDeleted?: () => void): Plugin {
+  const deleteCells = chainCommands(
+    andThen(chainCommands(deleteSelectedTable, deleteSelectedCellsTable), onTableDeleted),
+    deleteCellSelection,
+  )
   return keymap({
     Tab: nextCellOrNewRow,
     'Shift-Tab': inTable(goToNextCell(-1)),
@@ -231,6 +245,7 @@ export function tableKeymap(docId: () => string): Plugin {
     'Mod-Backspace': deleteCells,
     Delete: deleteCells,
     'Mod-Delete': deleteCells,
+    'Mod-a': selectAllInTable,
   })
 }
 
@@ -253,14 +268,6 @@ export function tableClipboard(docId: () => string): Plugin {
       },
     },
   })
-}
-
-/** prosemirror-tables' table view, in the same wrapper `toDOM` renders. */
-class ScrollingTableView extends TableView {
-  constructor(node: ProseMirrorNode, defaultCellMinWidth: number) {
-    super(node, defaultCellMinWidth)
-    this.dom.className = 'table-scroll'
-  }
 }
 
 /** Double-clicking a column border clears that column's width. */
@@ -288,7 +295,8 @@ export function tableColumnResizing(): Plugin[] {
     columnResizing({
       cellMinWidth: MIN_COLUMN_WIDTH,
       defaultCellMinWidth: MIN_COLUMN_WIDTH,
-      View: ScrollingTableView,
+      // The editor's own table view (tableView.ts) draws the table.
+      View: null,
     }),
     resetColumnOnDoubleClick(),
   ]
@@ -304,6 +312,8 @@ export interface TablePluginOptions {
   docId: () => string
   /** Whether columns can be resized by dragging (pointer devices). */
   resizable: boolean
+  /** Runs after Backspace or Delete removes a whole table. */
+  onTableDeleted?: () => void
 }
 
 /**
@@ -312,12 +322,12 @@ export interface TablePluginOptions {
  * end of the list, where the gap cursor and column resizing get mouse and
  * arrow events before cell selection does.
  */
-export function createTablePlugins({ docId, resizable }: TablePluginOptions): {
+export function createTablePlugins({ docId, resizable, onTableDeleted }: TablePluginOptions): {
   keymap: Plugin
   plugins: Plugin[]
 } {
   return {
-    keymap: tableKeymap(docId),
+    keymap: tableKeymap(docId, onTableDeleted),
     plugins: [
       tableClipboard(docId),
       cellSelectionRestore(),

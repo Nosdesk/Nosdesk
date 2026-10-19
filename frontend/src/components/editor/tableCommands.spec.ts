@@ -10,6 +10,16 @@ import {
   addRowAfter,
   addRowBefore,
   alignColumn,
+  alignSelection,
+  columnHasWidth,
+  deleteSelectedCellsTable,
+  insertColumnAt,
+  insertRowAt,
+  selectAllCells,
+  selectAllInTable,
+  selectColumn,
+  selectRow,
+  tableToMarkdown,
   clearCells,
   deleteColumn,
   deleteRow,
@@ -252,5 +262,178 @@ describe('deleteTable', () => {
 
   it('does nothing outside a table', () => {
     expect(deleteTable(stateWith(doc(p('Intro'))))).toBe(false)
+  })
+})
+
+
+/** Header row and header column: corner, Name, Owner / VPN, Ana / Mail, Bo. */
+const crossHeaders = () =>
+  table(tr(th(''), th('Name'), th('Owner')), tr(th('VPN'), td('Ana'), td('x')), tr(th('Mail'), td('Bo'), td('y')))
+
+describe('insertRowAt', () => {
+  it('inserts between rows with the caret in the new row', () => {
+    const s = run(stateWith(doc(grid(), p()), (st) => cellText(st, 1, 1)), insertRowAt(2))
+    expect(rows(s)).toEqual([['#Name', '#Owner'], ['VPN', 'Ana'], ['', ''], ['Mail', 'Bo']])
+    expect(s.selection.from).toBe(cellText(s, 2, 1))
+  })
+
+  it('makes a row inserted above the header the header, and the old header a body row', () => {
+    const s = run(stateWith(doc(grid(), p()), (st) => cellText(st, 0, 0)), insertRowAt(0))
+    expect(rows(s)).toEqual([['#', '#'], ['Name', 'Owner'], ['VPN', 'Ana'], ['Mail', 'Bo']])
+    expect(s.selection.from).toBe(cellText(s, 0, 0))
+  })
+
+  it('keeps a header column when promoting the header row', () => {
+    const s = run(stateWith(doc(crossHeaders(), p()), (st) => cellText(st, 1, 1)), insertRowAt(0))
+    expect(rows(s)).toEqual([['#', '#', '#'], ['#', 'Name', 'Owner'], ['#VPN', 'Ana', 'x'], ['#Mail', 'Bo', 'y']])
+  })
+
+  it('is one transaction', () => {
+    const start = stateWith(doc(grid(), p()), (st) => cellText(st, 0, 0))
+    let count = 0
+    insertRowAt(0)(start, () => count++)
+    expect(count).toBe(1)
+  })
+
+  it('adds a plain row above a body row', () => {
+    const plain = table(tr(td('a'), td('b')), tr(td('c'), td('d')))
+    const s = run(stateWith(doc(plain, p()), (st) => cellText(st, 0, 0)), insertRowAt(0))
+    expect(rows(s)).toEqual([['', ''], ['a', 'b'], ['c', 'd']])
+  })
+
+  it('refuses an index outside the table, or a caret outside one', () => {
+    expect(insertRowAt(9)(stateWith(doc(grid(), p()), (st) => cellText(st, 0, 0)))).toBe(false)
+    expect(insertRowAt(0)(stateWith(doc(p('x'), grid())))).toBe(false)
+  })
+})
+
+describe('insertColumnAt', () => {
+  it('inserts between columns with the caret in the new column', () => {
+    const s = run(stateWith(doc(grid(), p()), (st) => cellText(st, 1, 0)), insertColumnAt(1))
+    expect(rows(s)).toEqual([['#Name', '#', '#Owner'], ['VPN', '', 'Ana'], ['Mail', '', 'Bo']])
+    expect(s.selection.from).toBe(cellText(s, 1, 1))
+  })
+
+  it('makes a column inserted left of a header column the header column', () => {
+    const s = run(stateWith(doc(crossHeaders(), p()), (st) => cellText(st, 1, 0)), insertColumnAt(0))
+    expect(rows(s)).toEqual([['#', '#', '#Name', '#Owner'], ['#', 'VPN', 'Ana', 'x'], ['#', 'Mail', 'Bo', 'y']])
+  })
+
+  it('adds a plain column left of a body column', () => {
+    const s = run(stateWith(doc(grid(), p()), (st) => cellText(st, 1, 0)), insertColumnAt(0))
+    expect(rows(s)).toEqual([['#', '#Name', '#Owner'], ['', 'VPN', 'Ana'], ['', 'Mail', 'Bo']])
+  })
+})
+
+describe('selecting rows, columns and tables', () => {
+  it('selects a row, a column, a range and every cell', () => {
+    const start = stateWith(doc(p('x'), grid()))
+    const tablePos = 3
+    const row = run(start, selectRow(tablePos, 1)).selection as CellSelection
+    expect(row.isRowSelection()).toBe(true)
+    expect(row.$anchorCell.pos).toBe(cellPos(start, 1, 0))
+    const col = run(start, selectColumn(tablePos, 1)).selection as CellSelection
+    expect(col.isColSelection()).toBe(true)
+    const range = run(start, selectRow(tablePos, 1, 2)).selection as CellSelection
+    expect(range.$headCell.pos).toBe(cellPos(start, 2, 1))
+    const all = run(start, selectAllCells(tablePos)).selection as CellSelection
+    expect(all.isRowSelection() && all.isColSelection()).toBe(true)
+  })
+
+  it('Mod-a selects the cell text, then every cell, then gives way', () => {
+    const start = stateWith(doc(grid(), p()), (st) => cellText(st, 1, 0) + 1)
+    const text = run(start, selectAllInTable)
+    expect(text.selection.from).toBe(cellText(start, 1, 0))
+    expect(text.selection.to).toBe(cellText(start, 1, 0) + 3)
+    const all = run(text, selectAllInTable).selection as CellSelection
+    expect(all.isRowSelection() && all.isColSelection()).toBe(true)
+    expect(selectAllInTable(run(text, selectAllInTable))).toBe(false)
+  })
+
+  it('deletes the table when every cell is selected, not for fewer', () => {
+    const start = stateWith(doc(p('x'), grid(), p('y')))
+    expect(deleteSelectedCellsTable(run(start, selectRow(3, 1)))).toBe(false)
+    const s = run(run(start, selectAllCells(3)), deleteSelectedCellsTable)
+    expect(s.doc.toJSON().content.map((n: { type: string }) => n.type)).toEqual(['paragraph', 'paragraph'])
+  })
+})
+
+describe('alignSelection', () => {
+  it('aligns the caret column, or just the selected cells', () => {
+    const column = run(stateWith(doc(grid(), p()), (st) => cellText(st, 1, 1)), alignSelection('right'))
+    expect(column.doc.child(0).child(2).child(1).attrs.align).toBe('right')
+    expect(column.doc.child(0).child(0).child(1).attrs.align).toBe('right')
+    const cells = run(stateWith(doc(grid(), p()), (st) => [cellPos(st, 1, 0), cellPos(st, 1, 1)]), alignSelection('center'))
+    expect(cells.doc.child(0).child(1).child(0).attrs.align).toBe('center')
+    expect(cells.doc.child(0).child(2).child(0).attrs.align).toBeNull()
+  })
+
+  it('stores left as no alignment', () => {
+    const right = run(stateWith(doc(grid(), p()), (st) => cellText(st, 1, 1)), alignSelection('right'))
+    const left = run(right, alignSelection('left'))
+    expect(left.doc.child(0).child(1).child(1).attrs.align).toBeNull()
+  })
+})
+
+describe('columnHasWidth', () => {
+  it('reads widths per column, through a colspan', () => {
+    const sized = table(
+      tr(schema.nodes.table_cell.create({ colspan: 2, colwidth: [0, 120] }, p('wide')), td('c')),
+      tr(td('a'), td('b'), td('c')),
+    )
+    expect(columnHasWidth(sized, 0)).toBe(false)
+    expect(columnHasWidth(sized, 1)).toBe(true)
+    expect(columnHasWidth(sized, 2)).toBe(false)
+  })
+})
+
+describe('tableToMarkdown', () => {
+  const md = (node: Node) => tableToMarkdown(node)
+
+  it('writes a GFM table with alignment, marks and escaped pipes', () => {
+    const strong = schema.marks.strong.create()
+    const code = schema.marks.code.create()
+    const body = tr(
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text('10.0.0.1', [code])])),
+      schema.nodes.table_cell.create({ align: 'right' }, schema.nodes.paragraph.create(null, [schema.text('a|b ', null), schema.text('core', [strong])])),
+      schema.nodes.table_cell.create({ align: 'center' }, p('')),
+    )
+    const out = md(table(tr(th('Address'), th('Notes'), th('Up')), body))
+    expect(out.markdown).toBe(true)
+    expect(out.text).toBe(['| Address | Notes | Up |', '| --- | ---: | :---: |', '| `10.0.0.1` | a\\|b **core** |  |'].join('\n'))
+  })
+
+  it('escapes backslashes in text and pipes everywhere, leaving code backslashes literal', () => {
+    const code = schema.marks.code.create()
+    const body = tr(
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text('C:\\temp\\|x', null)])),
+      schema.nodes.table_cell.create(null, schema.nodes.paragraph.create(null, [schema.text('grep a\\|b', [code])])),
+    )
+    const out = md(table(tr(th('Path'), th('Command')), body))
+    expect(out.markdown).toBe(true)
+    expect(out.text.split('\n')[2]).toBe('| C:\\\\temp\\\\\\|x | `grep a\\\\|b` |')
+  })
+
+  it('falls back to HTML for a header column', () => {
+    const out = md(crossHeaders())
+    expect(out.markdown).toBe(false)
+    expect(out.text).toContain('<th>VPN</th>')
+    expect(out.text.startsWith('<table>')).toBe(true)
+  })
+
+  it('falls back to HTML for merged cells, keeping the span and alignment', () => {
+    const merged = table(
+      tr(th('A'), th('B')),
+      tr(schema.nodes.table_cell.create({ colspan: 2, align: 'center' }, p('a < b & c'))),
+    )
+    const out = md(merged)
+    expect(out.markdown).toBe(false)
+    expect(out.text).toContain('<td colspan="2" align="center">a &lt; b &amp; c</td>')
+  })
+
+  it('falls back to HTML for a table with no header row, or a list in a cell', () => {
+    expect(md(table(tr(td('a'), td('b')), tr(td('c'), td('d')))).markdown).toBe(false)
+    const list = schema.nodes.bullet_list.create(null, schema.nodes.list_item.create(null, p('item')))
+    expect(md(table(tr(th('A')), tr(schema.nodes.table_cell.create(null, list)))).markdown).toBe(false)
   })
 })

@@ -5099,6 +5099,54 @@ editor-insert-menu-embed-document = Intégrer un document
 editor-insert-menu-image = Image
 editor-insert-menu-take-photo = Prendre une photo
 
+# Éditeur : commandes de tableau (machine, à relire par un locuteur natif).
+editor-toolbar-table = Tableau
+editor-insert-menu-table = Tableau
+editor-table-actions = Actions du tableau
+editor-table-add-row = Ajouter une ligne
+editor-table-add-column = Ajouter une colonne
+editor-table-insert-row-here = Insérer une ligne ici
+editor-table-insert-column-here = Insérer une colonne ici
+editor-table-row-actions = Actions de la ligne { $row }
+editor-table-column-actions = Actions de la colonne { $column }
+editor-table-menu-row = Ligne { $row }
+editor-table-menu-column = Colonne { $column }
+editor-table-menu-table = Tableau
+editor-table-menu-cells = Cellules sélectionnées
+editor-table-insert-row-above = Insérer une ligne au-dessus
+editor-table-insert-row-below = Insérer une ligne en dessous
+editor-table-insert-column-left = Insérer une colonne à gauche
+editor-table-insert-column-right = Insérer une colonne à droite
+editor-table-move-up = Monter
+editor-table-move-down = Descendre
+editor-table-move-left = Déplacer à gauche
+editor-table-move-right = Déplacer à droite
+editor-table-header-row = Ligne d'en-tête
+editor-table-header-column = Colonne d'en-tête
+editor-table-align-left = Aligner à gauche
+editor-table-align-center = Centrer
+editor-table-align-right = Aligner à droite
+editor-table-reset-width = Réinitialiser la largeur
+editor-table-reset-widths = Réinitialiser les largeurs de colonne
+editor-table-clear = Effacer le contenu
+editor-table-delete-row = Supprimer la ligne
+editor-table-delete-column = Supprimer la colonne
+editor-table-delete-table = Supprimer le tableau
+editor-table-merge = Fusionner les cellules
+editor-table-split = Scinder la cellule
+editor-table-copy-markdown = Copier en Markdown
+editor-table-bar-merge = Fusionner
+editor-table-bar-split = Scinder
+editor-table-bar-clear = Effacer
+editor-table-bar-clear-title = Effacer le contenu (Retour arrière)
+editor-table-bar-more = Plus
+editor-table-deleted = Tableau supprimé
+editor-table-undo = Annuler
+editor-table-copied-markdown = Copié en Markdown
+editor-table-copied-html = Copié en HTML
+editor-table-copied-html-detail = Ce tableau contient plus qu'un tableau Markdown ne peut en contenir, comme des cellules fusionnées ou une colonne d'en-tête, il est donc copié en tableau HTML.
+editor-table-copy-failed = Impossible de copier le tableau dans le presse-papiers.
+
 # Éditeur : invite de langage du bloc de code (CollaborativeEditor)
 editor-code-block-language-prompt = Langage pour la coloration syntaxique (facultatif) :
 
