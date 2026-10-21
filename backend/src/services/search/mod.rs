@@ -11,6 +11,7 @@
 pub mod extractors;
 pub mod indexer;
 pub mod indexing_tasks;
+pub mod reindex_requests;
 pub mod schema;
 pub mod searcher;
 pub mod types;

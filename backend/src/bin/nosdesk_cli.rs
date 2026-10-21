@@ -8,6 +8,21 @@
 //!
 //!     docker compose exec nosdesk nosdesk-cli admin reset-password alice@example.com
 //!
+//! On Cloud, run them on the product machine (`fly ssh console`).
+//!
+//! Command groups:
+//!
+//!   - `admin`: create the first administrator, reset a password,
+//!     clear MFA or passkeys.
+//!   - `db restore`: restore a whole-instance backup.
+//!   - `workspace`: export a workspace to a file, import an export
+//!     into an untouched workspace (`--dry-run` previews it), and
+//!     check, retry the files of, or reset an import
+//!     (`import-status`, `import-retry-files`, `import-reset`).
+//!     Imports run as workspace import jobs, as the app's do.
+//!   - `plugin`: signing keys, signing, verifying and installing.
+//!   - `secrets`, `license`, `setup-token`.
+//!
 //! Subcommand groups planned but not yet implemented (keep this
 //! list current so the shape stays predictable):
 //!
@@ -45,6 +60,7 @@ use backend::services::admin_setup;
 use backend::services::avatar_thumbnails;
 use backend::services::backup as backup_service;
 use backend::services::plugins::{install, signing, trust};
+use backend::services::workspace_transfer as transfer;
 
 #[derive(Parser)]
 #[command(
@@ -80,6 +96,12 @@ enum Commands {
     /// before any container exists.
     #[command(subcommand)]
     Secrets(SecretsCommand),
+
+    /// Export a workspace to a file, or import an export into a
+    /// workspace. Needs DATABASE_URL and the storage env, as the
+    /// server does.
+    #[command(subcommand)]
+    Workspace(WorkspaceCommand),
 
     /// Print the first-run setup token and onboarding URL. Handy
     /// after a detached `docker compose up -d`, where the startup
@@ -250,6 +272,123 @@ enum DbCommand {
 }
 
 // ---------------------------------------------------------------
+// Workspace subcommands
+// ---------------------------------------------------------------
+
+#[derive(Subcommand)]
+enum WorkspaceCommand {
+    /// Export a workspace to a file: its rows, files, people's
+    /// avatars and branding. With a password (`--seal` prompts for
+    /// one) the archive is sealed and keeps integration secrets;
+    /// without one it is a plaintext zip without them. No size cap:
+    /// the archive is built in memory, so allow about its size free.
+    Export {
+        #[arg(value_name = "WORKSPACE", help = "Workspace id or slug")]
+        workspace: String,
+        #[arg(
+            long,
+            short = 'o',
+            value_name = "FILE",
+            help = "Where to write the export"
+        )]
+        out: PathBuf,
+        #[arg(long, help = "Seal the export with a password entered at a prompt")]
+        seal: bool,
+        #[arg(
+            long,
+            conflicts_with_all = ["seal", "password_env"],
+            help = "Seal with a password read from stdin (one line)"
+        )]
+        password_stdin: bool,
+        #[arg(
+            long,
+            value_name = "VAR",
+            conflicts_with = "seal",
+            help = "Seal with the password in this env var"
+        )]
+        password_env: Option<String>,
+    },
+
+    /// Import an export into an untouched workspace, through a
+    /// workspace import job (it shows in Recent imports and resets
+    /// like one started in the app). Prints the preview, asks to
+    /// continue (unless --yes), follows the import and prints the
+    /// report. Refuses a workspace that holds data, an export from
+    /// another Nosdesk version, and a workspace with an import under
+    /// way. A sealed export asks for its password. The archive is
+    /// read into memory (about three times its size while it is
+    /// unsealed and parsed) beside the running server.
+    Import {
+        #[arg(value_name = "FILE", help = "The workspace export (.nosdesk)")]
+        archive: PathBuf,
+        #[arg(
+            long,
+            value_name = "WORKSPACE",
+            help = "Workspace id or slug to import into"
+        )]
+        into: String,
+        #[arg(long, help = "Print the preview and stop, writing nothing")]
+        dry_run: bool,
+        #[arg(long, short = 'y', help = "Skip the confirmation prompt")]
+        yes: bool,
+        #[arg(
+            long,
+            help = "Give every imported row a new uuid: for a copy of a workspace this server still holds"
+        )]
+        regenerate_uuids: bool,
+        #[arg(
+            long,
+            conflicts_with = "password_env",
+            help = "Read a sealed export's password from stdin (one line)"
+        )]
+        password_stdin: bool,
+        #[arg(
+            long,
+            value_name = "VAR",
+            help = "Read a sealed export's password from this env var"
+        )]
+        password_env: Option<String>,
+    },
+
+    /// Show a workspace import: its state, and once it imported, the
+    /// rows, the people it created and the files it skipped.
+    ImportStatus {
+        #[arg(value_name = "JOB", help = "Import id")]
+        job: uuid::Uuid,
+    },
+
+    /// Restore the files of an import whose rows imported and whose
+    /// files stopped part way. Files already in place are left alone.
+    ImportRetryFiles {
+        #[arg(value_name = "JOB", help = "Import id")]
+        job: uuid::Uuid,
+        #[arg(
+            long,
+            conflicts_with = "password_env",
+            help = "Read a sealed export's password from stdin (one line)"
+        )]
+        password_stdin: bool,
+        #[arg(
+            long,
+            value_name = "VAR",
+            help = "Read a sealed export's password from this env var"
+        )]
+        password_env: Option<String>,
+    },
+
+    /// Reset a workspace import. One that imported takes the
+    /// workspace back to how it was provisioned and removes the
+    /// people it created; one that didn't is discarded. Prompts
+    /// unless --yes.
+    ImportReset {
+        #[arg(value_name = "JOB", help = "Import id")]
+        job: uuid::Uuid,
+        #[arg(long, short = 'y', help = "Skip the confirmation prompt")]
+        yes: bool,
+    },
+}
+
+// ---------------------------------------------------------------
 // Admin subcommands
 // ---------------------------------------------------------------
 
@@ -325,6 +464,7 @@ fn main() -> ExitCode {
         Commands::Admin(cmd) => run_admin(cmd),
         Commands::Db(cmd) => run_db(cmd),
         Commands::Secrets(cmd) => run_secrets(cmd),
+        Commands::Workspace(cmd) => run_workspace(cmd),
         Commands::SetupToken => run_setup_token(),
         Commands::License(cmd) => run_license(cmd),
     };
@@ -985,6 +1125,251 @@ fn db_restore(
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------
+// Workspace export and import
+// ---------------------------------------------------------------
+
+fn run_workspace(cmd: WorkspaceCommand) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build runtime")?;
+    runtime.block_on(async move {
+        let pool = db::establish_connection_pool();
+        let storage = backend::utils::storage::process_storage();
+        match cmd {
+            WorkspaceCommand::Export {
+                workspace,
+                out,
+                seal,
+                password_stdin,
+                password_env,
+            } => {
+                let password = if seal {
+                    Some(read_password_interactive()?)
+                } else if password_stdin {
+                    Some(read_password_from_stdin()?)
+                } else {
+                    resolve_password(None, password_env)?
+                };
+                workspace_export(&pool, storage, &workspace, password, &out).await
+            }
+            WorkspaceCommand::Import {
+                archive,
+                into,
+                dry_run,
+                yes,
+                regenerate_uuids,
+                password_stdin,
+                password_env,
+            } => {
+                let password = if password_stdin {
+                    Some(read_password_from_stdin()?)
+                } else {
+                    resolve_password(None, password_env)?
+                };
+                workspace_import(
+                    transfer::runtime(pool.clone(), storage),
+                    &into,
+                    archive,
+                    password,
+                    regenerate_uuids,
+                    dry_run,
+                    yes,
+                )
+                .await
+            }
+            WorkspaceCommand::ImportStatus { job } => {
+                let job = transfer::find_job(&pool, job).await?;
+                print!("{}", transfer::render_job(&job));
+                Ok(())
+            }
+            WorkspaceCommand::ImportRetryFiles {
+                job,
+                password_stdin,
+                password_env,
+            } => {
+                let found = transfer::find_job(&pool, job).await?;
+                let password = if password_stdin {
+                    Some(read_password_from_stdin()?)
+                } else {
+                    resolve_password(None, password_env)?
+                };
+                let password = match password {
+                    None if found.sealed => Some(
+                        rpassword::prompt_password("Export password: ")
+                            .with_context(|| "reading password from TTY")?,
+                    ),
+                    password => password,
+                };
+                let rt = transfer::runtime(pool.clone(), storage);
+                let job = transfer::retry_files(
+                    &rt,
+                    &transfer::operator(),
+                    found.workspace_id,
+                    job,
+                    password,
+                    |_| eprintln!("Restoring files..."),
+                )
+                .await?;
+                finish_import(&job)
+            }
+            WorkspaceCommand::ImportReset { job, yes } => {
+                let found = transfer::find_job(&pool, job).await?;
+                print!("{}", transfer::render_job(&found));
+                let prompt = if found.applied_at.is_some() {
+                    "Reset this import? The workspace goes back to how it was provisioned and the \
+                     people the import created are removed."
+                } else {
+                    "Discard this import?"
+                };
+                if !yes && !confirm_on_tty(prompt)? {
+                    eprintln!("aborted");
+                    return Ok(());
+                }
+                let rt = transfer::runtime(pool.clone(), storage);
+                let job =
+                    transfer::reset(&rt, &transfer::operator(), found.workspace_id, job).await?;
+                println!();
+                print!("{}", transfer::render_job(&job));
+                Ok(())
+            }
+        }
+    })
+}
+
+async fn workspace_export(
+    pool: &db::Pool,
+    storage: std::sync::Arc<dyn backend::utils::storage::Storage>,
+    target: &str,
+    password: Option<String>,
+    out: &Path,
+) -> Result<()> {
+    let ws = transfer::resolve_workspace(pool, target).await?;
+    eprintln!(
+        "Exporting workspace {} \"{}\" ({})...",
+        ws.id,
+        ws.slug,
+        if password.is_some() {
+            "sealed, with integration secrets"
+        } else {
+            "plaintext, without integration secrets"
+        }
+    );
+    let size = transfer::export(pool, storage, ws.id, password.as_deref(), out).await?;
+    println!("Wrote {} ({size} bytes).", out.display());
+    Ok(())
+}
+
+async fn workspace_import(
+    rt: backend::services::workspace_import_jobs::Runtime,
+    into: &str,
+    archive: PathBuf,
+    mut password: Option<String>,
+    regenerate_uuids: bool,
+    dry_run: bool,
+    yes: bool,
+) -> Result<()> {
+    use std::io::IsTerminal;
+    let origin = transfer::operator();
+    let ws = transfer::resolve_workspace(&rt.pool, into).await?;
+    if password.is_none() && is_sealed_file(&archive) {
+        if !std::io::stdin().is_terminal() {
+            bail!("the export is sealed: pass --password-stdin or --password-env");
+        }
+        password = Some(
+            rpassword::prompt_password("Export password: ")
+                .with_context(|| "reading password from TTY")?,
+        );
+    }
+    let req = transfer::ImportRequest {
+        workspace_id: ws.id,
+        archive,
+        password: password.clone(),
+        regenerate_uuids,
+    };
+    println!("Into workspace {} \"{}\" ({})", ws.id, ws.slug, ws.name);
+    println!();
+
+    if dry_run {
+        let preview = transfer::dry_run(&rt, &origin, &req).await?;
+        print!("{}", transfer::render_preview(&preview.report));
+        if let Some(refused) = preview.refused {
+            return Err(refused.into());
+        }
+        println!();
+        println!("Dry run: nothing was written.");
+        return Ok(());
+    }
+
+    if !yes && !std::io::stdin().is_terminal() {
+        bail!("no terminal to confirm on: pass --yes, or --dry-run to preview");
+    }
+    eprintln!("Checking the export...");
+    let (job, preview) = transfer::check(&rt, &origin, &req).await?;
+    print!("{}", transfer::render_preview(&preview.report));
+    if let Some(refused) = preview.refused {
+        return Err(refused.into());
+    }
+    println!();
+    if !yes && !confirm_on_tty(&format!("Import into workspace \"{}\"?", ws.slug))? {
+        transfer::reset(&rt, &origin, ws.id, job.id).await?;
+        eprintln!("Discarded import {}.", job.id);
+        return Ok(());
+    }
+    let job = transfer::import(&rt, &origin, ws.id, job.id, password, |job| {
+        match job.stage.as_deref() {
+            Some("rows") => eprintln!("Importing rows..."),
+            Some("files") => eprintln!("Restoring files..."),
+            Some(other) => eprintln!("{other}..."),
+            None => {}
+        }
+    })
+    .await?;
+    finish_import(&job)
+}
+
+/// Print how an import ended; an error unless it imported.
+fn finish_import(job: &backend::models::WorkspaceImportJob) -> Result<()> {
+    use backend::services::workspace_import_jobs as jobs;
+    println!();
+    print!("{}", transfer::render_job(job));
+    if job.state == jobs::IMPORTED {
+        return Ok(());
+    }
+    if jobs::actions(job)["retry_files"] == true {
+        eprintln!(
+            "Retry the files with: nosdesk-cli workspace import-retry-files {}",
+            job.id
+        );
+    }
+    let error = job
+        .error
+        .as_ref()
+        .map(transfer::Refusal::from_value)
+        .unwrap_or_else(|| transfer::Refusal::new("import_failed", "The import didn't finish."));
+    Err(error.into())
+}
+
+fn is_sealed_file(path: &Path) -> bool {
+    use std::io::Read as _;
+    let mut head = [0u8; 4];
+    fs::File::open(path)
+        .and_then(|mut f| f.read(&mut head))
+        .map(|n| backend::services::workspace_import_jobs::is_sealed(&head[..n]))
+        .unwrap_or(false)
+}
+
+/// [`confirm_destructive`], refusing rather than reading an empty
+/// line as "no" when there's no terminal to ask on.
+fn confirm_on_tty(prompt: &str) -> Result<bool> {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        bail!("no terminal to confirm on: pass --yes");
+    }
+    confirm_destructive(prompt)
 }
 
 fn resolve_password(

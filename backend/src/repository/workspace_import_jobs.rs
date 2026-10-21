@@ -47,6 +47,16 @@ pub fn get(
         .optional()
 }
 
+/// The job `id` in whichever workspace holds it, for a caller that knows
+/// only the job (the CLI). Needs an elevated connection.
+pub fn find(conn: &mut DbConnection, id: Uuid) -> QueryResult<Option<WorkspaceImportJob>> {
+    j::workspace_import_jobs
+        .filter(j::id.eq(id))
+        .select(WorkspaceImportJob::as_select())
+        .first(conn)
+        .optional()
+}
+
 /// [`get`], locking the row for the rest of the transaction.
 pub fn get_for_update(
     conn: &mut DbConnection,
