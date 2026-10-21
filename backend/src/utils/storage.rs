@@ -219,7 +219,16 @@ impl Storage for LocalStorage {
         let relative_path = path.trim_start_matches('/').to_string();
         let full_path = self.full_path(&relative_path)?;
         self.ensure_directory_exists(&full_path)?;
-        std::fs::write(&full_path, data)?;
+        // Written beside the key, then renamed over it: a put that stops part
+        // way never leaves a truncated object at the key (a resumed workspace
+        // import skips keys that are already there).
+        let partial = format!("{full_path}.{}.partial", Uuid::new_v4().simple());
+        if let Err(e) =
+            std::fs::write(&partial, data).and_then(|()| std::fs::rename(&partial, &full_path))
+        {
+            let _ = std::fs::remove_file(&partial);
+            return Err(e.into());
+        }
         Ok(StoredFile {
             id: relative_path
                 .rsplit('/')

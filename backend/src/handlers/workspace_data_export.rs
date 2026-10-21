@@ -28,7 +28,8 @@ use crate::models::{
 };
 use crate::repository::workspace_export_jobs as export_repo;
 use crate::services::workspace_export::{
-    assemble_workspace_archive, collect_workspace_rows, is_exported_file, read_avatars,
+    add_legacy_branding, assemble_workspace_archive, collect_workspace_rows, is_exported_file,
+    read_avatars,
 };
 use crate::sync::actor::ActorContext;
 use crate::sync::session::with_actor_bypass_context;
@@ -314,7 +315,17 @@ async fn run_export_inner(
         files.push((p, bytes));
     }
 
-    // 3. People's avatars, which live outside the workspace's prefix.
+    // 3. People's avatars, and branding from before it was workspace-scoped,
+    //    which live outside the workspace's prefix.
+    let carried = files.len();
+    add_legacy_branding(process_storage().as_ref(), &meta, &mut files).await;
+    total += files[carried..]
+        .iter()
+        .map(|(_, bytes)| bytes.len())
+        .sum::<usize>();
+    if total > MAX_EXPORT_BYTES {
+        return Err(too_large());
+    }
     let avatars = read_avatars(process_storage().as_ref(), &meta).await;
     total += avatars.iter().map(|(_, bytes)| bytes.len()).sum::<usize>();
     if total > MAX_EXPORT_BYTES {

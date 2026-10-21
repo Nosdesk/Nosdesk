@@ -760,7 +760,7 @@ fn is_email_copy(filename: &str) -> bool {
 /// value like `logo/../../../proc/self/environ` starts with an allowed
 /// prefix yet escapes the branding directory. Pairs with the
 /// `is_safe_storage_path` traversal guard in the caller.
-fn is_allowed_branding_filename(filename: &str) -> bool {
+pub(crate) fn is_allowed_branding_filename(filename: &str) -> bool {
     let (stem, ext) = match filename.rsplit_once('.') {
         Some(parts) => parts,
         None => return false,

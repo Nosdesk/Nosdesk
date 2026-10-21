@@ -279,6 +279,10 @@ pub struct WorkspaceMeta {
     /// Storage keys (`users/avatars/...`) of the exported people's avatars,
     /// which the caller reads ([`read_avatars`]).
     pub avatar_keys: Vec<String>,
+    /// Storage keys (`branding/...`) of branding images from before branding
+    /// was workspace-scoped, outside the workspace's prefix, which the
+    /// caller adds to its files ([`add_legacy_branding`]).
+    pub legacy_branding_keys: Vec<String>,
     /// The rows carry the policy's secret columns.
     pub secrets: bool,
 }
@@ -337,6 +341,7 @@ fn load_workspace_meta(
         member_user_uuids: members.into_iter().map(|r| r.user_uuid).collect(),
         custom_domain: meta.custom_domain,
         avatar_keys: Vec::new(),
+        legacy_branding_keys: Vec::new(),
         secrets: false,
     })
 }
@@ -393,6 +398,14 @@ pub fn collect_workspace_rows(
             "SELECT \"{col}\" FROM \"{tbl}\" WHERE workspace_id = $1 AND \"{col}\" IS NOT NULL"
         ));
     }
+    // And the people the references without a foreign key name (a uuid or a
+    // uuid array each), so the import maps them rather than clearing them.
+    for (tbl, col) in crate::services::workspace_archive::plan::USER_REFERENCES_WITHOUT_FK {
+        union_parts.push(format!(
+            "SELECT u FROM \"{tbl}\" t, unnest(ARRAY[t.\"{col}\"]) AS u \
+             WHERE t.workspace_id = $1 AND u IS NOT NULL"
+        ));
+    }
     let people = union_parts.join(" UNION ");
     let users_where = format!("t.uuid IN ({people})");
     let (users_json, users_count) = dump_projected(
@@ -443,7 +456,61 @@ pub fn collect_workspace_rows(
     meta.avatar_keys.sort_unstable();
     meta.avatar_keys.dedup();
 
+    meta.legacy_branding_keys = legacy_branding_keys(conn, workspace_id)?;
+
     Ok((dumps, meta))
+}
+
+/// The storage keys of the workspace's branding images that predate
+/// workspace-scoped branding (`/uploads/branding/logo_123.png`), stored
+/// under the unscoped `branding/` folder every workspace shared.
+fn legacy_branding_keys(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> Result<Vec<String>, BackupError> {
+    #[derive(QueryableByName)]
+    struct Url {
+        #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+        url: Option<String>,
+    }
+    let urls: Vec<Url> = sql_query(
+        "SELECT unnest(ARRAY[logo_url::text, logo_light_url::text, favicon_url::text, \
+                             email_logo->>'url', email_logo_light->>'url']) AS url \
+         FROM site_settings WHERE workspace_id = $1",
+    )
+    .bind::<Integer, _>(workspace_id)
+    .load(conn)
+    .map_err(BackupError::DatabaseError)?;
+    let mut keys: Vec<String> = urls
+        .iter()
+        .filter_map(|u| u.url.as_deref())
+        .filter_map(crate::handlers::branding::legacy_logical_path)
+        .collect();
+    keys.sort_unstable();
+    keys.dedup();
+    Ok(keys)
+}
+
+/// Add the workspace's legacy branding images ([`WorkspaceMeta::legacy_branding_keys`])
+/// to `files` at the workspace-relative path the import restores them to
+/// (`branding/{name}`), unless `files` already holds that path. `storage` is
+/// the unscoped store. An image whose file is gone is left out.
+pub async fn add_legacy_branding(
+    storage: &dyn crate::utils::storage::Storage,
+    meta: &WorkspaceMeta,
+    files: &mut Vec<(String, Vec<u8>)>,
+) {
+    for key in &meta.legacy_branding_keys {
+        if files.iter().any(|(path, _)| path == key) {
+            continue;
+        }
+        match storage.get_file(key).await {
+            Ok(bytes) => files.push((key.clone(), bytes)),
+            Err(e) => {
+                tracing::warn!(error = ?e, "workspace export: branding image not readable, left out")
+            }
+        }
+    }
 }
 
 /// The storage key of an uploaded avatar (`/uploads/users/avatars/x.webp`,

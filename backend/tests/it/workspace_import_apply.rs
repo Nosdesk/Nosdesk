@@ -107,13 +107,13 @@ fn identity(pool: &TestPool, workspace_id: i32) -> Vec<Option<String>> {
 /// A workspace as hosted provisioning leaves it: created and seeded, its
 /// portal named after it (#719, done directly since this binary runs
 /// self-hosted), and its owner projected, which seeds the welcome page.
-struct Provisioned {
-    id: i32,
-    name: String,
-    owner: Uuid,
+pub(crate) struct Provisioned {
+    pub(crate) id: i32,
+    pub(crate) name: String,
+    pub(crate) owner: Uuid,
 }
 
-fn provision_hosted(pool: &TestPool) -> Provisioned {
+pub(crate) fn provision_hosted(pool: &TestPool) -> Provisioned {
     let mut conn = pool.get().expect("conn");
     let tag = Uuid::new_v4().simple().to_string()[..8].to_string();
     let name = format!("Apply Target {tag}");
@@ -308,7 +308,7 @@ fn import_request(archive: &[u8], fields: &[(&str, &str)]) -> http_test::TestReq
 }
 
 /// `import_into` on the owner role, as the import route runs it.
-fn import_into(
+pub(crate) fn import_into(
     pool: &TestPool,
     contents: &ArchiveContents,
     target: &ImportTarget,
@@ -327,7 +327,7 @@ fn import_into(
     })
 }
 
-fn hosted_target(target: &Provisioned) -> ImportTarget {
+pub(crate) fn hosted_target(target: &Provisioned) -> ImportTarget {
     ImportTarget {
         workspace_id: target.id,
         mode: DeploymentMode::Hosted,
