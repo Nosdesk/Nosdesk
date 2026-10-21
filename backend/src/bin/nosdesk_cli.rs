@@ -279,9 +279,12 @@ enum DbCommand {
 enum WorkspaceCommand {
     /// Export a workspace to a file: its rows, files, people's
     /// avatars and branding. With a password (`--seal` prompts for
-    /// one) the archive is sealed and keeps integration secrets;
-    /// without one it is a plaintext zip without them. No size cap:
-    /// the archive is built in memory, so allow about its size free.
+    /// one) the archive is encrypted and also carries the secret
+    /// columns a plaintext zip leaves out. Either way, credentials
+    /// encrypted under this server's keys (integration passwords,
+    /// plugin secrets) don't decrypt elsewhere: an import asks for
+    /// them again. No size cap: the archive is built in memory, so
+    /// allow about its size free.
     Export {
         #[arg(value_name = "WORKSPACE", help = "Workspace id or slug")]
         workspace: String,
