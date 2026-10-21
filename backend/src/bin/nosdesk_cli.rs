@@ -17,7 +17,8 @@
 //!   - `db restore`: restore a whole-instance backup.
 //!   - `workspace`: export a workspace to a file, import an export
 //!     into an untouched workspace (`--dry-run` previews it), and
-//!     check or reset an import (`import-status`, `import-reset`).
+//!     check, retry the files of, or reset an import
+//!     (`import-status`, `import-retry-files`, `import-reset`).
 //!     Imports run as workspace import jobs, as the app's do.
 //!   - `plugin`: signing keys, signing, verifying and installing.
 //!   - `secrets`, `license`, `setup-token`.
@@ -314,7 +315,9 @@ enum WorkspaceCommand {
     /// continue (unless --yes), follows the import and prints the
     /// report. Refuses a workspace that holds data, an export from
     /// another Nosdesk version, and a workspace with an import under
-    /// way. A sealed export asks for its password.
+    /// way. A sealed export asks for its password. The archive is
+    /// read into memory (about three times its size while it is
+    /// unsealed and parsed) beside the running server.
     Import {
         #[arg(value_name = "FILE", help = "The workspace export (.nosdesk)")]
         archive: PathBuf,
@@ -352,6 +355,25 @@ enum WorkspaceCommand {
     ImportStatus {
         #[arg(value_name = "JOB", help = "Import id")]
         job: uuid::Uuid,
+    },
+
+    /// Restore the files of an import whose rows imported and whose
+    /// files stopped part way. Files already in place are left alone.
+    ImportRetryFiles {
+        #[arg(value_name = "JOB", help = "Import id")]
+        job: uuid::Uuid,
+        #[arg(
+            long,
+            conflicts_with = "password_env",
+            help = "Read a sealed export's password from stdin (one line)"
+        )]
+        password_stdin: bool,
+        #[arg(
+            long,
+            value_name = "VAR",
+            help = "Read a sealed export's password from this env var"
+        )]
+        password_env: Option<String>,
     },
 
     /// Reset a workspace import. One that imported takes the
@@ -1164,6 +1186,36 @@ fn run_workspace(cmd: WorkspaceCommand) -> Result<()> {
                 print!("{}", transfer::render_job(&job));
                 Ok(())
             }
+            WorkspaceCommand::ImportRetryFiles {
+                job,
+                password_stdin,
+                password_env,
+            } => {
+                let found = transfer::find_job(&pool, job).await?;
+                let password = if password_stdin {
+                    Some(read_password_from_stdin()?)
+                } else {
+                    resolve_password(None, password_env)?
+                };
+                let password = match password {
+                    None if found.sealed => Some(
+                        rpassword::prompt_password("Export password: ")
+                            .with_context(|| "reading password from TTY")?,
+                    ),
+                    password => password,
+                };
+                let rt = transfer::runtime(pool.clone(), storage);
+                let job = transfer::retry_files(
+                    &rt,
+                    &transfer::operator(),
+                    found.workspace_id,
+                    job,
+                    password,
+                    |_| eprintln!("Restoring files..."),
+                )
+                .await?;
+                finish_import(&job)
+            }
             WorkspaceCommand::ImportReset { job, yes } => {
                 let found = transfer::find_job(&pool, job).await?;
                 print!("{}", transfer::render_job(&found));
@@ -1276,19 +1328,29 @@ async fn workspace_import(
         }
     })
     .await?;
+    finish_import(&job)
+}
+
+/// Print how an import ended; an error unless it imported.
+fn finish_import(job: &backend::models::WorkspaceImportJob) -> Result<()> {
+    use backend::services::workspace_import_jobs as jobs;
     println!();
-    print!("{}", transfer::render_job(&job));
-    if job.state != backend::services::workspace_import_jobs::IMPORTED {
-        let error = job
-            .error
-            .as_ref()
-            .map(transfer::Refusal::from_value)
-            .unwrap_or_else(|| {
-                transfer::Refusal::new("import_failed", "The import didn't finish.")
-            });
-        return Err(error.into());
+    print!("{}", transfer::render_job(job));
+    if job.state == jobs::IMPORTED {
+        return Ok(());
     }
-    Ok(())
+    if jobs::actions(job)["retry_files"] == true {
+        eprintln!(
+            "Retry the files with: nosdesk-cli workspace import-retry-files {}",
+            job.id
+        );
+    }
+    let error = job
+        .error
+        .as_ref()
+        .map(transfer::Refusal::from_value)
+        .unwrap_or_else(|| transfer::Refusal::new("import_failed", "The import didn't finish."));
+    Err(error.into())
 }
 
 fn is_sealed_file(path: &Path) -> bool {

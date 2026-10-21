@@ -377,11 +377,73 @@ pub async fn import(
     workspace_id: i32,
     id: Uuid,
     password: Option<String>,
-    mut progress: impl FnMut(&WorkspaceImportJob),
+    progress: impl FnMut(&WorkspaceImportJob),
 ) -> Result<WorkspaceImportJob, Refusal> {
     let change = jobs::confirming(origin);
+    run(
+        rt,
+        origin,
+        workspace_id,
+        id,
+        password,
+        (PREVIEWED, change, false),
+        progress,
+    )
+    .await
+}
+
+/// Retry the files of job `id`, whose rows committed and whose files
+/// stopped part way (`failed` with `files_partial`). Files already in place
+/// are left alone. Returns the job as it ended, as [`import`] does.
+pub async fn retry_files(
+    rt: &Runtime,
+    origin: &Origin,
+    workspace_id: i32,
+    id: Uuid,
+    password: Option<String>,
+    progress: impl FnMut(&WorkspaceImportJob),
+) -> Result<WorkspaceImportJob, Refusal> {
+    let job = read_job(rt, origin, workspace_id, id).await?;
+    if jobs::actions(&job)["retry_files"] != true {
+        return Err(Refusal::new(
+            "workspace_import.no_files_to_retry",
+            "This import has no files left to restore.",
+        ));
+    }
+    if job.sealed && password.is_none() {
+        return Err(jobs::password_required().into());
+    }
+    let change = crate::models::WorkspaceImportJobChange {
+        state: Some(IMPORTING.into()),
+        stage: Some(Some("files".into())),
+        finished_at: Some(None),
+        ..Default::default()
+    };
+    run(
+        rt,
+        origin,
+        workspace_id,
+        id,
+        password,
+        (jobs::FAILED, change, true),
+        progress,
+    )
+    .await
+}
+
+/// Move job `id` from `from` with `change` (into `importing`), run the
+/// import (`files_only` for a retry) and follow it to the end.
+async fn run(
+    rt: &Runtime,
+    origin: &Origin,
+    workspace_id: i32,
+    id: Uuid,
+    password: Option<String>,
+    (from, change, files_only): (&'static str, crate::models::WorkspaceImportJobChange, bool),
+    mut progress: impl FnMut(&WorkspaceImportJob),
+) -> Result<WorkspaceImportJob, Refusal> {
     let moved = in_workspace(&rt.pool, actor(origin, workspace_id), move |conn| {
-        repo::transition(conn, workspace_id, id, &[PREVIEWED], change)
+        repo::transition(conn, workspace_id, id, &[from], change)
     })
     .await
     .map_err(failed)?;
@@ -389,7 +451,7 @@ pub async fn import(
         let job = read_job(rt, origin, workspace_id, id).await?;
         return Err(Refusal::new(
             "workspace_import.wrong_state",
-            format!("This import is {} and can't be confirmed.", job.state),
+            format!("This import is {} and can't do that now.", job.state),
         ));
     };
     progress(&job);
@@ -400,7 +462,7 @@ pub async fn import(
         workspace_id,
         id,
         password,
-        false,
+        files_only,
     );
     while !run.is_finished() {
         tokio::time::sleep(POLL).await;

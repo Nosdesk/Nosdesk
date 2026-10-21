@@ -2,7 +2,7 @@
 //! untouched one through a workspace import job with the operator origin,
 //! the running server reindexes it when asked, and the job resets; a dry run
 //! previews without writing; refusals stop the import and leave no live job
-//! behind. Drives `services::workspace_transfer`, which the CLI's commands
+//! behind; files that fail to restore are retried. Drives `services::workspace_transfer`, which the CLI's commands
 //! call.
 
 use std::sync::{Arc, OnceLock};
@@ -248,6 +248,19 @@ async fn an_export_imports_into_an_untouched_workspace_through_a_job() {
         search.clone(),
         shutdown.clone(),
     );
+    // A request sent before the listener is up would be lost.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while count(
+        &pool,
+        "SELECT count(*)::bigint AS n FROM pg_stat_activity \
+         WHERE datname = current_database() AND query LIKE 'LISTEN nosdesk_search_reindex%' \
+         AND $1 = $1",
+        0,
+    ) == 0
+    {
+        assert!(Instant::now() < deadline, "the listener never listened");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 
     let ws = transfer::resolve_workspace(&pool, &target_id.to_string())
         .await
@@ -440,4 +453,73 @@ async fn refusals_stop_the_import() {
         .await
         .expect_err("unknown");
     assert_eq!(refused.code, "workspace_not_found");
+}
+
+/// Files that fail to restore leave the job `failed` with its rows in and
+/// its archive kept; retry files puts the rest and the job ends imported.
+#[actix_web::test]
+async fn files_that_fail_are_retried() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let src = source(&pool, Some(PASSWORD)).await;
+    let (target_id, _) = target(&pool);
+    let root = tempfile::tempdir().expect("storage root");
+    let storage: Arc<dyn Storage> = Arc::new(LocalStorage::new(
+        root.path().to_string_lossy().into_owned(),
+        "/files".into(),
+    ));
+    let rt = transfer::runtime(pool.clone(), storage);
+    let origin = transfer::operator();
+
+    let (job, _) = transfer::check(&rt, &origin, &request(target_id, &src, Some(PASSWORD)))
+        .await
+        .expect("check");
+    // The workspace's storage stops taking new files.
+    let dir = root.path().join(format!("ws/{target_id}"));
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).expect("chmod");
+    let job = transfer::import(
+        &rt,
+        &origin,
+        target_id,
+        job.id,
+        Some(PASSWORD.into()),
+        |_| {},
+    )
+    .await
+    .expect("import");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert_eq!(job.state, "failed");
+    assert_eq!(
+        job.error.as_ref().and_then(|e| e["code"].as_str()),
+        Some("files_partial")
+    );
+    assert_eq!(count_in(&pool, "tickets", target_id), 1, "the rows are in");
+
+    let refused = transfer::retry_files(&rt, &origin, target_id, job.id, None, |_| {})
+        .await
+        .expect_err("sealed");
+    assert_eq!(refused.code, "workspace_import.password_required");
+    let mut stages = Vec::new();
+    let job = transfer::retry_files(
+        &rt,
+        &origin,
+        target_id,
+        job.id,
+        Some(PASSWORD.into()),
+        |j| stages.push(j.stage.clone().unwrap_or_default()),
+    )
+    .await
+    .expect("retry files");
+    assert_eq!(job.state, "imported", "{:?}", job.error);
+    assert_eq!(stages, vec!["files".to_string()]);
+    assert!(WorkspaceScopedStorage::arc(rt.storage.clone(), target_id)
+        .get_file("tickets/1/attachments/manual.pdf")
+        .await
+        .is_ok_and(|b| b == b"%PDF-1.4 cli"));
+    let refused = transfer::retry_files(&rt, &origin, target_id, job.id, None, |_| {})
+        .await
+        .expect_err("nothing left");
+    assert_eq!(refused.code, "workspace_import.no_files_to_retry");
 }
