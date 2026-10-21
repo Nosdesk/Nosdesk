@@ -472,6 +472,12 @@ impl Allocation {
     fn new_key(&self, table: &str, old: &Value) -> Option<&Value> {
         self.keys.get(table)?.get(&key_text(old)?)
     }
+
+    /// Every loaded row by its new key, as the reference pass reads it while
+    /// rows load: what the file restore moves files by.
+    pub fn lookup(&self) -> impl refs::Lookup + '_ {
+        LoadLookup { alloc: self }
+    }
 }
 
 impl ImportPlan {

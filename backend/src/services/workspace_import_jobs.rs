@@ -59,7 +59,9 @@ use crate::services::imports::refusal::Refused;
 use crate::services::search::{indexing_tasks, SearchService};
 use crate::services::uploaded_archive::spool;
 use crate::services::workspace_archive::apply::{self, ApplyError};
+use crate::services::workspace_archive::files::{self, FilePlan};
 use crate::services::workspace_archive::plan::{self, ImportTarget, PlanOptions, Runner};
+use crate::services::workspace_archive::refs::{Entity, Lookup};
 use crate::services::workspace_import::{read_archive, ArchiveContents};
 use crate::sync::actor::ActorContext;
 use crate::sync::session::{with_actor_bypass_context, with_actor_context};
@@ -577,10 +579,17 @@ async fn import(
         Some(report) => report,
         None => json!({}),
     };
-    if !files_only {
+    let plan = if files_only {
+        // The rows committed in an earlier run: the file plan comes back from
+        // the keys it recorded.
+        FilePlan::build(&contents, &StoredKeys::from_report(&report))
+    } else {
         set_stage(&rt.pool, workspace_id, id, "rows").await;
-        match import_rows(rt, origin, workspace_id, id, contents.clone()).await {
-            Ok(applied) => report = applied,
+        let plan = match import_rows(rt, origin, workspace_id, id, contents.clone()).await {
+            Ok((applied, plan)) => {
+                report = applied;
+                plan
+            }
             Err((state, refused)) => {
                 record(
                     &rt.pool,
@@ -599,14 +608,15 @@ async fn import(
                 .await;
                 return;
             }
-        }
+        };
         if let Some(search) = &rt.search {
             indexing_tasks::spawn_reindex_workspace(Arc::clone(search), workspace_id);
         }
-    }
+        plan
+    };
 
     set_stage(&rt.pool, workspace_id, id, "files").await;
-    let files = apply::restore_files(rt.storage.clone(), workspace_id, &contents).await;
+    let files = files::restore(rt.storage.clone(), workspace_id, &contents, &plan).await;
     drop(contents);
     let restored = i32::try_from(files.restored).unwrap_or(i32::MAX);
     if let Some(obj) = report.as_object_mut() {
@@ -622,7 +632,8 @@ async fn import(
             ),
         )
         .arg("restored", files.restored)
-        .arg("skipped", files.skipped);
+        .arg("present", files.present)
+        .arg("skipped", files.skipped.len());
         record(
             &rt.pool,
             actor,
@@ -641,6 +652,9 @@ async fn import(
         )
         .await;
         return;
+    }
+    if let Some(obj) = report.as_object_mut() {
+        obj.remove(FILE_KEYS);
     }
     let done = record(
         &rt.pool,
@@ -677,15 +691,16 @@ async fn current_report(rt: &Runtime, workspace_id: i32, id: Uuid) -> Option<Val
 }
 
 /// Import the rows, recording on the job, in the same transaction, that they
-/// committed and whom they created. Returns the report; on a refusal, the
-/// state the job goes back to and why.
+/// committed, whom they created and where the archive's files land. Returns
+/// the report and the file plan; on a refusal, the state the job goes back
+/// to and why.
 async fn import_rows(
     rt: &Runtime,
     origin: &Origin,
     workspace_id: i32,
     id: Uuid,
     contents: Arc<ArchiveContents>,
-) -> Result<Value, (&'static str, Refused)> {
+) -> Result<(Value, FilePlan), (&'static str, Refused)> {
     let held = apply::held_files(rt.storage.clone(), workspace_id)
         .await
         .map_err(|e| {
@@ -699,7 +714,7 @@ async fn import_rows(
     let actor = origin.actor(workspace_id);
     let pool = rt.pool.clone();
     let source = source_of(&contents);
-    let outcome = tokio::task::spawn_blocking(move || -> Result<Value, ApplyError> {
+    let outcome = tokio::task::spawn_blocking(move || -> Result<(Value, FilePlan), ApplyError> {
         let mut conn = pool.get().map_err(|e| {
             ApplyError::Failed(BackupError::DatabaseError(
                 diesel::result::Error::QueryBuilderError(e.to_string().into()),
@@ -728,6 +743,7 @@ async fn import_rows(
                 "tables_imported": applied.tables_imported,
                 "rows_imported": applied.rows_imported,
                 "data_epoch": applied.fence.epoch,
+                FILE_KEYS: file_keys(&contents, &applied.files),
             });
             // The job's own change is audited like any other.
             diesel::sql_query("SET LOCAL nosdesk.in_audit_read = 'false'").execute(conn)?;
@@ -744,12 +760,12 @@ async fn import_rows(
                     ..Default::default()
                 },
             )?;
-            Ok(report)
+            Ok((report, applied.files))
         })
     })
     .await;
     match outcome {
-        Ok(Ok(report)) => Ok(report),
+        Ok(Ok(done)) => Ok(done),
         Ok(Err(e)) => {
             let refused = apply_refused(&e);
             match e {
@@ -770,6 +786,60 @@ async fn import_rows(
                 Refused::new("import_failed", "The import failed. Nothing was imported."),
             ))
         }
+    }
+}
+
+/// The report key holding where each archive file lands, kept until the
+/// files are restored so retry files can rebuild the plan.
+const FILE_KEYS: &str = "file_keys";
+
+/// `{archive path: storage key}` for every file the plan restores.
+fn file_keys(contents: &ArchiveContents, plan: &FilePlan) -> Value {
+    let mut keys = serde_json::Map::new();
+    for (name, _) in &contents.files {
+        let path = name.strip_prefix("files/").unwrap_or(name);
+        if let Some(key) = plan.key_of(path) {
+            keys.insert(path.to_string(), Value::String(key.to_string()));
+        }
+    }
+    Value::Object(keys)
+}
+
+/// The ticket and asset keys a committed import gave the files it
+/// restores, read back from [`file_keys`]: notes images and asset media
+/// carry their owner's id as the path's second segment.
+struct StoredKeys(std::collections::HashMap<(Entity, String), String>);
+
+impl StoredKeys {
+    fn from_report(report: &Value) -> Self {
+        let mut keys = std::collections::HashMap::new();
+        if let Some(stored) = report.get(FILE_KEYS).and_then(Value::as_object) {
+            for (path, key) in stored {
+                let (Some(key), mut old) = (key.as_str(), path.split('/')) else {
+                    continue;
+                };
+                let mut new = key.split('/');
+                let entity = match (old.next(), new.next()) {
+                    (Some("tickets"), Some("tickets")) => Entity::Ticket,
+                    (Some("assets"), Some("assets")) => Entity::Asset,
+                    _ => continue,
+                };
+                if let (Some(from), Some(to)) = (old.next(), new.next()) {
+                    keys.insert((entity, from.to_string()), to.to_string());
+                }
+            }
+        }
+        Self(keys)
+    }
+}
+
+impl Lookup for StoredKeys {
+    fn user(&self, uuid: &str) -> Option<String> {
+        Some(uuid.to_string())
+    }
+
+    fn key(&self, entity: Entity, key: &str) -> Option<String> {
+        self.0.get(&(entity, key.to_string())).cloned()
     }
 }
 
@@ -1084,6 +1154,9 @@ pub fn pruned_report(report: Option<Value>) -> Option<Value> {
     if let Some(plan) = report.get_mut("plan").and_then(Value::as_object_mut) {
         plan.remove("people");
     }
+    if let Some(obj) = report.as_object_mut() {
+        obj.remove(FILE_KEYS);
+    }
     Some(report)
 }
 
@@ -1236,6 +1309,21 @@ mod tests {
             { "target_uuid": mapped, "staff": true, "outcome": "mapped" },
         ] } }));
         assert_eq!(created_staff(&j), vec![staff]);
+    }
+
+    #[test]
+    fn retry_files_reads_back_the_keys_the_import_gave_files() {
+        let report = json!({ FILE_KEYS: {
+            "tickets/7/notes/a.png": "tickets/70/notes/a.png",
+            "assets/3/media/b.png": "assets/30/media/b.png",
+            "branding/logo.png": "branding/logo.png",
+        } });
+        let keys = StoredKeys::from_report(&report);
+        assert_eq!(keys.key(Entity::Ticket, "7").as_deref(), Some("70"));
+        assert_eq!(keys.key(Entity::Asset, "3").as_deref(), Some("30"));
+        assert_eq!(keys.key(Entity::Ticket, "8"), None);
+        let pruned = pruned_report(Some(report)).expect("report");
+        assert!(pruned.get(FILE_KEYS).is_none());
     }
 
     #[test]

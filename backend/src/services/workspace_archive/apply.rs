@@ -10,15 +10,16 @@
 //! archive's workspace settings, and bumps the workspace's data epoch as the
 //! last write so every client drops its cache. The workspace keeps its own
 //! id, uuid, slug, name, plan, seat limit and custom domain (the `workspaces`
-//! row only takes the archive's `settings`), its branding images, and on
-//! hosted its portal name.
+//! row only takes the archive's `settings`), and on hosted its portal name.
+//! It takes the archive's branding images at its own address, and keeps its
+//! own for any the archive doesn't bring ([`files::settle_branding`]).
 //!
 //! Rows go in one transaction: the archive is already held in memory whole
 //! (the upload cap bounds it), so a load that fails anywhere leaves the
-//! workspace exactly as it was. Files can't join that transaction, so they
-//! are restored after commit with idempotent puts ([`restore_files`]): a
-//! failure there is resumed by running the restore again from the same
-//! archive, or undone with [`reset`].
+//! workspace exactly as it was. Files can't join that transaction, so the
+//! import maps them ([`files::FilePlan`]) and the caller restores them after
+//! commit ([`files::restore`]): a failure there is resumed by running the
+//! restore again with the same plan, or undone with [`reset`].
 //!
 //! Both [`import_into`] and [`reset`] run on the owner role (`nosdesk_admin`,
 //! through `with_actor_bypass_context` or `PlatformConn`), and refuse any
@@ -37,10 +38,12 @@ use diesel::sql_types::{BigInt, Bool, Integer, Text};
 use serde::Serialize;
 use uuid::Uuid;
 
+use super::files::{self, FilePlan};
 use super::plan::{self, FkEdge, ImportPlan, ImportReport, ImportTarget, PlanOptions, Row};
 use super::policy::{self, Target};
 use super::rows;
 use crate::db::DbConnection;
+use crate::handlers::branding::BRANDING_DIR;
 use crate::middleware::workspace_context::DeploymentMode;
 use crate::repository;
 use crate::repository::workspaces::DataFence;
@@ -156,6 +159,8 @@ pub struct Applied {
     pub fence: DataFence,
     /// The plan's report: per-table counts, the people map, handover items.
     pub report: ImportReport,
+    /// Where the archive's files land, for [`files::restore`].
+    pub files: FilePlan,
 }
 
 /// A completed reset.
@@ -172,12 +177,15 @@ pub struct Reset {
 // ---------------------------------------------------------------------------
 
 /// The workspace files (workspace-relative paths) that are the workspace's
-/// own data: everything an export would carry. Earlier exports, CSV import
-/// uploads, staged uploads and waiting archives don't count.
+/// own data: everything an export would carry but its branding images,
+/// which are configuration an import replaces and a reset keeps. Earlier
+/// exports, CSV import uploads, staged uploads and waiting archives don't
+/// count.
 pub fn data_files(paths: &[String]) -> Vec<String> {
+    let branding = format!("{BRANDING_DIR}/");
     paths
         .iter()
-        .filter(|p| is_exported_file(p))
+        .filter(|p| is_exported_file(p) && !p.starts_with(&branding))
         .cloned()
         .collect()
 }
@@ -292,21 +300,21 @@ fn require_owner_role(conn: &mut DbConnection) -> Result<(), ApplyError> {
 
 /// Lock and check the target for the rest of the transaction: the import
 /// lock (another import or reset refuses rather than waits), then the row.
-fn lock_workspace(conn: &mut DbConnection, workspace_id: i32) -> Result<(), ApplyError> {
+/// Returns the workspace's uuid.
+fn lock_workspace(conn: &mut DbConnection, workspace_id: i32) -> Result<Uuid, ApplyError> {
     if !repository::workspaces::try_lock_import(conn, workspace_id)? {
         return Err(ApplyError::Busy { workspace_id });
     }
-    if repository::workspaces::lock_for_import(conn, workspace_id)?.is_none() {
-        return Err(ApplyError::NoWorkspace { workspace_id });
-    }
-    Ok(())
+    repository::workspaces::lock_for_import(conn, workspace_id)?
+        .map(|w| w.uuid)
+        .ok_or(ApplyError::NoWorkspace { workspace_id })
 }
 
 /// Import `contents` into the existing, untouched workspace `target`. Run it
 /// on the owner role ([`ApplyError::NotElevated`] otherwise). `held_files` is
 /// the workspace's data files ([`held_files`]); any refuses the import as
 /// rows do. Atomic: on any error nothing is written. The caller restores the
-/// archive's files afterwards ([`restore_files`]).
+/// archive's files afterwards ([`files::restore`] with [`Applied::files`]).
 pub fn import_into(
     conn: &mut DbConnection,
     contents: &ArchiveContents,
@@ -318,7 +326,7 @@ pub fn import_into(
     conn.transaction::<_, ApplyError, _>(|conn| {
         require_owner_role(conn)?;
         sql_query("SET LOCAL nosdesk.in_audit_read = 'true'").execute(conn)?;
-        lock_workspace(conn, workspace_id)?;
+        let workspace_uuid = lock_workspace(conn, workspace_id)?;
 
         let found = untouched(conn, workspace_id, held_files)?;
         if !found.is_empty() {
@@ -332,6 +340,7 @@ pub fn import_into(
             )));
         }
         let alloc = plan.allocate(conn)?;
+        let files = FilePlan::build(contents, &alloc.lookup());
 
         let kept = repository::site_settings::kept_branding(
             conn,
@@ -340,9 +349,14 @@ pub fn import_into(
         )?;
         let cleared = clear(conn, workspace_id, |class| class == Target::Replace)?;
         let (tables_imported, rows_imported) = load(conn, &mut plan, &alloc)?;
-        if let Some(kept) = kept {
-            repository::site_settings::restore_kept_branding(conn, workspace_id, &kept)?;
-        }
+        files::settle_branding(
+            conn,
+            workspace_id,
+            workspace_uuid,
+            contents,
+            &files,
+            kept.as_ref(),
+        )?;
         if let Some(settings) = &plan.workspace_settings {
             repository::workspaces::merge_settings(conn, workspace_id, settings)?;
         }
@@ -356,6 +370,7 @@ pub fn import_into(
             cleared,
             fence,
             report: plan.report,
+            files,
         })
     })
 }
@@ -655,79 +670,12 @@ pub async fn clear_files(
     Ok(paths.len())
 }
 
-// ---------------------------------------------------------------------------
-// Files
-// ---------------------------------------------------------------------------
-
-/// What [`restore_files`] did.
-#[derive(Debug, Default, Serialize)]
-pub struct FilesRestored {
-    pub restored: i64,
-    /// Entries refused for an unsafe path.
-    pub skipped: i64,
-    /// The put that failed, when one did; the restore stops there.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub failed: Option<String>,
-}
-
-/// Restore the archive's `files/` entries into the workspace's storage. Each
-/// put overwrites, so running it again from the same archive picks up where a
-/// failed run stopped.
-pub async fn restore_files(
-    storage: Arc<dyn Storage>,
-    workspace_id: i32,
-    contents: &ArchiveContents,
-) -> FilesRestored {
-    let scoped = WorkspaceScopedStorage::arc(storage, workspace_id);
-    let mut out = FilesRestored::default();
-    for (name, bytes) in &contents.files {
-        let logical = name.strip_prefix("files/").unwrap_or(name);
-        // Zip-slip guard: reject `..` / absolute / backslash paths from the
-        // untrusted archive before writing (matches the whole-DB restore).
-        if logical.is_empty() || !crate::utils::storage::is_safe_storage_path(logical) {
-            tracing::warn!("workspace import: skipping an unsafe file entry");
-            out.skipped += 1;
-            continue;
-        }
-        if let Err(e) = scoped
-            .put_file(bytes, logical, content_type_for(logical))
-            .await
-        {
-            tracing::error!(error = ?e, "workspace import: file restore failed part way");
-            out.failed = Some(logical.to_string());
-            break;
-        }
-        out.restored += 1;
-    }
-    out
-}
-
-/// Best-effort content type from a file extension, so restored images serve
-/// with a displayable type. Unknown extensions fall back to octet-stream.
-fn content_type_for(path: &str) -> &'static str {
-    match path
-        .rsplit('.')
-        .next()
-        .map(|e| e.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("svg") => "image/svg+xml",
-        Some("pdf") => "application/pdf",
-        Some("txt") => "text/plain",
-        _ => "application/octet-stream",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Files under the prefixes an export leaves out don't make a workspace
-    /// touched; anything else does.
+    /// Files under the prefixes an export leaves out, and branding images,
+    /// don't make a workspace touched; anything else does.
     #[test]
     fn only_files_an_export_carries_count_as_data() {
         let paths: Vec<String> = [
@@ -736,6 +684,7 @@ mod tests {
             "exports/workspace-1.nosdesk",
             "workspace-imports/job.nosdesk",
             "temp/staged.png",
+            "branding/logo.png",
             "tickets/12/attachments/a.pdf",
         ]
         .iter()
