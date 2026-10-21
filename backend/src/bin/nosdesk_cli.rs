@@ -454,6 +454,10 @@ enum AdminCommand {
 }
 
 fn main() -> ExitCode {
+    // Before anything connects: OpenSSL's exit-time cleanup races the pool's
+    // worker threads and crashes the process after its work is done.
+    backend::utils::openssl_exit::skip_cleanup_at_exit();
+
     // Best-effort .env load, same as the server binary. Missing
     // .env is fine — env vars may be supplied by docker compose.
     let _ = dotenvy::dotenv();

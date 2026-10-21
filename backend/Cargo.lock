@@ -1313,6 +1313,7 @@ dependencies = [
  "ldap3",
  "lettre",
  "lib0",
+ "libc",
  "log",
  "mailparse",
  "maxminddb",
