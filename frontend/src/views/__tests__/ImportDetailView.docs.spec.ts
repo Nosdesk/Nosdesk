@@ -62,6 +62,10 @@ vi.mock('@/composables/useAssetKindsQuery', async () => {
 })
 
 import ImportDetailView from '@/views/ImportDetailView.vue'
+// The hub reads the role for its Nosdesk export card; the real store pulls
+// in the whole app.
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isOwner: false }) }))
+
 import DataImportView from '@/views/DataImportView.vue'
 
 const PAGES = [

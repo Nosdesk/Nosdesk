@@ -19,6 +19,9 @@ export interface AutoLoginOptions {
   onFallback?: () => void;
   /** Delay before redirect in ms */
   redirectDelay?: number;
+  /** Go home after signing in. Off where the caller offers its own next
+   *  steps (onboarding's "you're all set"). */
+  redirect?: boolean;
 }
 
 export function useAutoLogin(options: AutoLoginOptions) {
@@ -41,7 +44,8 @@ export function useAutoLogin(options: AutoLoginOptions) {
     onMfaRequired,
     onMfaSetupRequired,
     onFallback,
-    redirectDelay = 1000
+    redirectDelay = 1000,
+    redirect = true
   } = options;
 
   /**
@@ -65,9 +69,11 @@ export function useAutoLogin(options: AutoLoginOptions) {
         message.value = 'Successfully logged in! Redirecting...';
         onSuccess?.();
 
-        redirectTimeout = setTimeout(() => {
-          router.push('/');
-        }, redirectDelay);
+        if (redirect) {
+          redirectTimeout = setTimeout(() => {
+            router.push('/');
+          }, redirectDelay);
+        }
         return true;
       }
 

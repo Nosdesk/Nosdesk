@@ -5,9 +5,9 @@
 //! Two sets of routes over the same jobs:
 //!
 //! - `/workspace/imports/...`: the workspace owner, for their own workspace.
-//!   Self-hosted only: on hosted every route answers 404, because hosted
-//!   imports come from the control plane (archive bytes go browser to bucket
-//!   to product, never through an upload to the shared machine).
+//!   Self-hosted only: on hosted every route answers 404. A move into Cloud
+//!   is run by Nosdesk support on request, through the platform-admin routes
+//!   below, never through an owner's upload to the shared machine.
 //! - `/admin/workspaces/{id}/imports/...`: a platform admin, for any
 //!   workspace (ops and recovery).
 //!
@@ -182,7 +182,8 @@ fn runtime(req: &HttpRequest, pool: &web::Data<Pool>) -> Runtime {
 fn tenant_scope(req: &HttpRequest, pool: &web::Data<Pool>) -> actix_web::Result<Scope> {
     if is_hosted() {
         return Err(fail(errors::not_found_with_code(
-            "Workspace imports on Cloud start from the account dashboard.",
+            "Moving a workspace into Nosdesk Cloud is done by Nosdesk support. Contact support to \
+             arrange it.",
             "workspace_import.not_on_cloud",
         )));
     }

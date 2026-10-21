@@ -9510,3 +9510,646 @@ docs-import-remove-result-collections-deleted = { $count ->
    *[other] { $count } collections that ended up empty were deleted.
 }
 docs-import-remove-result-collections-kept = The collections were kept: they still have pages.
+
+## Workspace import: a Nosdesk export moved into this workspace
+
+route-title-admin-workspace-import = Import a Nosdesk export
+route-title-admin-workspace-import-detail = Workspace import
+admin-data-import-nosdesk-title = Nosdesk export
+admin-data-import-nosdesk-description = Move a whole workspace from Nosdesk Cloud or another self-hosted Nosdesk. Fills this workspace while it has nothing in it.
+admin-data-import-nosdesk-description-cloud = Move a whole workspace from a self-hosted Nosdesk. Nosdesk support runs moves into Cloud; contact them to arrange one.
+admin-data-import-status-support = Nosdesk support
+admin-data-import-nosdesk-owner-only = Move a whole workspace from another Nosdesk. The workspace owner runs it.
+admin-data-import-status-owner-only = Owner only
+workspace-import-title = Import a Nosdesk export
+workspace-import-subtitle = Fill { $workspace } with a workspace exported from Nosdesk Cloud or another Nosdesk.
+workspace-import-cloud-elsewhere = Moving a workspace into Nosdesk Cloud is done by Nosdesk support. Contact them to arrange it, and keep your export file.
+workspace-import-owner-only = Only the workspace owner can import a Nosdesk export.
+workspace-import-step-archive = Archive
+workspace-import-step-preview = Preview
+workspace-import-step-import = Import
+workspace-import-nothing-changes = Nothing in this workspace changes until you press Import on the Preview step.
+workspace-import-resume-failed = This import couldn't be opened. Start again from the export file.
+workspace-import-upload-failed = The upload didn't finish. Check the connection and choose the file again.
+workspace-import-check-request-failed = The check couldn't start. Try again.
+workspace-import-confirm-failed = The import couldn't start. Try again.
+workspace-import-retry-failed = The files couldn't be retried. Try again.
+
+workspace-import-archive-heading = Archive
+workspace-import-archive-unnamed = Unnamed export
+workspace-import-archive-sealed = password
+workspace-import-uploading = { $size } · uploading, { $pct }%
+workspace-import-choose-another = Choose another
+workspace-import-drop-idle = Choose the export file
+workspace-import-drop-hint = A .nosdesk archive from Export workspace data. Up to { $max }.
+workspace-import-password-label = Archive password
+workspace-import-password-placeholder = Only if one was set at export
+workspace-import-password-hint = Leave it empty for an archive exported without one.
+workspace-import-checks-heading = Checks
+workspace-import-checks-before = before anything is written
+workspace-import-checks-again = The same checks run again inside the import, so a change in between is caught.
+workspace-import-found-files =
+    { $count ->
+        [one] 1 file
+       *[other] { $count } files
+    }
+workspace-import-found-rows = { $what }: { $count }
+workspace-import-check-not-empty-settings = Settings you have changed, like workflow states, don't count; the import replaces them.
+workspace-import-fix-check = Check
+workspace-import-fix-check-again = Check again
+workspace-import-fix-new-ids = Check again with new ids
+workspace-import-fix-follow = Follow it
+workspace-import-fix-not-empty = Remove these items and come back, or run the import on a fresh install.
+workspace-import-archive-next-note = Preview shows everything the archive would add before anything is written.
+workspace-import-archive-wait-note = The preview is ready once the archive is checked.
+workspace-import-continue-to-preview = Continue to preview
+
+workspace-import-check-untouched = { $workspace } has nothing in it yet
+workspace-import-check-untouched-detail = Only its starting configuration, which the import replaces.
+workspace-import-check-untouched-pending = { $workspace } has nothing in it yet
+workspace-import-check-untouched-pending-detail = Checked once the file is here.
+workspace-import-check-size-ok = { $size }, under the { $max } limit
+workspace-import-check-size-pending = Under { $max }
+workspace-import-check-version-ok = Made by Nosdesk { $export }; this server runs { $server }
+workspace-import-check-version-ok-detail = { $slug }, exported { $date } from { $origin }.
+workspace-import-check-reading = Reading the archive
+workspace-import-check-reading-detail = Checking its version and contents.
+workspace-import-check-version-pending = Same release as this server ({ $server })
+workspace-import-check-version-pending-detail = Checked once the file is here.
+workspace-import-check-not-empty = { $workspace } already has content
+workspace-import-check-not-empty-detail = An import fills a workspace that has nothing in it yet. This one has:
+workspace-import-check-in-progress = An import is already under way
+workspace-import-check-in-progress-detail = One import runs at a time. Follow it to finish or reset it.
+workspace-import-check-no-workspace = This workspace isn't available
+workspace-import-check-no-workspace-detail = It may have been archived. Reload the page.
+workspace-import-check-too-large = This file is { $size }; this server accepts up to { $max }
+workspace-import-check-too-large-detail = Export again with fewer attachments, or ask whoever runs this server to raise NOSDESK_MAX_IMPORT_BYTES.
+workspace-import-check-format-too-old = Made by Nosdesk { $export } in an older format
+workspace-import-check-format-too-old-detail = This archive carries no email addresses, so nobody could sign in. Update that Nosdesk to { $server } and export again.
+workspace-import-check-version = Made by Nosdesk { $export }; this server runs { $server }
+workspace-import-check-earlier-detail = An archive imports only into the same release. Update the Nosdesk it came from to { $server } and export again, or import it on a server running { $export }.
+workspace-import-check-newer-detail = Update this server to Nosdesk { $export }, then import. The archive stays valid.
+workspace-import-check-unknown-version = Made by a Nosdesk this server doesn't recognise
+workspace-import-check-unknown-version-detail = The archive (Nosdesk { $export }) has a database layout this server doesn't know, as a development build's does. Export again from a server running Nosdesk { $server }.
+workspace-import-check-sealed = This archive has a password
+workspace-import-check-sealed-detail = Enter the password it was exported with to check it.
+workspace-import-check-password-wrong = The password doesn't open this archive
+workspace-import-check-password-wrong-detail = It is the password entered when the export was made. Try again.
+workspace-import-check-unreadable = This file isn't a Nosdesk workspace export
+workspace-import-check-unreadable-detail = Or it is damaged. Choose the .nosdesk file from Export workspace data.
+workspace-import-check-archive-missing = The uploaded archive is no longer here
+workspace-import-check-archive-missing-detail = Choose the export file again.
+workspace-import-check-stopped = The check stopped before it finished
+workspace-import-check-stopped-detail = Nothing was written. Check the archive again.
+workspace-import-check-import-stopped = The import stopped before it finished
+workspace-import-check-import-stopped-detail = Nothing was imported.
+workspace-import-check-failed = The archive couldn't be checked against this workspace
+workspace-import-check-failed-detail = Nothing was written. Check again; if it fails again, the server log says why.
+workspace-import-check-collision = This archive overlaps with data already on this server
+workspace-import-check-collision-ids-detail = { $rows } { $table } rows have ids this server already holds, as a copy of a workspace still on this server does. Check again with new ids to import it as a copy.
+workspace-import-check-collision-detail = { $rows } { $table } rows have values this server already holds. Import it into a fresh install.
+workspace-import-check-plan = This archive can't be imported as it is
+workspace-import-check-plan-detail = The export doesn't hold together. Export the workspace again; if this comes back, send the message below to support.
+workspace-import-check-refused = This archive can't be imported
+workspace-import-check-refused-detail = The server gave this reason:
+
+workspace-import-preview-source = { $name }, exported { $date } from { $origin }
+workspace-import-preview-source-no-origin = { $name }, exported { $date }
+workspace-import-preview-lead =
+    Importing it fills { $workspace } with everything below, replaces this workspace's starting configuration, and brings { $people ->
+        [one] 1 person
+       *[other] { $people } people
+    } across by email. Credentials never move; you re-enter them from a checklist afterwards.
+workspace-import-preview-made-by = Made by Nosdesk { $version } · { $size }
+workspace-import-tile-tickets = Tickets
+workspace-import-tile-pages = Pages
+workspace-import-tile-assets = Assets
+workspace-import-tile-people = People
+workspace-import-tile-files = Files
+workspace-import-tile-people-sub = { $staff } staff · { $requesters } requesters
+workspace-import-tile-files-all = all restored
+workspace-import-tile-files-missing = { $count } to retry
+workspace-import-tile-people-merged = includes you
+workspace-import-tile-files-skipped = { $count } left out
+workspace-import-files-skipped =
+    { $count ->
+        [one] 1 file was left out: the archive didn't carry it, or this server doesn't accept its type. The report lists it.
+       *[other] { $count } files were left out: the archive didn't carry them, or this server doesn't accept their type. The report lists them.
+    }
+workspace-import-jump-label = Sections
+workspace-import-jump-across = What comes across
+workspace-import-jump-people = People
+workspace-import-jump-signin = Sign-in
+workspace-import-jump-replaces = Replaced here
+workspace-import-jump-off = Arrives off
+workspace-import-jump-not = Doesn't move
+workspace-import-jump-attention = Needs attention
+
+workspace-import-across-heading = What comes across
+workspace-import-area-tickets = Tickets
+workspace-import-area-tickets-note = Ticket numbers stay the same, so #1042 is still #1042.
+workspace-import-area-docs = Documentation
+workspace-import-area-docs-note = Links and mentions inside pages point at the imported pages. The welcome collection here is replaced.
+workspace-import-area-assets = Assets
+workspace-import-area-projects = Projects
+workspace-import-area-people = People
+workspace-import-area-people-note = How each person comes across is under People, below.
+workspace-import-area-config = Configuration
+workspace-import-area-integrations = Integrations
+workspace-import-area-integrations-note = Their settings come across; credentials don't. See Arrives switched off.
+workspace-import-integration-smtp = outgoing mail settings
+workspace-import-integration-sso = a sign-in provider
+workspace-import-integration-ldap = directory sync settings
+workspace-import-integration-widget = the help widget
+workspace-import-n-areas =
+    { $count ->
+        [one] 1 area
+       *[other] { $count } areas
+    }
+workspace-import-n-items =
+    { $count ->
+        [one] 1 item
+       *[other] { $count } items
+    }
+workspace-import-n-integrations =
+    { $count ->
+        [one] 1 integration
+       *[other] { $count } integrations
+    }
+workspace-import-n-tickets =
+    { $count ->
+        [one] 1 ticket
+       *[other] { $count } tickets
+    }
+workspace-import-n-comments =
+    { $count ->
+        [one] 1 comment
+       *[other] { $count } comments
+    }
+workspace-import-n-attachments =
+    { $count ->
+        [one] 1 attachment
+       *[other] { $count } attachments
+    }
+workspace-import-n-merges =
+    { $count ->
+        [one] 1 merge
+       *[other] { $count } merges
+    }
+workspace-import-n-pages =
+    { $count ->
+        [one] 1 page
+       *[other] { $count } pages
+    }
+workspace-import-n-collections =
+    { $count ->
+        [one] 1 collection
+       *[other] { $count } collections
+    }
+workspace-import-n-revisions =
+    { $count ->
+        [one] 1 revision
+       *[other] { $count } revisions
+    }
+workspace-import-n-assets =
+    { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+    }
+workspace-import-n-loans =
+    { $count ->
+        [one] 1 loan
+       *[other] { $count } loans
+    }
+workspace-import-n-disposals =
+    { $count ->
+        [one] 1 disposal
+       *[other] { $count } disposals
+    }
+workspace-import-n-asset-kinds =
+    { $count ->
+        [one] 1 asset kind
+       *[other] { $count } asset kinds
+    }
+workspace-import-n-asset-photos =
+    { $count ->
+        [one] 1 asset photo or file
+       *[other] { $count } asset photos and files
+    }
+workspace-import-n-projects =
+    { $count ->
+        [one] 1 project
+       *[other] { $count } projects
+    }
+workspace-import-n-cycles =
+    { $count ->
+        [one] 1 cycle
+       *[other] { $count } cycles
+    }
+workspace-import-n-groups =
+    { $count ->
+        [one] 1 group
+       *[other] { $count } groups
+    }
+workspace-import-n-staff = { $count } staff
+workspace-import-n-requesters =
+    { $count ->
+        [one] 1 requester
+       *[other] { $count } requesters
+    }
+workspace-import-n-workflow-states =
+    { $count ->
+        [one] 1 workflow state
+       *[other] { $count } workflow states
+    }
+workspace-import-n-categories =
+    { $count ->
+        [one] 1 category
+       *[other] { $count } categories
+    }
+workspace-import-n-sla =
+    { $count ->
+        [one] 1 SLA policy
+       *[other] { $count } SLA policies
+    }
+workspace-import-n-calendars =
+    { $count ->
+        [one] 1 working calendar
+       *[other] { $count } working calendars
+    }
+workspace-import-n-views =
+    { $count ->
+        [one] 1 saved view
+       *[other] { $count } saved views
+    }
+workspace-import-n-rules =
+    { $count ->
+        [one] 1 rule
+       *[other] { $count } rules
+    }
+workspace-import-n-assignment-rules =
+    { $count ->
+        [one] 1 assignment rule
+       *[other] { $count } assignment rules
+    }
+workspace-import-n-replies =
+    { $count ->
+        [one] 1 saved reply
+       *[other] { $count } saved replies
+    }
+workspace-import-n-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-n-channels =
+    { $count ->
+        [one] 1 email channel
+       *[other] { $count } email channels
+    }
+workspace-import-n-plugins =
+    { $count ->
+        [one] 1 plugin
+       *[other] { $count } plugins
+    }
+
+workspace-import-people-heading = People
+workspace-import-people-by-email = { $count } by email
+workspace-import-group-merged =
+    { $count ->
+        [one] merges into you
+       *[other] merge into you
+    }
+workspace-import-group-staff-created =
+    { $count ->
+        [one] staff member gets a new account
+       *[other] staff get new accounts
+    }
+workspace-import-group-staff-mapped =
+    { $count ->
+        [one] staff member maps to an existing account
+       *[other] staff map to existing accounts
+    }
+workspace-import-group-staff-no-email =
+    { $count ->
+        [one] staff member without an email
+       *[other] staff without an email
+    }
+workspace-import-group-requesters-created =
+    { $count ->
+        [one] requester gets a new account
+       *[other] requesters get new accounts
+    }
+workspace-import-group-requesters-mapped =
+    { $count ->
+        [one] requester maps to an existing account
+       *[other] requesters map to existing accounts
+    }
+workspace-import-group-placeholders = by name only
+workspace-import-people-note = Everyone is matched by email. No account that already exists here is changed; archive history simply points at it. Archive owners other than you come in as admins; make someone an owner afterwards if you want to.
+workspace-import-filter-staff = Staff { $count }
+workspace-import-filter-attention = Worth a look { $count }
+workspace-import-filter-requesters = Requesters { $count }
+workspace-import-person-you = you
+workspace-import-person-no-email = no email
+workspace-import-person-removed = removed
+workspace-import-person-unnamed = No name
+workspace-import-people-none = Nobody here.
+workspace-import-outcome-merged = Merges into your account
+workspace-import-outcome-mapped = Maps to the account that holds this email
+workspace-import-outcome-created = New account as { $role }
+workspace-import-outcome-created-was-owner = New account as { $role } (was owner)
+workspace-import-outcome-created-no-email = New account as { $role }, no email
+workspace-import-outcome-created-removed = New account, not a member (was removed)
+workspace-import-outcome-created-no-member = New account, not a member
+workspace-import-outcome-placeholder = By name only
+workspace-import-requesters-line = Requesters: { $created } new accounts, { $mapped } map to accounts already here.
+
+workspace-import-signin-heading = How people sign in afterwards
+workspace-import-signin-you = You
+workspace-import-signin-you-detail = Keep signing in as you do now. If the archive holds your email, its history under that email becomes yours straight away.
+workspace-import-signin-staff = Staff
+workspace-import-signin-staff-detail = Get accounts here with no password. Send them invitations from the last step; each sets a password from the invitation. Invitations go through this server's outgoing mail, not the archive's mail settings, which arrive switched off. "Forgot password" works too, and nosdesk-cli admin reset-password is the fallback when mail isn't set up.
+workspace-import-signin-requesters = Requesters
+workspace-import-signin-requesters-detail = Sign in to the portal with an email link or a password reset, as this server allows. Their email addresses arrive unverified.
+workspace-import-signin-secrets = Passwords, passkeys and two-step
+workspace-import-signin-secrets-detail = Don't move. Everyone sets up two-step again.
+workspace-import-signin-sso-off = The sign-in provider arrives switched off until you re-enter its secret and point it at this server.
+
+workspace-import-replaces-heading = What this workspace gives up
+workspace-import-replaces-config = Configuration
+workspace-import-replaces-config-detail = The archive's workflow states, categories, SLA policies, working calendar, branding, notification defaults, people fields and documentation replace this workspace's starting ones.
+workspace-import-replaces-config-note = Anything you changed during setup is replaced too.
+workspace-import-replaces-name = Name
+workspace-import-replaces-name-detail = This workspace stays { $workspace }. The archive came from { $archive }; you can rename afterwards.
+workspace-import-replaces-members = Members
+workspace-import-replaces-members-detail = Your membership and role stay as they are.
+
+workspace-import-off-heading = Arrives switched off
+workspace-import-off-smtp = Outgoing mail
+workspace-import-off-smtp-detail = Mail settings arrive without their credentials.
+workspace-import-off-smtp-hint = Re-enter them, then turn mail on.
+workspace-import-off-sso = Sign-in provider
+workspace-import-off-sso-detail = Arrives without its client secret.
+workspace-import-off-sso-hint = Re-enter it, point the provider's redirect address at this server, then turn it on.
+workspace-import-off-ldap = Directory sync
+workspace-import-off-ldap-detail = Arrives without its bind password.
+workspace-import-off-ldap-hint = Re-enter it, then turn sync on.
+workspace-import-off-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-off-webhooks-detail = Each gets a new signing secret.
+workspace-import-off-webhooks-hint = Give the receivers the new secret, then turn them on.
+workspace-import-off-channels =
+    { $count ->
+        [one] 1 email channel
+       *[other] { $count } email channels
+    }
+workspace-import-off-channels-detail = Arrive without their passwords.
+workspace-import-off-channels-hint = Re-enter them, then turn the channels on.
+workspace-import-off-plugins =
+    { $count ->
+        [one] 1 plugin
+       *[other] { $count } plugins
+    }
+workspace-import-off-plugins-detail = Their settings come across; their secret values don't.
+workspace-import-off-plugins-hint = Re-enter the secrets, then turn each plugin on.
+workspace-import-off-widget = Help widget
+workspace-import-off-widget-detail = Arrives switched off.
+workspace-import-off-widget-hint = Turn it on again from its settings.
+workspace-import-off-guest-links = Guest links
+workspace-import-off-guest-links-detail =
+    { $count ->
+        [one] 1 ticket gets a new guest link. A link sent before the move stops working.
+       *[other] { $count } tickets get new guest links. Links sent before the move stop working.
+    }
+workspace-import-off-none = Nothing arrives switched off.
+workspace-import-off-rule = The rule: anything that talks to the outside world arrives switched off, so an import never sends mail, fires a webhook or accepts a request before you have looked at it.
+
+workspace-import-not-heading = Doesn't move
+workspace-import-not-tokens = API tokens
+workspace-import-not-tokens-detail = Create new ones here. Anything that called the API with the old ones needs a new one.
+workspace-import-not-devices = Mobile apps
+workspace-import-not-devices-detail = Phones registered for notifications sign in again at this server's address.
+workspace-import-not-activity = Activity feeds
+workspace-import-not-activity-detail = The activity feed stays behind. Comments, assignments and status are in each ticket.
+workspace-import-not-passwords = Passwords and two-step
+workspace-import-not-passwords-detail = Never exported. See How people sign in.
+workspace-import-not-history = Import history
+workspace-import-not-history-detail = Earlier spreadsheet and documentation imports stay with the other Nosdesk.
+
+workspace-import-attention-heading = Needs attention
+workspace-import-attention-none = Nothing needs attention.
+workspace-import-attention-rules =
+    { $count ->
+        [one] 1 rule names something the archive doesn't carry. It arrives as a draft and doesn't run until you fix it.
+       *[other] { $count } rules name something the archive doesn't carry. They arrive as drafts and don't run until you fix them.
+    }
+workspace-import-attention-views =
+    { $count ->
+        [one] 1 saved view filters on something the archive doesn't carry. That filter is dropped; the rest of the view stays.
+       *[other] { $count } saved views filter on something the archive doesn't carry. Those filters are dropped; the rest of each view stays.
+    }
+workspace-import-attention-cleared =
+    { $count ->
+        [one] 1 value in { $table } named something the archive doesn't carry and is cleared.
+       *[other] { $count } values in { $table } named something the archive doesn't carry and are cleared.
+    }
+workspace-import-attention-rows =
+    { $count ->
+        [one] 1 { $table } row depends on something the archive doesn't carry and is left out.
+       *[other] { $count } { $table } rows depend on something the archive doesn't carry and are left out.
+    }
+workspace-import-attention-mentions =
+    { $count ->
+        [one] 1 mention of someone the archive doesn't carry becomes plain text.
+       *[other] { $count } mentions of people the archive doesn't carry become plain text.
+    }
+workspace-import-attention-ticket-links =
+    { $count ->
+        [one] 1 link to a ticket the archive doesn't carry becomes plain text.
+       *[other] { $count } links to tickets the archive doesn't carry become plain text.
+    }
+workspace-import-attention-images =
+    { $count ->
+        [one] 1 image the archive doesn't carry becomes its description.
+       *[other] { $count } images the archive doesn't carry become their descriptions.
+    }
+workspace-import-attention-embeds =
+    { $count ->
+        [one] 1 embedded page the archive doesn't carry becomes its title.
+       *[other] { $count } embedded pages the archive doesn't carry become their titles.
+    }
+workspace-import-attention-documents =
+    { $count ->
+        [one] 1 document couldn't be read and loads as it is.
+       *[other] { $count } documents couldn't be read and load as they are.
+    }
+workspace-import-attention-usernames =
+    { $count ->
+        [one] 1 person's username is already taken here. They arrive without one.
+       *[other] { $count } people's usernames are already taken here. They arrive without one.
+    }
+
+workspace-import-back-to-archive = Back to Archive
+workspace-import-preview-reload-note = Everyone's open window and app reloads its data when the import finishes.
+workspace-import-import-button = Import { $name }
+workspace-import-confirm-title = Import { $name } into { $workspace }?
+workspace-import-confirm-subtitle = The import runs in the background; you can leave the page while it does.
+workspace-import-confirm-fills = Fills this workspace with { $tickets } tickets, { $pages } pages, { $assets } assets and { $people } people, matched by email.
+workspace-import-confirm-replaces = Replaces its workflow, categories, SLA, calendar and branding with the archive's.
+workspace-import-confirm-off = Integrations arrive switched off. You re-enter their credentials from a checklist afterwards.
+workspace-import-confirm-reload = Every open window and app reloads its data when it finishes.
+workspace-import-confirm-reset = Reset returns the workspace to untouched afterwards, but removes everything, including anything added later. There is no partial undo.
+workspace-import-confirm-password-hint = The import reads the archive again, so it needs the password once more.
+workspace-import-type-to-confirm = Type { $workspace } to confirm
+
+workspace-import-progress-heading = Importing { $name }
+workspace-import-progress-started = started { $time }
+workspace-import-stage-check = Checking the archive and this workspace
+workspace-import-stage-check-detail = The same checks as before, under a lock.
+workspace-import-stage-rows = Loading the archive into the database
+workspace-import-stage-rows-detail = Tickets, pages, assets, people and settings go in as one transaction, so a failure here leaves the workspace as it was.
+workspace-import-stage-files = Restoring files
+workspace-import-stage-files-detail =
+    { $count ->
+        [one] 1 file, after the database. If it doesn't restore, Retry files picks up from there.
+       *[other] { $count } files, after the database. If some don't restore, Retry files picks up where it stopped.
+    }
+workspace-import-stage-finish = Finishing
+workspace-import-stage-finish-detail = Search rebuilds in the background, and every open window and app reloads its data.
+workspace-import-progress-leave = You can leave this page; the import carries on and Recent imports shows it.
+workspace-import-importing = Importing
+
+workspace-import-seconds = { $s } s
+workspace-import-minutes = { $m } min { $s } s
+workspace-import-done-title = Import complete
+workspace-import-done-detail = { $name } is in { $workspace }: { $tickets } tickets, { $pages } pages, { $assets } assets and { $people } people.
+workspace-import-done-took = Finished { $time }, in { $duration }.
+workspace-import-done-reloaded = Every open window and app has reloaded its data. Search rebuilds in the background.
+workspace-import-partial-title =
+    { $count ->
+        [one] Imported, with 1 file still to restore
+       *[other] Imported, with { $count } files still to restore
+    }
+workspace-import-partial-detail = { $name } is in { $workspace }. { $restored } of { $total } files were restored. Until a retry restores the rest, their tickets and pages show them as missing.
+workspace-import-retry-files = Retry files
+workspace-import-retry-unavailable = The archive is no longer stored, so the files can't be retried.
+workspace-import-failed-title = The import failed
+workspace-import-failed-detail = Nothing was imported; the workspace is as it was. Discard this import and start again from the export file.
+workspace-import-open-workspace = Open { $workspace }
+workspace-import-report = Report
+workspace-import-report-title = Import report
+workspace-import-report-subtitle = Everything the import did and couldn't do, as JSON.
+workspace-import-report-download = Download JSON
+workspace-import-report-close = Close
+workspace-import-invites-cli = Without mail, nosdesk-cli admin reset-password sets a password for each person.
+workspace-import-todo-heading = Next steps
+workspace-import-todo-count = { $done } of { $total } done
+workspace-import-todo-foot = Credentials never travel in an archive. Each step is a setting that came across without its secret, or something that only exists on the old side. Ticks are kept in this browser.
+workspace-import-todo-smtp = Re-enter the mail credentials, then turn outgoing mail on
+workspace-import-todo-smtp-detail = Outgoing mail arrived switched off.
+workspace-import-todo-go-email = Email settings
+workspace-import-todo-channels =
+    { $count ->
+        [one] Re-enter the email channel's password and turn it on
+       *[other] Re-enter the passwords of { $count } email channels and turn them on
+    }
+workspace-import-todo-channels-detail = They arrived without their passwords.
+workspace-import-todo-go-channels = Channels
+workspace-import-todo-sso = Re-enter the sign-in provider's client secret and update its redirect address
+workspace-import-todo-sso-detail = Point the provider at this server's address, then turn it on.
+workspace-import-todo-go-sso = Sign-in providers
+workspace-import-todo-ldap = Re-enter the directory bind password
+workspace-import-todo-ldap-detail = Directory sync arrived switched off.
+workspace-import-todo-go-ldap = Directory sync
+workspace-import-todo-webhooks =
+    { $count ->
+        [one] Turn the webhook on and give its receiver the new signing secret
+       *[other] Turn the { $count } webhooks on and give their receivers the new signing secrets
+    }
+workspace-import-todo-webhooks-detail = Each webhook has a new secret. Nothing was sent for imported tickets.
+workspace-import-todo-go-webhooks = Webhooks
+workspace-import-todo-plugins =
+    { $count ->
+        [one] Re-enter the plugin's secrets and turn it on
+       *[other] Re-enter the secrets of { $count } plugins and turn them on
+    }
+workspace-import-todo-plugins-detail = Their settings came across; their secret values didn't.
+workspace-import-todo-go-plugins = Plugins
+workspace-import-todo-widget = Turn the help widget on
+workspace-import-todo-widget-detail = It arrived switched off.
+workspace-import-todo-go-widget = Help widget
+workspace-import-todo-rules =
+    { $count ->
+        [one] Review the rule that arrived as a draft
+       *[other] Review { $count } rules that arrived as drafts
+    }
+workspace-import-todo-rules-detail = Each names something the archive didn't carry. Drafts don't run.
+workspace-import-todo-go-rules = Rules
+workspace-import-todo-tokens = Create new API tokens
+workspace-import-todo-tokens-detail = Tokens never move. Anything that called the API needs a new one.
+workspace-import-todo-go-tokens = API tokens
+
+workspace-import-reset-button = Reset to untouched
+workspace-import-reset-rule = Removes everything this import brought and anything added since, including the accounts it created. Available until about { $date }.
+workspace-import-reset-closed = An import can be reset for 30 days. That window has closed.
+workspace-import-reset-failed = The reset didn't run. Try again.
+workspace-import-reset-title = Reset { $workspace } to untouched?
+workspace-import-reset-subtitle = Returns it to how it was before the import on { $date }.
+workspace-import-reset-confirm = Reset workspace
+workspace-import-reset-removes = Removes everything the import brought: { $tickets } tickets, { $pages } pages, { $assets } assets, all files, and the { $people } accounts it created.
+workspace-import-reset-since = Also removes anything added since, and clears settings entered afterwards.
+workspace-import-reset-keeps = Your account and membership stay, and so do accounts that existed before the import.
+workspace-import-reset-archive = Keep your export file; importing again starts from it.
+workspace-import-reset-final = This can't be undone.
+workspace-import-reset-done-title = Reset to untouched
+workspace-import-reset-done-detail = { $workspace } has nothing in it again, as it was before the import on { $date }. Reset { $reset }.
+workspace-import-reset-discarded = This import was discarded { $date }, before anything was imported.
+workspace-import-reset-done-again = The archive was removed, so importing again starts from your export file.
+workspace-import-again = Import again
+workspace-import-discard-button = Discard this import
+workspace-import-discard-rule = Nothing was imported. Discarding removes the stored archive.
+workspace-import-discard-title = Discard this import?
+workspace-import-discard-detail = Nothing was imported. The stored archive is removed; keep your export file to try again.
+workspace-import-discard-confirm = Discard
+
+workspace-import-detail-title = Workspace import
+workspace-import-detail-source = { $name } from Nosdesk { $version } at { $origin }
+workspace-import-detail-source-no-origin = { $name } from Nosdesk { $version }
+workspace-import-detail-pruned = Thirty days have passed: the report keeps its counts; the people in it and the reset are gone.
+workspace-import-detail-load-failed = This import couldn't be loaded.
+workspace-import-type = Workspace
+workspace-import-state-checking = Checking
+workspace-import-state-importing = Importing
+workspace-import-state-files = Files to retry
+workspace-import-state-failed = Failed
+workspace-import-state-reset = Reset
+workspace-import-recent-reset = Reset to untouched
+workspace-import-recent-on-archive = Draft on Archive
+workspace-import-recent-on-preview = Draft on Preview
+workspace-import-recent-importing = Importing now
+workspace-import-recent-failed = Nothing imported
+workspace-import-recent-counts = { $tickets } tickets · { $pages } pages · { $people } people
+
+settings-export-moves-toggle = What moves and what doesn't
+settings-export-moves-heading = Moves
+settings-export-stays-heading = Doesn't move
+settings-export-moves-tickets = Tickets, comments, attachments, merges, ticket numbers
+settings-export-moves-docs = Documentation pages and their history
+settings-export-moves-assets = Assets, loans, disposals, projects, cycles
+settings-export-moves-people = People with their primary email and role
+settings-export-moves-config = Workflow, categories, SLA, calendar, branding, rules, saved views and replies
+settings-export-moves-integrations = Integration settings, without credentials
+settings-export-stays-passwords = Passwords, passkeys, two-step, sessions
+settings-export-stays-secrets = Mail, sign-in provider, webhook and plugin secrets
+settings-export-stays-tokens = API tokens and mobile push registrations
+settings-export-stays-activity = The activity feed and the audit log
+settings-export-stays-history = Earlier exports and import uploads
+settings-export-version = Made by Nosdesk { $version }. The other Nosdesk needs to run { $version } too; the import says so if not.
+settings-export-password-self = A self-hosted Nosdesk accepts it.
+onboarding-complete-open = Go to your workspace
+onboarding-complete-import = Bring a workspace from another Nosdesk
+onboarding-complete-import-note = An import needs a workspace with nothing in it, so do it before adding tickets or people. You can always start fresh instead.
