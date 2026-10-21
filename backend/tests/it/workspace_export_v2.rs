@@ -22,6 +22,8 @@ use crate::common::{insert_plain_user, seed_two_workspaces, test_storage, TestDb
 use crate::workspace_export_hygiene::call_admin_route;
 
 const PASSWORD: &str = "export-v2-password";
+/// An avatar: the import takes only an image an avatar may be.
+const AVATAR: &[u8] = b"RIFF\x1a\0\0\0WEBPVP8 \x0e\0\0\0";
 const MFA_SECRET_HEX: &str = "5345435245544d4641";
 const PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c2VjcmV0aGFzaA$c2VjcmV0aGFzaHZhbHVl";
 
@@ -133,7 +135,7 @@ async fn an_export_carries_people_without_credentials_and_imports() {
     let ws = &seeded.a;
     let person = add_person(&pool, ws.workspace_id);
     storage
-        .put_file(b"avatar-bytes", &person.avatar_key, "image/webp")
+        .put_file(AVATAR, &person.avatar_key, "image/webp")
         .await
         .expect("store avatar");
     // A second person whose avatar file is gone.
@@ -208,7 +210,7 @@ async fn an_export_carries_people_without_credentials_and_imports() {
                 &mut bytes,
             )
             .expect("read avatar");
-            assert_eq!(bytes, b"avatar-bytes");
+            assert_eq!(bytes, AVATAR);
         }
         assert_eq!(manifest.avatars.total_count, 1);
         assert!(
@@ -292,6 +294,8 @@ async fn an_export_carries_people_without_credentials_and_imports() {
         .get_result(&mut conn)
         .expect("the person is imported");
     assert!(!back.mfa_enabled);
+    // A created account's avatar is keyed by its own uuid, which the import
+    // kept here since the source's account is gone.
     assert_eq!(
         back.avatar_url,
         Some(format!("/uploads/{}", person.avatar_key))

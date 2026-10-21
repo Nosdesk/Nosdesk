@@ -77,6 +77,13 @@ pub const UNRESOLVED_REFERENCE: &str = "unresolved_reference";
 /// Instance-unique capability tokens a new value replaces on import.
 pub const REGENERATED: &[(&str, &str)] = &[("tickets", "guest_lookup_token")];
 
+/// Outbound mail that hasn't gone yet (`failed` is retried): the target
+/// doesn't send the source's mail, so these rows stay out.
+pub const QUEUED_MAIL: &[&str] = &["pending", "sending", "failed"];
+
+/// Why a queued outbound email stays out; a key of [`TableReport::dropped`].
+pub const QUEUED_MAIL_DROPPED: &str = "queued_mail";
+
 /// User references with no foreign key: `(table, column)`, each a uuid or a
 /// uuid array. They go through the people map like the foreign keys do. The
 /// export collects people through foreign keys only, so one of these can name
@@ -205,6 +212,9 @@ pub struct Person {
     email_type: &'static str,
     #[serde(skip)]
     user_row: Row,
+    /// A new account's avatar from the archive (`files::plan_avatar`).
+    #[serde(skip)]
+    avatar: Option<super::files::PlannedAvatar>,
 }
 
 impl Person {
@@ -460,6 +470,8 @@ pub struct ImportPlan {
     pub report: ImportReport,
     /// What the reference pass reads from other tables.
     ref_context: refs::Context,
+    /// Regenerated row uuids, `table -> archive uuid -> new uuid`.
+    row_uuids: HashMap<String, HashMap<String, String>>,
 }
 
 /// The new key of every archive row with one, by table.
@@ -474,7 +486,7 @@ impl Allocation {
     }
 
     /// Every loaded row by its new key, as the reference pass reads it while
-    /// rows load: what the file restore moves files by.
+    /// rows load.
     pub fn lookup(&self) -> impl refs::Lookup + '_ {
         LoadLookup { alloc: self }
     }
@@ -484,6 +496,16 @@ impl ImportPlan {
     /// Whether nothing refuses the import.
     pub fn importable(&self) -> bool {
         self.report.refusals.is_empty()
+    }
+
+    /// Every archive row by the key it loads under, its new id or its
+    /// regenerated uuid: what the file restore moves files by, since a file
+    /// key still names the archive's.
+    pub fn file_lookup<'a>(&'a self, alloc: &'a Allocation) -> impl refs::Lookup + 'a {
+        FileLookup {
+            alloc,
+            row_uuids: &self.row_uuids,
+        }
     }
 
     /// Tables in load order.
@@ -505,7 +527,8 @@ impl ImportPlan {
 
     /// The `users` rows the import creates: new accounts and placeholders,
     /// under their target uuid, never platform-privileged, MFA off (the
-    /// archive carries no secret).
+    /// archive carries no secret). An avatar is the account's own copy of
+    /// the archive's ([`ImportPlan::avatar_moves`]), or none.
     pub fn new_users(&self) -> Vec<Row> {
         self.report
             .people
@@ -514,6 +537,15 @@ impl ImportPlan {
             .map(|p| {
                 let mut row = p.user_row.clone();
                 row.insert("uuid".into(), Value::String(p.target_uuid.to_string()));
+                let (avatar, thumb) = match &p.avatar {
+                    Some(a) => (
+                        Value::String(a.url.clone()),
+                        Value::String(a.thumb_url.clone()),
+                    ),
+                    None => (Value::Null, Value::Null),
+                };
+                row.insert("avatar_url".into(), avatar);
+                row.insert("avatar_thumb".into(), thumb);
                 row.insert(
                     "username".into(),
                     p.username.clone().map_or(Value::Null, Value::String),
@@ -522,6 +554,17 @@ impl ImportPlan {
                 row
             })
             .collect()
+    }
+
+    /// `(archive path, storage key)` of every avatar the new accounts take,
+    /// for `files::FilePlan::with_avatars`.
+    pub fn avatar_moves(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.report
+            .people
+            .iter()
+            .filter(|p| p.is_new())
+            .filter_map(|p| p.avatar.as_ref())
+            .map(|a| (a.path.as_str(), a.key.as_str()))
     }
 
     /// The primary emails the import creates, `(account, email, type)`: one
@@ -676,6 +719,32 @@ impl refs::Lookup for LoadLookup<'_> {
         self.alloc
             .new_key(table, &Value::String(key.to_string()))
             .and_then(key_text)
+    }
+}
+
+/// [`ImportPlan::file_lookup`]'s lookup.
+struct FileLookup<'a> {
+    alloc: &'a Allocation,
+    row_uuids: &'a HashMap<String, HashMap<String, String>>,
+}
+
+impl refs::Lookup for FileLookup<'_> {
+    fn user(&self, uuid: &str) -> Option<String> {
+        Some(uuid.to_string())
+    }
+
+    fn key(&self, entity: Entity, key: &str) -> Option<String> {
+        let (table, column) = entity.key()?;
+        if column != "id" {
+            return Some(
+                self.row_uuids
+                    .get(table)
+                    .and_then(|m| m.get(key))
+                    .cloned()
+                    .unwrap_or_else(|| key.to_string()),
+            );
+        }
+        LoadLookup { alloc: self.alloc }.key(entity, key)
     }
 }
 
@@ -1113,6 +1182,10 @@ pub fn plan_import(
                 *report.dropped.entry(reason).or_default() += 1;
                 continue;
             }
+            if let Some(reason) = outbound_mail(name, &mut row) {
+                *report.dropped.entry(reason).or_default() += 1;
+                continue;
+            }
             if let Some(reason) = handover.apply(name, &mut row, &catalog) {
                 *report.dropped.entry(reason).or_default() += 1;
                 continue;
@@ -1301,6 +1374,7 @@ pub fn plan_import(
             refusals,
         },
         ref_context,
+        row_uuids,
     })
 }
 
@@ -1664,6 +1738,47 @@ fn check_collisions(
     Ok(())
 }
 
+/// An `outbound_emails` row as the target keeps it: why it stays out (it
+/// hasn't been sent, [`QUEUED_MAIL`]), or the row with a Message-ID of its
+/// own and no lease. A Message-ID is unique on a server, so the same
+/// workspace imported twice into one would collide. Replies don't thread
+/// by this column: they match `channel_messages.external_id`, which keeps
+/// the Message-ID the customer saw under the channel's new id. Here it
+/// only links a bounce report to the row, and a report for mail the
+/// source sent goes to the source.
+fn outbound_mail(table: &str, row: &mut Row) -> Option<&'static str> {
+    if table != "outbound_emails" {
+        return None;
+    }
+    let status = row.get("status").and_then(Value::as_str).unwrap_or("");
+    if QUEUED_MAIL.contains(&status) {
+        return Some(QUEUED_MAIL_DROPPED);
+    }
+    if let Some(old) = row.get("message_id").and_then(Value::as_str) {
+        let new = regenerated_message_id(old);
+        row.insert("message_id".into(), Value::String(new));
+    }
+    row.insert("lease_token".into(), Value::Null);
+    row.insert("lease_expires_at".into(), Value::Null);
+    None
+}
+
+/// A new Message-ID in the old one's domain (as stored: no angle
+/// brackets).
+fn regenerated_message_id(old: &str) -> String {
+    let domain = old
+        .trim_matches(['<', '>'])
+        .rsplit_once('@')
+        .map(|(_, d)| d)
+        .filter(|d| {
+            !d.is_empty()
+                && d.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-.".contains(c))
+        })
+        .unwrap_or("nosdesk.local");
+    format!("imported-{}@{domain}", Uuid::new_v4().simple())
+}
+
 /// What the handover items did, for the report.
 #[derive(Default)]
 struct HandoverTally {
@@ -1977,6 +2092,12 @@ fn build_people(
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        // Only an account the import creates takes the archive's avatar.
+        let avatar = existing
+            .is_none()
+            .then(|| a.row.get("avatar_url").and_then(Value::as_str))
+            .flatten()
+            .and_then(|url| super::files::plan_avatar(contents, url, target_uuid));
         people.push(Person {
             archive_uuid: a.uuid,
             target_uuid,
@@ -1993,6 +2114,7 @@ fn build_people(
             username,
             email_type: a.email_type,
             user_row: a.row,
+            avatar,
         });
     }
     Ok(people)
@@ -2322,6 +2444,7 @@ mod tests {
             manifest: manifest(),
             tables,
             files: Vec::new(),
+            avatars: Vec::new(),
         }
     }
 
@@ -3475,5 +3598,35 @@ mod tests {
             assert_eq!(inline.as_array().map(Vec::len), Some(2));
             assert_eq!(articles[0]["yjs_client_id"], Value::Null);
         });
+    }
+
+    /// Mail the source hadn't sent stays behind; sent mail comes with a
+    /// Message-ID of its own in the same domain, and no lease.
+    #[test]
+    fn queued_mail_stays_and_sent_mail_takes_a_new_message_id() {
+        for status in QUEUED_MAIL {
+            let mut row = json!({"status": status, "message_id": "a@help.example"});
+            let row = row.as_object_mut().expect("row");
+            assert_eq!(
+                outbound_mail("outbound_emails", row),
+                Some(QUEUED_MAIL_DROPPED)
+            );
+        }
+        let mut row = json!({"status": "sent", "message_id": "ticket-1.comment-2.ab@help.example",
+                             "lease_token": Uuid::now_v7()});
+        let row = row.as_object_mut().expect("row");
+        assert_eq!(outbound_mail("outbound_emails", row), None);
+        let id = row["message_id"].as_str().expect("message id");
+        assert!(
+            id.starts_with("imported-") && id.ends_with("@help.example"),
+            "{id}"
+        );
+        assert_eq!(row["lease_token"], Value::Null);
+        assert!(regenerated_message_id("<odd>").ends_with("@nosdesk.local"));
+        let mut other = json!({"status": "pending"});
+        assert_eq!(
+            outbound_mail("tickets", other.as_object_mut().expect("row")),
+            None
+        );
     }
 }

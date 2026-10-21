@@ -139,6 +139,7 @@ mod plugin_bundle_isolation;
 mod plugin_collection_row_scoping;
 mod plugin_events_as_events;
 mod plugin_permission_gate;
+mod portability_round_trip;
 mod portal_domain_sharing;
 mod portal_merged_tickets;
 mod portal_session;

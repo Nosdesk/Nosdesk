@@ -181,8 +181,8 @@ async fn source(pool: &TestPool) -> Source {
     .expect("assignment log");
     diesel::sql_query(
         "INSERT INTO outbound_emails (workspace_id, ticket_id, recipient, subject, body_text, \
-           message_id, skip_if_seen_by) \
-         VALUES ($1, $2, 'someone@example.com', 'Re: Projector', 'Hello', $3, $4)",
+           message_id, skip_if_seen_by, status, sent_at) \
+         VALUES ($1, $2, 'someone@example.com', 'Re: Projector', 'Hello', $3, $4, 'sent', now())",
     )
     .bind::<Integer, _>(ws)
     .bind::<Integer, _>(ticket)
@@ -255,12 +255,6 @@ async fn source(pool: &TestPool) -> Source {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    // A Message-ID is unique on the instance, and the target here shares the
-    // source's database.
-    diesel::sql_query("DELETE FROM outbound_emails WHERE workspace_id = $1")
-        .bind::<Integer, _>(ws)
-        .execute(&mut pool.get().expect("conn"))
-        .expect("source mail");
     Source {
         archive: body.to_vec(),
         ticket,

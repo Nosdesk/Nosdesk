@@ -1,6 +1,7 @@
 //! Rewrite the references a stored document holds: the ticket a
 //! `ticket_link` names, the person a `mention` names, the ticket folder a
-//! notes `image` loads from, and the page an `embedded_document` shows.
+//! notes `image` loads from (and any other image's folder [`Targets::file`]
+//! moves), and the page an `embedded_document` shows.
 //!
 //! [`rewrite`] edits the document in place, as one more Yjs change on top
 //! of its history, and writes the full state back. Everything it doesn't
@@ -35,6 +36,12 @@ pub trait Targets {
     fn user(&self, uuid: &str) -> Option<String>;
     /// The uuid of the documentation page the uuid `uuid` names.
     fn page(&self, uuid: &str) -> Option<String>;
+    /// Where an image other than a notes image now loads from:
+    /// `Some(Some(src))` its new `src`, `Some(None)` the target doesn't
+    /// have it, `None` an image that doesn't move.
+    fn file(&self, _src: &str) -> Option<Option<String>> {
+        None
+    }
 }
 
 /// What a rewrite changed, by node.
@@ -242,6 +249,19 @@ fn collect<T: yrs::ReadTxn>(
                         Some(new) => {
                             let src = with_notes_image_ticket(&src, &new);
                             changes.push(Change::Set(el.clone(), "src", Any::from(src)));
+                            counts.images += 1;
+                        }
+                        None => {
+                            let alt = attr("alt").unwrap_or_default();
+                            changes.push(Change::InlineText(el.clone(), alt));
+                            counts.images_as_text += 1;
+                        }
+                    }
+                } else if let Some(moved) = targets.file(&src) {
+                    match moved {
+                        Some(new) if new == src => {}
+                        Some(new) => {
+                            changes.push(Change::Set(el.clone(), "src", Any::from(new)));
                             counts.images += 1;
                         }
                         None => {

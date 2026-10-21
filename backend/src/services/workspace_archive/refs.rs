@@ -54,6 +54,8 @@ pub enum Entity {
     Page,
     /// A documentation page by its `uuid`.
     PageUuid,
+    /// A documentation collection by its `uuid`.
+    CollectionUuid,
     /// CSV import history, which never moves.
     ImportJob,
 }
@@ -77,6 +79,7 @@ impl Entity {
             Entity::AssetLoan => ("asset_loans", "id"),
             Entity::Page => ("documentation_pages", "id"),
             Entity::PageUuid => ("documentation_pages", "uuid"),
+            Entity::CollectionUuid => ("documentation_collections", "uuid"),
             Entity::ImportJob => ("import_jobs", "id"),
         })
     }
@@ -85,7 +88,11 @@ impl Entity {
     fn by_uuid(self) -> bool {
         matches!(
             self,
-            Entity::User | Entity::TicketUuid | Entity::PageUuid | Entity::ImportJob
+            Entity::User
+                | Entity::TicketUuid
+                | Entity::PageUuid
+                | Entity::CollectionUuid
+                | Entity::ImportJob
         )
     }
 
@@ -105,6 +112,7 @@ impl Entity {
         Entity::AssetLoan,
         Entity::Page,
         Entity::PageUuid,
+        Entity::CollectionUuid,
         Entity::ImportJob,
     ];
 }
@@ -1255,6 +1263,13 @@ static MARKDOWN_MENTION: LazyLock<Regex> = LazyLock::new(|| {
 });
 /// An asset photo: `…/assets/{id}/media/…`.
 static ASSET_MEDIA: LazyLock<Regex> = LazyLock::new(|| regex(r"(/assets/)(\d{1,10})(/media/)"));
+/// A collaborative document's image: `…/collab/{kind}/{uuid}/…`, kept
+/// under the uuid of the ticket, page or collection whose document shows it.
+static COLLAB_IMAGE: LazyLock<Regex> = LazyLock::new(|| {
+    regex(
+        r"(/collab/)(ticket|doc|collection)(/)([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(/)",
+    )
+});
 static TAG: LazyLock<Regex> = LazyLock::new(|| regex(r"<[^>]+>"));
 
 /// The attributes the HTML pass reads, each as `\s+name="value"`.
@@ -1429,13 +1444,23 @@ pub fn rewrite_html(html: &str, lookup: &dyn Lookup) -> (String, Counts) {
 
 /// The row a stored file's path or URL names as its owner: a notes image
 /// (`tickets/{id}/notes/`, under `/uploads/` or `/api/files/`) follows its
-/// ticket, an asset's media (`/assets/{id}/media/`) its asset. The same
+/// ticket, a collaborative document's image (`/collab/{kind}/{uuid}/`) the
+/// ticket, page or collection by uuid, an asset's media
+/// (`/assets/{id}/media/`) its asset. The same
 /// test reads an editor's image `src`, a document's `image.src` (the Yjs
 /// pass) and a storage key with a leading `/`, so the file restore moves a
 /// file exactly where the references to it now point.
 pub fn file_owner(path: &str) -> Option<(Entity, &str)> {
     if let Some(id) = yjs::notes_image_ticket(path) {
         return Some((E::Ticket, id));
+    }
+    if let Some(c) = COLLAB_IMAGE.captures(path) {
+        let entity = match &c[2] {
+            "ticket" => E::TicketUuid,
+            "doc" => E::PageUuid,
+            _ => E::CollectionUuid,
+        };
+        return c.get(4).map(|m| (entity, m.as_str()));
     }
     ASSET_MEDIA
         .captures(path)
@@ -1449,6 +1474,11 @@ pub fn with_file_owner(path: &str, entity: Entity, new: &str) -> String {
         E::Ticket => yjs::with_notes_image_ticket(path, new),
         E::Asset => ASSET_MEDIA
             .replacen(path, 1, |c: &Captures| format!("{}{new}{}", &c[1], &c[3]))
+            .into_owned(),
+        E::TicketUuid | E::PageUuid | E::CollectionUuid => COLLAB_IMAGE
+            .replacen(path, 1, |c: &Captures| {
+                format!("{}{}{}{new}{}", &c[1], &c[2], &c[3], &c[5])
+            })
             .into_owned(),
         _ => path.to_string(),
     }
@@ -1521,6 +1551,13 @@ impl Targets for YjsTargets<'_> {
             Outcome::NotARef => Some(uuid.to_string()),
             Outcome::Kept(new) => new.as_str().map(str::to_string),
             Outcome::Missing => None,
+        }
+    }
+    fn file(&self, src: &str) -> Option<Option<String>> {
+        match rewrite_file_path(src, self.0) {
+            FilePath::NotOwned => None,
+            FilePath::Kept(new) => Some(Some(new)),
+            FilePath::Missing => Some(None),
         }
     }
 }

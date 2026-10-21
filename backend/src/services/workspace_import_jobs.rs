@@ -61,7 +61,7 @@ use crate::services::uploaded_archive::spool;
 use crate::services::workspace_archive::apply::{self, ApplyError};
 use crate::services::workspace_archive::files::{self, FilePlan};
 use crate::services::workspace_archive::plan::{self, ImportTarget, PlanOptions, Runner};
-use crate::services::workspace_archive::refs::{Entity, Lookup};
+use crate::services::workspace_archive::refs::{file_owner, Entity, Lookup};
 use crate::services::workspace_import::{read_archive, ArchiveContents};
 use crate::sync::actor::ActorContext;
 use crate::sync::session::{with_actor_bypass_context, with_actor_context};
@@ -787,6 +787,7 @@ async fn import(
         // The rows committed in an earlier run: the file plan comes back from
         // the keys it recorded.
         FilePlan::build(&contents, &StoredKeys::from_report(&report))
+            .with_avatars(&contents, stored_avatars(&report))
     } else {
         set_stage(&rt.pool, workspace_id, id, "rows").await;
         let plan = match import_rows(rt, origin, workspace_id, id, contents.clone()).await {
@@ -995,7 +996,8 @@ async fn import_rows(
 /// files are restored so retry files can rebuild the plan.
 const FILE_KEYS: &str = "file_keys";
 
-/// `{archive path: storage key}` for every file the plan restores.
+/// `{archive path: storage key}` for every file the plan restores, avatars
+/// (`avatars/...`) included.
 fn file_keys(contents: &ArchiveContents, plan: &FilePlan) -> Value {
     let mut keys = serde_json::Map::new();
     for (name, _) in &contents.files {
@@ -1004,12 +1006,29 @@ fn file_keys(contents: &ArchiveContents, plan: &FilePlan) -> Value {
             keys.insert(path.to_string(), Value::String(key.to_string()));
         }
     }
+    for (path, key) in plan.avatar_keys() {
+        keys.insert(path.to_string(), Value::String(key.to_string()));
+    }
     Value::Object(keys)
 }
 
-/// The ticket and asset keys a committed import gave the files it
-/// restores, read back from [`file_keys`]: notes images and asset media
-/// carry their owner's id as the path's second segment.
+/// The avatars a committed import gave its new accounts, read back from
+/// [`file_keys`].
+fn stored_avatars(report: &Value) -> Vec<(&str, &str)> {
+    report
+        .get(FILE_KEYS)
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(path, _)| path.starts_with("avatars/"))
+        .filter_map(|(path, key)| Some((path.as_str(), key.as_str()?)))
+        .collect()
+}
+
+/// The owners' keys a committed import gave the files it restores, read
+/// back from [`file_keys`]: notes images and asset media carry their
+/// owner's id in their key, and a collaborative document's images its
+/// ticket, page or collection's uuid (`refs::file_owner`).
 struct StoredKeys(std::collections::HashMap<(Entity, String), String>);
 
 impl StoredKeys {
@@ -1017,17 +1036,16 @@ impl StoredKeys {
         let mut keys = std::collections::HashMap::new();
         if let Some(stored) = report.get(FILE_KEYS).and_then(Value::as_object) {
             for (path, key) in stored {
-                let (Some(key), mut old) = (key.as_str(), path.split('/')) else {
+                let Some(key) = key.as_str() else {
                     continue;
                 };
-                let mut new = key.split('/');
-                let entity = match (old.next(), new.next()) {
-                    (Some("tickets"), Some("tickets")) => Entity::Ticket,
-                    (Some("assets"), Some("assets")) => Entity::Asset,
-                    _ => continue,
-                };
-                if let (Some(from), Some(to)) = (old.next(), new.next()) {
-                    keys.insert((entity, from.to_string()), to.to_string());
+                let (old, new) = (format!("/{path}"), format!("/{key}"));
+                if let (Some((entity, from)), Some((same, to))) =
+                    (file_owner(&old), file_owner(&new))
+                {
+                    if entity == same {
+                        keys.insert((entity, from.to_string()), to.to_string());
+                    }
                 }
             }
         }
@@ -1513,15 +1531,28 @@ mod tests {
 
     #[test]
     fn retry_files_reads_back_the_keys_the_import_gave_files() {
+        let (page, moved) = (Uuid::now_v7(), Uuid::now_v7());
+        let account = Uuid::now_v7();
         let report = json!({ FILE_KEYS: {
             "tickets/7/notes/a.png": "tickets/70/notes/a.png",
             "assets/3/media/b.png": "assets/30/media/b.png",
             "branding/logo.png": "branding/logo.png",
+            format!("collab/doc/{page}/c.png"): format!("collab/doc/{moved}/c.png"),
+            "avatars/d.png": format!("users/avatars/{account}_avatar.png"),
         } });
         let keys = StoredKeys::from_report(&report);
         assert_eq!(keys.key(Entity::Ticket, "7").as_deref(), Some("70"));
         assert_eq!(keys.key(Entity::Asset, "3").as_deref(), Some("30"));
         assert_eq!(keys.key(Entity::Ticket, "8"), None);
+        assert_eq!(
+            keys.key(Entity::PageUuid, &page.to_string()),
+            Some(moved.to_string())
+        );
+        let avatar = format!("users/avatars/{account}_avatar.png");
+        assert_eq!(
+            stored_avatars(&report),
+            vec![("avatars/d.png", avatar.as_str())]
+        );
         let pruned = pruned_report(Some(report)).expect("report");
         assert!(pruned.get(FILE_KEYS).is_none());
     }

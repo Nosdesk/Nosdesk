@@ -340,7 +340,8 @@ pub fn import_into(
             )));
         }
         let alloc = plan.allocate(conn)?;
-        let files = FilePlan::build(contents, &alloc.lookup());
+        let files = FilePlan::build(contents, &plan.file_lookup(&alloc))
+            .with_avatars(contents, plan.avatar_moves());
 
         let kept = repository::site_settings::kept_branding(
             conn,
