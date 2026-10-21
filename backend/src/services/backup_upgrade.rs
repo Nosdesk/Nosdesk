@@ -107,6 +107,11 @@ const RELEASED_SCHEMA_POINTS: &[ReleasedSchemaPoint] = &[
         migration: "20261016150000",
         prefix_sha256: "ab74d932c63a510242707663c2f73ce99c2614df9ee7da731fa1ea22ac1c1889",
     },
+    ReleasedSchemaPoint {
+        release: "1.1.3",
+        migration: "20261021071014",
+        prefix_sha256: "37fdcbb0ac2440f200f9f1cccb72c64844f8a0a066dc6aa46298858e0cf51b89",
+    },
 ];
 
 /// Where a backup's schema sits relative to this build's.
@@ -589,6 +594,7 @@ mod tests {
     fn a_pinned_point_names_the_release_that_shipped_it() {
         assert_eq!(release_at("20261010203343"), Some("1.1.0"));
         assert_eq!(release_at("20261016150000"), Some("1.1.2"));
+        assert_eq!(release_at("20261021071014"), Some("1.1.3"));
         assert_eq!(release_at("20260618100000"), None);
     }
 
