@@ -598,6 +598,16 @@ export const NOT_MOVING: { label: string; detail: string }[] = [
   { label: 'workspace-import-not-history', detail: 'workspace-import-not-history-detail' },
 ]
 
+/** Why outbound mail that hadn't gone yet stays out; a key of a table's
+ *  `dropped` (`plan::QUEUED_MAIL_DROPPED` on the server). */
+export const QUEUED_MAIL = 'queued_mail'
+
+/** Emails that hadn't been sent yet and stay behind, so the new home never
+ *  sends them a second time. */
+export function queuedMail(plan: WorkspaceImportPlan | undefined): number {
+  return (plan?.tables ?? []).reduce((n, t) => n + (t.dropped?.[QUEUED_MAIL] ?? 0), 0)
+}
+
 export interface AttentionLine {
   key: string
   args: Record<string, string | number>
@@ -616,7 +626,8 @@ const EFFECT_KEYS: Record<string, string> = {
 }
 
 /** What the importer couldn't keep, one line per effect (and table, for a
- *  cleared value or a dropped row), then the usernames taken here. */
+ *  cleared value or a dropped row), then the usernames taken here. Unsent
+ *  mail isn't one of them: it stays behind on purpose. */
 export function attentionLines(plan: WorkspaceImportPlan | undefined): AttentionLine[] {
   if (!plan) return []
   const totals = new Map<string, AttentionLine>()
@@ -633,7 +644,10 @@ export function attentionLines(plan: WorkspaceImportPlan | undefined): Attention
     add(key, perTable ? r.table : '', r.count)
   }
   for (const t of plan.tables ?? []) {
-    for (const [, rows] of Object.entries(t.dropped ?? {})) add('workspace-import-attention-rows', t.table, rows)
+    for (const [reason, rows] of Object.entries(t.dropped ?? {})) {
+      // Unsent mail has its own line (`queuedMail`); it isn't a broken reference.
+      if (reason !== QUEUED_MAIL) add('workspace-import-attention-rows', t.table, rows)
+    }
     for (const [, rows] of Object.entries(t.cleared ?? {})) add('workspace-import-attention-cleared', t.table, rows)
   }
   const out = [...totals.values()]

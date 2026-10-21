@@ -19,6 +19,7 @@ import {
   offLines,
   peopleGroups,
   personOutcome,
+  queuedMail,
   refusalView,
   rowAction,
   stageIndex,
@@ -241,6 +242,27 @@ describe('the preview, from the report', () => {
     ])
   })
 
+  it('gives unsent mail its own line, not a broken reference', () => {
+    expect(queuedMail(PLAN)).toBe(12)
+    expect(t('workspace-import-not-mail-detail', { count: queuedMail(PLAN) })).toBe(
+      '12 emails that hadn\'t been sent yet stay behind, so nothing goes out twice.',
+    )
+    expect(t('workspace-import-done-unsent-mail', { count: 1 })).toBe(
+      '1 email that hadn\'t been sent yet stayed behind, so nothing goes out twice.',
+    )
+    expect(attentionLines(PLAN).some((l) => l.args.table === 'outbound emails')).toBe(false)
+
+    // A broken reference on the same table still reads as one.
+    const both = {
+      ...PLAN,
+      tables: [{ table: 'outbound_emails', class: 'move', in_archive: 15, planned: 1, dropped: { queued_mail: 12, unresolved_reference: 2 } }],
+    }
+    expect(queuedMail(both)).toBe(12)
+    expect(attentionLines(both)).toContainEqual({ key: 'workspace-import-attention-rows', args: { count: 2, table: 'outbound emails' } })
+    expect(queuedMail({ ...PLAN, tables: [] })).toBe(0)
+    expect(queuedMail(undefined)).toBe(0)
+  })
+
   it('works from the counts once the people are pruned', () => {
     const pruned = { ...PLAN, people: undefined }
     expect(tiles(pruned).people).toBe(10)
@@ -303,7 +325,13 @@ describe('Recent imports', () => {
 describe('the catalogues', () => {
   /** Every key the model can hand a component. */
   const keys = () => {
-    const out = new Set<string>([...Object.values(COUNT_KEYS), ...NOT_MOVING.flatMap((n) => [n.label, n.detail])])
+    const out = new Set<string>([
+      ...Object.values(COUNT_KEYS),
+      ...NOT_MOVING.flatMap((n) => [n.label, n.detail]),
+      'workspace-import-not-mail',
+      'workspace-import-not-mail-detail',
+      'workspace-import-done-unsent-mail',
+    ])
     for (const a of AREAS) {
       out.add(a.label)
       if (a.note) out.add(a.note)

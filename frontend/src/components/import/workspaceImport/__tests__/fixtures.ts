@@ -61,6 +61,7 @@ export const PLAN: WorkspaceImportPlan = {
     table('workspace_email_settings', 1),
     table('workspace_identity_providers', 1),
     { ...table('notifications', 40, 'merge'), planned: 37, dropped: { unresolved_reference: 3 } },
+    { ...table('outbound_emails', 40), planned: 28, dropped: { queued_mail: 12 } },
   ],
   people: PEOPLE,
   counts: {

@@ -29,6 +29,7 @@ import {
   offLines,
   peopleGroups,
   personOutcome,
+  queuedMail,
   regeneratedTokens,
   tiles,
   typedMatches,
@@ -65,6 +66,7 @@ const people = computed(() => plan.value?.people ?? [])
 const groups = computed(() => peopleGroups(people.value))
 const off = computed(() => offLines(plan.value))
 const tokens = computed(() => regeneratedTokens(plan.value))
+const unsent = computed(() => queuedMail(plan.value))
 const attention = computed(() => attentionLines(plan.value))
 const ssoOff = computed(() => off.value.some((l) => l.id === 'workspace_identity_providers'))
 
@@ -331,6 +333,10 @@ function confirm() {
         <li v-for="n in NOT_MOVING" :key="n.label" class="flex flex-col sm:flex-row gap-1 sm:gap-3 px-3 py-2.5">
           <span class="sm:w-36 shrink-0 font-medium text-primary">{{ $t(n.label) }}</span>
           <p class="flex-1 min-w-0 text-primary">{{ $t(n.detail) }}</p>
+        </li>
+        <li v-if="unsent > 0" class="flex flex-col sm:flex-row gap-1 sm:gap-3 px-3 py-2.5" data-not="mail">
+          <span class="sm:w-36 shrink-0 font-medium text-primary">{{ $t('workspace-import-not-mail') }}</span>
+          <p class="flex-1 min-w-0 text-primary">{{ $t('workspace-import-not-mail-detail', { count: unsent }) }}</p>
         </li>
       </ul>
     </SectionCard>

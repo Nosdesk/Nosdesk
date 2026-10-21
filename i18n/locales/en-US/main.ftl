@@ -9636,6 +9636,11 @@ workspace-import-files-skipped =
         [one] 1 file was left out: the archive didn't carry it, or this server doesn't accept its type. The report lists it.
        *[other] { $count } files were left out: the archive didn't carry them, or this server doesn't accept their type. The report lists them.
     }
+workspace-import-done-unsent-mail =
+    { $count ->
+        [one] 1 email that hadn't been sent yet stayed behind, so nothing goes out twice.
+       *[other] { $count } emails that hadn't been sent yet stayed behind, so nothing goes out twice.
+    }
 workspace-import-jump-label = Sections
 workspace-import-jump-across = What comes across
 workspace-import-jump-people = People
@@ -9939,6 +9944,12 @@ workspace-import-not-passwords = Passwords and two-step
 workspace-import-not-passwords-detail = Never exported. See How people sign in.
 workspace-import-not-history = Import history
 workspace-import-not-history-detail = Earlier spreadsheet and documentation imports stay with the other Nosdesk.
+workspace-import-not-mail = Unsent email
+workspace-import-not-mail-detail =
+    { $count ->
+        [one] 1 email that hadn't been sent yet stays behind, so nothing goes out twice.
+       *[other] { $count } emails that hadn't been sent yet stay behind, so nothing goes out twice.
+    }
 
 workspace-import-attention-heading = Needs attention
 workspace-import-attention-none = Nothing needs attention.

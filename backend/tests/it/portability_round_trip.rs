@@ -8,7 +8,8 @@
 //! (some with avatars), mail in and out, and a CSV import it ran. The
 //! import is checked by content, never by id: rows per table, references
 //! landing on the new rows, documents naming the new ids, files at their new
-//! keys, settings carried with sealed values dropped and flagged,
+//! keys (the document image served through its route to a member of the
+//! new home), settings carried with sealed values dropped and flagged,
 //! integrations off, people mapped or created. The second archive then
 //! matches the first, ids aside. The same archive imports a second time on
 //! the same server.
@@ -20,8 +21,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Cursor, Read, Write};
 use std::sync::LazyLock;
 
+use actix_web::dev::Service;
 use actix_web::http::StatusCode;
 use actix_web::test as http_test;
+use actix_web::{web, App, HttpMessage};
 use diesel::prelude::*;
 use diesel::sql_types::{BigInt, Binary, Integer, Nullable, Text, Uuid as SqlUuid};
 use regex::Regex;
@@ -29,7 +32,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use backend::middleware::workspace_context::DeploymentMode;
-use backend::models::NewWorkspace;
+use backend::models::{Claims, NewWorkspace};
 use backend::repository::workspaces::{add_membership, create_workspace, SeatWriteAuthority};
 use backend::services::backup::BackupError;
 use backend::services::docs_markdown::encode::{decode, encode};
@@ -687,6 +690,43 @@ async fn import(
     (applied, restored)
 }
 
+/// `GET uri` through the route that serves collab document images, as
+/// `user`: its status and body. The route takes the session alone (an
+/// `<img>` carries no workspace header) and finds the workspace from the
+/// page in the path.
+async fn get_collab_image(pool: &TestPool, user: Uuid, uri: &str) -> (StatusCode, Vec<u8>) {
+    let now = chrono::Utc::now().timestamp();
+    let claims = Claims {
+        sub: user.to_string(),
+        name: "Target Owner".to_string(),
+        email: "owner@example.com".to_string(),
+        platform_role: "user".to_string(),
+        scope: "full".to_string(),
+        sid: None,
+        workspace_uuid: None,
+        exp: (now + 3600) as usize,
+        iat: now as usize,
+    };
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(test_storage()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(claims.clone());
+                srv.call(req)
+            })
+            .route(
+                "/api/files/collab/{kind}/{resource_uuid}/{filename:.*}",
+                web::get().to(backend::handlers::collab_images::serve_collab_document_image),
+            ),
+    )
+    .await;
+    let resp =
+        http_test::call_service(&app, http_test::TestRequest::get().uri(uri).to_request()).await;
+    let status = resp.status();
+    (status, http_test::read_body(resp).await.to_vec())
+}
+
 /// Every node of `kind` in a decoded document.
 fn nodes<'a>(doc: &'a Value, kind: &str, out: &mut Vec<&'a Value>) {
     if doc.get("type").and_then(Value::as_str) == Some(kind) {
@@ -993,6 +1033,12 @@ async fn a_workspace_exported_imported_and_exported_again_comes_back_the_same() 
             "{what} at {key}"
         );
     }
+
+    // The moved document image opens through its route for a member of the
+    // new home: the route finds the page by the new uuid in the path.
+    let (status, body) = get_collab_image(&pool, target.owner, &diagram_src).await;
+    assert_eq!(status, StatusCode::OK, "{diagram_src}");
+    assert_eq!(body, png(2), "the document image's bytes");
 
     // Settings carry over; sealed values are dropped and flagged;
     // integrations arrive off.
