@@ -378,6 +378,29 @@ user-menu-report-problem = Probleem melden
 user-menu-sign-out = Afmelden
 user-menu-guest-name = Gast
 
+# Herinneringen aan het einde van de Cloud-proefperiode, alleen voor de eigenaar.
+# MACHINE TRANSLATION, pending native review
+trial-notice-menu-line = { $days ->
+    [0] Proefperiode eindigt vandaag
+    [1] Proefperiode eindigt morgen, { $date }
+   *[other] Proefperiode eindigt op { $date }, over { $days } dagen
+}
+trial-notice-menu-line-cancelled = Proefperiode eindigt op { $date }, wordt niet verlengd
+trial-notice-soon-title = Uw proefperiode eindigt op { $date }, over { $days } dagen.
+trial-notice-soon-body = Uw abonnement en de optie om op te zeggen vindt u onder Facturering beheren, in uw Nosdesk-account. Tot dan verandert er niets in uw werkruimte.
+trial-notice-imminent-title = { $days ->
+    [0] Uw proefperiode eindigt vandaag.
+    [1] Uw proefperiode eindigt morgen, { $date }.
+   *[other] Uw proefperiode eindigt over { $days } dagen, op { $date }.
+}
+trial-notice-imminent-body = Als u nog niet hebt besloten: uw abonnement en de optie om op te zeggen vindt u onder Facturering beheren, in uw Nosdesk-account. Alles wat u hebt ingesteld blijft tot dan zoals het is.
+trial-notice-cancelled-title = Uw proefperiode eindigt op { $date } en wordt niet verlengd.
+trial-notice-cancelled-body = U hoeft niets te doen. Wilt u Nosdesk toch houden, dan kan dat tot die tijd via Facturering beheren, in uw Nosdesk-account.
+trial-notice-manage-billing = Facturering beheren
+trial-notice-manage-billing-aria = Facturering beheren, opent uw Nosdesk-account in een nieuw tabblad
+trial-notice-opens-account = Opent uw Nosdesk-account in een nieuw tabblad
+trial-notice-dismiss = Herinnering over proefperiode sluiten
+
 bug-report-modal-title = Probleem melden
 bug-report-modal-description-label = Wat is er gebeurd?
 bug-report-modal-description-placeholder = bv. ik probeerde een reactie op te slaan en kreeg een rode banner; stond net daarvoor op het menu voor toewijzing.

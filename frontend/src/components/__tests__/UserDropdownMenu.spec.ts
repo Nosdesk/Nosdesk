@@ -8,8 +8,14 @@ import { mountWithProviders } from '@/test/mountWithProviders'
 
 const CP = 'https://manage.example.com'
 
-const { hosted, auth, openExternalUrl } = await vi.hoisted(async () => ({
+const { hosted, auth, openExternalUrl, workspaces } = await vi.hoisted(async () => ({
   hosted: (await import('vue')).ref(true),
+  workspaces: (await import('vue')).reactive({
+    showSwitcher: false,
+    workspaces: [],
+    activeWorkspaceId: null,
+    activeWorkspace: null as Record<string, unknown> | null,
+  }),
   auth: {
     user: { uuid: 'u1', name: 'Olive Owner', email: 'o@example.com', avatar_url: null, workspace_role: 'owner' },
     isAdmin: true,
@@ -25,9 +31,7 @@ vi.mock('@nosdesk/core/services/instanceConfig', async (importOriginal) => ({
 }))
 vi.mock('@/platform', () => ({ openExternalUrl }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
-vi.mock('@/stores/myWorkspaces', () => ({
-  useMyWorkspacesStore: () => ({ showSwitcher: false, workspaces: [], activeWorkspaceId: null }),
-}))
+vi.mock('@/stores/myWorkspaces', () => ({ useMyWorkspacesStore: () => workspaces }))
 vi.mock('@/composables/useWorkspaceSwitch', () => ({ useWorkspaceSwitch: () => ({ switchWorkspace: vi.fn() }) }))
 vi.mock('vue-router', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -42,6 +46,7 @@ let wrapper: VueWrapper | null = null
 beforeEach(() => {
   hosted.value = true
   auth.user.workspace_role = 'owner'
+  workspaces.activeWorkspace = null
 })
 afterEach(() => {
   wrapper?.unmount()
@@ -84,6 +89,46 @@ describe('Plan and billing', () => {
     await openMenu()
     expect(row('user-menu-plan-billing')).toBeUndefined()
     expect(row('user-menu-team')).toBeTruthy()
+  })
+})
+
+describe('Trial end under Plan and billing', () => {
+  const inDays = (days: number) => {
+    const d = new Date()
+    d.setDate(d.getDate() + days)
+    d.setHours(12, 0, 0, 0)
+    return d.toISOString()
+  }
+  const ownerRow = (billing?: Record<string, unknown>) => ({
+    workspace_id: 1,
+    workspace_uuid: 'ws-1',
+    role: 'owner',
+    billing,
+  })
+  /** The billing row's second line, if it has one. */
+  const quietLine = () => row('user-menu-plan-billing')?.querySelector('.text-tertiary')?.textContent?.trim()
+
+  it('is a second line while the trial runs', async () => {
+    workspaces.activeWorkspace = ownerRow({ status: 'trialing', trial_end: inDays(12), cancel_at: null })
+    await openMenu()
+    expect(quietLine()).toBe('trial-notice-menu-line')
+  })
+
+  it('says the trial will not continue once cancelled', async () => {
+    workspaces.activeWorkspace = ownerRow({ status: 'trialing', trial_end: inDays(5), cancel_at: inDays(5) })
+    await openMenu()
+    expect(quietLine()).toBe('trial-notice-menu-line-cancelled')
+  })
+
+  it.each([
+    ['on a paid plan', { status: 'active', trial_end: null, cancel_at: null }],
+    ['for an unknown status', { status: 'incomplete', trial_end: inDays(5), cancel_at: null }],
+    ['before billing is known', undefined],
+  ])('is absent %s, and the row stays', async (_label, billing) => {
+    workspaces.activeWorkspace = ownerRow(billing)
+    await openMenu()
+    expect(row('user-menu-plan-billing')).toBeTruthy()
+    expect(quietLine()).toBeUndefined()
   })
 })
 
