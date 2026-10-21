@@ -28,7 +28,8 @@ pub enum Class {
     /// Never carried: credentials and capabilities, delivery queues and logs,
     /// import history, and state the target rebuilds. The target's rows stay.
     Never,
-    /// Not workspace content: the audit trail, the sync stream and export jobs.
+    /// Not workspace content: the audit trail, the sync stream, and export
+    /// and workspace import jobs.
     Excluded,
 }
 
@@ -275,6 +276,7 @@ pub const WORKSPACE_TABLES: &[Table] = &[
     t("audit_log", Excluded),
     t("sync_actions", Excluded),
     t("workspace_export_jobs", Excluded),
+    t("workspace_import_jobs", Excluded),
 ];
 
 /// Instance tables with secret columns. Instance backups carry these tables;
@@ -587,6 +589,7 @@ mod tests {
             "user_profiles",
             "notification_preferences",
             "workspace_export_jobs",
+            "workspace_import_jobs",
             "import_jobs",
             "audit_log",
         ] {

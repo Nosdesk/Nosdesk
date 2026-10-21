@@ -41,6 +41,7 @@ const APPROVAL_TIMEOUT_LOCK: i64 = 0x004e_6f73_4150_544f;
 const GUEST_RESIDUE_LOCK: i64 = 0x004e_6f73_4752_4553;
 const EMAIL_LOGO_COPIES_LOCK: i64 = 0x004e_6f73_454d_4c47;
 const IMPORT_HISTORY_PRUNE_LOCK: i64 = 0x004e_6f73_494d_5048;
+const WORKSPACE_IMPORT_PRUNE_LOCK: i64 = 0x004e_6f73_5749_4d50;
 // Partition drops take a session try-lock that skips the tick when a peer
 // machine is already pruning. Per-parent keys so audit_log and sync_actions
 // prune independently.
@@ -802,6 +803,91 @@ pub async fn prune_import_history_before(
     }
     if files > 0 {
         info!(count = files, "scheduler: import files removed");
+    }
+    Ok(())
+}
+
+/// Workspace imports (`services::workspace_import_jobs`): put back the jobs
+/// whose background run died with its process, then the 30-day prune (an
+/// unused upload goes with its job; any other job loses its archive and the
+/// people in its report and keeps its counts).
+pub async fn prune_workspace_imports(pool: Pool) -> Result<()> {
+    let _lock = match try_job_lock(
+        &pool,
+        WORKSPACE_IMPORT_PRUNE_LOCK,
+        "workspace_imports.prune",
+    )? {
+        Some(lock) => lock,
+        None => return Ok(()),
+    };
+    prune_workspace_imports_before(
+        &pool,
+        crate::utils::storage::process_storage(),
+        chrono::Utc::now() - crate::services::workspace_import_jobs::KEEP_FOR,
+    )
+    .await
+}
+
+/// One pass of [`prune_workspace_imports`] with `before` in place of 30 days
+/// ago and `storage` in place of the process's, without the job lock.
+pub async fn prune_workspace_imports_before(
+    pool: &Pool,
+    storage: Arc<dyn crate::utils::storage::Storage>,
+    before: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    use crate::repository::workspace_import_jobs as repo;
+    use crate::services::workspace_import_jobs as jobs;
+    const BATCH: i64 = 500;
+
+    let silent_since = chrono::Utc::now()
+        - chrono::Duration::from_std(jobs::STALLED_AFTER).unwrap_or(chrono::Duration::minutes(5));
+    let stalled =
+        // cross-tenant: finds the stalled imports across every workspace; each is put back pinned to its own workspace below.
+        crate::sync::session::background_run(pool, "scheduler:workspace_import_stalled_scan", |conn| {
+            repo::stalled(conn, silent_since, BATCH)
+        })
+        .map_err(|e| anyhow::anyhow!("scan stalled workspace imports: {e}"))?;
+    for (workspace_id, id) in stalled {
+        if let Err(e) = crate::sync::session::run_in_workspace(
+            pool,
+            "scheduler:workspace_import_settle",
+            workspace_id,
+            |conn| jobs::settle(conn, workspace_id, id),
+        ) {
+            warn!(workspace_id, job_id = %id, error = ?e, "scheduler: workspace import settle failed");
+        }
+    }
+
+    let due =
+        // cross-tenant: finds the imports due across every workspace; each is pruned pinned to its own workspace below.
+        crate::sync::session::background_run(pool, "scheduler:workspace_import_prune_scan", |conn| {
+            repo::prune_due(conn, before, BATCH)
+        })
+        .map_err(|e| anyhow::anyhow!("scan workspace imports: {e}"))?;
+    let mut pruned = 0usize;
+    for (workspace_id, id) in due {
+        match crate::sync::session::run_in_workspace(
+            pool,
+            "scheduler:workspace_import_prune",
+            workspace_id,
+            |conn| jobs::prune(conn, workspace_id, id, before),
+        ) {
+            Ok(false) => {}
+            Ok(true) => {
+                pruned += 1;
+                let scoped = crate::utils::storage::WorkspaceScopedStorage::new(
+                    storage.clone(),
+                    workspace_id,
+                );
+                jobs::delete_archive(&scoped, id).await;
+            }
+            Err(e) => {
+                warn!(workspace_id, job_id = %id, error = ?e, "scheduler: workspace import prune failed")
+            }
+        }
+    }
+    if pruned > 0 {
+        info!(count = pruned, "scheduler: workspace imports pruned");
     }
     Ok(())
 }

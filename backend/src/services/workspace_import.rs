@@ -108,6 +108,49 @@ impl std::fmt::Display for ImportRefusal {
     }
 }
 
+impl ImportRefusal {
+    /// The code a client words the refusal by. A plan refusal answers with
+    /// the first of its own codes.
+    pub fn code(&self) -> &'static str {
+        match self {
+            ImportRefusal::FormatTooOld { .. } => "workspace_import.format_too_old",
+            ImportRefusal::Earlier { .. } => "workspace_import.earlier_version",
+            ImportRefusal::Newer { .. } => "workspace_import.newer_version",
+            ImportRefusal::Unknown { .. } => "workspace_import.unknown_version",
+            ImportRefusal::Plan(refusals) => refusals
+                .first()
+                .map_or("workspace_import.refused", PlanRefusal::code),
+        }
+    }
+
+    /// As the import surfaces' shared refusal: code, English and the values
+    /// the wording takes (the export's version, this server's, and for a plan
+    /// refusal every refusal under `refusals`).
+    pub fn to_refused(&self) -> crate::services::imports::refusal::Refused {
+        use crate::services::imports::refusal::Refused;
+        let refused = Refused::new(self.code(), self.to_string())
+            .arg("server_version", env!("CARGO_PKG_VERSION"));
+        match self {
+            ImportRefusal::FormatTooOld { export_version }
+            | ImportRefusal::Newer { export_version }
+            | ImportRefusal::Unknown { export_version } => {
+                refused.arg("export_version", export_version.clone())
+            }
+            ImportRefusal::Earlier { release } => refused.arg("export_version", release.clone()),
+            ImportRefusal::Plan(refusals) => refused.arg(
+                "refusals",
+                refusals
+                    .iter()
+                    .map(|r| {
+                        let r = r.to_refused();
+                        json!({ "code": r.code, "message": r.message, "args": r.args })
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        }
+    }
+}
+
 /// Whether an export with `manifest` imports here: format 2 or later, made at
 /// this build's schema (`backup_upgrade::schema_point_of`).
 pub fn check_importable(manifest: &WorkspaceExportManifest) -> Result<(), ImportRefusal> {
