@@ -27,6 +27,8 @@ interface InstanceConfig {
   account_url?: string;
   /** Tickets carry a per-workspace number that URLs use. */
   ticket_numbers?: boolean;
+  /** The Nosdesk release this server runs. */
+  server_version?: string;
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
@@ -55,6 +57,9 @@ let accountUrl = '';
 // from an older server (the mobile app can reach one) turns it off, and there
 // a URL's ticket number is the ticket's id.
 let ticketNumbers = true;
+
+// The release `/api/config` reports; empty until it resolves.
+let serverVersion = '';
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -131,6 +136,9 @@ export function fetchInstanceConfig(): Promise<void> {
           controlPlaneUrl = data.control_plane_url;
         }
         ticketNumbers = data?.ticket_numbers === true;
+        if (typeof data?.server_version === 'string') {
+          serverVersion = data.server_version;
+        }
         configResolved.value = true;
       } catch (e) {
         logger.error('Failed to fetch instance config; will retry on next call', e);
@@ -162,6 +170,7 @@ export function resetInstanceConfig(): void {
   controlPlaneUrl = '';
   accountUrl = '';
   ticketNumbers = true;
+  serverVersion = '';
 }
 
 /** Reactive: `true` once {@link fetchInstanceConfig} has settled (success or
@@ -178,6 +187,11 @@ export function getWorkspaceRouting(): WorkspaceRouting {
  *  On an older server a URL's ticket number is the ticket's id. */
 export function serverHasTicketNumbers(): boolean {
   return ticketNumbers;
+}
+
+/** The Nosdesk release this server runs; '' until the config resolves. */
+export function getServerVersion(): string {
+  return serverVersion;
 }
 
 /** The instance's deployment mode. 'self_hosted' until the config resolves. */

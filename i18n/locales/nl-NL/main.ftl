@@ -10584,3 +10584,650 @@ docs-import-remove-result-collections-deleted = { $count ->
 }
 # MT: pending native review (nl-NL)
 docs-import-remove-result-collections-kept = De collecties zijn behouden: er staan nog pagina's in.
+
+## Werkruimte-import: een Nosdesk-export in deze werkruimte (machine, nog na te kijken door moedertaalspreker)
+
+route-title-admin-workspace-import = Een Nosdesk-export importeren
+route-title-admin-workspace-import-detail = Werkruimte-import
+admin-data-import-nosdesk-title = Nosdesk-export
+admin-data-import-nosdesk-description = Verhuis een hele werkruimte vanuit Nosdesk Cloud of een andere zelf gehoste Nosdesk. Vult deze werkruimte zolang die nog leeg is.
+admin-data-import-nosdesk-description-cloud = Verhuis een hele werkruimte vanuit een zelf gehoste Nosdesk. Nosdesk-support voert verhuizingen naar Cloud uit; neem contact op om er een te regelen.
+admin-data-import-status-support = Nosdesk-support
+admin-data-import-nosdesk-owner-only = Verhuis een hele werkruimte vanuit een andere Nosdesk. De eigenaar van de werkruimte voert dit uit.
+admin-data-import-status-owner-only = Alleen eigenaar
+workspace-import-title = Een Nosdesk-export importeren
+workspace-import-subtitle = Vul { $workspace } met een werkruimte die is geëxporteerd uit Nosdesk Cloud of een andere Nosdesk.
+workspace-import-cloud-elsewhere = Een werkruimte naar Nosdesk Cloud verhuizen doet Nosdesk-support. Neem contact op om het te regelen, en bewaar uw exportbestand.
+workspace-import-owner-only = Alleen de eigenaar van de werkruimte kan een Nosdesk-export importeren.
+workspace-import-step-archive = Archief
+workspace-import-step-preview = Voorbeeld
+workspace-import-step-import = Importeren
+workspace-import-nothing-changes = Er verandert niets in deze werkruimte totdat u bij de stap Voorbeeld op Importeren drukt.
+workspace-import-resume-failed = Deze import kon niet worden geopend. Begin opnieuw met het exportbestand.
+workspace-import-upload-failed = Het uploaden is niet voltooid. Controleer de verbinding en kies het bestand opnieuw.
+workspace-import-check-request-failed = De controle kon niet starten. Probeer het opnieuw.
+workspace-import-confirm-failed = De import kon niet starten. Probeer het opnieuw.
+workspace-import-retry-failed = De bestanden konden niet opnieuw worden geprobeerd. Probeer het opnieuw.
+
+workspace-import-archive-heading = Archief
+workspace-import-archive-unnamed = Naamloze export
+workspace-import-archive-sealed = wachtwoord
+workspace-import-uploading = { $size } · uploaden, { $pct }%
+workspace-import-choose-another = Ander bestand kiezen
+workspace-import-drop-idle = Kies het exportbestand
+workspace-import-drop-hint = Een .nosdesk-archief uit Werkruimtegegevens exporteren. Tot { $max }.
+workspace-import-password-label = Wachtwoord van het archief
+workspace-import-password-placeholder = Alleen als er bij het exporteren een is ingesteld
+workspace-import-password-hint = Laat leeg voor een archief dat zonder wachtwoord is geëxporteerd.
+workspace-import-checks-heading = Controles
+workspace-import-checks-before = voordat er iets wordt geschreven
+workspace-import-checks-again = Dezelfde controles worden tijdens de import opnieuw uitgevoerd, dus een wijziging in de tussentijd wordt opgemerkt.
+workspace-import-found-files =
+    { $count ->
+        [one] 1 bestand
+       *[other] { $count } bestanden
+    }
+workspace-import-found-rows = { $what }: { $count }
+workspace-import-check-not-empty-settings = Instellingen die u hebt gewijzigd, zoals workflowstatussen, tellen niet mee; de import vervangt ze.
+workspace-import-fix-check = Controleren
+workspace-import-fix-check-again = Opnieuw controleren
+workspace-import-fix-new-ids = Opnieuw controleren met nieuwe id's
+workspace-import-fix-follow = Volgen
+workspace-import-fix-not-empty = Verwijder deze items en kom terug, of voer de import uit op een nieuwe installatie.
+workspace-import-archive-next-note = Het voorbeeld toont alles wat het archief zou toevoegen voordat er iets wordt geschreven.
+workspace-import-archive-wait-note = Het voorbeeld is klaar zodra het archief is gecontroleerd.
+workspace-import-continue-to-preview = Verder naar voorbeeld
+
+workspace-import-check-untouched = { $workspace } is nog leeg
+workspace-import-check-untouched-detail = Alleen de beginconfiguratie, die de import vervangt.
+workspace-import-check-untouched-pending = { $workspace } is nog leeg
+workspace-import-check-untouched-pending-detail = Gecontroleerd zodra het bestand er is.
+workspace-import-check-size-ok = { $size }, onder de limiet van { $max }
+workspace-import-check-size-pending = Kleiner dan { $max }
+workspace-import-check-version-ok = Gemaakt met Nosdesk { $export }; deze server draait { $server }
+workspace-import-check-version-ok-detail = { $slug }, geëxporteerd op { $date } vanaf { $origin }.
+workspace-import-check-reading = Archief lezen
+workspace-import-check-reading-detail = De versie en inhoud worden gecontroleerd.
+workspace-import-check-version-pending = Dezelfde release als deze server ({ $server })
+workspace-import-check-version-pending-detail = Gecontroleerd zodra het bestand er is.
+workspace-import-check-not-empty = { $workspace } bevat al gegevens
+workspace-import-check-not-empty-detail = Een import vult een werkruimte die nog leeg is. Deze bevat:
+workspace-import-check-in-progress = Er loopt al een import
+workspace-import-check-in-progress-detail = Er loopt één import tegelijk. Volg deze om hem af te ronden of terug te zetten.
+workspace-import-check-no-workspace = Deze werkruimte is niet beschikbaar
+workspace-import-check-no-workspace-detail = Mogelijk is deze gearchiveerd. Laad de pagina opnieuw.
+workspace-import-check-too-large = Dit bestand is { $size }; deze server accepteert tot { $max }
+workspace-import-check-too-large-detail = Exporteer opnieuw met minder bijlagen, of vraag de beheerder van deze server om NOSDESK_MAX_IMPORT_BYTES te verhogen.
+workspace-import-check-format-too-old = Gemaakt met Nosdesk { $export } in een ouder formaat
+workspace-import-check-format-too-old-detail = Dit archief bevat geen e-mailadressen, dus niemand zou kunnen inloggen. Werk die Nosdesk bij naar { $server } en exporteer opnieuw.
+workspace-import-check-version = Gemaakt met Nosdesk { $export }; deze server draait { $server }
+workspace-import-check-earlier-detail = Een archief wordt alleen in dezelfde release geïmporteerd. Werk de Nosdesk van herkomst bij naar { $server } en exporteer opnieuw, of importeer het op een server die { $export } draait.
+workspace-import-check-newer-detail = Werk deze server bij naar Nosdesk { $export } en importeer daarna. Het archief blijft geldig.
+workspace-import-check-unknown-version = Gemaakt met een Nosdesk die deze server niet herkent
+workspace-import-check-unknown-version-detail = Het archief (Nosdesk { $export }) heeft een databasestructuur die deze server niet kent, zoals die van een ontwikkelversie. Exporteer opnieuw vanaf een server die Nosdesk { $server } draait.
+workspace-import-check-sealed = Dit archief heeft een wachtwoord
+workspace-import-check-sealed-detail = Voer het wachtwoord in waarmee het is geëxporteerd om het te controleren.
+workspace-import-check-password-wrong = Het wachtwoord opent dit archief niet
+workspace-import-check-password-wrong-detail = Het is het wachtwoord dat bij het exporteren is ingevoerd. Probeer het opnieuw.
+workspace-import-check-unreadable = Dit bestand is geen Nosdesk-werkruimte-export
+workspace-import-check-unreadable-detail = Of het is beschadigd. Kies het .nosdesk-bestand uit Werkruimtegegevens exporteren.
+workspace-import-check-archive-missing = Het geüploade archief is er niet meer
+workspace-import-check-archive-missing-detail = Kies het exportbestand opnieuw.
+workspace-import-check-stopped = De controle is gestopt voordat die klaar was
+workspace-import-check-stopped-detail = Er is niets geschreven. Controleer het archief opnieuw.
+workspace-import-check-import-stopped = De import is gestopt voordat die klaar was
+workspace-import-check-import-stopped-detail = Er is niets geïmporteerd.
+workspace-import-check-failed = Het archief kon niet worden gecontroleerd tegen deze werkruimte
+workspace-import-check-failed-detail = Er is niets geschreven. Controleer opnieuw; als het weer mislukt, staat de reden in het serverlogboek.
+workspace-import-check-collision = Dit archief overlapt met gegevens die al op deze server staan
+workspace-import-check-collision-ids-detail = { $rows } rijen in { $table } hebben id's die deze server al heeft, zoals bij een kopie van een werkruimte die nog op deze server staat. Controleer opnieuw met nieuwe id's om het als kopie te importeren.
+workspace-import-check-collision-detail = { $rows } rijen in { $table } hebben waarden die deze server al heeft. Importeer het op een nieuwe installatie.
+workspace-import-check-plan = Dit archief kan niet worden geïmporteerd zoals het is
+workspace-import-check-plan-detail = De export klopt niet. Exporteer de werkruimte opnieuw; als dit terugkomt, stuur dan het onderstaande bericht naar support.
+workspace-import-check-refused = Dit archief kan niet worden geïmporteerd
+workspace-import-check-refused-detail = De server gaf deze reden:
+
+workspace-import-preview-source = { $name }, geëxporteerd op { $date } vanaf { $origin }
+workspace-import-preview-source-no-origin = { $name }, geëxporteerd op { $date }
+workspace-import-preview-lead =
+    Importeren vult { $workspace } met alles hieronder, vervangt de beginconfiguratie van deze werkruimte en brengt { $people ->
+        [one] 1 persoon
+       *[other] { $people } personen
+    } over op e-mailadres. Inloggegevens verhuizen nooit; u voert ze daarna opnieuw in vanaf een checklist.
+workspace-import-preview-made-by = Gemaakt met Nosdesk { $version } · { $size }
+workspace-import-tile-tickets = Tickets
+workspace-import-tile-pages = Pagina's
+workspace-import-tile-assets = Assets
+workspace-import-tile-people = Personen
+workspace-import-tile-files = Bestanden
+workspace-import-tile-people-sub = { $staff } medewerkers · { $requesters } aanvragers
+workspace-import-tile-files-all = alle hersteld
+workspace-import-tile-files-missing = { $count } opnieuw te proberen
+workspace-import-tile-people-merged = inclusief u
+workspace-import-tile-files-skipped = { $count } weggelaten
+workspace-import-files-skipped =
+    { $count ->
+        [one] 1 bestand is weggelaten: het archief bevatte het niet, of deze server accepteert het type niet. Het rapport noemt het.
+       *[other] { $count } bestanden zijn weggelaten: het archief bevatte ze niet, of deze server accepteert het type niet. Het rapport noemt ze.
+    }
+workspace-import-jump-label = Onderdelen
+workspace-import-jump-across = Wat er meekomt
+workspace-import-jump-people = Personen
+workspace-import-jump-signin = Inloggen
+workspace-import-jump-replaces = Hier vervangen
+workspace-import-jump-off = Komt uitgeschakeld
+workspace-import-jump-not = Verhuist niet
+workspace-import-jump-attention = Vraagt aandacht
+
+workspace-import-across-heading = Wat er meekomt
+workspace-import-area-tickets = Tickets
+workspace-import-area-tickets-note = Ticketnummers blijven hetzelfde, dus #1042 blijft #1042.
+workspace-import-area-docs = Documentatie
+workspace-import-area-docs-note = Links en vermeldingen in pagina's wijzen naar de geïmporteerde pagina's. De welkomstcollectie hier wordt vervangen.
+workspace-import-area-assets = Assets
+workspace-import-area-projects = Projecten
+workspace-import-area-people = Personen
+workspace-import-area-people-note = Hoe elke persoon overkomt, staat hieronder bij Personen.
+workspace-import-area-config = Configuratie
+workspace-import-area-integrations = Integraties
+workspace-import-area-integrations-note = Hun instellingen komen mee, hun inloggegevens niet. Zie Komt uitgeschakeld.
+workspace-import-integration-smtp = instellingen voor uitgaande e-mail
+workspace-import-integration-sso = een inlogprovider
+workspace-import-integration-ldap = instellingen voor adreslijstsynchronisatie
+workspace-import-integration-widget = de helpwidget
+workspace-import-n-areas =
+    { $count ->
+        [one] 1 onderdeel
+       *[other] { $count } onderdelen
+    }
+workspace-import-n-items =
+    { $count ->
+        [one] 1 item
+       *[other] { $count } items
+    }
+workspace-import-n-integrations =
+    { $count ->
+        [one] 1 integratie
+       *[other] { $count } integraties
+    }
+workspace-import-n-tickets =
+    { $count ->
+        [one] 1 ticket
+       *[other] { $count } tickets
+    }
+workspace-import-n-comments =
+    { $count ->
+        [one] 1 opmerking
+       *[other] { $count } opmerkingen
+    }
+workspace-import-n-attachments =
+    { $count ->
+        [one] 1 bijlage
+       *[other] { $count } bijlagen
+    }
+workspace-import-n-merges =
+    { $count ->
+        [one] 1 samenvoeging
+       *[other] { $count } samenvoegingen
+    }
+workspace-import-n-pages =
+    { $count ->
+        [one] 1 pagina
+       *[other] { $count } pagina's
+    }
+workspace-import-n-collections =
+    { $count ->
+        [one] 1 collectie
+       *[other] { $count } collecties
+    }
+workspace-import-n-revisions =
+    { $count ->
+        [one] 1 revisie
+       *[other] { $count } revisies
+    }
+workspace-import-n-assets =
+    { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+    }
+workspace-import-n-loans =
+    { $count ->
+        [one] 1 uitlening
+       *[other] { $count } uitleningen
+    }
+workspace-import-n-disposals =
+    { $count ->
+        [one] 1 afvoer
+       *[other] { $count } afvoeren
+    }
+workspace-import-n-asset-kinds =
+    { $count ->
+        [one] 1 assetsoort
+       *[other] { $count } assetsoorten
+    }
+workspace-import-n-asset-photos =
+    { $count ->
+        [one] 1 assetfoto of -bestand
+       *[other] { $count } assetfoto's en -bestanden
+    }
+workspace-import-n-projects =
+    { $count ->
+        [one] 1 project
+       *[other] { $count } projecten
+    }
+workspace-import-n-cycles =
+    { $count ->
+        [one] 1 cyclus
+       *[other] { $count } cycli
+    }
+workspace-import-n-groups =
+    { $count ->
+        [one] 1 groep
+       *[other] { $count } groepen
+    }
+workspace-import-n-staff =
+    { $count ->
+        [one] 1 medewerker
+       *[other] { $count } medewerkers
+    }
+workspace-import-n-requesters =
+    { $count ->
+        [one] 1 aanvrager
+       *[other] { $count } aanvragers
+    }
+workspace-import-n-workflow-states =
+    { $count ->
+        [one] 1 workflowstatus
+       *[other] { $count } workflowstatussen
+    }
+workspace-import-n-categories =
+    { $count ->
+        [one] 1 categorie
+       *[other] { $count } categorieën
+    }
+workspace-import-n-sla =
+    { $count ->
+        [one] 1 SLA-beleid
+       *[other] { $count } SLA-beleidsregels
+    }
+workspace-import-n-calendars =
+    { $count ->
+        [one] 1 werkkalender
+       *[other] { $count } werkkalenders
+    }
+workspace-import-n-views =
+    { $count ->
+        [one] 1 opgeslagen weergave
+       *[other] { $count } opgeslagen weergaven
+    }
+workspace-import-n-rules =
+    { $count ->
+        [one] 1 regel
+       *[other] { $count } regels
+    }
+workspace-import-n-assignment-rules =
+    { $count ->
+        [one] 1 toewijzingsregel
+       *[other] { $count } toewijzingsregels
+    }
+workspace-import-n-replies =
+    { $count ->
+        [one] 1 opgeslagen antwoord
+       *[other] { $count } opgeslagen antwoorden
+    }
+workspace-import-n-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-n-channels =
+    { $count ->
+        [one] 1 e-mailkanaal
+       *[other] { $count } e-mailkanalen
+    }
+workspace-import-n-plugins =
+    { $count ->
+        [one] 1 plug-in
+       *[other] { $count } plug-ins
+    }
+
+workspace-import-people-heading = Personen
+workspace-import-people-by-email = { $count } op e-mailadres
+workspace-import-group-merged =
+    { $count ->
+        [one] wordt met u samengevoegd
+       *[other] worden met u samengevoegd
+    }
+workspace-import-group-staff-created =
+    { $count ->
+        [one] medewerker krijgt een nieuw account
+       *[other] medewerkers krijgen een nieuw account
+    }
+workspace-import-group-staff-mapped =
+    { $count ->
+        [one] medewerker koppelt aan een bestaand account
+       *[other] medewerkers koppelen aan bestaande accounts
+    }
+workspace-import-group-staff-no-email =
+    { $count ->
+        [one] medewerker zonder e-mailadres
+       *[other] medewerkers zonder e-mailadres
+    }
+workspace-import-group-requesters-created =
+    { $count ->
+        [one] aanvrager krijgt een nieuw account
+       *[other] aanvragers krijgen een nieuw account
+    }
+workspace-import-group-requesters-mapped =
+    { $count ->
+        [one] aanvrager koppelt aan een bestaand account
+       *[other] aanvragers koppelen aan bestaande accounts
+    }
+workspace-import-group-placeholders = alleen op naam
+workspace-import-people-note = Iedereen wordt gekoppeld op e-mailadres. Geen enkel bestaand account hier wordt gewijzigd; de geschiedenis uit het archief verwijst er alleen naar. Eigenaren in het archief anders dan u komen binnen als beheerder; maak daarna iemand eigenaar als u dat wilt.
+workspace-import-filter-staff = Medewerkers { $count }
+workspace-import-filter-attention = Het bekijken waard { $count }
+workspace-import-filter-requesters = Aanvragers { $count }
+workspace-import-person-you = u
+workspace-import-person-no-email = geen e-mailadres
+workspace-import-person-removed = verwijderd
+workspace-import-person-unnamed = Geen naam
+workspace-import-people-none = Niemand hier.
+workspace-import-outcome-merged = Wordt samengevoegd met uw account
+workspace-import-outcome-mapped = Koppelt aan het account met dit e-mailadres
+workspace-import-outcome-created = Nieuw account als { $role }
+workspace-import-outcome-created-was-owner = Nieuw account als { $role } (was eigenaar)
+workspace-import-outcome-created-no-email = Nieuw account als { $role }, zonder e-mailadres
+workspace-import-outcome-created-removed = Nieuw account, geen lid (was verwijderd)
+workspace-import-outcome-created-no-member = Nieuw account, geen lid
+workspace-import-outcome-placeholder = Alleen op naam
+workspace-import-requesters-line = Aanvragers: { $created } nieuwe accounts, { $mapped } koppelen aan accounts die hier al zijn.
+
+workspace-import-signin-heading = Hoe personen daarna inloggen
+workspace-import-signin-you = U
+workspace-import-signin-you-detail = Blijf inloggen zoals u nu doet. Als het archief uw e-mailadres bevat, wordt de geschiedenis onder dat adres meteen van u.
+workspace-import-signin-staff = Medewerkers
+workspace-import-signin-staff-detail = Krijgen hier accounts zonder wachtwoord. Stuur hun uitnodigingen vanuit de laatste stap; ieder stelt een wachtwoord in via de uitnodiging. Uitnodigingen gaan via de uitgaande e-mail van deze server, niet via de e-mailinstellingen van het archief, die uitgeschakeld binnenkomen. "Wachtwoord vergeten" werkt ook, en nosdesk-cli admin reset-password is de terugvaloptie als e-mail niet is ingesteld.
+workspace-import-signin-requesters = Aanvragers
+workspace-import-signin-requesters-detail = Loggen in op het portaal met een e-maillink of een wachtwoordherstel, zoals deze server toestaat. Hun e-mailadressen komen ongeverifieerd binnen.
+workspace-import-signin-secrets = Wachtwoorden, passkeys en tweestapsverificatie
+workspace-import-signin-secrets-detail = Verhuizen niet. Iedereen stelt tweestapsverificatie opnieuw in.
+workspace-import-signin-sso-off = De inlogprovider komt uitgeschakeld binnen totdat u het geheim opnieuw invoert en de provider naar deze server laat wijzen.
+
+workspace-import-replaces-heading = Wat deze werkruimte opgeeft
+workspace-import-replaces-config = Configuratie
+workspace-import-replaces-config-detail = De workflowstatussen, categorieën, SLA-beleidsregels, werkkalender, huisstijl, standaardmeldingen, persoonsvelden en documentatie uit het archief vervangen de beginwaarden van deze werkruimte.
+workspace-import-replaces-config-note = Alles wat u tijdens de installatie hebt gewijzigd, wordt ook vervangen.
+workspace-import-replaces-name = Naam
+workspace-import-replaces-name-detail = Deze werkruimte blijft { $workspace }. Het archief komt van { $archive }; u kunt daarna de naam wijzigen.
+workspace-import-replaces-members = Leden
+workspace-import-replaces-members-detail = Uw lidmaatschap en rol blijven zoals ze zijn.
+
+workspace-import-off-heading = Komt uitgeschakeld binnen
+workspace-import-off-smtp = Uitgaande e-mail
+workspace-import-off-smtp-detail = E-mailinstellingen komen binnen zonder inloggegevens.
+workspace-import-off-smtp-hint = Voer ze opnieuw in en zet e-mail daarna aan.
+workspace-import-off-sso = Inlogprovider
+workspace-import-off-sso-detail = Komt binnen zonder clientgeheim.
+workspace-import-off-sso-hint = Voer het opnieuw in, laat het omleidingsadres van de provider naar deze server wijzen en zet de provider aan.
+workspace-import-off-ldap = Adreslijstsynchronisatie
+workspace-import-off-ldap-detail = Komt binnen zonder bindwachtwoord.
+workspace-import-off-ldap-hint = Voer het opnieuw in en zet synchronisatie daarna aan.
+workspace-import-off-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-off-webhooks-detail = Elk krijgt een nieuw ondertekeningsgeheim.
+workspace-import-off-webhooks-hint = Geef de ontvangers het nieuwe geheim en zet ze daarna aan.
+workspace-import-off-channels =
+    { $count ->
+        [one] 1 e-mailkanaal
+       *[other] { $count } e-mailkanalen
+    }
+workspace-import-off-channels-detail = Komen binnen zonder wachtwoorden.
+workspace-import-off-channels-hint = Voer ze opnieuw in en zet de kanalen daarna aan.
+workspace-import-off-plugins =
+    { $count ->
+        [one] 1 plug-in
+       *[other] { $count } plug-ins
+    }
+workspace-import-off-plugins-detail = Hun instellingen komen mee, hun geheime waarden niet.
+workspace-import-off-plugins-hint = Voer de geheimen opnieuw in en zet daarna elke plug-in aan.
+workspace-import-off-widget = Helpwidget
+workspace-import-off-widget-detail = Komt uitgeschakeld binnen.
+workspace-import-off-widget-hint = Zet deze weer aan vanuit de instellingen.
+workspace-import-off-guest-links = Gastlinks
+workspace-import-off-guest-links-detail =
+    { $count ->
+        [one] 1 ticket krijgt een nieuwe gastlink. Een link die voor de verhuizing is verstuurd, werkt niet meer.
+       *[other] { $count } tickets krijgen nieuwe gastlinks. Links die voor de verhuizing zijn verstuurd, werken niet meer.
+    }
+workspace-import-off-none = Niets komt uitgeschakeld binnen.
+workspace-import-off-rule = De regel: alles wat met de buitenwereld praat, komt uitgeschakeld binnen, zodat een import nooit e-mail verstuurt, een webhook activeert of een verzoek aanneemt voordat u ernaar hebt gekeken.
+
+workspace-import-not-heading = Verhuist niet
+workspace-import-not-tokens = API-tokens
+workspace-import-not-tokens-detail = Maak hier nieuwe aan. Alles wat de API met de oude aanriep, heeft een nieuwe nodig.
+workspace-import-not-devices = Mobiele apps
+workspace-import-not-devices-detail = Telefoons die voor meldingen zijn geregistreerd, loggen opnieuw in op het adres van deze server.
+workspace-import-not-activity = Activiteitenfeeds
+workspace-import-not-activity-detail = De activiteitenfeed blijft achter. Opmerkingen, toewijzingen en status staan in elk ticket.
+workspace-import-not-passwords = Wachtwoorden en tweestapsverificatie
+workspace-import-not-passwords-detail = Worden nooit geëxporteerd. Zie Hoe personen inloggen.
+workspace-import-not-history = Importgeschiedenis
+workspace-import-not-history-detail = Eerdere spreadsheet- en documentatie-imports blijven bij de andere Nosdesk.
+
+workspace-import-attention-heading = Vraagt aandacht
+workspace-import-attention-none = Niets vraagt aandacht.
+workspace-import-attention-rules =
+    { $count ->
+        [one] 1 regel verwijst naar iets wat het archief niet bevat. Deze komt binnen als concept en wordt niet uitgevoerd totdat u hem herstelt.
+       *[other] { $count } regels verwijzen naar iets wat het archief niet bevat. Ze komen binnen als concept en worden niet uitgevoerd totdat u ze herstelt.
+    }
+workspace-import-attention-views =
+    { $count ->
+        [one] 1 opgeslagen weergave filtert op iets wat het archief niet bevat. Dat filter vervalt; de rest van de weergave blijft.
+       *[other] { $count } opgeslagen weergaven filteren op iets wat het archief niet bevat. Die filters vervallen; de rest van elke weergave blijft.
+    }
+workspace-import-attention-cleared =
+    { $count ->
+        [one] 1 waarde in { $table } verwees naar iets wat het archief niet bevat en wordt gewist.
+       *[other] { $count } waarden in { $table } verwezen naar iets wat het archief niet bevat en worden gewist.
+    }
+workspace-import-attention-rows =
+    { $count ->
+        [one] 1 rij in { $table } hangt af van iets wat het archief niet bevat en wordt weggelaten.
+       *[other] { $count } rijen in { $table } hangen af van iets wat het archief niet bevat en worden weggelaten.
+    }
+workspace-import-attention-mentions =
+    { $count ->
+        [one] 1 vermelding van iemand die het archief niet bevat, wordt platte tekst.
+       *[other] { $count } vermeldingen van personen die het archief niet bevat, worden platte tekst.
+    }
+workspace-import-attention-ticket-links =
+    { $count ->
+        [one] 1 link naar een ticket dat het archief niet bevat, wordt platte tekst.
+       *[other] { $count } links naar tickets die het archief niet bevat, worden platte tekst.
+    }
+workspace-import-attention-images =
+    { $count ->
+        [one] 1 afbeelding die het archief niet bevat, wordt de beschrijving ervan.
+       *[other] { $count } afbeeldingen die het archief niet bevat, worden hun beschrijving.
+    }
+workspace-import-attention-embeds =
+    { $count ->
+        [one] 1 ingesloten pagina die het archief niet bevat, wordt de titel ervan.
+       *[other] { $count } ingesloten pagina's die het archief niet bevat, worden hun titel.
+    }
+workspace-import-attention-documents =
+    { $count ->
+        [one] 1 document kon niet worden gelezen en wordt geladen zoals het is.
+       *[other] { $count } documenten konden niet worden gelezen en worden geladen zoals ze zijn.
+    }
+workspace-import-attention-usernames =
+    { $count ->
+        [one] De gebruikersnaam van 1 persoon is hier al in gebruik. Deze komt binnen zonder gebruikersnaam.
+       *[other] De gebruikersnamen van { $count } personen zijn hier al in gebruik. Zij komen binnen zonder gebruikersnaam.
+    }
+
+workspace-import-back-to-archive = Terug naar Archief
+workspace-import-preview-reload-note = Elk open venster en elke app laadt zijn gegevens opnieuw wanneer de import klaar is.
+workspace-import-import-button = { $name } importeren
+workspace-import-confirm-title = { $name } in { $workspace } importeren?
+workspace-import-confirm-subtitle = De import loopt op de achtergrond; u kunt de pagina intussen verlaten.
+workspace-import-confirm-fills = Vult deze werkruimte met { $tickets } tickets, { $pages } pagina's, { $assets } assets en { $people } personen, gekoppeld op e-mailadres.
+workspace-import-confirm-replaces = Vervangt de workflow, categorieën, SLA, kalender en huisstijl door die uit het archief.
+workspace-import-confirm-off = Integraties komen uitgeschakeld binnen. U voert hun inloggegevens daarna opnieuw in vanaf een checklist.
+workspace-import-confirm-reload = Elk open venster en elke app laadt zijn gegevens opnieuw wanneer het klaar is.
+workspace-import-confirm-reset = Terugzetten maakt de werkruimte daarna weer leeg, maar verwijdert alles, ook wat later is toegevoegd. Er is geen gedeeltelijk ongedaan maken.
+workspace-import-confirm-password-hint = De import leest het archief opnieuw en heeft het wachtwoord dus nog een keer nodig.
+workspace-import-type-to-confirm = Typ { $workspace } om te bevestigen
+
+workspace-import-progress-heading = { $name } wordt geïmporteerd
+workspace-import-progress-started = gestart om { $time }
+workspace-import-stage-check = Het archief en deze werkruimte controleren
+workspace-import-stage-check-detail = Dezelfde controles als eerder, met een vergrendeling.
+workspace-import-stage-rows = Het archief in de database laden
+workspace-import-stage-rows-detail = Tickets, pagina's, assets, personen en instellingen gaan er in één transactie in, dus een fout hier laat de werkruimte zoals die was.
+workspace-import-stage-files = Bestanden herstellen
+workspace-import-stage-files-detail =
+    { $count ->
+        [one] 1 bestand, na de database. Als het niet wordt hersteld, gaat Bestanden opnieuw proberen vanaf daar verder.
+       *[other] { $count } bestanden, na de database. Als sommige niet worden hersteld, gaat Bestanden opnieuw proberen verder waar het stopte.
+    }
+workspace-import-stage-finish = Afronden
+workspace-import-stage-finish-detail = Zoeken wordt op de achtergrond opnieuw opgebouwd en elk open venster en elke app laadt zijn gegevens opnieuw.
+workspace-import-progress-leave = U kunt deze pagina verlaten; de import gaat door en Recente imports toont hem.
+workspace-import-importing = Importeren
+
+workspace-import-seconds = { $s } s
+workspace-import-minutes = { $m } min { $s } s
+workspace-import-done-title = Import voltooid
+workspace-import-done-detail = { $name } staat in { $workspace }: { $tickets } tickets, { $pages } pagina's, { $assets } assets en { $people } personen.
+workspace-import-done-took = Klaar { $time }, in { $duration }.
+workspace-import-done-reloaded = Elk open venster en elke app heeft zijn gegevens opnieuw geladen. Zoeken wordt op de achtergrond opnieuw opgebouwd.
+workspace-import-partial-title =
+    { $count ->
+        [one] Geïmporteerd, met nog 1 bestand te herstellen
+       *[other] Geïmporteerd, met nog { $count } bestanden te herstellen
+    }
+workspace-import-partial-detail = { $name } staat in { $workspace }. { $restored } van de { $total } bestanden zijn hersteld. Totdat een nieuwe poging de rest herstelt, tonen hun tickets en pagina's ze als ontbrekend.
+workspace-import-retry-files = Bestanden opnieuw proberen
+workspace-import-retry-unavailable = Het archief is niet meer opgeslagen, dus de bestanden kunnen niet opnieuw worden geprobeerd.
+workspace-import-failed-title = De import is mislukt
+workspace-import-failed-detail = Er is niets geïmporteerd; de werkruimte is zoals die was. Verwijder deze import en begin opnieuw met het exportbestand.
+workspace-import-open-workspace = { $workspace } openen
+workspace-import-report = Rapport
+workspace-import-report-title = Importrapport
+workspace-import-report-subtitle = Alles wat de import deed en niet kon doen, als JSON.
+workspace-import-report-download = JSON downloaden
+workspace-import-report-close = Sluiten
+workspace-import-invites-cli = Zonder e-mail stelt nosdesk-cli admin reset-password voor elke persoon een wachtwoord in.
+workspace-import-todo-heading = Volgende stappen
+workspace-import-todo-count = { $done } van { $total } gedaan
+workspace-import-todo-foot = Inloggegevens reizen nooit mee in een archief. Elke stap is een instelling die zonder geheim is meegekomen, of iets wat alleen aan de oude kant bestaat. Vinkjes worden in deze browser bewaard.
+workspace-import-todo-smtp = Voer de e-mailgegevens opnieuw in en zet uitgaande e-mail daarna aan
+workspace-import-todo-smtp-detail = Uitgaande e-mail is uitgeschakeld binnengekomen.
+workspace-import-todo-go-email = E-mailinstellingen
+workspace-import-todo-channels =
+    { $count ->
+        [one] Voer het wachtwoord van het e-mailkanaal opnieuw in en zet het aan
+       *[other] Voer de wachtwoorden van { $count } e-mailkanalen opnieuw in en zet ze aan
+    }
+workspace-import-todo-channels-detail = Ze zijn zonder wachtwoorden binnengekomen.
+workspace-import-todo-go-channels = Kanalen
+workspace-import-todo-sso = Voer het clientgeheim van de inlogprovider opnieuw in en werk het omleidingsadres bij
+workspace-import-todo-sso-detail = Laat de provider naar het adres van deze server wijzen en zet hem daarna aan.
+workspace-import-todo-go-sso = Inlogproviders
+workspace-import-todo-ldap = Voer het bindwachtwoord van de adreslijst opnieuw in
+workspace-import-todo-ldap-detail = Adreslijstsynchronisatie is uitgeschakeld binnengekomen.
+workspace-import-todo-go-ldap = Adreslijstsynchronisatie
+workspace-import-todo-webhooks =
+    { $count ->
+        [one] Zet de webhook aan en geef de ontvanger het nieuwe ondertekeningsgeheim
+       *[other] Zet de { $count } webhooks aan en geef de ontvangers de nieuwe ondertekeningsgeheimen
+    }
+workspace-import-todo-webhooks-detail = Elke webhook heeft een nieuw geheim. Er is niets verstuurd voor geïmporteerde tickets.
+workspace-import-todo-go-webhooks = Webhooks
+workspace-import-todo-plugins =
+    { $count ->
+        [one] Voer de geheimen van de plug-in opnieuw in en zet hem aan
+       *[other] Voer de geheimen van { $count } plug-ins opnieuw in en zet ze aan
+    }
+workspace-import-todo-plugins-detail = Hun instellingen zijn meegekomen, hun geheime waarden niet.
+workspace-import-todo-go-plugins = Plug-ins
+workspace-import-todo-widget = Zet de helpwidget aan
+workspace-import-todo-widget-detail = Deze is uitgeschakeld binnengekomen.
+workspace-import-todo-go-widget = Helpwidget
+workspace-import-todo-rules =
+    { $count ->
+        [one] Bekijk de regel die als concept is binnengekomen
+       *[other] Bekijk { $count } regels die als concept zijn binnengekomen
+    }
+workspace-import-todo-rules-detail = Elk verwijst naar iets wat het archief niet bevatte. Concepten worden niet uitgevoerd.
+workspace-import-todo-go-rules = Regels
+workspace-import-todo-tokens = Maak nieuwe API-tokens aan
+workspace-import-todo-tokens-detail = Tokens verhuizen nooit. Alles wat de API aanriep, heeft een nieuwe nodig.
+workspace-import-todo-go-tokens = API-tokens
+
+workspace-import-reset-button = Terugzetten naar leeg
+workspace-import-reset-rule = Verwijdert alles wat deze import heeft gebracht en alles wat sindsdien is toegevoegd, inclusief de accounts die hij heeft aangemaakt. Beschikbaar tot ongeveer { $date }.
+workspace-import-reset-closed = Een import kan 30 dagen lang worden teruggezet. Die termijn is verstreken.
+workspace-import-reset-failed = Het terugzetten is niet uitgevoerd. Probeer het opnieuw.
+workspace-import-reset-title = { $workspace } terugzetten naar leeg?
+workspace-import-reset-subtitle = Zet de werkruimte terug naar hoe die was vóór de import van { $date }.
+workspace-import-reset-confirm = Werkruimte terugzetten
+workspace-import-reset-removes = Verwijdert alles wat de import heeft gebracht: { $tickets } tickets, { $pages } pagina's, { $assets } assets, alle bestanden en de { $people } accounts die hij heeft aangemaakt.
+workspace-import-reset-since = Verwijdert ook alles wat sindsdien is toegevoegd en wist instellingen die daarna zijn ingevoerd.
+workspace-import-reset-keeps = Uw account en lidmaatschap blijven, net als accounts die vóór de import bestonden.
+workspace-import-reset-archive = Bewaar uw exportbestand; opnieuw importeren begint daarmee.
+workspace-import-reset-final = Dit kan niet ongedaan worden gemaakt.
+workspace-import-reset-done-title = Teruggezet naar leeg
+workspace-import-reset-done-detail = { $workspace } is weer leeg, zoals vóór de import van { $date }. Teruggezet { $reset }.
+workspace-import-reset-discarded = Deze import is verwijderd { $date }, voordat er iets was geïmporteerd.
+workspace-import-reset-done-again = Het archief is verwijderd, dus opnieuw importeren begint met uw exportbestand.
+workspace-import-again = Opnieuw importeren
+workspace-import-discard-button = Deze import verwijderen
+workspace-import-discard-rule = Er is niets geïmporteerd. Verwijderen wist het opgeslagen archief.
+workspace-import-discard-title = Deze import verwijderen?
+workspace-import-discard-detail = Er is niets geïmporteerd. Het opgeslagen archief wordt gewist; bewaar uw exportbestand om het opnieuw te proberen.
+workspace-import-discard-confirm = Verwijderen
+
+workspace-import-detail-title = Werkruimte-import
+workspace-import-detail-source = { $name } uit Nosdesk { $version } op { $origin }
+workspace-import-detail-source-no-origin = { $name } uit Nosdesk { $version }
+workspace-import-detail-pruned = Er zijn dertig dagen verstreken: het rapport houdt zijn aantallen; de personen erin en het terugzetten zijn verdwenen.
+workspace-import-detail-load-failed = Deze import kon niet worden geladen.
+workspace-import-type = Werkruimte
+workspace-import-state-checking = Controleren
+workspace-import-state-importing = Importeren
+workspace-import-state-files = Bestanden opnieuw proberen
+workspace-import-state-failed = Mislukt
+workspace-import-state-reset = Teruggezet
+workspace-import-recent-reset = Teruggezet naar leeg
+workspace-import-recent-on-archive = Concept bij Archief
+workspace-import-recent-on-preview = Concept bij Voorbeeld
+workspace-import-recent-importing = Wordt nu geïmporteerd
+workspace-import-recent-failed = Niets geïmporteerd
+workspace-import-recent-counts = { $tickets } tickets · { $pages } pagina's · { $people } personen
+
+settings-export-moves-toggle = Wat er meeverhuist en wat niet
+settings-export-moves-heading = Verhuist mee
+settings-export-stays-heading = Verhuist niet
+settings-export-moves-tickets = Tickets, opmerkingen, bijlagen, samenvoegingen, ticketnummers
+settings-export-moves-docs = Documentatiepagina's en hun geschiedenis
+settings-export-moves-assets = Assets, uitleningen, afvoeren, projecten, cycli
+settings-export-moves-people = Personen met hun primaire e-mailadres en rol
+settings-export-moves-config = Workflow, categorieën, SLA, kalender, huisstijl, regels, opgeslagen weergaven en antwoorden
+settings-export-moves-integrations = Integratie-instellingen, zonder inloggegevens
+settings-export-stays-passwords = Wachtwoorden, passkeys, tweestapsverificatie, sessies
+settings-export-stays-secrets = Geheimen van e-mail, inlogprovider, webhooks en plug-ins
+settings-export-stays-tokens = API-tokens en registraties voor mobiele meldingen
+settings-export-stays-activity = De activiteitenfeed en het auditlogboek
+settings-export-stays-history = Eerdere exports en geüploade importbestanden
+settings-export-version = Gemaakt met Nosdesk { $version }. De andere Nosdesk moet ook { $version } draaien; zo niet, dan meldt de import dat.
+settings-export-password-self = Een zelf gehoste Nosdesk accepteert het.
+onboarding-complete-open = Naar uw werkruimte
+onboarding-complete-import = Een werkruimte uit een andere Nosdesk overbrengen
+onboarding-complete-import-note = Een import heeft een lege werkruimte nodig, dus doe het voordat u tickets of personen toevoegt. U kunt altijd ook opnieuw beginnen.

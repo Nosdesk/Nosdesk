@@ -68,7 +68,9 @@ function clearPersistedBootstrapToken() {
 
 // Auto-login composable. The onboarding view drives its own step
 // state, so only `attemptLogin` is consumed here.
-const { attemptLogin } = useAutoLogin({ source: 'onboarding' });
+// No redirect: the finished screen offers the workspace, or bringing one
+// over from another Nosdesk while this one is still empty.
+const { attemptLogin } = useAutoLogin({ source: 'onboarding', redirect: false });
 
 const isLoading = ref(false);
 const errorMessage = ref('');
@@ -412,6 +414,18 @@ onUnmounted(() => {
           <h3 class="text-lg font-semibold text-primary">{{ $t('onboarding-complete-title') }}</h3>
           <p class="text-secondary">{{ $t('onboarding-complete-subtitle') }}</p>
         </div>
+        <div class="flex flex-col sm:flex-row flex-wrap justify-center gap-2 w-full">
+          <Button data-test="onboarding-open" @click="router.push('/')">{{ $t('onboarding-complete-open') }}</Button>
+          <Button
+            variant="secondary"
+            icon="move"
+            data-test="onboarding-import"
+            @click="router.push({ name: 'admin-workspace-import' })"
+          >
+            {{ $t('onboarding-complete-import') }}
+          </Button>
+        </div>
+        <p class="text-xs text-tertiary">{{ $t('onboarding-complete-import-note') }}</p>
       </div>
 
     </div>

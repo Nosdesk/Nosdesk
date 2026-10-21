@@ -11,7 +11,14 @@ vi.mock('@nosdesk/core/services/importService', () => ({
   importService: { list: (...a: unknown[]) => api.list(...a) },
 }))
 
+const workspaceApi = vi.hoisted(() => ({ list: vi.fn() }))
+vi.mock('@nosdesk/core/services/workspaceImportService', () => ({
+  workspaceImportsQueryKey: ['workspace-imports'],
+  workspaceImportService: { list: (...a: unknown[]) => workspaceApi.list(...a) },
+}))
+
 import RecentImportsCard from '../RecentImportsCard.vue'
+import { job } from '../workspaceImport/__tests__/fixtures'
 
 function item(overrides: Partial<ImportJobListItem>): ImportJobListItem {
   return {
@@ -34,17 +41,19 @@ function item(overrides: Partial<ImportJobListItem>): ImportJobListItem {
 
 let wrapper: VueWrapper | null = null
 
-async function mountCard() {
+async function mountCard(props: Record<string, unknown> = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/admin/data-import/documentation', name: 'admin-docs-import', component: { template: '<div />' } },
+      { path: '/admin/data-import/workspace', name: 'admin-workspace-import', component: { template: '<div />' } },
+      { path: '/admin/data-import/workspace/:id', name: 'admin-workspace-import-detail', component: { template: '<div />' } },
       { path: '/:any(.*)*', component: { template: '<div />' } },
     ],
   })
   await router.push('/admin/data-import')
   await router.isReady()
-  wrapper = mountWithProviders(RecentImportsCard, {}, {}, [[PiniaColada, {}] as never, router])
+  wrapper = mountWithProviders(RecentImportsCard, props, {}, [[PiniaColada, {}] as never, router])
   await flushPromises()
   return wrapper
 }
@@ -130,5 +139,28 @@ describe('RecentImportsCard', () => {
     api.list.mockResolvedValue([])
     await mountCard()
     expect(wrapper!.find('[data-test="recent-imports-empty"]').text()).toBe('import-history-empty')
+  })
+
+  it('lists workspace imports among the others by date, for the owner on a self-hosted server', async () => {
+    api.list.mockResolvedValue([item({ id: 'done-1', created_at: '2026-10-15T00:00:00Z' })])
+    workspaceApi.list.mockResolvedValue([
+      job('imported', { id: 'w-new', created_at: '2026-10-21T09:14:00Z' }),
+      job('previewed', { id: 'w-draft', created_at: '2026-10-10T00:00:00Z' }),
+    ])
+    await mountCard({ workspaceImports: true })
+    const rows = wrapper!.findAll('li')
+    expect(rows.map((r) => r.attributes('data-test'))).toEqual(['recent-workspace-import', 'recent-import', 'recent-workspace-import'])
+    expect(rows[0].text()).toContain('import-history-state-imported')
+    expect(rows[0].text()).toContain('workspace-import-recent-counts')
+    expect(rows[0].find('a').attributes('href')).toBe('/admin/data-import/workspace/w-new')
+    expect(rows[2].text()).toContain('workspace-import-recent-on-preview')
+    expect(rows[2].find('a').attributes('href')).toBe('/admin/data-import/workspace?job=w-draft')
+  })
+
+  it('leaves workspace imports out otherwise', async () => {
+    api.list.mockResolvedValue([item({ id: 'done-1' })])
+    await mountCard()
+    expect(workspaceApi.list).not.toHaveBeenCalled()
+    expect(wrapper!.findAll('[data-test="recent-workspace-import"]')).toHaveLength(0)
   })
 })

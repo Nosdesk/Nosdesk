@@ -9,11 +9,14 @@
 import { computed, ref } from 'vue'
 
 import Button from '@/components/common/Button.vue'
-import { importService, type SignInStatus } from '@nosdesk/core/services/importService'
+import { importService, type InvitesResult, type SignInStatus } from '@nosdesk/core/services/importService'
 
 const props = defineProps<{
   jobId: string
   status: SignInStatus
+  /** Sends the invites; a users import's by default. A workspace import
+   *  passes its own. */
+  sendInvites?: () => Promise<InvitesResult>
 }>()
 
 const emit = defineEmits<{
@@ -34,7 +37,7 @@ async function send() {
   sending.value = true
   failed.value = 0
   try {
-    const result = await importService.sendInvites(props.jobId)
+    const result = props.sendInvites ? await props.sendInvites() : await importService.sendInvites(props.jobId)
     failed.value = result.failed
     emit('updated', result.sign_in)
   } catch {

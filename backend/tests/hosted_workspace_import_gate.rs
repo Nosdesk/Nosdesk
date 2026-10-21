@@ -120,6 +120,12 @@ async fn hosted_owners_get_404_from_the_import_routes() {
         let (status, body) = call(&pool, workspace_id, owner, "user", req).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
         assert_eq!(body["code"], "workspace_import.not_on_cloud");
+        assert!(
+            body["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("Nosdesk support")),
+            "{body}"
+        );
     }
 
     let jobs: i64 = backend::schema::workspace_import_jobs::table

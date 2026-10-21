@@ -992,6 +992,19 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-import-saved-matches' }
         },
         {
+          // Owner only and self-hosted only; the view says so to anyone else.
+          path: 'data-import/workspace',
+          name: 'admin-workspace-import',
+          component: () => import('../views/WorkspaceImportView.vue'),
+          meta: { titleKey: 'route-title-admin-workspace-import' }
+        },
+        {
+          path: 'data-import/workspace/:id',
+          name: 'admin-workspace-import-detail',
+          component: () => import('../views/WorkspaceImportDetailView.vue'),
+          meta: { titleKey: 'route-title-admin-workspace-import-detail' }
+        },
+        {
           path: 'data-import/imports/:id',
           name: 'admin-import-detail',
           component: () => import('../views/ImportDetailView.vue'),
