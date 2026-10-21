@@ -34,6 +34,8 @@ import BugReportModal from './BugReportModal.vue'
 import ContactSupportModal from './ContactSupportModal.vue'
 import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig'
 import { controlPlaneBillingUrl, openControlPlaneBilling } from '@/services/nosdeskAccount'
+import { useTrialNotice } from '@/composables/useTrialNotice'
+import { menuLine } from '@/utils/trialNotice'
 
 interface Props {
   showMenu: boolean
@@ -48,6 +50,7 @@ const authStore = useAuthStore()
 const fluent = useFluent()
 const workspaces = useMyWorkspacesStore()
 const { switchWorkspace } = useWorkspaceSwitch()
+const { notice: trial } = useTrialNotice()
 
 const user = computed(() => {
   if (authStore.user) {
@@ -115,10 +118,17 @@ const items = computed<MenuItem[]>(() => {
   }
   // Cloud: the workspace owner holds the Nosdesk account that pays, so the
   // billing page is theirs. It lives on the control-plane dashboard; admins
-  // and agents can't act there, so they see nothing.
+  // and agents can't act there, so they see nothing. While the trial runs,
+  // its end date is a quiet second line on the row; the row itself never
+  // waits for billing to load.
   const hosted = isHostedDeploymentRef.value
   if (hosted && wsRole === 'owner' && controlPlaneBillingUrl()) {
-    out.push({ id: 'billing', label: fluent.$t('user-menu-plan-billing'), icon: ICON_REGISTRY.openExternal.d })
+    out.push({
+      id: 'billing',
+      label: fluent.$t('user-menu-plan-billing'),
+      icon: ICON_REGISTRY.openExternal.d,
+      description: trial.value ? menuLine(trial.value, (k, a) => fluent.$t(k, a)) : undefined,
+    })
   }
   if (authStore.isAdmin) {
     out.push({ id: 'admin', label: fluent.$t('user-menu-administration'), icon: ICON_REGISTRY.admin.d })

@@ -12,6 +12,7 @@ import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
+import TrialReminderBanner from './components/TrialReminderBanner.vue'
 import ToastContainer from './components/common/ToastContainer.vue'
 import RouteProgress from './components/common/RouteProgress.vue'
 import LoadingSpinner from './components/common/LoadingSpinner.vue'
@@ -482,6 +483,9 @@ onMounted(async () => {
         class="flex min-h-0 flex-1 flex-col overflow-hidden sm:pb-[env(safe-area-inset-bottom)]"
         :class="isMobileSearchActive ? 'pb-[calc(6.5rem+env(safe-area-inset-bottom))]' : 'pb-[calc(3rem+env(safe-area-inset-bottom))]'"
       >
+        <!-- Cloud trial reminder for the workspace owner. Renders nothing
+             for anyone else, so the view below never shifts. -->
+        <TrialReminderBanner />
         <!-- Positioning context for the swipe layers. A flex child fills main's
              content box, so the absolute layers below respect main's mobile-nav
              bottom padding instead of sliding under the bottom nav. -->

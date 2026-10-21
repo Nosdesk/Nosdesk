@@ -382,6 +382,29 @@ user-menu-report-problem = Signaler un problème
 user-menu-sign-out = Se déconnecter
 user-menu-guest-name = Invité
 
+# Rappels de fin d'essai Cloud, pour le propriétaire de l'espace.
+# MACHINE TRANSLATION, pending native review
+trial-notice-menu-line = { $days ->
+    [0] L'essai se termine aujourd'hui
+    [1] L'essai se termine demain, { $date }
+   *[other] L'essai se termine le { $date }, dans { $days } jours
+}
+trial-notice-menu-line-cancelled = L'essai se termine le { $date }, sans reconduction
+trial-notice-soon-title = Votre essai se termine le { $date }, dans { $days } jours.
+trial-notice-soon-body = Votre offre et la possibilité d'annuler se trouvent dans Gérer la facturation, dans votre compte Nosdesk. Rien ne change dans votre espace de travail d'ici là.
+trial-notice-imminent-title = { $days ->
+    [0] Votre essai se termine aujourd'hui.
+    [1] Votre essai se termine demain, { $date }.
+   *[other] Votre essai se termine dans { $days } jours, le { $date }.
+}
+trial-notice-imminent-body = Si vous n'avez pas encore décidé, votre offre et la possibilité d'annuler se trouvent dans Gérer la facturation, dans votre compte Nosdesk. Tout ce que vous avez configuré reste en l'état d'ici là.
+trial-notice-cancelled-title = Votre essai se termine le { $date } et ne sera pas reconduit.
+trial-notice-cancelled-body = Vous n'avez rien à faire. Si vous souhaitez finalement conserver Nosdesk, vous pouvez le faire depuis Gérer la facturation, dans votre compte Nosdesk, à tout moment d'ici là.
+trial-notice-manage-billing = Gérer la facturation
+trial-notice-manage-billing-aria = Gérer la facturation, ouvre votre compte Nosdesk dans un nouvel onglet
+trial-notice-opens-account = Ouvre votre compte Nosdesk dans un nouvel onglet
+trial-notice-dismiss = Masquer le rappel de fin d'essai
+
 bug-report-modal-title = Signaler un problème
 bug-report-modal-description-label = Que s'est-il passé ?
 bug-report-modal-description-placeholder = ex. j'ai essayé d'enregistrer un commentaire et j'ai vu une bannière rouge ; j'étais sur le menu de l'assigné juste avant.

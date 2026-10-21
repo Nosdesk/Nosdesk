@@ -405,6 +405,29 @@ user-menu-report-problem = Report a problem
 user-menu-sign-out = Sign out
 user-menu-guest-name = Guest
 
+# Cloud trial reminders, for the workspace owner only. $date arrives
+# formatted for the locale; $days counts calendar days, 0 is today.
+trial-notice-menu-line = { $days ->
+    [0] Trial ends today
+    [1] Trial ends tomorrow, { $date }
+   *[other] Trial ends { $date }, in { $days } days
+}
+trial-notice-menu-line-cancelled = Trial ends { $date }, won't continue
+trial-notice-soon-title = Your trial ends { $date }, in { $days } days.
+trial-notice-soon-body = Your plan and the option to cancel are under Manage billing, in your Nosdesk account. Nothing changes in your workspace before then.
+trial-notice-imminent-title = { $days ->
+    [0] Your trial ends today.
+    [1] Your trial ends tomorrow, { $date }.
+   *[other] Your trial ends in { $days } days, on { $date }.
+}
+trial-notice-imminent-body = If you haven't decided yet, your plan and the option to cancel are under Manage billing, in your Nosdesk account. Everything you've set up stays as it is until then.
+trial-notice-cancelled-title = Your trial ends { $date } and won't continue.
+trial-notice-cancelled-body = There's nothing you need to do. If you'd like to keep Nosdesk after all, you can from Manage billing, in your Nosdesk account, any time before then.
+trial-notice-manage-billing = Manage billing
+trial-notice-manage-billing-aria = Manage billing, opens your Nosdesk account in a new tab
+trial-notice-opens-account = Opens your Nosdesk account in a new tab
+trial-notice-dismiss = Dismiss trial reminder
+
 # In-app bug report modal. Workspace-local diagnostics; the data
 # never leaves the operator's deployment.
 bug-report-modal-title = Report a problem
