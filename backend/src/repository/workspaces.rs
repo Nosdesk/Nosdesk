@@ -578,6 +578,65 @@ pub fn set_seat_limit(
         .execute(conn)
 }
 
+/// A hosted workspace's subscription state as the control plane read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BillingState {
+    /// Stripe's subscription status, stored verbatim; `None` with no
+    /// subscription.
+    pub status: Option<String>,
+    pub trial_end: Option<DateTime<Utc>>,
+    pub cancel_at: Option<DateTime<Utc>>,
+    /// When the control plane read the subscription.
+    pub as_of: DateTime<Utc>,
+}
+
+/// What [`set_billing_state`] did with a push.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BillingWrite {
+    Applied,
+    /// The stored state is as new or newer; nothing changed.
+    Stale,
+    UnknownWorkspace,
+}
+
+// sync-audit-only: control-plane billing projection; `workspaces` is a global meta-table, not on any tenant's live-sync stream
+/// Store the control plane's billing state for the workspace `slug`, only
+/// when `state.as_of` is newer than the stored one, so a late or repeated
+/// push never overwrites newer state. Like [`set_seat_limit`], it reaches
+/// archived workspaces too.
+pub fn set_billing_state(
+    conn: &mut DbConnection,
+    slug: &str,
+    state: &BillingState,
+) -> QueryResult<BillingWrite> {
+    let updated = diesel::update(
+        workspaces::table.filter(workspaces::slug.eq(slug)).filter(
+            workspaces::billing_as_of
+                .is_null()
+                .or(workspaces::billing_as_of.lt(state.as_of)),
+        ),
+    )
+    .set((
+        workspaces::billing_status.eq(state.status.as_deref()),
+        workspaces::billing_trial_end.eq(state.trial_end),
+        workspaces::billing_cancel_at.eq(state.cancel_at),
+        workspaces::billing_as_of.eq(state.as_of),
+    ))
+    .execute(conn)?;
+    if updated > 0 {
+        return Ok(BillingWrite::Applied);
+    }
+    let exists: bool = diesel::select(diesel::dsl::exists(
+        workspaces::table.filter(workspaces::slug.eq(slug)),
+    ))
+    .get_result(conn)?;
+    Ok(if exists {
+        BillingWrite::Stale
+    } else {
+        BillingWrite::UnknownWorkspace
+    })
+}
+
 /// A workspace's client cache fence: the data epoch clients cache under, and
 /// the lowest sync_id a client cursor may hold. Both `None` until the
 /// workspace's data is first replaced.
@@ -2174,6 +2233,89 @@ mod tests {
         assert_eq!(
             as_admin(&mut conn, |c| set_seat_limit(c, "no-such-slug", Some(1))).unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn set_billing_state_applies_only_newer_pushes() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "billing-fence");
+        let t0 = chrono::DateTime::parse_from_rfc3339("2026-10-22T03:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let trial_end = t0 + chrono::Duration::days(13);
+        let stored = |conn: &mut DbConnection| {
+            as_admin(conn, |c| {
+                workspaces::table
+                    .find(ws.id)
+                    .select((
+                        workspaces::billing_status,
+                        workspaces::billing_trial_end,
+                        workspaces::billing_cancel_at,
+                        workspaces::billing_as_of,
+                    ))
+                    .first::<(
+                        Option<String>,
+                        Option<DateTime<Utc>>,
+                        Option<DateTime<Utc>>,
+                        Option<DateTime<Utc>>,
+                    )>(c)
+            })
+            .unwrap()
+        };
+        let push = |conn: &mut DbConnection, slug: &str, state: BillingState| {
+            as_admin(conn, |c| set_billing_state(c, slug, &state)).unwrap()
+        };
+
+        // First push lands on the NULL fence.
+        let trialing = BillingState {
+            status: Some("trialing".into()),
+            trial_end: Some(trial_end),
+            cancel_at: None,
+            as_of: t0,
+        };
+        assert_eq!(
+            push(&mut conn, &ws.slug, trialing.clone()),
+            BillingWrite::Applied
+        );
+        assert_eq!(
+            stored(&mut conn),
+            (Some("trialing".into()), Some(trial_end), None, Some(t0))
+        );
+
+        // The same as_of again, and an older one, change nothing.
+        let replay = BillingState {
+            status: Some("active".into()),
+            ..trialing.clone()
+        };
+        assert_eq!(push(&mut conn, &ws.slug, replay), BillingWrite::Stale);
+        let older = BillingState {
+            status: Some("canceled".into()),
+            as_of: t0 - chrono::Duration::minutes(1),
+            ..trialing.clone()
+        };
+        assert_eq!(push(&mut conn, &ws.slug, older), BillingWrite::Stale);
+        assert_eq!(
+            stored(&mut conn),
+            (Some("trialing".into()), Some(trial_end), None, Some(t0))
+        );
+
+        // A newer push with no subscription clears the state.
+        let t1 = t0 + chrono::Duration::hours(1);
+        let cleared = BillingState {
+            status: None,
+            trial_end: None,
+            cancel_at: None,
+            as_of: t1,
+        };
+        assert_eq!(push(&mut conn, &ws.slug, cleared), BillingWrite::Applied);
+        assert_eq!(stored(&mut conn), (None, None, None, Some(t1)));
+
+        // An unknown slug is told apart from a stale push.
+        assert_eq!(
+            push(&mut conn, "no-such-slug", trialing),
+            BillingWrite::UnknownWorkspace
         );
     }
 }

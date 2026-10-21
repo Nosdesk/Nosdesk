@@ -457,6 +457,11 @@ fn create_target_workspace(
     }
     new_obj.insert("custom_domain".to_string(), Value::Null);
     new_obj.insert("organisation_id".to_string(), Value::Null);
+    // Billing state belongs to Cloud, which pushes it again; an archive that
+    // carries it anyway never sets it.
+    for column in crate::services::workspace_archive::policy::WORKSPACE_BILLING_COLUMNS {
+        new_obj.remove(*column);
+    }
     let slug = new_obj
         .get("slug")
         .and_then(|v| v.as_str())
@@ -878,6 +883,104 @@ mod tests {
             new_ug, 1,
             "the id-less user_groups junction row was imported into the new workspace"
         );
+    }
+
+    /// The hosted billing projection belongs to Cloud: an export of a
+    /// workspace that has it leaves it out, sealed or not, and an import never
+    /// sets it, even from an archive that carries it.
+    #[test]
+    fn billing_state_is_neither_exported_nor_imported() {
+        use crate::repository::workspaces::{self as repo, BillingState, BillingWrite};
+        use crate::services::workspace_archive::policy::WORKSPACE_BILLING_COLUMNS;
+        use crate::services::workspace_export::export_workspace;
+        use crate::sync::actor::ActorContext;
+        use crate::sync::session::with_actor_bypass_context;
+        use crate::test_helpers::setup_test_pool;
+
+        fn as_diesel<T>(r: Result<T, BackupError>) -> Result<T, diesel::result::Error> {
+            r.map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+        }
+
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("test pool connection");
+        let actor = ActorContext::system("test:workspace_import");
+
+        let (src, src_slug): (i32, String) = with_actor_bypass_context(&mut conn, &actor, |c| {
+            use crate::schema::workspaces::dsl;
+            dsl::workspaces
+                .order(dsl::id)
+                .select((dsl::id, dsl::slug))
+                .first(c)
+        })
+        .expect("a workspace exists in the test DB");
+        let now = chrono::Utc::now();
+        let state = BillingState {
+            status: Some("trialing".into()),
+            trial_end: Some(now + chrono::Duration::days(13)),
+            cancel_at: Some(now + chrono::Duration::days(14)),
+            as_of: now,
+        };
+        let applied = with_actor_bypass_context(&mut conn, &actor, |c| {
+            repo::set_billing_state(c, &src_slug, &state)
+        })
+        .expect("set billing state");
+        assert_eq!(applied, BillingWrite::Applied);
+
+        let plain = with_actor_bypass_context(&mut conn, &actor, |c| {
+            as_diesel(export_workspace(c, src, None))
+        })
+        .expect("export succeeds");
+        let sealed = with_actor_bypass_context(&mut conn, &actor, |c| {
+            as_diesel(export_workspace(c, src, Some("test-password")))
+        })
+        .expect("sealed export succeeds");
+        let mut contents = read_archive(&plain, None).expect("read archive");
+        let sealed_contents = read_archive(&sealed, Some("test-password")).expect("read sealed");
+        for (which, archive) in [("plain", &contents), ("sealed", &sealed_contents)] {
+            let row = archive.tables["workspaces"][0]
+                .as_object()
+                .expect("workspaces row");
+            assert!(row.contains_key("slug"), "{which}: the row itself is there");
+            for column in WORKSPACE_BILLING_COLUMNS {
+                assert!(
+                    !row.contains_key(*column),
+                    "{which} export carries {column}"
+                );
+            }
+        }
+
+        // An archive that carries them anyway (another build, or edited).
+        let row = contents
+            .tables
+            .get_mut("workspaces")
+            .and_then(|rows| rows.first_mut())
+            .and_then(|row| row.as_object_mut())
+            .expect("workspaces row");
+        row.insert("billing_status".into(), json!("active"));
+        row.insert("billing_trial_end".into(), json!(now.to_rfc3339()));
+        row.insert("billing_cancel_at".into(), json!(now.to_rfc3339()));
+        row.insert("billing_as_of".into(), json!(now.to_rfc3339()));
+
+        let opts = ImportOptions {
+            slug_override: Some(format!("billing-import-{}", std::process::id())),
+            uuid_override: Some("00000000-0000-0000-0000-0000000000fe".to_string()),
+            regenerate_uuids: true,
+            mode: DeploymentMode::SelfHosted,
+            runner: Runner::Operator { user: None },
+        };
+        let result = with_actor_bypass_context(&mut conn, &actor, |c| {
+            as_diesel(import_workspace(c, &contents, &opts))
+        })
+        .expect("import succeeds");
+        let target = with_actor_bypass_context(&mut conn, &actor, |c| {
+            repo::find_by_id(c, result.workspace_id)
+        })
+        .expect("load target")
+        .expect("target exists");
+        assert_eq!(target.billing_status, None);
+        assert_eq!(target.billing_trial_end, None);
+        assert_eq!(target.billing_cancel_at, None);
+        assert_eq!(target.billing_as_of, None);
     }
 
     /// An archive naming a table that is not workspace-scoped is refused
