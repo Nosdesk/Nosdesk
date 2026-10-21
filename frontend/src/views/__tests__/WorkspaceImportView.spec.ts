@@ -243,6 +243,16 @@ describe('WorkspaceImportView: Preview and confirm', () => {
       'workspace_email_settings', 'workspace_identity_providers', 'webhooks', 'channels', 'plugins', 'tokens',
     ])
     expect(wrapper!.findAll('[data-test="workspace-attention"] li')).toHaveLength(5)
+    expect(wrapper!.find('[data-test="workspace-not"] [data-not="mail"]').text()).toContain('workspace-import-not-mail-detail')
+  })
+
+  it('leaves the unsent mail line out when nothing was waiting to go', async () => {
+    const quiet = job('previewed')
+    quiet.report!.plan = { ...quiet.report!.plan!, tables: quiet.report!.plan!.tables.filter((t) => t.table !== 'outbound_emails') }
+    api.get.mockResolvedValue(quiet)
+    await mountAt('/admin/data-import/workspace?job=wimp-1')
+    expect(wrapper!.find('[data-test="workspace-not"]').exists()).toBe(true)
+    expect(wrapper!.find('[data-not="mail"]').exists()).toBe(false)
   })
 
   it('imports only once the workspace name is typed, then follows the stages to Done', async () => {
@@ -309,6 +319,12 @@ describe('WorkspaceImportView: Done', () => {
     expect(find('import-sign-in-email-off').exists()).toBe(true)
     expect(find('workspace-signin-cli').exists()).toBe(true)
     expect(find('import-sign-in-send').exists()).toBe(false)
+  })
+
+  it('says why the unsent mail stayed behind', async () => {
+    api.get.mockResolvedValue(job('imported'))
+    await mountAt('/admin/data-import/workspace?job=wimp-1')
+    expect(find('workspace-unsent-mail').text()).toContain('workspace-import-done-unsent-mail')
   })
 
   it('lists the next steps with a link each, and keeps the ticks', async () => {

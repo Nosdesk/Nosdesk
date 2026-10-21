@@ -29,7 +29,7 @@ import {
 import type { InvitesResult, SignInStatus } from '@nosdesk/core/services/importService'
 
 import WorkspaceImportTiles from './WorkspaceImportTiles.vue'
-import { archiveName, checklist, filesLine, filesPartial, resetUntil, tiles, typedMatches } from './workspaceImportModel'
+import { archiveName, checklist, filesLine, filesPartial, queuedMail, resetUntil, tiles, typedMatches } from './workspaceImportModel'
 
 const props = defineProps<{
   job: WorkspaceImportJob
@@ -59,6 +59,7 @@ const partial = computed(() => filesPartial(props.job))
 const failedEmpty = computed(() => props.job.state === 'failed' && !props.job.applied_at)
 const wasReset = computed(() => props.job.state === 'reset')
 const merged = computed(() => plan.value?.counts?.merged_into_runner ?? 0)
+const unsent = computed(() => queuedMail(plan.value))
 
 const when = (iso: string | null | undefined) => (iso ? formatCompactDate(iso) : '')
 const duration = computed(() => {
@@ -248,6 +249,9 @@ function openWorkspace() {
             </Button>
           </div>
           <p v-else class="text-xs text-tertiary">{{ $t('workspace-import-retry-unavailable') }}</p>
+          <p v-if="unsent" class="text-xs text-tertiary" data-test="workspace-unsent-mail">
+            {{ $t('workspace-import-done-unsent-mail', { count: unsent }) }}
+          </p>
         </div>
       </Callout>
       <Callout v-else severity="success" data-test="workspace-done-complete">
@@ -262,6 +266,9 @@ function openWorkspace() {
           <p class="text-xs text-tertiary">{{ $t('workspace-import-done-reloaded') }}</p>
           <p v-if="files.skipped" class="text-xs text-tertiary" data-test="workspace-files-skipped">
             {{ $t('workspace-import-files-skipped', { count: files.skipped }) }}
+          </p>
+          <p v-if="unsent" class="text-xs text-tertiary" data-test="workspace-unsent-mail">
+            {{ $t('workspace-import-done-unsent-mail', { count: unsent }) }}
           </p>
         </div>
       </Callout>

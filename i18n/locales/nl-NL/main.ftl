@@ -10710,6 +10710,11 @@ workspace-import-files-skipped =
         [one] 1 bestand is weggelaten: het archief bevatte het niet, of deze server accepteert het type niet. Het rapport noemt het.
        *[other] { $count } bestanden zijn weggelaten: het archief bevatte ze niet, of deze server accepteert het type niet. Het rapport noemt ze.
     }
+workspace-import-done-unsent-mail =
+    { $count ->
+        [one] 1 e-mail die nog niet was verzonden is achtergebleven, zodat niets twee keer wordt verstuurd.
+       *[other] { $count } e-mails die nog niet waren verzonden zijn achtergebleven, zodat niets twee keer wordt verstuurd.
+    }
 workspace-import-jump-label = Onderdelen
 workspace-import-jump-across = Wat er meekomt
 workspace-import-jump-people = Personen
@@ -11017,6 +11022,12 @@ workspace-import-not-passwords = Wachtwoorden en tweestapsverificatie
 workspace-import-not-passwords-detail = Worden nooit geëxporteerd. Zie Hoe personen inloggen.
 workspace-import-not-history = Importgeschiedenis
 workspace-import-not-history-detail = Eerdere spreadsheet- en documentatie-imports blijven bij de andere Nosdesk.
+workspace-import-not-mail = Onverzonden e-mail
+workspace-import-not-mail-detail =
+    { $count ->
+        [one] 1 e-mail die nog niet was verzonden blijft achter, zodat niets twee keer wordt verstuurd.
+       *[other] { $count } e-mails die nog niet waren verzonden blijven achter, zodat niets twee keer wordt verstuurd.
+    }
 
 workspace-import-attention-heading = Vraagt aandacht
 workspace-import-attention-none = Niets vraagt aandacht.

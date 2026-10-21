@@ -10719,6 +10719,11 @@ workspace-import-files-skipped =
         [one] 1 fichier a été laissé de côté : l'archive ne le contenait pas, ou ce serveur n'accepte pas son type. Le rapport l'indique.
        *[other] { $count } fichiers ont été laissés de côté : l'archive ne les contenait pas, ou ce serveur n'accepte pas leur type. Le rapport les indique.
     }
+workspace-import-done-unsent-mail =
+    { $count ->
+        [one] 1 e-mail qui n'avait pas encore été envoyé est resté sur place, pour que rien ne parte deux fois.
+       *[other] { $count } e-mails qui n'avaient pas encore été envoyés sont restés sur place, pour que rien ne parte deux fois.
+    }
 workspace-import-jump-label = Sections
 workspace-import-jump-across = Ce qui est transféré
 workspace-import-jump-people = Personnes
@@ -11026,6 +11031,12 @@ workspace-import-not-passwords = Mots de passe et double authentification
 workspace-import-not-passwords-detail = Jamais exportés. Voir Comment les personnes se connectent.
 workspace-import-not-history = Historique des imports
 workspace-import-not-history-detail = Les imports de tableurs et de documentation antérieurs restent sur l'autre Nosdesk.
+workspace-import-not-mail = E-mails non envoyés
+workspace-import-not-mail-detail =
+    { $count ->
+        [one] 1 e-mail qui n'avait pas encore été envoyé reste sur place, pour que rien ne parte deux fois.
+       *[other] { $count } e-mails qui n'avaient pas encore été envoyés restent sur place, pour que rien ne parte deux fois.
+    }
 
 workspace-import-attention-heading = À vérifier
 workspace-import-attention-none = Rien à vérifier.
