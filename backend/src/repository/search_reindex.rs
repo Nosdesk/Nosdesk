@@ -201,3 +201,18 @@ pub fn users_for_index(conn: &mut DbConnection, uuids: &[Uuid]) -> QueryResult<V
         })
         .collect())
 }
+
+/// The channel a process that can't open the search index asks the servers
+/// that hold it to reindex a workspace on (`services::search::reindex_requests`).
+pub const REQUEST_CHANNEL: &str = "nosdesk_search_reindex";
+
+// sync-audit-only: a wake-up notification, not a row; the import it follows is audited
+/// Ask every listening server to rebuild workspace `workspace_id`'s search
+/// documents. Delivered when the caller's transaction commits.
+pub fn request(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<()> {
+    diesel::sql_query("SELECT pg_notify($1, $2)")
+        .bind::<diesel::sql_types::Text, _>(REQUEST_CHANNEL)
+        .bind::<diesel::sql_types::Text, _>(workspace_id.to_string())
+        .execute(conn)
+        .map(|_| ())
+}

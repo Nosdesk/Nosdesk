@@ -217,7 +217,7 @@ pub fn apply_refused(e: &ApplyError) -> Refused {
 }
 
 /// Why an archive couldn't be read, as the shared refusal.
-fn read_refused(e: BackupError) -> Refused {
+pub fn read_refused(e: BackupError) -> Refused {
     match e {
         BackupError::NotImportable(refusal) => refusal.to_refused(),
         BackupError::InvalidPassword | BackupError::EncryptionError(_) => Refused::new(
@@ -392,14 +392,177 @@ fn created_by(report: &plan::ImportReport) -> Vec<Uuid> {
 }
 
 // ---------------------------------------------------------------------------
+// Upload
+// ---------------------------------------------------------------------------
+
+/// Why an archive wasn't parked as a new job.
+#[derive(Debug)]
+pub enum ParkError {
+    /// The workspace already has a live import.
+    InProgress(Box<WorkspaceImportJob>),
+    /// The archive couldn't be put in storage; the job was dropped.
+    NotStored,
+    Failed(String),
+}
+
+/// The refusal for a workspace whose import `live` is under way.
+pub fn in_progress(live: &WorkspaceImportJob) -> Refused {
+    Refused::new(
+        "import_in_progress",
+        "This workspace already has an import under way. Finish or reset it first.",
+    )
+    .arg("job_id", live.id.to_string())
+    .arg("state", live.state.clone())
+}
+
+/// What an upload carried, spooled to local disk.
+pub struct Upload<'a> {
+    pub path: &'a std::path::Path,
+    /// The name the client gave the file. Display only.
+    pub name: Option<String>,
+    pub size: u64,
+    /// A password came with it (it isn't stored).
+    pub password_given: bool,
+    pub regenerate_uuids: bool,
+}
+
+/// Start a job for workspace `workspace_id`: record it and park the archive
+/// at [`archive_key`]. The job comes back `checking`, for the caller to
+/// [`run_check`] or [`spawn_check`], or, sealed with no password given,
+/// `uploaded` and asking for it. The app's upload and the CLI both start
+/// here.
+pub async fn park(
+    rt: &Runtime,
+    origin: &Origin,
+    workspace_id: i32,
+    upload: Upload<'_>,
+) -> Result<WorkspaceImportJob, ParkError> {
+    let actor = origin.actor(workspace_id);
+    let live = in_workspace(&rt.pool, actor.clone(), move |conn| {
+        repo::live(conn, workspace_id)
+    })
+    .await
+    .map_err(ParkError::Failed)?;
+    if let Some(live) = live {
+        return Err(ParkError::InProgress(Box::new(live)));
+    }
+    let sealed = {
+        use std::io::Read;
+        let mut head = [0u8; 4];
+        std::fs::File::open(upload.path)
+            .and_then(|mut f| f.read(&mut head))
+            .map(|n| is_sealed(&head[..n]))
+            .unwrap_or(false)
+    };
+    let id = Uuid::now_v7();
+    let new = crate::models::NewWorkspaceImportJob {
+        id,
+        workspace_id,
+        runner: origin.runner().to_string(),
+        requested_by: origin.user(),
+        archive_name: upload
+            .name
+            .map(|n| n.chars().filter(|c| !c.is_control()).take(255).collect()),
+        archive_size: i64::try_from(upload.size).unwrap_or(i64::MAX),
+        sealed,
+    };
+    let created = in_workspace(&rt.pool, actor.clone(), move |conn| {
+        repo::create(conn, &new).map(Some).or_else(|e| match e {
+            diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::UniqueViolation,
+                _,
+            ) => Ok(None),
+            e => Err(e),
+        })
+    })
+    .await
+    .map_err(ParkError::Failed)?;
+    if created.is_none() {
+        // Another upload won the one-live-job index.
+        let live = in_workspace(&rt.pool, actor, move |conn| repo::live(conn, workspace_id))
+            .await
+            .map_err(ParkError::Failed)?;
+        return Err(match live {
+            Some(live) => ParkError::InProgress(Box::new(live)),
+            None => ParkError::Failed("the live import went away".into()),
+        });
+    }
+
+    let storage = rt.scoped(workspace_id);
+    if let Err(e) = storage
+        .put_file_from_path(upload.path, &archive_key(id), "application/octet-stream")
+        .await
+    {
+        tracing::error!(id = %id, error = ?e, "workspace import: storing the upload failed");
+        let _ = in_workspace(&rt.pool, actor, move |conn| {
+            repo::delete(conn, workspace_id, id)
+        })
+        .await;
+        return Err(ParkError::NotStored);
+    }
+
+    let mut change = WorkspaceImportJobChange {
+        archive_key: Some(Some(archive_key(id))),
+        regenerate_uuids: Some(upload.regenerate_uuids),
+        ..Default::default()
+    };
+    if !sealed || upload.password_given {
+        change.state = Some(CHECKING.into());
+    } else {
+        change.error = Some(Some(refusal_value(&password_required())));
+    }
+    in_workspace(&rt.pool, actor, move |conn| {
+        repo::transition(conn, workspace_id, id, &[UPLOADED], change)
+    })
+    .await
+    .map_err(ParkError::Failed)?
+    .ok_or_else(|| ParkError::Failed("the new import moved before it was parked".into()))
+}
+
+/// The change that confirms a previewed job: it goes `importing`, at its
+/// rows, confirmed by the runner.
+pub fn confirming(origin: &Origin) -> WorkspaceImportJobChange {
+    WorkspaceImportJobChange {
+        state: Some(IMPORTING.into()),
+        stage: Some(Some("rows".into())),
+        error: Some(None),
+        confirmed_by: Some(origin.user()),
+        confirmed_at: Some(Some(Utc::now())),
+        ..Default::default()
+    }
+}
+
+/// Rebuild workspace `workspace_id`'s search documents after an import or
+/// reset: here when this process holds the index, else by asking the
+/// server that does (the CLI runs beside it and can't open the index).
+async fn reindex(rt: &Runtime, workspace_id: i32) {
+    match &rt.search {
+        Some(search) => {
+            indexing_tasks::spawn_reindex_workspace(Arc::clone(search), workspace_id);
+        }
+        None => {
+            let actor =
+                ActorContext::system("workspace_import:reindex").with_workspace(workspace_id);
+            if let Err(e) = in_workspace(&rt.pool, actor, move |conn| {
+                crate::repository::search_reindex::request(conn, workspace_id)
+            })
+            .await
+            {
+                tracing::warn!(workspace_id, error = %e, "workspace import: asking for a search reindex failed");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Check
 // ---------------------------------------------------------------------------
 
-/// What a check came to: the preview, or a refusal (with the plan's report
-/// when the plan was what refused).
-struct Checked {
-    report: Value,
-    refused: Option<Refused>,
+/// What a check came to: the preview (`{source, plan}`), or a refusal (with
+/// the plan's report when the plan was what refused).
+pub struct Checked {
+    pub report: Value,
+    pub refused: Option<Refused>,
 }
 
 /// Run a check of job `id` in the background. The caller has put it in
@@ -411,11 +574,27 @@ pub fn spawn_check(
     id: Uuid,
     password: Option<String>,
     regenerate_uuids: bool,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        run_check(&rt, &origin, workspace_id, id, password, regenerate_uuids).await;
+    })
+}
+
+/// Check job `id` and record the preview or the refusal on it. The caller
+/// has put it in `checking`. [`spawn_check`] runs it in the background; the
+/// CLI awaits it.
+pub async fn run_check(
+    rt: &Runtime,
+    origin: &Origin,
+    workspace_id: i32,
+    id: Uuid,
+    password: Option<String>,
+    regenerate_uuids: bool,
+) {
+    {
         let _beat = Heartbeat::start(rt.pool.clone(), workspace_id, id, CHECKING);
         let _permit = RUNNING.acquire().await;
-        let checked = check(&rt, &origin, workspace_id, id, password, regenerate_uuids).await;
+        let checked = check(rt, origin, workspace_id, id, password, regenerate_uuids).await;
         let now = Utc::now();
         let change = match checked {
             Ok(Checked {
@@ -455,11 +634,10 @@ pub fn spawn_check(
             change,
         )
         .await;
-    });
+    }
 }
 
-/// Read the archive, check the workspace is untouched and plan the import,
-/// writing nothing.
+/// Read job `id`'s archive and [`preview`] it.
 async fn check(
     rt: &Runtime,
     origin: &Origin,
@@ -469,10 +647,22 @@ async fn check(
     regenerate_uuids: bool,
 ) -> Result<Checked, Refused> {
     let contents = Arc::new(read_stored(rt, workspace_id, id, password).await?);
+    preview(rt, origin, workspace_id, contents, regenerate_uuids).await
+}
+
+/// Check the workspace is untouched and plan the import of `contents`,
+/// writing nothing: a job's check, and the CLI's dry run.
+pub async fn preview(
+    rt: &Runtime,
+    origin: &Origin,
+    workspace_id: i32,
+    contents: Arc<ArchiveContents>,
+    regenerate_uuids: bool,
+) -> Result<Checked, Refused> {
     let held = apply::held_files(rt.storage.clone(), workspace_id)
         .await
         .map_err(|e| {
-            tracing::error!(id = %id, error = ?e, "workspace import: listing files failed");
+            tracing::error!(workspace_id, error = ?e, "workspace import: listing files failed");
             Refused::new("import_failed", "The workspace's files couldn't be listed.")
         })?;
     let source = source_of(&contents);
@@ -507,7 +697,7 @@ async fn check(
     .and_then(|r| r);
     match planned {
         Err(e) => {
-            tracing::error!(id = %id, error = %e, "workspace import: check failed");
+            tracing::error!(workspace_id, error = %e, "workspace import: check failed");
             Err(Refused::new(
                 "import_failed",
                 "The export couldn't be checked against this workspace.",
@@ -542,12 +732,26 @@ pub fn spawn_import(
     id: Uuid,
     password: Option<String>,
     files_only: bool,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let _beat = Heartbeat::start(rt.pool.clone(), workspace_id, id, IMPORTING);
-        let _permit = RUNNING.acquire().await;
-        import(&rt, &origin, workspace_id, id, password, files_only).await;
-    });
+        run_import(&rt, &origin, workspace_id, id, password, files_only).await;
+    })
+}
+
+/// Import job `id` (or, with `files_only`, retry its files) and record how
+/// it went on it. The caller has put it in `importing`. [`spawn_import`]
+/// runs it in the background; the CLI awaits it.
+pub async fn run_import(
+    rt: &Runtime,
+    origin: &Origin,
+    workspace_id: i32,
+    id: Uuid,
+    password: Option<String>,
+    files_only: bool,
+) {
+    let _beat = Heartbeat::start(rt.pool.clone(), workspace_id, id, IMPORTING);
+    let _permit = RUNNING.acquire().await;
+    import(rt, origin, workspace_id, id, password, files_only).await;
 }
 
 async fn import(
@@ -609,9 +813,7 @@ async fn import(
                 return;
             }
         };
-        if let Some(search) = &rt.search {
-            indexing_tasks::spawn_reindex_workspace(Arc::clone(search), workspace_id);
-        }
+        reindex(rt, workspace_id).await;
         plan
     };
 
@@ -979,9 +1181,7 @@ pub async fn reset(
         if let Err(e) = apply::clear_files(rt.storage.clone(), workspace_id).await {
             tracing::error!(id = %id, error = ?e, "workspace import reset: deleting files failed");
         }
-        if let Some(search) = &rt.search {
-            indexing_tasks::spawn_reindex_workspace(Arc::clone(search), workspace_id);
-        }
+        reindex(rt, workspace_id).await;
     }
     Ok(job)
 }

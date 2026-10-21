@@ -408,6 +408,16 @@ pub fn build_state(
         ),
     );
 
+    // Workspace reindexes the CLI asks for: it imports beside this server,
+    // which holds the index.
+    if let Ok(database_url) = std::env::var("DATABASE_URL") {
+        background_tasks.push(crate::services::search::reindex_requests::spawn(
+            database_url,
+            search_service.get_ref().clone(),
+            scheduler_shutdown.clone(),
+        ));
+    }
+
     // Search-index replicator (S1). On >1 machine the Tantivy index is
     // per-machine local disk, so an entity indexed on one machine is
     // invisible to a search on another. When enabled, each machine tails

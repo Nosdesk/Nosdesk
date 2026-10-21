@@ -25,16 +25,14 @@ use crate::db::Pool;
 use crate::errors::{self, ApiError};
 use crate::extractors::WorkspaceContext;
 use crate::middleware::workspace_context::{is_hosted, DeploymentMode};
-use crate::models::{
-    NewWorkspaceImportJob, WorkspaceImportJob, WorkspaceImportJobChange, WorkspaceRole,
-};
+use crate::models::{WorkspaceImportJob, WorkspaceImportJobChange, WorkspaceRole};
 use crate::repository::workspace_import_jobs as repo;
 use crate::services::imports::refusal::Refused;
 use crate::services::imports::sign_in;
 use crate::services::search::SearchService;
 use crate::services::uploaded_archive::spool;
 use crate::services::workspace_import_jobs::{
-    self as jobs, archive_key, in_workspace, Origin, ResetError, Runtime, CHECKING, FAILED,
+    self as jobs, in_workspace, Origin, ParkError, ResetError, Runtime, CHECKING, FAILED,
     IMPORTING, PREVIEWED, UPLOADED,
 };
 use crate::sync::actor::ActorContext;
@@ -397,15 +395,7 @@ async fn read_upload(payload: &mut Multipart) -> Result<Upload, (StatusCode, Ref
 
 /// 409 naming the workspace's live import.
 fn already_running(live: &WorkspaceImportJob) -> HttpResponse {
-    refused(
-        StatusCode::CONFLICT,
-        Refused::new(
-            "import_in_progress",
-            "This workspace already has an import under way. Finish or reset it first.",
-        )
-        .arg("job_id", live.id.to_string())
-        .arg("state", live.state.clone()),
-    )
+    refused(StatusCode::CONFLICT, jobs::in_progress(live))
 }
 
 async fn upload(scope: Scope, mut payload: Multipart) -> HttpResponse {
@@ -425,96 +415,34 @@ async fn upload(scope: Scope, mut payload: Multipart) -> HttpResponse {
         Ok(upload) => upload,
         Err((status, r)) => return refused(status, r),
     };
-    let sealed = {
-        use std::io::Read;
-        let mut head = [0u8; 4];
-        upload
-            .archive
-            .open()
-            .and_then(|mut f| f.read(&mut head))
-            .map(|n| jobs::is_sealed(&head[..n]))
-            .unwrap_or(false)
-    };
-    let id = Uuid::now_v7();
-    let new = NewWorkspaceImportJob {
-        id,
+    let parked = jobs::park(
+        &scope.rt,
+        &scope.origin,
         workspace_id,
-        runner: scope.origin.runner().to_string(),
-        requested_by: scope.origin.user(),
-        archive_name: upload
-            .archive
-            .filename
-            .clone()
-            .map(|n| n.chars().filter(|c| !c.is_control()).take(255).collect()),
-        archive_size: i64::try_from(upload.archive.size).unwrap_or(i64::MAX),
-        sealed,
-    };
-    let created = in_workspace(&scope.rt.pool, scope.actor(), move |conn| {
-        repo::create(conn, &new).map(Some).or_else(|e| match e {
-            diesel::result::Error::DatabaseError(
-                diesel::result::DatabaseErrorKind::UniqueViolation,
-                _,
-            ) => Ok(None),
-            e => Err(e),
-        })
-    })
-    .await;
-    match created {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            let live = in_workspace(&scope.rt.pool, scope.actor(), move |conn| {
-                repo::live(conn, workspace_id)
-            })
-            .await;
-            return match live {
-                Ok(Some(live)) => already_running(&live),
-                Ok(None) => internal("the live import went away"),
-                Err(e) => internal(e),
-            };
-        }
-        Err(e) => return internal(e),
-    }
-
-    let storage =
-        crate::utils::storage::WorkspaceScopedStorage::arc(scope.rt.storage.clone(), workspace_id);
-    if let Err(e) = spool::store(
-        storage.as_ref(),
-        &upload.archive,
-        &archive_key(id),
-        "application/octet-stream",
+        jobs::Upload {
+            path: upload.archive.path(),
+            name: upload.archive.filename.clone(),
+            size: upload.archive.size,
+            password_given: upload.password.is_some(),
+            regenerate_uuids: upload.regenerate_uuids,
+        },
     )
-    .await
-    {
-        tracing::error!(id = %id, error = ?e, "workspace import: storing the upload failed");
-        let _ = in_workspace(&scope.rt.pool, scope.actor(), move |conn| {
-            repo::delete(conn, workspace_id, id)
-        })
-        .await;
-        return errors::internal_with_code("The upload couldn't be stored.", "upload_not_saved");
-    }
+    .await;
     drop(upload.archive);
-
-    let mut change = WorkspaceImportJobChange {
-        archive_key: Some(Some(archive_key(id))),
-        regenerate_uuids: Some(upload.regenerate_uuids),
-        ..Default::default()
-    };
-    let start = !sealed || upload.password.is_some();
-    if start {
-        change.state = Some(CHECKING.into());
-    } else {
-        change.error = Some(Some(jobs::refusal_value(&jobs::password_required())));
-    }
-    let job = match move_job(&scope, id, &[UPLOADED], change).await {
+    let job = match parked {
         Ok(job) => job,
-        Err(e) => return e.error_response(),
+        Err(ParkError::InProgress(live)) => return already_running(&live),
+        Err(ParkError::NotStored) => {
+            return errors::internal_with_code("The upload couldn't be stored.", "upload_not_saved")
+        }
+        Err(ParkError::Failed(e)) => return internal(e),
     };
-    if start {
+    if job.state == CHECKING {
         jobs::spawn_check(
             scope.rt.clone(),
             scope.origin.clone(),
             workspace_id,
-            id,
+            job.id,
             upload.password,
             upload.regenerate_uuids,
         );
@@ -577,21 +505,7 @@ async fn confirm(scope: Scope, id: Uuid, body: ActionBody) -> HttpResponse {
     if job.state == PREVIEWED && job.sealed && password.is_none() {
         return refused(StatusCode::BAD_REQUEST, jobs::password_required());
     }
-    let job = match move_job(
-        &scope,
-        id,
-        &[PREVIEWED],
-        WorkspaceImportJobChange {
-            state: Some(IMPORTING.into()),
-            stage: Some(Some("rows".into())),
-            error: Some(None),
-            confirmed_by: Some(scope.origin.user()),
-            confirmed_at: Some(Some(chrono::Utc::now())),
-            ..Default::default()
-        },
-    )
-    .await
-    {
+    let job = match move_job(&scope, id, &[PREVIEWED], jobs::confirming(&scope.origin)).await {
         Ok(job) => job,
         Err(e) => return e.error_response(),
     };

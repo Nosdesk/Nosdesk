@@ -745,6 +745,111 @@ pub fn assemble_workspace_archive(
     }
 }
 
+/// Why [`build_archive`] made no archive.
+#[derive(Debug)]
+pub enum BuildError {
+    /// Past the caller's byte cap.
+    TooLarge,
+    Failed(String),
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuildError::TooLarge => f.write_str("the workspace is larger than the export cap"),
+            BuildError::Failed(e) => f.write_str(e),
+        }
+    }
+}
+
+/// Build workspace `workspace_id`'s whole archive: its rows (read elevated),
+/// its files, its people's avatars and its legacy branding, sealed with
+/// `password` when given. `include_sensitive` keeps the policy's secret
+/// columns, which only a sealed archive may carry. With `cap`, the rows and
+/// files are summed against it as they are read, and a larger workspace is
+/// refused before it is held whole. `storage` is the unscoped store.
+pub async fn build_archive(
+    pool: &crate::db::Pool,
+    storage: std::sync::Arc<dyn crate::utils::storage::Storage>,
+    workspace_id: i32,
+    password: Option<&str>,
+    include_sensitive: bool,
+    cap: Option<usize>,
+) -> Result<Vec<u8>, BuildError> {
+    let include_sensitive = include_sensitive && password.is_some();
+    let over = |total: usize| cap.is_some_and(|cap| total > cap);
+
+    // 1. Row dumps (sync, BYPASSRLS).
+    let pool = pool.clone();
+    let (dumps, meta) = tokio::task::spawn_blocking(move || {
+        let mut conn = pool.get().map_err(|e| format!("pool: {e}"))?;
+        let actor = crate::sync::actor::ActorContext::system("background:workspace_export")
+            .with_workspace(workspace_id);
+        // elevated-in-workspace: the export reads one workspace's rows, filtered by its id, and its people's global users rows.
+        crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+            collect_workspace_rows(conn, workspace_id, include_sensitive)
+                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+        })
+        .map_err(|e| format!("collect rows: {e}"))
+    })
+    .await
+    .map_err(|e| BuildError::Failed(e.to_string()))?
+    .map_err(BuildError::Failed)?;
+    let mut total: usize = dumps.iter().map(|d| d.json.len()).sum();
+    if over(total) {
+        return Err(BuildError::TooLarge);
+    }
+
+    // 2. Files, through the storage abstraction (local or S3).
+    let scoped = crate::utils::storage::WorkspaceScopedStorage::arc(storage.clone(), workspace_id);
+    let paths = scoped
+        .list_prefix("")
+        .await
+        .map_err(|e| BuildError::Failed(format!("list files: {e:?}")))?;
+    let mut files: Vec<(String, Vec<u8>)> = Vec::with_capacity(paths.len());
+    for p in paths.into_iter().filter(|p| is_exported_file(p)) {
+        let bytes = scoped
+            .get_file(&p)
+            .await
+            .map_err(|e| BuildError::Failed(format!("read file {p}: {e:?}")))?;
+        total += bytes.len();
+        if over(total) {
+            return Err(BuildError::TooLarge);
+        }
+        files.push((p, bytes));
+    }
+
+    // 3. People's avatars, and branding from before it was workspace-scoped,
+    //    which live outside the workspace's prefix.
+    let carried = files.len();
+    add_legacy_branding(storage.as_ref(), &meta, &mut files).await;
+    total += files[carried..]
+        .iter()
+        .map(|(_, bytes)| bytes.len())
+        .sum::<usize>();
+    let avatars = read_avatars(storage.as_ref(), &meta).await;
+    total += avatars.iter().map(|(_, bytes)| bytes.len()).sum::<usize>();
+    if over(total) {
+        return Err(BuildError::TooLarge);
+    }
+
+    // 4. Assemble and seal (sync CPU).
+    let password = password.map(str::to_string);
+    tokio::task::spawn_blocking(move || {
+        assemble_workspace_archive(
+            &dumps,
+            &meta,
+            workspace_id,
+            &files,
+            &avatars,
+            password.as_deref(),
+        )
+        .map_err(|e| BuildError::Failed(format!("assemble archive: {e}")))
+    })
+    .await
+    .map_err(|e| BuildError::Failed(e.to_string()))?
+}
+
 /// Convenience: export a workspace's ROWS ONLY (no files) in one synchronous
 /// call. The file-inclusive path lives in the handler, which reads files through
 /// the async storage abstraction. Used by tests and as the archive source for
