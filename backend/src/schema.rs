@@ -2461,6 +2461,10 @@ diesel::table! {
         seat_limit -> Nullable<Int4>,
         data_epoch -> Nullable<Uuid>,
         resync_floor -> Nullable<Int8>,
+        billing_status -> Nullable<Text>,
+        billing_trial_end -> Nullable<Timestamptz>,
+        billing_cancel_at -> Nullable<Timestamptz>,
+        billing_as_of -> Nullable<Timestamptz>,
     }
 }
 

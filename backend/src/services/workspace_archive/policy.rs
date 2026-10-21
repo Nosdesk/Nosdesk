@@ -352,11 +352,23 @@ pub const ARCHIVE_USER_EMAIL_COLUMNS: &[&str] = &[
     "is_verified",
 ];
 
+/// The hosted billing projection on `workspaces`. Cloud owns it and the
+/// control plane pushes it again, so a workspace archive never carries it and
+/// an import never sets it.
+pub const WORKSPACE_BILLING_COLUMNS: &[&str] = &[
+    "billing_status",
+    "billing_trial_end",
+    "billing_cancel_at",
+    "billing_as_of",
+];
+
 /// Columns a workspace archive never carries, even sealed. An instance backup
 /// is restored onto the instance that made it, so a sealed one keeps them; a
 /// workspace archive moves to another instance, where they don't belong.
-const NEVER_IN_WORKSPACE_ARCHIVE: &[(&str, &[&str])] =
-    &[("user_auth_identities", &["password_hash", "metadata"])];
+const NEVER_IN_WORKSPACE_ARCHIVE: &[(&str, &[&str])] = &[
+    ("user_auth_identities", &["password_hash", "metadata"]),
+    ("workspaces", WORKSPACE_BILLING_COLUMNS),
+];
 
 /// The columns a workspace archive of `name` leaves out: the secrets unless
 /// sealed, and those it never carries.
