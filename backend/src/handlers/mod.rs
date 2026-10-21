@@ -96,6 +96,7 @@ pub mod workflow_states;
 pub mod workspace_data_export;
 pub mod workspace_email;
 pub mod workspace_export;
+pub mod workspace_import;
 pub mod workspace_members;
 
 // Import all handlers from modules

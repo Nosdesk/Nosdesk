@@ -2308,6 +2308,39 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_import_jobs (id) {
+        id -> Uuid,
+        workspace_id -> Int4,
+        #[max_length = 16]
+        runner -> Varchar,
+        requested_by -> Nullable<Uuid>,
+        #[max_length = 16]
+        state -> Varchar,
+        #[max_length = 16]
+        stage -> Nullable<Varchar>,
+        archive_key -> Nullable<Text>,
+        archive_name -> Nullable<Text>,
+        archive_size -> Int8,
+        sealed -> Bool,
+        regenerate_uuids -> Bool,
+        report -> Nullable<Jsonb>,
+        error -> Nullable<Jsonb>,
+        created_people -> Array<Nullable<Uuid>>,
+        files_restored -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        checked_at -> Nullable<Timestamptz>,
+        confirmed_by -> Nullable<Uuid>,
+        confirmed_at -> Nullable<Timestamptz>,
+        applied_at -> Nullable<Timestamptz>,
+        finished_at -> Nullable<Timestamptz>,
+        reset_by -> Nullable<Uuid>,
+        reset_at -> Nullable<Timestamptz>,
+        pruned_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     workspace_ldap_settings (workspace_id) {
         workspace_id -> Int4,
         enabled -> Bool,
@@ -2613,6 +2646,7 @@ diesel::joinable!(working_calendars -> workspaces (workspace_id));
 diesel::joinable!(workspace_email_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_export_jobs -> workspaces (workspace_id));
 diesel::joinable!(workspace_identity_providers -> workspaces (workspace_id));
+diesel::joinable!(workspace_import_jobs -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_sync_state -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
@@ -2751,6 +2785,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     workspace_export_jobs,
     workspace_file_purges,
     workspace_identity_providers,
+    workspace_import_jobs,
     workspace_ldap_settings,
     workspace_ldap_sync_state,
     workspace_members,

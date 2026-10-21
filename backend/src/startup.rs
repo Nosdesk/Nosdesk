@@ -1088,6 +1088,9 @@ pub fn configure_app(
                     .configure(crate::handlers::workspace_export::config)
                     // Self-serve, Owner-gated workspace data export (DSAR return).
                     .configure(crate::handlers::workspace_data_export::config)
+                    // Workspace imports as jobs: the owner's (self-hosted) and the
+                    // platform admin's.
+                    .configure(crate::handlers::workspace_import::config)
 
                     // Guest access controls (admin only)
                     .configure(crate::handlers::guest_settings::config)
