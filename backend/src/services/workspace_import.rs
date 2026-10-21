@@ -50,6 +50,8 @@ pub struct ArchiveContents {
     pub tables: HashMap<String, Vec<Value>>,
     /// `files/{path}` entries: the archive-relative path and the bytes.
     pub files: Vec<(String, Vec<u8>)>,
+    /// `avatars/{name}` entries: people's avatars, by their archive path.
+    pub avatars: Vec<(String, Vec<u8>)>,
 }
 
 /// Why an export can't be imported here. A workspace moves only between
@@ -226,6 +228,7 @@ pub fn read_archive(
 
     let mut tables: HashMap<String, Vec<Value>> = HashMap::new();
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut avatars: Vec<(String, Vec<u8>)> = Vec::new();
 
     for name in names {
         if let Some(table) = name
@@ -237,29 +240,45 @@ pub fn read_archive(
             f.read_to_string(&mut s).map_err(BackupError::IoError)?;
             // Integrity: the payload must match the manifest's per-table hash, so
             // silent corruption of a data/*.json entry is caught before it's
-            // inserted (the manifest itself is under the AES-GCM envelope).
-            if let Some(tm) = manifest.tables.get(table) {
-                let actual = sha256_hex(s.as_bytes());
-                if actual != tm.sha256 {
-                    return Err(BackupError::CorruptedBackup(format!(
-                        "checksum mismatch for data/{table}.json (archive corrupted)"
-                    )));
-                }
+            // inserted (the manifest itself is under the AES-GCM envelope). An
+            // entry the manifest doesn't list has nothing to check against.
+            let Some(tm) = manifest.tables.get(table) else {
+                return Err(BackupError::CorruptedBackup(format!(
+                    "data/{table}.json isn't in the manifest (archive corrupted)"
+                )));
+            };
+            if sha256_hex(s.as_bytes()) != tm.sha256 {
+                return Err(BackupError::CorruptedBackup(format!(
+                    "checksum mismatch for data/{table}.json (archive corrupted)"
+                )));
             }
             let rows: Vec<Value> = serde_json::from_str(&s).map_err(BackupError::JsonError)?;
             tables.insert(table.to_string(), rows);
-        } else if name.starts_with("files/") && !name.ends_with('/') {
+        } else if name.ends_with('/') {
+            continue;
+        } else if name.starts_with("files/") || name.starts_with("avatars/") {
             let mut f = zip.by_name(&name).map_err(BackupError::ZipError)?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf).map_err(BackupError::IoError)?;
-            files.push((name, buf));
+            if name.starts_with("files/") {
+                files.push((name, buf));
+            } else {
+                avatars.push((name, buf));
+            }
         }
+    }
+    // A table the manifest lists whose rows are gone would import as empty.
+    if let Some(table) = manifest.tables.keys().find(|t| !tables.contains_key(*t)) {
+        return Err(BackupError::CorruptedBackup(format!(
+            "data/{table}.json is missing (archive corrupted)"
+        )));
     }
 
     Ok(ArchiveContents {
         manifest,
         tables,
         files,
+        avatars,
     })
 }
 
@@ -352,7 +371,8 @@ pub fn import_workspace(
             )));
         }
         let alloc = plan.allocate(conn)?;
-        let files = files::FilePlan::build(contents, &alloc.lookup());
+        let files = files::FilePlan::build(contents, &plan.file_lookup(&alloc))
+            .with_avatars(contents, plan.avatar_moves());
         let (tables_imported, rows_imported) =
             crate::services::workspace_archive::apply::load(conn, &mut plan, &alloc)?;
         let workspace_uuid = crate::repository::workspaces::find_by_id(conn, workspace_id)?

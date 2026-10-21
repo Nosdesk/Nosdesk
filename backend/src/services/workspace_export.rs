@@ -64,8 +64,8 @@ fn zip_options() -> SimpleFileOptions {
 pub const WORKSPACE_EXPORT_FORMAT_VERSION: u32 = 2;
 
 /// Where a person's avatar sits in storage, and where it goes in an archive.
-const AVATAR_STORAGE_PREFIX: &str = "users/avatars/";
-const AVATAR_ARCHIVE_PREFIX: &str = "avatars/";
+pub(crate) const AVATAR_STORAGE_PREFIX: &str = "users/avatars/";
+pub(crate) const AVATAR_ARCHIVE_PREFIX: &str = "avatars/";
 
 /// Storage prefixes an export leaves out: earlier exports, CSV import uploads
 /// and grids, uploads not yet attached, and workspace archives waiting to
@@ -517,7 +517,7 @@ pub async fn add_legacy_branding(
 /// as the storage layer hands out, or the bare key), or `None` for an
 /// external URL or anything that isn't one plain file under the avatars
 /// prefix.
-fn avatar_storage_key(avatar_url: &str) -> Option<String> {
+pub(crate) fn avatar_storage_key(avatar_url: &str) -> Option<String> {
     let key = avatar_url
         .strip_prefix("/uploads/")
         .or_else(|| avatar_url.strip_prefix("uploads/"))

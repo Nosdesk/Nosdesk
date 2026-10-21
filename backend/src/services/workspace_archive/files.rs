@@ -3,10 +3,12 @@
 //!
 //! Most files keep their key. An attachment is served by its exact
 //! `attachments.url` (`repository::file_access`), so its key and its url
-//! come over together as they are. Two kinds of file name their owner in
+//! come over together as they are. Three kinds of file name their owner in
 //! their key instead, and move with it: a notes image
-//! (`tickets/{id}/notes/`) follows its ticket, and an asset's media
-//! (`assets/{id}/media/`, thumbnails included) its asset. Their keys are
+//! (`tickets/{id}/notes/`) follows its ticket, a collaborative document's
+//! image (`collab/{kind}/{uuid}/`) the ticket, page or collection whose
+//! uuid it carries, and an asset's media (`assets/{id}/media/`, thumbnails
+//! included) its asset. Their keys are
 //! rewritten by the same test that rewrites the references to them
 //! ([`refs::file_owner`]: an editor's image `src`, a document's
 //! `image.src`, `asset_media.url` and `thumbnail_url`), so a file lands
@@ -16,6 +18,11 @@
 //! Branding images keep their key (`branding/{name}`, under the
 //! workspace's own prefix) and the settings that name them take the target
 //! workspace's address ([`settle_branding`]).
+//!
+//! People's avatars live outside the workspace's prefix. Only an account
+//! the import creates takes the archive's avatar, under a key named after
+//! that account ([`plan_avatar`]), so an existing account the archive maps
+//! to keeps its own; the thumbnail is made from it as the file lands.
 //!
 //! Every file goes through the upload validator first, with the rules of
 //! the upload that made it: a file the app would refuse to take stays out.
@@ -37,7 +44,9 @@ use super::refs::{self, FilePath, Lookup};
 use crate::db::DbConnection;
 use crate::handlers::branding::{is_allowed_branding_filename, BRANDING_DIR};
 use crate::repository::site_settings::{self, KeptBranding};
-use crate::services::workspace_export::is_exported_file;
+use crate::services::workspace_export::{
+    avatar_storage_key, is_exported_file, AVATAR_ARCHIVE_PREFIX, AVATAR_STORAGE_PREFIX,
+};
 use crate::services::workspace_import::ArchiveContents;
 use crate::utils::file_validation::{get_max_file_size, FileValidator};
 use crate::utils::storage::{is_safe_storage_path, Storage, WorkspaceScopedStorage};
@@ -46,6 +55,17 @@ use crate::utils::storage::{is_safe_storage_path, Storage, WorkspaceScopedStorag
 const MAX_NOTES_IMAGE: usize = 10 * 1024 * 1024;
 /// The largest branding image the upload takes.
 const MAX_BRANDING_IMAGE: usize = 2 * 1024 * 1024;
+/// The largest avatar the import takes.
+const MAX_AVATAR: usize = 10 * 1024 * 1024;
+/// The images an avatar may be, and the extension its key takes.
+const AVATAR_TYPES: &[(&str, &str)] = &[
+    ("image/png", "png"),
+    ("image/jpeg", "jpg"),
+    ("image/webp", "webp"),
+    ("image/gif", "gif"),
+];
+/// The edge of an avatar's thumbnail, as the avatar upload makes it.
+const AVATAR_THUMB_SIZE: u32 = 48;
 /// What a branding upload may be (no SVG: branding renders on the public
 /// sign-in page).
 const BRANDING_TYPES: &[&str] = &[
@@ -98,6 +118,9 @@ struct Entry {
 #[derive(Debug, Clone, Default)]
 pub struct FilePlan {
     entries: Vec<Entry>,
+    /// Avatars ([`FilePlan::with_avatars`]): `index` points into
+    /// `ArchiveContents::avatars` and `key` is in the unscoped storage.
+    avatars: Vec<Entry>,
     pub skipped: Vec<SkippedFile>,
 }
 
@@ -105,6 +128,8 @@ pub struct FilePlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Class {
     NotesImage,
+    /// An image in a collaborative document (`collab/{kind}/{uuid}/`).
+    CollabImage,
     AssetMedia,
     Branding,
     Other,
@@ -125,7 +150,7 @@ impl FilePlan {
             }
             let class = classify(path);
             let key = match class {
-                Class::NotesImage | Class::AssetMedia => {
+                Class::NotesImage | Class::CollabImage | Class::AssetMedia => {
                     match refs::rewrite_file_path(&format!("/{path}"), lookup) {
                         FilePath::Kept(new) => new.trim_start_matches('/').to_string(),
                         FilePath::NotOwned => path.to_string(),
@@ -156,6 +181,45 @@ impl FilePlan {
         plan
     }
 
+    /// Add the avatars of the accounts the import creates, as
+    /// `(archive path, storage key)` pairs ([`plan_avatar`]). An avatar the
+    /// archive doesn't carry, or that isn't an image an avatar may be, stays
+    /// out and is reported.
+    pub fn with_avatars<'a>(
+        mut self,
+        contents: &ArchiveContents,
+        moves: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Self {
+        for (path, key) in moves {
+            let Some(index) = contents.avatars.iter().position(|(p, _)| p == path) else {
+                self.skip(path, SkipReason::Missing, None);
+                continue;
+            };
+            if avatar_account(key).is_none() || !is_safe_storage_path(key) {
+                self.skip(path, SkipReason::UnsafePath, None);
+                continue;
+            }
+            match avatar_type(path, &contents.avatars[index].1) {
+                Ok((content_type, _)) => self.avatars.push(Entry {
+                    index,
+                    path: path.to_string(),
+                    key: key.to_string(),
+                    content_type: content_type.to_string(),
+                    overwrite: true,
+                }),
+                Err(detail) => self.skip(path, SkipReason::Refused, Some(detail)),
+            }
+        }
+        self
+    }
+
+    /// `(archive path, storage key)` for every avatar the restore puts.
+    pub fn avatar_keys(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.avatars
+            .iter()
+            .map(|e| (e.path.as_str(), e.key.as_str()))
+    }
+
     fn skip(&mut self, path: &str, reason: SkipReason, detail: Option<String>) {
         self.skipped.push(SkippedFile {
             path: path.to_string(),
@@ -179,12 +243,92 @@ impl FilePlan {
 
     /// How many files the restore puts.
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.entries.len() + self.avatars.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_empty() && self.avatars.is_empty()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Avatars
+// ---------------------------------------------------------------------------
+
+/// The storage key of account `account`'s avatar, an image of extension
+/// `ext`.
+fn avatar_key(account: Uuid, ext: &str) -> String {
+    format!("{AVATAR_STORAGE_PREFIX}{account}_avatar.{ext}")
+}
+
+/// The storage key of account `account`'s avatar thumbnail, where the
+/// avatar upload and the thumbnail sweep put it.
+fn avatar_thumb_key(account: Uuid) -> String {
+    format!("users/thumbs/{account}_thumb.webp")
+}
+
+/// The account an avatar key ([`avatar_key`]) belongs to.
+fn avatar_account(key: &str) -> Option<Uuid> {
+    let (account, _) = key
+        .strip_prefix(AVATAR_STORAGE_PREFIX)?
+        .split_once("_avatar.")?;
+    Uuid::parse_str(account).ok()
+}
+
+/// The content type and key extension of an avatar, or why the import
+/// leaves it out: too large, or not an image an avatar may be.
+fn avatar_type(path: &str, bytes: &[u8]) -> Result<(&'static str, &'static str), String> {
+    let max = MAX_AVATAR.min(get_max_file_size());
+    if bytes.len() > max {
+        return Err(format!(
+            "{} bytes is over the {max}-byte limit for an avatar",
+            bytes.len()
+        ));
+    }
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let detected = FileValidator::validate_file(bytes, Some(name)).map_err(|e| e.to_string())?;
+    AVATAR_TYPES
+        .iter()
+        .find(|(t, _)| *t == detected)
+        .copied()
+        .ok_or_else(|| format!("an avatar must be a PNG, JPEG, WebP or GIF image, not {detected}"))
+}
+
+/// An avatar an account the import creates takes from the archive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedAvatar {
+    /// Its path in the archive, under `avatars/`.
+    pub path: String,
+    /// Its key in storage, named after the new account.
+    pub key: String,
+    /// What `users.avatar_url` holds.
+    pub url: String,
+    /// What `users.avatar_thumb` holds; the restore makes the file.
+    pub thumb_url: String,
+}
+
+/// The archive avatar `avatar_url` (a person's archive `users.avatar_url`)
+/// as the new account `account` keeps it, or `None` when the archive
+/// doesn't carry it or it isn't an image an avatar may be. The key is named
+/// after the new account, never the archive's, so on a server that still
+/// holds the archive's people it can't land on anyone else's file.
+pub fn plan_avatar(
+    contents: &ArchiveContents,
+    avatar_url: &str,
+    account: Uuid,
+) -> Option<PlannedAvatar> {
+    let stored = avatar_storage_key(avatar_url)?;
+    let name = stored.strip_prefix(AVATAR_STORAGE_PREFIX)?;
+    let path = format!("{AVATAR_ARCHIVE_PREFIX}{name}");
+    let (_, bytes) = contents.avatars.iter().find(|(p, _)| *p == path)?;
+    let (_, ext) = avatar_type(&path, bytes).ok()?;
+    let key = avatar_key(account, ext);
+    Some(PlannedAvatar {
+        path,
+        url: format!("/uploads/{key}"),
+        thumb_url: format!("/uploads/{}", avatar_thumb_key(account)),
+        key,
+    })
 }
 
 /// `path` (`tickets/{id}/notes/...`, `assets/{id}/media/...`,
@@ -195,6 +339,11 @@ fn classify(path: &str) -> Class {
     match (parts.next(), parts.next(), parts.next(), parts.next()) {
         (Some("tickets"), Some(id), Some("notes"), Some(_)) if numeric(id) => Class::NotesImage,
         (Some("assets"), Some(id), Some("media"), Some(_)) if numeric(id) => Class::AssetMedia,
+        (Some("collab"), Some("ticket" | "doc" | "collection"), Some(owner), Some(_))
+            if Uuid::parse_str(owner).is_ok() =>
+        {
+            Class::CollabImage
+        }
         (Some(BRANDING_DIR), Some(_), None, None) => Class::Branding,
         _ => Class::Other,
     }
@@ -206,7 +355,7 @@ fn classify(path: &str) -> Class {
 fn validate(class: Class, path: &str, bytes: &[u8]) -> Result<String, String> {
     let name = path.rsplit('/').next().unwrap_or(path);
     let max = match class {
-        Class::NotesImage => MAX_NOTES_IMAGE.min(get_max_file_size()),
+        Class::NotesImage | Class::CollabImage => MAX_NOTES_IMAGE.min(get_max_file_size()),
         Class::Branding => MAX_BRANDING_IMAGE,
         Class::AssetMedia | Class::Other => get_max_file_size(),
     };
@@ -218,8 +367,10 @@ fn validate(class: Class, path: &str, bytes: &[u8]) -> Result<String, String> {
     }
     let detected = FileValidator::validate_file(bytes, Some(name)).map_err(|e| e.to_string())?;
     match class {
-        Class::NotesImage if !detected.starts_with("image/") => {
-            return Err(format!("a notes image must be an image, not {detected}"));
+        Class::NotesImage | Class::CollabImage if !detected.starts_with("image/") => {
+            return Err(format!(
+                "a document's image must be an image, not {detected}"
+            ));
         }
         Class::Branding
             if !is_allowed_branding_filename(name)
@@ -449,6 +600,7 @@ pub async fn restore(
     contents: &ArchiveContents,
     plan: &FilePlan,
 ) -> FilesRestored {
+    let unscoped = Arc::clone(&storage);
     let scoped = WorkspaceScopedStorage::arc(storage, workspace_id);
     let mut out = FilesRestored {
         skipped: plan.skipped.clone(),
@@ -487,7 +639,61 @@ pub async fn restore(
         }
         out.restored += 1;
     }
+    if out.failed.is_none() {
+        restore_avatars(unscoped.as_ref(), contents, plan, &mut out).await;
+    }
     out
+}
+
+/// Put the plan's avatars, each with its thumbnail. An avatar already in
+/// place with the same bytes is left alone; a thumbnail is made when its
+/// file is missing or its avatar was put. A thumbnail that can't be made is
+/// only logged: the thumbnail sweep makes it later.
+async fn restore_avatars(
+    storage: &dyn Storage,
+    contents: &ArchiveContents,
+    plan: &FilePlan,
+    out: &mut FilesRestored,
+) {
+    for entry in &plan.avatars {
+        let (Some((_, bytes)), Some(account)) = (
+            contents.avatars.get(entry.index),
+            avatar_account(&entry.key),
+        ) else {
+            continue;
+        };
+        let same = storage.file_exists(&entry.key).await.unwrap_or(false)
+            && storage
+                .get_file(&entry.key)
+                .await
+                .is_ok_and(|held| held == *bytes);
+        if same {
+            out.present += 1;
+        } else {
+            if let Err(e) = storage
+                .put_file(bytes, &entry.key, &entry.content_type)
+                .await
+            {
+                tracing::error!(error = ?e, "workspace import: avatar restore failed part way");
+                out.failed = Some(entry.key.clone());
+                return;
+            }
+            out.restored += 1;
+        }
+        let thumb = avatar_thumb_key(account);
+        if same && storage.file_exists(&thumb).await.unwrap_or(false) {
+            continue;
+        }
+        let Some(webp) =
+            crate::utils::image::generate_asset_media_thumbnail(bytes, AVATAR_THUMB_SIZE).await
+        else {
+            tracing::warn!(user_uuid = %account, "workspace import: avatar thumbnail not made; the sweep makes it");
+            continue;
+        };
+        if let Err(e) = storage.put_file(&webp, &thumb, "image/webp").await {
+            tracing::warn!(user_uuid = %account, error = ?e, "workspace import: avatar thumbnail not stored; the sweep makes it");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -535,6 +741,7 @@ mod tests {
                 .iter()
                 .map(|(p, b)| (format!("files/{p}"), b.to_vec()))
                 .collect(),
+            avatars: Vec::new(),
         }
     }
 
@@ -602,6 +809,94 @@ mod tests {
             Some(format!("/uploads/branding/{target}/logo.png?v=9"))
         );
         assert_eq!(settled.favicon_url, None);
+    }
+
+    /// A collaborative document's image moves to its page's new uuid; one
+    /// whose page doesn't come stays out.
+    #[test]
+    fn a_documents_image_moves_with_its_page() {
+        let (page, moved, gone) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        struct Pages(Uuid, Uuid);
+        impl Lookup for Pages {
+            fn user(&self, uuid: &str) -> Option<String> {
+                Some(uuid.to_string())
+            }
+            fn key(&self, entity: Entity, key: &str) -> Option<String> {
+                (entity == Entity::PageUuid && key == self.0.to_string())
+                    .then(|| self.1.to_string())
+            }
+        }
+        let archive = contents(
+            &[
+                (&format!("collab/doc/{page}/0198_wiring.png"), PNG),
+                (&format!("collab/doc/{gone}/0198_old.png"), PNG),
+            ],
+            serde_json::json!({}),
+        );
+        let plan = FilePlan::build(&archive, &Pages(page, moved));
+        assert_eq!(
+            plan.key_of(&format!("collab/doc/{page}/0198_wiring.png")),
+            Some(format!("collab/doc/{moved}/0198_wiring.png").as_str())
+        );
+        assert_eq!(
+            reasons(&plan),
+            vec![(
+                format!("collab/doc/{gone}/0198_old.png").as_str(),
+                SkipReason::NotImported
+            )]
+        );
+    }
+
+    /// An account the import creates takes the archive's avatar under a key
+    /// of its own; an avatar the archive lacks, or that isn't an image,
+    /// stays out.
+    #[test]
+    fn a_new_accounts_avatar_is_its_own() {
+        let account = Uuid::now_v7();
+        let mut archive = contents(&[], serde_json::json!({}));
+        archive.avatars = vec![
+            ("avatars/old_avatar.png".to_string(), PNG.to_vec()),
+            ("avatars/script.png".to_string(), SVG.to_vec()),
+        ];
+        let planned = plan_avatar(&archive, "/uploads/users/avatars/old_avatar.png", account)
+            .expect("planned");
+        assert_eq!(planned.key, format!("users/avatars/{account}_avatar.png"));
+        assert_eq!(
+            planned.url,
+            format!("/uploads/users/avatars/{account}_avatar.png")
+        );
+        assert_eq!(
+            planned.thumb_url,
+            format!("/uploads/users/thumbs/{account}_thumb.webp")
+        );
+        assert_eq!(
+            plan_avatar(&archive, "/uploads/users/avatars/script.png", account),
+            None
+        );
+        assert_eq!(
+            plan_avatar(&archive, "/uploads/users/avatars/lost.png", account),
+            None
+        );
+        assert_eq!(
+            plan_avatar(&archive, "https://example.com/a.png", account),
+            None
+        );
+
+        let plan = FilePlan::default().with_avatars(
+            &archive,
+            [
+                ("avatars/old_avatar.png", planned.key.as_str()),
+                ("avatars/lost.png", "users/avatars/x_avatar.png"),
+            ],
+        );
+        assert_eq!(
+            plan.avatar_keys().collect::<Vec<_>>(),
+            vec![("avatars/old_avatar.png", planned.key.as_str())]
+        );
+        assert_eq!(
+            reasons(&plan),
+            vec![("avatars/lost.png", SkipReason::Missing)]
+        );
     }
 
     /// A file the app's upload refuses stays out, by the upload's own
