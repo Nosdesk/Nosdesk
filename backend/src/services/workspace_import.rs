@@ -34,7 +34,7 @@ use serde_json::{json, Value};
 use crate::middleware::workspace_context::DeploymentMode;
 use crate::services::backup::{sha256_hex, table_exists_in_db, unseal_inner_zip, BackupError};
 use crate::services::workspace_archive::plan::{self, ImportReport, PlanRefusal, Runner};
-use crate::services::workspace_archive::rows;
+use crate::services::workspace_archive::{files, rows};
 use crate::services::workspace_export::WorkspaceExportManifest;
 
 pub use crate::services::workspace_archive::plan::{discover_fk_edges, topological_order, FkEdge};
@@ -251,14 +251,17 @@ pub struct ImportResult {
     pub rows_imported: i64,
     /// The plan's report: per-table counts, the people map, handover items.
     pub report: ImportReport,
+    /// Where the archive's files land, for `workspace_archive::files::restore`.
+    pub files: crate::services::workspace_archive::files::FilePlan,
 }
 
 /// Import a workspace's ROWS from an already-read archive into THIS database as a
 /// new workspace. Must be called on a BYPASSRLS connection (via
 /// `with_actor_bypass_context` / `PlatformConn`). Atomic: everything runs in one
 /// transaction and rolls back on any error. The caller reads the archive
-/// ([`read_archive`]) and, after this returns, restores `contents.files` through
-/// the storage abstraction (async) so file migration works on local and S3.
+/// ([`read_archive`]) and, after this returns, restores the archive's files
+/// through the storage abstraction (async, `workspace_archive::files::restore`
+/// with [`ImportResult::files`]) so file migration works on local and S3.
 ///
 /// A plan refusal comes back as [`BackupError::NotImportable`] with
 /// [`ImportRefusal::Plan`].
@@ -306,8 +309,15 @@ pub fn import_workspace(
             )));
         }
         let alloc = plan.allocate(conn)?;
+        let files = files::FilePlan::build(contents, &alloc.lookup());
         let (tables_imported, rows_imported) =
             crate::services::workspace_archive::apply::load(conn, &mut plan, &alloc)?;
+        let workspace_uuid = crate::repository::workspaces::find_by_id(conn, workspace_id)?
+            .ok_or_else(|| {
+                BackupError::CorruptedBackup("the imported workspace is missing".to_string())
+            })?
+            .uuid;
+        files::settle_branding(conn, workspace_id, workspace_uuid, contents, &files, None)?;
 
         Ok(ImportResult {
             workspace_id,
@@ -315,6 +325,7 @@ pub fn import_workspace(
             tables_imported,
             rows_imported,
             report: plan.report,
+            files,
         })
     })
 }

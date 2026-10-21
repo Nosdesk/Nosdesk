@@ -19,7 +19,7 @@ use std::sync::Arc;
 use crate::errors::{self, ApiError};
 use crate::extractors::PlatformConn;
 use crate::services::search::{indexing_tasks, SearchService};
-use crate::services::workspace_archive::apply;
+use crate::services::workspace_archive::{apply, files};
 use crate::utils::rbac;
 use crate::utils::storage::{process_storage, WorkspaceScopedStorage};
 
@@ -93,9 +93,16 @@ pub async fn export_workspace(
         }
     }
 
-    // 3. People's avatars, which live outside the workspace's prefix.
+    // 3. People's avatars, and branding from before it was workspace-scoped,
+    //    which live outside the workspace's prefix.
     let avatars =
         crate::services::workspace_export::read_avatars(process_storage().as_ref(), &meta).await;
+    crate::services::workspace_export::add_legacy_branding(
+        process_storage().as_ref(),
+        &meta,
+        &mut files,
+    )
+    .await;
 
     // 4. Assemble + seal (sync).
     match crate::services::workspace_export::assemble_workspace_archive(
@@ -283,7 +290,13 @@ pub async fn import_workspace(
 
     // 2. Restore files into the NEW workspace. The rows are already committed,
     //    so a failure here leaves partial files; the error carries workspace_id.
-    let files = apply::restore_files(process_storage(), result.workspace_id, &contents).await;
+    let files = files::restore(
+        process_storage(),
+        result.workspace_id,
+        &contents,
+        &result.files,
+    )
+    .await;
     if let Some(response) = files_partial(&files, result.workspace_id, result.rows_imported) {
         return Ok(response);
     }
@@ -294,6 +307,7 @@ pub async fn import_workspace(
         "tables_imported": result.tables_imported,
         "rows_imported": result.rows_imported,
         "files_restored": files.restored,
+        "files_present": files.present,
         "files_skipped": files.skipped,
         "report": result.report,
     })))
@@ -354,8 +368,9 @@ async fn import_into_workspace(
 
     reindex_search(search_service, workspace_id);
 
-    // Files, after commit: idempotent puts, so a partial restore can run again.
-    let files = apply::restore_files(process_storage(), workspace_id, contents).await;
+    // Files, after commit: a key already in place is left, so a partial
+    // restore can run again with the same plan.
+    let files = files::restore(process_storage(), workspace_id, contents, &applied.files).await;
     if let Some(response) = files_partial(&files, workspace_id, applied.rows_imported) {
         return Ok(response);
     }
@@ -367,6 +382,7 @@ async fn import_into_workspace(
         "cleared": applied.cleared,
         "data_epoch": applied.fence.epoch,
         "files_restored": files.restored,
+        "files_present": files.present,
         "files_skipped": files.skipped,
         "report": applied.report,
     })))
@@ -383,7 +399,7 @@ fn reindex_search(search_service: Option<&Arc<SearchService>>, workspace_id: i32
 
 /// The response when the file restore stopped part way, if it did.
 fn files_partial(
-    files: &apply::FilesRestored,
+    files: &files::FilesRestored,
     workspace_id: i32,
     rows_imported: i64,
 ) -> Option<HttpResponse> {
@@ -397,6 +413,7 @@ fn files_partial(
             "workspace_id": workspace_id,
             "rows_imported": rows_imported,
             "files_restored": files.restored,
+            "files_skipped": files.skipped,
         }),
     ))
 }

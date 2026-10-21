@@ -114,6 +114,9 @@ impl Entity {
 pub enum Kind {
     Ref(Entity),
     Html,
+    /// A stored file's URL naming the ticket or asset that owns it
+    /// ([`file_owner`]); the file restore moves the file to match.
+    File,
 }
 
 /// Where a column's references sit.
@@ -187,7 +190,7 @@ const fn r(table: &'static str, column: &'static str, shape: Shape, missing: Mis
 }
 
 use Entity as E;
-use Kind::{Html, Ref};
+use Kind::{File, Html, Ref};
 
 /// Rule actions (`handlers/rules.rs`, `repository/rules.rs`): `set_status`,
 /// `assign` direct or to a group, `add_tags`/`remove_tags`, and a reply's
@@ -339,6 +342,14 @@ pub const REFERENCES: &[Reference] = &[
         "canned_responses",
         "body",
         Shape::Text(Html),
+        Missing::Clear,
+    ),
+    // Asset media name their asset in their path, as their files do.
+    r("asset_media", "url", Shape::Text(File), Missing::DropRow),
+    r(
+        "asset_media",
+        "thumbnail_url",
+        Shape::Text(File),
         Missing::Clear,
     ),
     // Assets and people's custom fields.
@@ -988,6 +999,19 @@ fn leaf(value: &mut Value, kind: Kind, lookup: &dyn Lookup, found: &mut Found, a
             *html = new;
         }
         (Html, _) => {}
+        (File, value) => {
+            let Value::String(path) = &*value else {
+                return;
+            };
+            match rewrite_file_path(path, lookup) {
+                FilePath::NotOwned => {}
+                FilePath::Kept(new) => *value = Value::String(new),
+                FilePath::Missing => {
+                    *value = Value::Null;
+                    found.cleared += 1;
+                }
+            }
+        }
         (Ref(entity), Value::Array(items)) if arrays => {
             items.retain_mut(|item| keep(item, entity, lookup, found));
         }
@@ -1025,9 +1049,9 @@ fn walk_path(value: &mut Value, path: &[&str], kind: Kind, lookup: &dyn Lookup, 
         if rest.is_empty() {
             match kind {
                 Ref(entity) => items.retain_mut(|item| keep(item, entity, lookup, found)),
-                Html => items
+                Html | File => items
                     .iter_mut()
-                    .for_each(|item| leaf(item, Html, lookup, found, false)),
+                    .for_each(|item| leaf(item, kind, lookup, found, false)),
             }
         } else {
             for item in items {
@@ -1385,25 +1409,16 @@ pub fn rewrite_html(html: &str, lookup: &dyn Lookup) -> (String, Counts) {
         let Some(src) = html_attr(el, "src") else {
             return el.to_string();
         };
-        let (entity, old, rewrite): (Entity, &str, fn(&str, &str) -> String) =
-            if let Some(id) = yjs::notes_image_ticket(&src) {
-                (E::Ticket, id, yjs::with_notes_image_ticket)
-            } else if let Some(id) = ASSET_MEDIA.captures(&src).and_then(|m| m.get(2)) {
-                (E::Asset, id.as_str(), with_asset_media)
-            } else {
-                return el.to_string();
-            };
-        match map(entity, &Value::String(old.to_string()), lookup) {
-            Outcome::NotARef => el.to_string(),
-            Outcome::Kept(new) => {
-                let new = new.as_str().unwrap_or(old).to_string();
-                if new == old {
+        match rewrite_file_path(&src, lookup) {
+            FilePath::NotOwned => el.to_string(),
+            FilePath::Kept(new) => {
+                if new == src {
                     return el.to_string();
                 }
                 counts.images += 1;
-                with_html_attr(el, "src", &rewrite(&src, &new))
+                with_html_attr(el, "src", &new)
             }
-            Outcome::Missing => {
+            FilePath::Missing => {
                 counts.images_as_text += 1;
                 html_attr(el, "alt").unwrap_or_default()
             }
@@ -1412,10 +1427,60 @@ pub fn rewrite_html(html: &str, lookup: &dyn Lookup) -> (String, Counts) {
     (out.into_owned(), counts)
 }
 
-fn with_asset_media(src: &str, asset: &str) -> String {
+/// The row a stored file's path or URL names as its owner: a notes image
+/// (`tickets/{id}/notes/`, under `/uploads/` or `/api/files/`) follows its
+/// ticket, an asset's media (`/assets/{id}/media/`) its asset. The same
+/// test reads an editor's image `src`, a document's `image.src` (the Yjs
+/// pass) and a storage key with a leading `/`, so the file restore moves a
+/// file exactly where the references to it now point.
+pub fn file_owner(path: &str) -> Option<(Entity, &str)> {
+    if let Some(id) = yjs::notes_image_ticket(path) {
+        return Some((E::Ticket, id));
+    }
     ASSET_MEDIA
-        .replacen(src, 1, |c: &Captures| format!("{}{asset}{}", &c[1], &c[3]))
-        .into_owned()
+        .captures(path)
+        .and_then(|m| m.get(2))
+        .map(|m| (E::Asset, m.as_str()))
+}
+
+/// `path` with the owner [`file_owner`] found replaced by `new`.
+pub fn with_file_owner(path: &str, entity: Entity, new: &str) -> String {
+    match entity {
+        E::Ticket => yjs::with_notes_image_ticket(path, new),
+        E::Asset => ASSET_MEDIA
+            .replacen(path, 1, |c: &Captures| format!("{}{new}{}", &c[1], &c[3]))
+            .into_owned(),
+        _ => path.to_string(),
+    }
+}
+
+/// A stored file's path or URL through the lookup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FilePath {
+    /// It names no owner; left as it is.
+    NotOwned,
+    /// Rewritten to its owner's key on the target.
+    Kept(String),
+    /// Its owner isn't imported.
+    Missing,
+}
+
+/// `path` with its owner ([`file_owner`]) rewritten through `lookup`.
+pub fn rewrite_file_path(path: &str, lookup: &dyn Lookup) -> FilePath {
+    let Some((entity, old)) = file_owner(path) else {
+        return FilePath::NotOwned;
+    };
+    match map(entity, &Value::String(old.to_string()), lookup) {
+        Outcome::NotARef => FilePath::NotOwned,
+        Outcome::Kept(new) => {
+            let new = match &new {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            FilePath::Kept(with_file_owner(path, entity, &new))
+        }
+        Outcome::Missing => FilePath::Missing,
+    }
 }
 
 // ---------------------------------------------------------------------------

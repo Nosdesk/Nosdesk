@@ -203,6 +203,7 @@ mod workspace_file_purge;
 mod workspace_fk_cascade_lint;
 mod workspace_fk_scope_lint;
 mod workspace_import_apply;
+mod workspace_import_files;
 mod workspace_import_plaintext;
 mod workspace_member_soft_remove;
 mod workspace_members_active_filter_lint;
