@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { initialsFrom, monogramColor, monogramDataUri, monogramHue } from './monogram'
+import { initialsFrom, monogramColor, monogramDataUri, monogramHex, monogramHue } from './monogram'
 
 describe('initialsFrom', () => {
   it('takes up to two initials', () => {
@@ -56,5 +56,20 @@ describe('monogramDataUri', () => {
     // Same first letter, different workspace: the marks must not match.
     expect(monogramDataUri('Support', 'key-a')).not.toBe(monogramDataUri('Support', 'key-b'))
     expect(monogramColor('key-a')).not.toBe(monogramColor('key-b'))
+  })
+})
+
+describe('monogramHex', () => {
+  it('is the monogram colour as six-digit hex', () => {
+    for (const key of ['00000000-0000-0000-0000-000000000001', 'u-1', 'a']) {
+      expect(monogramHex(key)).toMatch(/^#[0-9a-f]{6}$/)
+    }
+  })
+
+  it('matches the hsl colour', () => {
+    // hsl(121, 65%, 38%), the colour in the y-prosemirror warning.
+    const key = Array.from({ length: 2000 }, (_, i) => `k${i}`).find((k) => monogramHue(k) === 121)!
+    expect(monogramColor(key)).toBe('hsl(121, 65%, 38%)')
+    expect(monogramHex(key)).toBe('#22a024')
   })
 })

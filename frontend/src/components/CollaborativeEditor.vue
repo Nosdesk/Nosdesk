@@ -109,10 +109,11 @@ import { createMentionViewPlugin } from "@/plugins/prosemirror-mention-view";
 import { useUserMentionSearch } from "@/composables/useUserMentionSearch";
 // Same identity colour the workspace/user marks use, so one person reads as one
 // colour wherever they appear.
-import { monogramColor } from "@/utils/monogram";
+import { monogramColor, monogramHex } from "@/utils/monogram";
 
-/** Fallback caret colour for an awareness state carrying no identity. */
-const NEUTRAL_CARET_COLOR = 'hsl(215, 15%, 45%)';
+/** Fallback caret colour for an awareness state carrying no identity, as hex
+ *  (hsl(215, 15%, 45%)): y-prosemirror takes `#rrggbb` only. */
+const NEUTRAL_CARET_COLOR = '#627084';
 
 // Yjs awareness user state structure
 interface AwarenessUser {
@@ -833,7 +834,9 @@ const initEditor = async () => {
             // Derived from the uuid rather than randomised per session: the same
             // person keeps one colour across sessions and across surfaces, and
             // two people no longer collide by chance out of a palette of eight.
-            color: authStore.user?.uuid ? monogramColor(authStore.user.uuid) : NEUTRAL_CARET_COLOR,
+            // Hex, as y-prosemirror warns on anything else and appends an alpha
+            // to it for the selection highlight.
+            color: authStore.user?.uuid ? monogramHex(authStore.user.uuid) : NEUTRAL_CARET_COLOR,
             uuid: authStore.user?.uuid || undefined,
             avatar: authStore.user?.avatar_thumb || authStore.user?.avatar_url || undefined,
         });
@@ -883,10 +886,14 @@ const initEditor = async () => {
         // resizing in tables. The gap cursor comes with them. It was removed
         // once over errors on empty Yjs documents; an editor no longer starts
         // from an empty document (`initialEditorDoc`).
+        const awareness = provider.awareness;
         const tables = createTablePlugins({
             docId: () => props.docId,
             resizable: !tableTouch,
             onTableDeleted: () => tableControlsRef.value?.announceDeleted(),
+            // Who is in the document, so a ragged table is repaired by one
+            // client only.
+            present: () => awareness.getStates().keys(),
         });
 
         editorView = new EditorView(editorElement.value, {
