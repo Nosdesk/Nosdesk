@@ -1,7 +1,10 @@
-//! `GET /api/documentation/export.zip`: staff only, the same pages the JSON
-//! export lists for the caller, every page a file (two siblings with one
-//! title both), the manifest naming no page or collection the caller can't
-//! open, and the images a page shows copied into `_assets/`.
+//! `GET /api/documentation/export.zip`: workspace owners and admins only
+//! (agents and requesters are refused, as is an admin of another
+//! workspace), the whole Library and Drafts of this workspace and nothing
+//! from another, every page a file (two siblings with one title both), the
+//! images a page shows copied into `_assets/`, and a file name that carries
+//! the workspace slug. The exporter's own audience filter is checked
+//! directly: for an agent it leaves out what the agent can't open.
 
 #![allow(clippy::expect_used)]
 
@@ -22,8 +25,9 @@ use backend::models::{
     Claims, DocumentationStatus, NewDocumentationCollection, NewDocumentationCollectionPage,
     NewDocumentationPage,
 };
-use backend::repository::documentation_collections;
 use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
+use backend::repository::{documentation_collections, PageAudience};
+use backend::services::docs_export;
 use backend::services::docs_markdown::encode;
 use backend::services::docs_markdown::ir::{Block, Document, Image, Inline, Link, Marks};
 use backend::sync::actor::ActorContext;
@@ -127,9 +131,13 @@ const AS: &str = "x-test-as";
 
 struct Fixture {
     workspace: WorkspaceContext,
+    owner: Uuid,
     admin: Uuid,
     member: Uuid,
+    insider: Uuid,
     outsider: Uuid,
+    other_admin: Uuid,
+    other_page_title: &'static str,
     guide_uuid: Uuid,
     hidden_title: &'static str,
     secret_page_title: &'static str,
@@ -138,9 +146,10 @@ struct Fixture {
 fn setup(pool: &TestPool, storage_root: &std::path::Path) -> (Fixture, Arc<dyn Storage>) {
     let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
     let ws = seeded.a.workspace_id;
-    let (insider, outsider) = {
+    let (owner, insider, outsider) = {
         let mut conn = pool.get().expect("conn");
         (
+            common::insert_plain_user(&mut conn, "Docs Owner"),
             common::insert_plain_user(&mut conn, "Insider Agent"),
             common::insert_plain_user(&mut conn, "Outsider Agent"),
         )
@@ -149,6 +158,7 @@ fn setup(pool: &TestPool, storage_root: &std::path::Path) -> (Fixture, Arc<dyn S
     let guide_uuid = Uuid::new_v4();
 
     run_in_workspace(pool, REF, ws, |c| {
+        add_membership(c, ws, owner, "owner", SeatWriteAuthority::ControlPlane)?;
         for agent in [insider, outsider] {
             add_membership(c, ws, agent, "agent", SeatWriteAuthority::ControlPlane)?;
         }
@@ -253,6 +263,23 @@ fn setup(pool: &TestPool, storage_root: &std::path::Path) -> (Fixture, Arc<dyn S
     })
     .expect("seed docs");
 
+    // A page in the other workspace, which no export from this one carries.
+    run_in_workspace(pool, REF, seeded.b.workspace_id, |c| {
+        page(
+            c,
+            seeded.b.admin_uuid,
+            NewPage {
+                uuid: Uuid::new_v4(),
+                title: "Bilby Runbook",
+                parent: None,
+                order: None,
+                body: None,
+            },
+        );
+        Ok(())
+    })
+    .expect("seed other workspace");
+
     let storage: Arc<dyn Storage> = create_storage(StorageConfig::Local {
         base_path: storage_root.to_string_lossy().into_owned(),
     });
@@ -266,9 +293,13 @@ fn setup(pool: &TestPool, storage_root: &std::path::Path) -> (Fixture, Arc<dyn S
                 organisation_id: None,
                 custom_domain: None,
             },
+            owner,
             admin: seeded.a.admin_uuid,
             member: seeded.a.member_uuid,
+            insider,
             outsider,
+            other_admin: seeded.b.admin_uuid,
+            other_page_title: "Bilby Runbook",
             guide_uuid,
             hidden_title: "Hidden Quokka",
             secret_page_title: "Secret Wombat",
@@ -290,8 +321,18 @@ fn entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
         .collect()
 }
 
+/// The manifest's page titles.
+fn manifest_titles(manifest: &Value) -> Vec<String> {
+    manifest["pages"]
+        .as_array()
+        .expect("pages")
+        .iter()
+        .filter_map(|p| p["title"].as_str().map(str::to_string))
+        .collect()
+}
+
 #[actix_web::test]
-async fn the_docs_zip_holds_what_the_caller_may_read() {
+async fn the_docs_zip_is_for_workspace_admins_and_holds_the_whole_library() {
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let pool = db.pool_with_size(4);
@@ -341,17 +382,35 @@ async fn the_docs_zip_holds_what_the_caller_may_read() {
             .to_request()
     };
 
-    // A requester gets nothing, as from the JSON export.
-    let resp = http_test::call_service(&app, get(f.member)).await;
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    // A requester, both agents (one of whom can open every restricted page)
+    // and an admin of another workspace are refused.
+    for (who, user) in [
+        ("requester", f.member),
+        ("agent", f.outsider),
+        ("agent with access", f.insider),
+        ("other workspace's admin", f.other_admin),
+    ] {
+        let resp = http_test::call_service(&app, get(user)).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN, "{who}");
+    }
 
-    let resp = http_test::call_service(&app, get(f.outsider)).await;
+    let resp = http_test::call_service(&app, get(f.owner)).await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
         resp.headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok()),
         Some("application/zip")
+    );
+    let disposition = resp
+        .headers()
+        .get("content-disposition")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        disposition.contains(&format!("{}-documentation-", f.workspace.slug)),
+        "{disposition}"
     );
     let bytes = http_test::read_body(resp).await;
     let files = entries(&bytes);
@@ -371,25 +430,26 @@ async fn the_docs_zip_holds_what_the_caller_may_read() {
         manifest["workspace_uuid"],
         f.workspace.workspace_uuid.to_string()
     );
-    let titles: Vec<&str> = manifest["pages"]
-        .as_array()
-        .expect("pages")
-        .iter()
-        .filter_map(|p| p["title"].as_str())
-        .collect();
+    let titles = manifest_titles(&manifest);
     assert_eq!(
-        titles.iter().filter(|t| **t == "Setup").count(),
+        titles.iter().filter(|t| *t == "Setup").count(),
         2,
         "both same-title siblings: {titles:?}"
     );
-    for absent in [f.hidden_title, f.secret_page_title] {
-        assert!(!titles.contains(&absent), "{absent} in {titles:?}");
-        let slug = absent.to_lowercase().replace(' ', "-");
+    // An owner opens every page, restricted ones included.
+    for present in [f.hidden_title, f.secret_page_title] {
         assert!(
-            !names.iter().any(|n| n.contains(&slug)),
-            "{absent} has no file: {names:?}"
+            titles.iter().any(|t| t == present),
+            "{present} in {titles:?}"
         );
     }
+    // Nothing from the other workspace.
+    assert!(
+        !titles.iter().any(|t| t == f.other_page_title),
+        "{titles:?}"
+    );
+    let other_slug = f.other_page_title.to_lowercase().replace(' ', "-");
+    assert!(!names.iter().any(|n| n.contains(&other_slug)), "{names:?}");
     let collections: Vec<&str> = manifest["collections"]
         .as_array()
         .expect("collections")
@@ -397,7 +457,7 @@ async fn the_docs_zip_holds_what_the_caller_may_read() {
         .filter_map(|c| c["name"].as_str())
         .collect();
     assert!(collections.contains(&"Guides"), "{collections:?}");
-    assert!(!collections.contains(&"Secret"), "{collections:?}");
+    assert!(collections.contains(&"Secret"), "{collections:?}");
 
     // Every manifest path is a file, and each is unique.
     let paths: Vec<&str> = manifest["pages"]
@@ -451,7 +511,7 @@ async fn the_docs_zip_holds_what_the_caller_may_read() {
         .expect("image copied");
     assert_eq!(image.1, b"PNG");
 
-    // An admin sees the restricted pages too.
+    // An admin gets the same whole library.
     let resp = http_test::call_service(&app, get(f.admin)).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let bytes = http_test::read_body(resp).await;
@@ -466,12 +526,60 @@ async fn the_docs_zip_holds_what_the_caller_may_read() {
         .expect("utf-8"),
     )
     .expect("manifest");
-    let titles: Vec<&str> = manifest["pages"]
-        .as_array()
-        .expect("pages")
+    let admin_titles = manifest_titles(&manifest);
+    assert_eq!(admin_titles.len(), titles.len(), "{admin_titles:?}");
+    assert!(
+        admin_titles.iter().any(|t| t == f.hidden_title),
+        "{admin_titles:?}"
+    );
+    assert!(
+        admin_titles.iter().any(|t| t == f.secret_page_title),
+        "{admin_titles:?}"
+    );
+}
+
+/// The route is admin-only, so its audience opens everything; the exporter
+/// still filters by audience, and for an agent leaves out the pages and
+/// collections the agent can't open.
+#[actix_web::test]
+async fn the_exporter_leaves_out_what_its_audience_cannot_open() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let storage_dir = tempfile::tempdir().expect("storage dir");
+    let (f, _storage) = setup(&pool, storage_dir.path());
+
+    let audience = PageAudience::User {
+        user_uuid: f.outsider,
+        is_admin: false,
+        is_staff: true,
+    };
+    let export = run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+        docs_export::build(c, &audience, f.workspace.workspace_uuid)
+    })
+    .expect("build export");
+
+    let titles: Vec<&str> = export
+        .manifest
+        .pages
         .iter()
-        .filter_map(|p| p["title"].as_str())
+        .map(|p| p.title.as_str())
         .collect();
-    assert!(titles.contains(&f.hidden_title), "{titles:?}");
-    assert!(titles.contains(&f.secret_page_title), "{titles:?}");
+    assert!(titles.contains(&"Guide"), "{titles:?}");
+    for absent in [f.hidden_title, f.secret_page_title, f.other_page_title] {
+        assert!(!titles.contains(&absent), "{absent} in {titles:?}");
+        let slug = absent.to_lowercase().replace(' ', "-");
+        assert!(
+            !export.files.iter().any(|(n, _)| n.contains(&slug)),
+            "{absent} has no file"
+        );
+    }
+    let collections: Vec<&str> = export
+        .manifest
+        .collections
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    assert!(collections.contains(&"Guides"), "{collections:?}");
+    assert!(!collections.contains(&"Secret"), "{collections:?}");
 }

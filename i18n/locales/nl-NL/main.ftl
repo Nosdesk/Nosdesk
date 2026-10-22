@@ -3270,6 +3270,42 @@ docs-index-toolbar-guest-settings = Gasttoegang
 # MT: pending native review (nl-NL)
 docs-index-toolbar-import = Documenten importeren
 
+# Docs: documentatie exporteren (DocumentationExportDialog)
+# MT: pending native review (nl-NL)
+docs-export-menu = Documentatie exporteren
+docs-export-menu-busy = Export voorbereiden…
+docs-export-title = Documentatie exporteren
+docs-export-intro = Download de documentatie van deze werkruimte als zip met Markdown-bestanden, één per pagina, met een manifest dat hun plaats bewaart.
+docs-export-included-heading = Inbegrepen
+docs-export-included-pages = { $count ->
+    [one] { $count } pagina uit Bibliotheek en Concepten
+   *[other] { $count } pagina's uit Bibliotheek en Concepten
+  }
+docs-export-included-structure = { $count ->
+    [0] Nesting en volgorde van pagina's
+    [one] { $count } collectie, met nesting en volgorde van pagina's
+   *[other] { $count } collecties, met nesting en volgorde van pagina's
+  }
+docs-export-included-images = Afbeeldingen op die pagina's
+docs-export-excluded-heading = Niet inbegrepen
+docs-export-excluded-archived = { $count ->
+    [one] { $count } gearchiveerde pagina
+   *[other] { $count } gearchiveerde pagina's
+  }
+docs-export-excluded-trash = { $count ->
+    [one] { $count } pagina in de Prullenbak
+   *[other] { $count } pagina's in de Prullenbak
+  }
+docs-export-excluded-history = Revisiegeschiedenis en toegangsregels van pagina's
+docs-export-round-trip = De zip kan via Documenten importeren terug in elke Nosdesk-werkruimte worden geïmporteerd en opent in elke Markdown-editor.
+docs-export-preparing-hint = Een grote bibliotheek kan een minuut duren. U kunt dit venster sluiten; de download start zodra de zip klaar is.
+docs-export-download = Zip downloaden
+docs-export-preparing = Zip voorbereiden…
+docs-export-close = Sluiten
+docs-export-done = Documentatie geëxporteerd
+docs-export-error = De documentatie kon niet worden geëxporteerd. Probeer het opnieuw.
+docs-export-forbidden = Alleen beheerders en eigenaren van de werkruimte kunnen documentatie exporteren.
+
 # Docs: tabbladen en acties in de indexbalk (machine, nog na te kijken door moedertaalspreker)
 docs-index-tabs-aria = Documentatieweergaven
 docs-index-tab-library = Bibliotheek

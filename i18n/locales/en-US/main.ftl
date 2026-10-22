@@ -3304,6 +3304,41 @@ docs-index-toolbar-public-site = View public site
 docs-index-toolbar-guest-settings = Guest access settings
 docs-index-toolbar-import = Import documents
 
+# Docs: documentation export (DocumentationExportDialog)
+docs-export-menu = Export documentation
+docs-export-menu-busy = Preparing export…
+docs-export-title = Export documentation
+docs-export-intro = Download this workspace's documentation as a zip of Markdown files, one per page, with a manifest that keeps their place.
+docs-export-included-heading = Included
+docs-export-included-pages = { $count ->
+    [one] { $count } page from Library and Drafts
+   *[other] { $count } pages from Library and Drafts
+  }
+docs-export-included-structure = { $count ->
+    [0] Page nesting and order
+    [one] { $count } collection, with page nesting and order
+   *[other] { $count } collections, with page nesting and order
+  }
+docs-export-included-images = Images shown on those pages
+docs-export-excluded-heading = Not included
+docs-export-excluded-archived = { $count ->
+    [one] { $count } archived page
+   *[other] { $count } archived pages
+  }
+docs-export-excluded-trash = { $count ->
+    [one] { $count } page in Trash
+   *[other] { $count } pages in Trash
+  }
+docs-export-excluded-history = Revision history and page access rules
+docs-export-round-trip = The zip imports back into any Nosdesk workspace through Import documents, and opens in any Markdown editor.
+docs-export-preparing-hint = A large library can take a minute. You can close this window; the download starts when the zip is ready.
+docs-export-download = Download zip
+docs-export-preparing = Preparing zip…
+docs-export-close = Close
+docs-export-done = Documentation exported
+docs-export-error = The documentation couldn't be exported. Try again.
+docs-export-forbidden = Only workspace admins and owners can export documentation.
+
 # Docs: documentation index band tabs and actions
 docs-index-tabs-aria = Documentation views
 docs-index-tab-library = Library
