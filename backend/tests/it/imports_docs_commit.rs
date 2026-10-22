@@ -438,6 +438,132 @@ async fn pages_imported_before_are_skipped_or_copied() {
     assert_eq!(list["pages"][0]["duplicate"]["page_id"], written[0].id);
 }
 
+/// A Nosdesk export of three collections, a page in each, and an empty
+/// fourth. The page in the second carries `round_trip`.
+fn three_collections(ws: &WorkspaceSeed, round_trip: &str) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{
+  "format": "nosdesk-docs",
+  "format_version": 2,
+  "workspace_uuid": "{workspace}",
+  "exported_at": "2026-10-01T00:00:00Z",
+  "collections": [
+    {{ "uuid": "0b6a6f7e-0001-4000-8000-000000000001", "name": "One", "slug": "one", "path": "one", "order": 1 }},
+    {{ "uuid": "0b6a6f7e-0002-4000-8000-000000000002", "name": "Two", "slug": "two", "path": "two", "order": 2 }},
+    {{ "uuid": "0b6a6f7e-0003-4000-8000-000000000003", "name": "Three", "slug": "three", "path": "three", "order": 3 }},
+    {{ "uuid": "0b6a6f7e-0004-4000-8000-000000000004", "name": "Empty", "slug": "empty", "path": "empty", "order": 4 }}
+  ],
+  "pages": [
+    {{ "uuid": "1c0a0000-0001-4000-8000-000000000001", "title": "First", "slug": "first", "path": "one/first.md", "parent": null, "collection": "0b6a6f7e-0001-4000-8000-000000000001", "order": 1, "status": "published", "icon": null }},
+    {{ "uuid": "{round_trip}", "title": "Round trip", "slug": "round-trip", "path": "two/round-trip.md", "parent": null, "collection": "0b6a6f7e-0002-4000-8000-000000000002", "order": 1, "status": "published", "icon": null }},
+    {{ "uuid": "1c0a0000-0003-4000-8000-000000000003", "title": "Third", "slug": "third", "path": "three/third.md", "parent": null, "collection": "0b6a6f7e-0003-4000-8000-000000000003", "order": 1, "status": "published", "icon": null }}
+  ]
+}}"#,
+        workspace = ws.workspace_uuid
+    );
+    let second = format!("---\ntitle: \"Round trip\"\nuuid: {round_trip}\n---\n\nSecond.\n");
+    zip_of(&[
+        ("nosdesk-docs.json", manifest.as_bytes()),
+        (
+            "one/first.md",
+            b"---\ntitle: \"First\"\nuuid: 1c0a0000-0001-4000-8000-000000000001\n---\n\nFirst.\n",
+        ),
+        ("two/round-trip.md", second.as_bytes()),
+        (
+            "three/third.md",
+            b"---\ntitle: \"Third\"\nuuid: 1c0a0000-0003-4000-8000-000000000003\n---\n\nThird.\n",
+        ),
+    ])
+}
+
+/// A Nosdesk export imported again as copies with every page but one
+/// unticked creates only that page's collection: Review counts the one
+/// collection, and the commit writes the one page into it. Imported whole,
+/// every collection of the export is created, the empty one included.
+#[actix_web::test]
+async fn unticked_pages_leave_their_collections_out() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = import_workspaces(&pool);
+    let ws = &seeded.a;
+    private_storage();
+    let zip = three_collections(ws, "1c0a0000-0002-4000-8000-000000000002");
+    let collections = || {
+        count(
+            &pool,
+            ws,
+            "SELECT count(*) AS n FROM documentation_collections",
+        )
+    };
+    let before = collections();
+
+    let first = id_of(&uploaded(&pool, ws, "nosdesk-docs.zip", &zip).await);
+    let job = checked(&pool, ws, &first, serde_json::json!({})).await;
+    assert_eq!(
+        job["summary"]["destination"]["new_collections"],
+        serde_json::json!(["One", "Two", "Three", "Empty"]),
+        "{job}"
+    );
+    let job = committed(&pool, ws, &first, serde_json::json!({})).await;
+    assert_eq!(job["records_committed"], 3, "{job}");
+    assert_eq!(collections() - before, 4);
+
+    // Exported again: the page carries the uuid it has here.
+    let here = pages(&pool, ws)
+        .into_iter()
+        .find(|p| p.title == "Round trip")
+        .expect("imported")
+        .uuid;
+    let zip = three_collections(ws, &here.to_string());
+    let job = uploaded(&pool, ws, "nosdesk-docs.zip", &zip).await;
+    let second = id_of(&job);
+    let tree = job["source"]["tree"]["pages"].as_array().unwrap().clone();
+    let unticked: Vec<u64> = tree
+        .iter()
+        .filter(|p| p["title"] != "Round trip")
+        .map(|p| p["index"].as_u64().unwrap())
+        .collect();
+    assert_eq!(unticked.len(), 2, "{tree:?}");
+    let job = checked(
+        &pool,
+        ws,
+        &second,
+        serde_json::json!({ "exclude_pages": unticked }),
+    )
+    .await;
+    assert_eq!(job["summary"]["duplicates"], 1, "{job}");
+    assert_eq!(
+        job["summary"]["destination"]["new_collections"],
+        serde_json::json!(["Two"]),
+        "{job}"
+    );
+    let job = committed(
+        &pool,
+        ws,
+        &second,
+        serde_json::json!({ "duplicates": "copy" }),
+    )
+    .await;
+    assert_eq!(job["status"], "done", "{job}");
+    assert_eq!(job["records_committed"], 1, "{job}");
+    assert_eq!(collections() - before, 5, "one more collection");
+    let copy = pages(&pool, ws)
+        .into_iter()
+        .filter(|p| p.title == "Round trip")
+        .max_by_key(|p| p.id)
+        .expect("the copy");
+    let named = |id: i32| {
+        count(
+            &pool,
+            ws,
+            &format!(
+                "SELECT count(*) AS n FROM documentation_collections WHERE id = {id} AND name = 'Two'"
+            ),
+        )
+    };
+    assert_eq!(named(copy.collection_id.expect("in a collection")), 1);
+}
+
 /// A commit whose transaction fails writes nothing, deletes the images it
 /// stored, and goes back on Review saying so.
 #[actix_web::test]
