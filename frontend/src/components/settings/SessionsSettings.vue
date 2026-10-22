@@ -208,10 +208,20 @@ async function handleRevokeAll() {
   revokingAll.value = true;
   modalError.value = null;
   try {
-    await authService.revokeAllOtherSessions(stepUpBody(stepUpCredential.value));
+    const result = await authService.revokeAllOtherSessions(stepUpBody(stepUpCredential.value));
     closeRevokeAllModal();
     refresh();
-    emit('success', t('settings-sessions-revoke-others-success'));
+    // Nosdesk Cloud: the helpdesk sessions are gone either way, but if the
+    // Nosdesk account's remembered sign-ins could not be ended, those browsers
+    // can sign back in until they run out.
+    emit(
+      'success',
+      t(
+        result.remembered_sign_ins_ended === false
+          ? 'settings-sessions-revoke-others-success-remembered-kept'
+          : 'settings-sessions-revoke-others-success',
+      ),
+    );
   } catch (err) {
     // Keep the modal open so the user can correct the credential.
     modalError.value = extractErrorMessage(err, t('settings-sessions-revoke-others-error'));
