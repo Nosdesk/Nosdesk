@@ -2,15 +2,21 @@
  * Table editing in the collaborative editor: cell selection, the keyboard,
  * column resizing, the `|` shortcut, and tables through the clipboard.
  *
- * Two of these exist because of y-prosemirror rather than tables:
+ * Three of these exist because of y-prosemirror rather than tables:
  *
  * - prosemirror-tables repairs ragged tables (`fixTables`) in an appended
  *   transaction. Run after a remote change, that repair stays in this
  *   client's ProseMirror state, because y-prosemirror does not write back
  *   while it applies a remote change; each client then writes its own copy of
  *   the repair on its next keystroke anywhere in the document, and the cells
- *   are duplicated. So the repair skips remote batches, and a ragged table is
- *   repaired by the next local edit to that table.
+ *   are duplicated. So `collabTableEditing` leaves repairs out.
+ * - `tableRepair` makes them instead, once the change that left a table
+ *   ragged (one person adds a row while another adds a column) has reached
+ *   Yjs, as a local transaction that y-prosemirror writes back. Cells added
+ *   concurrently by two clients are both kept, so only one client pads a
+ *   short row: the one that created it, or, when that client has left the
+ *   document, the present client with the lowest id. Every client works that
+ *   out from the same shared document, so they agree without talking.
  * - y-prosemirror restores a text, node or all selection after a remote
  *   change, so a cell selection would collapse whenever a collaborator types.
  *   It is rebuilt from its corner cells, kept as Yjs relative positions.
@@ -30,14 +36,19 @@ import {
   columnResizing,
   columnResizingPluginKey,
   deleteCellSelection,
+  fixTables,
+  fixTablesKey,
   goToNextCell,
   inSameTable,
   isInTable,
   pointsAtCell,
+  removeColSpan,
   tableEditing,
+  tableNodeTypes,
 } from 'prosemirror-tables'
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, ySyncPluginKey } from 'y-prosemirror'
 import type { ProsemirrorBinding } from 'y-prosemirror'
+import type * as Y from 'yjs'
 import { tablesAllowed } from './tablesAllowed'
 import { cellsToTsv, textToTableSlice, tidyPastedTableHtml } from './tableClipboard'
 import {
@@ -60,8 +71,10 @@ export function isRemoteChange(tr: Transaction): boolean {
 }
 
 /**
- * prosemirror-tables' `tableEditing`, with its repair and selection
- * normalisation skipped for any batch holding a remote change.
+ * prosemirror-tables' `tableEditing`, with its selection normalisation
+ * skipped for any batch holding a remote change, and its repair left to
+ * `tableRepair` wherever the document is shared. Without a Yjs binding the
+ * repair runs as usual.
  */
 export function collabTableEditing(): Plugin {
   const base = tableEditing({ allowTableNodeSelection: true })
@@ -70,7 +83,9 @@ export function collabTableEditing(): Plugin {
     ...base.spec,
     appendTransaction(trs, oldState, state) {
       if (trs.some(isRemoteChange)) return null
-      return append.call(this, trs, oldState, state)
+      // With the old state equal to the new one, `fixTables` finds nothing
+      // changed, so only the selection is normalised.
+      return append.call(this, trs, bindingOf(state) ? state : oldState, state)
     },
   })
 }
@@ -80,6 +95,173 @@ type RelativePosition = ReturnType<typeof absolutePositionToRelativePosition>
 
 function bindingOf(state: EditorState): Binding | null {
   return (ySyncPluginKey.getState(state) as { binding?: Binding } | undefined)?.binding ?? null
+}
+
+function isRagged(doc: ProseMirrorNode): boolean {
+  let ragged = false
+  doc.forEach((node) => {
+    if (!ragged && node.type.spec.tableRole === 'table' && TableMap.get(node).problems) ragged = true
+  })
+  return ragged
+}
+
+/**
+ * Who created each row of `table`, from its Yjs element, or null when this
+ * client's ProseMirror and Yjs documents do not line up for it yet.
+ */
+function rowCreators(binding: Binding, table: ProseMirrorNode): number[] | null {
+  let yTable: Y.XmlElement | null = null
+  binding.type.forEach((child) => {
+    if (!yTable && binding.mapping.get(child) === table) yTable = child as Y.XmlElement
+  })
+  const rows = (yTable as Y.XmlElement | null)?.toArray()
+  if (!rows || rows.length !== table.childCount) return null
+  const creators: number[] = []
+  for (let i = 0; i < rows.length; i++) {
+    const client = rows[i]!._item?.id.client
+    if (binding.mapping.get(rows[i]!) !== table.child(i) || client === undefined) return null
+    creators.push(client)
+  }
+  return creators
+}
+
+/**
+ * prosemirror-tables' `fixTable`, except that cells are added only to the
+ * rows `padsRow` accepts. The attribute repairs are the same whichever
+ * client makes them, so every client makes those.
+ */
+function repairTable(
+  state: EditorState,
+  table: ProseMirrorNode,
+  tablePos: number,
+  tr: Transaction,
+  padsRow: (row: number) => boolean,
+): void {
+  const map = TableMap.get(table)
+  if (!map.problems) return
+  const mustAdd: number[] = Array.from({ length: map.height }, () => 0)
+  for (const prob of map.problems) {
+    if (prob.type === 'collision') {
+      const cell = table.nodeAt(prob.pos)
+      if (!cell) continue
+      const attrs = cell.attrs as Parameters<typeof removeColSpan>[0]
+      for (let j = 0; j < attrs.rowspan; j++) mustAdd[prob.row + j]! += prob.n
+      const fixed = removeColSpan(attrs, attrs.colspan - prob.n, prob.n)
+      tr.setNodeMarkup(tr.mapping.map(tablePos + 1 + prob.pos), null, fixed)
+    } else if (prob.type === 'missing') {
+      mustAdd[prob.row]! += prob.n
+    } else if (prob.type === 'overlong_rowspan') {
+      const cell = table.nodeAt(prob.pos)
+      if (!cell) continue
+      const rowspan = cell.attrs.rowspan - prob.n
+      tr.setNodeMarkup(tr.mapping.map(tablePos + 1 + prob.pos), null, { ...cell.attrs, rowspan })
+    } else if (prob.type === 'colwidth mismatch') {
+      const cell = table.nodeAt(prob.pos)
+      if (!cell) continue
+      tr.setNodeMarkup(tr.mapping.map(tablePos + 1 + prob.pos), null, { ...cell.attrs, colwidth: prob.colwidth })
+    } else if (prob.type === 'zero_sized') {
+      const pos = tr.mapping.map(tablePos)
+      tr.delete(pos, pos + table.nodeSize)
+      return
+    }
+  }
+  let first: number | undefined
+  let last: number | undefined
+  mustAdd.forEach((add, i) => {
+    if (!add) return
+    first ??= i
+    last = i
+  })
+  for (let i = 0, pos = tablePos + 1; i < map.height; i++) {
+    const row = table.child(i)
+    const end = pos + row.nodeSize
+    const add = mustAdd[i]!
+    if (add > 0 && padsRow(i)) {
+      const role = (row.firstChild?.type.spec.tableRole ?? 'cell') as 'cell' | 'header_cell'
+      const cells: ProseMirrorNode[] = []
+      for (let j = 0; j < add; j++) {
+        const cell = tableNodeTypes(state.schema)[role].createAndFill()
+        if (cell) cells.push(cell)
+      }
+      const side = (i === 0 || first === i - 1) && last === i ? pos + 1 : end - 1
+      tr.insert(tr.mapping.map(side), cells)
+    }
+    pos = end
+  }
+}
+
+/**
+ * The repair for every ragged table in `state`, with cells added only to the
+ * short rows this client pads (see the file comment), or null.
+ * `present` lists the clients in the document; without it, a row is padded
+ * by its creator alone.
+ */
+export function tableRepairTransaction(state: EditorState, present?: Iterable<number>): Transaction | null {
+  const binding = bindingOf(state)
+  if (!binding) {
+    const tr = fixTables(state)
+    return tr?.docChanged ? tr : null
+  }
+  const me = binding.doc.clientID
+  const here = present ? new Set(present) : null
+  here?.add(me)
+  const lowest = here ? Math.min(...here) : me
+  const pads = (creator: number) => (!here || here.has(creator) ? creator === me : lowest === me)
+  const tr = state.tr
+  state.doc.forEach((table, pos) => {
+    if (table.type.spec.tableRole !== 'table' || !TableMap.get(table).problems) return
+    const creators = rowCreators(binding, table)
+    repairTable(state, table, pos, tr, (row) => creators !== null && pads(creators[row]!))
+  })
+  return tr.docChanged ? tr : null
+}
+
+export interface TableRepairOptions {
+  /** Yjs client ids of everyone in the document (awareness), this one included. */
+  present?: () => Iterable<number>
+}
+
+/**
+ * Repairs ragged tables after a change has reached Yjs, local or remote, as
+ * a transaction of its own that y-prosemirror writes back. It waits for a
+ * microtask because y-prosemirror ignores a transaction dispatched while it
+ * applies a remote change. The repair stays out of undo history, and is
+ * skipped while the editor is read only or showing a revision.
+ */
+export function tableRepair({ present }: TableRepairOptions = {}): Plugin {
+  return new Plugin({
+    view(view) {
+      let pending = false
+      // A repair is not checked again until the next change, so one that
+      // leaves rows for other clients to pad never loops.
+      let repairing = false
+      const repair = () => {
+        pending = false
+        if (view.isDestroyed || !view.editable) return
+        const sync = ySyncPluginKey.getState(view.state) as { snapshot?: unknown; prevSnapshot?: unknown } | undefined
+        if (sync?.snapshot != null || sync?.prevSnapshot != null) return
+        const tr = tableRepairTransaction(view.state, present?.())
+        if (!tr) return
+        repairing = true
+        try {
+          view.dispatch(tr.setMeta(fixTablesKey, { fixTables: true }).setMeta('addToHistory', false))
+        } finally {
+          repairing = false
+        }
+      }
+      const check = (doc: ProseMirrorNode) => {
+        if (pending || repairing || !isRagged(doc)) return
+        pending = true
+        queueMicrotask(repair)
+      }
+      check(view.state.doc)
+      return {
+        update(updated, prevState) {
+          if (updated.state.doc !== prevState.doc) check(updated.state.doc)
+        },
+      }
+    },
+  })
 }
 
 /**
@@ -314,6 +496,8 @@ export interface TablePluginOptions {
   resizable: boolean
   /** Runs after Backspace or Delete removes a whole table. */
   onTableDeleted?: () => void
+  /** Yjs client ids of everyone in the document, for `tableRepair`. */
+  present?: () => Iterable<number>
 }
 
 /**
@@ -322,7 +506,7 @@ export interface TablePluginOptions {
  * end of the list, where the gap cursor and column resizing get mouse and
  * arrow events before cell selection does.
  */
-export function createTablePlugins({ docId, resizable, onTableDeleted }: TablePluginOptions): {
+export function createTablePlugins({ docId, resizable, onTableDeleted, present }: TablePluginOptions): {
   keymap: Plugin
   plugins: Plugin[]
 } {
@@ -334,6 +518,7 @@ export function createTablePlugins({ docId, resizable, onTableDeleted }: TablePl
       gapCursor(),
       ...(resizable ? tableColumnResizing() : []),
       collabTableEditing(),
+      tableRepair({ present }),
     ],
   }
 }
