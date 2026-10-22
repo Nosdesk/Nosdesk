@@ -722,7 +722,7 @@ export interface AcquireResult {
   permanentUserData: SafePermanentUserData
   /** True on the first `acquire` for this `docId`, false on
    *  subsequent re-acquires. The caller uses this to decide
-   *  whether to apply one-time setup (`setUserMapping` for the
+   *  whether to apply one-time setup (`setUserMappingOnFirstEdit` for the
    *  local clientID) vs leaving the existing session intact. */
   isNew: boolean
 }

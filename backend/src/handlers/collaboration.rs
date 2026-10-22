@@ -6,7 +6,7 @@ use futures::StreamExt;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::panic;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Notify, RwLock};
@@ -1065,12 +1065,39 @@ fn watch_required_schema(fragment: &XmlFragmentRef, required: Arc<AtomicU16>) ->
     })
 }
 
+/// Count every change to the document's content: anything added, removed or
+/// reformatted under the `prosemirror` fragment, counted inside the write
+/// transaction that makes it.
+///
+/// Content is what a save persists for and a revision records. Other roots
+/// change without anyone editing: an editor maps its client to its user in
+/// the `users` map, which older editors did as soon as a page was opened.
+/// The state vector can't tell those apart, and misses a change that only
+/// deletes.
+fn watch_content(fragment: &XmlFragmentRef, version: Arc<AtomicU64>) -> Subscription {
+    use yrs::DeepObservable;
+    fragment.observe_deep(move |_txn, _events| {
+        version.fetch_add(1, Ordering::SeqCst);
+    })
+}
+
+/// A loading document's content counter, the value the backing table holds,
+/// and the observer that raises it.
+struct ContentWatch {
+    version: Arc<AtomicU64>,
+    saved: u64,
+    watch: Subscription,
+}
+
 /// The schema gate of one resident document: its awareness and the editor
 /// schema its content needs.
 #[derive(Clone)]
 struct DocGate {
     awareness: Arc<Awareness>,
     required_schema: Arc<AtomicU16>,
+    /// How many times the content has changed while resident
+    /// ([`watch_content`]).
+    content_version: Arc<AtomicU64>,
 }
 
 /// Whether a session whose editor holds `session_schema` may be sent anything
@@ -1157,6 +1184,15 @@ struct DocumentState {
     /// Keeps the observer that raises `required_schema` subscribed for as
     /// long as the document is resident.
     _schema_watch: Subscription,
+    /// Raised by every change to the content ([`watch_content`]).
+    content_version: Arc<AtomicU64>,
+    /// `content_version` as the backing table holds it: at load, then once
+    /// each save's write has landed. A save is due only when the content has
+    /// moved on from it, so a session that changed nothing writes nothing,
+    /// and a write that failed is tried again.
+    saved_content_version: Arc<AtomicU64>,
+    /// Keeps the observer that raises `content_version` subscribed.
+    _content_watch: Subscription,
 }
 
 impl DocumentState {
@@ -1167,10 +1203,14 @@ impl DocumentState {
         doc_type: DocumentType,
         required_schema: Arc<AtomicU16>,
         schema_watch: Subscription,
+        content: ContentWatch,
     ) -> Self {
         Self {
             required_schema,
             _schema_watch: schema_watch,
+            content_version: content.version,
+            saved_content_version: Arc::new(AtomicU64::new(content.saved)),
+            _content_watch: content.watch,
             awareness,
             last_saved: Instant::now(),
             has_pending_changes: false,
@@ -1194,7 +1234,14 @@ impl DocumentState {
         DocGate {
             awareness: Arc::clone(&self.awareness),
             required_schema: Arc::clone(&self.required_schema),
+            content_version: Arc::clone(&self.content_version),
         }
+    }
+
+    /// Whether the content changed since the backing table last got it.
+    fn has_unsaved_content(&self) -> bool {
+        self.content_version.load(Ordering::SeqCst)
+            != self.saved_content_version.load(Ordering::SeqCst)
     }
 
     fn mark_changed(&mut self) {
@@ -1235,11 +1282,18 @@ impl DocumentState {
     }
 
     fn should_save(&self) -> bool {
+        let now = Instant::now();
+
+        // Content the backing table doesn't hold yet, because its save
+        // failed or hasn't been tried, is saved on the usual cadence even
+        // when no client has written since.
+        if self.has_unsaved_content() && now.duration_since(self.last_saved) >= MIN_SAVE_INTERVAL {
+            return true;
+        }
+
         if !self.has_pending_changes {
             return false;
         }
-
-        let now = Instant::now();
 
         // Save if enough time has passed since last save
         if now.duration_since(self.last_saved) >= MIN_SAVE_INTERVAL {
@@ -1880,19 +1934,14 @@ impl YjsAppState {
             let workspace_id = doc_state.workspace_id;
             // Regular saves for active documents
             if doc_state.should_save() {
-                debug!(doc_id = %doc_id, "Saving document with pending changes");
                 // Mid-session save: not the end of editing, so no
-                // content-saved emit yet.
-                self.save_document_internal(
-                    doc_id,
-                    &doc_state.awareness,
-                    workspace_id,
-                    doc_state.fence,
-                    doc_state.doc_type,
-                    false,
-                );
-                doc_state.mark_saved();
-                saved_count += 1;
+                // content-saved emit yet. Unsaved content once everyone has
+                // left is a retry of the session's last save, which emits.
+                let emit_saved =
+                    doc_state.room_empty_since.is_some() && doc_state.has_unsaved_content();
+                if self.save_if_changed(doc_id, doc_state, emit_saved) {
+                    saved_count += 1;
+                }
             }
 
             // A session that went quiet while someone still has the
@@ -1920,17 +1969,11 @@ impl YjsAppState {
                 // End-of-session save: emit content-saved when the session
                 // actually changed content (contributors are added only on
                 // real change), so the search replicator re-indexes.
-                self.save_document_internal(
-                    doc_id,
-                    &doc_state.awareness,
-                    workspace_id,
-                    doc_state.fence,
-                    doc_state.doc_type,
-                    !doc_state.contributors.is_empty(),
-                );
-                doc_state.mark_saved();
+                let emit_saved = !doc_state.contributors.is_empty();
+                if self.save_if_changed(doc_id, doc_state, emit_saved) {
+                    final_saved_count += 1;
+                }
                 doc_state.mark_final_save_completed();
-                final_saved_count += 1;
 
                 // Create revision at end of editing session if there were content changes
                 if !doc_state.contributors.is_empty() {
@@ -2035,6 +2078,8 @@ impl YjsAppState {
             let fragment = doc.transact_mut().get_or_insert_xml_fragment("prosemirror");
             let required_schema = Arc::new(AtomicU16::new(1));
             let schema_watch = watch_required_schema(&fragment, Arc::clone(&required_schema));
+            let content_version = Arc::new(AtomicU64::new(0));
+            let content_watch = watch_content(&fragment, Arc::clone(&content_version));
             let mut awareness = Awareness::new(doc);
 
             let mut loaded_from_postgres = false;
@@ -2209,6 +2254,10 @@ impl YjsAppState {
                 }
             }
 
+            // What the backing table holds. A checkpoint that adds content
+            // below leaves the document ahead of it, and due a save.
+            let saved_content_version = content_version.load(Ordering::SeqCst);
+
             // STEP 2: Merge the latest crash-recovery checkpoint (Phase 2).
             // Cheap binary checkpoints land in `yjs_snapshots` between the
             // heavier article_contents saves, so a hard crash loses
@@ -2277,6 +2326,11 @@ impl YjsAppState {
                 doc_type,
                 required_schema,
                 schema_watch,
+                ContentWatch {
+                    version: content_version,
+                    saved: saved_content_version,
+                    watch: content_watch,
+                },
             );
             let gate = doc_state.gate();
             documents.insert(doc_id.to_string(), doc_state);
@@ -2647,19 +2701,12 @@ impl YjsAppState {
         let mut documents = self.documents.write().await;
         if let Some(doc_state) = documents.get_mut(doc_id) {
             let workspace_id = doc_state.workspace_id;
-            debug!(doc_id = %doc_id, "Force saving document on disconnect");
+            debug!(doc_id = %doc_id, "Final save on disconnect");
             // End-of-session save (last editor left): emit content-saved
             // when the session changed content, so the search replicator
             // re-indexes the body on every machine.
-            self.save_document_internal(
-                doc_id,
-                &doc_state.awareness,
-                workspace_id,
-                doc_state.fence,
-                doc_state.doc_type,
-                !doc_state.contributors.is_empty(),
-            );
-            doc_state.mark_saved();
+            let emit_saved = !doc_state.contributors.is_empty();
+            self.save_if_changed(doc_id, doc_state, emit_saved);
 
             // Create revision at end of editing session if there were actual content changes
             // Contributors are only added when content actually changes, so this is sufficient
@@ -2698,7 +2745,7 @@ impl YjsAppState {
             let documents = self.documents.read().await;
             documents
                 .iter()
-                .filter(|(_, s)| s.has_pending_changes)
+                .filter(|(_, s)| s.has_unsaved_content())
                 .map(|(_, s)| {
                     (
                         s.doc_type,
@@ -2894,6 +2941,38 @@ impl YjsAppState {
         }
     }
 
+    /// Save the document when its content changed since the backing table
+    /// last got it, and return whether it did. A session that only viewed
+    /// the document leaves the row alone: no new `yjs_document`, no new
+    /// `updated_at`.
+    ///
+    /// `emit_saved` ends a session that changed the content, so it saves
+    /// even when an earlier save already holds every change: its
+    /// content-saved event is what has the other machines index the body.
+    fn save_if_changed(
+        &self,
+        doc_id: &str,
+        doc_state: &mut DocumentState,
+        emit_saved: bool,
+    ) -> bool {
+        let version = doc_state.content_version.load(Ordering::SeqCst);
+        let changed = doc_state.has_unsaved_content() || emit_saved;
+        if changed {
+            debug!(doc_id = %doc_id, "Saving changed document");
+            self.save_document_internal(
+                doc_id,
+                &doc_state.awareness,
+                doc_state.workspace_id,
+                doc_state.fence,
+                doc_state.doc_type,
+                emit_saved,
+                (Arc::clone(&doc_state.saved_content_version), version),
+            );
+        }
+        doc_state.mark_saved();
+        changed
+    }
+
     // Save document state to the database from awareness
     fn save_document_internal(
         &self,
@@ -2906,6 +2985,9 @@ impl YjsAppState {
         // had real content changes; threaded to `write_yjs_state` to drive
         // the search-only content-saved emit.
         emit_saved: bool,
+        // The room's saved content version, and the content version this
+        // save holds: the write raises the one to the other once it lands.
+        (saved_version, version): (Arc<AtomicU64>, u64),
     ) {
         // Get binary content from the document
         let binary_content = {
@@ -2955,8 +3037,14 @@ impl YjsAppState {
                 emit_saved,
             )
             .await;
-            if outcome == SaveOutcome::ResourceGone {
-                state.drop_deleted_document(&doc_id).await;
+            match outcome {
+                // Saves can land out of order; the version never goes back.
+                SaveOutcome::Saved => {
+                    saved_version.fetch_max(version, Ordering::SeqCst);
+                }
+                SaveOutcome::ResourceGone => state.drop_deleted_document(&doc_id).await,
+                // Still unsaved, so the next maintenance pass tries again.
+                SaveOutcome::Failed => {}
             }
         });
     }
@@ -4053,14 +4141,11 @@ async fn process_inbound_binary(
         .update_session_activity(&doc_id, &session_id)
         .await;
 
-    // Snapshot the document state vector BEFORE protocol.handle so we can detect
-    // "the doc actually changed" cheaply: O(clients), not the O(document)
-    // full-text materialization this replaces (which ran on every frame,
-    // regardless of the frame's own size). Any applied op advances some client's
-    // clock; a no-op update (already applied, or a bare state-vector request)
-    // leaves the vector unchanged. This is also more precise than the old text
-    // compare, which only saw the `prosemirror` fragment and missed
-    // formatting-only edits.
+    // Snapshot the document state vector BEFORE protocol.handle so we can tell
+    // whether the frame applied anything: any inserted op advances some
+    // client's clock, while a no-op update (already applied, or a bare
+    // state-vector request) leaves the vector unchanged. Whether it changed
+    // the content is the content counter's to say (`watch_content`).
     let sv_before = awareness.doc().transact().state_vector();
 
     let protocol = DefaultProtocol;
@@ -4078,6 +4163,7 @@ async fn process_inbound_binary(
     }
 
     let required_before = doc.required_schema.load(Ordering::SeqCst);
+    let content_before = doc.content_version.load(Ordering::SeqCst);
     match protocol.handle(awareness, &bin) {
         Ok(messages) => {
             trace!(
@@ -4104,10 +4190,13 @@ async fn process_inbound_binary(
                 revoke.close_outdated();
             }
 
-            let content_changed = sv_before != awareness.doc().transact().state_vector();
+            let applied = sv_before != awareness.doc().transact().state_vector();
+            // Only a change to the content is someone's contribution: the
+            // frame may hold nothing but an editor's user mapping.
+            let content_changed = doc.content_version.load(Ordering::SeqCst) != content_before;
             if content_changed {
                 debug!(doc_id = %doc_id, "Document content changed");
-            } else if may_reply && msg_type == 0 && bin.len() > 1 && bin[1] == 2 {
+            } else if !applied && may_reply && msg_type == 0 && bin.len() > 1 && bin[1] == 2 {
                 // SYNC_UPDATE didn't apply — request the client's full
                 // state. Happens when state vectors are misaligned
                 // (e.g. after server restart).
@@ -4159,7 +4248,7 @@ async fn process_inbound_binary(
                 app_state.broadcast(&doc_id, &session_id, &bin).await;
             }
 
-            if is_sync_message || content_changed {
+            if is_sync_message || applied || content_changed {
                 app_state.mark_document_changed(&doc_id).await;
             }
             if content_changed {
@@ -4834,10 +4923,45 @@ mod schema_gate_tests {
         let gate = DocGate {
             awareness: Arc::new(Awareness::new(doc)),
             required_schema: required,
+            content_version: Arc::new(AtomicU64::new(0)),
         };
         assert!(!may_receive(1, &gate), "pending blocks could hold anything");
         assert!(may_receive(SERVER_EDITOR_SCHEMA, &gate));
         drop(watch);
+    }
+
+    #[test]
+    fn only_a_change_under_the_fragment_counts_as_content() {
+        use yrs::{GetString, Map, Text, WriteTxn, XmlTextPrelim};
+        let doc = new_server_doc("doc");
+        let fragment = doc.transact_mut().get_or_insert_xml_fragment("prosemirror");
+        let version = Arc::new(AtomicU64::new(0));
+        let _watch = watch_content(&fragment, Arc::clone(&version));
+
+        let text = {
+            let mut txn = doc.transact_mut();
+            let paragraph = fragment.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+            paragraph.push_back(&mut txn, XmlTextPrelim::new("Imported"))
+        };
+        let added = version.load(Ordering::SeqCst);
+        assert!(added > 0, "added content counts");
+
+        // An editor mapping its client to its user writes the `users` map.
+        {
+            let mut txn = doc.transact_mut();
+            let users = txn.get_or_insert_map("users");
+            users.insert(&mut txn, "user", "mapping");
+        }
+        assert_eq!(
+            version.load(Ordering::SeqCst),
+            added,
+            "the users map isn't content"
+        );
+
+        // A change that only deletes advances no clock, and still counts.
+        text.remove_range(&mut doc.transact_mut(), 0, 3);
+        assert_eq!(text.get_string(&doc.transact()), "orted");
+        assert!(version.load(Ordering::SeqCst) > added, "a deletion counts");
     }
 
     #[test]
@@ -4846,6 +4970,7 @@ mod schema_gate_tests {
         let gate = DocGate {
             awareness: Arc::new(Awareness::new(doc)),
             required_schema: Arc::clone(&required),
+            content_version: Arc::new(AtomicU64::new(0)),
         };
         assert!(may_receive(1, &gate));
         assert!(may_receive(2, &gate));
