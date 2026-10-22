@@ -30,6 +30,15 @@ export interface SessionInfo {
   is_current: boolean;
 }
 
+/// `DELETE /auth/sessions/others` response (backend
+/// `handlers::auth::revoke_all_other_sessions`).
+export interface RevokeOtherSessionsResult {
+  revoked_count?: number;
+  /** Nosdesk Cloud only: whether the browsers' remembered sign-ins to the
+   *  Nosdesk account were ended too. Absent on self-hosted. */
+  remembered_sign_ins_ended?: boolean;
+}
+
 export interface AdminSetupRequest {
   name: string;
   email: string;
@@ -321,9 +330,12 @@ class AuthService {
    */
   async revokeAllOtherSessions(
     credential: { password?: string; mfa_code?: string } = {},
-  ): Promise<void> {
+  ): Promise<RevokeOtherSessionsResult> {
     try {
-      await apiClient.delete('/auth/sessions/others', { data: credential });
+      const response = await apiClient.delete<RevokeOtherSessionsResult>('/auth/sessions/others', {
+        data: credential,
+      });
+      return response.data ?? {};
     } catch (error) {
       logger.error('Failed to revoke all other sessions', { error });
       throw error;

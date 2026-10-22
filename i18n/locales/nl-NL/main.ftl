@@ -5663,6 +5663,7 @@ settings-sessions-revoke-others-stepup-mfa = Voer een verificatiecode in om door
 settings-sessions-modal-cancel = Annuleren
 settings-sessions-revoke-others-confirm = Andere afmelden
 settings-sessions-revoke-others-success = Alle andere sessies zijn afgemeld.
+settings-sessions-revoke-others-success-remembered-kept = Alle andere sessies zijn afgemeld. Browsers die zijn aangemeld bij je Nosdesk-account kunnen nog tot 8 uur opnieuw aanmelden. Meld de andere sessies af in je Nosdesk-account om dit nu te stoppen.
 settings-sessions-revoke-others-error = Kan de andere sessies niet afmelden. Controleer je gegevens en probeer het opnieuw.
 
 # Instellingen: waarschuwing voor niet-opgeslagen wijzigingen (gedeeld) (machinevertaling, na te lezen door moedertaalspreker).

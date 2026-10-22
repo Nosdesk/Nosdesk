@@ -2604,24 +2604,43 @@ pub async fn revoke_all_other_sessions(
                 revoked_count,
                 user_uuid
             );
+            // Hosted: other browsers' remembered sign-ins at the control plane
+            // would sign them straight back in, so end those too. After the
+            // helpdesk's own revocation, which stands whatever this returns.
+            let remembered = crate::services::remembered_sign_ins::end_others(
+                &mut conn,
+                &user_uuid,
+                claims.session_uuid(),
+            )
+            .await;
+            let mut details = json!({
+                "reason": "revoke_all_others",
+                "revoked_count": revoked_count
+            });
+            if let Some(outcome) = remembered {
+                details["remembered_sign_ins"] = json!(outcome.kind());
+            }
             let _ = crate::utils::security_events::record_security_event(
                 &mut conn,
                 crate::utils::security_events::SecurityEventInput {
                     user_uuid: Some(user_uuid),
                     event_type: "session_revoked",
                     severity: "info",
-                    details: Some(json!({
-                        "reason": "revoke_all_others",
-                        "revoked_count": revoked_count
-                    })),
+                    details: Some(details),
                     request: Some(&req),
                 },
             );
-            Ok(HttpResponse::Ok().json(json!({
+            let mut body = json!({
                 "status": "success",
                 "message": format!("Successfully revoked {} session(s)", revoked_count),
                 "revoked_count": revoked_count
-            })))
+            });
+            // Hosted only. `false` tells the client other browsers may stay
+            // signed in until their remembered sign-in runs out.
+            if let Some(outcome) = remembered {
+                body["remembered_sign_ins_ended"] = json!(outcome.ended());
+            }
+            Ok(HttpResponse::Ok().json(body))
         }
         Err(e) => {
             tracing::error!("Failed to revoke other sessions: {}", e);

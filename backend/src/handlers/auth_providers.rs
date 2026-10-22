@@ -1696,7 +1696,7 @@ pub async fn native_oidc_login(
     ))
 }
 
-fn oidc_identity_issuer() -> String {
+pub(crate) fn oidc_identity_issuer() -> String {
     issuer_for_identity(
         crate::middleware::DeploymentMode::current(),
         config_utils::get_oidc_issuer_url().ok(),

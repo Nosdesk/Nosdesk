@@ -5127,6 +5127,7 @@ settings-sessions-revoke-others-stepup-mfa = Enter an authentication code to con
 settings-sessions-modal-cancel = Cancel
 settings-sessions-revoke-others-confirm = Sign out others
 settings-sessions-revoke-others-success = Signed out all other sessions.
+settings-sessions-revoke-others-success-remembered-kept = Signed out all other sessions. Browsers signed in to your Nosdesk account may still sign in again for up to 8 hours. To stop them now, sign out other sessions in your Nosdesk account.
 settings-sessions-revoke-others-error = Couldn't sign out the other sessions. Check your credentials and try again.
 
 # Settings: unsaved-changes navigate-away guard (shared)

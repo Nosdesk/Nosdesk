@@ -5673,6 +5673,7 @@ settings-sessions-revoke-others-stepup-mfa = Saisissez un code d'authentificatio
 settings-sessions-modal-cancel = Annuler
 settings-sessions-revoke-others-confirm = Déconnecter les autres
 settings-sessions-revoke-others-success = Toutes les autres sessions ont été déconnectées.
+settings-sessions-revoke-others-success-remembered-kept = Toutes les autres sessions ont été déconnectées. Les navigateurs connectés à votre compte Nosdesk peuvent encore se reconnecter pendant 8 heures au maximum. Pour les en empêcher dès maintenant, déconnectez les autres sessions dans votre compte Nosdesk.
 settings-sessions-revoke-others-error = Impossible de déconnecter les autres sessions. Vérifiez vos identifiants et réessayez.
 
 # Paramètres : avertissement de modifications non enregistrées (partagé) (machine, à relire par un locuteur natif).

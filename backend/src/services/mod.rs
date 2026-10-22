@@ -26,6 +26,7 @@ pub mod outbound_email;
 pub mod plugins;
 pub mod presence;
 pub mod recurrence;
+pub mod remembered_sign_ins;
 pub mod scheduled_jobs;
 pub mod scheduler;
 pub mod search;
