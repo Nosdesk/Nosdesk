@@ -1177,7 +1177,10 @@ pub async fn search_public_docs(
 
 /// A single uploaded file that passed the guest rules (size cap, safe types).
 pub(crate) struct ValidatedUpload {
+    /// The storage key's name: safe as one path segment.
     pub filename: String,
+    /// The name as uploaded, for display and download. Never part of a path.
+    pub display_name: String,
     pub data: Vec<u8>,
     pub mime: String,
     /// SHA-256, hex.
@@ -1217,6 +1220,8 @@ pub(crate) async fn read_validated_upload(
     };
     let filename = FileValidator::sanitize_filename(&original_filename)
         .map_err(|e| UploadRejected::Invalid(e.to_string()))?;
+    let display_name =
+        FileValidator::display_filename(&original_filename).unwrap_or_else(|| filename.clone());
 
     // Read with an incremental size check against the guest cap.
     let max_bytes = GUEST_MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -1251,6 +1256,7 @@ pub(crate) async fn read_validated_upload(
 
     Ok(ValidatedUpload {
         filename,
+        display_name,
         data,
         mime,
         checksum,
@@ -1334,6 +1340,7 @@ pub async fn upload_guest_attachment(
     };
     let ValidatedUpload {
         filename: sanitized_filename,
+        display_name,
         data: file_data,
         mime: detected_mime,
         checksum,
@@ -1354,7 +1361,7 @@ pub async fn upload_guest_attachment(
 
     let new_attachment = NewAttachment {
         url: stored_file.url.clone(),
-        name: sanitized_filename.clone(),
+        name: display_name,
         file_size: Some(total_size as i64),
         mime_type: Some(detected_mime.clone()),
         checksum: Some(checksum),
@@ -1391,7 +1398,7 @@ pub async fn upload_guest_attachment(
             Ok(HttpResponse::Created().json(json!({
                 "id": att.id,
                 "claim_token": claim_token,
-                "name": sanitized_filename,
+                "name": att.name,
                 "size": total_size,
                 "mime_type": detected_mime,
             })))

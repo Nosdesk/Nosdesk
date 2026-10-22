@@ -552,20 +552,20 @@ fn attachment_sync_data(attachment: &Attachment) -> serde_json::Value {
     })
 }
 
-/// Whether any of the attachments `ids` is a draft (not yet attached to a
-/// comment) that `user` uploaded. Drafts are private to their uploader.
-pub fn is_own_draft_upload(
+/// The `(url, name)` of each of the attachments `ids` that is a draft (not yet
+/// attached to a comment) `user` uploaded. Drafts are private to their
+/// uploader, so an empty list means `user` may not load any of them.
+pub fn own_draft_uploads(
     conn: &mut DbConnection,
     ids: &[i32],
     user: uuid::Uuid,
-) -> QueryResult<bool> {
-    diesel::select(diesel::dsl::exists(
-        attachments::table
-            .filter(attachments::id.eq_any(ids))
-            .filter(attachments::uploaded_by.eq(user))
-            .filter(attachments::comment_id.is_null()),
-    ))
-    .get_result(conn)
+) -> QueryResult<Vec<(String, String)>> {
+    attachments::table
+        .filter(attachments::id.eq_any(ids))
+        .filter(attachments::uploaded_by.eq(user))
+        .filter(attachments::comment_id.is_null())
+        .select((attachments::url, attachments::name))
+        .load(conn)
 }
 
 /// Temp uploads `owner` made that are still unattached and newer than

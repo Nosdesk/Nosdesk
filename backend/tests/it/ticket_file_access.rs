@@ -509,3 +509,56 @@ async fn a_reply_text_file_downloads_for_agent_and_requester() {
     .await;
     assert_eq!(body(resp).await.as_ref(), b"notes.txt", "portal route");
 }
+
+/// A reply's file downloads under its name as uploaded, through the agent route
+/// and the portal alike, though it is stored under a sanitized key.
+#[actix_web::test]
+async fn a_reply_file_downloads_under_its_name_as_uploaded() {
+    let fx = Fixture::new();
+    let tid = fx.ticket.id;
+    let stem = Uuid::now_v7();
+    let file = fx
+        .reply_with_stored(
+            fx.ws.workspace_id,
+            tid,
+            fx.agent,
+            false,
+            "Q3 report (final) résumé.txt",
+            &format!("{tid}/{stem}_Q3reportfinalrsum.txt"),
+        )
+        .await;
+    let disposition = |resp: &actix_web::dev::ServiceResponse| {
+        assert_eq!(resp.status(), StatusCode::OK);
+        resp.headers()
+            .get("content-disposition")
+            .expect("content-disposition")
+            .to_str()
+            .expect("ascii header")
+            .to_string()
+    };
+    let want = "inline; filename=\"Q3 report (final) r_sum_.txt\"; \
+                filename*=UTF-8''Q3%20report%20%28final%29%20r%C3%A9sum%C3%A9.txt";
+
+    let app = app_as!(fx, fx.agent);
+    let resp = http_test::call_service(
+        &app,
+        http_test::TestRequest::get()
+            .uri(&format!("/api/files/tickets/{}", file.path))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(disposition(&resp), want, "agent route");
+
+    let app = app_as!(fx, fx.requester);
+    let resp = http_test::call_service(
+        &app,
+        http_test::TestRequest::get()
+            .uri(&format!(
+                "/api/portal/tickets/{tid}/attachments/{}",
+                file.attachment_id
+            ))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(disposition(&resp), want, "portal route");
+}
