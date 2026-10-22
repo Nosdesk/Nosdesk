@@ -415,6 +415,82 @@ fn a_nosdesk_export_keeps_its_tree_collections_and_statuses() {
     assert!(matches!(&last[0], Inline::Image(img) if img.width == Some(240)));
 }
 
+/// Unticked pages don't bring their collections along: only the
+/// collections a kept page goes in stay in the plan, in their order, with
+/// the pages pointed at their new places. With nothing unticked, every
+/// collection of the export stays, an empty one included.
+#[test]
+fn unticked_pages_leave_their_collections_out() {
+    let manifest = format!(
+        r#"{{
+  "format": "nosdesk-docs",
+  "format_version": 2,
+  "workspace_uuid": "{WORKSPACE}",
+  "exported_at": "2026-10-01T00:00:00Z",
+  "collections": [
+    {{ "uuid": "c1", "name": "One", "slug": "one", "path": "one", "order": 1 }},
+    {{ "uuid": "c2", "name": "Two", "slug": "two", "path": "two", "order": 2 }},
+    {{ "uuid": "c3", "name": "Three", "slug": "three", "path": "three", "order": 3 }},
+    {{ "uuid": "c4", "name": "Empty", "slug": "empty", "path": "empty", "order": 4 }}
+  ],
+  "pages": [
+    {{ "uuid": "p1", "title": "First", "slug": "first", "path": "one/first.md", "parent": null, "collection": "c1", "order": 1, "status": "published", "icon": null }},
+    {{ "uuid": "p2", "title": "Second", "slug": "second", "path": "two/second.md", "parent": null, "collection": "c2", "order": 1, "status": "published", "icon": null }},
+    {{ "uuid": "p3", "title": "Third", "slug": "third", "path": "three/third.md", "parent": null, "collection": "c3", "order": 1, "status": "published", "icon": null }}
+  ]
+}}"#
+    );
+    let files: Vec<(&str, &[u8])> = vec![
+        ("nosdesk-docs.json", manifest.as_bytes()),
+        ("one/first.md", b"First"),
+        ("two/second.md", b"Second"),
+        ("three/third.md", b"Third"),
+    ];
+    let names = |built: &Built| -> Vec<String> {
+        built
+            .plan
+            .collections
+            .iter()
+            .map(|c| c.name.clone())
+            .collect()
+    };
+
+    let all = build(&files, &options(), &nothing());
+    assert_eq!(names(&all), vec!["One", "Two", "Three", "Empty"]);
+
+    let mut exclude = tree::ExcludedPages::default();
+    exclude.add(Some("one/first.md"), None, &[]);
+    exclude.add(Some("three/third.md"), None, &[]);
+    let one = build(
+        &files,
+        &ImportOptions {
+            exclude,
+            ..options()
+        },
+        &nothing(),
+    );
+    assert_eq!(outline(&one), vec!["Second"]);
+    assert_eq!(names(&one), vec!["Two"]);
+    assert_eq!(one.plan.pages[0].collection, Some(0));
+
+    let mut exclude = tree::ExcludedPages::default();
+    for file in ["one/first.md", "two/second.md", "three/third.md"] {
+        exclude.add(Some(file), None, &[]);
+    }
+    let none = tree::build(
+        &mut archive(&files),
+        &ImportOptions {
+            exclude,
+            ..options()
+        },
+        &nothing(),
+    );
+    if let Ok(none) = none {
+        assert!(none.plan.pages.is_empty());
+        assert!(none.plan.collections.is_empty());
+    }
+}
+
 #[test]
 fn spans_from_another_workspace_become_text() {
     let built = build_v2(&nothing(), StatusMode::Drafts);

@@ -1074,8 +1074,13 @@ impl Planner<'_> {
                 _ => CollectionMode::New,
             },
         };
-        let (collections, mut top) = self.collections(mode, &mut nodes, &drafts);
+        let (mut collections, mut top) = self.collections(mode, &mut nodes, &drafts);
         let excluded_files = self.leave_out_pages(&mut nodes, &drafts, &mut top);
+        if !self.options.exclude.is_empty() {
+            // Unticked pages don't bring their collections along: only the
+            // collections a kept page goes in are created.
+            collections = keep_used_collections(collections, &mut top);
+        }
 
         // Pages in tree order, parents first.
         let mut order: Vec<(usize, Option<usize>, u32, Option<usize>)> = Vec::new();
@@ -1642,6 +1647,27 @@ fn drop_if_excluded(
     }
     trail.pop();
     hit
+}
+
+/// The collections a top-level page in `top` goes in, in their order, with
+/// `top` pointed at their new places.
+fn keep_used_collections(
+    collections: Vec<PlannedCollection>,
+    top: &mut [(usize, Option<usize>)],
+) -> Vec<PlannedCollection> {
+    let used: HashSet<usize> = top.iter().filter_map(|(_, c)| *c).collect();
+    let mut moved_to: HashMap<usize, usize> = HashMap::new();
+    let mut kept = Vec::with_capacity(used.len());
+    for (i, collection) in collections.into_iter().enumerate() {
+        if used.contains(&i) {
+            moved_to.insert(i, kept.len());
+            kept.push(collection);
+        }
+    }
+    for (_, collection) in top.iter_mut() {
+        *collection = collection.and_then(|c| moved_to.get(&c).copied());
+    }
+    kept
 }
 
 fn walk(

@@ -72,10 +72,14 @@ const groups = computed(() => {
   if (!view.value || !s) return []
   const d = s.destination
   const existing = d.mode === 'existing' ? { name: d.collection_name ?? '', under: null } : null
-  const mode = d.mode === 'existing' ? 'existing' : d.new_collections.length === 1 ? 'new' : d.mode
-  return collectionGroups(tree.value, { ...view.value, collections: d.new_collections }, {
+  // The tree is the one Pages showed, unticked pages included, so its pages
+  // point into its own collections; the import created only those a kept
+  // page went in (`new_collections`).
+  const single = view.value.collections.length <= 1
+  const mode = d.mode === 'existing' ? 'existing' : single ? 'new' : d.mode
+  return collectionGroups(tree.value, view.value, {
     mode,
-    collectionName: d.new_collections[0] ?? '',
+    collectionName: (single ? d.new_collections[0] : undefined) ?? view.value.collections[0] ?? '',
   }, existing)
 })
 
