@@ -213,32 +213,46 @@ pub async fn search(
             }
 
             // Documentation hits follow page access (group, user and collection
-            // visibility), as opening the page does. Workspace admins see all.
+            // visibility), as opening the page does. Workspace admins open every
+            // page, but not one in Trash or deleted: the index on this machine
+            // can still hold a page another machine took out of its own.
             let doc_ids: Vec<i32> = response
                 .results
                 .iter()
                 .filter(|r| r.entity_type == "documentation")
                 .filter_map(|r| i32::try_from(r.entity_id).ok())
                 .collect();
-            if !doc_ids.is_empty() && !auth.is_workspace_admin() {
+            if !doc_ids.is_empty() {
                 let mut conn = helpers::db_conn(&pool)?;
                 helpers::pin_workspace(&mut conn, ws.workspace_id);
-                let audience = crate::repository::PageAudience::from_auth(&auth);
-                let hidden = match audience.hidden_pages(&mut conn, &doc_ids) {
-                    Ok(hidden) => hidden,
+                let allowed = if auth.is_workspace_admin() {
+                    crate::repository::documentation::live_page_ids(&mut conn, &doc_ids)
+                } else {
+                    let audience = crate::repository::PageAudience::from_auth(&auth);
+                    audience.hidden_pages(&mut conn, &doc_ids).map(|hidden| {
+                        doc_ids
+                            .iter()
+                            .copied()
+                            .filter(|id| !hidden.contains(id))
+                            .collect::<std::collections::HashSet<i32>>()
+                    })
+                };
+                let allowed = match allowed {
+                    Ok(allowed) => allowed,
                     Err(e) => {
                         error!(error = ?e, "search documentation filter failed");
                         return Err(ApiError::Internal("Search failed".into()));
                     }
                 };
-                let allowed: std::collections::HashSet<i32> = doc_ids
-                    .into_iter()
-                    .filter(|id| !hidden.contains(id))
-                    .collect();
+                let before = response.results.len();
                 response.results.retain(|r| {
                     r.entity_type != "documentation"
                         || i32::try_from(r.entity_id).is_ok_and(|id| allowed.contains(&id))
                 });
+                if auth.is_workspace_admin() {
+                    let dropped = before - response.results.len();
+                    response.total = response.total.saturating_sub(dropped);
+                }
             }
             // The index's total counts documentation hits past this page too,
             // including pages the caller can't open; count only what they get.
