@@ -111,12 +111,17 @@ struct Person {
 
 /// A hosted staff member: a helpdesk user with a control-plane identity.
 fn person(conn: &mut backend::db::DbConnection) -> Person {
+    person_under(conn, ISSUER)
+}
+
+/// As [`person`], with the identity stored under `issuer` as given.
+fn person_under(conn: &mut backend::db::DbConnection, issuer: &str) -> Person {
     let user = common::insert_plain_user(conn, "Staff");
     let subject = Uuid::new_v4().to_string();
     backend::repository::user_auth_identities::create_identity(
         NewUserAuthIdentity {
             user_uuid: user,
-            provider_type: ISSUER.to_string(),
+            provider_type: issuer.to_string(),
             external_id: subject.clone(),
             email: None,
             metadata: None,
@@ -216,6 +221,18 @@ async fn on_hosted_signing_out_the_others_ends_their_remembered_sign_ins() {
     assert_eq!(c["sub"], p.subject.as_str());
     assert_eq!(c["keep_sid"], "sid-here");
     assert!(c["exp"].as_i64().unwrap() - c["iat"].as_i64().unwrap() <= 300);
+
+    // An identity projected with a trailing slash on the issuer is the same
+    // person.
+    let p = person_under(conn, &format!("{ISSUER}/"));
+    let here = session(conn, p.user, Some(id_token(&p.subject, "sid-slash")));
+    session(conn, p.user, None);
+    let body = sign_out_others(&pool, p.user, here).await;
+    assert_eq!(body["remembered_sign_ins_ended"], true);
+    let token = cp.tokens.lock().unwrap().last().cloned().flatten().unwrap();
+    let c = verified_claims(&token);
+    assert_eq!(c["sub"], p.subject.as_str());
+    assert_eq!(c["keep_sid"], "sid-slash");
 
     // A session without an id_token names nothing to keep.
     let p = person(conn);

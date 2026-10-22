@@ -167,7 +167,11 @@ pub fn resolve(
     let subject = crate::repository::user_auth_identities::get_user_identities(user_uuid, conn)
         .ok()?
         .into_iter()
-        .find(|i| i.provider_type == issuer && i.workspace_id.is_none())
+        // A trailing slash on either side names the same issuer.
+        .find(|i| {
+            i.workspace_id.is_none()
+                && i.provider_type.trim_end_matches('/') == issuer.trim_end_matches('/')
+        })
         .map(|i| i.external_id)?;
     let keep_sid = current_session
         .and_then(|sid| {
