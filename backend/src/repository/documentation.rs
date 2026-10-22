@@ -257,6 +257,7 @@ pub fn delete_documentation_page(
     observer: Option<&dyn DocumentationDeletedObserver>,
 ) -> Result<usize, Error> {
     let count = conn.transaction(|conn| {
+        lift_children(conn, id)?;
         let count = diesel::delete(documentation_pages::table.find(id)).execute(conn)?;
         if count > 0 {
             emit::record(
@@ -1152,9 +1153,40 @@ pub fn get_pages_by_status(
         .load::<DocumentationPage>(conn)
 }
 
-// Permanently delete a documentation page (hard delete for trash emptying)
+/// Before page `id` is deleted for good: move the pages directly under it
+/// up to where it sits (its parent, or the top level), each with its sync
+/// event. The parent key cascades, so without this the delete would also
+/// remove every page below it, and clients, told only of this page, would
+/// keep the rest in Trash with nothing behind them on the server.
+fn lift_children(conn: &mut DbConnection, id: i32) -> Result<(), Error> {
+    let Some(parent) = documentation_pages::table
+        .find(id)
+        .select(documentation_pages::parent_id)
+        .first::<Option<i32>>(conn)
+        .optional()?
+    else {
+        return Ok(());
+    };
+    let children: Vec<i32> = documentation_pages::table
+        .filter(documentation_pages::parent_id.eq(id))
+        .order(documentation_pages::id.asc())
+        .select(documentation_pages::id)
+        .load(conn)?;
+    let update = DocumentationPageUpdate {
+        parent_id: Some(parent),
+        ..Default::default()
+    };
+    for child in children {
+        update_documentation_page(conn, child, &update)?;
+    }
+    Ok(())
+}
+
+// Permanently delete a documentation page (hard delete for trash emptying).
+// The pages under it stay, moved up a level.
 pub fn permanently_delete_page(id: i32, conn: &mut DbConnection) -> Result<usize, Error> {
     conn.transaction(|conn| {
+        lift_children(conn, id)?;
         let count = diesel::delete(documentation_pages::table.find(id)).execute(conn)?;
         if count > 0 {
             emit::record(

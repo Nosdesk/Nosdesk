@@ -346,6 +346,100 @@ async fn untouched_pages_go_to_trash_and_the_empty_collection_goes() {
     assert!(!p.in_trash);
 }
 
+/// Every page Remove moved to Trash can be deleted forever or restored on
+/// its own, a section page and the pages under it alike. Deleting the
+/// section forever takes that page only: the pages under it stay in Trash,
+/// moved up to where it was, each with its sync event, so no client keeps a
+/// page the server no longer has.
+#[actix_web::test]
+async fn removed_pages_delete_forever_and_restore_one_by_one() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = import_workspaces(&pool);
+    let ws = &seeded.a;
+    let id = imported(&pool, ws, "IT-Handbook.zip", &handbook()).await;
+    let (status, job) = call(&pool, ws, ws.admin_uuid, remove(&id)).await;
+    assert_eq!(status, StatusCode::OK, "{job}");
+    assert_eq!(job["remove_result"]["deleted"], 4, "{job}");
+
+    let network = page(&pool, ws, "Network").id;
+    let parent_of = |title: &str| {
+        count(
+            &pool,
+            ws,
+            &format!(
+                "SELECT COALESCE(parent_id, 0)::bigint AS n FROM documentation_pages WHERE title = '{title}'"
+            ),
+        )
+    };
+    assert_eq!(parent_of("VPN setup"), i64::from(network));
+    assert_eq!(parent_of("Wi-Fi"), i64::from(network));
+    let deleted_events = || {
+        count(
+            &pool,
+            ws,
+            "SELECT count(*) AS n FROM sync_actions WHERE event_type = 'documentation_page.deleted'",
+        )
+    };
+    let moved_events = || {
+        count(
+            &pool,
+            ws,
+            "SELECT count(*) AS n FROM sync_actions WHERE event_type = 'documentation_page.metadata_changed'",
+        )
+    };
+    let moved_before = moved_events();
+
+    let permanent = |page: i32| {
+        TestRequest::delete().uri(&format!("/api/documentation/pages/{page}/permanent"))
+    };
+    let (status, body) = call(&pool, ws, ws.admin_uuid, permanent(network)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(deleted_events(), 1, "the section page only");
+    assert_eq!(
+        moved_events() - moved_before,
+        2,
+        "one event per page moved up"
+    );
+    for title in ["VPN setup", "Wi-Fi"] {
+        let p = page(&pool, ws, title);
+        assert_eq!(p.status, "deleted", "{title} stays in Trash");
+        assert!(p.in_trash, "{title}");
+        assert_eq!(parent_of(title), 0, "{title} moved up to the top");
+    }
+
+    let vpn = page(&pool, ws, "VPN setup").id;
+    let (status, body) = call(&pool, ws, ws.admin_uuid, permanent(vpn)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(deleted_events(), 2);
+    assert_eq!(
+        count(
+            &pool,
+            ws,
+            "SELECT count(*) AS n FROM documentation_pages WHERE title IN ('Network', 'VPN setup')"
+        ),
+        0
+    );
+
+    let wifi = page(&pool, ws, "Wi-Fi").id;
+    let (status, restored) = call(
+        &pool,
+        ws,
+        ws.admin_uuid,
+        TestRequest::post().uri(&format!("/api/documentation/pages/{wifi}/restore")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{restored}");
+    let p = page(&pool, ws, "Wi-Fi");
+    assert_eq!(p.status, "draft");
+    assert!(!p.in_trash);
+
+    let start = page(&pool, ws, "Getting started").id;
+    let (status, body) = call(&pool, ws, ws.admin_uuid, permanent(start)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(deleted_events(), 3);
+}
+
 /// Each change keeps its page, with its reason: an edit to its details
 /// (with who made it), to its content, a newer revision, a page added
 /// under it, a move to another collection, and a kept page under it. The
