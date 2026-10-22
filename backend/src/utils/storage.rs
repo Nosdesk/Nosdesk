@@ -992,25 +992,33 @@ impl Caching {
 }
 
 /// `inline`, named as uploaded: the stored name without the `{uuid}_` prefix
-/// that `store_file` adds. Non-ASCII names go in `filename*` (RFC 6266), with an
-/// ASCII `filename` for older clients.
+/// that `store_file` adds.
 fn inline_disposition(stored_name: &str) -> ContentDisposition {
     let name = stored_name
         .split_once('_')
         .filter(|(prefix, rest)| !rest.is_empty() && Uuid::parse_str(prefix).is_ok())
         .map_or(stored_name, |(_, rest)| rest);
+    named_disposition(name)
+}
+
+/// `inline` under `name`. The plain `filename` is ASCII with no control
+/// characters, quotes or backslashes, for older clients; whenever that loses
+/// anything, the exact name goes in `filename*` (RFC 6266, RFC 5987), which
+/// percent-encodes it.
+fn named_disposition(name: &str) -> ContentDisposition {
     let ascii: String = name
         .chars()
         .map(|c| {
-            if c.is_ascii() && !c.is_ascii_control() {
+            if c.is_ascii() && !c.is_ascii_control() && c != '"' && c != '\\' {
                 c
             } else {
                 '_'
             }
         })
         .collect();
+    let exact = ascii == name;
     let mut parameters = vec![DispositionParam::Filename(ascii)];
-    if !name.is_ascii() {
+    if !exact {
         parameters.push(DispositionParam::FilenameExt(ExtendedValue {
             charset: Charset::Ext("UTF-8".to_string()),
             language_tag: None,
@@ -1029,6 +1037,19 @@ pub async fn serve_file_from_storage(
     path: &str,
     req: &HttpRequest,
     caching: Caching,
+) -> Result<HttpResponse, actix_web::Error> {
+    serve_named_file_from_storage(storage, path, req, caching, None).await
+}
+
+/// [`serve_file_from_storage`], named `display_name` in `Content-Disposition`
+/// when given (an attachment's name as uploaded), else after its stored name.
+/// The name only labels the response; `path` alone finds the object.
+pub async fn serve_named_file_from_storage(
+    storage: Arc<dyn Storage>,
+    path: &str,
+    req: &HttpRequest,
+    caching: Caching,
+    display_name: Option<&str>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // Serve routes use `{filename:.*}`, so the tail segment is fully
     // caller-controlled and can carry `../`. The backends refuse such a path
@@ -1060,7 +1081,13 @@ pub async fn serve_file_from_storage(
         .insert_header((CONTENT_TYPE, content_type))
         .insert_header((ACCEPT_RANGES, "bytes"))
         .insert_header((CACHE_CONTROL, caching.cache_control()))
-        .insert_header(inline_disposition(filename));
+        .insert_header(
+            // Cleaned again here: a row written before names were cleaned on
+            // upload (or by an import) may carry a path or control characters.
+            display_name
+                .and_then(crate::utils::file_validation::FileValidator::display_filename)
+                .map_or_else(|| inline_disposition(filename), |n| named_disposition(&n)),
+        );
 
     // Handle range requests for PDF.js and other file types
     let range_header = req.headers().get("Range");
@@ -1174,6 +1201,22 @@ mod tests {
             inline_disposition("019eb4e2-dbaa-75e5-9eb2-aa3dc7d8a7cb_résumé.pdf").to_string(),
             "inline; filename=\"r_sum_.pdf\"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf"
         );
+    }
+
+    #[test]
+    fn disposition_carries_a_display_name_exactly() {
+        assert_eq!(
+            named_disposition("Q3 report (final).pdf").to_string(),
+            "inline; filename=\"Q3 report (final).pdf\""
+        );
+        // Quotes and backslashes leave the plain name; the exact one is encoded.
+        assert_eq!(
+            named_disposition("say \"hi\"\\x.txt").to_string(),
+            "inline; filename=\"say _hi__x.txt\"; filename*=UTF-8''say%20%22hi%22%5Cx.txt"
+        );
+        // A control character never reaches the header raw.
+        let header = named_disposition("a\r\nb.txt").to_string();
+        assert!(!header.contains('\r') && !header.contains('\n'));
     }
 
     #[test]

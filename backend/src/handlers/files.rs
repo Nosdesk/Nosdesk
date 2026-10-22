@@ -89,6 +89,11 @@ pub async fn upload_files(
                 crate::errors::bad_request_error(format!("Invalid filename: {e}"))
             })?;
 
+        // The storage key is the sanitized name; the row keeps the name as
+        // uploaded for display and download.
+        let display_name = FileValidator::display_filename(original_filename)
+            .unwrap_or_else(|| sanitized_filename.clone());
+
         debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing uploaded file");
 
         // Read the field data with incremental size validation
@@ -170,7 +175,7 @@ pub async fn upload_files(
         // Create a new attachment record in the database
         let new_attachment = NewAttachment {
             url: stored_file.url.clone(),
-            name: sanitized_filename.clone(),
+            name: display_name,
             file_size: Some(total_size as i64),
             mime_type: Some(detected_mime.clone()),
             checksum: Some(checksum),
@@ -188,7 +193,7 @@ pub async fn upload_files(
                 let attachment_json = json!({
                     "id": attachment.id,
                     "url": stored_file.url,
-                    "name": sanitized_filename,
+                    "name": attachment.name,
                     "transcription": attachment.transcription,
                     "thumbnail_url": thumbnail_url
                 });
@@ -224,11 +229,12 @@ pub async fn serve_ticket_file(
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
-    let (workspace_id, ()) = authorize_ticket_file(&pool, &auth, TicketFile::from_path(&filename))?;
+    let (workspace_id, name) =
+        authorize_ticket_file(&pool, &auth, TicketFile::from_path(&filename))?;
     let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     let file_path = format!("tickets/{filename}");
-    serve_or_not_found(storage, &file_path, &req, Caching::Private).await
+    serve_named_or_not_found(storage, &file_path, &req, Caching::Private, name.as_deref()).await
 }
 
 // Serve temp (pre-attachment staging) files.
@@ -245,11 +251,11 @@ pub async fn serve_temp_file(
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
-    let workspace_id = authorize_temp_file_access(&pool, &auth, &filename)?;
+    let (workspace_id, name) = authorize_temp_file_access(&pool, &auth, &filename)?;
     let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     let file_path = format!("temp/{filename}");
-    serve_or_not_found(storage, &file_path, &req, Caching::Private).await
+    serve_named_or_not_found(storage, &file_path, &req, Caching::Private, name.as_deref()).await
 }
 
 /// Authorize access to a ticket's files: the caller must be able to view the
@@ -376,12 +382,13 @@ pub(crate) fn viewer_in_workspace(auth: &AuthContext, role: WorkspaceRole) -> Vi
 
 /// Authorize a file under `tickets/` (see `repository::file_access`): found
 /// once, elevated and among the caller's workspaces, then decided under that
-/// workspace's pin.
+/// workspace's pin. Returns the workspace and, for an attachment's own file,
+/// its name as uploaded.
 fn authorize_ticket_file(
     pool: &Pool,
     auth: &AuthContext,
     file: TicketFile,
-) -> Result<(i32, ()), actix_web::Error> {
+) -> Result<(i32, Option<String>), actix_web::Error> {
     let caller = auth.user_uuid;
     authorize_located(
         pool,
@@ -389,7 +396,7 @@ fn authorize_ticket_file(
         |c| file_access::locate(c, &file, caller),
         |c, _, role, located| {
             let vis = viewer_in_workspace(auth, role);
-            Ok(file_access::can_load(c, &vis, &located)?.then_some(()))
+            Ok(file_access::can_load(c, &vis, &located)?.map(|loadable| loadable.name))
         },
     )
 }
@@ -397,27 +404,34 @@ fn authorize_ticket_file(
 /// Authorize access to a staging (temp) file: a draft that only its uploader may
 /// load until a comment attaches it and it moves under its ticket. The owning
 /// workspace comes from its `attachments` row. A PDF's server-rendered
-/// thumbnail has no row of its own, so it is authorized as its PDF.
+/// thumbnail has no row of its own, so it is authorized as its PDF. Returns
+/// the workspace and, for the draft's own file, its name as uploaded.
 fn authorize_temp_file_access(
     pool: &Pool,
     auth: &AuthContext,
     filename: &str,
-) -> Result<i32, actix_web::Error> {
+) -> Result<(i32, Option<String>), actix_web::Error> {
     let urls: Vec<String> = std::iter::once(filename.to_string())
         .chain(crate::utils::pdf::pdf_paths_for_thumbnail(filename))
         .map(|name| format!("/uploads/temp/{name}"))
         .collect();
     let caller = auth.user_uuid;
-    let (workspace_id, ()) = authorize_located(
+    authorize_located(
         pool,
         auth,
         |c| repository::comments::attachment_locations(c, &urls, caller),
         |c, _, _, ids| {
-            let own = repository::comments::is_own_draft_upload(c, &ids, caller)?;
-            Ok(own.then_some(()))
+            let own = repository::comments::own_draft_uploads(c, &ids, caller)?;
+            if own.is_empty() {
+                return Ok(None);
+            }
+            let name = own
+                .into_iter()
+                .find(|(url, _)| *url == urls[0])
+                .map(|(_, name)| name);
+            Ok(Some(name))
         },
-    )?;
-    Ok(workspace_id)
+    )
 }
 
 /// Serve a stored object, mapping any storage error to a 404.
@@ -427,7 +441,27 @@ pub(crate) async fn serve_or_not_found(
     req: &actix_web::HttpRequest,
     caching: Caching,
 ) -> Result<HttpResponse, actix_web::Error> {
-    match crate::utils::storage::serve_file_from_storage(storage, file_path, req, caching).await {
+    serve_named_or_not_found(storage, file_path, req, caching, None).await
+}
+
+/// [`serve_or_not_found`], named `display_name` for download when given (an
+/// attachment's name as uploaded). The object is found by `file_path` alone.
+pub(crate) async fn serve_named_or_not_found(
+    storage: Arc<dyn Storage>,
+    file_path: &str,
+    req: &actix_web::HttpRequest,
+    caching: Caching,
+    display_name: Option<&str>,
+) -> Result<HttpResponse, actix_web::Error> {
+    match crate::utils::storage::serve_named_file_from_storage(
+        storage,
+        file_path,
+        req,
+        caching,
+        display_name,
+    )
+    .await
+    {
         Ok(response) => Ok(response),
         Err(e) => {
             warn!(error = ?e, file_path = %file_path, "Error serving file");
@@ -489,6 +523,9 @@ pub async fn upload_ticket_note_image(
                 crate::errors::bad_request_error(format!("Invalid filename: {e}"))
             })?;
 
+        let display_name = FileValidator::display_filename(original_filename)
+            .unwrap_or_else(|| sanitized_filename.clone());
+
         debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing ticket note image");
 
         // Read the field data with incremental size validation
@@ -546,7 +583,7 @@ pub async fn upload_ticket_note_image(
 
         uploaded_files.push(json!({
             "url": stored_file.url,
-            "name": sanitized_filename,
+            "name": display_name,
             "size": total_size
         }));
     }
@@ -574,7 +611,7 @@ pub async fn serve_ticket_note_image(
     // A notes image follows its ticket (see `repository::file_access`). The
     // workspace comes from the ticket so the direct image load works without a
     // selection header (see `authorize_at_owning_workspace`).
-    let (workspace_id, ()) = authorize_ticket_file(&pool, &auth, TicketFile::Note { ticket_id })?;
+    let (workspace_id, _) = authorize_ticket_file(&pool, &auth, TicketFile::Note { ticket_id })?;
     let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     // Serve from tickets/{ticket_id}/notes/ folder
