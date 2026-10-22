@@ -1940,6 +1940,245 @@ async fn converting_a_note_copies_its_live_content() {
     );
 }
 
+/// A draft page written the way an import writes one, its body then revision
+/// 1, and a collaboration server whose editors can open it.
+struct ImportedPage {
+    pool: backend::db::Pool,
+    admin: backend::models::User,
+    page_id: i32,
+    url: String,
+    _srv: actix_test::TestServer,
+}
+
+/// What the backing table holds for a page.
+struct Stored {
+    document: Option<Vec<u8>>,
+    updated_at: chrono::NaiveDateTime,
+    revisions: i64,
+    content_saved_events: i64,
+}
+
+impl ImportedPage {
+    fn new(test_db: &common::TestDb) -> Self {
+        use backend::schema::documentation_pages as dp;
+        use diesel::prelude::*;
+        use yrs::updates::encoder::Encode;
+        use yrs::{
+            ReadTxn, StateVector, Transact, WriteTxn, XmlElementPrelim, XmlFragment, XmlTextPrelim,
+        };
+
+        install_fast_heartbeat();
+        let pool = build_pool(test_db.url());
+        let ws1_uuid =
+            backend::repository::workspaces::find_by_id(&mut pool.get().expect("conn"), 1)
+                .expect("ws lookup")
+                .expect("bootstrap workspace exists")
+                .uuid;
+        let admin = common::insert_user(&mut pool.get().expect("conn"), "Import Viewer");
+        let imported = {
+            let doc = yrs::Doc::new();
+            {
+                let mut txn = doc.transact_mut();
+                let fragment = txn.get_or_insert_xml_fragment("prosemirror");
+                let paragraph = fragment.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+                paragraph.push_back(&mut txn, XmlTextPrelim::new("Connect with WireGuard."));
+            }
+            let txn = doc.transact();
+            (
+                txn.encode_state_as_update_v1(&StateVector::default()),
+                txn.state_vector().encode_v1(),
+            )
+        };
+        let page_uuid = uuid::Uuid::new_v4();
+        let page_id = {
+            let mut conn = pool.get().expect("conn");
+            let actor =
+                backend::sync::actor::ActorContext::user(admin.uuid, None).with_workspace(1);
+            backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+                &mut conn,
+                &actor,
+                |c| {
+                    backend::repository::workspaces::add_membership(
+                        c,
+                        1,
+                        admin.uuid,
+                        "admin",
+                        backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                    )?;
+                    let page_id: i32 = diesel::insert_into(dp::table)
+                        .values((
+                            dp::uuid.eq(page_uuid),
+                            dp::title.eq("VPN setup"),
+                            dp::slug.eq(format!("vpn-setup-{}", page_uuid.simple())),
+                            dp::status.eq(backend::models::DocumentationStatus::Draft),
+                            dp::created_by.eq(admin.uuid),
+                            dp::last_edited_by.eq(admin.uuid),
+                        ))
+                        .returning(dp::id)
+                        .get_result(c)?;
+                    backend::repository::update_documentation_yjs_state(
+                        c,
+                        page_id,
+                        imported.0.clone(),
+                        None,
+                        None,
+                    )?;
+                    backend::repository::create_revision_with_summary(
+                        c,
+                        page_id,
+                        imported.1.clone(),
+                        imported.0.clone(),
+                        admin.uuid,
+                        "Imported",
+                    )?;
+                    Ok(page_id)
+                },
+            )
+            .expect("seed the imported page")
+        };
+
+        let state_pool_inner = pool.clone();
+        let srv = actix_test::start(move || {
+            let (state, _tmp) = build_app_state(&state_pool_inner);
+            std::mem::forget(_tmp);
+            App::new()
+                .app_data(web::Data::new(state))
+                .app_data(web::Data::new(state_pool_inner.clone()))
+                .route("/ws/{doc}", web::get().to(ws_handler))
+        });
+        let token = JwtUtils::create_collab_token(
+            &admin.uuid.to_string(),
+            &admin.platform_role,
+            Some(ws1_uuid),
+        )
+        .expect("mint collab token");
+        let url = srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}"));
+        Self {
+            pool,
+            admin,
+            page_id,
+            url,
+            _srv: srv,
+        }
+    }
+
+    fn stored(&self) -> Stored {
+        use backend::schema::{
+            documentation_pages as dp, documentation_revisions as dr, sync_actions as sa,
+        };
+        use diesel::prelude::*;
+        let mut conn = self.pool.get().expect("conn");
+        let (document, updated_at) = dp::table
+            .find(self.page_id)
+            .select((dp::yjs_document, dp::updated_at))
+            .first::<(Option<Vec<u8>>, chrono::NaiveDateTime)>(&mut conn)
+            .expect("page row");
+        let revisions = dr::table
+            .filter(dr::page_id.eq(self.page_id))
+            .count()
+            .get_result(&mut conn)
+            .expect("revision count");
+        let content_saved_events = sa::table
+            .filter(sa::event_type.eq("documentation.content_saved"))
+            .filter(sa::aggregate_id.eq(self.page_id.to_string()))
+            .count()
+            .get_result(&mut conn)
+            .expect("content-saved events");
+        Stored {
+            document,
+            updated_at,
+            revisions,
+            content_saved_events,
+        }
+    }
+
+    /// The stored state once `done` holds for it, polling for up to `secs`.
+    async fn stored_once(&self, secs: u64, done: impl Fn(&Stored) -> bool) -> Stored {
+        let until = tokio::time::Instant::now() + Duration::from_secs(secs);
+        loop {
+            let stored = self.stored();
+            if done(&stored) || tokio::time::Instant::now() >= until {
+                return stored;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+/// Whether a stored document's content holds `text`.
+fn holds(document: &Option<Vec<u8>>, text: &str) -> bool {
+    document
+        .as_deref()
+        .is_some_and(|d| fragment_text(d).contains(text))
+}
+
+/// Ask the room for its document and return it.
+async fn room_document<S, E>(conn: &mut S) -> Vec<u8>
+where
+    S: futures_util::Stream<Item = Result<ws::Frame, E>> + futures_util::Sink<ws::Message> + Unpin,
+    E: std::fmt::Debug,
+    <S as futures_util::Sink<ws::Message>>::Error: std::fmt::Debug,
+{
+    use yrs::sync::{Message, MessageReader, SyncMessage};
+    use yrs::updates::decoder::DecoderV1;
+    use yrs::updates::encoder::Encode;
+    use yrs::StateVector;
+    let request =
+        Bytes::from(Message::Sync(SyncMessage::SyncStep1(StateVector::default())).encode_v1());
+    conn.send(ws::Message::Binary(request))
+        .await
+        .expect("send state request");
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let Some(Ok(frame)) = conn.next().await else {
+                panic!("the stream ended before the document arrived");
+            };
+            let ws::Frame::Binary(bytes) = frame else {
+                continue;
+            };
+            let mut decoder = DecoderV1::from(bytes.as_ref());
+            for message in MessageReader::new(&mut decoder).flatten() {
+                if let Message::Sync(SyncMessage::SyncStep2(update)) = message {
+                    return update;
+                }
+            }
+        }
+    })
+    .await
+    .expect("the room never sent its document")
+}
+
+/// The room's document, as a client that has synced it.
+async fn synced_doc<S, E>(conn: &mut S) -> yrs::Doc
+where
+    S: futures_util::Stream<Item = Result<ws::Frame, E>> + futures_util::Sink<ws::Message> + Unpin,
+    E: std::fmt::Debug,
+    <S as futures_util::Sink<ws::Message>>::Error: std::fmt::Debug,
+{
+    use yrs::updates::decoder::Decode;
+    use yrs::{Transact, Update};
+    let doc = yrs::Doc::new();
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&room_document(conn).await).expect("decode"))
+        .expect("apply");
+    doc
+}
+
+/// `text` appended to the document's content, as the update an editor sends.
+fn append_text(doc: &yrs::Doc, text: &str) -> Bytes {
+    use yrs::sync::{Message, SyncMessage};
+    use yrs::updates::encoder::Encode;
+    use yrs::{ReadTxn, Transact, WriteTxn, XmlFragment, XmlTextPrelim};
+    let sv = doc.transact().state_vector();
+    {
+        let mut txn = doc.transact_mut();
+        let fragment = txn.get_or_insert_xml_fragment("prosemirror");
+        fragment.push_back(&mut txn, XmlTextPrelim::new(text));
+    }
+    let update = doc.transact().encode_state_as_update_v1(&sv);
+    Bytes::from(Message::Sync(SyncMessage::Update(update)).encode_v1())
+}
+
 /// Opening a page and leaving it changes nothing: no save, no revision, the
 /// same `updated_at`. An imported page that was only looked at stays one
 /// "nobody has changed since", which is what removing an import moves to
@@ -1948,176 +2187,30 @@ async fn converting_a_note_copies_its_live_content() {
 /// saved and got a revision in the viewer's name.
 #[actix_web::test]
 async fn opening_a_page_without_editing_changes_nothing() {
-    use backend::schema::{documentation_pages as dp, documentation_revisions as dr};
-    use diesel::prelude::*;
-    use yrs::sync::{Message, MessageReader, SyncMessage};
-    use yrs::updates::decoder::{Decode, DecoderV1};
+    use yrs::sync::{Message, SyncMessage};
     use yrs::updates::encoder::Encode;
-    use yrs::{
-        Doc, Map, MapPrelim, ReadTxn, StateVector, Transact, Update, WriteTxn, XmlElementPrelim,
-        XmlFragment, XmlTextPrelim,
-    };
+    use yrs::{Map, MapPrelim, ReadTxn, Transact, WriteTxn};
 
-    install_fast_heartbeat();
     let test_db = common::TestDb::new();
-    let pool = build_pool(test_db.url());
-    let ws1_uuid = backend::repository::workspaces::find_by_id(&mut pool.get().expect("conn"), 1)
-        .expect("ws lookup")
-        .expect("bootstrap workspace exists")
-        .uuid;
-    let admin = common::insert_user(&mut pool.get().expect("conn"), "Import Viewer");
-    let in_workspace =
-        |f: &mut dyn FnMut(&mut backend::db::DbConnection) -> Result<(), diesel::result::Error>| {
-            let mut conn = pool.get().expect("conn");
-            let actor =
-                backend::sync::actor::ActorContext::user(admin.uuid, None).with_workspace(1);
-            backend::sync::session::with_actor_context::<_, diesel::result::Error>(
-                &mut conn,
-                &actor,
-                |c| f(c),
-            )
-            .expect("write in workspace 1");
-        };
-    in_workspace(&mut |c| {
-        backend::repository::workspaces::add_membership(
-            c,
-            1,
-            admin.uuid,
-            "admin",
-            backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
-        )
-        .map(|_| ())
-    });
-
-    // A draft written the way an import writes one: its body, then revision 1.
-    let imported = {
-        let doc = Doc::new();
-        {
-            let mut txn = doc.transact_mut();
-            let fragment = txn.get_or_insert_xml_fragment("prosemirror");
-            let paragraph = fragment.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
-            paragraph.push_back(&mut txn, XmlTextPrelim::new("Connect with WireGuard."));
-        }
-        let txn = doc.transact();
-        (
-            txn.encode_state_as_update_v1(&StateVector::default()),
-            txn.state_vector().encode_v1(),
-        )
-    };
-    let page_uuid = uuid::Uuid::new_v4();
-    let mut page_id = 0;
-    in_workspace(&mut |c| {
-        page_id = diesel::insert_into(dp::table)
-            .values((
-                dp::uuid.eq(page_uuid),
-                dp::title.eq("VPN setup"),
-                dp::slug.eq(format!("vpn-setup-{}", page_uuid.simple())),
-                dp::status.eq(backend::models::DocumentationStatus::Draft),
-                dp::created_by.eq(admin.uuid),
-                dp::last_edited_by.eq(admin.uuid),
-            ))
-            .returning(dp::id)
-            .get_result(c)?;
-        backend::repository::update_documentation_yjs_state(
-            c,
-            page_id,
-            imported.0.clone(),
-            None,
-            None,
-        )?;
-        backend::repository::create_revision_with_summary(
-            c,
-            page_id,
-            imported.1.clone(),
-            imported.0.clone(),
-            admin.uuid,
-            "Imported",
-        )
-        .map(|_| ())
-    });
-    let stored = |pool: &backend::db::Pool| -> (Option<Vec<u8>>, chrono::NaiveDateTime, i64) {
-        let mut conn = pool.get().expect("conn");
-        let (document, updated_at) = dp::table
-            .find(page_id)
-            .select((dp::yjs_document, dp::updated_at))
-            .first::<(Option<Vec<u8>>, chrono::NaiveDateTime)>(&mut conn)
-            .expect("page row");
-        let revisions = dr::table
-            .filter(dr::page_id.eq(page_id))
-            .count()
-            .get_result(&mut conn)
-            .expect("revision count");
-        (document, updated_at, revisions)
-    };
-    let before = stored(&pool);
-    assert_eq!(before.2, 1, "the import wrote revision 1");
-
-    let state_pool_inner = pool.clone();
-    let srv = actix_test::start(move || {
-        let (state, _tmp) = build_app_state(&state_pool_inner);
-        std::mem::forget(_tmp);
-        App::new()
-            .app_data(web::Data::new(state))
-            .app_data(web::Data::new(state_pool_inner.clone()))
-            .route("/ws/{doc}", web::get().to(ws_handler))
-    });
-    let token = JwtUtils::create_collab_token(
-        &admin.uuid.to_string(),
-        &admin.platform_role,
-        Some(ws1_uuid),
-    )
-    .expect("mint collab token");
-    let url = srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}"));
+    let page = ImportedPage::new(&test_db);
+    let before = page.stored();
+    assert_eq!(before.revisions, 1, "the import wrote revision 1");
     let client = awc::Client::new();
-
-    /// Ask for the room's document and return it.
-    async fn room_document<S, E>(conn: &mut S) -> Vec<u8>
-    where
-        S: futures_util::Stream<Item = Result<ws::Frame, E>>
-            + futures_util::Sink<ws::Message>
-            + Unpin,
-        E: std::fmt::Debug,
-        <S as futures_util::Sink<ws::Message>>::Error: std::fmt::Debug,
-    {
-        let request =
-            Bytes::from(Message::Sync(SyncMessage::SyncStep1(StateVector::default())).encode_v1());
-        conn.send(ws::Message::Binary(request))
-            .await
-            .expect("send state request");
-        tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                let Some(Ok(frame)) = conn.next().await else {
-                    panic!("the stream ended before the document arrived");
-                };
-                let ws::Frame::Binary(bytes) = frame else {
-                    continue;
-                };
-                let mut decoder = DecoderV1::from(bytes.as_ref());
-                for message in MessageReader::new(&mut decoder).flatten() {
-                    if let Message::Sync(SyncMessage::SyncStep2(update)) = message {
-                        return update;
-                    }
-                }
-            }
-        })
-        .await
-        .expect("the room never sent its document")
-    }
 
     // A reader opens the page with an editor that maps its client to its
     // user on open, as editors did, and leaves without typing.
-    let (_resp, mut reader) = client.ws(&url).connect().await.expect("reader connects");
-    let opened = Doc::new();
-    opened
-        .transact_mut()
-        .apply_update(Update::decode_v1(&room_document(&mut reader).await).expect("decode"))
-        .expect("apply");
+    let (_resp, mut reader) = client
+        .ws(&page.url)
+        .connect()
+        .await
+        .expect("reader connects");
+    let opened = synced_doc(&mut reader).await;
     let mapping: Bytes = {
         let sv = opened.transact().state_vector();
         {
             let mut txn = opened.transact_mut();
             let users = txn.get_or_insert_map("users");
-            users.insert(&mut txn, admin.uuid.to_string(), MapPrelim::default());
+            users.insert(&mut txn, page.admin.uuid.to_string(), MapPrelim::default());
         }
         let update = opened.transact().encode_state_as_update_v1(&sv);
         Bytes::from(Message::Sync(SyncMessage::Update(update)).encode_v1())
@@ -2132,65 +2225,131 @@ async fn opening_a_page_without_editing_changes_nothing() {
     // The disconnect's final save and the maintenance loop have had their
     // turn by now.
     tokio::time::sleep(Duration::from_millis(1000)).await;
-    let after = stored(&pool);
-    assert_eq!(after.2, 1, "a view adds no revision");
-    assert_eq!(after.1, before.1, "a view leaves updated_at alone");
-    assert_eq!(after.0, before.0, "a view saves nothing");
+    let after = page.stored();
+    assert_eq!(after.revisions, 1, "a view adds no revision");
+    assert_eq!(
+        after.updated_at, before.updated_at,
+        "a view leaves updated_at alone"
+    );
+    assert_eq!(after.document, before.document, "a view saves nothing");
+    assert_eq!(after.content_saved_events, 0, "a view announces no save");
 
     // The room did take the mapping: an editor opening the page now gets it.
-    let (_resp, mut editor) = client.ws(&url).connect().await.expect("editor connects");
-    let room = Doc::new();
-    room.transact_mut()
-        .apply_update(Update::decode_v1(&room_document(&mut editor).await).expect("decode"))
-        .expect("apply");
+    let (_resp, mut editor) = client
+        .ws(&page.url)
+        .connect()
+        .await
+        .expect("editor connects");
+    let room = synced_doc(&mut editor).await;
     assert!(
         room.transact()
             .get_map("users")
-            .is_some_and(|users| users.contains_key(&room.transact(), &admin.uuid.to_string())),
+            .is_some_and(|users| users
+                .contains_key(&room.transact(), &page.admin.uuid.to_string())),
         "the reader's mapping reached the room"
     );
 
-    // An edit is saved and recorded, in its author's name.
-    let edit: Bytes = {
-        let sv = room.transact().state_vector();
-        {
-            let mut txn = room.transact_mut();
-            let fragment = txn.get_or_insert_xml_fragment("prosemirror");
-            fragment.push_back(&mut txn, XmlTextPrelim::new("Edited."));
-        }
-        let update = room.transact().encode_state_as_update_v1(&sv);
-        Bytes::from(Message::Sync(SyncMessage::Update(update)).encode_v1())
-    };
+    // An edit is saved and recorded, in its author's name. The save, the
+    // revision and the event are separate writes, so wait for all three.
     editor
-        .send(ws::Message::Binary(edit))
+        .send(ws::Message::Binary(append_text(&room, "Edited.")))
         .await
         .expect("send edit");
     tokio::time::sleep(Duration::from_millis(300)).await;
     drop(editor);
-    let mut edited = stored(&pool);
-    for _ in 0..30 {
-        if edited.2 == 2 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        edited = stored(&pool);
-    }
-    assert_eq!(edited.2, 2, "the edit is a revision");
-    assert_ne!(edited.1, before.1, "the edit moves updated_at");
-    assert!(
-        fragment_text(edited.0.as_deref().expect("saved document")).contains("Edited."),
-        "the edit is saved"
+    let edited = page
+        .stored_once(5, |s| {
+            s.revisions == 2 && holds(&s.document, "Edited.") && s.content_saved_events == 1
+        })
+        .await;
+    assert_eq!(edited.revisions, 2, "the edit is a revision");
+    assert!(holds(&edited.document, "Edited."), "the edit is saved");
+    assert_ne!(
+        edited.updated_at, before.updated_at,
+        "the edit moves updated_at"
     );
     // The session's end tells the other machines to index the new body.
-    let saved_events: i64 = {
-        use backend::schema::sync_actions as sa;
-        let mut conn = pool.get().expect("conn");
-        sa::table
-            .filter(sa::event_type.eq("documentation.content_saved"))
-            .filter(sa::aggregate_id.eq(page_id.to_string()))
-            .count()
-            .get_result(&mut conn)
-            .expect("content-saved events")
+    assert_eq!(
+        edited.content_saved_events, 1,
+        "only the edit's session announces a save"
+    );
+}
+
+/// An edit whose save fails is saved once saving works again. The editor
+/// stays until the quiet period has made the edit a revision, so its leaving
+/// is not the end of a session with changes; the room still knows the
+/// content isn't stored and keeps trying.
+#[actix_web::test]
+async fn an_edit_whose_save_failed_is_saved_later() {
+    use diesel::prelude::*;
+
+    let test_db = common::TestDb::new();
+    let page = ImportedPage::new(&test_db);
+    // Every save of this page's body fails while it is listed.
+    diesel::connection::SimpleConnection::batch_execute(
+        &mut *page.pool.get().expect("conn"),
+        "CREATE TABLE test_failing_saves (page_id int PRIMARY KEY);
+         GRANT SELECT ON test_failing_saves TO PUBLIC;
+         CREATE FUNCTION test_fail_save() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+             IF EXISTS (SELECT 1 FROM test_failing_saves WHERE page_id = NEW.id) THEN
+                 RAISE EXCEPTION 'this save fails for the test';
+             END IF;
+             RETURN NEW;
+         END $$;
+         CREATE TRIGGER test_fail_save BEFORE UPDATE OF yjs_document ON documentation_pages
+             FOR EACH ROW EXECUTE FUNCTION test_fail_save();",
+    )
+    .expect("install the failing save");
+    let fail_saves = |on: bool| {
+        let sql = if on {
+            "INSERT INTO test_failing_saves VALUES ($1)"
+        } else {
+            "DELETE FROM test_failing_saves WHERE page_id = $1"
+        };
+        diesel::sql_query(sql)
+            .bind::<diesel::sql_types::Integer, _>(page.page_id)
+            .execute(&mut page.pool.get().expect("conn"))
+            .expect("toggle the failing save");
     };
-    assert_eq!(saved_events, 1, "only the edit's session announces a save");
+    fail_saves(true);
+
+    let client = awc::Client::new();
+    let (_resp, mut editor) = client
+        .ws(&page.url)
+        .connect()
+        .await
+        .expect("editor connects");
+    let room = synced_doc(&mut editor).await;
+    editor
+        .send(ws::Message::Binary(append_text(&room, "Kept anyway.")))
+        .await
+        .expect("send edit");
+    // The quiet period cuts the revision while the editor is still there.
+    let revised = page.stored_once(5, |s| s.revisions == 2).await;
+    assert_eq!(revised.revisions, 2, "the quiet edit is a revision");
+    drop(editor);
+
+    // The save on leaving failed.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(
+        !holds(&page.stored().document, "Kept anyway."),
+        "the save on leaving failed"
+    );
+
+    // Saving works again: the room's next pass stores the edit.
+    fail_saves(false);
+    let saved = page
+        .stored_once(15, |s| {
+            holds(&s.document, "Kept anyway.") && s.content_saved_events == 1
+        })
+        .await;
+    assert!(
+        holds(&saved.document, "Kept anyway."),
+        "the edit is saved later"
+    );
+    assert_eq!(
+        saved.content_saved_events, 1,
+        "the save that ends the session announces it"
+    );
 }

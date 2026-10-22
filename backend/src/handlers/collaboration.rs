@@ -1186,10 +1186,11 @@ struct DocumentState {
     _schema_watch: Subscription,
     /// Raised by every change to the content ([`watch_content`]).
     content_version: Arc<AtomicU64>,
-    /// `content_version` as the backing table holds it: at load, then at
-    /// each save. A save is due only when the content has moved on from it,
-    /// so a session that changed nothing writes nothing.
-    saved_content_version: u64,
+    /// `content_version` as the backing table holds it: at load, then once
+    /// each save's write has landed. A save is due only when the content has
+    /// moved on from it, so a session that changed nothing writes nothing,
+    /// and a write that failed is tried again.
+    saved_content_version: Arc<AtomicU64>,
     /// Keeps the observer that raises `content_version` subscribed.
     _content_watch: Subscription,
 }
@@ -1208,7 +1209,7 @@ impl DocumentState {
             required_schema,
             _schema_watch: schema_watch,
             content_version: content.version,
-            saved_content_version: content.saved,
+            saved_content_version: Arc::new(AtomicU64::new(content.saved)),
             _content_watch: content.watch,
             awareness,
             last_saved: Instant::now(),
@@ -1239,7 +1240,8 @@ impl DocumentState {
 
     /// Whether the content changed since the backing table last got it.
     fn has_unsaved_content(&self) -> bool {
-        self.content_version.load(Ordering::SeqCst) != self.saved_content_version
+        self.content_version.load(Ordering::SeqCst)
+            != self.saved_content_version.load(Ordering::SeqCst)
     }
 
     fn mark_changed(&mut self) {
@@ -1280,11 +1282,18 @@ impl DocumentState {
     }
 
     fn should_save(&self) -> bool {
+        let now = Instant::now();
+
+        // Content the backing table doesn't hold yet, because its save
+        // failed or hasn't been tried, is saved on the usual cadence even
+        // when no client has written since.
+        if self.has_unsaved_content() && now.duration_since(self.last_saved) >= MIN_SAVE_INTERVAL {
+            return true;
+        }
+
         if !self.has_pending_changes {
             return false;
         }
-
-        let now = Instant::now();
 
         // Save if enough time has passed since last save
         if now.duration_since(self.last_saved) >= MIN_SAVE_INTERVAL {
@@ -1926,8 +1935,11 @@ impl YjsAppState {
             // Regular saves for active documents
             if doc_state.should_save() {
                 // Mid-session save: not the end of editing, so no
-                // content-saved emit yet.
-                if self.save_if_changed(doc_id, doc_state, false) {
+                // content-saved emit yet. Unsaved content once everyone has
+                // left is a retry of the session's last save, which emits.
+                let emit_saved =
+                    doc_state.room_empty_since.is_some() && doc_state.has_unsaved_content();
+                if self.save_if_changed(doc_id, doc_state, emit_saved) {
                     saved_count += 1;
                 }
             }
@@ -2944,7 +2956,7 @@ impl YjsAppState {
         emit_saved: bool,
     ) -> bool {
         let version = doc_state.content_version.load(Ordering::SeqCst);
-        let changed = version != doc_state.saved_content_version || emit_saved;
+        let changed = doc_state.has_unsaved_content() || emit_saved;
         if changed {
             debug!(doc_id = %doc_id, "Saving changed document");
             self.save_document_internal(
@@ -2954,8 +2966,8 @@ impl YjsAppState {
                 doc_state.fence,
                 doc_state.doc_type,
                 emit_saved,
+                (Arc::clone(&doc_state.saved_content_version), version),
             );
-            doc_state.saved_content_version = version;
         }
         doc_state.mark_saved();
         changed
@@ -2973,6 +2985,9 @@ impl YjsAppState {
         // had real content changes; threaded to `write_yjs_state` to drive
         // the search-only content-saved emit.
         emit_saved: bool,
+        // The room's saved content version, and the content version this
+        // save holds: the write raises the one to the other once it lands.
+        (saved_version, version): (Arc<AtomicU64>, u64),
     ) {
         // Get binary content from the document
         let binary_content = {
@@ -3022,8 +3037,14 @@ impl YjsAppState {
                 emit_saved,
             )
             .await;
-            if outcome == SaveOutcome::ResourceGone {
-                state.drop_deleted_document(&doc_id).await;
+            match outcome {
+                // Saves can land out of order; the version never goes back.
+                SaveOutcome::Saved => {
+                    saved_version.fetch_max(version, Ordering::SeqCst);
+                }
+                SaveOutcome::ResourceGone => state.drop_deleted_document(&doc_id).await,
+                // Still unsaved, so the next maintenance pass tries again.
+                SaveOutcome::Failed => {}
             }
         });
     }
