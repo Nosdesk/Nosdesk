@@ -75,7 +75,30 @@ vi.mock('@/components/documentationComponents/CollectionModal.vue', () => ({
   }),
 }))
 
+// Modal renders in place while open, so the export dialog's body and footer
+// can be read from the band's wrapper.
+vi.mock('@/components/Modal.vue', () => ({
+  default: defineComponent({
+    props: { show: Boolean, title: String },
+    template: '<div v-if="show" data-testid="modal"><slot /><slot name="footer" /></div>',
+  }),
+}))
+
+const exportApi = vi.hoisted(() => ({ download: vi.fn<() => Promise<string>>() }))
+vi.mock('@/services/markdownExportService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/markdownExportService')>()),
+  downloadDocumentationExport: exportApi.download,
+}))
+
+const platform = vi.hoisted(() => ({ tauri: false }))
+vi.mock('@/platform', () => ({ isTauriRuntime: () => platform.tauri }))
+
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }))
+vi.mock('@nosdesk/core/stores/toast', () => ({ useToastStore: () => toast }))
+
 import DocumentationIndexToolbar from '@/components/documentationComponents/DocumentationIndexToolbar.vue'
+import DocumentationExportDialog from '@/components/documentationComponents/DocumentationExportDialog.vue'
+import { DocumentationExportError } from '@/services/markdownExportService'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
 import {
   installSlugCarrier,
@@ -186,6 +209,7 @@ beforeEach(() => {
   auth.technician = true
   portal.publicDocs = false
   viewport.phone = false
+  platform.tauri = false
   nextId = 1
 })
 
@@ -358,6 +382,148 @@ describe('DocumentationIndexToolbar Import documents', () => {
     wrapper!.findComponent(MenuList).vm.$emit('select', 'import-docs')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('admin-docs-import')
+  })
+})
+
+describe('DocumentationIndexToolbar Export documentation', () => {
+  const ids = async () => (await openMenu()).map((i) => i.id)
+  const dialog = () => wrapper!.findComponent(DocumentationExportDialog)
+  const dialogOpen = () => wrapper!.find('[data-testid="docs-export-dialog"]').exists()
+  const confirmButton = () => wrapper!.find('[data-testid="docs-export-confirm"]')
+
+  async function openExport() {
+    await openMenu()
+    wrapper!.findComponent(MenuList).vm.$emit('select', 'export-docs')
+    await flushPromises()
+  }
+
+  beforeEach(() => {
+    auth.admin = true
+    exportApi.download.mockResolvedValue('acme-documentation-2026-10-22.zip')
+  })
+
+  it('is offered to admins and owners, right after Import documents', async () => {
+    seed({ library: 2 })
+    await mountAt('/documentation')
+    const list = await ids()
+    expect(list.indexOf('export-docs')).toBe(list.indexOf('import-docs') + 1)
+  })
+
+  it('is not offered to an agent or a requester', async () => {
+    seed({ library: 2 })
+    auth.admin = false
+    await mountAt('/documentation')
+    expect(await ids()).not.toContain('export-docs')
+    wrapper!.unmount()
+    auth.technician = false
+    await mountAt('/documentation')
+    const items = wrapper!.find('[data-testid="docs-index-more"]').exists() ? await ids() : []
+    expect(items).not.toContain('export-docs')
+  })
+
+  it('waits for a page in the Library or Drafts', async () => {
+    seed({ archived: 2, trash: 1 })
+    await mountAt('/documentation')
+    expect(await ids()).not.toContain('export-docs')
+  })
+
+  it('is offered on Cloud, where paths carry the workspace', async () => {
+    routing = 'path'
+    slug = 'acme'
+    seed({ drafts: 1 })
+    await mountAt('/acme/documentation')
+    expect(await ids()).toContain('export-docs')
+  })
+
+  it('is left out of the mobile app, which cannot save the zip', async () => {
+    platform.tauri = true
+    seed({ library: 2 })
+    await mountAt('/documentation')
+    const list = await ids()
+    expect(list).toContain('import-docs')
+    expect(list).not.toContain('export-docs')
+  })
+
+  it('opens a dialog that counts what the zip holds and what it leaves out', async () => {
+    seed({ library: 3, drafts: 1, archived: 2 })
+    await mountAt('/documentation')
+    expect(dialogOpen()).toBe(false)
+    await openExport()
+    expect(dialogOpen()).toBe(true)
+    expect(dialog().props()).toMatchObject({ pages: 4, archived: 2, trash: 0, exporting: false })
+    const excluded = wrapper!.find('[data-testid="docs-export-excluded"]').text()
+    expect(excluded).toContain('docs-export-excluded-archived')
+    expect(excluded).not.toContain('docs-export-excluded-trash')
+    expect(excluded).toContain('docs-export-excluded-history')
+    expect(exportApi.download).not.toHaveBeenCalled()
+  })
+
+  it('downloads the zip once, then closes and says so', async () => {
+    seed({ library: 1 })
+    await mountAt('/documentation')
+    await openExport()
+    await confirmButton().trigger('click')
+    await flushPromises()
+    expect(exportApi.download).toHaveBeenCalledTimes(1)
+    expect(dialogOpen()).toBe(false)
+    expect(toast.success).toHaveBeenCalledWith('docs-export-done', 'acme-documentation-2026-10-22.zip')
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('shows progress while the zip builds and keeps building after the dialog closes', async () => {
+    let finish: (name: string) => void = () => {}
+    exportApi.download.mockImplementation(() => new Promise<string>((r) => (finish = r)))
+    seed({ library: 1 })
+    await mountAt('/documentation')
+    await openExport()
+    await confirmButton().trigger('click')
+    await flushPromises()
+
+    expect(dialog().props('exporting')).toBe(true)
+    expect(confirmButton().attributes('disabled')).toBeDefined()
+    expect(confirmButton().text()).toContain('docs-export-preparing')
+    expect(wrapper!.find('[data-testid="docs-export-preparing-hint"]').exists()).toBe(true)
+    // A second click while it builds starts nothing new.
+    await confirmButton().trigger('click')
+    expect(exportApi.download).toHaveBeenCalledTimes(1)
+
+    await wrapper!.find('[data-testid="docs-export-dismiss"]').trigger('click')
+    await flushPromises()
+    expect(dialogOpen()).toBe(false)
+    const busy = (await openMenu()).find((i) => i.id === 'export-docs')
+    expect(busy).toMatchObject({ label: 'docs-export-menu-busy', disabled: true })
+
+    finish('acme-documentation-2026-10-22.zip')
+    await flushPromises()
+    expect(toast.success).toHaveBeenCalledTimes(1)
+    // The menu is still open, and its row is ready again.
+    const ready = (wrapper!.findComponent(MenuList).props('items') as MenuItem[]).find(
+      (i) => i.id === 'export-docs',
+    )
+    expect(ready).toMatchObject({ label: 'docs-export-menu', disabled: false })
+  })
+
+  it('keeps the dialog open with an error toast when the export fails', async () => {
+    exportApi.download.mockRejectedValue(new DocumentationExportError('failed', 'Network Error'))
+    seed({ library: 1 })
+    await mountAt('/documentation')
+    await openExport()
+    await confirmButton().trigger('click')
+    await flushPromises()
+    expect(toast.error).toHaveBeenCalledWith('docs-export-error')
+    expect(dialogOpen()).toBe(true)
+    expect(dialog().props('exporting')).toBe(false)
+    expect(confirmButton().attributes('disabled')).toBeUndefined()
+  })
+
+  it('says only admins and owners may export when the server refuses', async () => {
+    exportApi.download.mockRejectedValue(new DocumentationExportError('forbidden', 'Request failed'))
+    seed({ library: 1 })
+    await mountAt('/documentation')
+    await openExport()
+    await confirmButton().trigger('click')
+    await flushPromises()
+    expect(toast.error).toHaveBeenCalledWith('docs-export-forbidden')
   })
 })
 

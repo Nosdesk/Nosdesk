@@ -1766,9 +1766,12 @@ pub async fn export_documentation_pages(mut tc: TenantConn, auth: AuthContext) -
     }
 }
 
-/// `GET /documentation/export.zip`: every page the caller may read as
+/// `GET /documentation/export.zip`: the workspace's Library and Drafts as
 /// Markdown files with a manifest and their images (`services::docs_export`).
-/// Staff only, and filtered by the same audience as the JSON export.
+/// Workspace admins and owners only, like the documentation import: agents
+/// can read pages one at a time, but taking every page at once is an admin
+/// action. Still filtered by the caller's audience, which for an admin opens
+/// every page in this workspace and nothing outside it.
 pub async fn export_documentation_zip(
     req: actix_web::HttpRequest,
     mut tc: TenantConn,
@@ -1776,10 +1779,8 @@ pub async fn export_documentation_zip(
     ws: WorkspaceContext,
     storage: crate::extractors::ScopedStorage,
 ) -> HttpResponse {
-    if !auth.can_handle_tickets() {
-        return errors::forbidden(
-            "Forbidden: Only technicians and administrators can export documentation",
-        );
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Forbidden: Only workspace admins can export documentation");
     }
     let audience = repository::PageAudience::from_auth(&auth);
     let export = match tc
@@ -1798,7 +1799,7 @@ pub async fn export_documentation_zip(
             return errors::internal("Failed to export documentation");
         }
     };
-    let name = format!("nosdesk-docs-{}.zip", chrono::Utc::now().format("%Y-%m-%d"));
+    let name = export_file_name(&ws.slug, chrono::Utc::now().date_naive());
     match actix_files::NamedFile::from_file(file, &name) {
         Ok(named) => {
             let mut response = named
@@ -1815,6 +1816,22 @@ pub async fn export_documentation_zip(
             error!(error = %e, "documentation export failed to send the zip");
             errors::internal("Failed to export documentation")
         }
+    }
+}
+
+/// `{workspace-slug}-documentation-{date}.zip`, so exports from several
+/// workspaces don't overwrite each other in a downloads folder. A slug is
+/// already lowercase letters, digits and hyphens; anything else is dropped.
+pub fn export_file_name(slug: &str, date: chrono::NaiveDate) -> String {
+    let slug: String = slug
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        format!("documentation-{}.zip", date.format("%Y-%m-%d"))
+    } else {
+        format!("{slug}-documentation-{}.zip", date.format("%Y-%m-%d"))
     }
 }
 
@@ -2906,5 +2923,24 @@ pub async fn unverify_page(
             errors::internal("Failed to build page response")
         }
         Err(_) => errors::internal("Failed to clear verification"),
+    }
+}
+
+#[cfg(test)]
+mod export_file_name_tests {
+    use super::export_file_name;
+
+    #[test]
+    fn names_the_zip_after_the_workspace_and_day() {
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 22).expect("date");
+        assert_eq!(
+            export_file_name("acme-it", day),
+            "acme-it-documentation-2026-10-22.zip"
+        );
+        assert_eq!(
+            export_file_name("a\"b/c", day),
+            "abc-documentation-2026-10-22.zip"
+        );
+        assert_eq!(export_file_name("", day), "documentation-2026-10-22.zip");
     }
 }

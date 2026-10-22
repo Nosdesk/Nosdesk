@@ -3274,6 +3274,42 @@ docs-index-toolbar-guest-settings = Accès invités
 # MT: pending native review (fr-FR)
 docs-index-toolbar-import = Importer des documents
 
+# Docs : export de la documentation (DocumentationExportDialog)
+# MT: pending native review (fr-FR)
+docs-export-menu = Exporter la documentation
+docs-export-menu-busy = Préparation de l'export…
+docs-export-title = Exporter la documentation
+docs-export-intro = Téléchargez la documentation de cet espace de travail sous forme d'archive zip de fichiers Markdown, un par page, avec un manifeste qui conserve leur emplacement.
+docs-export-included-heading = Inclus
+docs-export-included-pages = { $count ->
+    [one] { $count } page de la Bibliothèque et des Brouillons
+   *[other] { $count } pages de la Bibliothèque et des Brouillons
+  }
+docs-export-included-structure = { $count ->
+    [0] Imbrication et ordre des pages
+    [one] { $count } collection, avec l'imbrication et l'ordre des pages
+   *[other] { $count } collections, avec l'imbrication et l'ordre des pages
+  }
+docs-export-included-images = Les images affichées sur ces pages
+docs-export-excluded-heading = Non inclus
+docs-export-excluded-archived = { $count ->
+    [one] { $count } page archivée
+   *[other] { $count } pages archivées
+  }
+docs-export-excluded-trash = { $count ->
+    [one] { $count } page dans la Corbeille
+   *[other] { $count } pages dans la Corbeille
+  }
+docs-export-excluded-history = L'historique des révisions et les règles d'accès aux pages
+docs-export-round-trip = L'archive se réimporte dans n'importe quel espace de travail Nosdesk via Importer des documents, et s'ouvre dans n'importe quel éditeur Markdown.
+docs-export-preparing-hint = Une grande bibliothèque peut prendre une minute. Vous pouvez fermer cette fenêtre ; le téléchargement démarre dès que l'archive est prête.
+docs-export-download = Télécharger le zip
+docs-export-preparing = Préparation du zip…
+docs-export-close = Fermer
+docs-export-done = Documentation exportée
+docs-export-error = La documentation n'a pas pu être exportée. Réessayez.
+docs-export-forbidden = Seuls les administrateurs et propriétaires de l'espace de travail peuvent exporter la documentation.
+
 # Docs : onglets et actions du bandeau de l'index (machine, à relire par un locuteur natif)
 docs-index-tabs-aria = Vues de la documentation
 docs-index-tab-library = Bibliothèque

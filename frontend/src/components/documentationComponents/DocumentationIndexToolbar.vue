@@ -5,7 +5,13 @@
  * asset headers use the same pattern) with their counts on the tabs. The
  * actions sit at the end: a search scoped to documentation, New collection,
  * and an overflow menu grouped as Knowledge, Publishing and Admin (Import
- * documents and guest settings).
+ * documents, Export documentation and guest settings).
+ *
+ * Export is for workspace admins and owners, as the server requires, in both
+ * deployment modes: on Cloud the Backup & Restore page that also offers it is
+ * for Nosdesk staff only. It opens a dialog that says what the zip holds,
+ * and the band owns the request so closing the dialog doesn't cancel it.
+ * It's left out of the mobile app, which has no way to save a file.
  *
  * The band renders on all four routes it switches between. The selected tab
  * comes from the route name and the tabs navigate by name, because the hosted
@@ -33,7 +39,13 @@ import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
 import CollectionModal from '@/components/documentationComponents/CollectionModal.vue'
+import DocumentationExportDialog from '@/components/documentationComponents/DocumentationExportDialog.vue'
 import { ICON_REGISTRY } from '@/components/common/icons'
+import {
+  DocumentationExportError,
+  downloadDocumentationExport,
+} from '@/services/markdownExportService'
+import { isTauriRuntime } from '@/platform'
 
 export type DocsIndexTab =
   | 'documentation'
@@ -59,6 +71,10 @@ const { isMobile: isPhone } = useMobileDetection('sm')
 const menuOpen = ref(false)
 const menuWrapRef = ref<HTMLElement | null>(null)
 const showCreateCollection = ref(false)
+const showExport = ref(false)
+const exporting = ref(false)
+// A blob download has nowhere to go in the mobile shell's webview.
+const canDownload = !isTauriRuntime()
 
 const counts = computed(() => {
   let library = 0
@@ -141,7 +157,16 @@ const menuItems = computed((): MenuItem[] => {
 
   if (isAdmin.value) {
     group('admin-heading', t('docs-index-toolbar-admin-heading'))
-    items.push({ id: 'import-docs', label: t('docs-index-toolbar-import'), icon: ICON_REGISTRY.download.d })
+    items.push({ id: 'import-docs', label: t('docs-index-toolbar-import'), icon: ICON_REGISTRY.upload.d })
+    // Nothing to export until a page is in the Library or Drafts.
+    if (canDownload && hasActivePages.value) {
+      items.push({
+        id: 'export-docs',
+        label: exporting.value ? t('docs-export-menu-busy') : t('docs-export-menu'),
+        icon: ICON_REGISTRY.download.d,
+        disabled: exporting.value,
+      })
+    }
     items.push({ id: 'guest-settings', label: t('docs-index-toolbar-guest-settings'), icon: ICON_REGISTRY.settings.d })
   }
 
@@ -194,9 +219,27 @@ function handleMenuSelect(id: string) {
     case 'import-docs':
       void router.push({ name: 'admin-docs-import' })
       break
+    case 'export-docs':
+      showExport.value = true
+      break
     case 'guest-settings':
       void router.push({ name: 'admin-guest-access' })
       break
+  }
+}
+
+async function runExport() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const name = await downloadDocumentationExport()
+    showExport.value = false
+    toast.success(t('docs-export-done'), name)
+  } catch (error) {
+    const forbidden = error instanceof DocumentationExportError && error.reason === 'forbidden'
+    toast.error(t(forbidden ? 'docs-export-forbidden' : 'docs-export-error'))
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -319,6 +362,17 @@ defineExpose({ openCreateCollection: () => (showCreateCollection.value = true) }
         </div>
       </div>
     </div>
+
+    <DocumentationExportDialog
+      :show="showExport"
+      :exporting="exporting"
+      :pages="counts.library + counts.drafts"
+      :collections="docs.allCollections.length"
+      :archived="counts.archived"
+      :trash="counts.trash"
+      @close="showExport = false"
+      @confirm="runExport"
+    />
 
     <CollectionModal
       mode="create"
