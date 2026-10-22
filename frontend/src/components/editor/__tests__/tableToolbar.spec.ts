@@ -87,7 +87,7 @@ function seedSession() {
     ydoc.getXmlFragment('prosemirror'),
   )
   const provider = { awareness: new Awareness(ydoc), on: () => {}, off: () => {}, ws: null }
-  collab.session = { ydoc, provider, permanentUserData: { setUserMapping: () => {} }, isNew: false }
+  collab.session = { ydoc, provider, permanentUserData: { setUserMappingOnFirstEdit: () => {} }, isNew: false }
 }
 
 configureTransport({ baseUrl: '/api', collabWsBaseUrl: 'ws://localhost/collaboration/ws', auth: {} as AuthStrategy })

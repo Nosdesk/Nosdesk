@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import { Node } from 'prosemirror-model'
 import * as Y from 'yjs'
-import { initProseMirrorDoc, yXmlFragmentToProsemirrorJSON } from 'y-prosemirror'
+import { initProseMirrorDoc, updateYFragment, yXmlFragmentToProsemirrorJSON } from 'y-prosemirror'
 
 import { schema } from './schema'
 
@@ -55,6 +55,18 @@ describe('docs_markdown golden fixtures', () => {
       // A failed node build deletes its Yjs item, which changes the state.
       expect(Y.encodeStateAsUpdate(ydoc)).toEqual(before)
       expect(doc.toJSON()).toEqual(Node.fromJSON(schema, yXmlFragmentToProsemirrorJSON(fragment)).toJSON())
+    })
+
+    it('is not rewritten by the editor once loaded', () => {
+      // y-prosemirror writes the editor's document back on the first local
+      // transaction (a click is enough). An import the editor would write
+      // differently is changed by whoever opens it first.
+      const { ydoc, fragment } = load(fixture.update)
+      const { doc, meta } = initProseMirrorDoc(fragment, schema)
+      let changed = false
+      ydoc.on('update', () => (changed = true))
+      ydoc.transact(() => updateYFragment(ydoc, fragment, doc, meta as Parameters<typeof updateYFragment>[3]))
+      expect(changed).toBe(false)
     })
 
     it('matches its snapshot', async () => {

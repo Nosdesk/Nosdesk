@@ -841,10 +841,11 @@ const initEditor = async () => {
         // Map the Yjs client ID to the user UUID once per doc
         // lifetime. Y.PermanentUserData.setUserMapping appends to
         // a YArray with no dedup, calling it on every mount would
-        // bloat the user map with duplicate entries.
+        // bloat the user map with duplicate entries. The mapping is
+        // written with this client's first edit: written on open, it
+        // made a view save the document as the viewer's change.
         if (session.isNew && authStore.user?.uuid) {
-            permanentUserData.setUserMapping(ydoc, ydoc.clientID, authStore.user.uuid);
-            log.info(`Mapped client ID ${ydoc.clientID} to user ${authStore.user.uuid}`);
+            permanentUserData.setUserMappingOnFirstEdit(ydoc, ydoc.clientID, authStore.user.uuid);
         }
 
         // 4. Get the XML fragment and initialize ProseMirror document

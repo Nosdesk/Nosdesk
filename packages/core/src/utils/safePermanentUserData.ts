@@ -26,6 +26,35 @@ export class SafePermanentUserData {
     this.pud.setUserMapping(doc, clientId, userId)
   }
 
+  /**
+   * Map `clientId` to `userId` once this client first changes the document,
+   * not before.
+   *
+   * The mapping is itself a write to the shared document (the `users` map).
+   * Written on open, it reached the server as a change from the viewer, so
+   * merely opening a page or note saved it and recorded a revision in the
+   * viewer's name. A client that never edits has nothing to attribute.
+   *
+   * The deletions in that first change are added to the user's record here,
+   * since `setUserMapping` only records the changes after it.
+   */
+  setUserMappingOnFirstEdit(doc: Y.Doc, clientId: number, userId: string): void {
+    const onAfterTransaction = (tr: Y.Transaction) => {
+      const wrote = (tr.afterState.get(clientId) ?? 0) !== (tr.beforeState.get(clientId) ?? 0)
+      if (!tr.local || (!wrote && tr.deleteSet.clients.size === 0)) return
+      doc.off('afterTransaction', onAfterTransaction)
+      this.pud.setUserMapping(doc, clientId, userId)
+      if (tr.deleteSet.clients.size > 0) {
+        const user = this.pud.yusers.get(userId) as Y.Map<Y.Array<Uint8Array>> | undefined
+        // A snapshot's encoding starts with its delete set, in the format
+        // the user's `ds` entries hold; the empty state vector after it is
+        // ignored when they are read.
+        user?.get('ds')?.push([Y.encodeSnapshot(Y.createSnapshot(tr.deleteSet, new Map()))])
+      }
+    }
+    doc.on('afterTransaction', onAfterTransaction)
+  }
+
   getUserByClientId(clientId: number): unknown {
     const user = this.pud.getUserByClientId(clientId)
     if (user === null || user === undefined) {
