@@ -182,6 +182,8 @@ describe('the toolbar Table button', () => {
 })
 
 describe('the Insert menu', () => {
+  const settle = () => new Promise((r) => setTimeout(r, 30))
+
   // Desktop: the menu is a Reka DropdownMenu rather than the phone sheet.
   const matchMedia = window.matchMedia
   beforeEach(() => {
@@ -190,12 +192,15 @@ describe('the Insert menu', () => {
       matches: query.includes('min-width'),
     })) as typeof window.matchMedia
   })
-  afterEach(() => {
+  afterEach(async () => {
     window.matchMedia = matchMedia
+    // A focused editor publishes its cursor, and y-prosemirror answers on a
+    // timer that dispatches to the view. Let it run before the view goes.
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    await settle()
   })
 
   const insert = () => document.querySelector('[aria-label="editor-toolbar-insert"]') as HTMLElement
-  const settle = () => new Promise((r) => setTimeout(r, 30))
 
   async function pick(label: string) {
     insert().click()
