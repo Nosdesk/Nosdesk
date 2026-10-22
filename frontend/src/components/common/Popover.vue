@@ -25,6 +25,7 @@ import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui'
 import {
   anchorElementOf,
   floatingFrom,
+  focusMovedOn,
   restoreFocusTo,
   type PopoverAnchor,
   type PopoverPlacement,
@@ -92,10 +93,10 @@ function onOpenAutoFocus(event: Event) {
 // Reka restores focus to its trigger; ours is the anchor element. Done
 // for keyboard closes (Escape, a pick) whether or not the surface took
 // focus on open: a filter input inside it may have, and focus must not
-// fall to the body.
+// fall to the body. A pick that already moved focus on keeps it there.
 function onCloseAutoFocus(event: Event) {
   event.preventDefault()
-  if (!closedByOutsidePointer) restoreFocusTo(props.anchor)
+  if (!closedByOutsidePointer && !focusMovedOn(event.target)) restoreFocusTo(props.anchor)
   closedByOutsidePointer = false
 }
 

@@ -180,3 +180,67 @@ describe('the toolbar Table button', () => {
     expect(document.body.textContent).toContain('editor-insert-menu-table')
   })
 })
+
+describe('the Insert menu', () => {
+  // Desktop: the menu is a Reka DropdownMenu rather than the phone sheet.
+  const matchMedia = window.matchMedia
+  beforeEach(() => {
+    window.matchMedia = ((query: string) => ({
+      ...matchMedia(query),
+      matches: query.includes('min-width'),
+    })) as typeof window.matchMedia
+  })
+  afterEach(() => {
+    window.matchMedia = matchMedia
+  })
+
+  const insert = () => document.querySelector('[aria-label="editor-toolbar-insert"]') as HTMLElement
+  const settle = () => new Promise((r) => setTimeout(r, 30))
+
+  async function pick(label: string) {
+    insert().click()
+    await flushPromises()
+    const row = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+      (el) => el.textContent?.trim() === label,
+    )
+    if (!row) throw new Error(`no ${label} row`)
+    row.focus()
+    row.click()
+    await flushPromises()
+    await settle()
+  }
+
+  it('inserts a table with the editor focused and the caret in its first header cell', async () => {
+    allowTables(DOC_ID)
+    await mountEditor()
+    const view = viewOf()
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 2)))
+    await pick('editor-insert-menu-table')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(view.dom)
+    expect(document.activeElement).not.toBe(insert())
+    const { $from } = view.state.selection
+    expect($from.parent.type.name).toBe('paragraph')
+    expect($from.node(-1).type.name).toBe('table_header')
+    expect($from.index(-2)).toBe(0)
+    expect($from.index(-3)).toBe(0)
+    // Typing lands in that cell.
+    view.dispatch(view.state.tr.insertText('Asset'))
+    expect(view.state.selection.$from.node(-1).textContent).toBe('Asset')
+  })
+
+  it('quotes the paragraph on an empty page without throwing, and keeps the editor focused', async () => {
+    await mountEditor()
+    const view = viewOf()
+    view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, schema.nodes.paragraph.create()))
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)))
+    const errors: unknown[] = []
+    const onError = (event: ErrorEvent) => errors.push(event.error)
+    window.addEventListener('error', onError)
+    await pick('editor-insert-menu-blockquote')
+    window.removeEventListener('error', onError)
+    expect(errors).toEqual([])
+    expect(view.state.doc.firstChild!.type.name).toBe('blockquote')
+    expect(document.activeElement).toBe(view.dom)
+  })
+})

@@ -28,6 +28,7 @@ import { createTableGuardPlugin } from "@/components/editor/tableGuard";
 import { createTablePlugins, hasFinePointer } from "@/components/editor/tablePlugins";
 import { tablesAllowed } from "@/components/editor/tablesAllowed";
 import { insertTable } from "@/components/editor/tableCommands";
+import { toggleBlockquote as toggleBlockquoteCommand } from "@/components/editor/blockquote";
 import { TableNodeView, createTableControlsPlugin } from "@/components/editor/tableView";
 import type { TableUiState } from "@/components/editor/tableMenus";
 import TableControls from "@/components/editor/TableControls.vue";
@@ -1504,7 +1505,9 @@ const insertMenuItems = computed<MenuItem[]>(() => [
 ]);
 
 const onInsertMenuSelect = (id: string) => {
-    // The pickers and the link prompt take focus on purpose.
+    // The pickers and the link prompt take focus on purpose. The rest focus
+    // the editor themselves, which keeps the closing menu from handing focus
+    // back to this button.
     if (['bullet-list', 'ordered-list', 'blockquote', 'code-block', 'table'].includes(id)) refocusAfterMenu();
     showInsertMenu.value = false;
     if (id === 'bullet-list') toggleBulletList();
@@ -1524,7 +1527,8 @@ const insertTableAtCaret = () => {
     editorView.focus();
 };
 
-// Functions to handle toolbar actions
+// Functions to handle toolbar actions. The block commands end with the
+// editor focused, caret in place, so a menu pick can be typed after at once.
 const setHeading = (level: number) => {
     if (!editorView) return;
     const attrs = { level };
@@ -1532,6 +1536,7 @@ const setHeading = (level: number) => {
         editorView.state,
         editorView.dispatch,
     );
+    editorView.focus();
 };
 
 const toggleBold = () => {
@@ -1546,10 +1551,8 @@ const toggleItalic = () => {
 
 const toggleBlockquote = () => {
     if (!editorView) return;
-    setBlockType(schema.nodes.blockquote, {})(
-        editorView.state,
-        editorView.dispatch,
-    );
+    toggleBlockquoteCommand(editorView.state, editorView.dispatch);
+    editorView.focus();
 };
 
 const toggleCodeBlock = () => {
@@ -1581,11 +1584,13 @@ const setParagraph = () => {
         editorView.state,
         editorView.dispatch,
     );
+    editorView.focus();
 };
 
 const toggleBulletList = () => {
     if (!editorView) return;
     wrapInList(schema.nodes.bullet_list)(editorView.state, editorView.dispatch);
+    editorView.focus();
 };
 
 const toggleOrderedList = () => {
@@ -1594,6 +1599,7 @@ const toggleOrderedList = () => {
         editorView.state,
         editorView.dispatch,
     );
+    editorView.focus();
 };
 
 // Link tooltip handlers
