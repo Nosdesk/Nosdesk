@@ -99,7 +99,8 @@ pub fn transcribed_attachments_after(
         .load(conn)
 }
 
-/// A page of the workspace's documentation pages.
+/// A page of the workspace's documentation pages, leaving out those in
+/// Trash: search never finds them, so a reindex prunes them.
 pub fn documentation_pages_after(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -108,6 +109,7 @@ pub fn documentation_pages_after(
 ) -> QueryResult<Vec<models::DocumentationPage>> {
     documentation_pages::table
         .filter(documentation_pages::workspace_id.eq(workspace_id))
+        .filter(documentation_pages::status.ne(models::DocumentationStatus::Deleted))
         .filter(documentation_pages::id.gt(after))
         .order(documentation_pages::id.asc())
         .limit(limit)

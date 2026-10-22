@@ -2906,3 +2906,279 @@ async fn the_trash_is_open_to_staff_only() {
         "an agent's snapshot carries it"
     );
 }
+
+/// A Yjs body holding one paragraph of `text`, as the editor stores one.
+fn body_with(text: &str) -> Vec<u8> {
+    use yrs::{
+        ReadTxn, StateVector, Transact, WriteTxn, XmlElementPrelim, XmlFragment, XmlTextPrelim,
+    };
+    let doc = yrs::Doc::new();
+    {
+        let mut txn = doc.transact_mut();
+        let fragment = txn.get_or_insert_xml_fragment("prosemirror");
+        let paragraph = fragment.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+        paragraph.push_back(&mut txn, XmlTextPrelim::new(text));
+    }
+    let txn = doc.transact();
+    txn.encode_state_as_update_v1(&StateVector::default())
+}
+
+/// Staff find a draft by its title and its body; a requester doesn't. A page
+/// moved to Trash is found by nobody, workspace admins included, whichever
+/// way it got there: deleted, set to deleted, its collection deleted, or
+/// trashed while this machine's index still holds it.
+#[actix_web::test]
+async fn staff_find_drafts_and_nobody_finds_a_page_in_trash() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let (draft, _) = page_with_status(&pool, &f, "Platypus draft", DocumentationStatus::Draft);
+    let (published, _) =
+        page_with_status(&pool, &f, "Platypus guide", DocumentationStatus::Published);
+    let (deleted, _) = page_with_status(
+        &pool,
+        &f,
+        "Platypus deleted",
+        DocumentationStatus::Published,
+    );
+    let (set_deleted, _) = page_with_status(
+        &pool,
+        &f,
+        "Platypus set deleted",
+        DocumentationStatus::Published,
+    );
+    let (stale, _) = page_with_status(&pool, &f, "Platypus stale", DocumentationStatus::Published);
+    let (shelved, _) = page_with_status(
+        &pool,
+        &f,
+        "Platypus shelved",
+        DocumentationStatus::Published,
+    );
+    let shelf = run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+        use backend::schema::documentation_pages as dp;
+        diesel::update(dp::table.find(draft))
+            .set(dp::yjs_document.eq(Some(body_with("Connect with WireGuard."))))
+            .execute(c)?;
+        let shelf = collection(c, "Platypus shelf", "platypus-shelf");
+        documentation_collections::add_page_to_collection(
+            c,
+            NewDocumentationCollectionPage {
+                collection_id: shelf,
+                page_id: shelved,
+                created_by: None,
+            },
+        )?;
+        Ok::<_, diesel::result::Error>(shelf)
+    })
+    .expect("seed");
+    let pages: Vec<backend::models::DocumentationPage> =
+        run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+            backend::schema::documentation_pages::table
+                .filter(backend::schema::documentation_pages::id.eq_any([
+                    draft,
+                    published,
+                    deleted,
+                    set_deleted,
+                    stale,
+                    shelved,
+                ]))
+                .load(c)
+        })
+        .expect("load pages");
+    let search_dir = tempfile::tempdir().expect("tempdir");
+    let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
+    for p in &pages {
+        search.index_documentation(p).expect("index page");
+    }
+    search.commit().expect("commit index");
+
+    let notifications =
+        NotificationService::new(pool.clone(), Arc::new(TokioRwLock::new(HashMap::new())));
+    let workspace = f.workspace.clone();
+    let corr = Uuid::now_v7();
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(search.clone()))
+            .app_data(web::Data::new(notifications))
+            .wrap_fn(move |req, srv| {
+                let user = req
+                    .headers()
+                    .get(AS)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| Uuid::parse_str(v).ok())
+                    .expect("caller header");
+                let actor =
+                    ActorContext::user(user, Some(corr)).with_workspace(workspace.workspace_id);
+                req.extensions_mut().insert(workspace.clone());
+                req.extensions_mut().insert(claims(user));
+                req.extensions_mut()
+                    .insert(RequestContext::new(corr, actor));
+                srv.call(req)
+            })
+            .service(
+                web::scope("/api")
+                    .configure(backend::handlers::search::config)
+                    .configure(backend::handlers::documentation::config)
+                    .configure(backend::handlers::documentation_collections::config),
+            ),
+    )
+    .await;
+    let found = |user: Uuid, q: &'static str| {
+        let app = &app;
+        async move {
+            let uri = format!("/api/search?q={q}&types=documentation&limit=20");
+            let resp =
+                http_test::call_service(app, request(Method::GET, &uri, user, None).to_request())
+                    .await;
+            assert_eq!(resp.status(), StatusCode::OK, "GET {uri}");
+            let body: Value = http_test::read_body_json(resp).await;
+            let mut ids: Vec<i32> = body["results"]
+                .as_array()
+                .expect("results")
+                .iter()
+                .filter_map(|r| r["entity_id"].as_i64())
+                .map(|id| id as i32)
+                .collect();
+            ids.sort_unstable();
+            (ids, body["total"].as_u64().unwrap_or_default())
+        }
+    };
+    let sorted = |mut ids: Vec<i32>| {
+        ids.sort_unstable();
+        ids
+    };
+
+    // The index answers once its reader reloads after the commit.
+    let everything = sorted(vec![draft, published, deleted, set_deleted, stale, shelved]);
+    let mut admin_hits = Vec::new();
+    for _ in 0..100 {
+        admin_hits = found(f.admin, "platypus").await.0;
+        if admin_hits == everything {
+            break;
+        }
+        actix_web::rt::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(admin_hits, everything, "an admin finds every page");
+
+    for (who, user) in [("an admin", f.admin), ("an agent", f.outsider)] {
+        assert!(
+            found(user, "platypus").await.0.contains(&draft),
+            "{who} finds the draft by its title"
+        );
+        assert_eq!(
+            found(user, "wireguard").await.0,
+            vec![draft],
+            "{who} finds the draft by a word in its body"
+        );
+    }
+    assert!(
+        !found(f.member, "platypus").await.0.contains(&draft),
+        "a requester doesn't find the draft"
+    );
+    assert!(
+        found(f.member, "wireguard").await.0.is_empty(),
+        "a requester doesn't find the draft by its body"
+    );
+
+    // Into Trash, four ways.
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::DELETE,
+            &format!("/api/documentation/pages/{deleted}"),
+            f.admin,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert!(resp.status().is_success(), "{}", resp.status());
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::PUT,
+            &format!("/api/documentation/pages/{set_deleted}"),
+            f.admin,
+            Some(json!({ "status": "deleted" })),
+        )
+        .to_request(),
+    )
+    .await;
+    assert!(resp.status().is_success(), "{}", resp.status());
+    let resp = http_test::call_service(
+        &app,
+        request(
+            Method::DELETE,
+            &format!("/api/documentation/collections/{shelf}"),
+            f.admin,
+            None,
+        )
+        .to_request(),
+    )
+    .await;
+    assert!(resp.status().is_success(), "{}", resp.status());
+    // Trashed with nothing told the index, as on a machine that didn't
+    // handle the delete.
+    run_in_workspace(&pool, REF, f.workspace.workspace_id, |c| {
+        use backend::schema::documentation_pages as dp;
+        diesel::update(dp::table.find(stale))
+            .set(dp::status.eq(DocumentationStatus::Deleted))
+            .execute(c)
+    })
+    .expect("trash in place");
+
+    let left = sorted(vec![draft, published]);
+    let mut admin = (Vec::new(), 0);
+    for _ in 0..100 {
+        admin = found(f.admin, "platypus").await;
+        if admin.0 == left {
+            break;
+        }
+        actix_web::rt::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(admin.0, left, "an admin finds no page in Trash");
+    assert_eq!(admin.1, 2, "an admin's total counts no page in Trash");
+    assert_eq!(
+        found(f.outsider, "platypus").await.0,
+        left,
+        "an agent finds no page in Trash"
+    );
+    assert_eq!(
+        found(f.member, "platypus").await.0,
+        vec![published],
+        "a requester finds the published page only"
+    );
+
+    // The index itself dropped the pages trashed through the app.
+    let in_index = |id: i32| {
+        let query = backend::services::search::SearchQuery {
+            q: "platypus".to_string(),
+            limit: 20,
+            types: Some("documentation".to_string()),
+            sort: None,
+            author: None,
+        };
+        search
+            .search(&query, true, f.workspace.workspace_id as i64)
+            .expect("search the index")
+            .results
+            .iter()
+            .any(|r| r.entity_id == i64::from(id))
+    };
+    let trashed_here = [
+        ("deleted", deleted),
+        ("set to deleted", set_deleted),
+        ("in a deleted collection", shelved),
+    ];
+    for _ in 0..100 {
+        if trashed_here.iter().all(|(_, id)| !in_index(*id)) {
+            break;
+        }
+        actix_web::rt::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    for (how, id) in trashed_here {
+        assert!(!in_index(id), "a page {how} leaves the index");
+    }
+}

@@ -218,11 +218,17 @@ impl SearchService {
         self.index_document(&doc)
     }
 
-    /// Index a documentation page
+    /// Index a documentation page, or take it out of the index when it is
+    /// in Trash. A save, a details change and the replicator all index a
+    /// page through here, so a page moved to Trash by any of them stops
+    /// being found.
     pub fn index_documentation(
         &self,
         doc_page: &models::DocumentationPage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if indexer::is_in_trash(doc_page) {
+            return self.delete_documentation(doc_page.id);
+        }
         let doc = indexer::index_document_from_documentation(doc_page);
         self.index_document(&doc)
     }
@@ -409,7 +415,8 @@ impl SearchService {
         }
     }
 
-    /// Re-index a documentation page by id. No-op if missing.
+    /// Re-index a documentation page by id, or remove it when it is
+    /// missing or in Trash.
     pub fn reindex_documentation(
         &self,
         page_id: i32,
@@ -425,7 +432,8 @@ impl SearchService {
         )?;
         match page {
             Some(page) => self.index_documentation(&page),
-            None => Ok(()),
+            // Deleted for good since the change was recorded.
+            None => self.delete_documentation(page_id),
         }
     }
 

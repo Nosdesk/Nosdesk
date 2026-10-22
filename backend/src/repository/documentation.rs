@@ -167,6 +167,20 @@ pub fn page_uuid_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<u
         .optional()
 }
 
+/// Of `ids`, the pages that exist and aren't in Trash, in the connection's
+/// workspace.
+pub fn live_page_ids(
+    conn: &mut DbConnection,
+    ids: &[i32],
+) -> QueryResult<std::collections::HashSet<i32>> {
+    documentation_pages::table
+        .filter(documentation_pages::id.eq_any(ids))
+        .filter(documentation_pages::status.ne(DocumentationStatus::Deleted))
+        .select(documentation_pages::id)
+        .load::<i32>(conn)
+        .map(|ids| ids.into_iter().collect())
+}
+
 // Get a documentation page by its slug
 pub fn get_documentation_page_by_slug(
     slug: &str,

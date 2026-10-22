@@ -72,6 +72,11 @@ pub fn index_document_from_comment(comment: &models::Comment, ticket_title: &str
         .author_uuid(Some(comment.user_uuid.to_string()))
 }
 
+/// Whether a documentation page is in Trash, where search never finds it.
+pub fn is_in_trash(doc_page: &models::DocumentationPage) -> bool {
+    doc_page.status == models::DocumentationStatus::Deleted
+}
+
 /// Create an index document from a documentation page
 pub fn index_document_from_documentation(doc_page: &models::DocumentationPage) -> IndexDocument {
     // Extract text from Yjs document if available
@@ -434,8 +439,10 @@ pub fn rebuild_index(
         }
     }
 
-    // Index all documentation pages
-    let all_docs: Vec<models::DocumentationPage> = documentation_pages::table.load(conn)?;
+    // Index all documentation pages, except those in Trash
+    let all_docs: Vec<models::DocumentationPage> = documentation_pages::table
+        .filter(documentation_pages::status.ne(models::DocumentationStatus::Deleted))
+        .load(conn)?;
     info!(count = all_docs.len(), "Indexing documentation pages");
     for doc_page in &all_docs {
         let doc = index_document_from_documentation(doc_page);
