@@ -3062,7 +3062,6 @@ docs-breadcrumb-root = Documentation
 docs-breadcrumb-aria = Breadcrumb
 
 # Docs: card (DocumentationCard)
-docs-card-empty-content = No content yet
 docs-card-children-more = +{ $count } more
 docs-card-relative-unknown = Unknown
 docs-card-relative-today = Today
