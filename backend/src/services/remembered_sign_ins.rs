@@ -20,6 +20,14 @@
 //! names in the `sid` claim. The helpdesk keeps that id_token on the session
 //! row for RP-initiated logout, so no extra state is needed.
 //!
+//! ## Signing out of this browser
+//!
+//! Signing out ends the remembered sign-in of the browser doing it, the same
+//! way: `POST {NOSDESK_RELAY_URL}/api/product/v1/sessions/end` with a token of
+//! its own scope (`product:signout-this`) naming the person and that sign-in
+//! (`sid`). Server to server, so it works the same on custom domains and in
+//! the mobile app, with no post-logout redirect to register anywhere.
+//!
 //! ## When it can't
 //!
 //! The helpdesk's own revocation never depends on this call. Without the key,
@@ -40,10 +48,13 @@ use crate::middleware::DeploymentMode;
 pub const KEY_ENV: &str = "PRODUCT_JWT_PRIVATE_KEY";
 /// The control-plane endpoint, relative to the Nosdesk Cloud API.
 pub const REVOKE_OTHERS_PATH: &str = "/api/product/v1/sessions/revoke-others";
+/// The control-plane endpoint that ends one remembered sign-in.
+pub const END_PATH: &str = "/api/product/v1/sessions/end";
 /// What the control plane checks the token against.
 pub const ISSUER: &str = "nosdesk-product";
 pub const AUDIENCE: &str = "nosdesk-cp";
 pub const SCOPE: &str = "product:signout";
+pub const SCOPE_THIS: &str = "product:signout-this";
 /// Token lifetime. The control plane refuses anything over 300 seconds.
 const TOKEN_TTL_SECS: i64 = 60;
 /// The person is waiting on a modal; the helpdesk's revocation is already done.
@@ -58,6 +69,8 @@ pub enum Outcome {
     NotConfigured,
     /// The person has no control-plane identity here.
     NoIdentity,
+    /// The session signing out holds no remembered sign-in to end.
+    NoSignIn,
     /// The control plane was unreachable, refused, or predates the endpoint.
     Failed,
 }
@@ -73,6 +86,7 @@ impl Outcome {
             Self::Ended => "ended",
             Self::NotConfigured => "not_configured",
             Self::NoIdentity => "no_identity",
+            Self::NoSignIn => "no_sign_in",
             Self::Failed => "failed",
         }
     }
@@ -86,6 +100,8 @@ struct Claims<'a> {
     sub: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     keep_sid: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sid: Option<&'a str>,
     iat: i64,
     exp: i64,
 }
@@ -121,6 +137,30 @@ pub fn mint(
             scope: SCOPE,
             sub: subject,
             keep_sid,
+            sid: None,
+            iat: now,
+            exp: now + TOKEN_TTL_SECS,
+        },
+        key,
+    )
+}
+
+/// Mint the token for one request: end `subject`'s remembered sign-in `sid`.
+pub fn mint_this(
+    key: &EncodingKey,
+    subject: &str,
+    sid: &str,
+    now: i64,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    jsonwebtoken::encode(
+        &Header::new(Algorithm::EdDSA),
+        &Claims {
+            iss: ISSUER,
+            aud: AUDIENCE,
+            scope: SCOPE_THIS,
+            sub: subject,
+            keep_sid: None,
+            sid: Some(sid),
             iat: now,
             exp: now + TOKEN_TTL_SECS,
         },
@@ -182,12 +222,17 @@ pub fn resolve(
     Some((subject, keep_sid))
 }
 
-/// Send one request to the control plane at `base_url`.
+/// Send one "revoke others" request to the control plane at `base_url`.
 pub async fn send(base_url: &str, token: &str) -> Outcome {
+    send_to(base_url, REVOKE_OTHERS_PATH, token).await
+}
+
+/// Send one request to `path` on the control plane at `base_url`.
+async fn send_to(base_url: &str, path: &str, token: &str) -> Outcome {
     let Some(http) = crate::services::notifications::channels::relay_client::cloud_http() else {
         return Outcome::Failed;
     };
-    let url = format!("{}{REVOKE_OTHERS_PATH}", base_url.trim_end_matches('/'));
+    let url = format!("{}{path}", base_url.trim_end_matches('/'));
     match http
         .post(url)
         .bearer_auth(token)
@@ -200,12 +245,13 @@ pub async fn send(base_url: &str, token: &str) -> Outcome {
             // 404: a control plane deployed before this endpoint.
             tracing::warn!(
                 status = resp.status().as_u16(),
-                "control plane did not end the other remembered sign-ins"
+                route = path,
+                "control plane did not end the remembered sign-ins"
             );
             Outcome::Failed
         }
         Err(e) => {
-            tracing::warn!(error = %e.without_url(), "control plane unreachable ending remembered sign-ins");
+            tracing::warn!(error = %e.without_url(), route = path, "control plane unreachable ending remembered sign-ins");
             Outcome::Failed
         }
     }
@@ -243,6 +289,34 @@ pub async fn end_others(
     };
     let base_url = crate::services::notifications::channels::relay_client::cloud_base_url();
     Some(send(&base_url, &token).await)
+}
+
+/// End the remembered sign-in that `session`, `user_uuid`'s session signing
+/// out, holds at the control plane. `None` outside hosted mode.
+pub async fn end_this(conn: &mut DbConnection, user_uuid: &Uuid, session: Uuid) -> Option<Outcome> {
+    if DeploymentMode::current() != DeploymentMode::Hosted {
+        return None;
+    }
+    let Some(key) = signing_key() else {
+        tracing::warn!("{KEY_ENV} unset; the remembered sign-in was not ended");
+        return Some(Outcome::NotConfigured);
+    };
+    let Some((subject, sid)) = resolve(conn, user_uuid, Some(session)) else {
+        tracing::warn!(%user_uuid, "no control-plane identity; the remembered sign-in was not ended");
+        return Some(Outcome::NoIdentity);
+    };
+    let Some(sid) = sid else {
+        return Some(Outcome::NoSignIn);
+    };
+    let token = match mint_this(&key, &subject, &sid, chrono::Utc::now().timestamp()) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(error = %e, "minting the control-plane sign-out token failed");
+            return Some(Outcome::Failed);
+        }
+    };
+    let base_url = crate::services::notifications::channels::relay_client::cloud_base_url();
+    Some(send_to(&base_url, END_PATH, &token).await)
 }
 
 #[cfg(test)]

@@ -207,6 +207,23 @@ impl JwtUtils {
         Ok(token_data.claims)
     }
 
+    /// The claims of a signed session token, expired or not. Only for logout:
+    /// a tab left open past its 15-minute access token still ends its own
+    /// session. Connection and MFA-pending tokens don't qualify.
+    pub fn session_claims_ignoring_expiry(token: &str) -> Option<Claims> {
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.validate_exp = false;
+
+        decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(JWT_SECRET.as_bytes()),
+            &validation,
+        )
+        .ok()
+        .map(|data| data.claims)
+        .filter(|claims| claims.scope == "full")
+    }
+
     /// Validate token and ensure user exists in database
     pub async fn validate_token_with_user_check(
         token: &str,

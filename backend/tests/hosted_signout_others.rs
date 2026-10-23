@@ -1,7 +1,9 @@
 //! On hosted, "sign out all other sessions" also asks the control plane to end
 //! the person's other remembered sign-ins, keeping the one this browser holds.
 //! The helpdesk's own revocation stands whatever the control plane does, and
-//! the response says whether the remembered sign-ins were ended.
+//! the response says whether the remembered sign-ins were ended. Signing out
+//! of this browser likewise asks the control plane to end its remembered
+//! sign-in.
 //!
 //! Self-hosted makes no such call (`tests/it/signout_others_self_hosted.rs`).
 //!
@@ -37,18 +39,18 @@ const TEST_PUB: &str = "-----BEGIN PUBLIC KEY-----\n\
     MCowBQYDK2VwAyEAbQxmQHWB+LZXvtyh54SrZM41ptz/WroW9djdAx1HPZQ=\n\
     -----END PUBLIC KEY-----\n";
 
-/// A control plane that answers `status` and records each bearer token.
+/// A control plane that answers `status` and records each bearer token, and
+/// the path each came to.
 #[derive(Default)]
 struct FakeCp {
     status: Mutex<u16>,
     tokens: Mutex<Vec<Option<String>>>,
+    paths: Mutex<Vec<String>>,
 }
 
 fn fake_cp(cp: Arc<FakeCp>) -> actix_test::TestServer {
     actix_test::start(move || {
-        let cp = cp.clone();
-        App::new().route(
-            remembered_sign_ins::REVOKE_OTHERS_PATH,
+        let answer = |cp: Arc<FakeCp>| {
             web::post().to(move |req: HttpRequest| {
                 let cp = cp.clone();
                 async move {
@@ -59,12 +61,16 @@ fn fake_cp(cp: Arc<FakeCp>) -> actix_test::TestServer {
                         .and_then(|v| v.strip_prefix("Bearer "))
                         .map(str::to_owned);
                     cp.tokens.lock().unwrap().push(token);
+                    cp.paths.lock().unwrap().push(req.path().to_string());
                     let status = *cp.status.lock().unwrap();
                     HttpResponse::build(StatusCode::from_u16(status).unwrap())
                         .json(json!({ "ended": 1 }))
                 }
-            }),
-        )
+            })
+        };
+        App::new()
+            .route(remembered_sign_ins::REVOKE_OTHERS_PATH, answer(cp.clone()))
+            .route(remembered_sign_ins::END_PATH, answer(cp.clone()))
     })
 }
 
@@ -176,6 +182,34 @@ async fn sign_out_others(pool: &backend::db::Pool, user: Uuid, current: Uuid) ->
     http_test::read_body_json(resp).await
 }
 
+/// Sign out of `session` with its access cookie.
+async fn sign_out(pool: &backend::db::Pool, user: Uuid, session: Uuid) {
+    let access = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims(user, session),
+        &jsonwebtoken::EncodingKey::from_secret(backend::utils::jwt::JWT_SECRET.as_bytes()),
+    )
+    .expect("access token");
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .route("/auth/logout", web::post().to(backend::handlers::logout)),
+    )
+    .await;
+    let resp = http_test::call_service(
+        &app,
+        http_test::TestRequest::post()
+            .uri("/auth/logout")
+            .cookie(actix_web::cookie::Cookie::new(
+                backend::utils::cookies::cookie_name(backend::utils::cookies::ACCESS_TOKEN_COOKIE),
+                access,
+            ))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+}
+
 fn verified_claims(token: &str) -> Value {
     let mut v = Validation::new(Algorithm::EdDSA);
     v.set_audience(&["nosdesk-cp"]);
@@ -190,7 +224,7 @@ fn verified_claims(token: &str) -> Value {
 }
 
 #[actix_web::test]
-async fn on_hosted_signing_out_the_others_ends_their_remembered_sign_ins() {
+async fn on_hosted_signing_out_ends_remembered_sign_ins() {
     std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
     std::env::set_var("OIDC_ISSUER_URL", ISSUER);
     std::env::set_var(remembered_sign_ins::KEY_ENV, TEST_PRIV);
@@ -288,4 +322,38 @@ async fn on_hosted_signing_out_the_others_ends_their_remembered_sign_ins() {
     assert_eq!(body["remembered_sign_ins_ended"], false);
     assert_eq!(live_sessions(conn, p.user), vec![here]);
     assert_eq!(cp.tokens.lock().unwrap().len(), calls);
+
+    // Signing out of this browser ends its remembered sign-in, by name.
+    std::env::set_var(remembered_sign_ins::KEY_ENV, TEST_PRIV);
+    let p = person(conn);
+    let here = session(conn, p.user, Some(id_token(&p.subject, "sid-this")));
+    let elsewhere = session(conn, p.user, Some(id_token(&p.subject, "sid-other")));
+    sign_out(&pool, p.user, here).await;
+    assert_eq!(live_sessions(conn, p.user), vec![elsewhere]);
+    assert_eq!(
+        cp.paths.lock().unwrap().last().map(String::as_str),
+        Some(remembered_sign_ins::END_PATH)
+    );
+    let token = cp.tokens.lock().unwrap().last().cloned().flatten().unwrap();
+    let c = verified_claims(&token);
+    assert_eq!(c["scope"], "product:signout-this");
+    assert_eq!(c["sub"], p.subject.as_str());
+    assert_eq!(c["sid"], "sid-this");
+    assert!(c.get("keep_sid").is_none());
+
+    // A session with no remembered sign-in asks for nothing.
+    let calls = cp.tokens.lock().unwrap().len();
+    let p = person(conn);
+    let here = session(conn, p.user, None);
+    sign_out(&pool, p.user, here).await;
+    assert!(live_sessions(conn, p.user).is_empty());
+    assert_eq!(cp.tokens.lock().unwrap().len(), calls);
+
+    // The control plane failing leaves the sign-out itself whole.
+    *cp.status.lock().unwrap() = 500;
+    let p = person(conn);
+    let here = session(conn, p.user, Some(id_token(&p.subject, "sid-this")));
+    sign_out(&pool, p.user, here).await;
+    assert!(live_sessions(conn, p.user).is_empty());
+    assert_eq!(cp.tokens.lock().unwrap().len(), calls + 1);
 }
