@@ -91,12 +91,11 @@ const formatRelativeDate = (dateStr: string | undefined) => {
         <h3>{{ page.title }}</h3>
       </div>
 
-      <!-- Content Preview -->
+      <!-- Content Preview. Pages from the sync pool carry no body, so a
+           card without one says nothing about it rather than calling it
+           empty. -->
       <p v-if="contentPreview" class="doc-card-description">
         {{ contentPreview }}
-      </p>
-      <p v-else class="doc-card-description doc-card-description--empty">
-        {{ $t('docs-card-empty-content') }}
       </p>
 
       <!-- Metadata Row -->
@@ -234,11 +233,6 @@ const formatRelativeDate = (dateStr: string | undefined) => {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-
-.doc-card-description--empty {
-  color: var(--color-tertiary);
-  font-style: italic;
 }
 
 /* Metadata Row */

@@ -5830,7 +5830,6 @@ docs-breadcrumb-root = Documentatie
 docs-breadcrumb-aria = Kruimelpad
 
 # Docs: kaart (DocumentationCard)
-docs-card-empty-content = Nog geen inhoud
 docs-card-children-more = +{ $count } meer
 docs-card-relative-unknown = Onbekend
 docs-card-relative-today = Vandaag

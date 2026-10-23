@@ -5840,7 +5840,6 @@ docs-breadcrumb-root = Documentation
 docs-breadcrumb-aria = Fil d'Ariane
 
 # Docs : carte (DocumentationCard)
-docs-card-empty-content = Aucun contenu pour le moment
 docs-card-children-more = +{ $count } de plus
 docs-card-relative-unknown = Inconnu
 docs-card-relative-today = Aujourd'hui
