@@ -1121,61 +1121,80 @@ pub async fn recovery_login(
     )
 }
 
-/// Optional body for `/auth/logout`. When the caller wants RP-initiated
-/// (front-channel) logout at the OIDC provider, it passes the surface's
-/// `redirect_uri` (web: `<origin>/login`; mobile: `nosdesk://auth/logout-callback`)
-/// and gets back a `logout_url` to navigate to.
-#[derive(serde::Deserialize)]
-pub struct LogoutRequest {
-    pub redirect_uri: Option<String>,
+/// The session a logout ends, and whose it is. The route carries no auth
+/// middleware, since signing out must work with an expired access token, so it
+/// reads its own credentials: a session JWT (mobile bearer, then the web access
+/// cookie) whose signature checks out, expired or not, else the web refresh
+/// cookie.
+fn logout_session(req: &HttpRequest, conn: &mut DbConnection) -> Option<(Uuid, Option<Uuid>)> {
+    use crate::utils::cookies::{cookie_name, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE};
+
+    let bearer = req
+        .headers()
+        .get(actix_web::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && !t.starts_with("nsk_"))
+        .map(str::to_owned);
+    let access = bearer.or_else(|| {
+        req.cookie(&cookie_name(ACCESS_TOKEN_COOKIE))
+            .map(|c| c.value().to_string())
+    });
+    if let Some(claims) = access
+        .as_deref()
+        .and_then(JwtUtils::session_claims_ignoring_expiry)
+    {
+        if let Some(sid) = claims.session_uuid() {
+            return Some((sid, Uuid::parse_str(&claims.sub).ok()));
+        }
+    }
+
+    let refresh = req.cookie(&cookie_name(REFRESH_TOKEN_COOKIE))?;
+    let token = crate::repository::refresh_tokens::get_refresh_token_by_hash(
+        conn,
+        &JwtUtils::hash_refresh_token(refresh.value()),
+    )
+    .ok()?;
+    if token.audience != crate::models::REFRESH_AUDIENCE_AGENT {
+        return None;
+    }
+    Some((token.session_id?, Some(token.user_uuid)))
 }
 
-/// Logout endpoint - revokes session from DB and clears cookies. When the
-/// session was established via OIDC and the caller supplies a `redirect_uri`,
-/// also returns a front-channel `logout_url` (with the session's stored
-/// id_token as `id_token_hint`) so the client can end the IdP session too.
-pub async fn logout(
-    db_pool: web::Data<crate::db::Pool>,
-    req: HttpRequest,
-    body: Option<web::Json<LogoutRequest>>,
-) -> impl Responder {
-    let redirect_uri = body.and_then(|b| b.into_inner().redirect_uri);
-    let mut logout_url: Option<String> = None;
-
+/// Logout endpoint - revokes the session and clears cookies. On hosted it
+/// also ends this browser's remembered sign-in at the control plane, so the
+/// next sign-in asks for a password; that call never holds up the local
+/// revocation. Ending a self-hosted identity provider's own session
+/// (RP-initiated logout) is not done here, so `logout_url` is always null.
+pub async fn logout(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> impl Responder {
     // Best-effort session revocation — CASCADE handles linked refresh_tokens
-    if let (Ok(claims), Ok(mut conn)) = (rbac::require_auth(&req), helpers::db_conn(&db_pool)) {
-        if let Some(sid) = claims.session_uuid() {
-            // Build the RP-initiated logout URL BEFORE revoking (revocation
-            // deletes the row and its stored id_token). Only when the caller
-            // asked (redirect_uri) and this session carries an OIDC id_token.
-            // The redirect_uri is not trusted here: it only reaches the IdP's
-            // end_session URL, which Hydra validates against the client's
-            // registered post_logout_redirect_uris.
-            if let Some(redirect_uri) = redirect_uri.as_deref() {
-                if let Ok(session) =
-                    crate::repository::active_sessions::get_session_by_session_id(&mut conn, &sid)
-                {
-                    if let Some(id_token) = session.oidc_id_token.as_deref() {
-                        logout_url =
-                            crate::oidc::generate_logout_url(redirect_uri, Some(id_token), None)
-                                .await;
-                    }
+    if let Ok(mut conn) = helpers::db_conn(&db_pool) {
+        if let Some((sid, user_uuid)) = logout_session(&req, &mut conn) {
+            // Before revoking: the session row holds the id_token naming the
+            // remembered sign-in.
+            let remembered = match user_uuid {
+                Some(user) => {
+                    crate::services::remembered_sign_ins::end_this(&mut conn, &user, sid).await
                 }
-            }
+                None => None,
+            };
             match crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid) {
                 Ok(n) => tracing::info!("Logout: revoked {n} session(s) for sid {sid}"),
                 Err(e) => tracing::warn!("Logout: failed to revoke session {sid}: {e}"),
             }
-            // W2: record the logout / session revocation. user_uuid
-            // resolves from the JWT subject when it parses.
-            let user_uuid = Uuid::parse_str(&claims.sub).ok();
+            // W2: record the logout / session revocation.
+            let mut details = json!({ "reason": "logout" });
+            if let Some(outcome) = remembered {
+                details["remembered_sign_in"] = json!(outcome.kind());
+            }
             let _ = crate::utils::security_events::record_security_event(
                 &mut conn,
                 crate::utils::security_events::SecurityEventInput {
                     user_uuid,
                     event_type: "session_revoked",
                     severity: "info",
-                    details: Some(json!({ "reason": "logout" })),
+                    details: Some(details),
                     request: Some(&req),
                 },
             );
@@ -1189,10 +1208,8 @@ pub async fn logout(
     res.json(json!({
         "success": true,
         "message": "Logged out successfully",
-        // Null unless this was an OIDC session and a redirect_uri was given.
-        // The client navigates here (web) / opens it in the system browser
-        // (mobile) to end the IdP session too.
-        "logout_url": logout_url
+        // Kept for clients that would follow an IdP logout URL.
+        "logout_url": null
     }))
 }
 
