@@ -26,7 +26,7 @@ import Button from '@/components/common/Button.vue'
 import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
 import ListViewModals from '@/components/views/ListViewModals.vue'
 import { useListView } from '@/composables/useListView'
-import { useStepUpMethod } from '@/composables/useStepUpMethod'
+import ConfirmIdentity from '@/components/auth/ConfirmIdentity.vue'
 import type { ChipFacetDef } from '@/composables/useChipFiltersFromControls'
 import type { GroupAxisDef } from '@/composables/useListGrouping'
 import { useAuthStore } from '@/stores/auth'
@@ -350,33 +350,22 @@ const bulkActionMutation = useMutation({
   },
 })
 
-// The admin confirms bulk delete with their own step-up credential, the same
-// check as deleting one user.
-const deleteCredential = ref('')
+// The admin first confirms it's them (ConfirmIdentity), the same check as
+// deleting one user.
 const deleteError = ref<string | null>(null)
 const isBulkDeleting = ref(false)
-const {
-  method: deleteStepUpMethod,
-  loaded: deleteStepUpLoaded,
-  load: loadDeleteStepUp,
-  credential: deleteStepUpBody,
-} = useStepUpMethod()
-const deleteConfirmDisabled = computed(
-  () => isBulkDeleting.value
-    || !deleteStepUpLoaded.value
-    || (deleteStepUpMethod.value !== 'none' && deleteCredential.value.trim().length === 0),
-)
+const deleteIdentity = ref<InstanceType<typeof ConfirmIdentity> | null>(null)
+const deleteIdentityReady = ref(false)
+const deleteConfirmDisabled = computed(() => isBulkDeleting.value || !deleteIdentityReady.value)
 
 function openDeleteConfirm() {
-  deleteCredential.value = ''
   deleteError.value = null
+  deleteIdentityReady.value = false
   showDeleteConfirm.value = true
-  void loadDeleteStepUp()
 }
 
 function closeDeleteConfirm() {
   showDeleteConfirm.value = false
-  deleteCredential.value = ''
   deleteError.value = null
 }
 
@@ -387,17 +376,17 @@ async function confirmDelete() {
   isBulkDeleting.value = true
   deleteError.value = null
   try {
-    const result = await userService.bulkAction({
-      action: 'delete',
-      ids,
-      ...deleteStepUpBody(deleteCredential.value),
-    })
+    // A wrong password or code shows inside ConfirmIdentity; stay open.
+    if (!(await deleteIdentity.value?.confirm())) return
+    const result = await userService.bulkAction({ action: 'delete', ids })
     closeDeleteConfirm()
     listView.selection.clear()
     reportBulkDelete(result)
   } catch (err) {
-    // Keep the modal open so the admin can correct the credential.
+    // Keep the modal open. If the confirmation lapsed meanwhile, the refresh
+    // asks for it again.
     deleteError.value = extractErrorMessage(err, t('user-mgmt-bulk-action-error'))
+    void deleteIdentity.value?.refresh()
   } finally {
     isBulkDeleting.value = false
     void queryCache.invalidateQueries({ key: usersKeys.root })
@@ -789,23 +778,11 @@ function formatPurgeAt(deletedAt: string): string {
       @close="closeDeleteConfirm"
     >
       <template #body>
-        <!-- The admin's own step-up: password, else a 2FA code, else nothing
-             to enter (SSO-only without MFA). -->
-        <div v-if="deleteStepUpMethod !== 'none'" class="flex flex-col gap-2">
-          <label for="bulk-delete-credential" class="text-sm font-medium text-secondary">
-            {{ deleteStepUpMethod === 'password'
-              ? $t('user-settings-delete-stepup-password')
-              : $t('user-settings-delete-stepup-mfa') }}
-          </label>
-          <FormInput
-            id="bulk-delete-credential"
-            v-model="deleteCredential"
-            :type="deleteStepUpMethod === 'password' ? 'password' : 'text'"
-            :inputmode="deleteStepUpMethod === 'mfa' ? 'numeric' : undefined"
-            :autocomplete="deleteStepUpMethod === 'password' ? 'current-password' : 'one-time-code'"
-            @keyup.enter="confirmDelete"
-          />
-        </div>
+        <ConfirmIdentity
+          ref="deleteIdentity"
+          v-model:ready="deleteIdentityReady"
+          @submit="confirmDelete"
+        />
         <p v-if="deleteError" class="text-sm text-status-error">{{ deleteError }}</p>
       </template>
     </ConfirmModal>

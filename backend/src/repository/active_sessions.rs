@@ -130,6 +130,7 @@ pub fn embedded_session(
             location: None,
             expires_at: expires,
             oidc_id_token: None,
+            confirmed_at: None,
         },
     )
 }
@@ -208,6 +209,58 @@ pub fn revoke_other_sessions_by_uuid(
     .execute(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
+/// Record that session `sid` of `user_uuid` proved who is using it at `at`,
+/// and when `id_token` is given, keep it as the session's provider id_token
+/// (a fresh provider sign-in starts a new provider session). Never moves the
+/// time backwards. Returns the rows changed: 0 when the session is gone, is
+/// someone else's, or already holds a later confirmation.
+pub fn record_confirmation(
+    conn: &mut DbConnection,
+    sid: &Uuid,
+    user_uuid: &Uuid,
+    at: chrono::NaiveDateTime,
+    id_token: Option<&str>,
+) -> Result<usize, diesel::result::Error> {
+    let target = active_sessions::table
+        .filter(active_sessions::session_id.eq(sid))
+        .filter(active_sessions::user_uuid.eq(user_uuid))
+        .filter(active_sessions::expires_at.gt(Utc::now().naive_utc()))
+        .filter(
+            active_sessions::confirmed_at
+                .is_null()
+                .or(active_sessions::confirmed_at.lt(at)),
+        );
+    match id_token {
+        Some(token) => diesel::update(target)
+            .set((
+                active_sessions::confirmed_at.eq(at),
+                active_sessions::oidc_id_token.eq(token),
+            ))
+            .execute(conn),
+        None => diesel::update(target)
+            .set(active_sessions::confirmed_at.eq(at))
+            .execute(conn),
+    }
+}
+
+/// When live session `sid` of `user_uuid` last proved who is using it.
+/// `Ok(None)` when it never has, or the session is gone or someone else's.
+pub fn confirmed_at(
+    conn: &mut DbConnection,
+    sid: &Uuid,
+    user_uuid: &Uuid,
+) -> Result<Option<chrono::NaiveDateTime>, diesel::result::Error> {
+    active_sessions::table
+        .filter(active_sessions::session_id.eq(sid))
+        .filter(active_sessions::user_uuid.eq(user_uuid))
+        .filter(active_sessions::expires_at.gt(Utc::now().naive_utc()))
+        .select(active_sessions::confirmed_at)
+        .first::<Option<chrono::NaiveDateTime>>(conn)
+        .optional()
+        .map(Option::flatten)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,6 +276,7 @@ mod tests {
             location: None,
             expires_at: (Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
+            confirmed_at: None,
         }
     }
 

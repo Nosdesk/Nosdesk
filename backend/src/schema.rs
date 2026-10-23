@@ -57,6 +57,7 @@ diesel::table! {
         expires_at -> Timestamptz,
         session_id -> Uuid,
         oidc_id_token -> Nullable<Text>,
+        confirmed_at -> Nullable<Timestamptz>,
     }
 }
 

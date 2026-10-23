@@ -79,6 +79,7 @@ pub mod scheduler;
 pub mod search;
 pub mod sla;
 pub mod sse;
+pub mod step_up;
 pub mod sync;
 pub mod system;
 pub mod tags;

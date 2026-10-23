@@ -5657,14 +5657,38 @@ settings-sessions-revoke-success = Sessie afgemeld.
 settings-sessions-revoke-error = Kan die sessie niet afmelden. Probeer het opnieuw.
 settings-sessions-revoke-others-button = Alle andere sessies afmelden
 settings-sessions-revoke-others-modal-title = Alle andere sessies afmelden?
-settings-sessions-revoke-others-modal-description = Hiermee worden alle apparaten behalve dit apparaat afgemeld. Bevestig je identiteit om door te gaan.
-settings-sessions-revoke-others-stepup-password = Bevestig je wachtwoord om door te gaan
-settings-sessions-revoke-others-stepup-mfa = Voer een verificatiecode in om door te gaan
+settings-sessions-revoke-others-modal-description = Hiermee worden alle apparaten behalve dit apparaat afgemeld.
 settings-sessions-modal-cancel = Annuleren
 settings-sessions-revoke-others-confirm = Andere afmelden
 settings-sessions-revoke-others-success = Alle andere sessies zijn afgemeld.
 settings-sessions-revoke-others-success-remembered-kept = Alle andere sessies zijn afgemeld. Browsers die zijn aangemeld bij je Nosdesk-account kunnen nog tot 8 uur opnieuw aanmelden. Meld de andere sessies af in je Nosdesk-account om dit nu te stoppen.
-settings-sessions-revoke-others-error = Kan de andere sessies niet afmelden. Controleer je gegevens en probeer het opnieuw.
+settings-sessions-revoke-others-error = Kan de andere sessies niet afmelden. Probeer het opnieuw.
+
+# Bevestigen dat jij het bent vóór een riskante actie (ConfirmIdentity, /auth/confirmed) (machine, nog na te kijken door moedertaalspreker)
+step-up-lead = Bevestig dat jij het bent om door te gaan.
+step-up-confirmed = Je hebt een paar minuten geleden bevestigd dat jij het bent.
+step-up-password-label = Wachtwoord
+step-up-code-label = Authenticator- of back-upcode
+step-up-passkey-button = Een passkey gebruiken
+step-up-provider-button = Doorgaan met { $name }
+step-up-provider-help = Er opent een venster zodat je opnieuw kunt inloggen. Kom hier terug als je klaar bent.
+step-up-waiting = Wachten tot je inlogt…
+step-up-try-again = Opnieuw proberen
+step-up-use-another-way = Een andere manier gebruiken
+step-up-choice-password = Je wachtwoord gebruiken
+step-up-choice-code = Een authenticator- of back-upcode gebruiken
+step-up-result-cancelled = Inloggen is geannuleerd.
+step-up-result-wrong-account = Dat was een ander account. Log in als { $email } om door te gaan.
+step-up-result-wrong-account-no-email = Dat was een ander account. Log in met het account dat je hier gebruikt om door te gaan.
+step-up-result-not-fresh = Je inlogprovider heeft geen recente aanmelding bevestigd. Probeer het opnieuw.
+step-up-result-signed-out = Deze browser is uitgelogd. Log opnieuw in en probeer het dan nog eens.
+step-up-result-failed = Kan niet bevestigen dat jij het bent. Probeer het opnieuw.
+step-up-no-methods = Log uit, log opnieuw in en probeer het daarna binnen { $minutes ->
+    [one] { $minutes } minuut
+   *[other] { $minutes } minuten
+} opnieuw.
+step-up-popup-confirmed = Bevestigd. Je kunt dit venster sluiten.
+step-up-popup-close = Je kunt dit venster sluiten.
 
 # Instellingen: waarschuwing voor niet-opgeslagen wijzigingen (gedeeld) (machinevertaling, na te lezen door moedertaalspreker).
 settings-unsaved-leave-title = Niet-opgeslagen wijzigingen verwerpen?
@@ -7897,6 +7921,7 @@ route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Back-up en herstel
 route-title-group-detail = Groepsdetails
 route-title-authenticating = Bezig met authenticeren...
+route-title-auth-confirmed = Bevestigen dat jij het bent
 route-title-pdf-viewer = PDF-viewer
 
 # Loading modals + scattered polish
@@ -8252,8 +8277,6 @@ user-settings-delete-button = Account verwijderen
 user-settings-delete-self-hint = Vraag de beheerder van je werkruimte om je account te verwijderen.
 user-settings-delete-modal-warning = { $name } verliest direct de toegang. Het account wordt na 30 dagen definitief verwijderd en een beheerder kan het tot die tijd herstellen.
 user-settings-delete-modal-removes = Na 30 dagen wordt het volgende definitief verwijderd:
-user-settings-delete-stepup-password = Voer je wachtwoord in om te bevestigen
-user-settings-delete-stepup-mfa = Voer ter bevestiging een code uit je authenticator-app of een back-upcode in
 user-settings-delete-cancel = Annuleren
 user-settings-delete-confirm = Account verwijderen
 user-settings-delete-error = Kan het account niet verwijderen. Probeer het opnieuw.

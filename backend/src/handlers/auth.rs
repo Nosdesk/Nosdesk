@@ -10,6 +10,7 @@ use crate::handlers::helpers;
 use crate::middleware::request_context::record_canonical;
 use crate::models::{LoginRequest, PasswordChangeRequest};
 use crate::repository::{self, user_auth_identities::get_local_password_hash};
+pub(crate) use crate::services::step_up::SignInProof;
 use crate::utils::auth::hash_password;
 use crate::utils::mfa;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
@@ -126,6 +127,29 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 .route(
                     "/{session_id}",
                     web::delete().to(crate::handlers::revoke_session),
+                ),
+        )
+        // A page load in the step-up popup, not an XHR: no auth middleware,
+        // since a popup can't refresh an expired access cookie first (the
+        // handler reads the browser's session itself). Registered before the
+        // scope, which would otherwise absorb the path.
+        .route(
+            "/step-up/provider",
+            web::get().to(crate::handlers::start_step_up_provider),
+        )
+        .service(
+            web::scope("/step-up")
+                .default_service(web::to(crate::errors::api_route_not_found))
+                .wrap(from_fn(cookie_auth_middleware))
+                .route("", web::get().to(crate::handlers::step_up::status))
+                .route("", web::post().to(crate::handlers::step_up::confirm))
+                .route(
+                    "/passkey/start",
+                    web::post().to(crate::handlers::step_up::start_passkey),
+                )
+                .route(
+                    "/passkey/finish",
+                    web::post().to(crate::handlers::step_up::finish_passkey),
                 ),
         )
         .service(
@@ -316,11 +340,15 @@ pub(crate) fn revoke_sessions_after_factor_change(
 /// Enforces the per-user session cap, evicting the least-recently-active
 /// sessions and recording a security event for them, so a login is never
 /// refused for holding too many.
+///
+/// `proof` is what the sign-in checked: it sets when the session last
+/// confirmed who is using it (`services::step_up`) and carries a provider
+/// sign-in's id_token.
 pub fn create_session_record(
     user_uuid: &Uuid,
     request: &HttpRequest,
     conn: &mut DbConnection,
-    oidc_id_token: Option<&str>,
+    proof: SignInProof<'_>,
 ) -> Result<crate::models::ActiveSession, diesel::result::Error> {
     // Resolve the client IP once: stored as INET, and (when a GeoIP
     // database is configured) used for a coarse "City, Country" label.
@@ -350,7 +378,8 @@ pub fn create_session_record(
         // A brand-new session's ceiling is further out than the idle window,
         // so this is the full idle TTL; the clamp matters on refresh.
         expires_at: crate::utils::session_policy::next_expiry(chrono::Utc::now().naive_utc()),
-        oidc_id_token: oidc_id_token.map(str::to_owned),
+        oidc_id_token: proof.id_token().map(str::to_owned),
+        confirmed_at: proof.confirmed_at(chrono::Utc::now()),
     };
 
     let (session, evicted) =
@@ -388,8 +417,8 @@ pub(crate) fn complete_login(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<HttpResponse, ApiError> {
-    // Local / password logins carry no OIDC id_token.
-    let (response, tokens) = establish_login_session(user, request, conn, None)?;
+    // The local password (or LDAP) login, which just checked a credential.
+    let (response, tokens) = establish_login_session(user, request, conn, SignInProof::Credential)?;
     Ok(build_auth_response(request, response, &tokens))
 }
 
@@ -405,9 +434,9 @@ pub(crate) fn complete_login_redirect(
     request: &HttpRequest,
     conn: &mut DbConnection,
     location: &str,
-    oidc_id_token: Option<&str>,
+    proof: SignInProof<'_>,
 ) -> Result<HttpResponse, ApiError> {
-    let (_response, tokens) = establish_login_session(user, request, conn, oidc_id_token)?;
+    let (_response, tokens) = establish_login_session(user, request, conn, proof)?;
     Ok(build_auth_cookie_redirect(&tokens, location))
 }
 
@@ -417,7 +446,7 @@ pub(crate) fn establish_login_session(
     user: crate::models::User,
     request: &HttpRequest,
     conn: &mut DbConnection,
-    oidc_id_token: Option<&str>,
+    proof: SignInProof<'_>,
 ) -> Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens), ApiError> {
     let user_uuid = user.uuid;
 
@@ -425,7 +454,7 @@ pub(crate) fn establish_login_session(
     // resolves under RLS (workspace_members is workspace-isolated).
     helpers::pin_request_workspace(request, conn);
 
-    let session = match create_session_record(&user_uuid, request, conn, oidc_id_token) {
+    let session = match create_session_record(&user_uuid, request, conn, proof) {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
@@ -468,7 +497,7 @@ fn complete_mfa_login(
     // resolves under RLS (workspace_members is workspace-isolated).
     helpers::pin_request_workspace(request, conn);
 
-    let session = match create_session_record(&user_uuid, request, conn, None) {
+    let session = match create_session_record(&user_uuid, request, conn, SignInProof::Credential) {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
@@ -1160,6 +1189,36 @@ fn logout_session(req: &HttpRequest, conn: &mut DbConnection) -> Option<(Uuid, O
         return None;
     }
     Some((token.session_id?, Some(token.user_uuid)))
+}
+
+/// This browser's signed-in session, `(user, session)`, from its cookies
+/// alone: a live, full access cookie, else a refresh cookie that is still
+/// current (not used, revoked or expired). For a page load in a popup, which
+/// can't refresh an access cookie first.
+pub(crate) fn browser_session(req: &HttpRequest, conn: &mut DbConnection) -> Option<(Uuid, Uuid)> {
+    use crate::utils::cookies::{cookie_name, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE};
+
+    let access = req
+        .cookie(&cookie_name(ACCESS_TOKEN_COOKIE))
+        .and_then(|c| JwtUtils::validate_token(c.value()).ok())
+        .filter(|claims| claims.scope == "full");
+    if let Some(claims) = access {
+        if let (Ok(user), Some(sid)) = (Uuid::parse_str(&claims.sub), claims.session_uuid()) {
+            return Some((user, sid));
+        }
+    }
+
+    let refresh = req.cookie(&cookie_name(REFRESH_TOKEN_COOKIE))?;
+    let token = crate::repository::refresh_tokens::get_refresh_token_by_hash(
+        conn,
+        &JwtUtils::hash_refresh_token(refresh.value()),
+    )
+    .ok()?;
+    let current = token.audience == crate::models::REFRESH_AUDIENCE_AGENT
+        && token.revoked_at.is_none()
+        && !token.is_used
+        && token.expires_at > chrono::Utc::now().naive_utc();
+    current.then_some((token.user_uuid, token.session_id?))
 }
 
 /// Logout endpoint - revokes the session and clears cookies. On hosted it
@@ -2366,7 +2425,12 @@ pub async fn mfa_enable_login(
             // Pin the workspace so the response's workspace_role resolves
             // under RLS (workspace_members is workspace-isolated).
             helpers::pin_request_workspace(&http_request, &mut conn);
-            let session = match create_session_record(&user_uuid, &http_request, &mut conn, None) {
+            let session = match create_session_record(
+                &user_uuid,
+                &http_request,
+                &mut conn,
+                SignInProof::Credential,
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::error!(
@@ -2525,12 +2589,12 @@ pub async fn revoke_session(
     }
 }
 
-/// Step-up re-authentication for high-blast-radius actions: require a full
-/// (non-MFA-pending) session plus a fresh credential from `user`, the caller.
-/// A local password is checked first (the mfa_disable precedent), then a
-/// TOTP or backup code. An empty credential passes only when the account has
-/// nothing to step up with (no local password and no MFA, e.g. SSO-only).
-/// `refused` is the 400 message when the credential is missing or wrong.
+/// Step-up for high-blast-radius actions (see `services::step_up`): require a
+/// full (non-MFA-pending) session, then either a credential from `user`, the
+/// caller, in this request (password, LDAP password, or TOTP / backup code),
+/// which also confirms the session for the window, or a session that
+/// confirmed within the window. An empty credential on an unconfirmed session
+/// is refused, whatever the account. `refused` is the 400 message.
 pub(crate) async fn verify_step_up(
     conn: &mut DbConnection,
     claims: &crate::models::Claims,
@@ -2538,37 +2602,37 @@ pub(crate) async fn verify_step_up(
     credential: &crate::models::StepUpCredential,
     refused: &str,
 ) -> Result<(), ApiError> {
+    use crate::services::step_up;
     if claims.scope != "full" {
         return Err(ApiError::Forbidden(
             "This action requires a full session".into(),
         ));
     }
-
-    // Err for accounts without a local password (e.g. OAuth-only).
-    let local_hash = get_local_password_hash(&user.uuid, conn).ok();
-
-    let reauthenticated = if let Some(pw) = credential.password.as_deref().filter(|p| !p.is_empty())
-    {
-        local_hash
-            .as_deref()
-            .map(|hash| verify(pw, hash).unwrap_or(false))
-            .unwrap_or(false)
-    } else if let Some(code) = credential
-        .mfa_code
+    let sid = claims.session_uuid();
+    let offered = credential
+        .password
         .as_deref()
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-    {
-        user.mfa_enabled
-            && mfa::verify_mfa_token(&user.uuid, code, conn)
-                .await
-                .map(|r| r.is_valid)
-                .unwrap_or(false)
-    } else {
-        local_hash.is_none() && !user.mfa_enabled
-    };
-
-    if reauthenticated {
+        .is_some_and(|p| !p.is_empty())
+        || credential
+            .mfa_code
+            .as_deref()
+            .is_some_and(|c| !c.trim().is_empty());
+    if offered {
+        if step_up::check_credential(conn, user, credential)
+            .await
+            .is_none()
+        {
+            return Err(ApiError::BadRequest(refused.into()));
+        }
+        if let Some(sid) = sid {
+            step_up::record(conn, &sid, &user.uuid, chrono::Utc::now(), None);
+        }
+        return Ok(());
+    }
+    let confirmed = sid
+        .and_then(|sid| step_up::session_confirmed_until(conn, &sid, &user.uuid))
+        .is_some();
+    if confirmed {
         Ok(())
     } else {
         Err(ApiError::BadRequest(refused.into()))
@@ -2802,7 +2866,7 @@ where
         }
         None => {
             // Token created before this migration — create a new session
-            match create_session_record(&user.uuid, request, conn, None) {
+            match create_session_record(&user.uuid, request, conn, SignInProof::Nothing) {
                 Ok(session) => (session.session_id, session.created_at),
                 Err(e) => {
                     tracing::error!("Failed to create session during refresh: {}", e);
@@ -3254,7 +3318,8 @@ mod tests {
         audience: &str,
     ) -> (String, uuid::Uuid) {
         let user = TestFixtures::create_user(conn, "rotation subject", "user");
-        let session = create_session_record(&user.uuid, request, conn, None).expect("session");
+        let session = create_session_record(&user.uuid, request, conn, SignInProof::Credential)
+            .expect("session");
         let raw = JwtUtils::generate_refresh_token();
         let family_id = uuid::Uuid::new_v4();
         crate::repository::refresh_tokens::create_refresh_token(

@@ -75,7 +75,61 @@ pub async fn authenticate(
     if user_password.trim().is_empty() {
         return Err(LdapAuthError::EmptyPassword);
     }
+    let filter = build_user_filter(&settings.user_filter, username);
+    search_then_bind(settings, bind_password, &filter, user_password).await
+}
 
+/// Authenticate the directory entry whose external id is `external_id` (the
+/// immutable id an `ldap` identity is keyed on) with `user_password`. For a
+/// step-up confirmation, where the person is already known: it finds the same
+/// entry whatever login name the filter template expects, and a renamed or
+/// moved entry still matches.
+pub async fn authenticate_external_id(
+    settings: &WorkspaceLdapSettings,
+    bind_password: &str,
+    external_id: &str,
+    user_password: &str,
+) -> Result<LdapAuthnResult, LdapAuthError> {
+    if user_password.trim().is_empty() {
+        return Err(LdapAuthError::EmptyPassword);
+    }
+    let ext_id_attr = attr_name(&settings.attribute_map, "external_id", "entryUUID");
+    let filter = external_id_filter(&ext_id_attr, external_id);
+    let result = search_then_bind(settings, bind_password, &filter, user_password).await?;
+    if result.external_id != external_id {
+        return Err(LdapAuthError::UserNotFound);
+    }
+    Ok(result)
+}
+
+/// An equality filter on the external-id attribute. A 16-byte binary id is
+/// stored as the lowercase hex [`first_value`] renders (AD `objectGUID`), so
+/// it is matched byte for byte as `\xx` escapes; any other value is escaped
+/// as text.
+pub fn external_id_filter(attr: &str, external_id: &str) -> String {
+    let binary = attr.eq_ignore_ascii_case("objectGUID")
+        && external_id.len() == 32
+        && external_id.bytes().all(|b| b.is_ascii_hexdigit());
+    let value = if binary {
+        external_id
+            .as_bytes()
+            .chunks(2)
+            .map(|pair| format!("\\{}", std::str::from_utf8(pair).unwrap_or("00")))
+            .collect()
+    } else {
+        escape_filter_value(external_id)
+    };
+    format!("({attr}={value})")
+}
+
+/// Steps 2 to 4 of the flow in the module docs for `filter`, which must
+/// already be escaped.
+async fn search_then_bind(
+    settings: &WorkspaceLdapSettings,
+    bind_password: &str,
+    filter: &str,
+    user_password: &str,
+) -> Result<LdapAuthnResult, LdapAuthError> {
     let ext_id_attr = attr_name(&settings.attribute_map, "external_id", "entryUUID");
     let email_attr = attr_name(&settings.attribute_map, "email", "mail");
     let name_attr = attr_name(&settings.attribute_map, "display_name", "cn");
@@ -92,11 +146,10 @@ pub async fn authenticate(
     }
 
     // 3. Escaped subtree search, requiring exactly one entry.
-    let filter = build_user_filter(&settings.user_filter, username);
     let attrs = vec![ext_id_attr.clone(), email_attr.clone(), name_attr.clone()];
     let (entries, _res) = svc
         .with_timeout(connector::OP_TIMEOUT)
-        .search(&settings.user_base_dn, Scope::Subtree, &filter, attrs)
+        .search(&settings.user_base_dn, Scope::Subtree, filter, attrs)
         .await?
         .success()?;
     let _ = svc.unbind().await;
@@ -181,6 +234,24 @@ mod tests {
         assert_eq!(
             build_user_filter("(uid={username})", "alice"),
             "(uid=alice)"
+        );
+    }
+
+    #[test]
+    fn external_id_filter_matches_binary_guids_byte_for_byte() {
+        assert_eq!(
+            external_id_filter("objectGUID", "00112233445566778899aabbccddeeff"),
+            "(objectGUID=\\00\\11\\22\\33\\44\\55\\66\\77\\88\\99\\aa\\bb\\cc\\dd\\ee\\ff)"
+        );
+        // A text id is escaped like any assertion value.
+        assert_eq!(
+            external_id_filter("entryUUID", "abc*)(uid=*"),
+            "(entryUUID=abc\\2a\\29\\28uid=\\2a)"
+        );
+        // Not hex, so not treated as a binary GUID.
+        assert_eq!(
+            external_id_filter("objectGUID", "not-a-guid"),
+            "(objectGUID=not-a-guid)"
         );
     }
 

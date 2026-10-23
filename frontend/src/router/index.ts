@@ -1060,6 +1060,18 @@ const router = createRouter({
       }
     },
     {
+      // Where the "Confirm it's you" popup lands after the identity provider.
+      // Reached by a cross-site redirect, so it must work without the session.
+      path: '/auth/confirmed',
+      name: 'auth-confirmed',
+      component: () => import('../views/auth/AuthConfirmedView.vue'),
+      meta: {
+        layout: 'blank',
+        requiresAuth: false,
+        titleKey: 'route-title-auth-confirmed'
+      }
+    },
+    {
       path: '/pdf-viewer',
       name: 'pdf-viewer',
       component: PDFViewerView,
@@ -1143,7 +1155,7 @@ let onboardingChecked = false;
 
 async function checkOnboarding(to: RouteLocationNormalized, _from: RouteLocationNormalized) {
   // Skip check for onboarding, error, and login pages
-  if (to.name === 'onboarding' || to.name === 'error' || to.name === 'login') {
+  if (to.name === 'onboarding' || to.name === 'error' || to.name === 'login' || to.name === 'auth-confirmed') {
     return;
   }
 
@@ -1241,6 +1253,10 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   const authStore = useAuthStore();
 
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
+
+  // The "Confirm it's you" popup reports back and closes: no session lookup,
+  // and none of the app runtime (sync, SSE) a signed-in route starts.
+  if (to.name === 'auth-confirmed') return;
 
   // Fetch user data if authenticated (cookie/user present) but user object not yet loaded
   if (authStore.isAuthenticated && !authStore.user && !authStore.loading && to.name !== 'login') {

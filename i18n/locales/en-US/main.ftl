@@ -5121,14 +5121,38 @@ settings-sessions-revoke-success = Session signed out.
 settings-sessions-revoke-error = Couldn't sign out that session. Try again.
 settings-sessions-revoke-others-button = Sign out all other sessions
 settings-sessions-revoke-others-modal-title = Sign out all other sessions?
-settings-sessions-revoke-others-modal-description = This signs out every device except this one. Confirm your identity to continue.
-settings-sessions-revoke-others-stepup-password = Confirm your password to continue
-settings-sessions-revoke-others-stepup-mfa = Enter an authentication code to continue
+settings-sessions-revoke-others-modal-description = This signs out every device except this one.
 settings-sessions-modal-cancel = Cancel
 settings-sessions-revoke-others-confirm = Sign out others
 settings-sessions-revoke-others-success = Signed out all other sessions.
 settings-sessions-revoke-others-success-remembered-kept = Signed out all other sessions. Browsers signed in to your Nosdesk account may still sign in again for up to 8 hours. To stop them now, sign out other sessions in your Nosdesk account.
-settings-sessions-revoke-others-error = Couldn't sign out the other sessions. Check your credentials and try again.
+settings-sessions-revoke-others-error = Couldn't sign out the other sessions. Try again.
+
+# Confirm it's you before a high-risk action (ConfirmIdentity, /auth/confirmed)
+step-up-lead = Confirm it's you to continue.
+step-up-confirmed = You confirmed it's you a few minutes ago.
+step-up-password-label = Password
+step-up-code-label = Authenticator or backup code
+step-up-passkey-button = Use a passkey
+step-up-provider-button = Continue with { $name }
+step-up-provider-help = A window opens so you can sign in again. Come back here when you're done.
+step-up-waiting = Waiting for you to sign in…
+step-up-try-again = Try again
+step-up-use-another-way = Use another way
+step-up-choice-password = Use your password
+step-up-choice-code = Use an authenticator or backup code
+step-up-result-cancelled = Sign-in was cancelled.
+step-up-result-wrong-account = That was a different account. Sign in as { $email } to continue.
+step-up-result-wrong-account-no-email = That was a different account. Sign in with the account you use here to continue.
+step-up-result-not-fresh = Your sign-in provider didn't confirm a fresh sign-in. Try again.
+step-up-result-signed-out = This browser is signed out. Sign in again, then try once more.
+step-up-result-failed = Couldn't confirm it's you. Try again.
+step-up-no-methods = Sign out, sign back in, then try again within { $minutes ->
+    [one] { $minutes } minute
+   *[other] { $minutes } minutes
+}.
+step-up-popup-confirmed = Confirmed. You can close this window.
+step-up-popup-close = You can close this window.
 
 # Settings: unsaved-changes navigate-away guard (shared)
 settings-unsaved-leave-title = Discard unsaved changes?
@@ -7324,6 +7348,7 @@ route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Backup and restore
 route-title-group-detail = Group details
 route-title-authenticating = Authenticating...
+route-title-auth-confirmed = Confirm it's you
 route-title-pdf-viewer = PDF viewer
 
 # Loading modals + scattered polish
@@ -7653,8 +7678,6 @@ user-settings-delete-button = Delete Account
 user-settings-delete-self-hint = To delete your account, ask your workspace administrator.
 user-settings-delete-modal-warning = { $name } loses access now. The account is permanently deleted after 30 days, and an administrator can restore it until then.
 user-settings-delete-modal-removes = After 30 days, this permanently removes:
-user-settings-delete-stepup-password = Enter your password to confirm
-user-settings-delete-stepup-mfa = Enter a code from your authenticator app, or a backup code, to confirm
 user-settings-delete-cancel = Cancel
 user-settings-delete-confirm = Delete Account
 user-settings-delete-error = Couldn't delete the account. Try again.

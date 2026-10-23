@@ -35,6 +35,7 @@ pub mod seed;
 pub mod ses_identity;
 pub mod sla;
 pub mod starter_catalog;
+pub mod step_up;
 pub mod sync_outbox;
 pub mod template_vars;
 pub mod ticket_updates;

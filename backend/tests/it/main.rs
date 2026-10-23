@@ -168,6 +168,7 @@ mod sla_breach_sweep;
 mod sla_defaults;
 mod sla_policy_changes;
 mod sla_policy_priority;
+mod step_up_confirm;
 mod sync_audiences;
 mod sync_emit_lint;
 mod sync_model_registry;
