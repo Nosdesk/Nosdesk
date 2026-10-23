@@ -288,24 +288,19 @@ const listView = useListView({
   pinnedColumnIds: ['user'],
 })
 
-// Platform-admin gate for the account-lifecycle surfaces. Every user
-// mutation the backend exposes (bulk delete / set-role, single delete,
-// restore, purge) requires platform_admin, so a workspace admin who
-// isn't one would only hit "permission denied". We hide those
-// affordances rather than let them error: the deleted-users tab (its
-// restore/purge live there) and, via `selectable` on the table below,
-// row selection itself, which is only ever used to reach the bulk
-// actions. This is the UI half of the gate, not the enforcement.
+// Gates for the account-lifecycle surfaces, the UI half of the server's.
+// Workspace admins delete and restore the people of their workspace (the
+// server refuses anyone who also belongs to another workspace); the bulk
+// role change and permanent delete stay with platform admins.
 const isPlatformAdmin = computed(() => auth.user?.platform_role === 'platform_admin')
 
-// Bulk actions are an operator (platform-admin) surface. In hosted the Team
-// population is control-plane-owned, so bulk selection is disabled there;
-// Requesters (tenant-local) stay selectable. The bulk role change is hidden
-// entirely in hosted, since promoting into a staff seat is the control plane's
-// job (see the header hand-off).
-const canBulkSelect = computed(
-  () => isPlatformAdmin.value && !(isHostedDeploymentRef.value && !isRequesters.value),
+// In hosted the Team population is control-plane-owned, so neither bulk
+// selection nor the deleted view applies there; Requesters (tenant-local)
+// do. Selection is only ever used to reach the bulk actions.
+const canManageLifecycle = computed(
+  () => auth.isAdmin && !(isHostedDeploymentRef.value && !isRequesters.value),
 )
+const canBulkSelect = canManageLifecycle
 
 // Active vs Deleted view. The "deleted" filter lives in the list-view
 // controls; the view tab toggles it so soft-deleted users (with their
@@ -405,6 +400,9 @@ function reportBulkDelete(result: BulkUserActionResult) {
   }
   if (result.skipped_staff) {
     toast.info(t('user-mgmt-bulk-skipped-staff', { count: result.skipped_staff }))
+  }
+  if (result.skipped_elsewhere) {
+    toast.info(t('user-mgmt-bulk-skipped-elsewhere', { count: result.skipped_elsewhere }))
   }
   if (result.failed) {
     toast.error(t('user-mgmt-bulk-delete-failed', { count: result.failed }))
@@ -530,10 +528,9 @@ function formatPurgeAt(deletedAt: string): string {
               {{ $t('people-tab-requesters') }}
             </button>
           </div>
-          <!-- Secondary: soft-delete recovery, a platform-admin surface and only
-               relevant to the Team roster. -->
+          <!-- Secondary: soft-delete recovery, for whoever can delete here. -->
           <div
-            v-if="isPlatformAdmin && !isRequesters"
+            v-if="canManageLifecycle"
             class="inline-flex items-center gap-0.5 rounded-lg border border-default bg-surface-alt p-0.5"
           >
             <button
@@ -634,6 +631,7 @@ function formatPurgeAt(deletedAt: string): string {
                   </svg>
                 </button>
                 <button
+                  v-if="isPlatformAdmin"
                   type="button"
                   class="rounded p-1 text-secondary hover:bg-status-error/10 hover:text-status-error"
                   :title="$t('user-mgmt-purge-now')"
@@ -720,7 +718,7 @@ function formatPurgeAt(deletedAt: string): string {
 
       <template #bulk-actions="{ selectedCount }">
         <ToolbarButton
-          v-if="!isHostedDeploymentRef"
+          v-if="isPlatformAdmin && !isHostedDeploymentRef"
           as-child
           :disabled="bulkActionMutation.asyncStatus.value === 'loading'"
         >

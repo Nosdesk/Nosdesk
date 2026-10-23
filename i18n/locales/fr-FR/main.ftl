@@ -2696,6 +2696,10 @@ user-mgmt-bulk-skipped-staff = { $count ->
     [one] Un membre du personnel est géré dans votre compte Nosdesk et n'a donc pas été supprimé ici.
    *[other] { $count } membres du personnel sont gérés dans votre compte Nosdesk et n'ont donc pas été supprimés ici.
 }
+user-mgmt-bulk-skipped-elsewhere = { $count ->
+    [one] Une personne appartient aussi à d'autres espaces de travail, elle n'a donc pas été supprimée. Retirez-la plutôt de cet espace de travail.
+   *[other] { $count } personnes appartiennent aussi à d'autres espaces de travail, elles n'ont donc pas été supprimées. Retirez-les plutôt de cet espace de travail.
+}
 user-mgmt-bulk-delete-failed = { $count ->
     [one] Un utilisateur n'a pas pu être supprimé. Veuillez réessayer.
    *[other] { $count } utilisateurs n'ont pas pu être supprimés. Veuillez réessayer.
@@ -8290,6 +8294,8 @@ user-settings-delete-modal-removes = Après 30 jours, ceci supprime définitivem
 user-settings-delete-cancel = Annuler
 user-settings-delete-confirm = Supprimer le compte
 user-settings-delete-error = Impossible de supprimer le compte. Réessayez.
+user-settings-delete-member-elsewhere = Cette personne appartient aussi à d'autres espaces de travail, son compte ne peut donc pas être supprimé ici. Retirez-la plutôt de cet espace de travail.
+user-settings-delete-admin-hint = Les administrateurs ne peuvent pas être supprimés. Pour supprimer ce compte, changez d'abord son rôle.
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filtrer les plugins
 admin-plugins-list-search-placeholder = Rechercher des plugins

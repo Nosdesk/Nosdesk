@@ -41,7 +41,7 @@ import type { Group } from '@nosdesk/core/types/group';
 import apiClient from '@nosdesk/core/apiClient';
 import ConfirmIdentity from '@/components/auth/ConfirmIdentity.vue';
 import { useColorFilter } from '@/composables/useColorFilter';
-import { extractErrorMessage } from '@/utils/errors';
+import { errorCode, extractErrorMessage } from '@/utils/errors';
 
 const route = useRoute();
 const router = useRouter();
@@ -412,7 +412,10 @@ const deleteAccount = async () => {
   } catch (error) {
     // Keep the modal open. If the confirmation lapsed meanwhile, the refresh
     // asks for it again.
-    deleteError.value = extractErrorMessage(error, t('user-settings-delete-error'));
+    deleteError.value =
+      errorCode(error) === 'member_elsewhere'
+        ? t('user-settings-delete-member-elsewhere')
+        : extractErrorMessage(error, t('user-settings-delete-error'));
     void deleteIdentity.value?.refresh();
   } finally {
     isDeleting.value = false;
@@ -800,8 +803,12 @@ const cancelDelete = () => {
             />
 
             <!-- Delete user: admins only. Self-service deletion goes through
-                 an administrator; hosted staff use their Nosdesk account. -->
-            <Callout v-if="isAdminMode && !identityManaged" severity="error">
+                 an administrator; hosted staff use their Nosdesk account. The
+                 server refuses to delete an administrator, so say how instead. -->
+            <p v-if="isAdminMode && !identityManaged && targetRole === 'admin'" class="text-sm text-secondary">
+              {{ t('user-settings-delete-admin-hint') }}
+            </p>
+            <Callout v-else-if="isAdminMode && !identityManaged" severity="error">
               <template #header>
                 <p class="font-medium text-primary">{{ t('user-settings-danger-zone-title') }}</p>
                 <p class="text-secondary mt-0.5">{{ t('user-settings-danger-zone-subtitle') }}</p>

@@ -195,6 +195,7 @@ mod two_workspace_fixture;
 mod upgrade_from_1_0_12;
 mod user_contact_gate;
 mod user_delete_reauth;
+mod user_delete_workspace_admin;
 mod users_bulk_delete;
 mod webhook_delivery_in_workspace;
 mod webhook_outbox_durability;
