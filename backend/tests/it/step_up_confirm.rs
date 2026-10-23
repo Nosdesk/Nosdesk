@@ -173,7 +173,8 @@ fn a_confirmation_keeps_a_new_provider_token_and_never_moves_back() {
     let user = crate::common::insert_plain_user(conn, "Agent");
     let other = crate::common::insert_plain_user(conn, "Someone else");
     let here = session(conn, user);
-    let now = chrono::Utc::now().naive_utc();
+    // Postgres keeps microseconds.
+    let now = chrono::SubsecRound::trunc_subsecs(chrono::Utc::now().naive_utc(), 6);
     let repo = |conn: &mut backend::db::DbConnection, who: Uuid, at, token| {
         backend::repository::active_sessions::record_confirmation(conn, &here, &who, at, token)
             .expect("record")
