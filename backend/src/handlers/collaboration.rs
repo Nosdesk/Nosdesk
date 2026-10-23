@@ -128,6 +128,11 @@ fn validate_revision_snapshot(snapshot: &[u8]) -> Result<(), ApiError> {
 /// graceful-shutdown flush (`flush_all_dirty`) awaits it so the write
 /// lands before the process exits. Errors are logged, not propagated: a
 /// failed save must not abort a maintenance tick or a shutdown.
+///
+/// A ticket note or page body also emits a search-only `*.content_saved`
+/// sync_action, atomic with the write, so the index replicator re-indexes it
+/// on every machine. Collaborative saves are otherwise off the sync stream,
+/// so without it an edit is only searchable on the machine that owns the room.
 async fn write_yjs_state(
     pool: web::Data<crate::db::Pool>,
     search: Arc<crate::services::search::SearchService>,
@@ -135,14 +140,6 @@ async fn write_yjs_state(
     content: Vec<u8>,
     workspace_id: i32,
     fence: Option<i64>,
-    // True only for a save that ends an editing session which had real
-    // changes (room emptied / last editor disconnected, contributors
-    // non-empty). On such a save, also emit a search-only
-    // `*.content_saved` sync_action — atomic with the body write — so the
-    // index replicator re-indexes the collaborative body on every machine.
-    // Collaborative saves are otherwise off the sync stream, so without
-    // this a finished edit is only searchable on the owning machine.
-    emit_saved: bool,
 ) -> SaveOutcome {
     let mut conn = match pool.get() {
         Ok(c) => c,
@@ -155,15 +152,12 @@ async fn write_yjs_state(
     let result: Result<(), diesel::result::Error> = match doc_type {
         DocumentType::Ticket(ticket_id) => session::with_actor_context(&mut conn, &actor, |conn| {
             repository::update_article_yjs_state(conn, ticket_id, content, fence, Some(&search))?;
-            if emit_saved {
-                emit_content_saved(
-                    conn,
-                    crate::models::SyncAggregate::Ticket,
-                    ticket_id,
-                    "ticket.content_saved",
-                )?;
-            }
-            Ok(())
+            emit_content_saved(
+                conn,
+                crate::models::SyncAggregate::Ticket,
+                ticket_id,
+                "ticket.content_saved",
+            )
         }),
         DocumentType::Documentation(page_id) => {
             session::with_actor_context(&mut conn, &actor, |conn| {
@@ -174,15 +168,12 @@ async fn write_yjs_state(
                     fence,
                     Some(&search),
                 )?;
-                if emit_saved {
-                    emit_content_saved(
-                        conn,
-                        crate::models::SyncAggregate::DocumentationPage,
-                        page_id,
-                        "documentation.content_saved",
-                    )?;
-                }
-                Ok(())
+                emit_content_saved(
+                    conn,
+                    crate::models::SyncAggregate::DocumentationPage,
+                    page_id,
+                    "documentation.content_saved",
+                )
             })
         }
         DocumentType::Collection(collection_id) => {
@@ -257,9 +248,9 @@ fn document_exists(
     .ok()
 }
 
-/// Emit a search-only `*.content_saved` sync_action for a finished
-/// collaborative editing session, so the search-index replicator re-indexes
-/// the document body on every machine (see `services::search_replicator`).
+/// Emit a search-only `*.content_saved` sync_action for a saved collaborative
+/// body, so the search-index replicator re-indexes it on every machine (see
+/// `services::search_replicator`).
 ///
 /// Deliberately invisible to everything else: emitted with EMPTY groups so
 /// it reaches no live SSE subscriber (editors already have the content via
@@ -1933,15 +1924,8 @@ impl YjsAppState {
         for (doc_id, doc_state) in documents.iter_mut() {
             let workspace_id = doc_state.workspace_id;
             // Regular saves for active documents
-            if doc_state.should_save() {
-                // Mid-session save: not the end of editing, so no
-                // content-saved emit yet. Unsaved content once everyone has
-                // left is a retry of the session's last save, which emits.
-                let emit_saved =
-                    doc_state.room_empty_since.is_some() && doc_state.has_unsaved_content();
-                if self.save_if_changed(doc_id, doc_state, emit_saved) {
-                    saved_count += 1;
-                }
+            if doc_state.should_save() && self.save_if_changed(doc_id, doc_state) {
+                saved_count += 1;
             }
 
             // A session that went quiet while someone still has the
@@ -1966,11 +1950,7 @@ impl YjsAppState {
             // Final save for empty rooms
             if doc_state.should_do_final_save() {
                 debug!(doc_id = %doc_id, "Performing final save for empty room");
-                // End-of-session save: emit content-saved when the session
-                // actually changed content (contributors are added only on
-                // real change), so the search replicator re-indexes.
-                let emit_saved = !doc_state.contributors.is_empty();
-                if self.save_if_changed(doc_id, doc_state, emit_saved) {
+                if self.save_if_changed(doc_id, doc_state) {
                     final_saved_count += 1;
                 }
                 doc_state.mark_final_save_completed();
@@ -2702,11 +2682,7 @@ impl YjsAppState {
         if let Some(doc_state) = documents.get_mut(doc_id) {
             let workspace_id = doc_state.workspace_id;
             debug!(doc_id = %doc_id, "Final save on disconnect");
-            // End-of-session save (last editor left): emit content-saved
-            // when the session changed content, so the search replicator
-            // re-indexes the body on every machine.
-            let emit_saved = !doc_state.contributors.is_empty();
-            self.save_if_changed(doc_id, doc_state, emit_saved);
+            self.save_if_changed(doc_id, doc_state);
 
             // Create revision at end of editing session if there were actual content changes
             // Contributors are only added when content actually changes, so this is sufficient
@@ -2772,11 +2748,7 @@ impl YjsAppState {
                 let pool = pool.clone();
                 let search = search.clone();
                 async move {
-                    // Shutdown flush: persist the body, but skip the
-                    // content-saved emit — a restart rebuilds the index from
-                    // Postgres anyway, and the owner is going away.
-                    write_yjs_state(pool, search, doc_type, content, workspace_id, fence, false)
-                        .await;
+                    write_yjs_state(pool, search, doc_type, content, workspace_id, fence).await;
                 }
             },
         ))
@@ -2944,19 +2916,10 @@ impl YjsAppState {
     /// Save the document when its content changed since the backing table
     /// last got it, and return whether it did. A session that only viewed
     /// the document leaves the row alone: no new `yjs_document`, no new
-    /// `updated_at`.
-    ///
-    /// `emit_saved` ends a session that changed the content, so it saves
-    /// even when an earlier save already holds every change: its
-    /// content-saved event is what has the other machines index the body.
-    fn save_if_changed(
-        &self,
-        doc_id: &str,
-        doc_state: &mut DocumentState,
-        emit_saved: bool,
-    ) -> bool {
+    /// `updated_at`, no content-saved event.
+    fn save_if_changed(&self, doc_id: &str, doc_state: &mut DocumentState) -> bool {
         let version = doc_state.content_version.load(Ordering::SeqCst);
-        let changed = doc_state.has_unsaved_content() || emit_saved;
+        let changed = doc_state.has_unsaved_content();
         if changed {
             debug!(doc_id = %doc_id, "Saving changed document");
             self.save_document_internal(
@@ -2965,7 +2928,6 @@ impl YjsAppState {
                 doc_state.workspace_id,
                 doc_state.fence,
                 doc_state.doc_type,
-                emit_saved,
                 (Arc::clone(&doc_state.saved_content_version), version),
             );
         }
@@ -2981,10 +2943,6 @@ impl YjsAppState {
         workspace_id: i32,
         fence: Option<i64>,
         doc_type: DocumentType,
-        // True only when this is the end-of-session save and the session
-        // had real content changes; threaded to `write_yjs_state` to drive
-        // the search-only content-saved emit.
-        emit_saved: bool,
         // The room's saved content version, and the content version this
         // save holds: the write raises the one to the other once it lands.
         (saved_version, version): (Arc<AtomicU64>, u64),
@@ -3034,7 +2992,6 @@ impl YjsAppState {
                 binary_content,
                 workspace_id,
                 fence,
-                emit_saved,
             )
             .await;
             match outcome {
@@ -4690,7 +4647,6 @@ mod deleted_document_save_tests {
                 content.clone(),
                 1,
                 None,
-                false,
             )
         };
 

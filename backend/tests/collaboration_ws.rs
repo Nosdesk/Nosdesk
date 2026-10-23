@@ -2275,6 +2275,47 @@ async fn opening_a_page_without_editing_changes_nothing() {
     );
 }
 
+/// An edit saved while its editor is still there tells the other machines to
+/// index it, even when a quiet spell already made it a revision and nothing is
+/// left to save when the editor leaves.
+#[actix_web::test]
+async fn an_edit_saved_mid_session_is_announced() {
+    let test_db = common::TestDb::new();
+    let page = ImportedPage::new(&test_db);
+    let client = awc::Client::new();
+    let (_resp, mut editor) = client
+        .ws(&page.url)
+        .connect()
+        .await
+        .expect("editor connects");
+    let room = synced_doc(&mut editor).await;
+    editor
+        .send(ws::Message::Binary(append_text(&room, "Saved while open.")))
+        .await
+        .expect("send edit");
+
+    // The quiet period cuts the revision, then the room's regular save
+    // stores the edit, both while the editor is still there.
+    let saved = page
+        .stored_once(10, |s| {
+            s.revisions == 2 && holds(&s.document, "Saved while open.")
+        })
+        .await;
+    assert!(
+        holds(&saved.document, "Saved while open."),
+        "saved mid-session"
+    );
+    assert_eq!(saved.content_saved_events, 1, "the save announces itself");
+
+    drop(editor);
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+    assert_eq!(
+        page.stored().content_saved_events,
+        1,
+        "leaving with nothing new to save announces nothing more"
+    );
+}
+
 /// An edit whose save fails is saved once saving works again. The editor
 /// stays until the quiet period has made the edit a revision, so its leaving
 /// is not the end of a session with changes; the room still knows the
