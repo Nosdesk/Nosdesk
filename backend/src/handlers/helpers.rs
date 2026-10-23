@@ -207,7 +207,7 @@ pub fn admin_user_conn(
 /// Why an admin action on a target user was denied (mapped to an HTTP response
 /// by [`authorize_target_user_action`]). Split from the response so the
 /// decision is unit-testable.
-enum TargetActionDenied {
+pub enum TargetActionDenied {
     NotWorkspaceAdmin,
     TargetNotInWorkspace,
     TargetInOtherWorkspaces,
@@ -328,6 +328,67 @@ pub fn authorize_target_user_action(
              an instance administrator."
                 .into(),
         )),
+    }
+}
+
+/// Whether the caller may delete or restore `target_uuid`: `Ok(())` when they
+/// may. Platform admins always may. A workspace admin may act on a member of
+/// their own workspace who belongs to no other, because the user row is shared
+/// by every workspace the person is in, and deleting it removes them from all
+/// of them. Unlike credential recovery this holds in hosted too, where it
+/// covers requesters; the handlers refuse control-plane-owned staff seats.
+pub fn user_lifecycle_decision(
+    req: &HttpRequest,
+    pool: &web::Data<Pool>,
+    claims: &Claims,
+    target_uuid: Uuid,
+) -> Result<Result<(), TargetActionDenied>, ApiError> {
+    if crate::utils::rbac::is_platform_admin(claims) {
+        return Ok(Ok(()));
+    }
+    let caller_uuid = utils::parse_uuid(&claims.sub)
+        .map_err(|_| ApiError::BadRequest("Invalid caller".into()))?;
+    let ws_id = request_workspace_id(req)
+        .ok_or_else(|| ApiError::Internal("Workspace context missing".into()))?;
+    let mut conn = db_conn(pool)?;
+    let actor = actor_for(req, "user_lifecycle_gate");
+    Ok(target_action_decision(
+        &mut conn,
+        ws_id,
+        caller_uuid,
+        target_uuid,
+        true,
+        &actor,
+    ))
+}
+
+/// [`user_lifecycle_decision`] as a gate: `Ok` when the caller may act, else
+/// the refusal. A target in other workspaces carries the code
+/// `member_elsewhere` so the app can explain it.
+pub fn authorize_user_lifecycle(
+    req: &HttpRequest,
+    pool: &web::Data<Pool>,
+    claims: &Claims,
+    target_uuid: Uuid,
+) -> Result<(), ApiError> {
+    match user_lifecycle_decision(req, pool, claims, target_uuid)? {
+        Ok(()) => Ok(()),
+        Err(TargetActionDenied::NotWorkspaceAdmin) => Err(ApiError::Forbidden(
+            "Only administrators can perform this action".into(),
+        )),
+        Err(TargetActionDenied::TargetNotInWorkspace) => Err(ApiError::NotFoundMsg(
+            "This user is not a member of your workspace".into(),
+        )),
+        Err(TargetActionDenied::TargetInOtherWorkspaces) => {
+            Err(ApiError::Actix(errors::from_response(
+                "member_elsewhere",
+                errors::forbidden_with_code(
+                    "This person also belongs to other workspaces. Remove them from this \
+                     workspace instead.",
+                    "member_elsewhere",
+                ),
+            )))
+        }
     }
 }
 

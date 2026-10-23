@@ -622,7 +622,6 @@ pub async fn get_users(
 pub async fn get_paginated_users(
     pool: web::Data<crate::db::Pool>,
     query: web::Query<PaginationParams>,
-    req: HttpRequest,
     ws: WorkspaceContext,
     auth: crate::extractors::AuthContext,
 ) -> Result<HttpResponse, ApiError> {
@@ -686,16 +685,14 @@ pub async fn get_paginated_users(
         .map(|r| crate::utils::utf8_trunc::char_prefix(r, 100));
     let assignable = query.assignable.unwrap_or(false);
 
-    // Soft-deleted users (and the "all" view) are a platform-admin-only
-    // recovery surface, matching who can restore/purge them. A non-admin
-    // caller is forced back to the active set regardless of the requested
-    // filter, so deleted tombstones (and the PII they retain until purge)
-    // never leak to ordinary staff who can reach this directory endpoint.
+    // Soft-deleted users (and the "all" view) are an admin-only recovery
+    // surface, matching who can restore them; the list stays scoped to this
+    // workspace. A non-admin caller is forced back to the active set
+    // regardless of the requested filter, so deleted tombstones (and the PII
+    // they retain until purge) never leak to ordinary staff who can reach this
+    // directory endpoint.
     let requested_deleted = repository::users::DeletedFilter::from_query(query.deleted.as_deref());
-    let is_admin = crate::utils::rbac::require_auth(&req)
-        .map(|claims| is_platform_admin(&claims))
-        .unwrap_or(false);
-    let deleted = if is_admin {
+    let deleted = if auth.is_workspace_admin() {
         requested_deleted
     } else {
         repository::users::DeletedFilter::Active
@@ -1274,11 +1271,10 @@ pub async fn create_user(
     }
 }
 
-/// Common prelude for the three single-target admin endpoints
-/// (`delete_user`, `restore_user`, `purge_user_now`): pull
-/// claims, require admin role, parse the path UUID, and fetch
-/// the target row. Returns `(claims, uuid, target_user)` on the
-/// happy path or the error to short-circuit on.
+/// Prelude for `purge_user_now`: pull claims, require platform
+/// admin, parse the path UUID, and fetch the target row. Returns
+/// `(claims, uuid, target_user)` on the happy path or the error to
+/// short-circuit on.
 fn require_admin_target(
     req: &HttpRequest,
     conn: &mut DbConnection,
@@ -1296,6 +1292,29 @@ fn require_admin_target(
     }
     let user_uuid = utils::parse_uuid(raw_uuid)
         .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+    let target = repository::get_user_by_uuid(&user_uuid, conn)
+        .map_err(|_| ApiError::NotFoundMsg("User not found".into()))?;
+    Ok((claims, user_uuid, target))
+}
+
+/// Prelude for `delete_user` and `restore_user`. Like
+/// [`require_admin_target`], but a workspace admin also passes for a
+/// member of their own workspace who belongs to no other (see
+/// [`helpers::authorize_user_lifecycle`]).
+fn require_lifecycle_target(
+    req: &HttpRequest,
+    pool: &web::Data<crate::db::Pool>,
+    conn: &mut DbConnection,
+    raw_uuid: &str,
+) -> Result<(crate::models::Claims, Uuid, crate::models::User), ApiError> {
+    let claims = req
+        .extensions()
+        .get::<crate::models::Claims>()
+        .cloned()
+        .ok_or_else(|| ApiError::Unauthorized("Authentication required".into()))?;
+    let user_uuid = utils::parse_uuid(raw_uuid)
+        .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+    helpers::authorize_user_lifecycle(req, pool, &claims, user_uuid)?;
     let target = repository::get_user_by_uuid(&user_uuid, conn)
         .map_err(|_| ApiError::NotFoundMsg("User not found".into()))?;
     Ok((claims, user_uuid, target))
@@ -1324,26 +1343,15 @@ pub async fn delete_user(
     helpers::pin_request_workspace(&req, &mut conn);
 
     let (claims, user_uuid_parsed, target_user) =
-        require_admin_target(&req, &mut conn, uuid.as_str())?;
+        require_lifecycle_target(&req, &pool, &mut conn, uuid.as_str())?;
 
     if claims.sub == uuid.as_str() {
         return Err(ApiError::BadRequest(
             "You cannot delete your own account while logged in".into(),
         ));
     }
-    let caller_uuid = utils::parse_uuid(&claims.sub)
-        .map_err(|_| ApiError::BadRequest("Invalid user UUID in token".into()))?;
-    let caller = repository::get_user_by_uuid(&caller_uuid, &mut conn)
-        .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
-    let credential = body.map(web::Json::into_inner).unwrap_or_default();
-    crate::handlers::auth::verify_step_up(
-        &mut conn,
-        &claims,
-        &caller,
-        &credential,
-        "Confirm with your password or 2FA code to delete this user",
-    )
-    .await?;
+    // Every refusal comes before the step-up, so nobody confirms it's them
+    // for a delete that can't happen.
     if crate::repository::user_helpers::user_is_admin(&mut conn, &target_user) {
         return Err(ApiError::BadRequest(
             "Administrator accounts cannot be deleted for security reasons".into(),
@@ -1358,6 +1366,19 @@ pub async fn delete_user(
     if target_user.deleted_at.is_some() {
         return Err(ApiError::Conflict("User is already soft-deleted".into()));
     }
+    let caller_uuid = utils::parse_uuid(&claims.sub)
+        .map_err(|_| ApiError::BadRequest("Invalid user UUID in token".into()))?;
+    let caller = repository::get_user_by_uuid(&caller_uuid, &mut conn)
+        .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
+    let credential = body.map(web::Json::into_inner).unwrap_or_default();
+    crate::handlers::auth::verify_step_up(
+        &mut conn,
+        &claims,
+        &caller,
+        &credential,
+        "Confirm with your password or 2FA code to delete this user",
+    )
+    .await?;
 
     let soft_deleted = match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
         &mut conn,
@@ -1406,7 +1427,8 @@ pub async fn restore_user(
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
 
-    let (_claims, user_uuid_parsed, target) = require_admin_target(&req, &mut conn, uuid.as_str())?;
+    let (_claims, user_uuid_parsed, target) =
+        require_lifecycle_target(&req, &pool, &mut conn, uuid.as_str())?;
     if target.deleted_at.is_none() {
         return Err(ApiError::Conflict("User is not soft-deleted".into()));
     }
@@ -3343,8 +3365,17 @@ pub async fn bulk_users(
         }
     };
 
-    // Only admins can perform bulk operations
-    if !is_platform_admin(&claims) {
+    // Platform admins may do every bulk action. Workspace admins may delete,
+    // each target checked below like a single delete; nothing else.
+    let platform_admin = is_platform_admin(&claims);
+    if !platform_admin
+        && (body.action != "delete"
+            || crate::utils::rbac::require_workspace_role(
+                &req,
+                crate::models::WorkspaceRole::Admin,
+            )
+            .is_err())
+    {
         return Err(ApiError::Forbidden(
             "Forbidden: Only administrators can perform bulk user operations".into(),
         ));
@@ -3395,6 +3426,7 @@ pub async fn bulk_users(
             let mut deleted = 0;
             let mut skipped_admin = 0;
             let mut skipped_staff = 0;
+            let mut skipped_elsewhere = 0;
             let mut failed = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
@@ -3404,6 +3436,17 @@ pub async fn bulk_users(
                         continue;
                     }
                 };
+                match helpers::user_lifecycle_decision(&req, &pool, &claims, uuid) {
+                    Ok(Ok(())) => {}
+                    Ok(Err(helpers::TargetActionDenied::TargetInOtherWorkspaces)) => {
+                        skipped_elsewhere += 1;
+                        continue;
+                    }
+                    Ok(Err(_)) | Err(_) => {
+                        failed += 1;
+                        continue;
+                    }
+                }
                 let target = match repository::get_user_by_uuid(&uuid, &mut conn) {
                     Ok(u) => u,
                     Err(_) => {
@@ -3446,6 +3489,7 @@ pub async fn bulk_users(
                 "affected": deleted,
                 "skipped_admin": skipped_admin,
                 "skipped_staff": skipped_staff,
+                "skipped_elsewhere": skipped_elsewhere,
                 "failed": failed,
             })))
         }

@@ -37,6 +37,7 @@ export interface BulkUserActionResult {
   affected: number;
   skipped_admin?: number;
   skipped_staff?: number;
+  skipped_elsewhere?: number;
   failed?: number;
 }
 

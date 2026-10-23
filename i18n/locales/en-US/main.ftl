@@ -2738,6 +2738,10 @@ user-mgmt-bulk-skipped-staff = { $count ->
     [one] One staff member is managed in your Nosdesk account, so they weren't deleted here.
    *[other] { $count } staff members are managed in your Nosdesk account, so they weren't deleted here.
 }
+user-mgmt-bulk-skipped-elsewhere = { $count ->
+    [one] One person also belongs to other workspaces, so they weren't deleted. Remove them from this workspace instead.
+   *[other] { $count } people also belong to other workspaces, so they weren't deleted. Remove them from this workspace instead.
+}
 user-mgmt-bulk-delete-failed = { $count ->
     [one] One user couldn't be deleted. Try again.
    *[other] { $count } users couldn't be deleted. Try again.
@@ -7681,6 +7685,8 @@ user-settings-delete-modal-removes = After 30 days, this permanently removes:
 user-settings-delete-cancel = Cancel
 user-settings-delete-confirm = Delete Account
 user-settings-delete-error = Couldn't delete the account. Try again.
+user-settings-delete-member-elsewhere = This person also belongs to other workspaces, so their account can't be deleted from here. Remove them from this workspace instead.
+user-settings-delete-admin-hint = Administrators can't be deleted. To delete this account, change their role first.
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filter plugins
 admin-plugins-list-search-placeholder = Search plugins

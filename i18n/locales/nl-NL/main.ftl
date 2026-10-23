@@ -2692,6 +2692,10 @@ user-mgmt-bulk-skipped-staff = { $count ->
     [one] Eén medewerker wordt beheerd in uw Nosdesk-account en is hier dus niet verwijderd.
    *[other] { $count } medewerkers worden beheerd in uw Nosdesk-account en zijn hier dus niet verwijderd.
 }
+user-mgmt-bulk-skipped-elsewhere = { $count ->
+    [one] Eén persoon hoort ook bij andere werkruimten en is daarom niet verwijderd. Verwijder deze persoon in plaats daarvan uit deze werkruimte.
+   *[other] { $count } personen horen ook bij andere werkruimten en zijn daarom niet verwijderd. Verwijder ze in plaats daarvan uit deze werkruimte.
+}
 user-mgmt-bulk-delete-failed = { $count ->
     [one] Eén gebruiker kon niet worden verwijderd. Probeer het opnieuw.
    *[other] { $count } gebruikers konden niet worden verwijderd. Probeer het opnieuw.
@@ -8280,6 +8284,8 @@ user-settings-delete-modal-removes = Na 30 dagen wordt het volgende definitief v
 user-settings-delete-cancel = Annuleren
 user-settings-delete-confirm = Account verwijderen
 user-settings-delete-error = Kan het account niet verwijderen. Probeer het opnieuw.
+user-settings-delete-member-elsewhere = Deze persoon hoort ook bij andere werkruimten, dus het account kan hier niet worden verwijderd. Verwijder deze persoon in plaats daarvan uit deze werkruimte.
+user-settings-delete-admin-hint = Beheerders kunnen niet worden verwijderd. Wijzig eerst de rol om dit account te verwijderen.
 admin-plugins-list-title = Plug-ins
 admin-plugins-list-aria-filter = Plug-ins filteren
 admin-plugins-list-search-placeholder = Plug-ins zoeken
