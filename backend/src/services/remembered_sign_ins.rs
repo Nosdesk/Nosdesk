@@ -245,13 +245,13 @@ async fn send_to(base_url: &str, path: &str, token: &str) -> Outcome {
             // 404: a control plane deployed before this endpoint.
             tracing::warn!(
                 status = resp.status().as_u16(),
-                path,
+                route = path,
                 "control plane did not end the remembered sign-ins"
             );
             Outcome::Failed
         }
         Err(e) => {
-            tracing::warn!(error = %e.without_url(), path, "control plane unreachable ending remembered sign-ins");
+            tracing::warn!(error = %e.without_url(), route = path, "control plane unreachable ending remembered sign-ins");
             Outcome::Failed
         }
     }
