@@ -95,6 +95,7 @@ fn session(conn: &mut backend::db::DbConnection, user: Uuid, id_token: Option<St
             location: None,
             expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: id_token,
+            confirmed_at: None,
         },
     )
     .expect("session")
@@ -154,8 +155,17 @@ fn claims(user: Uuid, sid: Uuid) -> Claims {
     }
 }
 
-/// Sign out the others from `current`; returns the response body.
+/// Sign out the others from `current`, having confirmed it's them (the step-up
+/// every caller passes first); returns the response body.
 async fn sign_out_others(pool: &backend::db::Pool, user: Uuid, current: Uuid) -> Value {
+    backend::repository::active_sessions::record_confirmation(
+        &mut pool.get().expect("conn"),
+        &current,
+        &user,
+        chrono::Utc::now().naive_utc(),
+        None,
+    )
+    .expect("confirm");
     let as_claims = claims(user, current);
     let app = http_test::init_service(
         App::new()
@@ -340,6 +350,22 @@ async fn on_hosted_signing_out_ends_remembered_sign_ins() {
     assert_eq!(c["sub"], p.subject.as_str());
     assert_eq!(c["sid"], "sid-this");
     assert!(c.get("keep_sid").is_none());
+
+    // After confirming it's them at the control plane, the browser holds a new
+    // remembered sign-in; signing out ends that one, not the first.
+    let p = person(conn);
+    let here = session(conn, p.user, Some(id_token(&p.subject, "sid-before")));
+    backend::repository::active_sessions::record_confirmation(
+        conn,
+        &here,
+        &p.user,
+        chrono::Utc::now().naive_utc(),
+        Some(&id_token(&p.subject, "sid-after-confirming")),
+    )
+    .expect("confirm");
+    sign_out(&pool, p.user, here).await;
+    let token = cp.tokens.lock().unwrap().last().cloned().flatten().unwrap();
+    assert_eq!(verified_claims(&token)["sid"], "sid-after-confirming");
 
     // A session with no remembered sign-in asks for nothing.
     let calls = cp.tokens.lock().unwrap().len();

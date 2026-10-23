@@ -271,6 +271,22 @@ pub struct OAuthState {
     /// binding).
     #[serde(default)]
     pub binding: Option<String>,
+    /// Set when the flow confirms a signed-in session (a step-up) instead of
+    /// signing anyone in.
+    #[serde(default)]
+    pub step_up: Option<StepUpFlow>,
+}
+
+/// The session a step-up flow confirms, fixed by the server when it starts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepUpFlow {
+    /// The person confirming; the provider must send back their identity.
+    pub user_uuid: Uuid,
+    /// The session the confirmation is for.
+    pub session_id: Uuid,
+    /// When the flow started (Unix seconds): the provider's `auth_time` must
+    /// not be earlier.
+    pub started_at: i64,
 }
 
 // OAuth Authentication request

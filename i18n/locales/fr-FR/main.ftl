@@ -5667,14 +5667,38 @@ settings-sessions-revoke-success = Session déconnectée.
 settings-sessions-revoke-error = Impossible de déconnecter cette session. Réessayez.
 settings-sessions-revoke-others-button = Déconnecter toutes les autres sessions
 settings-sessions-revoke-others-modal-title = Déconnecter toutes les autres sessions ?
-settings-sessions-revoke-others-modal-description = Cela déconnecte tous les appareils sauf celui-ci. Confirmez votre identité pour continuer.
-settings-sessions-revoke-others-stepup-password = Confirmez votre mot de passe pour continuer
-settings-sessions-revoke-others-stepup-mfa = Saisissez un code d'authentification pour continuer
+settings-sessions-revoke-others-modal-description = Cela déconnecte tous les appareils sauf celui-ci.
 settings-sessions-modal-cancel = Annuler
 settings-sessions-revoke-others-confirm = Déconnecter les autres
 settings-sessions-revoke-others-success = Toutes les autres sessions ont été déconnectées.
 settings-sessions-revoke-others-success-remembered-kept = Toutes les autres sessions ont été déconnectées. Les navigateurs connectés à votre compte Nosdesk peuvent encore se reconnecter pendant 8 heures au maximum. Pour les en empêcher dès maintenant, déconnectez les autres sessions dans votre compte Nosdesk.
-settings-sessions-revoke-others-error = Impossible de déconnecter les autres sessions. Vérifiez vos identifiants et réessayez.
+settings-sessions-revoke-others-error = Impossible de déconnecter les autres sessions. Réessayez.
+
+# Confirmer que c'est vous avant une action sensible (ConfirmIdentity, /auth/confirmed) (machine, à relire par un locuteur natif)
+step-up-lead = Confirmez que c'est bien vous pour continuer.
+step-up-confirmed = Vous avez confirmé que c'est bien vous il y a quelques minutes.
+step-up-password-label = Mot de passe
+step-up-code-label = Code d'authentification ou code de secours
+step-up-passkey-button = Utiliser une clé d'accès
+step-up-provider-button = Continuer avec { $name }
+step-up-provider-help = Une fenêtre s'ouvre pour vous reconnecter. Revenez ici une fois terminé.
+step-up-waiting = En attente de votre connexion…
+step-up-try-again = Réessayer
+step-up-use-another-way = Utiliser une autre méthode
+step-up-choice-password = Utiliser votre mot de passe
+step-up-choice-code = Utiliser un code d'authentification ou de secours
+step-up-result-cancelled = La connexion a été annulée.
+step-up-result-wrong-account = C'était un autre compte. Connectez-vous avec { $email } pour continuer.
+step-up-result-wrong-account-no-email = C'était un autre compte. Connectez-vous avec le compte que vous utilisez ici pour continuer.
+step-up-result-not-fresh = Votre fournisseur de connexion n'a pas confirmé une connexion récente. Réessayez.
+step-up-result-signed-out = Ce navigateur est déconnecté. Reconnectez-vous, puis réessayez.
+step-up-result-failed = Impossible de confirmer que c'est bien vous. Réessayez.
+step-up-no-methods = Déconnectez-vous, reconnectez-vous, puis réessayez dans les { $minutes ->
+    [one] { $minutes } minute
+   *[other] { $minutes } minutes
+}.
+step-up-popup-confirmed = Confirmé. Vous pouvez fermer cette fenêtre.
+step-up-popup-close = Vous pouvez fermer cette fenêtre.
 
 # Paramètres : avertissement de modifications non enregistrées (partagé) (machine, à relire par un locuteur natif).
 settings-unsaved-leave-title = Abandonner les modifications non enregistrées ?
@@ -7907,6 +7931,7 @@ route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Sauvegarde et restauration
 route-title-group-detail = Détails du groupe
 route-title-authenticating = Authentification en cours...
+route-title-auth-confirmed = Confirmer que c'est vous
 route-title-pdf-viewer = Visionneuse PDF
 
 # Loading modals + scattered polish
@@ -8262,8 +8287,6 @@ user-settings-delete-button = Supprimer le compte
 user-settings-delete-self-hint = Pour supprimer votre compte, contactez l'administrateur de votre espace de travail.
 user-settings-delete-modal-warning = { $name } perd l'accès immédiatement. Le compte est définitivement supprimé après 30 jours, et un administrateur peut le restaurer d'ici là.
 user-settings-delete-modal-removes = Après 30 jours, ceci supprime définitivement :
-user-settings-delete-stepup-password = Saisissez votre mot de passe pour confirmer
-user-settings-delete-stepup-mfa = Saisissez un code de votre application d'authentification, ou un code de secours, pour confirmer
 user-settings-delete-cancel = Annuler
 user-settings-delete-confirm = Supprimer le compte
 user-settings-delete-error = Impossible de supprimer le compte. Réessayez.

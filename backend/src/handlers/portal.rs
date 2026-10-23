@@ -220,11 +220,16 @@ pub(crate) fn mint_portal_session(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<PortalSessionCookies, ApiError> {
-    let session = crate::handlers::auth::create_session_record(&user.uuid, request, conn, None)
-        .map_err(|e| {
-            tracing::error!(error = ?e, "portal session: failed to create session record");
-            ApiError::Internal("Failed to establish session".into())
-        })?;
+    let session = crate::handlers::auth::create_session_record(
+        &user.uuid,
+        request,
+        conn,
+        crate::handlers::auth::SignInProof::Nothing,
+    )
+    .map_err(|e| {
+        tracing::error!(error = ?e, "portal session: failed to create session record");
+        ApiError::Internal("Failed to establish session".into())
+    })?;
 
     let family_id = Uuid::new_v4();
     let tokens = crate::utils::jwt::helpers::create_portal_tokens(

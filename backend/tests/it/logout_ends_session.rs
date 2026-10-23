@@ -34,6 +34,7 @@ fn sign_in(pool: &crate::common::TestPool, user: &backend::models::User) -> Sign
             location: None,
             expires_at: (chrono::Utc::now() + chrono::Duration::days(7)).naive_utc(),
             oidc_id_token: None,
+            confirmed_at: None,
         },
     )
     .expect("session");

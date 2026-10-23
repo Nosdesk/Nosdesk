@@ -12,7 +12,6 @@ import Callout from '@/components/common/Callout.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import Button from '@/components/common/Button.vue';
-import FormInput from '@/components/common/FormInput.vue';
 import Modal from '@/components/Modal.vue';
 import HorizontalScrollContainer from '@/components/common/HorizontalScrollContainer.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
@@ -40,7 +39,7 @@ import {
 import { groupService } from '@nosdesk/core/services/groupService';
 import type { Group } from '@nosdesk/core/types/group';
 import apiClient from '@nosdesk/core/apiClient';
-import { useStepUpMethod } from '@/composables/useStepUpMethod';
+import ConfirmIdentity from '@/components/auth/ConfirmIdentity.vue';
 import { useColorFilter } from '@/composables/useColorFilter';
 import { extractErrorMessage } from '@/utils/errors';
 
@@ -385,28 +384,18 @@ const resendInvitation = async () => {
 };
 
 // Delete user (admin mode only; self-service deletion goes through an
-// administrator). The admin confirms with their own step-up credential.
+// administrator). The admin first confirms it's them (ConfirmIdentity).
 const showDeleteModal = ref(false);
-const deleteCredential = ref('');
 const deleteError = ref<string | null>(null);
 const isDeleting = ref(false);
-const {
-  method: deleteStepUpMethod,
-  loaded: deleteStepUpLoaded,
-  load: loadDeleteStepUp,
-  credential: deleteStepUpBody,
-} = useStepUpMethod();
-const deleteConfirmDisabled = computed(
-  () => isDeleting.value
-    || !deleteStepUpLoaded.value
-    || (deleteStepUpMethod.value !== 'none' && deleteCredential.value.trim().length === 0),
-);
+const deleteIdentity = ref<InstanceType<typeof ConfirmIdentity> | null>(null);
+const deleteIdentityReady = ref(false);
+const deleteConfirmDisabled = computed(() => isDeleting.value || !deleteIdentityReady.value);
 
-const openDeleteModal = async () => {
-  deleteCredential.value = '';
+const openDeleteModal = () => {
   deleteError.value = null;
+  deleteIdentityReady.value = false;
   showDeleteModal.value = true;
-  await loadDeleteStepUp();
 };
 
 const deleteAccount = async () => {
@@ -415,13 +404,16 @@ const deleteAccount = async () => {
   isDeleting.value = true;
   deleteError.value = null;
   try {
-    await userService.deleteUser(userToDelete.uuid, deleteStepUpBody(deleteCredential.value));
+    // A wrong password or code shows inside ConfirmIdentity; stay open.
+    if (!(await deleteIdentity.value?.confirm())) return;
+    await userService.deleteUser(userToDelete.uuid);
     showDeleteModal.value = false;
-    deleteCredential.value = '';
     router.push('/users?deleted=true');
   } catch (error) {
-    // Keep the modal open so the admin can correct the credential.
+    // Keep the modal open. If the confirmation lapsed meanwhile, the refresh
+    // asks for it again.
     deleteError.value = extractErrorMessage(error, t('user-settings-delete-error'));
+    void deleteIdentity.value?.refresh();
   } finally {
     isDeleting.value = false;
   }
@@ -429,7 +421,6 @@ const deleteAccount = async () => {
 
 const cancelDelete = () => {
   showDeleteModal.value = false;
-  deleteCredential.value = '';
   deleteError.value = null;
 };
 </script>
@@ -866,23 +857,11 @@ const cancelDelete = () => {
           </div>
         </div>
 
-        <!-- The admin's own step-up: password, else a 2FA code, else nothing
-             to enter (SSO-only without MFA). -->
-        <div v-if="deleteStepUpMethod !== 'none'" class="flex flex-col gap-2">
-          <label for="delete-confirm-credential" class="text-sm font-medium text-secondary">
-            {{ deleteStepUpMethod === 'password'
-              ? t('user-settings-delete-stepup-password')
-              : t('user-settings-delete-stepup-mfa') }}
-          </label>
-          <FormInput
-            id="delete-confirm-credential"
-            v-model="deleteCredential"
-            :type="deleteStepUpMethod === 'password' ? 'password' : 'text'"
-            :inputmode="deleteStepUpMethod === 'mfa' ? 'numeric' : undefined"
-            :autocomplete="deleteStepUpMethod === 'password' ? 'current-password' : 'one-time-code'"
-            @keyup.enter="deleteAccount"
-          />
-        </div>
+        <ConfirmIdentity
+          ref="deleteIdentity"
+          v-model:ready="deleteIdentityReady"
+          @submit="deleteAccount"
+        />
         <p v-if="deleteError" class="text-sm text-status-error">{{ deleteError }}</p>
 
         <div class="flex justify-end gap-3 pt-2">

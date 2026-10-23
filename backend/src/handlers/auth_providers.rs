@@ -11,7 +11,8 @@ use urlencoding;
 use crate::db::{DbConnection, Pool};
 use crate::errors::{self, ApiError};
 use crate::handlers::helpers;
-use crate::models::{AuthProvider, OAuthExchangeRequest, OAuthRequest, OAuthState};
+use crate::models::{AuthProvider, OAuthExchangeRequest, OAuthRequest, OAuthState, StepUpFlow};
+use crate::services::step_up::StepUpProvider;
 use crate::utils::jwt::JWT_SECRET;
 // Auth providers are now configured via environment variables
 use crate::config_utils;
@@ -379,6 +380,7 @@ pub async fn oauth_authorize(
             Some(pkce_verifier.secret().clone()),
             Some(nonce.secret().clone()),
             None,
+            None,
         ) {
             Ok(pair) => pair,
             Err(e) => {
@@ -416,6 +418,7 @@ pub async fn oauth_authorize(
             oauth_request.redirect_uri.clone(),
             oauth_request.user_connection,
             callback_redirect.clone(),
+            None,
         )
         .await
         {
@@ -428,6 +431,7 @@ pub async fn oauth_authorize(
                     Some(auth_data.pkce_verifier),
                     Some(auth_data.nonce),
                     callback_redirect,
+                    None,
                 ) {
                     Ok(pair) => pair,
                     Err(e) => {
@@ -544,9 +548,12 @@ pub async fn oauth_callback(
     // The provider reports a cancelled or refused sign-in with `error=` and
     // no code. Read it first, so it isn't mistaken for a broken callback.
     if let Some(error) = &query.error {
-        let connect_return = verify_callback_state(&query, &request)
-            .ok()
-            .and_then(|state| connect_return_path(&state));
+        let state = verify_callback_state(&query, &request).ok();
+        if state.as_ref().is_some_and(|s| s.step_up.is_some()) {
+            info!(error = %error, "step-up: the identity provider returned an error");
+            return step_up_result(STEP_UP_CANCELLED);
+        }
+        let connect_return = state.and_then(|state| connect_return_path(&state));
         return callback_failure_response(
             CallbackFailure::ProviderDenied(format!(
                 "{error:?} {:?}",
@@ -559,6 +566,15 @@ pub async fn oauth_callback(
         Ok(state) => state,
         Err(failure) => return callback_failure_response(failure, None),
     };
+    if let Some(flow) = state_data.step_up.clone() {
+        let Some(code) = query.code.as_deref() else {
+            return step_up_result(STEP_UP_FAILED);
+        };
+        return match confirm_step_up(&db_pool, &state_data, &flow, code, &request).await {
+            Ok(()) => step_up_result(STEP_UP_OK),
+            Err(result) => step_up_result(result),
+        };
+    }
     let connect_return = connect_return_path(&state_data);
     let Some(code) = query.code.as_deref() else {
         return callback_failure_response(
@@ -782,14 +798,18 @@ async fn complete_oauth_callback(
                         ));
                     }
                 };
-                if let Err(e) =
-                    oidc::verify_microsoft_id_token(id_token, &tenant_id, &client_id, &nonce).await
-                {
-                    error!(error = %e, "Microsoft ID token verification failed");
-                    return Err(CallbackFailure::Failed(
-                        "Microsoft authentication could not be verified".into(),
-                    ));
-                }
+                let auth_time =
+                    match oidc::verify_microsoft_id_token(id_token, &tenant_id, &client_id, &nonce)
+                        .await
+                    {
+                        Ok(auth_time) => auth_time,
+                        Err(e) => {
+                            error!(error = %e, "Microsoft ID token verification failed");
+                            return Err(CallbackFailure::Failed(
+                                "Microsoft authentication could not be verified".into(),
+                            ));
+                        }
+                    };
                 let access_token = tokens.access_token;
                 // Get user info from Microsoft, normalised into typed claims.
                 let ms_user = match get_microsoft_user_info(&access_token).await {
@@ -928,8 +948,12 @@ async fn complete_oauth_callback(
                         &mut conn,
                         &safe_post_login_location(&state_data.redirect_uri),
                         // Microsoft logout uses its own endpoint (no id_token_hint
-                        // requirement), so nothing to store here.
-                        None,
+                        // requirement), so no id_token to store; auth_time is
+                        // when Microsoft last asked for a credential.
+                        crate::handlers::auth::SignInProof::Provider {
+                            id_token: None,
+                            auth_time,
+                        },
                     )
                     .map_err(CallbackFailure::from)
                 }
@@ -1104,7 +1128,7 @@ async fn complete_oauth_callback(
                         request,
                         &mut conn,
                         &safe_post_login_location(&state_data.redirect_uri),
-                        Some(&id_token),
+                        crate::handlers::auth::SignInProof::provider(&id_token),
                     )
                     .map_err(CallbackFailure::from)
                 }
@@ -1235,6 +1259,7 @@ fn create_oauth_state(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -1248,6 +1273,7 @@ fn create_oauth_state_with_oidc(
     pkce_verifier: Option<String>,
     nonce: Option<String>,
     callback_redirect_uri: Option<String>,
+    step_up: Option<StepUpFlow>,
 ) -> Result<(String, String), String> {
     // Get the JWT secret from environment or configuration
     let secret = JWT_SECRET.clone();
@@ -1274,6 +1300,7 @@ fn create_oauth_state_with_oidc(
         nonce,
         callback_redirect_uri,
         binding: Some(state.clone()),
+        step_up,
     };
 
     // Create the token
@@ -1688,8 +1715,10 @@ pub async fn native_oidc_login(
         user,
         &request,
         &mut conn,
-        // The verified id_token the app presented, kept for RP-initiated logout.
-        Some(&body.id_token),
+        // The verified id_token the app presented, kept for RP-initiated
+        // logout; its auth_time is when the provider last asked for a
+        // credential.
+        crate::handlers::auth::SignInProof::provider(&body.id_token),
     )?;
     Ok(crate::handlers::auth::build_auth_response(
         &request, response, &tokens,
@@ -2148,6 +2177,403 @@ pub async fn oauth_connect(
             "{} authentication is not implemented",
             provider.name
         )))
+    }
+}
+
+// =============================================================================
+// Step-up confirmation at the identity provider
+// =============================================================================
+
+/// The step-up popup's results, read by the `/auth/confirmed` page.
+const STEP_UP_OK: &str = "ok";
+/// The person closed or cancelled the provider's sign-in.
+const STEP_UP_CANCELLED: &str = "cancelled";
+/// The provider signed in a different account.
+const STEP_UP_WRONG_ACCOUNT: &str = "wrong_account";
+/// The provider didn't check a credential just now (or won't say when it did).
+const STEP_UP_NOT_FRESH: &str = "not_fresh";
+const STEP_UP_FAILED: &str = "failed";
+/// This browser is no longer signed in.
+const STEP_UP_SIGNED_OUT: &str = "signed_out";
+
+/// The provider `user_uuid` can confirm with: the configured OIDC provider
+/// (Nosdesk Cloud on hosted) when they have its identity, else Microsoft when
+/// they have that.
+pub(crate) fn step_up_provider(
+    conn: &mut DbConnection,
+    user_uuid: &uuid::Uuid,
+) -> Option<StepUpProvider> {
+    let identities = user_auth_identities::get_user_identities(user_uuid, conn).ok()?;
+    let linked = |provider_type: &str| {
+        identities.iter().any(|i| {
+            i.workspace_id.is_none() && same_identity_type(&i.provider_type, provider_type)
+        })
+    };
+    if config_utils::is_oidc_enabled() && linked(&oidc_identity_issuer()) {
+        return Some(StepUpProvider {
+            provider_type: "oidc".into(),
+            name: oidc::get_display_name_cached(),
+        });
+    }
+    let hosted =
+        crate::middleware::DeploymentMode::current() == crate::middleware::DeploymentMode::Hosted;
+    if !hosted && get_provider_by_type("microsoft").is_ok_and(|p| p.enabled) && linked("microsoft")
+    {
+        return Some(StepUpProvider {
+            provider_type: "microsoft".into(),
+            name: "Microsoft".into(),
+        });
+    }
+    None
+}
+
+/// Whether two identity types name the same provider. A hosted identity is
+/// keyed by its issuer URL, and a trailing slash on either side names the
+/// same issuer (as in `remembered_sign_ins::resolve`).
+fn same_identity_type(a: &str, b: &str) -> bool {
+    a.trim_end_matches('/') == b.trim_end_matches('/')
+}
+
+/// Whether `user_uuid` holds the global identity `subject` at the provider
+/// `identity_type`.
+fn holds_identity(
+    conn: &mut DbConnection,
+    user_uuid: &uuid::Uuid,
+    identity_type: &str,
+    subject: &str,
+) -> Result<bool, diesel::result::Error> {
+    Ok(user_auth_identities::get_user_identities(user_uuid, conn)?
+        .iter()
+        .any(|i| {
+            i.workspace_id.is_none()
+                && same_identity_type(&i.provider_type, identity_type)
+                && i.external_id == subject
+        }))
+}
+
+/// Where the step-up popup lands: a page that tells the dialog how it went
+/// and closes. Clears the flow's `oauth_state` cookie.
+fn step_up_result(result: &str) -> HttpResponse {
+    let mut response = HttpResponse::Found()
+        .append_header(("Location", format!("/auth/confirmed?result={result}")))
+        .finish();
+    if let Err(e) = response.add_cookie(&crate::utils::cookies::delete_oauth_state_cookie()) {
+        error!(error = %e, "step-up: could not clear the state cookie");
+    }
+    response
+}
+
+/// `GET /api/auth/step-up/provider`, opened in a popup by the step-up
+/// dialog. Sends the browser to the person's identity provider, asking it to
+/// check a credential again, with the session to confirm fixed in the signed
+/// state. The callback checks who came back and when they signed in.
+pub async fn start_step_up_provider(db_pool: web::Data<Pool>, req: HttpRequest) -> HttpResponse {
+    // Only the app's own pages start a confirmation of this session.
+    let cross_site = req
+        .headers()
+        .get("sec-fetch-site")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v != "same-origin");
+    if cross_site {
+        warn!("step-up: refused a provider confirmation started from another site");
+        return step_up_result(STEP_UP_FAILED);
+    }
+    let Ok(mut conn) = db_pool.get() else {
+        return step_up_result(STEP_UP_FAILED);
+    };
+    let Some((user_uuid, session_id)) = crate::handlers::auth::browser_session(&req, &mut conn)
+    else {
+        return step_up_result(STEP_UP_SIGNED_OUT);
+    };
+    let Some(provider) = step_up_provider(&mut conn, &user_uuid) else {
+        return step_up_result(STEP_UP_FAILED);
+    };
+    let login_hint = crate::repository::user_helpers::get_primary_email(&user_uuid, &mut conn);
+    drop(conn);
+    let flow = StepUpFlow {
+        user_uuid,
+        session_id,
+        started_at: chrono::Utc::now().timestamp(),
+    };
+    let started = match provider.provider_type.as_str() {
+        "oidc" => step_up_oidc_url(&req, flow, login_hint.as_deref()).await,
+        "microsoft" => step_up_microsoft_url(flow, login_hint.as_deref()),
+        other => Err(format!("no step-up for provider {other}")),
+    };
+    match started {
+        Ok((location, binding)) => HttpResponse::Found()
+            .append_header(("Location", location))
+            .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
+            .finish(),
+        Err(e) => {
+            error!(error = %e, "step-up: could not start the provider confirmation");
+            step_up_result(STEP_UP_FAILED)
+        }
+    }
+}
+
+/// The configured OIDC provider's authorize URL for a step-up, and the state
+/// binding for the cookie.
+async fn step_up_oidc_url(
+    req: &HttpRequest,
+    flow: StepUpFlow,
+    login_hint: Option<&str>,
+) -> Result<(String, String), String> {
+    let callback_redirect = oauth_callback_redirect_uri(req);
+    let (auth_url, auth_data) = oidc::generate_auth_url(
+        None,
+        None,
+        callback_redirect.clone(),
+        Some(oidc::Reauthenticate { login_hint }),
+    )
+    .await?;
+    let (state, binding) = create_oauth_state_with_oidc(
+        "oidc",
+        None,
+        None,
+        Some(auth_data.pkce_verifier),
+        Some(auth_data.nonce),
+        callback_redirect,
+        Some(flow),
+    )?;
+    Ok((replace_state_in_url(&auth_url, &state), binding))
+}
+
+/// Microsoft's authorize URL for a step-up, and the state binding for the
+/// cookie. As at sign-in, plus `prompt=login` and `max_age=0`.
+fn step_up_microsoft_url(
+    flow: StepUpFlow,
+    login_hint: Option<&str>,
+) -> Result<(String, String), String> {
+    let client_id = config_utils::get_microsoft_client_id().map_err(|e| e.to_string())?;
+    let tenant_id = config_utils::get_microsoft_tenant_id().map_err(|e| e.to_string())?;
+    let redirect_uri = config_utils::get_microsoft_redirect_uri().map_err(|e| e.to_string())?;
+    let (pkce_challenge, pkce_verifier) = oidc::generate_pkce();
+    let nonce = oidc::generate_nonce();
+    let (state, binding) = create_oauth_state_with_oidc(
+        "microsoft",
+        None,
+        None,
+        Some(pkce_verifier.secret().clone()),
+        Some(nonce.secret().clone()),
+        None,
+        Some(flow),
+    )?;
+    let hint = login_hint
+        .map(|h| format!("&login_hint={}", urlencoding::encode(h)))
+        .unwrap_or_default();
+    let url = format!(
+        "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&response_mode=query&scope=openid%20profile%20email%20User.Read&nonce={nonce}&code_challenge={code_challenge}&code_challenge_method=S256&prompt=login&max_age=0{hint}&state={state}",
+        nonce = nonce.secret(),
+        code_challenge = pkce_challenge.as_str(),
+        state = urlencoding::encode(&state),
+    );
+    Ok((url, binding))
+}
+
+/// The step-up callback once the state has verified: exchange the code, then
+/// require the identity the session belongs to and a credential checked since
+/// the flow started. Records the confirmation on the session (and, for OIDC,
+/// the new id_token, since the provider now has a new session for this
+/// browser). Never starts a session. `Err` is the popup's result code.
+async fn confirm_step_up(
+    db_pool: &web::Data<Pool>,
+    state: &OAuthState,
+    flow: &StepUpFlow,
+    code: &str,
+    request: &HttpRequest,
+) -> Result<(), &'static str> {
+    let (Some(pkce_verifier), Some(nonce)) = (state.pkce_verifier.clone(), state.nonce.clone())
+    else {
+        warn!("step-up: state without PKCE verifier or nonce");
+        return Err(STEP_UP_FAILED);
+    };
+    let (identity_type, subject, id_token, auth_time) = match state.provider_type.as_str() {
+        "oidc" => {
+            let auth_data = oidc::OidcAuthData {
+                pkce_verifier,
+                nonce,
+            };
+            let (info, id_token) =
+                oidc::exchange_code(code, &auth_data, state.callback_redirect_uri.clone())
+                    .await
+                    .map_err(|e| {
+                        warn!(error = %e, "step-up: OIDC code exchange failed");
+                        STEP_UP_FAILED
+                    })?;
+            let auth_time = crate::services::step_up::id_token_auth_time(&id_token);
+            (oidc_identity_issuer(), info.sub, Some(id_token), auth_time)
+        }
+        "microsoft" => {
+            let provider = get_provider_by_type("microsoft").map_err(|_| STEP_UP_FAILED)?;
+            let client_id = config_utils::get_microsoft_client_id().map_err(|_| STEP_UP_FAILED)?;
+            let tenant_id = config_utils::get_microsoft_tenant_id().map_err(|_| STEP_UP_FAILED)?;
+            let mut conn = db_pool.get().map_err(|_| STEP_UP_FAILED)?;
+            let tokens =
+                exchange_microsoft_code_for_token(&provider, code, &pkce_verifier, &mut conn)
+                    .await
+                    .map_err(|e| {
+                        warn!(error = %e, "step-up: Microsoft code exchange failed");
+                        STEP_UP_FAILED
+                    })?;
+            let id_token = tokens.id_token.as_deref().ok_or(STEP_UP_FAILED)?;
+            let auth_time =
+                oidc::verify_microsoft_id_token(id_token, &tenant_id, &client_id, &nonce)
+                    .await
+                    .map_err(|e| {
+                        warn!(error = %e, "step-up: Microsoft ID token verification failed");
+                        STEP_UP_FAILED
+                    })?;
+            let me = get_microsoft_user_info(&tokens.access_token)
+                .await
+                .map_err(|e| {
+                    warn!(error = %e, "step-up: Microsoft profile lookup failed");
+                    STEP_UP_FAILED
+                })?;
+            let subject = OAuthLoginClaims::from(&me).subject;
+            ("microsoft".to_string(), subject, None, auth_time)
+        }
+        _ => return Err(STEP_UP_FAILED),
+    };
+
+    let mut conn = db_pool.get().map_err(|_| STEP_UP_FAILED)?;
+    let same_person = holds_identity(&mut conn, &flow.user_uuid, &identity_type, &subject)
+        .map_err(|e| {
+            error!(error = %e, "step-up: identity lookup failed");
+            STEP_UP_FAILED
+        })?;
+    let auth_time = match step_up_verdict(flow, same_person, auth_time) {
+        Ok(auth_time) => auth_time,
+        Err(result) => {
+            warn!(user_uuid = %flow.user_uuid, outcome = result, "step-up: the provider's answer was refused");
+            record_step_up_event(&mut conn, request, flow, "step_up_refused", result);
+            return Err(result);
+        }
+    };
+    let confirmed = crate::services::step_up::record(
+        &mut conn,
+        &flow.session_id,
+        &flow.user_uuid,
+        auth_time,
+        id_token.as_deref(),
+    );
+    if confirmed.is_none() {
+        warn!(user_uuid = %flow.user_uuid, "step-up: the session to confirm is gone");
+        return Err(STEP_UP_FAILED);
+    }
+    record_step_up_event(&mut conn, request, flow, "step_up_confirmed", "provider");
+    Ok(())
+}
+
+/// Whether the provider's answer confirms `flow`: the identity it signed in
+/// must be one the person confirming holds (`same_person`), and it must have
+/// checked a credential since the flow started (`auth_time`, which a provider
+/// asked for `max_age=0` must send). Returns when it did, or the popup's
+/// result code.
+fn step_up_verdict(
+    flow: &StepUpFlow,
+    same_person: bool,
+    auth_time: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<chrono::DateTime<chrono::Utc>, &'static str> {
+    if !same_person {
+        return Err(STEP_UP_WRONG_ACCOUNT);
+    }
+    auth_time
+        .filter(|t| t.timestamp() >= flow.started_at - crate::services::step_up::CLOCK_SKEW_SECS)
+        .ok_or(STEP_UP_NOT_FRESH)
+}
+
+fn record_step_up_event(
+    conn: &mut DbConnection,
+    request: &HttpRequest,
+    flow: &StepUpFlow,
+    event_type: &'static str,
+    detail: &str,
+) {
+    let (severity, key) = match event_type {
+        "step_up_confirmed" => ("info", "method"),
+        _ => ("warning", "reason"),
+    };
+    let _ = crate::utils::security_events::record_security_event(
+        conn,
+        crate::utils::security_events::SecurityEventInput {
+            user_uuid: Some(flow.user_uuid),
+            event_type,
+            severity,
+            details: Some(json!({ key: detail, "session_id": flow.session_id.to_string() })),
+            request: Some(request),
+        },
+    );
+}
+
+#[cfg(test)]
+mod step_up_tests {
+    use super::*;
+
+    fn flow() -> StepUpFlow {
+        StepUpFlow {
+            user_uuid: uuid::Uuid::new_v4(),
+            session_id: uuid::Uuid::new_v4(),
+            started_at: chrono::Utc::now().timestamp(),
+        }
+    }
+
+    #[test]
+    fn the_same_person_signing_in_just_now_confirms() {
+        let flow = flow();
+        let now = chrono::Utc::now();
+        assert_eq!(step_up_verdict(&flow, true, Some(now)), Ok(now));
+    }
+
+    #[test]
+    fn another_account_is_refused_however_fresh() {
+        let flow = flow();
+        let now = Some(chrono::Utc::now());
+        assert_eq!(
+            step_up_verdict(&flow, false, now),
+            Err(STEP_UP_WRONG_ACCOUNT)
+        );
+    }
+
+    #[test]
+    fn a_sign_in_from_before_the_flow_or_without_auth_time_is_not_fresh() {
+        let flow = flow();
+        let me = true;
+        let remembered = chrono::Utc::now() - chrono::Duration::hours(7);
+        assert_eq!(
+            step_up_verdict(&flow, me, Some(remembered)),
+            Err(STEP_UP_NOT_FRESH)
+        );
+        assert_eq!(step_up_verdict(&flow, me, None), Err(STEP_UP_NOT_FRESH));
+        // A provider clock a little behind ours still counts.
+        let skewed = chrono::DateTime::from_timestamp(flow.started_at - 10, 0).unwrap();
+        assert!(step_up_verdict(&flow, me, Some(skewed)).is_ok());
+    }
+
+    #[test]
+    fn an_issuer_with_a_trailing_slash_is_the_same_provider() {
+        assert!(same_identity_type(
+            "https://id.nosdesk.dev/",
+            "https://id.nosdesk.dev"
+        ));
+        assert!(same_identity_type("microsoft", "microsoft"));
+        assert!(!same_identity_type(
+            "https://id.nosdesk.dev",
+            "https://elsewhere.example"
+        ));
+    }
+
+    #[test]
+    fn the_popup_lands_on_the_confirmation_page_and_clears_the_state_cookie() {
+        let response = step_up_result(STEP_UP_WRONG_ACCOUNT);
+        assert_eq!(response.status(), actix_web::http::StatusCode::FOUND);
+        assert_eq!(
+            response.headers().get("location").unwrap(),
+            "/auth/confirmed?result=wrong_account"
+        );
+        assert!(response
+            .cookies()
+            .any(|c| c.name().ends_with("oauth_state")));
     }
 }
 

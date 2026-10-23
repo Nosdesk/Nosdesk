@@ -53,6 +53,7 @@ fn session_jwt(pool: &backend::db::Pool, user: &backend::models::User) -> (uuid:
             location: None,
             expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
+            confirmed_at: None,
         },
     )
     .expect("create active session");

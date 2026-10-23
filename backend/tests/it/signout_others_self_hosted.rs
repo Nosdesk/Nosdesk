@@ -22,6 +22,7 @@ fn session(conn: &mut backend::db::DbConnection, user: Uuid) -> Uuid {
             location: None,
             expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
+            confirmed_at: None,
         },
     )
     .expect("session")
@@ -63,14 +64,24 @@ async fn self_hosted_sign_out_of_the_others_makes_no_control_plane_call() {
             ),
     )
     .await;
-    let resp = http_test::call_service(
-        &app,
+    let sign_out_others = || {
         http_test::TestRequest::delete()
             .uri("/auth/sessions/others")
             .set_json(json!({}))
-            .to_request(),
+            .to_request()
+    };
+    let resp = http_test::call_service(&app, sign_out_others()).await;
+    assert_eq!(resp.status(), 400, "an unconfirmed session is refused");
+
+    backend::repository::active_sessions::record_confirmation(
+        conn,
+        &here,
+        &user,
+        chrono::Utc::now().naive_utc(),
+        None,
     )
-    .await;
+    .expect("confirm");
+    let resp = http_test::call_service(&app, sign_out_others()).await;
     assert_eq!(resp.status(), 200);
     let body: Value = http_test::read_body_json(resp).await;
     assert_eq!(body["revoked_count"], 2);

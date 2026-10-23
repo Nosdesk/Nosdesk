@@ -326,9 +326,9 @@ const userService = {
    * the configured grace window. Returns the new deleted_at +
    * purge_at so the caller can show "delete in N days".
    *
-   * `credential` is the caller's own step-up (password or 2FA code), which
-   * the backend verifies. Throws on failure so the caller can show the
-   * server's reason, such as a wrong password.
+   * The backend allows it while this session has confirmed it's the caller
+   * (ConfirmIdentity); `credential` is the older inline proof and can stay
+   * empty. Throws on failure so the caller can show the server's reason.
    */
   async deleteUser(
     uuid: string,
@@ -528,8 +528,9 @@ const userService = {
     }
   },
 
-  // Bulk operations on users (admin only). `delete` needs the caller's
-  // step-up credential (`password` or `mfa_code`).
+  // Bulk operations on users (admin only). `delete` needs this session to
+  // have confirmed it's the caller (ConfirmIdentity); `password` / `mfa_code`
+  // are the older inline proof.
   async bulkAction(request: {
     action: 'delete' | 'set-role';
     ids: string[];

@@ -361,6 +361,8 @@ let pluginLifecycleCleanup: (() => void) | null = null;
 watch(
   () => authStore.isAuthenticated,
   async (isAuthenticated, wasAuthenticated) => {
+    // The "Confirm it's you" popup page closes itself; it runs no plugins.
+    if (route.name === 'auth-confirmed') return;
     if (isAuthenticated && !wasAuthenticated) {
       try {
         // Path mode: the workspace guard loads plugins when it publishes a
