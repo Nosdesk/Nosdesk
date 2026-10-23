@@ -1061,9 +1061,38 @@ pub struct UpdateDocumentationPageRequest {
     pub updated_at: Option<String>,
 }
 
+impl UpdateDocumentationPageRequest {
+    /// True when applying this would change `page`. A request that only
+    /// repeats what the page holds (a title blur with no edit) writes nothing,
+    /// so the page keeps its last-edited time and editor.
+    fn changes(&self, page: &DocumentationPage) -> bool {
+        fn differs<T: PartialEq>(asked: Option<&T>, held: &T) -> bool {
+            asked.is_some_and(|a| a != held)
+        }
+        differs(self.title.as_ref(), &page.title)
+            || differs(self.slug.as_ref(), &page.slug)
+            || self
+                .icon
+                .as_ref()
+                .is_some_and(|i| page.icon.as_ref() != Some(i))
+            || self
+                .cover_image
+                .as_ref()
+                .is_some_and(|c| page.cover_image.as_ref() != Some(c))
+            || differs(self.status.as_ref(), &page.status)
+            || differs(self.parent_id.as_ref(), &page.parent_id)
+            || self
+                .display_order
+                .is_some_and(|d| page.display_order != Some(d))
+            || differs(self.is_public.as_ref(), &page.is_public)
+            || differs(self.is_template.as_ref(), &page.is_template)
+    }
+}
+
 /// Outcome of the update_documentation_page transaction.
 enum UpdatePageOutcome {
     Ok(DocumentationPage, DocumentationPageResponse),
+    Unchanged(DocumentationPageResponse),
     NotFound,
     InvalidParent,
     UpdateFailed,
@@ -1112,6 +1141,14 @@ pub async fn update_documentation_page(
             if !audience.can_open_page(conn, parent_id)? {
                 return Ok(UpdatePageOutcome::InvalidParent);
             }
+        }
+
+        let current = repository::get_documentation_page(page_id, conn)?;
+        if !update_req.changes(&current) {
+            return Ok(match to_page_response(current, conn) {
+                Ok(r) => UpdatePageOutcome::Unchanged(r),
+                Err(err) => UpdatePageOutcome::ResponseBuildFailed(err),
+            });
         }
 
         // Auto-regenerate slug when title changes (unless user explicitly provided a slug)
@@ -1169,6 +1206,7 @@ pub async fn update_documentation_page(
 
     let (updated_page, response) = match outcome {
         Ok(UpdatePageOutcome::Ok(p, r)) => (p, r),
+        Ok(UpdatePageOutcome::Unchanged(r)) => return HttpResponse::Ok().json(r),
         Ok(UpdatePageOutcome::NotFound) => {
             return errors::not_found_msg("Documentation page not found");
         }
@@ -2942,5 +2980,77 @@ mod export_file_name_tests {
             "abc-documentation-2026-10-22.zip"
         );
         assert_eq!(export_file_name("", day), "documentation-2026-10-22.zip");
+    }
+}
+
+#[cfg(test)]
+mod update_request_tests {
+    use super::{DocumentationPage, DocumentationStatus, UpdateDocumentationPageRequest};
+
+    fn page() -> DocumentationPage {
+        let at = chrono::NaiveDate::from_ymd_opt(2026, 10, 1)
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .expect("time");
+        DocumentationPage {
+            id: 5,
+            uuid: uuid::Uuid::nil(),
+            title: "Payroll runbook".into(),
+            slug: "payroll-runbook-2".into(),
+            icon: None,
+            cover_image: None,
+            status: DocumentationStatus::Draft,
+            created_at: at,
+            updated_at: at,
+            created_by: uuid::Uuid::nil(),
+            last_edited_by: uuid::Uuid::nil(),
+            parent_id: Some(3),
+            display_order: Some(1),
+            is_public: false,
+            is_template: false,
+            archived_at: None,
+            yjs_state_vector: None,
+            yjs_document: None,
+            yjs_client_id: None,
+            has_unsaved_changes: false,
+            deleted_at: None,
+            verified_by: None,
+            verified_at: None,
+            verify_interval_days: None,
+            workspace_id: 1,
+            fence_token: None,
+            restricted: false,
+        }
+    }
+
+    fn request(json: serde_json::Value) -> UpdateDocumentationPageRequest {
+        serde_json::from_value(json).expect("request")
+    }
+
+    #[test]
+    fn repeating_what_the_page_holds_changes_nothing() {
+        let page = page();
+        for same in [
+            serde_json::json!({}),
+            serde_json::json!({ "title": "Payroll runbook" }),
+            serde_json::json!({ "title": "Payroll runbook", "slug": "payroll-runbook-2" }),
+            serde_json::json!({ "status": "draft", "parent_id": 3, "is_public": false }),
+        ] {
+            assert!(!request(same.clone()).changes(&page), "{same}");
+        }
+    }
+
+    #[test]
+    fn any_difference_is_a_change() {
+        let page = page();
+        for differs in [
+            serde_json::json!({ "title": "Payroll runbook 2026" }),
+            serde_json::json!({ "title": "Payroll runbook", "slug": "payroll-runbook" }),
+            serde_json::json!({ "icon": "mdi-cash" }),
+            serde_json::json!({ "status": "published" }),
+            serde_json::json!({ "display_order": 2 }),
+            serde_json::json!({ "is_template": true }),
+        ] {
+            assert!(request(differs.clone()).changes(&page), "{differs}");
+        }
     }
 }
