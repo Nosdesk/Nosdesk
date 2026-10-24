@@ -3,7 +3,7 @@ import apiClient from '@nosdesk/core/apiClient';
 import { logger } from '@nosdesk/core/utils/logger';
 import { RequestManager } from '@nosdesk/core/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
-import type { User, UserRole, UserSecurityInfo } from '@nosdesk/core/types/user';
+import type { EditableFields, User, UserRole, UserSecurityInfo } from '@nosdesk/core/types/user';
 import type { Asset, AssetLoan } from '@nosdesk/core/types/asset';
 import type { Group } from '@nosdesk/core/types/group';
 import { extractErrorMessage } from '@/utils/errors';
@@ -78,6 +78,8 @@ export interface UserProfileBundle {
   groups?: Group[]
   emails?: UserEmail[]
   counts?: UserProfileCounts
+  /** What the viewer may change about the person. */
+  editable?: EditableFields
 }
 
 // Request cancellation manager instance

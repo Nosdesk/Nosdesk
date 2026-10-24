@@ -8286,6 +8286,7 @@ user-settings-delete-confirm = Account verwijderen
 user-settings-delete-error = Kan het account niet verwijderen. Probeer het opnieuw.
 user-settings-delete-member-elsewhere = Deze persoon hoort ook bij andere werkruimten, dus het account kan hier niet worden verwijderd. Verwijder deze persoon in plaats daarvan uit deze werkruimte.
 user-settings-delete-admin-hint = Beheerders kunnen niet worden verwijderd. Wijzig eerst de rol om dit account te verwijderen.
+user-settings-account-member-elsewhere = { $name } hoort ook bij andere werkruimten, dus alleen deze persoon kan de naam, foto, e-mailadressen en taal wijzigen. De groepen hier beheert u zelf.
 admin-plugins-list-title = Plug-ins
 admin-plugins-list-aria-filter = Plug-ins filteren
 admin-plugins-list-search-placeholder = Plug-ins zoeken

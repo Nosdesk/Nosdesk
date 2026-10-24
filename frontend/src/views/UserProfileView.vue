@@ -172,7 +172,11 @@ const canEditContact = computed(
 // hands management off to the control plane instead of exposing the in-product
 // settings surface. Requesters and self-hosted stay locally managed.
 const targetExternallyManaged = computed(() => isIdentityExternallyManaged(userProfile.value));
-const canReadEmails = computed(() => isOwnProfile.value || authStore.isPlatformAdmin);
+// The address list goes to those who may change the person's account, as the
+// server decides (`editable.emails`); everyone else sees the primary address.
+const canReadEmails = computed(
+    () => isOwnProfile.value || !!profileQuery.bundle.value?.editable?.emails,
+);
 const manageInControlPlane = () => void openControlPlaneSeats(userProfile.value?.email);
 
 // Update document title when user profile changes
@@ -693,8 +697,8 @@ watch(
                         <div v-if="userProfile?.uuid && targetExternallyManaged" class="break-inside-avoid md:mb-4">
                             <NosdeskAccountCard :user="userProfile" />
                         </div>
-                        <!-- The address list is readable by the person and platform admins;
-                             everyone else sees the primary address in the header. -->
+                        <!-- The address list, for those who may change the person's
+                             account; everyone else sees the primary address in the header. -->
                         <div v-else-if="userProfile?.uuid && canReadEmails" class="break-inside-avoid md:mb-4">
                             <UserEmailsCard
                                 :user-uuid="userProfile.uuid"
