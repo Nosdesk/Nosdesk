@@ -5,7 +5,7 @@ import { useMutation, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { ToolbarButton } from 'reka-ui'
 import { extractErrorMessage } from '@/utils/errors'
-import { formatDate } from '@nosdesk/core/utils/dateUtils'
+import { formatDate, parseDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import {
   isHostedDeployment,
@@ -475,7 +475,8 @@ async function submitAddRequester() {
 }
 
 function formatPurgeAt(deletedAt: string): string {
-  const dt = new Date(deletedAt)
+  // The server's timestamp has no zone; parseDate reads it as UTC.
+  const dt = parseDate(deletedAt) ?? new Date()
   // 30-day grace matches NOSDESK_USER_PURGE_GRACE_DAYS default;
   // close enough for the chip — the real countdown lives on the
   // detail view.

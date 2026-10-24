@@ -325,6 +325,10 @@ pub struct UserResponse {
     /// without a database read (treat as unknown, not as product-owned).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub managed_by: Option<IdentityOwner>,
+    /// When the person was soft-deleted; absent while active. The Deleted
+    /// view of the People list reads it for the badge, purge date and Restore.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<chrono::NaiveDateTime>,
 }
 
 // ============================================================================
@@ -486,6 +490,7 @@ impl From<User> for UserResponse {
             effective_locale: None,
             effective_timezone: None,
             managed_by: None,
+            deleted_at: user.deleted_at,
         }
     }
 }
