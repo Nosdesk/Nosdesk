@@ -408,7 +408,7 @@ const deleteAccount = async () => {
     if (!(await deleteIdentity.value?.confirm())) return;
     await userService.deleteUser(userToDelete.uuid);
     showDeleteModal.value = false;
-    router.push('/users?deleted=true');
+    router.push('/users');
   } catch (error) {
     // Keep the modal open. If the confirmation lapsed meanwhile, the refresh
     // asks for it again.

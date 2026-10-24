@@ -112,6 +112,10 @@ fn spawn(pool: &crate::common::TestPool, caller: &User) -> actix_test::TestServe
                 srv.call(req)
             })
             .route(
+                "/users/paginated",
+                web::get().to(backend::handlers::users::get_paginated_users),
+            )
+            .route(
                 "/users/bulk",
                 web::post().to(backend::handlers::users::bulk_users),
             )
@@ -159,6 +163,26 @@ async fn a_workspace_admin_deletes_and_restores_their_own_requester() {
         "a workspace admin deletes their requester"
     );
     assert!(deleted_at(&mut conn, requester.uuid).is_some());
+
+    // The Deleted view lists them with the timestamp its Restore keys on.
+    let mut resp = awc::Client::new()
+        .get(srv.url("/users/paginated?population=requesters&deleted=deleted"))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.expect("json");
+    let row = body["data"]
+        .as_array()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|r| r["uuid"] == json!(requester.uuid.to_string()))
+        })
+        .expect("listed in the Deleted view");
+    assert!(
+        row["deleted_at"].is_string(),
+        "row carries deleted_at: {row}"
+    );
 
     let resp = awc::Client::new()
         .post(srv.url(&format!("/users/{}/restore", requester.uuid)))
