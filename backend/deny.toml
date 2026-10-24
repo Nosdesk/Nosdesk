@@ -56,6 +56,17 @@ ignore = [
     { id = "RUSTSEC-2026-0367", reason = "extract APIs unused; zip 8.6 only via calamine" },
     { id = "RUSTSEC-2026-0368", reason = "extract APIs unused; zip 8.6 only via calamine" },
     { id = "RUSTSEC-2026-0369", reason = "extract APIs unused; zip 8.6 only via calamine" },
+    # RUSTSEC-2026-0387 - crypto-bigint 0.5 operations meant to be
+    # constant-time can branch on secret values, a timing side channel.
+    # Patched in 0.7.6, which nothing here can use yet: elliptic-curve 0.13
+    # requires 0.5.
+    #
+    # It reaches us two ways. openidconnect uses p256/p384 only to verify
+    # identity-provider token signatures, which works on public values.
+    # aws-sigv4 uses p256 only for SigV4a signing (multi-region access
+    # points); S3 and SES here sign with plain SigV4. Drop this entry when
+    # openidconnect and aws-sigv4 move to elliptic-curve 0.14.
+    { id = "RUSTSEC-2026-0387", reason = "verify only, no SigV4a signing; crypto-bigint 0.5 pinned by elliptic-curve 0.13" },
 ]
 
 [bans]
