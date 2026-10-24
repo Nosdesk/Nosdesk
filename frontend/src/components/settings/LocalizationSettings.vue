@@ -40,6 +40,9 @@ const emit = defineEmits<{
 
 const props = defineProps<{
   targetUserUuid?: string
+  /** The managed person's saved preferences, in admin mode. */
+  targetLocale?: string | null
+  targetTimezone?: string | null
 }>()
 
 const isAdminMode = computed(
@@ -50,20 +53,18 @@ const userUuid = computed(
   () => props.targetUserUuid ?? authStore.user?.uuid,
 )
 
-// In admin mode we don't have a separate dateStore-per-target; we
-// just send the PATCH and trust the user's next /me re-fetch to
-// re-sync. So we read raw prefs straight off the auth store when
-// editing self, and from authStore.user as a snapshot when admin.
+// In admin mode the person's own saved preferences seed the form (passed in
+// from their profile); for yourself, the date store's.
 const initialLocale = computed<string>(() => {
   if (isAdminMode.value) {
-    return authStore.user?.locale ?? ''
+    return props.targetLocale ?? ''
   }
   return dateStore.userLocale ?? ''
 })
 
 const initialTimezone = computed<string>(() => {
   if (isAdminMode.value) {
-    return authStore.user?.timezone ?? 'system'
+    return props.targetTimezone ?? 'system'
   }
   return dateStore.userTimezone
 })

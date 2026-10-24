@@ -7687,6 +7687,7 @@ user-settings-delete-confirm = Delete Account
 user-settings-delete-error = Couldn't delete the account. Try again.
 user-settings-delete-member-elsewhere = This person also belongs to other workspaces, so their account can't be deleted from here. Remove them from this workspace instead.
 user-settings-delete-admin-hint = Administrators can't be deleted. To delete this account, change their role first.
+user-settings-account-member-elsewhere = { $name } also belongs to other workspaces, so only they can change their name, photo, email addresses and language. Their groups here are yours to manage.
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filter plugins
 admin-plugins-list-search-placeholder = Search plugins

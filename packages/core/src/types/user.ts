@@ -121,6 +121,11 @@ export interface EditableFields {
   /** The per-workspace display name and avatar: the person's own. */
   workspace_name: boolean;
   contact: boolean;
+  /** Their groups in this workspace. */
+  groups: boolean;
+  /** Why name, photo and email addresses are locked for an admin: they also
+   * belong to other workspaces, or their Nosdesk account owns them. */
+  account_locked?: 'member_elsewhere' | 'managed';
 }
 
 export interface User {

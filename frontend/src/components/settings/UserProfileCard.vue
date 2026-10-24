@@ -68,6 +68,9 @@ const props = withDefaults(
         enableAvatarNavigation?: boolean; // Whether clicking avatar navigates to profile
         /** Name and photo belong to the person's Nosdesk account (hosted staff). */
         identityLocked?: boolean;
+        /** The email signature: the person's own working tool, so shown on
+         * their own settings and not when an admin manages them. */
+        showSignature?: boolean;
     }>(),
     {
         canEdit: false,
@@ -77,6 +80,7 @@ const props = withDefaults(
         showPronouns: true,
         showEmail: true,
         enableAvatarNavigation: false,
+        showSignature: true,
     },
 );
 
@@ -700,7 +704,7 @@ const getRoleDisplayName = (role: string) => {
                     </div>
 
                     <!-- Email signature — appended to outbound channel replies -->
-                    <div class="flex flex-col gap-1.5">
+                    <div v-if="showSignature" class="flex flex-col gap-1.5">
                         <label
                             for="user-email-signature"
                             class="text-xs font-medium text-tertiary uppercase tracking-wide"
