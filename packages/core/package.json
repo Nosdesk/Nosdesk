@@ -15,18 +15,18 @@
   },
   "dependencies": {
     "@internationalized/date": "^3.12.4",
-    "@pinia/colada": "^1.4.7",
+    "@pinia/colada": "^1.4.8",
     "axios": "^1.20.0",
     "fluent-vue": "^3.8.2",
-    "pinia": "^4.0.3",
-    "vue": "^3.5.43",
+    "pinia": "^4.1.0",
+    "vue": "^3.5.44",
     "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@vue/tsconfig": "^0.9.0",
-    "eslint": "^10.12.0",
+    "eslint": "^10.13.0",
     "typescript": "^6.0.0",
-    "typescript-eslint": "^8.71.0",
-    "vue-tsc": "^3.3.12"
+    "typescript-eslint": "^8.71.2",
+    "vue-tsc": "^3.3.13"
   }
 }
