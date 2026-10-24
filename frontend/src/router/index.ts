@@ -289,9 +289,23 @@ const router = createRouter({
         titleKey: 'route-title-user-settings',
         adminRequired: true
       },
-      beforeEnter: (to) => {
+      beforeEnter: async (to) => {
         // Update title based on section
         const section = to.params.section as string;
+        // Notification preferences are the person's own, so someone else's
+        // settings never offer them; open their Profile instead.
+        if (section === 'notifications') {
+          const { useAuthStore } = await import('@/stores/auth');
+          if (to.params.uuid !== useAuthStore().user?.uuid) {
+            return {
+              name: 'user-settings',
+              params: { ...to.params, section: undefined },
+              query: to.query,
+              hash: to.hash,
+              replace: true,
+            };
+          }
+        }
         const sectionTitleKeys: Record<string, string> = {
           profile: 'route-title-user-settings-profile',
           appearance: 'route-title-user-settings-appearance',

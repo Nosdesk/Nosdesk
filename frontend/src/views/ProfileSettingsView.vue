@@ -273,6 +273,15 @@ const handleSuccess = (message: string) => {
   if (message) toast.success(message);
 };
 
+// The profile card saved a change to the person being managed: keep the
+// local copy current, so the header shows it and the card doesn't refill
+// from what was first loaded, then refresh the shared bundle.
+const handleTargetUpdated = (changes: Partial<User>) => {
+  if (!targetUser.value) return;
+  targetUser.value = { ...targetUser.value, ...changes };
+  void userProfileBundle.refetch();
+};
+
 // Handle error messages (inline banner; see G's error UX rule).
 const handleError = (message: string) => {
   error.value = message;
@@ -588,6 +597,7 @@ const cancelDelete = () => {
               :show-signature="!isAdminMode"
               :identity-locked="identityManaged"
               @success="handleSuccess"
+              @updated="handleTargetUpdated"
               @error="handleError"
             />
 

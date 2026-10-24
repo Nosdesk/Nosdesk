@@ -108,3 +108,20 @@ describe('admin routes for an admin', () => {
     }
   })
 })
+
+describe("someone else's settings", () => {
+  it('open Profile for a notifications link, which only the person has', async () => {
+    Object.assign(agent, { isAdmin: true, user: { ...agent.user, workspace_role: 'admin' } })
+    try {
+      await router.push('/acme/users/person-1/settings/notifications')
+      expect(router.currentRoute.value.name).toBe('user-settings')
+      expect(router.currentRoute.value.fullPath).toBe('/acme/users/person-1/settings')
+      expect(router.currentRoute.value.meta.titleKey).toBe('route-title-user-settings-profile')
+
+      await router.push('/acme/users/agent-1/settings/notifications')
+      expect(router.currentRoute.value.fullPath).toBe('/acme/users/agent-1/settings/notifications')
+    } finally {
+      Object.assign(agent, { isAdmin: false, user: { ...agent.user, workspace_role: 'agent' } })
+    }
+  })
+})

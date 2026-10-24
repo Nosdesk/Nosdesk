@@ -53,6 +53,8 @@ const originalData = ref({
 const emit = defineEmits<{
     (e: "success", message: string): void;
     (e: "error", message: string): void;
+    // What was saved, so a parent showing someone else keeps its copy current.
+    (e: "updated", changes: Partial<User>): void;
 }>();
 
 // Props for external control
@@ -276,6 +278,7 @@ const uploadImage = async (file: File, type: "avatar" | "banner") => {
         } else {
             formData.value.banner_url = cacheBustedUrl;
         }
+        emit("updated", { [type === "avatar" ? "avatar_url" : "banner_url"]: cacheBustedUrl });
 
         // Only update auth store if editing the current user
         const isCurrentUser = authStore.user?.uuid === targetUserUuid;
@@ -327,6 +330,7 @@ const updateName = async () => {
         if (updatedUser) {
             emit("success", t("settings-profile-name-update-success"));
             originalData.value.name = formData.value.name;
+            emit("updated", { name: updatedUser.name });
 
             // Update auth store if this is the current user
             if (authStore.user?.uuid === userUuid && authStore.user) {
@@ -362,6 +366,7 @@ const updatePronouns = async () => {
         if (updatedUser) {
             emit("success", t("settings-profile-pronouns-update-success"));
             editingPronouns.value = false;
+            emit("updated", { pronouns: updatedUser.pronouns });
 
             // Update auth store if this is the current user
             if (authStore.user?.uuid === userUuid && authStore.user) {
