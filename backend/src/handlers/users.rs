@@ -1374,6 +1374,7 @@ pub async fn delete_user(
     let credential = body.map(web::Json::into_inner).unwrap_or_default();
     crate::handlers::auth::verify_step_up(
         &mut conn,
+        &req,
         &claims,
         &caller,
         &credential,
@@ -3456,6 +3457,7 @@ pub async fn bulk_users(
                 .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
             crate::handlers::auth::verify_step_up(
                 &mut conn,
+                &req,
                 &claims,
                 &caller,
                 &body.credential,
@@ -3483,6 +3485,10 @@ pub async fn bulk_users(
                     Ok(Ok(())) => {}
                     Ok(Err(helpers::TargetActionDenied::TargetInOtherWorkspaces)) => {
                         skipped_elsewhere += 1;
+                        continue;
+                    }
+                    Ok(Err(helpers::TargetActionDenied::TargetOutranksCaller)) => {
+                        skipped_admin += 1;
                         continue;
                     }
                     Ok(Err(_)) | Err(_) => {
@@ -3894,6 +3900,9 @@ fn editable_fields(
             Err(AccountEditDenied::Target(TargetActionDenied::TargetInOtherWorkspaces)) => {
                 Some("member_elsewhere")
             }
+            Err(AccountEditDenied::Target(TargetActionDenied::TargetOutranksCaller)) => {
+                Some("administrator")
+            }
             _ if managed && auth.is_workspace_admin() => Some("managed"),
             _ => None,
         },
@@ -3941,6 +3950,15 @@ fn authorize_account_edit(
         ),
         Err(AccountEditDenied::Target(TargetActionDenied::TargetNotInWorkspace)) => {
             Err(ApiError::NotFoundMsg("User not found".into()))
+        }
+        Err(AccountEditDenied::Target(TargetActionDenied::TargetOutranksCaller)) => {
+            Err(ApiError::Actix(errors::from_response(
+                "administrator",
+                errors::forbidden_with_code(
+                    "This person is an administrator, so only they can change their account.",
+                    "administrator",
+                ),
+            )))
         }
         Err(AccountEditDenied::Target(TargetActionDenied::TargetInOtherWorkspaces)) => {
             Err(ApiError::Actix(errors::from_response(

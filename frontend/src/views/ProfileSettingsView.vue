@@ -590,6 +590,9 @@ const cancelDelete = () => {
             <Callout v-else-if="editable?.account_locked === 'member_elsewhere'" severity="info">
               {{ t('user-settings-account-member-elsewhere', { name: currentUser?.name ?? '' }) }}
             </Callout>
+            <Callout v-else-if="editable?.account_locked === 'administrator'" severity="info">
+              {{ t('user-settings-account-administrator', { name: currentUser?.name ?? '' }) }}
+            </Callout>
             <UserProfileCard
               :user="currentUser ?? undefined"
               :can-edit="!isAdminMode || !!editable?.name"
@@ -789,6 +792,7 @@ const cancelDelete = () => {
               :target-locale="targetUser?.locale"
               :target-timezone="targetUser?.timezone"
               @success="handleSuccess"
+              @updated="handleTargetUpdated"
               @error="handleError"
             />
           </div>

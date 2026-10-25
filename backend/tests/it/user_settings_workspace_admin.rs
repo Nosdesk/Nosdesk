@@ -4,7 +4,8 @@
 //! Workspace-scoped data (groups) is the workspace's to manage for any member.
 //! The account itself (name, photo, email addresses, language) is the user row
 //! every workspace the person is in shares, so a workspace admin may change it
-//! only for someone who belongs to no other workspace, the rule delete follows.
+//! only for someone who belongs to no other workspace, the rule delete follows,
+//! and whom they outrank: never the owner, another admin or a platform admin.
 //! A password, signature or role never goes through the profile update.
 
 #![allow(clippy::expect_used)]
@@ -135,6 +136,10 @@ fn spawn(pool: &crate::common::TestPool, caller: &User) -> actix_test::TestServe
             .route(
                 "/users/{uuid}",
                 web::put().to(backend::handlers::users::update_user_by_uuid),
+            )
+            .route(
+                "/users/{uuid}/reset-password",
+                web::post().to(backend::handlers::users::admin_reset_user_password),
             )
     })
 }
@@ -328,6 +333,69 @@ async fn someone_also_in_another_workspace_keeps_their_account() {
         .await
         .expect("send");
     assert_eq!(resp.status(), 404, "someone only in another workspace");
+}
+
+#[actix_web::test]
+async fn an_admin_leaves_the_owners_and_other_admins_accounts_alone() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let mut conn = pool.get().expect("conn");
+    let owner = user(&mut conn, "Owner");
+    join(&mut conn, WS, &owner, "owner");
+    email(&mut conn, &owner, "owner@example.test");
+    let admin = user(&mut conn, "Admin");
+    join(&mut conn, WS, &admin, "admin");
+    let peer = user(&mut conn, "Peer");
+    join(&mut conn, WS, &peer, "admin");
+    let srv = spawn(&pool, &admin);
+    let client = awc::Client::new();
+
+    for target in [&owner, &peer] {
+        let mut resp = client
+            .post(srv.url(&format!("/users/{}/emails", target.uuid)))
+            .send_json(&json!({ "email": "taken@example.test", "email_type": "personal" }))
+            .await
+            .expect("send");
+        assert_eq!(resp.status(), 403, "no address added to {}", target.name);
+        let body: serde_json::Value = resp.json().await.expect("json");
+        assert_eq!(body["code"], "administrator");
+
+        let resp = client
+            .put(srv.url(&format!("/users/{}", target.uuid)))
+            .send_json(&json!({ "name": "Renamed" }))
+            .await
+            .expect("send");
+        assert_eq!(resp.status(), 403);
+        assert_eq!(name_of(&mut conn, target.uuid), target.name);
+
+        let resp = client
+            .post(srv.url(&format!("/users/{}/reset-password", target.uuid)))
+            .send_json(&json!({ "new_password": "A-new-passw0rd-for-them" }))
+            .await
+            .expect("send");
+        assert_eq!(resp.status(), 403, "no password set for {}", target.name);
+    }
+
+    let mut resp = client
+        .get(srv.url(&format!("/users/{}/profile", owner.uuid)))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 200);
+    let bundle: serde_json::Value = resp.json().await.expect("json");
+    assert_eq!(bundle["editable"]["emails"], false);
+    assert_eq!(bundle["editable"]["credentials"], false);
+    assert_eq!(bundle["editable"]["account_locked"], "administrator");
+
+    // The owner outranks an admin.
+    let srv = spawn(&pool, &owner);
+    let resp = client
+        .get(srv.url(&format!("/users/{}/emails", admin.uuid)))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 200);
 }
 
 #[actix_web::test]

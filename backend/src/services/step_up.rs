@@ -141,6 +141,68 @@ pub fn record(
     session_confirmed_until(conn, sid, user_uuid)
 }
 
+/// Credential attempts allowed per person in [`ATTEMPT_WINDOW_SECS`], counted
+/// across the dialog and the actions that take a credential with the request.
+/// Every attempt counts, right or wrong.
+pub const ATTEMPTS_PER_WINDOW: u32 = 10;
+pub const ATTEMPT_WINDOW_SECS: u64 = 300;
+
+/// Counts an attempt by `user_uuid` and says whether it is over
+/// [`ATTEMPTS_PER_WINDOW`]. When the limiter can't be read the attempt goes
+/// ahead (logged): the credential is still checked, and a Redis outage
+/// shouldn't stop every admin confirming.
+pub async fn attempts_exhausted(user_uuid: &Uuid) -> bool {
+    use crate::utils::rate_limit::{get_redis_url, RateLimiter};
+    let key = format!("step_up_attempts:{user_uuid}");
+    match RateLimiter::check_rate_limit(
+        &get_redis_url(),
+        &key,
+        ATTEMPTS_PER_WINDOW,
+        ATTEMPT_WINDOW_SECS,
+    )
+    .await
+    {
+        Ok(allowed) => !allowed,
+        Err(e) => {
+            tracing::warn!(error = ?e, "step-up: rate limit check failed");
+            false
+        }
+    }
+}
+
+/// The 429 for [`attempts_exhausted`].
+pub fn too_many_attempts() -> actix_web::HttpResponse {
+    crate::errors::too_many_requests(
+        "Too many attempts. Try again in a few minutes.",
+        ATTEMPT_WINDOW_SECS,
+    )
+}
+
+/// [`record`] a confirmation by `method` now, and log it as a security event.
+/// Returns until when the session is confirmed.
+pub fn record_confirmed(
+    conn: &mut DbConnection,
+    req: &actix_web::HttpRequest,
+    user_uuid: &Uuid,
+    sid: &Uuid,
+    method: Method,
+) -> Option<DateTime<Utc>> {
+    let until = record(conn, sid, user_uuid, Utc::now(), None)?;
+    let _ = crate::utils::security_events::record_security_event(
+        conn,
+        crate::utils::security_events::SecurityEventInput {
+            user_uuid: Some(*user_uuid),
+            event_type: "step_up_confirmed",
+            severity: "info",
+            details: Some(
+                serde_json::json!({ "method": method.as_str(), "session_id": sid.to_string() }),
+            ),
+            request: Some(req),
+        },
+    );
+    Some(until)
+}
+
 /// A way to confirm, in the order the dialog prefers them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

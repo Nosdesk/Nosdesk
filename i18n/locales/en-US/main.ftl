@@ -6674,9 +6674,6 @@ settings-security-error-reset-failed = Failed to reset password
 # $provider is the human-readable IdP label (Microsoft / SSO).
 auth-callback-loading-default = Completing sign-in...
 auth-callback-loading-subtitle = Please wait while we complete authentication
-auth-callback-success-title = Authentication successful
-auth-callback-success-subtitle = Redirecting...
-auth-callback-technical-details = Technical Details
 
 # Dashboard widgets
 dashboard-widget-shell-action-view-all = View all
@@ -7661,6 +7658,7 @@ user-settings-delete-error = Couldn't delete the account. Try again.
 user-settings-delete-member-elsewhere = This person also belongs to other workspaces, so their account can't be deleted from here. Remove them from this workspace instead.
 user-settings-delete-admin-hint = Administrators can't be deleted. To delete this account, change their role first.
 user-settings-account-member-elsewhere = { $name } also belongs to other workspaces, so only they can change their name, photo, email addresses and language. Their groups here are yours to manage.
+user-settings-account-administrator = { $name } is an administrator, so only they or an owner can change their name, photo, email addresses, language and sign-in. Their groups here are yours to manage.
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filter plugins
 admin-plugins-list-search-placeholder = Search plugins

@@ -210,6 +210,9 @@ pub fn admin_user_conn(
 pub enum TargetActionDenied {
     NotWorkspaceAdmin,
     TargetNotInWorkspace,
+    /// The target is a platform admin, or holds a workspace role the caller
+    /// may not manage (`workspace_members::can_manage`).
+    TargetOutranksCaller,
     TargetInOtherWorkspaces,
 }
 
@@ -225,29 +228,43 @@ fn target_action_decision(
     require_sole_workspace: bool,
     actor: &ActorContext,
 ) -> Result<(), TargetActionDenied> {
-    use crate::models::WorkspaceRole;
+    use crate::models::{PlatformRole, WorkspaceRole};
 
     // Scope the RLS-isolated membership reads to the caller's workspace.
     pin_workspace(conn, ws_id);
 
+    let role_here = |conn: &mut DbConnection, user: Uuid| {
+        repository::workspaces::membership(conn, ws_id, user)
+            .ok()
+            .flatten()
+            .map(|m| WorkspaceRole::from_db(&m.role))
+    };
+
     // Caller must be an admin/owner of this workspace.
-    let caller_admin = repository::workspaces::membership(conn, ws_id, caller_uuid)
-        .ok()
-        .flatten()
-        .is_some_and(|m| WorkspaceRole::from_db(&m.role).meets(WorkspaceRole::Admin));
-    if !caller_admin {
+    let Some(caller_role) = role_here(conn, caller_uuid).filter(|r| r.meets(WorkspaceRole::Admin))
+    else {
         return Err(TargetActionDenied::NotWorkspaceAdmin);
-    }
+    };
 
     // Target must be a member of the caller's workspace. This membership
     // resolution IS the tenant-isolation boundary: without it a workspace-A
     // admin could act on any global user uuid, including workspace-B users.
-    if repository::workspaces::membership(conn, ws_id, target_uuid)
-        .ok()
-        .flatten()
-        .is_none()
-    {
+    let Some(target_role) = role_here(conn, target_uuid) else {
         return Err(TargetActionDenied::TargetNotInWorkspace);
+    };
+
+    // Only someone the caller outranks, by the rule role changes follow, and
+    // never a platform admin: otherwise an admin could take over the owner's
+    // or another admin's account through its email address or password.
+    // Fails closed when the target's row can't be read.
+    let target_platform_admin = repository::get_user_by_uuid(&target_uuid, conn)
+        .map_or(true, |u| {
+            PlatformRole::from_db(&u.platform_role).is_platform_admin()
+        });
+    if target_platform_admin
+        || !crate::handlers::workspace_members::can_manage(caller_role, target_role)
+    {
+        return Err(TargetActionDenied::TargetOutranksCaller);
     }
 
     // Account-global credential ops (Decision 1): refuse when the target belongs
@@ -322,6 +339,9 @@ pub fn authorize_target_user_action(
         )),
         Err(TargetActionDenied::TargetNotInWorkspace) => Err(ApiError::Forbidden(
             "This user is not a member of your workspace.".into(),
+        )),
+        Err(TargetActionDenied::TargetOutranksCaller) => Err(ApiError::Forbidden(
+            "Only an owner or an instance administrator can do this for an administrator.".into(),
         )),
         Err(TargetActionDenied::TargetInOtherWorkspaces) => Err(ApiError::Forbidden(
             "This member belongs to other workspaces; account recovery must go through \
@@ -426,6 +446,9 @@ pub fn authorize_user_lifecycle(
         )),
         Err(TargetActionDenied::TargetNotInWorkspace) => Err(ApiError::NotFoundMsg(
             "This user is not a member of your workspace".into(),
+        )),
+        Err(TargetActionDenied::TargetOutranksCaller) => Err(ApiError::Forbidden(
+            "Only an owner or an instance administrator can do this for an administrator.".into(),
         )),
         Err(TargetActionDenied::TargetInOtherWorkspaces) => {
             Err(ApiError::Actix(errors::from_response(
@@ -616,5 +639,62 @@ mod tests {
         assert!(
             target_action_decision(&mut conn, ws_a, admin.uuid, shared.uuid, false, &actor).is_ok()
         );
+    }
+    // Who the caller outranks, by the role-change rule: an admin may not act
+    // on the owner, another admin or a platform admin; an owner may act on an
+    // admin.
+    #[test]
+    fn target_action_decision_refuses_who_the_caller_does_not_outrank() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = seed_ws(&mut conn, "gaterank");
+
+        let owner = TestFixtures::create_user(&mut conn, "Rank Owner", "user");
+        let admin = TestFixtures::create_user(&mut conn, "Rank Admin", "user");
+        let peer = TestFixtures::create_user(&mut conn, "Rank Peer", "user");
+        let agent = TestFixtures::create_user(&mut conn, "Rank Agent", "user");
+        let operator = TestFixtures::create_user(&mut conn, "Rank Operator", "admin");
+        let people = [
+            (owner.uuid, "owner"),
+            (admin.uuid, "admin"),
+            (peer.uuid, "admin"),
+            (agent.uuid, "agent"),
+            (operator.uuid, "member"),
+        ];
+        bypass(&mut conn, |c| {
+            diesel::delete(
+                workspace_members::table
+                    .filter(workspace_members::user_uuid.eq_any(people.map(|(u, _)| u))),
+            )
+            .execute(c)?;
+            for (user, role) in people {
+                add_membership(
+                    c,
+                    ws,
+                    user,
+                    role,
+                    crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                )?;
+            }
+            Ok::<(), diesel::result::Error>(())
+        })
+        .expect("seed memberships");
+        let actor = ActorContext::system("test:helpers:target-rank");
+        let mut decide = |caller: Uuid, target: Uuid| {
+            target_action_decision(&mut conn, ws, caller, target, true, &actor)
+        };
+
+        assert!(decide(admin.uuid, agent.uuid).is_ok());
+        for target in [owner.uuid, peer.uuid, operator.uuid] {
+            assert!(matches!(
+                decide(admin.uuid, target),
+                Err(TargetActionDenied::TargetOutranksCaller)
+            ));
+        }
+        assert!(decide(owner.uuid, admin.uuid).is_ok());
+        assert!(matches!(
+            decide(owner.uuid, operator.uuid),
+            Err(TargetActionDenied::TargetOutranksCaller)
+        ));
     }
 }

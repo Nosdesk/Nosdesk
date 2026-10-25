@@ -14,12 +14,7 @@ use crate::errors::ApiError;
 use crate::handlers::helpers;
 use crate::models::{Claims, StepUpCredential, User};
 use crate::services::step_up::{self, Method};
-use crate::utils::rate_limit::{get_redis_url, RateLimiter};
 use crate::utils::{parse_uuid, rbac, webauthn};
-
-/// Wrong answers allowed per person in five minutes, across methods.
-const ATTEMPTS_PER_WINDOW: u32 = 10;
-const ATTEMPT_WINDOW_SECS: u64 = 300;
 
 /// The caller, their session, and a connection.
 fn caller(
@@ -43,28 +38,11 @@ fn caller(
     Ok((claims, user, sid, conn))
 }
 
-/// A 429 once a person has had too many wrong answers.
+/// A 429 once a person has used up their attempts.
 async fn too_many_attempts(user_uuid: &Uuid) -> Option<HttpResponse> {
-    let key = format!("step_up_attempts:{user_uuid}");
-    match RateLimiter::check_rate_limit(
-        &get_redis_url(),
-        &key,
-        ATTEMPTS_PER_WINDOW,
-        ATTEMPT_WINDOW_SECS,
-    )
-    .await
-    {
-        Ok(false) => Some(crate::errors::too_many_requests(
-            "Too many attempts. Try again in a few minutes.",
-            ATTEMPT_WINDOW_SECS,
-        )),
-        Ok(true) => None,
-        Err(e) => {
-            // Fail open, as sign-in does: the credential check still runs.
-            warn!(error = ?e, "step-up: rate limit check failed");
-            None
-        }
-    }
+    step_up::attempts_exhausted(user_uuid)
+        .await
+        .then(step_up::too_many_attempts)
 }
 
 /// Record a confirmation by `method` on the caller's session and answer with
@@ -76,18 +54,8 @@ fn confirmed(
     sid: &Uuid,
     method: Method,
 ) -> Result<HttpResponse, ApiError> {
-    let until = step_up::record(conn, sid, &user.uuid, chrono::Utc::now(), None)
+    let until = step_up::record_confirmed(conn, req, &user.uuid, sid, method)
         .ok_or_else(|| ApiError::BadRequest("Sign in again to confirm it's you".into()))?;
-    let _ = crate::utils::security_events::record_security_event(
-        conn,
-        crate::utils::security_events::SecurityEventInput {
-            user_uuid: Some(user.uuid),
-            event_type: "step_up_confirmed",
-            severity: "info",
-            details: Some(json!({ "method": method.as_str(), "session_id": sid.to_string() })),
-            request: Some(req),
-        },
-    );
     Ok(HttpResponse::Ok().json(json!({ "confirmed_until": until })))
 }
 

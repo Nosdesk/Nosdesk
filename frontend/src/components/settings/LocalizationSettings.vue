@@ -18,7 +18,7 @@ import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import { SUPPORTED_LOCALES } from '@/i18n'
-import userService from '@/services/userService'
+import userService, { type User } from '@/services/userService'
 import SectionCard from '@/components/common/SectionCard.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Button from '@/components/common/Button.vue'
@@ -36,6 +36,7 @@ const fluent = useFluent()
 const emit = defineEmits<{
   (e: 'success', message: string): void
   (e: 'error', message: string): void
+  (e: 'updated', changes: Partial<User>): void
 }>()
 
 const props = defineProps<{
@@ -147,6 +148,7 @@ async function save() {
     if (!isAdminMode.value) {
       dateStore.loadFromUser(updated)
     }
+    emit('updated', { locale: updated.locale, timezone: updated.timezone })
     emit('success', fluent.$t('settings-localization-saved'))
   } catch (e) {
     // Revert optimistic state.

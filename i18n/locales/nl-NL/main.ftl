@@ -7241,9 +7241,6 @@ settings-security-error-reset-failed = Wachtwoord opnieuw instellen mislukt
 # OAuth callback view + card.
 auth-callback-loading-default = Aanmelding voltooien...
 auth-callback-loading-subtitle = Even geduld terwijl we de authenticatie voltooien
-auth-callback-success-title = Authenticatie geslaagd
-auth-callback-success-subtitle = Doorverwijzen...
-auth-callback-technical-details = Technische details
 
 # Dashboard-widgets
 dashboard-widget-shell-action-view-all = Alles tonen
@@ -8260,6 +8257,7 @@ user-settings-delete-error = Kan het account niet verwijderen. Probeer het opnie
 user-settings-delete-member-elsewhere = Deze persoon hoort ook bij andere werkruimten, dus het account kan hier niet worden verwijderd. Verwijder deze persoon in plaats daarvan uit deze werkruimte.
 user-settings-delete-admin-hint = Beheerders kunnen niet worden verwijderd. Wijzig eerst de rol om dit account te verwijderen.
 user-settings-account-member-elsewhere = { $name } hoort ook bij andere werkruimten, dus alleen deze persoon kan de naam, foto, e-mailadressen en taal wijzigen. De groepen hier beheert u zelf.
+user-settings-account-administrator = { $name } is beheerder, dus alleen deze persoon of een eigenaar kan de naam, foto, e-mailadressen, taal en aanmelding wijzigen. De groepen hier beheert u zelf.
 admin-plugins-list-title = Plug-ins
 admin-plugins-list-aria-filter = Plug-ins filteren
 admin-plugins-list-search-placeholder = Plug-ins zoeken
