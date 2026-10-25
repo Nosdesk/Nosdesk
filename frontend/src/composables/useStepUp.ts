@@ -20,8 +20,16 @@ export const STEP_UP_KEY = ['auth', 'step-up'] as const;
 
 /** How often to ask the server while the sign-in window is open. */
 export const STEP_UP_POLL_MS = 2000;
-/** How long to keep asking before giving up on the sign-in window. */
-export const STEP_UP_WAIT_MS = 5 * 60 * 1000;
+/** After this long, ask less often: the popup is still open, but slowly. */
+export const STEP_UP_SLOW_AFTER_MS = 5 * 60 * 1000;
+/** How often to ask once the popup has been open a while. */
+export const STEP_UP_SLOW_POLL_MS = 15_000;
+/**
+ * How long to wait for the sign-in window: as long as the sign-in it started
+ * stays valid on the server (`OAUTH_STATE_LIFETIME`), since a first sign-in
+ * can mean a password change and MFA set-up.
+ */
+export const STEP_UP_WAIT_MS = 30 * 60 * 1000;
 
 /**
  * "Confirm it's you" for the signed-in session, ahead of a high-risk action.
@@ -147,7 +155,7 @@ export function useStepUp() {
   const waiting = ref(false);
 
   let channel: BroadcastChannel | null = null;
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
 
   const onFocus = () => void refresh();
@@ -156,7 +164,7 @@ export function useStepUp() {
     waiting.value = false;
     channel?.close();
     channel = null;
-    if (pollTimer) clearInterval(pollTimer);
+    if (pollTimer) clearTimeout(pollTimer);
     pollTimer = null;
     if (deadlineTimer) clearTimeout(deadlineTimer);
     deadlineTimer = null;
@@ -177,9 +185,21 @@ export function useStepUp() {
     popupResult.value = result;
   }
 
+  /** The sign-in window's flow has lapsed, so it can no longer confirm. */
+  function giveUp() {
+    stopWaiting();
+    popupResult.value = 'failed';
+  }
+
   function startWaiting() {
     stopWaiting();
     waiting.value = true;
+    const startedAt = Date.now();
+    const poll = () => {
+      void refresh();
+      const slow = Date.now() - startedAt >= STEP_UP_SLOW_AFTER_MS;
+      pollTimer = setTimeout(poll, slow ? STEP_UP_SLOW_POLL_MS : STEP_UP_POLL_MS);
+    };
     if (typeof BroadcastChannel !== 'undefined') {
       channel = new BroadcastChannel(STEP_UP_CHANNEL);
       channel.onmessage = (event: MessageEvent<StepUpChannelMessage>) => {
@@ -190,8 +210,8 @@ export function useStepUp() {
       };
     }
     window.addEventListener('focus', onFocus);
-    pollTimer = setInterval(() => void refresh(), STEP_UP_POLL_MS);
-    deadlineTimer = setTimeout(stopWaiting, STEP_UP_WAIT_MS);
+    pollTimer = setTimeout(poll, STEP_UP_POLL_MS);
+    deadlineTimer = setTimeout(giveUp, STEP_UP_WAIT_MS);
   }
 
   /**

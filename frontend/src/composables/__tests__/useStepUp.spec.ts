@@ -14,7 +14,13 @@ vi.mock('@/services/stepUpService', async (importOriginal) => {
 const passkeys = vi.hoisted(() => ({ isSupported: vi.fn(() => true), confirmStepUp: vi.fn() }))
 vi.mock('@/services/passkeyService', () => ({ default: passkeys, passkeyService: passkeys }))
 
-import { useStepUp, STEP_UP_POLL_MS, STEP_UP_WAIT_MS } from '@/composables/useStepUp'
+import {
+  useStepUp,
+  STEP_UP_POLL_MS,
+  STEP_UP_SLOW_AFTER_MS,
+  STEP_UP_SLOW_POLL_MS,
+  STEP_UP_WAIT_MS,
+} from '@/composables/useStepUp'
 
 type StepUp = ReturnType<typeof useStepUp>
 
@@ -217,10 +223,31 @@ describe('useStepUp provider popup', () => {
     expect(stepUp.waiting.value).toBe(false)
   })
 
-  it('gives up waiting after five minutes', async () => {
+  it('still takes an answer from a popup open longer than five minutes', async () => {
+    await openPopup()
+    await vi.advanceTimersByTimeAsync(STEP_UP_SLOW_AFTER_MS + STEP_UP_POLL_MS)
+    expect(stepUp.waiting.value).toBe(true)
+    FakeBroadcastChannel.deliver('nosdesk-step-up', { type: 'step-up', result: 'wrong_account' })
+    await flushPromises()
+    expect(stepUp.popupResult.value).toBe('wrong_account')
+  })
+
+  it('asks less often once the popup has been open a while', async () => {
+    await openPopup()
+    await vi.advanceTimersByTimeAsync(STEP_UP_SLOW_AFTER_MS + STEP_UP_POLL_MS)
+    const calls = api.status.mock.calls.length
+    // The last quick poll ran at five minutes; the next is a slow poll later.
+    await vi.advanceTimersByTimeAsync(STEP_UP_SLOW_POLL_MS - STEP_UP_POLL_MS - 1)
+    expect(api.status.mock.calls.length).toBe(calls)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(api.status.mock.calls.length).toBe(calls + 1)
+  })
+
+  it('gives up with a message once the sign-in can no longer finish', async () => {
     await openPopup()
     await vi.advanceTimersByTimeAsync(STEP_UP_WAIT_MS)
     expect(stepUp.waiting.value).toBe(false)
+    expect(stepUp.popupResult.value).toBe('failed')
     expect(FakeBroadcastChannel.instances[0]!.closed).toBe(true)
   })
 
