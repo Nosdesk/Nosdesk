@@ -452,13 +452,13 @@ pub async fn generate_auth_url(
         auth_request = auth_request.set_redirect_uri(Cow::Owned(redirect_url));
     }
 
-    // Both, since `prompt=login` alone can be stripped in the browser and
-    // `max_age=0` obliges the provider to return `auth_time`, which the
-    // callback checks.
+    // Both: `prompt=login` asks for a credential, and a `max_age` obliges the
+    // provider to return `auth_time`, which the callback checks against the
+    // flow's start (so a stripped `prompt` is refused, not trusted).
     if let Some(reauth) = reauthenticate {
-        auth_request = auth_request
-            .add_prompt(CoreAuthPrompt::Login)
-            .set_max_age(std::time::Duration::ZERO);
+        auth_request = auth_request.add_prompt(CoreAuthPrompt::Login).set_max_age(
+            std::time::Duration::from_secs(crate::services::step_up::PROVIDER_MAX_AGE_SECS),
+        );
         if let Some(hint) = reauth.login_hint.filter(|h| !h.is_empty()) {
             auth_request = auth_request.set_login_hint(LoginHint::new(hint.to_string()));
         }

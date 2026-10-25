@@ -7250,37 +7250,10 @@ settings-security-error-reset-failed = Échec de la réinitialisation du mot de 
 
 # OAuth callback view + card.
 auth-callback-loading-default = Finalisation de la connexion...
-auth-callback-loading-processing = Traitement de l'authentification...
-auth-callback-loading-success = Réussi ! Redirection...
 auth-callback-loading-subtitle = Veuillez patienter pendant que nous terminons l'authentification
 auth-callback-success-title = Authentification réussie
 auth-callback-success-subtitle = Redirection...
 auth-callback-technical-details = Détails techniques
-auth-callback-provider-microsoft = Microsoft
-auth-callback-provider-sso = SSO
-auth-callback-error-missing-params = Paramètres d'authentification requis manquants
-auth-callback-error-missing-detail = Manquant : { $fields }
-auth-callback-error-missing-field-code = code
-auth-callback-error-missing-field-state = état
-auth-callback-error-invalid-response = Réponse du serveur invalide
-auth-callback-error-no-response = Aucune réponse reçue du serveur
-auth-callback-error-unknown = Erreur inconnue
-auth-callback-error-generic-message = Une erreur inattendue s'est produite lors de l'authentification
-auth-callback-error-status-prefix = Statut : { $status }
-auth-callback-already-title = Compte déjà connecté
-auth-callback-already-message = Ce compte { $provider } est déjà lié à un autre utilisateur dans le système.
-auth-callback-already-suggestion-microsoft = Essayez de vous connecter avec un autre compte { $provider }, ou contactez votre administrateur.
-auth-callback-already-suggestion-generic = Essayez de vous connecter avec un autre compte, ou contactez votre administrateur.
-auth-callback-invalid-title = Échec de l'authentification
-auth-callback-invalid-message = La demande d'authentification était invalide ou a expiré.
-auth-callback-invalid-suggestion-microsoft = Veuillez réessayer de connecter votre compte { $provider }.
-auth-callback-invalid-suggestion-generic = Veuillez réessayer de vous connecter.
-auth-callback-generic-title = Échec de l'authentification
-auth-callback-generic-suggestion = Veuillez réessayer ou contacter le support si le problème persiste.
-auth-callback-action-try-different = Essayer un autre compte
-auth-callback-action-back-settings = Retour aux paramètres
-auth-callback-action-return-login = Retour à la connexion
-auth-callback-action-try-again = Réessayer
 
 # Widgets du tableau de bord
 dashboard-widget-shell-action-view-all = Tout voir

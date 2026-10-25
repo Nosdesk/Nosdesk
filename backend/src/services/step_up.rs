@@ -30,6 +30,14 @@ pub const WINDOW_MINUTES: i64 = 10;
 /// compared with the moment a confirmation started.
 pub const CLOCK_SKEW_SECS: i64 = 30;
 
+/// The `max_age` a confirmation sends a provider. Asking for one obliges the
+/// provider to return `auth_time`; `prompt=login` is what makes it ask for a
+/// credential, and [`CLOCK_SKEW_SECS`] against the flow's start is what
+/// refuses an older one. Not zero: Entra caps the id_token's `exp` at
+/// `auth_time + max_age`, so `max_age=0` returns a token that has already
+/// expired.
+pub const PROVIDER_MAX_AGE_SECS: u64 = (WINDOW_MINUTES * 60) as u64;
+
 /// What the sign-in that creates a session proved.
 #[derive(Debug, Clone, Copy)]
 pub enum SignInProof<'a> {

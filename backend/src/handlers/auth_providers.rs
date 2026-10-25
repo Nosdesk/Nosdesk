@@ -2340,7 +2340,8 @@ async fn step_up_oidc_url(
 }
 
 /// Microsoft's authorize URL for a step-up, and the state binding for the
-/// cookie. As at sign-in, plus `prompt=login` and `max_age=0`.
+/// cookie. As at sign-in, plus `prompt=login` and `max_age`
+/// ([`crate::services::step_up::PROVIDER_MAX_AGE_SECS`]).
 fn step_up_microsoft_url(
     flow: StepUpFlow,
     login_hint: Option<&str>,
@@ -2363,9 +2364,10 @@ fn step_up_microsoft_url(
         .map(|h| format!("&login_hint={}", urlencoding::encode(h)))
         .unwrap_or_default();
     let url = format!(
-        "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&response_mode=query&scope=openid%20profile%20email%20User.Read&nonce={nonce}&code_challenge={code_challenge}&code_challenge_method=S256&prompt=login&max_age=0{hint}&state={state}",
+        "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&response_mode=query&scope=openid%20profile%20email%20User.Read&nonce={nonce}&code_challenge={code_challenge}&code_challenge_method=S256&prompt=login&max_age={max_age}{hint}&state={state}",
         nonce = nonce.secret(),
         code_challenge = pkce_challenge.as_str(),
+        max_age = crate::services::step_up::PROVIDER_MAX_AGE_SECS,
         state = urlencoding::encode(&state),
     );
     Ok((url, binding))
@@ -2468,7 +2470,7 @@ async fn confirm_step_up(
 /// Whether the provider's answer confirms `flow`: the identity it signed in
 /// must be one the person confirming holds (`same_person`), and it must have
 /// checked a credential since the flow started (`auth_time`, which a provider
-/// asked for `max_age=0` must send). Returns when it did, or the popup's
+/// asked for a `max_age` must send). Returns when it did, or the popup's
 /// result code.
 fn step_up_verdict(
     flow: &StepUpFlow,
