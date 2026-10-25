@@ -7251,9 +7251,6 @@ settings-security-error-reset-failed = Échec de la réinitialisation du mot de 
 # OAuth callback view + card.
 auth-callback-loading-default = Finalisation de la connexion...
 auth-callback-loading-subtitle = Veuillez patienter pendant que nous terminons l'authentification
-auth-callback-success-title = Authentification réussie
-auth-callback-success-subtitle = Redirection...
-auth-callback-technical-details = Détails techniques
 
 # Widgets du tableau de bord
 dashboard-widget-shell-action-view-all = Tout voir
@@ -8270,6 +8267,7 @@ user-settings-delete-error = Impossible de supprimer le compte. Réessayez.
 user-settings-delete-member-elsewhere = Cette personne appartient aussi à d'autres espaces de travail, son compte ne peut donc pas être supprimé ici. Retirez-la plutôt de cet espace de travail.
 user-settings-delete-admin-hint = Les administrateurs ne peuvent pas être supprimés. Pour supprimer ce compte, changez d'abord son rôle.
 user-settings-account-member-elsewhere = { $name } appartient aussi à d'autres espaces de travail, donc seule cette personne peut modifier son nom, sa photo, ses adresses e-mail et sa langue. Ses groupes ici restent gérés par vous.
+user-settings-account-administrator = { $name } est administrateur, donc seuls cette personne ou un propriétaire peuvent modifier son nom, sa photo, ses adresses e-mail, sa langue et sa connexion. Ses groupes ici restent gérés par vous.
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filtrer les plugins
 admin-plugins-list-search-placeholder = Rechercher des plugins

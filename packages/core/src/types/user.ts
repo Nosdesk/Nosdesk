@@ -124,8 +124,9 @@ export interface EditableFields {
   /** Their groups in this workspace. */
   groups: boolean;
   /** Why name, photo and email addresses are locked for an admin: they also
-   * belong to other workspaces, or their Nosdesk account owns them. */
-  account_locked?: 'member_elsewhere' | 'managed';
+   * belong to other workspaces, they're an administrator the admin doesn't
+   * outrank, or their Nosdesk account owns them. */
+  account_locked?: 'member_elsewhere' | 'administrator' | 'managed';
 }
 
 export interface User {

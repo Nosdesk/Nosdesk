@@ -2597,6 +2597,7 @@ pub async fn revoke_session(
 /// is refused, whatever the account. `refused` is the 400 message.
 pub(crate) async fn verify_step_up(
     conn: &mut DbConnection,
+    req: &HttpRequest,
     claims: &crate::models::Claims,
     user: &crate::models::User,
     credential: &crate::models::StepUpCredential,
@@ -2618,14 +2619,19 @@ pub(crate) async fn verify_step_up(
             .as_deref()
             .is_some_and(|c| !c.trim().is_empty());
     if offered {
-        if step_up::check_credential(conn, user, credential)
-            .await
-            .is_none()
-        {
-            return Err(ApiError::BadRequest(refused.into()));
+        // The dialog's attempt limit: a stolen session must not get unlimited
+        // password, directory or code guesses here either.
+        if step_up::attempts_exhausted(&user.uuid).await {
+            return Err(ApiError::Actix(crate::errors::from_response(
+                "step_up_attempts",
+                step_up::too_many_attempts(),
+            )));
         }
+        let Some(method) = step_up::check_credential(conn, user, credential).await else {
+            return Err(ApiError::BadRequest(refused.into()));
+        };
         if let Some(sid) = sid {
-            step_up::record(conn, &sid, &user.uuid, chrono::Utc::now(), None);
+            step_up::record_confirmed(conn, req, &user.uuid, &sid, method);
         }
         return Ok(());
     }
@@ -2663,6 +2669,7 @@ pub async fn revoke_all_other_sessions(
     };
     verify_step_up(
         &mut conn,
+        &req,
         &claims,
         &user,
         &body,

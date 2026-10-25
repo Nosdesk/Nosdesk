@@ -4137,9 +4137,6 @@ settings-security-error-reset-failed = Failed to reset password
 # OAuth callback view + card.
 auth-callback-loading-default = Completing sign-in...
 auth-callback-loading-subtitle = Please wait while we complete authentication
-auth-callback-success-title = Authentication successful
-auth-callback-success-subtitle = Redirecting...
-auth-callback-technical-details = Technical Details
 
 # Dashboard widgets
 dashboard-widget-shell-action-view-all = View all

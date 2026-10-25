@@ -13,5 +13,5 @@ onMounted(() => {
 </script>
 
 <template>
-  <AuthCallbackCard :loading="true" />
+  <AuthCallbackCard />
 </template>
