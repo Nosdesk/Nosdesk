@@ -4148,37 +4148,10 @@ settings-security-error-reset-failed = Couldn't reset password
 
 # OAuth callback view + card.
 auth-callback-loading-default = Finishing sign-in...
-auth-callback-loading-processing = Processing authentication...
-auth-callback-loading-success = Success! Redirecting...
 auth-callback-loading-subtitle = Hang on while we finish authenticating
 auth-callback-success-title = Authentication successful
 auth-callback-success-subtitle = Redirecting...
 auth-callback-technical-details = Technical Details
-auth-callback-provider-microsoft = Microsoft
-auth-callback-provider-sso = SSO
-auth-callback-error-missing-params = Missing required authentication parameters
-auth-callback-error-missing-detail = Missing: { $fields }
-auth-callback-error-missing-field-code = code
-auth-callback-error-missing-field-state = state
-auth-callback-error-invalid-response = Invalid response from server
-auth-callback-error-no-response = No response received from server
-auth-callback-error-unknown = Unknown error
-auth-callback-error-generic-message = Something went wrong during authentication
-auth-callback-error-status-prefix = Status: { $status }
-auth-callback-already-title = Account Already Connected
-auth-callback-already-message = This { $provider } account is already linked to another user.
-auth-callback-already-suggestion-microsoft = Try a different { $provider } account, or have a chat with your admin.
-auth-callback-already-suggestion-generic = Try a different account, or have a chat with your admin.
-auth-callback-invalid-title = Authentication Failed
-auth-callback-invalid-message = The authentication request was invalid or has expired.
-auth-callback-invalid-suggestion-microsoft = Give your { $provider } account another go.
-auth-callback-invalid-suggestion-generic = Give signing in another go.
-auth-callback-generic-title = Authentication Failed
-auth-callback-generic-suggestion = Try again, or contact support if it keeps happening.
-auth-callback-action-try-different = Try a Different Account
-auth-callback-action-back-settings = Back to Settings
-auth-callback-action-return-login = Return to Login
-auth-callback-action-try-again = Try Again
 
 # Dashboard widgets
 dashboard-widget-shell-action-view-all = View all

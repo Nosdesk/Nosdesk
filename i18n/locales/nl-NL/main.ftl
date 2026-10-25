@@ -7240,37 +7240,10 @@ settings-security-error-reset-failed = Wachtwoord opnieuw instellen mislukt
 
 # OAuth callback view + card.
 auth-callback-loading-default = Aanmelding voltooien...
-auth-callback-loading-processing = Authenticatie verwerken...
-auth-callback-loading-success = Gelukt! Doorverwijzen...
 auth-callback-loading-subtitle = Even geduld terwijl we de authenticatie voltooien
 auth-callback-success-title = Authenticatie geslaagd
 auth-callback-success-subtitle = Doorverwijzen...
 auth-callback-technical-details = Technische details
-auth-callback-provider-microsoft = Microsoft
-auth-callback-provider-sso = SSO
-auth-callback-error-missing-params = Vereiste authenticatieparameters ontbreken
-auth-callback-error-missing-detail = Ontbreekt: { $fields }
-auth-callback-error-missing-field-code = code
-auth-callback-error-missing-field-state = state
-auth-callback-error-invalid-response = Ongeldige reactie van de server
-auth-callback-error-no-response = Geen reactie van de server ontvangen
-auth-callback-error-unknown = Onbekende fout
-auth-callback-error-generic-message = Er is een onverwachte fout opgetreden tijdens de authenticatie
-auth-callback-error-status-prefix = Status: { $status }
-auth-callback-already-title = Account al gekoppeld
-auth-callback-already-message = Dit { $provider }-account is al gekoppeld aan een andere gebruiker in het systeem.
-auth-callback-already-suggestion-microsoft = Probeer in te loggen met een ander { $provider }-account of neem contact op met je beheerder.
-auth-callback-already-suggestion-generic = Probeer in te loggen met een ander account of neem contact op met je beheerder.
-auth-callback-invalid-title = Authenticatie mislukt
-auth-callback-invalid-message = Het authenticatieverzoek was ongeldig of verlopen.
-auth-callback-invalid-suggestion-microsoft = Probeer je { $provider }-account opnieuw te koppelen.
-auth-callback-invalid-suggestion-generic = Probeer opnieuw in te loggen.
-auth-callback-generic-title = Authenticatie mislukt
-auth-callback-generic-suggestion = Probeer het opnieuw of neem contact op met support als het probleem aanhoudt.
-auth-callback-action-try-different = Probeer een ander account
-auth-callback-action-back-settings = Terug naar instellingen
-auth-callback-action-return-login = Terug naar inloggen
-auth-callback-action-try-again = Opnieuw proberen
 
 # Dashboard-widgets
 dashboard-widget-shell-action-view-all = Alles tonen

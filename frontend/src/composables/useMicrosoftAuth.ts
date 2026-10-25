@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import apiClient from '@nosdesk/core/apiClient';
 import { translate } from '@/i18n';
 import { extractErrorMessage } from '@/utils/errors';
+import { isInAppPath } from '@/utils/inAppPath';
 
 export function useMicrosoftAuth() {
   const isLoading = ref(false);
@@ -12,14 +13,11 @@ export function useMicrosoftAuth() {
     error.value = null;
 
     try {
-      // Store the current URL to redirect back after authentication
-      const redirectPath = redirectUri || window.location.pathname;
-      sessionStorage.setItem('authRedirect', redirectPath);
-
-      // Get authorization URL from backend
+      // Come back to this page; the callback redirects there once the session
+      // is set.
       const response = await apiClient.post('/auth/oauth/authorize', {
         provider_type: 'microsoft',
-        redirect_uri: `${window.location.origin}/auth/microsoft/callback`,
+        redirect_uri: isInAppPath(redirectUri) ? redirectUri : undefined,
       });
 
       // Make sure we got a valid auth URL
@@ -60,16 +58,10 @@ export function useMicrosoftAuth() {
     }
   };
 
-  const handleMicrosoftLogoutAndRetry = async () => {
-    // Logout of current Microsoft session and redirect to login to try again
-    await handleMicrosoftLogout(`${window.location.origin}/login`);
-  };
-
   return {
     isLoading,
     error,
     handleMicrosoftLogin,
     handleMicrosoftLogout,
-    handleMicrosoftLogoutAndRetry,
   };
 } 
