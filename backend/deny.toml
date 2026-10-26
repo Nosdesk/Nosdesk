@@ -67,6 +67,20 @@ ignore = [
     # points); S3 and SES here sign with plain SigV4. Drop this entry when
     # openidconnect and aws-sigv4 move to elliptic-curve 0.14.
     { id = "RUSTSEC-2026-0387", reason = "verify only, no SigV4a signing; crypto-bigint 0.5 pinned by elliptic-curve 0.13" },
+    # RUSTSEC-2026-0391, -0398, -0403 - zstd 0.13 and zstd-safe 7: a reused
+    # streaming context can leak data from an abandoned stream, `Seekable`
+    # can set a length past capacity, and a failed legacy-frame decode can
+    # expose uninitialised memory. Patched in zstd 0.14.3 / zstd-safe 8.2.
+    #
+    # actix-http 3.20 and zip 9 are on the patched line, so request bodies
+    # and archives decode with it. The remaining hit is tantivy-sstable 0.7,
+    # which requires zstd ^0.13 to compress the search index the server
+    # writes and reads itself; backups and imports don't carry that index,
+    # and nothing here uses `Seekable`. Drop these entries when tantivy moves
+    # to zstd 0.14.
+    { id = "RUSTSEC-2026-0391", reason = "zstd 0.13 only via tantivy, on index files the server writes" },
+    { id = "RUSTSEC-2026-0398", reason = "Seekable unused; zstd-safe 7 only via tantivy" },
+    { id = "RUSTSEC-2026-0403", reason = "zstd-safe 7 only via tantivy, on index files the server writes" },
 ]
 
 [bans]
