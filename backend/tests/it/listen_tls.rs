@@ -12,7 +12,7 @@
 use std::io::Write as _;
 
 use rcgen::{
-    BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+    BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
     KeyUsagePurpose,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -67,7 +67,8 @@ fn certs(server_name: &str) -> Certs {
         KeyUsagePurpose::DigitalSignature,
     ];
     validity(&mut ca);
-    let ca = ca.self_signed(&ca_key).expect("ca cert");
+    let ca_cert = ca.self_signed(&ca_key).expect("ca cert");
+    let issuer = Issuer::new(ca, ca_key);
 
     let key = rsa_key();
     let mut params = CertificateParams::new(vec![server_name.to_string()]).expect("params");
@@ -77,13 +78,13 @@ fn certs(server_name: &str) -> Certs {
     params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
     params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
     validity(&mut params);
-    let cert = params.signed_by(&key, &ca, &ca_key).expect("server cert");
+    let cert = params.signed_by(&key, &issuer).expect("server cert");
 
     let server =
         native_tls::Identity::from_pkcs8(cert.pem().as_bytes(), key.serialize_pem().as_bytes())
             .expect("server identity");
     Certs {
-        ca_pem: ca.pem(),
+        ca_pem: ca_cert.pem(),
         server,
     }
 }

@@ -27,8 +27,14 @@ const PLAINTEXT_WRAP_COLS: usize = 78;
 /// formatting (`<strong>`, `<em>`) is dropped because plaintext can't
 /// represent it without ASCII-art crutches that look worse than no
 /// formatting at all.
+/// Overflowing the wrap width beats failing: deeply nested quotes or lists
+/// would otherwise return `TooNarrow`. Reading from a byte slice cannot hit
+/// an I/O error, so the empty fallback is unreachable in practice.
 pub fn html_to_plaintext(html: &str) -> String {
-    html2text::from_read(html.as_bytes(), PLAINTEXT_WRAP_COLS)
+    html2text::config::plain()
+        .allow_width_overflow()
+        .string_from_read(html.as_bytes(), PLAINTEXT_WRAP_COLS)
+        .unwrap_or_default()
 }
 
 /// Wrap a plaintext string in the minimal HTML needed for it to render
