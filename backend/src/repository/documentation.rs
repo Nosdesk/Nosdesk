@@ -167,6 +167,20 @@ pub fn page_uuid_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<u
         .optional()
 }
 
+/// Of `ids`, the pages that exist and aren't in Trash, in the connection's
+/// workspace.
+pub fn live_page_ids(
+    conn: &mut DbConnection,
+    ids: &[i32],
+) -> QueryResult<std::collections::HashSet<i32>> {
+    documentation_pages::table
+        .filter(documentation_pages::id.eq_any(ids))
+        .filter(documentation_pages::status.ne(DocumentationStatus::Deleted))
+        .select(documentation_pages::id)
+        .load::<i32>(conn)
+        .map(|ids| ids.into_iter().collect())
+}
+
 // Get a documentation page by its slug
 pub fn get_documentation_page_by_slug(
     slug: &str,
@@ -257,6 +271,7 @@ pub fn delete_documentation_page(
     observer: Option<&dyn DocumentationDeletedObserver>,
 ) -> Result<usize, Error> {
     let count = conn.transaction(|conn| {
+        lift_children(conn, id)?;
         let count = diesel::delete(documentation_pages::table.find(id)).execute(conn)?;
         if count > 0 {
             emit::record(
@@ -943,6 +958,46 @@ pub fn create_documentation_revision(
     })
 }
 
+/// The first revision of a page an import wrote, with what the history
+/// shows for it ("Imported from IT-Handbook.zip"). Returns its number.
+// sync-audit-only: revision snapshots are derived versioning state, see create_documentation_revision
+pub fn create_revision_with_summary(
+    conn: &mut DbConnection,
+    page_id: i32,
+    yjs_state_vector: Vec<u8>,
+    yjs_document_content: Vec<u8>,
+    created_by: uuid::Uuid,
+    change_summary: &str,
+) -> Result<i32, Error> {
+    use crate::schema::documentation_pages::dsl as doc_dsl;
+    use crate::schema::documentation_revisions;
+
+    conn.transaction(|conn| {
+        let title: String = doc_dsl::documentation_pages
+            .find(page_id)
+            .select(doc_dsl::title)
+            .first(conn)?;
+        let latest: i32 = documentation_revisions::table
+            .filter(documentation_revisions::page_id.eq(page_id))
+            .select(diesel::dsl::max(documentation_revisions::revision_number))
+            .first::<Option<i32>>(conn)?
+            .unwrap_or(0);
+        let number = latest + 1;
+        diesel::insert_into(documentation_revisions::table)
+            .values((
+                documentation_revisions::page_id.eq(page_id),
+                documentation_revisions::revision_number.eq(number),
+                documentation_revisions::title.eq(&title),
+                documentation_revisions::yjs_document_snapshot.eq(yjs_document_content),
+                documentation_revisions::yjs_state_vector.eq(yjs_state_vector),
+                documentation_revisions::created_by.eq(created_by),
+                documentation_revisions::change_summary.eq(Some(change_summary)),
+            ))
+            .execute(conn)?;
+        Ok(number)
+    })
+}
+
 // Get all revisions for a documentation page
 pub fn get_documentation_revisions(
     conn: &mut DbConnection,
@@ -1112,9 +1167,40 @@ pub fn get_pages_by_status(
         .load::<DocumentationPage>(conn)
 }
 
-// Permanently delete a documentation page (hard delete for trash emptying)
+/// Before page `id` is deleted for good: move the pages directly under it
+/// up to where it sits (its parent, or the top level), each with its sync
+/// event. The parent key cascades, so without this the delete would also
+/// remove every page below it, and clients, told only of this page, would
+/// keep the rest in Trash with nothing behind them on the server.
+fn lift_children(conn: &mut DbConnection, id: i32) -> Result<(), Error> {
+    let Some(parent) = documentation_pages::table
+        .find(id)
+        .select(documentation_pages::parent_id)
+        .first::<Option<i32>>(conn)
+        .optional()?
+    else {
+        return Ok(());
+    };
+    let children: Vec<i32> = documentation_pages::table
+        .filter(documentation_pages::parent_id.eq(id))
+        .order(documentation_pages::id.asc())
+        .select(documentation_pages::id)
+        .load(conn)?;
+    let update = DocumentationPageUpdate {
+        parent_id: Some(parent),
+        ..Default::default()
+    };
+    for child in children {
+        update_documentation_page(conn, child, &update)?;
+    }
+    Ok(())
+}
+
+// Permanently delete a documentation page (hard delete for trash emptying).
+// The pages under it stay, moved up a level.
 pub fn permanently_delete_page(id: i32, conn: &mut DbConnection) -> Result<usize, Error> {
     conn.transaction(|conn| {
+        lift_children(conn, id)?;
         let count = diesel::delete(documentation_pages::table.find(id)).execute(conn)?;
         if count > 0 {
             emit::record(

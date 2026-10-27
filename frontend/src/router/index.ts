@@ -289,9 +289,23 @@ const router = createRouter({
         titleKey: 'route-title-user-settings',
         adminRequired: true
       },
-      beforeEnter: (to) => {
+      beforeEnter: async (to) => {
         // Update title based on section
         const section = to.params.section as string;
+        // Notification preferences are the person's own, so someone else's
+        // settings never offer them; open their Profile instead.
+        if (section === 'notifications') {
+          const { useAuthStore } = await import('@/stores/auth');
+          if (to.params.uuid !== useAuthStore().user?.uuid) {
+            return {
+              name: 'user-settings',
+              params: { ...to.params, section: undefined },
+              query: to.query,
+              hash: to.hash,
+              replace: true,
+            };
+          }
+        }
         const sectionTitleKeys: Record<string, string> = {
           profile: 'route-title-user-settings-profile',
           appearance: 'route-title-user-settings-appearance',
@@ -846,8 +860,10 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-notification-defaults' }
         },
         {
-          // Item C/W5: unified audit feed (all three substrates).
-          // Reachable by admins and the standalone audit_reviewer role.
+          // Item C/W5: unified audit feed. Workspace owners and admins
+          // read their workspace's app events and changes; platform admins
+          // and the standalone audit_reviewer role also see the
+          // instance-wide sign-in events.
           path: 'audit',
           name: 'admin-audit',
           component: () => import('../views/admin/AdminAuditView.vue'),
@@ -978,6 +994,37 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-csv-import' }
         },
         {
+          path: 'data-import/documentation',
+          name: 'admin-docs-import',
+          component: () => import('../views/DocsImportView.vue'),
+          meta: { titleKey: 'route-title-admin-docs-import' }
+        },
+        {
+          path: 'data-import/matches',
+          name: 'admin-import-saved-matches',
+          component: () => import('../views/SavedMatchesView.vue'),
+          meta: { titleKey: 'route-title-admin-import-saved-matches' }
+        },
+        {
+          // Owner only and self-hosted only; the view says so to anyone else.
+          path: 'data-import/workspace',
+          name: 'admin-workspace-import',
+          component: () => import('../views/WorkspaceImportView.vue'),
+          meta: { titleKey: 'route-title-admin-workspace-import' }
+        },
+        {
+          path: 'data-import/workspace/:id',
+          name: 'admin-workspace-import-detail',
+          component: () => import('../views/WorkspaceImportDetailView.vue'),
+          meta: { titleKey: 'route-title-admin-workspace-import-detail' }
+        },
+        {
+          path: 'data-import/imports/:id',
+          name: 'admin-import-detail',
+          component: () => import('../views/ImportDetailView.vue'),
+          meta: { titleKey: 'route-title-admin-import-detail' }
+        },
+        {
           path: 'backup-restore',
           name: 'admin-backup-restore',
           component: () => import('../views/BackupRestoreView.vue'),
@@ -1024,6 +1071,18 @@ const router = createRouter({
         requiresAuth: false,
         titleKey: 'route-title-authenticating',
         oauthProvider: 'oidc'
+      }
+    },
+    {
+      // Where the "Confirm it's you" popup lands after the identity provider.
+      // Reached by a cross-site redirect, so it must work without the session.
+      path: '/auth/confirmed',
+      name: 'auth-confirmed',
+      component: () => import('../views/auth/AuthConfirmedView.vue'),
+      meta: {
+        layout: 'blank',
+        requiresAuth: false,
+        titleKey: 'route-title-auth-confirmed'
       }
     },
     {
@@ -1110,7 +1169,7 @@ let onboardingChecked = false;
 
 async function checkOnboarding(to: RouteLocationNormalized, _from: RouteLocationNormalized) {
   // Skip check for onboarding, error, and login pages
-  if (to.name === 'onboarding' || to.name === 'error' || to.name === 'login') {
+  if (to.name === 'onboarding' || to.name === 'error' || to.name === 'login' || to.name === 'auth-confirmed') {
     return;
   }
 
@@ -1208,6 +1267,10 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   const authStore = useAuthStore();
 
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
+
+  // The "Confirm it's you" popup reports back and closes: no session lookup,
+  // and none of the app runtime (sync, SSE) a signed-in route starts.
+  if (to.name === 'auth-confirmed') return;
 
   // Fetch user data if authenticated (cookie/user present) but user object not yet loaded
   if (authStore.isAuthenticated && !authStore.user && !authStore.loading && to.name !== 'login') {

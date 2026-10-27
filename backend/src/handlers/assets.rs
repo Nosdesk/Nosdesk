@@ -13,7 +13,9 @@ use uuid::Uuid;
 use crate::models::{Asset, AssetGroupRef, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
-use crate::services::assets::{validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS};
+use crate::services::assets::{
+    model_stamp, validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS,
+};
 use crate::services::imports::assets::{build_history_rows, write_assets_csv, write_history_csv};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
@@ -314,6 +316,9 @@ pub struct PaginationParams {
     /// param can be omitted without an explicit `false`.
     #[serde(rename = "lowStock")]
     low_stock: Option<String>,
+    /// An import job's id: only the assets it created and updated.
+    /// Workspace admins only, like the import itself.
+    import: Option<String>,
 }
 
 /// Query params for `GET /api/assets/export`. Accepts the same
@@ -329,6 +334,8 @@ pub struct AssetExportQuery {
     groups: Option<String>,
     #[serde(rename = "lowStock")]
     low_stock: Option<String>,
+    /// As on the paginated list.
+    import: Option<String>,
     /// `snapshot` (default) exports current-state rows; `history` exports the
     /// lifecycle event log (one row per transition, ticket-correlated).
     scope: Option<String>,
@@ -757,16 +764,25 @@ pub async fn asset_grouping_dataset(
         return errors::forbidden("Forbidden: technicians and administrators only");
     }
 
-    let filters = repository::assets::AssetListFilters {
-        search: query.search.as_deref(),
-        warranty: query.warranty.as_deref(),
-        location: query.location.as_deref(),
-        status: query.status.as_deref(),
-        groups: query.groups.as_deref(),
-        low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+    let import = match import_param(query.import.as_deref(), &auth) {
+        Ok(v) => v,
+        Err(e) => return e.response(),
     };
 
     let result = tc.run(move |conn| {
+        let ids = match import {
+            Some(job) => Some(import_asset_ids(conn, job)?),
+            None => None,
+        };
+        let filters = repository::assets::AssetListFilters {
+            search: query.search.as_deref(),
+            warranty: query.warranty.as_deref(),
+            location: query.location.as_deref(),
+            status: query.status.as_deref(),
+            groups: query.groups.as_deref(),
+            low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+            ids: ids.as_deref(),
+        };
         let devices = repository::assets::list_for_export(conn, filters)?;
         let today = chrono::Utc::now().date_naive();
         // Build the responses in one batched pass, then derive the grouping
@@ -941,16 +957,25 @@ pub async fn export_assets(
     }
     let want_history = query.scope.as_deref() == Some("history");
 
-    let filters = repository::assets::AssetListFilters {
-        search: query.search.as_deref(),
-        status: query.status.as_deref(),
-        warranty: query.warranty.as_deref(),
-        location: query.location.as_deref(),
-        groups: query.groups.as_deref(),
-        low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+    let import = match import_param(query.import.as_deref(), &auth) {
+        Ok(v) => v,
+        Err(e) => return e.response(),
     };
 
     let export_result = tc.run(|conn| {
+        let ids = match import {
+            Some(job) => Some(import_asset_ids(conn, job)?),
+            None => None,
+        };
+        let filters = repository::assets::AssetListFilters {
+            search: query.search.as_deref(),
+            status: query.status.as_deref(),
+            warranty: query.warranty.as_deref(),
+            location: query.location.as_deref(),
+            groups: query.groups.as_deref(),
+            low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+            ids: ids.as_deref(),
+        };
         let rows = if assets_hidden_from(conn, &auth) {
             Vec::new()
         } else {
@@ -1093,6 +1118,54 @@ pub async fn get_asset_locations(mut tc: TenantConn, auth: AuthContext) -> impl 
     }
 }
 
+/// The import job `?import=` names, for a workspace admin; a bad id is
+/// 400 and anyone else 403, since import jobs are admin-only.
+fn import_param(raw: Option<&str>, auth: &AuthContext) -> Result<Option<Uuid>, ImportParamError> {
+    let Some(raw) = raw.filter(|r| !r.is_empty()) else {
+        return Ok(None);
+    };
+    if !auth.is_workspace_admin() {
+        return Err(ImportParamError::Forbidden);
+    }
+    Uuid::parse_str(raw)
+        .map(Some)
+        .map_err(|_| ImportParamError::BadId)
+}
+
+/// Why `?import=` was refused.
+enum ImportParamError {
+    Forbidden,
+    BadId,
+}
+
+impl ImportParamError {
+    fn response(self) -> HttpResponse {
+        match self {
+            Self::Forbidden => errors::forbidden("Filtering by import requires workspace admin"),
+            Self::BadId => errors::bad_request("import must be an import job id"),
+        }
+    }
+}
+
+/// The assets an import created and updated, from the record ids the job
+/// keeps for the life of the workspace. None for a job that isn't an asset
+/// import here or wrote nothing.
+fn import_asset_ids(conn: &mut crate::db::DbConnection, job: Uuid) -> Result<Vec<i32>, Error> {
+    use crate::services::imports::{RecordId, RecordIds};
+    let ids: RecordIds = repository::imports::record_ids(conn, job, "assets")?
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    Ok(ids
+        .created
+        .into_iter()
+        .chain(ids.updated)
+        .filter_map(|id| match id {
+            RecordId::Int(id) => Some(id),
+            RecordId::Uuid(_) => None,
+        })
+        .collect())
+}
+
 // Get paginated devices
 pub async fn get_paginated_devices(
     mut tc: TenantConn,
@@ -1110,11 +1183,19 @@ pub async fn get_paginated_devices(
     let groups = query.groups.clone();
     let kind = query.kind.clone();
     let low_stock = matches!(query.low_stock.as_deref(), Some("true") | Some("1"));
+    let import = match import_param(query.import.as_deref(), &auth) {
+        Ok(v) => v,
+        Err(e) => return e.response(),
+    };
 
     let result = tc.run(|conn| {
         if assets_hidden_from(conn, &auth) {
             return Ok((Vec::new(), 0));
         }
+        let ids = match import {
+            Some(job) => Some(import_asset_ids(conn, job)?),
+            None => None,
+        };
         let (devices, total) = repository::get_paginated_devices(
             conn,
             page,
@@ -1128,6 +1209,7 @@ pub async fn get_paginated_devices(
             groups,
             kind,
             low_stock,
+            ids.as_deref(),
         )?;
         let mut extras = Vec::with_capacity(devices.len());
         let devices: Vec<Asset> = devices
@@ -1796,29 +1878,6 @@ pub struct SetModelBody {
     pub model_id: i32,
 }
 
-/// Merge a model's `default_attributes` onto an asset's attributes
-/// without clobbering values the asset already carries (per-unit data
-/// wins over a model default). A key counts as empty when it is absent,
-/// null, or an empty string.
-fn stamp_default_attributes(
-    existing: &serde_json::Value,
-    defaults: &serde_json::Value,
-) -> serde_json::Value {
-    let mut merged = existing.as_object().cloned().unwrap_or_default();
-    if let Some(obj) = defaults.as_object() {
-        for (key, value) in obj {
-            let occupied = merged
-                .get(key)
-                .map(|v| !v.is_null() && v.as_str() != Some(""))
-                .unwrap_or(false);
-            if !occupied {
-                merged.insert(key.clone(), value.clone());
-            }
-        }
-    }
-    serde_json::Value::Object(merged)
-}
-
 /// `POST /api/assets/{id}/model` — stamp a catalog model onto an asset:
 /// copy the model's manufacturer, model name, kind, and default specs
 /// (no-clobber) onto the row and link `model_id`. Copy-at-assignment, so
@@ -1871,12 +1930,12 @@ pub async fn set_asset_model(
             }
         };
 
-    let merged_attrs = stamp_default_attributes(&existing.attributes, &model.default_attributes);
+    let stamp = model_stamp::stamp(&existing.attributes, &model, &manufacturer.name);
 
     // The stamped (kind, attributes) pair must be valid, or we'd write an
     // asset that fails its own kind's schema.
-    let kind = model.kind.clone();
-    let attrs_for_validation = merged_attrs.clone();
+    let kind = stamp.kind.clone();
+    let attrs_for_validation = stamp.attributes.clone();
     match tc.run(move |conn| Ok::<_, Error>(validate_for_kind(conn, &kind, &attrs_for_validation)))
     {
         Ok(Ok(())) => {}
@@ -1884,17 +1943,7 @@ pub async fn set_asset_model(
         Err(_) => return errors::internal("Failed to validate asset"),
     }
 
-    let update = AssetUpdate {
-        manufacturer: Some(manufacturer.name),
-        model: Some(model.name.clone()),
-        kind: Some(model.kind.clone()),
-        attributes: Some(merged_attrs),
-        model_id: Some(Some(model_id)),
-        updated_at: Some(chrono::Utc::now().naive_utc()),
-        ..Default::default()
-    };
-
-    apply_asset_update_response(&mut tc, asset_id, update, &search_service)
+    apply_asset_update_response(&mut tc, asset_id, stamp.into_update(), &search_service)
 }
 
 /// `DELETE /api/assets/{id}/model` — unlink the catalog model. The
@@ -2018,31 +2067,5 @@ mod tests {
         let existing = json!({ "intune_device_id": "abc-123", "warranty_status": "Active" });
         let merged = overlay_user_attributes(&existing, None);
         assert_eq!(merged, existing);
-    }
-
-    use super::stamp_default_attributes;
-
-    #[test]
-    fn stamp_fills_empty_keys_without_clobbering() {
-        // Asset already has a hostname and a blank warranty; the model
-        // defaults a warranty and an OS.
-        let existing = json!({
-            "hostname": "LAPTOP-1",
-            "warranty_status": "",
-            "os_version": null,
-        });
-        let defaults = json!({
-            "hostname": "MODEL-DEFAULT",   // occupied -> keep the asset's
-            "warranty_status": "Active",   // empty string -> fill
-            "os_version": "14.0",          // null -> fill
-            "operating_system": "macOS",   // absent -> fill
-        });
-
-        let merged = stamp_default_attributes(&existing, &defaults);
-
-        assert_eq!(merged["hostname"], "LAPTOP-1");
-        assert_eq!(merged["warranty_status"], "Active");
-        assert_eq!(merged["os_version"], "14.0");
-        assert_eq!(merged["operating_system"], "macOS");
     }
 }

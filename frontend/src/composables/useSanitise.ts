@@ -16,14 +16,15 @@ const DEFAULT_CONFIG: Config = {
     'ul', 'ol', 'li',
     'blockquote', 'pre', 'code',
     'a', 'strong', 'em', 'u', 's', 'mark', 'sub', 'sup',
-    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td', 'colgroup', 'col',
     'img',
     'div', 'span',
   ],
   ALLOWED_ATTR: [
     'href', 'target', 'rel', 'title', 'alt', 'src',
     'class', 'id',
-    'colspan', 'rowspan',
+    // Editor tables: spans, and column widths on <col>.
+    'colspan', 'rowspan', 'width',
     // Mention chips and ticket links as the composer stores them. Inert
     // data attributes; enhanceMentions() / enhanceTicketLinks() read them
     // after render.

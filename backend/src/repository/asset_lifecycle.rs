@@ -46,6 +46,45 @@ pub fn list_for_asset(
         .load(conn)
 }
 
+/// Reason on the event an import writes for each asset it creates.
+pub const IMPORTED_REASON: &str = "Imported";
+
+/// Log that an import created `asset`: its first lifecycle event, from no
+/// status to the one it was created with, naming the job in `metadata`.
+/// The asset row isn't touched, so its `updated_at` stays what the import
+/// observed.
+pub fn record_imported(
+    conn: &mut DbConnection,
+    asset: &Asset,
+    actor_uuid: Option<uuid::Uuid>,
+    import_job_id: uuid::Uuid,
+) -> QueryResult<AssetLifecycleEvent> {
+    let event: AssetLifecycleEvent = diesel::insert_into(asset_lifecycle_events::table)
+        .values(&NewAssetLifecycleEvent {
+            asset_id: asset.id,
+            from_status: None,
+            to_status: asset.status.clone(),
+            reason: Some(IMPORTED_REASON.to_string()),
+            ticket_id: None,
+            metadata: json!({ "import_job_id": import_job_id }),
+            actor_uuid,
+        })
+        .get_result(conn)?;
+    emit::record(
+        conn,
+        SyncEmit {
+            aggregate: SyncAggregate::AssetLifecycleEvent,
+            aggregate_id: event.id.to_string(),
+            op: SyncOp::Insert,
+            event_type: "asset_lifecycle_event.created",
+            data: event_sync_payload(&event),
+            groups: groups::workspace(),
+            causation_id: None,
+        },
+    )?;
+    Ok(event)
+}
+
 /// Inputs for a single lifecycle transition. `to_status` is assumed
 /// validated by the caller (handler) against `AssetStatus`.
 pub struct TransitionInput {

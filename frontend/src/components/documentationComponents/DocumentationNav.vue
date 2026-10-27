@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, watchEffect, onMounted, onUnmounted, reactive, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { workspacePath } from '@/router/workspaceRouting'
 import { useFluent } from 'fluent-vue'
 import documentationService, { getStarredPages, createArticle } from '@nosdesk/core/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
@@ -38,6 +39,10 @@ import { nodeToPage } from '@/composables/useDocPages'
 
 const route = useRoute()
 const router = useRouter()
+// The open page's path inside the workspace. Page and collection links are
+// bare (/documentation/...), while on Cloud `route.path` starts with the
+// workspace slug, so they are compared to this.
+const docPath = computed(() => workspacePath(route))
 const docNavStore = useDocumentationNavStore()
 const docPanel = useDocumentPanelState()
 const fluent = useFluent()
@@ -80,7 +85,7 @@ async function doDeleteCollection() {
     const success = await deleteCollection(collection.id)
     if (success) {
       await reloadSidebar()
-      if (route.path === `/documentation/collections/${collection.slug}`) {
+      if (docPath.value === `/documentation/collections/${collection.slug}`) {
         router.push('/documentation')
       }
     }
@@ -503,7 +508,7 @@ const handleContextMenuSelect = async (actionId: string) => {
       // module state. URL stays clean — panel state isn't part
       // of the page identity, and using a query param made
       // re-clicks of an already-open panel a router no-op.
-      if (route.path !== pageUrl) router.push(pageUrl)
+      if (docPath.value !== pageUrl) router.push(pageUrl)
       docPanel.open(actionId)
       break
 
@@ -518,7 +523,7 @@ const handleContextMenuSelect = async (actionId: string) => {
       try {
         await documentationService.archivePage(page.id)
         docNavStore.refreshPages()
-        if (route.path === pageUrl) {
+        if (docPath.value === pageUrl) {
           router.push('/documentation')
         }
       } catch (error) {
@@ -540,7 +545,7 @@ const handleContextMenuSelect = async (actionId: string) => {
         await documentationService.deleteArticle(page.id)
         docsEmitter.emit('doc:deleted', { id: page.id })
         docNavStore.refreshPages()
-        if (route.path === pageUrl) {
+        if (docPath.value === pageUrl) {
           router.push('/documentation')
         }
       } catch (error) {
@@ -861,7 +866,7 @@ const toggleCollectionExpanded = async (collectionId: number) => {
 const handleCollectionClick = async (collection: CollectionWithDetails) => {
   const collectionRoute = `/documentation/collections/${collection.slug}`
 
-  if (route.path === collectionRoute) {
+  if (docPath.value === collectionRoute) {
     await toggleCollectionExpanded(collection.id)
   } else {
     if (!collectionExpanded[collection.id]) {
@@ -918,7 +923,7 @@ const handlePageClick = (id: string | number) => {
   const pageRoute = foundPage ? docUrl(foundPage) : `/documentation/${stringId}`
 
   if (foundPage && foundPage.children && foundPage.children.length > 0) {
-    if (route.path === pageRoute) {
+    if (docPath.value === pageRoute) {
       docNavStore.togglePage(stringId)
     } else {
       docNavStore.expandPage(stringId)
@@ -968,7 +973,7 @@ const autoExpandForPage = async (pageId: string) => {
 }
 
 // Watch route changes to auto-expand pages
-watch(() => route.path, (newPath) => {
+watch(docPath, (newPath) => {
   if (newPath.startsWith('/documentation/') && !newPath.includes('/collections/')) {
     const pageId = newPath.split('/').pop() || '';
     if (pageId) {
@@ -1169,7 +1174,7 @@ onMounted(async () => {
     getStarredPages().then(pages => docNavStore.setStarredPages(pages));
 
     // Auto-expand for current page
-    const currentPath = route.path;
+    const currentPath = docPath.value;
     if (currentPath.startsWith('/documentation/') && !currentPath.includes('/collections/')) {
       const currentPageId = currentPath.split('/').pop() || '';
       if (currentPageId) {
@@ -1261,7 +1266,7 @@ defineExpose({ reloadSidebar });
             :to="docUrl({ slug: sp.slug, id: sp.page_id })"
             class="group flex items-center py-1 pr-2 rounded-md text-xs cursor-pointer transition-all duration-150"
             :class="[
-              route.path === docUrl({ slug: sp.slug, id: sp.page_id })
+              docPath === docUrl({ slug: sp.slug, id: sp.page_id })
                 ? 'bg-surface text-primary font-medium'
                 : 'text-secondary hover:text-primary hover:bg-surface-hover'
             ]"
@@ -1287,7 +1292,7 @@ defineExpose({ reloadSidebar });
         <div
           class="group relative flex items-center py-1 pr-2 rounded-md text-xs cursor-pointer transition-all duration-150"
           :class="[
-            route.path === `/documentation/collections/${collection.slug}`
+            docPath === `/documentation/collections/${collection.slug}`
               ? 'bg-surface text-primary font-medium'
               : collectionExpanded[collection.id]
                 ? 'text-primary hover:bg-surface-hover'

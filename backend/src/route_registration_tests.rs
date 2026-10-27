@@ -55,6 +55,39 @@ async fn workspace_data_export_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn workspace_import_config_routes_registered() {
+    let job = "019a0000-0000-7000-8000-000000000000";
+    assert_config_registers(
+        crate::handlers::workspace_import::config,
+        &[
+            ("GET", "/workspace/imports".to_string()),
+            ("POST", "/workspace/imports".to_string()),
+            ("GET", "/workspace/imports/latest".to_string()),
+            ("GET", format!("/workspace/imports/{job}")),
+            ("POST", format!("/workspace/imports/{job}/check")),
+            ("POST", format!("/workspace/imports/{job}/confirm")),
+            ("POST", format!("/workspace/imports/{job}/reset")),
+            ("POST", format!("/workspace/imports/{job}/retry-files")),
+            ("POST", format!("/workspace/imports/{job}/invite")),
+            ("GET", "/admin/workspaces/1/imports".to_string()),
+            ("POST", "/admin/workspaces/1/imports".to_string()),
+            ("GET", format!("/admin/workspaces/1/imports/{job}")),
+            ("POST", format!("/admin/workspaces/1/imports/{job}/check")),
+            ("POST", format!("/admin/workspaces/1/imports/{job}/confirm")),
+            ("POST", format!("/admin/workspaces/1/imports/{job}/reset")),
+            (
+                "POST",
+                format!("/admin/workspaces/1/imports/{job}/retry-files"),
+            ),
+        ]
+        .iter()
+        .map(|(m, p)| (*m, p.as_str()))
+        .collect::<Vec<_>>(),
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn approvals_routes_registered() {
     assert_config_registers(
         crate::handlers::approvals::config,
@@ -527,6 +560,7 @@ async fn documentation_config_routes_registered() {
             ("GET", "/documentation/pages"),
             ("POST", "/documentation/pages"),
             ("GET", "/documentation/pages/export"),
+            ("GET", "/documentation/export.zip"),
             ("GET", "/documentation/pages/top-level"),
             ("GET", "/documentation/pages/uncollected"),
             ("POST", "/documentation/pages/reorder"),
@@ -567,6 +601,8 @@ async fn documentation_config_routes_registered() {
             ("POST", "/knowledge-gaps/detect-clusters"),
             ("POST", "/knowledge-gaps/detect-failed-searches"),
             ("POST", "/knowledge-gaps/detect-stale-docs"),
+            ("POST", "/knowledge-gaps/dismiss"),
+            ("POST", "/knowledge-gaps/reopen"),
             ("GET", "/knowledge-gaps/1"),
             ("POST", "/knowledge-gaps/1/dismiss"),
             ("POST", "/knowledge-gaps/1/resolve"),
@@ -911,10 +947,29 @@ async fn imports_config_routes_registered() {
     assert_config_registers(
         crate::handlers::imports::config,
         &[
+            ("GET", "/admin/import"),
             ("POST", "/admin/import"),
+            ("GET", "/admin/import/fields"),
+            ("GET", "/admin/import/answers"),
+            ("DELETE", "/admin/import/answers"),
+            ("DELETE", "/admin/import/answers/1"),
             ("GET", "/admin/import/template/1"),
+            ("PUT", "/admin/import/1/source"),
+            ("PUT", "/admin/import/1/type"),
+            ("PUT", "/admin/import/1/mapping"),
             ("POST", "/admin/import/1/commit"),
+            ("GET", "/admin/import/1/values"),
+            ("PUT", "/admin/import/1/values"),
+            ("POST", "/admin/import/1/values/preview"),
+            ("GET", "/admin/import/1/rows"),
+            ("GET", "/admin/import/1/error-report"),
+            ("GET", "/admin/import/1/remove-created"),
+            ("POST", "/admin/import/1/remove-created"),
+            ("GET", "/admin/import/1/previous-values"),
+            ("POST", "/admin/import/1/next-sheet"),
+            ("POST", "/admin/import/1/invites"),
             ("GET", "/admin/import/1"),
+            ("DELETE", "/admin/import/1"),
         ],
     )
     .await;
@@ -1089,6 +1144,7 @@ async fn internal_workspaces_config_routes_registered() {
             ("POST", "/workspaces/create"),
             ("POST", "/workspaces/1/upsert_projected_user"),
             ("POST", "/workspaces/1/seat_limit"),
+            ("POST", "/workspaces/1/billing"),
             ("POST", "/workspaces/1/members/set_role"),
             ("POST", "/workspaces/1/members/revoke_sessions"),
             ("PATCH", "/workspaces/1/custom-domain"),

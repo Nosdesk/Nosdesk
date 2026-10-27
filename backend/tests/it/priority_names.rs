@@ -145,7 +145,13 @@ fn a_csv_priority_error_names_all_five() {
     )
     .expect("write csv");
     let parsed = csv_parser::parse_file(&path).expect("parse");
-    let summary = imports::dry_run(&mut conn, ImportType::Tickets, &parsed).expect("dry run");
+    let summary = imports::dry_run(
+        &mut conn,
+        ImportType::Tickets,
+        &parsed,
+        &common::import_ctx(),
+    )
+    .expect("dry run");
     let message = summary
         .errors
         .iter()

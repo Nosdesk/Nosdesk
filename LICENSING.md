@@ -1,9 +1,19 @@
 # Licensing
 
 Self-hosted Nosdesk runs the **Community** edition, which is limited to a
-single workspace. Creating additional workspaces requires an **Enterprise**
-license. Hosted (SaaS) deployments provision workspaces through the control
-plane and are not affected.
+single workspace. Creating additional workspaces requires a license key,
+sold as **Simple** or **Advanced** on the
+[pricing page](https://nosdesk.com/pricing) and managed at
+manage.nosdesk.com. The server calls either one the **Enterprise** edition:
+that is the name in the startup log and in `GET /api/admin/license`. Hosted
+(SaaS) deployments provision workspaces through the control plane and are
+not affected.
+
+A license key is separate from the source license in [LICENSE](LICENSE),
+the Business Source License 1.1, which lets you run Nosdesk in production
+unless you offer it as a Hosted Helpdesk Service. Each release carries its
+own Change Date, when it converts to the GNU AGPL v3: 2029-10-29 for every
+release through 1.1.x, 2030-01-01 from 1.2.0.
 
 The cap is enforced server-side in `admin_workspaces::create_workspace`:
 on self-hosted deployments, once the active-workspace count reaches the
@@ -14,7 +24,7 @@ edition limit, `POST /api/admin/workspaces` returns `402 license_required`.
 A license is an EdDSA-signed JWT carrying a stable customer id (`sub`, a
 UUID that survives reissues), a display name (`licensee`), a per-issuance
 id (`jti`, required), an active-workspace cap, an expiry, and an optional
-`features` list (empty in v1.1 — nothing new is gated on it). The public
+`features` list (empty in v1.1; nothing new is gated on it). The public
 verification keys are compiled into the binary and the token's `kid` header
 selects one; a `kid` the binary does not trust is refused. The private
 signing keys are held only by Nosdesk. A verified

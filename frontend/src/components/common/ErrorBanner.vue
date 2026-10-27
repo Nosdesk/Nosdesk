@@ -7,6 +7,8 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 
 defineProps<{
   message: string
+  /** A second, quieter line under the message (a file name and size). */
+  detail?: string
   dismissible?: boolean
   showRetry?: boolean
 }>()
@@ -24,6 +26,7 @@ const emit = defineEmits<{
     </svg>
     <div class="flex-1 min-w-0">
       <p class="text-sm">{{ message }}</p>
+      <p v-if="detail" class="text-xs text-secondary break-all">{{ detail }}</p>
       <button
         type="button"
         v-if="showRetry"

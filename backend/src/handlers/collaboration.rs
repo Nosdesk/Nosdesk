@@ -6,6 +6,7 @@ use futures::StreamExt;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::panic;
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Notify, RwLock};
@@ -14,7 +15,10 @@ use uuid::Uuid;
 use yrs::sync::{Awareness, DefaultProtocol, Protocol};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
-use yrs::{Doc, GetString, ReadTxn, StateVector, Transact, Update, WriteTxn, XmlFragment};
+use yrs::{
+    Doc, GetString, Out, ReadTxn, StateVector, Subscription, Transact, Update, WriteTxn,
+    XmlElementRef, XmlFragment, XmlFragmentRef, XmlOut,
+};
 
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn};
@@ -124,6 +128,11 @@ fn validate_revision_snapshot(snapshot: &[u8]) -> Result<(), ApiError> {
 /// graceful-shutdown flush (`flush_all_dirty`) awaits it so the write
 /// lands before the process exits. Errors are logged, not propagated: a
 /// failed save must not abort a maintenance tick or a shutdown.
+///
+/// A ticket note or page body also emits a search-only `*.content_saved`
+/// sync_action, atomic with the write, so the index replicator re-indexes it
+/// on every machine. Collaborative saves are otherwise off the sync stream,
+/// so without it an edit is only searchable on the machine that owns the room.
 async fn write_yjs_state(
     pool: web::Data<crate::db::Pool>,
     search: Arc<crate::services::search::SearchService>,
@@ -131,14 +140,6 @@ async fn write_yjs_state(
     content: Vec<u8>,
     workspace_id: i32,
     fence: Option<i64>,
-    // True only for a save that ends an editing session which had real
-    // changes (room emptied / last editor disconnected, contributors
-    // non-empty). On such a save, also emit a search-only
-    // `*.content_saved` sync_action — atomic with the body write — so the
-    // index replicator re-indexes the collaborative body on every machine.
-    // Collaborative saves are otherwise off the sync stream, so without
-    // this a finished edit is only searchable on the owning machine.
-    emit_saved: bool,
 ) -> SaveOutcome {
     let mut conn = match pool.get() {
         Ok(c) => c,
@@ -151,15 +152,12 @@ async fn write_yjs_state(
     let result: Result<(), diesel::result::Error> = match doc_type {
         DocumentType::Ticket(ticket_id) => session::with_actor_context(&mut conn, &actor, |conn| {
             repository::update_article_yjs_state(conn, ticket_id, content, fence, Some(&search))?;
-            if emit_saved {
-                emit_content_saved(
-                    conn,
-                    crate::models::SyncAggregate::Ticket,
-                    ticket_id,
-                    "ticket.content_saved",
-                )?;
-            }
-            Ok(())
+            emit_content_saved(
+                conn,
+                crate::models::SyncAggregate::Ticket,
+                ticket_id,
+                "ticket.content_saved",
+            )
         }),
         DocumentType::Documentation(page_id) => {
             session::with_actor_context(&mut conn, &actor, |conn| {
@@ -170,15 +168,12 @@ async fn write_yjs_state(
                     fence,
                     Some(&search),
                 )?;
-                if emit_saved {
-                    emit_content_saved(
-                        conn,
-                        crate::models::SyncAggregate::DocumentationPage,
-                        page_id,
-                        "documentation.content_saved",
-                    )?;
-                }
-                Ok(())
+                emit_content_saved(
+                    conn,
+                    crate::models::SyncAggregate::DocumentationPage,
+                    page_id,
+                    "documentation.content_saved",
+                )
             })
         }
         DocumentType::Collection(collection_id) => {
@@ -253,9 +248,9 @@ fn document_exists(
     .ok()
 }
 
-/// Emit a search-only `*.content_saved` sync_action for a finished
-/// collaborative editing session, so the search-index replicator re-indexes
-/// the document body on every machine (see `services::search_replicator`).
+/// Emit a search-only `*.content_saved` sync_action for a saved collaborative
+/// body, so the search-index replicator re-indexes it on every machine (see
+/// `services::search_replicator`).
 ///
 /// Deliberately invisible to everything else: emitted with EMPTY groups so
 /// it reaches no live SSE subscriber (editors already have the content via
@@ -945,6 +940,191 @@ pub async fn get_article_content(
     }
 }
 
+// ============= Editor schema gate =============
+//
+// y-prosemirror deletes, from the shared document, any node its schema can't
+// build. A client whose editor predates a node type would therefore destroy
+// that node for everyone the moment it received it. So each client declares
+// the editor schema it holds (`?schema=` on the socket URL, 1 when missing),
+// each resident document tracks the schema its content needs, and nothing is
+// sent to a session that holds less: it is closed with 4426 instead.
+
+/// The newest editor schema this server knows. A session declaring this or
+/// more is told so in the hello (message type 100), and only then does its
+/// editor create the nodes that need it.
+pub const SERVER_EDITOR_SCHEMA: u16 = 2;
+
+/// The editor schema each ProseMirror node type first appeared in, one row
+/// per node in `frontend/src/components/editor/schema.ts` (a test checks the
+/// two against `tests/fixtures/editor_schema_nodes.json`). A node added to the
+/// editor later is a new row here, at the schema version that adds it.
+pub const NODE_MIN_SCHEMA: &[(&str, u16)] = &[
+    ("doc", 1),
+    ("paragraph", 1),
+    ("blockquote", 1),
+    ("horizontal_rule", 1),
+    ("heading", 1),
+    ("code_block", 1),
+    ("text", 1),
+    ("image", 1),
+    ("hard_break", 1),
+    ("ticket_link", 1),
+    ("mention", 1),
+    ("bullet_list", 1),
+    ("ordered_list", 1),
+    ("list_item", 1),
+    ("embedded_document", 1),
+    ("table", 2),
+    ("table_row", 2),
+    ("table_header", 2),
+    ("table_cell", 2),
+];
+
+/// Message type of the hello: varUint 100, then varUint the schema the server
+/// accepts from this session, `min(session schema, SERVER_EDITOR_SCHEMA)`.
+/// Sent after the opening SyncStep1, only to sessions declaring schema 2 or
+/// more. An older y-websocket logs "Unable to compute message" for a type it
+/// has no handler for and replies with nothing, but it never gets one anyway.
+const MSG_HELLO: u32 = 100;
+
+/// The editor schema a node named `tag` needs. A name no schema lists counts
+/// as 1: every client already drops such an element, so gating it would only
+/// lock people out of a document without protecting anything.
+fn node_min_schema(tag: &str) -> u16 {
+    NODE_MIN_SCHEMA
+        .iter()
+        .find(|(name, _)| *name == tag)
+        .map_or(1, |(_, schema)| *schema)
+}
+
+/// The editor schema `node` and every visible element below it need.
+fn subtree_schema<T: ReadTxn>(node: &XmlElementRef, txn: &T) -> u16 {
+    node.successors(txn)
+        .filter_map(|child| match child {
+            XmlOut::Element(element) => Some(node_min_schema(element.tag())),
+            _ => None,
+        })
+        .fold(node_min_schema(node.tag()), u16::max)
+}
+
+/// The editor schema everything visible in the `prosemirror` fragment needs,
+/// at least 1. A deleted element counts for nothing: no client renders it.
+fn fragment_schema<T: ReadTxn>(fragment: &XmlFragmentRef, txn: &T) -> u16 {
+    fragment
+        .successors(txn)
+        .filter_map(|node| match node {
+            XmlOut::Element(element) => Some(node_min_schema(element.tag())),
+            _ => None,
+        })
+        .fold(1, u16::max)
+}
+
+/// Raise `required` whenever a transaction on `fragment` adds an element that
+/// needs a newer editor schema.
+///
+/// yrs runs deep observers inside `TransactionMut::commit`, while the
+/// transaction still holds the document's write lock, so the raise is visible
+/// before any reader can open a transaction and encode the new element. That
+/// is what lets every send path check `required` after encoding.
+///
+/// A child created in the same transaction as its parent has no event of its
+/// own, so each added element's subtree is walked.
+fn watch_required_schema(fragment: &XmlFragmentRef, required: Arc<AtomicU16>) -> Subscription {
+    use yrs::types::{Change, Event};
+    use yrs::DeepObservable;
+    fragment.observe_deep(move |txn, events| {
+        if required.load(Ordering::SeqCst) >= SERVER_EDITOR_SCHEMA {
+            return;
+        }
+        let mut needed = 1;
+        for event in events.iter() {
+            let Event::XmlFragment(event) = event else {
+                continue;
+            };
+            for change in event.delta(txn) {
+                let Change::Added(values) = change else {
+                    continue;
+                };
+                for value in values {
+                    if let Out::YXmlElement(element) = value {
+                        needed = needed.max(subtree_schema(element, txn));
+                    }
+                }
+            }
+        }
+        required.fetch_max(needed, Ordering::SeqCst);
+    })
+}
+
+/// Count every change to the document's content: anything added, removed or
+/// reformatted under the `prosemirror` fragment, counted inside the write
+/// transaction that makes it.
+///
+/// Content is what a save persists for and a revision records. Other roots
+/// change without anyone editing: an editor maps its client to its user in
+/// the `users` map, which older editors did as soon as a page was opened.
+/// The state vector can't tell those apart, and misses a change that only
+/// deletes.
+fn watch_content(fragment: &XmlFragmentRef, version: Arc<AtomicU64>) -> Subscription {
+    use yrs::DeepObservable;
+    fragment.observe_deep(move |_txn, _events| {
+        version.fetch_add(1, Ordering::SeqCst);
+    })
+}
+
+/// A loading document's content counter, the value the backing table holds,
+/// and the observer that raises it.
+struct ContentWatch {
+    version: Arc<AtomicU64>,
+    saved: u64,
+    watch: Subscription,
+}
+
+/// The schema gate of one resident document: its awareness and the editor
+/// schema its content needs.
+#[derive(Clone)]
+struct DocGate {
+    awareness: Arc<Awareness>,
+    required_schema: Arc<AtomicU16>,
+    /// How many times the content has changed while resident
+    /// ([`watch_content`]).
+    content_version: Arc<AtomicU64>,
+}
+
+/// Whether a session whose editor holds `session_schema` may be sent anything
+/// from `doc`. Every path that sends a session document content asks this
+/// after the content is encoded: the initial sync, each reply to an inbound
+/// frame (the 20 s SyncStep1 resync included), and every broadcast.
+///
+/// Blocks yrs holds back as pending (their dependencies haven't arrived) are
+/// not in the fragment, so no observer has looked at them, yet
+/// `encode_state_as_update_v1` includes them in a SyncStep2. A session older
+/// than this server is refused while any are pending, as their content is
+/// unknown.
+fn may_receive(session_schema: u16, doc: &DocGate) -> bool {
+    if session_schema < doc.required_schema.load(Ordering::SeqCst) {
+        return false;
+    }
+    session_schema >= SERVER_EDITOR_SCHEMA
+        || doc
+            .awareness
+            .doc()
+            .transact()
+            .store()
+            .pending_update()
+            .is_none()
+}
+
+/// The hello frame for a session declaring `session_schema`.
+fn hello_frame(session_schema: u16) -> Bytes {
+    use yrs::encoding::write::Write;
+    use yrs::updates::encoder::{Encoder, EncoderV1};
+    let mut encoder = EncoderV1::new();
+    encoder.write_var(MSG_HELLO);
+    encoder.write_var(u32::from(session_schema.min(SERVER_EDITOR_SCHEMA)));
+    Bytes::from(encoder.to_vec())
+}
+
 // ============= WebSocket implementation =============
 
 // Document state tracking
@@ -987,6 +1167,23 @@ struct DocumentState {
     /// this instead of re-parsing the doc_id, so they never need a DB
     /// round-trip to learn which table to persist to.
     doc_type: DocumentType,
+    /// The editor schema this document's content needs (see
+    /// [`may_receive`]). Set at load from the visible content and raised
+    /// inside the write transaction that adds a newer node. It never falls
+    /// while the document is resident; the next load recomputes it.
+    required_schema: Arc<AtomicU16>,
+    /// Keeps the observer that raises `required_schema` subscribed for as
+    /// long as the document is resident.
+    _schema_watch: Subscription,
+    /// Raised by every change to the content ([`watch_content`]).
+    content_version: Arc<AtomicU64>,
+    /// `content_version` as the backing table holds it: at load, then once
+    /// each save's write has landed. A save is due only when the content has
+    /// moved on from it, so a session that changed nothing writes nothing,
+    /// and a write that failed is tried again.
+    saved_content_version: Arc<AtomicU64>,
+    /// Keeps the observer that raises `content_version` subscribed.
+    _content_watch: Subscription,
 }
 
 impl DocumentState {
@@ -995,8 +1192,16 @@ impl DocumentState {
         workspace_id: i32,
         fence: Option<i64>,
         doc_type: DocumentType,
+        required_schema: Arc<AtomicU16>,
+        schema_watch: Subscription,
+        content: ContentWatch,
     ) -> Self {
         Self {
+            required_schema,
+            _schema_watch: schema_watch,
+            content_version: content.version,
+            saved_content_version: Arc::new(AtomicU64::new(content.saved)),
+            _content_watch: content.watch,
             awareness,
             last_saved: Instant::now(),
             has_pending_changes: false,
@@ -1014,6 +1219,20 @@ impl DocumentState {
             fence,
             doc_type,
         }
+    }
+
+    fn gate(&self) -> DocGate {
+        DocGate {
+            awareness: Arc::clone(&self.awareness),
+            required_schema: Arc::clone(&self.required_schema),
+            content_version: Arc::clone(&self.content_version),
+        }
+    }
+
+    /// Whether the content changed since the backing table last got it.
+    fn has_unsaved_content(&self) -> bool {
+        self.content_version.load(Ordering::SeqCst)
+            != self.saved_content_version.load(Ordering::SeqCst)
     }
 
     fn mark_changed(&mut self) {
@@ -1054,11 +1273,18 @@ impl DocumentState {
     }
 
     fn should_save(&self) -> bool {
+        let now = Instant::now();
+
+        // Content the backing table doesn't hold yet, because its save
+        // failed or hasn't been tried, is saved on the usual cadence even
+        // when no client has written since.
+        if self.has_unsaved_content() && now.duration_since(self.last_saved) >= MIN_SAVE_INTERVAL {
+            return true;
+        }
+
         if !self.has_pending_changes {
             return false;
         }
-
-        let now = Instant::now();
 
         // Save if enough time has passed since last save
         if now.duration_since(self.last_saved) >= MIN_SAVE_INTERVAL {
@@ -1222,6 +1448,9 @@ struct SessionInfo {
     /// doc_id, so they need no DB round-trip and presence stays keyed on
     /// the stable ticket id.
     doc_type: DocumentType,
+    /// The editor schema the session's client declared (`?schema=`, 1 when
+    /// missing). [`may_receive`] compares it with the document's.
+    schema: u16,
 }
 
 /// The result of re-checking someone's access to an open page or collection.
@@ -1254,6 +1483,16 @@ impl Revoke {
             Recheck::Withdrawn => CollabRefusal::NoAccess.code(),
             Recheck::Unknown => CLOSE_RETRY,
         };
+        self.close_with(code);
+    }
+
+    /// Close the session with "update required" (4426): the document holds
+    /// content its client's editor would delete.
+    fn close_outdated(&self) {
+        self.close_with(CollabRefusal::Outdated.code());
+    }
+
+    fn close_with(&self, code: u16) {
         self.code.store(code, std::sync::atomic::Ordering::SeqCst);
         self.notify.notify_one();
     }
@@ -1685,19 +1924,7 @@ impl YjsAppState {
         for (doc_id, doc_state) in documents.iter_mut() {
             let workspace_id = doc_state.workspace_id;
             // Regular saves for active documents
-            if doc_state.should_save() {
-                debug!(doc_id = %doc_id, "Saving document with pending changes");
-                // Mid-session save: not the end of editing, so no
-                // content-saved emit yet.
-                self.save_document_internal(
-                    doc_id,
-                    &doc_state.awareness,
-                    workspace_id,
-                    doc_state.fence,
-                    doc_state.doc_type,
-                    false,
-                );
-                doc_state.mark_saved();
+            if doc_state.should_save() && self.save_if_changed(doc_id, doc_state) {
                 saved_count += 1;
             }
 
@@ -1723,20 +1950,10 @@ impl YjsAppState {
             // Final save for empty rooms
             if doc_state.should_do_final_save() {
                 debug!(doc_id = %doc_id, "Performing final save for empty room");
-                // End-of-session save: emit content-saved when the session
-                // actually changed content (contributors are added only on
-                // real change), so the search replicator re-indexes.
-                self.save_document_internal(
-                    doc_id,
-                    &doc_state.awareness,
-                    workspace_id,
-                    doc_state.fence,
-                    doc_state.doc_type,
-                    !doc_state.contributors.is_empty(),
-                );
-                doc_state.mark_saved();
+                if self.save_if_changed(doc_id, doc_state) {
+                    final_saved_count += 1;
+                }
                 doc_state.mark_final_save_completed();
-                final_saved_count += 1;
 
                 // Create revision at end of editing session if there were content changes
                 if !doc_state.contributors.is_empty() {
@@ -1820,14 +2037,14 @@ impl YjsAppState {
         workspace_id: i32,
         fence: Option<i64>,
         doc_type: DocumentType,
-    ) -> Arc<Awareness> {
+    ) -> DocGate {
         let mut documents = self.documents.write().await;
 
         if let Some(doc_state) = documents.get_mut(doc_id) {
             // Document exists in memory - reuse it (this is the live state!)
             // Reset the empty room timer since there's activity
             doc_state.mark_room_active();
-            Arc::clone(&doc_state.awareness)
+            doc_state.gate()
         } else {
             debug!(doc_id = %doc_id, "Document not in memory - loading it");
 
@@ -1836,6 +2053,13 @@ impl YjsAppState {
             // restarts, and the "prosemirror" root declared up front).
             // apply_update() below merges the loaded state into it.
             let doc = new_server_doc(doc_id);
+            // Watch the fragment before anything is loaded into it, so the
+            // load's own transactions raise the requirement too.
+            let fragment = doc.transact_mut().get_or_insert_xml_fragment("prosemirror");
+            let required_schema = Arc::new(AtomicU16::new(1));
+            let schema_watch = watch_required_schema(&fragment, Arc::clone(&required_schema));
+            let content_version = Arc::new(AtomicU64::new(0));
+            let content_watch = watch_content(&fragment, Arc::clone(&content_version));
             let mut awareness = Awareness::new(doc);
 
             let mut loaded_from_postgres = false;
@@ -2010,6 +2234,10 @@ impl YjsAppState {
                 }
             }
 
+            // What the backing table holds. A checkpoint that adds content
+            // below leaves the document ahead of it, and due a save.
+            let saved_content_version = content_version.load(Ordering::SeqCst);
+
             // STEP 2: Merge the latest crash-recovery checkpoint (Phase 2).
             // Cheap binary checkpoints land in `yjs_snapshots` between the
             // heavier article_contents saves, so a hard crash loses
@@ -2064,11 +2292,29 @@ impl YjsAppState {
                 debug!(doc_id = %doc_id, preview = %preview, "New document created");
             }
 
+            // The observer has seen every element the loads added; walk the
+            // visible content as well, so the requirement never rests on the
+            // observer alone.
+            let loaded_schema = fragment_schema(&fragment, &awareness.doc().transact());
+            required_schema.fetch_max(loaded_schema, Ordering::SeqCst);
+
             let awareness_arc = Arc::new(awareness);
-            let doc_state =
-                DocumentState::new(Arc::clone(&awareness_arc), workspace_id, fence, doc_type);
+            let doc_state = DocumentState::new(
+                Arc::clone(&awareness_arc),
+                workspace_id,
+                fence,
+                doc_type,
+                required_schema,
+                schema_watch,
+                ContentWatch {
+                    version: content_version,
+                    saved: saved_content_version,
+                    watch: content_watch,
+                },
+            );
+            let gate = doc_state.gate();
             documents.insert(doc_id.to_string(), doc_state);
-            awareness_arc
+            gate
         }
     }
 
@@ -2083,6 +2329,13 @@ impl YjsAppState {
     async fn get_awareness(&self, doc_id: &str) -> Option<Arc<Awareness>> {
         let documents = self.documents.read().await;
         documents.get(doc_id).map(|s| Arc::clone(&s.awareness))
+    }
+
+    /// [`Self::get_awareness`] with the document's schema requirement, for
+    /// the paths that send its content.
+    async fn get_gate(&self, doc_id: &str) -> Option<DocGate> {
+        let documents = self.documents.read().await;
+        documents.get(doc_id).map(DocumentState::gate)
     }
 
     /// Where the current state of a document is, for a reader that must not
@@ -2169,6 +2422,7 @@ impl YjsAppState {
         revoke: Arc<Revoke>,
         workspace_id: i32,
         doc_type: DocumentType,
+        schema: u16,
     ) {
         let mut sessions = self.sessions.write().await;
 
@@ -2193,6 +2447,7 @@ impl YjsAppState {
                 revoke,
                 workspace_id,
                 doc_type,
+                schema,
             },
         );
         let room_size = room.len();
@@ -2426,19 +2681,8 @@ impl YjsAppState {
         let mut documents = self.documents.write().await;
         if let Some(doc_state) = documents.get_mut(doc_id) {
             let workspace_id = doc_state.workspace_id;
-            debug!(doc_id = %doc_id, "Force saving document on disconnect");
-            // End-of-session save (last editor left): emit content-saved
-            // when the session changed content, so the search replicator
-            // re-indexes the body on every machine.
-            self.save_document_internal(
-                doc_id,
-                &doc_state.awareness,
-                workspace_id,
-                doc_state.fence,
-                doc_state.doc_type,
-                !doc_state.contributors.is_empty(),
-            );
-            doc_state.mark_saved();
+            debug!(doc_id = %doc_id, "Final save on disconnect");
+            self.save_if_changed(doc_id, doc_state);
 
             // Create revision at end of editing session if there were actual content changes
             // Contributors are only added when content actually changes, so this is sufficient
@@ -2477,7 +2721,7 @@ impl YjsAppState {
             let documents = self.documents.read().await;
             documents
                 .iter()
-                .filter(|(_, s)| s.has_pending_changes)
+                .filter(|(_, s)| s.has_unsaved_content())
                 .map(|(_, s)| {
                     (
                         s.doc_type,
@@ -2504,11 +2748,7 @@ impl YjsAppState {
                 let pool = pool.clone();
                 let search = search.clone();
                 async move {
-                    // Shutdown flush: persist the body, but skip the
-                    // content-saved emit — a restart rebuilds the index from
-                    // Postgres anyway, and the owner is going away.
-                    write_yjs_state(pool, search, doc_type, content, workspace_id, fence, false)
-                        .await;
+                    write_yjs_state(pool, search, doc_type, content, workspace_id, fence).await;
                 }
             },
         ))
@@ -2588,23 +2828,57 @@ impl YjsAppState {
         debug!(documents = count, "Wrote crash-recovery checkpoints");
     }
 
+    /// Close, with "update required", every session in the room whose
+    /// editor can no longer be sent this document. Called when a frame
+    /// raised its schema requirement. Each send path checks
+    /// [`may_receive`] on its own, so this only stops the stale sessions
+    /// sooner rather than at their next frame.
+    async fn close_outdated_sessions(&self, doc_id: &str, doc: &DocGate) {
+        let room: Vec<(u16, Arc<Revoke>)> = {
+            let sessions = self.sessions.read().await;
+            sessions
+                .get(doc_id)
+                .map(|room| {
+                    room.values()
+                        .map(|info| (info.schema, info.revoke.clone()))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        for (schema, revoke) in room {
+            if !may_receive(schema, doc) {
+                revoke.close_outdated();
+            }
+        }
+    }
+
     // Broadcast update to all sessions in a room except sender
     async fn broadcast(&self, doc_id: &str, sender_id: &str, msg: &[u8]) {
         if msg.is_empty() {
             return;
         }
 
+        let gate = self.get_gate(doc_id).await;
+
         // Collect sender clones while holding the read lock; the
         // mpsc::UnboundedSender is cheap to clone (Arc internally).
         // Cloning under the lock lets us release it before doing the
         // (non-blocking) per-recipient send.
-        let recipients: Vec<(OutboundTx, Arc<Notify>)> = {
+        type Recipient = (OutboundTx, Arc<Notify>, u16, Arc<Revoke>);
+        let recipients: Vec<Recipient> = {
             let sessions = self.sessions.read().await;
 
             if let Some(room) = sessions.get(doc_id) {
                 room.iter()
                     .filter(|(id, _)| *id != sender_id)
-                    .map(|(_, info)| (info.tx.clone(), info.cancel.clone()))
+                    .map(|(_, info)| {
+                        (
+                            info.tx.clone(),
+                            info.cancel.clone(),
+                            info.schema,
+                            info.revoke.clone(),
+                        )
+                    })
                     .collect()
             } else {
                 Vec::new()
@@ -2617,12 +2891,48 @@ impl YjsAppState {
         // back-pressuring the fan-out or growing its queue without bound. A dead
         // receiver (session task exited) is ignored; the next
         // cleanup_stale_sessions sweep evicts the row.
+        //
+        // A recipient whose editor can't hold this document is closed with
+        // "update required" and never sent the frame. The frame was applied
+        // before this runs, so any newer node it added has already raised the
+        // requirement. A document no longer resident has nothing to judge
+        // against, so only sessions on this server's schema get the frame.
         let msg_bytes = Bytes::copy_from_slice(msg);
-        for (tx, cancel) in recipients {
+        for (tx, cancel, schema, revoke) in recipients {
+            match &gate {
+                Some(gate) if !may_receive(schema, gate) => {
+                    revoke.close_outdated();
+                    continue;
+                }
+                None if schema < SERVER_EDITOR_SCHEMA => continue,
+                _ => {}
+            }
             if !tx.send_within_budget(msg_bytes.clone()) {
                 cancel.notify_one();
             }
         }
+    }
+
+    /// Save the document when its content changed since the backing table
+    /// last got it, and return whether it did. A session that only viewed
+    /// the document leaves the row alone: no new `yjs_document`, no new
+    /// `updated_at`, no content-saved event.
+    fn save_if_changed(&self, doc_id: &str, doc_state: &mut DocumentState) -> bool {
+        let version = doc_state.content_version.load(Ordering::SeqCst);
+        let changed = doc_state.has_unsaved_content();
+        if changed {
+            debug!(doc_id = %doc_id, "Saving changed document");
+            self.save_document_internal(
+                doc_id,
+                &doc_state.awareness,
+                doc_state.workspace_id,
+                doc_state.fence,
+                doc_state.doc_type,
+                (Arc::clone(&doc_state.saved_content_version), version),
+            );
+        }
+        doc_state.mark_saved();
+        changed
     }
 
     // Save document state to the database from awareness
@@ -2633,10 +2943,9 @@ impl YjsAppState {
         workspace_id: i32,
         fence: Option<i64>,
         doc_type: DocumentType,
-        // True only when this is the end-of-session save and the session
-        // had real content changes; threaded to `write_yjs_state` to drive
-        // the search-only content-saved emit.
-        emit_saved: bool,
+        // The room's saved content version, and the content version this
+        // save holds: the write raises the one to the other once it lands.
+        (saved_version, version): (Arc<AtomicU64>, u64),
     ) {
         // Get binary content from the document
         let binary_content = {
@@ -2683,11 +2992,16 @@ impl YjsAppState {
                 binary_content,
                 workspace_id,
                 fence,
-                emit_saved,
             )
             .await;
-            if outcome == SaveOutcome::ResourceGone {
-                state.drop_deleted_document(&doc_id).await;
+            match outcome {
+                // Saves can land out of order; the version never goes back.
+                SaveOutcome::Saved => {
+                    saved_version.fetch_max(version, Ordering::SeqCst);
+                }
+                SaveOutcome::ResourceGone => state.drop_deleted_document(&doc_id).await,
+                // Still unsaved, so the next maintenance pass tries again.
+                SaveOutcome::Failed => {}
             }
         });
     }
@@ -2940,6 +3254,22 @@ pub async fn get_collab_token(req: HttpRequest) -> impl Responder {
 #[derive(serde::Deserialize)]
 pub struct CollabWsQuery {
     token: Option<String>,
+    /// The editor schema the client holds. Kept as text so a value that
+    /// doesn't parse counts as 1 rather than failing the upgrade, which
+    /// y-websocket would retry forever.
+    schema: Option<String>,
+}
+
+impl CollabWsQuery {
+    /// The client's editor schema: 1 when missing, unreadable or 0. Clients
+    /// from before the gate send nothing, and 1 is what their editor holds.
+    fn editor_schema(&self) -> u16 {
+        self.schema
+            .as_deref()
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(1)
+            .max(1)
+    }
 }
 
 /// Why the collab socket refuses a connection. A browser can't read the status
@@ -2954,6 +3284,9 @@ pub enum CollabRefusal {
     NoAccess,
     /// The document doesn't exist (any more).
     Gone,
+    /// The document holds content the client's editor would delete: it must
+    /// update first. Sent after the upgrade, once the document is loaded.
+    Outdated,
 }
 
 impl CollabRefusal {
@@ -2962,6 +3295,7 @@ impl CollabRefusal {
             Self::Unauthenticated => 4401,
             Self::NoAccess => 4403,
             Self::Gone => 4404,
+            Self::Outdated => 4426,
         }
     }
 
@@ -2970,7 +3304,19 @@ impl CollabRefusal {
             Self::Unauthenticated => "unauthenticated",
             Self::NoAccess => "no access",
             Self::Gone => "not found",
+            Self::Outdated => "update required",
         }
+    }
+
+    fn from_code(code: u16) -> Option<Self> {
+        [
+            Self::Unauthenticated,
+            Self::NoAccess,
+            Self::Gone,
+            Self::Outdated,
+        ]
+        .into_iter()
+        .find(|refusal| refusal.code() == code)
     }
 
     /// The refusal a pre-upgrade check's HTTP error stands for, if it is one.
@@ -3309,6 +3655,7 @@ pub async fn ws_handler(
         fence,
         doc_type,
         read_only,
+        query.editor_schema(),
         session,
         msg_stream,
         conn_guard,
@@ -3329,6 +3676,8 @@ async fn session_task(
     doc_type: DocumentType,
     // The caller can open the document but not change it.
     read_only: bool,
+    // The editor schema the client declared.
+    schema: u16,
     mut session: actix_ws::Session,
     mut msg_stream: actix_ws::AggregatedMessageStream,
     // Holds this connection's slot in the shared cap; released when this task
@@ -3366,6 +3715,11 @@ async fn session_task(
     if !JOIN_DELAY.is_zero() {
         tokio::time::sleep(*JOIN_DELAY).await;
     }
+    // The session joins the room before its document is loaded below, so
+    // for a moment a client too old for the document is in the room before
+    // anything has checked it. That window is safe because `broadcast`
+    // checks every recipient with `may_receive` and closes the ones that
+    // fail without sending them the frame.
     app_state
         .register_session(
             &doc_id,
@@ -3376,6 +3730,7 @@ async fn session_task(
             revoke.clone(),
             workspace_id,
             doc_type,
+            schema,
         )
         .await;
     // The handshake checked access before this session was in the room, so
@@ -3396,15 +3751,29 @@ async fn session_task(
     // clients. Each message goes as its own frame because
     // y-websocket's readMessage() parses one message per frame —
     // packing them would lose all but the first.
-    {
-        let awareness = app_state
-            .get_or_create_awareness(&doc_id, workspace_id, fence, doc_type)
-            .await;
+    //
+    // A client too old for what the document already holds is sent nothing
+    // and closed with "update required".
+    let doc = app_state
+        .get_or_create_awareness(&doc_id, workspace_id, fence, doc_type)
+        .await;
+    if !may_receive(schema, &doc) {
+        info!(session_id = %session_id, doc_id = %doc_id,
+            "Session refused: the document needs a newer editor");
+        revoke.close_outdated();
+    } else {
         use yrs::sync::{Message, SyncMessage};
+        let awareness = &doc.awareness;
 
         let sv = awareness.doc().transact().state_vector();
         let sync_msg = Message::Sync(SyncMessage::SyncStep1(sv));
         tx.send(Bytes::from(sync_msg.encode_v1()));
+
+        // Only a client that declared a schema can read the hello; older
+        // ones never get it.
+        if schema >= 2 {
+            tx.send(hello_frame(schema));
+        }
 
         match awareness.update() {
             Ok(awareness_update) => {
@@ -3439,19 +3808,17 @@ async fn session_task(
                 evicted = true;
                 break None;
             }
-            // The user can no longer open this document, or it couldn't be
-            // checked: leave as usual, closing with "no access" (the client
+            // The user can no longer open this document, it couldn't be
+            // checked, or the client's editor is too old for it: leave as
+            // usual, closing with "no access" or "update required" (the client
             // stops reconnecting) or "try again later" (it reconnects, and the
             // handshake checks again).
             _ = revoke.notify.notified() => {
                 let code = revoke.code.load(std::sync::atomic::Ordering::SeqCst);
                 info!(session_id = %session_id, doc_id = %doc_id, code,
-                    "Session closed: access to the document was withdrawn or couldn't be checked");
-                let description = if code == CollabRefusal::NoAccess.code() {
-                    CollabRefusal::NoAccess.reason()
-                } else {
-                    "try again later"
-                };
+                    "Session closed: access withdrawn or uncheckable, or the editor is too old");
+                let description = CollabRefusal::from_code(code)
+                    .map_or("try again later", CollabRefusal::reason);
                 break Some(CloseReason {
                     code: CloseCode::Other(code),
                     description: Some(description.to_string()),
@@ -3539,6 +3906,8 @@ async fn session_task(
                         session_id_c,
                         user_uuid,
                         read_only,
+                        schema,
+                        revoke.clone(),
                         tx_c,
                     ));
                 }
@@ -3686,11 +4055,34 @@ async fn process_inbound_binary(
     session_id: String,
     user_uuid: Uuid,
     read_only: bool,
+    // The editor schema the session's client declared, and the handle that
+    // closes the session when its editor is too old for the document.
+    schema: u16,
+    revoke: Arc<Revoke>,
     tx: OutboundTx,
 ) {
     if bin.is_empty() {
         return;
     }
+
+    // Non-creating lookup: the doc was created at session start. If it's
+    // gone (evicted for an ownership handoff), drop the frame rather than
+    // resurrecting an unowned doc that would write to storage unfenced.
+    let Some(doc) = app_state.get_gate(&doc_id).await else {
+        debug!(doc_id = %doc_id, "Dropping inbound frame: document no longer resident (evicted)");
+        return;
+    };
+    // A client too old for the document gets nothing back for this frame,
+    // and the frame doesn't reach the document or the room. Read-only
+    // sessions included: they would delete the content locally all the same.
+    if !may_receive(schema, &doc) {
+        debug!(doc_id = %doc_id, session_id = %session_id,
+            "Refusing a frame: the document needs a newer editor");
+        revoke.close_outdated();
+        return;
+    }
+    let awareness = &doc.awareness;
+
     // A read-only session's frames that carry document changes (SyncStep2 or
     // SyncUpdate, in any of their messages) are dropped before they reach the
     // document or the room. Its state-vector requests and awareness still go
@@ -3706,22 +4098,11 @@ async fn process_inbound_binary(
         .update_session_activity(&doc_id, &session_id)
         .await;
 
-    // Non-creating lookup: the doc was created at session start. If it's
-    // gone (evicted for an ownership handoff), drop the frame rather than
-    // resurrecting an unowned doc that would write to storage unfenced.
-    let Some(awareness) = app_state.get_awareness(&doc_id).await else {
-        debug!(doc_id = %doc_id, "Dropping inbound frame: document no longer resident (evicted)");
-        return;
-    };
-
-    // Snapshot the document state vector BEFORE protocol.handle so we can detect
-    // "the doc actually changed" cheaply: O(clients), not the O(document)
-    // full-text materialization this replaces (which ran on every frame,
-    // regardless of the frame's own size). Any applied op advances some client's
-    // clock; a no-op update (already applied, or a bare state-vector request)
-    // leaves the vector unchanged. This is also more precise than the old text
-    // compare, which only saw the `prosemirror` fragment and missed
-    // formatting-only edits.
+    // Snapshot the document state vector BEFORE protocol.handle so we can tell
+    // whether the frame applied anything: any inserted op advances some
+    // client's clock, while a no-op update (already applied, or a bare
+    // state-vector request) leaves the vector unchanged. Whether it changed
+    // the content is the content counter's to say (`watch_content`).
     let sv_before = awareness.doc().transact().state_vector();
 
     let protocol = DefaultProtocol;
@@ -3738,17 +4119,41 @@ async fn process_inbound_binary(
         }
     }
 
-    match protocol.handle(&awareness, &bin) {
+    let required_before = doc.required_schema.load(Ordering::SeqCst);
+    let content_before = doc.content_version.load(Ordering::SeqCst);
+    match protocol.handle(awareness, &bin) {
         Ok(messages) => {
             trace!(
                 response_count = messages.len(),
                 "protocol.handle() succeeded"
             );
 
-            let content_changed = sv_before != awareness.doc().transact().state_vector();
+            // This frame added a node older editors would delete: close the
+            // sessions in the room whose editors are too old for it now.
+            if doc.required_schema.load(Ordering::SeqCst) > required_before {
+                info!(doc_id = %doc_id, "Document now needs a newer editor; closing older sessions");
+                app_state.close_outdated_sessions(&doc_id, &doc).await;
+            }
+
+            // Check again now the replies are encoded. A newer node another
+            // session added after the first check raised the requirement
+            // inside its own write transaction, before any encode that could
+            // include it, so this catches every reply that might carry it,
+            // the 20 s SyncStep1 resync's SyncStep2 among them.
+            let may_reply = may_receive(schema, &doc);
+            if !may_reply {
+                debug!(doc_id = %doc_id, session_id = %session_id,
+                    "Dropping replies: the document needs a newer editor");
+                revoke.close_outdated();
+            }
+
+            let applied = sv_before != awareness.doc().transact().state_vector();
+            // Only a change to the content is someone's contribution: the
+            // frame may hold nothing but an editor's user mapping.
+            let content_changed = doc.content_version.load(Ordering::SeqCst) != content_before;
             if content_changed {
                 debug!(doc_id = %doc_id, "Document content changed");
-            } else if msg_type == 0 && bin.len() > 1 && bin[1] == 2 {
+            } else if !applied && may_reply && msg_type == 0 && bin.len() > 1 && bin[1] == 2 {
                 // SYNC_UPDATE didn't apply — request the client's full
                 // state. Happens when state vectors are misaligned
                 // (e.g. after server restart).
@@ -3759,9 +4164,11 @@ async fn process_inbound_binary(
                 tx.send(Bytes::from(sync_message.encode_v1()));
             }
 
-            for message in messages {
-                let encoded = message.encode_v1();
-                tx.send(Bytes::from(encoded));
+            if may_reply {
+                for message in messages {
+                    let encoded = message.encode_v1();
+                    tx.send(Bytes::from(encoded));
+                }
             }
 
             // Decide which inbound frames to rebroadcast to other
@@ -3798,7 +4205,7 @@ async fn process_inbound_binary(
                 app_state.broadcast(&doc_id, &session_id, &bin).await;
             }
 
-            if is_sync_message || content_changed {
+            if is_sync_message || applied || content_changed {
                 app_state.mark_document_changed(&doc_id).await;
             }
             if content_changed {
@@ -4240,7 +4647,6 @@ mod deleted_document_save_tests {
                 content.clone(),
                 1,
                 None,
-                false,
             )
         };
 
@@ -4299,5 +4705,268 @@ mod content_saved_emit_tests {
             Ok::<_, diesel::result::Error>(())
         })
         .expect("emit + read back");
+    }
+}
+
+#[cfg(test)]
+mod schema_gate_tests {
+    use super::*;
+    use yrs::{XmlElementPrelim, XmlTextPrelim};
+
+    /// A server doc whose `required_schema` is watched, as a resident one is.
+    fn watched_doc() -> (Doc, XmlFragmentRef, Arc<AtomicU16>, Subscription) {
+        let doc = new_server_doc("ws-test_doc");
+        let fragment = doc.transact_mut().get_or_insert_xml_fragment("prosemirror");
+        let required = Arc::new(AtomicU16::new(1));
+        let watch = watch_required_schema(&fragment, Arc::clone(&required));
+        (doc, fragment, required, watch)
+    }
+
+    /// Append a one-cell table, built element by element as y-prosemirror
+    /// writes one, to `parent`.
+    fn push_table<P: XmlFragment>(parent: &P, txn: &mut yrs::TransactionMut) {
+        let table = parent.push_back(txn, XmlElementPrelim::empty("table"));
+        let row = table.push_back(txn, XmlElementPrelim::empty("table_row"));
+        let cell = row.push_back(txn, XmlElementPrelim::empty("table_cell"));
+        let paragraph = cell.push_back(txn, XmlElementPrelim::empty("paragraph"));
+        paragraph.push_back(txn, XmlTextPrelim::new("cell"));
+    }
+
+    #[test]
+    fn every_node_in_the_editor_schema_has_a_row() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/editor_schema_nodes.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let nodes: Vec<String> = serde_json::from_str(&raw).expect("a JSON array of node names");
+        assert!(!nodes.is_empty());
+        let listed: HashSet<&str> = NODE_MIN_SCHEMA.iter().map(|(name, _)| *name).collect();
+        let missing: Vec<&String> = nodes
+            .iter()
+            .filter(|n| !listed.contains(n.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "editor nodes with no NODE_MIN_SCHEMA row (add each at the schema that introduced it): {missing:?}"
+        );
+        let in_schema: HashSet<&str> = nodes.iter().map(String::as_str).collect();
+        let stale: Vec<&&str> = listed.iter().filter(|n| !in_schema.contains(**n)).collect();
+        assert!(
+            stale.is_empty(),
+            "NODE_MIN_SCHEMA rows for nodes the editor no longer has: {stale:?}"
+        );
+        assert_eq!(
+            listed.len(),
+            NODE_MIN_SCHEMA.len(),
+            "a node is listed twice"
+        );
+        for (name, schema) in NODE_MIN_SCHEMA {
+            assert!(
+                (1..=SERVER_EDITOR_SCHEMA).contains(schema),
+                "{name} needs schema {schema}, outside 1..=SERVER_EDITOR_SCHEMA"
+            );
+        }
+    }
+
+    #[test]
+    fn a_table_raises_the_requirement_before_the_transaction_releases() {
+        let (doc, fragment, required, _watch) = watched_doc();
+        // Transaction cleanup observers run after deep observers, still inside
+        // the commit, while the write lock is held.
+        let seen_in_commit = Arc::new(AtomicU16::new(0));
+        let seen = Arc::clone(&seen_in_commit);
+        let r = Arc::clone(&required);
+        let _cleanup = doc
+            .observe_transaction_cleanup(move |_, _| {
+                seen.store(r.load(Ordering::SeqCst), Ordering::SeqCst);
+            })
+            .expect("observe cleanup");
+
+        {
+            let mut txn = doc.transact_mut();
+            let p = fragment.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+            p.push_back(&mut txn, XmlTextPrelim::new("plain"));
+        }
+        assert_eq!(
+            required.load(Ordering::SeqCst),
+            1,
+            "a paragraph needs nothing new"
+        );
+
+        push_table(&fragment, &mut doc.transact_mut());
+        assert_eq!(seen_in_commit.load(Ordering::SeqCst), 2);
+        assert_eq!(required.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_table_applied_from_a_remote_update_raises_the_requirement() {
+        let remote = Doc::new();
+        let remote_fragment = remote.get_or_insert_xml_fragment("prosemirror");
+        push_table(&remote_fragment, &mut remote.transact_mut());
+        let update = remote
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+
+        let (doc, _fragment, required, _watch) = watched_doc();
+        doc.transact_mut()
+            .apply_update(Update::decode_v1(&update).expect("decode"))
+            .expect("apply");
+        assert_eq!(required.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_row_added_to_an_existing_table_counts() {
+        let (doc, fragment, required, _watch) = watched_doc();
+        push_table(&fragment, &mut doc.transact_mut());
+        // Start over from 1, as if the table predated the watch.
+        required.store(1, Ordering::SeqCst);
+        let table = match fragment.get(&doc.transact(), 0) {
+            Some(XmlOut::Element(table)) => table,
+            other => panic!("expected the table, got {other:?}"),
+        };
+        table.push_back(
+            &mut doc.transact_mut(),
+            XmlElementPrelim::empty("table_row"),
+        );
+        assert_eq!(required.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn the_load_walk_finds_nested_tables_and_skips_deleted_ones() {
+        let doc = new_server_doc("ws-test_walk");
+        let fragment = doc.transact_mut().get_or_insert_xml_fragment("prosemirror");
+        {
+            let mut txn = doc.transact_mut();
+            let p = fragment.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+            p.push_back(&mut txn, XmlTextPrelim::new("plain"));
+        }
+        assert_eq!(fragment_schema(&fragment, &doc.transact()), 1);
+
+        {
+            let mut txn = doc.transact_mut();
+            let quote = fragment.push_back(&mut txn, XmlElementPrelim::empty("blockquote"));
+            push_table(&quote, &mut txn);
+        }
+        assert_eq!(fragment_schema(&fragment, &doc.transact()), 2);
+
+        fragment.remove_range(&mut doc.transact_mut(), 1, 1);
+        assert_eq!(
+            fragment_schema(&fragment, &doc.transact()),
+            1,
+            "a deleted table needs nothing"
+        );
+    }
+
+    #[test]
+    fn pending_content_is_kept_from_older_sessions() {
+        // An update that depends on blocks the server doesn't have stays
+        // pending, unseen by the observer.
+        let remote = Doc::new();
+        let remote_fragment = remote.get_or_insert_xml_fragment("prosemirror");
+        remote_fragment.push_back(
+            &mut remote.transact_mut(),
+            XmlElementPrelim::empty("paragraph"),
+        );
+        let sv = remote.transact().state_vector();
+        push_table(&remote_fragment, &mut remote.transact_mut());
+        let later = remote.transact().encode_state_as_update_v1(&sv);
+
+        let (doc, _fragment, required, watch) = watched_doc();
+        doc.transact_mut()
+            .apply_update(Update::decode_v1(&later).expect("decode"))
+            .expect("apply");
+        assert_eq!(required.load(Ordering::SeqCst), 1);
+        let gate = DocGate {
+            awareness: Arc::new(Awareness::new(doc)),
+            required_schema: required,
+            content_version: Arc::new(AtomicU64::new(0)),
+        };
+        assert!(!may_receive(1, &gate), "pending blocks could hold anything");
+        assert!(may_receive(SERVER_EDITOR_SCHEMA, &gate));
+        drop(watch);
+    }
+
+    #[test]
+    fn only_a_change_under_the_fragment_counts_as_content() {
+        use yrs::{GetString, Map, Text, WriteTxn, XmlTextPrelim};
+        let doc = new_server_doc("doc");
+        let fragment = doc.transact_mut().get_or_insert_xml_fragment("prosemirror");
+        let version = Arc::new(AtomicU64::new(0));
+        let _watch = watch_content(&fragment, Arc::clone(&version));
+
+        let text = {
+            let mut txn = doc.transact_mut();
+            let paragraph = fragment.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+            paragraph.push_back(&mut txn, XmlTextPrelim::new("Imported"))
+        };
+        let added = version.load(Ordering::SeqCst);
+        assert!(added > 0, "added content counts");
+
+        // An editor mapping its client to its user writes the `users` map.
+        {
+            let mut txn = doc.transact_mut();
+            let users = txn.get_or_insert_map("users");
+            users.insert(&mut txn, "user", "mapping");
+        }
+        assert_eq!(
+            version.load(Ordering::SeqCst),
+            added,
+            "the users map isn't content"
+        );
+
+        // A change that only deletes advances no clock, and still counts.
+        text.remove_range(&mut doc.transact_mut(), 0, 3);
+        assert_eq!(text.get_string(&doc.transact()), "orted");
+        assert!(version.load(Ordering::SeqCst) > added, "a deletion counts");
+    }
+
+    #[test]
+    fn may_receive_compares_the_session_with_the_document() {
+        let (doc, _fragment, required, _watch) = watched_doc();
+        let gate = DocGate {
+            awareness: Arc::new(Awareness::new(doc)),
+            required_schema: Arc::clone(&required),
+            content_version: Arc::new(AtomicU64::new(0)),
+        };
+        assert!(may_receive(1, &gate));
+        assert!(may_receive(2, &gate));
+        required.store(2, Ordering::SeqCst);
+        assert!(!may_receive(1, &gate));
+        assert!(may_receive(2, &gate));
+        assert!(may_receive(3, &gate));
+    }
+
+    #[test]
+    fn the_hello_is_two_var_uints() {
+        assert_eq!(hello_frame(2).as_ref(), &[100, 2]);
+        assert_eq!(
+            hello_frame(7).as_ref(),
+            &[100, 2],
+            "capped at the server's schema"
+        );
+    }
+
+    #[test]
+    fn the_declared_schema_defaults_to_one() {
+        let query = |schema: Option<&str>| CollabWsQuery {
+            token: None,
+            schema: schema.map(str::to_string),
+        };
+        assert_eq!(query(None).editor_schema(), 1);
+        assert_eq!(query(Some("2")).editor_schema(), 2);
+        assert_eq!(query(Some("0")).editor_schema(), 1);
+        assert_eq!(query(Some("two")).editor_schema(), 1);
+        assert_eq!(query(Some("99999")).editor_schema(), 1);
+    }
+
+    #[test]
+    fn outdated_is_4426_update_required() {
+        assert_eq!(CollabRefusal::Outdated.code(), 4426);
+        assert_eq!(CollabRefusal::Outdated.reason(), "update required");
+        assert_eq!(
+            CollabRefusal::from_code(4426),
+            Some(CollabRefusal::Outdated)
+        );
+        assert_eq!(CollabRefusal::from_code(1013), None);
     }
 }

@@ -15,7 +15,15 @@
  */
 import { computed, ref, useAttrs, useId, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { ListboxContent, ListboxFilter, ListboxItem, ListboxRoot, useFilter } from 'reka-ui'
+import {
+  ListboxContent,
+  ListboxFilter,
+  ListboxGroup,
+  ListboxGroupLabel,
+  ListboxItem,
+  ListboxRoot,
+  useFilter,
+} from 'reka-ui'
 import ResponsiveMenu from './ResponsiveMenu.vue'
 import Icon from './Icon.vue'
 import DropdownOptionRow from './dropdown/DropdownOptionRow.vue'
@@ -40,6 +48,12 @@ const props = withDefaults(
     description?: string
     error?: string
     required?: boolean
+    /** Ids of elements that describe the trigger beyond the description
+     * or error line (sample values, a status line). */
+    describedBy?: string
+    /** Marks the trigger invalid (red border, aria-invalid) when the
+     * message lives outside the component. */
+    invalid?: boolean
   }>(),
   {
     placeholder: undefined,
@@ -67,6 +81,9 @@ const triggerId = computed(() => `searchable-dropdown-${generatedId}`)
 const describedById = computed(() =>
   props.error || props.description ? `${triggerId.value}-desc` : undefined,
 )
+const triggerDescribedBy = computed(
+  () => [props.describedBy, describedById.value].filter(Boolean).join(' ') || undefined,
+)
 const resolvedPlaceholder = computed(() => props.placeholder ?? fluent.$t('common-dropdown-select-placeholder'))
 const resolvedSearchPlaceholder = computed(() => props.searchPlaceholder ?? fluent.$t('common-search-placeholder'))
 const resolvedEmptyMessage = computed(() => props.emptyMessage ?? fluent.$t('common-dropdown-empty-message'))
@@ -92,6 +109,18 @@ const filteredOptions = computed<DropdownOption[]>(() => {
   return props.options.filter((option) =>
     contains([option.label, option.description ?? '', option.value].join(' '), q),
   )
+})
+
+// Options split by their group, in the order groups first appear. A list
+// without groups is one unlabelled section, rendered as before.
+const sections = computed(() => {
+  const out: { label: string | undefined; options: DropdownOption[] }[] = []
+  for (const option of filteredOptions.value) {
+    const existing = out.find((s) => s.label === option.group)
+    if (existing) existing.options.push(option)
+    else out.push({ label: option.group, options: [option] })
+  }
+  return out
 })
 
 const selectedOption = computed(() =>
@@ -172,12 +201,12 @@ const optionClasses = (option: DropdownOption) => [
         :disabled="disabled"
         :aria-expanded="isOpen"
         aria-haspopup="dialog"
-        :aria-invalid="error ? 'true' : undefined"
-        :aria-describedby="describedById"
+        :aria-invalid="error || invalid ? 'true' : undefined"
+        :aria-describedby="triggerDescribedBy"
         class="w-full bg-surface-alt border rounded-lg text-left flex items-center justify-between transition-all duration-200"
         :class="[
           sizeClasses.button,
-          error ? 'border-status-error' : 'border-subtle',
+          error || invalid ? 'border-status-error' : 'border-subtle',
           disabled
             ? 'opacity-50 cursor-not-allowed'
             : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
@@ -250,21 +279,47 @@ const optionClasses = (option: DropdownOption) => [
               tabindex="0"
               :aria-label="label ?? resolvedPlaceholder"
             >
-            <ListboxItem
-              v-for="option in filteredOptions"
-              :key="option.value"
-              as-child
-              :value="option.value"
-              :disabled="option.disabled"
-            >
-              <button type="button" :class="optionClasses(option)">
-                <DropdownOptionRow
-                  :option="option"
-                  :multiple="false"
-                  :checked="option.value === modelValue"
-                />
-              </button>
-            </ListboxItem>
+            <template v-for="section in sections" :key="section.label ?? ''">
+              <ListboxGroup v-if="section.label">
+                <ListboxGroupLabel
+                  class="px-3 pt-3 pb-1 text-2xs font-semibold uppercase tracking-wide text-tertiary"
+                >
+                  {{ section.label }}
+                </ListboxGroupLabel>
+                <ListboxItem
+                  v-for="option in section.options"
+                  :key="option.value"
+                  as-child
+                  :value="option.value"
+                  :disabled="option.disabled"
+                >
+                  <button type="button" :class="optionClasses(option)">
+                    <DropdownOptionRow
+                      :option="option"
+                      :multiple="false"
+                      :checked="option.value === modelValue"
+                    />
+                  </button>
+                </ListboxItem>
+              </ListboxGroup>
+              <template v-else>
+                <ListboxItem
+                  v-for="option in section.options"
+                  :key="option.value"
+                  as-child
+                  :value="option.value"
+                  :disabled="option.disabled"
+                >
+                  <button type="button" :class="optionClasses(option)">
+                    <DropdownOptionRow
+                      :option="option"
+                      :multiple="false"
+                      :checked="option.value === modelValue"
+                    />
+                  </button>
+                </ListboxItem>
+              </template>
+            </template>
             <div
               v-if="filteredOptions.length === 0"
               class="px-4 py-6 text-center text-sm text-tertiary"

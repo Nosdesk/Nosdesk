@@ -296,9 +296,12 @@ async fn the_profile_says_what_the_viewer_can_change() {
         .await
         .expect("json");
     assert_eq!(
-        theirs["editable"]["name"], false,
-        "workspace admin is not platform admin"
+        theirs["editable"]["name"], true,
+        "a workspace admin changes the account of someone only in their workspace"
     );
+    assert_eq!(theirs["editable"]["emails"], true);
+    assert_eq!(theirs["editable"]["groups"], true);
+    assert!(theirs["editable"].get("account_locked").is_none());
     assert_eq!(
         theirs["editable"]["workspace_name"], false,
         "the person's own"

@@ -12,7 +12,7 @@
 //!   - requester_email optional, resolved against user_emails
 //!   - assignee_email  optional, resolved against user_emails
 //!   - category        optional, resolved against ticket_categories.name
-//!   - due_date        optional, ISO-8601 date (YYYY-MM-DD)
+//!   - due_date        optional, a date: YYYY-MM-DD, or in the Map step's order
 //!
 //! No description column for v1; ticket bodies live in
 //! `article_contents` and the import wizard isn't the right
@@ -21,7 +21,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{NaiveDateTime, NaiveTime};
 use diesel::prelude::*;
 use uuid::Uuid;
 
@@ -31,8 +31,10 @@ use crate::repository::tickets as ticket_repo;
 
 use super::csv_parser::ParsedCsv;
 use super::types::{
-    CommitError, ImportContext, ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS,
+    CommitError, Committed, DateOrder, FieldGroup, FieldSpec, ImportContext, ImportType,
+    ImportedRecords, Importer, RecordId, RowOutcome, RowPlan, RowResult, ValueType,
 };
+use super::values::{self, Choice};
 
 const HEADERS: &[&str] = &[
     "title",
@@ -51,46 +53,132 @@ impl Importer for TicketImporter {
         HEADERS
     }
 
+    fn fields(&self, _conn: &mut DbConnection) -> Result<Vec<FieldSpec>, diesel::result::Error> {
+        use FieldGroup::{Core, Links};
+        let t = ImportType::Tickets;
+        Ok(vec![
+            FieldSpec::fixed(t, "title", "Title", Core, ValueType::Text, true),
+            FieldSpec::fixed(t, "workflow_state", "Status", Core, ValueType::Text, true),
+            FieldSpec::fixed(t, "priority", "Priority", Core, ValueType::Enum, false).with_enum(
+                TicketPriority::ALL
+                    .iter()
+                    .map(|p| p.as_str().to_string())
+                    .collect(),
+            ),
+            FieldSpec::fixed(t, "due_date", "Due date", Core, ValueType::Date, false)
+                .with_format("YYYY-MM-DD"),
+            FieldSpec::fixed(
+                t,
+                "requester_email",
+                "Requester email",
+                Links,
+                ValueType::User,
+                false,
+            ),
+            FieldSpec::fixed(
+                t,
+                "assignee_email",
+                "Assignee email",
+                Links,
+                ValueType::User,
+                false,
+            ),
+            FieldSpec::fixed(t, "category", "Category", Links, ValueType::Text, false),
+        ])
+    }
+
+    fn synonyms(&self) -> &'static [(&'static str, &'static str)] {
+        &[
+            ("subject", "title"),
+            ("summary", "title"),
+            ("state", "workflow_state"),
+            ("workflowstate", "workflow_state"),
+            ("requester", "requester_email"),
+            ("requestedby", "requester_email"),
+            ("reporter", "requester_email"),
+            ("assignee", "assignee_email"),
+            ("assignedto", "assignee_email"),
+            ("due", "due_date"),
+        ]
+    }
+
+    fn value_choices(
+        &self,
+        conn: &mut DbConnection,
+        field: &FieldSpec,
+    ) -> Result<Option<Vec<Choice>>, diesel::result::Error> {
+        use crate::schema::workflow_states;
+        match field.id.as_str() {
+            "workflow_state" => {
+                let names: Vec<String> = workflow_states::table
+                    .filter(workflow_states::archived_at.is_null())
+                    .order(workflow_states::name.asc())
+                    .select(workflow_states::name)
+                    .load(conn)?;
+                Ok(Some(
+                    names
+                        .into_iter()
+                        .map(|n| Choice::new(n.clone(), n))
+                        .collect(),
+                ))
+            }
+            "priority" => Ok(Some(
+                TicketPriority::ALL
+                    .iter()
+                    .map(|p| Choice::new(p.as_str(), priority_label(*p)))
+                    .collect(),
+            )),
+            _ => Ok(None),
+        }
+    }
+
+    fn value_synonyms(&self, field: &str) -> &'static [(&'static str, &'static str)] {
+        match field {
+            "priority" => &[
+                ("normal", "medium"),
+                ("med", "medium"),
+                ("critical", "urgent"),
+                ("highest", "urgent"),
+                ("lowest", "low"),
+            ],
+            _ => &[],
+        }
+    }
+
     fn dry_run(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<ImportSummary, diesel::result::Error> {
-        let mut summary = ImportSummary {
-            row_count: parsed.rows.len(),
-            would_create: 0,
-            would_update: 0,
-            errors: Vec::new(),
-            errors_truncated: false,
-        };
-
+        ctx: &ImportContext,
+    ) -> Result<RowPlan, diesel::result::Error> {
         if let Some(err) = check_headers(&parsed.headers) {
-            push_error(&mut summary, 1, None, err);
-            return Ok(summary);
+            return Ok(RowPlan {
+                file_error: Some(err),
+                ..Default::default()
+            });
         }
 
         let lookups = Lookups::load(conn)?;
+        let mut plan = RowPlan::default();
 
         for record in parsed.records() {
             let row_num = record.source_row;
-            match validate_row(&record.values, &lookups) {
-                Ok(_) => summary.would_create += 1,
-                Err(errs) => {
-                    for (col, msg) in errs {
-                        push_error(&mut summary, row_num, col, msg);
-                    }
-                }
-            }
+            let result = match validate_row(&record.values, &lookups, ctx.options.date_order) {
+                Ok(_) => RowResult::planned(row_num, RowOutcome::Create),
+                Err(errs) => RowResult::skipped(row_num, errs),
+            };
+            plan.rows
+                .push(result.with_label(trimmed(&record.values, "title")));
         }
-        Ok(summary)
+        Ok(plan)
     }
 
     fn commit(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-        _ctx: &ImportContext,
-    ) -> Result<ImportedRecords, CommitError> {
+        ctx: &ImportContext,
+    ) -> Result<Committed, CommitError> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
@@ -100,11 +188,16 @@ impl Importer for TicketImporter {
         let lookups = Lookups::load(conn)?;
 
         let mut tickets = Vec::new();
+        let mut rows = Vec::with_capacity(parsed.rows.len());
         for record in parsed.records() {
             let row = &record.values;
-            let resolved = match validate_row(row, &lookups) {
+            let title = trimmed(row, "title");
+            let resolved = match validate_row(row, &lookups, ctx.options.date_order) {
                 Ok(r) => r,
-                Err(_) => continue,
+                Err(errs) => {
+                    rows.push(RowResult::skipped(record.source_row, errs).with_label(title));
+                    continue;
+                }
             };
 
             let new = NewTicket {
@@ -130,9 +223,18 @@ impl Importer for TicketImporter {
             // transaction, so imported tickets reach the activity feed,
             // webhooks, and plugins exactly like API-created ones.
             let ticket = ticket_repo::create_ticket(conn, new)?;
+            rows.push(
+                RowResult::planned(record.source_row, RowOutcome::Create)
+                    .with_label(title)
+                    .with_record(RecordId::Int(ticket.id)),
+            );
             tickets.push(ticket);
         }
-        Ok(ImportedRecords::Tickets(tickets))
+        Ok(Committed {
+            records: ImportedRecords::Tickets(tickets),
+            rows,
+            created: Vec::new(),
+        })
     }
 }
 
@@ -205,21 +307,10 @@ fn check_headers(headers: &[String]) -> Option<String> {
     None
 }
 
-fn push_error(summary: &mut ImportSummary, row: usize, column: Option<String>, message: String) {
-    if summary.errors.len() >= MAX_ERRORS {
-        summary.errors_truncated = true;
-        return;
-    }
-    summary.errors.push(RowError {
-        row,
-        column,
-        message,
-    });
-}
-
 fn validate_row(
     row: &HashMap<String, String>,
     lookups: &Lookups,
+    date_order: DateOrder,
 ) -> Result<ResolvedRow, Vec<(Option<String>, String)>> {
     let mut errors: Vec<(Option<String>, String)> = Vec::new();
 
@@ -301,15 +392,18 @@ fn validate_row(
         if raw.is_empty() {
             None
         } else {
-            match NaiveDate::parse_from_str(&raw, "%Y-%m-%d") {
-                Ok(d) => Some(NaiveDateTime::new(
+            match values::parse_date(&raw, date_order) {
+                Some(d) => Some(NaiveDateTime::new(
                     d,
                     NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
                 )),
-                Err(_) => {
+                None => {
                     errors.push((
                         Some("due_date".into()),
-                        format!("'{raw}' is not a valid date; use YYYY-MM-DD"),
+                        format!(
+                            "'{raw}' is not a valid date; use {}",
+                            values::date_hint(date_order)
+                        ),
                     ));
                     None
                 }
@@ -350,6 +444,17 @@ fn resolve_email(
             ));
             None
         }
+    }
+}
+
+/// A priority as the ticket page names it.
+fn priority_label(p: TicketPriority) -> &'static str {
+    match p {
+        TicketPriority::None => "None",
+        TicketPriority::Low => "Low",
+        TicketPriority::Medium => "Medium",
+        TicketPriority::High => "High",
+        TicketPriority::Urgent => "Urgent",
     }
 }
 

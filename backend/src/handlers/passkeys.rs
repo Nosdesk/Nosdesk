@@ -677,13 +677,18 @@ pub async fn finish_passkey_login(
     // (workspace_members is workspace-isolated).
     let user_uuid = user.uuid;
     super::helpers::pin_request_workspace(&req, &mut conn);
-    let session =
-        super::auth::create_session_record(&user_uuid, &req, &mut conn, None).map_err(|e| {
-            error!(
-                "Failed to create session for passkey login {}: {:?}",
-                user_uuid, e
-            );
-        });
+    let session = super::auth::create_session_record(
+        &user_uuid,
+        &req,
+        &mut conn,
+        super::auth::SignInProof::Credential,
+    )
+    .map_err(|e| {
+        error!(
+            "Failed to create session for passkey login {}: {:?}",
+            user_uuid, e
+        );
+    });
     let session = match session {
         Ok(s) => s,
         Err(_) => {
@@ -965,22 +970,17 @@ pub async fn start_passkey_setup_login(
     let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %email_lower, remaining_seconds, "Passkey setup attempt on locked account");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} seconds.",
-                    remaining_seconds
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            warn!("Failed to check account lockout: {:?}", e);
-            // Continue anyway - fail open for availability, but log the issue
-        }
+    if let Some(remaining_seconds) =
+        crate::handlers::auth::check_sign_in_lockout(&redis_url, &lockout_key).await?
+    {
+        warn!(email = %email_lower, remaining_seconds, "Passkey setup attempt on locked account");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} seconds.",
+                remaining_seconds
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&pool)?;
@@ -1162,21 +1162,17 @@ pub async fn finish_passkey_setup_login(
     let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %email_lower, remaining_seconds, "Passkey setup finish attempt on locked account");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} seconds.",
-                    remaining_seconds
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            warn!("Failed to check account lockout: {:?}", e);
-        }
+    if let Some(remaining_seconds) =
+        crate::handlers::auth::check_sign_in_lockout(&redis_url, &lockout_key).await?
+    {
+        warn!(email = %email_lower, remaining_seconds, "Passkey setup finish attempt on locked account");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} seconds.",
+                remaining_seconds
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&pool)?;
@@ -1353,13 +1349,18 @@ pub async fn finish_passkey_setup_login(
     // (workspace_members is workspace-isolated).
     let user_uuid = user.uuid;
     super::helpers::pin_request_workspace(&req, &mut conn);
-    let session =
-        super::auth::create_session_record(&user_uuid, &req, &mut conn, None).map_err(|e| {
-            error!(
-                "Failed to create session for passkey setup login {}: {:?}",
-                user_uuid, e
-            );
-        });
+    let session = super::auth::create_session_record(
+        &user_uuid,
+        &req,
+        &mut conn,
+        super::auth::SignInProof::Credential,
+    )
+    .map_err(|e| {
+        error!(
+            "Failed to create session for passkey setup login {}: {:?}",
+            user_uuid, e
+        );
+    });
     let session = match session {
         Ok(s) => s,
         Err(_) => {

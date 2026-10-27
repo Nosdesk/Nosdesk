@@ -19,6 +19,7 @@ use crate::models::{
     BackupJobUpdate, BackupManifest, FilesManifest, RestorePreview, RestoreUpgrade, TableManifest,
 };
 use crate::repository::backup as backup_repo;
+use crate::services::workspace_archive::rows;
 
 // Encryption constants. AES-256-GCM + PBKDF2-HMAC-SHA256 are the
 // same primitives the MFA encryption path uses; reusing them keeps
@@ -52,29 +53,6 @@ const BACKUP_FORMAT_VERSION: u32 = 2;
 /// manifest's `schema_hash`. Restore goes by `migration_version` and
 /// `schema_sha256` instead (see `backup_upgrade`).
 const SERVER_SCHEMA_HASH: &str = env!("NOSDESK_SCHEMA_HASH");
-
-/// Fields that contain authentication material. Stripped from
-/// plaintext (no-password) backups so a leaked zip can't be used
-/// to recover credentials. Encrypted backups include them
-/// normally — the whole archive is sealed by AES-GCM, so a
-/// sidecar would just add complexity for no gain. Restore loads
-/// a plaintext backup without them (`MISSING_COLUMNS`).
-pub(crate) const SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
-    ("users", &["mfa_secret"]),
-    ("user_recovery_codes", &["code_hash"]),
-    ("user_auth_identities", &["password_hash", "metadata"]),
-    ("refresh_tokens", &["token_hash"]),
-    ("reset_tokens", &["token_hash", "metadata"]),
-    // The webhook secret is the plaintext HMAC signing key, and the
-    // custom headers commonly carry an Authorization value for the
-    // receiver. Both would let a reader of a plaintext backup forge
-    // signed deliveries / harvest receiver credentials. See
-    // security-audit-2026-06.
-    ("webhooks", &["secret", "headers"]),
-    // SHA-256 of a 128-bit random token: low impact, but stripping it
-    // keeps parity with refresh_tokens.token_hash above.
-    ("api_tokens", &["token_hash"]),
-];
 
 /// Tables to export in backup
 /// Tables to skip during backup discovery.
@@ -226,6 +204,8 @@ pub enum BackupError {
     ConnectionUnavailable(String),
     /// The backup's schema isn't one this build can restore.
     NotRestorable(super::backup_upgrade::NotRestorable),
+    /// A workspace export from another format or schema than this build's.
+    NotImportable(super::workspace_import::ImportRefusal),
     /// An older backup is upgraded in a scratch database built from the
     /// first migration, which takes a superuser, and the role restore runs
     /// as isn't one.
@@ -270,6 +250,7 @@ impl std::fmt::Display for BackupError {
             }
             BackupError::ConnectionUnavailable(_) => write!(f, "Database connection unavailable"),
             BackupError::NotRestorable(reason) => write!(f, "Can't restore: {reason}"),
+            BackupError::NotImportable(reason) => write!(f, "{reason}"),
             BackupError::NeedsSuperuser => write!(
                 f,
                 "Restoring a backup from an earlier Nosdesk version upgrades it in a temporary \
@@ -487,32 +468,10 @@ fn export_table_data(
         )));
     }
 
-    // Decide the per-row projection. With sensitive stripping,
-    // the row goes through ::jsonb so the `- 'key'` operator can
-    // run; back to ::text at the end for the wire format.
-    let strip_fields: &[&str] = if include_sensitive {
-        &[]
-    } else {
-        SENSITIVE_FIELDS
-            .iter()
-            .find(|(t, _)| *t == table_name)
-            .map(|(_, fields)| *fields)
-            .unwrap_or(&[])
-    };
-
-    let row_expr = if strip_fields.is_empty() {
-        "row_to_json(t)::text".to_string()
-    } else {
-        let mut expr = "row_to_json(t)::jsonb".to_string();
-        for f in strip_fields {
-            // The stripped names come from the SENSITIVE_FIELDS
-            // const so the value is fully under our control. We
-            // still escape any embedded single quotes defensively.
-            let escaped = f.replace('\'', "''");
-            expr.push_str(&format!(" - '{escaped}'"));
-        }
-        format!("({expr})::text")
-    };
+    // Secrets the policy keeps out of a plaintext backup are stripped inside
+    // Postgres (`::jsonb - 'key'`).
+    let row_expr =
+        crate::services::workspace_archive::rows::export_row_sql(table_name, include_sensitive);
 
     #[derive(QueryableByName)]
     struct JsonRow {
@@ -812,7 +771,7 @@ pub fn restore_backup_files(
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let name = file.name().to_string();
+        let name = file.name()?.to_string();
 
         if name.starts_with("files/") && !name.ends_with('/') {
             let relative_path = name.strip_prefix("files/").unwrap();
@@ -1428,8 +1387,9 @@ fn reset_sequences(conn: &mut DbConnection) -> Result<(), BackupError> {
 ///
 /// `jsonb_populate_recordset(NULL::table, ...)` then runs the
 /// per-column conversion against the target record type. Extra
-/// JSON keys are ignored; missing keys default to NULL, except a
-/// column in `MISSING_COLUMNS`.
+/// JSON keys are ignored; a column the rows leave out takes its
+/// default, and the column policy (`workspace_archive::policy`)
+/// fills or skips a row whose secret a plaintext backup left out.
 #[cfg(test)]
 fn restore_table_data(
     conn: &mut DbConnection,
@@ -1508,11 +1468,11 @@ fn restore_rows(
         )));
     }
 
-    let stmt = format!(
-        "INSERT INTO public.{table_name} \
-         SELECT * FROM jsonb_populate_recordset(NULL::public.{table_name}, {rows})",
-        rows = payload_rows(table_name),
-    );
+    // Only the columns the rows carry load, so a column a row leaves out
+    // takes its default; the column policy fills or skips what a plaintext
+    // backup left out.
+    let keys = rows::payload_keys(conn, payload)?;
+    let stmt = rows::load_statement(conn, table_name, &keys, &[], "")?;
     let count = sql_query(&stmt)
         .bind::<Text, _>(payload)
         .execute(conn)
@@ -1522,76 +1482,6 @@ fn restore_rows(
             ))
         })?;
     Ok(count)
-}
-
-/// A column a password-less backup leaves out (`SENSITIVE_FIELDS`) that the
-/// table can't load without. Only sensitive fields belong here: a backup
-/// from an earlier schema is migrated, not patched (`backup_upgrade`).
-struct MissingColumn {
-    table: &'static str,
-    column: &'static str,
-    /// The row to load instead, as SQL over the backup row `r`; `None`
-    /// skips the row.
-    load: Option<&'static str>,
-}
-
-const MISSING_COLUMNS: &[MissingColumn] = &[
-    // Tokens and recovery codes are nothing without their hashes.
-    MissingColumn {
-        table: "refresh_tokens",
-        column: "token_hash",
-        load: None,
-    },
-    MissingColumn {
-        table: "reset_tokens",
-        column: "token_hash",
-        load: None,
-    },
-    MissingColumn {
-        table: "api_tokens",
-        column: "token_hash",
-        load: None,
-    },
-    MissingColumn {
-        table: "user_recovery_codes",
-        column: "code_hash",
-        load: None,
-    },
-    // A webhook gets a new secret, and stays off until an admin gives the
-    // receiver the new one.
-    MissingColumn {
-        table: "webhooks",
-        column: "secret",
-        load: Some(
-            "r || jsonb_build_object('secret', 'whsec_' || encode(public.gen_random_bytes(32), 'hex'), 'enabled', false)",
-        ),
-    },
-    // No MFA secret means no MFA (and no key id for it): staff are asked to
-    // set it up again.
-    MissingColumn {
-        table: "users",
-        column: "mfa_secret",
-        load: Some("r || jsonb_build_object('mfa_enabled', false, 'mfa_secret_kek_id', NULL)"),
-    },
-];
-
-/// The `$1` payload as the rows to load, with `MISSING_COLUMNS` applied.
-fn payload_rows(table_name: &str) -> String {
-    let Some(missing) = MISSING_COLUMNS.iter().find(|m| m.table == table_name) else {
-        return "$1::jsonb".to_owned();
-    };
-    let column = missing.column;
-    let (row, keep) = match missing.load {
-        Some(load) => (
-            format!("CASE WHEN r ? '{column}' THEN r ELSE {load} END"),
-            "true".to_owned(),
-        ),
-        None => ("r".to_owned(), format!("r ? '{column}'")),
-    };
-    format!(
-        "(SELECT coalesce(jsonb_agg({row}), '[]'::jsonb) \
-         FROM jsonb_array_elements($1::jsonb) r WHERE {keep})"
-    )
 }
 
 #[cfg(test)]
@@ -1778,51 +1668,56 @@ mod tests {
         assert!(count >= 1, "users table intact after hostile insert");
     }
 
-    /// A password-less backup restores: every sensitive column it leaves out
-    /// that the schema requires has a rule, and the rules cover nothing else.
+    /// A password-less backup restores: every secret it leaves out that the
+    /// schema requires, with no default, has a rule that fills it or skips the
+    /// row. A rule exists only for a secret column (`policy::Secret`); an
+    /// older schema is migrated, not patched.
     #[test]
     fn every_required_sensitive_column_has_a_restore_rule() {
+        use crate::services::workspace_archive::policy::{
+            Absent, INSTANCE_TABLES, WORKSPACE_TABLES,
+        };
         use crate::test_helpers::setup_test_connection;
         use diesel::sql_query;
-        use diesel::sql_types::Text;
+        use diesel::sql_types::{Bool, Text};
 
         #[derive(QueryableByName)]
-        struct Nullable {
-            #[diesel(sql_type = Text)]
-            is_nullable: String,
+        struct Required {
+            #[diesel(sql_type = Bool)]
+            required: bool,
         }
 
         let mut conn = setup_test_connection();
-        for (table, columns) in SENSITIVE_FIELDS {
-            for column in *columns {
-                let row: Nullable = sql_query(
-                    "SELECT is_nullable::text AS is_nullable FROM information_schema.columns \
-                     WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2",
+        let tables = WORKSPACE_TABLES
+            .iter()
+            .map(|t| (t.name, t.secrets))
+            .chain(INSTANCE_TABLES.iter().map(|t| (t.name, t.secrets)));
+        for (table, secrets) in tables {
+            for secret in secrets {
+                let row: Required = sql_query(
+                    "SELECT (a.attnotnull AND NOT a.atthasdef) AS required FROM pg_attribute a \
+                     WHERE a.attrelid = to_regclass('public.' || $1) AND a.attname = $2 \
+                       AND NOT a.attisdropped",
                 )
-                .bind::<Text, _>(*table)
-                .bind::<Text, _>(*column)
+                .bind::<Text, _>(table)
+                .bind::<Text, _>(secret.column)
                 .get_result(&mut conn)
-                .unwrap_or_else(|e| panic!("{table}.{column} is in the schema: {e}"));
-                if row.is_nullable == "NO" {
-                    assert!(
-                        MISSING_COLUMNS
-                            .iter()
-                            .any(|m| m.table == *table && m.column == *column),
-                        "{table}.{column} is NOT NULL and stripped from plaintext backups, \
-                         so it needs a MISSING_COLUMNS rule"
-                    );
+                .unwrap_or_else(|e| panic!("{table}.{} is in the schema: {e}", secret.column));
+                if !row.required {
+                    continue;
                 }
+                let covered = match secret.absent {
+                    Absent::SkipRow => true,
+                    Absent::Set(sets) => sets.iter().any(|(c, _)| *c == secret.column),
+                    Absent::Default => false,
+                };
+                assert!(
+                    covered,
+                    "{table}.{} is NOT NULL with no default and left out of plaintext \
+                     archives, so its rule must fill it or skip the row",
+                    secret.column
+                );
             }
-        }
-        for rule in MISSING_COLUMNS {
-            assert!(
-                SENSITIVE_FIELDS
-                    .iter()
-                    .any(|(t, cs)| *t == rule.table && cs.contains(&rule.column)),
-                "{}.{} isn't a sensitive field; an older schema is migrated, not patched",
-                rule.table,
-                rule.column
-            );
         }
     }
 }

@@ -127,7 +127,9 @@ pub async fn search(
 
     let query = query.into_inner();
     // Log only when documentation was in scope. Ticket-only or
-    // device-only searches don't carry KB-demand signal.
+    // device-only searches don't carry KB-demand signal. Every request is
+    // logged with who ran it; the failed-search detector reads a person's
+    // search-as-you-type requests as one search (see search_query_log).
     let log_doc_search = match query.entity_types() {
         Some(types) => types.iter().any(|t| matches!(t, EntityType::Documentation)),
         None => true, // unscoped search includes docs
@@ -211,32 +213,46 @@ pub async fn search(
             }
 
             // Documentation hits follow page access (group, user and collection
-            // visibility), as opening the page does. Workspace admins see all.
+            // visibility), as opening the page does. Workspace admins open every
+            // page, but not one in Trash or deleted: the index on this machine
+            // can still hold a page another machine took out of its own.
             let doc_ids: Vec<i32> = response
                 .results
                 .iter()
                 .filter(|r| r.entity_type == "documentation")
                 .filter_map(|r| i32::try_from(r.entity_id).ok())
                 .collect();
-            if !doc_ids.is_empty() && !auth.is_workspace_admin() {
+            if !doc_ids.is_empty() {
                 let mut conn = helpers::db_conn(&pool)?;
                 helpers::pin_workspace(&mut conn, ws.workspace_id);
-                let audience = crate::repository::PageAudience::from_auth(&auth);
-                let hidden = match audience.hidden_pages(&mut conn, &doc_ids) {
-                    Ok(hidden) => hidden,
+                let allowed = if auth.is_workspace_admin() {
+                    crate::repository::documentation::live_page_ids(&mut conn, &doc_ids)
+                } else {
+                    let audience = crate::repository::PageAudience::from_auth(&auth);
+                    audience.hidden_pages(&mut conn, &doc_ids).map(|hidden| {
+                        doc_ids
+                            .iter()
+                            .copied()
+                            .filter(|id| !hidden.contains(id))
+                            .collect::<std::collections::HashSet<i32>>()
+                    })
+                };
+                let allowed = match allowed {
+                    Ok(allowed) => allowed,
                     Err(e) => {
                         error!(error = ?e, "search documentation filter failed");
                         return Err(ApiError::Internal("Search failed".into()));
                     }
                 };
-                let allowed: std::collections::HashSet<i32> = doc_ids
-                    .into_iter()
-                    .filter(|id| !hidden.contains(id))
-                    .collect();
+                let before = response.results.len();
                 response.results.retain(|r| {
                     r.entity_type != "documentation"
                         || i32::try_from(r.entity_id).is_ok_and(|id| allowed.contains(&id))
                 });
+                if auth.is_workspace_admin() {
+                    let dropped = before - response.results.len();
+                    response.total = response.total.saturating_sub(dropped);
+                }
             }
             // The index's total counts documentation hits past this page too,
             // including pages the caller can't open; count only what they get.
@@ -287,6 +303,7 @@ pub async fn search(
                     .count() as i32;
                 let pool = pool.clone();
                 let workspace_id = ws.workspace_id;
+                let searcher = auth.user_uuid;
                 // Off the response path: a slow log write must not
                 // delay the search response. Errors are logged but
                 // don't propagate.
@@ -313,7 +330,14 @@ pub async fn search(
                     let result = crate::sync::session::with_actor_bypass_context(
                         &mut conn,
                         &bypass_actor,
-                        |conn| search_query_log::log_query(conn, &logged_query, doc_hits),
+                        |conn| {
+                            search_query_log::log_query(
+                                conn,
+                                Some(searcher),
+                                &logged_query,
+                                doc_hits,
+                            )
+                        },
                     );
                     if let Err(e) = result {
                         warn!(error = ?e, "Search log write failed");
@@ -333,12 +357,20 @@ pub async fn search(
     }
 }
 
+/// Which part of the index a rebuild covers.
+#[derive(Debug, serde::Deserialize)]
+pub struct RebuildScope {
+    /// Rebuild only this workspace's documents, leaving the others alone.
+    pub workspace_id: Option<i32>,
+}
+
 /// Rebuild the search index (admin only)
 ///
-/// POST /api/search/rebuild
+/// POST /api/search/rebuild, or `?workspace_id=N` for one workspace.
 pub async fn rebuild_index(
     pool: web::Data<crate::db::Pool>,
     search_service: web::Data<Arc<SearchService>>,
+    scope: web::Query<RebuildScope>,
     req: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
     // Verify authentication and admin role
@@ -350,6 +382,10 @@ pub async fn rebuild_index(
     if !is_platform_admin(&claims) {
         warn!(user = %claims.sub, "Non-admin user attempted to rebuild search index");
         return Err(ApiError::Forbidden("Admin access required".into()));
+    }
+
+    if let Some(workspace_id) = scope.workspace_id {
+        return rebuild_workspace(search_service.get_ref().clone(), workspace_id, &req).await;
     }
 
     // Check if already rebuilding
@@ -407,6 +443,63 @@ pub async fn rebuild_index(
             error!(error = ?e, "Index rebuild failed");
             Ok(errors::internal_with_code(
                 i18n::tr(&request_locale(&req), "backend-error-search-rebuild-failed"),
+                "backend-error-search-rebuild-failed",
+            ))
+        }
+    }
+}
+
+/// Rebuild one workspace's documents (`SearchService::reindex_workspace`).
+/// Answers when the pass has committed, or 202 when a reindex of the
+/// workspace was already pending or running and covers this request.
+async fn rebuild_workspace(
+    search_service: Arc<SearchService>,
+    workspace_id: i32,
+    req: &HttpRequest,
+) -> Result<HttpResponse, ApiError> {
+    use crate::services::search::indexing_tasks::{spawn_reindex_workspace, WorkspaceReindex};
+
+    let handle = match spawn_reindex_workspace(search_service, workspace_id) {
+        WorkspaceReindex::Started(handle) => handle,
+        WorkspaceReindex::Joined => {
+            return Ok(HttpResponse::Accepted().json(json!({
+                "success": true,
+                "message": "A reindex of this workspace is already under way",
+                "workspace_id": workspace_id,
+            })))
+        }
+    };
+    match handle.await {
+        Ok(Ok(stats)) => {
+            let indexed = &stats.indexed;
+            Ok(HttpResponse::Ok().json(json!({
+                "success": true,
+                "message": "Workspace reindexed",
+                "workspace_id": workspace_id,
+                "stats": {
+                    "tickets": indexed.tickets,
+                    "comments": indexed.comments,
+                    "documentation": indexed.documentation,
+                    "attachments": indexed.attachments,
+                    "devices": indexed.devices,
+                    "users": indexed.users,
+                    "projects": indexed.projects,
+                    "total": indexed.total(),
+                    "removed": stats.removed,
+                }
+            })))
+        }
+        Ok(Err(e)) => {
+            error!(workspace_id, error = ?e, "Workspace reindex failed");
+            Ok(errors::internal_with_code(
+                i18n::tr(&request_locale(req), "backend-error-search-rebuild-failed"),
+                "backend-error-search-rebuild-failed",
+            ))
+        }
+        Err(e) => {
+            error!(workspace_id, error = ?e, "Workspace reindex task failed");
+            Ok(errors::internal_with_code(
+                i18n::tr(&request_locale(req), "backend-error-search-rebuild-failed"),
                 "backend-error-search-rebuild-failed",
             ))
         }

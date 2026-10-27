@@ -275,6 +275,8 @@ pub struct AssetListFilters<'a> {
     pub status: Option<&'a str>,
     pub groups: Option<&'a str>,
     pub low_stock_only: bool,
+    /// Only these assets (an import's records, `?import=`).
+    pub ids: Option<&'a [i32]>,
 }
 
 /// Load every asset matching the list filters for CSV export.
@@ -284,7 +286,7 @@ pub fn list_for_export(
     conn: &mut DbConnection,
     filters: AssetListFilters<'_>,
 ) -> QueryResult<Vec<Asset>> {
-    apply_device_filters(
+    let mut query = apply_device_filters(
         assets::table.into_boxed(),
         filters.search,
         filters.warranty,
@@ -293,9 +295,11 @@ pub fn list_for_export(
         filters.status,
         filters.groups,
         filters.low_stock_only,
-    )
-    .order(assets::name.asc())
-    .load(conn)
+    );
+    if let Some(ids) = filters.ids {
+        query = query.filter(assets::id.eq_any(ids));
+    }
+    query.order(assets::name.asc()).load(conn)
 }
 
 // Get paginated devices with filtering and sorting
@@ -312,6 +316,7 @@ pub fn get_paginated_devices(
     groups: Option<String>,
     kind: Option<String>,
     low_stock_only: bool,
+    ids: Option<&[i32]>,
 ) -> Result<(Vec<AssetListRow>, i64), Error> {
     // manufacturer slot is `None`: there is no manufacturer-filter
     // consumer yet. The former `?type=` param fed this slot, which
@@ -326,9 +331,11 @@ pub fn get_paginated_devices(
         groups.as_deref(),
         low_stock_only,
     );
-    let total: i64 = filter_kinds(total, kind.as_deref())
-        .count()
-        .get_result(conn)?;
+    let mut total = filter_kinds(total, kind.as_deref());
+    if let Some(ids) = ids {
+        total = total.filter(assets::id.eq_any(ids));
+    }
+    let total: i64 = total.count().get_result(conn)?;
 
     let mut query = apply_device_filters(
         assets::table.into_boxed(),
@@ -341,6 +348,9 @@ pub fn get_paginated_devices(
         low_stock_only,
     );
     query = filter_kinds(query, kind.as_deref());
+    if let Some(ids) = ids {
+        query = query.filter(assets::id.eq_any(ids));
+    }
 
     // Apply sorting. `attr:<key>` sorts on a kind attribute; `borrower` and
     // `last_status_change` on the open loan and the newest lifecycle event.
@@ -567,6 +577,24 @@ pub fn list_asset_locations(conn: &mut DbConnection) -> QueryResult<Vec<AssetLoc
     .load(conn)
 }
 
+/// Every location spelling assets hold, trimmed, each once.
+pub fn distinct_locations(conn: &mut DbConnection) -> QueryResult<Vec<String>> {
+    let rows: Vec<Option<String>> = assets::table
+        .select(assets::location)
+        .filter(assets::location.is_not_null())
+        .distinct()
+        .load(conn)?;
+    let mut out: Vec<String> = rows
+        .into_iter()
+        .flatten()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    Ok(out)
+}
+
 pub fn get_device_by_id(conn: &mut DbConnection, device_id: i32) -> QueryResult<Asset> {
     assets::table.find(device_id).first(conn)
 }
@@ -632,16 +660,31 @@ fn blank_is_null(value: Option<String>) -> Option<String> {
     value.filter(|v| !v.trim().is_empty())
 }
 
-pub fn create_device(conn: &mut DbConnection, mut new_device: NewAsset) -> QueryResult<Asset> {
+pub fn create_device(conn: &mut DbConnection, new_device: NewAsset) -> QueryResult<Asset> {
+    create_device_linked(conn, new_device, None)
+}
+
+/// [`create_device`], linked to the catalog model `model_id` when given.
+/// The asset is created with the link, so one `asset.created` carries it.
+pub fn create_device_linked(
+    conn: &mut DbConnection,
+    mut new_device: NewAsset,
+    model_id: Option<i32>,
+) -> QueryResult<Asset> {
     new_device.serial_number = normalize_serial(new_device.serial_number);
     // Wrap the INSERT + sync emit in a single transaction so a
     // crash between the two never leaves the row inserted
     // without a corresponding sync_actions event.
     // emit::record fires inside emit_asset_event.
     conn.transaction::<Asset, Error, _>(|conn| {
-        let device: Asset = diesel::insert_into(assets::table)
+        let mut device: Asset = diesel::insert_into(assets::table)
             .values(&new_device)
             .get_result(conn)?;
+        if let Some(model_id) = model_id {
+            device = diesel::update(assets::table.find(device.id))
+                .set(assets::model_id.eq(model_id))
+                .get_result(conn)?;
+        }
         emit_asset_event(conn, &device, SyncOp::Insert, "asset.created")?;
         Ok(device)
     })

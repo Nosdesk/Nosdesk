@@ -257,11 +257,9 @@ bug-report-modal-title = Report a problem
 bug-report-modal-description-label = What happened?
 bug-report-modal-description-placeholder = e.g. tried to save a comment and saw a red banner; was on the assignee dropdown just before.
 bug-report-modal-description-hint = A sentence or two is plenty.
-bug-report-modal-attachments-hint = We attach the current page, build version, and the last few navigations and API calls. Stays inside this workspace.
 bug-report-modal-cancel = Cancel
 bug-report-modal-submit = Send report
 bug-report-success-toast-title = Report sent
-bug-report-success-toast-body = Thanks. An admin can find it in this workspace's diagnostics.
 bug-report-error-toast-title = Couldn't send report
 bug-report-error-toast-body = Try again in a moment.
 
@@ -1244,7 +1242,6 @@ admin-backup-delete-title = Delete
 admin-backup-docs-heading = Export Documentation to Markdown
 admin-backup-docs-description = Export all documentation pages as markdown files in a ZIP archive
 admin-backup-docs-export = Export as Markdown
-admin-backup-docs-exporting = Exporting { $current }/{ $total }...
 admin-backup-docs-preparing = Preparing...
 admin-backup-docs-error = Couldn't export documentation. Check the console for details.
 admin-backup-restore-heading = Restore from Backup
@@ -2146,17 +2143,12 @@ docs-index-new-page = New page
 
 # Docs: documentation index toolbar (DocumentationIndexToolbar)
 docs-index-toolbar-search = Search documentation
-docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = New collection
-docs-index-toolbar-more = More
 docs-index-toolbar-more-aria = Documentation actions
 docs-index-toolbar-scan-gaps = Scan for knowledge gaps
 docs-index-toolbar-scan-no-results = No new gaps found
 docs-index-toolbar-scan-success = { $created } new gaps · { $updated } updated
 docs-index-toolbar-scan-error = Gap scan failed. Try again.
-docs-index-toolbar-maintenance-heading = Maintenance
-docs-index-toolbar-archived = Archived pages
-docs-index-toolbar-trash = Trash
 docs-index-toolbar-publish-heading = Publishing
 docs-index-toolbar-admin-heading = Admin
 docs-index-toolbar-public-site = View public site
@@ -2228,7 +2220,6 @@ docs-index-chip-trash = { $count } in trash
 # Documentation drafts (DocumentationDraftsView): pages not yet
 # assigned to a collection.
 docs-drafts-description = Pages not yet sorted into a collection
-docs-drafts-back = Back to Documentation
 docs-drafts-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -2239,7 +2230,6 @@ docs-drafts-count = { $count ->
 docs-archived-title = Archived
 docs-archived-heading = Archived
 docs-archived-description = Pages that have been archived
-docs-archived-back = Back to Documentation
 docs-archived-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -2253,7 +2243,6 @@ docs-archived-restore = Restore
 docs-trash-title = Trash
 docs-trash-heading = Trash
 docs-trash-description = Deleted pages can be restored or permanently removed
-docs-trash-back = Back to Documentation
 docs-trash-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -2272,18 +2261,10 @@ docs-gaps-back-docs = Docs
 docs-gaps-back-list = Knowledge Gaps
 docs-gaps-refresh = Refresh signals
 docs-gaps-refreshing = Refreshing
-docs-gaps-detect-no-results = No new clusters found
+docs-gaps-detect-no-results = Nothing new found
 docs-gaps-detect-created = { $count } new
 docs-gaps-detect-updated = { $count } updated
 docs-gaps-loading = Loading
-docs-gaps-impact-searches = searches
-docs-gaps-impact-recent-tickets = recent tickets
-docs-gaps-impact-tickets = tickets
-docs-gaps-impact-tooltip = { $count } { $label } showing demand for this doc
-docs-gaps-signal-count = { $count ->
-    [one] { $count } signal
-   *[other] { $count } signals
-   }
 docs-gaps-select-prompt = Pick a gap from the list to see its evidence.
 docs-gaps-status-label = Status:
 docs-gaps-last-evidence = Last evidence: { $time }
@@ -2427,108 +2408,13 @@ collection-delete-title = Delete { $name }?
 collection-delete-title-fallback = Delete collection?
 collection-delete-confirm = Delete
 
-# CSV import (CsvImportView): admin page for importing users,
-# devices, or tickets from CSV. Covers the page header, status
-# messages, action buttons, the import status card, guideline
-# panels, the template list, and both modals (file upload and
-# template download).
+# CSV import (CsvImportView): the back link and the names of the
+# import types.
 csv-import-back = Back to Data Import
-csv-import-title = CSV Import
-csv-import-subtitle = Import data from CSV files into your system
 
-# Phase 1 wizard: upload -> review -> done.
-csv-import-step-upload = Upload
-csv-import-step-review = Review
-csv-import-step-done = Done
-csv-import-step-upload-heading = Upload your CSV
-csv-import-type-label = What are you importing?
 csv-import-type-assets = Assets
 csv-import-type-users = Users
 csv-import-type-tickets = Tickets
-csv-import-type-coming-soon = coming soon
-csv-import-template-label = Start with our template
-csv-import-template-help = The CSV needs to use these exact column headers. Download the empty template, fill it in, then upload it here.
-csv-import-template-button = Download template
-csv-import-file-label = Choose your file
-csv-import-drop-zone-idle = Drop a CSV here, or click to browse
-csv-import-drop-here = Release to upload
-csv-import-drop-zone-hint = .csv up to 10 MB and 5,000 rows
-csv-import-drop-zone-replace = Click or drop another file to replace
-csv-import-error-not-csv = "{ $name }" is not a CSV file
-csv-import-action-validate = Validate
-csv-import-summary-rows = Rows in file
-csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
-csv-import-summary-create = Will create
-csv-import-summary-update = Will update
-csv-import-errors-heading = { $count } row(s) have errors
-csv-import-errors-truncated = showing first 100
-csv-import-errors-row = Row
-csv-import-errors-column = Column
-csv-import-errors-message = Message
-csv-import-action-discard = Discard
-csv-import-action-apply = Apply ({ $count } rows)
-csv-import-action-new = New import
-csv-import-action-view-assets = View assets
-csv-import-action-view-users = View users
-csv-import-action-view-tickets = View tickets
-csv-import-done-heading = Import complete
-csv-import-done-body = { $count } row(s) committed.
-csv-import-error-generic = Import failed. Check the file and try again.
-csv-import-error-commit-failed = Apply failed; rows were not committed.
-csv-import-action-import = Import Data
-csv-import-action-templates = Download Templates
-csv-import-status-heading = Import Status
-csv-import-status-success = Import Completed
-csv-import-status-in-progress = Import in Progress
-csv-import-status-error = Import Failed
-csv-import-last-import = Last import: { $date }
-csv-import-results-total = Total Records
-csv-import-results-successful = Successful
-csv-import-results-failed = Failed
-csv-import-guidelines-heading = CSV Import Guidelines
-csv-import-requirements-heading = CSV File Requirements
-csv-import-requirements-utf8 = Files must be in CSV format with UTF-8 encoding
-csv-import-requirements-headers = The first row needs column headers matching the expected fields
-csv-import-requirements-required = Required fields can't be empty
-csv-import-requirements-date-format = Date fields should use the format YYYY-MM-DD
-csv-import-requirements-max-size = Maximum file size: 10MB
-csv-import-notes-heading = Important Notes
-csv-import-notes-updates = Existing records get updated if they share a unique identifier (like email or ID)
-csv-import-notes-validation = Data validation runs before import, records with invalid data will be skipped
-csv-import-notes-duration = For large imports, the process can take a few minutes to finish
-csv-import-notes-templates = Download and use our template files to keep formatting right
-csv-import-templates-heading = Available Templates
-csv-import-templates-intro = Use these templates as a starting point for your CSV imports
-csv-import-template-users-name = Users Template
-csv-import-template-users-description = Import user accounts with roles and contact info
-csv-import-template-devices-name = Assets template
-csv-import-template-devices-description = Import assets with hardware details and ownership information
-csv-import-template-tickets-name = Tickets Template
-csv-import-template-tickets-description = Import support tickets with details and assignees
-csv-import-template-download = Download
-csv-import-modal-import-title = Import Data from CSV
-csv-import-modal-data-type = Data Type
-csv-import-modal-type-users = Users
-csv-import-modal-type-devices = Assets
-csv-import-modal-type-tickets = Tickets
-csv-import-modal-file-label = CSV File
-csv-import-modal-upload-link = Upload a file
-csv-import-modal-drag-drop = or drag and drop
-csv-import-modal-size-hint = CSV files up to 10MB
-csv-import-modal-cancel = Cancel
-csv-import-modal-start = Start Import
-csv-import-modal-starting = Importing...
-csv-import-modal-templates-title = CSV Templates
-csv-import-modal-templates-intro = Download our CSV templates to make sure your data is formatted correctly for import.
-csv-import-modal-fields-count = { $count ->
-    [one] { $count } field
-   *[other] { $count } fields
-   }
-csv-import-modal-close = Close
-csv-import-error-no-file = Pick a file to import
-csv-import-error-failed = Import failed
-csv-import-success-completed = Import completed successfully
-csv-import-toast-template-downloaded = { $type } template downloaded
 
 # Error page (ErrorView)
 error-page-default-code = 404
@@ -3119,7 +3005,6 @@ docs-collection-manager-saving = Saving...
 
 # Docs: collection browser (CollectionBrowser)
 docs-collection-browser-heading = Collections
-docs-collection-browser-new = New
 docs-collection-browser-name-placeholder = Collection name...
 docs-collection-browser-cancel = Cancel
 docs-collection-browser-create = Create
@@ -3189,7 +3074,6 @@ docs-breadcrumb-root = Documentation
 docs-breadcrumb-aria = Breadcrumb
 
 # Docs: card (DocumentationCard)
-docs-card-empty-content = No content yet
 docs-card-children-more = +{ $count } more
 docs-card-relative-unknown = Unknown
 docs-card-relative-today = Today
@@ -4264,37 +4148,7 @@ settings-security-error-reset-failed = Couldn't reset password
 
 # OAuth callback view + card.
 auth-callback-loading-default = Finishing sign-in...
-auth-callback-loading-processing = Processing authentication...
-auth-callback-loading-success = Success! Redirecting...
 auth-callback-loading-subtitle = Hang on while we finish authenticating
-auth-callback-success-title = Authentication successful
-auth-callback-success-subtitle = Redirecting...
-auth-callback-technical-details = Technical Details
-auth-callback-provider-microsoft = Microsoft
-auth-callback-provider-sso = SSO
-auth-callback-error-missing-params = Missing required authentication parameters
-auth-callback-error-missing-detail = Missing: { $fields }
-auth-callback-error-missing-field-code = code
-auth-callback-error-missing-field-state = state
-auth-callback-error-invalid-response = Invalid response from server
-auth-callback-error-no-response = No response received from server
-auth-callback-error-unknown = Unknown error
-auth-callback-error-generic-message = Something went wrong during authentication
-auth-callback-error-status-prefix = Status: { $status }
-auth-callback-already-title = Account Already Connected
-auth-callback-already-message = This { $provider } account is already linked to another user.
-auth-callback-already-suggestion-microsoft = Try a different { $provider } account, or have a chat with your admin.
-auth-callback-already-suggestion-generic = Try a different account, or have a chat with your admin.
-auth-callback-invalid-title = Authentication Failed
-auth-callback-invalid-message = The authentication request was invalid or has expired.
-auth-callback-invalid-suggestion-microsoft = Give your { $provider } account another go.
-auth-callback-invalid-suggestion-generic = Give signing in another go.
-auth-callback-generic-title = Authentication Failed
-auth-callback-generic-suggestion = Try again, or contact support if it keeps happening.
-auth-callback-action-try-different = Try a Different Account
-auth-callback-action-back-settings = Back to Settings
-auth-callback-action-return-login = Return to Login
-auth-callback-action-try-again = Try Again
 
 # Dashboard widgets
 dashboard-widget-shell-action-view-all = View all
@@ -4367,11 +4221,6 @@ dashboard-knowledge-gaps-action = View queue
 dashboard-knowledge-gaps-error = Couldn't load gaps
 dashboard-knowledge-gaps-empty-title = No open gaps
 dashboard-knowledge-gaps-empty-description = Tickets flagged for docs will pop up here.
-dashboard-knowledge-gaps-signal-count =
-    { $count ->
-        [one] 1 signal
-       *[other] { $count } signals
-    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } searches
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets showing demand for this doc

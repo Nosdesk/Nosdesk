@@ -11,9 +11,11 @@
 pub mod extractors;
 pub mod indexer;
 pub mod indexing_tasks;
+pub mod reindex_requests;
 pub mod schema;
 pub mod searcher;
 pub mod types;
+pub mod workspace_reindex;
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,6 +40,8 @@ pub struct SearchService {
     reader: IndexReader,
     writer: Arc<RwLock<IndexWriter>>,
     is_rebuilding: AtomicBool,
+    /// Workspaces with a reindex pending or running (`workspace_reindex`).
+    reindex_slots: workspace_reindex::ReindexSlots,
     /// Pool used by background re-index hooks to resolve a user's
     /// workspace memberships (the workspace tenancy tags on the user
     /// doc). Users are a global identity, so the membership set has to
@@ -106,6 +110,7 @@ impl SearchService {
             reader,
             writer: Arc::new(RwLock::new(writer)),
             is_rebuilding: AtomicBool::new(false),
+            reindex_slots: workspace_reindex::ReindexSlots::default(),
             pool: pool.clone(),
         };
 
@@ -213,11 +218,17 @@ impl SearchService {
         self.index_document(&doc)
     }
 
-    /// Index a documentation page
+    /// Index a documentation page, or take it out of the index when it is
+    /// in Trash. A save, a details change and the replicator all index a
+    /// page through here, so a page moved to Trash by any of them stops
+    /// being found.
     pub fn index_documentation(
         &self,
         doc_page: &models::DocumentationPage,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if indexer::is_in_trash(doc_page) {
+            return self.delete_documentation(doc_page.id);
+        }
         let doc = indexer::index_document_from_documentation(doc_page);
         self.index_document(&doc)
     }
@@ -404,7 +415,8 @@ impl SearchService {
         }
     }
 
-    /// Re-index a documentation page by id. No-op if missing.
+    /// Re-index a documentation page by id, or remove it when it is
+    /// missing or in Trash.
     pub fn reindex_documentation(
         &self,
         page_id: i32,
@@ -420,7 +432,8 @@ impl SearchService {
         )?;
         match page {
             Some(page) => self.index_documentation(&page),
-            None => Ok(()),
+            // Deleted for good since the change was recorded.
+            None => self.delete_documentation(page_id),
         }
     }
 
@@ -647,7 +660,25 @@ impl SearchService {
         })
     }
 
+    /// Make the latest commit visible to searches now, rather than after the
+    /// reader's reload delay.
+    pub fn reload(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.reader.reload()?;
+        Ok(())
+    }
+
     // Internal helper methods
+
+    fn writer_lock(
+        &self,
+    ) -> Result<
+        std::sync::RwLockWriteGuard<'_, IndexWriter>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        self.writer
+            .write()
+            .map_err(|e| format!("Lock error: {}", e).into())
+    }
 
     fn index_document(
         &self,

@@ -8,11 +8,9 @@ the current user (`v-if="!isAdminMode"`), so unlike the sibling cards
 it takes no `targetUserUuid` prop.
 
 Per-session "Sign out" is a plain revoke + cache invalidate. "Sign out
-all other sessions" is high-blast-radius and the backend gates it
-behind step-up re-auth (full session + a fresh credential), so it
-opens a ConfirmModal that asks for the one credential the account
-actually has: the local password if set, else an MFA code, else
-nothing (OAuth-only without MFA).
+all other sessions" is high-blast-radius and the backend only allows it
+once this session has confirmed it's the user, so its ConfirmModal
+carries ConfirmIdentity and runs the revoke only after that.
 
 The session list is cache-first via Pinia Colada so revisiting the tab
 is instant; revokes invalidate the query to refetch.
@@ -22,21 +20,20 @@ translated. Native clients (which know their real device) send a name
 the backend stores and this list prefers; browsers send none.
 -->
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import authService, { type SessionInfo } from '@nosdesk/core/services/authService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useStepUpMethod } from '@/composables/useStepUpMethod';
 import { logger } from '@nosdesk/core/utils/logger';
 import { formatRelativeTime, formatDate } from '@nosdesk/core/utils/dateUtils';
 import Icon from '@/components/common/Icon.vue';
 import type { IconName } from '@/components/common/icons';
 import Spinner from '@/components/common/Spinner.vue';
 import Button from '@/components/common/Button.vue';
-import FormInput from '@/components/common/FormInput.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
+import ConfirmIdentity from '@/components/auth/ConfirmIdentity.vue';
 
 const emit = defineEmits<{
   (e: 'success', message: string): void;
@@ -70,11 +67,6 @@ const otherSessionsCount = computed(() => sessions.value.filter((s) => !s.is_cur
 function refresh() {
   queryCache.invalidateQueries({ key: SESSIONS_KEY });
 }
-
-// Which credential the bulk-revoke step-up asks for. Loaded once on
-// mount, best-effort.
-const { method: stepUpMethod, load: loadStepUp, credential: stepUpBody } = useStepUpMethod();
-onMounted(loadStepUp);
 
 /**
  * Coarse OS family from a user-agent, shared by the label and the icon so the
@@ -181,25 +173,24 @@ async function handleRevoke(session: SessionInfo) {
   }
 }
 
-// --- Sign out all other sessions (step-up re-auth) ---
+// --- Sign out all other sessions (confirm it's you first) ---
 const showRevokeAllModal = ref(false);
-const stepUpCredential = ref('');
 const revokingAll = ref(false);
 const modalError = ref<string | null>(null);
+const identity = ref<InstanceType<typeof ConfirmIdentity> | null>(null);
+// Off until the confirmation status has loaded and there is proof to give.
+const identityReady = ref(false);
 
-const revokeAllConfirmDisabled = computed(
-  () => stepUpMethod.value !== 'none' && stepUpCredential.value.trim().length === 0,
-);
+const revokeAllConfirmDisabled = computed(() => !identityReady.value || revokingAll.value);
 
 function openRevokeAllModal() {
-  stepUpCredential.value = '';
   modalError.value = null;
+  identityReady.value = false;
   showRevokeAllModal.value = true;
 }
 
 function closeRevokeAllModal() {
   showRevokeAllModal.value = false;
-  stepUpCredential.value = '';
   modalError.value = null;
 }
 
@@ -208,13 +199,27 @@ async function handleRevokeAll() {
   revokingAll.value = true;
   modalError.value = null;
   try {
-    await authService.revokeAllOtherSessions(stepUpBody(stepUpCredential.value));
+    // A wrong password or code shows inside ConfirmIdentity; stay open.
+    if (!(await identity.value?.confirm())) return;
+    const result = await authService.revokeAllOtherSessions();
     closeRevokeAllModal();
     refresh();
-    emit('success', t('settings-sessions-revoke-others-success'));
+    // Nosdesk Cloud: the helpdesk sessions are gone either way, but if the
+    // Nosdesk account's remembered sign-ins could not be ended, those browsers
+    // can sign back in until they run out.
+    emit(
+      'success',
+      t(
+        result.remembered_sign_ins_ended === false
+          ? 'settings-sessions-revoke-others-success-remembered-kept'
+          : 'settings-sessions-revoke-others-success',
+      ),
+    );
   } catch (err) {
-    // Keep the modal open so the user can correct the credential.
+    // Keep the modal open. If the confirmation lapsed meanwhile, the refresh
+    // asks for it again.
     modalError.value = extractErrorMessage(err, t('settings-sessions-revoke-others-error'));
+    void identity.value?.refresh();
   } finally {
     revokingAll.value = false;
   }
@@ -321,7 +326,7 @@ async function handleRevokeAll() {
     </div>
   </SectionCard>
 
-  <!-- Sign out all other sessions: confirm + step-up re-auth -->
+  <!-- Sign out all other sessions: confirm it's you, then revoke -->
   <ConfirmModal
     :show="showRevokeAllModal"
     variant="danger"
@@ -329,29 +334,14 @@ async function handleRevokeAll() {
     :message="$t('settings-sessions-revoke-others-modal-description')"
     :confirm-label="$t('settings-sessions-revoke-others-confirm')"
     :cancel-label="$t('settings-sessions-modal-cancel')"
-    :confirm-disabled="revokeAllConfirmDisabled || revokingAll"
+    :confirm-disabled="revokeAllConfirmDisabled"
     :loading="revokingAll"
     @confirm="handleRevokeAll"
     @close="closeRevokeAllModal"
   >
     <template #body>
-      <div v-if="stepUpMethod !== 'none'" class="mt-3 flex flex-col gap-1.5">
-        <label for="sessions-revoke-all-stepup" class="text-xs font-medium text-secondary">
-          {{ stepUpMethod === 'password'
-            ? $t('settings-sessions-revoke-others-stepup-password')
-            : $t('settings-sessions-revoke-others-stepup-mfa') }}
-        </label>
-        <FormInput
-          id="sessions-revoke-all-stepup"
-          v-model="stepUpCredential"
-          :type="stepUpMethod === 'password' ? 'password' : 'text'"
-          :inputmode="stepUpMethod === 'mfa' ? 'numeric' : undefined"
-          :autocomplete="stepUpMethod === 'password' ? 'current-password' : 'one-time-code'"
-          @keyup.enter="handleRevokeAll"
-        />
-        <p v-if="modalError" class="text-sm text-status-error">{{ modalError }}</p>
-      </div>
-      <p v-else-if="modalError" class="mt-3 text-sm text-status-error">{{ modalError }}</p>
+      <ConfirmIdentity ref="identity" v-model:ready="identityReady" @submit="handleRevokeAll" />
+      <p v-if="modalError" class="text-sm text-status-error">{{ modalError }}</p>
     </template>
   </ConfirmModal>
 </template>

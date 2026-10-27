@@ -33,6 +33,37 @@ describe('savedDocToHtml', () => {
     expect(publicHtml).not.toContain('Private runbook')
   })
 
+  it('renders a table with its scroll wrapper, column widths, spans and alignment', () => {
+    // Attributes as y-prosemirror stores them: numbers, a number array, a string.
+    const cell = (type: string, text: string, attrs: Record<string, unknown> = {}) => {
+      const el = new Y.XmlElement(type)
+      el.setAttribute('colspan', 1 as never)
+      el.setAttribute('rowspan', 1 as never)
+      for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value as never)
+      el.insert(0, [paragraph(text)])
+      return el
+    }
+    const row = (...cells: Y.XmlElement[]) => {
+      const el = new Y.XmlElement('table_row')
+      el.insert(0, cells)
+      return el
+    }
+    const update = page((f) => {
+      const table = new Y.XmlElement('table')
+      table.insert(0, [
+        row(cell('table_header', 'Name', { colwidth: [160] }), cell('table_header', 'Owner', { align: 'center' })),
+        row(cell('table_cell', 'VPN', { colspan: 2, align: 'right' })),
+      ])
+      f.insert(0, [table, paragraph('After')])
+    })
+    expect(savedDocToHtml(update)).toBe(
+      '<div class="table-scroll"><table><colgroup><col width="160"><col></colgroup><tbody>' +
+        '<tr><th><p>Name</p></th><th class="align-center"><p>Owner</p></th></tr>' +
+        '<tr><td colspan="2" class="align-right"><p>VPN</p></td></tr>' +
+        '</tbody></table></div><p>After</p>',
+    )
+  })
+
   it('returns an empty string for an empty page', () => {
     expect(savedDocToHtml(page(() => {}))).toBe('')
   })

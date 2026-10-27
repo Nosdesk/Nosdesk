@@ -1010,9 +1010,11 @@ async fn persist_attachments(
         };
 
         // The sender picks the name. Store it in the form an upload gets, one
-        // plain path segment; the row keeps the original for display.
+        // plain path segment; the row keeps it as sent, cleaned for display.
         let stored_name = FileValidator::sanitize_filename(&materialized.filename)
             .unwrap_or_else(|_| "attachment".to_string());
+        let display_name = FileValidator::display_filename(&materialized.filename)
+            .unwrap_or_else(|| stored_name.clone());
         let stored = match storage
             .store_file(
                 &materialized.bytes,
@@ -1031,7 +1033,7 @@ async fn persist_attachments(
 
         let new_att = NewAttachment {
             url: stored.url,
-            name: materialized.filename,
+            name: display_name,
             file_size: Some(stored.size as i64),
             mime_type: Some(materialized.mime_type),
             checksum: None,
@@ -1583,8 +1585,8 @@ mod tests {
             "stored under a sanitized name: {stored_name}"
         );
         assert_eq!(
-            attachment.name, "../Quarterly report.pdf",
-            "the row keeps the sender's name for display"
+            attachment.name, "Quarterly report.pdf",
+            "the row keeps the sender's name for display, without its path"
         );
 
         let scoped = WorkspaceScopedStorage::arc(storage, ch.workspace_id);

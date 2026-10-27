@@ -1930,3 +1930,120 @@ html[data-theme="red-horizon"] body,
 @keyframes ticket-link-spin {
   to { transform: rotate(360deg); }
 }
+
+/* Editor tables at rest: pages, revisions, embeds and the portal, which
+   imports this file, and the live editor, whose table view renders the same
+   `.table-scroll > table` (its controls are styled in CollaborativeEditor).
+   Colours come from theme tokens, so dark mode follows. A table wider than
+   the column scrolls inside its wrapper, never the page; widths on <col>
+   are honoured, and columns without one share the rest. */
+.ProseMirror .table-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 1rem 0;
+  scrollbar-width: thin;
+  /* A sideways scroll that reaches the end stops there rather than
+     scrolling the page or turning into a history swipe. */
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ProseMirror .table-scroll > table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.ProseMirror .table-scroll th,
+.ProseMirror .table-scroll td {
+  position: relative;
+  min-width: 48px;
+  border: 1px solid var(--color-default);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: break-word;
+}
+
+.ProseMirror .table-scroll th {
+  background-color: var(--color-surface-alt);
+  font-weight: 600;
+}
+
+.ProseMirror .table-scroll :is(th, td) > * { margin-top: 0; margin-bottom: 0; }
+.ProseMirror .table-scroll :is(th, td) p { margin: 0; line-height: 1.45; }
+.ProseMirror .table-scroll :is(th, td) > * + * { margin-top: 0.35rem; }
+.ProseMirror .table-scroll :is(th, td) :is(ul, ol) { margin: 0.1rem 0 0; padding-left: 1.1rem; }
+.ProseMirror .table-scroll :is(th, td) li { margin-bottom: 0.15rem; line-height: 1.45; }
+.ProseMirror .table-scroll :is(th, td) pre { margin: 0.25rem 0 0; padding: 0.4rem 0.5rem; font-size: 0.8125rem; }
+
+.ProseMirror .table-scroll .align-left { text-align: left; }
+.ProseMirror .table-scroll .align-center { text-align: center; }
+.ProseMirror .table-scroll .align-right { text-align: right; }
+
+/* Without a fine pointer (phones, tablets) columns size to their content
+   and the table scrolls sideways, instead of crushing columns until words
+   break mid-way. */
+@media not all and (pointer: fine) {
+  .ProseMirror .table-scroll > table {
+    table-layout: auto;
+    font-size: 1rem;
+  }
+  .ProseMirror .table-scroll :is(th, td) { min-width: 72px; }
+  .ProseMirror .table-scroll :is(th, td) code { white-space: nowrap; }
+}
+
+/* Editing: a cell selection tints its cells, every cell selected outlines
+   the table, and the gap cursor (beside a table at the document's edge) is a short caret
+   line. */
+.ProseMirror .table-scroll .selectedCell {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-default));
+}
+
+.ProseMirror .table-scroll .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--color-accent-muted);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ProseMirror .pm-table.is-all-selected table {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+/* prosemirror-tables draws a handle inside each cell of the column, which
+   the row borders break into segments. The table view draws one guide line
+   over the whole table instead (`.pm-table__guide`). */
+.ProseMirror .table-scroll .column-resize-handle { display: none; }
+
+.ProseMirror .table-scroll .column-resize-dragging { user-select: none; }
+
+.ProseMirror.resize-cursor { cursor: col-resize; }
+
+.ProseMirror .ProseMirror-gapcursor {
+  display: none;
+  position: relative;
+  pointer-events: none;
+}
+
+.ProseMirror .ProseMirror-gapcursor::after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 1px solid currentColor;
+  animation: ProseMirror-cursor-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes ProseMirror-cursor-blink {
+  to { visibility: hidden; }
+}
+
+.ProseMirror-focused .ProseMirror-gapcursor { display: block; }

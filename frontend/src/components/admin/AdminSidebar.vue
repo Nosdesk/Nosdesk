@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import IconButton from '@/components/common/IconButton.vue'
 import { ref, computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { RouterLink, useRoute } from 'vue-router';
+import { workspacePath } from '@/router/workspaceRouting';
 import { useFluent } from 'fluent-vue';
 import {
   adminNavGroups,
+  adminNavItemHref,
+  type AdminNavItem,
   isAdminRouteActive,
   filterAdminNavGroups,
   filterAdminNavGroupsForRole
 } from '@/components/admin/adminNavData';
 import { useAuthStore } from '@/stores/auth';
-import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
+import { getControlPlaneUrl, isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
+import { openExternalUrl } from '@/platform';
 import Icon from '@/components/common/Icon.vue';
 
 const route = useRoute();
@@ -25,7 +29,9 @@ const roleGroups = computed(() =>
     isAdmin: authStore.isAdmin,
     isAuditReviewer: authStore.isAuditReviewer,
     isPlatformAdmin: authStore.isPlatformAdmin,
-    isHosted: isHostedDeployment()
+    isHosted: isHostedDeployment(),
+    isOwner: authStore.isOwner,
+    controlPlaneUrl: getControlPlaneUrl()
   })
 );
 
@@ -33,7 +39,19 @@ const filteredGroups = computed(() =>
   filterAdminNavGroups(roleGroups.value, searchQuery.value, (key) => fluent.$t(key))
 );
 
-const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute);
+// Nav items are bare app paths; on Cloud the route path starts with the
+// workspace slug, so compare the path inside the workspace.
+const isActive = (itemRoute: string | undefined) => isAdminRouteActive(workspacePath(route), itemRoute);
+
+// An item that leaves the app (Plan and billing on Cloud) is a real link for
+// hover and copy, opened through the platform so the native shell hands it to
+// the system browser.
+const hrefOf = (item: AdminNavItem) => adminNavItemHref(item, getControlPlaneUrl());
+function openIfExternal(item: AdminNavItem, event: MouseEvent) {
+  if (item.route) return;
+  event.preventDefault();
+  void openExternalUrl(hrefOf(item));
+}
 </script>
 
 <template>
@@ -84,10 +102,12 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
           {{ $t(group.labelKey) }}
         </h3>
         <div class="flex flex-col gap-0.5">
-          <RouterLink
+          <component
+            :is="item.route ? RouterLink : 'a'"
             v-for="item in group.items"
-            :key="item.route"
-            :to="item.route"
+            :key="item.route ?? item.controlPlanePath"
+            v-bind="item.route ? { to: item.route } : { href: hrefOf(item), target: '_blank', rel: 'noopener' }"
+            @click="openIfExternal(item, $event)"
             class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors duration-150 relative overflow-hidden text-sm"
             :class="[
               isActive(item.route)
@@ -106,7 +126,8 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
               <Icon :name="item.icon" />
             </div>
             <span class="truncate">{{ $t(item.titleKey) }}</span>
-          </RouterLink>
+            <Icon v-if="!item.route" name="openExternal" size="sm" class="ml-auto flex-shrink-0 text-tertiary" />
+          </component>
         </div>
       </div>
 

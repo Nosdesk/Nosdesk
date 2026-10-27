@@ -7,6 +7,7 @@
 
 pub mod bucketing;
 pub mod kinds;
+pub mod model_stamp;
 pub mod rollout;
 
 use chrono::NaiveDate;

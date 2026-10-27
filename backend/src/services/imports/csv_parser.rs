@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use super::refusal::Refused;
 use super::safe_cells::strip_formula_guard;
 
 /// Most data rows one file may carry.
@@ -21,8 +22,9 @@ pub const MAX_CELL_CHARS: usize = 32_767;
 pub const MAX_HEADER_CHARS: usize = 255;
 
 /// Parsed CSV ready for per-type validation: the header row and each
-/// data row's cells in column order, trimmed.
-#[derive(Debug, Clone)]
+/// data row's cells in column order, trimmed. Serialized as the job's
+/// normalized grid (`files::grid_key`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParsedCsv {
     pub headers: Vec<String>,
     pub rows: Vec<SourceRow>,
@@ -31,13 +33,17 @@ pub struct ParsedCsv {
 }
 
 /// One data row of the file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SourceRow {
     /// 1-based line of the file the row starts on; the header is line 1.
     /// A quoted field spanning lines doesn't shift the rows after it.
     pub source_row: usize,
     /// One cell per header, in header order.
     pub cells: Vec<String>,
+    /// Indexes of cells holding a spreadsheet error (`#N/A`, `#REF!`); the
+    /// cell's text is the error. Only workbooks have them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cell_errors: Vec<usize>,
 }
 
 /// A data row keyed by header, for the importers' by-name lookups.
@@ -92,7 +98,7 @@ impl std::fmt::Display for ParseError {
             Self::Csv(e) => write!(f, "CSV parse error: {e}"),
             Self::NotUtf8 => write!(
                 f,
-                "file is not valid UTF-8; re-save as UTF-8 (with or without BOM) and retry"
+                "file is not valid UTF-8; save it as a UTF-8 CSV, or upload the .xlsx instead"
             ),
             Self::MissingHeader => write!(f, "file has no header row"),
             Self::DuplicateHeader(name) => write!(
@@ -124,6 +130,36 @@ impl std::fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
+
+impl ParseError {
+    /// The refusal an upload answers with: the English above, with a code
+    /// the client words it by.
+    pub fn refusal(&self) -> Refused {
+        let message = self.to_string();
+        match self {
+            Self::Io(_) | Self::Csv(_) => Refused::new("import_csv_unreadable", message),
+            Self::NotUtf8 => Refused::new("import_csv_not_utf8", message),
+            Self::MissingHeader => Refused::new("import_no_header", message),
+            Self::DuplicateHeader(name) => {
+                Refused::new("import_header_duplicate", message).arg("name", name.clone())
+            }
+            Self::BlankHeader(column) => {
+                Refused::new("import_header_blank", message).arg("column", column.to_string())
+            }
+            Self::HeaderTooLong(column) => Refused::new("import_header_too_long", message)
+                .arg("column", column.to_string())
+                .arg("max", MAX_HEADER_CHARS),
+            Self::TooManyColumns(count) => Refused::new("import_too_many_columns", message)
+                .arg("count", *count)
+                .arg("max", MAX_COLUMNS),
+            Self::TooManyRows => Refused::new("import_too_many_rows", message).arg("max", MAX_ROWS),
+            Self::CellTooLong { row, column } => Refused::new("import_cell_too_long", message)
+                .arg("row", row.to_string())
+                .arg("column", column.clone())
+                .arg("max", MAX_CELL_CHARS),
+        }
+    }
+}
 
 /// Parse a CSV file from disk. UTF-8 only; BOM stripped.
 pub fn parse_file(path: &Path) -> Result<ParsedCsv, ParseError> {
@@ -220,7 +256,11 @@ fn parse_str(text: &str) -> Result<ParsedCsv, ParseError> {
             }
             cells.push(strip_formula_guard(raw.trim()).trim().to_string());
         }
-        rows.push(SourceRow { source_row, cells });
+        rows.push(SourceRow {
+            source_row,
+            cells,
+            cell_errors: Vec::new(),
+        });
     }
 
     // A blank header over an empty column (a trailing delimiter from a

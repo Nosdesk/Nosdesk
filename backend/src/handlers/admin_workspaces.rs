@@ -790,6 +790,19 @@ struct MyWorkspaceEntry {
     /// workspace has not uploaded one, which is the common case: the client
     /// falls back to a monogram rather than a broken image.
     logo_url: Option<String>,
+    /// The workspace's subscription state as the control plane last pushed
+    /// it. Present only on a hosted deployment and only to the workspace's
+    /// owner; absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    billing: Option<MyWorkspaceBilling>,
+}
+
+#[derive(Debug, Serialize)]
+struct MyWorkspaceBilling {
+    /// Stripe's subscription status, verbatim; null with no subscription.
+    status: Option<String>,
+    trial_end: Option<chrono::DateTime<chrono::Utc>>,
+    cancel_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub async fn list_my_workspaces(
@@ -835,9 +848,17 @@ pub async fn list_my_workspaces(
         .filter_map(|(id, url)| url.map(|u| (id, u)))
         .collect();
 
+    // Billing belongs to Cloud: a self-hosted deployment has none to show,
+    // and within a hosted workspace only its owner sees it.
+    let hosted = crate::middleware::workspace_context::is_hosted();
     let body: Vec<MyWorkspaceEntry> = rows
         .into_iter()
         .map(|(m, w)| MyWorkspaceEntry {
+            billing: (hosted && m.role == "owner").then(|| MyWorkspaceBilling {
+                status: w.billing_status.clone(),
+                trial_end: w.billing_trial_end,
+                cancel_at: w.billing_cancel_at,
+            }),
             workspace_id: w.id,
             workspace_uuid: w.uuid,
             slug: w.slug,

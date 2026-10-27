@@ -4,7 +4,7 @@ import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { restorePage } from '@nosdesk/core/services/documentationService'
 import { useDocPages } from '@/composables/useDocPages'
-import BackButton from '@/components/common/BackButton.vue'
+import DocumentationIndexToolbar from '@/components/documentationComponents/DocumentationIndexToolbar.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
 import PullToRefresh from '@/components/common/PullToRefresh.vue'
@@ -22,7 +22,7 @@ const titleManager = useTitleManager()
 const { archived: pages } = useDocPages()
 
 // Pull-to-refresh (Tauri app) binds to the scroll container below the
-// sticky header; defaults to the global re-sync.
+// band; defaults to the global re-sync.
 const scrollEl = ref<HTMLElement | null>(null)
 
 const handleRestore = async (pageId: string | number) => {
@@ -39,13 +39,8 @@ onMounted(() => {
 <template>
   <div class="bg-app flex flex-col h-full">
     <PullToRefresh :target="scrollEl" />
-    <!-- Header -->
-    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
-      <div class="p-2 flex items-center gap-2">
-        <BackButton fallbackRoute="/documentation" :label="$t('docs-archived-back')" />
-        <div class="flex-1"></div>
-      </div>
-    </div>
+    <!-- The index band: these views are its Drafts, Archived and Trash tabs -->
+    <DocumentationIndexToolbar />
 
     <!-- Main Content -->
     <div ref="scrollEl" class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">

@@ -93,6 +93,9 @@ const showSuccessMessage = ref(false)
 // Content editing — initialize from preloaded data if available
 const editContent = ref(preloaded?.content || '')
 const editTitle = ref(preloaded?.title || '')
+// The title the server holds. A blur or header edit that leaves it unchanged
+// saves nothing, so opening a page never marks it edited.
+const savedTitle = ref(preloaded?.title || '')
 const documentIcon = ref(preloaded?.icon || '📄')
 
 // Ref for the title h1 element
@@ -283,12 +286,13 @@ const updateTitle = (newTitle: string) => {
 
 // Save title changes to backend
 const saveTitleChanges = async () => {
-  if (!currentPageId.value) return
+  if (!currentPageId.value || editTitle.value === savedTitle.value) return
 
   const newSlug = slugify(editTitle.value)
 
   try {
     await documentationService.updatePage(currentPageId.value, { title: editTitle.value, slug: newSlug })
+    savedTitle.value = editTitle.value
     documentationNavStore.updatePageField(currentPageId.value, 'title', editTitle.value)
     documentationNavStore.updatePageField(currentPageId.value, 'slug', newSlug)
   } catch (error) {
@@ -495,6 +499,7 @@ const fetchContent = async () => {
         document.value = result
         editContent.value = document.value.content || ''
         editTitle.value = document.value.title
+        savedTitle.value = document.value.title
         documentIcon.value = document.value.icon || 'mdi-folder-outline'
         emit('update:title', document.value.title)
       } else if ('id' in result) {
@@ -504,6 +509,7 @@ const fetchContent = async () => {
           document.value = articleData
           editContent.value = document.value.content || ''
           editTitle.value = document.value.title
+          savedTitle.value = document.value.title
           documentIcon.value = document.value.icon || 'mdi-text-box-outline'
           emit('update:title', document.value.title)
         } else {
@@ -593,6 +599,7 @@ watch(
   },
   (meta) => {
     if (!meta) return
+    savedTitle.value = meta.title
     if (document.value) {
       document.value.title = meta.title
       document.value.slug = meta.slug
@@ -630,9 +637,10 @@ onMounted(() => {
 
   // Register save handlers for SiteHeader title/icon edits
   titleManager.onDocumentTitleSave(async (title: string) => {
-    if (!currentPageId.value) return
+    if (!currentPageId.value || title === savedTitle.value) return
     const newSlug = slugify(title)
     await documentationService.updatePage(currentPageId.value, { title, slug: newSlug })
+    savedTitle.value = title
     documentationNavStore.updatePageField(currentPageId.value, 'title', title)
     documentationNavStore.updatePageField(currentPageId.value, 'slug', newSlug)
     if (document.value) document.value.slug = newSlug

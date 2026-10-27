@@ -58,6 +58,15 @@ interface LifecycleState {
    * frame's events are also in `sync_actions`, so the catch-up re-delivers
    * them; holding the cursor back loses nothing. */
   caughtUp: boolean
+  /** The workspace data epoch the local caches hold rows from ('' when none
+   * is known). The server moves it when the workspace's data is replaced (an
+   * archive import gives every row a new id); `/sync/schema` and every delta
+   * carry the current one, and a different one wipes every local cache of the
+   * workspace. Not `pool.currentEpoch()`, which counts tear-downs. */
+  workspaceEpoch: string
+  /** The database instance id hydrate() fenced on ('' when the server
+   * reported none), kept so a resync can write it into the reopened cache. */
+  instanceId: string
 }
 
 const state: LifecycleState = {
@@ -68,6 +77,8 @@ const state: LifecycleState = {
   resyncing: false,
   openArgs: null,
   caughtUp: false,
+  workspaceEpoch: '',
+  instanceId: '',
 }
 
 /** Memory-only counts as hydrated (it still bootstraps and serves; only
@@ -233,8 +244,8 @@ async function bootstrapRuntime(
   userUuid: string,
   workspaceSlug: string | null,
 ): Promise<void> {
-  const { schemaHash, instanceId } = await fetchServerIdentity()
-  await hydrate(userUuid, schemaHash, instanceId, workspaceSlug)
+  const { schemaHash, instanceId, workspaceEpoch } = await fetchServerIdentity()
+  await hydrate(userUuid, schemaHash, instanceId, workspaceSlug, workspaceEpoch)
   const { attachSseBridge } = await import('@/sync/sseBridge')
   attachSseBridge()
   // Have a collab token ready, so opening a note connects without first
@@ -361,11 +372,13 @@ export async function hydrate(
   schemaHash: string,
   instanceId = '',
   workspaceSlug: string | null = null,
+  workspaceEpoch = '',
 ): Promise<void> {
   if (state.handle || state.memoryOnly) return
   pool.setSchemaHash(schemaHash)
   state.schemaHash = schemaHash
   state.openArgs = { userUuid, workspaceSlug }
+  state.instanceId = instanceId
   setReferenceFetcher(referenceFetcher)
 
   // Try to open IDB; degrade gracefully if it's unavailable
@@ -378,6 +391,7 @@ export async function hydrate(
   } catch (e) {
     logger.warn('IndexedDB unavailable; degrading sync engine to memory-only', { error: e })
     state.memoryOnly = true
+    state.workspaceEpoch = workspaceEpoch
     queue.setIdbHandle(null)
     startDeltaPollFallback()
     // Memory-only is still a hydrated runtime: drain any group that subscribed
@@ -390,6 +404,7 @@ export async function hydrate(
 
   const persistedHash = await idb.getSchemaHash(state.handle)
   const persistedInstance = await idb.getInstanceId(state.handle)
+  const persistedEpoch = await idb.getWorkspaceEpoch(state.handle)
 
   // Two reasons to throw away the local cache and re-bootstrap clean:
   //   - schema mismatch: cached rows may not fit the new schema.
@@ -398,13 +413,20 @@ export async function hydrate(
   //     server actually reported (non-empty), and an absent persisted
   //     id counts as a mismatch so the first load after this ships
   //     clears caches written before instance ids existed.
+  //   - workspace epoch mismatch (data fence): this workspace's data was
+  //     replaced (an archive import), so every cached row has an id that is
+  //     gone or now names something else. Same trust rule: only an epoch the
+  //     server reported counts, and an absent persisted one is a mismatch
+  //     (the server has none until the first replacement).
   const schemaChanged = !!persistedHash && persistedHash !== schemaHash
   const instanceChanged = instanceId !== '' && persistedInstance !== instanceId
+  const epochChanged = workspaceEpoch !== '' && persistedEpoch !== workspaceEpoch
 
-  if (schemaChanged || instanceChanged) {
+  if (schemaChanged || instanceChanged || epochChanged) {
     logger.info('Sync cache stale; wiping local cache and rebootstrapping', {
       schemaChanged,
       instanceChanged,
+      epochChanged,
       previousInstance: persistedInstance,
       currentInstance: instanceId,
     })
@@ -418,11 +440,15 @@ export async function hydrate(
     // databases) aren't covered by the sync-pool wipe above, and on an
     // instance change they're exactly the stale data that resurrects
     // notes onto recycled ids. Purge them too, other tabs' open ones
-    // included: they are the same stale generation.
-    if (instanceChanged) {
+    // included: they are the same stale generation. A replaced workspace
+    // recycles ids the same way.
+    if (instanceChanged || epochChanged) {
       await purgeAllCollabDocs({ includeOpen: true })
     }
   }
+  // A failed /sync/schema reports no epoch: keep the one the cache was
+  // written under rather than forgetting it.
+  state.workspaceEpoch = workspaceEpoch !== '' ? workspaceEpoch : (persistedEpoch ?? '')
 
   // Rehydrate the in-memory pool from cached rows. Rows whose
   // schema_version is stale are filtered out by `loadModels`.
@@ -445,6 +471,9 @@ export async function hydrate(
   if (instanceId !== '') {
     await idb.setInstanceId(state.handle, instanceId)
   }
+  if (state.workspaceEpoch !== '') {
+    await idb.setWorkspaceEpoch(state.handle, state.workspaceEpoch)
+  }
 
   // Replay any persisted optimistic transactions (a previous tab
   // crash between persist and flush would have left them in the
@@ -461,25 +490,34 @@ export async function hydrate(
   bootstrapDeferredGroups()
 }
 
-/** Fetch the server's compiled schema hash and database instance id.
- * The schema hash names the IndexedDB; the instance id is the epoch
- * fence (a change means a different database generation). `instanceId`
- * falls back to `''` so a fetch/DB hiccup never triggers a wipe. */
+/** Fetch the server's compiled schema hash, database instance id and
+ * the workspace's data epoch. The schema hash names the IndexedDB; the
+ * instance id is the epoch fence (a change means a different database
+ * generation); the workspace epoch fences this workspace's data (a change
+ * means it was replaced). `instanceId` and `workspaceEpoch` fall back to
+ * `''` so a fetch/DB hiccup never triggers a wipe. */
 export async function fetchServerIdentity(): Promise<{
   schemaHash: string
   instanceId: string
+  workspaceEpoch: string
 }> {
+  const unknown = { schemaHash: 'unknown', instanceId: '', workspaceEpoch: '' }
   try {
     const res = await authFetch('/sync/schema')
-    if (!res.ok) return { schemaHash: 'unknown', instanceId: '' }
-    const body = (await res.json()) as { server_schema?: string; instance_id?: string }
+    if (!res.ok) return unknown
+    const body = (await res.json()) as {
+      server_schema?: string
+      instance_id?: string
+      workspace_epoch?: string | null
+    }
     return {
       schemaHash: body.server_schema ?? 'unknown',
       instanceId: body.instance_id ?? '',
+      workspaceEpoch: body.workspace_epoch ?? '',
     }
   } catch (e) {
     logger.warn('Failed to fetch /sync/schema; falling back to "unknown"', { error: e })
-    return { schemaHash: 'unknown', instanceId: '' }
+    return unknown
   }
 }
 
@@ -522,29 +560,45 @@ export async function subscribe(group: string): Promise<void> {
  * a periodic-poll fallback when SSE is wedged.
  */
 /**
- * Wipe the local cache and re-bootstrap, in response to the server reporting
- * `resync_required` — our cursor has aged past `SYNC_ACTIONS_RETENTION_DAYS`,
- * so the deletes we missed have been pruned and no delta can deliver them.
+ * Wipe the local cache and re-bootstrap. Two reasons:
+ *
+ * - The server reports `resync_required`: our cursor has aged past
+ *   `SYNC_ACTIONS_RETENTION_DAYS`, so the deletes we missed have been pruned
+ *   and no delta can deliver them, or the workspace's data was replaced after
+ *   the cursor was issued.
+ * - The server reports a new workspace data epoch (`newWorkspaceEpoch`): the
+ *   workspace's data was replaced (an archive import), so every cached row
+ *   carries an id that is gone or now names something else.
  *
  * Bootstrap alone cannot repair this: the stream only upserts, so a row deleted
  * while we were away is never removed, it just stops being mentioned. Only
  * dropping the cache first clears those phantoms.
  *
- * Collaborative-document caches are deliberately NOT purged. Those are keyed by
- * the database instance epoch, which has not changed here; this is our cursor
- * being old, not the server being a different database. Purging them would cost
- * every open document a re-download for no correctness gain.
+ * Collaborative-document caches are purged only for a new workspace epoch.
+ * After a retention gap they are still right: this is our cursor being old,
+ * not the documents being different, and purging them would cost every open
+ * document a re-download for no correctness gain. After a replacement they are
+ * the same stale generation as the rows, keyed by ids that now belong to other
+ * documents.
  */
-async function resyncFromRetentionGap(): Promise<void> {
+async function resyncFromScratch(newWorkspaceEpoch?: string): Promise<void> {
   if (state.resyncing) return
   state.resyncing = true
   try {
     // Capture before pool.reset() drops them: these are the groups to bring
     // back, and re-subscribing is what makes the bootstrap fetch them.
     const groups = Array.from(pool.getSubscribedGroups())
-    logger.warn('sync: cursor aged out of server retention; wiping and re-bootstrapping', {
-      groups,
-    })
+    if (newWorkspaceEpoch) {
+      logger.warn('sync: workspace data replaced; wiping every local cache and re-bootstrapping', {
+        groups,
+        previousEpoch: state.workspaceEpoch,
+        currentEpoch: newWorkspaceEpoch,
+      })
+    } else {
+      logger.warn('sync: cursor predates the server feed; wiping and re-bootstrapping', {
+        groups,
+      })
+    }
 
     if (state.handle && state.openArgs) {
       const name = state.handle.name
@@ -557,6 +611,22 @@ async function resyncFromRetentionGap(): Promise<void> {
       queue.setIdbHandle(state.handle)
     }
 
+    if (newWorkspaceEpoch) {
+      await purgeAllCollabDocs({ includeOpen: true })
+      // Recorded once the old caches are gone, so a later poll doesn't start
+      // a second wipe, and a crash before here wipes again on the next launch.
+      state.workspaceEpoch = newWorkspaceEpoch
+    }
+    // The reopened database is empty: write back what the next launch
+    // compares against, or it would see none and wipe again.
+    if (state.handle) {
+      await idb.setSchemaHash(state.handle, state.schemaHash)
+      if (state.instanceId !== '') await idb.setInstanceId(state.handle, state.instanceId)
+      if (state.workspaceEpoch !== '') {
+        await idb.setWorkspaceEpoch(state.handle, state.workspaceEpoch)
+      }
+    }
+
     // reset() clears rows, cursor, subscriptions AND the schema hash. Restore
     // the hash: runBootstrap compares the server's against it and would
     // otherwise warn on a mismatch against an empty string every resync.
@@ -567,7 +637,7 @@ async function resyncFromRetentionGap(): Promise<void> {
   } catch (e) {
     // Leave `resyncing` cleared so a later poll can retry. The cache may be
     // half-wiped, which is still better than keeping known-phantom rows.
-    logger.error('sync: retention resync failed; will retry on a later poll', { error: e })
+    logger.error('sync: resync failed; will retry on a later poll', { error: e })
   } finally {
     state.resyncing = false
   }
@@ -595,10 +665,19 @@ export async function pullDelta(): Promise<boolean> {
     const body = (await res.json()) as DeltaResponse
     // The workspace was torn down while this was in flight.
     if (pool.currentEpoch() !== epoch) return false
+    // The workspace's data was replaced. Checked before `resync_required`
+    // and independently of it: SSE frames may already have moved the cursor
+    // past the server's resync floor, and only this wipe also clears the
+    // collaborative-document caches.
+    const workspaceEpoch = body.workspace_epoch ?? ''
+    if (workspaceEpoch !== '' && workspaceEpoch !== state.workspaceEpoch) {
+      await resyncFromScratch(workspaceEpoch)
+      return false
+    }
     if (body.resync_required) {
       // Return without applying: this page is a partial view of a span we
       // cannot complete, and the re-bootstrap replaces it wholesale.
-      await resyncFromRetentionGap()
+      await resyncFromScratch()
       return false
     }
     // Every delta carries current capability flags (absent only from an
@@ -1179,6 +1258,8 @@ export async function tearDown(): Promise<void> {
   state.memoryOnly = false
   state.openArgs = null
   state.resyncing = false
+  state.instanceId = ''
+  state.workspaceEpoch = ''
   setCaughtUp(false)
   watermarksPruned = false
   // Re-arm the single-flight bootstrap so the next navigation rebuilds the

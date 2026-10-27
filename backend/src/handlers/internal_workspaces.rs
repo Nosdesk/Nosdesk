@@ -43,6 +43,7 @@ pub fn config(cfg: &mut actix_web::web::ServiceConfig) {
             "/workspaces/{slug}/seat_limit",
             web::post().to(set_seat_limit),
         )
+        .route("/workspaces/{slug}/billing", web::post().to(set_billing))
         .route(
             "/workspaces/{slug}/members/set_role",
             web::post().to(set_member_role),
@@ -505,6 +506,91 @@ pub async fn set_seat_limit(
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/seat_limit: update failed");
             Err(ApiError::Internal("Failed to update seat limit".into()))
+        }
+    }
+}
+
+/// A nullable body field the caller must still send: `Option`'s missing-key
+/// default is skipped when a field has its own `deserialize_with`.
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
+/// Request body for `POST /api/internal/v1/workspaces/{slug}/billing`. Every
+/// key is required; all but `as_of` may be null.
+#[derive(Debug, Deserialize)]
+pub struct SetBillingRequest {
+    /// Stripe's subscription status, stored verbatim (an unknown value is
+    /// stored too); null when the account has no subscription.
+    #[serde(deserialize_with = "required_nullable")]
+    pub status: Option<String>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub trial_end: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub cancel_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// When the control plane read the subscription.
+    pub as_of: chrono::DateTime<chrono::Utc>,
+}
+
+/// `POST /api/internal/v1/workspaces/{slug}/billing`: store the hosted
+/// workspace's subscription state, for its owner to read on
+/// `GET /api/me/workspaces`. Applied only when `as_of` is newer than the
+/// stored one, so a late or repeated push is ignored. Idempotent, so like
+/// `seat_limit` it doesn't require an Idempotency-Key. Returns 204 whether
+/// applied or ignored as stale, 404 if the slug is unknown, 400 for a
+/// malformed body.
+pub async fn set_billing(
+    _: PlatformAuth,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+    body: web::Json<SetBillingRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let slug = path.into_inner();
+    let body = body.into_inner();
+    let state = workspaces::BillingState {
+        status: body.status,
+        trial_end: body.trial_end,
+        cancel_at: body.cancel_at,
+        as_of: body.as_of,
+    };
+
+    let mut conn = pool_conn(&pool, "workspaces/billing")?;
+
+    // `workspaces` is BYPASSRLS-only (`nosdesk_app` has SELECT only), so the
+    // UPDATE runs under `nosdesk_admin` like the seat_limit write.
+    let actor = crate::sync::actor::ActorContext::system("workspace:billing");
+    // elevated-in-workspace: updates this workspace's own `workspaces` row, which nosdesk_app can
+    // only read.
+    let result = crate::sync::session::with_actor_bypass_context::<
+        workspaces::BillingWrite,
+        diesel::result::Error,
+    >(&mut conn, &actor, |c| {
+        workspaces::set_billing_state(c, &slug, &state)
+    });
+
+    match result {
+        Ok(workspaces::BillingWrite::UnknownWorkspace) => {
+            warn!(slug = %slug, "workspaces/billing: unknown workspace");
+            Ok(errors::not_found_with_code(
+                format!("workspace '{slug}' not found"),
+                "workspace_not_found",
+            ))
+        }
+        Ok(workspaces::BillingWrite::Stale) => {
+            info!(slug = %slug, "workspaces/billing: stale push ignored");
+            Ok(HttpResponse::NoContent().finish())
+        }
+        Ok(workspaces::BillingWrite::Applied) => {
+            info!(slug = %slug, status = ?state.status, "workspaces/billing: updated");
+            Ok(HttpResponse::NoContent().finish())
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "workspaces/billing: update failed");
+            Err(ApiError::Internal("Failed to update billing state".into()))
         }
     }
 }

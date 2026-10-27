@@ -22,8 +22,9 @@ use openidconnect::{
         CoreTokenResponse,
     },
     AdditionalProviderMetadata, AuthorizationCode, AuthorizationRequest, ClientId, ClientSecret,
-    CsrfToken, EndSessionUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce,
-    PkceCodeChallenge, PkceCodeVerifier, ProviderMetadata, RedirectUrl, Scope, TokenResponse,
+    CsrfToken, EndSessionUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, LoginHint,
+    Nonce, PkceCodeChallenge, PkceCodeVerifier, ProviderMetadata, RedirectUrl, Scope,
+    TokenResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -409,6 +410,15 @@ pub fn generate_nonce() -> Nonce {
     Nonce::new_random()
 }
 
+/// Ask the provider to check a credential again, even for a person it
+/// already has signed in: a step-up confirmation.
+#[derive(Debug, Clone, Copy)]
+pub struct Reauthenticate<'a> {
+    /// The address the person is confirming as, for the provider to show or
+    /// prefill. Only a hint: the callback still checks who came back.
+    pub login_hint: Option<&'a str>,
+}
+
 /// Generate the authorization URL for OIDC login
 pub async fn generate_auth_url(
     _redirect_uri: Option<String>,
@@ -417,6 +427,7 @@ pub async fn generate_auth_url(
     // redirect_uri later presented at token exchange. `None` uses the
     // client's configured `OIDC_REDIRECT_URI`.
     callback_redirect: Option<String>,
+    reauthenticate: Option<Reauthenticate<'_>>,
 ) -> Result<(String, OidcAuthData), String> {
     let client = get_oidc_client().await?;
     let config = OidcConfig::from_env()?;
@@ -439,6 +450,18 @@ pub async fn generate_auth_url(
     if let Some(r) = callback_redirect {
         let redirect_url = RedirectUrl::new(r).map_err(|e| format!("Invalid redirect URI: {e}"))?;
         auth_request = auth_request.set_redirect_uri(Cow::Owned(redirect_url));
+    }
+
+    // Both: `prompt=login` asks for a credential, and a `max_age` obliges the
+    // provider to return `auth_time`, which the callback checks against the
+    // flow's start (so a stripped `prompt` is refused, not trusted).
+    if let Some(reauth) = reauthenticate {
+        auth_request = auth_request.add_prompt(CoreAuthPrompt::Login).set_max_age(
+            std::time::Duration::from_secs(crate::services::step_up::PROVIDER_MAX_AGE_SECS),
+        );
+        if let Some(hint) = reauth.login_hint.filter(|h| !h.is_empty()) {
+            auth_request = auth_request.set_login_hint(LoginHint::new(hint.to_string()));
+        }
     }
 
     let (auth_url, _csrf_token, _nonce) = auth_request.url();
@@ -554,7 +577,8 @@ pub async fn verify_native_id_token(
 /// other tenant fails the issuer match. That is the cryptographic tenant proof
 /// (equivalent to, and stronger than, reading the `tid` claim by hand). The
 /// verifier also checks the JWKS signature, the audience (== `client_id`) and
-/// expiry; `nonce` is the flow's replay protection, echoed by Azure.
+/// expiry; `nonce` is the flow's replay protection, echoed by Azure. Returns
+/// the token's `auth_time`, when it carries one.
 ///
 /// Requires a SPECIFIC tenant (GUID or verified domain): a multi-tenant
 /// authority (`common`/`organizations`/`consumers`) has no concrete issuer to
@@ -565,7 +589,7 @@ pub async fn verify_microsoft_id_token(
     tenant_id: &str,
     client_id: &str,
     nonce: &str,
-) -> Result<(), String> {
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
     use std::str::FromStr;
 
     let issuer = IssuerUrl::new(format!(
@@ -585,10 +609,10 @@ pub async fn verify_microsoft_id_token(
 
     let expected_nonce = Nonce::new(nonce.to_string());
     let verifier = client.id_token_verifier();
-    id_token
+    let claims = id_token
         .claims(&verifier, &expected_nonce)
         .map_err(|e| format!("Microsoft ID token verification failed: {e}"))?;
-    Ok(())
+    Ok(claims.auth_time())
 }
 
 /// Verify ID token signature and claims

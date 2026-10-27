@@ -1,13 +1,15 @@
 //! `GET /api/auth/oauth/callback` is a top-level browser load. A sign-in that
 //! can't finish lands on the sign-in page with a code it can explain, never on
 //! a JSON error body, always on the fixed `/login` target whatever return path
-//! the state carries, and clears the flow's `oauth_state` cookie.
+//! the state carries, and clears the flow's `oauth_state` cookie. A step-up
+//! confirmation (in a popup) instead lands on `/auth/confirmed` with a result
+//! code, and never signs anyone in.
 
 use actix_web::cookie::{time::Duration, Cookie};
 use actix_web::http::{header, StatusCode};
 use actix_web::{test, web, App};
 
-use backend::models::OAuthState;
+use backend::models::{OAuthState, StepUpFlow};
 use backend::utils::cookies::{cookie_name, OAUTH_STATE_COOKIE};
 
 use crate::common;
@@ -55,6 +57,23 @@ async fn callback(query: &str, binding: &str) -> Landing {
 /// A state signed as the server signs one, `exp_offset` seconds from now,
 /// asking to come back to an address outside the app.
 fn signed_state(binding: &str, exp_offset: i64) -> String {
+    sign(binding, exp_offset, None)
+}
+
+/// A step-up confirmation's state.
+fn signed_step_up_state(binding: &str) -> String {
+    sign(
+        binding,
+        600,
+        Some(StepUpFlow {
+            user_uuid: uuid::Uuid::new_v4(),
+            session_id: uuid::Uuid::new_v4(),
+            started_at: chrono::Utc::now().timestamp(),
+        }),
+    )
+}
+
+fn sign(binding: &str, exp_offset: i64, step_up: Option<StepUpFlow>) -> String {
     common::ensure_test_keyring();
     let claims = OAuthState {
         state: binding.to_string(),
@@ -66,6 +85,7 @@ fn signed_state(binding: &str, exp_offset: i64) -> String {
         nonce: Some("nonce".to_string()),
         callback_redirect_uri: None,
         binding: Some(binding.to_string()),
+        step_up,
     };
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
@@ -129,4 +149,38 @@ async fn a_callback_with_no_code_lands_on_login_as_failed() {
     let state = signed_state("binding", 600);
     let landing = callback(&format!("state={state}"), "binding").await;
     assert_lands_on_login(&landing, "signin_failed");
+}
+
+fn assert_step_up_lands_on(landing: &Landing, result: &str) {
+    assert_eq!(landing.status, StatusCode::FOUND);
+    assert_eq!(
+        landing.location.as_deref(),
+        Some(format!("/auth/confirmed?result={result}").as_str())
+    );
+    let cookie = landing
+        .state_cookie
+        .as_ref()
+        .expect("the response clears the oauth_state cookie");
+    assert_eq!(cookie.value(), "");
+}
+
+#[actix_web::test]
+async fn a_cancelled_step_up_tells_the_dialog_it_was_cancelled() {
+    let state = signed_step_up_state("binding");
+    let landing = callback(&format!("error=access_denied&state={state}"), "binding").await;
+    assert_step_up_lands_on(&landing, "cancelled");
+}
+
+#[actix_web::test]
+async fn a_step_up_with_no_code_fails() {
+    let state = signed_step_up_state("binding");
+    let landing = callback(&format!("state={state}"), "binding").await;
+    assert_step_up_lands_on(&landing, "failed");
+}
+
+#[actix_web::test]
+async fn a_step_up_whose_code_does_not_exchange_fails_without_signing_in() {
+    let state = signed_step_up_state("binding");
+    let landing = callback(&format!("code=forged&state={state}"), "binding").await;
+    assert_step_up_lands_on(&landing, "failed");
 }

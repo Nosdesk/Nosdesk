@@ -97,6 +97,14 @@ pub fn archive_group(conn: &mut DbConnection, id: i32) -> QueryResult<AssetGroup
         .get_result(conn)
 }
 
+/// Delete a group outright. Its assignments go with it (the FK cascades),
+/// so callers delete only a group nothing is assigned to; Remove imported
+/// assets does, for a group its import created.
+// sync-audit-only: asset-group definitions are NOT a sync aggregate (workspace config, picker re-fetches); coverage lives in the asset_groups audit trigger
+pub fn delete_group(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
+    diesel::delete(asset_groups::table.find(id)).execute(conn)
+}
+
 // sync-audit-only: asset-group definitions are NOT a sync aggregate (workspace config, picker re-fetches). Asset↔group assignment IS sync-wired via `asset.groups_changed` in `set_groups_for_asset`
 /// Clear `archived_at`, returning a group to the picker. May fail the active-
 /// name unique index if the name was reused while archived; the caller
@@ -107,7 +115,33 @@ pub fn restore_group(conn: &mut DbConnection, id: i32) -> QueryResult<AssetGroup
         .get_result(conn)
 }
 
+/// Every group that isn't archived, in picker order.
+pub fn active_groups(conn: &mut DbConnection) -> QueryResult<Vec<AssetGroup>> {
+    asset_groups::table
+        .filter(asset_groups::archived_at.is_null())
+        .order((asset_groups::display_order.asc(), asset_groups::name.asc()))
+        .load(conn)
+}
+
 // ---- Asset ↔ group assignment ----------------------------------
+
+/// Each asset's groups that aren't archived, as ids, for every asset in at
+/// least one.
+pub fn active_group_ids_by_asset(conn: &mut DbConnection) -> QueryResult<HashMap<i32, Vec<i32>>> {
+    let rows: Vec<(i32, i32)> = asset_group_assignments::table
+        .inner_join(asset_groups::table.on(asset_groups::id.eq(asset_group_assignments::group_id)))
+        .filter(asset_groups::archived_at.is_null())
+        .select((
+            asset_group_assignments::asset_id,
+            asset_group_assignments::group_id,
+        ))
+        .load(conn)?;
+    let mut out: HashMap<i32, Vec<i32>> = HashMap::new();
+    for (asset_id, group_id) in rows {
+        out.entry(asset_id).or_default().push(group_id);
+    }
+    Ok(out)
+}
 
 /// Full (non-archived) group rows an asset belongs to, ordered for stable
 /// rendering. Feeds the asset-detail pill row.

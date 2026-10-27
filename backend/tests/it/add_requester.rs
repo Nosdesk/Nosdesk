@@ -21,14 +21,24 @@ use backend::sync::actor::ActorContext;
 
 use crate::common;
 
-async fn post_user(
+pub(crate) async fn post_user(
     pool: &common::TestPool,
     ws: &common::WorkspaceSeed,
     body: Value,
 ) -> (StatusCode, Value) {
+    post_user_as(pool, ws, ws.admin_uuid, body).await
+}
+
+/// `POST /api/users` in `ws` as `caller`.
+pub(crate) async fn post_user_as(
+    pool: &common::TestPool,
+    ws: &common::WorkspaceSeed,
+    caller: Uuid,
+    body: Value,
+) -> (StatusCode, Value) {
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
-        sub: ws.admin_uuid.to_string(),
+        sub: caller.to_string(),
         name: "Admin".to_string(),
         email: "admin@example.com".to_string(),
         platform_role: "user".to_string(),
@@ -47,7 +57,7 @@ async fn post_user(
         custom_domain: None,
     };
     let corr = Uuid::now_v7();
-    let actor = ActorContext::user(ws.admin_uuid, Some(corr)).with_workspace(ws.workspace_id);
+    let actor = ActorContext::user(caller, Some(corr)).with_workspace(ws.workspace_id);
     let search_dir = tempfile::tempdir().expect("search dir");
     let search = Arc::new(SearchService::new(search_dir.path(), pool).expect("init search"));
     let app = http_test::init_service(

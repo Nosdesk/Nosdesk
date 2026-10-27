@@ -50,6 +50,7 @@ pub mod health;
 pub mod helpers;
 pub mod image_proxy;
 pub mod imports;
+pub mod imports_docs;
 pub mod inbound_dead_letters;
 pub mod inbound_email;
 pub mod internal_workspaces;
@@ -78,6 +79,7 @@ pub mod scheduler;
 pub mod search;
 pub mod sla;
 pub mod sse;
+pub mod step_up;
 pub mod sync;
 pub mod system;
 pub mod tags;
@@ -95,6 +97,7 @@ pub mod workflow_states;
 pub mod workspace_data_export;
 pub mod workspace_email;
 pub mod workspace_export;
+pub mod workspace_import;
 pub mod workspace_members;
 
 // Import all handlers from modules

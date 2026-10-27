@@ -268,7 +268,6 @@ src/handlers/users.rs filename
 src/handlers/users.rs image_type
 src/handlers/users.rs name
 src/handlers/users.rs purge_at
-src/handlers/users.rs requesting_user
 src/handlers/users.rs target_user
 src/handlers/users.rs thumb_url
 src/handlers/users.rs user

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, useTemplateRef } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { useMutation, useQueryCache } from '@pinia/colada'
+import { useMutation, useQuery, useQueryCache } from '@pinia/colada'
 import { extractErrorMessage } from '@/utils/errors'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 
@@ -44,6 +44,7 @@ import { downloadAssetsCsv, getPaginatedAssets, bulkAction, createEmptyAsset, ge
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
 import { useAssetGroupsStore } from '@/stores/assetGroups'
 import { assetsKeys } from '@nosdesk/core/queries/assets'
+import { importJobQueryKey, importService } from '@nosdesk/core/services/importService'
 import type { Asset } from '@nosdesk/core/types/asset'
 import {
   assetStatusChipOptions,
@@ -54,6 +55,7 @@ import {
 defineOptions({ name: 'AssetsListView' })
 
 const router = useRouter()
+const route = useRoute()
 const queryCache = useQueryCache()
 const { isMobile } = useMobileDetection()
 const fluent = useFluent()
@@ -129,6 +131,24 @@ const navigateToAsset = (asset: Asset) => {
 }
 usePageCreateAction(navigateToCreateAsset)
 
+// `?import=<job>`: the assets an import created and updated, resolved by
+// the server from the ids the job keeps. A facet only while it is set, so
+// its chip names the import and clears like any other.
+const importId = computed(() =>
+  typeof route.query.import === 'string' ? route.query.import.toLowerCase() : '',
+)
+const importJobQuery = useQuery({
+  key: () => importJobQueryKey(importId.value),
+  query: () => importService.get(importId.value),
+  enabled: () => !!importId.value,
+})
+const IMPORT_LABEL_MAX = 28
+const importLabel = computed(() => {
+  const name = importJobQuery.data.value?.filename
+  if (!name) return t('assets-list-filter-import-fallback')
+  return name.length > IMPORT_LABEL_MAX ? `${name.slice(0, IMPORT_LABEL_MAX - 1)}…` : name
+})
+
 // Filter facets (chip UI). Backend encoding:
 //   name      -> controls.searchQuery (chip text-facet)
 //   status    -> CSV under one filter key, backend eq_any
@@ -179,6 +199,16 @@ const assetFacets = computed<ChipFacetDef[]>(() => [
     kind: 'multi',
     options: () => groupOptions.value,
   },
+  ...(importId.value
+    ? [
+        {
+          key: 'import',
+          labelKey: 'assets-list-filter-import-label',
+          kind: 'multi' as const,
+          options: () => [{ value: importId.value, label: importLabel.value }],
+        },
+      ]
+    : []),
 ])
 
 // Group-by axes. Client-side bucketing of the loaded page; most
@@ -402,7 +432,7 @@ const listView = useListView({
     createIcon: 'device',
     onCreate: navigateToCreateAsset,
   },
-  urlSyncParamKeys: ['status', 'warranty', 'lowStock', 'location', 'groups'],
+  urlSyncParamKeys: ['status', 'warranty', 'lowStock', 'location', 'groups', 'import'],
   scrollContainerRef,
   facets: assetFacets,
   groupAxes,
@@ -415,6 +445,7 @@ const listView = useListView({
         warranty: params.warranty as string | undefined,
         location: params.location as string | undefined,
         lowStock: params.lowStock as string | undefined,
+        import: params.import as string | undefined,
       }),
     keyFor: (cacheKeyPart) => [...assetsKeys.root, 'grouping-dataset', cacheKeyPart],
   },
@@ -604,6 +635,7 @@ async function exportAssetsCsv(scope?: 'history') {
       warranty: filterString(p.warranty),
       location: filterString(p.location),
       lowStock: filterString(p.lowStock),
+      import: filterString(p.import),
     }, scope)
   } catch (error) {
     toast.error(extractErrorMessage(error, t('assets-list-export-failed')))

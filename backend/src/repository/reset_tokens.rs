@@ -76,6 +76,25 @@ pub fn live_tokens(
         .load(conn)
 }
 
+/// The subset of `users` holding a live token of `token_type`: unused and
+/// unexpired.
+pub fn users_with_live_tokens(
+    conn: &mut DbConnection,
+    users: &[Uuid],
+    token_type: &str,
+) -> QueryResult<std::collections::HashSet<Uuid>> {
+    Ok(reset_tokens::table
+        .filter(reset_tokens::user_uuid.eq_any(users))
+        .filter(reset_tokens::token_type.eq(token_type))
+        .filter(reset_tokens::is_used.eq(false))
+        .filter(reset_tokens::expires_at.gt(Utc::now()))
+        .select(reset_tokens::user_uuid)
+        .distinct()
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
+}
+
 // sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Claim a token by hash if it is still unused and unexpired, in one UPDATE,
 /// so two concurrent uses can't both succeed. `None` when it was already spent.

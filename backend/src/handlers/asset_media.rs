@@ -19,7 +19,7 @@ use tracing::{debug, error, warn};
 use crate::db::Pool;
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
-use crate::handlers::files::{authorize_at_owning_workspace, serve_or_not_found};
+use crate::handlers::files::{authorize_at_owning_workspace, serve_named_or_not_found};
 use crate::models::{AssetMediaUpdate, NewAssetMedia};
 use crate::repository::{asset_media as repo, assets as assets_repo};
 use crate::utils::file_validation::{get_max_file_size, FileValidator};
@@ -190,6 +190,10 @@ pub async fn upload_for_asset(
                 warn!(error = ?e, original_filename = %original_filename, "asset media filename sanitization failed");
                 crate::errors::bad_request_error(format!("Invalid filename: {e}"))
             })?;
+        // The storage key is the sanitized name; the row keeps the name as
+        // uploaded for display and download.
+        let display_name = FileValidator::display_filename(original_filename)
+            .unwrap_or_else(|| sanitized_filename.clone());
 
         let mut file_data = Vec::new();
         let mut total_size = 0usize;
@@ -266,7 +270,7 @@ pub async fn upload_for_asset(
             asset_id,
             url,
             thumbnail_url,
-            name: sanitized_filename,
+            name: display_name,
             file_size: Some(total_size as i64),
             mime_type: Some(stored_mime),
             checksum: Some(checksum),
@@ -388,7 +392,8 @@ pub async fn serve_asset_media_file(
     base_storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let (asset_id, filename) = path.into_inner();
-    let (workspace_id, ()) = authorize_at_owning_workspace(
+    let url = format!("/api/files/assets/{asset_id}/media/{filename}");
+    let (workspace_id, name) = authorize_at_owning_workspace(
         &pool,
         &auth,
         |c| assets_repo::asset_workspace_id(c, asset_id),
@@ -398,15 +403,20 @@ pub async fn serve_asset_media_file(
                 return Ok(None);
             }
             // Read again under the pin: the asset must be in this workspace.
-            Ok(assets_repo::get_device_by_id(c, asset_id)
+            if assets_repo::get_device_by_id(c, asset_id)
                 .optional()?
-                .map(|_| ()))
+                .is_none()
+            {
+                return Ok(None);
+            }
+            // Named as uploaded for download; a thumbnail has no row.
+            Ok(Some(repo::name_by_url(c, asset_id, &url)?))
         },
     )?;
     let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     let file_path = format!("assets/{asset_id}/media/{filename}");
-    serve_or_not_found(storage, &file_path, &req, Caching::Private).await
+    serve_named_or_not_found(storage, &file_path, &req, Caching::Private, name.as_deref()).await
 }
 
 #[cfg(test)]

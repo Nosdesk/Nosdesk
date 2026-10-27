@@ -16,6 +16,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { workspacePath } from '@/router/workspaceRouting'
 import { useFluent } from 'fluent-vue'
 import { TreeItem, TreeRoot, type TreeItemSelectEvent, type TreeItemToggleEvent } from 'reka-ui'
 import type { CollectionPage, CollectionPageTreeNode } from '@nosdesk/core/services/collectionService'
@@ -59,7 +60,11 @@ watch(
   { immediate: true },
 )
 
-const active = computed(() => flatten(tree.value).find((node) => docUrl(node) === route.path))
+// Links are bare; on Cloud `route.path` starts with the workspace slug.
+const active = computed(() => {
+  const current = workspacePath(route)
+  return flatten(tree.value).find((node) => docUrl(node) === current)
+})
 
 // A row click navigates; only the chevron and the arrow keys toggle.
 function onToggle(event: TreeItemToggleEvent<TreeNode>) {

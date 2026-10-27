@@ -57,6 +57,7 @@ diesel::table! {
         expires_at -> Timestamptz,
         session_id -> Uuid,
         oidc_id_token -> Nullable<Text>,
+        confirmed_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -917,6 +918,35 @@ diesel::table! {
         records_committed -> Nullable<Int4>,
         error_message -> Nullable<Text>,
         workspace_id -> Int4,
+        source -> Nullable<Jsonb>,
+        mapping -> Nullable<Jsonb>,
+        options -> Nullable<Jsonb>,
+        row_results -> Nullable<Jsonb>,
+        answers -> Nullable<Jsonb>,
+        record_ids -> Nullable<Jsonb>,
+        pruned_at -> Nullable<Timestamptz>,
+        removed_at -> Nullable<Timestamptz>,
+        removed_by -> Nullable<Uuid>,
+        remove_result -> Nullable<Jsonb>,
+        upload_of -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    import_value_answers (id) {
+        id -> Uuid,
+        workspace_id -> Int4,
+        #[max_length = 16]
+        job_type -> Varchar,
+        field -> Text,
+        context -> Text,
+        normalized_value -> Text,
+        answer -> Jsonb,
+        answered_by -> Nullable<Uuid>,
+        job_id -> Nullable<Uuid>,
+        updated_at -> Timestamptz,
+        source_text -> Nullable<Text>,
+        created -> Bool,
     }
 }
 
@@ -1526,6 +1556,7 @@ diesel::table! {
         result_count -> Int4,
         searched_at -> Timestamptz,
         workspace_id -> Int4,
+        user_uuid -> Nullable<Uuid>,
     }
 }
 
@@ -2278,6 +2309,39 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_import_jobs (id) {
+        id -> Uuid,
+        workspace_id -> Int4,
+        #[max_length = 16]
+        runner -> Varchar,
+        requested_by -> Nullable<Uuid>,
+        #[max_length = 16]
+        state -> Varchar,
+        #[max_length = 16]
+        stage -> Nullable<Varchar>,
+        archive_key -> Nullable<Text>,
+        archive_name -> Nullable<Text>,
+        archive_size -> Int8,
+        sealed -> Bool,
+        regenerate_uuids -> Bool,
+        report -> Nullable<Jsonb>,
+        error -> Nullable<Jsonb>,
+        created_people -> Array<Nullable<Uuid>>,
+        files_restored -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        checked_at -> Nullable<Timestamptz>,
+        confirmed_by -> Nullable<Uuid>,
+        confirmed_at -> Nullable<Timestamptz>,
+        applied_at -> Nullable<Timestamptz>,
+        finished_at -> Nullable<Timestamptz>,
+        reset_by -> Nullable<Uuid>,
+        reset_at -> Nullable<Timestamptz>,
+        pruned_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     workspace_ldap_settings (workspace_id) {
         workspace_id -> Int4,
         enabled -> Bool,
@@ -2396,6 +2460,12 @@ diesel::table! {
         organisation_id -> Nullable<Int4>,
         custom_domain -> Nullable<Text>,
         seat_limit -> Nullable<Int4>,
+        data_epoch -> Nullable<Uuid>,
+        resync_floor -> Nullable<Int8>,
+        billing_status -> Nullable<Text>,
+        billing_trial_end -> Nullable<Timestamptz>,
+        billing_cancel_at -> Nullable<Timestamptz>,
+        billing_as_of -> Nullable<Timestamptz>,
     }
 }
 
@@ -2490,8 +2560,9 @@ diesel::joinable!(group_includes -> users (created_by));
 diesel::joinable!(group_includes -> workspaces (workspace_id));
 diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(groups -> workspaces (workspace_id));
-diesel::joinable!(import_jobs -> users (created_by));
 diesel::joinable!(import_jobs -> workspaces (workspace_id));
+diesel::joinable!(import_value_answers -> users (answered_by));
+diesel::joinable!(import_value_answers -> workspaces (workspace_id));
 diesel::joinable!(inbound_addresses -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gap_signals -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gaps -> workspaces (workspace_id));
@@ -2530,6 +2601,7 @@ diesel::joinable!(rules -> users (created_by));
 diesel::joinable!(rules -> workspaces (workspace_id));
 diesel::joinable!(saved_views -> users (created_by));
 diesel::joinable!(saved_views -> workspaces (workspace_id));
+diesel::joinable!(search_query_log -> users (user_uuid));
 diesel::joinable!(search_query_log -> workspaces (workspace_id));
 diesel::joinable!(security_events -> users (user_uuid));
 diesel::joinable!(site_settings -> users (updated_by));
@@ -2579,6 +2651,7 @@ diesel::joinable!(working_calendars -> workspaces (workspace_id));
 diesel::joinable!(workspace_email_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_export_jobs -> workspaces (workspace_id));
 diesel::joinable!(workspace_identity_providers -> workspaces (workspace_id));
+diesel::joinable!(workspace_import_jobs -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_sync_state -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
@@ -2642,6 +2715,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     groups,
     idempotency_keys,
     import_jobs,
+    import_value_answers,
     inbound_addresses,
     inbound_dead_letters,
     instance_settings,
@@ -2716,6 +2790,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     workspace_export_jobs,
     workspace_file_purges,
     workspace_identity_providers,
+    workspace_import_jobs,
     workspace_ldap_settings,
     workspace_ldap_sync_state,
     workspace_members,

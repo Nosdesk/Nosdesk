@@ -54,13 +54,16 @@ export function useRuleStepText(options: {
     const v = String(value ?? 'medium')
     return t(`priority-${v === 'normal' ? 'medium' : v}`)
   }
+  // Each tag name in the locale's quotation marks, so it reads as a name
+  // and not as part of the sentence.
+  const quotedList = (names: string[]) => names.map((name) => t('rule-step-quoted-name', { name })).join(', ')
   // A run that found every tag already in place changed nothing, so it gets
   // no line.
   const tagText = (key: string, ids: unknown): string | null => {
     if (Array.isArray(ids) && ids.length === 0) return null
     const names = tagNames(ids)
     const count = Array.isArray(ids) ? ids.length : 0
-    return names ? t(key, { tags: names.join(', '), count }) : t(`${key}-unknown`, { count })
+    return names ? t(key, { tags: quotedList(names), count }) : t(`${key}-unknown`, { count })
   }
 
   /** What a step will do, or null for a step that does nothing when an
@@ -84,8 +87,14 @@ export function useRuleStepText(options: {
       }
       case 'unassign':
         return t('ticket-actions-step-unassign')
-      case 'add_tags':
+      case 'add_tags': {
+        // A starter names its tags, some of which adding it will create.
+        const named = Array.isArray(c.tag_names) ? c.tag_names.map(String) : []
+        if (named.length > 0) {
+          return t('ticket-actions-step-add-tags', { tags: quotedList(named), count: named.length })
+        }
         return tagText('ticket-actions-step-add-tags', c.tag_ids)
+      }
       case 'remove_tags':
         return tagText('ticket-actions-step-remove-tags', c.tag_ids)
       case 'set_priority':

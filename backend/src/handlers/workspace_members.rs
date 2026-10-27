@@ -62,7 +62,7 @@ impl From<WorkspaceMember> for MemberView {
 /// manage everyone; admins manage only roles strictly below admin
 /// (agent, member). The last-owner guard in the repository still applies
 /// on top of this for owners.
-fn can_manage(caller: WorkspaceRole, target_current: WorkspaceRole) -> bool {
+pub fn can_manage(caller: WorkspaceRole, target_current: WorkspaceRole) -> bool {
     match caller {
         WorkspaceRole::Owner => true,
         WorkspaceRole::Admin => target_current < WorkspaceRole::Admin,
@@ -72,7 +72,7 @@ fn can_manage(caller: WorkspaceRole, target_current: WorkspaceRole) -> bool {
 
 /// Which roles a caller may assign. Same tier: an admin can only set
 /// agent/member, never grant admin/owner (no self- or peer-escalation).
-fn can_assign(caller: WorkspaceRole, new_role: WorkspaceRole) -> bool {
+pub fn can_assign(caller: WorkspaceRole, new_role: WorkspaceRole) -> bool {
     match caller {
         WorkspaceRole::Owner => true,
         WorkspaceRole::Admin => new_role < WorkspaceRole::Admin,
@@ -90,10 +90,21 @@ fn parse_role(role: &str) -> Option<WorkspaceRole> {
     }
 }
 
-fn forbidden_tier() -> HttpResponse {
-    errors::forbidden(
-        "You can only manage members and agents; managing admins or owners requires the owner role",
-    )
+/// Refusal for a role the caller's tier can't assign or manage. The user
+/// importer and the add-user API give the same answer.
+pub const FORBIDDEN_TIER_MESSAGE: &str =
+    "You can only manage members and agents; managing admins or owners requires the owner role";
+
+/// Refusal for demoting a workspace's only owner.
+pub const LAST_OWNER_MESSAGE: &str = "cannot demote the only owner; promote another member first";
+
+/// Refusal when a promotion would exceed the workspace's seat limit.
+pub const SEAT_LIMIT_MESSAGE: &str =
+    "This workspace has reached its seat limit. Contact support to add more seats.";
+
+/// 403 with [`FORBIDDEN_TIER_MESSAGE`], also returned by the add-user API.
+pub fn forbidden_tier() -> HttpResponse {
+    errors::forbidden(FORBIDDEN_TIER_MESSAGE)
 }
 
 /// Actor context for a membership write, attributed to the calling
@@ -228,10 +239,9 @@ pub async fn update_member_role(
         Ok(ManageOutcome::NotFound) => Err(ApiError::NotFoundMsg(format!(
             "user {target} is not a member of this workspace"
         ))),
-        Ok(ManageOutcome::LastOwner) => Ok(errors::conflict_with_code(
-            "cannot demote the only owner; promote another member first",
-            "last_owner",
-        )),
+        Ok(ManageOutcome::LastOwner) => {
+            Ok(errors::conflict_with_code(LAST_OWNER_MESSAGE, "last_owner"))
+        }
         Ok(ManageOutcome::ExternallyManaged) => Ok(errors::externally_managed()),
         Ok(ManageOutcome::Removed) => {
             // Unreachable in the update path.
@@ -240,7 +250,7 @@ pub async fn update_member_role(
         Err(e) if workspaces::is_seat_limit_violation(&e) => {
             warn!(workspace_id = ctx.workspace_id, %target, "promotion blocked by workspace seat limit");
             Ok(errors::forbidden_with_code(
-                "This workspace has reached its seat limit. Contact support to add more seats.",
+                SEAT_LIMIT_MESSAGE,
                 "seat_limit_reached",
             ))
         }

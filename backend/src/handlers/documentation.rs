@@ -46,6 +46,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/documentation/pages/export",
         web::get().to(crate::handlers::export_documentation_pages),
     )
+    // Before `documentation_collections::config`'s `/documentation/{id}`.
+    .route(
+        "/documentation/export.zip",
+        web::get().to(export_documentation_zip),
+    )
     .route(
         "/documentation/pages/top-level",
         web::get().to(crate::handlers::get_top_level_documentation_pages),
@@ -206,6 +211,16 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/knowledge-gaps/detect-stale-docs",
         web::post().to(crate::handlers::knowledge_gaps::detect_stale_docs),
+    )
+    // Literal segments before `/knowledge-gaps/{id}`, which would otherwise
+    // take them as an id and answer 405.
+    .route(
+        "/knowledge-gaps/dismiss",
+        web::post().to(crate::handlers::knowledge_gaps::dismiss_knowledge_gaps),
+    )
+    .route(
+        "/knowledge-gaps/reopen",
+        web::post().to(crate::handlers::knowledge_gaps::reopen_knowledge_gaps),
     )
     .route(
         "/knowledge-gaps/{id}",
@@ -380,7 +395,10 @@ pub struct CreateDocumentationPageRequest {
 /// article content. Pre-Phase-1 pages were authored from a ticket and
 /// stored their content in the ticket's article_content row; the join
 /// table now expresses that relationship as a 'resolves' link.
-fn resolve_yjs_document(page: &DocumentationPage, conn: &mut DbConnection) -> Option<Vec<u8>> {
+pub(crate) fn resolve_yjs_document(
+    page: &DocumentationPage,
+    conn: &mut DbConnection,
+) -> Option<Vec<u8>> {
     page.yjs_document.clone().or_else(|| {
         repository::documentation_page_tickets::most_recent_resolves_ticket_id(conn, page.id)
             .ok()
@@ -1043,9 +1061,38 @@ pub struct UpdateDocumentationPageRequest {
     pub updated_at: Option<String>,
 }
 
+impl UpdateDocumentationPageRequest {
+    /// True when applying this would change `page`. A request that only
+    /// repeats what the page holds (a title blur with no edit) writes nothing,
+    /// so the page keeps its last-edited time and editor.
+    fn changes(&self, page: &DocumentationPage) -> bool {
+        fn differs<T: PartialEq>(asked: Option<&T>, held: &T) -> bool {
+            asked.is_some_and(|a| a != held)
+        }
+        differs(self.title.as_ref(), &page.title)
+            || differs(self.slug.as_ref(), &page.slug)
+            || self
+                .icon
+                .as_ref()
+                .is_some_and(|i| page.icon.as_ref() != Some(i))
+            || self
+                .cover_image
+                .as_ref()
+                .is_some_and(|c| page.cover_image.as_ref() != Some(c))
+            || differs(self.status.as_ref(), &page.status)
+            || differs(self.parent_id.as_ref(), &page.parent_id)
+            || self
+                .display_order
+                .is_some_and(|d| page.display_order != Some(d))
+            || differs(self.is_public.as_ref(), &page.is_public)
+            || differs(self.is_template.as_ref(), &page.is_template)
+    }
+}
+
 /// Outcome of the update_documentation_page transaction.
 enum UpdatePageOutcome {
     Ok(DocumentationPage, DocumentationPageResponse),
+    Unchanged(DocumentationPageResponse),
     NotFound,
     InvalidParent,
     UpdateFailed,
@@ -1094,6 +1141,14 @@ pub async fn update_documentation_page(
             if !audience.can_open_page(conn, parent_id)? {
                 return Ok(UpdatePageOutcome::InvalidParent);
             }
+        }
+
+        let current = repository::get_documentation_page(page_id, conn)?;
+        if !update_req.changes(&current) {
+            return Ok(match to_page_response(current, conn) {
+                Ok(r) => UpdatePageOutcome::Unchanged(r),
+                Err(err) => UpdatePageOutcome::ResponseBuildFailed(err),
+            });
         }
 
         // Auto-regenerate slug when title changes (unless user explicitly provided a slug)
@@ -1151,6 +1206,7 @@ pub async fn update_documentation_page(
 
     let (updated_page, response) = match outcome {
         Ok(UpdatePageOutcome::Ok(p, r)) => (p, r),
+        Ok(UpdatePageOutcome::Unchanged(r)) => return HttpResponse::Ok().json(r),
         Ok(UpdatePageOutcome::NotFound) => {
             return errors::not_found_msg("Documentation page not found");
         }
@@ -1745,6 +1801,75 @@ pub async fn export_documentation_pages(mut tc: TenantConn, auth: AuthContext) -
             HttpResponse::Ok().json(export_pages)
         }
         Err(_) => errors::internal("Failed to fetch pages for export"),
+    }
+}
+
+/// `GET /documentation/export.zip`: the workspace's Library and Drafts as
+/// Markdown files with a manifest and their images (`services::docs_export`).
+/// Workspace admins and owners only, like the documentation import: agents
+/// can read pages one at a time, but taking every page at once is an admin
+/// action. Still filtered by the caller's audience, which for an admin opens
+/// every page in this workspace and nothing outside it.
+pub async fn export_documentation_zip(
+    req: actix_web::HttpRequest,
+    mut tc: TenantConn,
+    auth: AuthContext,
+    ws: WorkspaceContext,
+    storage: crate::extractors::ScopedStorage,
+) -> HttpResponse {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Forbidden: Only workspace admins can export documentation");
+    }
+    let audience = repository::PageAudience::from_auth(&auth);
+    let export = match tc
+        .run(|conn| crate::services::docs_export::build(conn, &audience, ws.workspace_uuid))
+    {
+        Ok(export) => export,
+        Err(e) => {
+            error!(error = %e, "documentation export failed to read pages");
+            return errors::internal("Failed to export documentation");
+        }
+    };
+    let file = match crate::services::docs_export::write_zip(export, storage.get()).await {
+        Ok(file) => file,
+        Err(e) => {
+            error!(error = %e, "documentation export failed to write the zip");
+            return errors::internal("Failed to export documentation");
+        }
+    };
+    let name = export_file_name(&ws.slug, chrono::Utc::now().date_naive());
+    match actix_files::NamedFile::from_file(file, &name) {
+        Ok(named) => {
+            let mut response = named
+                .use_etag(false)
+                .use_last_modified(false)
+                .into_response(&req);
+            response.headers_mut().insert(
+                actix_web::http::header::CACHE_CONTROL,
+                actix_web::http::header::HeaderValue::from_static("no-store"),
+            );
+            response
+        }
+        Err(e) => {
+            error!(error = %e, "documentation export failed to send the zip");
+            errors::internal("Failed to export documentation")
+        }
+    }
+}
+
+/// `{workspace-slug}-documentation-{date}.zip`, so exports from several
+/// workspaces don't overwrite each other in a downloads folder. A slug is
+/// already lowercase letters, digits and hyphens; anything else is dropped.
+pub fn export_file_name(slug: &str, date: chrono::NaiveDate) -> String {
+    let slug: String = slug
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        format!("documentation-{}.zip", date.format("%Y-%m-%d"))
+    } else {
+        format!("{slug}-documentation-{}.zip", date.format("%Y-%m-%d"))
     }
 }
 
@@ -2836,5 +2961,96 @@ pub async fn unverify_page(
             errors::internal("Failed to build page response")
         }
         Err(_) => errors::internal("Failed to clear verification"),
+    }
+}
+
+#[cfg(test)]
+mod export_file_name_tests {
+    use super::export_file_name;
+
+    #[test]
+    fn names_the_zip_after_the_workspace_and_day() {
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 22).expect("date");
+        assert_eq!(
+            export_file_name("acme-it", day),
+            "acme-it-documentation-2026-10-22.zip"
+        );
+        assert_eq!(
+            export_file_name("a\"b/c", day),
+            "abc-documentation-2026-10-22.zip"
+        );
+        assert_eq!(export_file_name("", day), "documentation-2026-10-22.zip");
+    }
+}
+
+#[cfg(test)]
+mod update_request_tests {
+    use super::{DocumentationPage, DocumentationStatus, UpdateDocumentationPageRequest};
+
+    fn page() -> DocumentationPage {
+        let at = chrono::NaiveDate::from_ymd_opt(2026, 10, 1)
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .expect("time");
+        DocumentationPage {
+            id: 5,
+            uuid: uuid::Uuid::nil(),
+            title: "Payroll runbook".into(),
+            slug: "payroll-runbook-2".into(),
+            icon: None,
+            cover_image: None,
+            status: DocumentationStatus::Draft,
+            created_at: at,
+            updated_at: at,
+            created_by: uuid::Uuid::nil(),
+            last_edited_by: uuid::Uuid::nil(),
+            parent_id: Some(3),
+            display_order: Some(1),
+            is_public: false,
+            is_template: false,
+            archived_at: None,
+            yjs_state_vector: None,
+            yjs_document: None,
+            yjs_client_id: None,
+            has_unsaved_changes: false,
+            deleted_at: None,
+            verified_by: None,
+            verified_at: None,
+            verify_interval_days: None,
+            workspace_id: 1,
+            fence_token: None,
+            restricted: false,
+        }
+    }
+
+    fn request(json: serde_json::Value) -> UpdateDocumentationPageRequest {
+        serde_json::from_value(json).expect("request")
+    }
+
+    #[test]
+    fn repeating_what_the_page_holds_changes_nothing() {
+        let page = page();
+        for same in [
+            serde_json::json!({}),
+            serde_json::json!({ "title": "Payroll runbook" }),
+            serde_json::json!({ "title": "Payroll runbook", "slug": "payroll-runbook-2" }),
+            serde_json::json!({ "status": "draft", "parent_id": 3, "is_public": false }),
+        ] {
+            assert!(!request(same.clone()).changes(&page), "{same}");
+        }
+    }
+
+    #[test]
+    fn any_difference_is_a_change() {
+        let page = page();
+        for differs in [
+            serde_json::json!({ "title": "Payroll runbook 2026" }),
+            serde_json::json!({ "title": "Payroll runbook", "slug": "payroll-runbook" }),
+            serde_json::json!({ "icon": "mdi-cash" }),
+            serde_json::json!({ "status": "published" }),
+            serde_json::json!({ "display_order": 2 }),
+            serde_json::json!({ "is_template": true }),
+        ] {
+            assert!(request(differs.clone()).changes(&page), "{differs}");
+        }
     }
 }

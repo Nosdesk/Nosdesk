@@ -72,9 +72,17 @@ impl AuthContext {
                 .is_some_and(|r| r.meets(WorkspaceRole::Agent))
     }
 
-    /// Role half of the audit-read gate (platform admin or audit
-    /// reviewer). Callers still AND this with the `audit:read` scope.
+    /// Role half of the audit-read gate: platform audit readers
+    /// (platform admin, audit reviewer) plus workspace owners/admins.
+    /// Callers still AND this with the `audit:read` scope.
     pub fn can_read_audit(&self) -> bool {
+        self.platform_role.can_read_audit() || self.is_workspace_admin()
+    }
+
+    /// Whether the audit reader may also see the instance-wide sign-in
+    /// and security events, which carry no workspace key: platform
+    /// audit readers only.
+    pub fn can_read_instance_audit(&self) -> bool {
         self.platform_role.can_read_audit()
     }
 

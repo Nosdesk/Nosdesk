@@ -92,7 +92,22 @@ fn unified_list_spans_all_three_tiers() {
             },
         )?;
 
-        let page = audit::list(conn, &AuditFilter::default(), None, 100)?;
+        // The instance-wide tier is opt-in: left at the default, the
+        // feed carries only the workspace-scoped tiers.
+        let scoped = audit::list(conn, &AuditFilter::default(), None, 100)?;
+        assert!(
+            scoped
+                .entries
+                .iter()
+                .all(|e| e.source != AuditSource::Tier2),
+            "tier 2 must be excluded unless asked for"
+        );
+
+        let all_tiers = AuditFilter {
+            include_instance_events: true,
+            ..AuditFilter::default()
+        };
+        let page = audit::list(conn, &all_tiers, None, 100)?;
         let sources: std::collections::HashSet<_> = page.entries.iter().map(|e| e.source).collect();
 
         assert!(

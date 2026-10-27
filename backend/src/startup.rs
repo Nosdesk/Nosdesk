@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use actix_cors::Cors;
 use actix_files::Files;
-use actix_limitation::{Limiter, RateLimiter};
 use actix_web::dev::{fn_service, ServiceRequest, ServiceResponse};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use tracing::{error, info, warn};
@@ -19,6 +18,7 @@ use tracing_actix_web::TracingLogger;
 
 use crate::config::Config;
 use crate::db::Pool;
+use crate::middleware::RequestLimiter;
 use crate::utils::storage::{create_storage, get_storage_config};
 use crate::workers;
 
@@ -49,10 +49,10 @@ pub struct AppState {
     pub search_service: web::Data<Arc<crate::services::search::SearchService>>,
     pub yjs_app_state: web::Data<crate::handlers::collaboration::YjsAppState>,
     pub system_state: web::Data<crate::handlers::system::SystemState>,
-    pub public_limiter_data: web::Data<Limiter>,
-    pub auth_limiter_data: web::Data<Limiter>,
-    pub frontend_logs_limiter_data: web::Data<Limiter>,
-    pub client_errors_limiter_data: web::Data<Limiter>,
+    pub public_limiter_data: web::Data<RequestLimiter>,
+    pub auth_limiter_data: web::Data<RequestLimiter>,
+    pub frontend_logs_limiter_data: web::Data<RequestLimiter>,
+    pub client_errors_limiter_data: web::Data<RequestLimiter>,
     pub storage_data: web::Data<Arc<dyn crate::utils::storage::Storage>>,
     pub inbound_s3_data: web::Data<Option<crate::services::inbound_email::s3_fetch::InboundS3>>,
     pub channel_control_data: web::Data<crate::services::channels::supervisor::ChannelControl>,
@@ -66,10 +66,10 @@ pub struct AppState {
 pub fn build_state(
     config: &Config,
     pool: Pool,
-    public_limiter: Limiter,
-    auth_limiter: Limiter,
-    frontend_logs_limiter: Limiter,
-    client_errors_limiter: Limiter,
+    public_limiter: RequestLimiter,
+    auth_limiter: RequestLimiter,
+    frontend_logs_limiter: RequestLimiter,
+    client_errors_limiter: RequestLimiter,
 ) -> Result<(AppState, Vec<tokio::task::JoinHandle<()>>), std::io::Error> {
     // Owned copies so the lifted body reads these by their original names.
     let redis_url = config.redis_url.clone();
@@ -407,6 +407,16 @@ pub fn build_state(
             scheduler_shutdown.clone(),
         ),
     );
+
+    // Workspace reindexes the CLI asks for: it imports beside this server,
+    // which holds the index.
+    if let Ok(database_url) = std::env::var("DATABASE_URL") {
+        background_tasks.push(crate::services::search::reindex_requests::spawn(
+            database_url,
+            search_service.get_ref().clone(),
+            scheduler_shutdown.clone(),
+        ));
+    }
 
     // Search-index replicator (S1). On >1 machine the Tantivy index is
     // per-machine local disk, so an entity indexed on one machine is
@@ -823,7 +833,7 @@ pub fn configure_app(
                     // for this resource so a log flood can't drain the public
                     // / auth quotas that gate login and MFA.
                     .app_data(state.frontend_logs_limiter_data.clone())
-                    .wrap(RateLimiter::default())
+                    .wrap(crate::middleware::RateLimit)
                     .route(web::post().to(crate::handlers::debug::receive_frontend_logs)),
             )
 
@@ -866,7 +876,7 @@ pub fn configure_app(
                     .default_service(web::to(crate::errors::api_route_not_found))
                     .app_data(crate::errors::json_config(32 * 1024))
                     .app_data(state.public_limiter_data.clone())
-                    .wrap(RateLimiter::default())
+                    .wrap(crate::middleware::RateLimit)
                     .configure(crate::handlers::guest::config)
                     // Address confirmation is redeemed from a mail client, so
                     // it cannot require the session; the token is the proof.
@@ -893,7 +903,7 @@ pub fn configure_app(
                 web::resource("/api/csp-report")
                     .app_data(web::PayloadConfig::new(16 * 1024))
                     .app_data(state.public_limiter_data.clone())
-                    .wrap(RateLimiter::default())
+                    .wrap(crate::middleware::RateLimit)
                     .route(web::post().to(crate::handlers::csp_reports::report_violation))
             )
 
@@ -907,7 +917,7 @@ pub fn configure_app(
                 web::resource("/api/client-errors")
                     .app_data(web::PayloadConfig::new(crate::handlers::client_errors::MAX_BODY_BYTES))
                     .app_data(state.client_errors_limiter_data.clone())
-                    .wrap(RateLimiter::default())
+                    .wrap(crate::middleware::RateLimit)
                     .route(web::post().to(crate::handlers::client_errors::report))
             )
 
@@ -955,7 +965,7 @@ pub fn configure_app(
             .service(
                 web::scope("/api/portal/auth/teams")
                     .default_service(web::to(crate::errors::api_route_not_found))
-                    .wrap(RateLimiter::default())
+                    .wrap(crate::middleware::RateLimit)
                     .configure(crate::handlers::teams::portal_auth_config),
             )
             .service(
@@ -964,7 +974,7 @@ pub fn configure_app(
                     // Sign-in, the approval and widget links: the strict public
                     // limiter, not the authenticated one.
                     .app_data(state.public_limiter_data.clone())
-                    .wrap(RateLimiter::default())
+                    .wrap(crate::middleware::RateLimit)
                     .configure(crate::handlers::portal::auth_config)
                     .configure(crate::handlers::portal_sso::auth_config)
                     .configure(crate::handlers::approvals::portal_auth_config)
@@ -982,7 +992,7 @@ pub fn configure_app(
                     .wrap(actix_web::middleware::from_fn(
                         crate::handlers::portal::portal_auth_middleware,
                     ))
-                    .wrap(RateLimiter::default())
+                    .wrap(crate::middleware::RateLimit)
                     .configure(crate::handlers::portal::config)
                     .configure(crate::handlers::approvals::portal_config),
             )
@@ -994,7 +1004,7 @@ pub fn configure_app(
                     // stricter public limit (shadows the app-level auth
                     // limiter for this scope). See security-audit-2026-06.
                     .app_data(state.public_limiter_data.clone())
-                    .wrap(RateLimiter::default())
+                    .wrap(crate::middleware::RateLimit)
                     .service({
                         // Restore moved to `nosdesk-cli db restore` (AUD-005).
                         // The self-serve initial-admin route only exists in
@@ -1058,7 +1068,7 @@ pub fn configure_app(
                     // collaboration WS are separate top-level services, so
                     // this does not throttle long-lived connections. See
                     // security-audit-2026-06.
-                    .wrap(RateLimiter::default())
+                    .wrap(crate::middleware::RateLimit)
                     // Cookie or Bearer or `nsk_` API token. The funnel behind
                     // this also enforces API-token scopes, so a narrowed token
                     // must satisfy the route's required scope; cookie sessions
@@ -1088,6 +1098,9 @@ pub fn configure_app(
                     .configure(crate::handlers::workspace_export::config)
                     // Self-serve, Owner-gated workspace data export (DSAR return).
                     .configure(crate::handlers::workspace_data_export::config)
+                    // Workspace imports as jobs: the owner's (self-hosted) and the
+                    // platform admin's.
+                    .configure(crate::handlers::workspace_import::config)
 
                     // Guest access controls (admin only)
                     .configure(crate::handlers::guest_settings::config)
@@ -1469,32 +1482,37 @@ pub async fn build_server(
     // limits track the real client; on a direct connection X-Forwarded-For
     // is ignored so an attacker can't rotate spoofed headers to bypass the
     // limit. A build failure (a malformed REDIS_URL) is fatal everywhere —
-    // there's no in-memory fallback to silently degrade to.
-    let public_limiter = Limiter::builder(&redis_url)
-        .key_by(|req: &actix_web::dev::ServiceRequest| {
+    // there's no in-memory fallback to silently degrade to. Redis going
+    // away at runtime lets requests through instead (middleware::rate_limit).
+    let public_limiter = RequestLimiter::build(
+        "public",
+        &redis_url,
+        rate_limit_per_minute as usize,
+        Duration::from_secs(60),
+        |req: &actix_web::dev::ServiceRequest| {
             crate::utils::client_ip::from_service_request(req)
                 .map(|ip| format!("public:{}", crate::utils::client_ip::limit_bucket(ip)))
-        })
-        .limit(rate_limit_per_minute as usize)
-        .period(Duration::from_secs(60))
-        .build()
-        .map_err(|e| {
-            error!(error = %e, "Failed to build the public rate limiter (check REDIS_URL)");
-            std::io::Error::other("Public rate limiter initialization failed")
-        })?;
+        },
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to build the public rate limiter (check REDIS_URL)");
+        std::io::Error::other("Public rate limiter initialization failed")
+    })?;
 
-    let auth_limiter = Limiter::builder(&redis_url)
-        .key_by(|req: &actix_web::dev::ServiceRequest| {
+    let auth_limiter = RequestLimiter::build(
+        "auth",
+        &redis_url,
+        auth_rate_limit_per_minute as usize,
+        Duration::from_secs(60),
+        |req: &actix_web::dev::ServiceRequest| {
             crate::utils::client_ip::from_service_request(req)
                 .map(|ip| format!("auth:{}", crate::utils::client_ip::limit_bucket(ip)))
-        })
-        .limit(auth_rate_limit_per_minute as usize)
-        .period(Duration::from_secs(60))
-        .build()
-        .map_err(|e| {
-            error!(error = %e, "Failed to build the auth rate limiter (check REDIS_URL)");
-            std::io::Error::other("Auth rate limiter initialization failed")
-        })?;
+        },
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to build the auth rate limiter (check REDIS_URL)");
+        std::io::Error::other("Auth rate limiter initialization failed")
+    })?;
 
     // Forwarded browser-console logs get their OWN per-IP bucket
     // (`felogs:{ip}`), separate from the `public:`/`auth:` quotas that
@@ -1503,31 +1521,35 @@ pub async fn build_server(
     // exhaust this bucket, never lock a user out of auth. See the MFA-429
     // incident where a log storm on the shared public limiter 429'd
     // /api/auth/mfa-setup-login.
-    let frontend_logs_limiter = Limiter::builder(&redis_url)
-        .key_by(|req: &actix_web::dev::ServiceRequest| {
+    let frontend_logs_limiter = RequestLimiter::build(
+        "frontend-logs",
+        &redis_url,
+        rate_limit_per_minute as usize,
+        Duration::from_secs(60),
+        |req: &actix_web::dev::ServiceRequest| {
             crate::utils::client_ip::from_service_request(req)
                 .map(|ip| format!("felogs:{}", crate::utils::client_ip::limit_bucket(ip)))
-        })
-        .limit(rate_limit_per_minute as usize)
-        .period(Duration::from_secs(60))
-        .build()
-        .map_err(|e| {
-            error!(error = %e, "Failed to build the frontend-logs rate limiter (check REDIS_URL)");
-            std::io::Error::other("Frontend-logs rate limiter initialization failed")
-        })?;
+        },
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to build the frontend-logs rate limiter (check REDIS_URL)");
+        std::io::Error::other("Frontend-logs rate limiter initialization failed")
+    })?;
 
     // Browser error reports get their own per-IP bucket (`clienterr:{ip}`)
     // for the same reason: a page stuck in an error loop can only exhaust
     // this bucket, never the quotas that gate sign-in.
-    let client_errors_limiter = Limiter::builder(&redis_url)
-        .key_by(crate::handlers::client_errors::rate_limit_key)
-        .limit(rate_limit_per_minute as usize)
-        .period(Duration::from_secs(60))
-        .build()
-        .map_err(|e| {
-            error!(error = %e, "Failed to build the client-errors rate limiter (check REDIS_URL)");
-            std::io::Error::other("Client-errors rate limiter initialization failed")
-        })?;
+    let client_errors_limiter = RequestLimiter::build(
+        "client-errors",
+        &redis_url,
+        rate_limit_per_minute as usize,
+        Duration::from_secs(60),
+        crate::handlers::client_errors::rate_limit_key,
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to build the client-errors rate limiter (check REDIS_URL)");
+        std::io::Error::other("Client-errors rate limiter initialization failed")
+    })?;
 
     // Set up database connection pool
     let pool = match std::panic::catch_unwind(crate::db::establish_connection_pool) {
@@ -1919,12 +1941,12 @@ pub async fn build_server(
                 workspace_config.clone(),
             ))
             // The authenticated limiter is the app-level default that
-            // `RateLimiter::default()` resolves by type (it looks up
-            // `web::Data<Limiter>`). The stricter public limiter is
+            // `RateLimit` resolves by type (it looks up
+            // `web::Data<RequestLimiter>`). The stricter public limiter is
             // registered at the scope level on each public / auth
             // surface below so it shadows this one there. Registering
             // both app-level would make the second silently win for
-            // every scope (both are the same `web::Data<Limiter>`
+            // every scope (both are the same `web::Data<RequestLimiter>`
             // type), which is the bug that left the public limit
             // unused. See security-audit-2026-06.
             .configure(|cfg| configure_app(cfg, &state, &pool, &workspace_config, &config))

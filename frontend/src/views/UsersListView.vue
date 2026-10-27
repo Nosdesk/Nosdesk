@@ -5,7 +5,7 @@ import { useMutation, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { ToolbarButton } from 'reka-ui'
 import { extractErrorMessage } from '@/utils/errors'
-import { formatDate } from '@nosdesk/core/utils/dateUtils'
+import { formatDate, parseDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import {
   isHostedDeployment,
@@ -26,7 +26,7 @@ import Button from '@/components/common/Button.vue'
 import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
 import ListViewModals from '@/components/views/ListViewModals.vue'
 import { useListView } from '@/composables/useListView'
-import { useStepUpMethod } from '@/composables/useStepUpMethod'
+import ConfirmIdentity from '@/components/auth/ConfirmIdentity.vue'
 import type { ChipFacetDef } from '@/composables/useChipFiltersFromControls'
 import type { GroupAxisDef } from '@/composables/useListGrouping'
 import { useAuthStore } from '@/stores/auth'
@@ -288,24 +288,19 @@ const listView = useListView({
   pinnedColumnIds: ['user'],
 })
 
-// Platform-admin gate for the account-lifecycle surfaces. Every user
-// mutation the backend exposes (bulk delete / set-role, single delete,
-// restore, purge) requires platform_admin, so a workspace admin who
-// isn't one would only hit "permission denied". We hide those
-// affordances rather than let them error: the deleted-users tab (its
-// restore/purge live there) and, via `selectable` on the table below,
-// row selection itself, which is only ever used to reach the bulk
-// actions. This is the UI half of the gate, not the enforcement.
+// Gates for the account-lifecycle surfaces, the UI half of the server's.
+// Workspace admins delete and restore the people of their workspace (the
+// server refuses anyone who also belongs to another workspace); the bulk
+// role change and permanent delete stay with platform admins.
 const isPlatformAdmin = computed(() => auth.user?.platform_role === 'platform_admin')
 
-// Bulk actions are an operator (platform-admin) surface. In hosted the Team
-// population is control-plane-owned, so bulk selection is disabled there;
-// Requesters (tenant-local) stay selectable. The bulk role change is hidden
-// entirely in hosted, since promoting into a staff seat is the control plane's
-// job (see the header hand-off).
-const canBulkSelect = computed(
-  () => isPlatformAdmin.value && !(isHostedDeploymentRef.value && !isRequesters.value),
+// In hosted the Team population is control-plane-owned, so neither bulk
+// selection nor the deleted view applies there; Requesters (tenant-local)
+// do. Selection is only ever used to reach the bulk actions.
+const canManageLifecycle = computed(
+  () => auth.isAdmin && !(isHostedDeploymentRef.value && !isRequesters.value),
 )
+const canBulkSelect = canManageLifecycle
 
 // Active vs Deleted view. The "deleted" filter lives in the list-view
 // controls; the view tab toggles it so soft-deleted users (with their
@@ -350,33 +345,22 @@ const bulkActionMutation = useMutation({
   },
 })
 
-// The admin confirms bulk delete with their own step-up credential, the same
-// check as deleting one user.
-const deleteCredential = ref('')
+// The admin first confirms it's them (ConfirmIdentity), the same check as
+// deleting one user.
 const deleteError = ref<string | null>(null)
 const isBulkDeleting = ref(false)
-const {
-  method: deleteStepUpMethod,
-  loaded: deleteStepUpLoaded,
-  load: loadDeleteStepUp,
-  credential: deleteStepUpBody,
-} = useStepUpMethod()
-const deleteConfirmDisabled = computed(
-  () => isBulkDeleting.value
-    || !deleteStepUpLoaded.value
-    || (deleteStepUpMethod.value !== 'none' && deleteCredential.value.trim().length === 0),
-)
+const deleteIdentity = ref<InstanceType<typeof ConfirmIdentity> | null>(null)
+const deleteIdentityReady = ref(false)
+const deleteConfirmDisabled = computed(() => isBulkDeleting.value || !deleteIdentityReady.value)
 
 function openDeleteConfirm() {
-  deleteCredential.value = ''
   deleteError.value = null
+  deleteIdentityReady.value = false
   showDeleteConfirm.value = true
-  void loadDeleteStepUp()
 }
 
 function closeDeleteConfirm() {
   showDeleteConfirm.value = false
-  deleteCredential.value = ''
   deleteError.value = null
 }
 
@@ -387,17 +371,17 @@ async function confirmDelete() {
   isBulkDeleting.value = true
   deleteError.value = null
   try {
-    const result = await userService.bulkAction({
-      action: 'delete',
-      ids,
-      ...deleteStepUpBody(deleteCredential.value),
-    })
+    // A wrong password or code shows inside ConfirmIdentity; stay open.
+    if (!(await deleteIdentity.value?.confirm())) return
+    const result = await userService.bulkAction({ action: 'delete', ids })
     closeDeleteConfirm()
     listView.selection.clear()
     reportBulkDelete(result)
   } catch (err) {
-    // Keep the modal open so the admin can correct the credential.
+    // Keep the modal open. If the confirmation lapsed meanwhile, the refresh
+    // asks for it again.
     deleteError.value = extractErrorMessage(err, t('user-mgmt-bulk-action-error'))
+    void deleteIdentity.value?.refresh()
   } finally {
     isBulkDeleting.value = false
     void queryCache.invalidateQueries({ key: usersKeys.root })
@@ -416,6 +400,9 @@ function reportBulkDelete(result: BulkUserActionResult) {
   }
   if (result.skipped_staff) {
     toast.info(t('user-mgmt-bulk-skipped-staff', { count: result.skipped_staff }))
+  }
+  if (result.skipped_elsewhere) {
+    toast.info(t('user-mgmt-bulk-skipped-elsewhere', { count: result.skipped_elsewhere }))
   }
   if (result.failed) {
     toast.error(t('user-mgmt-bulk-delete-failed', { count: result.failed }))
@@ -488,7 +475,8 @@ async function submitAddRequester() {
 }
 
 function formatPurgeAt(deletedAt: string): string {
-  const dt = new Date(deletedAt)
+  // The server's timestamp has no zone; parseDate reads it as UTC.
+  const dt = parseDate(deletedAt) ?? new Date()
   // 30-day grace matches NOSDESK_USER_PURGE_GRACE_DAYS default;
   // close enough for the chip — the real countdown lives on the
   // detail view.
@@ -541,10 +529,9 @@ function formatPurgeAt(deletedAt: string): string {
               {{ $t('people-tab-requesters') }}
             </button>
           </div>
-          <!-- Secondary: soft-delete recovery, a platform-admin surface and only
-               relevant to the Team roster. -->
+          <!-- Secondary: soft-delete recovery, for whoever can delete here. -->
           <div
-            v-if="isPlatformAdmin && !isRequesters"
+            v-if="canManageLifecycle"
             class="inline-flex items-center gap-0.5 rounded-lg border border-default bg-surface-alt p-0.5"
           >
             <button
@@ -645,6 +632,7 @@ function formatPurgeAt(deletedAt: string): string {
                   </svg>
                 </button>
                 <button
+                  v-if="isPlatformAdmin"
                   type="button"
                   class="rounded p-1 text-secondary hover:bg-status-error/10 hover:text-status-error"
                   :title="$t('user-mgmt-purge-now')"
@@ -731,7 +719,7 @@ function formatPurgeAt(deletedAt: string): string {
 
       <template #bulk-actions="{ selectedCount }">
         <ToolbarButton
-          v-if="!isHostedDeploymentRef"
+          v-if="isPlatformAdmin && !isHostedDeploymentRef"
           as-child
           :disabled="bulkActionMutation.asyncStatus.value === 'loading'"
         >
@@ -789,23 +777,11 @@ function formatPurgeAt(deletedAt: string): string {
       @close="closeDeleteConfirm"
     >
       <template #body>
-        <!-- The admin's own step-up: password, else a 2FA code, else nothing
-             to enter (SSO-only without MFA). -->
-        <div v-if="deleteStepUpMethod !== 'none'" class="flex flex-col gap-2">
-          <label for="bulk-delete-credential" class="text-sm font-medium text-secondary">
-            {{ deleteStepUpMethod === 'password'
-              ? $t('user-settings-delete-stepup-password')
-              : $t('user-settings-delete-stepup-mfa') }}
-          </label>
-          <FormInput
-            id="bulk-delete-credential"
-            v-model="deleteCredential"
-            :type="deleteStepUpMethod === 'password' ? 'password' : 'text'"
-            :inputmode="deleteStepUpMethod === 'mfa' ? 'numeric' : undefined"
-            :autocomplete="deleteStepUpMethod === 'password' ? 'current-password' : 'one-time-code'"
-            @keyup.enter="confirmDelete"
-          />
-        </div>
+        <ConfirmIdentity
+          ref="deleteIdentity"
+          v-model:ready="deleteIdentityReady"
+          @submit="confirmDelete"
+        />
         <p v-if="deleteError" class="text-sm text-status-error">{{ deleteError }}</p>
       </template>
     </ConfirmModal>

@@ -290,7 +290,7 @@
                   <div class="w-full sm:w-40">
                     <BaseDropdown
                       :model-value="rule.role"
-                      :options="roleOptions"
+                      :options="roleOptionsFor(rule)"
                       :label="idx === 0 ? $t('admin-ldap-role-role-label') : ''"
                       size="sm"
                       @update:model-value="(v: string | string[]) => setRuleRole(idx, v)"
@@ -551,12 +551,15 @@ import {
   type RolePreview,
 } from '@nosdesk/core/services/ldapService';
 import { useToastStore } from '@nosdesk/core/stores/toast';
+import { canAssignWorkspaceRole } from '@nosdesk/core/types/workspace';
+import { useAuthStore } from '@/stores/auth';
 import { createErrorFromResponse } from '@/utils/errors';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const toast = useToastStore();
+const authStore = useAuthStore();
 
 type NumberField = 'port' | 'connect_timeout_secs' | 'page_size';
 
@@ -862,6 +865,13 @@ const roleOptions = computed(() => [
   { value: 'agent', label: t('admin-ldap-role-agent') },
   { value: 'admin', label: t('admin-ldap-role-admin') },
 ]);
+// A group mapped to admin grants admin, which takes the workspace owner. A rule
+// already on admin keeps the option so it still reads as admin.
+const canMapAdmin = computed(() => canAssignWorkspaceRole(authStore.user?.workspace_role, 'admin'));
+function roleOptionsFor(rule: RoleMapping) {
+  if (canMapAdmin.value || rule.role === 'admin') return roleOptions.value;
+  return roleOptions.value.filter((o) => o.value !== 'admin');
+}
 
 // Discovered directory groups feed the rule picker so the admin selects real
 // groups rather than typing a CN blind. Saved rule names are merged in so they

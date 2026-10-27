@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Nosdesk",
-  "version": "1.1.0",
+  "version": "1.1.4",
   "identifier": "com.nosdesk.app",
   "build": {
     "frontendDist": "../../frontend/dist",

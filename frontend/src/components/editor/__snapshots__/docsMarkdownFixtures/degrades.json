@@ -1,0 +1,746 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "table",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_header",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "left",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Name"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_header",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "right",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Count"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_header",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "center",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Note"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "left",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "strong"
+                        }
+                      ],
+                      "text": "Alpha"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "right",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "1"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "center",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "a | pipe"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "left",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Beta"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "right",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "22"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "center",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "marks": [
+                        {
+                          "type": "code"
+                        }
+                      ],
+                      "text": "code"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "☐ Order the cable"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "☑ Book the room"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Old price and new price."
+        }
+      ]
+    },
+    {
+      "type": "blockquote",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "strong"
+                }
+              ],
+              "text": "Warning"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Back up first."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "blockquote",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "strong"
+                }
+              ],
+              "text": "Remember this"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Labels help."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "A claim[1] and another[2]."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Inline "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "code"
+            }
+          ],
+          "text": "e = mc^2"
+        },
+        {
+          "type": "text",
+          "text": " and display:"
+        }
+      ]
+    },
+    {
+      "type": "code_block",
+      "attrs": {
+        "ychange": null,
+        "language": "latex"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "\\int_0^1 x\\,dx"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "strong"
+            }
+          ],
+          "text": "Term"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Its definition."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Kept & flattened"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Inline "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "strong"
+            }
+          ],
+          "text": "bold"
+        },
+        {
+          "type": "text",
+          "text": ", under"
+        },
+        {
+          "type": "hard_break"
+        },
+        {
+          "type": "text",
+          "text": "after break ."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Bad, relative, anchor, empty."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "missing image"
+        }
+      ]
+    },
+    {
+      "type": "blockquote",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "blockquote",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "blockquote",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "blockquote",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "blockquote",
+                      "attrs": {
+                        "ychange": null
+                      },
+                      "content": [
+                        {
+                          "type": "blockquote",
+                          "attrs": {
+                            "ychange": null
+                          },
+                          "content": [
+                            {
+                              "type": "blockquote",
+                              "attrs": {
+                                "ychange": null
+                              },
+                              "content": [
+                                {
+                                  "type": "blockquote",
+                                  "attrs": {
+                                    "ychange": null
+                                  },
+                                  "content": [
+                                    {
+                                      "type": "blockquote",
+                                      "attrs": {
+                                        "ychange": null
+                                      },
+                                      "content": [
+                                        {
+                                          "type": "blockquote",
+                                          "attrs": {
+                                            "ychange": null
+                                          },
+                                          "content": [
+                                            {
+                                              "type": "blockquote",
+                                              "attrs": {
+                                                "ychange": null
+                                              },
+                                              "content": [
+                                                {
+                                                  "type": "blockquote",
+                                                  "attrs": {
+                                                    "ychange": null
+                                                  },
+                                                  "content": [
+                                                    {
+                                                      "type": "blockquote",
+                                                      "attrs": {
+                                                        "ychange": null
+                                                      },
+                                                      "content": [
+                                                        {
+                                                          "type": "blockquote",
+                                                          "attrs": {
+                                                            "ychange": null
+                                                          },
+                                                          "content": [
+                                                            {
+                                                              "type": "blockquote",
+                                                              "attrs": {
+                                                                "ychange": null
+                                                              },
+                                                              "content": [
+                                                                {
+                                                                  "type": "blockquote",
+                                                                  "attrs": {
+                                                                    "ychange": null
+                                                                  },
+                                                                  "content": [
+                                                                    {
+                                                                      "type": "paragraph",
+                                                                      "attrs": {
+                                                                        "ychange": null
+                                                                      },
+                                                                      "content": [
+                                                                        {
+                                                                          "type": "text",
+                                                                          "text": "Eighteen deep."
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Notes"
+        }
+      ]
+    },
+    {
+      "type": "ordered_list",
+      "attrs": {
+        "ychange": null,
+        "order": 1
+      },
+      "content": [
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The source."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Second note."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

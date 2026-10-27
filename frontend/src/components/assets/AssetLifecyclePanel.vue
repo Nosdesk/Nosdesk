@@ -10,7 +10,7 @@ import {
 } from '@nosdesk/core/services/assetLifecycleService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
-import { lifecycleTransitionLabel } from '@/utils/assetStatusMeta';
+import { assetStatusLabel, lifecycleTransitionLabel } from '@/utils/assetStatusMeta';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import { numberForTicketId } from '@/composables/useTicketNumberLookup';
 import { ticketPath } from '@/utils/ticketNumbers';
@@ -78,8 +78,21 @@ function actorLabel(uuid: string | null | undefined): string {
   return handle.user.value?.name ?? t('asset-lifecycle-timeline-unknown-actor');
 }
 
+/** The event an import writes for each asset it creates. */
+function isImported(event: AssetLifecycleEvent): boolean {
+  return !event.from_status && typeof event.metadata?.import_job_id === 'string';
+}
+
 function transitionSummary(event: AssetLifecycleEvent): string {
+  if (isImported(event)) {
+    return t('asset-lifecycle-timeline-imported', { to: assetStatusLabel(t, event.to_status) });
+  }
   return lifecycleTransitionLabel(t, event.from_status, event.to_status);
+}
+
+/** The typed reason; an import's own reason is already in the summary. */
+function reasonText(event: AssetLifecycleEvent): string | null {
+  return isImported(event) ? null : (event.reason ?? null);
 }
 
 function metadataLines(event: AssetLifecycleEvent): string[] {
@@ -176,7 +189,7 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
           </span>
         </div>
         <div
-          v-if="event.ticket_id || event.reason || metadataLines(event).length"
+          v-if="event.ticket_id || reasonText(event) || metadataLines(event).length"
           class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-secondary"
         >
           <RouterLink
@@ -186,7 +199,7 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
           >
             {{ $t('asset-lifecycle-timeline-ticket', { id: numberForTicketId(event.ticket_id) ?? '' }) }}
           </RouterLink>
-          <span v-if="event.reason">{{ event.reason }}</span>
+          <span v-if="reasonText(event)">{{ reasonText(event) }}</span>
           <span v-for="(line, idx) in metadataLines(event)" :key="idx">{{ line }}</span>
         </div>
       </div>

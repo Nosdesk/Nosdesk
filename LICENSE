@@ -3,21 +3,31 @@ Business Source License 1.1
 Parameters
 
 Licensor:             Nosdesk Pty Ltd
-Licensed Work:        Nosdesk 1.1.0
+Licensed Work:        Nosdesk 1.1.2
                       The Licensed Work is (c) 2026 Nosdesk Pty Ltd
-Additional Use Grant: You may make use of the Licensed Work, provided that
-                      you do not use the Licensed Work for a Helpdesk
+Additional Use Grant: You may make production use of the Licensed Work,
+                      provided you do not offer it as a Hosted Helpdesk
                       Service.
 
-                      A "Helpdesk Service" is a commercial offering that lets
-                      third parties (other than your employees and
-                      contractors) run their own helpdesk or IT management
-                      with the Licensed Work, for example by creating their
-                      own organizations, handling tickets as agents, or
-                      managing IT assets they control. Using the Licensed
-                      Work to support your own customers, users or members,
-                      including letting them submit and follow tickets, is
-                      not a Helpdesk Service.
+                      A "Hosted Helpdesk Service" is a commercial service in
+                      which you host or operate the Licensed Work on
+                      infrastructure you control, for a third party (other
+                      than your affiliates, employees and contractors) to use
+                      as that third party's own help desk, service desk or IT
+                      asset management system, unless you have a written
+                      agreement with Nosdesk Pty Ltd that permits it.
+
+                      These are not a Hosted Helpdesk Service: (a) using the
+                      Licensed Work to provide support, IT or other services
+                      to your own customers or clients, including letting them
+                      submit tickets and managing IT assets on their behalf;
+                      and (b) installing, configuring, maintaining or
+                      supporting the Licensed Work for a third party that runs
+                      it on infrastructure that third party controls, under
+                      this License.
+
+                      "Affiliates" are entities that control, are controlled
+                      by, or are under common control with you.
 
 Change Date:          2029-10-29
 

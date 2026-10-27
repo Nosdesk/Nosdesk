@@ -128,7 +128,7 @@ export default defineConfig({
               // it ungrouped lets Rolldown split it into its own async
               // chunk so the eval never runs in the eager startup path.
               name: 'vendor-media',
-              test: /node_modules[\\/](jszip|qrcode|highlight\.js|lowlight)[\\/]/,
+              test: /node_modules[\\/](qrcode|highlight\.js|lowlight)[\\/]/,
               priority: 10,
             },
           ],

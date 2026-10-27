@@ -213,11 +213,12 @@ pub fn conflict_with_code(message: impl Into<String>, code: &str) -> HttpRespons
 /// 409 for a staff-seat action refused because the control plane owns the
 /// identity in hosted mode. `code: "externally_managed"` is the stable code the
 /// SPA reflects; the product must hand the caller off to the control plane.
+/// Message of [`externally_managed`], for callers that report it per row.
+pub const EXTERNALLY_MANAGED_MESSAGE: &str =
+    "Team members are managed in the Nosdesk control plane. Add, re-role, or remove seats there.";
+
 pub fn externally_managed() -> HttpResponse {
-    let resp = conflict_with_code(
-        "Team members are managed in the Nosdesk control plane. Add, re-role, or remove seats there.",
-        "externally_managed",
-    );
+    let resp = conflict_with_code(EXTERNALLY_MANAGED_MESSAGE, "externally_managed");
     stamp(resp, "externally_managed")
 }
 

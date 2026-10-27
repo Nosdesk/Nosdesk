@@ -1,9 +1,10 @@
 //! `DELETE /users/{uuid}` verifies the caller's re-authentication.
 //!
-//! The confirmation modal collects the deleting admin's password or 2FA code;
-//! the handler must check it, not just the admin role. Same rule as signing
-//! out all other sessions: an account with nothing to step up with (no local
-//! password, no MFA) passes on a full session alone.
+//! The confirmation modal collects the deleting admin's password or 2FA code,
+//! or the admin confirms the session first (passkey, identity provider); the
+//! handler must check it, not just the admin role. Same rule as signing out
+//! all other sessions: an empty credential passes only on a session confirmed
+//! within the step-up window, whatever the account.
 
 #![allow(clippy::expect_used)]
 
@@ -64,24 +65,29 @@ fn give_local_password(conn: &mut PgConnection, user: &User) {
         .expect("insert local identity");
 }
 
-fn admin_claims(user: &User) -> Claims {
+fn admin_claims(user: &User, sid: Option<Uuid>) -> Claims {
     Claims {
         sub: user.uuid.to_string(),
         name: user.name.clone(),
         email: String::new(),
         platform_role: "platform_admin".to_string(),
         scope: "full".to_string(),
-        sid: None,
+        sid: sid.map(|s| s.to_string()),
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
     }
 }
 
-/// A test server that runs every request as `admin` in workspace 1.
-fn spawn(pool: &crate::common::TestPool, admin: &User) -> actix_test::TestServer {
+/// A test server that runs every request as `admin` in workspace 1, on
+/// session `sid` when given.
+fn spawn(
+    pool: &crate::common::TestPool,
+    admin: &User,
+    sid: Option<Uuid>,
+) -> actix_test::TestServer {
     let pool = pool.clone();
-    let claims = admin_claims(admin);
+    let claims = admin_claims(admin, sid);
     let admin_uuid = admin.uuid;
     actix_test::start(move || {
         let claims = claims.clone();
@@ -130,7 +136,7 @@ async fn deleting_a_user_requires_the_callers_password() {
     give_local_password(&mut conn, &admin);
     let target = member(&mut conn, "Target", "member");
 
-    let srv = spawn(&pool, &admin);
+    let srv = spawn(&pool, &admin, None);
     let url = srv.url(&format!("/users/{}", target.uuid));
 
     let resp = awc::Client::new()
@@ -172,21 +178,108 @@ async fn deleting_a_user_requires_the_callers_password() {
     assert!(deleted_at(&mut conn, target.uuid).is_some());
 }
 
+/// A live session for `user`, last confirmed `confirmed_ago` (never when
+/// `None`).
+fn session(
+    conn: &mut backend::db::DbConnection,
+    user: &User,
+    confirmed_ago: Option<chrono::Duration>,
+) -> Uuid {
+    let now = chrono::Utc::now();
+    backend::repository::active_sessions::create_session(
+        conn,
+        backend::models::NewActiveSession {
+            user_uuid: user.uuid,
+            device_name: None,
+            ip_address: None,
+            user_agent: None,
+            location: None,
+            expires_at: (now + chrono::Duration::days(1)).naive_utc(),
+            oidc_id_token: None,
+            confirmed_at: confirmed_ago.map(|ago| (now - ago).naive_utc()),
+        },
+    )
+    .expect("session")
+    .session_id
+}
+
 #[actix_web::test]
-async fn an_sso_only_caller_without_mfa_steps_up_with_the_session_alone() {
+async fn an_sso_only_caller_confirms_the_session_first() {
     crate::common::ensure_test_keyring();
     let db = crate::common::TestDb::new();
     let pool = db.pool_with_size(4);
     let mut conn = pool.get().expect("conn");
     let admin = member(&mut conn, "Admin", "admin");
     let target = member(&mut conn, "Target", "member");
+    let delete = |srv: &actix_test::TestServer| {
+        awc::Client::new()
+            .delete(srv.url(&format!("/users/{}", target.uuid)))
+            .send_json(&json!({}))
+    };
 
-    let srv = spawn(&pool, &admin);
+    // Nothing to type and nothing confirmed: refused (the old empty pass).
+    let unconfirmed = session(&mut conn, &admin, None);
+    let resp = delete(&spawn(&pool, &admin, Some(unconfirmed)))
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 400, "an unconfirmed session is refused");
+
+    // Another session's confirmation covers only that session.
+    let _other = session(&mut conn, &admin, Some(chrono::Duration::zero()));
+    let resp = delete(&spawn(&pool, &admin, Some(unconfirmed)))
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 400, "another session's confirmation");
+
+    let stale = session(
+        &mut conn,
+        &admin,
+        Some(chrono::Duration::minutes(
+            backend::services::step_up::WINDOW_MINUTES + 1,
+        )),
+    );
+    let resp = delete(&spawn(&pool, &admin, Some(stale)))
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 400, "a confirmation past the window");
+
+    // No session at all (a legacy token): refused.
+    let resp = delete(&spawn(&pool, &admin, None)).await.expect("send");
+    assert_eq!(resp.status(), 400, "no session to have confirmed");
+    assert!(deleted_at(&mut conn, target.uuid).is_none());
+
+    let fresh = session(&mut conn, &admin, Some(chrono::Duration::minutes(2)));
+    let resp = delete(&spawn(&pool, &admin, Some(fresh)))
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 200, "a session confirmed in the window");
+    assert!(deleted_at(&mut conn, target.uuid).is_some());
+}
+
+#[actix_web::test]
+async fn a_correct_password_confirms_the_session_for_the_window() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let mut conn = pool.get().expect("conn");
+    let admin = member(&mut conn, "Admin", "admin");
+    give_local_password(&mut conn, &admin);
+    let first = member(&mut conn, "First", "member");
+    let second = member(&mut conn, "Second", "member");
+    let sid = session(&mut conn, &admin, None);
+    let srv = spawn(&pool, &admin, Some(sid));
+
     let resp = awc::Client::new()
-        .delete(srv.url(&format!("/users/{}", target.uuid)))
-        .send_json(&json!({}))
+        .delete(srv.url(&format!("/users/{}", first.uuid)))
+        .send_json(&json!({ "password": PASSWORD }))
         .await
         .expect("send");
     assert_eq!(resp.status(), 200);
-    assert!(deleted_at(&mut conn, target.uuid).is_some());
+    let resp = awc::Client::new()
+        .delete(srv.url(&format!("/users/{}", second.uuid)))
+        .send_json(&json!({}))
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 200, "the next deletion needs no password");
+    assert!(deleted_at(&mut conn, second.uuid).is_some());
 }

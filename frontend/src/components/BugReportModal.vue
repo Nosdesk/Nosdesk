@@ -10,7 +10,12 @@
   <Modal :show="isOpen" :title="$t('bug-report-modal-title')" size="sm" @close="close">
     <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
       <p class="text-sm text-secondary">
-        {{ $t('bug-report-modal-attachments-hint') }}
+        {{ hosted ? $t('bug-report-modal-attachments-hint-hosted') : $t('bug-report-modal-attachments-hint-self-hosted') }}
+      </p>
+      <!-- Cloud: account and billing questions need a person, not a report. -->
+      <p v-if="hosted" class="flex flex-wrap items-center gap-x-1 text-sm text-secondary">
+        {{ $t('bug-report-modal-support-hint') }}
+        <SupportAddress />
       </p>
 
       <FormTextarea
@@ -43,6 +48,8 @@ import { useFluent } from 'fluent-vue'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
+import SupportAddress from '@/components/SupportAddress.vue'
+import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig'
 import apiClient from '@nosdesk/core/apiClient'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import { getSessionId } from '@/services/diagnostics/session'
@@ -57,6 +64,11 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const description = ref('')
 const loading = ref(false)
+
+// Who reads a report differs by deployment: on Cloud it goes to the Nosdesk
+// team; self-hosted, it stays on the server for its operators (the
+// `/admin/bug-reports` view, plus NOSDESK_OPS_EMAIL when the operator set one).
+const hosted = isHostedDeploymentRef
 
 const canSubmit = computed(() => description.value.trim().length > 0 && !loading.value)
 
@@ -90,7 +102,7 @@ async function handleSubmit() {
     await apiClient.post('/bug-reports', buildPayload())
     toast.success(
       fluent.$t('bug-report-success-toast-title'),
-      fluent.$t('bug-report-success-toast-body'),
+      fluent.$t(hosted.value ? 'bug-report-success-toast-body-hosted' : 'bug-report-success-toast-body-self-hosted'),
     )
     emit('close')
   } catch {

@@ -382,11 +382,178 @@ impl FileValidator {
 
         Ok(sanitized)
     }
+
+    /// The name a file is shown and downloaded under, from the name the client
+    /// or sender gave it. Unlike [`Self::sanitize_filename`], which makes the
+    /// storage key, it keeps spaces, punctuation and any script, so
+    /// "Q3 report (final).pdf" stays as written. It is never part of a path.
+    ///
+    /// - Keeps only the last path component (either separator).
+    /// - Drops control characters (newlines included) and the invisible
+    ///   characters that reorder or disguise text (bidi overrides and isolates,
+    ///   directional marks, line and paragraph separators, the BOM).
+    /// - Trims surrounding whitespace and leading dots.
+    /// - Caps the length at [`MAX_DISPLAY_NAME_CHARS`], keeping a short
+    ///   extension.
+    ///
+    /// `None` when nothing is left, so the caller falls back to the storage
+    /// name.
+    pub fn display_filename(filename: &str) -> Option<String> {
+        let last = filename.rsplit(['/', '\\']).next().unwrap_or_default();
+        let cleaned: String = last.chars().filter(|c| !is_hidden_char(*c)).collect();
+        let trimmed = cleaned
+            .trim()
+            .trim_start_matches(|c: char| c == '.' || c.is_whitespace());
+        let capped = cap_display_name(trimmed);
+        let capped = capped.trim_end();
+        (!capped.is_empty()).then(|| capped.to_string())
+    }
+}
+
+/// Longest display name kept, in characters.
+pub const MAX_DISPLAY_NAME_CHARS: usize = 255;
+
+/// Longest extension kept whole when a display name is shortened.
+const MAX_KEPT_EXTENSION_CHARS: usize = 16;
+
+/// Control characters, and the invisible characters that can make a name read
+/// differently from what it is: "invoice\u{202E}fdp.exe" displays as
+/// "invoiceexe.pdf".
+fn is_hidden_char(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{061C}' // Arabic letter mark
+            | '\u{200E}' | '\u{200F}' // left-to-right and right-to-left marks
+            | '\u{2028}' | '\u{2029}' // line and paragraph separators
+            | '\u{202A}'..='\u{202E}' // embeddings and overrides
+            | '\u{2066}'..='\u{2069}' // isolates
+            | '\u{FEFF}' // byte order mark
+        )
+}
+
+/// `name` within [`MAX_DISPLAY_NAME_CHARS`], shortening the stem so a short
+/// extension survives.
+fn cap_display_name(name: &str) -> String {
+    let len = name.chars().count();
+    if len <= MAX_DISPLAY_NAME_CHARS {
+        return name.to_string();
+    }
+    if let Some((stem, ext)) = name.rsplit_once('.') {
+        let ext_len = ext.chars().count();
+        if !stem.is_empty() && ext_len > 0 && ext_len <= MAX_KEPT_EXTENSION_CHARS {
+            let stem: String = stem
+                .chars()
+                .take(MAX_DISPLAY_NAME_CHARS - ext_len - 1)
+                .collect();
+            return format!("{}.{ext}", stem.trim_end());
+        }
+    }
+    name.chars().take(MAX_DISPLAY_NAME_CHARS).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_filename_keeps_spaces_and_punctuation() {
+        assert_eq!(
+            FileValidator::display_filename("Q3 report (final).pdf").as_deref(),
+            Some("Q3 report (final).pdf")
+        );
+        assert_eq!(
+            FileValidator::display_filename("Sam's notes, v2 [draft] & more.txt").as_deref(),
+            Some("Sam's notes, v2 [draft] & more.txt")
+        );
+    }
+
+    #[test]
+    fn display_filename_keeps_unicode() {
+        assert_eq!(
+            FileValidator::display_filename("résumé Zoë.pdf").as_deref(),
+            Some("résumé Zoë.pdf")
+        );
+        assert_eq!(
+            FileValidator::display_filename("会议记录 2026.docx").as_deref(),
+            Some("会议记录 2026.docx")
+        );
+        assert_eq!(
+            FileValidator::display_filename("تقرير.pdf").as_deref(),
+            Some("تقرير.pdf")
+        );
+    }
+
+    #[test]
+    fn display_filename_drops_path_components() {
+        assert_eq!(
+            FileValidator::display_filename("../../etc/passwd").as_deref(),
+            Some("passwd")
+        );
+        assert_eq!(
+            FileValidator::display_filename("..\\..\\windows\\system32\\a b.ini").as_deref(),
+            Some("a b.ini")
+        );
+        assert_eq!(
+            FileValidator::display_filename("C:\\Users\\sam\\My Report.pdf").as_deref(),
+            Some("My Report.pdf")
+        );
+        assert_eq!(FileValidator::display_filename("dir/"), None);
+    }
+
+    #[test]
+    fn display_filename_strips_control_and_bidi_characters() {
+        assert_eq!(
+            FileValidator::display_filename("line\r\nbreak\0.txt").as_deref(),
+            Some("linebreak.txt")
+        );
+        assert_eq!(
+            FileValidator::display_filename("tab\there.txt").as_deref(),
+            Some("tabhere.txt")
+        );
+        assert_eq!(
+            FileValidator::display_filename("invoice\u{202E}fdp.exe").as_deref(),
+            Some("invoicefdp.exe")
+        );
+        assert_eq!(
+            FileValidator::display_filename("\u{2067}a\u{2069}\u{200F}b\u{2028}c\u{FEFF}.txt")
+                .as_deref(),
+            Some("abc.txt")
+        );
+    }
+
+    #[test]
+    fn display_filename_trims_whitespace_and_leading_dots() {
+        assert_eq!(
+            FileValidator::display_filename("  .hidden file.txt  ").as_deref(),
+            Some("hidden file.txt")
+        );
+        assert_eq!(
+            FileValidator::display_filename(". . name.txt").as_deref(),
+            Some("name.txt")
+        );
+    }
+
+    #[test]
+    fn display_filename_is_none_when_nothing_is_left() {
+        assert_eq!(FileValidator::display_filename(""), None);
+        assert_eq!(FileValidator::display_filename("   "), None);
+        assert_eq!(FileValidator::display_filename(".."), None);
+        assert_eq!(FileValidator::display_filename("../.."), None);
+        assert_eq!(FileValidator::display_filename("\u{202E}\r\n"), None);
+    }
+
+    #[test]
+    fn display_filename_caps_length_and_keeps_the_extension() {
+        let long = format!("{}.pdf", "あ".repeat(400));
+        let got = FileValidator::display_filename(&long).unwrap();
+        assert_eq!(got.chars().count(), MAX_DISPLAY_NAME_CHARS);
+        assert!(got.ends_with("あ.pdf"));
+
+        let no_ext = "x".repeat(400);
+        let got = FileValidator::display_filename(&no_ext).unwrap();
+        assert_eq!(got.chars().count(), MAX_DISPLAY_NAME_CHARS);
+    }
 
     #[test]
     fn test_sanitize_filename() {

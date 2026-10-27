@@ -1,34 +1,28 @@
-//! Workspace-scoped import — Phase 2 of the tenant export/import primitive.
+//! Workspace import: reads an export archive (see `workspace_export`) and
+//! loads it through the import plan (`workspace_archive::plan`).
 //!
-//! Reads a Phase 1 export archive (see `workspace_export`) and reconstructs the
-//! workspace in THIS database as a NEW workspace with a fresh integer id,
-//! remapping every integer primary key and foreign key so it can't collide with
-//! the pooled cell's other tenants. Users are matched/upserted by `uuid`
-//! (global, never remapped). The whole import runs in one transaction and rolls
-//! back on any error.
+//! [`read_archive`] unseals, verifies and version-checks the archive. The
+//! import into an existing workspace is `workspace_archive::apply`.
+//! [`import_workspace`] loads it as a NEW workspace: it creates the workspace
+//! row, plans the import into it (people map, keys, collisions), then writes
+//! the plan's people and rows. Every integer and uuid key is drawn afresh and
+//! rewritten across the foreign-key graph; every user reference goes through
+//! the people map, which never attaches an existing account by its archive
+//! uuid. The whole import runs in one transaction and rolls back on any error.
 //!
 //! Execution model: the import runs on a BYPASSRLS connection (the caller wraps
 //! it in `with_actor_bypass_context` / `PlatformConn`) and sets
 //! `nosdesk.in_audit_read = 'true'` for the transaction, which short-circuits
 //! both audit-capture triggers. Sync events are never generated (the import
 //! writes raw, not through `sync::emit`), and FK integrity comes from the
-//! topological insert order — so no `session_replication_role` / superuser is
-//! required, and it works on the pooled hosted connection. Integer primary keys
-//! are drawn fresh from each table's sequence and old ids are rewritten across
-//! the FK graph; users are matched/upserted by uuid (never remapped).
-//!
-//! Composite-PK junction tables (no `id` column) are inserted verbatim after
-//! their FK columns are remapped — nothing references them by id.
+//! plan's load order, so no `session_replication_role` or superuser is needed.
 //!
 //! Known assumption: an integer FK from a tenant table to a table OUTSIDE the
 //! import set (a global lookup like `notification_types`, seeded with fixed ids
-//! by the migrations) keeps its original id. This is correct only when the target
-//! was seeded from the same migrations (the realistic hosted case); a divergent
-//! target fails the FK loudly (closed, never silent). Cross-table FK cycles are
-//! rejected rather than deferred, and a NOT-NULL self-reference would break the
-//! null-then-update pass — neither occurs in the current schema.
+//! by the migrations) keeps its original id. The version gate makes that hold:
+//! both servers run the same migrations.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::io::Read;
 
 use diesel::deserialize::QueryableByName;
@@ -37,8 +31,13 @@ use diesel::sql_query;
 use diesel::sql_types::{BigInt, Text};
 use serde_json::{json, Value};
 
+use crate::middleware::workspace_context::DeploymentMode;
 use crate::services::backup::{sha256_hex, table_exists_in_db, unseal_inner_zip, BackupError};
+use crate::services::workspace_archive::plan::{self, ImportReport, PlanRefusal, Runner};
+use crate::services::workspace_archive::{files, rows};
 use crate::services::workspace_export::WorkspaceExportManifest;
+
+pub use crate::services::workspace_archive::plan::{discover_fk_edges, topological_order, FkEdge};
 
 /// Envelope magic for a sealed archive (mirrors `backup::ENCRYPTED_MAGIC`); a
 /// plaintext archive is a bare zip (`PK\x03\x04`).
@@ -51,37 +50,146 @@ pub struct ArchiveContents {
     pub tables: HashMap<String, Vec<Value>>,
     /// `files/{path}` entries: the archive-relative path and the bytes.
     pub files: Vec<(String, Vec<u8>)>,
+    /// `avatars/{name}` entries: people's avatars, by their archive path.
+    pub avatars: Vec<(String, Vec<u8>)>,
 }
 
-/// A single-column integer foreign-key edge: `child_table.child_column`
-/// references `parent_table.id`. Drives both the remap (rewrite the child column
-/// via the parent's id map) and the topological insert order.
-#[derive(Debug, Clone)]
-pub struct FkEdge {
-    pub child_table: String,
-    pub child_column: String,
-    pub parent_table: String,
+/// Why an export can't be imported here. A workspace moves only between
+/// servers at the same schema, so each refusal names the Nosdesk release to
+/// run on one side or the other.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportRefusal {
+    /// Format 1 (Nosdesk 1.1.2 and earlier) carries no email addresses, so
+    /// nobody it brings could sign in.
+    FormatTooOld { export_version: String },
+    /// Made at an earlier schema than this server's, by `release`.
+    Earlier { release: String },
+    /// Made by a later Nosdesk than this server.
+    Newer { export_version: String },
+    /// Made at a schema this server doesn't know: a development build, or
+    /// migrations edited after they shipped.
+    Unknown { export_version: String },
+    /// The import plan refuses it (`workspace_archive::plan::PlanRefusal`).
+    Plan(Vec<PlanRefusal>),
 }
 
-/// Whether `manifest` was exported at this build's schema. Compared by the
-/// stable SHA-256 of the migrations when the archive records it; an archive
-/// from before that falls back to `build.rs`'s older fingerprint.
-fn same_schema(manifest: &WorkspaceExportManifest) -> bool {
-    let current = crate::services::backup_upgrade::current_schema();
-    match &manifest.schema_sha256 {
-        Some(sha256) => {
-            sha256 == current.sha256
-                && manifest.migration_version.as_deref() == Some(current.version)
+impl std::fmt::Display for ImportRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let current = env!("CARGO_PKG_VERSION");
+        match self {
+            ImportRefusal::FormatTooOld { export_version } => write!(
+                f,
+                "This export was made by Nosdesk {export_version}, in an older format that \
+                 doesn't carry people's email addresses. Update the server it came from to \
+                 Nosdesk {current}, then export the workspace again."
+            ),
+            ImportRefusal::Earlier { release } => write!(
+                f,
+                "This export was made by Nosdesk {release}, and this server runs Nosdesk \
+                 {current}. Both servers need the same version: update the server it came from \
+                 to Nosdesk {current} and export again, or import it on a server running \
+                 Nosdesk {release}."
+            ),
+            ImportRefusal::Newer { export_version } => write!(
+                f,
+                "This export was made by Nosdesk {export_version}, which is newer than this \
+                 server (Nosdesk {current}). Update this server to Nosdesk {export_version}, \
+                 then import it."
+            ),
+            ImportRefusal::Unknown { export_version } => write!(
+                f,
+                "This export (Nosdesk {export_version}) has a database layout this server \
+                 doesn't recognise, as a development build's does. Export the workspace again \
+                 from a server running Nosdesk {current}."
+            ),
+            ImportRefusal::Plan(refusals) => {
+                let messages: Vec<String> = refusals.iter().map(|r| r.to_string()).collect();
+                f.write_str(&messages.join(" "))
+            }
         }
-        None => manifest.schema_hash == env!("NOSDESK_SCHEMA_HASH"),
+    }
+}
+
+impl ImportRefusal {
+    /// The code a client words the refusal by. A plan refusal answers with
+    /// the first of its own codes.
+    pub fn code(&self) -> &'static str {
+        match self {
+            ImportRefusal::FormatTooOld { .. } => "workspace_import.format_too_old",
+            ImportRefusal::Earlier { .. } => "workspace_import.earlier_version",
+            ImportRefusal::Newer { .. } => "workspace_import.newer_version",
+            ImportRefusal::Unknown { .. } => "workspace_import.unknown_version",
+            ImportRefusal::Plan(refusals) => refusals
+                .first()
+                .map_or("workspace_import.refused", PlanRefusal::code),
+        }
+    }
+
+    /// As the import surfaces' shared refusal: code, English and the values
+    /// the wording takes (the export's version, this server's, and for a plan
+    /// refusal every refusal under `refusals`).
+    pub fn to_refused(&self) -> crate::services::imports::refusal::Refused {
+        use crate::services::imports::refusal::Refused;
+        let refused = Refused::new(self.code(), self.to_string())
+            .arg("server_version", env!("CARGO_PKG_VERSION"));
+        match self {
+            ImportRefusal::FormatTooOld { export_version }
+            | ImportRefusal::Newer { export_version }
+            | ImportRefusal::Unknown { export_version } => {
+                refused.arg("export_version", export_version.clone())
+            }
+            ImportRefusal::Earlier { release } => refused.arg("export_version", release.clone()),
+            ImportRefusal::Plan(refusals) => refused.arg(
+                "refusals",
+                refusals
+                    .iter()
+                    .map(|r| {
+                        let r = r.to_refused();
+                        json!({ "code": r.code, "message": r.message, "args": r.args })
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        }
+    }
+}
+
+/// Whether an export with `manifest` imports here: format 2 or later, made at
+/// this build's schema (`backup_upgrade::schema_point_of`).
+pub fn check_importable(manifest: &WorkspaceExportManifest) -> Result<(), ImportRefusal> {
+    use crate::services::backup_upgrade::{self, NotRestorable, SchemaMarker, SchemaPoint};
+    use crate::services::workspace_export::WORKSPACE_EXPORT_FORMAT_VERSION;
+
+    let export_version = manifest.nosdesk_version.clone();
+    let format = manifest.workspace_export_format_version;
+    if format < WORKSPACE_EXPORT_FORMAT_VERSION {
+        return Err(ImportRefusal::FormatTooOld { export_version });
+    }
+    if format > WORKSPACE_EXPORT_FORMAT_VERSION {
+        return Err(ImportRefusal::Newer { export_version });
+    }
+    let point = backup_upgrade::schema_point_of(SchemaMarker {
+        nosdesk_version: &manifest.nosdesk_version,
+        schema_hash: &manifest.schema_hash,
+        migration_version: manifest.migration_version.as_deref(),
+        schema_sha256: manifest.schema_sha256.as_deref(),
+    });
+    match point {
+        Ok(SchemaPoint::Current) => Ok(()),
+        Ok(SchemaPoint::Earlier { migration }) => Err(ImportRefusal::Earlier {
+            release: backup_upgrade::release_at(migration)
+                .map(str::to_string)
+                .unwrap_or(export_version),
+        }),
+        Err(NotRestorable::Newer { .. }) => Err(ImportRefusal::Newer { export_version }),
+        Err(NotRestorable::Unknown { .. }) => Err(ImportRefusal::Unknown { export_version }),
     }
 }
 
 /// Read + verify an export archive from bytes. Unseals when the `NODB` envelope
 /// is present (password required), then unzips and parses the manifest, the
-/// per-table row arrays, and the file blobs. Refuses on a schema-hash or
-/// format-version mismatch — a different schema means a different FK graph /
-/// column set, so a remap would be unsafe.
+/// per-table row arrays, and the file blobs. Refuses an export from another
+/// format or schema ([`check_importable`]): a different schema means a
+/// different FK graph and column set, so a remap would be unsafe.
 pub fn read_archive(
     archive: &[u8],
     password: Option<&str>,
@@ -108,21 +216,19 @@ pub fn read_archive(
         serde_json::from_str(&s).map_err(BackupError::JsonError)?
     };
 
-    if !same_schema(&manifest) {
-        return Err(BackupError::CorruptedBackup(format!(
-            "schema mismatch: the archive was exported by Nosdesk {} at another schema; import \
-             needs a matching schema so the FK graph and columns line up",
-            manifest.nosdesk_version
-        )));
-    }
+    check_importable(&manifest).map_err(BackupError::NotImportable)?;
 
     // Collect entry names first (the archive borrow can't span by_index calls).
     let names: Vec<String> = (0..zip.len())
-        .filter_map(|i| zip.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter_map(|i| {
+            let f = zip.by_index(i).ok()?;
+            f.name().ok().map(|n| n.to_string())
+        })
         .collect();
 
     let mut tables: HashMap<String, Vec<Value>> = HashMap::new();
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut avatars: Vec<(String, Vec<u8>)> = Vec::new();
 
     for name in names {
         if let Some(table) = name
@@ -134,157 +240,46 @@ pub fn read_archive(
             f.read_to_string(&mut s).map_err(BackupError::IoError)?;
             // Integrity: the payload must match the manifest's per-table hash, so
             // silent corruption of a data/*.json entry is caught before it's
-            // inserted (the manifest itself is under the AES-GCM envelope).
-            if let Some(tm) = manifest.tables.get(table) {
-                let actual = sha256_hex(s.as_bytes());
-                if actual != tm.sha256 {
-                    return Err(BackupError::CorruptedBackup(format!(
-                        "checksum mismatch for data/{table}.json (archive corrupted)"
-                    )));
-                }
+            // inserted (the manifest itself is under the AES-GCM envelope). An
+            // entry the manifest doesn't list has nothing to check against.
+            let Some(tm) = manifest.tables.get(table) else {
+                return Err(BackupError::CorruptedBackup(format!(
+                    "data/{table}.json isn't in the manifest (archive corrupted)"
+                )));
+            };
+            if sha256_hex(s.as_bytes()) != tm.sha256 {
+                return Err(BackupError::CorruptedBackup(format!(
+                    "checksum mismatch for data/{table}.json (archive corrupted)"
+                )));
             }
             let rows: Vec<Value> = serde_json::from_str(&s).map_err(BackupError::JsonError)?;
             tables.insert(table.to_string(), rows);
-        } else if name.starts_with("files/") && !name.ends_with('/') {
+        } else if name.ends_with('/') {
+            continue;
+        } else if name.starts_with("files/") || name.starts_with("avatars/") {
             let mut f = zip.by_name(&name).map_err(BackupError::ZipError)?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf).map_err(BackupError::IoError)?;
-            files.push((name, buf));
+            if name.starts_with("files/") {
+                files.push((name, buf));
+            } else {
+                avatars.push((name, buf));
+            }
         }
+    }
+    // A table the manifest lists whose rows are gone would import as empty.
+    if let Some(table) = manifest.tables.keys().find(|t| !tables.contains_key(*t)) {
+        return Err(BackupError::CorruptedBackup(format!(
+            "data/{table}.json is missing (archive corrupted)"
+        )));
     }
 
     Ok(ArchiveContents {
         manifest,
         tables,
         files,
+        avatars,
     })
-}
-
-/// Discover integer foreign-key edges (child column → `parent.id`) among
-/// `tables`, from `pg_constraint`: single-column keys, and the two-column keys
-/// between workspace tables, `(workspace_id, x_id)` → `(workspace_id, id)`,
-/// whose edge is `x_id`. Only FKs whose referenced column is `id` are returned —
-/// those are the integer keys a remap must rewrite. User FKs (referencing
-/// `users.uuid`) are intentionally excluded; users are resolved by uuid, not
-/// remapped.
-pub fn discover_fk_edges(
-    conn: &mut crate::db::DbConnection,
-    tables: &HashSet<String>,
-) -> Result<Vec<FkEdge>, BackupError> {
-    #[derive(QueryableByName)]
-    struct EdgeRow {
-        #[diesel(sql_type = Text)]
-        child_table: String,
-        #[diesel(sql_type = Text)]
-        child_column: String,
-        #[diesel(sql_type = Text)]
-        parent_table: String,
-        #[diesel(sql_type = Text)]
-        parent_column: String,
-    }
-
-    let rows: Vec<EdgeRow> = sql_query(
-        "SELECT con.conrelid::regclass::text AS child_table, \
-                child_col.attname AS child_column, \
-                con.confrelid::regclass::text AS parent_table, \
-                parent_col.attname AS parent_column \
-         FROM pg_constraint con \
-         CROSS JOIN LATERAL unnest(con.conkey, con.confkey) AS k(child_attnum, parent_attnum) \
-         JOIN pg_attribute child_col \
-           ON child_col.attrelid = con.conrelid AND child_col.attnum = k.child_attnum \
-         JOIN pg_attribute parent_col \
-           ON parent_col.attrelid = con.confrelid AND parent_col.attnum = k.parent_attnum \
-         WHERE con.contype = 'f' \
-           AND con.connamespace = 'public'::regnamespace \
-           AND (array_length(con.conkey, 1) = 1 \
-                OR (array_length(con.conkey, 1) = 2 \
-                    AND child_col.attname <> 'workspace_id' \
-                    AND EXISTS ( \
-                        SELECT 1 FROM unnest(con.conkey, con.confkey) AS w(child_attnum, parent_attnum) \
-                        JOIN pg_attribute wc \
-                          ON wc.attrelid = con.conrelid AND wc.attnum = w.child_attnum \
-                        JOIN pg_attribute wp \
-                          ON wp.attrelid = con.confrelid AND wp.attnum = w.parent_attnum \
-                        WHERE wc.attname = 'workspace_id' AND wp.attname = 'workspace_id')))",
-    )
-    .load(conn)
-    .map_err(BackupError::DatabaseError)?;
-
-    Ok(rows
-        .into_iter()
-        .filter(|e| e.parent_column == "id")
-        .filter(|e| tables.contains(&e.child_table) && tables.contains(&e.parent_table))
-        .map(|e| FkEdge {
-            child_table: e.child_table,
-            child_column: e.child_column,
-            parent_table: e.parent_table,
-        })
-        .collect())
-}
-
-/// Topologically order `tables` so a parent inserts before its children, given
-/// the integer-FK `edges`. Self-references (a table pointing at itself) are
-/// ignored for ordering — they're handled by a per-table second pass during the
-/// insert, so they can't create a false cycle. A genuine cross-table cycle
-/// returns an error (the caller can fall back to deferred handling).
-pub fn topological_order(tables: &[String], edges: &[FkEdge]) -> Result<Vec<String>, BackupError> {
-    let set: HashSet<&str> = tables.iter().map(|s| s.as_str()).collect();
-    let mut indegree: HashMap<&str, usize> = tables.iter().map(|t| (t.as_str(), 0)).collect();
-    let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
-
-    for e in edges {
-        // child depends on parent; skip self-refs and edges outside the set.
-        if e.child_table == e.parent_table {
-            continue;
-        }
-        if !set.contains(e.child_table.as_str()) || !set.contains(e.parent_table.as_str()) {
-            continue;
-        }
-        children
-            .entry(e.parent_table.as_str())
-            .or_default()
-            .push(e.child_table.as_str());
-        *indegree.get_mut(e.child_table.as_str()).unwrap() += 1;
-    }
-
-    // Kahn's algorithm; drain zero-indegree nodes in a stable (sorted) order so
-    // the output is deterministic across runs.
-    let mut queue: VecDeque<&str> = {
-        let mut zero: Vec<&str> = indegree
-            .iter()
-            .filter(|(_, d)| **d == 0)
-            .map(|(t, _)| *t)
-            .collect();
-        zero.sort_unstable();
-        zero.into_iter().collect()
-    };
-
-    let mut order: Vec<String> = Vec::with_capacity(tables.len());
-    while let Some(node) = queue.pop_front() {
-        order.push(node.to_string());
-        if let Some(kids) = children.get(node) {
-            let mut ready: Vec<&str> = Vec::new();
-            for &child in kids {
-                let d = indegree.get_mut(child).unwrap();
-                *d -= 1;
-                if *d == 0 {
-                    ready.push(child);
-                }
-            }
-            ready.sort_unstable();
-            for c in ready {
-                queue.push_back(c);
-            }
-        }
-    }
-
-    if order.len() != tables.len() {
-        return Err(BackupError::CorruptedBackup(
-            "foreign-key cycle among tenant tables; cannot topologically order for import"
-                .to_string(),
-        ));
-    }
-    Ok(order)
 }
 
 /// Caller-supplied import parameters.
@@ -300,8 +295,13 @@ pub struct ImportOptions {
     /// migration (identity continuity, no collision). Set true to clone a
     /// workspace into the SAME database, where the globally-unique uuids would
     /// otherwise collide. Only the row's own `uuid` identity column is minted;
-    /// `*_uuid` foreign keys (e.g. user references) are always preserved.
+    /// User references go through the people map either way.
     pub regenerate_uuids: bool,
+    /// Which mapping rules people follow. Explicit, never read from the
+    /// environment here.
+    pub mode: DeploymentMode,
+    /// Who runs the import: only their own emails merge into their account.
+    pub runner: Runner,
 }
 
 /// Summary of a completed import. File restore happens separately in the handler
@@ -311,14 +311,22 @@ pub struct ImportResult {
     pub slug: String,
     pub tables_imported: usize,
     pub rows_imported: i64,
+    /// The plan's report: per-table counts, the people map, handover items.
+    pub report: ImportReport,
+    /// Where the archive's files land, for `workspace_archive::files::restore`.
+    pub files: crate::services::workspace_archive::files::FilePlan,
 }
 
 /// Import a workspace's ROWS from an already-read archive into THIS database as a
 /// new workspace. Must be called on a BYPASSRLS connection (via
 /// `with_actor_bypass_context` / `PlatformConn`). Atomic: everything runs in one
 /// transaction and rolls back on any error. The caller reads the archive
-/// ([`read_archive`]) and, after this returns, restores `contents.files` through
-/// the storage abstraction (async) so file migration works on local and S3.
+/// ([`read_archive`]) and, after this returns, restores the archive's files
+/// through the storage abstraction (async, `workspace_archive::files::restore`
+/// with [`ImportResult::files`]) so file migration works on local and S3.
+///
+/// A plan refusal comes back as [`BackupError::NotImportable`] with
+/// [`ImportRefusal::Plan`].
 pub fn import_workspace(
     conn: &mut crate::db::DbConnection,
     contents: &ArchiveContents,
@@ -332,192 +340,91 @@ pub fn import_workspace(
         sql_query("SET LOCAL nosdesk.in_audit_read = 'true'").execute(conn)?;
 
         // The archive decides which tables get written, and this runs BYPASSRLS
-        // with the audit triggers suppressed above. `table_exists_in_db` (in the
-        // insert helpers) only asserts a table EXISTS, so without this an
-        // archive naming a global/platform table would have its rows inserted
-        // there, unaudited. Platform-admin gated, so this is not an escalation
-        // path; it matters because the archive itself is an untrusted input
-        // (operators accept export files to perform migrations).
-        //
-        // Checked before anything is written, so a rejected archive leaves no
-        // partial workspace behind. `workspaces` and `users` are handled
-        // separately below and are legitimately present.
-        let allowed = crate::services::workspace_export::discover_workspace_tables(conn)?;
-        let allowed: HashSet<&str> = allowed.iter().map(String::as_str).collect();
-        let mut rejected: Vec<&str> = contents
-            .tables
-            .keys()
-            .map(String::as_str)
-            .filter(|t| *t != "workspaces" && *t != "users")
-            .filter(|t| !allowed.contains(t))
-            .collect();
-        if !rejected.is_empty() {
-            rejected.sort_unstable();
+        // with the audit triggers suppressed above, so an archive naming a
+        // global or platform table is refused before anything is written. The
+        // archive is untrusted input even behind the platform-admin gate.
+        let outside = plan::tables_outside_workspace(conn, contents)?;
+        if !outside.is_empty() {
             return Err(BackupError::CorruptedBackup(format!(
                 "archive names tables that are not workspace-scoped: {}",
-                rejected.join(", ")
+                outside.join(", ")
             )));
         }
 
-        let (new_ws_id, slug) = create_target_workspace(conn, contents, opts)?;
-        upsert_members(conn, contents)?;
-
-        let tenant_tables: Vec<String> = contents
-            .tables
-            .keys()
-            .filter(|t| t.as_str() != "workspaces" && t.as_str() != "users")
-            .cloned()
-            .collect();
-        let tenant_set: HashSet<String> = tenant_tables.iter().cloned().collect();
-        let edges = discover_fk_edges(conn, &tenant_set)?;
-        let order = topological_order(&tenant_tables, &edges)?;
-
-        // table -> (old id -> new id), built as we go so a child can look up its
-        // already-imported parent.
-        let mut id_maps: HashMap<String, HashMap<i64, i64>> = HashMap::new();
-        let mut rows_imported = 0i64;
-        for table in &order {
-            let rows = contents
-                .tables
-                .get(table)
-                .map(|v| v.as_slice())
-                .unwrap_or(&[]);
-            rows_imported += remap_insert_table(
-                conn,
-                table,
-                rows,
-                &edges,
-                new_ws_id,
-                opts.regenerate_uuids,
-                &mut id_maps,
-            )?;
+        let (workspace_id, slug) = create_target_workspace(conn, contents, opts)?;
+        let target = plan::ImportTarget {
+            workspace_id,
+            mode: opts.mode,
+            runner: opts.runner.clone(),
+        };
+        let mut plan = plan::plan_import(
+            conn,
+            contents,
+            &target,
+            plan::PlanOptions {
+                regenerate_row_uuids: opts.regenerate_uuids,
+            },
+        )?;
+        if !plan.importable() {
+            return Err(BackupError::NotImportable(ImportRefusal::Plan(
+                plan.report.refusals.clone(),
+            )));
         }
+        let alloc = plan.allocate(conn)?;
+        let files = files::FilePlan::build(contents, &plan.file_lookup(&alloc))
+            .with_avatars(contents, plan.avatar_moves());
+        let (tables_imported, rows_imported) =
+            crate::services::workspace_archive::apply::load(conn, &mut plan, &alloc)?;
+        let workspace_uuid = crate::repository::workspaces::find_by_id(conn, workspace_id)?
+            .ok_or_else(|| {
+                BackupError::CorruptedBackup("the imported workspace is missing".to_string())
+            })?
+            .uuid;
+        files::settle_branding(conn, workspace_id, workspace_uuid, contents, &files, None)?;
 
         Ok(ImportResult {
-            workspace_id: new_ws_id,
+            workspace_id,
             slug,
-            tables_imported: order.len(),
+            tables_imported,
             rows_imported,
+            report: plan.report,
+            files,
         })
     })
 }
 
-/// The public-schema columns of `table` except `id`, in definition order. Used
-/// to build an explicit column list so `id` is omitted and drawn from the
-/// sequence. Names come from the catalog (safe); callers quote them.
-fn table_columns_except_id(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-) -> Result<Vec<String>, BackupError> {
-    #[derive(QueryableByName)]
-    struct Col {
-        #[diesel(sql_type = Text)]
-        column_name: String,
-    }
-    let rows: Vec<Col> = sql_query(
-        "SELECT column_name FROM information_schema.columns \
-         WHERE table_schema = 'public' AND table_name = $1 AND column_name <> 'id' \
-         ORDER BY ordinal_position",
-    )
-    .bind::<Text, _>(table)
-    .load(conn)
-    .map_err(BackupError::DatabaseError)?;
-    Ok(rows.into_iter().map(|c| c.column_name).collect())
-}
-
-/// Insert one JSON row into `table`, omitting `id` (drawn fresh from the
-/// sequence) and returning the new id as i64. `table` is validated against the
-/// catalog before it's interpolated; columns come from `information_schema`.
+/// Insert one archive row into `table`, omitting `id` (drawn fresh from the
+/// sequence) and returning the new id as i64; `None` when the column policy
+/// skips the row.
 fn insert_row_returning_id(
     conn: &mut crate::db::DbConnection,
     table: &str,
-    row_json: &str,
-) -> Result<i64, BackupError> {
-    if !table_exists_in_db(conn, table)? {
-        return Err(BackupError::CorruptedBackup(format!(
-            "archive references unknown table: {table}"
-        )));
-    }
-    let cols = table_columns_except_id(conn, table)?;
-    let col_list = cols
-        .iter()
-        .map(|c| format!("\"{c}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let query = format!(
-        "INSERT INTO \"{table}\" ({col_list}) \
-         SELECT {col_list} FROM jsonb_populate_record(NULL::\"{table}\", $1::jsonb) \
-         RETURNING id::bigint AS new_id"
-    );
+    row: &serde_json::Map<String, Value>,
+) -> Result<Option<i64>, BackupError> {
     #[derive(QueryableByName)]
     struct IdRow {
         #[diesel(sql_type = BigInt)]
         new_id: i64,
     }
-    let r: IdRow = sql_query(&query)
-        .bind::<Text, _>(row_json)
-        .get_result(conn)
-        .map_err(BackupError::DatabaseError)?;
-    Ok(r.new_id)
-}
-
-/// True if `table` has an `id` column. Composite-PK junction tables don't; they
-/// insert verbatim (no sequence id, no RETURNING). `table` is validated first.
-fn table_has_id_column(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-) -> Result<bool, BackupError> {
     if !table_exists_in_db(conn, table)? {
         return Err(BackupError::CorruptedBackup(format!(
             "archive references unknown table: {table}"
         )));
     }
-    #[derive(QueryableByName)]
-    struct ExistsRow {
-        #[diesel(sql_type = diesel::sql_types::Bool)]
-        exists: bool,
-    }
-    let r: ExistsRow = sql_query(
-        "SELECT EXISTS ( \
-            SELECT 1 FROM information_schema.columns \
-            WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'id' \
-         ) AS exists",
-    )
-    .bind::<Text, _>(table)
-    .get_result(conn)
-    .map_err(BackupError::DatabaseError)?;
-    Ok(r.exists)
-}
-
-/// Insert one JSON row into an id-less (composite-PK) `table`, all columns,
-/// no RETURNING. FK columns must already be remapped by the caller. `table` is
-/// validated before interpolation; columns come from `information_schema`.
-fn insert_row(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-    row_json: &str,
-) -> Result<(), BackupError> {
-    if !table_exists_in_db(conn, table)? {
-        return Err(BackupError::CorruptedBackup(format!(
-            "archive references unknown table: {table}"
-        )));
-    }
-    // `table_columns_except_id` returns ALL columns for an id-less table.
-    let cols = table_columns_except_id(conn, table)?;
-    let col_list = cols
-        .iter()
-        .map(|c| format!("\"{c}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let query = format!(
-        "INSERT INTO \"{table}\" ({col_list}) \
-         SELECT {col_list} FROM jsonb_populate_record(NULL::\"{table}\", $1::jsonb)"
-    );
-    sql_query(&query)
-        .bind::<Text, _>(row_json)
-        .execute(conn)
+    let keys = row.keys().cloned().collect();
+    let query = rows::load_statement(
+        conn,
+        table,
+        &keys,
+        &["id"],
+        "RETURNING id::bigint AS new_id",
+    )?;
+    let payload = serde_json::to_string(&[row]).map_err(BackupError::JsonError)?;
+    let ids: Vec<IdRow> = sql_query(&query)
+        .bind::<Text, _>(payload)
+        .load(conn)
         .map_err(BackupError::DatabaseError)?;
-    Ok(())
+    Ok(ids.first().map(|r| r.new_id))
 }
 
 /// Create the target workspace from the exported `workspaces` row, taking a fresh
@@ -550,195 +457,42 @@ fn create_target_workspace(
     }
     new_obj.insert("custom_domain".to_string(), Value::Null);
     new_obj.insert("organisation_id".to_string(), Value::Null);
+    // Billing state belongs to Cloud, which pushes it again; an archive that
+    // carries it anyway never sets it.
+    for column in crate::services::workspace_archive::policy::WORKSPACE_BILLING_COLUMNS {
+        new_obj.remove(*column);
+    }
     let slug = new_obj
         .get("slug")
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
-    let json = serde_json::to_string(&Value::Object(new_obj)).map_err(BackupError::JsonError)?;
-    let new_id = insert_row_returning_id(conn, "workspaces", &json)? as i32;
+    let new_id = insert_row_returning_id(conn, "workspaces", &new_obj)?.ok_or_else(|| {
+        BackupError::CorruptedBackup("the workspaces row did not load".to_string())
+    })? as i32;
     Ok((new_id, slug))
 }
 
-/// Upsert the exported member users by uuid. Users are global and referenced by
-/// uuid (never remapped), so an existing user with the same uuid is kept as-is
-/// (`ON CONFLICT (uuid) DO NOTHING`) and only genuinely new users are inserted.
-fn upsert_members(
-    conn: &mut crate::db::DbConnection,
-    contents: &ArchiveContents,
-) -> Result<i64, BackupError> {
-    let users = match contents.tables.get("users") {
-        Some(u) => u,
-        None => return Ok(0),
-    };
-    if !table_exists_in_db(conn, "users")? {
-        return Err(BackupError::CorruptedBackup(
-            "target has no users table".to_string(),
-        ));
+/// The plan refusals in `err`, if it is one.
+pub fn plan_refusals(err: &BackupError) -> Option<&[PlanRefusal]> {
+    match err {
+        BackupError::NotImportable(ImportRefusal::Plan(refusals)) => Some(refusals),
+        _ => None,
     }
-    let cols = table_columns_except_id(conn, "users")?;
-    let col_list = cols
-        .iter()
-        .map(|c| format!("\"{c}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let query = format!(
-        "INSERT INTO users ({col_list}) \
-         SELECT {col_list} FROM jsonb_populate_record(NULL::users, $1::jsonb) \
-         ON CONFLICT (uuid) DO NOTHING"
-    );
-    let mut n = 0i64;
-    for user in users {
-        // Security: never let an imported archive seed a platform-privileged
-        // global account. New users land as the baseline `platform_role = 'user'`;
-        // platform roles are per-cell and granted in the target, and workspace
-        // membership carries its own role. (Existing users are untouched — ON
-        // CONFLICT DO NOTHING.)
-        let mut obj = user
-            .as_object()
-            .ok_or_else(|| BackupError::CorruptedBackup("users row is not an object".to_string()))?
-            .clone();
-        obj.insert("platform_role".to_string(), json!("user"));
-        let json = serde_json::to_string(&Value::Object(obj)).map_err(BackupError::JsonError)?;
-        sql_query(&query)
-            .bind::<Text, _>(json)
-            .execute(conn)
-            .map_err(BackupError::DatabaseError)?;
-        n += 1;
-    }
-    Ok(n)
 }
-
-/// Insert one tenant table's rows with id remap. Parents are already imported
-/// (topological order), so inter-table integer FKs rewrite via their maps;
-/// `workspace_id` is set to the new workspace; self-references are nulled then
-/// fixed in a second pass once this table's own old→new map is complete.
-fn remap_insert_table(
-    conn: &mut crate::db::DbConnection,
-    table: &str,
-    rows: &[Value],
-    edges: &[FkEdge],
-    new_ws_id: i32,
-    regenerate_uuids: bool,
-    id_maps: &mut HashMap<String, HashMap<i64, i64>>,
-) -> Result<i64, BackupError> {
-    let fk_cols: Vec<(String, String)> = edges
-        .iter()
-        .filter(|e| e.child_table == table && e.parent_table != table)
-        .map(|e| (e.child_column.clone(), e.parent_table.clone()))
-        .collect();
-    let self_ref_cols: Vec<String> = edges
-        .iter()
-        .filter(|e| e.child_table == table && e.parent_table == table)
-        .map(|e| e.child_column.clone())
-        .collect();
-
-    // Composite-PK junction tables (project_tickets, ticket_tags, cycle_tickets,
-    // ticket_watchers, ...) have no integer `id`. Nothing references them by id,
-    // so they need no old->new map and no RETURNING — just FK rewrites + a plain
-    // insert. Tables WITH an `id` draw a fresh one from the sequence and build the
-    // map their children read.
-    let has_id = table_has_id_column(conn, table)?;
-
-    let mut this_map: HashMap<i64, i64> = HashMap::new();
-    // (new id, [(self-ref column, old referenced id)]) for the second pass.
-    let mut pending_self: Vec<(i64, Vec<(String, i64)>)> = Vec::new();
-
-    for row in rows {
-        let obj = row
-            .as_object()
-            .ok_or_else(|| BackupError::CorruptedBackup(format!("{table} row is not an object")))?;
-        let mut new_obj = obj.clone();
-
-        if new_obj.contains_key("workspace_id") {
-            new_obj.insert("workspace_id".to_string(), json!(new_ws_id));
-        }
-
-        // Mint a fresh identity uuid for same-DB clones. Only the row's own
-        // `uuid` column; `*_uuid` FK columns are left untouched.
-        if regenerate_uuids {
-            if let Some(v) = new_obj.get("uuid") {
-                if v.is_string() {
-                    new_obj.insert("uuid".to_string(), json!(uuid::Uuid::new_v4().to_string()));
-                }
-            }
-        }
-
-        for (col, parent) in &fk_cols {
-            if let Some(old_fk) = new_obj.get(col).and_then(Value::as_i64) {
-                let parent_map = id_maps.get(parent).ok_or_else(|| {
-                    BackupError::CorruptedBackup(format!(
-                        "{table}.{col}: parent {parent} not imported before child"
-                    ))
-                })?;
-                let new_fk = *parent_map.get(&old_fk).ok_or_else(|| {
-                    BackupError::CorruptedBackup(format!(
-                        "{table}.{col} references {parent} id {old_fk} absent from the export"
-                    ))
-                })?;
-                new_obj.insert(col.clone(), json!(new_fk));
-            }
-        }
-
-        if !has_id {
-            // Junction row: FKs are already remapped; insert verbatim, no id.
-            let json =
-                serde_json::to_string(&Value::Object(new_obj)).map_err(BackupError::JsonError)?;
-            insert_row(conn, table, &json)?;
-            continue;
-        }
-
-        let old_id = obj.get("id").and_then(Value::as_i64).ok_or_else(|| {
-            BackupError::CorruptedBackup(format!("{table} row missing integer id"))
-        })?;
-        let mut selfs: Vec<(String, i64)> = Vec::new();
-        for col in &self_ref_cols {
-            if let Some(old_ref) = new_obj.get(col).and_then(Value::as_i64) {
-                selfs.push((col.clone(), old_ref));
-                new_obj.insert(col.clone(), Value::Null);
-            }
-        }
-
-        let json =
-            serde_json::to_string(&Value::Object(new_obj)).map_err(BackupError::JsonError)?;
-        let new_id = insert_row_returning_id(conn, table, &json)?;
-        this_map.insert(old_id, new_id);
-        if !selfs.is_empty() {
-            pending_self.push((new_id, selfs));
-        }
-    }
-
-    for (new_id, selfs) in &pending_self {
-        for (col, old_ref) in selfs {
-            let new_ref = *this_map.get(old_ref).ok_or_else(|| {
-                BackupError::CorruptedBackup(format!(
-                    "{table}.{col} self-reference {old_ref} absent from the export"
-                ))
-            })?;
-            let q = format!("UPDATE \"{table}\" SET \"{col}\" = $1 WHERE id = $2");
-            sql_query(&q)
-                .bind::<BigInt, _>(new_ref)
-                .bind::<BigInt, _>(*new_id)
-                .execute(conn)
-                .map_err(BackupError::DatabaseError)?;
-        }
-    }
-
-    let n = rows.len() as i64;
-    if has_id {
-        id_maps.insert(table.to_string(), this_map);
-    }
-    Ok(n)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn export_manifest(schema_hash: &str, point: Option<(&str, &str)>) -> WorkspaceExportManifest {
+    fn export_manifest(
+        format: u32,
+        nosdesk_version: &str,
+        schema_hash: &str,
+        point: Option<(&str, &str)>,
+    ) -> WorkspaceExportManifest {
         WorkspaceExportManifest {
-            workspace_export_format_version: 1,
-            nosdesk_version: "1.1.0".to_string(),
+            workspace_export_format_version: format,
+            nosdesk_version: nosdesk_version.to_string(),
             schema_hash: schema_hash.to_string(),
             migration_version: point.map(|(v, _)| v.to_string()),
             schema_sha256: point.map(|(_, s)| s.to_string()),
@@ -749,35 +503,188 @@ mod tests {
             member_user_uuids: Vec::new(),
             tables: HashMap::new(),
             files: Default::default(),
+            avatars: Default::default(),
+            source_mode: "self_hosted".to_string(),
+            source_origin: None,
+            custom_domain: None,
+            sealed: false,
+            secrets: false,
         }
     }
 
-    /// Import goes by the stable SHA-256 of the migrations when the archive
-    /// carries it, whatever the toolchain-dependent fingerprint says, and
-    /// falls back to that fingerprint only for an archive without it.
+    fn prefix_at(version: &str) -> (&'static str, &'static str) {
+        let p = crate::services::backup_upgrade::MIGRATION_PREFIXES
+            .iter()
+            .find(|p| p.version == version)
+            .expect("a shipped migration point");
+        (p.version, p.sha256)
+    }
+
+    const CURRENT: &str = env!("CARGO_PKG_VERSION");
+
+    /// An export at this build's schema imports, whatever the
+    /// toolchain-dependent fingerprint says.
     #[test]
-    fn import_compares_the_stable_schema_digest() {
+    fn an_export_at_this_schema_imports() {
         let current = crate::services::backup_upgrade::current_schema();
-        let stable = Some((current.version, current.sha256));
-        assert!(same_schema(&export_manifest(
+        let m = export_manifest(
+            2,
+            CURRENT,
             "from-another-toolchain",
-            stable
-        )));
-        assert!(!same_schema(&export_manifest(
+            Some((current.version, current.sha256)),
+        );
+        assert_eq!(check_importable(&m), Ok(()));
+    }
+
+    /// Format 1 carries no emails, so even one at this schema is refused,
+    /// and the message names the release to export from.
+    #[test]
+    fn a_format_1_export_is_refused() {
+        let current = crate::services::backup_upgrade::current_schema();
+        let m = export_manifest(
+            1,
+            "1.1.2",
             env!("NOSDESK_SCHEMA_HASH"),
-            Some((current.version, "0000"))
-        )));
-        let earlier = crate::services::backup_upgrade::MIGRATION_PREFIXES
-            [crate::services::backup_upgrade::MIGRATION_PREFIXES.len() - 2];
-        assert!(!same_schema(&export_manifest(
+            Some((current.version, current.sha256)),
+        );
+        let refused = check_importable(&m).expect_err("format 1");
+        assert_eq!(
+            refused,
+            ImportRefusal::FormatTooOld {
+                export_version: "1.1.2".to_string()
+            }
+        );
+        let message = refused.to_string();
+        assert!(message.contains("older format"), "{message}");
+        assert!(
+            message.contains(&format!(
+                "Update the server it came from to Nosdesk {CURRENT}"
+            )),
+            "{message}"
+        );
+    }
+
+    /// An export from an earlier release names that release, from the
+    /// pinned schema points rather than the version the build reported.
+    #[test]
+    fn an_earlier_export_is_refused_naming_its_release() {
+        let m = export_manifest(2, "1.1.1-dev", "ignored", Some(prefix_at("20261014060000")));
+        let refused = check_importable(&m).expect_err("earlier schema");
+        assert_eq!(
+            refused,
+            ImportRefusal::Earlier {
+                release: "1.1.1".to_string()
+            }
+        );
+        let message = refused.to_string();
+        assert!(
+            message.contains("made by Nosdesk 1.1.1, and this server runs"),
+            "{message}"
+        );
+        assert!(
+            message.contains(&format!("to Nosdesk {CURRENT} and export again")),
+            "{message}"
+        );
+        assert!(
+            message.contains("on a server running Nosdesk 1.1.1"),
+            "{message}"
+        );
+
+        // A point no release pinned (a build between releases) names the
+        // version that build reported.
+        let earlier = crate::services::backup_upgrade::MIGRATION_PREFIXES[1];
+        let m = export_manifest(
+            2,
+            "1.0.9",
+            "ignored",
+            Some((earlier.version, earlier.sha256)),
+        );
+        assert_eq!(
+            check_importable(&m),
+            Err(ImportRefusal::Earlier {
+                release: "1.0.9".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn a_newer_export_is_refused_naming_its_release() {
+        let m = export_manifest(2, "99.0.0", "ignored", Some(("99990101000000", "abc")));
+        let refused = check_importable(&m).expect_err("newer schema");
+        assert_eq!(
+            refused,
+            ImportRefusal::Newer {
+                export_version: "99.0.0".to_string()
+            }
+        );
+        let message = refused.to_string();
+        assert!(
+            message.contains("Update this server to Nosdesk 99.0.0"),
+            "{message}"
+        );
+        // A later format is a later Nosdesk too.
+        let current = crate::services::backup_upgrade::current_schema();
+        let m = export_manifest(
+            3,
+            "99.0.0",
+            "ignored",
+            Some((current.version, current.sha256)),
+        );
+        assert!(matches!(
+            check_importable(&m),
+            Err(ImportRefusal::Newer { .. })
+        ));
+    }
+
+    #[test]
+    fn an_unknown_schema_is_refused() {
+        let current = crate::services::backup_upgrade::current_schema();
+        // This build's last migration with other contents: edited, or a
+        // development build.
+        let m = export_manifest(2, CURRENT, "ignored", Some((current.version, "0000")));
+        let refused = check_importable(&m).expect_err("unknown schema");
+        assert_eq!(
+            refused,
+            ImportRefusal::Unknown {
+                export_version: CURRENT.to_string()
+            }
+        );
+        let message = refused.to_string();
+        assert!(message.contains("doesn't recognise"), "{message}");
+        assert!(
+            message.contains(&format!("from a server running Nosdesk {CURRENT}")),
+            "{message}"
+        );
+    }
+
+    /// `read_archive` refuses before reading any rows, with the refusal as
+    /// the whole message.
+    #[test]
+    fn read_archive_refuses_a_format_1_export() {
+        use std::io::Write;
+        let current = crate::services::backup_upgrade::current_schema();
+        let m = export_manifest(
+            1,
+            "1.1.2",
             env!("NOSDESK_SCHEMA_HASH"),
-            Some((earlier.version, earlier.sha256))
-        )));
-        assert!(same_schema(&export_manifest(
-            env!("NOSDESK_SCHEMA_HASH"),
-            None
-        )));
-        assert!(!same_schema(&export_manifest("0123456789abcdef", None)));
+            Some((current.version, current.sha256)),
+        );
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file("manifest.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(serde_json::to_string(&m).unwrap().as_bytes())
+            .unwrap();
+        let bytes = zip.finish().unwrap().into_inner();
+        let err = read_archive(&bytes, None)
+            .err()
+            .expect("format 1 is refused");
+        assert!(matches!(
+            err,
+            BackupError::NotImportable(ImportRefusal::FormatTooOld { .. })
+        ));
+        assert!(err
+            .to_string()
+            .starts_with("This export was made by Nosdesk 1.1.2"));
     }
 
     fn edge(child: &str, col: &str, parent: &str) -> FkEdge {
@@ -916,6 +823,8 @@ mod tests {
             // Same-DB round trip: mint fresh row uuids so the globally-unique
             // identity columns don't collide with the source workspace's rows.
             regenerate_uuids: true,
+            mode: DeploymentMode::SelfHosted,
+            runner: Runner::Operator { user: None },
         };
         let contents = read_archive(&archive, None).expect("read archive");
 
@@ -974,6 +883,104 @@ mod tests {
             new_ug, 1,
             "the id-less user_groups junction row was imported into the new workspace"
         );
+    }
+
+    /// The hosted billing projection belongs to Cloud: an export of a
+    /// workspace that has it leaves it out, sealed or not, and an import never
+    /// sets it, even from an archive that carries it.
+    #[test]
+    fn billing_state_is_neither_exported_nor_imported() {
+        use crate::repository::workspaces::{self as repo, BillingState, BillingWrite};
+        use crate::services::workspace_archive::policy::WORKSPACE_BILLING_COLUMNS;
+        use crate::services::workspace_export::export_workspace;
+        use crate::sync::actor::ActorContext;
+        use crate::sync::session::with_actor_bypass_context;
+        use crate::test_helpers::setup_test_pool;
+
+        fn as_diesel<T>(r: Result<T, BackupError>) -> Result<T, diesel::result::Error> {
+            r.map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+        }
+
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("test pool connection");
+        let actor = ActorContext::system("test:workspace_import");
+
+        let (src, src_slug): (i32, String) = with_actor_bypass_context(&mut conn, &actor, |c| {
+            use crate::schema::workspaces::dsl;
+            dsl::workspaces
+                .order(dsl::id)
+                .select((dsl::id, dsl::slug))
+                .first(c)
+        })
+        .expect("a workspace exists in the test DB");
+        let now = chrono::Utc::now();
+        let state = BillingState {
+            status: Some("trialing".into()),
+            trial_end: Some(now + chrono::Duration::days(13)),
+            cancel_at: Some(now + chrono::Duration::days(14)),
+            as_of: now,
+        };
+        let applied = with_actor_bypass_context(&mut conn, &actor, |c| {
+            repo::set_billing_state(c, &src_slug, &state)
+        })
+        .expect("set billing state");
+        assert_eq!(applied, BillingWrite::Applied);
+
+        let plain = with_actor_bypass_context(&mut conn, &actor, |c| {
+            as_diesel(export_workspace(c, src, None))
+        })
+        .expect("export succeeds");
+        let sealed = with_actor_bypass_context(&mut conn, &actor, |c| {
+            as_diesel(export_workspace(c, src, Some("test-password")))
+        })
+        .expect("sealed export succeeds");
+        let mut contents = read_archive(&plain, None).expect("read archive");
+        let sealed_contents = read_archive(&sealed, Some("test-password")).expect("read sealed");
+        for (which, archive) in [("plain", &contents), ("sealed", &sealed_contents)] {
+            let row = archive.tables["workspaces"][0]
+                .as_object()
+                .expect("workspaces row");
+            assert!(row.contains_key("slug"), "{which}: the row itself is there");
+            for column in WORKSPACE_BILLING_COLUMNS {
+                assert!(
+                    !row.contains_key(*column),
+                    "{which} export carries {column}"
+                );
+            }
+        }
+
+        // An archive that carries them anyway (another build, or edited).
+        let row = contents
+            .tables
+            .get_mut("workspaces")
+            .and_then(|rows| rows.first_mut())
+            .and_then(|row| row.as_object_mut())
+            .expect("workspaces row");
+        row.insert("billing_status".into(), json!("active"));
+        row.insert("billing_trial_end".into(), json!(now.to_rfc3339()));
+        row.insert("billing_cancel_at".into(), json!(now.to_rfc3339()));
+        row.insert("billing_as_of".into(), json!(now.to_rfc3339()));
+
+        let opts = ImportOptions {
+            slug_override: Some(format!("billing-import-{}", std::process::id())),
+            uuid_override: Some("00000000-0000-0000-0000-0000000000fe".to_string()),
+            regenerate_uuids: true,
+            mode: DeploymentMode::SelfHosted,
+            runner: Runner::Operator { user: None },
+        };
+        let result = with_actor_bypass_context(&mut conn, &actor, |c| {
+            as_diesel(import_workspace(c, &contents, &opts))
+        })
+        .expect("import succeeds");
+        let target = with_actor_bypass_context(&mut conn, &actor, |c| {
+            repo::find_by_id(c, result.workspace_id)
+        })
+        .expect("load target")
+        .expect("target exists");
+        assert_eq!(target.billing_status, None);
+        assert_eq!(target.billing_trial_end, None);
+        assert_eq!(target.billing_cancel_at, None);
+        assert_eq!(target.billing_as_of, None);
     }
 
     /// An archive naming a table that is not workspace-scoped is refused
@@ -1052,6 +1059,8 @@ mod tests {
             slug_override: Some(format!("rejected-{unique}")),
             uuid_override: Some("00000000-0000-0000-0000-0000000000fe".to_string()),
             regenerate_uuids: true,
+            mode: DeploymentMode::SelfHosted,
+            runner: Runner::Operator { user: None },
         };
 
         let err = with_actor_bypass_context(&mut conn, &actor, |c| {

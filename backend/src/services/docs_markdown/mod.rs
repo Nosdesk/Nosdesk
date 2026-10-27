@@ -1,0 +1,206 @@
+//! Markdown to Nosdesk documents.
+//!
+//! Three layers: [`parse`] reads Markdown (pulldown-cmark) into the
+//! [`ir`] tree, [`normalise`] makes that tree valid under the editor schema,
+//! and [`encode`] writes it to Yjs exactly as y-prosemirror does.
+//!
+//! Validity is not optional. y-prosemirror deletes any Yjs element it cannot
+//! build into a ProseMirror node, from the shared document, for everyone, on
+//! the first client that opens the page. So everything this module writes
+//! goes through the normaliser, and the golden fixtures under
+//! `tests/fixtures/docs_markdown/` are checked against the real schema by
+//! `frontend/src/components/editor/docsMarkdownFixtures.spec.ts`.
+//!
+//! What the conversion loses is never silent: [`Converted::notes`] counts each
+//! degrade by [`NoteCode`] so an import can show them before anything is
+//! written.
+//!
+//! A documentation import reads an archive through [`tree::build`]: a source
+//! profile ([`profiles`]) lays out the tree, [`front_matter`] reads each
+//! page's metadata, [`links`] resolves links, images and embeds to
+//! placeholders the commit fills in, and [`html`] reads raw HTML (including
+//! what export v2 writes as HTML) into the same tree.
+
+pub mod encode;
+pub mod front_matter;
+pub mod html;
+#[cfg(test)]
+pub(crate) mod import_tests;
+pub mod ir;
+pub mod links;
+pub mod normalise;
+pub mod parse;
+pub mod profiles;
+#[cfg(test)]
+mod tests;
+pub mod tree;
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+pub use encode::encode;
+pub use normalise::{DefaultResolver, Resolver, WikiEmbed};
+
+/// One kind of change the conversion made to the source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteCode {
+    /// A table inside a list or quote moved to after it: tables sit at the
+    /// top level of a page.
+    TablesHoisted,
+    /// A table's rows were evened out: short rows padded with empty cells,
+    /// spans running past the table trimmed.
+    TableRowsPadded,
+    /// Content a table cell cannot hold became paragraphs: headings in bold,
+    /// quotes as their content, embedded pages as their title, tables as a
+    /// line per row; rules were dropped.
+    TableCellsFlattened,
+    /// A task list became a bullet list with "☐ " and "☑ " items.
+    ChecklistsAsBullets,
+    /// Strikethrough, underline, highlight, superscript or subscript
+    /// formatting was removed; the text is kept.
+    StrikethroughRemoved,
+    /// A callout became a quote with its label in bold.
+    CalloutsAsQuotes,
+    /// A formula became inline code or a `latex` code block.
+    FormulasAsCode,
+    /// A link's destination is not one a page can hold; its text is kept.
+    LinksDropped,
+    /// An image's source is not one a page can show; its alt text is kept.
+    ImagesDropped,
+    /// Embedded HTML (scripts, styles, frames, comments) was removed.
+    HtmlRemoved,
+    /// Other HTML was reduced to its text.
+    HtmlAsText,
+    /// Nesting deeper than the editor allows was flattened.
+    NestingFlattened,
+    /// A GFM table row had more cells than its header; the extra cells were
+    /// dropped.
+    TableCellsDropped,
+    /// A mention became "@name": the user isn't in this workspace.
+    MentionsAsText,
+    /// A ticket link became its label: the ticket isn't in this workspace.
+    TicketLinksAsText,
+    /// An embedded page became its title: the page isn't in the import or
+    /// this workspace.
+    EmbedsAsText,
+    /// A link points at a file or page that isn't in the import; its text is
+    /// kept.
+    LinksUnresolved,
+    /// A link by name matched more than one page; it goes to the nearest.
+    LinksAmbiguous,
+    /// A link points at a file that isn't a page or an image (a PDF, a
+    /// spreadsheet); the file is left out and the link's text kept.
+    AttachmentsLeftOut,
+    /// The front matter block couldn't be read (too large, anchors or
+    /// aliases, not a map, invalid); the page is imported without it.
+    FrontMatterIgnored,
+    /// The title was longer than 255 characters and was cut.
+    TitleShortened,
+    /// The file wasn't UTF-8; some characters may be wrong.
+    NotUtf8,
+    /// Source tool syntax with no equivalent (MDX imports and JSX tags,
+    /// GitBook template tags, Obsidian comments) was removed.
+    SourceSyntaxRemoved,
+    /// A Notion database had more rows than a page shows; the first 200
+    /// were kept.
+    DatabaseRowsCut,
+    /// An image in the import couldn't be read, is larger than 10 MB or
+    /// isn't an image; its alt text is kept.
+    ImagesUnreadable,
+    /// An SVG image was left out: SVG can carry scripts. Its alt text is
+    /// kept.
+    SvgImagesRefused,
+    /// An image linked from the web couldn't be downloaded; its alt text is
+    /// kept.
+    WebImagesNotFetched,
+}
+
+/// Degrade counts by code. Ordered, so reports and tests are stable.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Notes(BTreeMap<NoteCode, u32>);
+
+impl Notes {
+    pub fn add(&mut self, code: NoteCode) {
+        *self.0.entry(code).or_insert(0) += 1;
+    }
+
+    pub fn count(&self, code: NoteCode) -> u32 {
+        self.0.get(&code).copied().unwrap_or(0)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (NoteCode, u32)> + '_ {
+        self.0.iter().map(|(code, count)| (*code, *count))
+    }
+
+    pub fn merge(&mut self, other: &Notes) {
+        for (code, count) in other.iter() {
+            *self.0.entry(code).or_insert(0) += count;
+        }
+    }
+}
+
+/// The syntax that delimited a front matter block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontMatterKind {
+    /// `---` delimited YAML.
+    Yaml,
+    /// `+++` delimited (TOML style).
+    Pluses,
+}
+
+/// A front matter block, unparsed. It is page metadata, never body content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrontMatter {
+    pub kind: FrontMatterKind,
+    pub raw: String,
+}
+
+/// A converted page: a schema-valid document and what changed on the way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Converted {
+    pub document: ir::Document,
+    pub notes: Notes,
+    pub front_matter: Option<FrontMatter>,
+}
+
+/// Parse and normalise one Markdown page, resolving links and images with
+/// `resolver`.
+pub fn convert_with(markdown: &str, resolver: &dyn Resolver) -> Converted {
+    convert_page(markdown, parse::ParseOptions::default(), resolver)
+}
+
+/// [`convert_with`], with the parser extensions a source profile switches
+/// on.
+pub fn convert_page(
+    markdown: &str,
+    options: parse::ParseOptions,
+    resolver: &dyn Resolver,
+) -> Converted {
+    let parsed = parse::parse_with(markdown, options, resolver);
+    let mut notes = parsed.notes;
+    let document = normalise::normalise(parsed.document, resolver, &mut notes);
+    Converted {
+        document,
+        notes,
+        front_matter: parsed.front_matter,
+    }
+}
+
+/// Parse and normalise one Markdown page with no archive around it: web,
+/// mail and phone links are kept, anything else becomes text.
+pub fn convert(markdown: &str) -> Converted {
+    convert_with(markdown, &DefaultResolver)
+}
+
+/// Markdown to a y-prosemirror Yjs update (v1), plus the degrade notes.
+pub fn markdown_to_yjs(markdown: &str) -> (Vec<u8>, Notes) {
+    let converted = convert(markdown);
+    (encode(&converted.document), converted.notes)
+}

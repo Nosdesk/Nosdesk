@@ -192,6 +192,14 @@ pub fn active_for_borrower(
         .load(conn)
 }
 
+/// The assets with a loan out now.
+pub fn assets_on_active_loan(conn: &mut DbConnection) -> QueryResult<Vec<i32>> {
+    asset_loans::table
+        .filter(asset_loans::returned_at.is_null())
+        .select(asset_loans::asset_id)
+        .load(conn)
+}
+
 pub fn active_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Option<AssetLoan>> {
     asset_loans::table
         .filter(asset_loans::asset_id.eq(asset_id))

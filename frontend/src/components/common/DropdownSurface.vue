@@ -15,6 +15,7 @@ import { DropdownMenuContent, DropdownMenuPortal, DropdownMenuRoot } from 'reka-
 import {
   anchorElementOf,
   floatingFrom,
+  focusMovedOn,
   restoreFocusTo,
   type PopoverAnchor,
   type PopoverPlacement,
@@ -71,11 +72,13 @@ function onOpenAutoFocus() {
 // Escape are handled on the content element, so a menu that left focus
 // on its trigger would be a keyboard dead end (Radix behaves the same).
 // Pointer users never see it: the container has no ring, and focus goes
-// back to the anchor on close. `autoFocus=false` is therefore accepted
-// for API symmetry with Popover but does not keep focus on the trigger.
+// back to the anchor on close, unless the pick already moved it on (the
+// editor's Insert menu focuses the editor). `autoFocus=false` is therefore
+// accepted for API symmetry with Popover but does not keep focus on the
+// trigger.
 function onCloseAutoFocus(event: Event) {
   event.preventDefault()
-  if (!closedByOutsidePointer) restoreFocusTo(props.anchor)
+  if (!closedByOutsidePointer && !focusMovedOn(event.target)) restoreFocusTo(props.anchor)
   closedByOutsidePointer = false
 }
 

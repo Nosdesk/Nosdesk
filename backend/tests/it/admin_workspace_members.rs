@@ -273,3 +273,67 @@ async fn workspace_member_lifecycle_contract() {
         .expect("send regular add");
     assert_eq!(resp.status(), 403);
 }
+
+/// Billing state is a hosted projection: a self-hosted deployment never puts
+/// it on `/me/workspaces`, not even for the workspace's owner and not even
+/// when the columns hold something.
+#[actix_web::test]
+async fn self_hosted_me_workspaces_never_carries_billing() {
+    use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
+    use backend::sync::actor::ActorContext;
+    use backend::sync::session::with_actor_context;
+
+    crate::common::ensure_test_keyring();
+    let test_db = crate::common::TestDb::new();
+    let pool = test_db.pool_with_size(4);
+
+    let owner = mint_user(&mut pool.get().expect("conn"), "Owner", "user");
+    let owner_token =
+        crate::common::mint_api_token(&mut pool.get().expect("conn"), &owner, "owner-session");
+    let ws = crate::common::mint_workspace(&mut pool.get().expect("conn"), "billing-sh", "Acme");
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor = ActorContext::user(owner.uuid, None).with_workspace(ws);
+        with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+            add_membership(c, ws, owner.uuid, "owner", SeatWriteAuthority::Product).map(|_| ())
+        })
+        .expect("add owner");
+        use backend::schema::workspaces;
+        diesel::update(workspaces::table.find(ws))
+            .set((
+                workspaces::billing_status.eq("trialing"),
+                workspaces::billing_as_of.eq(chrono::Utc::now()),
+            ))
+            .execute(&mut conn)
+            .expect("seed billing state");
+    }
+
+    let pool_for_app = pool.clone();
+    let srv = actix_test::start(move || {
+        App::new()
+            .app_data(web::Data::new(pool_for_app.clone()))
+            .service(
+                web::scope("/api")
+                    .wrap(actix_web::middleware::from_fn(dual_auth_middleware))
+                    .route(
+                        "/me/workspaces",
+                        web::get().to(admin_workspaces::list_my_workspaces),
+                    ),
+            )
+    });
+    let mut resp = awc::Client::new()
+        .get(srv.url("/api/me/workspaces"))
+        .insert_header(("Authorization", format!("Bearer {owner_token}")))
+        .send()
+        .await
+        .expect("send /me");
+    assert_eq!(resp.status(), 200);
+    let body: Vec<serde_json::Value> =
+        serde_json::from_slice(&resp.body().await.expect("body")).expect("json");
+    let row = body
+        .iter()
+        .find(|w| w["slug"] == "billing-sh")
+        .expect("the owner's workspace is listed");
+    assert_eq!(row["role"], "owner");
+    assert!(row.get("billing").is_none(), "no billing key: {row}");
+}

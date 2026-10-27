@@ -59,6 +59,11 @@ use uuid::Uuid;
 /// with co-residing extractors that also acquire connections
 /// (TicketAccess, AuthContext) — none of them block waiting for
 /// a single-conn test pool.
+///
+/// Cloning keeps the actor: a background task a request starts (an
+/// import's check or commit) runs as the same person in the same
+/// workspace.
+#[derive(Clone)]
 pub struct TenantConn {
     pool: web::Data<Pool>,
     actor: ActorContext,

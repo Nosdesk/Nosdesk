@@ -303,6 +303,24 @@ class PasskeyService {
   }
 
   /**
+   * Confirm it's you with one of your own passkeys before a high-risk action.
+   * Same ceremony as sign-in, against the signed-in session's challenge.
+   */
+  async confirmStepUp(): Promise<{ confirmed_until: string }> {
+    const response = await apiClient.post<RequestOptionsResponse>('/auth/step-up/passkey/start', {});
+    const { options } = unwrapRequestOptions(response.data);
+    const credential = await startAuthentication({ optionsJSON: options });
+    const finished = await apiClient.post<{ confirmed_until: string }>(
+      '/auth/step-up/passkey/finish',
+      {
+        ...credential,
+        authenticator_attachment: credential.authenticatorAttachment,
+      },
+    );
+    return finished.data;
+  }
+
+  /**
    * Rename a passkey
    */
   async renamePasskey(credentialId: string, name: string): Promise<boolean> {

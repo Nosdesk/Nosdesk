@@ -37,7 +37,11 @@ describe('a sync request after the access token expired', () => {
       )
     vi.stubGlobal('fetch', fetch)
 
-    expect(await fetchServerIdentity()).toEqual({ schemaHash: 'abc', instanceId: 'i-1' })
+    expect(await fetchServerIdentity()).toEqual({
+      schemaHash: 'abc',
+      instanceId: 'i-1',
+      workspaceEpoch: '',
+    })
     expect(fetch).toHaveBeenCalledTimes(2)
     const sent = (call: number) => (fetch.mock.calls[call][1] as RequestInit).headers as Record<string, string>
     expect(sent(0).Authorization).toBe('Bearer expired')
