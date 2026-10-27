@@ -1173,8 +1173,9 @@ fn cluster_confidence(member_count: usize) -> i32 {
     scaled.clamp(30, 100)
 }
 
-/// Headline copy for a cluster gap. Constructed from the
-/// available facets — falls back gracefully when one's missing.
+/// Headline copy for a cluster gap, e.g. "4 tickets: Printers, HP
+/// LaserJet M507, via portal". Constructed from the available facets,
+/// falling back gracefully when one's missing.
 fn cluster_headline(cluster: &DetectedCluster) -> String {
     let count = cluster.ticket_ids.len();
     let mut facets: Vec<String> = Vec::new();
@@ -1190,7 +1191,7 @@ fn cluster_headline(cluster: &DetectedCluster) -> String {
     if facets.is_empty() {
         format!("{} similar tickets without docs", count)
     } else {
-        format!("{} tickets — {}", count, facets.join(", "))
+        format!("{} tickets: {}", count, facets.join(", "))
     }
 }
 
@@ -1734,4 +1735,49 @@ pub fn dismiss_stale_doc_gaps_for_page(
         count += 1;
     }
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cluster(
+        category: Option<&str>,
+        device: Option<&str>,
+        channel: Option<&str>,
+    ) -> DetectedCluster {
+        DetectedCluster {
+            fingerprint: String::new(),
+            category_id: None,
+            category_name: category.map(str::to_string),
+            device_model: device.map(str::to_string),
+            channel_label: channel.map(str::to_string),
+            ticket_ids: vec![44, 47, 51, 53],
+            sample_titles: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn cluster_headline_lists_the_facets_after_the_count() {
+        assert_eq!(
+            cluster_headline(&cluster(
+                Some("Printers"),
+                Some("HP LaserJet M507"),
+                Some("portal")
+            )),
+            "4 tickets: Printers, HP LaserJet M507, via portal"
+        );
+        assert_eq!(
+            cluster_headline(&cluster(None, None, Some("email_imap"))),
+            "4 tickets: via email_imap"
+        );
+    }
+
+    #[test]
+    fn cluster_headline_without_facets_says_what_the_tickets_lack() {
+        assert_eq!(
+            cluster_headline(&cluster(None, None, None)),
+            "4 similar tickets without docs"
+        );
+    }
 }
