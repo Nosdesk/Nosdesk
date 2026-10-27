@@ -2,7 +2,6 @@
 import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
-import { useQuery } from '@pinia/colada';
 import { useUserProfileBundle } from '@/composables/useUserProfileBundle';
 import { useAuthStore } from '@/stores/auth';
 import { useBrandingStore } from '@/stores/branding';
@@ -12,7 +11,6 @@ import Callout from '@/components/common/Callout.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import Button from '@/components/common/Button.vue';
-import FormInput from '@/components/common/FormInput.vue';
 import Modal from '@/components/Modal.vue';
 import HorizontalScrollContainer from '@/components/common/HorizontalScrollContainer.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
@@ -31,18 +29,19 @@ import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import NosdeskAccountCard from '@/components/identity/NosdeskAccountCard.vue';
 import WorkspaceNameCard from '@/components/identity/WorkspaceNameCard.vue';
 import userService from '@/services/userService';
+import workspacesService from '@nosdesk/core/services/workspacesService';
 import type { User } from '@/services/userService';
 import { effectiveRole, rolesFromTier, type UserRole } from '@nosdesk/core/types/user';
 import {
   isHostedDeploymentRef,
   isIdentityExternallyManaged,
 } from '@nosdesk/core/services/instanceConfig';
-import { groupService } from '@nosdesk/core/services/groupService';
 import type { Group } from '@nosdesk/core/types/group';
+import { workspaceSlugOf } from '@/router/workspaceRouting';
 import apiClient from '@nosdesk/core/apiClient';
-import { useStepUpMethod } from '@/composables/useStepUpMethod';
+import ConfirmIdentity from '@/components/auth/ConfirmIdentity.vue';
 import { useColorFilter } from '@/composables/useColorFilter';
-import { extractErrorMessage } from '@/utils/errors';
+import { errorCode, extractErrorMessage } from '@/utils/errors';
 
 const route = useRoute();
 const router = useRouter();
@@ -78,9 +77,9 @@ const DEFAULT_GROUP_COLOR = '#6366f1';
 const activeTab = ref(routeSection && validTabs.includes(routeSection) ? routeSection : 'profile');
 
 // Admin user management state.
-// The target user and the admin-viewed groups list are fetched via
-// Pinia Colada with a reactive key so switching admin targets refetches
-// per-user and revisits to the same user render instantly from cache.
+// The target user, their groups and what the viewer may change about them
+// come from one Pinia Colada query with a reactive key, so switching admin
+// targets refetches per user and revisits render instantly from cache.
 //
 // The user bundle goes through the shared useUserProfileBundle composable
 // (single source of truth for the key, query, and include list) so this
@@ -93,11 +92,13 @@ const userProfileBundle = useUserProfileBundle({
   include: ['devices', 'loans', 'groups'],
   enabled: () => isAdminMode.value,
 });
-const userGroupsQuery = useQuery({
-  key: () => ['user-groups', targetUserUuid.value ?? ''],
-  query: () => groupService.getUserGroups(targetUserUuid.value as string),
-  enabled: () => isAdminMode.value,
-});
+
+// What this viewer may change about the person, as the server decides it.
+// Every admin-mode section below gates on this rather than on roles of its
+// own, so the page offers exactly what the server will accept.
+const editable = computed(() =>
+  isAdminMode.value ? userProfileBundle.bundle.value?.editable : undefined,
+);
 
 // Local mirror of the loaded admin target user. Seeded from the bundle
 // and mutated locally by `updateUserRole` so the role-grid reflects the
@@ -152,21 +153,16 @@ const identityManaged = computed(() => isIdentityExternallyManaged(currentUser.v
 // in-product role grid has nothing to offer.
 const hosted = computed(() => isHostedDeploymentRef.value);
 
-// Groups list comes from the cache-backed query in admin mode.
-const userGroups = computed<Group[]>(() =>
-  Array.isArray(userGroupsQuery.data.value) ? userGroupsQuery.data.value : [],
-);
-const loadingGroups = computed(
-  () =>
-    isAdminMode.value &&
-    userGroupsQuery.status.value === 'pending' &&
-    userGroupsQuery.data.value === undefined,
-);
+// Their groups in this workspace, from the bundle.
+const userGroups = computed<Group[]>(() => userProfileBundle.bundle.value?.groups ?? []);
 
 // Update URL when tab changes without causing navigation.
 // Uses history.replaceState to avoid triggering Vue Router's reactivity,
 // which would destroy/recreate this component due to :key="viewRoute.path" in App.vue.
 const updateURL = (section: string) => {
+  // Keep the workspace in the address, which replaceState would otherwise
+  // drop, so a reload or a copied link opens the same workspace.
+  const slug = workspaceSlugOf(route);
   let newPath: string;
 
   if (targetUserUuid.value) {
@@ -177,7 +173,7 @@ const updateURL = (section: string) => {
     newPath = section === 'profile' ? '/profile/settings' : `/profile/settings/${section}`;
   }
 
-  window.history.replaceState(history.state, '', newPath);
+  window.history.replaceState(history.state, '', slug ? `/${slug}${newPath}` : newPath);
 
   // Compose the document title from the tab label and a localized
   // "Settings" suffix. Join order isn't great in every language
@@ -205,13 +201,35 @@ watch(activeTab, (newTab) => {
 // template resolves with `$t()`; rendering at template time
 // keeps the labels reactive to locale flips without re-running
 // this module.
-const settingsTabs = [
-  { id: 'profile', labelKey: 'settings-tab-profile', icon: 'user' },
-  { id: 'appearance', labelKey: 'settings-tab-appearance', icon: 'palette' },
-  { id: 'language', labelKey: 'settings-tab-language', icon: 'globe' },
-  { id: 'notifications', labelKey: 'settings-tab-notifications', icon: 'bell' },
-  { id: 'security', labelKey: 'settings-tab-security', icon: 'shield' },
-];
+//
+// For someone else: Appearance and Language are their account, so they show
+// only when the viewer may change it, and Notifications not at all, since
+// notification preferences are the person's own and the endpoint only ever
+// reads and writes the viewer's.
+const settingsTabs = computed(() =>
+  [
+    { id: 'profile', labelKey: 'settings-tab-profile', icon: 'user' },
+    { id: 'appearance', labelKey: 'settings-tab-appearance', icon: 'palette' },
+    { id: 'language', labelKey: 'settings-tab-language', icon: 'globe' },
+    { id: 'notifications', labelKey: 'settings-tab-notifications', icon: 'bell' },
+    { id: 'security', labelKey: 'settings-tab-security', icon: 'shield' },
+  ].filter((tab) => {
+    if (!isAdminMode.value) return true;
+    if (tab.id === 'notifications') return false;
+    // Until the person loads, keep the tab the address asked for.
+    if (tab.id === 'appearance' || tab.id === 'language') return editable.value?.name ?? true;
+    return true;
+  }),
+);
+// A tab that isn't offered for this person falls back to Profile, including
+// one a link opened directly.
+watch(
+  settingsTabs,
+  (tabs) => {
+    if (!tabs.some((tab) => tab.id === activeTab.value)) activeTab.value = 'profile';
+  },
+  { immediate: true },
+);
 
 // Available roles for admin management. Labels / descriptions are
 // `computed` so a locale flip re-renders the role grid without
@@ -253,6 +271,15 @@ const clearMessages = () => {
 const handleSuccess = (message: string) => {
   error.value = null;
   if (message) toast.success(message);
+};
+
+// The profile card saved a change to the person being managed: keep the
+// local copy current, so the header shows it and the card doesn't refill
+// from what was first loaded, then refresh the shared bundle.
+const handleTargetUpdated = (changes: Partial<User>) => {
+  if (!targetUser.value) return;
+  targetUser.value = { ...targetUser.value, ...changes };
+  void userProfileBundle.refetch();
 };
 
 // Handle error messages (inline banner; see G's error UX rule).
@@ -317,12 +344,16 @@ const updateUserRole = async (newRole: UserRole) => {
   try {
     updatingRole.value = true;
 
-    // Update user role via API
-    const updatedUser = await userService.updateUser(targetUser.value.uuid, {
-      role: newRole
-    });
+    // The role is their membership of this workspace, so it goes through the
+    // workspace's members (which also guards the last owner). Only a platform
+    // admin may set a platform role, through the user route.
+    const updated = authStore.isPlatformAdmin
+      ? await userService.updateUser(targetUser.value.uuid, { role: newRole })
+      : await workspacesService.updateWorkspaceMemberRole(targetUser.value.uuid, {
+          role: rolesFromTier(newRole).workspace_role,
+        });
 
-    if (updatedUser && targetUser.value) {
+    if (updated && targetUser.value) {
       const name = targetUser.value.name;
       // Optimistic local update with the W2 split derived from the picked
       // tier so the role-grid flips instantly...
@@ -350,7 +381,8 @@ const userHasCompletedSetup = ref(true); // Default to true, will be checked on 
 
 // Check if user has completed account setup (has a local auth identity)
 const checkUserSetupStatus = async () => {
-  if (!targetUser.value) return;
+  // Sign-in methods are readable only to those who may recover them.
+  if (!targetUser.value || !editable.value?.credentials) return;
 
   try {
     const identities = await apiClient.get(`/users/${targetUser.value.uuid}/auth-identities`);
@@ -385,28 +417,18 @@ const resendInvitation = async () => {
 };
 
 // Delete user (admin mode only; self-service deletion goes through an
-// administrator). The admin confirms with their own step-up credential.
+// administrator). The admin first confirms it's them (ConfirmIdentity).
 const showDeleteModal = ref(false);
-const deleteCredential = ref('');
 const deleteError = ref<string | null>(null);
 const isDeleting = ref(false);
-const {
-  method: deleteStepUpMethod,
-  loaded: deleteStepUpLoaded,
-  load: loadDeleteStepUp,
-  credential: deleteStepUpBody,
-} = useStepUpMethod();
-const deleteConfirmDisabled = computed(
-  () => isDeleting.value
-    || !deleteStepUpLoaded.value
-    || (deleteStepUpMethod.value !== 'none' && deleteCredential.value.trim().length === 0),
-);
+const deleteIdentity = ref<InstanceType<typeof ConfirmIdentity> | null>(null);
+const deleteIdentityReady = ref(false);
+const deleteConfirmDisabled = computed(() => isDeleting.value || !deleteIdentityReady.value);
 
-const openDeleteModal = async () => {
-  deleteCredential.value = '';
+const openDeleteModal = () => {
   deleteError.value = null;
+  deleteIdentityReady.value = false;
   showDeleteModal.value = true;
-  await loadDeleteStepUp();
 };
 
 const deleteAccount = async () => {
@@ -415,13 +437,24 @@ const deleteAccount = async () => {
   isDeleting.value = true;
   deleteError.value = null;
   try {
-    await userService.deleteUser(userToDelete.uuid, deleteStepUpBody(deleteCredential.value));
+    // A wrong password or code shows inside ConfirmIdentity; stay open.
+    if (!(await deleteIdentity.value?.confirm())) return;
+    await userService.deleteUser(userToDelete.uuid);
     showDeleteModal.value = false;
-    deleteCredential.value = '';
-    router.push('/users?deleted=true');
+    // Back to the list they were in.
+    router.push(
+      effectiveRole(userToDelete) === 'user'
+        ? { path: '/users', query: { population: 'requesters' } }
+        : '/users',
+    );
   } catch (error) {
-    // Keep the modal open so the admin can correct the credential.
-    deleteError.value = extractErrorMessage(error, t('user-settings-delete-error'));
+    // Keep the modal open. If the confirmation lapsed meanwhile, the refresh
+    // asks for it again.
+    deleteError.value =
+      errorCode(error) === 'member_elsewhere'
+        ? t('user-settings-delete-member-elsewhere')
+        : extractErrorMessage(error, t('user-settings-delete-error'));
+    void deleteIdentity.value?.refresh();
   } finally {
     isDeleting.value = false;
   }
@@ -429,7 +462,6 @@ const deleteAccount = async () => {
 
 const cancelDelete = () => {
   showDeleteModal.value = false;
-  deleteCredential.value = '';
   deleteError.value = null;
 };
 </script>
@@ -555,12 +587,20 @@ const cancelDelete = () => {
           <!-- Profile Tab -->
           <div v-if="activeTab === 'profile'" class="flex flex-col gap-6">
             <NosdeskAccountCard v-if="identityManaged && currentUser" :user="currentUser" />
+            <Callout v-else-if="editable?.account_locked === 'member_elsewhere'" severity="info">
+              {{ t('user-settings-account-member-elsewhere', { name: currentUser?.name ?? '' }) }}
+            </Callout>
+            <Callout v-else-if="editable?.account_locked === 'administrator'" severity="info">
+              {{ t('user-settings-account-administrator', { name: currentUser?.name ?? '' }) }}
+            </Callout>
             <UserProfileCard
               :user="currentUser ?? undefined"
-              :can-edit="true"
+              :can-edit="!isAdminMode || !!editable?.name"
               :show-editable-fields="true"
+              :show-signature="!isAdminMode"
               :identity-locked="identityManaged"
               @success="handleSuccess"
+              @updated="handleTargetUpdated"
               @error="handleError"
             />
 
@@ -573,7 +613,7 @@ const cancelDelete = () => {
 
             <!-- Email Addresses Management -->
             <UserEmailsCard
-              v-if="currentUser?.uuid && !identityManaged"
+              v-if="currentUser?.uuid && (isAdminMode ? editable?.emails : !identityManaged)"
               :user-uuid="currentUser.uuid"
               :can-edit="true"
               @success="handleSuccess"
@@ -581,7 +621,7 @@ const cancelDelete = () => {
             />
 
             <!-- Groups Card (admin mode only) -->
-            <SectionCard v-if="isAdminMode && authStore.isAdmin" content-padding="p-4 sm:p-6">
+            <SectionCard v-if="isAdminMode && editable?.groups" content-padding="p-4 sm:p-6">
               <template #leading>
                 <span class="text-accent inline-flex"><Icon name="team" /></span>
               </template>
@@ -597,14 +637,8 @@ const cancelDelete = () => {
               </template>
 
               <div>
-                <!-- Loading state -->
-                <div v-if="loadingGroups" class="flex items-center gap-3 text-secondary">
-                  <span class="text-accent inline-flex"><Spinner /></span>
-                  <span class="text-sm">{{ $t('common-loading-groups') }}</span>
-                </div>
-
                 <!-- Empty state -->
-                <p v-else-if="userGroups.length === 0" class="text-sm text-secondary">
+                <p v-if="userGroups.length === 0" class="text-sm text-secondary">
                   This user is not a member of any groups.
                 </p>
 
@@ -755,7 +789,10 @@ const cancelDelete = () => {
           <div v-if="activeTab === 'language'">
             <LocalizationSettings
               :target-user-uuid="targetUserUuid"
+              :target-locale="targetUser?.locale"
+              :target-timezone="targetUser?.timezone"
               @success="handleSuccess"
+              @updated="handleTargetUpdated"
               @error="handleError"
             />
           </div>
@@ -776,7 +813,9 @@ const cancelDelete = () => {
               :user="currentUser"
               scope="security"
             />
-            <template v-else>
+            <!-- Someone else's sign-in: only for an admin who may recover it
+                 (self-hosted, and only for someone in no other workspace). -->
+            <template v-else-if="!isAdminMode || editable?.credentials">
             <SecuritySettings
               :target-user-uuid="targetUserUuid"
               @success="handleSuccess"
@@ -809,8 +848,18 @@ const cancelDelete = () => {
             />
 
             <!-- Delete user: admins only. Self-service deletion goes through
-                 an administrator; hosted staff use their Nosdesk account. -->
-            <Callout v-if="isAdminMode && !identityManaged" severity="error">
+                 an administrator; hosted staff use their Nosdesk account. The
+                 server refuses to delete an administrator, so say how instead. -->
+            <p v-if="isAdminMode && !identityManaged && targetRole === 'admin'" class="text-sm text-secondary">
+              {{ t('user-settings-delete-admin-hint') }}
+            </p>
+            <p
+              v-else-if="isAdminMode && editable?.account_locked === 'member_elsewhere'"
+              class="text-sm text-secondary"
+            >
+              {{ t('user-settings-delete-member-elsewhere') }}
+            </p>
+            <Callout v-else-if="isAdminMode && editable?.lifecycle" severity="error">
               <template #header>
                 <p class="font-medium text-primary">{{ t('user-settings-danger-zone-title') }}</p>
                 <p class="text-secondary mt-0.5">{{ t('user-settings-danger-zone-subtitle') }}</p>
@@ -866,23 +915,11 @@ const cancelDelete = () => {
           </div>
         </div>
 
-        <!-- The admin's own step-up: password, else a 2FA code, else nothing
-             to enter (SSO-only without MFA). -->
-        <div v-if="deleteStepUpMethod !== 'none'" class="flex flex-col gap-2">
-          <label for="delete-confirm-credential" class="text-sm font-medium text-secondary">
-            {{ deleteStepUpMethod === 'password'
-              ? t('user-settings-delete-stepup-password')
-              : t('user-settings-delete-stepup-mfa') }}
-          </label>
-          <FormInput
-            id="delete-confirm-credential"
-            v-model="deleteCredential"
-            :type="deleteStepUpMethod === 'password' ? 'password' : 'text'"
-            :inputmode="deleteStepUpMethod === 'mfa' ? 'numeric' : undefined"
-            :autocomplete="deleteStepUpMethod === 'password' ? 'current-password' : 'one-time-code'"
-            @keyup.enter="deleteAccount"
-          />
-        </div>
+        <ConfirmIdentity
+          ref="deleteIdentity"
+          v-model:ready="deleteIdentityReady"
+          @submit="deleteAccount"
+        />
         <p v-if="deleteError" class="text-sm text-status-error">{{ deleteError }}</p>
 
         <div class="flex justify-end gap-3 pt-2">

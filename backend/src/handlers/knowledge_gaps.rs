@@ -6,6 +6,8 @@
 //!   GET    /api/knowledge-gaps
 //!   GET    /api/knowledge-gaps/{id}
 //!   POST   /api/knowledge-gaps/{id}/dismiss
+//!   POST   /api/knowledge-gaps/dismiss   (several at once)
+//!   POST   /api/knowledge-gaps/reopen    (undo a dismissal)
 //!   POST   /api/knowledge-gaps/{id}/resolve
 //!
 //! Read responses are slim DTOs hydrated with the per-signal
@@ -384,6 +386,84 @@ pub async fn dismiss_knowledge_gap(
 }
 
 // ---------------------------------------------------------------
+// POST /api/knowledge-gaps/dismiss, POST /api/knowledge-gaps/reopen
+// ---------------------------------------------------------------
+
+/// The most gaps one bulk request acts on: more than the queue lists.
+const MAX_BULK_GAPS: usize = 500;
+
+#[derive(Debug, Deserialize)]
+pub struct GapIdsBody {
+    pub ids: Vec<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GapIdsResponse {
+    /// The gaps the request changed. A gap already in the asked-for state,
+    /// or one the caller can't see, is left out.
+    pub ids: Vec<i64>,
+}
+
+/// Dismiss several gaps at once, from the queue's selection.
+pub async fn dismiss_knowledge_gaps(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    body: web::Json<GapIdsBody>,
+) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Technician or admin role required");
+    }
+    let ids = body.into_inner().ids;
+    if ids.len() > MAX_BULK_GAPS {
+        return errors::bad_request("Too many gaps in one request");
+    }
+    let user_uuid = auth.user_uuid;
+    let audience = PageAudience::from_auth(&auth);
+
+    match tc.run(|conn| {
+        let readable = knowledge_gaps::readable_gap_ids(conn, &audience, &ids)?;
+        knowledge_gaps::dismiss_gaps(conn, &readable, user_uuid)
+    }) {
+        Ok(gaps) => HttpResponse::Ok().json(GapIdsResponse {
+            ids: gaps.into_iter().map(|g| g.id).collect(),
+        }),
+        Err(e) => {
+            error!(error = ?e, "Failed to dismiss gaps");
+            errors::internal("Failed to dismiss gaps")
+        }
+    }
+}
+
+/// Undo a dismissal: the gaps go back to the queue as they were.
+pub async fn reopen_knowledge_gaps(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    body: web::Json<GapIdsBody>,
+) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Technician or admin role required");
+    }
+    let ids = body.into_inner().ids;
+    if ids.len() > MAX_BULK_GAPS {
+        return errors::bad_request("Too many gaps in one request");
+    }
+    let audience = PageAudience::from_auth(&auth);
+
+    match tc.run(|conn| {
+        let readable = knowledge_gaps::readable_gap_ids(conn, &audience, &ids)?;
+        knowledge_gaps::reopen_gaps(conn, &readable)
+    }) {
+        Ok(gaps) => HttpResponse::Ok().json(GapIdsResponse {
+            ids: gaps.into_iter().map(|g| g.id).collect(),
+        }),
+        Err(e) => {
+            error!(error = ?e, "Failed to reopen gaps");
+            errors::internal("Failed to reopen gaps")
+        }
+    }
+}
+
+// ---------------------------------------------------------------
 // POST /api/knowledge-gaps/detect-clusters
 // ---------------------------------------------------------------
 
@@ -400,6 +480,9 @@ pub struct DetectClustersResponse {
     pub clusters_detected: usize,
     pub gaps_created: usize,
     pub gaps_updated: usize,
+    /// Open gaps the run dismissed because their evidence no longer counts
+    /// (failed-search detection only).
+    pub gaps_retired: usize,
 }
 
 pub async fn detect_clusters(
@@ -422,6 +505,7 @@ pub async fn detect_clusters(
             clusters_detected: stats.clusters_detected,
             gaps_created: stats.gaps_created,
             gaps_updated: stats.gaps_updated,
+            gaps_retired: stats.gaps_retired,
         }),
         Err(e) => {
             error!(error = ?e, "Cluster detection failed");
@@ -460,6 +544,7 @@ pub async fn detect_failed_searches(
             clusters_detected: stats.clusters_detected,
             gaps_created: stats.gaps_created,
             gaps_updated: stats.gaps_updated,
+            gaps_retired: stats.gaps_retired,
         }),
         Err(e) => {
             error!(error = ?e, "Failed-search detection failed");
@@ -507,6 +592,7 @@ pub async fn detect_stale_docs(
             clusters_detected: stats.clusters_detected,
             gaps_created: stats.gaps_created,
             gaps_updated: stats.gaps_updated,
+            gaps_retired: stats.gaps_retired,
         }),
         Err(e) => {
             error!(error = ?e, "Stale-doc detection failed");

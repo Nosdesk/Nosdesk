@@ -214,6 +214,23 @@ pub fn readable_by(
         .collect())
 }
 
+/// Which of `gap_ids` exist and `audience` can see, for a bulk action. A gap
+/// naming a page they can't open reads as absent, as on the single-gap
+/// routes.
+pub fn readable_gap_ids(
+    conn: &mut DbConnection,
+    audience: &crate::repository::documentation::PageAudience,
+    gap_ids: &[i64],
+) -> Result<Vec<i64>, Error> {
+    let gaps: Vec<KnowledgeGap> = knowledge_gaps::table
+        .filter(knowledge_gaps::id.eq_any(gap_ids))
+        .load(conn)?;
+    Ok(readable_by(conn, audience, gaps)?
+        .into_iter()
+        .map(|g| g.id)
+        .collect())
+}
+
 /// Of the gaps `gap_ids`, those that name a page `audience` can't open: the
 /// sync read paths leave them out for that viewer. One read for the batch.
 pub fn naming_pages_hidden_from(
@@ -612,17 +629,81 @@ pub fn dismiss_gap(
     gap_id: i64,
     by_user: Uuid,
 ) -> Result<KnowledgeGap, Error> {
+    set_dismissed(conn, gap_id, Some(by_user))
+}
+
+/// Dismiss a gap, by a person or (`None`) by detection.
+fn set_dismissed(
+    conn: &mut DbConnection,
+    gap_id: i64,
+    by_user: Option<Uuid>,
+) -> Result<KnowledgeGap, Error> {
+    let now = Utc::now().naive_utc();
     update_gap(
         conn,
         gap_id,
         KnowledgeGapUpdate {
             status: Some(STATUS_DISMISSED.to_string()),
-            dismissed_at: Some(Some(Utc::now().naive_utc())),
-            dismissed_by: Some(Some(by_user)),
-            updated_at: Some(Utc::now().naive_utc()),
+            dismissed_at: Some(Some(now)),
+            dismissed_by: Some(by_user),
+            updated_at: Some(now),
             ..Default::default()
         },
     )
+}
+
+/// Dismiss each of `gap_ids` that is open or drafting, in one transaction.
+/// Returns the gaps it dismissed; one already closed is skipped, so a
+/// repeated request changes nothing.
+pub fn dismiss_gaps(
+    conn: &mut DbConnection,
+    gap_ids: &[i64],
+    by_user: Uuid,
+) -> Result<Vec<KnowledgeGap>, Error> {
+    conn.transaction(|tx| {
+        let ids: Vec<i64> = knowledge_gaps::table
+            .filter(knowledge_gaps::id.eq_any(gap_ids))
+            .filter(knowledge_gaps::status.eq_any([STATUS_OPEN, STATUS_DRAFTING]))
+            .order_by(knowledge_gaps::id)
+            .select(knowledge_gaps::id)
+            .load(tx)?;
+        ids.into_iter()
+            .map(|id| set_dismissed(tx, id, Some(by_user)))
+            .collect()
+    })
+}
+
+/// Undo dismissals: each of `gap_ids` that is dismissed goes back to where it
+/// was, drafting if it still has its draft page, open otherwise. Returns the
+/// gaps it reopened; one that isn't dismissed is skipped.
+pub fn reopen_gaps(conn: &mut DbConnection, gap_ids: &[i64]) -> Result<Vec<KnowledgeGap>, Error> {
+    conn.transaction(|tx| {
+        let gaps: Vec<KnowledgeGap> = knowledge_gaps::table
+            .filter(knowledge_gaps::id.eq_any(gap_ids))
+            .filter(knowledge_gaps::status.eq(STATUS_DISMISSED))
+            .order_by(knowledge_gaps::id)
+            .load(tx)?;
+        gaps.into_iter()
+            .map(|gap| {
+                let status = if gap.draft_page_id.is_some() {
+                    STATUS_DRAFTING
+                } else {
+                    STATUS_OPEN
+                };
+                update_gap(
+                    tx,
+                    gap.id,
+                    KnowledgeGapUpdate {
+                        status: Some(status.to_string()),
+                        dismissed_at: Some(None),
+                        dismissed_by: Some(None),
+                        updated_at: Some(Utc::now().naive_utc()),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect()
+    })
 }
 
 /// Resolve a gap by linking it to a documentation page. Cascades:
@@ -797,6 +878,9 @@ pub fn link_page_resolves_ticket(
 struct ClosedSource {
     closed_at: chrono::NaiveDateTime,
     payloads: Vec<serde_json::Value>,
+    /// The demand (impact score) someone looked at when they dismissed the
+    /// latest closed gap, or `None` when it was resolved.
+    dismissed_demand: Option<i32>,
 }
 
 fn closed_source(
@@ -807,6 +891,8 @@ fn closed_source(
     let rows: Vec<(
         Option<chrono::NaiveDateTime>,
         Option<chrono::NaiveDateTime>,
+        String,
+        i32,
         serde_json::Value,
     )> = knowledge_gaps::table
         .inner_join(
@@ -818,13 +904,21 @@ fn closed_source(
         .select((
             knowledge_gaps::dismissed_at,
             knowledge_gaps::resolved_at,
+            knowledge_gaps::status,
+            knowledge_gaps::impact_score,
             knowledge_gap_signals::payload,
         ))
         .load(conn)?;
-    let closed_at = rows.iter().filter_map(|(d, r, _)| d.or(*r)).max();
-    Ok(closed_at.map(|closed_at| ClosedSource {
+    let latest = rows
+        .iter()
+        .filter_map(|(d, r, status, impact, _)| {
+            d.or(*r).map(|at| (at, status == STATUS_DISMISSED, *impact))
+        })
+        .max_by_key(|(at, _, _)| *at);
+    Ok(latest.map(|(closed_at, dismissed, impact)| ClosedSource {
         closed_at,
-        payloads: rows.into_iter().map(|(_, _, p)| p).collect(),
+        payloads: rows.into_iter().map(|(_, _, _, _, p)| p).collect(),
+        dismissed_demand: dismissed.then_some(impact),
     }))
 }
 
@@ -883,6 +977,9 @@ pub struct DetectionStats {
     pub gaps_created: usize,
     pub gaps_updated: usize,
     pub new_gap_ids: Vec<i64>,
+    /// Open gaps the run dismissed because their evidence no longer counts.
+    pub gaps_retired: usize,
+    pub retired_gap_ids: Vec<i64>,
 }
 
 /// One row per closed-without-resolves-link candidate ticket,
@@ -1076,8 +1173,9 @@ fn cluster_confidence(member_count: usize) -> i32 {
     scaled.clamp(30, 100)
 }
 
-/// Headline copy for a cluster gap. Constructed from the
-/// available facets — falls back gracefully when one's missing.
+/// Headline copy for a cluster gap, e.g. "4 tickets: Printers, HP
+/// LaserJet M507, via portal". Constructed from the available facets,
+/// falling back gracefully when one's missing.
 fn cluster_headline(cluster: &DetectedCluster) -> String {
     let count = cluster.ticket_ids.len();
     let mut facets: Vec<String> = Vec::new();
@@ -1093,7 +1191,7 @@ fn cluster_headline(cluster: &DetectedCluster) -> String {
     if facets.is_empty() {
         format!("{} similar tickets without docs", count)
     } else {
-        format!("{} tickets — {}", count, facets.join(", "))
+        format!("{} tickets: {}", count, facets.join(", "))
     }
 }
 
@@ -1201,12 +1299,17 @@ pub fn run_cluster_detection(
 // Failed-search detection (Phase 2c)
 // =================================================================
 //
-// Aggregates `search_query_log` rows where result_count = 0,
-// grouped by their normalised query string. Queries that recurred
-// `min_count` times in the window become `failed_search` signals
-// on knowledge_gaps. Same upsert shape as cluster detection:
-// re-running the detector picks up new occurrences and refreshes
-// the count without duplicating gaps.
+// Reads `search_query_log` as settled searches (one per typing chain, see
+// search_query_log) that found no documentation, grouped by their
+// normalised query. Queries settled on `min_count` times in the window
+// become `failed_search` signals on knowledge_gaps. Same upsert shape as
+// cluster detection: re-running the detector picks up new occurrences and
+// refreshes the count without duplicating gaps.
+
+/// The fewest settled searches an open search gap needs behind it to stay
+/// open. The detector's default threshold; a caller asking for a higher one
+/// raises the bar for new gaps without closing gaps raised at this one.
+pub const MIN_FAILED_SEARCHES: i64 = 2;
 
 pub fn run_failed_search_detection(
     conn: &mut DbConnection,
@@ -1225,7 +1328,10 @@ pub fn run_failed_search_detection(
             let existing = find_open_gap_for_source(tx, SOURCE_SEARCH_QUERY, &agg.query_norm)?;
             let was_created = existing.is_none();
             // A closed gap for this query is reopened only by searches that
-            // failed again after it closed, as many as it takes to count.
+            // failed again after it closed. After a resolve, as many as it
+            // takes to count: the doc doesn't answer those words. After a
+            // dismissal, at least as many as were dismissed, so the queue
+            // doesn't hand back what someone already judged.
             if was_created {
                 if let Some(closed) = closed_source(tx, SOURCE_SEARCH_QUERY, &agg.query_norm)? {
                     let since = search_query_log::count_failed_since(
@@ -1233,7 +1339,10 @@ pub fn run_failed_search_detection(
                         &agg.query_norm,
                         closed.closed_at,
                     )?;
-                    if since < min_count {
+                    let needed = closed
+                        .dismissed_demand
+                        .map_or(min_count, |d| min_count.max(i64::from(d)));
+                    if since < needed {
                         return Ok(());
                     }
                 }
@@ -1270,6 +1379,7 @@ pub fn run_failed_search_detection(
                     payload: serde_json::json!({
                         "query_sample": agg.query_sample,
                         "count": agg.count,
+                        "people": agg.people,
                         "first_seen": agg.first_seen,
                         "last_seen": agg.last_seen,
                     }),
@@ -1290,7 +1400,89 @@ pub fn run_failed_search_detection(
         })?;
     }
 
+    let retired = retire_unsupported_search_gaps(conn, days, min_count.min(MIN_FAILED_SEARCHES))?;
+    stats.gaps_retired = retired.len();
+    stats.retired_gap_ids = retired;
+
     Ok(stats)
+}
+
+/// Dismiss open search gaps whose evidence, read the way the detector reads
+/// the log today, doesn't reach `min_count` settled searches. These are gaps
+/// raised from search-as-you-type keystrokes ("Sea", "Sear", "Searching
+/// worka") or from one search counted twice, before searches were read as
+/// chains. A gap someone is writing a doc for (drafting), or one with ticket
+/// evidence too, is left alone, as is one whose log rows are gone: there's
+/// nothing left to judge it by. Dismissed by no one, so a later search that
+/// counts brings the query back the way any dismissal does.
+fn retire_unsupported_search_gaps(
+    conn: &mut DbConnection,
+    days: i32,
+    min_count: i64,
+) -> Result<Vec<i64>, Error> {
+    use crate::repository::search_query_log;
+    use std::collections::{HashMap, HashSet};
+
+    let rows: Vec<(i64, chrono::NaiveDateTime, String, String)> = knowledge_gaps::table
+        .inner_join(
+            knowledge_gap_signals::table.on(knowledge_gap_signals::gap_id.eq(knowledge_gaps::id)),
+        )
+        .filter(knowledge_gaps::status.eq(STATUS_OPEN))
+        .filter(knowledge_gap_signals::dismissed_at.is_null())
+        .select((
+            knowledge_gaps::id,
+            knowledge_gaps::created_at,
+            knowledge_gap_signals::signal_type,
+            knowledge_gap_signals::source_ref,
+        ))
+        .load(conn)?;
+
+    let mixed: HashSet<i64> = rows
+        .iter()
+        .filter(|(_, _, kind, _)| kind != SIGNAL_FAILED_SEARCH)
+        .map(|(id, ..)| *id)
+        .collect();
+    let mut queries: HashMap<i64, Vec<String>> = HashMap::new();
+    let mut earliest: Option<chrono::NaiveDateTime> = None;
+    for (id, created_at, kind, query) in rows {
+        if kind != SIGNAL_FAILED_SEARCH || mixed.contains(&id) {
+            continue;
+        }
+        queries.entry(id).or_default().push(query);
+        earliest = Some(earliest.map_or(created_at, |e| e.min(created_at)));
+    }
+    let Some(earliest) = earliest else {
+        return Ok(Vec::new());
+    };
+
+    // Each gap was raised from searches in the `days` before it was created.
+    let since = earliest - chrono::Duration::days(i64::from(days));
+    let norms: Vec<String> = queries.values().flatten().cloned().collect();
+    let support: HashMap<String, i64> =
+        search_query_log::failed_searches(conn, since, 1, Some(&norms))?
+            .into_iter()
+            .map(|a| (a.query_norm, a.count))
+            .collect();
+    let logged = search_query_log::logged_queries(conn, &norms)?;
+
+    let mut retired: Vec<i64> = queries
+        .into_iter()
+        .filter(|(_, qs)| {
+            qs.iter().all(|q| logged.contains(q))
+                && qs
+                    .iter()
+                    .map(|q| support.get(q).copied().unwrap_or(0))
+                    .max()
+                    .unwrap_or(0)
+                    < min_count
+        })
+        .map(|(id, _)| id)
+        .collect();
+    retired.sort_unstable();
+    for &gap_id in &retired {
+        set_dismissed(conn, gap_id, None)?;
+    }
+    Ok(retired)
 }
 
 // =================================================================
@@ -1543,4 +1735,49 @@ pub fn dismiss_stale_doc_gaps_for_page(
         count += 1;
     }
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cluster(
+        category: Option<&str>,
+        device: Option<&str>,
+        channel: Option<&str>,
+    ) -> DetectedCluster {
+        DetectedCluster {
+            fingerprint: String::new(),
+            category_id: None,
+            category_name: category.map(str::to_string),
+            device_model: device.map(str::to_string),
+            channel_label: channel.map(str::to_string),
+            ticket_ids: vec![44, 47, 51, 53],
+            sample_titles: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn cluster_headline_lists_the_facets_after_the_count() {
+        assert_eq!(
+            cluster_headline(&cluster(
+                Some("Printers"),
+                Some("HP LaserJet M507"),
+                Some("portal")
+            )),
+            "4 tickets: Printers, HP LaserJet M507, via portal"
+        );
+        assert_eq!(
+            cluster_headline(&cluster(None, None, Some("email_imap"))),
+            "4 tickets: via email_imap"
+        );
+    }
+
+    #[test]
+    fn cluster_headline_without_facets_says_what_the_tickets_lack() {
+        assert_eq!(
+            cluster_headline(&cluster(None, None, None)),
+            "4 similar tickets without docs"
+        );
+    }
 }

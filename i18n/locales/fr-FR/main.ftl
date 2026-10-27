@@ -373,22 +373,61 @@ user-menu-administration = Administration
 # MACHINE TRANSLATION, pending native review
 user-menu-team = Équipe
 # MACHINE TRANSLATION, pending native review
+user-menu-plan-billing = Offre et facturation
+# MACHINE TRANSLATION, pending native review
 user-menu-help = Aide
+# MACHINE TRANSLATION, pending native review
+user-menu-contact-support = Contacter le support
 user-menu-report-problem = Signaler un problème
 user-menu-sign-out = Se déconnecter
 user-menu-guest-name = Invité
+
+# Rappels de fin d'essai Cloud, pour le propriétaire de l'espace.
+# MACHINE TRANSLATION, pending native review
+trial-notice-menu-line = { $days ->
+    [0] L'essai se termine aujourd'hui
+    [1] L'essai se termine demain, { $date }
+   *[other] L'essai se termine le { $date }, dans { $days } jours
+}
+trial-notice-menu-line-cancelled = L'essai se termine le { $date }, sans reconduction
+trial-notice-soon-title = Votre essai se termine le { $date }, dans { $days } jours.
+trial-notice-soon-body = Votre offre et la possibilité d'annuler se trouvent dans Gérer la facturation, dans votre compte Nosdesk. Rien ne change dans votre espace de travail d'ici là.
+trial-notice-imminent-title = { $days ->
+    [0] Votre essai se termine aujourd'hui.
+    [1] Votre essai se termine demain, { $date }.
+   *[other] Votre essai se termine dans { $days } jours, le { $date }.
+}
+trial-notice-imminent-body = Si vous n'avez pas encore décidé, votre offre et la possibilité d'annuler se trouvent dans Gérer la facturation, dans votre compte Nosdesk. Tout ce que vous avez configuré reste en l'état d'ici là.
+trial-notice-cancelled-title = Votre essai se termine le { $date } et ne sera pas reconduit.
+trial-notice-cancelled-body = Vous n'avez rien à faire. Si vous souhaitez finalement conserver Nosdesk, vous pouvez le faire depuis Gérer la facturation, dans votre compte Nosdesk, à tout moment d'ici là.
+trial-notice-manage-billing = Gérer la facturation
+trial-notice-manage-billing-aria = Gérer la facturation, ouvre votre compte Nosdesk dans un nouvel onglet
+trial-notice-opens-account = Ouvre votre compte Nosdesk dans un nouvel onglet
+trial-notice-dismiss = Masquer le rappel de fin d'essai
 
 bug-report-modal-title = Signaler un problème
 bug-report-modal-description-label = Que s'est-il passé ?
 bug-report-modal-description-placeholder = ex. j'ai essayé d'enregistrer un commentaire et j'ai vu une bannière rouge ; j'étais sur le menu de l'assigné juste avant.
 bug-report-modal-description-hint = Une ou deux phrases suffisent.
-bug-report-modal-attachments-hint = Nous joignons la page actuelle, la version du build, et les dernières navigations et appels API. Tout reste dans cet espace de travail.
+# MACHINE TRANSLATION, pending native review
+bug-report-modal-attachments-hint-self-hosted = Nous joignons la page actuelle, la version du build, et les dernières navigations et appels API. Le rapport reste sur ce serveur, où ses administrateurs peuvent le lire.
+bug-report-modal-attachments-hint-hosted = Nous joignons la page actuelle, la version du build, et les dernières navigations et appels API. Le rapport est envoyé à l'équipe Nosdesk.
+bug-report-modal-support-hint = Pour une question sur votre compte ou la facturation, contactez le support :
 bug-report-modal-cancel = Annuler
 bug-report-modal-submit = Envoyer le rapport
 bug-report-success-toast-title = Rapport envoyé
-bug-report-success-toast-body = Merci. Un administrateur peut le retrouver dans le diagnostic de cet espace.
+# MACHINE TRANSLATION, pending native review
+bug-report-success-toast-body-self-hosted = Merci. Les administrateurs de ce serveur peuvent le lire.
+bug-report-success-toast-body-hosted = Merci. Il a été transmis à l'équipe Nosdesk.
 bug-report-error-toast-title = Impossible d'envoyer le rapport
 bug-report-error-toast-body = Veuillez réessayer dans un instant.
+
+# Contacter le support (Cloud uniquement).
+# MACHINE TRANSLATION, pending native review
+contact-support-title = Contacter le support
+contact-support-body = Pour toute question sur votre compte, votre offre ou la facturation, écrivez à l'équipe Nosdesk.
+support-address-copy = Copier l'adresse
+support-address-copied = Adresse copiée
 
 # Tickets — états vides + barre d'actions groupées.
 ticket-list-loading = Chargement des tickets…
@@ -1089,6 +1128,8 @@ admin-clear-search = Effacer la recherche
 admin-index-subtitle = Gérez vos paramètres système, intégrations et la configuration de l'espace de travail
 
 admin-nav-group-tickets = Tickets et workflow
+# Groupe « Portail d'assistance » (machine, à relire par un locuteur natif).
+admin-nav-group-help-portal = Portail d'assistance
 admin-nav-group-integrations = Intégrations
 admin-nav-group-compliance = Conformité
 admin-nav-group-appearance = Apparence et notifications
@@ -1633,6 +1674,12 @@ admin-data-import-notice = Les imports peuvent déclencher des notifications aux
 admin-data-import-status-available = Disponible
 admin-data-import-status-coming-soon = Bientôt disponible
 admin-data-import-status-beta = Bêta
+# MT: pending native review (fr-FR)
+admin-data-import-status-new = Nouveau
+# MT: pending native review (fr-FR)
+admin-data-import-docs-title = Documentation
+# MT: pending native review (fr-FR)
+admin-data-import-docs-description = Des fichiers Markdown, un export Notion, Obsidian ou GitBook, ou un export Nosdesk.
 admin-data-import-microsoft-title = Microsoft Graph
 # TODO native-review fr-FR for the key below.
 admin-data-import-microsoft-description = Importez des utilisateurs, des groupes et des appareils depuis Microsoft Entra ID
@@ -2024,7 +2071,6 @@ admin-backup-delete-title = Supprimer
 admin-backup-docs-heading = Exporter la documentation en Markdown
 admin-backup-docs-description = Exportez toutes les pages de documentation en fichiers markdown dans une archive ZIP
 admin-backup-docs-export = Exporter en Markdown
-admin-backup-docs-exporting = Export { $current }/{ $total }...
 admin-backup-docs-preparing = Préparation...
 admin-backup-docs-error = Échec de l'export de la documentation. Consultez la console pour plus de détails.
 admin-backup-restore-heading = Restaurer depuis une sauvegarde
@@ -2650,6 +2696,10 @@ user-mgmt-bulk-skipped-staff = { $count ->
     [one] Un membre du personnel est géré dans votre compte Nosdesk et n'a donc pas été supprimé ici.
    *[other] { $count } membres du personnel sont gérés dans votre compte Nosdesk et n'ont donc pas été supprimés ici.
 }
+user-mgmt-bulk-skipped-elsewhere = { $count ->
+    [one] Une personne appartient aussi à d'autres espaces de travail, elle n'a donc pas été supprimée. Retirez-la plutôt de cet espace de travail.
+   *[other] { $count } personnes appartiennent aussi à d'autres espaces de travail, elles n'ont donc pas été supprimées. Retirez-les plutôt de cet espace de travail.
+}
 user-mgmt-bulk-delete-failed = { $count ->
     [one] Un utilisateur n'a pas pu être supprimé. Veuillez réessayer.
    *[other] { $count } utilisateurs n'ont pas pu être supprimés. Veuillez réessayer.
@@ -3193,14 +3243,6 @@ docs-index-new-page = Nouvelle page
 # Docs : barre d'outils de l'index (DocumentationIndexToolbar)
 docs-index-toolbar-search = Rechercher dans la documentation
 # MACHINE TRANSLATION, pending native review
-docs-index-toolbar-search-placeholder = Rechercher dans la documentation…
-docs-index-toolbar-stats = { $pages ->
-    [one] { $pages } page
-   *[other] { $pages } pages
-  } dans { $collections ->
-    [one] { $collections } collection
-   *[other] { $collections } collections
-  }
 docs-index-library-heading = Bibliothèque
 docs-index-library-count = { $count ->
     [one] { $count } collection
@@ -3223,21 +3265,64 @@ docs-index-drafts-strip-suffix = { $count ->
    *[other] ne sont pas encore dans une collection
   }
 docs-index-drafts-strip-review = Passer en revue →
-docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = Nouvelle collection
-docs-index-toolbar-more = Plus
 docs-index-toolbar-more-aria = Actions documentation
 docs-index-toolbar-scan-gaps = Analyser les lacunes de connaissances
 docs-index-toolbar-scan-no-results = Aucune nouvelle lacune trouvée
 docs-index-toolbar-scan-success = { $created } nouvelles lacunes · { $updated } mises à jour
 docs-index-toolbar-scan-error = Échec de l'analyse. Réessayez.
-docs-index-toolbar-maintenance-heading = Maintenance
-docs-index-toolbar-archived = Pages archivées
-docs-index-toolbar-trash = Corbeille
 docs-index-toolbar-publish-heading = Publication
 docs-index-toolbar-admin-heading = Administration
 docs-index-toolbar-public-site = Voir le site public
 docs-index-toolbar-guest-settings = Accès invités
+# MT: pending native review (fr-FR)
+docs-index-toolbar-import = Importer des documents
+
+# Docs : export de la documentation (DocumentationExportDialog)
+# MT: pending native review (fr-FR)
+docs-export-menu = Exporter la documentation
+docs-export-menu-busy = Préparation de l'export…
+docs-export-title = Exporter la documentation
+docs-export-intro = Téléchargez la documentation de cet espace de travail sous forme d'archive zip de fichiers Markdown, un par page, avec un manifeste qui conserve leur emplacement.
+docs-export-included-heading = Inclus
+docs-export-included-pages = { $count ->
+    [one] { $count } page de la Bibliothèque et des Brouillons
+   *[other] { $count } pages de la Bibliothèque et des Brouillons
+  }
+docs-export-included-structure = { $count ->
+    [0] Imbrication et ordre des pages
+    [one] { $count } collection, avec l'imbrication et l'ordre des pages
+   *[other] { $count } collections, avec l'imbrication et l'ordre des pages
+  }
+docs-export-included-images = Les images affichées sur ces pages
+docs-export-excluded-heading = Non inclus
+docs-export-excluded-archived = { $count ->
+    [one] { $count } page archivée
+   *[other] { $count } pages archivées
+  }
+docs-export-excluded-trash = { $count ->
+    [one] { $count } page dans la Corbeille
+   *[other] { $count } pages dans la Corbeille
+  }
+docs-export-excluded-history = L'historique des révisions et les règles d'accès aux pages
+docs-export-round-trip = L'archive se réimporte dans n'importe quel espace de travail Nosdesk via Importer des documents, et s'ouvre dans n'importe quel éditeur Markdown.
+docs-export-preparing-hint = Une grande bibliothèque peut prendre une minute. Vous pouvez fermer cette fenêtre ; le téléchargement démarre dès que l'archive est prête.
+docs-export-download = Télécharger le zip
+docs-export-preparing = Préparation du zip…
+docs-export-close = Fermer
+docs-export-done = Documentation exportée
+docs-export-error = La documentation n'a pas pu être exportée. Réessayez.
+docs-export-forbidden = Seuls les administrateurs et propriétaires de l'espace de travail peuvent exporter la documentation.
+
+# Docs : onglets et actions du bandeau de l'index (machine, à relire par un locuteur natif)
+docs-index-tabs-aria = Vues de la documentation
+docs-index-tab-library = Bibliothèque
+docs-index-tab-drafts = Brouillons
+docs-index-tab-archived = Archivées
+docs-index-tab-trash = Corbeille
+docs-index-toolbar-search-button = Rechercher
+docs-index-toolbar-more-actions = Plus d'actions
+docs-index-toolbar-knowledge-heading = Connaissances
 
 docs-index-stat-collections = { $count ->
     [one] { $count } collection
@@ -3313,7 +3398,6 @@ docs-index-chip-trash = { $count ->
 docs-drafts-title = Hors collection
 docs-drafts-heading = Hors collection
 docs-drafts-description = Pages non encore assignées à une collection
-docs-drafts-back = Retour à la documentation
 docs-drafts-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3324,7 +3408,6 @@ docs-drafts-count = { $count ->
 docs-archived-title = Archivées
 docs-archived-heading = Archivées
 docs-archived-description = Pages qui ont été archivées
-docs-archived-back = Retour à la documentation
 docs-archived-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3338,7 +3421,6 @@ docs-archived-restore = Restaurer
 docs-trash-title = Corbeille
 docs-trash-heading = Corbeille
 docs-trash-description = Les pages supprimées peuvent être restaurées ou supprimées définitivement
-docs-trash-back = Retour à la documentation
 docs-trash-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3357,19 +3439,43 @@ docs-gaps-back-docs = Docs
 docs-gaps-back-list = Lacunes de connaissances
 docs-gaps-refresh = Actualiser les signaux
 docs-gaps-refreshing = Actualisation
-docs-gaps-detect-no-results = Aucun nouveau groupe trouvé
+docs-gaps-detect-no-results = Rien de nouveau trouvé
 docs-gaps-detect-created = { $count } nouveau(x)
 docs-gaps-detect-updated = { $count } mis à jour
+# Lacunes : ignorer depuis la liste, recherches comptées (machine, à relire par un locuteur natif).
+docs-gaps-detect-retired = { $count } retirée(s)
+docs-gaps-impact-search-count = { $count ->
+    [one] { $count } recherche
+   *[other] { $count } recherches
+   }
+docs-gaps-impact-ticket-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+docs-gaps-impact-recent-ticket-count = { $count ->
+    [one] { $count } ticket récent
+   *[other] { $count } tickets récents
+   }
+docs-gaps-failed-search-people = { $count ->
+    [one] { $count } personne
+   *[other] { $count } personnes
+   }
+docs-gaps-selected-count = { $count ->
+    [one] { $count } lacune sélectionnée
+   *[other] { $count } lacunes sélectionnées
+   }
+docs-gaps-aria-select = Sélectionner { $title }
+docs-gaps-aria-dismiss = Ignorer { $title }
+docs-gaps-dismissed-toast = { $count ->
+    [one] Lacune ignorée
+   *[other] { $count } lacunes ignorées
+   }
+docs-gaps-dismiss-failed = { $count ->
+    [one] Impossible d'ignorer la lacune
+   *[other] Impossible d'ignorer les lacunes
+   }
 docs-gaps-loading = Chargement
 docs-gaps-empty = Aucune lacune ouverte. Signalez un ticket depuis sa barre latérale pour en ajouter une. Les groupes de tickets similaires et les recherches qui ne trouvent jamais de doc apparaissent ici d'eux-mêmes.
-docs-gaps-impact-searches = recherches
-docs-gaps-impact-recent-tickets = tickets récents
-docs-gaps-impact-tickets = tickets
-docs-gaps-impact-tooltip = { $count } { $label } indiquant la demande pour ce document
-docs-gaps-signal-count = { $count ->
-    [one] { $count } signal
-   *[other] { $count } signaux
-   }
 docs-gaps-select-prompt = Sélectionnez une lacune dans la liste pour voir ses preuves.
 docs-gaps-status-label = Statut :
 docs-gaps-last-evidence = Dernière preuve : { $time }
@@ -4132,6 +4238,7 @@ import-matches-noun = { $type ->
 import-matches-nouns = { $type ->
     [users] les utilisateurs
     [tickets] les tickets
+    [documentation] la documentation
    *[assets] les ressources
 }
 # MT: pending native review (fr-FR)
@@ -4671,9 +4778,17 @@ import-history-state-imported = Importé
 # MT: pending native review (fr-FR)
 import-history-state-expired = Expiré
 # MT: pending native review (fr-FR)
+import-history-state-removed = Retiré
+# MT: pending native review (fr-FR)
+import-history-count-removed-pages = { $deleted } retirées · { $kept } conservées
+# MT: pending native review (fr-FR)
 import-history-draft-on-map = Brouillon à l'étape Colonnes
 # MT: pending native review (fr-FR)
 import-history-draft-on-review = Brouillon à l'étape Vérification
+# MT: pending native review (fr-FR)
+import-history-draft-on-pages = Brouillon à l'étape Pages
+# MT: pending native review (fr-FR)
+import-history-docs-importing = Import en cours
 # MT: pending native review (fr-FR)
 import-history-count-new = { $count } nouvelles
 # MT: pending native review (fr-FR)
@@ -4740,6 +4855,14 @@ import-remove-load-failed = Impossible de vérifier les actifs importés. Réess
 import-remove-failed = La suppression des actifs importés a échoué et rien n'a été supprimé.
 # MT: pending native review (fr-FR)
 import-remove-already-removed = Les actifs créés par cet import ont déjà été supprimés.
+# MT: pending native review (fr-FR)
+import-remove-nothing-none-created = Cet import n'a créé aucun actif, il n'y a donc rien à supprimer.
+# MT: pending native review (fr-FR)
+import-remove-nothing-all-gone = Les actifs créés par cet import ont déjà été supprimés.
+# MT: pending native review (fr-FR)
+import-remove-nothing-all-changed = Chaque actif créé par cet import a été modifié depuis, donc rien n'a été supprimé.
+# MT: pending native review (fr-FR)
+import-remove-not-committed = Cet import n'a pas été validé, il n'a donc rien créé à supprimer.
 # MT: pending native review (fr-FR)
 import-remove-still-running = Suppression en cours. Cette page se met à jour une fois terminée.
 # MT: pending native review (fr-FR)
@@ -5064,6 +5187,10 @@ editor-toolbar-connection-disconnected = Déconnecté
 editor-toolbar-connection-signed-out = Déconnecté. Reconnectez-vous pour enregistrer les modifications.
 editor-toolbar-connection-no-access = Aucun accès. Les modifications ici ne seront pas enregistrées.
 editor-toolbar-connection-gone = Supprimé. Les modifications ici ne seront pas enregistrées.
+# Page refused for an outdated editor (machine, pending native review)
+editor-outdated-reload = Cette page utilise une version plus récente de Nosdesk. Rechargez pour continuer à la modifier.
+editor-outdated-reload-button = Recharger
+editor-outdated-update-app = Mettez à jour l'application Nosdesk pour modifier cette page.
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID : { $uuid })
 
@@ -5084,6 +5211,54 @@ editor-insert-menu-link = Lien
 editor-insert-menu-embed-document = Intégrer un document
 editor-insert-menu-image = Image
 editor-insert-menu-take-photo = Prendre une photo
+
+# Éditeur : commandes de tableau (machine, à relire par un locuteur natif).
+editor-toolbar-table = Tableau
+editor-insert-menu-table = Tableau
+editor-table-actions = Actions du tableau
+editor-table-add-row = Ajouter une ligne
+editor-table-add-column = Ajouter une colonne
+editor-table-insert-row-here = Insérer une ligne ici
+editor-table-insert-column-here = Insérer une colonne ici
+editor-table-row-actions = Actions de la ligne { $row }
+editor-table-column-actions = Actions de la colonne { $column }
+editor-table-menu-row = Ligne { $row }
+editor-table-menu-column = Colonne { $column }
+editor-table-menu-table = Tableau
+editor-table-menu-cells = Cellules sélectionnées
+editor-table-insert-row-above = Insérer une ligne au-dessus
+editor-table-insert-row-below = Insérer une ligne en dessous
+editor-table-insert-column-left = Insérer une colonne à gauche
+editor-table-insert-column-right = Insérer une colonne à droite
+editor-table-move-up = Monter
+editor-table-move-down = Descendre
+editor-table-move-left = Déplacer à gauche
+editor-table-move-right = Déplacer à droite
+editor-table-header-row = Ligne d'en-tête
+editor-table-header-column = Colonne d'en-tête
+editor-table-align-left = Aligner à gauche
+editor-table-align-center = Centrer
+editor-table-align-right = Aligner à droite
+editor-table-reset-width = Réinitialiser la largeur
+editor-table-reset-widths = Réinitialiser les largeurs de colonne
+editor-table-clear = Effacer le contenu
+editor-table-delete-row = Supprimer la ligne
+editor-table-delete-column = Supprimer la colonne
+editor-table-delete-table = Supprimer le tableau
+editor-table-merge = Fusionner les cellules
+editor-table-split = Scinder la cellule
+editor-table-copy-markdown = Copier en Markdown
+editor-table-bar-merge = Fusionner
+editor-table-bar-split = Scinder
+editor-table-bar-clear = Effacer
+editor-table-bar-clear-title = Effacer le contenu (Retour arrière)
+editor-table-bar-more = Plus
+editor-table-deleted = Tableau supprimé
+editor-table-undo = Annuler
+editor-table-copied-markdown = Copié en Markdown
+editor-table-copied-html = Copié en HTML
+editor-table-copied-html-detail = Ce tableau contient plus qu'un tableau Markdown ne peut en contenir, comme des cellules fusionnées ou une colonne d'en-tête, il est donc copié en tableau HTML.
+editor-table-copy-failed = Impossible de copier le tableau dans le presse-papiers.
 
 # Éditeur : invite de langage du bloc de code (CollaborativeEditor)
 editor-code-block-language-prompt = Langage pour la coloration syntaxique (facultatif) :
@@ -5496,13 +5671,38 @@ settings-sessions-revoke-success = Session déconnectée.
 settings-sessions-revoke-error = Impossible de déconnecter cette session. Réessayez.
 settings-sessions-revoke-others-button = Déconnecter toutes les autres sessions
 settings-sessions-revoke-others-modal-title = Déconnecter toutes les autres sessions ?
-settings-sessions-revoke-others-modal-description = Cela déconnecte tous les appareils sauf celui-ci. Confirmez votre identité pour continuer.
-settings-sessions-revoke-others-stepup-password = Confirmez votre mot de passe pour continuer
-settings-sessions-revoke-others-stepup-mfa = Saisissez un code d'authentification pour continuer
+settings-sessions-revoke-others-modal-description = Cela déconnecte tous les appareils sauf celui-ci.
 settings-sessions-modal-cancel = Annuler
 settings-sessions-revoke-others-confirm = Déconnecter les autres
 settings-sessions-revoke-others-success = Toutes les autres sessions ont été déconnectées.
-settings-sessions-revoke-others-error = Impossible de déconnecter les autres sessions. Vérifiez vos identifiants et réessayez.
+settings-sessions-revoke-others-success-remembered-kept = Toutes les autres sessions ont été déconnectées. Les navigateurs connectés à votre compte Nosdesk peuvent encore se reconnecter pendant 8 heures au maximum. Pour les en empêcher dès maintenant, déconnectez les autres sessions dans votre compte Nosdesk.
+settings-sessions-revoke-others-error = Impossible de déconnecter les autres sessions. Réessayez.
+
+# Confirmer que c'est vous avant une action sensible (ConfirmIdentity, /auth/confirmed) (machine, à relire par un locuteur natif)
+step-up-lead = Confirmez que c'est bien vous pour continuer.
+step-up-confirmed = Vous avez confirmé que c'est bien vous il y a quelques minutes.
+step-up-password-label = Mot de passe
+step-up-code-label = Code d'authentification ou code de secours
+step-up-passkey-button = Utiliser une clé d'accès
+step-up-provider-button = Continuer avec { $name }
+step-up-provider-help = Une fenêtre s'ouvre pour vous reconnecter. Revenez ici une fois terminé.
+step-up-waiting = En attente de votre connexion…
+step-up-try-again = Réessayer
+step-up-use-another-way = Utiliser une autre méthode
+step-up-choice-password = Utiliser votre mot de passe
+step-up-choice-code = Utiliser un code d'authentification ou de secours
+step-up-result-cancelled = La connexion a été annulée.
+step-up-result-wrong-account = C'était un autre compte. Connectez-vous avec { $email } pour continuer.
+step-up-result-wrong-account-no-email = C'était un autre compte. Connectez-vous avec le compte que vous utilisez ici pour continuer.
+step-up-result-not-fresh = Votre fournisseur de connexion n'a pas confirmé une connexion récente. Réessayez.
+step-up-result-signed-out = Ce navigateur est déconnecté. Reconnectez-vous, puis réessayez.
+step-up-result-failed = Impossible de confirmer que c'est bien vous. Réessayez.
+step-up-no-methods = Déconnectez-vous, reconnectez-vous, puis réessayez dans les { $minutes ->
+    [one] { $minutes } minute
+   *[other] { $minutes } minutes
+}.
+step-up-popup-confirmed = Confirmé. Vous pouvez fermer cette fenêtre.
+step-up-popup-close = Vous pouvez fermer cette fenêtre.
 
 # Paramètres : avertissement de modifications non enregistrées (partagé) (machine, à relire par un locuteur natif).
 settings-unsaved-leave-title = Abandonner les modifications non enregistrées ?
@@ -5594,7 +5794,6 @@ docs-collection-manager-saving = Enregistrement...
 
 # Docs : navigateur de collections (CollectionBrowser)
 docs-collection-browser-heading = Collections
-docs-collection-browser-new = Nouveau
 docs-collection-browser-name-placeholder = Nom de la collection...
 docs-collection-browser-cancel = Annuler
 docs-collection-browser-create = Créer
@@ -5669,7 +5868,6 @@ docs-breadcrumb-root = Documentation
 docs-breadcrumb-aria = Fil d'Ariane
 
 # Docs : carte (DocumentationCard)
-docs-card-empty-content = Aucun contenu pour le moment
 docs-card-children-more = +{ $count } de plus
 docs-card-relative-unknown = Inconnu
 docs-card-relative-today = Aujourd'hui
@@ -7052,37 +7250,7 @@ settings-security-error-reset-failed = Échec de la réinitialisation du mot de 
 
 # OAuth callback view + card.
 auth-callback-loading-default = Finalisation de la connexion...
-auth-callback-loading-processing = Traitement de l'authentification...
-auth-callback-loading-success = Réussi ! Redirection...
 auth-callback-loading-subtitle = Veuillez patienter pendant que nous terminons l'authentification
-auth-callback-success-title = Authentification réussie
-auth-callback-success-subtitle = Redirection...
-auth-callback-technical-details = Détails techniques
-auth-callback-provider-microsoft = Microsoft
-auth-callback-provider-sso = SSO
-auth-callback-error-missing-params = Paramètres d'authentification requis manquants
-auth-callback-error-missing-detail = Manquant : { $fields }
-auth-callback-error-missing-field-code = code
-auth-callback-error-missing-field-state = état
-auth-callback-error-invalid-response = Réponse du serveur invalide
-auth-callback-error-no-response = Aucune réponse reçue du serveur
-auth-callback-error-unknown = Erreur inconnue
-auth-callback-error-generic-message = Une erreur inattendue s'est produite lors de l'authentification
-auth-callback-error-status-prefix = Statut : { $status }
-auth-callback-already-title = Compte déjà connecté
-auth-callback-already-message = Ce compte { $provider } est déjà lié à un autre utilisateur dans le système.
-auth-callback-already-suggestion-microsoft = Essayez de vous connecter avec un autre compte { $provider }, ou contactez votre administrateur.
-auth-callback-already-suggestion-generic = Essayez de vous connecter avec un autre compte, ou contactez votre administrateur.
-auth-callback-invalid-title = Échec de l'authentification
-auth-callback-invalid-message = La demande d'authentification était invalide ou a expiré.
-auth-callback-invalid-suggestion-microsoft = Veuillez réessayer de connecter votre compte { $provider }.
-auth-callback-invalid-suggestion-generic = Veuillez réessayer de vous connecter.
-auth-callback-generic-title = Échec de l'authentification
-auth-callback-generic-suggestion = Veuillez réessayer ou contacter le support si le problème persiste.
-auth-callback-action-try-different = Essayer un autre compte
-auth-callback-action-back-settings = Retour aux paramètres
-auth-callback-action-return-login = Retour à la connexion
-auth-callback-action-try-again = Réessayer
 
 # Widgets du tableau de bord
 dashboard-widget-shell-action-view-all = Tout voir
@@ -7202,11 +7370,6 @@ dashboard-knowledge-gaps-action = Voir la file
 dashboard-knowledge-gaps-error = Impossible de charger les lacunes
 dashboard-knowledge-gaps-empty-title = Aucune lacune ouverte
 dashboard-knowledge-gaps-empty-description = Les tickets signalés pour la documentation apparaîtront ici.
-dashboard-knowledge-gaps-signal-count =
-    { $count ->
-        [one] 1 signal
-       *[other] { $count } signaux
-    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } recherches
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets révélant un besoin pour ce document
@@ -7734,12 +7897,15 @@ admin-ldap-preview-not-found = groupe introuvable dans l'annuaire
 admin-ldap-preview-default = Tous les autres → Membre
 route-title-admin-csv-import = Importation CSV
 # MT: pending native review (fr-FR)
+route-title-admin-docs-import = Importer de la documentation
+# MT: pending native review (fr-FR)
 route-title-admin-import-saved-matches = Correspondances enregistrées
 # MT: pending native review (fr-FR)
 route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Sauvegarde et restauration
 route-title-group-detail = Détails du groupe
 route-title-authenticating = Authentification en cours...
+route-title-auth-confirmed = Confirmer que c'est vous
 route-title-pdf-viewer = Visionneuse PDF
 
 # Loading modals + scattered polish
@@ -8095,11 +8261,13 @@ user-settings-delete-button = Supprimer le compte
 user-settings-delete-self-hint = Pour supprimer votre compte, contactez l'administrateur de votre espace de travail.
 user-settings-delete-modal-warning = { $name } perd l'accès immédiatement. Le compte est définitivement supprimé après 30 jours, et un administrateur peut le restaurer d'ici là.
 user-settings-delete-modal-removes = Après 30 jours, ceci supprime définitivement :
-user-settings-delete-stepup-password = Saisissez votre mot de passe pour confirmer
-user-settings-delete-stepup-mfa = Saisissez un code de votre application d'authentification, ou un code de secours, pour confirmer
 user-settings-delete-cancel = Annuler
 user-settings-delete-confirm = Supprimer le compte
 user-settings-delete-error = Impossible de supprimer le compte. Réessayez.
+user-settings-delete-member-elsewhere = Cette personne appartient aussi à d'autres espaces de travail, son compte ne peut donc pas être supprimé ici. Retirez-la plutôt de cet espace de travail.
+user-settings-delete-admin-hint = Les administrateurs ne peuvent pas être supprimés. Pour supprimer ce compte, changez d'abord son rôle.
+user-settings-account-member-elsewhere = { $name } appartient aussi à d'autres espaces de travail, donc seule cette personne peut modifier son nom, sa photo, ses adresses e-mail et sa langue. Ses groupes ici restent gérés par vous.
+user-settings-account-administrator = { $name } est administrateur, donc seuls cette personne ou un propriétaire peuvent modifier son nom, sa photo, ses adresses e-mail, sa langue et sa connexion. Ses groupes ici restent gérés par vous.
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filtrer les plugins
 admin-plugins-list-search-placeholder = Rechercher des plugins
@@ -8569,6 +8737,8 @@ admin-rules-starters-added = Ajoutée
 admin-rules-starters-toast = { $name } ajoutée en brouillon.
 admin-rules-starters-error = Impossible d'ajouter cette règle.
 admin-rules-starters-error-load = Impossible de charger les règles prêtes à l'emploi.
+# Machine, pending native review
+backend-error-starter-status-missing = Cette règle prête à l'emploi passe les tickets à un statut de la catégorie { $category }, et votre espace de travail n'en a aucun. Ajoutez-en un dans Workflow, puis réessayez.
 admin-rules-activity-rule-unknown = Règle supprimée
 admin-rules-activity-row-by-person = Appliquée au ticket #{ $ticket_id } par { $name }
 admin-rules-activity-what-it-did = Ce qu'elle a fait
@@ -8628,6 +8798,8 @@ ticket-actions-step-status-unknown = Changer le statut
 ticket-actions-step-assign = Assigner à { $name }
 ticket-actions-step-assign-unknown = Assigner à une personne précise
 ticket-actions-step-unassign = Retirer la personne assignée
+# A name inside a sentence, such as a tag a rule step adds (machine, pending native review)
+rule-step-quoted-name = « { $name } »
 ticket-actions-step-add-tags =
     { $count ->
         [one] Ajouter l'étiquette { $tags }
@@ -8907,6 +9079,9 @@ date-picker-calendar-aria = Calendrier
 # MACHINE TRANSLATION, pending native review
 admin-nav-license-title = Licence
 admin-nav-license-description = État de la licence, relais push Nosdesk Cloud et offres.
+# MACHINE TRANSLATION, pending native review
+admin-nav-plan-billing-title = Offre et facturation
+admin-nav-plan-billing-description = Essai, moyen de paiement et factures. Ouvre votre compte Nosdesk.
 route-title-admin-license = Licence
 admin-license-title = Licence
 admin-license-description = Ce que couvre la licence de ce serveur, et comment les notifications push atteignent l'application mobile.
@@ -9438,3 +9613,1701 @@ portal-new-next-2 = Elle répond ici, et chaque réponse vous parvient aussi par
 portal-new-next-3 = Une fois réglé, vous confirmez que c'est résolu.
 portal-approvals-intro = Demandes qui attendent votre accord avant que l'équipe ne commence.
 portal-approval-ask = Approuvez-vous cette demande ?
+
+# Import de documentation (Importation de données > Documentation), machine, à relire par un locuteur natif
+# MT: pending native review (fr-FR)
+docs-import-title = Importer de la documentation
+# MT: pending native review (fr-FR)
+docs-import-subtitle = Importez des pages depuis des fichiers Markdown ou l'export d'un autre outil.
+# MT: pending native review (fr-FR)
+docs-import-step-pages = Pages
+# MT: pending native review (fr-FR)
+docs-import-nothing-changes = Rien ne change dans votre espace de travail tant que vous n'avez pas cliqué sur Importer à l'étape Vérification.
+# MT: pending native review (fr-FR)
+docs-import-error-generic = L'import a échoué. Réessayez ou commencez-en un nouveau.
+# MT: pending native review (fr-FR)
+docs-import-check-failed = La vérification s'est arrêtée avant la fin. Rien n'a été importé. Vérifiez à nouveau les pages.
+# MT: pending native review (fr-FR)
+docs-import-commit-failed = Rien n'a été importé. Cliquez à nouveau sur Importer.
+# MT: pending native review (fr-FR)
+docs-import-report-failed = Le rapport de conversion n'a pas pu être téléchargé. Réessayez.
+# MT: pending native review (fr-FR)
+docs-import-untitled = Sans titre
+# MT: pending native review (fr-FR)
+docs-import-start-heading = Importer de la documentation
+# MT: pending native review (fr-FR)
+docs-import-drop-idle = Déposez un .zip ou des fichiers .md ici, ou cliquez pour choisir
+# MT: pending native review (fr-FR)
+docs-import-drop-release = Relâchez pour envoyer
+# MT: pending native review (fr-FR)
+docs-import-drop-hint = .zip ou .md, jusqu'à 200 Mo et 2 000 pages
+# MT: pending native review (fr-FR)
+docs-import-files-count = { $count ->
+    [one] 1 fichier
+   *[other] { $count } fichiers
+}
+# MT: pending native review (fr-FR)
+docs-import-uploading = Envoi de { $name }
+# MT: pending native review (fr-FR)
+docs-import-uploading-progress = { $loaded } sur { $total } · vous pouvez laisser cet onglet en arrière-plan
+# MT: pending native review (fr-FR)
+docs-import-reading = Lecture des pages
+# MT: pending native review (fr-FR)
+docs-import-start-sources = Des fichiers Markdown, ou un export de Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline ou Nosdesk. La source est détectée ; vous pourrez la changer à l'étape suivante.
+# MT: pending native review (fr-FR)
+docs-import-start-images = Les images de l'archive sont importées. Les images liées depuis le web sont téléchargées, sauf indication contraire.
+# MT: pending native review (fr-FR)
+docs-import-start-attachments = Les pièces jointes PDF et Office ne sont pas encore importées ; chaque page qui en contient une est signalée.
+# MT: pending native review (fr-FR)
+docs-import-comes-across-heading = Ce qui est importé
+# MT: pending native review (fr-FR)
+docs-import-comes-across-1 = Titres, mise en forme du texte, liens, listes, citations, code, tableaux et images, tels que l'éditeur les prend en charge. Les pages gardent leur arborescence et leur ordre. Les liens entre pages pointent vers les nouvelles pages.
+# MT: pending native review (fr-FR)
+docs-import-comes-across-2 = Les encadrés deviennent des citations avec un libellé en gras, les listes de tâches deviennent des listes à puces avec ☐ et ☑, et tout ce qui change est indiqué à l'étape Vérification, page par page, avant l'import.
+# MT: pending native review (fr-FR)
+docs-import-refused-not-a-zip = Ce fichier n'est pas un zip que nous pouvons lire.
+# MT: pending native review (fr-FR)
+docs-import-refused-inner-zip = Le zip qu'il contient, { $part }, n'est pas un zip que nous pouvons lire.
+# MT: pending native review (fr-FR)
+docs-import-refused-encrypted = Ce zip est protégé par un mot de passe. Exportez-le à nouveau sans mot de passe.
+# MT: pending native review (fr-FR)
+docs-import-refused-too-many-pages = L'import contient { $count } pages. La limite est de { $max }. Exportez une partie à la fois.
+# MT: pending native review (fr-FR)
+docs-import-refused-too-many-files = Le zip contient plus de { $max } fichiers. Exportez une partie à la fois.
+# MT: pending native review (fr-FR)
+docs-import-refused-no-markdown = Ce zip ne contient aucun fichier Markdown.
+# MT: pending native review (fr-FR)
+docs-import-refused-source-later = Il s'agit d'un export { $source }. Les exports BookStack et Confluence arriveront dans une prochaine mise à jour.
+# MT: pending native review (fr-FR)
+docs-import-refused-mixed-files = Choisissez un seul .zip, ou uniquement des fichiers .md.
+# MT: pending native review (fr-FR)
+docs-import-refused-too-large = { $name } fait { $size }. La limite est de { $max }. Exportez une partie à la fois.
+# MT: pending native review (fr-FR)
+docs-import-refused-unsafe-path = Le zip contient un nom de fichier que nous ne pouvons pas accepter : { $name }
+# MT: pending native review (fr-FR)
+docs-import-refused-duplicate-entry = Le zip contient { $name } plusieurs fois.
+# MT: pending native review (fr-FR)
+docs-import-refused-compression-ratio = { $name } se décompresse en un fichier bien plus grand que sa taille compressée, le zip n'est donc pas lu.
+# MT: pending native review (fr-FR)
+docs-import-refused-entry-too-large = { $name } dépasse { $max }.
+# MT: pending native review (fr-FR)
+docs-import-refused-unpacked-too-large = Le zip décompressé dépasse { $max }. Exportez une partie à la fois.
+# MT: pending native review (fr-FR)
+docs-import-refused-entry-damaged = { $name } est endommagé dans le zip. Exportez-le à nouveau.
+# MT: pending native review (fr-FR)
+docs-import-refused-unreadable-upload = L'envoi n'a pas pu être lu. Réessayez.
+# MT: pending native review (fr-FR)
+docs-import-refused-no-file = Choisissez un fichier à importer.
+# MT: pending native review (fr-FR)
+docs-import-refused-unreadable = Ce fichier n'a pas pu être lu comme de la documentation.
+# MT: pending native review (fr-FR)
+docs-import-refused-timed-out = La lecture des pages a pris trop de temps. Importez une partie plus petite à la fois.
+# MT: pending native review (fr-FR)
+docs-import-refused-collection-missing = La collection de destination n'existe plus. Choisissez-en une autre.
+# MT: pending native review (fr-FR)
+docs-import-refused-busy = Cet import est en cours de vérification ou d'enregistrement. Réessayez dans un instant.
+# MT: pending native review (fr-FR)
+docs-import-refused-check-running = Cet import est en cours de vérification.
+# MT: pending native review (fr-FR)
+docs-import-refused-commit-running = Cet import est en cours d'enregistrement.
+# MT: pending native review (fr-FR)
+docs-import-refused-type-busy = Un autre import de documentation est en cours d'enregistrement. Réessayez une fois qu'il est terminé.
+# MT: pending native review (fr-FR)
+docs-import-refused-committed = Cet import a été enregistré ; ses options ne peuvent plus changer.
+# MT: pending native review (fr-FR)
+docs-import-refused-not-checked = Cet import n'a pas encore été vérifié. Vérifiez d'abord les pages.
+# MT: pending native review (fr-FR)
+docs-import-refused-expired = Cet import ne peut pas être repris. Commencez-en un nouveau.
+# MT: pending native review (fr-FR)
+docs-import-source-looks-like = Ressemble à { $profile } · { $pages ->
+    [one] 1 page
+   *[other] { $pages } pages
+}, { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}
+# MT: pending native review (fr-FR)
+docs-import-source-read-as = Lu comme { $profile } · { $pages ->
+    [one] 1 page
+   *[other] { $pages } pages
+}, { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}
+# MT: pending native review (fr-FR)
+docs-import-source-rereading = Nouvelle lecture des pages
+# MT: pending native review (fr-FR)
+docs-import-source-change = Changer
+# MT: pending native review (fr-FR)
+docs-import-source-change-label = Lire cette archive comme
+# MT: pending native review (fr-FR)
+docs-import-profile-detected = { $profile } (détecté)
+# MT: pending native review (fr-FR)
+docs-import-profile-notion = un export Notion
+# MT: pending native review (fr-FR)
+docs-import-profile-nosdesk-v2 = un export Nosdesk
+# MT: pending native review (fr-FR)
+docs-import-profile-nosdesk-v1 = un ancien export Nosdesk
+# MT: pending native review (fr-FR)
+docs-import-profile-obsidian = un coffre Obsidian
+# MT: pending native review (fr-FR)
+docs-import-profile-gitbook = un export GitBook
+# MT: pending native review (fr-FR)
+docs-import-profile-mkdocs = un site MkDocs
+# MT: pending native review (fr-FR)
+docs-import-profile-docusaurus = un site Docusaurus
+# MT: pending native review (fr-FR)
+docs-import-profile-outline = un export Outline
+# MT: pending native review (fr-FR)
+docs-import-profile-plain = un simple dossier
+# MT: pending native review (fr-FR)
+docs-import-profile-option-notion = Export Notion
+# MT: pending native review (fr-FR)
+docs-import-profile-option-nosdesk-v2 = Export Nosdesk
+# MT: pending native review (fr-FR)
+docs-import-profile-option-nosdesk-v1 = Ancien export Nosdesk
+# MT: pending native review (fr-FR)
+docs-import-profile-option-obsidian = Coffre Obsidian
+# MT: pending native review (fr-FR)
+docs-import-profile-option-gitbook = GitBook
+# MT: pending native review (fr-FR)
+docs-import-profile-option-mkdocs = MkDocs
+# MT: pending native review (fr-FR)
+docs-import-profile-option-docusaurus = Docusaurus
+# MT: pending native review (fr-FR)
+docs-import-profile-option-outline = Export Outline
+# MT: pending native review (fr-FR)
+docs-import-profile-option-plain = Simple dossier
+# MT: pending native review (fr-FR)
+docs-import-tree-title = Les pages telles qu'elles apparaîtront dans Nosdesk
+# MT: pending native review (fr-FR)
+docs-import-tree-expand-all = Tout déplier
+# MT: pending native review (fr-FR)
+docs-import-tree-collapse-all = Tout replier
+# MT: pending native review (fr-FR)
+docs-import-tree-expand = Déplier { $title }
+# MT: pending native review (fr-FR)
+docs-import-tree-collapse = Replier { $title }
+# MT: pending native review (fr-FR)
+docs-import-tree-tick = Importer { $title }
+# MT: pending native review (fr-FR)
+docs-import-tree-tick-with-children = { $count ->
+    [one] Importer { $title } et sa page
+   *[other] Importer { $title } et ses { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-tree-left-out = Exclue
+# MT: pending native review (fr-FR)
+docs-import-tree-no-content = Sans contenu
+# MT: pending native review (fr-FR)
+docs-import-tree-database = Base de données
+# MT: pending native review (fr-FR)
+docs-import-tree-image-count = { $count ->
+    [one] 1 image
+   *[other] { $count } images
+}
+# MT: pending native review (fr-FR)
+docs-import-tree-page-count = { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-tree-note-count = { $count ->
+    [one] 1 note
+   *[other] { $count } notes
+}
+# MT: pending native review (fr-FR)
+docs-import-tree-head-new = nouvelle collection
+# MT: pending native review (fr-FR)
+docs-import-tree-head-existing = collection existante
+# MT: pending native review (fr-FR)
+docs-import-tree-head-none = sans collection
+# MT: pending native review (fr-FR)
+docs-import-tree-no-collection = Brouillons
+# MT: pending native review (fr-FR)
+docs-import-tree-count = { $ticked } pages sur { $total } seront importées
+# MT: pending native review (fr-FR)
+docs-import-tree-count-unticked = { $count } décochées
+# MT: pending native review (fr-FR)
+docs-import-tree-count-left-out = { $count } exclues par un motif
+# MT: pending native review (fr-FR)
+docs-import-tree-follow = Décochez une section et ses pages suivent
+# MT: pending native review (fr-FR)
+docs-import-where-title = Destination
+# MT: pending native review (fr-FR)
+docs-import-where-collection = Collection
+# MT: pending native review (fr-FR)
+docs-import-where-suggested = { $name } existe déjà dans la documentation avec { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}, elle est donc sélectionnée. Choisissez Nouvelle collection pour garder cet import à part.
+# MT: pending native review (fr-FR)
+docs-import-where-existing = Collection existante
+# MT: pending native review (fr-FR)
+docs-import-where-existing-desc = Les nouvelles pages se placent après ses pages existantes.
+# MT: pending native review (fr-FR)
+docs-import-where-existing-none = Il n'y a pas encore de collection.
+# MT: pending native review (fr-FR)
+docs-import-where-collection-option = { $name } ({ $count ->
+    [one] 1 page
+   *[other] { $count } pages
+})
+# MT: pending native review (fr-FR)
+docs-import-where-under = Sous la page
+# MT: pending native review (fr-FR)
+docs-import-where-top-level = Niveau supérieur de la collection
+# MT: pending native review (fr-FR)
+docs-import-where-under-option = Sous { $title }
+# MT: pending native review (fr-FR)
+docs-import-where-new = Nouvelle collection
+# MT: pending native review (fr-FR)
+docs-import-where-name = Nom de la collection
+# MT: pending native review (fr-FR)
+docs-import-where-new-clash = Une collection nommée { $name } existe déjà. Les deux apparaîtront dans la documentation.
+# MT: pending native review (fr-FR)
+docs-import-where-per-folder = Une collection par dossier de premier niveau
+# MT: pending native review (fr-FR)
+docs-import-where-per-folder-desc = { $count ->
+    [one] 1 collection : { $names }.
+   *[other] { $count } collections : { $names }.
+} La page propre d'un dossier devient la première page de sa collection.
+# MT: pending native review (fr-FR)
+docs-import-where-as-source = Comme dans l'export
+# MT: pending native review (fr-FR)
+docs-import-where-as-source-desc = { $count ->
+    [one] 1 collection, telle qu'elle était dans Nosdesk.
+   *[other] { $count } collections, telles qu'elles étaient dans Nosdesk.
+}
+# MT: pending native review (fr-FR)
+docs-import-status-label = Statut
+# MT: pending native review (fr-FR)
+docs-import-status-drafts = Brouillons
+# MT: pending native review (fr-FR)
+docs-import-status-published = Publiées
+# MT: pending native review (fr-FR)
+docs-import-status-as-files = Selon les fichiers
+# MT: pending native review (fr-FR)
+docs-import-status-drafts-help = Seul le personnel peut les voir tant que vous ne les publiez pas.
+# MT: pending native review (fr-FR)
+docs-import-status-published-help = Toute personne qui voit la collection les voit immédiatement, notes de conversion comprises.
+# MT: pending native review (fr-FR)
+docs-import-status-as-files-help = Les pages marquées comme brouillons dans les fichiers restent des brouillons ; les autres sont publiées.
+# MT: pending native review (fr-FR)
+docs-import-status-as-files-notion = Les exports Notion n'indiquent aucun statut, toutes les pages seraient donc des brouillons.
+# MT: pending native review (fr-FR)
+docs-import-web-label = Images liées depuis le web
+# MT: pending native review (fr-FR)
+docs-import-web-download = Les télécharger
+# MT: pending native review (fr-FR)
+docs-import-web-links = Les garder comme liens
+# MT: pending native review (fr-FR)
+docs-import-web-download-help = { $count ->
+    [0] Aucune page ne contient d'image liée depuis le web.
+    [one] 1 image est liée depuis le web. Elle est téléchargée dans Nosdesk lors de la vérification, l'étape Vérification indique donc si elle a été récupérée.
+   *[other] { $count } images sont liées depuis le web. Elles sont téléchargées dans Nosdesk lors de la vérification, l'étape Vérification indique donc lesquelles ont été récupérées.
+}
+# MT: pending native review (fr-FR)
+docs-import-web-links-help = { $count ->
+    [0] Aucune page ne contient d'image liée depuis le web.
+   *[other] Les liens conservés ne s'afficheront pas dans Nosdesk : les pages ne peuvent afficher que les images stockées ici. Les images liées apparaîtraient sous forme de texte alternatif.
+}
+# MT: pending native review (fr-FR)
+docs-import-leave-out-label = Exclure les fichiers correspondant à
+# MT: pending native review (fr-FR)
+docs-import-leave-out-placeholder = p. ex. **/archive/**
+# MT: pending native review (fr-FR)
+docs-import-leave-out-add = Ajouter
+# MT: pending native review (fr-FR)
+docs-import-leave-out-remove = Retirer { $pattern }
+# MT: pending native review (fr-FR)
+docs-import-leave-out-help = Chemins dans l'archive, comparés aux noms de fichiers. Appuyez sur Entrée pour ajouter.
+# MT: pending native review (fr-FR)
+docs-import-leave-out-matches = { $count ->
+    [one] 1 page correspond.
+   *[other] { $count } pages correspondent.
+}
+# MT: pending native review (fr-FR)
+docs-import-too-many-typed-patterns = Exclure accepte au plus 100 motifs. Supprimez-en quelques-uns.
+# MT: pending native review (fr-FR)
+docs-import-pattern-too-long = Un motif dépasse 500 caractères. Raccourcissez-le.
+# MT: pending native review (fr-FR)
+docs-import-choose-collection = Choisissez la collection de destination.
+# MT: pending native review (fr-FR)
+docs-import-change-file = Changer de fichier
+# MT: pending native review (fr-FR)
+docs-import-change-file-title = Abandonner ce fichier ?
+# MT: pending native review (fr-FR)
+docs-import-change-file-message = Rien n'a été importé. Vos choix sous Destination sont conservés pour le fichier suivant.
+# MT: pending native review (fr-FR)
+docs-import-change-file-confirm = Abandonner le fichier
+# MT: pending native review (fr-FR)
+docs-import-tick-one = Cochez au moins une page
+# MT: pending native review (fr-FR)
+docs-import-check = { $count ->
+    [one] Vérifier 1 page
+   *[other] Vérifier { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-checking = Vérification des pages
+# MT: pending native review (fr-FR)
+docs-import-checking-line = Vérification de { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+} : conversion, lecture de { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}, recherche des pages déjà présentes dans Nosdesk. Rien n'est écrit.
+# MT: pending native review (fr-FR)
+docs-import-checking-line-web = Vérification de { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+} : conversion, lecture de { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}, téléchargement de { $web } depuis le web, recherche des pages déjà présentes dans Nosdesk. Rien n'est écrit.
+# MT: pending native review (fr-FR)
+docs-import-dest-new = dans une nouvelle collection, { $name }
+# MT: pending native review (fr-FR)
+docs-import-dest-existing = dans { $name }
+# MT: pending native review (fr-FR)
+docs-import-dest-existing-under = dans { $name } sous { $under }
+# MT: pending native review (fr-FR)
+docs-import-dest-many = { $count ->
+    [one] dans 1 nouvelle collection
+   *[other] dans { $count } nouvelles collections
+}
+# MT: pending native review (fr-FR)
+docs-import-headline-checked = { $count ->
+    [one] 1 page vérifiée.
+   *[other] { $count } pages vérifiées.
+}
+# MT: pending native review (fr-FR)
+docs-import-headline-imported = { $count ->
+    [one] 1 sera importée
+   *[other] { $count } seront importées
+} { $dest }, { $status ->
+    [published] publiées
+    [as_files] selon les fichiers
+   *[drafts] en brouillon
+}{ $copies ->
+    [0] {""}
+   *[other] {" "}({ $copies } en copie)
+}.
+# MT: pending native review (fr-FR)
+docs-import-headline-nothing = Rien ne serait importé.
+# MT: pending native review (fr-FR)
+docs-import-headline-skipped = { $count } ignorées : déjà dans Nosdesk.
+# MT: pending native review (fr-FR)
+docs-import-headline-errors = { $count ->
+    [one] 1 n'a pas pu être convertie et est importée vide.
+   *[other] { $count } n'ont pas pu être converties et sont importées vides.
+}
+# MT: pending native review (fr-FR)
+docs-import-tile-new = Nouvelles pages
+# MT: pending native review (fr-FR)
+docs-import-tile-new-copies = { $count } en copie
+# MT: pending native review (fr-FR)
+docs-import-tile-new-errors = { $count } importées vides
+# MT: pending native review (fr-FR)
+docs-import-tile-new-sections = { $count ->
+    [one] 1 page de section sans contenu
+   *[other] { $count } pages de section sans contenu
+}
+# MT: pending native review (fr-FR)
+docs-import-tile-images = Images
+# MT: pending native review (fr-FR)
+docs-import-tile-images-problems = { $count } avec des problèmes
+# MT: pending native review (fr-FR)
+docs-import-tile-images-web = { $count } depuis le web
+# MT: pending native review (fr-FR)
+docs-import-tile-images-left-out = { $count } exclues
+# MT: pending native review (fr-FR)
+docs-import-tile-links = Liens réécrits
+# MT: pending native review (fr-FR)
+docs-import-tile-links-kept = { $count } conservés en texte
+# MT: pending native review (fr-FR)
+docs-import-tile-links-all = Tous les liens sont résolus
+# MT: pending native review (fr-FR)
+docs-import-tile-skipped = Ignorées
+# MT: pending native review (fr-FR)
+docs-import-tile-skipped-already = { $count } déjà dans Nosdesk
+# MT: pending native review (fr-FR)
+docs-import-already-title = { $count ->
+    [one] 1 page a déjà été importée
+   *[other] { $count } pages ont déjà été importées
+}
+# MT: pending native review (fr-FR)
+docs-import-already-names-more = { $names } et { $count } autres
+# MT: pending native review (fr-FR)
+docs-import-already-by-source = retrouvées par leur chemin lors d'un import précédent dans la même collection.
+# MT: pending native review (fr-FR)
+docs-import-already-by-uuid = elles proviennent de l'export de cet espace de travail.
+# MT: pending native review (fr-FR)
+docs-import-already-by-both = retrouvées lors d'un import précédent, ou elles proviennent de l'export de cet espace de travail.
+# MT: pending native review (fr-FR)
+docs-import-already-label = Pages déjà dans Nosdesk
+# MT: pending native review (fr-FR)
+docs-import-already-skip = Les ignorer
+# MT: pending native review (fr-FR)
+docs-import-already-copy = Les importer en copie
+# MT: pending native review (fr-FR)
+docs-import-already-skip-help = Les pages dans Nosdesk gardent leur contenu. Rien n'est modifié sur place.
+# MT: pending native review (fr-FR)
+docs-import-already-copy-help = Une deuxième page portant le même titre est créée à côté de l'existante. Rien n'est modifié sur place.
+# MT: pending native review (fr-FR)
+docs-import-conversion-title = Ce qui change à la conversion
+# MT: pending native review (fr-FR)
+docs-import-conversion-clean = Chaque page est convertie telle quelle.
+# MT: pending native review (fr-FR)
+docs-import-conversion-footer = Rien ne change en silence. Chaque ligne figure dans le rapport de conversion, page par page.
+# MT: pending native review (fr-FR)
+docs-import-show-pages = Afficher les pages
+# MT: pending native review (fr-FR)
+docs-import-line-pages = { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-line-errors = { $count ->
+    [one] 1 page n'a pas pu être convertie. Elle est importée avec un contenu vide.
+   *[other] { $count } pages n'ont pas pu être converties. Elles sont importées avec un contenu vide.
+}
+# MT: pending native review (fr-FR)
+docs-import-line-sections = { $count ->
+    [one] 1 page de section n'a pas de contenu : { $names }. Elle reçoit un contenu vide que vous pourrez compléter.
+   *[other] { $count } pages de section n'ont pas de contenu : { $names }. Elles reçoivent un contenu vide que vous pourrez compléter.
+}
+# MT: pending native review (fr-FR)
+docs-import-line-front-matter = Champs d'en-tête non importés : { $fields }.
+# MT: pending native review (fr-FR)
+docs-import-note-tables-hoisted = { $count ->
+    [one] 1 tableau dans une liste ou une citation a été déplacé après celle-ci
+   *[other] { $count } tableaux dans une liste ou une citation ont été déplacés après celle-ci
+}
+# MT: pending native review (fr-FR)
+docs-import-note-table-rows-padded = { $count ->
+    [one] 1 tableau a vu ses lignes égalisées
+   *[other] { $count } tableaux ont vu leurs lignes égalisées
+}
+# MT: pending native review (fr-FR)
+docs-import-note-table-cells-flattened = { $count ->
+    [one] 1 cellule de tableau contenait ce qu'une cellule ne peut pas contenir, désormais conservé en texte
+   *[other] { $count } cellules de tableau contenaient ce qu'une cellule ne peut pas contenir, désormais conservé en texte
+}
+# MT: pending native review (fr-FR)
+docs-import-note-checklists-as-bullets = { $count ->
+    [one] 1 liste de tâches est devenue une liste à puces
+   *[other] { $count } listes de tâches sont devenues des listes à puces
+}
+# MT: pending native review (fr-FR)
+docs-import-note-strikethrough-removed = { $count ->
+    [one] Barré ou surlignage retiré à 1 endroit ; le texte est conservé
+   *[other] Barré ou surlignage retiré à { $count } endroits ; le texte est conservé
+}
+# MT: pending native review (fr-FR)
+docs-import-note-callouts-as-quotes = { $count ->
+    [one] 1 encadré est devenu une citation
+   *[other] { $count } encadrés sont devenus des citations
+}
+# MT: pending native review (fr-FR)
+docs-import-note-formulas-as-code = { $count ->
+    [one] 1 formule est devenue du code
+   *[other] { $count } formules sont devenues du code
+}
+# MT: pending native review (fr-FR)
+docs-import-note-links-dropped = { $count ->
+    [one] 1 lien pointe vers une destination qu'une page ne peut pas lier. Le texte est conservé.
+   *[other] { $count } liens pointent vers des destinations qu'une page ne peut pas lier. Le texte est conservé.
+}
+# MT: pending native review (fr-FR)
+docs-import-note-images-dropped = { $count ->
+    [one] 1 image a une source qu'une page ne peut pas afficher. Le texte alternatif est conservé.
+   *[other] { $count } images ont une source qu'une page ne peut pas afficher. Le texte alternatif est conservé.
+}
+# MT: pending native review (fr-FR)
+docs-import-note-html-removed = { $count ->
+    [one] HTML intégré retiré à 1 endroit (scripts, styles, cadres)
+   *[other] HTML intégré retiré à { $count } endroits (scripts, styles, cadres)
+}
+# MT: pending native review (fr-FR)
+docs-import-note-html-as-text = { $count ->
+    [one] HTML conservé sous forme de texte à 1 endroit
+   *[other] HTML conservé sous forme de texte à { $count } endroits
+}
+# MT: pending native review (fr-FR)
+docs-import-note-nesting-flattened = { $count ->
+    [one] Imbrication plus profonde que ce que permet l'éditeur aplatie à 1 endroit
+   *[other] Imbrication plus profonde que ce que permet l'éditeur aplatie à { $count } endroits
+}
+# MT: pending native review (fr-FR)
+docs-import-note-table-cells-dropped = { $count ->
+    [one] 1 ligne de tableau avait plus de cellules que son en-tête ; les cellules en trop ont été supprimées
+   *[other] { $count } lignes de tableau avaient plus de cellules que leur en-tête ; les cellules en trop ont été supprimées
+}
+# MT: pending native review (fr-FR)
+docs-import-note-mentions-as-text = { $count ->
+    [one] 1 mention est devenue du texte : la personne n'est pas dans cet espace de travail
+   *[other] { $count } mentions sont devenues du texte : les personnes ne sont pas dans cet espace de travail
+}
+# MT: pending native review (fr-FR)
+docs-import-note-ticket-links-as-text = { $count ->
+    [one] 1 lien de ticket est devenu du texte : le ticket n'est pas dans cet espace de travail
+   *[other] { $count } liens de ticket sont devenus du texte : les tickets ne sont pas dans cet espace de travail
+}
+# MT: pending native review (fr-FR)
+docs-import-note-embeds-as-text = { $count ->
+    [one] 1 page intégrée est devenue son titre : la page n'est pas dans l'import
+   *[other] { $count } pages intégrées sont devenues leurs titres : les pages ne sont pas dans l'import
+}
+# MT: pending native review (fr-FR)
+docs-import-note-links-unresolved = { $count ->
+    [one] 1 lien pointe vers une page absente de l'import. Le texte est conservé.
+   *[other] { $count } liens pointent vers des pages absentes de l'import. Le texte est conservé.
+}
+# MT: pending native review (fr-FR)
+docs-import-note-links-ambiguous = { $count ->
+    [one] 1 lien par nom correspondait à plusieurs pages ; il mène à la plus proche
+   *[other] { $count } liens par nom correspondaient à plusieurs pages ; chacun mène à la plus proche
+}
+# MT: pending native review (fr-FR)
+docs-import-note-attachments-left-out = { $count ->
+    [one] 1 pièce jointe exclue : les fichiers PDF et Office ne sont pas encore importés. Le lien garde son texte.
+   *[other] { $count } pièces jointes exclues : les fichiers PDF et Office ne sont pas encore importés. Les liens gardent leur texte.
+}
+# MT: pending native review (fr-FR)
+docs-import-note-front-matter-ignored = { $count ->
+    [one] 1 bloc d'en-tête n'a pas pu être lu et a été exclu
+   *[other] { $count } blocs d'en-tête n'ont pas pu être lus et ont été exclus
+}
+# MT: pending native review (fr-FR)
+docs-import-note-title-shortened = { $count ->
+    [one] 1 titre dépassait 255 caractères et a été raccourci
+   *[other] { $count } titres dépassaient 255 caractères et ont été raccourcis
+}
+# MT: pending native review (fr-FR)
+docs-import-note-not-utf8 = { $count ->
+    [one] 1 fichier n'était pas en UTF-8 ; certains caractères peuvent être incorrects
+   *[other] { $count } fichiers n'étaient pas en UTF-8 ; certains caractères peuvent être incorrects
+}
+# MT: pending native review (fr-FR)
+docs-import-note-source-syntax-removed = { $count ->
+    [one] Syntaxe propre à l'outil source retirée à 1 endroit
+   *[other] Syntaxe propre à l'outil source retirée à { $count } endroits
+}
+# MT: pending native review (fr-FR)
+docs-import-note-database-rows-cut = { $count ->
+    [one] 1 base de données Notion avait plus de lignes qu'une page n'en affiche ; les 200 premières sont conservées
+   *[other] { $count } bases de données Notion avaient plus de lignes qu'une page n'en affiche ; les 200 premières sont conservées
+}
+# MT: pending native review (fr-FR)
+docs-import-note-images-unreadable = { $count ->
+    [one] 1 image n'a pas pu être lue. Le texte alternatif est conservé.
+   *[other] { $count } images n'ont pas pu être lues. Le texte alternatif est conservé.
+}
+# MT: pending native review (fr-FR)
+docs-import-note-svg-images-refused = { $count ->
+    [one] 1 image SVG exclue : un SVG peut contenir des scripts. Le texte alternatif est conservé.
+   *[other] { $count } images SVG exclues : un SVG peut contenir des scripts. Le texte alternatif est conservé.
+}
+# MT: pending native review (fr-FR)
+docs-import-note-web-images-not-fetched = { $count ->
+    [one] 1 image du web n'a pas pu être téléchargée. Le texte alternatif est conservé.
+   *[other] { $count } images du web n'ont pas pu être téléchargées. Le texte alternatif est conservé.
+}
+# MT: pending native review (fr-FR)
+docs-import-image-unreadable = n'a pas pu être lue
+# MT: pending native review (fr-FR)
+docs-import-image-too-large = dépasse 10 Mo
+# MT: pending native review (fr-FR)
+docs-import-image-not-an-image = n'est pas une image
+# MT: pending native review (fr-FR)
+docs-import-image-svg = est un SVG, qui ne peut pas être importé
+# MT: pending native review (fr-FR)
+docs-import-image-refused-address = a une adresse depuis laquelle on ne peut pas télécharger
+# MT: pending native review (fr-FR)
+docs-import-image-timed-out = a mis trop de temps à se télécharger
+# MT: pending native review (fr-FR)
+docs-import-image-fetch-failed = n'a pas pu être téléchargée
+# MT: pending native review (fr-FR)
+docs-import-image-over-limit = dépasse les 500 images web qu'un import télécharge
+# MT: pending native review (fr-FR)
+docs-import-list-title = Pages
+# MT: pending native review (fr-FR)
+docs-import-filter-label = Afficher
+# MT: pending native review (fr-FR)
+docs-import-filter-all = Toutes { $count }
+# MT: pending native review (fr-FR)
+docs-import-filter-notes = Avec notes { $count }
+# MT: pending native review (fr-FR)
+docs-import-filter-skipped = Ignorées { $count }
+# MT: pending native review (fr-FR)
+docs-import-filter-errors = Erreurs { $count }
+# MT: pending native review (fr-FR)
+docs-import-chip-sections = Pages de section sans contenu
+# MT: pending native review (fr-FR)
+docs-import-chip-images = Problèmes d'images
+# MT: pending native review (fr-FR)
+docs-import-chip-links = Liens conservés en texte
+# MT: pending native review (fr-FR)
+docs-import-chip-changed = Modifiées depuis la vérification
+# MT: pending native review (fr-FR)
+docs-import-chip-errors = Pages qui n'ont pas pu être converties
+# MT: pending native review (fr-FR)
+docs-import-chip-clear = Afficher toutes les pages
+# MT: pending native review (fr-FR)
+docs-import-list-keys = ↑ ↓ pour se déplacer · Entrée pour prévisualiser
+# MT: pending native review (fr-FR)
+docs-import-list-loading = Lecture des pages
+# MT: pending native review (fr-FR)
+docs-import-list-failed = Les pages n'ont pas pu être chargées. Rechargez pour réessayer.
+# MT: pending native review (fr-FR)
+docs-import-list-empty = Aucune page ne correspond.
+# MT: pending native review (fr-FR)
+docs-import-list-empty-notes = Aucune note. Chaque page est convertie proprement.
+# MT: pending native review (fr-FR)
+docs-import-list-empty-skipped = Rien n'est ignoré.
+# MT: pending native review (fr-FR)
+docs-import-list-empty-errors = Aucune erreur. Chaque page est convertie.
+# MT: pending native review (fr-FR)
+docs-import-col-page = Page
+# MT: pending native review (fr-FR)
+docs-import-col-outcome = Résultat
+# MT: pending native review (fr-FR)
+docs-import-col-notes = Notes
+# MT: pending native review (fr-FR)
+docs-import-top-level = Niveau supérieur
+# MT: pending native review (fr-FR)
+docs-import-no-notes = Aucune note
+# MT: pending native review (fr-FR)
+docs-import-pager = { $from } à { $to } sur { $total }
+# MT: pending native review (fr-FR)
+docs-import-pager-prev = Précédent
+# MT: pending native review (fr-FR)
+docs-import-pager-next = Suivant
+# MT: pending native review (fr-FR)
+docs-import-outcome-new = Nouvelle
+# MT: pending native review (fr-FR)
+docs-import-outcome-copy = Copie
+# MT: pending native review (fr-FR)
+docs-import-outcome-skipped = Ignorée
+# MT: pending native review (fr-FR)
+docs-import-outcome-error = Erreur
+# MT: pending native review (fr-FR)
+docs-import-outcome-left = Non importée
+# MT: pending native review (fr-FR)
+docs-import-outcome-trash = Dans la corbeille
+# MT: pending native review (fr-FR)
+docs-import-outcome-kept = Conservée
+# MT: pending native review (fr-FR)
+docs-import-row-already-skip = Déjà dans Nosdesk, elle est donc ignorée
+# MT: pending native review (fr-FR)
+docs-import-row-already-copy = Déjà dans Nosdesk, une copie est donc créée
+# MT: pending native review (fr-FR)
+docs-import-row-changed = Modifiée depuis la vérification : cette page est désormais dans Nosdesk
+# MT: pending native review (fr-FR)
+docs-import-row-image-problem = { $name } { $problem }
+# MT: pending native review (fr-FR)
+docs-import-row-attachment = Pièce jointe exclue : { $name }
+# MT: pending native review (fr-FR)
+docs-import-row-unresolved = Lien conservé en texte : { $name } n'est pas dans l'import
+# MT: pending native review (fr-FR)
+docs-import-row-section = Page de section sans contenu
+# MT: pending native review (fr-FR)
+docs-import-preview-title = Aperçu
+# MT: pending native review (fr-FR)
+docs-import-preview-select = Sélectionnez une page pour voir son rendu
+# MT: pending native review (fr-FR)
+docs-import-preview-empty = La page convertie, en lecture seule, dans la vue de l'éditeur.
+# MT: pending native review (fr-FR)
+docs-import-preview-read-only = Lecture seule · la page telle qu'elle sera écrite · les images s'affichent sous forme de fichier
+# MT: pending native review (fr-FR)
+docs-import-preview-loading = Conversion de la page
+# MT: pending native review (fr-FR)
+docs-import-preview-failed = L'aperçu n'a pas pu être chargé. Sélectionnez à nouveau la page.
+# MT: pending native review (fr-FR)
+docs-import-preview-schema-failed = L'aperçu n'a pas passé la vérification du schéma de l'éditeur. Il s'agit d'un bogue du convertisseur, pas de votre page : { $reason }
+# MT: pending native review (fr-FR)
+docs-import-preview-error-line = { $count ->
+    [one] Cette page est importée avec un contenu vide. L'autre page est importée comme prévu.
+   *[other] Cette page est importée avec un contenu vide. Les { $count } autres pages sont importées comme prévu.
+}
+# MT: pending native review (fr-FR)
+docs-import-preview-aria = Aperçu de { $title }
+# MT: pending native review (fr-FR)
+docs-import-preview-prev = Précédente
+# MT: pending native review (fr-FR)
+docs-import-preview-next = Suivante
+# MT: pending native review (fr-FR)
+docs-import-preview-was-callout = Était un encadré
+# MT: pending native review (fr-FR)
+docs-import-preview-was-checklist = Était une liste de tâches
+# MT: pending native review (fr-FR)
+docs-import-preview-table-moved = Sorti de la liste
+# MT: pending native review (fr-FR)
+docs-import-preview-image-web = depuis le web
+# MT: pending native review (fr-FR)
+docs-import-preview-image-problem = { $problem } · texte alternatif conservé : { $alt }
+# MT: pending native review (fr-FR)
+docs-import-preview-image-aria = Image : { $name }
+# MT: pending native review (fr-FR)
+docs-import-preview-image-aria-problem = Image non importée : { $name }
+# MT: pending native review (fr-FR)
+docs-import-review-back = Retour aux pages
+# MT: pending native review (fr-FR)
+docs-import-report = Télécharger le rapport de conversion (.csv)
+# MT: pending native review (fr-FR)
+docs-import-review-skip-reason = { $count ->
+    [one] 1 page ne sera pas importée
+   *[other] { $count } pages ne seront pas importées
+}
+# MT: pending native review (fr-FR)
+docs-import-review-import = { $count ->
+    [one] Importer 1 page
+   *[other] Importer { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-review-importing = Import en cours
+# MT: pending native review (fr-FR)
+docs-import-review-nothing = Rien à importer
+# MT: pending native review (fr-FR)
+docs-import-confirm-title = { $count ->
+    [one] Importer 1 page ?
+   *[other] Importer { $count } pages ?
+}
+# MT: pending native review (fr-FR)
+docs-import-confirm-message = { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+} et { $images ->
+    [one] 1 image
+   *[other] { $images } images
+} seront ajoutées { $dest }, { $status ->
+    [published] publiées
+    [as_files] selon les fichiers
+   *[drafts] en brouillon
+}.
+# MT: pending native review (fr-FR)
+docs-import-confirm-skipped = { $count ->
+    [one] 1 page déjà dans Nosdesk sera ignorée.
+   *[other] { $count } pages déjà dans Nosdesk seront ignorées.
+}
+# MT: pending native review (fr-FR)
+docs-import-confirm-copies = { $count ->
+    [one] 1 page déjà dans Nosdesk sera importée en copie.
+   *[other] { $count } pages déjà dans Nosdesk seront importées en copie.
+}
+# MT: pending native review (fr-FR)
+docs-import-confirm-errors = { $count ->
+    [one] 1 page qui n'a pas pu être convertie sera importée vide.
+   *[other] { $count } pages qui n'ont pas pu être converties seront importées vides.
+}
+# MT: pending native review (fr-FR)
+docs-import-confirm-published = Toute personne qui voit la collection les verra immédiatement.
+# MT: pending native review (fr-FR)
+docs-import-plan-changed = Quelque chose a changé depuis votre vérification. Relisez le nouveau plan ci-dessous ; les chiffres et le bouton Importer sont à jour.
+# MT: pending native review (fr-FR)
+docs-import-plan-changed-more = { $count ->
+    [one] Quelque chose a changé depuis votre vérification : 1 page de plus est déjà dans Nosdesk. Relisez le nouveau plan ci-dessous ; les chiffres et le bouton Importer sont à jour.
+   *[other] Quelque chose a changé depuis votre vérification : { $count } pages de plus sont déjà dans Nosdesk. Relisez le nouveau plan ci-dessous ; les chiffres et le bouton Importer sont à jour.
+}
+# MT: pending native review (fr-FR)
+docs-import-importing-title = { $count ->
+    [one] Import de 1 page
+   *[other] Import de { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-importing-progress = { $written } pages écrites sur { $total }
+# MT: pending native review (fr-FR)
+docs-import-importing-finishing = Finalisation : liens, intégrations et index de recherche
+# MT: pending native review (fr-FR)
+docs-import-importing-leave = Vous pouvez quitter cette page. L'import continue et s'affiche ici, ainsi que dans Imports récents, une fois terminé.
+# MT: pending native review (fr-FR)
+docs-import-done-heading = Import terminé
+# MT: pending native review (fr-FR)
+docs-import-done-summary = { $count ->
+    [one] 1 page importée dans { $where }
+   *[other] { $count } pages importées dans { $where }
+}, { $status ->
+    [published] publiées
+    [as_files] selon les fichiers
+   *[drafts] en brouillon
+}.
+# MT: pending native review (fr-FR)
+docs-import-done-many = { $count ->
+    [one] 1 nouvelle collection
+   *[other] { $count } nouvelles collections
+}
+# MT: pending native review (fr-FR)
+docs-import-done-images = { $count ->
+    [one] 1 image stockée.
+   *[other] { $count } images stockées.
+}
+# MT: pending native review (fr-FR)
+docs-import-done-skipped = { $count ->
+    [one] 1 page déjà dans Nosdesk a été ignorée.
+   *[other] { $count } pages déjà dans Nosdesk ont été ignorées.
+}
+# MT: pending native review (fr-FR)
+docs-import-done-errors = { $count ->
+    [one] 1 page n'a pas pu être convertie et a été importée vide.
+   *[other] { $count } pages n'ont pas pu être converties et ont été importées vides.
+}
+# MT: pending native review (fr-FR)
+docs-import-done-drafts = Les pages sont des brouillons : seul le personnel peut les voir. Relisez-en quelques-unes, puis publiez-les toutes ici ou une par une.
+# MT: pending native review (fr-FR)
+docs-import-done-revision = La première révision de chaque page indique « Importé depuis { $file } ».
+# MT: pending native review (fr-FR)
+docs-import-done-open = Ouvrir { $name }
+# MT: pending native review (fr-FR)
+docs-import-done-open-docs = Ouvrir la documentation
+# MT: pending native review (fr-FR)
+docs-import-done-another = Importer un autre fichier
+# MT: pending native review (fr-FR)
+docs-import-conversion-done-title = Ce qui a changé à la conversion
+# MT: pending native review (fr-FR)
+docs-import-conversion-done-footer = Le rapport de conversion liste chaque page avec ses notes.
+# MT: pending native review (fr-FR)
+docs-import-detail-state = { $count ->
+    [one] Importé : 1 page
+   *[other] Importé : { $count } pages
+} { $status ->
+    [published] publiées
+    [as_files] selon les fichiers
+   *[drafts] en brouillon
+}
+# MT: pending native review (fr-FR)
+docs-import-detail-source = Source
+# MT: pending native review (fr-FR)
+docs-import-detail-files = { $count ->
+    [one] 1 fichier
+   *[other] { $count } fichiers
+}
+# MT: pending native review (fr-FR)
+docs-import-detail-into-existing = Dans { $name } (existante)
+# MT: pending native review (fr-FR)
+docs-import-detail-into-new = Dans { $name } (nouvelle)
+# MT: pending native review (fr-FR)
+docs-import-detail-into-many = { $count ->
+    [one] Dans 1 nouvelle collection
+   *[other] Dans { $count } nouvelles collections
+}
+# MT: pending native review (fr-FR)
+docs-import-detail-web-download = Images web téléchargées
+# MT: pending native review (fr-FR)
+docs-import-detail-web-links = Images web gardées comme liens
+# MT: pending native review (fr-FR)
+docs-import-detail-dup-skip = Pages déjà dans Nosdesk ignorées
+# MT: pending native review (fr-FR)
+docs-import-detail-dup-copy = Pages déjà dans Nosdesk importées en copie
+# MT: pending native review (fr-FR)
+docs-import-detail-left-out = Exclus : { $patterns }
+# MT: pending native review (fr-FR)
+docs-import-detail-tree-title = Pages écrites par cet import
+# MT: pending native review (fr-FR)
+docs-import-detail-tree-footer = Les titres ouvrent la page. Les lignes ignorées et non importées correspondent à ce que la vérification a trouvé ; elles n'ont rien écrit.
+# MT: pending native review (fr-FR)
+docs-import-detail-kept = Les détails sont conservés pendant 30 jours. Les chiffres et les options restent ensuite.
+# MT: pending native review (fr-FR)
+docs-import-detail-state-removed = { $count ->
+    [one] Retiré : 1 page déplacée dans la corbeille le { $date }
+   *[other] Retiré : { $count } pages déplacées dans la corbeille le { $date }
+}, { $kept } conservées
+
+# Publish all
+# MT: pending native review (fr-FR)
+docs-import-publish-button = { $count ->
+    [one] Publier 1 page
+   *[other] Publier les { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-publish-title = { $count ->
+    [one] Publier 1 page ?
+   *[other] Publier { $count } pages ?
+}
+# MT: pending native review (fr-FR)
+docs-import-publish-message = Toutes les personnes de l'espace de travail qui peuvent voir { $collection } les verront. Les pages que quelqu'un a déjà modifiées ou publiées depuis l'import restent telles quelles.
+# MT: pending native review (fr-FR)
+docs-import-publish-these-collections = ces collections
+# MT: pending native review (fr-FR)
+docs-import-publish-confirm = { $count ->
+    [one] Publier 1 page
+   *[other] Publier { $count } pages
+}
+# MT: pending native review (fr-FR)
+docs-import-published = { $count ->
+    [one] 1 page publiée
+   *[other] { $count } pages publiées
+}
+# MT: pending native review (fr-FR)
+docs-import-published-left = { $count ->
+    [one] 1 laissée telle quelle (modifiée depuis l'import)
+   *[other] { $count } laissées telles quelles (modifiées depuis l'import)
+}
+# MT: pending native review (fr-FR)
+docs-import-publish-failed = La publication des pages a échoué et rien n'a été publié.
+
+# Remove imported pages
+# MT: pending native review (fr-FR)
+docs-import-remove-button = Retirer les pages importées
+# MT: pending native review (fr-FR)
+docs-import-remove-window = Les déplace dans la corbeille. Uniquement les pages que personne n'a modifiées depuis. Jusqu'au { $date }.
+# MT: pending native review (fr-FR)
+docs-import-remove-running = Retrait en cours. Cette page se met à jour une fois terminé.
+# MT: pending native review (fr-FR)
+docs-import-remove-still-running-later = Le retrait prend plus de temps que d'habitude. Revenez sur cette page plus tard pour voir ce qu'il a fait.
+# MT: pending native review (fr-FR)
+docs-import-remove-load-failed = Impossible de vérifier les pages importées. Réessayez.
+# MT: pending native review (fr-FR)
+docs-import-remove-failed = Le retrait des pages importées a échoué et rien n'a été déplacé dans la corbeille.
+# MT: pending native review (fr-FR)
+docs-import-remove-not-committed = Cet import n'a pas été validé, il n'a donc créé aucune page.
+# MT: pending native review (fr-FR)
+docs-import-remove-already-removed = Les pages créées par cet import ont déjà été déplacées dans la corbeille.
+# MT: pending native review (fr-FR)
+docs-import-action-busy = Cet import est en cours de modification. Réessayez dans un instant.
+# MT: pending native review (fr-FR)
+docs-import-remove-nothing-none-created = Cet import n'a créé aucune page, il n'y a donc rien à retirer.
+# MT: pending native review (fr-FR)
+docs-import-remove-nothing-all-gone = Les pages créées par cet import ont déjà été supprimées ou déplacées dans la corbeille.
+# MT: pending native review (fr-FR)
+docs-import-remove-nothing-all-changed = Chaque page créée par cet import a été modifiée depuis, aucune ne peut donc être déplacée dans la corbeille.
+# MT: pending native review (fr-FR)
+docs-import-remove-title = { $count ->
+    [one] Déplacer 1 page dans la corbeille ?
+   *[other] Déplacer { $count } pages dans la corbeille ?
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-title-none = Rien à déplacer dans la corbeille
+# MT: pending native review (fr-FR)
+docs-import-remove-confirm = { $count ->
+    [one] Déplacer 1 page dans la corbeille
+   *[other] Déplacer { $count } pages dans la corbeille
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-untouched = { $created ->
+    [one] Sur la page créée par cet import,
+   *[other] Sur les { $created } pages créées par cet import,
+} { $count ->
+    [one] 1 est intacte et va dans la corbeille, où elle peut être restaurée.
+   *[other] { $count } sont intactes et vont dans la corbeille, où elles peuvent être restaurées.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-changed = { $count ->
+    [one] 1 a été modifiée depuis et est conservée.
+   *[other] { $count } ont été modifiées depuis et sont conservées.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-gone = { $count ->
+    [one] 1 était déjà supprimée ou dans la corbeille.
+   *[other] { $count } étaient déjà supprimées ou dans la corbeille.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-existing-keeps = { $name } conserve ses autres pages.
+# MT: pending native review (fr-FR)
+docs-import-remove-collection-if-empty = La collection est supprimée si elle se retrouve vide.
+# MT: pending native review (fr-FR)
+docs-import-remove-collections-if-empty = Les collections qui se retrouvent vides sont supprimées.
+# MT: pending native review (fr-FR)
+docs-import-remove-once = Cette action n'est possible qu'une fois, jusqu'au { $date }.
+# MT: pending native review (fr-FR)
+docs-import-remove-which-kept = { $count ->
+    [one] Quelle page est conservée ?
+   *[other] Quelles sont les { $count } pages conservées ?
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-edited = Modifiée le { $date }
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-edited-by = Modifiée le { $date } par { $name }
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-pages-added = { $count ->
+    [one] 1 page ajoutée depuis
+   *[other] { $count } pages ajoutées depuis
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-moved = Déplacée dans une autre collection
+# MT: pending native review (fr-FR)
+docs-import-remove-reason-kept-under = { $count ->
+    [one] Conservée car 1 page en dessous a été modifiée
+   *[other] Conservée car { $count } pages en dessous ont été modifiées
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-result = { $count ->
+    [one] 1 page déplacée dans la corbeille.
+   *[other] { $count } pages déplacées dans la corbeille.
+} { $kept } conservées.
+# MT: pending native review (fr-FR)
+docs-import-remove-result-restore = Restaurez-les depuis la corbeille comme d'habitude.
+# MT: pending native review (fr-FR)
+docs-import-remove-result-existing = { $name } a été conservée : elle contient encore ses autres pages.
+# MT: pending native review (fr-FR)
+docs-import-remove-result-collection-deleted = { $name } a été supprimée car elle s'est retrouvée vide.
+# MT: pending native review (fr-FR)
+docs-import-remove-result-collection-kept = { $count ->
+    [one] { $name } a été conservée : 1 page y reste.
+   *[other] { $name } a été conservée : { $count } pages y restent.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-result-collections-deleted = { $count ->
+    [one] 1 collection qui s'est retrouvée vide a été supprimée.
+   *[other] { $count } collections qui se sont retrouvées vides ont été supprimées.
+}
+# MT: pending native review (fr-FR)
+docs-import-remove-result-collections-kept = Les collections ont été conservées : elles contiennent encore des pages.
+
+## Import d'espace de travail : un export Nosdesk importé dans cet espace (machine, à relire par un locuteur natif)
+
+route-title-admin-workspace-import = Importer un export Nosdesk
+route-title-admin-workspace-import-detail = Import d'espace de travail
+admin-data-import-nosdesk-title = Export Nosdesk
+admin-data-import-nosdesk-description = Déplacez tout un espace de travail depuis Nosdesk Cloud ou un autre Nosdesk auto-hébergé. Remplit cet espace tant qu'il est vide.
+admin-data-import-nosdesk-description-cloud = Déplacez tout un espace de travail depuis un Nosdesk auto-hébergé. Le support Nosdesk se charge des déplacements vers Cloud ; contactez-le pour en organiser un.
+admin-data-import-status-support = Support Nosdesk
+admin-data-import-nosdesk-owner-only = Déplacez tout un espace de travail depuis un autre Nosdesk. Le propriétaire de l'espace le lance.
+admin-data-import-status-owner-only = Propriétaire uniquement
+workspace-import-title = Importer un export Nosdesk
+workspace-import-subtitle = Remplissez { $workspace } avec un espace de travail exporté depuis Nosdesk Cloud ou un autre Nosdesk.
+workspace-import-cloud-elsewhere = Le déplacement d'un espace de travail vers Nosdesk Cloud est effectué par le support Nosdesk. Contactez-le pour l'organiser, et conservez votre fichier d'export.
+workspace-import-owner-only = Seul le propriétaire de l'espace de travail peut importer un export Nosdesk.
+workspace-import-step-archive = Archive
+workspace-import-step-preview = Aperçu
+workspace-import-step-import = Import
+workspace-import-nothing-changes = Rien ne change dans cet espace tant que vous n'avez pas cliqué sur Importer à l'étape Aperçu.
+workspace-import-resume-failed = Impossible d'ouvrir cet import. Recommencez à partir du fichier d'export.
+workspace-import-upload-failed = L'envoi n'a pas abouti. Vérifiez la connexion et choisissez de nouveau le fichier.
+workspace-import-check-request-failed = La vérification n'a pas pu démarrer. Réessayez.
+workspace-import-confirm-failed = L'import n'a pas pu démarrer. Réessayez.
+workspace-import-retry-failed = Impossible de relancer les fichiers. Réessayez.
+
+workspace-import-archive-heading = Archive
+workspace-import-archive-unnamed = Export sans nom
+workspace-import-archive-sealed = mot de passe
+workspace-import-uploading = { $size } · envoi, { $pct } %
+workspace-import-choose-another = Choisir un autre fichier
+workspace-import-drop-idle = Choisir le fichier d'export
+workspace-import-drop-hint = Une archive .nosdesk issue d'Exporter les données de l'espace. Jusqu'à { $max }.
+workspace-import-password-label = Mot de passe de l'archive
+workspace-import-password-placeholder = Seulement s'il a été défini à l'export
+workspace-import-password-hint = Laissez vide pour une archive exportée sans mot de passe.
+workspace-import-checks-heading = Vérifications
+workspace-import-checks-before = avant toute écriture
+workspace-import-checks-again = Les mêmes vérifications sont refaites pendant l'import, donc un changement entre-temps est détecté.
+workspace-import-found-files =
+    { $count ->
+        [one] 1 fichier
+       *[other] { $count } fichiers
+    }
+workspace-import-found-rows = { $what } : { $count }
+workspace-import-check-not-empty-settings = Les réglages modifiés, comme les états du flux de travail, ne comptent pas ; l'import les remplace.
+workspace-import-fix-check = Vérifier
+workspace-import-fix-check-again = Vérifier à nouveau
+workspace-import-fix-new-ids = Vérifier à nouveau avec de nouveaux identifiants
+workspace-import-fix-follow = Le suivre
+workspace-import-fix-not-empty = Supprimez ces éléments puis revenez, ou lancez l'import sur une installation neuve.
+workspace-import-archive-next-note = L'aperçu montre tout ce que l'archive ajouterait avant toute écriture.
+workspace-import-archive-wait-note = L'aperçu est prêt une fois l'archive vérifiée.
+workspace-import-continue-to-preview = Continuer vers l'aperçu
+
+workspace-import-check-untouched = { $workspace } est encore vide
+workspace-import-check-untouched-detail = Seule sa configuration de départ, que l'import remplace.
+workspace-import-check-untouched-pending = { $workspace } est encore vide
+workspace-import-check-untouched-pending-detail = Vérifié une fois le fichier reçu.
+workspace-import-check-size-ok = { $size }, sous la limite de { $max }
+workspace-import-check-size-pending = Moins de { $max }
+workspace-import-check-version-ok = Créé par Nosdesk { $export } ; ce serveur exécute { $server }
+workspace-import-check-version-ok-detail = { $slug }, exporté le { $date } depuis { $origin }.
+workspace-import-check-reading = Lecture de l'archive
+workspace-import-check-reading-detail = Vérification de sa version et de son contenu.
+workspace-import-check-version-pending = Même version que ce serveur ({ $server })
+workspace-import-check-version-pending-detail = Vérifié une fois le fichier reçu.
+workspace-import-check-not-empty = { $workspace } contient déjà des données
+workspace-import-check-not-empty-detail = Un import remplit un espace de travail encore vide. Celui-ci contient :
+workspace-import-check-in-progress = Un import est déjà en cours
+workspace-import-check-in-progress-detail = Un seul import à la fois. Suivez-le pour le terminer ou le réinitialiser.
+workspace-import-check-no-workspace = Cet espace de travail n'est pas disponible
+workspace-import-check-no-workspace-detail = Il a peut-être été archivé. Rechargez la page.
+workspace-import-check-too-large = Ce fichier fait { $size } ; ce serveur accepte jusqu'à { $max }
+workspace-import-check-too-large-detail = Exportez de nouveau avec moins de pièces jointes, ou demandez à l'administrateur de ce serveur d'augmenter NOSDESK_MAX_IMPORT_BYTES ou d'importer le fichier sur le serveur avec nosdesk-cli workspace import FILE --into WORKSPACE, sans limite de taille.
+workspace-import-check-format-too-old = Créé par Nosdesk { $export } dans un ancien format
+workspace-import-check-format-too-old-detail = Cette archive ne contient aucune adresse e-mail, donc personne ne pourrait se connecter. Mettez ce Nosdesk à jour vers { $server } et exportez de nouveau.
+workspace-import-check-version = Créé par Nosdesk { $export } ; ce serveur exécute { $server }
+workspace-import-check-earlier-detail = Une archive ne s'importe que dans la même version. Mettez le Nosdesk d'origine à jour vers { $server } et exportez de nouveau, ou importez-la sur un serveur qui exécute { $export }.
+workspace-import-check-newer-detail = Mettez ce serveur à jour vers Nosdesk { $export }, puis importez. L'archive reste valable.
+workspace-import-check-unknown-version = Créé par un Nosdesk que ce serveur ne reconnaît pas
+workspace-import-check-unknown-version-detail = L'archive (Nosdesk { $export }) a une structure de base de données que ce serveur ne connaît pas, comme celle d'une version de développement. Exportez de nouveau depuis un serveur qui exécute Nosdesk { $server }.
+workspace-import-check-sealed = Cette archive a un mot de passe
+workspace-import-check-sealed-detail = Saisissez le mot de passe utilisé à l'export pour la vérifier.
+workspace-import-check-password-wrong = Le mot de passe n'ouvre pas cette archive
+workspace-import-check-password-wrong-detail = C'est le mot de passe saisi lors de l'export. Réessayez.
+workspace-import-check-unreadable = Ce fichier n'est pas un export d'espace de travail Nosdesk
+workspace-import-check-unreadable-detail = Ou il est endommagé. Choisissez le fichier .nosdesk issu d'Exporter les données de l'espace.
+workspace-import-check-archive-missing = L'archive envoyée n'est plus disponible
+workspace-import-check-archive-missing-detail = Choisissez de nouveau le fichier d'export.
+workspace-import-check-stopped = La vérification s'est arrêtée avant la fin
+workspace-import-check-stopped-detail = Rien n'a été écrit. Vérifiez de nouveau l'archive.
+workspace-import-check-import-stopped = L'import s'est arrêté avant la fin
+workspace-import-check-import-stopped-detail = Rien n'a été importé.
+workspace-import-check-failed = Impossible de vérifier l'archive par rapport à cet espace
+workspace-import-check-failed-detail = Rien n'a été écrit. Vérifiez de nouveau ; en cas de nouvel échec, le journal du serveur en donne la raison.
+workspace-import-check-collision = Cette archive recoupe des données déjà présentes sur ce serveur
+workspace-import-check-collision-ids-detail = { $rows } lignes de { $table } ont des identifiants que ce serveur possède déjà, comme une copie d'un espace encore présent sur ce serveur. Vérifiez de nouveau avec de nouveaux identifiants pour l'importer comme copie.
+workspace-import-check-collision-detail = { $rows } lignes de { $table } ont des valeurs que ce serveur possède déjà. Importez-la sur une installation neuve.
+workspace-import-check-plan = Cette archive ne peut pas être importée telle quelle
+workspace-import-check-plan-detail = L'export n'est pas cohérent. Exportez de nouveau l'espace ; si le problème revient, envoyez le message ci-dessous au support.
+workspace-import-check-refused = Cette archive ne peut pas être importée
+workspace-import-check-refused-detail = Le serveur a donné cette raison :
+
+workspace-import-preview-source = { $name }, exporté le { $date } depuis { $origin }
+workspace-import-preview-source-no-origin = { $name }, exporté le { $date }
+workspace-import-preview-lead =
+    L'importer remplit { $workspace } avec tout ce qui suit, remplace la configuration de départ de cet espace et apporte { $people ->
+        [one] 1 personne
+       *[other] { $people } personnes
+    } par adresse e-mail. Les identifiants ne sont jamais transférés ; vous les saisissez de nouveau ensuite à partir d'une liste.
+workspace-import-preview-made-by = Créé par Nosdesk { $version } · { $size }
+workspace-import-tile-tickets = Tickets
+workspace-import-tile-pages = Pages
+workspace-import-tile-assets = Équipements
+workspace-import-tile-people = Personnes
+workspace-import-tile-files = Fichiers
+workspace-import-tile-people-sub = { $staff } membres de l'équipe · { $requesters } demandeurs
+workspace-import-tile-files-all = tous restaurés
+workspace-import-tile-files-missing = { $count } à relancer
+workspace-import-tile-people-merged = vous inclus
+workspace-import-tile-files-skipped = { $count } laissés de côté
+workspace-import-files-skipped =
+    { $count ->
+        [one] 1 fichier a été laissé de côté : l'archive ne le contenait pas, ou ce serveur n'accepte pas son type. Le rapport l'indique.
+       *[other] { $count } fichiers ont été laissés de côté : l'archive ne les contenait pas, ou ce serveur n'accepte pas leur type. Le rapport les indique.
+    }
+workspace-import-done-unsent-mail =
+    { $count ->
+        [one] 1 e-mail qui n'avait pas encore été envoyé est resté sur place, pour que rien ne parte deux fois.
+       *[other] { $count } e-mails qui n'avaient pas encore été envoyés sont restés sur place, pour que rien ne parte deux fois.
+    }
+workspace-import-jump-label = Sections
+workspace-import-jump-across = Ce qui est transféré
+workspace-import-jump-people = Personnes
+workspace-import-jump-signin = Connexion
+workspace-import-jump-replaces = Remplacé ici
+workspace-import-jump-off = Arrive désactivé
+workspace-import-jump-not = Non transféré
+workspace-import-jump-attention = À vérifier
+
+workspace-import-across-heading = Ce qui est transféré
+workspace-import-area-tickets = Tickets
+workspace-import-area-tickets-note = Les numéros de ticket restent les mêmes : le n° 1042 reste le n° 1042.
+workspace-import-area-docs = Documentation
+workspace-import-area-docs-note = Les liens et mentions dans les pages pointent vers les pages importées. La collection de bienvenue d'ici est remplacée.
+workspace-import-area-assets = Équipements
+workspace-import-area-projects = Projets
+workspace-import-area-people = Personnes
+workspace-import-area-people-note = La façon dont chaque personne est transférée figure sous Personnes, plus bas.
+workspace-import-area-config = Configuration
+workspace-import-area-integrations = Intégrations
+workspace-import-area-integrations-note = Leurs réglages sont transférés, pas leurs identifiants. Voir Arrive désactivé.
+workspace-import-integration-smtp = les réglages d'envoi d'e-mails
+workspace-import-integration-sso = un fournisseur de connexion
+workspace-import-integration-ldap = les réglages de synchronisation d'annuaire
+workspace-import-integration-widget = le widget d'aide
+workspace-import-n-areas =
+    { $count ->
+        [one] 1 domaine
+       *[other] { $count } domaines
+    }
+workspace-import-n-items =
+    { $count ->
+        [one] 1 élément
+       *[other] { $count } éléments
+    }
+workspace-import-n-integrations =
+    { $count ->
+        [one] 1 intégration
+       *[other] { $count } intégrations
+    }
+workspace-import-n-tickets =
+    { $count ->
+        [one] 1 ticket
+       *[other] { $count } tickets
+    }
+workspace-import-n-comments =
+    { $count ->
+        [one] 1 commentaire
+       *[other] { $count } commentaires
+    }
+workspace-import-n-attachments =
+    { $count ->
+        [one] 1 pièce jointe
+       *[other] { $count } pièces jointes
+    }
+workspace-import-n-merges =
+    { $count ->
+        [one] 1 fusion
+       *[other] { $count } fusions
+    }
+workspace-import-n-pages =
+    { $count ->
+        [one] 1 page
+       *[other] { $count } pages
+    }
+workspace-import-n-collections =
+    { $count ->
+        [one] 1 collection
+       *[other] { $count } collections
+    }
+workspace-import-n-revisions =
+    { $count ->
+        [one] 1 révision
+       *[other] { $count } révisions
+    }
+workspace-import-n-assets =
+    { $count ->
+        [one] 1 équipement
+       *[other] { $count } équipements
+    }
+workspace-import-n-loans =
+    { $count ->
+        [one] 1 prêt
+       *[other] { $count } prêts
+    }
+workspace-import-n-disposals =
+    { $count ->
+        [one] 1 mise au rebut
+       *[other] { $count } mises au rebut
+    }
+workspace-import-n-asset-kinds =
+    { $count ->
+        [one] 1 type d'équipement
+       *[other] { $count } types d'équipement
+    }
+workspace-import-n-asset-photos =
+    { $count ->
+        [one] 1 photo ou fichier d'équipement
+       *[other] { $count } photos et fichiers d'équipement
+    }
+workspace-import-n-projects =
+    { $count ->
+        [one] 1 projet
+       *[other] { $count } projets
+    }
+workspace-import-n-cycles =
+    { $count ->
+        [one] 1 cycle
+       *[other] { $count } cycles
+    }
+workspace-import-n-groups =
+    { $count ->
+        [one] 1 groupe
+       *[other] { $count } groupes
+    }
+workspace-import-n-staff =
+    { $count ->
+        [one] 1 membre de l'équipe
+       *[other] { $count } membres de l'équipe
+    }
+workspace-import-n-requesters =
+    { $count ->
+        [one] 1 demandeur
+       *[other] { $count } demandeurs
+    }
+workspace-import-n-workflow-states =
+    { $count ->
+        [one] 1 état de flux de travail
+       *[other] { $count } états de flux de travail
+    }
+workspace-import-n-categories =
+    { $count ->
+        [one] 1 catégorie
+       *[other] { $count } catégories
+    }
+workspace-import-n-sla =
+    { $count ->
+        [one] 1 politique SLA
+       *[other] { $count } politiques SLA
+    }
+workspace-import-n-calendars =
+    { $count ->
+        [one] 1 calendrier de travail
+       *[other] { $count } calendriers de travail
+    }
+workspace-import-n-views =
+    { $count ->
+        [one] 1 vue enregistrée
+       *[other] { $count } vues enregistrées
+    }
+workspace-import-n-rules =
+    { $count ->
+        [one] 1 règle
+       *[other] { $count } règles
+    }
+workspace-import-n-assignment-rules =
+    { $count ->
+        [one] 1 règle d'attribution
+       *[other] { $count } règles d'attribution
+    }
+workspace-import-n-replies =
+    { $count ->
+        [one] 1 réponse enregistrée
+       *[other] { $count } réponses enregistrées
+    }
+workspace-import-n-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-n-channels =
+    { $count ->
+        [one] 1 canal e-mail
+       *[other] { $count } canaux e-mail
+    }
+workspace-import-n-plugins =
+    { $count ->
+        [one] 1 plugin
+       *[other] { $count } plugins
+    }
+
+workspace-import-people-heading = Personnes
+workspace-import-people-by-email = { $count } par e-mail
+workspace-import-group-merged =
+    { $count ->
+        [one] fusionne avec vous
+       *[other] fusionnent avec vous
+    }
+workspace-import-group-staff-created =
+    { $count ->
+        [one] membre de l'équipe reçoit un nouveau compte
+       *[other] membres de l'équipe reçoivent un nouveau compte
+    }
+workspace-import-group-staff-mapped =
+    { $count ->
+        [one] membre de l'équipe correspond à un compte existant
+       *[other] membres de l'équipe correspondent à des comptes existants
+    }
+workspace-import-group-staff-no-email =
+    { $count ->
+        [one] membre de l'équipe sans e-mail
+       *[other] membres de l'équipe sans e-mail
+    }
+workspace-import-group-requesters-created =
+    { $count ->
+        [one] demandeur reçoit un nouveau compte
+       *[other] demandeurs reçoivent un nouveau compte
+    }
+workspace-import-group-requesters-mapped =
+    { $count ->
+        [one] demandeur correspond à un compte existant
+       *[other] demandeurs correspondent à des comptes existants
+    }
+workspace-import-group-placeholders = par nom uniquement
+workspace-import-people-note = Chacun est rapproché par adresse e-mail. Aucun compte existant ici n'est modifié ; l'historique de l'archive pointe simplement vers lui. Les propriétaires de l'archive autres que vous arrivent comme administrateurs ; nommez ensuite un propriétaire si vous le souhaitez.
+workspace-import-filter-staff = Équipe { $count }
+workspace-import-filter-attention = À vérifier { $count }
+workspace-import-filter-requesters = Demandeurs { $count }
+workspace-import-person-you = vous
+workspace-import-person-no-email = pas d'e-mail
+workspace-import-person-removed = retiré
+workspace-import-person-unnamed = Sans nom
+workspace-import-people-none = Personne ici.
+workspace-import-outcome-merged = Fusionne avec votre compte
+workspace-import-outcome-mapped = Correspond au compte qui détient cet e-mail
+workspace-import-outcome-created = Nouveau compte en tant que { $role }
+workspace-import-outcome-created-was-owner = Nouveau compte en tant que { $role } (était propriétaire)
+workspace-import-outcome-created-no-email = Nouveau compte en tant que { $role }, sans e-mail
+workspace-import-outcome-created-removed = Nouveau compte, non membre (avait été retiré)
+workspace-import-outcome-created-no-member = Nouveau compte, non membre
+workspace-import-outcome-placeholder = Par nom uniquement
+workspace-import-requesters-line = Demandeurs : { $created } nouveaux comptes, { $mapped } correspondent à des comptes déjà présents.
+
+workspace-import-signin-heading = Comment les personnes se connectent ensuite
+workspace-import-signin-you = Vous
+workspace-import-signin-you-detail = Continuez à vous connecter comme maintenant. Si l'archive contient votre adresse e-mail, l'historique lié à cette adresse devient le vôtre immédiatement.
+workspace-import-signin-staff = Équipe
+workspace-import-signin-staff-detail = Reçoit des comptes ici sans mot de passe. Envoyez-leur des invitations depuis la dernière étape ; chacun définit un mot de passe depuis l'invitation. Les invitations passent par l'envoi d'e-mails de ce serveur, pas par les réglages e-mail de l'archive, qui arrivent désactivés. « Mot de passe oublié » fonctionne aussi, et nosdesk-cli admin reset-password sert de solution de repli si l'e-mail n'est pas configuré.
+workspace-import-signin-requesters = Demandeurs
+workspace-import-signin-requesters-detail = Se connectent au portail par lien e-mail ou réinitialisation du mot de passe, selon ce que ce serveur permet. Leurs adresses arrivent non vérifiées.
+workspace-import-signin-secrets = Mots de passe, clés d'accès et double authentification
+workspace-import-signin-secrets-detail = Ne sont pas transférés. Chacun configure de nouveau la double authentification.
+workspace-import-signin-sso-off = Le fournisseur de connexion arrive désactivé jusqu'à ce que vous saisissiez de nouveau son secret et le dirigiez vers ce serveur.
+
+workspace-import-replaces-heading = Ce que cet espace de travail abandonne
+workspace-import-replaces-config = Configuration
+workspace-import-replaces-config-detail = Les états du flux de travail, catégories, politiques SLA, calendrier de travail, image de marque, notifications par défaut, champs des personnes et la documentation de l'archive remplacent ceux de départ de cet espace.
+workspace-import-replaces-config-note = Tout ce que vous avez modifié pendant la configuration est aussi remplacé.
+workspace-import-replaces-name = Nom
+workspace-import-replaces-name-detail = Cet espace garde le nom { $workspace }. L'archive provient de { $archive } ; vous pourrez le renommer ensuite.
+workspace-import-replaces-members = Membres
+workspace-import-replaces-members-detail = Votre adhésion et votre rôle restent inchangés.
+
+workspace-import-off-heading = Arrive désactivé
+workspace-import-off-smtp = Envoi d'e-mails
+workspace-import-off-smtp-detail = Les réglages e-mail arrivent sans leurs identifiants.
+workspace-import-off-smtp-hint = Saisissez-les de nouveau, puis activez l'envoi.
+workspace-import-off-sso = Fournisseur de connexion
+workspace-import-off-sso-detail = Arrive sans son secret client.
+workspace-import-off-sso-hint = Saisissez-le de nouveau, dirigez l'adresse de redirection du fournisseur vers ce serveur, puis activez-le.
+workspace-import-off-ldap = Synchronisation d'annuaire
+workspace-import-off-ldap-detail = Arrive sans son mot de passe de liaison.
+workspace-import-off-ldap-hint = Saisissez-le de nouveau, puis activez la synchronisation.
+workspace-import-off-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-off-webhooks-detail = Chacun reçoit un nouveau secret de signature.
+workspace-import-off-webhooks-hint = Communiquez le nouveau secret aux destinataires, puis activez-les.
+workspace-import-off-channels =
+    { $count ->
+        [one] 1 canal e-mail
+       *[other] { $count } canaux e-mail
+    }
+workspace-import-off-channels-detail = Arrivent sans leurs mots de passe.
+workspace-import-off-channels-hint = Saisissez-les de nouveau, puis activez les canaux.
+workspace-import-off-plugins =
+    { $count ->
+        [one] 1 plugin
+       *[other] { $count } plugins
+    }
+workspace-import-off-plugins-detail = Leurs réglages sont transférés, pas leurs valeurs secrètes.
+workspace-import-off-plugins-hint = Saisissez de nouveau les secrets, puis activez chaque plugin.
+workspace-import-off-widget = Widget d'aide
+workspace-import-off-widget-detail = Arrive désactivé.
+workspace-import-off-widget-hint = Réactivez-le depuis ses réglages.
+workspace-import-off-guest-links = Liens invités
+workspace-import-off-guest-links-detail =
+    { $count ->
+        [one] 1 ticket reçoit un nouveau lien invité. Un lien envoyé avant le déplacement ne fonctionne plus.
+       *[other] { $count } tickets reçoivent de nouveaux liens invités. Les liens envoyés avant le déplacement ne fonctionnent plus.
+    }
+workspace-import-off-none = Rien n'arrive désactivé.
+workspace-import-off-rule = La règle : tout ce qui communique avec l'extérieur arrive désactivé, donc un import n'envoie jamais d'e-mail, ne déclenche aucun webhook et n'accepte aucune requête avant que vous l'ayez examiné.
+
+workspace-import-not-heading = Non transféré
+workspace-import-not-tokens = Jetons d'API
+workspace-import-not-tokens-detail = Créez-en de nouveaux ici. Tout ce qui appelait l'API avec les anciens a besoin d'un nouveau jeton.
+workspace-import-not-devices = Applications mobiles
+workspace-import-not-devices-detail = Les téléphones enregistrés pour les notifications se reconnectent à l'adresse de ce serveur.
+workspace-import-not-activity = Fils d'activité
+workspace-import-not-activity-detail = Le fil d'activité reste sur place. Les commentaires, attributions et statuts sont dans chaque ticket.
+workspace-import-not-passwords = Mots de passe et double authentification
+workspace-import-not-passwords-detail = Jamais exportés. Voir Comment les personnes se connectent.
+workspace-import-not-history = Historique des imports
+workspace-import-not-history-detail = Les imports de tableurs et de documentation antérieurs restent sur l'autre Nosdesk.
+workspace-import-not-mail = E-mails non envoyés
+workspace-import-not-mail-detail =
+    { $count ->
+        [one] 1 e-mail qui n'avait pas encore été envoyé reste sur place, pour que rien ne parte deux fois.
+       *[other] { $count } e-mails qui n'avaient pas encore été envoyés restent sur place, pour que rien ne parte deux fois.
+    }
+
+workspace-import-attention-heading = À vérifier
+workspace-import-attention-none = Rien à vérifier.
+workspace-import-attention-rules =
+    { $count ->
+        [one] 1 règle fait référence à un élément absent de l'archive. Elle arrive comme brouillon et ne s'exécute pas tant que vous ne l'avez pas corrigée.
+       *[other] { $count } règles font référence à un élément absent de l'archive. Elles arrivent comme brouillons et ne s'exécutent pas tant que vous ne les avez pas corrigées.
+    }
+workspace-import-attention-views =
+    { $count ->
+        [one] 1 vue enregistrée filtre sur un élément absent de l'archive. Ce filtre est supprimé ; le reste de la vue est conservé.
+       *[other] { $count } vues enregistrées filtrent sur un élément absent de l'archive. Ces filtres sont supprimés ; le reste de chaque vue est conservé.
+    }
+workspace-import-attention-cleared =
+    { $count ->
+        [one] 1 valeur de { $table } désignait un élément absent de l'archive et est effacée.
+       *[other] { $count } valeurs de { $table } désignaient un élément absent de l'archive et sont effacées.
+    }
+workspace-import-attention-rows =
+    { $count ->
+        [one] 1 ligne de { $table } dépend d'un élément absent de l'archive et est laissée de côté.
+       *[other] { $count } lignes de { $table } dépendent d'un élément absent de l'archive et sont laissées de côté.
+    }
+workspace-import-attention-mentions =
+    { $count ->
+        [one] 1 mention d'une personne absente de l'archive devient du texte simple.
+       *[other] { $count } mentions de personnes absentes de l'archive deviennent du texte simple.
+    }
+workspace-import-attention-ticket-links =
+    { $count ->
+        [one] 1 lien vers un ticket absent de l'archive devient du texte simple.
+       *[other] { $count } liens vers des tickets absents de l'archive deviennent du texte simple.
+    }
+workspace-import-attention-images =
+    { $count ->
+        [one] 1 image absente de l'archive devient sa description.
+       *[other] { $count } images absentes de l'archive deviennent leur description.
+    }
+workspace-import-attention-embeds =
+    { $count ->
+        [one] 1 page intégrée absente de l'archive devient son titre.
+       *[other] { $count } pages intégrées absentes de l'archive deviennent leur titre.
+    }
+workspace-import-attention-documents =
+    { $count ->
+        [one] 1 document n'a pas pu être lu et est chargé tel quel.
+       *[other] { $count } documents n'ont pas pu être lus et sont chargés tels quels.
+    }
+workspace-import-attention-usernames =
+    { $count ->
+        [one] Le nom d'utilisateur d'1 personne est déjà pris ici. Elle arrive sans nom d'utilisateur.
+       *[other] Les noms d'utilisateur de { $count } personnes sont déjà pris ici. Elles arrivent sans nom d'utilisateur.
+    }
+
+workspace-import-back-to-archive = Retour à l'archive
+workspace-import-preview-reload-note = Chaque fenêtre et application ouverte recharge ses données à la fin de l'import.
+workspace-import-import-button = Importer { $name }
+workspace-import-confirm-title = Importer { $name } dans { $workspace } ?
+workspace-import-confirm-subtitle = L'import s'exécute en arrière-plan ; vous pouvez quitter la page pendant ce temps.
+workspace-import-confirm-fills = Remplit cet espace avec { $tickets } tickets, { $pages } pages, { $assets } équipements et { $people } personnes, rapprochés par e-mail.
+workspace-import-confirm-replaces = Remplace son flux de travail, ses catégories, ses SLA, son calendrier et son image de marque par ceux de l'archive.
+workspace-import-confirm-off = Les intégrations arrivent désactivées. Vous saisissez de nouveau leurs identifiants ensuite à partir d'une liste.
+workspace-import-confirm-reload = Chaque fenêtre et application ouverte recharge ses données à la fin.
+workspace-import-confirm-reset = La réinitialisation ramène ensuite l'espace à son état vide, mais supprime tout, y compris ce qui a été ajouté depuis. Il n'y a pas d'annulation partielle.
+workspace-import-confirm-password-hint = L'import relit l'archive, il a donc de nouveau besoin du mot de passe.
+workspace-import-type-to-confirm = Saisissez { $workspace } pour confirmer
+
+workspace-import-progress-heading = Import de { $name }
+workspace-import-progress-started = commencé à { $time }
+workspace-import-stage-check = Vérification de l'archive et de cet espace
+workspace-import-stage-check-detail = Les mêmes vérifications qu'avant, sous verrou.
+workspace-import-stage-rows = Chargement de l'archive dans la base de données
+workspace-import-stage-rows-detail = Les tickets, pages, équipements, personnes et réglages entrent en une seule transaction, donc un échec à ce stade laisse l'espace tel qu'il était.
+workspace-import-stage-files = Restauration des fichiers
+workspace-import-stage-files-detail =
+    { $count ->
+        [one] 1 fichier, après la base de données. S'il n'est pas restauré, Relancer les fichiers reprend à partir de là.
+       *[other] { $count } fichiers, après la base de données. Si certains ne sont pas restaurés, Relancer les fichiers reprend là où elle s'est arrêtée.
+    }
+workspace-import-stage-finish = Finalisation
+workspace-import-stage-finish-detail = La recherche se reconstruit en arrière-plan, et chaque fenêtre et application ouverte recharge ses données.
+workspace-import-progress-leave = Vous pouvez quitter cette page ; l'import continue et Imports récents l'affiche.
+workspace-import-importing = Import en cours
+
+workspace-import-seconds = { $s } s
+workspace-import-minutes = { $m } min { $s } s
+workspace-import-done-title = Import terminé
+workspace-import-done-detail = { $name } est dans { $workspace } : { $tickets } tickets, { $pages } pages, { $assets } équipements et { $people } personnes.
+workspace-import-done-took = Terminé { $time }, en { $duration }.
+workspace-import-done-reloaded = Chaque fenêtre et application ouverte a rechargé ses données. La recherche se reconstruit en arrière-plan.
+workspace-import-partial-title =
+    { $count ->
+        [one] Importé, avec 1 fichier encore à restaurer
+       *[other] Importé, avec { $count } fichiers encore à restaurer
+    }
+workspace-import-partial-detail = { $name } est dans { $workspace }. { $restored } fichiers sur { $total } ont été restaurés. Tant qu'une relance n'a pas restauré les autres, leurs tickets et pages les affichent comme manquants.
+workspace-import-retry-files = Relancer les fichiers
+workspace-import-retry-unavailable = L'archive n'est plus conservée, les fichiers ne peuvent donc pas être relancés.
+workspace-import-failed-title = L'import a échoué
+workspace-import-failed-detail = Rien n'a été importé ; l'espace est tel qu'il était. Abandonnez cet import et recommencez à partir du fichier d'export.
+workspace-import-open-workspace = Ouvrir { $workspace }
+workspace-import-report = Rapport
+workspace-import-report-title = Rapport d'import
+workspace-import-report-subtitle = Tout ce que l'import a fait et n'a pas pu faire, en JSON.
+workspace-import-report-download = Télécharger le JSON
+workspace-import-report-close = Fermer
+workspace-import-invites-cli = Sans e-mail, nosdesk-cli admin reset-password définit un mot de passe pour chaque personne.
+workspace-import-todo-heading = Étapes suivantes
+workspace-import-todo-count = { $done } sur { $total } faites
+workspace-import-todo-foot = Les identifiants ne voyagent jamais dans une archive. Chaque étape est un réglage transféré sans son secret, ou un élément qui n'existe que de l'autre côté. Les coches sont conservées dans ce navigateur.
+workspace-import-todo-smtp = Saisissez de nouveau les identifiants e-mail, puis activez l'envoi
+workspace-import-todo-smtp-detail = L'envoi d'e-mails est arrivé désactivé.
+workspace-import-todo-go-email = Réglages e-mail
+workspace-import-todo-channels =
+    { $count ->
+        [one] Saisissez de nouveau le mot de passe du canal e-mail et activez-le
+       *[other] Saisissez de nouveau les mots de passe de { $count } canaux e-mail et activez-les
+    }
+workspace-import-todo-channels-detail = Ils sont arrivés sans leurs mots de passe.
+workspace-import-todo-go-channels = Canaux
+workspace-import-todo-sso = Saisissez de nouveau le secret client du fournisseur de connexion et mettez à jour son adresse de redirection
+workspace-import-todo-sso-detail = Dirigez le fournisseur vers l'adresse de ce serveur, puis activez-le.
+workspace-import-todo-go-sso = Fournisseurs de connexion
+workspace-import-todo-ldap = Saisissez de nouveau le mot de passe de liaison de l'annuaire
+workspace-import-todo-ldap-detail = La synchronisation d'annuaire est arrivée désactivée.
+workspace-import-todo-go-ldap = Synchronisation d'annuaire
+workspace-import-todo-webhooks =
+    { $count ->
+        [one] Activez le webhook et communiquez le nouveau secret de signature à son destinataire
+       *[other] Activez les { $count } webhooks et communiquez les nouveaux secrets de signature à leurs destinataires
+    }
+workspace-import-todo-webhooks-detail = Chaque webhook a un nouveau secret. Rien n'a été envoyé pour les tickets importés.
+workspace-import-todo-go-webhooks = Webhooks
+workspace-import-todo-plugins =
+    { $count ->
+        [one] Saisissez de nouveau les secrets du plugin et activez-le
+       *[other] Saisissez de nouveau les secrets de { $count } plugins et activez-les
+    }
+workspace-import-todo-plugins-detail = Leurs réglages ont été transférés, pas leurs valeurs secrètes.
+workspace-import-todo-go-plugins = Plugins
+workspace-import-todo-widget = Activez le widget d'aide
+workspace-import-todo-widget-detail = Il est arrivé désactivé.
+workspace-import-todo-go-widget = Widget d'aide
+workspace-import-todo-rules =
+    { $count ->
+        [one] Vérifiez la règle arrivée comme brouillon
+       *[other] Vérifiez { $count } règles arrivées comme brouillons
+    }
+workspace-import-todo-rules-detail = Chacune fait référence à un élément absent de l'archive. Les brouillons ne s'exécutent pas.
+workspace-import-todo-go-rules = Règles
+workspace-import-todo-tokens = Créez de nouveaux jetons d'API
+workspace-import-todo-tokens-detail = Les jetons ne sont jamais transférés. Tout ce qui appelait l'API a besoin d'un nouveau jeton.
+workspace-import-todo-go-tokens = Jetons d'API
+
+workspace-import-reset-button = Réinitialiser à vide
+workspace-import-reset-rule = Supprime tout ce que cet import a apporté et tout ce qui a été ajouté depuis, y compris les comptes qu'il a créés. Disponible jusqu'au { $date } environ.
+workspace-import-reset-closed = Un import peut être réinitialisé pendant 30 jours. Ce délai est passé.
+workspace-import-reset-failed = La réinitialisation n'a pas eu lieu. Réessayez.
+workspace-import-reset-title = Réinitialiser { $workspace } à vide ?
+workspace-import-reset-subtitle = Le ramène à son état d'avant l'import du { $date }.
+workspace-import-reset-confirm = Réinitialiser l'espace
+workspace-import-reset-removes = Supprime tout ce que l'import a apporté : { $tickets } tickets, { $pages } pages, { $assets } équipements, tous les fichiers et les { $people } comptes qu'il a créés.
+workspace-import-reset-since = Supprime aussi tout ce qui a été ajouté depuis et efface les réglages saisis ensuite.
+workspace-import-reset-keeps = Votre compte et votre adhésion restent, ainsi que les comptes qui existaient avant l'import.
+workspace-import-reset-archive = Conservez votre fichier d'export ; un nouvel import part de lui.
+workspace-import-reset-final = Cette action est irréversible.
+workspace-import-reset-done-title = Réinitialisé à vide
+workspace-import-reset-done-detail = { $workspace } est de nouveau vide, comme avant l'import du { $date }. Réinitialisé { $reset }.
+workspace-import-reset-discarded = Cet import a été abandonné { $date }, avant que quoi que ce soit ne soit importé.
+workspace-import-reset-done-again = L'archive a été supprimée, donc un nouvel import part de votre fichier d'export.
+workspace-import-again = Importer de nouveau
+workspace-import-discard-button = Abandonner cet import
+workspace-import-discard-rule = Rien n'a été importé. L'abandon supprime l'archive conservée.
+workspace-import-discard-title = Abandonner cet import ?
+workspace-import-discard-detail = Rien n'a été importé. L'archive conservée est supprimée ; gardez votre fichier d'export pour réessayer.
+workspace-import-discard-confirm = Abandonner
+
+workspace-import-detail-title = Import d'espace de travail
+workspace-import-detail-source = { $name } depuis Nosdesk { $version } sur { $origin }
+workspace-import-detail-source-no-origin = { $name } depuis Nosdesk { $version }
+workspace-import-detail-pruned = Trente jours sont passés : le rapport garde ses totaux ; les personnes qu'il contenait et la réinitialisation ne sont plus disponibles.
+workspace-import-detail-load-failed = Impossible de charger cet import.
+workspace-import-type = Espace de travail
+workspace-import-state-checking = Vérification
+workspace-import-state-importing = Import en cours
+workspace-import-state-files = Fichiers à relancer
+workspace-import-state-failed = Échec
+workspace-import-state-reset = Réinitialisé
+workspace-import-recent-reset = Réinitialisé à vide
+workspace-import-recent-on-archive = Brouillon à l'étape Archive
+workspace-import-recent-on-preview = Brouillon à l'étape Aperçu
+workspace-import-recent-importing = Import en cours
+workspace-import-recent-failed = Rien n'a été importé
+workspace-import-recent-counts = { $tickets } tickets · { $pages } pages · { $people } personnes
+
+settings-export-moves-toggle = Ce qui est transféré et ce qui ne l'est pas
+settings-export-moves-heading = Transféré
+settings-export-stays-heading = Non transféré
+settings-export-moves-tickets = Tickets, commentaires, pièces jointes, fusions, numéros de ticket
+settings-export-moves-docs = Pages de documentation et leur historique
+settings-export-moves-assets = Équipements, prêts, mises au rebut, projets, cycles
+settings-export-moves-people = Les personnes avec leur adresse e-mail principale et leur rôle
+settings-export-moves-config = Flux de travail, catégories, SLA, calendrier, image de marque, règles, vues et réponses enregistrées
+settings-export-moves-integrations = Réglages des intégrations, sans identifiants
+settings-export-stays-passwords = Mots de passe, clés d'accès, double authentification, sessions
+settings-export-stays-secrets = Secrets de l'e-mail, du fournisseur de connexion, des webhooks et des plugins
+settings-export-stays-tokens = Jetons d'API et enregistrements de notifications mobiles
+settings-export-stays-activity = Le fil d'activité et le journal d'audit
+settings-export-stays-history = Les exports précédents et les fichiers d'import envoyés
+settings-export-version = Créé par Nosdesk { $version }. L'autre Nosdesk doit aussi exécuter { $version } ; l'import le signale sinon.
+settings-export-password-self = Un Nosdesk auto-hébergé l'accepte.
+onboarding-complete-open = Aller à votre espace de travail
+onboarding-complete-import = Importer un espace de travail depuis un autre Nosdesk
+onboarding-complete-import-note = Un import nécessite un espace de travail vide, faites-le donc avant d'ajouter des tickets ou des personnes. Vous pouvez toujours repartir de zéro.

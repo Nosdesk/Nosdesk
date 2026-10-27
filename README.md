@@ -142,7 +142,7 @@ Found a bug? [Open an issue](https://github.com/Nosdesk/Nosdesk/issues). Found a
 
 ## License
 
-Nosdesk is source-available under the [Business Source License 1.1](LICENSE). Run it to support your own customers, users or members, including letting them submit and follow tickets. What the license rules out is selling Nosdesk as a helpdesk service that other organisations run their own helpdesk on. On 29 October 2029 the code converts to the GNU AGPL v3. [LICENSING.md](LICENSING.md) explains editions and licence keys.
+Nosdesk is source-available under the [Business Source License 1.1](LICENSE). Run it yourself for any purpose, including supporting your own customers, clients, users or members and letting them submit and follow tickets. You can also set it up and support it for an organisation that runs it on its own infrastructure. What the license rules out is hosting Nosdesk as a paid service for other organisations to use as their own helpdesk, unless Nosdesk agrees to it in writing. Versions up to 1.1 convert to the GNU AGPL v3 on 29 October 2029, and each later version on the Change Date in its own LICENSE, at most four years after its release. [LICENSING.md](LICENSING.md) explains editions and licence keys.
 
 Copyright (c) 2026 Nosdesk Pty Ltd.
 

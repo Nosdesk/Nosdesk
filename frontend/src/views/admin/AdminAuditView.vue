@@ -15,6 +15,7 @@ import { formatDate, formatDateTime, formatRelativeTime } from '@nosdesk/core/ut
 import { auditService, type AuditEntry, type AuditPage, type AuditQuery } from '@nosdesk/core/services/auditService';
 import { auditKeys } from '@nosdesk/core/queries/audit';
 import { extractErrorMessage } from '@/utils/errors';
+import { useAuthStore } from '@/stores/auth';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -24,13 +25,21 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 // non-sighted users learn the outcome of an auto-applied filter.
 const liveMessage = ref('');
 
+const authStore = useAuthStore();
+
+// Sign-in and security events (tier 2) are instance-wide, so only platform
+// audit readers see them. Workspace owners and admins read their
+// workspace's app events and changes; the server refuses tier 2 for them.
+const canReadInstanceEvents = computed(() => authStore.isPlatformAdmin || authStore.isAuditReviewer);
+
 // Tier chips. `undefined` = all sources.
-const TIERS = [
+const ALL_TIERS = [
   { value: undefined as number | undefined, labelKey: 'admin-audit-tier-all' },
   { value: 1, labelKey: 'admin-audit-tier-app' },
   { value: 2, labelKey: 'admin-audit-tier-auth' },
   { value: 3, labelKey: 'admin-audit-tier-change' },
 ];
+const TIERS = computed(() => ALL_TIERS.filter((tier) => tier.value !== 2 || canReadInstanceEvents.value));
 
 const tierFilter = ref<number | undefined>(undefined);
 const eventPrefix = ref('');
@@ -47,10 +56,15 @@ const router = useRouter();
 // Hydrate filters from the URL so a shared/bookmarked audit view restores
 // its filter set, then mirror changes back (replace, not push, so typing a
 // filter doesn't stack history entries).
-tierFilter.value = route.query.tier ? Number(route.query.tier) : undefined;
+// A shared link may carry a tier this viewer can't read; fall back to all.
+const urlTier = route.query.tier ? Number(route.query.tier) : undefined;
+tierFilter.value = TIERS.value.some((tier) => tier.value === urlTier) ? urlTier : undefined;
 eventPrefix.value = typeof route.query.event === 'string' ? route.query.event : '';
 actorFilter.value = typeof route.query.actor === 'string' ? route.query.actor : '';
-severityFilter.value = typeof route.query.severity === 'string' ? route.query.severity : '';
+// Only tier 2 carries a severity other than info, so the filter is shown
+// (and read from the URL) only for viewers who can see tier 2.
+severityFilter.value =
+  canReadInstanceEvents.value && typeof route.query.severity === 'string' ? route.query.severity : '';
 
 watch(
   [tierFilter, eventPrefix, actorFilter, severityFilter],
@@ -445,7 +459,7 @@ function clearFilters() {
             class="h-9 px-2 rounded border border-default bg-surface-alt text-primary text-sm w-full sm:w-44 font-mono focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </label>
-        <label class="flex flex-col gap-1 text-xs text-secondary w-full sm:w-40">
+        <label v-if="canReadInstanceEvents" class="flex flex-col gap-1 text-xs text-secondary w-full sm:w-40">
           <span>{{ $t('admin-audit-filter-severity') }}</span>
           <BaseDropdown
             :model-value="severityFilter"

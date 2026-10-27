@@ -1,0 +1,21 @@
+[
+  "blockquote",
+  "bullet_list",
+  "code_block",
+  "doc",
+  "embedded_document",
+  "hard_break",
+  "heading",
+  "horizontal_rule",
+  "image",
+  "list_item",
+  "mention",
+  "ordered_list",
+  "paragraph",
+  "table",
+  "table_cell",
+  "table_header",
+  "table_row",
+  "text",
+  "ticket_link"
+]

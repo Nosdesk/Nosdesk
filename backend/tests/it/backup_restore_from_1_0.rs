@@ -387,7 +387,7 @@ pub fn rewrite_fixture(
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).expect("entry");
-        let name = entry.name().to_string();
+        let name = entry.name().expect("entry name").to_string();
         let mut content = Vec::new();
         entry.read_to_end(&mut content).expect("read entry");
         let edited = edit(&name, content.clone());

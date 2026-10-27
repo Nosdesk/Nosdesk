@@ -214,7 +214,7 @@ fn profile(conn: &mut TestPooledConn, user: Uuid) -> (String, String, Option<Str
         .expect("read user")
 }
 
-fn member_role(conn: &mut TestPooledConn, ws: i32, user: Uuid) -> Option<String> {
+pub(crate) fn member_role(conn: &mut TestPooledConn, ws: i32, user: Uuid) -> Option<String> {
     use backend::schema::workspace_members as wm;
     wm::table
         .filter(wm::workspace_id.eq(ws))

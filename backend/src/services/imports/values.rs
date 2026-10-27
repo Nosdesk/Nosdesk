@@ -1564,7 +1564,7 @@ pub fn classify_fixes(
         let on_values = rows.iter().any(|r| {
             r.errors.iter().any(|e| {
                 e.column == group.column
-                    && e.message == group.message
+                    && e.group_message() == group.message
                     && e.column
                         .as_deref()
                         .is_some_and(|field| asked.contains(&(field, r.row)))

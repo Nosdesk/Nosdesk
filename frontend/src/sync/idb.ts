@@ -40,6 +40,7 @@ const META_KEY_LAST_XID8 = 'last_xid8'
 const META_KEY_SCHEMA_HASH = 'schema_hash'
 const META_KEY_SUBSCRIBED_GROUPS = 'subscribed_groups'
 const META_KEY_INSTANCE_ID = 'instance_id'
+const META_KEY_WORKSPACE_EPOCH = 'workspace_epoch'
 const META_KEY_GROUP_WATERMARKS = 'group_watermarks'
 const META_KEY_MODEL_VERSIONS_TAG = 'model_versions_tag'
 
@@ -277,6 +278,16 @@ export function setInstanceId(handle: IdbHandle, id: string): Promise<void> {
 
 export function getInstanceId(handle: IdbHandle): Promise<string | undefined> {
   return getMeta<string>(handle, META_KEY_INSTANCE_ID)
+}
+
+/** The workspace data epoch the cached rows were written under. A new one
+ * on the server means the workspace's data was replaced (an archive import). */
+export function setWorkspaceEpoch(handle: IdbHandle, epoch: string): Promise<void> {
+  return putMeta(handle, META_KEY_WORKSPACE_EPOCH, epoch)
+}
+
+export function getWorkspaceEpoch(handle: IdbHandle): Promise<string | undefined> {
+  return getMeta<string>(handle, META_KEY_WORKSPACE_EPOCH)
 }
 
 export function setSubscribedGroups(handle: IdbHandle, groups: string[]): Promise<void> {

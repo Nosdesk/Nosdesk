@@ -9,6 +9,7 @@
  * detail is removed (`pruned_at`) it is counts, options and mapping only.
  */
 import type {
+  AnyImportJobType,
   ImportJob,
   ImportJobListItem,
   ImportJobState,
@@ -37,6 +38,18 @@ export const STATE_KEY: Record<ImportJobState, string> = {
   expired: 'import-history-state-expired',
 }
 
+/** The state pill: Draft, Imported or Expired, and Removed for a
+ *  documentation import whose pages were moved to Trash. */
+export function statePill(
+  item: Pick<ImportJobListItem, 'state' | 'job_type' | 'removed'>,
+): { key: string; tone: StatusPillTone } | null {
+  if (!item.state) return null
+  if (item.job_type === 'documentation' && item.state === 'imported' && item.removed) {
+    return { key: 'import-history-state-removed', tone: 'neutral' }
+  }
+  return { key: STATE_KEY[item.state], tone: STATE_TONE[item.state] }
+}
+
 /** The row's action: a draft resumes, an import opens its detail, an
  *  expired draft has none. */
 export function rowAction(item: Pick<ImportJobListItem, 'state'>): 'resume' | 'view' | null {
@@ -54,7 +67,16 @@ export function rowAction(item: Pick<ImportJobListItem, 'state'>): 'resume' | 'v
 export function countsLine(t: Translate, item: ImportJobListItem): string {
   if (item.state === 'expired') return t('import-history-state-expired')
   if (item.state === 'draft') {
+    if (item.job_type === 'documentation') {
+      if (item.status === 'committing') return t('import-history-docs-importing')
+      return item.status === 'parsed' || item.status === 'checking'
+        ? t('import-history-draft-on-pages')
+        : t('import-history-draft-on-review')
+    }
     return item.status === 'parsed' ? t('import-history-draft-on-map') : t('import-history-draft-on-review')
+  }
+  if (item.removed && item.job_type === 'documentation') {
+    return t('import-history-count-removed-pages', { deleted: item.removed.deleted, kept: item.removed.kept ?? 0 })
   }
   if (item.removed) return t('import-history-count-removed', { ...item.removed })
   const c = item.counts
@@ -120,8 +142,9 @@ export function optionsLine(t: Translate, type: ImportJobType, options: ImportOp
   return parts.join(' · ')
 }
 
-/** Where a draft resumes: the import wizard at its step. */
-export function resumeTarget(id: string) {
+/** Where a draft resumes: its type's import wizard, at its step. */
+export function resumeTarget(id: string, jobType?: AnyImportJobType) {
+  if (jobType === 'documentation') return { name: 'admin-docs-import', query: { job: id } }
   return { path: '/admin/data-import/csv', query: { job: id } }
 }
 

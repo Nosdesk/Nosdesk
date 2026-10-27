@@ -10,6 +10,7 @@ use crate::handlers::helpers;
 use crate::middleware::request_context::record_canonical;
 use crate::models::{LoginRequest, PasswordChangeRequest};
 use crate::repository::{self, user_auth_identities::get_local_password_hash};
+pub(crate) use crate::services::step_up::SignInProof;
 use crate::utils::auth::hash_password;
 use crate::utils::mfa;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
@@ -126,6 +127,29 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 .route(
                     "/{session_id}",
                     web::delete().to(crate::handlers::revoke_session),
+                ),
+        )
+        // A page load in the step-up popup, not an XHR: no auth middleware,
+        // since a popup can't refresh an expired access cookie first (the
+        // handler reads the browser's session itself). Registered before the
+        // scope, which would otherwise absorb the path.
+        .route(
+            "/step-up/provider",
+            web::get().to(crate::handlers::start_step_up_provider),
+        )
+        .service(
+            web::scope("/step-up")
+                .default_service(web::to(crate::errors::api_route_not_found))
+                .wrap(from_fn(cookie_auth_middleware))
+                .route("", web::get().to(crate::handlers::step_up::status))
+                .route("", web::post().to(crate::handlers::step_up::confirm))
+                .route(
+                    "/passkey/start",
+                    web::post().to(crate::handlers::step_up::start_passkey),
+                )
+                .route(
+                    "/passkey/finish",
+                    web::post().to(crate::handlers::step_up::finish_passkey),
                 ),
         )
         .service(
@@ -316,11 +340,15 @@ pub(crate) fn revoke_sessions_after_factor_change(
 /// Enforces the per-user session cap, evicting the least-recently-active
 /// sessions and recording a security event for them, so a login is never
 /// refused for holding too many.
+///
+/// `proof` is what the sign-in checked: it sets when the session last
+/// confirmed who is using it (`services::step_up`) and carries a provider
+/// sign-in's id_token.
 pub fn create_session_record(
     user_uuid: &Uuid,
     request: &HttpRequest,
     conn: &mut DbConnection,
-    oidc_id_token: Option<&str>,
+    proof: SignInProof<'_>,
 ) -> Result<crate::models::ActiveSession, diesel::result::Error> {
     // Resolve the client IP once: stored as INET, and (when a GeoIP
     // database is configured) used for a coarse "City, Country" label.
@@ -350,7 +378,8 @@ pub fn create_session_record(
         // A brand-new session's ceiling is further out than the idle window,
         // so this is the full idle TTL; the clamp matters on refresh.
         expires_at: crate::utils::session_policy::next_expiry(chrono::Utc::now().naive_utc()),
-        oidc_id_token: oidc_id_token.map(str::to_owned),
+        oidc_id_token: proof.id_token().map(str::to_owned),
+        confirmed_at: proof.confirmed_at(chrono::Utc::now()),
     };
 
     let (session, evicted) =
@@ -388,8 +417,8 @@ pub(crate) fn complete_login(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<HttpResponse, ApiError> {
-    // Local / password logins carry no OIDC id_token.
-    let (response, tokens) = establish_login_session(user, request, conn, None)?;
+    // The local password (or LDAP) login, which just checked a credential.
+    let (response, tokens) = establish_login_session(user, request, conn, SignInProof::Credential)?;
     Ok(build_auth_response(request, response, &tokens))
 }
 
@@ -405,9 +434,9 @@ pub(crate) fn complete_login_redirect(
     request: &HttpRequest,
     conn: &mut DbConnection,
     location: &str,
-    oidc_id_token: Option<&str>,
+    proof: SignInProof<'_>,
 ) -> Result<HttpResponse, ApiError> {
-    let (_response, tokens) = establish_login_session(user, request, conn, oidc_id_token)?;
+    let (_response, tokens) = establish_login_session(user, request, conn, proof)?;
     Ok(build_auth_cookie_redirect(&tokens, location))
 }
 
@@ -417,7 +446,7 @@ pub(crate) fn establish_login_session(
     user: crate::models::User,
     request: &HttpRequest,
     conn: &mut DbConnection,
-    oidc_id_token: Option<&str>,
+    proof: SignInProof<'_>,
 ) -> Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens), ApiError> {
     let user_uuid = user.uuid;
 
@@ -425,7 +454,7 @@ pub(crate) fn establish_login_session(
     // resolves under RLS (workspace_members is workspace-isolated).
     helpers::pin_request_workspace(request, conn);
 
-    let session = match create_session_record(&user_uuid, request, conn, oidc_id_token) {
+    let session = match create_session_record(&user_uuid, request, conn, proof) {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
@@ -468,7 +497,7 @@ fn complete_mfa_login(
     // resolves under RLS (workspace_members is workspace-isolated).
     helpers::pin_request_workspace(request, conn);
 
-    let session = match create_session_record(&user_uuid, request, conn, None) {
+    let session = match create_session_record(&user_uuid, request, conn, SignInProof::Credential) {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
@@ -583,6 +612,47 @@ pub(crate) fn build_auth_cookie_redirect(
 // Account lockout configuration (IP rate limiting handled by middleware)
 const MAX_LOGIN_ATTEMPTS: u32 = 5;
 const LOCKOUT_DURATION_SECONDS: u64 = 900; // 15 minutes
+
+/// Lockout state for a sign-in key: `Some(seconds)` while locked. When Redis
+/// can't be read the sign-in is refused (503) unless ENVIRONMENT is an
+/// explicit development label, so credentials are never checked uncounted.
+pub(crate) async fn check_sign_in_lockout(
+    redis_url: &str,
+    key: &str,
+) -> Result<Option<u64>, ApiError> {
+    match RateLimiter::check_lockout(redis_url, key, MAX_LOGIN_ATTEMPTS).await {
+        Ok(locked) => Ok(locked),
+        Err(e) => {
+            error!(error = %e, "Redis error checking account lockout");
+            if crate::config_utils::assume_production() {
+                return Err(ApiError::ServiceUnavailable(
+                    "Authentication service temporarily unavailable. Please try again.".into(),
+                ));
+            }
+            // Development only: sign in without the lockout.
+            Ok(None)
+        }
+    }
+}
+
+/// Count a failed sign-in against `key`. Returns the 429 to answer with when
+/// this attempt locked the account.
+async fn record_sign_in_failure(redis_url: &str, key: &str) -> Option<HttpResponse> {
+    match RateLimiter::record_failed_attempt(redis_url, key, LOCKOUT_DURATION_SECONDS).await {
+        Ok(attempts) if attempts >= MAX_LOGIN_ATTEMPTS => Some(errors::too_many_requests(
+            format!(
+                "Account locked after too many failed attempts. Try again in {} minutes.",
+                LOCKOUT_DURATION_SECONDS / 60
+            ),
+            LOCKOUT_DURATION_SECONDS,
+        )),
+        Ok(_) => None,
+        Err(e) => {
+            warn!(error = %e, "Failed to record sign-in attempt");
+            None
+        }
+    }
+}
 
 /// True when local credential auth (password + passkey) must be refused.
 ///
@@ -722,33 +792,17 @@ pub async fn login(
     let client_ip = crate::utils::client_ip::from_http_request(&request);
     let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
 
-    // Check if account is locked before any validation. Fail-closed detection:
-    // an unset/non-canonical ENVIRONMENT still denies on a Redis error below.
-    let is_production = crate::config_utils::assume_production();
-
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %login_data.email, remaining_seconds, "Login attempt on locked account");
-            record_canonical(&request, "outcome", "account_locked");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} minutes.",
-                    (remaining_seconds / 60) + 1
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            error!(error = %e, "Redis error checking account lockout");
-            if is_production {
-                // Fail closed in production - deny login if we can't verify lockout status
-                return Err(ApiError::ServiceUnavailable(
-                    "Authentication service temporarily unavailable. Please try again.".into(),
-                ));
-            }
-            // Fail open in development for convenience
-        }
+    // Check if account is locked before any validation.
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        warn!(email = %login_data.email, remaining_seconds, "Login attempt on locked account");
+        record_canonical(&request, "outcome", "account_locked");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} minutes.",
+                (remaining_seconds / 60) + 1
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&db_pool)?;
@@ -886,6 +940,22 @@ pub async fn mfa_login(
     login_data: web::Json<crate::models::MfaLoginRequest>,
     request: actix_web::HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
+    // The login lockout, checked before the password so a locked account
+    // answers the same either way. Wrong passwords and wrong codes both count.
+    let redis_url = get_redis_url();
+    let client_ip = crate::utils::client_ip::from_http_request(&request);
+    let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        record_canonical(&request, "outcome", "account_locked");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} minutes.",
+                (remaining_seconds / 60) + 1
+            ),
+            remaining_seconds,
+        ));
+    }
+
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let user = match crate::utils::login_timing::verify_credentials(
@@ -894,7 +964,12 @@ pub async fn mfa_login(
         &login_data.password,
     ) {
         Some(u) => u,
-        None => return Err(ApiError::Unauthorized("Invalid email or password".into())),
+        None => {
+            if let Some(locked) = record_sign_in_failure(&redis_url, &lockout_key).await {
+                return Ok(locked);
+            }
+            return Err(ApiError::Unauthorized("Invalid email or password".into()));
+        }
     };
 
     // Check that user actually has MFA enabled
@@ -936,6 +1011,9 @@ pub async fn mfa_login(
         Err(e) => {
             mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
             record_mfa(&mut conn, false);
+            if let Some(locked) = record_sign_in_failure(&redis_url, &lockout_key).await {
+                return Ok(locked);
+            }
             return Err(ApiError::BadRequest(format!(
                 "MFA verification failed: {}",
                 e
@@ -946,12 +1024,18 @@ pub async fn mfa_login(
     if !mfa_result.is_valid {
         mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
         record_mfa(&mut conn, false);
+        if let Some(locked) = record_sign_in_failure(&redis_url, &lockout_key).await {
+            return Ok(locked);
+        }
         return Err(ApiError::BadRequest("Invalid MFA token".into()));
     }
 
     // Log successful MFA attempt
     mfa::log_mfa_attempt(&user.uuid, true, "login", &request).await;
     record_mfa(&mut conn, true);
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
+        warn!(error = %e, "Failed to clear login attempts after successful MFA login");
+    }
 
     complete_mfa_login(
         user,
@@ -974,27 +1058,15 @@ pub async fn recovery_login(
     let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
 
     // Check if account is locked before any validation
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %login_data.email, remaining_seconds, "Recovery login attempt on locked account");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} minutes.",
-                    (remaining_seconds / 60) + 1
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            error!(error = %e, "Redis error checking account lockout for recovery login");
-            let is_production = crate::config_utils::assume_production();
-            if is_production {
-                return Err(ApiError::ServiceUnavailable(
-                    "Authentication service temporarily unavailable. Please try again.".into(),
-                ));
-            }
-        }
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        warn!(email = %login_data.email, remaining_seconds, "Recovery login attempt on locked account");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} minutes.",
+                (remaining_seconds / 60) + 1
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&db_pool)?;
@@ -1078,61 +1150,110 @@ pub async fn recovery_login(
     )
 }
 
-/// Optional body for `/auth/logout`. When the caller wants RP-initiated
-/// (front-channel) logout at the OIDC provider, it passes the surface's
-/// `redirect_uri` (web: `<origin>/login`; mobile: `nosdesk://auth/logout-callback`)
-/// and gets back a `logout_url` to navigate to.
-#[derive(serde::Deserialize)]
-pub struct LogoutRequest {
-    pub redirect_uri: Option<String>,
+/// The session a logout ends, and whose it is. The route carries no auth
+/// middleware, since signing out must work with an expired access token, so it
+/// reads its own credentials: a session JWT (mobile bearer, then the web access
+/// cookie) whose signature checks out, expired or not, else the web refresh
+/// cookie.
+fn logout_session(req: &HttpRequest, conn: &mut DbConnection) -> Option<(Uuid, Option<Uuid>)> {
+    use crate::utils::cookies::{cookie_name, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE};
+
+    let bearer = req
+        .headers()
+        .get(actix_web::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && !t.starts_with("nsk_"))
+        .map(str::to_owned);
+    let access = bearer.or_else(|| {
+        req.cookie(&cookie_name(ACCESS_TOKEN_COOKIE))
+            .map(|c| c.value().to_string())
+    });
+    if let Some(claims) = access
+        .as_deref()
+        .and_then(JwtUtils::session_claims_ignoring_expiry)
+    {
+        if let Some(sid) = claims.session_uuid() {
+            return Some((sid, Uuid::parse_str(&claims.sub).ok()));
+        }
+    }
+
+    let refresh = req.cookie(&cookie_name(REFRESH_TOKEN_COOKIE))?;
+    let token = crate::repository::refresh_tokens::get_refresh_token_by_hash(
+        conn,
+        &JwtUtils::hash_refresh_token(refresh.value()),
+    )
+    .ok()?;
+    if token.audience != crate::models::REFRESH_AUDIENCE_AGENT {
+        return None;
+    }
+    Some((token.session_id?, Some(token.user_uuid)))
 }
 
-/// Logout endpoint - revokes session from DB and clears cookies. When the
-/// session was established via OIDC and the caller supplies a `redirect_uri`,
-/// also returns a front-channel `logout_url` (with the session's stored
-/// id_token as `id_token_hint`) so the client can end the IdP session too.
-pub async fn logout(
-    db_pool: web::Data<crate::db::Pool>,
-    req: HttpRequest,
-    body: Option<web::Json<LogoutRequest>>,
-) -> impl Responder {
-    let redirect_uri = body.and_then(|b| b.into_inner().redirect_uri);
-    let mut logout_url: Option<String> = None;
+/// This browser's signed-in session, `(user, session)`, from its cookies
+/// alone: a live, full access cookie, else a refresh cookie that is still
+/// current (not used, revoked or expired). For a page load in a popup, which
+/// can't refresh an access cookie first.
+pub(crate) fn browser_session(req: &HttpRequest, conn: &mut DbConnection) -> Option<(Uuid, Uuid)> {
+    use crate::utils::cookies::{cookie_name, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE};
 
+    let access = req
+        .cookie(&cookie_name(ACCESS_TOKEN_COOKIE))
+        .and_then(|c| JwtUtils::validate_token(c.value()).ok())
+        .filter(|claims| claims.scope == "full");
+    if let Some(claims) = access {
+        if let (Ok(user), Some(sid)) = (Uuid::parse_str(&claims.sub), claims.session_uuid()) {
+            return Some((user, sid));
+        }
+    }
+
+    let refresh = req.cookie(&cookie_name(REFRESH_TOKEN_COOKIE))?;
+    let token = crate::repository::refresh_tokens::get_refresh_token_by_hash(
+        conn,
+        &JwtUtils::hash_refresh_token(refresh.value()),
+    )
+    .ok()?;
+    let current = token.audience == crate::models::REFRESH_AUDIENCE_AGENT
+        && token.revoked_at.is_none()
+        && !token.is_used
+        && token.expires_at > chrono::Utc::now().naive_utc();
+    current.then_some((token.user_uuid, token.session_id?))
+}
+
+/// Logout endpoint - revokes the session and clears cookies. On hosted it
+/// also ends this browser's remembered sign-in at the control plane, so the
+/// next sign-in asks for a password; that call never holds up the local
+/// revocation. Ending a self-hosted identity provider's own session
+/// (RP-initiated logout) is not done here, so `logout_url` is always null.
+pub async fn logout(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> impl Responder {
     // Best-effort session revocation — CASCADE handles linked refresh_tokens
-    if let (Ok(claims), Ok(mut conn)) = (rbac::require_auth(&req), helpers::db_conn(&db_pool)) {
-        if let Some(sid) = claims.session_uuid() {
-            // Build the RP-initiated logout URL BEFORE revoking (revocation
-            // deletes the row and its stored id_token). Only when the caller
-            // asked (redirect_uri) and this session carries an OIDC id_token.
-            // The redirect_uri is not trusted here: it only reaches the IdP's
-            // end_session URL, which Hydra validates against the client's
-            // registered post_logout_redirect_uris.
-            if let Some(redirect_uri) = redirect_uri.as_deref() {
-                if let Ok(session) =
-                    crate::repository::active_sessions::get_session_by_session_id(&mut conn, &sid)
-                {
-                    if let Some(id_token) = session.oidc_id_token.as_deref() {
-                        logout_url =
-                            crate::oidc::generate_logout_url(redirect_uri, Some(id_token), None)
-                                .await;
-                    }
+    if let Ok(mut conn) = helpers::db_conn(&db_pool) {
+        if let Some((sid, user_uuid)) = logout_session(&req, &mut conn) {
+            // Before revoking: the session row holds the id_token naming the
+            // remembered sign-in.
+            let remembered = match user_uuid {
+                Some(user) => {
+                    crate::services::remembered_sign_ins::end_this(&mut conn, &user, sid).await
                 }
-            }
+                None => None,
+            };
             match crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid) {
                 Ok(n) => tracing::info!("Logout: revoked {n} session(s) for sid {sid}"),
                 Err(e) => tracing::warn!("Logout: failed to revoke session {sid}: {e}"),
             }
-            // W2: record the logout / session revocation. user_uuid
-            // resolves from the JWT subject when it parses.
-            let user_uuid = Uuid::parse_str(&claims.sub).ok();
+            // W2: record the logout / session revocation.
+            let mut details = json!({ "reason": "logout" });
+            if let Some(outcome) = remembered {
+                details["remembered_sign_in"] = json!(outcome.kind());
+            }
             let _ = crate::utils::security_events::record_security_event(
                 &mut conn,
                 crate::utils::security_events::SecurityEventInput {
                     user_uuid,
                     event_type: "session_revoked",
                     severity: "info",
-                    details: Some(json!({ "reason": "logout" })),
+                    details: Some(details),
                     request: Some(&req),
                 },
             );
@@ -1146,10 +1267,8 @@ pub async fn logout(
     res.json(json!({
         "success": true,
         "message": "Logged out successfully",
-        // Null unless this was an OIDC session and a redirect_uri was given.
-        // The client navigates here (web) / opens it in the system browser
-        // (mobile) to end the IdP session too.
-        "logout_url": logout_url
+        // Kept for clients that would follow an IdP logout URL.
+        "logout_url": null
     }))
 }
 
@@ -2021,21 +2140,15 @@ pub async fn mfa_setup_login(
     let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %email_lower, remaining_seconds, "MFA setup attempt on locked account");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} seconds.",
-                    remaining_seconds
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            warn!("Failed to check account lockout: {:?}", e);
-        }
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        warn!(email = %email_lower, remaining_seconds, "MFA setup attempt on locked account");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} seconds.",
+                remaining_seconds
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&db_pool)?;
@@ -2144,21 +2257,15 @@ pub async fn mfa_enable_login(
     let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
-    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
-        Ok(Some(remaining_seconds)) => {
-            warn!(email = %email_lower, remaining_seconds, "MFA enable attempt on locked account");
-            return Ok(errors::too_many_requests(
-                format!(
-                    "Account temporarily locked. Try again in {} seconds.",
-                    remaining_seconds
-                ),
-                remaining_seconds,
-            ));
-        }
-        Ok(None) => {} // Not locked, continue
-        Err(e) => {
-            warn!("Failed to check account lockout: {:?}", e);
-        }
+    if let Some(remaining_seconds) = check_sign_in_lockout(&redis_url, &lockout_key).await? {
+        warn!(email = %email_lower, remaining_seconds, "MFA enable attempt on locked account");
+        return Ok(errors::too_many_requests(
+            format!(
+                "Account temporarily locked. Try again in {} seconds.",
+                remaining_seconds
+            ),
+            remaining_seconds,
+        ));
     }
 
     let mut conn = helpers::db_conn(&db_pool)?;
@@ -2318,7 +2425,12 @@ pub async fn mfa_enable_login(
             // Pin the workspace so the response's workspace_role resolves
             // under RLS (workspace_members is workspace-isolated).
             helpers::pin_request_workspace(&http_request, &mut conn);
-            let session = match create_session_record(&user_uuid, &http_request, &mut conn, None) {
+            let session = match create_session_record(
+                &user_uuid,
+                &http_request,
+                &mut conn,
+                SignInProof::Credential,
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::error!(
@@ -2477,50 +2589,56 @@ pub async fn revoke_session(
     }
 }
 
-/// Step-up re-authentication for high-blast-radius actions: require a full
-/// (non-MFA-pending) session plus a fresh credential from `user`, the caller.
-/// A local password is checked first (the mfa_disable precedent), then a
-/// TOTP or backup code. An empty credential passes only when the account has
-/// nothing to step up with (no local password and no MFA, e.g. SSO-only).
-/// `refused` is the 400 message when the credential is missing or wrong.
+/// Step-up for high-blast-radius actions (see `services::step_up`): require a
+/// full (non-MFA-pending) session, then either a credential from `user`, the
+/// caller, in this request (password, LDAP password, or TOTP / backup code),
+/// which also confirms the session for the window, or a session that
+/// confirmed within the window. An empty credential on an unconfirmed session
+/// is refused, whatever the account. `refused` is the 400 message.
 pub(crate) async fn verify_step_up(
     conn: &mut DbConnection,
+    req: &HttpRequest,
     claims: &crate::models::Claims,
     user: &crate::models::User,
     credential: &crate::models::StepUpCredential,
     refused: &str,
 ) -> Result<(), ApiError> {
+    use crate::services::step_up;
     if claims.scope != "full" {
         return Err(ApiError::Forbidden(
             "This action requires a full session".into(),
         ));
     }
-
-    // Err for accounts without a local password (e.g. OAuth-only).
-    let local_hash = get_local_password_hash(&user.uuid, conn).ok();
-
-    let reauthenticated = if let Some(pw) = credential.password.as_deref().filter(|p| !p.is_empty())
-    {
-        local_hash
-            .as_deref()
-            .map(|hash| verify(pw, hash).unwrap_or(false))
-            .unwrap_or(false)
-    } else if let Some(code) = credential
-        .mfa_code
+    let sid = claims.session_uuid();
+    let offered = credential
+        .password
         .as_deref()
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-    {
-        user.mfa_enabled
-            && mfa::verify_mfa_token(&user.uuid, code, conn)
-                .await
-                .map(|r| r.is_valid)
-                .unwrap_or(false)
-    } else {
-        local_hash.is_none() && !user.mfa_enabled
-    };
-
-    if reauthenticated {
+        .is_some_and(|p| !p.is_empty())
+        || credential
+            .mfa_code
+            .as_deref()
+            .is_some_and(|c| !c.trim().is_empty());
+    if offered {
+        // The dialog's attempt limit: a stolen session must not get unlimited
+        // password, directory or code guesses here either.
+        if step_up::attempts_exhausted(&user.uuid).await {
+            return Err(ApiError::Actix(crate::errors::from_response(
+                "step_up_attempts",
+                step_up::too_many_attempts(),
+            )));
+        }
+        let Some(method) = step_up::check_credential(conn, user, credential).await else {
+            return Err(ApiError::BadRequest(refused.into()));
+        };
+        if let Some(sid) = sid {
+            step_up::record_confirmed(conn, req, &user.uuid, &sid, method);
+        }
+        return Ok(());
+    }
+    let confirmed = sid
+        .and_then(|sid| step_up::session_confirmed_until(conn, &sid, &user.uuid))
+        .is_some();
+    if confirmed {
         Ok(())
     } else {
         Err(ApiError::BadRequest(refused.into()))
@@ -2551,6 +2669,7 @@ pub async fn revoke_all_other_sessions(
     };
     verify_step_up(
         &mut conn,
+        &req,
         &claims,
         &user,
         &body,
@@ -2573,24 +2692,43 @@ pub async fn revoke_all_other_sessions(
                 revoked_count,
                 user_uuid
             );
+            // Hosted: other browsers' remembered sign-ins at the control plane
+            // would sign them straight back in, so end those too. After the
+            // helpdesk's own revocation, which stands whatever this returns.
+            let remembered = crate::services::remembered_sign_ins::end_others(
+                &mut conn,
+                &user_uuid,
+                claims.session_uuid(),
+            )
+            .await;
+            let mut details = json!({
+                "reason": "revoke_all_others",
+                "revoked_count": revoked_count
+            });
+            if let Some(outcome) = remembered {
+                details["remembered_sign_ins"] = json!(outcome.kind());
+            }
             let _ = crate::utils::security_events::record_security_event(
                 &mut conn,
                 crate::utils::security_events::SecurityEventInput {
                     user_uuid: Some(user_uuid),
                     event_type: "session_revoked",
                     severity: "info",
-                    details: Some(json!({
-                        "reason": "revoke_all_others",
-                        "revoked_count": revoked_count
-                    })),
+                    details: Some(details),
                     request: Some(&req),
                 },
             );
-            Ok(HttpResponse::Ok().json(json!({
+            let mut body = json!({
                 "status": "success",
                 "message": format!("Successfully revoked {} session(s)", revoked_count),
                 "revoked_count": revoked_count
-            })))
+            });
+            // Hosted only. `false` tells the client other browsers may stay
+            // signed in until their remembered sign-in runs out.
+            if let Some(outcome) = remembered {
+                body["remembered_sign_ins_ended"] = json!(outcome.ended());
+            }
+            Ok(HttpResponse::Ok().json(body))
         }
         Err(e) => {
             tracing::error!("Failed to revoke other sessions: {}", e);
@@ -2735,7 +2873,7 @@ where
         }
         None => {
             // Token created before this migration — create a new session
-            match create_session_record(&user.uuid, request, conn, None) {
+            match create_session_record(&user.uuid, request, conn, SignInProof::Nothing) {
                 Ok(session) => (session.session_id, session.created_at),
                 Err(e) => {
                     tracing::error!("Failed to create session during refresh: {}", e);
@@ -3187,7 +3325,8 @@ mod tests {
         audience: &str,
     ) -> (String, uuid::Uuid) {
         let user = TestFixtures::create_user(conn, "rotation subject", "user");
-        let session = create_session_record(&user.uuid, request, conn, None).expect("session");
+        let session = create_session_record(&user.uuid, request, conn, SignInProof::Credential)
+            .expect("session");
         let raw = JwtUtils::generate_refresh_token();
         let family_id = uuid::Uuid::new_v4();
         crate::repository::refresh_tokens::create_refresh_token(

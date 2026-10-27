@@ -53,6 +53,18 @@ export const ICON_REGISTRY = {
     d: 'M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75',
   },
   add: { d: 'M12 4.5v15m7.5-7.5h-15' },
+  /** Centred lines, "align the column's text to the centre" (table cells). */
+  alignCenter: { d: 'M4 6h16M7 12h10M5 18h14' },
+  /** Lines flush left, "align text left" (table cells). */
+  alignLeft: { d: 'M4 6h16M4 12h10M4 18h14' },
+  /** Lines flush right, "align text right" (table cells). */
+  alignRight: { d: 'M4 6h16M10 12h10M6 18h14' },
+  /** Down arrow, "move down". Same strokes as `arrowUp`. */
+  arrowDown: { d: 'M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3' },
+  /** Left arrow, "move left". Same strokes as `arrowUp`. */
+  arrowLeft: { d: 'M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18' },
+  /** Right arrow, "move right". Same strokes as `arrowUp`. */
+  arrowRight: { d: 'M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3' },
   /** Up arrow, "send / submit" — the composer's send action. Straight lines
    * (no paper-plane curves) for the sleek, real-time feel. */
   arrowUp: { d: 'M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18' },
@@ -133,6 +145,10 @@ export const ICON_REGISTRY = {
     d: 'M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z',
   },
   close: { d: 'M6 18L18 6M6 6l12 12' },
+  /** A column with an arrow on its left, "insert a column left". */
+  columnLeft: { d: 'M13.5 3h5A1.5 1.5 0 0120 4.5v15a1.5 1.5 0 01-1.5 1.5h-5a1.5 1.5 0 01-1.5-1.5v-15A1.5 1.5 0 0113.5 3zM3 12h6M6 9l-3 3 3 3' },
+  /** A column with an arrow on its right, "insert a column right". */
+  columnRight: { d: 'M5.5 3h5A1.5 1.5 0 0112 4.5v15a1.5 1.5 0 01-1.5 1.5h-5A1.5 1.5 0 014 19.5v-15A1.5 1.5 0 015.5 3zM21 12h-6M18 9l3 3-3 3' },
   /** Speech bubble for "comment added". Distinct from `at`
    * (mention) so the notification list scans cleanly when both
    * appear in the same group. */
@@ -189,6 +205,8 @@ export const ICON_REGISTRY = {
   email: {
     d: 'M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75',
   },
+  /** Eraser, "clear the contents" and keep the container (table cells). */
+  eraser: { d: 'M20 20H9l-5-5a2 2 0 010-2.8l8.6-8.6a2 2 0 012.8 0l4.6 4.6a2 2 0 010 2.8L13 18M6.5 12.5l5 5' },
   /** Eye, paired with `eyeOff` for password-visibility toggles.
    * Filled-on / strike-through-off mirrors the convention used in
    * every credential field across the codebase. */
@@ -203,6 +221,10 @@ export const ICON_REGISTRY = {
   folder: {
     d: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z',
   },
+  /** A table whose first column carries a bar, "header column". */
+  headerColumn: { d: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM9 4v16M15 4v16M6 8v8' },
+  /** A table whose first row carries a bar, "header row". */
+  headerRow: { d: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM3 10h18M3 15h18M7 7h10' },
   /** Location marker (Heroicons `map-pin`). */
   mapPin: {
     d: 'M15 10.5a3 3 0 11-6 0 3 3 0 016 0z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z',
@@ -267,6 +289,8 @@ export const ICON_REGISTRY = {
   me: {
     d: 'M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z',
   },
+  /** Two cells pushed into one, "merge cells". */
+  merge: { d: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM3 12h7M21 12h-7M12 9l2 3-2 3M12 9l-2 3 2 3' },
   /** 2x2 square mosaic, the Microsoft brand mark in monochrome.
    *  Used wherever "Microsoft / Entra / Azure / Intune" needs an
    *  identifier without pulling in the multi-color brand logo. */
@@ -320,12 +344,18 @@ export const ICON_REGISTRY = {
   rename: {
     d: 'M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z',
   },
+  /** Arrow turning back, "reset to the default" (a column's width). */
+  reset: { d: 'M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8M3 3v5h5' },
   /** Curved arrow looping back, "restore from trash / archive".
    * Distinct from `refresh` (cyclic change) — restore is a
    * specifically reversible "undo this removal" semantic. */
   restore: {
     d: 'M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3',
   },
+  /** A row with an arrow above it, "insert a row above". */
+  rowAbove: { d: 'M4.5 12h15a1.5 1.5 0 011.5 1.5v5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5v-5A1.5 1.5 0 014.5 12zM12 3v6M9 6l3-3 3 3' },
+  /** A row with an arrow below it, "insert a row below". */
+  rowBelow: { d: 'M4.5 4h15A1.5 1.5 0 0121 5.5v5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 10.5v-5A1.5 1.5 0 014.5 4zM12 21v-6M9 18l3 3 3-3' },
   search: {
     d: 'M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z',
   },
@@ -343,11 +373,15 @@ export const ICON_REGISTRY = {
   settings: {
     d: 'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a6.759 6.759 0 010 .255c-.008.378.137.75.43.991l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.213-1.281zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
   },
+  /** One cell pulled into two, "split cell". Pairs with `merge`. */
+  split: { d: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM12 4v16M8 12H5M19 12h-3M7 9l-2 3 2 3M17 9l2 3-2 3' },
   /** Star — paired with `starOff`. Filled when active so the toggle
    * state is visible; outline is the standard "click to star". */
   star: {
     d: 'M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z',
   },
+  /** A grid, "table": inserting one and the table menu. */
+  table: { d: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM3 10h18M3 15h18M9 4v16M15 4v16' },
   /** Tilted price-tag with hole, "label / category". Used for
    * category pickers, tagged filters, and badges where the meaning
    * is "this thing has a labelled classification". */
@@ -368,6 +402,11 @@ export const ICON_REGISTRY = {
   },
   trash: {
     d: 'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0',
+  },
+  /** Arrow up out of a tray: sending files in. Import entries use it;
+   * `download` is the reverse, for exports. */
+  upload: {
+    d: 'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5',
   },
   /** Single person silhouette, the generic "user / member" glyph.
    * Distinct from `userPlus` (assignment notification) and from

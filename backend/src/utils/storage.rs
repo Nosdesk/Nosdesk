@@ -97,6 +97,27 @@ pub trait Storage: Send + Sync {
     /// Retrieve a file by path
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError>;
 
+    /// [`Storage::put_file`] from a local file, for uploads too large to
+    /// hold in memory. The default reads the file whole; the backends
+    /// stream it.
+    async fn put_file_from_path(
+        &self,
+        local: &Path,
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let data = tokio::fs::read(local).await?;
+        self.put_file(&data, path, content_type).await
+    }
+
+    /// Copy a stored file to a local file (created or truncated) and return
+    /// its size. The default reads the file whole; the backends stream it.
+    async fn get_file_to_path(&self, path: &str, local: &Path) -> Result<u64, StorageError> {
+        let data = self.get_file(path).await?;
+        tokio::fs::write(local, &data).await?;
+        Ok(data.len() as u64)
+    }
+
     /// Delete a file by path
     async fn delete_file(&self, path: &str) -> Result<(), StorageError>;
 
@@ -198,7 +219,16 @@ impl Storage for LocalStorage {
         let relative_path = path.trim_start_matches('/').to_string();
         let full_path = self.full_path(&relative_path)?;
         self.ensure_directory_exists(&full_path)?;
-        std::fs::write(&full_path, data)?;
+        // Written beside the key, then renamed over it: a put that stops part
+        // way never leaves a truncated object at the key (a resumed workspace
+        // import skips keys that are already there).
+        let partial = format!("{full_path}.{}.partial", Uuid::new_v4().simple());
+        if let Err(e) =
+            std::fs::write(&partial, data).and_then(|()| std::fs::rename(&partial, &full_path))
+        {
+            let _ = std::fs::remove_file(&partial);
+            return Err(e.into());
+        }
         Ok(StoredFile {
             id: relative_path
                 .rsplit('/')
@@ -216,6 +246,40 @@ impl Storage for LocalStorage {
         let full_path = self.full_path(path)?;
         match std::fs::read(&full_path) {
             Ok(data) => Ok(data),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                Err(StorageError::NotFound(format!("File not found: {path}")))
+            }
+            Err(e) => Err(StorageError::Io(e)),
+        }
+    }
+
+    async fn put_file_from_path(
+        &self,
+        local: &Path,
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let relative_path = path.trim_start_matches('/').to_string();
+        let full_path = self.full_path(&relative_path)?;
+        self.ensure_directory_exists(&full_path)?;
+        let size = tokio::fs::copy(local, &full_path).await?;
+        Ok(StoredFile {
+            id: relative_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&relative_path)
+                .to_string(),
+            url: self.get_public_url(&relative_path),
+            path: relative_path,
+            size,
+            content_type: content_type.to_string(),
+        })
+    }
+
+    async fn get_file_to_path(&self, path: &str, local: &Path) -> Result<u64, StorageError> {
+        let full_path = self.full_path(path)?;
+        match tokio::fs::copy(&full_path, local).await {
+            Ok(size) => Ok(size),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 Err(StorageError::NotFound(format!("File not found: {path}")))
             }
@@ -430,6 +494,59 @@ impl Storage for S3Storage {
         Ok(bytes.to_vec())
     }
 
+    async fn put_file_from_path(
+        &self,
+        local: &Path,
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let key = checked_path(path)?.trim_start_matches('/').to_string();
+        let size = tokio::fs::metadata(local).await?.len();
+        let body = aws_sdk_s3::primitives::ByteStream::from_path(local)
+            .await
+            .map_err(|e| StorageError::UploadFailed(format!("S3 body from file failed: {e}")))?;
+        self.client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(&key)
+            .body(body)
+            .content_type(content_type)
+            .send()
+            .await
+            .map_err(|e| StorageError::UploadFailed(format!("S3 put_object failed: {e}")))?;
+        Ok(StoredFile {
+            id: key.rsplit('/').next().unwrap_or(&key).to_string(),
+            url: self.get_public_url(&key),
+            path: key,
+            size,
+            content_type: content_type.to_string(),
+        })
+    }
+
+    async fn get_file_to_path(&self, path: &str, local: &Path) -> Result<u64, StorageError> {
+        use aws_sdk_s3::operation::get_object::GetObjectError;
+        let out = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(checked_path(path)?)
+            .send()
+            .await
+            .map_err(|e| match &e {
+                aws_sdk_s3::error::SdkError::ServiceError(se)
+                    if matches!(se.err(), GetObjectError::NoSuchKey(_)) =>
+                {
+                    StorageError::NotFound(format!("File not found: {path}"))
+                }
+                _ => StorageError::Backend(format!("S3 get_object failed: {e}")),
+            })?;
+        let mut body = out.body.into_async_read();
+        let mut file = tokio::fs::File::create(local).await?;
+        let size = tokio::io::copy(&mut body, &mut file).await?;
+        tokio::io::AsyncWriteExt::flush(&mut file).await?;
+        Ok(size)
+    }
+
     async fn delete_file(&self, path: &str) -> Result<(), StorageError> {
         // S3 delete is idempotent: deleting a missing key succeeds, so a
         // double-delete is a no-op just like the local backend.
@@ -625,6 +742,33 @@ impl Storage for WorkspaceScopedStorage {
 
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         self.inner.get_file(&self.physical(path)).await
+    }
+
+    async fn put_file_from_path(
+        &self,
+        local: &Path,
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let stored = self
+            .inner
+            .put_file_from_path(local, &self.physical(path), content_type)
+            .await?;
+        let logical_path = self.logical(&stored.path).to_string();
+        let url = self.inner.get_public_url(&logical_path);
+        Ok(StoredFile {
+            id: stored.id,
+            url,
+            path: logical_path,
+            size: stored.size,
+            content_type: stored.content_type,
+        })
+    }
+
+    async fn get_file_to_path(&self, path: &str, local: &Path) -> Result<u64, StorageError> {
+        self.inner
+            .get_file_to_path(&self.physical(path), local)
+            .await
     }
 
     async fn delete_file(&self, path: &str) -> Result<(), StorageError> {
@@ -848,25 +992,33 @@ impl Caching {
 }
 
 /// `inline`, named as uploaded: the stored name without the `{uuid}_` prefix
-/// that `store_file` adds. Non-ASCII names go in `filename*` (RFC 6266), with an
-/// ASCII `filename` for older clients.
+/// that `store_file` adds.
 fn inline_disposition(stored_name: &str) -> ContentDisposition {
     let name = stored_name
         .split_once('_')
         .filter(|(prefix, rest)| !rest.is_empty() && Uuid::parse_str(prefix).is_ok())
         .map_or(stored_name, |(_, rest)| rest);
+    named_disposition(name)
+}
+
+/// `inline` under `name`. The plain `filename` is ASCII with no control
+/// characters, quotes or backslashes, for older clients; whenever that loses
+/// anything, the exact name goes in `filename*` (RFC 6266, RFC 5987), which
+/// percent-encodes it.
+fn named_disposition(name: &str) -> ContentDisposition {
     let ascii: String = name
         .chars()
         .map(|c| {
-            if c.is_ascii() && !c.is_ascii_control() {
+            if c.is_ascii() && !c.is_ascii_control() && c != '"' && c != '\\' {
                 c
             } else {
                 '_'
             }
         })
         .collect();
+    let exact = ascii == name;
     let mut parameters = vec![DispositionParam::Filename(ascii)];
-    if !name.is_ascii() {
+    if !exact {
         parameters.push(DispositionParam::FilenameExt(ExtendedValue {
             charset: Charset::Ext("UTF-8".to_string()),
             language_tag: None,
@@ -885,6 +1037,19 @@ pub async fn serve_file_from_storage(
     path: &str,
     req: &HttpRequest,
     caching: Caching,
+) -> Result<HttpResponse, actix_web::Error> {
+    serve_named_file_from_storage(storage, path, req, caching, None).await
+}
+
+/// [`serve_file_from_storage`], named `display_name` in `Content-Disposition`
+/// when given (an attachment's name as uploaded), else after its stored name.
+/// The name only labels the response; `path` alone finds the object.
+pub async fn serve_named_file_from_storage(
+    storage: Arc<dyn Storage>,
+    path: &str,
+    req: &HttpRequest,
+    caching: Caching,
+    display_name: Option<&str>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // Serve routes use `{filename:.*}`, so the tail segment is fully
     // caller-controlled and can carry `../`. The backends refuse such a path
@@ -916,7 +1081,13 @@ pub async fn serve_file_from_storage(
         .insert_header((CONTENT_TYPE, content_type))
         .insert_header((ACCEPT_RANGES, "bytes"))
         .insert_header((CACHE_CONTROL, caching.cache_control()))
-        .insert_header(inline_disposition(filename));
+        .insert_header(
+            // Cleaned again here: a row written before names were cleaned on
+            // upload (or by an import) may carry a path or control characters.
+            display_name
+                .and_then(crate::utils::file_validation::FileValidator::display_filename)
+                .map_or_else(|| inline_disposition(filename), |n| named_disposition(&n)),
+        );
 
     // Handle range requests for PDF.js and other file types
     let range_header = req.headers().get("Range");
@@ -1030,6 +1201,22 @@ mod tests {
             inline_disposition("019eb4e2-dbaa-75e5-9eb2-aa3dc7d8a7cb_résumé.pdf").to_string(),
             "inline; filename=\"r_sum_.pdf\"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf"
         );
+    }
+
+    #[test]
+    fn disposition_carries_a_display_name_exactly() {
+        assert_eq!(
+            named_disposition("Q3 report (final).pdf").to_string(),
+            "inline; filename=\"Q3 report (final).pdf\""
+        );
+        // Quotes and backslashes leave the plain name; the exact one is encoded.
+        assert_eq!(
+            named_disposition("say \"hi\"\\x.txt").to_string(),
+            "inline; filename=\"say _hi__x.txt\"; filename*=UTF-8''say%20%22hi%22%5Cx.txt"
+        );
+        // A control character never reaches the header raw.
+        let header = named_disposition("a\r\nb.txt").to_string();
+        assert!(!header.contains('\r') && !header.contains('\n'));
     }
 
     #[test]

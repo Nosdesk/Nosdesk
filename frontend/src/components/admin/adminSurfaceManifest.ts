@@ -35,6 +35,9 @@ export const ADMIN_SURFACE_TIER: Record<string, AdminSurfaceTier> = {
   // Sub-pages reached from a nav page, with no nav item of their own; each
   // takes its parent's tier.
   '/admin/data-import/matches': 'tenant',
+  '/admin/data-import/documentation': 'tenant',
+  // A workspace import: the workspace owner's, gated inside the view.
+  '/admin/data-import/workspace': 'tenant',
   '/admin/ldap': 'tenant',
   '/admin/audit': 'tenant',
   '/admin/settings/branding': 'tenant',

@@ -220,11 +220,16 @@ pub(crate) fn mint_portal_session(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<PortalSessionCookies, ApiError> {
-    let session = crate::handlers::auth::create_session_record(&user.uuid, request, conn, None)
-        .map_err(|e| {
-            tracing::error!(error = ?e, "portal session: failed to create session record");
-            ApiError::Internal("Failed to establish session".into())
-        })?;
+    let session = crate::handlers::auth::create_session_record(
+        &user.uuid,
+        request,
+        conn,
+        crate::handlers::auth::SignInProof::Nothing,
+    )
+    .map_err(|e| {
+        tracing::error!(error = ?e, "portal session: failed to create session record");
+        ApiError::Internal("Failed to establish session".into())
+    })?;
 
     let family_id = Uuid::new_v4();
     let tokens = crate::utils::jwt::helpers::create_portal_tokens(
@@ -1293,7 +1298,7 @@ pub async fn download_attachment(
 ) -> Result<HttpResponse, actix_web::Error> {
     let (ticket_id, attachment_id) = path.into_inner();
     let viewer = portal.user_uuid;
-    let url = tc
+    let found = tc
         .run(move |conn| {
             let vis = portal_visibility(conn, viewer)?;
             let Some((attachment, reply)) =
@@ -1303,7 +1308,9 @@ pub async fn download_attachment(
             };
             // The link names the ticket the reply is on now. A merge moves the
             // reply, not the file, so the ticket is the reply's, not the folder's.
-            Ok::<_, diesel::result::Error>((reply.ticket_id == ticket_id).then_some(attachment.url))
+            Ok::<_, diesel::result::Error>(
+                (reply.ticket_id == ticket_id).then_some((attachment.url, attachment.name)),
+            )
         })
         .map_err(|e| {
             tracing::error!(error = ?e, ticket_id, "portal: attachment lookup failed");
@@ -1312,9 +1319,11 @@ pub async fn download_attachment(
     // A reply's files are stored under `tickets/` and linked as
     // `/uploads/tickets/...`; anything else (a draft still in `temp/`) isn't a
     // ticket file. The folder may be another ticket's after a merge.
+    let Some((url, name)) = found else {
+        return Err(crate::errors::not_found_error("File not found"));
+    };
     let Some(file_path) = url
-        .as_deref()
-        .and_then(|u| u.strip_prefix("/uploads/"))
+        .strip_prefix("/uploads/")
         .filter(|p| p.starts_with("tickets/"))
     else {
         return Err(crate::errors::not_found_error("File not found"));
@@ -1323,11 +1332,12 @@ pub async fn download_attachment(
         base_storage.get_ref().clone(),
         portal.workspace_id,
     );
-    crate::handlers::files::serve_or_not_found(
+    crate::handlers::files::serve_named_or_not_found(
         storage,
         file_path,
         &req,
         crate::utils::storage::Caching::Private,
+        Some(&name),
     )
     .await
 }
@@ -1385,7 +1395,7 @@ pub async fn upload_file(
         })?;
     let new_attachment = crate::models::NewAttachment {
         url: stored.url.clone(),
-        name: upload.filename.clone(),
+        name: upload.display_name,
         file_size: Some(upload.data.len() as i64),
         mime_type: Some(upload.mime.clone()),
         checksum: Some(upload.checksum),

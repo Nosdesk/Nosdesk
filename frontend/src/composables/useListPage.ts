@@ -203,9 +203,11 @@ export function useListPage<T, R extends string>(
   // ---- Sync-stream cache invalidation ----------------------------
   // Invalidate the list when any configured aggregate changes. Rides
   // the sync_actions stream (Postgres NOTIFY), so it's correct across
-  // backend machines; debounced so a burst is a single refetch.
+  // backend machines; debounced so a burst is a single refetch. A refetch
+  // that fails or is superseded by a newer one rejects here; the query's own
+  // state already carries a real error, so the rejection is dropped.
   if (options.syncAggregates && options.syncAggregates.length > 0) {
-    useSyncActions(() => queryCache.invalidateQueries({ key: keys.root }), {
+    useSyncActions(() => void queryCache.invalidateQueries({ key: keys.root }).catch(() => {}), {
       aggregates: [...options.syncAggregates],
       debounceMs: 200,
     })

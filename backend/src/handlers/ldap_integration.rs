@@ -14,7 +14,8 @@ use tracing::error;
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::helpers;
-use crate::models::UpsertWorkspaceLdapSettings;
+use crate::handlers::workspace_members::{can_assign, forbidden_tier};
+use crate::models::{UpsertWorkspaceLdapSettings, WorkspaceRole};
 use crate::repository::workspace_ldap_settings as repo;
 use crate::services::ldap::auth::{self as ldap_auth, LdapAuthError};
 use crate::services::ldap::connector::LdapConnectError;
@@ -119,6 +120,27 @@ pub async fn set_ldap_settings(
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::forbidden("A resolved workspace is required");
     };
+
+    // A mapping to admin grants admin on the next sync, so a new one passes the
+    // member-role endpoint's tier check. Mappings already saved aren't gated, so
+    // an admin can still edit the rest of an owner's configuration.
+    let caller = auth.workspace_role.unwrap_or(WorkspaceRole::Member);
+    if !can_assign(caller, WorkspaceRole::Admin) {
+        let saved = match tc.run(repo::get) {
+            Ok(row) => row.map(|r| r.group_config),
+            Err(e) => {
+                error!(error = %e, "load ldap settings for role check failed");
+                return errors::internal("Failed to load LDAP settings");
+            }
+        };
+        let saved_admin = admin_mapped_groups(saved.as_ref());
+        if admin_mapped_groups(Some(&settings.group_config))
+            .iter()
+            .any(|g| !saved_admin.contains(g))
+        {
+            return forbidden_tier();
+        }
+    }
 
     let result = tc.run(|conn| {
         repo::upsert(conn, settings)?;
@@ -453,6 +475,17 @@ fn validate_group_role_config(gc: &serde_json::Value) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The groups a `group_config` maps to the admin role.
+fn admin_mapped_groups(gc: Option<&serde_json::Value>) -> Vec<String> {
+    gc.and_then(|gc| gc.get("role_mappings"))
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some("admin"))
+        .filter_map(|m| m.get("group").and_then(|g| g.as_str()).map(str::to_string))
+        .collect()
 }
 
 // ---- Provider presets ------------------------------------------------------

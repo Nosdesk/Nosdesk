@@ -170,6 +170,29 @@ export function useUnflagTicketMutation() {
   })
 }
 
+/** Dismiss several gaps (the queue's selection, or one row). Throws when
+ *  the request fails, for `optimisticBulkAction`'s error toast. */
+export function useDismissGapsMutation() {
+  const queryCache = useQueryCache()
+  return useMutation({
+    mutation: (ids: number[]) => knowledgeGapsService.dismissKnowledgeGaps(ids),
+    onSettled: () => {
+      queryCache.invalidateQueries({ key: knowledgeGapKeys.root })
+    },
+  })
+}
+
+/** Undo a dismissal: the gaps go back to the queue as they were. */
+export function useReopenGapsMutation() {
+  const queryCache = useQueryCache()
+  return useMutation({
+    mutation: (ids: number[]) => knowledgeGapsService.reopenKnowledgeGaps(ids),
+    onSettled: () => {
+      queryCache.invalidateQueries({ key: knowledgeGapKeys.root })
+    },
+  })
+}
+
 export function useDismissGapMutation() {
   const queryCache = useQueryCache()
   return useMutation({
@@ -216,6 +239,11 @@ export function useDetectClustersMutation() {
           clusters?.gaps_updated,
           searches?.gaps_updated,
           staleDocs?.gaps_updated,
+        ),
+        gaps_retired: sum(
+          clusters?.gaps_retired,
+          searches?.gaps_retired,
+          staleDocs?.gaps_retired,
         ),
       }
     },

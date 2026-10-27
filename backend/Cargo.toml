@@ -1,6 +1,6 @@
 [package]
 name = "backend"
-version = "1.1.1"
+version = "1.1.4"
 edition = "2021"
 default-run = "backend"
 license = "BUSL-1.1"
@@ -68,6 +68,7 @@ argon2 = "0.6"     # MFA recovery code hashing (and future password migration ta
 actix-web-httpauth = "0.8.2"
 regex = "1.11.0"
 clap = { version = "4.5", features = ["derive"] }  # nosdesk-cli
+libc = "0.2"                                       # nosdesk-cli: OpenSSL without its exit-time cleanup (utils::openssl_exit)
 rpassword = "7"                                    # nosdesk-cli interactive password prompt (no-echo)
 quick-xml = "0.42"  # SVG validator for plugin icons
 semver = "1.0"      # engines.nosdesk constraint matching
@@ -202,6 +203,21 @@ html-escape = "0.2"
 # in `services::channels::email_sanitise`; the frontend still
 # layers DOMPurify before iframe injection as defence-in-depth.
 ammonia = "4"
+# Markdown parser for documentation import (`services::docs_markdown`).
+# CommonMark plus the GFM extensions; the HTML renderer is not used.
+pulldown-cmark = { version = "0.13", default-features = false }
+# Raw HTML in imported Markdown is read into the document tree through the
+# same parser ammonia uses (already in the tree at this version).
+html5ever = "0.40"
+# Front matter and source config files (mkdocs.yml, _category_.yml) in a
+# documentation import. An event parser, so anchors and aliases are refused
+# before any value is built. `serde_yaml` is archived.
+saphyr-parser = "0.2"
+# `+++` front matter in a documentation import (already in the tree).
+toml = { version = "0.9", default-features = false, features = ["std", "parse", "serde"] }
+# Unnamed temporary files: the documentation export zip, and uploaded archives
+# spooled to disk (zip needs seek).
+tempfile = "3"
 # DNS resolver for pre-flight MX lookup on guest-submitted email addresses.
 # Catches `random@nonexistentdomain.tld` before we waste an invitation email on it.
 hickory-resolver = { version = "0.26", features = ["tokio"] }
@@ -218,7 +234,7 @@ webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation",
 webauthn-rs-proto = "0.5"  # Protocol types for WebAuthn
 
 # Backup and restore dependencies
-zip = "8.6"                # ZIP archive creation/extraction
+zip = "9.0.4"              # ZIP archive creation and reading
 walkdir = "2.5"            # Directory walking for file backup
 sanitize-filename = "0.6"  # Filename sanitization for uploads
 
@@ -267,7 +283,6 @@ actix-test = "0.1"
 awc = "3"
 futures-util = "0.3"
 mockall = "0.13.0"
-tempfile = "3"
 # Certificates for the stand-in TLS Postgres server in the LISTEN connection
 # tests. aws_lc_rs because aws-lc-rs is already in the tree.
 rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }

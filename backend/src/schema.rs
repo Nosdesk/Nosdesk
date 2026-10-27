@@ -57,6 +57,7 @@ diesel::table! {
         expires_at -> Timestamptz,
         session_id -> Uuid,
         oidc_id_token -> Nullable<Text>,
+        confirmed_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -1555,6 +1556,7 @@ diesel::table! {
         result_count -> Int4,
         searched_at -> Timestamptz,
         workspace_id -> Int4,
+        user_uuid -> Nullable<Uuid>,
     }
 }
 
@@ -2307,6 +2309,39 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_import_jobs (id) {
+        id -> Uuid,
+        workspace_id -> Int4,
+        #[max_length = 16]
+        runner -> Varchar,
+        requested_by -> Nullable<Uuid>,
+        #[max_length = 16]
+        state -> Varchar,
+        #[max_length = 16]
+        stage -> Nullable<Varchar>,
+        archive_key -> Nullable<Text>,
+        archive_name -> Nullable<Text>,
+        archive_size -> Int8,
+        sealed -> Bool,
+        regenerate_uuids -> Bool,
+        report -> Nullable<Jsonb>,
+        error -> Nullable<Jsonb>,
+        created_people -> Array<Nullable<Uuid>>,
+        files_restored -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        checked_at -> Nullable<Timestamptz>,
+        confirmed_by -> Nullable<Uuid>,
+        confirmed_at -> Nullable<Timestamptz>,
+        applied_at -> Nullable<Timestamptz>,
+        finished_at -> Nullable<Timestamptz>,
+        reset_by -> Nullable<Uuid>,
+        reset_at -> Nullable<Timestamptz>,
+        pruned_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     workspace_ldap_settings (workspace_id) {
         workspace_id -> Int4,
         enabled -> Bool,
@@ -2425,6 +2460,12 @@ diesel::table! {
         organisation_id -> Nullable<Int4>,
         custom_domain -> Nullable<Text>,
         seat_limit -> Nullable<Int4>,
+        data_epoch -> Nullable<Uuid>,
+        resync_floor -> Nullable<Int8>,
+        billing_status -> Nullable<Text>,
+        billing_trial_end -> Nullable<Timestamptz>,
+        billing_cancel_at -> Nullable<Timestamptz>,
+        billing_as_of -> Nullable<Timestamptz>,
     }
 }
 
@@ -2560,6 +2601,7 @@ diesel::joinable!(rules -> users (created_by));
 diesel::joinable!(rules -> workspaces (workspace_id));
 diesel::joinable!(saved_views -> users (created_by));
 diesel::joinable!(saved_views -> workspaces (workspace_id));
+diesel::joinable!(search_query_log -> users (user_uuid));
 diesel::joinable!(search_query_log -> workspaces (workspace_id));
 diesel::joinable!(security_events -> users (user_uuid));
 diesel::joinable!(site_settings -> users (updated_by));
@@ -2609,6 +2651,7 @@ diesel::joinable!(working_calendars -> workspaces (workspace_id));
 diesel::joinable!(workspace_email_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_export_jobs -> workspaces (workspace_id));
 diesel::joinable!(workspace_identity_providers -> workspaces (workspace_id));
+diesel::joinable!(workspace_import_jobs -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_sync_state -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
@@ -2747,6 +2790,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     workspace_export_jobs,
     workspace_file_purges,
     workspace_identity_providers,
+    workspace_import_jobs,
     workspace_ldap_settings,
     workspace_ldap_sync_state,
     workspace_members,

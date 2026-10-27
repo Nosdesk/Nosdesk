@@ -430,7 +430,7 @@ pub async fn update_collection(
 
 /// Outcome of the delete_collection transaction.
 enum DeleteCollectionOutcome {
-    Ok { pages_trashed: usize },
+    Ok { trashed: Vec<i32> },
     NotFound,
     SystemDeleteBlocked,
     Failed,
@@ -441,6 +441,7 @@ pub async fn delete_collection(
     mut tc: TenantConn,
     path: web::Path<i32>,
     auth: AuthContext,
+    search_service: Option<web::Data<std::sync::Arc<crate::services::search::SearchService>>>,
 ) -> impl Responder {
     if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
@@ -461,23 +462,20 @@ pub async fn delete_collection(
         // itself. The junction rows cascade via FK on collection
         // delete; the soft-delete pass turns the pages into trash
         // entries rather than orphaned/visible rows.
-        let soft_deleted =
-            match repository::documentation_collections::soft_delete_pages_in_collection(
-                conn,
-                collection_id,
-            ) {
-                Ok(n) => n,
-                Err(e) => {
-                    error!(error = ?e, "Failed to soft-delete pages in collection");
-                    return Ok(DeleteCollectionOutcome::Failed);
-                }
-            };
+        let trashed = match repository::documentation_collections::soft_delete_pages_in_collection(
+            conn,
+            collection_id,
+        ) {
+            Ok(ids) => ids,
+            Err(e) => {
+                error!(error = ?e, "Failed to soft-delete pages in collection");
+                return Ok(DeleteCollectionOutcome::Failed);
+            }
+        };
 
         match repository::documentation_collections::delete_collection(conn, collection_id) {
             Ok(0) => Ok::<_, diesel::result::Error>(DeleteCollectionOutcome::NotFound),
-            Ok(_) => Ok(DeleteCollectionOutcome::Ok {
-                pages_trashed: soft_deleted,
-            }),
+            Ok(_) => Ok(DeleteCollectionOutcome::Ok { trashed }),
             Err(e) => {
                 error!(error = ?e, "Failed to delete collection");
                 Ok(DeleteCollectionOutcome::Failed)
@@ -486,11 +484,22 @@ pub async fn delete_collection(
     });
 
     match outcome {
-        Ok(DeleteCollectionOutcome::Ok { pages_trashed }) => HttpResponse::Ok().json(json!({
-            "success": true,
-            "message": "Collection deleted",
-            "pages_trashed": pages_trashed,
-        })),
+        Ok(DeleteCollectionOutcome::Ok { trashed }) => {
+            // Pages in Trash are found by no search.
+            if let Some(search) = &search_service {
+                for id in &trashed {
+                    crate::services::search::indexing_tasks::spawn_delete_documentation(
+                        search.get_ref().clone(),
+                        *id,
+                    );
+                }
+            }
+            HttpResponse::Ok().json(json!({
+                "success": true,
+                "message": "Collection deleted",
+                "pages_trashed": trashed.len(),
+            }))
+        }
         Ok(DeleteCollectionOutcome::NotFound) => errors::not_found_msg("Collection not found"),
         Ok(DeleteCollectionOutcome::SystemDeleteBlocked) => {
             errors::forbidden("Cannot delete system collections")

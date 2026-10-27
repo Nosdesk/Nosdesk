@@ -321,7 +321,8 @@ pub async fn set_group_members(
     }
 }
 
-/// Get groups for a specific user (self or admin)
+/// Get groups for a specific user: themselves, or an admin of this workspace.
+/// Groups are per workspace, so the read is the workspace's own.
 pub async fn get_user_groups(
     req: HttpRequest,
     mut tc: TenantConn,
@@ -340,7 +341,7 @@ pub async fn get_user_groups(
         None => return errors::unauthorized("Authentication required"),
     };
 
-    if claims.sub != user_uuid_str && !crate::utils::rbac::is_platform_admin(&claims) {
+    if claims.sub != user_uuid_str && require_workspace_role(&req, WorkspaceRole::Admin).is_err() {
         return errors::forbidden("Not authorized to access this resource");
     }
 

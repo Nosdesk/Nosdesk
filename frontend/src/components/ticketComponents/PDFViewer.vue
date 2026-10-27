@@ -29,8 +29,9 @@ const pageRefs = ref<Map<number, HTMLElement>>(new Map())
 // Current page tracking (based on scroll position)
 const currentPage = ref(1)
 
-// Fullscreen view detection
-const isFullscreenView = computed(() => route.path === '/pdf-viewer')
+// Fullscreen view detection, by route name: on Cloud the path carries the
+// workspace slug (/acme/pdf-viewer).
+const isFullscreenView = computed(() => route.name === 'pdf-viewer')
 
 // Initialize PDF viewer composable
 const pdf = usePdfViewer({

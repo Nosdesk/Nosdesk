@@ -257,11 +257,9 @@ bug-report-modal-title = Report a problem
 bug-report-modal-description-label = What happened?
 bug-report-modal-description-placeholder = e.g. tried to save a comment and saw a red banner; was on the assignee dropdown just before.
 bug-report-modal-description-hint = A sentence or two is plenty.
-bug-report-modal-attachments-hint = We attach the current page, build version, and the last few navigations and API calls. Stays inside this workspace.
 bug-report-modal-cancel = Cancel
 bug-report-modal-submit = Send report
 bug-report-success-toast-title = Report sent
-bug-report-success-toast-body = Thanks. An admin can find it in this workspace's diagnostics.
 bug-report-error-toast-title = Couldn't send report
 bug-report-error-toast-body = Try again in a moment.
 
@@ -1244,7 +1242,6 @@ admin-backup-delete-title = Delete
 admin-backup-docs-heading = Export Documentation to Markdown
 admin-backup-docs-description = Export all documentation pages as markdown files in a ZIP archive
 admin-backup-docs-export = Export as Markdown
-admin-backup-docs-exporting = Exporting { $current }/{ $total }...
 admin-backup-docs-preparing = Preparing...
 admin-backup-docs-error = Couldn't export documentation. Check the console for details.
 admin-backup-restore-heading = Restore from Backup
@@ -2146,17 +2143,12 @@ docs-index-new-page = New page
 
 # Docs: documentation index toolbar (DocumentationIndexToolbar)
 docs-index-toolbar-search = Search documentation
-docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = New collection
-docs-index-toolbar-more = More
 docs-index-toolbar-more-aria = Documentation actions
 docs-index-toolbar-scan-gaps = Scan for knowledge gaps
 docs-index-toolbar-scan-no-results = No new gaps found
 docs-index-toolbar-scan-success = { $created } new gaps · { $updated } updated
 docs-index-toolbar-scan-error = Gap scan failed. Try again.
-docs-index-toolbar-maintenance-heading = Maintenance
-docs-index-toolbar-archived = Archived pages
-docs-index-toolbar-trash = Trash
 docs-index-toolbar-publish-heading = Publishing
 docs-index-toolbar-admin-heading = Admin
 docs-index-toolbar-public-site = View public site
@@ -2228,7 +2220,6 @@ docs-index-chip-trash = { $count } in trash
 # Documentation drafts (DocumentationDraftsView): pages not yet
 # assigned to a collection.
 docs-drafts-description = Pages not yet sorted into a collection
-docs-drafts-back = Back to Documentation
 docs-drafts-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -2239,7 +2230,6 @@ docs-drafts-count = { $count ->
 docs-archived-title = Archived
 docs-archived-heading = Archived
 docs-archived-description = Pages that have been archived
-docs-archived-back = Back to Documentation
 docs-archived-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -2253,7 +2243,6 @@ docs-archived-restore = Restore
 docs-trash-title = Trash
 docs-trash-heading = Trash
 docs-trash-description = Deleted pages can be restored or permanently removed
-docs-trash-back = Back to Documentation
 docs-trash-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -2272,18 +2261,10 @@ docs-gaps-back-docs = Docs
 docs-gaps-back-list = Knowledge Gaps
 docs-gaps-refresh = Refresh signals
 docs-gaps-refreshing = Refreshing
-docs-gaps-detect-no-results = No new clusters found
+docs-gaps-detect-no-results = Nothing new found
 docs-gaps-detect-created = { $count } new
 docs-gaps-detect-updated = { $count } updated
 docs-gaps-loading = Loading
-docs-gaps-impact-searches = searches
-docs-gaps-impact-recent-tickets = recent tickets
-docs-gaps-impact-tickets = tickets
-docs-gaps-impact-tooltip = { $count } { $label } showing demand for this doc
-docs-gaps-signal-count = { $count ->
-    [one] { $count } signal
-   *[other] { $count } signals
-   }
 docs-gaps-select-prompt = Pick a gap from the list to see its evidence.
 docs-gaps-status-label = Status:
 docs-gaps-last-evidence = Last evidence: { $time }
@@ -3024,7 +3005,6 @@ docs-collection-manager-saving = Saving...
 
 # Docs: collection browser (CollectionBrowser)
 docs-collection-browser-heading = Collections
-docs-collection-browser-new = New
 docs-collection-browser-name-placeholder = Collection name...
 docs-collection-browser-cancel = Cancel
 docs-collection-browser-create = Create
@@ -3094,7 +3074,6 @@ docs-breadcrumb-root = Documentation
 docs-breadcrumb-aria = Breadcrumb
 
 # Docs: card (DocumentationCard)
-docs-card-empty-content = No content yet
 docs-card-children-more = +{ $count } more
 docs-card-relative-unknown = Unknown
 docs-card-relative-today = Today
@@ -4169,37 +4148,7 @@ settings-security-error-reset-failed = Couldn't reset password
 
 # OAuth callback view + card.
 auth-callback-loading-default = Finishing sign-in...
-auth-callback-loading-processing = Processing authentication...
-auth-callback-loading-success = Success! Redirecting...
 auth-callback-loading-subtitle = Hang on while we finish authenticating
-auth-callback-success-title = Authentication successful
-auth-callback-success-subtitle = Redirecting...
-auth-callback-technical-details = Technical Details
-auth-callback-provider-microsoft = Microsoft
-auth-callback-provider-sso = SSO
-auth-callback-error-missing-params = Missing required authentication parameters
-auth-callback-error-missing-detail = Missing: { $fields }
-auth-callback-error-missing-field-code = code
-auth-callback-error-missing-field-state = state
-auth-callback-error-invalid-response = Invalid response from server
-auth-callback-error-no-response = No response received from server
-auth-callback-error-unknown = Unknown error
-auth-callback-error-generic-message = Something went wrong during authentication
-auth-callback-error-status-prefix = Status: { $status }
-auth-callback-already-title = Account Already Connected
-auth-callback-already-message = This { $provider } account is already linked to another user.
-auth-callback-already-suggestion-microsoft = Try a different { $provider } account, or have a chat with your admin.
-auth-callback-already-suggestion-generic = Try a different account, or have a chat with your admin.
-auth-callback-invalid-title = Authentication Failed
-auth-callback-invalid-message = The authentication request was invalid or has expired.
-auth-callback-invalid-suggestion-microsoft = Give your { $provider } account another go.
-auth-callback-invalid-suggestion-generic = Give signing in another go.
-auth-callback-generic-title = Authentication Failed
-auth-callback-generic-suggestion = Try again, or contact support if it keeps happening.
-auth-callback-action-try-different = Try a Different Account
-auth-callback-action-back-settings = Back to Settings
-auth-callback-action-return-login = Return to Login
-auth-callback-action-try-again = Try Again
 
 # Dashboard widgets
 dashboard-widget-shell-action-view-all = View all
@@ -4272,11 +4221,6 @@ dashboard-knowledge-gaps-action = View queue
 dashboard-knowledge-gaps-error = Couldn't load gaps
 dashboard-knowledge-gaps-empty-title = No open gaps
 dashboard-knowledge-gaps-empty-description = Tickets flagged for docs will pop up here.
-dashboard-knowledge-gaps-signal-count =
-    { $count ->
-        [one] 1 signal
-       *[other] { $count } signals
-    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } searches
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets showing demand for this doc

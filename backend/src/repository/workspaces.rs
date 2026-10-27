@@ -578,6 +578,208 @@ pub fn set_seat_limit(
         .execute(conn)
 }
 
+/// A hosted workspace's subscription state as the control plane read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BillingState {
+    /// Stripe's subscription status, stored verbatim; `None` with no
+    /// subscription.
+    pub status: Option<String>,
+    pub trial_end: Option<DateTime<Utc>>,
+    pub cancel_at: Option<DateTime<Utc>>,
+    /// When the control plane read the subscription.
+    pub as_of: DateTime<Utc>,
+}
+
+/// What [`set_billing_state`] did with a push.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BillingWrite {
+    Applied,
+    /// The stored state is as new or newer; nothing changed.
+    Stale,
+    UnknownWorkspace,
+}
+
+// sync-audit-only: control-plane billing projection; `workspaces` is a global meta-table, not on any tenant's live-sync stream
+/// Store the control plane's billing state for the workspace `slug`, only
+/// when `state.as_of` is newer than the stored one, so a late or repeated
+/// push never overwrites newer state. Like [`set_seat_limit`], it reaches
+/// archived workspaces too.
+pub fn set_billing_state(
+    conn: &mut DbConnection,
+    slug: &str,
+    state: &BillingState,
+) -> QueryResult<BillingWrite> {
+    let updated = diesel::update(
+        workspaces::table.filter(workspaces::slug.eq(slug)).filter(
+            workspaces::billing_as_of
+                .is_null()
+                .or(workspaces::billing_as_of.lt(state.as_of)),
+        ),
+    )
+    .set((
+        workspaces::billing_status.eq(state.status.as_deref()),
+        workspaces::billing_trial_end.eq(state.trial_end),
+        workspaces::billing_cancel_at.eq(state.cancel_at),
+        workspaces::billing_as_of.eq(state.as_of),
+    ))
+    .execute(conn)?;
+    if updated > 0 {
+        return Ok(BillingWrite::Applied);
+    }
+    let exists: bool = diesel::select(diesel::dsl::exists(
+        workspaces::table.filter(workspaces::slug.eq(slug)),
+    ))
+    .get_result(conn)?;
+    Ok(if exists {
+        BillingWrite::Stale
+    } else {
+        BillingWrite::UnknownWorkspace
+    })
+}
+
+/// A workspace's client cache fence: the data epoch clients cache under, and
+/// the lowest sync_id a client cursor may hold. Both `None` until the
+/// workspace's data is first replaced.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DataFence {
+    pub epoch: Option<Uuid>,
+    pub resync_floor: Option<i64>,
+}
+
+impl DataFence {
+    /// Whether a delta from cursor `from` must resync: the cursor was issued
+    /// before the workspace's data was replaced. `from == 0` is a client with
+    /// no cursor, which bootstraps anyway.
+    pub fn cursor_predates(&self, from: i64) -> bool {
+        self.resync_floor
+            .is_some_and(|floor| from > 0 && from < floor)
+    }
+
+    /// The bootstrap cursor to hand out: never below the floor, or a
+    /// workspace with no events since the replacement would report its own
+    /// fresh cursor as stale on every delta.
+    pub fn clamp_cursor(&self, last_sync_id: i64) -> i64 {
+        self.resync_floor
+            .map_or(last_sync_id, |floor| last_sync_id.max(floor))
+    }
+}
+
+/// Read a workspace's [`DataFence`]. An unknown workspace has no fence.
+/// `workspaces` has no RLS and `nosdesk_app` can read it, so a tenant
+/// connection works.
+pub fn data_fence(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<DataFence> {
+    let row: Option<(Option<Uuid>, Option<i64>)> = workspaces::table
+        .filter(workspaces::id.eq(workspace_id))
+        .select((workspaces::data_epoch, workspaces::resync_floor))
+        .first(conn)
+        .optional()?;
+    Ok(row
+        .map(|(epoch, resync_floor)| DataFence {
+            epoch,
+            resync_floor,
+        })
+        .unwrap_or_default())
+}
+
+// sync-audit-only: the fence itself is how clients learn of the replacement (`/api/sync/schema` and every delta carry the epoch); `workspaces` is a global meta-table, not on any tenant's live-sync stream
+/// Tell every client that this workspace's cached data is gone: set a new
+/// `data_epoch` and a new `resync_floor`. Call it once the workspace's data
+/// has been replaced (an archive import clears the workspace and loads rows
+/// with new ids), as the last write of that transaction, so it commits with
+/// the data.
+///
+/// Clients that see a new epoch (on `/api/sync/schema` at launch, or on any
+/// delta) wipe their sync pool, cursors and collaborative-document caches and
+/// bootstrap again. Clients that only know the cursor (an older bundle) get
+/// `resync_required` from delta, because the floor sits above every cursor
+/// issued before.
+///
+/// The floor is drawn from `sync_actions_sync_id_seq`, not read as
+/// `MAX(sync_id)`: a client that was fully caught up holds a cursor equal to
+/// the old maximum and would pass a `from < MAX` check. A fresh sequence value
+/// is above every id handed out before it, so every older cursor is below it.
+/// Bootstrap clamps the cursor it hands out to the floor (see
+/// [`DataFence::clamp_cursor`]), so a client that bootstraps after the bump is
+/// never below it.
+///
+/// `nosdesk_app` can only read `workspaces`: the caller runs this on an
+/// elevated connection (the owner role, as the import transaction does).
+pub fn bump_data_epoch(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<DataFence> {
+    use diesel::dsl::sql;
+    use diesel::sql_types::{BigInt, Nullable};
+    let (epoch, resync_floor) =
+        diesel::update(workspaces::table.filter(workspaces::id.eq(workspace_id)))
+            .set((
+                workspaces::data_epoch.eq(Some(Uuid::new_v4())),
+                workspaces::resync_floor.eq(sql::<Nullable<BigInt>>(
+                    "nextval('public.sync_actions_sync_id_seq')",
+                )),
+            ))
+            .returning((workspaces::data_epoch, workspaces::resync_floor))
+            .get_result::<(Option<Uuid>, Option<i64>)>(conn)?;
+    Ok(DataFence {
+        epoch,
+        resync_floor,
+    })
+}
+
+/// Advisory-lock space for workspace imports and resets ("WSIM"), apart from
+/// the CSV import locks in `repository::imports`.
+const WORKSPACE_IMPORT_LOCK_SPACE: i32 = 0x5753_494D;
+
+// sync-audit-only: takes an advisory lock, writes nothing
+/// Take, for the rest of the transaction, the lock on importing into (or
+/// resetting) the workspace, without waiting; `false` while another import or
+/// reset of it runs.
+pub fn try_lock_import(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<bool> {
+    #[derive(QueryableByName)]
+    struct Flag {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        flag: bool,
+    }
+    use diesel::sql_types::Integer;
+    diesel::sql_query("SELECT pg_try_advisory_xact_lock($1, $2) AS flag")
+        .bind::<Integer, _>(WORKSPACE_IMPORT_LOCK_SPACE)
+        .bind::<Integer, _>(workspace_id)
+        .get_result::<Flag>(conn)
+        .map(|f| f.flag)
+}
+
+/// Lock the workspace row for the rest of the transaction (`FOR UPDATE`), so
+/// writes that reference the workspace (every tenant insert takes `FOR KEY
+/// SHARE` on it through the foreign key) wait until the import commits.
+/// `None` for an unknown or archived workspace. Needs the elevated role:
+/// `nosdesk_app` can only read `workspaces`.
+pub fn lock_for_import(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> QueryResult<Option<Workspace>> {
+    workspaces::table
+        .filter(workspaces::id.eq(workspace_id))
+        .filter(workspaces::archived_at.is_null())
+        .for_update()
+        .first::<Workspace>(conn)
+        .optional()
+}
+
+// sync-audit-only: workspace settings on the global `workspaces` meta-table, written by an import whose data epoch bump tells every client to start over
+/// Merge `settings` over the workspace's own (`settings || $1`): an import
+/// brings the archive's settings and keeps every other column of the row.
+/// Needs the elevated role.
+pub fn merge_settings(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    settings: &serde_json::Value,
+) -> QueryResult<usize> {
+    diesel::sql_query(
+        "UPDATE public.workspaces SET settings = settings || $2::jsonb \
+         WHERE id = $1 AND jsonb_typeof($2::jsonb) = 'object'",
+    )
+    .bind::<diesel::sql_types::Integer, _>(workspace_id)
+    .bind::<diesel::sql_types::Text, _>(settings.to_string())
+    .execute(conn)
+}
+
 /// Whether the workspace's push notifications carry rich context (`detailed`,
 /// the default) or only the generic type label (`private`, "tap to view").
 /// Read from `settings.notification_push_detail`; absent/unknown → detailed.
@@ -1138,6 +1340,54 @@ mod tests {
             seat_limit: None,
         };
         as_admin(conn, |c| create_workspace(c, &record)).expect("create workspace")
+    }
+
+    #[test]
+    fn data_fence_boundaries() {
+        let none = DataFence::default();
+        assert!(!none.cursor_predates(1));
+        assert_eq!(none.clamp_cursor(7), 7);
+
+        let fence = DataFence {
+            epoch: Some(Uuid::new_v4()),
+            resync_floor: Some(100),
+        };
+        // A client with no cursor bootstraps anyway.
+        assert!(!fence.cursor_predates(0));
+        assert!(fence.cursor_predates(1));
+        assert!(fence.cursor_predates(99));
+        assert!(!fence.cursor_predates(100));
+        assert!(!fence.cursor_predates(101));
+        assert_eq!(fence.clamp_cursor(40), 100);
+        assert_eq!(fence.clamp_cursor(140), 140);
+    }
+
+    #[test]
+    fn bump_data_epoch_fences_only_its_workspace() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let a = fresh_workspace(&mut conn, "fence-a");
+        let b = fresh_workspace(&mut conn, "fence-b");
+        assert_eq!(data_fence(&mut conn, a.id).unwrap(), DataFence::default());
+
+        let first = as_admin(&mut conn, |c| bump_data_epoch(c, a.id)).expect("bump");
+        assert!(first.epoch.is_some());
+        let floor = first.resync_floor.expect("a floor");
+        // The floor is above every sync_id handed out before it.
+        let newest: Option<i64> = as_admin(&mut conn, |c| {
+            crate::schema::sync_actions::table
+                .select(diesel::dsl::max(crate::schema::sync_actions::sync_id))
+                .first(c)
+        })
+        .unwrap();
+        assert!(newest.is_none_or(|n| n < floor));
+        assert_eq!(data_fence(&mut conn, a.id).unwrap(), first);
+
+        let second = as_admin(&mut conn, |c| bump_data_epoch(c, a.id)).expect("bump");
+        assert_ne!(second.epoch, first.epoch);
+        assert!(second.resync_floor.unwrap() > floor);
+
+        assert_eq!(data_fence(&mut conn, b.id).unwrap(), DataFence::default());
+        assert_eq!(data_fence(&mut conn, -1).unwrap(), DataFence::default());
     }
 
     #[test]
@@ -1983,6 +2233,89 @@ mod tests {
         assert_eq!(
             as_admin(&mut conn, |c| set_seat_limit(c, "no-such-slug", Some(1))).unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn set_billing_state_applies_only_newer_pushes() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "billing-fence");
+        let t0 = chrono::DateTime::parse_from_rfc3339("2026-10-22T03:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let trial_end = t0 + chrono::Duration::days(13);
+        let stored = |conn: &mut DbConnection| {
+            as_admin(conn, |c| {
+                workspaces::table
+                    .find(ws.id)
+                    .select((
+                        workspaces::billing_status,
+                        workspaces::billing_trial_end,
+                        workspaces::billing_cancel_at,
+                        workspaces::billing_as_of,
+                    ))
+                    .first::<(
+                        Option<String>,
+                        Option<DateTime<Utc>>,
+                        Option<DateTime<Utc>>,
+                        Option<DateTime<Utc>>,
+                    )>(c)
+            })
+            .unwrap()
+        };
+        let push = |conn: &mut DbConnection, slug: &str, state: BillingState| {
+            as_admin(conn, |c| set_billing_state(c, slug, &state)).unwrap()
+        };
+
+        // First push lands on the NULL fence.
+        let trialing = BillingState {
+            status: Some("trialing".into()),
+            trial_end: Some(trial_end),
+            cancel_at: None,
+            as_of: t0,
+        };
+        assert_eq!(
+            push(&mut conn, &ws.slug, trialing.clone()),
+            BillingWrite::Applied
+        );
+        assert_eq!(
+            stored(&mut conn),
+            (Some("trialing".into()), Some(trial_end), None, Some(t0))
+        );
+
+        // The same as_of again, and an older one, change nothing.
+        let replay = BillingState {
+            status: Some("active".into()),
+            ..trialing.clone()
+        };
+        assert_eq!(push(&mut conn, &ws.slug, replay), BillingWrite::Stale);
+        let older = BillingState {
+            status: Some("canceled".into()),
+            as_of: t0 - chrono::Duration::minutes(1),
+            ..trialing.clone()
+        };
+        assert_eq!(push(&mut conn, &ws.slug, older), BillingWrite::Stale);
+        assert_eq!(
+            stored(&mut conn),
+            (Some("trialing".into()), Some(trial_end), None, Some(t0))
+        );
+
+        // A newer push with no subscription clears the state.
+        let t1 = t0 + chrono::Duration::hours(1);
+        let cleared = BillingState {
+            status: None,
+            trial_end: None,
+            cancel_at: None,
+            as_of: t1,
+        };
+        assert_eq!(push(&mut conn, &ws.slug, cleared), BillingWrite::Applied);
+        assert_eq!(stored(&mut conn), (None, None, None, Some(t1)));
+
+        // An unknown slug is told apart from a stale push.
+        assert_eq!(
+            push(&mut conn, "no-such-slug", trialing),
+            BillingWrite::UnknownWorkspace
         );
     }
 }

@@ -72,3 +72,15 @@ export function restoreFocusTo(anchor: PopoverAnchor): void {
   const target = el.matches(FOCUSABLE) ? el : el.querySelector<HTMLElement>(FOCUSABLE)
   target?.focus?.()
 }
+
+/**
+ * Whether focus has already left a closing surface for somewhere else, as
+ * when a menu pick focuses the editor or opens a dialog. Focus still inside
+ * the surface, or dropped to the body, has not moved on, and goes back to
+ * the anchor.
+ */
+export function focusMovedOn(surface: EventTarget | null): boolean {
+  const active = document.activeElement
+  if (!active || active === document.body) return false
+  return !(surface instanceof Node && surface.contains(active))
+}

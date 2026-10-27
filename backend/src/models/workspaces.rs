@@ -41,6 +41,30 @@ pub struct Workspace {
     /// (to 5) and lifted to NULL on subscription activation. Only staff roles
     /// (owner/admin/agent) count against it. See `add_staff_membership_capped`.
     pub seat_limit: Option<i32>,
+    /// Changes each time the workspace's data is replaced (an archive
+    /// import); clients wipe their caches when it does. NULL until then.
+    /// See `repository::workspaces::bump_data_epoch`.
+    pub data_epoch: Option<Uuid>,
+    /// A delta from a cursor below this sync_id returns `resync_required`,
+    /// and no bootstrap hands out a cursor below it. NULL until the data is
+    /// first replaced.
+    pub resync_floor: Option<i64>,
+    /// Hosted billing projection, pushed by the control plane through
+    /// `POST /api/internal/v1/workspaces/{slug}/billing`: Stripe's
+    /// subscription status, verbatim (NULL with no subscription). Only
+    /// `GET /api/me/workspaces` exposes it, to a hosted owner; serde skips
+    /// the four billing fields so no other serializer of this row carries
+    /// them, and the workspace export leaves them out.
+    #[serde(skip)]
+    pub billing_status: Option<String>,
+    #[serde(skip)]
+    pub billing_trial_end: Option<DateTime<Utc>>,
+    #[serde(skip)]
+    pub billing_cancel_at: Option<DateTime<Utc>>,
+    /// When the control plane read the subscription. A push applies only
+    /// when its `as_of` is newer.
+    #[serde(skip)]
+    pub billing_as_of: Option<DateTime<Utc>>,
 }
 
 /// Insertable for a new workspace row. The product owns workspace

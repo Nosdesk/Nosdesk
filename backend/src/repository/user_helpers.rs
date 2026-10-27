@@ -591,6 +591,7 @@ pub fn get_user_with_primary_email(
         effective_locale: None,
         effective_timezone: None,
         managed_by: Some(identity_owner(&managed, user.uuid)),
+        deleted_at: user.deleted_at,
     }
 }
 
@@ -708,6 +709,7 @@ pub fn get_users_with_primary_emails(
                 effective_locale: None,
                 effective_timezone: None,
                 managed_by: Some(identity_owner(&managed, user.uuid)),
+                deleted_at: user.deleted_at,
             }
         })
         .collect()

@@ -18,28 +18,23 @@ const fluent = useFluent()
 interface Tab {
   to: string
   labelKey: string
-  /** Active when route.path equals this string. Sub-routes
-   *  under the asset detail page (e.g. /assets/:id) should
-   *  fall under "Inventory" rather than highlighting nothing,
-   *  so the inventory tab uses a prefix-match below. */
-  exact?: boolean
+  /** Route names that light this tab. Matched by name, not by path:
+   *  the hosted agent app prefixes every path with the workspace slug
+   *  (/acme/assets/catalog), so a path literal never matches there. */
+  routes: string[]
 }
 
 const tabs: Tab[] = [
-  { to: '/assets', labelKey: 'asset-tabs-inventory' },
-  { to: '/assets/catalog', labelKey: 'asset-tabs-catalog', exact: true },
-  { to: '/assets/groups', labelKey: 'asset-tabs-groups', exact: true },
+  // The asset detail page (/assets/:id) falls under Inventory.
+  { to: '/assets', labelKey: 'asset-tabs-inventory', routes: ['assets', 'asset-view'] },
+  { to: '/assets/catalog', labelKey: 'asset-tabs-catalog', routes: ['asset-catalog'] },
+  { to: '/assets/groups', labelKey: 'asset-tabs-groups', routes: ['asset-groups'] },
 ]
 
-function isActive(tab: Tab): boolean {
-  if (tab.exact) return route.path === tab.to
-  // For non-exact tabs (e.g. inventory), match the prefix but
-  // exclude paths that another tab claims via `exact`.
-  if (!route.path.startsWith(tab.to)) return false
-  return !tabs.some((other) => other !== tab && other.exact && route.path === other.to)
-}
-
-const activeTo = computed(() => tabs.find(isActive)?.to ?? tabs[0].to)
+const activeTo = computed(() => {
+  const name = typeof route.name === 'string' ? route.name : ''
+  return tabs.find((tab) => tab.routes.includes(name))?.to ?? tabs[0].to
+})
 const tabItems = computed<TabBarItem[]>(() =>
   tabs.map((tab) => ({ value: tab.to, label: fluent.$t(tab.labelKey) })),
 )

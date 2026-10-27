@@ -407,7 +407,7 @@ pub fn keep_rules_on_leaving(
 pub fn soft_delete_pages_in_collection(
     conn: &mut DbConnection,
     collection_id: i32,
-) -> QueryResult<usize> {
+) -> QueryResult<Vec<i32>> {
     conn.transaction(|conn| {
         let collection: DocumentationCollection = documentation_collections::table
             .find(collection_id)
@@ -431,16 +431,15 @@ pub fn soft_delete_pages_in_collection(
 
         let now = chrono::Utc::now().naive_utc();
         let ids: Vec<i32> = pages.iter().map(|(id, _)| *id).collect();
-        let count =
-            diesel::update(documentation_pages::table.filter(documentation_pages::id.eq_any(&ids)))
-                .set((
-                    documentation_pages::status.eq(DocumentationStatus::Deleted),
-                    documentation_pages::archived_at.eq(now),
-                    documentation_pages::deleted_at.eq(now),
-                    documentation_pages::updated_at.eq(now),
-                ))
-                .execute(conn)?;
-        for page_id in ids {
+        diesel::update(documentation_pages::table.filter(documentation_pages::id.eq_any(&ids)))
+            .set((
+                documentation_pages::status.eq(DocumentationStatus::Deleted),
+                documentation_pages::archived_at.eq(now),
+                documentation_pages::deleted_at.eq(now),
+                documentation_pages::updated_at.eq(now),
+            ))
+            .execute(conn)?;
+        for &page_id in &ids {
             let page: DocumentationPage = documentation_pages::table.find(page_id).first(conn)?;
             emit::record(
                 conn,
@@ -457,7 +456,7 @@ pub fn soft_delete_pages_in_collection(
                 },
             )?;
         }
-        Ok(count)
+        Ok(ids)
     })
 }
 
@@ -729,6 +728,16 @@ pub fn get_pages_in_collection(
         .order((
             documentation_pages::display_order.asc(),
             documentation_pages::title.asc(),
+        ))
+        .load(conn)
+}
+
+/// Every `(collection_id, page_id)` membership in the workspace.
+pub fn get_all_page_memberships(conn: &mut DbConnection) -> QueryResult<Vec<(i32, i32)>> {
+    documentation_collection_pages::table
+        .select((
+            documentation_collection_pages::collection_id,
+            documentation_collection_pages::page_id,
         ))
         .load(conn)
 }

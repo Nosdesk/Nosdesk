@@ -15,6 +15,7 @@
 pub mod assets;
 pub mod catalog;
 pub mod csv_parser;
+pub mod documentation;
 pub mod files;
 pub mod history;
 pub mod mapping;

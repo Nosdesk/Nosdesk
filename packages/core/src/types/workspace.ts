@@ -36,6 +36,18 @@ export const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
   owner: 3,
 };
 
+/** Whether a caller holding `caller` may give someone `role`, mirroring the
+ *  backend's `can_assign`: owners give any role, admins only roles below
+ *  admin, and nobody else gives roles. */
+export function canAssignWorkspaceRole(
+  caller: WorkspaceRole | null | undefined,
+  role: WorkspaceRole,
+): boolean {
+  if (caller === 'owner') return true;
+  if (caller === 'admin') return WORKSPACE_ROLE_RANK[role] < WORKSPACE_ROLE_RANK.admin;
+  return false;
+}
+
 /** Server-returned workspace summary (`WorkspaceSummary` in admin_workspaces.rs). */
 export interface Workspace {
   id: number;
@@ -70,6 +82,21 @@ export interface MyWorkspaceEntry {
   /** Workspace branding logo. `null` for most workspaces, which never upload
    *  one; surfaces fall back to a monogram rather than a broken image. */
   logo_url: string | null;
+  /** The workspace's subscription state as Nosdesk Cloud last pushed it.
+   *  Present only on a hosted deployment and only for the workspace's owner;
+   *  absent everywhere else. */
+  billing?: WorkspaceBilling;
+}
+
+/** A hosted workspace's subscription state, on its owner's
+ *  `GET /api/me/workspaces` row. Dates are RFC 3339 UTC. */
+export interface WorkspaceBilling {
+  /** Stripe's subscription status, verbatim (`trialing`, `active`,
+   *  `past_due`, `canceled`, ...); `null` with no subscription. An unknown
+   *  value can arrive and should show nothing. */
+  status: string | null;
+  trial_end: string | null;
+  cancel_at: string | null;
 }
 
 /** Request body for POST /api/admin/workspaces. */

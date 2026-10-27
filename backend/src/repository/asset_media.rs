@@ -57,6 +57,20 @@ pub fn list_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Vec
         .load(conn)
 }
 
+/// The name as uploaded of `asset_id`'s media stored at `url`, if any.
+pub fn name_by_url(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    url: &str,
+) -> QueryResult<Option<String>> {
+    asset_media::table
+        .filter(asset_media::asset_id.eq(asset_id))
+        .filter(asset_media::url.eq(url))
+        .select(asset_media::name)
+        .first(conn)
+        .optional()
+}
+
 pub fn get_by_id(conn: &mut DbConnection, media_id: i32) -> QueryResult<AssetMedia> {
     asset_media::table.find(media_id).first(conn)
 }

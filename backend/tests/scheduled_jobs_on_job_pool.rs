@@ -58,6 +58,7 @@ const SEEDED: &[&str] = &[
     "asset_loans.due_reminders",
     "guest_residue.cleanup",
     "import_history.prune",
+    "workspace_imports.prune",
 ];
 
 /// Jobs that still run here, but with nothing to do, and why.
@@ -151,6 +152,8 @@ struct Seeded {
     loan: i32,
     old_import: Uuid,
     failed_import: Uuid,
+    old_workspace_import: Uuid,
+    stalled_workspace_import: Uuid,
 }
 
 fn seed(conn: &mut Conn) -> Seeded {
@@ -352,6 +355,25 @@ fn seed(conn: &mut Conn) -> Seeded {
         Ok((old, failed))
     });
 
+    // A workspace import finished past its 30 days, and one whose check went
+    // silent.
+    let (old_workspace_import, stalled_workspace_import) = pinned(conn, a, |c| {
+        let old = diesel::sql_query(
+            "INSERT INTO workspace_import_jobs (runner, state, applied_at, updated_at, report) \
+             VALUES ('owner', 'imported', now() - interval '45 days', now() - interval '45 days', \
+                     '{\"plan\": {\"people\": [{\"name\": \"Ada\"}]}}') RETURNING id",
+        )
+        .get_result::<JobId>(c)?
+        .id;
+        let stalled = diesel::sql_query(
+            "INSERT INTO workspace_import_jobs (runner, state, updated_at) \
+             VALUES ('owner', 'checking', now() - interval '1 hour') RETURNING id",
+        )
+        .get_result::<JobId>(c)?
+        .id;
+        Ok((old, stalled))
+    });
+
     // Workspace B: an unconfirmed request, its unused guest account and an
     // abandoned upload, all past their windows; and a member soft-deleted
     // long ago.
@@ -422,6 +444,8 @@ fn seed(conn: &mut Conn) -> Seeded {
         loan,
         old_import,
         failed_import,
+        old_workspace_import,
+        stalled_workspace_import,
     }
 }
 
@@ -622,6 +646,24 @@ async fn every_scheduled_job_runs_cleanly_on_the_job_pool() {
         format!(
             "SELECT count(*) AS n FROM import_jobs WHERE id = '{}'",
             seeded.failed_import
+        ),
+    );
+    gone(
+        &mut conn,
+        "old workspace import pruned",
+        format!(
+            "SELECT count(*) AS n FROM workspace_import_jobs WHERE id = '{}' \
+             AND (pruned_at IS NULL OR report->'plan' ? 'people')",
+            seeded.old_workspace_import
+        ),
+    );
+    gone(
+        &mut conn,
+        "stalled workspace import put back",
+        format!(
+            "SELECT count(*) AS n FROM workspace_import_jobs WHERE id = '{}' \
+             AND state <> 'uploaded'",
+            seeded.stalled_workspace_import
         ),
     );
     gone(

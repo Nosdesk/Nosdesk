@@ -12,6 +12,7 @@ const docs = vi.hoisted(() => ({
   getArticleById: vi.fn(),
   getPageSubscription: vi.fn(async () => false),
   getPageStarred: vi.fn(async () => false),
+  updatePage: vi.fn(async () => ({})),
 }))
 vi.mock('@nosdesk/core/services/documentationService', () => ({ default: docs }))
 const collections = vi.hoisted(() => ({
@@ -223,5 +224,29 @@ describe('DocumentView on desktop', () => {
     expect(slot.querySelector('[data-test="collections"]')).toBeNull()
     expect(wrapper!.find('[data-test="draft-strip"]').exists()).toBe(false)
     expect(wrapper!.text()).toContain('doc-detail-status-draft')
+  })
+})
+
+describe('DocumentView title', () => {
+  // The title saves 500ms after its blur.
+  const afterDebounce = () => new Promise((resolve) => setTimeout(resolve, 600))
+
+  it('saves nothing when a blur leaves the title as it was', async () => {
+    window.innerWidth = 1280
+    await openPage()
+    const title = wrapper!.find('h1[contenteditable]')
+
+    await title.trigger('blur')
+    await afterDebounce()
+    expect(docs.updatePage).not.toHaveBeenCalled()
+
+    title.element.textContent = 'Payroll runbook 2026'
+    await title.trigger('blur')
+    await afterDebounce()
+    expect(docs.updatePage).toHaveBeenCalledWith(5, { title: 'Payroll runbook 2026', slug: 'payroll-runbook-2026' })
+
+    await title.trigger('blur')
+    await afterDebounce()
+    expect(docs.updatePage).toHaveBeenCalledTimes(1)
   })
 })

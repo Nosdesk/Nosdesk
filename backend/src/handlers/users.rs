@@ -622,7 +622,6 @@ pub async fn get_users(
 pub async fn get_paginated_users(
     pool: web::Data<crate::db::Pool>,
     query: web::Query<PaginationParams>,
-    req: HttpRequest,
     ws: WorkspaceContext,
     auth: crate::extractors::AuthContext,
 ) -> Result<HttpResponse, ApiError> {
@@ -686,16 +685,14 @@ pub async fn get_paginated_users(
         .map(|r| crate::utils::utf8_trunc::char_prefix(r, 100));
     let assignable = query.assignable.unwrap_or(false);
 
-    // Soft-deleted users (and the "all" view) are a platform-admin-only
-    // recovery surface, matching who can restore/purge them. A non-admin
-    // caller is forced back to the active set regardless of the requested
-    // filter, so deleted tombstones (and the PII they retain until purge)
-    // never leak to ordinary staff who can reach this directory endpoint.
+    // Soft-deleted users (and the "all" view) are an admin-only recovery
+    // surface, matching who can restore them; the list stays scoped to this
+    // workspace. A non-admin caller is forced back to the active set
+    // regardless of the requested filter, so deleted tombstones (and the PII
+    // they retain until purge) never leak to ordinary staff who can reach this
+    // directory endpoint.
     let requested_deleted = repository::users::DeletedFilter::from_query(query.deleted.as_deref());
-    let is_admin = crate::utils::rbac::require_auth(&req)
-        .map(|claims| is_platform_admin(&claims))
-        .unwrap_or(false);
-    let deleted = if is_admin {
+    let deleted = if auth.is_workspace_admin() {
         requested_deleted
     } else {
         repository::users::DeletedFilter::Active
@@ -857,7 +854,8 @@ pub async fn get_user_by_uuid(
             // Use helper function to fetch primary email from user_emails table
             let user_response =
                 repository::user_helpers::get_user_with_primary_email(user, &mut conn);
-            let editable = editable_fields(&auth, &user_response);
+            let account = account_decision_for(&req, &pool, &auth, user_uuid_parsed)?;
+            let editable = editable_fields(&auth, &user_response, &account);
             let mut body = as_seen_by(vec![user_response], &auth)?
                 .pop()
                 .ok_or_else(|| ApiError::Internal("Failed to encode user".into()))?;
@@ -964,8 +962,10 @@ pub async fn create_user(
     // agent logging a phone-in ticket). Staff and platform roles (agent/admin/
     // audit_reviewer) are seats: workspace-admin, and without this gate any
     // authenticated user could POST role:"admin" and mint a privileged account
-    // (security-audit-2026-06). In hosted they are control-plane owned, so hand
-    // off there rather than mint a local account that can never sign in.
+    // (security-audit-2026-06). The workspace role then passes the member-role
+    // endpoint's tier check, so only an owner creates an admin. In hosted they
+    // are control-plane owned, so hand off there rather than mint a local
+    // account that can never sign in.
     let (platform_role, workspace_role) = match utils::parse_roles(&user_data.role) {
         Ok(roles) => roles,
         Err(e) => return Ok(e.into()),
@@ -976,8 +976,13 @@ pub async fn create_user(
     let actor_claims = if is_requester {
         crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Agent)?
     } else {
-        let claims =
-            crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
+        let (claims, caller_role) = crate::utils::rbac::require_workspace_role_detailed(
+            &req,
+            crate::models::WorkspaceRole::Admin,
+        )?;
+        if !crate::handlers::workspace_members::can_assign(caller_role, workspace_role) {
+            return Ok(crate::handlers::workspace_members::forbidden_tier());
+        }
         if !crate::middleware::workspace_context::local_credentials_permitted() {
             // Same boundary + code as the other staff-mutation refusals.
             return Ok(errors::externally_managed());
@@ -1267,11 +1272,10 @@ pub async fn create_user(
     }
 }
 
-/// Common prelude for the three single-target admin endpoints
-/// (`delete_user`, `restore_user`, `purge_user_now`): pull
-/// claims, require admin role, parse the path UUID, and fetch
-/// the target row. Returns `(claims, uuid, target_user)` on the
-/// happy path or the error to short-circuit on.
+/// Prelude for `purge_user_now`: pull claims, require platform
+/// admin, parse the path UUID, and fetch the target row. Returns
+/// `(claims, uuid, target_user)` on the happy path or the error to
+/// short-circuit on.
 fn require_admin_target(
     req: &HttpRequest,
     conn: &mut DbConnection,
@@ -1289,6 +1293,29 @@ fn require_admin_target(
     }
     let user_uuid = utils::parse_uuid(raw_uuid)
         .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+    let target = repository::get_user_by_uuid(&user_uuid, conn)
+        .map_err(|_| ApiError::NotFoundMsg("User not found".into()))?;
+    Ok((claims, user_uuid, target))
+}
+
+/// Prelude for `delete_user` and `restore_user`. Like
+/// [`require_admin_target`], but a workspace admin also passes for a
+/// member of their own workspace who belongs to no other (see
+/// [`helpers::authorize_user_lifecycle`]).
+fn require_lifecycle_target(
+    req: &HttpRequest,
+    pool: &web::Data<crate::db::Pool>,
+    conn: &mut DbConnection,
+    raw_uuid: &str,
+) -> Result<(crate::models::Claims, Uuid, crate::models::User), ApiError> {
+    let claims = req
+        .extensions()
+        .get::<crate::models::Claims>()
+        .cloned()
+        .ok_or_else(|| ApiError::Unauthorized("Authentication required".into()))?;
+    let user_uuid = utils::parse_uuid(raw_uuid)
+        .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+    helpers::authorize_user_lifecycle(req, pool, &claims, user_uuid)?;
     let target = repository::get_user_by_uuid(&user_uuid, conn)
         .map_err(|_| ApiError::NotFoundMsg("User not found".into()))?;
     Ok((claims, user_uuid, target))
@@ -1317,26 +1344,15 @@ pub async fn delete_user(
     helpers::pin_request_workspace(&req, &mut conn);
 
     let (claims, user_uuid_parsed, target_user) =
-        require_admin_target(&req, &mut conn, uuid.as_str())?;
+        require_lifecycle_target(&req, &pool, &mut conn, uuid.as_str())?;
 
     if claims.sub == uuid.as_str() {
         return Err(ApiError::BadRequest(
             "You cannot delete your own account while logged in".into(),
         ));
     }
-    let caller_uuid = utils::parse_uuid(&claims.sub)
-        .map_err(|_| ApiError::BadRequest("Invalid user UUID in token".into()))?;
-    let caller = repository::get_user_by_uuid(&caller_uuid, &mut conn)
-        .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
-    let credential = body.map(web::Json::into_inner).unwrap_or_default();
-    crate::handlers::auth::verify_step_up(
-        &mut conn,
-        &claims,
-        &caller,
-        &credential,
-        "Confirm with your password or 2FA code to delete this user",
-    )
-    .await?;
+    // Every refusal comes before the step-up, so nobody confirms it's them
+    // for a delete that can't happen.
     if crate::repository::user_helpers::user_is_admin(&mut conn, &target_user) {
         return Err(ApiError::BadRequest(
             "Administrator accounts cannot be deleted for security reasons".into(),
@@ -1351,6 +1367,20 @@ pub async fn delete_user(
     if target_user.deleted_at.is_some() {
         return Err(ApiError::Conflict("User is already soft-deleted".into()));
     }
+    let caller_uuid = utils::parse_uuid(&claims.sub)
+        .map_err(|_| ApiError::BadRequest("Invalid user UUID in token".into()))?;
+    let caller = repository::get_user_by_uuid(&caller_uuid, &mut conn)
+        .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
+    let credential = body.map(web::Json::into_inner).unwrap_or_default();
+    crate::handlers::auth::verify_step_up(
+        &mut conn,
+        &req,
+        &claims,
+        &caller,
+        &credential,
+        "Confirm with your password or 2FA code to delete this user",
+    )
+    .await?;
 
     let soft_deleted = match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
         &mut conn,
@@ -1399,7 +1429,8 @@ pub async fn restore_user(
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
 
-    let (_claims, user_uuid_parsed, target) = require_admin_target(&req, &mut conn, uuid.as_str())?;
+    let (_claims, user_uuid_parsed, target) =
+        require_lifecycle_target(&req, &pool, &mut conn, uuid.as_str())?;
     if target.deleted_at.is_none() {
         return Err(ApiError::Conflict("User is not soft-deleted".into()));
     }
@@ -1556,6 +1587,7 @@ pub async fn get_user_auth_identities_by_uuid(
 ) -> Result<HttpResponse, ApiError> {
     // Get database connection
     let mut conn = helpers::db_conn(&db_pool)?;
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let user_uuid = path.into_inner();
 
@@ -1567,12 +1599,11 @@ pub async fn get_user_auth_identities_by_uuid(
         }
     };
 
-    // Ensure the user is authorized (either accessing their own identities or is an admin)
-    if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        warn!(requesting_user = %claims.sub, target_user = %user_uuid, "Authorization failed: user tried to access identities of another user");
-        return Err(ApiError::Forbidden(
-            "Not authorized to access this resource".into(),
-        ));
+    // Yourself, or an admin who may recover this person's sign-in.
+    if claims.sub != user_uuid {
+        let target = utils::parse_uuid(&user_uuid)
+            .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+        helpers::authorize_target_user_action(&req, &db_pool, &claims, target, true)?;
     }
 
     // Get auth identities for the user by UUID
@@ -1674,6 +1705,7 @@ pub async fn delete_user_auth_identity_by_uuid(
 ) -> Result<HttpResponse, ApiError> {
     let (user_uuid, identity_id) = path.into_inner();
     let mut conn = helpers::db_conn(&db_pool)?;
+    helpers::pin_request_workspace(&req, &mut conn);
 
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1681,11 +1713,11 @@ pub async fn delete_user_auth_identity_by_uuid(
         None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
-    // Ensure the user is authorized (either accessing their own identities or is an admin)
-    if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return Err(ApiError::Forbidden(
-            "Not authorized to access this resource".into(),
-        ));
+    // Yourself, or an admin who may recover this person's sign-in.
+    if claims.sub != user_uuid {
+        let target = utils::parse_uuid(&user_uuid)
+            .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+        helpers::authorize_target_user_action(&req, &db_pool, &claims, target, true)?;
     }
 
     // Ensure the user has at least one other auth method before deleting
@@ -1744,18 +1776,25 @@ pub async fn upload_user_image(
     mut tc: TenantConn,
     search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     type_query: web::Query<UserImageTypeQuery>,
+    pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
 ) -> impl Responder {
     let user_uuid = uuid.into_inner();
     let image_type = &type_query.type_; // "avatar" or "banner"
 
-    // Same rule as the other profile writes: yourself, or a platform admin.
+    // Same rule as the other profile writes: yourself, or someone who may
+    // change your account.
     let claims = match crate::utils::rbac::require_auth(&req) {
         Ok(claims) => claims,
         Err(_) => return errors::unauthorized("Authentication required"),
     };
-    if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return errors::forbidden("Not authorized");
+    if claims.sub != user_uuid {
+        let Ok(target) = utils::parse_uuid(&user_uuid) else {
+            return errors::bad_request("Invalid UUID format");
+        };
+        if let Err(e) = authorize_account_edit(&req, &pool, &claims, target) {
+            return actix_web::ResponseError::error_response(&e);
+        }
     }
 
     // Validate that the user exists
@@ -2221,6 +2260,7 @@ fn should_keep_file(
 pub async fn update_user_by_uuid(
     mut tc: TenantConn,
     search_service: web::Data<Arc<SearchService>>,
+    pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>,
     user_data: web::Json<UserUpdateWithPassword>,
@@ -2238,9 +2278,24 @@ pub async fn update_user_by_uuid(
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
-    // Authorization: Users can only update their own profile, admins can update anyone
+    // Yourself, a platform admin, or a workspace admin who may change this
+    // person's account (`account_edit_decision`). That admin edits the account
+    // fields only: a password is the person's own or goes through the reset
+    // route, the role is set from the workspace's members, and a signature and
+    // dashboard are the person's working tools.
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return errors::forbidden("You can only update your own profile");
+        if user_data.role.is_some() {
+            return errors::forbidden("Change their role from the workspace's members.");
+        }
+        if user_data.password.is_some()
+            || user_data.signature.is_some()
+            || user_data.dashboard_layout.is_some()
+        {
+            return errors::forbidden("Only they can change this.");
+        }
+        if let Err(e) = authorize_account_edit(&req, &pool, &claims, user_uuid_parsed) {
+            return actix_web::ResponseError::error_response(&e);
+        }
     }
 
     // Identity orchestration O3: on hosted, the global display NAME is owned by
@@ -2593,16 +2648,17 @@ pub async fn get_user_emails(
     path: web::Path<String>, // User UUID
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let user_uuid = path.into_inner();
 
     let claims = crate::utils::rbac::require_auth(&req)?;
 
-    // Check authorization (user can access their own emails, admins can access any)
-    if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return Err(ApiError::Forbidden(
-            "Not authorized to access this resource".into(),
-        ));
+    // Yourself, or someone who may change your account.
+    if claims.sub != user_uuid {
+        let target = utils::parse_uuid(&user_uuid)
+            .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+        authorize_account_edit(&req, &db_pool, &claims, target)?;
     }
 
     // Get user emails
@@ -2637,12 +2693,15 @@ pub async fn add_user_email(
 ) -> Result<HttpResponse, ApiError> {
     let user_uuid = path.into_inner();
     let mut conn = helpers::db_conn(&db_pool)?;
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let claims = crate::utils::rbac::require_auth(&req)?;
 
-    // Authorization: Users can only add emails to their own account, admins can add to anyone
-    if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return Err(ApiError::Forbidden("Not authorized".into()));
+    // Yourself, or someone who may change your account.
+    if claims.sub != user_uuid {
+        let target = utils::parse_uuid(&user_uuid)
+            .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+        authorize_account_edit(&req, &db_pool, &claims, target)?;
     }
 
     // Extract email from request
@@ -2732,12 +2791,15 @@ pub async fn update_user_email(
 ) -> Result<HttpResponse, ApiError> {
     let (user_uuid, email_id) = path.into_inner();
     let mut conn = helpers::db_conn(&db_pool)?;
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let claims = crate::utils::rbac::require_auth(&req)?;
 
-    // Authorization
-    if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return Err(ApiError::Forbidden("Not authorized".into()));
+    // Yourself, or someone who may change your account.
+    if claims.sub != user_uuid {
+        let target = utils::parse_uuid(&user_uuid)
+            .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+        authorize_account_edit(&req, &db_pool, &claims, target)?;
     }
 
     // Get user
@@ -2838,10 +2900,13 @@ pub async fn resend_user_email_verification(
 ) -> Result<HttpResponse, ApiError> {
     let (user_uuid, email_id) = path.into_inner();
     let mut conn = helpers::db_conn(&db_pool)?;
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let claims = crate::utils::rbac::require_auth(&req)?;
-    if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return Err(ApiError::Forbidden("Not authorized".into()));
+    if claims.sub != user_uuid {
+        let target = utils::parse_uuid(&user_uuid)
+            .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+        authorize_account_edit(&req, &db_pool, &claims, target)?;
     }
 
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
@@ -2934,12 +2999,15 @@ pub async fn delete_user_email(
 ) -> Result<HttpResponse, ApiError> {
     let (user_uuid, email_id) = path.into_inner();
     let mut conn = helpers::db_conn(&db_pool)?;
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let claims = crate::utils::rbac::require_auth(&req)?;
 
-    // Authorization
-    if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return Err(ApiError::Forbidden("Not authorized".into()));
+    // Yourself, or someone who may change your account.
+    if claims.sub != user_uuid {
+        let target = utils::parse_uuid(&user_uuid)
+            .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+        authorize_account_edit(&req, &db_pool, &claims, target)?;
     }
 
     // Get user and verify email belongs to them
@@ -3142,11 +3210,11 @@ pub async fn get_user_with_emails(
 
     let claims = crate::utils::rbac::require_auth(&req)?;
 
-    // Check authorization
-    if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return Err(ApiError::Forbidden(
-            "Not authorized to access this resource".into(),
-        ));
+    // Yourself, or someone who may change your account.
+    if claims.sub != user_uuid {
+        let target = utils::parse_uuid(&user_uuid)
+            .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
+        authorize_account_edit(&req, &db_pool, &claims, target)?;
     }
 
     // Get user
@@ -3212,14 +3280,14 @@ pub async fn get_user_profile_bundle(
 
     let mut groups = parse_profile_include(query.include.as_deref())?;
 
-    // Privacy (identity orchestration O6): the full verified email set is
-    // self / platform-admin only. A WORKSPACE admin viewing another member's
-    // profile must not receive it — with the control plane projecting a user's
-    // whole verified set into `user_emails`, that would leak every address a
-    // member owns; admins are only ever meant to see the address a seat was
-    // invited to (surfaced elsewhere, not from this set). Strip the group
-    // rather than 403 the whole bundle so the other groups still load.
-    if user_uuid_parsed != auth.user_uuid && !auth.is_platform_admin() {
+    // Privacy (identity orchestration O6): a person's email addresses go only
+    // to those who may change their account. For a Nosdesk-account-managed
+    // person the control plane projects their whole verified set into
+    // `user_emails`, and for someone in several workspaces the set holds
+    // addresses other workspaces know them by; a workspace admin sees neither.
+    // Strip the group rather than 403 the whole bundle so the others still load.
+    let account = account_decision_for(&req, &pool, &auth, user_uuid_parsed)?;
+    if account.is_err() {
         groups.remove(&crate::repository::user_profile::ProfileGroup::Emails);
     }
 
@@ -3266,7 +3334,12 @@ pub async fn get_user_profile_bundle(
                 bundle.loans.iter_mut().flatten().map(|l| &mut l.loan),
                 &auth,
             );
-            Ok(HttpResponse::Ok().json(bundle))
+            let editable = editable_fields(&auth, &bundle.user, &account);
+            let mut body = serde_json::to_value(bundle)
+                .map_err(|_| ApiError::Internal("Failed to load profile".into()))?;
+            body["editable"] = serde_json::to_value(editable)
+                .map_err(|_| ApiError::Internal("Failed to load profile".into()))?;
+            Ok(HttpResponse::Ok().json(body))
         }
         Ok(None) => Err(ApiError::NotFoundMsg("User not found".into())),
         Err(e) => {
@@ -3336,8 +3409,17 @@ pub async fn bulk_users(
         }
     };
 
-    // Only admins can perform bulk operations
-    if !is_platform_admin(&claims) {
+    // Platform admins may do every bulk action. Workspace admins may delete,
+    // each target checked below like a single delete; nothing else.
+    let platform_admin = is_platform_admin(&claims);
+    if !platform_admin
+        && (body.action != "delete"
+            || crate::utils::rbac::require_workspace_role(
+                &req,
+                crate::models::WorkspaceRole::Admin,
+            )
+            .is_err())
+    {
         return Err(ApiError::Forbidden(
             "Forbidden: Only administrators can perform bulk user operations".into(),
         ));
@@ -3375,6 +3457,7 @@ pub async fn bulk_users(
                 .map_err(|_| ApiError::Unauthorized("Authentication required".into()))?;
             crate::handlers::auth::verify_step_up(
                 &mut conn,
+                &req,
                 &claims,
                 &caller,
                 &body.credential,
@@ -3388,6 +3471,7 @@ pub async fn bulk_users(
             let mut deleted = 0;
             let mut skipped_admin = 0;
             let mut skipped_staff = 0;
+            let mut skipped_elsewhere = 0;
             let mut failed = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
@@ -3397,6 +3481,21 @@ pub async fn bulk_users(
                         continue;
                     }
                 };
+                match helpers::user_lifecycle_decision(&req, &pool, &claims, uuid) {
+                    Ok(Ok(())) => {}
+                    Ok(Err(helpers::TargetActionDenied::TargetInOtherWorkspaces)) => {
+                        skipped_elsewhere += 1;
+                        continue;
+                    }
+                    Ok(Err(helpers::TargetActionDenied::TargetOutranksCaller)) => {
+                        skipped_admin += 1;
+                        continue;
+                    }
+                    Ok(Err(_)) | Err(_) => {
+                        failed += 1;
+                        continue;
+                    }
+                }
                 let target = match repository::get_user_by_uuid(&uuid, &mut conn) {
                     Ok(u) => u,
                     Err(_) => {
@@ -3439,6 +3538,7 @@ pub async fn bulk_users(
                 "affected": deleted,
                 "skipped_admin": skipped_admin,
                 "skipped_staff": skipped_staff,
+                "skipped_elsewhere": skipped_elsewhere,
                 "failed": failed,
             })))
         }
@@ -3760,29 +3860,116 @@ struct EditableFields {
     /// The per-workspace display name and avatar: the person's own.
     workspace_name: bool,
     contact: bool,
+    groups: bool,
+    /// Why the account fields (name, avatar, emails) are locked for a
+    /// workspace admin: `member_elsewhere` or `managed`. Absent when they
+    /// aren't, or when the viewer isn't an admin who could otherwise edit them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    account_locked: Option<&'static str>,
 }
 
+/// [`EditableFields`] for `target`, as `account` (the
+/// [`helpers::account_edit_decision`] for this viewer and target) allows.
 fn editable_fields(
     auth: &crate::extractors::AuthContext,
     target: &crate::models::UserResponse,
+    account: &Result<(), helpers::AccountEditDenied>,
 ) -> EditableFields {
+    use helpers::{AccountEditDenied, TargetActionDenied};
     let managed = target.managed_by == Some(crate::models::IdentityOwner::NosdeskAccount);
     let is_self = auth.user_uuid == target.uuid;
-    let platform_admin = auth.is_platform_admin();
     let hosted = crate::middleware::workspace_context::is_hosted();
     let target_is_requester = target.workspace_role == Some(crate::models::WorkspaceRole::Member);
-    let own_identity = !managed && (is_self || platform_admin);
+    let account_ok = !managed && account.is_ok();
     EditableFields {
-        name: own_identity,
-        avatar: own_identity,
-        emails: own_identity,
+        name: account_ok,
+        avatar: account_ok,
+        emails: account_ok,
         role: !managed && auth.is_workspace_admin(),
-        lifecycle: !managed && platform_admin,
-        credentials: !hosted && (is_self || platform_admin),
+        lifecycle: !is_self && account_ok,
+        // Credential recovery for someone else stays self-hosted
+        // (`authorize_target_user_action`): in hosted it is the person's own.
+        credentials: !hosted && (is_self || account_ok),
         workspace_name: is_self,
         contact: is_self
             || auth.is_workspace_admin()
             || (auth.can_handle_tickets() && target_is_requester),
+        groups: auth.is_workspace_admin(),
+        account_locked: match account {
+            Err(AccountEditDenied::Managed) => Some("managed"),
+            Err(AccountEditDenied::Target(TargetActionDenied::TargetInOtherWorkspaces)) => {
+                Some("member_elsewhere")
+            }
+            Err(AccountEditDenied::Target(TargetActionDenied::TargetOutranksCaller)) => {
+                Some("administrator")
+            }
+            _ if managed && auth.is_workspace_admin() => Some("managed"),
+            _ => None,
+        },
+    }
+}
+
+/// [`helpers::account_edit_decision`] for the `editable` flags, without the
+/// lookups for a viewer who could never pass it.
+fn account_decision_for(
+    req: &HttpRequest,
+    pool: &web::Data<crate::db::Pool>,
+    auth: &crate::extractors::AuthContext,
+    target: Uuid,
+) -> Result<Result<(), helpers::AccountEditDenied>, ApiError> {
+    if auth.user_uuid != target && !auth.is_platform_admin() && !auth.is_workspace_admin() {
+        return Ok(Err(helpers::AccountEditDenied::Target(
+            helpers::TargetActionDenied::NotWorkspaceAdmin,
+        )));
+    }
+    let claims = crate::utils::rbac::require_auth(req)?;
+    helpers::account_edit_decision(req, pool, &claims, target)
+}
+
+/// [`helpers::account_edit_decision`] as a gate for the routes that read or
+/// change another person's account. A shared person's refusal carries the code
+/// `member_elsewhere`, a Nosdesk-account-managed one the hand-off to it.
+fn authorize_account_edit(
+    req: &HttpRequest,
+    pool: &web::Data<crate::db::Pool>,
+    claims: &crate::models::Claims,
+    target: Uuid,
+) -> Result<(), ApiError> {
+    use helpers::{AccountEditDenied, TargetActionDenied};
+    match helpers::account_edit_decision(req, pool, claims, target)? {
+        Ok(()) => Ok(()),
+        Err(AccountEditDenied::Managed) => {
+            let mut conn = helpers::db_conn(pool)?;
+            Err(ApiError::Actix(errors::from_response(
+                "externally_managed",
+                managed_in_account(req, &mut conn, target),
+            )))
+        }
+        Err(AccountEditDenied::Target(TargetActionDenied::NotWorkspaceAdmin)) => Err(
+            ApiError::Forbidden("Not authorized to access this resource".into()),
+        ),
+        Err(AccountEditDenied::Target(TargetActionDenied::TargetNotInWorkspace)) => {
+            Err(ApiError::NotFoundMsg("User not found".into()))
+        }
+        Err(AccountEditDenied::Target(TargetActionDenied::TargetOutranksCaller)) => {
+            Err(ApiError::Actix(errors::from_response(
+                "administrator",
+                errors::forbidden_with_code(
+                    "This person is an administrator, so only they can change their account.",
+                    "administrator",
+                ),
+            )))
+        }
+        Err(AccountEditDenied::Target(TargetActionDenied::TargetInOtherWorkspaces)) => {
+            Err(ApiError::Actix(errors::from_response(
+                "member_elsewhere",
+                errors::forbidden_with_code(
+                    "This person also belongs to other workspaces, so only they can change \
+                     their account.",
+                    "member_elsewhere",
+                ),
+            )))
+        }
     }
 }
 

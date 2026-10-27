@@ -180,6 +180,13 @@ fn stream_bootstrap_inner(
         .select(diesel::dsl::max(crate::schema::sync_actions::sync_id))
         .first(conn)?;
     let last_sync_id = last_sync_id.unwrap_or(0);
+    // Never below the workspace's resync floor: after its data is replaced, a
+    // workspace with no events since would otherwise hand out a cursor that
+    // delta reports as stale on every poll.
+    let last_sync_id = match pinned_workspace {
+        Some(ws) => crate::repository::workspaces::data_fence(conn, ws)?.clamp_cursor(last_sync_id),
+        None => last_sync_id,
+    };
 
     // Seed the client's commit-safe feed cursor. `H_b` is the commit
     // horizon at bootstrap; everything this bootstrap can see has

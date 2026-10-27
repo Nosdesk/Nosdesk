@@ -230,6 +230,14 @@ pub fn scheduled_jobs(
         Duration::from_secs(24 * 60 * 60),
         move || jobs::prune_import_history(p.clone()),
     ));
+    // Daily: workspace imports past 30 days lose their archive and the people
+    // in their report; stalled ones are put back.
+    let p = pool.clone();
+    registry.push(ScheduledJob::new(
+        "workspace_imports.prune",
+        Duration::from_secs(24 * 60 * 60),
+        move || jobs::prune_workspace_imports(p.clone()),
+    ));
     let p = pool.clone();
     registry.push(ScheduledJob::new(
         "audit_log.drop_old_partitions",

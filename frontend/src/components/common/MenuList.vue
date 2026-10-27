@@ -32,6 +32,10 @@ export interface MenuItem {
    * label, count badge, etc. Sits flush to the right edge of
    * the row, doesn't compete with the main label for space. */
   trailing?: string
+  /** A quieter second line under the label (e.g. when a Cloud trial
+   * ends, under "Plan and billing"). The row aligns to the top so the
+   * icon stays beside the first line. */
+  description?: string
   /** Destructive actions: red text + red hover background. */
   danger?: boolean
   /** Toggle "on" state (subscribed, starred, etc.): accent text. */
@@ -95,6 +99,7 @@ const emit = defineEmits<{
       :checked="item.checked"
       :tone="item.danger ? 'danger' : item.active ? 'active' : 'default'"
       :disabled="item.disabled"
+      :align="item.description ? 'start' : 'center'"
       @click="!item.disabled && emit('select', item.id)"
       @mouseenter="!item.disabled && emit('highlight', item.id)"
       @mouseleave="!item.disabled && emit('unhighlight', item.id)"
@@ -108,7 +113,10 @@ const emit = defineEmits<{
            is true the icon swaps for a check glyph, so a
            radio-group reads as "the one with the tick is
            current" without nesting or a separate column. -->
-      <span class="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center">
+      <span
+        class="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center"
+        :class="item.description ? 'mt-0.5 md:mt-px' : undefined"
+      >
         <svg
           v-if="item.checked"
           class="w-full h-full text-accent"
@@ -136,7 +144,11 @@ const emit = defineEmits<{
           class="w-full h-full rounded-sm object-cover"
         />
       </span>
-      <span class="flex-1 truncate">{{ item.label }}</span>
+      <span v-if="item.description" class="flex min-w-0 flex-1 flex-col">
+        <span class="truncate">{{ item.label }}</span>
+        <span class="truncate text-xs md:text-2xs leading-snug text-tertiary">{{ item.description }}</span>
+      </span>
+      <span v-else class="flex-1 truncate">{{ item.label }}</span>
       <span v-if="item.trailing" class="ml-auto pl-2 text-3xs text-tertiary flex-shrink-0">
         {{ item.trailing }}
       </span>

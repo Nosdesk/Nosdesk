@@ -1,23 +1,61 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import Icon from '@/components/common/Icon.vue';
 import RecentImportsCard from '@/components/import/RecentImportsCard.vue';
 import SavedMatchesCard from '@/components/import/SavedMatchesCard.vue';
 import type { IconName } from '@/components/common/icons';
+import { useAuthStore } from '@/stores/auth';
+import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig';
+import ContactSupportModal from '@/components/ContactSupportModal.vue';
 
 interface ImportOption {
   titleKey: string;
   descriptionKey: string;
   icon: IconName;
   route: string;
-  status: 'available' | 'coming-soon' | 'beta';
+  /** Opens the Contact support dialog instead of `route`. */
+  support?: boolean;
+  status: 'available' | 'coming-soon' | 'beta' | 'new' | 'support' | 'owner-only';
+  test?: string;
 }
 
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
 
-const importOptions: ImportOption[] = [
+const auth = useAuthStore();
+const hosted = computed(() => isHostedDeploymentRef.value);
+
+/** A whole workspace from another Nosdesk. Self-hosted, the owner runs it
+ *  here; into Cloud, Nosdesk support runs it on request. */
+const nosdeskExport = computed<ImportOption>(() => {
+  if (hosted.value) {
+    return {
+      titleKey: 'admin-data-import-nosdesk-title',
+      descriptionKey: 'admin-data-import-nosdesk-description-cloud',
+      icon: 'archive',
+      route: '',
+      support: true,
+      status: 'support',
+      test: 'hub-nosdesk-export',
+    };
+  }
+  return {
+    titleKey: 'admin-data-import-nosdesk-title',
+    descriptionKey: auth.isOwner
+      ? 'admin-data-import-nosdesk-description'
+      : 'admin-data-import-nosdesk-owner-only',
+    icon: 'archive',
+    route: '/admin/data-import/workspace',
+    status: auth.isOwner ? 'available' : 'owner-only',
+    test: 'hub-nosdesk-export',
+  };
+});
+
+/** Workspace imports join Recent imports for the owner on self-hosted. */
+const workspaceImports = computed(() => auth.isOwner && !hosted.value);
+
+const otherOptions: ImportOption[] = [
   {
     titleKey: 'admin-data-import-microsoft-title',
     descriptionKey: 'admin-data-import-microsoft-description',
@@ -31,6 +69,13 @@ const importOptions: ImportOption[] = [
     icon: 'document',
     route: '/admin/data-import/csv',
     status: 'available'
+  },
+  {
+    titleKey: 'admin-data-import-docs-title',
+    descriptionKey: 'admin-data-import-docs-description',
+    icon: 'book',
+    route: '/admin/data-import/documentation',
+    status: 'new'
   },
   {
     titleKey: 'admin-data-import-api-title',
@@ -49,10 +94,29 @@ const importOptions: ImportOption[] = [
   }
 ];
 
+const importOptions = computed(() => [nosdeskExport.value, ...otherOptions]);
+
+const contactSupportOpen = ref(false);
+
+/** Whether an option opens anything. */
+const opens = (item: ImportOption) =>
+  item.status !== 'coming-soon' && item.status !== 'owner-only' && (!!item.support || !!item.route);
+
+/** What an option is: a link in the app, the Contact support button, or
+ *  nothing. Only the attributes that apply, so a RouterLink keeps its href. */
+const linkAttrs = (item: ImportOption): Record<string, string> => {
+  if (!opens(item)) return {};
+  if (item.support) return { type: 'button' };
+  return { to: item.route };
+};
+
 const statusBadges = computed<Record<string, { text: string; class: string }>>(() => ({
   'available': { text: t('admin-data-import-status-available'), class: 'bg-status-success/15 text-status-success' },
   'coming-soon': { text: t('admin-data-import-status-coming-soon'), class: 'bg-accent/15 text-accent' },
-  'beta': { text: t('admin-data-import-status-beta'), class: 'bg-accent/15 text-accent' }
+  'beta': { text: t('admin-data-import-status-beta'), class: 'bg-accent/15 text-accent' },
+  'new': { text: t('admin-data-import-status-new'), class: 'bg-status-info/15 text-status-info' },
+  'support': { text: t('admin-data-import-status-support'), class: 'bg-status-info/15 text-status-info' },
+  'owner-only': { text: t('admin-data-import-status-owner-only'), class: 'bg-surface-hover text-tertiary' }
 }));
 </script>
 
@@ -68,11 +132,13 @@ const statusBadges = computed<Record<string, { text: string; class: string }>>((
       <div class="bg-surface border border-default rounded-xl overflow-hidden divide-y divide-default">
         <component
           v-for="item in importOptions"
-          :key="item.route"
-          :is="item.status === 'available' ? 'RouterLink' : 'div'"
-          :to="item.status === 'available' ? item.route : undefined"
-          class="flex items-center gap-3 sm:gap-4 px-4 py-4 transition-colors"
-          :class="item.status === 'available'
+          :key="item.titleKey"
+          :is="!opens(item) ? 'div' : item.support ? 'button' : 'RouterLink'"
+          v-bind="linkAttrs(item)"
+          @click="item.support && opens(item) ? (contactSupportOpen = true) : undefined"
+          :data-test="item.test"
+          class="flex items-center gap-3 sm:gap-4 px-4 py-4 w-full text-left transition-colors"
+          :class="opens(item)
             ? 'hover:bg-surface-hover cursor-pointer group'
             : 'opacity-60'"
         >
@@ -82,7 +148,7 @@ const statusBadges = computed<Record<string, { text: string; class: string }>>((
             <Icon :name="item.icon" size="md" />
           </div>
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <h3 class="text-sm font-medium text-primary">{{ $t(item.titleKey) }}</h3>
               <span
                 class="px-1.5 py-0.5 text-2xs font-medium rounded-full"
@@ -94,14 +160,16 @@ const statusBadges = computed<Record<string, { text: string; class: string }>>((
             <p class="text-xs text-secondary mt-0.5 line-clamp-2 sm:line-clamp-1">{{ $t(item.descriptionKey) }}</p>
           </div>
           <Icon
-            v-if="item.status === 'available'"
-            name="chevronRight"
+            v-if="opens(item)"
+            :name="'chevronRight'"
             class="text-tertiary group-hover:text-secondary transition-colors flex-shrink-0"
           />
         </component>
       </div>
 
-      <RecentImportsCard />
+      <RecentImportsCard :workspace-imports="workspaceImports" />
+
+      <ContactSupportModal :is-open="contactSupportOpen" @close="contactSupportOpen = false" />
 
       <SavedMatchesCard />
 

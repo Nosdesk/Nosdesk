@@ -55,8 +55,17 @@ impl TicketFile {
 pub enum LocatedFile {
     /// A notes image, which follows its ticket.
     Note { ticket_id: i32 },
-    /// The `attachments` rows the file's URL names in that workspace.
-    Attachment { ids: Vec<i32> },
+    /// The `attachments` rows the file's URL names in that workspace, and the
+    /// file's own URL (a PDF thumbnail's rows are its PDF's).
+    Attachment { ids: Vec<i32>, url: String },
+}
+
+/// A located file the viewer may load.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Loadable {
+    /// The attachment's name as uploaded, when the file is the attachment's
+    /// own (not a notes image, nor a PDF thumbnail stored beside one).
+    pub name: Option<String>,
 }
 
 /// The workspace that holds `file`, and where in it, among the workspaces
@@ -82,33 +91,47 @@ pub fn locate(
                 },
             )
         })),
-        TicketFile::Attachment { urls } => Ok(crate::repository::comments::attachment_locations(
-            conn, urls, caller,
-        )?
-        .map(|(workspace_id, ids)| (workspace_id, LocatedFile::Attachment { ids }))),
+        TicketFile::Attachment { urls } => {
+            let url = urls.first().cloned().unwrap_or_default();
+            Ok(
+                crate::repository::comments::attachment_locations(conn, urls, caller)?.map(
+                    |(workspace_id, ids)| (workspace_id, LocatedFile::Attachment { ids, url }),
+                ),
+            )
+        }
     }
 }
 
 /// Whether `vis` may load the located file, on a connection pinned to its
-/// workspace. Attachment rows are read again by id, under row security, so
-/// the elevated lookup decided nothing but where to look.
+/// workspace, and if so its display name. Attachment rows are read again by
+/// id, under row security, so the elevated lookup decided nothing but where to
+/// look.
 pub fn can_load(
     conn: &mut DbConnection,
     vis: &VisibilityContext,
     file: &LocatedFile,
-) -> QueryResult<bool> {
+) -> QueryResult<Option<Loadable>> {
     match file {
-        LocatedFile::Note { ticket_id } => can_view_ticket(conn, vis, *ticket_id),
-        LocatedFile::Attachment { ids } => {
+        LocatedFile::Note { ticket_id } => {
+            Ok(can_view_ticket(conn, vis, *ticket_id)?.then_some(Loadable { name: None }))
+        }
+        LocatedFile::Attachment { ids, url } => {
             let rows: Vec<Attachment> = attachments::table
                 .filter(attachments::id.eq_any(ids))
                 .load(conn)?;
-            for row in &rows {
-                if reply_for_viewer(conn, vis, row)?.is_some() {
-                    return Ok(true);
+            let mut granted = None;
+            for row in rows {
+                if reply_for_viewer(conn, vis, &row)?.is_none() {
+                    continue;
                 }
+                if row.url == *url {
+                    return Ok(Some(Loadable {
+                        name: Some(row.name),
+                    }));
+                }
+                granted = Some(Loadable { name: None });
             }
-            Ok(false)
+            Ok(granted)
         }
     }
 }

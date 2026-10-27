@@ -361,7 +361,10 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, SigningError> {
         if !file.is_file() {
             continue;
         }
-        let name = file.name().to_string();
+        let name = file
+            .name()
+            .map_err(|e| SigningError::ArchiveFormat(e.to_string()))?
+            .to_string();
         if !seen.insert(name.clone()) {
             return Err(SigningError::DuplicateEntry(name));
         }

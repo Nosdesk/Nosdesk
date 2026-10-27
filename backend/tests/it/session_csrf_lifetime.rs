@@ -157,6 +157,7 @@ fn agent_sign_in(
             location: None,
             expires_at: (chrono::Utc::now() + chrono::Duration::days(7)).naive_utc(),
             oidc_id_token: None,
+            confirmed_at: None,
         },
     )
     .expect("session");

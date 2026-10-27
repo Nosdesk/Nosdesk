@@ -10,6 +10,8 @@
  * of a mark whose job is telling two workspaces apart at a glance.
  */
 
+import { hslToHex } from '@nosdesk/core/utils/accentColor';
+
 /** Up to two initials, or `?` when there is nothing to take them from. */
 export function initialsFrom(name: string): string {
   if (!name) return '?';
@@ -44,6 +46,12 @@ export function monogramHue(key: string): number {
  *  keeps its contrast in both themes. */
 export function monogramColor(key: string): string {
   return `hsl(${monogramHue(key)}, 65%, 38%)`;
+}
+
+/** `monogramColor` as `#rrggbb`, for consumers that take nothing else, such
+ *  as y-prosemirror's collaborator carets and selections. */
+export function monogramHex(key: string): string {
+  return hslToHex(monogramHue(key), 65, 38);
 }
 
 /** XML-escape text destined for an SVG data URI. */

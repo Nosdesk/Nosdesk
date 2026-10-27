@@ -591,7 +591,7 @@ async fn untouched_assets_are_deleted_with_sync_actions_and_an_audit_entry() {
     assert_eq!(status, StatusCode::OK, "{list}");
     assert_eq!(
         list["jobs"][0]["removed"],
-        serde_json::json!({ "deleted": 2, "created": 3 })
+        serde_json::json!({ "deleted": 2, "created": 3, "kept": 1 })
     );
 }
 
@@ -767,8 +767,12 @@ async fn removal_runs_once() {
         );
     }
     let (status, body) = remove(&pool, &ws, &id).await;
-    assert_eq!(status, StatusCode::CONFLICT, "{body}");
-    assert_eq!(body["code"], "import_nothing_to_remove", "{body}");
+    assert_nothing_to_remove(
+        status,
+        &body,
+        "all_changed",
+        "Every asset this import created has been changed since, so nothing was deleted.",
+    );
 
     let id = import(&pool, &ws, &["O-3"]).await;
     let (status, body) = remove(&pool, &ws, &id).await;
@@ -786,6 +790,84 @@ async fn removal_runs_once() {
     );
     let (status, _) = preview(&pool, &ws, &id_again).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+fn assert_nothing_to_remove(
+    status: StatusCode,
+    body: &serde_json::Value,
+    reason: &str,
+    message: &str,
+) {
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["code"], "import_nothing_to_remove", "{body}");
+    assert_eq!(body["args"]["reason"], reason, "{body}");
+    assert_eq!(body["error"], message, "{body}");
+}
+
+/// An import that only updated assets created none: the preview says so,
+/// and removal is refused with that reason, not "changed since".
+#[actix_web::test]
+async fn an_import_that_created_nothing_has_nothing_to_remove() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    seed(&pool, &ws, "N-1", "Studio A");
+    let job = checked(
+        &pool,
+        &ws,
+        "Tag,Location\nN-1,Studio B\n",
+        &[("Tag", "asset_tag"), ("Location", "location")],
+        serde_json::json!({ "mode": "update_only" }),
+    )
+    .await;
+    assert_eq!(job["summary"]["would_create"], 0, "{job}");
+    let id = id_of(&job);
+    commit(&pool, &ws, &id).await;
+
+    let (status, plan) = preview(&pool, &ws, &id).await;
+    assert_eq!(status, StatusCode::OK, "{plan}");
+    assert_eq!(
+        (&plan["created"], &plan["deletable"]),
+        (&0.into(), &0.into())
+    );
+
+    let (status, body) = remove(&pool, &ws, &id).await;
+    assert_nothing_to_remove(
+        status,
+        &body,
+        "none_created",
+        "This import created no assets, so there is nothing to remove.",
+    );
+    assert!(asset_id(&pool, "N-1").is_some(), "the updated asset stays");
+}
+
+/// Once every asset an import created was deleted some other way, removal
+/// is refused as already deleted.
+#[actix_web::test]
+async fn removal_after_the_created_assets_were_deleted_says_so() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    let id = import(&pool, &ws, &["D-1", "D-2"]).await;
+    for tag in ["D-1", "D-2"] {
+        let asset = asset_id(&pool, tag).expect(tag);
+        run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+            backend::repository::assets::delete_device(c, asset, None).map(|_| ())
+        })
+        .expect("delete the asset");
+    }
+
+    let (status, plan) = preview(&pool, &ws, &id).await;
+    assert_eq!(status, StatusCode::OK, "{plan}");
+    assert_eq!((&plan["created"], &plan["gone"]), (&2.into(), &2.into()));
+
+    let (status, body) = remove(&pool, &ws, &id).await;
+    assert_nothing_to_remove(
+        status,
+        &body,
+        "all_gone",
+        "The assets this import created were already deleted.",
+    );
 }
 
 /// Thirty days after the commit removal is refused with its own code and

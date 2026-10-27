@@ -19,9 +19,12 @@ pub struct ActiveSession {
     pub expires_at: chrono::NaiveDateTime,
     pub session_id: Uuid,
     /// OIDC id_token from login, kept for RP-initiated logout (id_token_hint).
-    /// NULL for local/password logins. Queryable is positional, so this must
-    /// stay last, matching the appended column in the schema.
+    /// NULL for local/password logins.
     pub oidc_id_token: Option<String>,
+    /// When the session last proved who is using it (see
+    /// `services::step_up`). Queryable is positional, so this must stay last,
+    /// matching the appended column in the schema.
+    pub confirmed_at: Option<chrono::NaiveDateTime>,
 }
 
 /// New active session for creation
@@ -36,4 +39,6 @@ pub struct NewActiveSession {
     pub expires_at: chrono::NaiveDateTime,
     /// See `ActiveSession::oidc_id_token`. Set by the OIDC login paths only.
     pub oidc_id_token: Option<String>,
+    /// See `ActiveSession::confirmed_at`.
+    pub confirmed_at: Option<chrono::NaiveDateTime>,
 }

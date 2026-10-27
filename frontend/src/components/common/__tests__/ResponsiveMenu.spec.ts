@@ -96,6 +96,40 @@ describe('ResponsiveMenu on desktop', () => {
     expect(closes).toHaveLength(1)
   })
 
+  it('hands focus back to the anchor when it closes from the keyboard', async () => {
+    const { anchor } = mountMenu({}, () => h(MenuList, { items: [{ id: 'a', label: 'Assign' }] }))
+    await settle()
+    const row = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+    row.focus()
+    expect(document.activeElement).toBe(row)
+    await wrapper!.setProps({ open: false })
+    await settle()
+    expect(document.activeElement).toBe(anchor)
+  })
+
+  it('leaves focus where a pick moved it, rather than on the anchor', async () => {
+    const editor = document.createElement('button')
+    editor.id = 'editor'
+    document.body.appendChild(editor)
+    const { anchor } = mountMenu({}, () =>
+      h(MenuList, {
+        items: [{ id: 'table', label: 'Table' }],
+        onSelect: () => {
+          editor.focus()
+          void wrapper!.setProps({ open: false })
+        },
+      }),
+    )
+    await settle()
+    const row = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
+    row.focus()
+    row.click()
+    await settle()
+    expect(document.body.querySelector('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(editor)
+    expect(document.activeElement).not.toBe(anchor)
+  })
+
   it('renders a dialog surface for panels that are not menus', async () => {
     mountMenu({ role: 'dialog', ariaLabel: 'Display' }, () => h('input', { id: 'search' }))
     await settle()

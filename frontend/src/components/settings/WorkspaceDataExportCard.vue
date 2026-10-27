@@ -28,6 +28,32 @@
         {{ t('settings-export-description') }}
       </p>
 
+      <details class="text-sm" data-test="export-what-moves">
+        <summary class="cursor-pointer text-accent font-medium hover:underline w-fit">
+          {{ t('settings-export-moves-toggle') }}
+        </summary>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2.5">
+          <div class="flex flex-col gap-1.5">
+            <h3 class="text-xs uppercase tracking-wide text-tertiary font-semibold">{{ t('settings-export-moves-heading') }}</h3>
+            <ul class="flex flex-col gap-1 text-secondary">
+              <li v-for="key in MOVES" :key="key" class="flex items-start gap-2">
+                <Icon name="check" size="xs" class="mt-1 shrink-0 text-status-success" />
+                <span>{{ t(key) }}</span>
+              </li>
+            </ul>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <h3 class="text-xs uppercase tracking-wide text-tertiary font-semibold">{{ t('settings-export-stays-heading') }}</h3>
+            <ul class="flex flex-col gap-1 text-secondary">
+              <li v-for="key in STAYS" :key="key" class="flex items-start gap-2">
+                <Icon name="close" size="xs" class="mt-1 shrink-0 text-tertiary" />
+                <span>{{ t(key) }}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </details>
+
       <!-- Optional password, only offered when starting a fresh export -->
       <div v-if="showPasswordField" class="max-w-sm">
         <FormInput
@@ -36,7 +62,7 @@
           size="sm"
           autocomplete="new-password"
           :label="t('settings-export-password-label')"
-          :description="t('settings-export-password-hint')"
+          :description="passwordHint"
           :disabled="busy"
         />
       </div>
@@ -68,6 +94,9 @@
             </span>
             <span class="text-xs text-tertiary">
               {{ readyMeta }}
+            </span>
+            <span v-if="version" class="text-xs text-tertiary" data-test="export-version">
+              {{ t('settings-export-version', { version }) }}
             </span>
           </div>
         </div>
@@ -103,6 +132,7 @@ import Button from '@/components/common/Button.vue';
 import Icon from '@/components/common/Icon.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import { getServerVersion, isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig';
 import {
   workspaceExportService,
   type WorkspaceExportJob,
@@ -113,6 +143,33 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const toast = useToastStore();
 
 const job = ref<WorkspaceExportJob | null>(null);
+
+/** What an export carries to another Nosdesk, and what stays behind. */
+const MOVES = [
+  'settings-export-moves-tickets',
+  'settings-export-moves-docs',
+  'settings-export-moves-assets',
+  'settings-export-moves-people',
+  'settings-export-moves-config',
+  'settings-export-moves-integrations',
+];
+const STAYS = [
+  'settings-export-stays-passwords',
+  'settings-export-stays-secrets',
+  'settings-export-stays-tokens',
+  'settings-export-stays-activity',
+  'settings-export-stays-history',
+];
+
+/** The release that makes the export; the importing Nosdesk must match it. */
+const version = getServerVersion();
+
+/** On Cloud, the archive goes to a self-hosted Nosdesk, which opens it. */
+const passwordHint = computed(() =>
+  isHostedDeploymentRef.value
+    ? `${t('settings-export-password-hint')} ${t('settings-export-password-self')}`
+    : t('settings-export-password-hint'),
+);
 const busy = ref(false);
 const password = ref('');
 

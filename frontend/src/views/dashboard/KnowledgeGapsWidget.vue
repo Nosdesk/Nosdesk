@@ -35,9 +35,10 @@ const titleText = computed(() =>
 const errorText = computed(() => (stats.isError.value ? t('dashboard-knowledge-gaps-error') : null))
 
 /** Failed-search gaps use a distinct title prefix so we can tell
- *  signal-type from the summary row alone. */
+ *  signal-type from the summary row alone. "Customers searched:" is the
+ *  prefix gaps detected before agents' searches counted too. */
 function isSearchGap(gapTitle: string): boolean {
-  return gapTitle.startsWith('Customers searched:')
+  return gapTitle.startsWith('Searched:') || gapTitle.startsWith('Customers searched:')
 }
 function impactBadge(gap: { title: string; impactScore: number }): string {
   return isSearchGap(gap.title)
@@ -48,9 +49,6 @@ function impactTooltip(gap: { title: string; impactScore: number }): string {
   return isSearchGap(gap.title)
     ? t('dashboard-knowledge-gaps-impact-tooltip-searches', { count: gap.impactScore })
     : t('dashboard-knowledge-gaps-impact-tooltip-tickets', { count: gap.impactScore })
-}
-function signalCount(count: number): string {
-  return t('dashboard-knowledge-gaps-signal-count', { count })
 }
 </script>
 
@@ -78,12 +76,8 @@ function signalCount(count: number): string {
             <p class="text-sm text-primary truncate">
               {{ gapTitle({ title: item.title, subject_page_id: item.subjectPageId }) }}
             </p>
-            <div class="text-2xs text-tertiary mt-0.5 flex items-center gap-2">
-              <span>{{ signalCount(item.evidenceCount) }}</span>
-              <span v-if="item.lastEvidenceAt" class="text-subtle">&middot;</span>
-              <span v-if="item.lastEvidenceAt">
-                {{ formatRelativeTime(item.lastEvidenceAt) }}
-              </span>
+            <div v-if="item.lastEvidenceAt" class="text-2xs text-tertiary mt-0.5">
+              {{ formatRelativeTime(item.lastEvidenceAt) }}
             </div>
           </div>
           <span

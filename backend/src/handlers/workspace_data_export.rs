@@ -27,7 +27,7 @@ use crate::models::{
     Claims, NewWorkspaceExportJob, WorkspaceExportJob, WorkspaceExportJobUpdate, WorkspaceRole,
 };
 use crate::repository::workspace_export_jobs as export_repo;
-use crate::services::workspace_export::{assemble_workspace_archive, collect_workspace_rows};
+use crate::services::workspace_export::{build_archive, BuildError};
 use crate::sync::actor::ActorContext;
 use crate::sync::session::with_actor_bypass_context;
 use crate::utils::rbac::require_workspace_role;
@@ -275,47 +275,22 @@ async fn run_export_inner(
     workspace_id: i32,
     password: Option<String>,
 ) -> Result<(String, i64), String> {
-    // 1. Row dumps (sync, BYPASSRLS). include_sensitive = false: a data export
-    //    never needs auth secrets.
-    let mut conn = pool.get().map_err(|e| format!("pool: {e}"))?;
-    let actor = ActorContext::system("background:workspace_export");
-    // elevated-in-workspace: the background export task reads one workspace's rows, filtered by its
-    // id, with no workspace pinned.
-    let (dumps, meta) = with_actor_bypass_context(&mut conn, &actor, |conn| {
-        collect_workspace_rows(conn, workspace_id, false)
-            .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
-    })
-    .map_err(|e| format!("collect rows: {e}"))?;
-    drop(conn);
-
-    let mut total: usize = dumps.iter().map(|d| d.json.len()).sum();
-    if total > MAX_EXPORT_BYTES {
-        return Err(too_large());
-    }
-
-    // 2. Files, read with a cumulative cap.
+    // A data export never needs auth secrets (include_sensitive = false); a
+    // password only seals it.
+    let archive = build_archive(
+        pool.get_ref(),
+        process_storage(),
+        workspace_id,
+        password.as_deref(),
+        false,
+        Some(MAX_EXPORT_BYTES),
+    )
+    .await
+    .map_err(|e| match e {
+        BuildError::TooLarge => too_large(),
+        BuildError::Failed(e) => e,
+    })?;
     let scoped = WorkspaceScopedStorage::arc(process_storage(), workspace_id);
-    let paths = scoped
-        .list_prefix("")
-        .await
-        .map_err(|e| format!("list files: {e:?}"))?;
-    let mut files: Vec<(String, Vec<u8>)> = Vec::with_capacity(paths.len());
-    for p in paths {
-        let bytes = scoped
-            .get_file(&p)
-            .await
-            .map_err(|e| format!("read file {p}: {e:?}"))?;
-        total += bytes.len();
-        if total > MAX_EXPORT_BYTES {
-            return Err(too_large());
-        }
-        files.push((p, bytes));
-    }
-
-    // 3. Assemble (sync CPU). 4. Store under the workspace-scoped prefix.
-    let archive =
-        assemble_workspace_archive(&dumps, &meta, workspace_id, &files, password.as_deref())
-            .map_err(|e| format!("assemble archive: {e}"))?;
     let file_size = archive.len() as i64;
     let key = format!("exports/{job_id}.nosdesk");
     scoped

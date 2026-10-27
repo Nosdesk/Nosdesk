@@ -61,9 +61,26 @@ export function withWorkspaceRouting(routes: RouteRecordRaw[]): RouteRecordRaw[]
 }
 
 /** The workspace slug carried by a route, or null. */
-export function workspaceSlugOf(route: RouteLocationNormalized): string | null {
+export function workspaceSlugOf(route: Pick<RouteLocationNormalized, 'params'>): string | null {
   const slug = route.params[WORKSPACE_PARAM];
   return typeof slug === 'string' && slug ? slug : null;
+}
+
+/**
+ * The route's path inside its workspace: `route.path` without the slug
+ * segment, so `/acme/tickets/5` reads `/tickets/5` and `/acme` reads `/`. In
+ * host mode no route carries a slug and this is `route.path` unchanged.
+ *
+ * Compare this, or the route name, to a bare app path. `route.path` itself
+ * carries the slug on Cloud, so `route.path === '/tickets'` never holds there
+ * (`scripts/check-route-path-compare.mjs` rejects that comparison).
+ */
+export function workspacePath(route: Pick<RouteLocationNormalized, 'path' | 'params'>): string {
+  const slug = workspaceSlugOf(route);
+  if (!slug) return route.path;
+  const prefix = `/${slug}`;
+  if (route.path === prefix || route.path === `${prefix}/`) return '/';
+  return route.path.startsWith(`${prefix}/`) ? route.path.slice(prefix.length) : route.path;
 }
 
 function isAuthed(route: RouteLocationNormalized): boolean {

@@ -1,10 +1,5 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
-use yrs::types::xml::{XmlDeltaPrelim, XmlIn};
-use yrs::types::Delta;
-use yrs::{Any, Doc, ReadTxn, Transact, WriteTxn, XmlElementPrelim, XmlFragment};
 
 use crate::db::DbConnection;
 use crate::models::{
@@ -258,343 +253,79 @@ pub fn seed_getting_started(conn: &mut DbConnection, author: Uuid) -> QueryResul
     Ok(())
 }
 
-/// Convert a simple markdown string to a Yjs document binary (V1 encoded).
-///
-/// Builds a y-prosemirror compatible XmlFragment("prosemirror") with proper
-/// block structure (paragraph, heading, bullet_list, etc.) and inline marks
-/// (bold, italic, code) stored as text formatting attributes via XmlDeltaPrelim.
+/// Convert Markdown to a Yjs document binary (v1 encoded) through
+/// [`docs_markdown`](crate::services::docs_markdown), the converter the
+/// documentation import uses, so seeded pages are written exactly as the
+/// editor writes them.
 ///
 /// Public so the `seed_demo` binary can render demo ticket bodies through the
-/// same converter used for the welcome page.
+/// same converter used for the welcome page. Always `Some`; the `Option` is
+/// kept for its callers.
 pub fn markdown_to_yjs(markdown: &str) -> Option<Vec<u8>> {
-    let doc = Doc::new();
-    let fragment = {
-        let mut txn = doc.transact_mut();
-        txn.get_or_insert_xml_fragment("prosemirror")
-    };
-
-    let mut txn = doc.transact_mut();
-
-    let lines: Vec<&str> = markdown.lines().collect();
-    let mut i = 0;
-
-    while i < lines.len() {
-        let line = lines[i];
-
-        if line.trim().is_empty() {
-            i += 1;
-            continue;
-        }
-
-        // Heading
-        if let Some(heading) = parse_heading(line) {
-            let delta = parse_inline_to_delta(heading.text);
-            let mut elem = XmlElementPrelim::new("heading", vec![delta.into()]);
-            elem.attributes
-                .insert("level".into(), heading.level.to_string());
-            fragment.push_back(&mut txn, elem);
-            i += 1;
-            continue;
-        }
-
-        // Unordered list
-        if line.trim_start().starts_with("- ") {
-            let mut list_items: Vec<XmlIn> = Vec::new();
-
-            while i < lines.len() && lines[i].trim_start().starts_with("- ") {
-                let item_text = lines[i].trim_start().trim_start_matches("- ");
-                let delta = parse_inline_to_delta(item_text);
-                let para = XmlElementPrelim::new("paragraph", vec![delta.into()]);
-                let li = XmlElementPrelim::new("list_item", vec![para.into()]);
-                list_items.push(li.into());
-                i += 1;
-            }
-
-            let ul = XmlElementPrelim::new("bullet_list", list_items);
-            fragment.push_back(&mut txn, ul);
-            continue;
-        }
-
-        // Ordered list
-        if line
-            .trim_start()
-            .chars()
-            .next()
-            .map(|c| c.is_ascii_digit())
-            .unwrap_or(false)
-            && line.trim_start().contains(". ")
-        {
-            let mut list_items: Vec<XmlIn> = Vec::new();
-
-            while i < lines.len() {
-                let l = lines[i].trim_start();
-                if l.chars()
-                    .next()
-                    .map(|c| c.is_ascii_digit())
-                    .unwrap_or(false)
-                    && l.contains(". ")
-                {
-                    let item_text = l.split_once(". ").map(|x| x.1).unwrap_or("");
-                    let delta = parse_inline_to_delta(item_text);
-                    let para = XmlElementPrelim::new("paragraph", vec![delta.into()]);
-                    let li = XmlElementPrelim::new("list_item", vec![para.into()]);
-                    list_items.push(li.into());
-                    i += 1;
-                } else {
-                    break;
-                }
-            }
-
-            let ol = XmlElementPrelim::new("ordered_list", list_items);
-            fragment.push_back(&mut txn, ol);
-            continue;
-        }
-
-        // Horizontal rule
-        if line.trim() == "---" || line.trim() == "***" || line.trim() == "___" {
-            let hr = XmlElementPrelim::empty("horizontal_rule");
-            fragment.push_back(&mut txn, hr);
-            i += 1;
-            continue;
-        }
-
-        // Default: paragraph
-        let delta = parse_inline_to_delta(line);
-        let para = XmlElementPrelim::new("paragraph", vec![delta.into()]);
-        fragment.push_back(&mut txn, para);
-        i += 1;
-    }
-
-    drop(txn);
-
-    let txn = doc.transact();
-    let update = txn.encode_state_as_update_v1(&yrs::StateVector::default());
-    Some(update)
-}
-
-struct Heading<'a> {
-    level: usize,
-    text: &'a str,
-}
-
-fn parse_heading(line: &str) -> Option<Heading<'_>> {
-    let trimmed = line.trim_start();
-    if !trimmed.starts_with('#') {
-        return None;
-    }
-
-    let level = trimmed.chars().take_while(|&c| c == '#').count();
-    if level == 0 || level > 6 {
-        return None;
-    }
-
-    let rest = &trimmed[level..];
-    if !rest.starts_with(' ') {
-        return None;
-    }
-
-    Some(Heading {
-        level,
-        text: rest.trim(),
-    })
-}
-
-/// Represents an inline text span with optional mark.
-enum InlineSpan<'a> {
-    Plain(&'a str),
-    Bold(&'a str),
-    Italic(&'a str),
-    Code(&'a str),
-    /// `[text](href)` — carries the destination through as a real link mark.
-    Link {
-        text: &'a str,
-        href: &'a str,
-    },
-}
-
-/// Parse inline markdown into an XmlDeltaPrelim with proper text formatting attributes.
-///
-/// In y-prosemirror, marks (bold/italic/code) are stored as formatting attributes
-/// on XmlText delta operations, not as XML wrapper elements. For example, bold text
-/// is stored as `Delta::insert_with("text", { "strong": {} })`.
-///
-/// Mark type names must match the ProseMirror schema keys exactly:
-/// bold = "strong", italic = "em", inline code = "code".
-fn parse_inline_to_delta(text: &str) -> XmlDeltaPrelim {
-    let spans = parse_inline_spans(text);
-    let mut delta: Vec<Delta<yrs::In>> = Vec::new();
-
-    for span in spans {
-        match span {
-            InlineSpan::Plain(s) => {
-                delta.push(Delta::insert(s));
-            }
-            InlineSpan::Bold(s) => {
-                let attrs = HashMap::from([(Arc::from("strong"), Any::Bool(true))]);
-                delta.push(Delta::insert_with(s, attrs));
-            }
-            InlineSpan::Italic(s) => {
-                let attrs = HashMap::from([(Arc::from("em"), Any::Bool(true))]);
-                delta.push(Delta::insert_with(s, attrs));
-            }
-            InlineSpan::Code(s) => {
-                let attrs = HashMap::from([(Arc::from("code"), Any::Bool(true))]);
-                delta.push(Delta::insert_with(s, attrs));
-            }
-            InlineSpan::Link { text, href } => {
-                // Unlike the boolean marks, `link` carries attributes, so the
-                // mark value is the ProseMirror attrs map (schema: href
-                // required, title optional) rather than `true`.
-                let link_attrs = Any::from(HashMap::from([(
-                    "href".to_string(),
-                    Any::String(href.into()),
-                )]));
-                let attrs = HashMap::from([(Arc::from("link"), link_attrs)]);
-                delta.push(Delta::insert_with(text, attrs));
-            }
-        }
-    }
-
-    // Ensure at least one delta entry (empty paragraph)
-    if delta.is_empty() {
-        delta.push(Delta::insert(""));
-    }
-
-    XmlDeltaPrelim {
-        attributes: HashMap::new(),
-        delta,
-    }
-}
-
-/// Parse a line of text into inline spans, recognizing **bold**, *italic*, `code`,
-/// and [link text](href).
-fn parse_inline_spans(text: &str) -> Vec<InlineSpan<'_>> {
-    let mut spans = Vec::new();
-    let mut remaining = text;
-
-    while !remaining.is_empty() {
-        if let Some(pos) = remaining.find(['*', '`', '[']) {
-            // Plain text before marker
-            if pos > 0 {
-                spans.push(InlineSpan::Plain(&remaining[..pos]));
-            }
-
-            let after = &remaining[pos..];
-
-            // Bold: **text**
-            if after.starts_with("**") {
-                if let Some(end) = after[2..].find("**") {
-                    spans.push(InlineSpan::Bold(&after[2..2 + end]));
-                    remaining = &after[2 + end + 2..];
-                    continue;
-                }
-            }
-
-            // Italic: *text* (but not **)
-            if after.starts_with('*') && !after.starts_with("**") {
-                if let Some(end) = after[1..].find('*') {
-                    spans.push(InlineSpan::Italic(&after[1..1 + end]));
-                    remaining = &after[1 + end + 1..];
-                    continue;
-                }
-            }
-
-            // Inline code: `text`
-            if after.starts_with('`') {
-                if let Some(end) = after[1..].find('`') {
-                    spans.push(InlineSpan::Code(&after[1..1 + end]));
-                    remaining = &after[1 + end + 1..];
-                    continue;
-                }
-            }
-
-            // Link: [text](href)
-            if after.starts_with('[') {
-                if let Some(bracket_end) = after.find(']') {
-                    let link_text = &after[1..bracket_end];
-                    let after_bracket = &after[bracket_end + 1..];
-                    if after_bracket.starts_with('(') {
-                        if let Some(paren_end) = after_bracket.find(')') {
-                            let href = &after_bracket[1..paren_end];
-                            // An empty href would produce a link mark with no
-                            // destination; fall back to plain text.
-                            if href.is_empty() {
-                                spans.push(InlineSpan::Plain(link_text));
-                            } else {
-                                spans.push(InlineSpan::Link {
-                                    text: link_text,
-                                    href,
-                                });
-                            }
-                            remaining = &after_bracket[paren_end + 1..];
-                            continue;
-                        }
-                    }
-                }
-            }
-
-            // No pattern matched - treat character as literal
-            spans.push(InlineSpan::Plain(&remaining[pos..pos + 1]));
-            remaining = &remaining[pos + 1..];
-        } else {
-            spans.push(InlineSpan::Plain(remaining));
-            break;
-        }
-    }
-
-    spans
+    Some(crate::services::docs_markdown::markdown_to_yjs(markdown).0)
 }
 
 #[cfg(test)]
 mod inline_tests {
-    use super::{parse_inline_spans, InlineSpan};
+    use crate::services::docs_markdown::{convert, ir::Inline};
 
-    /// The seeded welcome page links out to the public docs, so the converter
-    /// has to carry the destination through. It used to drop the href and
-    /// render link text as plain text.
-    #[test]
-    fn link_keeps_its_href() {
-        let spans = parse_inline_spans("see the [user guide](https://nosdesk.com/docs/guide) now");
-        let link = spans
-            .iter()
-            .find_map(|s| match s {
-                InlineSpan::Link { text, href } => Some((*text, *href)),
-                _ => None,
-            })
-            .expect("a link span");
-        assert_eq!(link, ("user guide", "https://nosdesk.com/docs/guide"));
-    }
-
-    #[test]
-    fn empty_href_falls_back_to_plain_text() {
-        let spans = parse_inline_spans("[bare]()");
-        assert!(
-            !spans.iter().any(|s| matches!(s, InlineSpan::Link { .. })),
-            "an empty href must not produce a destination-less link mark"
-        );
-    }
-
-    /// End-to-end guard on the shipped welcome page: it converts, and the
-    /// public-docs links survive into the encoded document. Fails both if the
-    /// converter drops hrefs again and if the seed file loses its links.
+    /// End-to-end guard on the shipped welcome page: it converts with nothing
+    /// degraded, and its public-docs links survive as link marks. Fails both
+    /// if the converter drops hrefs and if the seed file loses its links.
     #[test]
     fn seeded_welcome_page_encodes_real_links() {
         let markdown = include_str!("../../seeds/getting-started.md");
+        let converted = convert(markdown);
+        assert!(converted.notes.is_empty(), "{:?}", converted.notes);
+        let hrefs: Vec<String> = converted
+            .document
+            .blocks
+            .iter()
+            .flat_map(|b| match b {
+                crate::services::docs_markdown::ir::Block::Paragraph(i) => i.clone(),
+                _ => Vec::new(),
+            })
+            .filter_map(|i| match i {
+                Inline::Text(t) => t.marks.link.map(|l| l.href),
+                _ => None,
+            })
+            .collect();
+        assert!(hrefs.contains(&"https://nosdesk.com/docs/guide/ticket-queue".to_string()));
         let bytes = super::markdown_to_yjs(markdown).expect("welcome markdown converts");
         let encoded = String::from_utf8_lossy(&bytes);
-        assert!(encoded.contains("link"), "link mark is encoded");
-        assert!(
-            encoded.contains("https://nosdesk.com/docs/guide/ticket-queue"),
-            "the href is carried into the document, not dropped"
-        );
+        assert!(encoded.contains("https://nosdesk.com/docs/guide/ticket-queue"));
     }
 
+    /// The demo onboarding ticket's body goes through the same converter as
+    /// `seed_demo` and comes out holding a real table node.
     #[test]
-    fn other_inline_marks_still_parse() {
-        let spans = parse_inline_spans("**b** *i* `c`");
-        assert!(spans.iter().any(|s| matches!(s, InlineSpan::Bold("b"))));
-        assert!(spans.iter().any(|s| matches!(s, InlineSpan::Italic("i"))));
-        assert!(spans.iter().any(|s| matches!(s, InlineSpan::Code("c"))));
+    fn demo_onboarding_ticket_body_holds_a_table() {
+        use crate::services::docs_markdown::encode::decode;
+
+        fn has_table(node: &serde_json::Value) -> bool {
+            node["type"] == "table"
+                || node["content"]
+                    .as_array()
+                    .is_some_and(|children| children.iter().any(has_table))
+        }
+
+        let demo: serde_json::Value =
+            serde_json::from_str(include_str!("../../seeds/demo.json")).expect("demo.json parses");
+        let body = demo["tickets"]
+            .as_array()
+            .expect("tickets")
+            .iter()
+            .find(|t| {
+                t["title"]
+                    .as_str()
+                    .is_some_and(|s| s.starts_with("New starter onboarding"))
+            })
+            .and_then(|t| t["body_md"].as_str())
+            .expect("onboarding ticket body");
+        assert!(convert(body).notes.is_empty());
+        let bytes = super::markdown_to_yjs(body).expect("body converts");
+        let doc = decode::to_json(&bytes);
+        assert!(has_table(&doc), "{doc}");
     }
 }
 

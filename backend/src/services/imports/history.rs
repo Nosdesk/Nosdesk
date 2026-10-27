@@ -56,7 +56,7 @@ pub fn state_of(
 ) -> Option<JobState> {
     match status {
         "done" => Some(JobState::Imported),
-        "parsed" | "dry_run_done" | "committing" => {
+        "parsed" | "checking" | "dry_run_done" | "committing" => {
             if pruned_at.is_some() || now - updated_at > details_window() {
                 Some(JobState::Expired)
             } else {

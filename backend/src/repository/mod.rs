@@ -24,6 +24,7 @@ pub mod dashboard_stats;
 pub mod directory;
 pub mod documentation;
 pub mod documentation_collections;
+pub mod documentation_imports;
 pub mod documentation_page_tickets;
 pub mod documentation_starred_pages;
 pub mod documentation_subscriptions;
@@ -48,6 +49,7 @@ pub mod requester_identities;
 pub mod rules;
 pub mod saved_views;
 pub mod search_query_log;
+pub mod search_reindex;
 pub mod sla;
 pub mod sla_admin;
 pub mod sync_history;
@@ -91,6 +93,7 @@ pub mod site_settings;
 pub mod workspace_activation;
 pub mod workspace_email_settings;
 pub mod workspace_export_jobs;
+pub mod workspace_import_jobs;
 pub mod workspace_ldap_settings;
 
 // Backup and restore

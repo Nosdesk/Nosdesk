@@ -398,10 +398,35 @@ user-menu-workspace-current = Current
 user-menu-account = Account
 user-menu-administration = Administration
 user-menu-team = Team
+user-menu-plan-billing = Plan and billing
 user-menu-help = Help
+user-menu-contact-support = Contact support
 user-menu-report-problem = Report a problem
 user-menu-sign-out = Sign out
 user-menu-guest-name = Guest
+
+# Cloud trial reminders, for the workspace owner only. $date arrives
+# formatted for the locale; $days counts calendar days, 0 is today.
+trial-notice-menu-line = { $days ->
+    [0] Trial ends today
+    [1] Trial ends tomorrow, { $date }
+   *[other] Trial ends { $date }, in { $days } days
+}
+trial-notice-menu-line-cancelled = Trial ends { $date }, won't continue
+trial-notice-soon-title = Your trial ends { $date }, in { $days } days.
+trial-notice-soon-body = Your plan and the option to cancel are under Manage billing, in your Nosdesk account. Nothing changes in your workspace before then.
+trial-notice-imminent-title = { $days ->
+    [0] Your trial ends today.
+    [1] Your trial ends tomorrow, { $date }.
+   *[other] Your trial ends in { $days } days, on { $date }.
+}
+trial-notice-imminent-body = If you haven't decided yet, your plan and the option to cancel are under Manage billing, in your Nosdesk account. Everything you've set up stays as it is until then.
+trial-notice-cancelled-title = Your trial ends { $date } and won't continue.
+trial-notice-cancelled-body = There's nothing you need to do. If you'd like to keep Nosdesk after all, you can from Manage billing, in your Nosdesk account, any time before then.
+trial-notice-manage-billing = Manage billing
+trial-notice-manage-billing-aria = Manage billing, opens your Nosdesk account in a new tab
+trial-notice-opens-account = Opens your Nosdesk account in a new tab
+trial-notice-dismiss = Dismiss trial reminder
 
 # In-app bug report modal. Workspace-local diagnostics; the data
 # never leaves the operator's deployment.
@@ -409,13 +434,22 @@ bug-report-modal-title = Report a problem
 bug-report-modal-description-label = What happened?
 bug-report-modal-description-placeholder = e.g. tried to save a comment and saw a red banner; was on the assignee dropdown just before.
 bug-report-modal-description-hint = A sentence or two is plenty.
-bug-report-modal-attachments-hint = We attach the current page, build version, and the last few navigations and API calls. Stays inside this workspace.
+bug-report-modal-attachments-hint-self-hosted = We attach the current page, build version, and the last few navigations and API calls. The report stays on this server, for its administrators to read.
+bug-report-modal-attachments-hint-hosted = We attach the current page, build version, and the last few navigations and API calls. The report goes to the Nosdesk team.
+bug-report-modal-support-hint = For account or billing questions, contact support:
 bug-report-modal-cancel = Cancel
 bug-report-modal-submit = Send report
 bug-report-success-toast-title = Report sent
-bug-report-success-toast-body = Thanks. An admin can find it in this workspace's diagnostics.
+bug-report-success-toast-body-self-hosted = Thanks. This server's administrators can read it.
+bug-report-success-toast-body-hosted = Thanks. It's on its way to the Nosdesk team.
 bug-report-error-toast-title = Couldn't send report
 bug-report-error-toast-body = Try again in a moment.
+
+# Contact support (Cloud only).
+contact-support-title = Contact support
+contact-support-body = For questions about your account, plan or billing, email the Nosdesk team.
+support-address-copy = Copy address
+support-address-copied = Address copied
 
 # Tickets list — empty states + bulk-action bar + chrome.
 ticket-list-loading = Loading tickets…
@@ -1141,6 +1175,7 @@ admin-clear-search = Clear search
 admin-index-subtitle = Manage your system settings, integrations, and workspace configuration
 
 admin-nav-group-tickets = Tickets & Workflow
+admin-nav-group-help-portal = Help portal
 admin-nav-group-integrations = Integrations
 admin-nav-group-compliance = Compliance
 admin-nav-group-appearance = Appearance & Notifications
@@ -1706,6 +1741,9 @@ admin-data-import-notice = Data imports may trigger notifications to affected us
 admin-data-import-status-available = Available
 admin-data-import-status-coming-soon = Coming Soon
 admin-data-import-status-beta = Beta
+admin-data-import-status-new = New
+admin-data-import-docs-title = Documentation
+admin-data-import-docs-description = Markdown files, a Notion, Obsidian or GitBook export, or a Nosdesk export.
 admin-data-import-microsoft-title = Microsoft Graph
 admin-data-import-microsoft-description = Import users, groups and devices from Microsoft Entra ID
 admin-data-import-csv-title = CSV Import
@@ -2096,7 +2134,6 @@ admin-backup-delete-title = Delete
 admin-backup-docs-heading = Export Documentation to Markdown
 admin-backup-docs-description = Export all documentation pages as markdown files in a ZIP archive
 admin-backup-docs-export = Export as Markdown
-admin-backup-docs-exporting = Exporting { $current }/{ $total }...
 admin-backup-docs-preparing = Preparing...
 admin-backup-docs-error = Failed to export documentation. Please check the console for details.
 admin-backup-restore-heading = Restore from Backup
@@ -2701,6 +2738,10 @@ user-mgmt-bulk-skipped-staff = { $count ->
     [one] One staff member is managed in your Nosdesk account, so they weren't deleted here.
    *[other] { $count } staff members are managed in your Nosdesk account, so they weren't deleted here.
 }
+user-mgmt-bulk-skipped-elsewhere = { $count ->
+    [one] One person also belongs to other workspaces, so they weren't deleted. Remove them from this workspace instead.
+   *[other] { $count } people also belong to other workspaces, so they weren't deleted. Remove them from this workspace instead.
+}
 user-mgmt-bulk-delete-failed = { $count ->
     [one] One user couldn't be deleted. Try again.
    *[other] { $count } users couldn't be deleted. Try again.
@@ -3230,14 +3271,6 @@ docs-index-new-page = New page
 
 # Docs: documentation index toolbar (DocumentationIndexToolbar)
 docs-index-toolbar-search = Search documentation
-docs-index-toolbar-search-placeholder = Search documentation…
-docs-index-toolbar-stats = { $pages ->
-    [one] { $pages } page
-   *[other] { $pages } pages
-  } across { $collections ->
-    [one] { $collections } collection
-   *[other] { $collections } collections
-  }
 # Library ledger (CollectionBrowser)
 docs-index-library-heading = Library
 docs-index-library-count = { $count ->
@@ -3263,21 +3296,62 @@ docs-index-drafts-strip-suffix = { $count ->
    *[other] aren't in a collection yet
   }
 docs-index-drafts-strip-review = Review →
-docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = New collection
-docs-index-toolbar-more = More
 docs-index-toolbar-more-aria = Documentation actions
 docs-index-toolbar-scan-gaps = Scan for knowledge gaps
 docs-index-toolbar-scan-no-results = No new gaps found
 docs-index-toolbar-scan-success = { $created } new gaps · { $updated } updated
 docs-index-toolbar-scan-error = Gap scan failed. Try again.
-docs-index-toolbar-maintenance-heading = Maintenance
-docs-index-toolbar-archived = Archived pages
-docs-index-toolbar-trash = Trash
 docs-index-toolbar-publish-heading = Publishing
 docs-index-toolbar-admin-heading = Admin
 docs-index-toolbar-public-site = View public site
 docs-index-toolbar-guest-settings = Guest access settings
+docs-index-toolbar-import = Import documents
+
+# Docs: documentation export (DocumentationExportDialog)
+docs-export-menu = Export documentation
+docs-export-menu-busy = Preparing export…
+docs-export-title = Export documentation
+docs-export-intro = Download this workspace's documentation as a zip of Markdown files, one per page, with a manifest that keeps their place.
+docs-export-included-heading = Included
+docs-export-included-pages = { $count ->
+    [one] { $count } page from Library and Drafts
+   *[other] { $count } pages from Library and Drafts
+  }
+docs-export-included-structure = { $count ->
+    [0] Page nesting and order
+    [one] { $count } collection, with page nesting and order
+   *[other] { $count } collections, with page nesting and order
+  }
+docs-export-included-images = Images shown on those pages
+docs-export-excluded-heading = Not included
+docs-export-excluded-archived = { $count ->
+    [one] { $count } archived page
+   *[other] { $count } archived pages
+  }
+docs-export-excluded-trash = { $count ->
+    [one] { $count } page in Trash
+   *[other] { $count } pages in Trash
+  }
+docs-export-excluded-history = Revision history and page access rules
+docs-export-round-trip = The zip imports back into any Nosdesk workspace through Import documents, and opens in any Markdown editor.
+docs-export-preparing-hint = A large library can take a minute. You can close this window; the download starts when the zip is ready.
+docs-export-download = Download zip
+docs-export-preparing = Preparing zip…
+docs-export-close = Close
+docs-export-done = Documentation exported
+docs-export-error = The documentation couldn't be exported. Try again.
+docs-export-forbidden = Only workspace admins and owners can export documentation.
+
+# Docs: documentation index band tabs and actions
+docs-index-tabs-aria = Documentation views
+docs-index-tab-library = Library
+docs-index-tab-drafts = Drafts
+docs-index-tab-archived = Archived
+docs-index-tab-trash = Trash
+docs-index-toolbar-search-button = Search
+docs-index-toolbar-more-actions = More actions
+docs-index-toolbar-knowledge-heading = Knowledge
 
 docs-index-stat-collections = { $count ->
     [one] { $count } collection
@@ -3347,7 +3421,6 @@ docs-index-chip-trash = { $count } in trash
 docs-drafts-title = Not in a collection
 docs-drafts-heading = Not in a collection
 docs-drafts-description = Pages not yet assigned to a collection
-docs-drafts-back = Back to Documentation
 docs-drafts-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3358,7 +3431,6 @@ docs-drafts-count = { $count ->
 docs-archived-title = Archived
 docs-archived-heading = Archived
 docs-archived-description = Pages that have been archived
-docs-archived-back = Back to Documentation
 docs-archived-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3372,7 +3444,6 @@ docs-archived-restore = Restore
 docs-trash-title = Trash
 docs-trash-heading = Trash
 docs-trash-description = Deleted pages can be restored or permanently removed
-docs-trash-back = Back to Documentation
 docs-trash-count = { $count ->
     [one] { $count } page
    *[other] { $count } pages
@@ -3391,19 +3462,42 @@ docs-gaps-back-docs = Docs
 docs-gaps-back-list = Knowledge Gaps
 docs-gaps-refresh = Refresh signals
 docs-gaps-refreshing = Refreshing
-docs-gaps-detect-no-results = No new clusters found
+docs-gaps-detect-no-results = Nothing new found
 docs-gaps-detect-created = { $count } new
 docs-gaps-detect-updated = { $count } updated
+docs-gaps-detect-retired = { $count } cleared
+docs-gaps-impact-search-count = { $count ->
+    [one] { $count } search
+   *[other] { $count } searches
+   }
+docs-gaps-impact-ticket-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+docs-gaps-impact-recent-ticket-count = { $count ->
+    [one] { $count } recent ticket
+   *[other] { $count } recent tickets
+   }
+docs-gaps-failed-search-people = { $count ->
+    [one] { $count } person
+   *[other] { $count } people
+   }
+docs-gaps-selected-count = { $count ->
+    [one] { $count } gap selected
+   *[other] { $count } gaps selected
+   }
+docs-gaps-aria-select = Select { $title }
+docs-gaps-aria-dismiss = Dismiss { $title }
+docs-gaps-dismissed-toast = { $count ->
+    [one] Gap dismissed
+   *[other] { $count } gaps dismissed
+   }
+docs-gaps-dismiss-failed = { $count ->
+    [one] Could not dismiss the gap
+   *[other] Could not dismiss the gaps
+   }
 docs-gaps-loading = Loading
 docs-gaps-empty = No open knowledge gaps. Flag a ticket from its sidebar to add one. Clusters of similar tickets and searches that keep finding no docs show up here on their own.
-docs-gaps-impact-searches = searches
-docs-gaps-impact-recent-tickets = recent tickets
-docs-gaps-impact-tickets = tickets
-docs-gaps-impact-tooltip = { $count } { $label } representing demand for this doc
-docs-gaps-signal-count = { $count ->
-    [one] { $count } signal
-   *[other] { $count } signals
-   }
 docs-gaps-select-prompt = Select a gap from the list to see its evidence.
 docs-gaps-status-label = Status:
 docs-gaps-last-evidence = Last evidence: { $time }
@@ -3898,6 +3992,7 @@ import-matches-noun = { $type ->
 import-matches-nouns = { $type ->
     [users] users
     [tickets] tickets
+    [documentation] documentation
    *[assets] assets
 }
 import-matches-title = Saved matches
@@ -4259,8 +4354,12 @@ import-history-load-failed = Recent imports didn't load.
 import-history-state-draft = Draft
 import-history-state-imported = Imported
 import-history-state-expired = Expired
+import-history-state-removed = Removed
+import-history-count-removed-pages = { $deleted } removed · { $kept } kept
 import-history-draft-on-map = Draft on Map columns
 import-history-draft-on-review = Draft on Review
+import-history-draft-on-pages = Draft on Pages
+import-history-docs-importing = Importing
 import-history-count-new = { $count } new
 import-history-count-updated = { $count } updated
 import-history-count-unchanged = { $count } unchanged
@@ -4300,6 +4399,10 @@ import-remove-window-closed = Removal window closed { $date }.
 import-remove-load-failed = Couldn't check the imported assets. Try again.
 import-remove-failed = Removing the imported assets failed and nothing was deleted.
 import-remove-already-removed = The assets this import created were already removed.
+import-remove-nothing-none-created = This import created no assets, so there is nothing to remove.
+import-remove-nothing-all-gone = The assets this import created were already deleted.
+import-remove-nothing-all-changed = Every asset this import created has been changed since, so nothing was deleted.
+import-remove-not-committed = This import wasn't committed, so it created nothing to remove.
 import-remove-still-running = Still removing. This page updates when it finishes.
 import-remove-still-running-later = Removing is taking longer than expected. Come back to this page later to see how it ended.
 import-remove-title = { $count ->
@@ -4536,6 +4639,7 @@ editor-toolbar-numbered-list = Numbered List
 editor-toolbar-insert = Insert
 editor-toolbar-undo = Undo
 editor-toolbar-redo = Redo
+editor-toolbar-table = Table
 editor-toolbar-done = Done
 editor-toolbar-label = Formatting
 editor-toolbar-revision-history = Revision History
@@ -4546,6 +4650,10 @@ editor-toolbar-connection-disconnected = Disconnected
 editor-toolbar-connection-signed-out = Signed out. Sign in again to save changes.
 editor-toolbar-connection-no-access = No access. Changes here won't be saved.
 editor-toolbar-connection-gone = Deleted. Changes here won't be saved.
+# The server refused a page that needs a newer editor than this build's.
+editor-outdated-reload = This page uses a newer version of Nosdesk. Reload to keep editing.
+editor-outdated-reload-button = Reload
+editor-outdated-update-app = Update the Nosdesk app to edit this page.
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })
 
@@ -4566,6 +4674,53 @@ editor-insert-menu-link = Link
 editor-insert-menu-embed-document = Embed Document
 editor-insert-menu-image = Image
 editor-insert-menu-take-photo = Take Photo
+editor-insert-menu-table = Table
+
+# Editor: table controls (TableControls, tableView, tableMenus)
+editor-table-actions = Table actions
+editor-table-add-row = Add row
+editor-table-add-column = Add column
+editor-table-insert-row-here = Insert row here
+editor-table-insert-column-here = Insert column here
+editor-table-row-actions = Row { $row } actions
+editor-table-column-actions = Column { $column } actions
+editor-table-menu-row = Row { $row }
+editor-table-menu-column = Column { $column }
+editor-table-menu-table = Table
+editor-table-menu-cells = Selected cells
+editor-table-insert-row-above = Insert row above
+editor-table-insert-row-below = Insert row below
+editor-table-insert-column-left = Insert column left
+editor-table-insert-column-right = Insert column right
+editor-table-move-up = Move up
+editor-table-move-down = Move down
+editor-table-move-left = Move left
+editor-table-move-right = Move right
+editor-table-header-row = Header row
+editor-table-header-column = Header column
+editor-table-align-left = Align left
+editor-table-align-center = Align center
+editor-table-align-right = Align right
+editor-table-reset-width = Reset width
+editor-table-reset-widths = Reset column widths
+editor-table-clear = Clear contents
+editor-table-delete-row = Delete row
+editor-table-delete-column = Delete column
+editor-table-delete-table = Delete table
+editor-table-merge = Merge cells
+editor-table-split = Split cell
+editor-table-copy-markdown = Copy as Markdown
+editor-table-bar-merge = Merge
+editor-table-bar-split = Split
+editor-table-bar-clear = Clear
+editor-table-bar-clear-title = Clear contents (Backspace)
+editor-table-bar-more = More
+editor-table-deleted = Table deleted
+editor-table-undo = Undo
+editor-table-copied-markdown = Copied as Markdown
+editor-table-copied-html = Copied as HTML
+editor-table-copied-html-detail = This table holds more than a Markdown table can, such as merged cells or a header column, so it copies as an HTML table.
+editor-table-copy-failed = Couldn't copy the table to the clipboard.
 
 # Editor: code block language prompt (CollaborativeEditor)
 editor-code-block-language-prompt = Enter language for syntax highlighting (optional):
@@ -4970,13 +5125,38 @@ settings-sessions-revoke-success = Session signed out.
 settings-sessions-revoke-error = Couldn't sign out that session. Try again.
 settings-sessions-revoke-others-button = Sign out all other sessions
 settings-sessions-revoke-others-modal-title = Sign out all other sessions?
-settings-sessions-revoke-others-modal-description = This signs out every device except this one. Confirm your identity to continue.
-settings-sessions-revoke-others-stepup-password = Confirm your password to continue
-settings-sessions-revoke-others-stepup-mfa = Enter an authentication code to continue
+settings-sessions-revoke-others-modal-description = This signs out every device except this one.
 settings-sessions-modal-cancel = Cancel
 settings-sessions-revoke-others-confirm = Sign out others
 settings-sessions-revoke-others-success = Signed out all other sessions.
-settings-sessions-revoke-others-error = Couldn't sign out the other sessions. Check your credentials and try again.
+settings-sessions-revoke-others-success-remembered-kept = Signed out all other sessions. Browsers signed in to your Nosdesk account may still sign in again for up to 8 hours. To stop them now, sign out other sessions in your Nosdesk account.
+settings-sessions-revoke-others-error = Couldn't sign out the other sessions. Try again.
+
+# Confirm it's you before a high-risk action (ConfirmIdentity, /auth/confirmed)
+step-up-lead = Confirm it's you to continue.
+step-up-confirmed = You confirmed it's you a few minutes ago.
+step-up-password-label = Password
+step-up-code-label = Authenticator or backup code
+step-up-passkey-button = Use a passkey
+step-up-provider-button = Continue with { $name }
+step-up-provider-help = A window opens so you can sign in again. Come back here when you're done.
+step-up-waiting = Waiting for you to sign in…
+step-up-try-again = Try again
+step-up-use-another-way = Use another way
+step-up-choice-password = Use your password
+step-up-choice-code = Use an authenticator or backup code
+step-up-result-cancelled = Sign-in was cancelled.
+step-up-result-wrong-account = That was a different account. Sign in as { $email } to continue.
+step-up-result-wrong-account-no-email = That was a different account. Sign in with the account you use here to continue.
+step-up-result-not-fresh = Your sign-in provider didn't confirm a fresh sign-in. Try again.
+step-up-result-signed-out = This browser is signed out. Sign in again, then try once more.
+step-up-result-failed = Couldn't confirm it's you. Try again.
+step-up-no-methods = Sign out, sign back in, then try again within { $minutes ->
+    [one] { $minutes } minute
+   *[other] { $minutes } minutes
+}.
+step-up-popup-confirmed = Confirmed. You can close this window.
+step-up-popup-close = You can close this window.
 
 # Settings: unsaved-changes navigate-away guard (shared)
 settings-unsaved-leave-title = Discard unsaved changes?
@@ -5068,7 +5248,6 @@ docs-collection-manager-saving = Saving...
 
 # Docs: collection browser (CollectionBrowser)
 docs-collection-browser-heading = Collections
-docs-collection-browser-new = New
 docs-collection-browser-name-placeholder = Collection name...
 docs-collection-browser-cancel = Cancel
 docs-collection-browser-create = Create
@@ -5143,7 +5322,6 @@ docs-breadcrumb-root = Documentation
 docs-breadcrumb-aria = Breadcrumb
 
 # Docs: card (DocumentationCard)
-docs-card-empty-content = No content yet
 docs-card-children-more = +{ $count } more
 docs-card-relative-unknown = Unknown
 docs-card-relative-today = Today
@@ -6495,37 +6673,7 @@ settings-security-error-reset-failed = Failed to reset password
 # invalid-request, generic), and a transient success state.
 # $provider is the human-readable IdP label (Microsoft / SSO).
 auth-callback-loading-default = Completing sign-in...
-auth-callback-loading-processing = Processing authentication...
-auth-callback-loading-success = Success! Redirecting...
 auth-callback-loading-subtitle = Please wait while we complete authentication
-auth-callback-success-title = Authentication successful
-auth-callback-success-subtitle = Redirecting...
-auth-callback-technical-details = Technical Details
-auth-callback-provider-microsoft = Microsoft
-auth-callback-provider-sso = SSO
-auth-callback-error-missing-params = Missing required authentication parameters
-auth-callback-error-missing-detail = Missing: { $fields }
-auth-callback-error-missing-field-code = code
-auth-callback-error-missing-field-state = state
-auth-callback-error-invalid-response = Invalid response from server
-auth-callback-error-no-response = No response received from server
-auth-callback-error-unknown = Unknown error
-auth-callback-error-generic-message = An unexpected error occurred during authentication
-auth-callback-error-status-prefix = Status: { $status }
-auth-callback-already-title = Account Already Connected
-auth-callback-already-message = This { $provider } account is already linked to another user in the system.
-auth-callback-already-suggestion-microsoft = Try signing in with a different { $provider } account, or contact your administrator.
-auth-callback-already-suggestion-generic = Try signing in with a different account, or contact your administrator.
-auth-callback-invalid-title = Authentication Failed
-auth-callback-invalid-message = The authentication request was invalid or has expired.
-auth-callback-invalid-suggestion-microsoft = Please try connecting your { $provider } account again.
-auth-callback-invalid-suggestion-generic = Please try signing in again.
-auth-callback-generic-title = Authentication Failed
-auth-callback-generic-suggestion = Please try again or contact support if the problem persists.
-auth-callback-action-try-different = Try a Different Account
-auth-callback-action-back-settings = Back to Settings
-auth-callback-action-return-login = Return to Login
-auth-callback-action-try-again = Try Again
 
 # Dashboard widgets
 dashboard-widget-shell-action-view-all = View all
@@ -6661,11 +6809,6 @@ dashboard-knowledge-gaps-action = View queue
 dashboard-knowledge-gaps-error = Failed to load gaps
 dashboard-knowledge-gaps-empty-title = No open gaps
 dashboard-knowledge-gaps-empty-description = Tickets flagged for documentation will appear here.
-dashboard-knowledge-gaps-signal-count =
-    { $count ->
-        [one] 1 signal
-       *[other] { $count } signals
-    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } searches
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets representing demand for this doc
@@ -7173,11 +7316,13 @@ admin-ldap-preview-members = { $count } members
 admin-ldap-preview-not-found = group not found in directory
 admin-ldap-preview-default = Everyone else → Member
 route-title-admin-csv-import = CSV import
+route-title-admin-docs-import = Import documentation
 route-title-admin-import-saved-matches = Saved matches
 route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Backup and restore
 route-title-group-detail = Group details
 route-title-authenticating = Authenticating...
+route-title-auth-confirmed = Confirm it's you
 route-title-pdf-viewer = PDF viewer
 
 # Loading modals + scattered polish
@@ -7507,11 +7652,13 @@ user-settings-delete-button = Delete Account
 user-settings-delete-self-hint = To delete your account, ask your workspace administrator.
 user-settings-delete-modal-warning = { $name } loses access now. The account is permanently deleted after 30 days, and an administrator can restore it until then.
 user-settings-delete-modal-removes = After 30 days, this permanently removes:
-user-settings-delete-stepup-password = Enter your password to confirm
-user-settings-delete-stepup-mfa = Enter a code from your authenticator app, or a backup code, to confirm
 user-settings-delete-cancel = Cancel
 user-settings-delete-confirm = Delete Account
 user-settings-delete-error = Couldn't delete the account. Try again.
+user-settings-delete-member-elsewhere = This person also belongs to other workspaces, so their account can't be deleted from here. Remove them from this workspace instead.
+user-settings-delete-admin-hint = Administrators can't be deleted. To delete this account, change their role first.
+user-settings-account-member-elsewhere = { $name } also belongs to other workspaces, so only they can change their name, photo, email addresses and language. Their groups here are yours to manage.
+user-settings-account-administrator = { $name } is an administrator, so only they or an owner can change their name, photo, email addresses, language and sign-in. Their groups here are yours to manage.
 admin-plugins-list-title = Plugins
 admin-plugins-list-aria-filter = Filter plugins
 admin-plugins-list-search-placeholder = Search plugins
@@ -7937,6 +8084,7 @@ admin-rules-starters-added = Added
 admin-rules-starters-toast = Added { $name } as a draft.
 admin-rules-starters-error = Couldn't add that rule.
 admin-rules-starters-error-load = Couldn't load the starter rules.
+backend-error-starter-status-missing = This starter moves tickets to a status in the { $category } category, and your workspace doesn't have one. Add one in Workflow, then try again.
 admin-rules-activity-rule-unknown = Deleted rule
 admin-rules-activity-row-by-person = Applied to ticket #{ $ticket_id } by { $name }
 admin-rules-activity-what-it-did = What it did
@@ -8000,6 +8148,8 @@ ticket-actions-step-status-unknown = Change the status
 ticket-actions-step-assign = Assign to { $name }
 ticket-actions-step-assign-unknown = Assign to a specific person
 ticket-actions-step-unassign = Remove the assignee
+# A name inside a sentence, such as a tag a rule step adds.
+rule-step-quoted-name = “{ $name }”
 ticket-actions-step-add-tags =
     { $count ->
         [one] Add the tag { $tags }
@@ -8193,6 +8343,8 @@ date-picker-calendar-aria = Calendar
 # relay, offline instance id.
 admin-nav-license-title = License
 admin-nav-license-description = License status, the Nosdesk Cloud push relay, and plans.
+admin-nav-plan-billing-title = Plan and billing
+admin-nav-plan-billing-description = Trial, payment method and invoices. Opens your Nosdesk account.
 route-title-admin-license = License
 admin-license-title = License
 admin-license-description = What this server is licensed for, and how push notifications reach the mobile app.
@@ -8715,3 +8867,1359 @@ portal-new-next-2 = They reply here, and each reply reaches you by email too.
 portal-new-next-3 = When it's sorted, you confirm it's fixed.
 portal-approvals-intro = Requests that need your OK before the team starts on them.
 portal-approval-ask = Do you approve this request?
+
+# Documentation import (Data import > Documentation)
+docs-import-title = Import documentation
+docs-import-subtitle = Bring pages in from Markdown files or an export from another tool.
+docs-import-step-pages = Pages
+docs-import-nothing-changes = Nothing in your workspace changes until you press Import on the Review step.
+docs-import-error-generic = The import failed. Try again, or start a new one.
+docs-import-check-failed = The check stopped before it finished. Nothing was imported. Check the pages again.
+docs-import-commit-failed = Nothing was imported. Try Import again.
+docs-import-report-failed = The conversion report couldn't be downloaded. Try again.
+docs-import-untitled = Untitled
+
+# Start
+docs-import-start-heading = Import documentation
+docs-import-drop-idle = Drop a .zip or .md files here, or click to choose
+docs-import-drop-release = Release to upload
+docs-import-drop-hint = .zip or .md, up to 200 MB and 2,000 pages
+docs-import-files-count = { $count ->
+    [one] 1 file
+   *[other] { $count } files
+}
+docs-import-uploading = Uploading { $name }
+docs-import-uploading-progress = { $loaded } of { $total } · you can keep this tab in the background
+docs-import-reading = Reading the pages
+docs-import-start-sources = Markdown files, or an export from Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline or Nosdesk. The source is detected; you can change it on the next step.
+docs-import-start-images = Images in the archive come across. Images linked from the web are downloaded unless you say otherwise.
+docs-import-start-attachments = PDF and Office attachments stay out for now; each page that links one is listed.
+docs-import-comes-across-heading = What comes across
+docs-import-comes-across-1 = Headings, text formatting, links, lists, quotes, code, tables and images, as the editor supports them. Pages keep their tree and order. Links between pages are rewritten to the new pages.
+docs-import-comes-across-2 = Callouts become quotes with a bold label, checklists become bullet lists with ☐ and ☑, and anything that changes is listed at Review, page by page, before you import.
+
+# Refusals
+docs-import-refused-not-a-zip = This file isn't a zip we can read.
+docs-import-refused-inner-zip = The zip inside it, { $part }, isn't a zip we can read.
+docs-import-refused-encrypted = This zip is password-protected. Export it again without a password.
+docs-import-refused-too-many-pages = The import has { $count } pages. The limit is { $max }. Export one part at a time.
+docs-import-refused-too-many-files = The zip holds more than { $max } files. Export one part at a time.
+docs-import-refused-no-markdown = There are no Markdown files in this zip.
+docs-import-refused-source-later = This is a { $source } export. BookStack and Confluence exports are coming in a later update.
+docs-import-refused-mixed-files = Choose one .zip, or only .md files.
+docs-import-refused-too-large = { $name } is { $size }. The limit is { $max }. Export one part at a time.
+docs-import-refused-unsafe-path = The zip has a file name we can't accept: { $name }
+docs-import-refused-duplicate-entry = The zip holds { $name } more than once.
+docs-import-refused-compression-ratio = { $name } unpacks to far more than its packed size, so the zip isn't read.
+docs-import-refused-entry-too-large = { $name } is larger than { $max }.
+docs-import-refused-unpacked-too-large = The zip unpacks to more than { $max }. Export one part at a time.
+docs-import-refused-entry-damaged = { $name } is damaged in the zip. Export it again.
+docs-import-refused-unreadable-upload = The upload couldn't be read. Try again.
+docs-import-refused-no-file = Choose a file to import.
+docs-import-refused-unreadable = This file couldn't be read as documentation.
+docs-import-refused-timed-out = Reading the pages took too long. Import a smaller part at a time.
+docs-import-refused-collection-missing = The collection to import into no longer exists. Choose another.
+docs-import-refused-busy = This import is being checked or committed. Try again in a moment.
+docs-import-refused-check-running = This import is being checked.
+docs-import-refused-commit-running = This import is being committed.
+docs-import-refused-type-busy = Another documentation import is being committed. Try again when it finishes.
+docs-import-refused-committed = This import has been committed; its options can't change.
+docs-import-refused-not-checked = This import hasn't been checked yet. Check the pages first.
+docs-import-refused-expired = This import can't be resumed. Start a new one.
+
+# Pages: the source line
+docs-import-source-looks-like = Looks like { $profile } · { $pages ->
+    [one] 1 page
+   *[other] { $pages } pages
+}, { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}
+docs-import-source-read-as = Read as { $profile } · { $pages ->
+    [one] 1 page
+   *[other] { $pages } pages
+}, { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}
+docs-import-source-rereading = Reading the pages again
+docs-import-source-change = Change
+docs-import-source-change-label = Read this archive as
+docs-import-profile-detected = { $profile } (detected)
+docs-import-profile-notion = a Notion export
+docs-import-profile-nosdesk-v2 = a Nosdesk export
+docs-import-profile-nosdesk-v1 = an older Nosdesk export
+docs-import-profile-obsidian = an Obsidian vault
+docs-import-profile-gitbook = a GitBook export
+docs-import-profile-mkdocs = an MkDocs site
+docs-import-profile-docusaurus = a Docusaurus site
+docs-import-profile-outline = an Outline export
+docs-import-profile-plain = a plain folder
+docs-import-profile-option-notion = Notion export
+docs-import-profile-option-nosdesk-v2 = Nosdesk export
+docs-import-profile-option-nosdesk-v1 = Older Nosdesk export
+docs-import-profile-option-obsidian = Obsidian vault
+docs-import-profile-option-gitbook = GitBook
+docs-import-profile-option-mkdocs = MkDocs
+docs-import-profile-option-docusaurus = Docusaurus
+docs-import-profile-option-outline = Outline export
+docs-import-profile-option-plain = Plain folder
+
+# Pages: the tree
+docs-import-tree-title = Pages as they'll appear in Nosdesk
+docs-import-tree-expand-all = Expand all
+docs-import-tree-collapse-all = Collapse all
+docs-import-tree-expand = Expand { $title }
+docs-import-tree-collapse = Collapse { $title }
+docs-import-tree-tick = Import { $title }
+docs-import-tree-tick-with-children = { $count ->
+    [one] Import { $title } and its page
+   *[other] Import { $title } and its { $count } pages
+}
+docs-import-tree-left-out = Left out
+docs-import-tree-no-content = No content
+docs-import-tree-database = Database
+docs-import-tree-image-count = { $count ->
+    [one] 1 image
+   *[other] { $count } images
+}
+docs-import-tree-page-count = { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}
+docs-import-tree-note-count = { $count ->
+    [one] 1 note
+   *[other] { $count } notes
+}
+docs-import-tree-head-new = new collection
+docs-import-tree-head-existing = existing collection
+docs-import-tree-head-none = no collection
+docs-import-tree-no-collection = Drafts
+docs-import-tree-count = { $ticked } of { $total } pages will be imported
+docs-import-tree-count-unticked = { $count } unticked
+docs-import-tree-count-left-out = { $count } left out by a pattern
+docs-import-tree-follow = Untick a section and its pages follow
+
+# Pages: where it goes
+docs-import-where-title = Where it goes
+docs-import-where-collection = Collection
+docs-import-where-suggested = { $name } already exists in Documentation with { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}, so it's selected. Choose New collection to keep this import apart.
+docs-import-where-existing = Existing collection
+docs-import-where-existing-desc = New pages go after its existing pages.
+docs-import-where-existing-none = There are no collections yet.
+docs-import-where-collection-option = { $name } ({ $count ->
+    [one] 1 page
+   *[other] { $count } pages
+})
+docs-import-where-under = Under page
+docs-import-where-top-level = Top level of the collection
+docs-import-where-under-option = Under { $title }
+docs-import-where-new = New collection
+docs-import-where-name = Collection name
+docs-import-where-new-clash = A collection called { $name } already exists. Both will show in Documentation.
+docs-import-where-per-folder = One collection per top-level folder
+docs-import-where-per-folder-desc = { $count ->
+    [one] 1 collection: { $names }.
+   *[other] { $count } collections: { $names }.
+} A folder's own page becomes the first page of its collection.
+docs-import-where-as-source = As the export says
+docs-import-where-as-source-desc = { $count ->
+    [one] 1 collection, as it was in Nosdesk.
+   *[other] { $count } collections, as they were in Nosdesk.
+}
+docs-import-status-label = Status
+docs-import-status-drafts = Drafts
+docs-import-status-published = Published
+docs-import-status-as-files = As the files say
+docs-import-status-drafts-help = Only staff can see them until you publish them.
+docs-import-status-published-help = Everyone who can see the collection sees them at once, conversion notes and all.
+docs-import-status-as-files-help = Pages the files mark as drafts stay drafts; the rest are published.
+docs-import-status-as-files-notion = Notion exports carry no status, so every page would be a draft.
+docs-import-web-label = Images linked from the web
+docs-import-web-download = Download them
+docs-import-web-links = Keep them as links
+docs-import-web-download-help = { $count ->
+    [0] No page links an image from the web.
+    [one] 1 image links to the web. It's downloaded into Nosdesk at the check, so Review shows whether it came through.
+   *[other] { $count } images link to the web. They're downloaded into Nosdesk at the check, so Review shows which ones came through.
+}
+docs-import-web-links-help = { $count ->
+    [0] No page links an image from the web.
+   *[other] Kept links won't show in Nosdesk: pages can only show images stored here. Linked images would appear as their alt text.
+}
+docs-import-leave-out-label = Leave out files matching
+docs-import-leave-out-placeholder = e.g. **/archive/**
+docs-import-leave-out-add = Add
+docs-import-leave-out-remove = Remove { $pattern }
+docs-import-leave-out-help = Archive paths, matched against the file names. Press Enter to add.
+docs-import-leave-out-matches = { $count ->
+    [one] 1 page matches.
+   *[other] { $count } pages match.
+}
+docs-import-too-many-typed-patterns = Leave out takes at most 100 patterns. Remove some.
+docs-import-pattern-too-long = A pattern is longer than 500 characters. Shorten it.
+docs-import-choose-collection = Choose the collection to import into.
+
+# Pages: the action bar
+docs-import-change-file = Change file
+docs-import-change-file-title = Discard this file?
+docs-import-change-file-message = Nothing has been imported. Your choices under Where it goes are kept for the next file.
+docs-import-change-file-confirm = Discard file
+docs-import-tick-one = Tick at least one page
+docs-import-check = { $count ->
+    [one] Check 1 page
+   *[other] Check { $count } pages
+}
+docs-import-checking = Checking pages
+docs-import-checking-line = Checking { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}: converting, reading { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}, looking for pages already in Nosdesk. Nothing is written.
+docs-import-checking-line-web = Checking { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}: converting, reading { $images ->
+    [one] 1 image
+   *[other] { $images } images
+}, downloading { $web } from the web, looking for pages already in Nosdesk. Nothing is written.
+
+# Review
+docs-import-dest-new = into a new collection, { $name }
+docs-import-dest-existing = into { $name }
+docs-import-dest-existing-under = into { $name } under { $under }
+docs-import-dest-many = { $count ->
+    [one] into 1 new collection
+   *[other] into { $count } new collections
+}
+docs-import-headline-checked = { $count ->
+    [one] 1 page checked.
+   *[other] { $count } pages checked.
+}
+docs-import-headline-imported = { $count ->
+    [one] 1 will be imported
+   *[other] { $count } will be imported
+} { $dest }, { $status ->
+    [published] published
+    [as_files] as the files say
+   *[drafts] as drafts
+}{ $copies ->
+    [0] {""}
+   *[other] {" "}({ $copies } as copies)
+}.
+docs-import-headline-nothing = Nothing would be imported.
+docs-import-headline-skipped = { $count } skipped: already in Nosdesk.
+docs-import-headline-errors = { $count ->
+    [one] 1 couldn't be converted and is imported empty.
+   *[other] { $count } couldn't be converted and are imported empty.
+}
+docs-import-tile-new = New pages
+docs-import-tile-new-copies = { $count } as copies
+docs-import-tile-new-errors = { $count } imported empty
+docs-import-tile-new-sections = { $count ->
+    [one] 1 section page with no content
+   *[other] { $count } section pages with no content
+}
+docs-import-tile-images = Images
+docs-import-tile-images-problems = { $count } with problems
+docs-import-tile-images-web = { $count } from the web
+docs-import-tile-images-left-out = { $count } left out
+docs-import-tile-links = Links rewritten
+docs-import-tile-links-kept = { $count } kept as text
+docs-import-tile-links-all = All links resolve
+docs-import-tile-skipped = Skipped
+docs-import-tile-skipped-already = { $count } already in Nosdesk
+docs-import-already-title = { $count ->
+    [one] 1 page was imported before
+   *[other] { $count } pages were imported before
+}
+docs-import-already-names-more = { $names } and { $count } more
+docs-import-already-by-source = matched by their path in an earlier import into the same collection.
+docs-import-already-by-uuid = they come from this workspace's export.
+docs-import-already-by-both = matched by an earlier import, or they come from this workspace's export.
+docs-import-already-label = Pages already in Nosdesk
+docs-import-already-skip = Skip them
+docs-import-already-copy = Import as copies
+docs-import-already-skip-help = The pages in Nosdesk keep their content. Nothing is updated in place.
+docs-import-already-copy-help = A second page with the same title is created next to the existing one. Nothing is updated in place.
+docs-import-conversion-title = What changes in conversion
+docs-import-conversion-clean = Every page converts as it is.
+docs-import-conversion-footer = Nothing changes silently. Every line here is in the conversion report, page by page.
+docs-import-show-pages = Show pages
+docs-import-line-pages = { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+}
+docs-import-line-errors = { $count ->
+    [one] 1 page couldn't be converted. It's imported with an empty body.
+   *[other] { $count } pages couldn't be converted. They're imported with an empty body.
+}
+docs-import-line-sections = { $count ->
+    [one] 1 section page has no content: { $names }. It gets an empty body you can fill in.
+   *[other] { $count } section pages have no content: { $names }. They get an empty body you can fill in.
+}
+docs-import-line-front-matter = Front matter fields that aren't imported: { $fields }.
+
+# Conversion notes, one per kind of change
+docs-import-note-tables-hoisted = { $count ->
+    [one] 1 table inside a list or quote moved after it
+   *[other] { $count } tables inside a list or quote moved after it
+}
+docs-import-note-table-rows-padded = { $count ->
+    [one] 1 table had its rows evened out
+   *[other] { $count } tables had their rows evened out
+}
+docs-import-note-table-cells-flattened = { $count ->
+    [one] 1 table cell held content a cell can't, now kept as text
+   *[other] { $count } table cells held content a cell can't, now kept as text
+}
+docs-import-note-checklists-as-bullets = { $count ->
+    [one] 1 checklist became a bullet list
+   *[other] { $count } checklists became bullet lists
+}
+docs-import-note-strikethrough-removed = { $count ->
+    [one] Strikethrough or highlight removed in 1 place; the text is kept
+   *[other] Strikethrough or highlight removed in { $count } places; the text is kept
+}
+docs-import-note-callouts-as-quotes = { $count ->
+    [one] 1 callout became a quote
+   *[other] { $count } callouts became quotes
+}
+docs-import-note-formulas-as-code = { $count ->
+    [one] 1 formula became code
+   *[other] { $count } formulas became code
+}
+docs-import-note-links-dropped = { $count ->
+    [one] 1 link goes somewhere a page can't link to. The text is kept.
+   *[other] { $count } links go somewhere a page can't link to. The text is kept.
+}
+docs-import-note-images-dropped = { $count ->
+    [one] 1 image has a source a page can't show. The alt text is kept.
+   *[other] { $count } images have a source a page can't show. The alt text is kept.
+}
+docs-import-note-html-removed = { $count ->
+    [one] Embedded HTML removed in 1 place (scripts, styles, frames)
+   *[other] Embedded HTML removed in { $count } places (scripts, styles, frames)
+}
+docs-import-note-html-as-text = { $count ->
+    [one] HTML kept as its text in 1 place
+   *[other] HTML kept as its text in { $count } places
+}
+docs-import-note-nesting-flattened = { $count ->
+    [one] Nesting deeper than the editor allows flattened in 1 place
+   *[other] Nesting deeper than the editor allows flattened in { $count } places
+}
+docs-import-note-table-cells-dropped = { $count ->
+    [one] 1 table row had more cells than its header; the extra cells were dropped
+   *[other] { $count } table rows had more cells than their header; the extra cells were dropped
+}
+docs-import-note-mentions-as-text = { $count ->
+    [one] 1 mention became text: the person isn't in this workspace
+   *[other] { $count } mentions became text: the people aren't in this workspace
+}
+docs-import-note-ticket-links-as-text = { $count ->
+    [one] 1 ticket link became text: the ticket isn't in this workspace
+   *[other] { $count } ticket links became text: the tickets aren't in this workspace
+}
+docs-import-note-embeds-as-text = { $count ->
+    [one] 1 embedded page became its title: the page isn't in the import
+   *[other] { $count } embedded pages became their titles: the pages aren't in the import
+}
+docs-import-note-links-unresolved = { $count ->
+    [one] 1 link points to a page that isn't in the import. The text is kept.
+   *[other] { $count } links point to pages that aren't in the import. The text is kept.
+}
+docs-import-note-links-ambiguous = { $count ->
+    [one] 1 link by name matched more than one page; it goes to the nearest
+   *[other] { $count } links by name matched more than one page; each goes to the nearest
+}
+docs-import-note-attachments-left-out = { $count ->
+    [one] 1 attachment left out: PDF and Office files aren't imported yet. The link keeps its text.
+   *[other] { $count } attachments left out: PDF and Office files aren't imported yet. The links keep their text.
+}
+docs-import-note-front-matter-ignored = { $count ->
+    [one] 1 front matter block couldn't be read and was left out
+   *[other] { $count } front matter blocks couldn't be read and were left out
+}
+docs-import-note-title-shortened = { $count ->
+    [one] 1 title was longer than 255 characters and was shortened
+   *[other] { $count } titles were longer than 255 characters and were shortened
+}
+docs-import-note-not-utf8 = { $count ->
+    [one] 1 file wasn't UTF-8; some characters may be wrong
+   *[other] { $count } files weren't UTF-8; some characters may be wrong
+}
+docs-import-note-source-syntax-removed = { $count ->
+    [one] Syntax only the source tool understands removed in 1 place
+   *[other] Syntax only the source tool understands removed in { $count } places
+}
+docs-import-note-database-rows-cut = { $count ->
+    [one] 1 Notion database had more rows than a page shows; the first 200 are kept
+   *[other] { $count } Notion databases had more rows than a page shows; the first 200 are kept
+}
+docs-import-note-images-unreadable = { $count ->
+    [one] 1 image couldn't be read. The alt text is kept.
+   *[other] { $count } images couldn't be read. The alt text is kept.
+}
+docs-import-note-svg-images-refused = { $count ->
+    [one] 1 SVG image left out: SVG can carry scripts. The alt text is kept.
+   *[other] { $count } SVG images left out: SVG can carry scripts. The alt text is kept.
+}
+docs-import-note-web-images-not-fetched = { $count ->
+    [one] 1 image from the web couldn't be downloaded. The alt text is kept.
+   *[other] { $count } images from the web couldn't be downloaded. The alt text is kept.
+}
+
+# Why one image won't come across
+docs-import-image-unreadable = couldn't be read
+docs-import-image-too-large = is larger than 10 MB
+docs-import-image-not-an-image = isn't an image
+docs-import-image-svg = is an SVG, which can't be imported
+docs-import-image-refused-address = has an address that can't be downloaded from
+docs-import-image-timed-out = took too long to download
+docs-import-image-fetch-failed = couldn't be downloaded
+docs-import-image-over-limit = is past the 500 web images one import downloads
+
+# Review: the page list
+docs-import-list-title = Pages
+docs-import-filter-label = Show
+docs-import-filter-all = All { $count }
+docs-import-filter-notes = With notes { $count }
+docs-import-filter-skipped = Skipped { $count }
+docs-import-filter-errors = Errors { $count }
+docs-import-chip-sections = Section pages with no content
+docs-import-chip-images = Image problems
+docs-import-chip-links = Links kept as text
+docs-import-chip-changed = Changed since check
+docs-import-chip-errors = Pages that couldn't be converted
+docs-import-chip-clear = Show every page
+docs-import-list-keys = ↑ ↓ move · Enter previews
+docs-import-list-loading = Reading the pages
+docs-import-list-failed = The pages couldn't be loaded. Reload to try again.
+docs-import-list-empty = No pages match.
+docs-import-list-empty-notes = No notes. Every page converts cleanly.
+docs-import-list-empty-skipped = Nothing skipped.
+docs-import-list-empty-errors = No errors. Every page converts.
+docs-import-col-page = Page
+docs-import-col-outcome = Outcome
+docs-import-col-notes = Notes
+docs-import-top-level = Top level
+docs-import-no-notes = No notes
+docs-import-pager = { $from } to { $to } of { $total }
+docs-import-pager-prev = Previous
+docs-import-pager-next = Next
+docs-import-outcome-new = New
+docs-import-outcome-copy = Copy
+docs-import-outcome-skipped = Skipped
+docs-import-outcome-error = Error
+docs-import-outcome-left = Not imported
+docs-import-outcome-trash = In Trash
+docs-import-outcome-kept = Kept
+docs-import-row-already-skip = Already in Nosdesk, so it's skipped
+docs-import-row-already-copy = Already in Nosdesk, so a copy is made
+docs-import-row-changed = Changed since check: this page is in Nosdesk now
+docs-import-row-image-problem = { $name } { $problem }
+docs-import-row-attachment = Attachment left out: { $name }
+docs-import-row-unresolved = Link kept as text: { $name } isn't in the import
+docs-import-row-section = Section page with no content
+
+# Review: the preview
+docs-import-preview-title = Preview
+docs-import-preview-select = Select a page to see how it will look
+docs-import-preview-empty = The converted page, read only, in the editor's own view.
+docs-import-preview-read-only = Read only · the page as it will be written · images show as their file
+docs-import-preview-loading = Converting the page
+docs-import-preview-failed = The preview couldn't be loaded. Select the page again.
+docs-import-preview-schema-failed = The preview failed the editor's schema check. This is a bug in the converter, not in your page: { $reason }
+docs-import-preview-error-line = { $count ->
+    [one] This page is imported with an empty body. The other page imports as planned.
+   *[other] This page is imported with an empty body. The other { $count } pages import as planned.
+}
+docs-import-preview-aria = Preview of { $title }
+docs-import-preview-prev = Previous
+docs-import-preview-next = Next
+docs-import-preview-was-callout = Was a callout
+docs-import-preview-was-checklist = Was a checklist
+docs-import-preview-table-moved = Moved out of the list
+docs-import-preview-image-web = from the web
+docs-import-preview-image-problem = { $problem } · alt text kept: { $alt }
+docs-import-preview-image-aria = Image: { $name }
+docs-import-preview-image-aria-problem = Image not imported: { $name }
+
+# Review: the action bar and confirmation
+docs-import-review-back = Back to Pages
+docs-import-report = Download conversion report (.csv)
+docs-import-review-skip-reason = { $count ->
+    [one] 1 page won't be imported
+   *[other] { $count } pages won't be imported
+}
+docs-import-review-import = { $count ->
+    [one] Import 1 page
+   *[other] Import { $count } pages
+}
+docs-import-review-importing = Importing
+docs-import-review-nothing = Nothing to import
+docs-import-confirm-title = { $count ->
+    [one] Import 1 page?
+   *[other] Import { $count } pages?
+}
+docs-import-confirm-message = { $count ->
+    [one] 1 page
+   *[other] { $count } pages
+} and { $images ->
+    [one] 1 image
+   *[other] { $images } images
+} will be added { $dest }, { $status ->
+    [published] published
+    [as_files] as the files say
+   *[drafts] as drafts
+}.
+docs-import-confirm-skipped = { $count ->
+    [one] 1 page already in Nosdesk will be skipped.
+   *[other] { $count } pages already in Nosdesk will be skipped.
+}
+docs-import-confirm-copies = { $count ->
+    [one] 1 page already in Nosdesk will be imported as a copy.
+   *[other] { $count } pages already in Nosdesk will be imported as copies.
+}
+docs-import-confirm-errors = { $count ->
+    [one] 1 page that couldn't be converted will be imported empty.
+   *[other] { $count } pages that couldn't be converted will be imported empty.
+}
+docs-import-confirm-published = Everyone who can see the collection will see them at once.
+docs-import-plan-changed = Something changed since you checked. Review the new plan below; the numbers and the Import button are updated.
+docs-import-plan-changed-more = { $count ->
+    [one] Something changed since you checked: 1 more page is already in Nosdesk. Review the new plan below; the numbers and the Import button are updated.
+   *[other] Something changed since you checked: { $count } more pages are already in Nosdesk. Review the new plan below; the numbers and the Import button are updated.
+}
+
+# Done
+docs-import-importing-title = { $count ->
+    [one] Importing 1 page
+   *[other] Importing { $count } pages
+}
+docs-import-importing-progress = { $written } of { $total } pages written
+docs-import-importing-finishing = Finishing: links, embeds and the search index
+docs-import-importing-leave = You can leave this page. The import keeps running and shows here, and in Recent imports, when it's done.
+docs-import-done-heading = Import complete
+docs-import-done-summary = { $count ->
+    [one] 1 page imported into { $where }
+   *[other] { $count } pages imported into { $where }
+}, { $status ->
+    [published] published
+    [as_files] as the files say
+   *[drafts] as drafts
+}.
+docs-import-done-many = { $count ->
+    [one] 1 new collection
+   *[other] { $count } new collections
+}
+docs-import-done-images = { $count ->
+    [one] 1 image stored.
+   *[other] { $count } images stored.
+}
+docs-import-done-skipped = { $count ->
+    [one] 1 page already in Nosdesk was skipped.
+   *[other] { $count } pages already in Nosdesk were skipped.
+}
+docs-import-done-errors = { $count ->
+    [one] 1 page couldn't be converted and was imported empty.
+   *[other] { $count } pages couldn't be converted and were imported empty.
+}
+docs-import-done-drafts = The pages are drafts: only staff can see them. Read a few, then publish them all here or one at a time.
+docs-import-done-revision = Each page's first revision says "Imported from { $file }".
+docs-import-done-open = Open { $name }
+docs-import-done-open-docs = Open Documentation
+docs-import-done-another = Import another file
+docs-import-conversion-done-title = What changed in conversion
+docs-import-conversion-done-footer = The conversion report lists every page with its notes.
+
+# Import detail
+docs-import-detail-state = { $count ->
+    [one] Imported: 1 page
+   *[other] Imported: { $count } pages
+} { $status ->
+    [published] published
+    [as_files] as the files say
+   *[drafts] as drafts
+}
+docs-import-detail-source = Source
+docs-import-detail-files = { $count ->
+    [one] 1 file
+   *[other] { $count } files
+}
+docs-import-detail-into-existing = Into { $name } (existing)
+docs-import-detail-into-new = Into { $name } (new)
+docs-import-detail-into-many = { $count ->
+    [one] Into 1 new collection
+   *[other] Into { $count } new collections
+}
+docs-import-detail-web-download = Web images downloaded
+docs-import-detail-web-links = Web images kept as links
+docs-import-detail-dup-skip = Pages already in Nosdesk skipped
+docs-import-detail-dup-copy = Pages already in Nosdesk imported as copies
+docs-import-detail-left-out = Left out: { $patterns }
+docs-import-detail-tree-title = Pages this import wrote
+docs-import-detail-tree-footer = Titles open the page. Skipped and not imported rows are what the check found; they wrote nothing.
+docs-import-detail-kept = Details are kept for 30 days. The counts and options stay after that.
+docs-import-detail-state-removed = { $count ->
+    [one] Removed: 1 page moved to Trash on { $date }
+   *[other] Removed: { $count } pages moved to Trash on { $date }
+}, { $kept } kept
+
+# Publish all
+docs-import-publish-button = { $count ->
+    [one] Publish 1 page
+   *[other] Publish all { $count } pages
+}
+docs-import-publish-title = { $count ->
+    [one] Publish 1 page?
+   *[other] Publish { $count } pages?
+}
+docs-import-publish-message = Everyone in the workspace who can see { $collection } will see them. Pages someone has already changed or published since the import are left as they are.
+docs-import-publish-these-collections = these collections
+docs-import-publish-confirm = { $count ->
+    [one] Publish 1 page
+   *[other] Publish { $count } pages
+}
+docs-import-published = { $count ->
+    [one] 1 page published
+   *[other] { $count } pages published
+}
+docs-import-published-left = { $count ->
+    [one] 1 left as it was (changed since the import)
+   *[other] { $count } left as they were (changed since the import)
+}
+docs-import-publish-failed = Publishing the pages failed and nothing was published.
+
+# Remove imported pages
+docs-import-remove-button = Remove imported pages
+docs-import-remove-window = Moves them to Trash. Only pages nobody has changed since. Until { $date }.
+docs-import-remove-running = Still removing. This page updates when it finishes.
+docs-import-remove-still-running-later = Removing is taking longer than usual. Come back to this page later to see what it did.
+docs-import-remove-load-failed = Couldn't check the imported pages. Try again.
+docs-import-remove-failed = Removing the imported pages failed and nothing was moved to Trash.
+docs-import-remove-not-committed = This import wasn't committed, so it created no pages.
+docs-import-remove-already-removed = The pages this import created were already moved to Trash.
+docs-import-action-busy = This import is being changed. Try again in a moment.
+docs-import-remove-nothing-none-created = This import created no pages, so there is nothing to remove.
+docs-import-remove-nothing-all-gone = The pages this import created were already deleted or moved to Trash.
+docs-import-remove-nothing-all-changed = Every page this import created has been changed since, so none can be moved to Trash.
+docs-import-remove-title = { $count ->
+    [one] Move 1 page to Trash?
+   *[other] Move { $count } pages to Trash?
+}
+docs-import-remove-title-none = Nothing to move to Trash
+docs-import-remove-confirm = { $count ->
+    [one] Move 1 page to Trash
+   *[other] Move { $count } pages to Trash
+}
+docs-import-remove-untouched = { $created ->
+    [one] Of the 1 page this import created,
+   *[other] Of the { $created } pages this import created,
+} { $count ->
+    [one] 1 is untouched and goes to Trash, where it can be restored.
+   *[other] { $count } are untouched and go to Trash, where they can be restored.
+}
+docs-import-remove-changed = { $count ->
+    [one] 1 has changed since and is kept.
+   *[other] { $count } have changed since and are kept.
+}
+docs-import-remove-gone = { $count ->
+    [one] 1 was already deleted or moved to Trash.
+   *[other] { $count } were already deleted or moved to Trash.
+}
+docs-import-remove-existing-keeps = { $name } keeps its other pages.
+docs-import-remove-collection-if-empty = The collection is deleted if it ends up empty.
+docs-import-remove-collections-if-empty = Collections that end up empty are deleted.
+docs-import-remove-once = This can be done once, until { $date }.
+docs-import-remove-which-kept = { $count ->
+    [one] Which page is kept?
+   *[other] Which { $count } are kept?
+}
+docs-import-remove-reason-edited = Edited on { $date }
+docs-import-remove-reason-edited-by = Edited on { $date } by { $name }
+docs-import-remove-reason-pages-added = { $count ->
+    [one] Has 1 page added since
+   *[other] Has { $count } pages added since
+}
+docs-import-remove-reason-moved = Moved to another collection
+docs-import-remove-reason-kept-under = { $count ->
+    [one] Kept because 1 page under it changed
+   *[other] Kept because { $count } pages under it changed
+}
+docs-import-remove-result = { $count ->
+    [one] 1 page moved to Trash.
+   *[other] { $count } pages moved to Trash.
+} { $kept } kept.
+docs-import-remove-result-restore = Restore any of them from Trash as usual.
+docs-import-remove-result-existing = { $name } was kept: it still has its other pages.
+docs-import-remove-result-collection-deleted = { $name } was deleted because it ended up empty.
+docs-import-remove-result-collection-kept = { $count ->
+    [one] { $name } was kept: 1 page remains in it.
+   *[other] { $name } was kept: { $count } pages remain in it.
+}
+docs-import-remove-result-collections-deleted = { $count ->
+    [one] 1 collection that ended up empty was deleted.
+   *[other] { $count } collections that ended up empty were deleted.
+}
+docs-import-remove-result-collections-kept = The collections were kept: they still have pages.
+
+## Workspace import: a Nosdesk export moved into this workspace
+
+route-title-admin-workspace-import = Import a Nosdesk export
+route-title-admin-workspace-import-detail = Workspace import
+admin-data-import-nosdesk-title = Nosdesk export
+admin-data-import-nosdesk-description = Move a whole workspace from Nosdesk Cloud or another self-hosted Nosdesk. Fills this workspace while it has nothing in it.
+admin-data-import-nosdesk-description-cloud = Move a whole workspace from a self-hosted Nosdesk. Nosdesk support runs moves into Cloud; contact them to arrange one.
+admin-data-import-status-support = Nosdesk support
+admin-data-import-nosdesk-owner-only = Move a whole workspace from another Nosdesk. The workspace owner runs it.
+admin-data-import-status-owner-only = Owner only
+workspace-import-title = Import a Nosdesk export
+workspace-import-subtitle = Fill { $workspace } with a workspace exported from Nosdesk Cloud or another Nosdesk.
+workspace-import-cloud-elsewhere = Moving a workspace into Nosdesk Cloud is done by Nosdesk support. Contact them to arrange it, and keep your export file.
+workspace-import-owner-only = Only the workspace owner can import a Nosdesk export.
+workspace-import-step-archive = Archive
+workspace-import-step-preview = Preview
+workspace-import-step-import = Import
+workspace-import-nothing-changes = Nothing in this workspace changes until you press Import on the Preview step.
+workspace-import-resume-failed = This import couldn't be opened. Start again from the export file.
+workspace-import-upload-failed = The upload didn't finish. Check the connection and choose the file again.
+workspace-import-check-request-failed = The check couldn't start. Try again.
+workspace-import-confirm-failed = The import couldn't start. Try again.
+workspace-import-retry-failed = The files couldn't be retried. Try again.
+
+workspace-import-archive-heading = Archive
+workspace-import-archive-unnamed = Unnamed export
+workspace-import-archive-sealed = password
+workspace-import-uploading = { $size } · uploading, { $pct }%
+workspace-import-choose-another = Choose another
+workspace-import-drop-idle = Choose the export file
+workspace-import-drop-hint = A .nosdesk archive from Export workspace data. Up to { $max }.
+workspace-import-password-label = Archive password
+workspace-import-password-placeholder = Only if one was set at export
+workspace-import-password-hint = Leave it empty for an archive exported without one.
+workspace-import-checks-heading = Checks
+workspace-import-checks-before = before anything is written
+workspace-import-checks-again = The same checks run again inside the import, so a change in between is caught.
+workspace-import-found-files =
+    { $count ->
+        [one] 1 file
+       *[other] { $count } files
+    }
+workspace-import-found-rows = { $what }: { $count }
+workspace-import-check-not-empty-settings = Settings you have changed, like workflow states, don't count; the import replaces them.
+workspace-import-fix-check = Check
+workspace-import-fix-check-again = Check again
+workspace-import-fix-new-ids = Check again with new ids
+workspace-import-fix-follow = Follow it
+workspace-import-fix-not-empty = Remove these items and come back, or run the import on a fresh install.
+workspace-import-archive-next-note = Preview shows everything the archive would add before anything is written.
+workspace-import-archive-wait-note = The preview is ready once the archive is checked.
+workspace-import-continue-to-preview = Continue to preview
+
+workspace-import-check-untouched = { $workspace } has nothing in it yet
+workspace-import-check-untouched-detail = Only its starting configuration, which the import replaces.
+workspace-import-check-untouched-pending = { $workspace } has nothing in it yet
+workspace-import-check-untouched-pending-detail = Checked once the file is here.
+workspace-import-check-size-ok = { $size }, under the { $max } limit
+workspace-import-check-size-pending = Under { $max }
+workspace-import-check-version-ok = Made by Nosdesk { $export }; this server runs { $server }
+workspace-import-check-version-ok-detail = { $slug }, exported { $date } from { $origin }.
+workspace-import-check-reading = Reading the archive
+workspace-import-check-reading-detail = Checking its version and contents.
+workspace-import-check-version-pending = Same release as this server ({ $server })
+workspace-import-check-version-pending-detail = Checked once the file is here.
+workspace-import-check-not-empty = { $workspace } already has content
+workspace-import-check-not-empty-detail = An import fills a workspace that has nothing in it yet. This one has:
+workspace-import-check-in-progress = An import is already under way
+workspace-import-check-in-progress-detail = One import runs at a time. Follow it to finish or reset it.
+workspace-import-check-no-workspace = This workspace isn't available
+workspace-import-check-no-workspace-detail = It may have been archived. Reload the page.
+workspace-import-check-too-large = This file is { $size }; this server accepts up to { $max }
+workspace-import-check-too-large-detail = Export again with fewer attachments, or ask whoever runs this server to raise NOSDESK_MAX_IMPORT_BYTES or to import the file on the server with nosdesk-cli workspace import FILE --into WORKSPACE, which has no size limit.
+workspace-import-check-format-too-old = Made by Nosdesk { $export } in an older format
+workspace-import-check-format-too-old-detail = This archive carries no email addresses, so nobody could sign in. Update that Nosdesk to { $server } and export again.
+workspace-import-check-version = Made by Nosdesk { $export }; this server runs { $server }
+workspace-import-check-earlier-detail = An archive imports only into the same release. Update the Nosdesk it came from to { $server } and export again, or import it on a server running { $export }.
+workspace-import-check-newer-detail = Update this server to Nosdesk { $export }, then import. The archive stays valid.
+workspace-import-check-unknown-version = Made by a Nosdesk this server doesn't recognise
+workspace-import-check-unknown-version-detail = The archive (Nosdesk { $export }) has a database layout this server doesn't know, as a development build's does. Export again from a server running Nosdesk { $server }.
+workspace-import-check-sealed = This archive has a password
+workspace-import-check-sealed-detail = Enter the password it was exported with to check it.
+workspace-import-check-password-wrong = The password doesn't open this archive
+workspace-import-check-password-wrong-detail = It is the password entered when the export was made. Try again.
+workspace-import-check-unreadable = This file isn't a Nosdesk workspace export
+workspace-import-check-unreadable-detail = Or it is damaged. Choose the .nosdesk file from Export workspace data.
+workspace-import-check-archive-missing = The uploaded archive is no longer here
+workspace-import-check-archive-missing-detail = Choose the export file again.
+workspace-import-check-stopped = The check stopped before it finished
+workspace-import-check-stopped-detail = Nothing was written. Check the archive again.
+workspace-import-check-import-stopped = The import stopped before it finished
+workspace-import-check-import-stopped-detail = Nothing was imported.
+workspace-import-check-failed = The archive couldn't be checked against this workspace
+workspace-import-check-failed-detail = Nothing was written. Check again; if it fails again, the server log says why.
+workspace-import-check-collision = This archive overlaps with data already on this server
+workspace-import-check-collision-ids-detail = { $rows } { $table } rows have ids this server already holds, as a copy of a workspace still on this server does. Check again with new ids to import it as a copy.
+workspace-import-check-collision-detail = { $rows } { $table } rows have values this server already holds. Import it into a fresh install.
+workspace-import-check-plan = This archive can't be imported as it is
+workspace-import-check-plan-detail = The export doesn't hold together. Export the workspace again; if this comes back, send the message below to support.
+workspace-import-check-refused = This archive can't be imported
+workspace-import-check-refused-detail = The server gave this reason:
+
+workspace-import-preview-source = { $name }, exported { $date } from { $origin }
+workspace-import-preview-source-no-origin = { $name }, exported { $date }
+workspace-import-preview-lead =
+    Importing it fills { $workspace } with everything below, replaces this workspace's starting configuration, and brings { $people ->
+        [one] 1 person
+       *[other] { $people } people
+    } across by email. Credentials never move; you re-enter them from a checklist afterwards.
+workspace-import-preview-made-by = Made by Nosdesk { $version } · { $size }
+workspace-import-tile-tickets = Tickets
+workspace-import-tile-pages = Pages
+workspace-import-tile-assets = Assets
+workspace-import-tile-people = People
+workspace-import-tile-files = Files
+workspace-import-tile-people-sub = { $staff } staff · { $requesters } requesters
+workspace-import-tile-files-all = all restored
+workspace-import-tile-files-missing = { $count } to retry
+workspace-import-tile-people-merged = includes you
+workspace-import-tile-files-skipped = { $count } left out
+workspace-import-files-skipped =
+    { $count ->
+        [one] 1 file was left out: the archive didn't carry it, or this server doesn't accept its type. The report lists it.
+       *[other] { $count } files were left out: the archive didn't carry them, or this server doesn't accept their type. The report lists them.
+    }
+workspace-import-done-unsent-mail =
+    { $count ->
+        [one] 1 email that hadn't been sent yet stayed behind, so nothing goes out twice.
+       *[other] { $count } emails that hadn't been sent yet stayed behind, so nothing goes out twice.
+    }
+workspace-import-jump-label = Sections
+workspace-import-jump-across = What comes across
+workspace-import-jump-people = People
+workspace-import-jump-signin = Sign-in
+workspace-import-jump-replaces = Replaced here
+workspace-import-jump-off = Arrives off
+workspace-import-jump-not = Doesn't move
+workspace-import-jump-attention = Needs attention
+
+workspace-import-across-heading = What comes across
+workspace-import-area-tickets = Tickets
+workspace-import-area-tickets-note = Ticket numbers stay the same, so #1042 is still #1042.
+workspace-import-area-docs = Documentation
+workspace-import-area-docs-note = Links and mentions inside pages point at the imported pages. The welcome collection here is replaced.
+workspace-import-area-assets = Assets
+workspace-import-area-projects = Projects
+workspace-import-area-people = People
+workspace-import-area-people-note = How each person comes across is under People, below.
+workspace-import-area-config = Configuration
+workspace-import-area-integrations = Integrations
+workspace-import-area-integrations-note = Their settings come across; credentials don't. See Arrives switched off.
+workspace-import-integration-smtp = outgoing mail settings
+workspace-import-integration-sso = a sign-in provider
+workspace-import-integration-ldap = directory sync settings
+workspace-import-integration-widget = the help widget
+workspace-import-n-areas =
+    { $count ->
+        [one] 1 area
+       *[other] { $count } areas
+    }
+workspace-import-n-items =
+    { $count ->
+        [one] 1 item
+       *[other] { $count } items
+    }
+workspace-import-n-integrations =
+    { $count ->
+        [one] 1 integration
+       *[other] { $count } integrations
+    }
+workspace-import-n-tickets =
+    { $count ->
+        [one] 1 ticket
+       *[other] { $count } tickets
+    }
+workspace-import-n-comments =
+    { $count ->
+        [one] 1 comment
+       *[other] { $count } comments
+    }
+workspace-import-n-attachments =
+    { $count ->
+        [one] 1 attachment
+       *[other] { $count } attachments
+    }
+workspace-import-n-merges =
+    { $count ->
+        [one] 1 merge
+       *[other] { $count } merges
+    }
+workspace-import-n-pages =
+    { $count ->
+        [one] 1 page
+       *[other] { $count } pages
+    }
+workspace-import-n-collections =
+    { $count ->
+        [one] 1 collection
+       *[other] { $count } collections
+    }
+workspace-import-n-revisions =
+    { $count ->
+        [one] 1 revision
+       *[other] { $count } revisions
+    }
+workspace-import-n-assets =
+    { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+    }
+workspace-import-n-loans =
+    { $count ->
+        [one] 1 loan
+       *[other] { $count } loans
+    }
+workspace-import-n-disposals =
+    { $count ->
+        [one] 1 disposal
+       *[other] { $count } disposals
+    }
+workspace-import-n-asset-kinds =
+    { $count ->
+        [one] 1 asset kind
+       *[other] { $count } asset kinds
+    }
+workspace-import-n-asset-photos =
+    { $count ->
+        [one] 1 asset photo or file
+       *[other] { $count } asset photos and files
+    }
+workspace-import-n-projects =
+    { $count ->
+        [one] 1 project
+       *[other] { $count } projects
+    }
+workspace-import-n-cycles =
+    { $count ->
+        [one] 1 cycle
+       *[other] { $count } cycles
+    }
+workspace-import-n-groups =
+    { $count ->
+        [one] 1 group
+       *[other] { $count } groups
+    }
+workspace-import-n-staff = { $count } staff
+workspace-import-n-requesters =
+    { $count ->
+        [one] 1 requester
+       *[other] { $count } requesters
+    }
+workspace-import-n-workflow-states =
+    { $count ->
+        [one] 1 workflow state
+       *[other] { $count } workflow states
+    }
+workspace-import-n-categories =
+    { $count ->
+        [one] 1 category
+       *[other] { $count } categories
+    }
+workspace-import-n-sla =
+    { $count ->
+        [one] 1 SLA policy
+       *[other] { $count } SLA policies
+    }
+workspace-import-n-calendars =
+    { $count ->
+        [one] 1 working calendar
+       *[other] { $count } working calendars
+    }
+workspace-import-n-views =
+    { $count ->
+        [one] 1 saved view
+       *[other] { $count } saved views
+    }
+workspace-import-n-rules =
+    { $count ->
+        [one] 1 rule
+       *[other] { $count } rules
+    }
+workspace-import-n-assignment-rules =
+    { $count ->
+        [one] 1 assignment rule
+       *[other] { $count } assignment rules
+    }
+workspace-import-n-replies =
+    { $count ->
+        [one] 1 saved reply
+       *[other] { $count } saved replies
+    }
+workspace-import-n-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-n-channels =
+    { $count ->
+        [one] 1 email channel
+       *[other] { $count } email channels
+    }
+workspace-import-n-plugins =
+    { $count ->
+        [one] 1 plugin
+       *[other] { $count } plugins
+    }
+
+workspace-import-people-heading = People
+workspace-import-people-by-email = { $count } by email
+workspace-import-group-merged =
+    { $count ->
+        [one] merges into you
+       *[other] merge into you
+    }
+workspace-import-group-staff-created =
+    { $count ->
+        [one] staff member gets a new account
+       *[other] staff get new accounts
+    }
+workspace-import-group-staff-mapped =
+    { $count ->
+        [one] staff member maps to an existing account
+       *[other] staff map to existing accounts
+    }
+workspace-import-group-staff-no-email =
+    { $count ->
+        [one] staff member without an email
+       *[other] staff without an email
+    }
+workspace-import-group-requesters-created =
+    { $count ->
+        [one] requester gets a new account
+       *[other] requesters get new accounts
+    }
+workspace-import-group-requesters-mapped =
+    { $count ->
+        [one] requester maps to an existing account
+       *[other] requesters map to existing accounts
+    }
+workspace-import-group-placeholders = by name only
+workspace-import-people-note = Everyone is matched by email. No account that already exists here is changed; archive history simply points at it. Archive owners other than you come in as admins; make someone an owner afterwards if you want to.
+workspace-import-filter-staff = Staff { $count }
+workspace-import-filter-attention = Worth a look { $count }
+workspace-import-filter-requesters = Requesters { $count }
+workspace-import-person-you = you
+workspace-import-person-no-email = no email
+workspace-import-person-removed = removed
+workspace-import-person-unnamed = No name
+workspace-import-people-none = Nobody here.
+workspace-import-outcome-merged = Merges into your account
+workspace-import-outcome-mapped = Maps to the account that holds this email
+workspace-import-outcome-created = New account as { $role }
+workspace-import-outcome-created-was-owner = New account as { $role } (was owner)
+workspace-import-outcome-created-no-email = New account as { $role }, no email
+workspace-import-outcome-created-removed = New account, not a member (was removed)
+workspace-import-outcome-created-no-member = New account, not a member
+workspace-import-outcome-placeholder = By name only
+workspace-import-requesters-line = Requesters: { $created } new accounts, { $mapped } map to accounts already here.
+
+workspace-import-signin-heading = How people sign in afterwards
+workspace-import-signin-you = You
+workspace-import-signin-you-detail = Keep signing in as you do now. If the archive holds your email, its history under that email becomes yours straight away.
+workspace-import-signin-staff = Staff
+workspace-import-signin-staff-detail = Get accounts here with no password. Send them invitations from the last step; each sets a password from the invitation. Invitations go through this server's outgoing mail, not the archive's mail settings, which arrive switched off. "Forgot password" works too, and nosdesk-cli admin reset-password is the fallback when mail isn't set up.
+workspace-import-signin-requesters = Requesters
+workspace-import-signin-requesters-detail = Sign in to the portal with an email link or a password reset, as this server allows. Their email addresses arrive unverified.
+workspace-import-signin-secrets = Passwords, passkeys and two-step
+workspace-import-signin-secrets-detail = Don't move. Everyone sets up two-step again.
+workspace-import-signin-sso-off = The sign-in provider arrives switched off until you re-enter its secret and point it at this server.
+
+workspace-import-replaces-heading = What this workspace gives up
+workspace-import-replaces-config = Configuration
+workspace-import-replaces-config-detail = The archive's workflow states, categories, SLA policies, working calendar, branding, notification defaults, people fields and documentation replace this workspace's starting ones.
+workspace-import-replaces-config-note = Anything you changed during setup is replaced too.
+workspace-import-replaces-name = Name
+workspace-import-replaces-name-detail = This workspace stays { $workspace }. The archive came from { $archive }; you can rename afterwards.
+workspace-import-replaces-members = Members
+workspace-import-replaces-members-detail = Your membership and role stay as they are.
+
+workspace-import-off-heading = Arrives switched off
+workspace-import-off-smtp = Outgoing mail
+workspace-import-off-smtp-detail = Mail settings arrive without their credentials.
+workspace-import-off-smtp-hint = Re-enter them, then turn mail on.
+workspace-import-off-sso = Sign-in provider
+workspace-import-off-sso-detail = Arrives without its client secret.
+workspace-import-off-sso-hint = Re-enter it, point the provider's redirect address at this server, then turn it on.
+workspace-import-off-ldap = Directory sync
+workspace-import-off-ldap-detail = Arrives without its bind password.
+workspace-import-off-ldap-hint = Re-enter it, then turn sync on.
+workspace-import-off-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-off-webhooks-detail = Each gets a new signing secret.
+workspace-import-off-webhooks-hint = Give the receivers the new secret, then turn them on.
+workspace-import-off-channels =
+    { $count ->
+        [one] 1 email channel
+       *[other] { $count } email channels
+    }
+workspace-import-off-channels-detail = Arrive without their passwords.
+workspace-import-off-channels-hint = Re-enter them, then turn the channels on.
+workspace-import-off-plugins =
+    { $count ->
+        [one] 1 plugin
+       *[other] { $count } plugins
+    }
+workspace-import-off-plugins-detail = Their settings come across; their secret values don't.
+workspace-import-off-plugins-hint = Re-enter the secrets, then turn each plugin on.
+workspace-import-off-widget = Help widget
+workspace-import-off-widget-detail = Arrives switched off.
+workspace-import-off-widget-hint = Turn it on again from its settings.
+workspace-import-off-guest-links = Guest links
+workspace-import-off-guest-links-detail =
+    { $count ->
+        [one] 1 ticket gets a new guest link. A link sent before the move stops working.
+       *[other] { $count } tickets get new guest links. Links sent before the move stop working.
+    }
+workspace-import-off-none = Nothing arrives switched off.
+workspace-import-off-rule = The rule: anything that talks to the outside world arrives switched off, so an import never sends mail, fires a webhook or accepts a request before you have looked at it.
+
+workspace-import-not-heading = Doesn't move
+workspace-import-not-tokens = API tokens
+workspace-import-not-tokens-detail = Create new ones here. Anything that called the API with the old ones needs a new one.
+workspace-import-not-devices = Mobile apps
+workspace-import-not-devices-detail = Phones registered for notifications sign in again at this server's address.
+workspace-import-not-activity = Activity feeds
+workspace-import-not-activity-detail = The activity feed stays behind. Comments, assignments and status are in each ticket.
+workspace-import-not-passwords = Passwords and two-step
+workspace-import-not-passwords-detail = Never exported. See How people sign in.
+workspace-import-not-history = Import history
+workspace-import-not-history-detail = Earlier spreadsheet and documentation imports stay with the other Nosdesk.
+workspace-import-not-mail = Unsent email
+workspace-import-not-mail-detail =
+    { $count ->
+        [one] 1 email that hadn't been sent yet stays behind, so nothing goes out twice.
+       *[other] { $count } emails that hadn't been sent yet stay behind, so nothing goes out twice.
+    }
+
+workspace-import-attention-heading = Needs attention
+workspace-import-attention-none = Nothing needs attention.
+workspace-import-attention-rules =
+    { $count ->
+        [one] 1 rule names something the archive doesn't carry. It arrives as a draft and doesn't run until you fix it.
+       *[other] { $count } rules name something the archive doesn't carry. They arrive as drafts and don't run until you fix them.
+    }
+workspace-import-attention-views =
+    { $count ->
+        [one] 1 saved view filters on something the archive doesn't carry. That filter is dropped; the rest of the view stays.
+       *[other] { $count } saved views filter on something the archive doesn't carry. Those filters are dropped; the rest of each view stays.
+    }
+workspace-import-attention-cleared =
+    { $count ->
+        [one] 1 value in { $table } named something the archive doesn't carry and is cleared.
+       *[other] { $count } values in { $table } named something the archive doesn't carry and are cleared.
+    }
+workspace-import-attention-rows =
+    { $count ->
+        [one] 1 { $table } row depends on something the archive doesn't carry and is left out.
+       *[other] { $count } { $table } rows depend on something the archive doesn't carry and are left out.
+    }
+workspace-import-attention-mentions =
+    { $count ->
+        [one] 1 mention of someone the archive doesn't carry becomes plain text.
+       *[other] { $count } mentions of people the archive doesn't carry become plain text.
+    }
+workspace-import-attention-ticket-links =
+    { $count ->
+        [one] 1 link to a ticket the archive doesn't carry becomes plain text.
+       *[other] { $count } links to tickets the archive doesn't carry become plain text.
+    }
+workspace-import-attention-images =
+    { $count ->
+        [one] 1 image the archive doesn't carry becomes its description.
+       *[other] { $count } images the archive doesn't carry become their descriptions.
+    }
+workspace-import-attention-embeds =
+    { $count ->
+        [one] 1 embedded page the archive doesn't carry becomes its title.
+       *[other] { $count } embedded pages the archive doesn't carry become their titles.
+    }
+workspace-import-attention-documents =
+    { $count ->
+        [one] 1 document couldn't be read and loads as it is.
+       *[other] { $count } documents couldn't be read and load as they are.
+    }
+workspace-import-attention-usernames =
+    { $count ->
+        [one] 1 person's username is already taken here. They arrive without one.
+       *[other] { $count } people's usernames are already taken here. They arrive without one.
+    }
+
+workspace-import-back-to-archive = Back to Archive
+workspace-import-preview-reload-note = Everyone's open window and app reloads its data when the import finishes.
+workspace-import-import-button = Import { $name }
+workspace-import-confirm-title = Import { $name } into { $workspace }?
+workspace-import-confirm-subtitle = The import runs in the background; you can leave the page while it does.
+workspace-import-confirm-fills = Fills this workspace with { $tickets } tickets, { $pages } pages, { $assets } assets and { $people } people, matched by email.
+workspace-import-confirm-replaces = Replaces its workflow, categories, SLA, calendar and branding with the archive's.
+workspace-import-confirm-off = Integrations arrive switched off. You re-enter their credentials from a checklist afterwards.
+workspace-import-confirm-reload = Every open window and app reloads its data when it finishes.
+workspace-import-confirm-reset = Reset returns the workspace to untouched afterwards, but removes everything, including anything added later. There is no partial undo.
+workspace-import-confirm-password-hint = The import reads the archive again, so it needs the password once more.
+workspace-import-type-to-confirm = Type { $workspace } to confirm
+
+workspace-import-progress-heading = Importing { $name }
+workspace-import-progress-started = started { $time }
+workspace-import-stage-check = Checking the archive and this workspace
+workspace-import-stage-check-detail = The same checks as before, under a lock.
+workspace-import-stage-rows = Loading the archive into the database
+workspace-import-stage-rows-detail = Tickets, pages, assets, people and settings go in as one transaction, so a failure here leaves the workspace as it was.
+workspace-import-stage-files = Restoring files
+workspace-import-stage-files-detail =
+    { $count ->
+        [one] 1 file, after the database. If it doesn't restore, Retry files picks up from there.
+       *[other] { $count } files, after the database. If some don't restore, Retry files picks up where it stopped.
+    }
+workspace-import-stage-finish = Finishing
+workspace-import-stage-finish-detail = Search rebuilds in the background, and every open window and app reloads its data.
+workspace-import-progress-leave = You can leave this page; the import carries on and Recent imports shows it.
+workspace-import-importing = Importing
+
+workspace-import-seconds = { $s } s
+workspace-import-minutes = { $m } min { $s } s
+workspace-import-done-title = Import complete
+workspace-import-done-detail = { $name } is in { $workspace }: { $tickets } tickets, { $pages } pages, { $assets } assets and { $people } people.
+workspace-import-done-took = Finished { $time }, in { $duration }.
+workspace-import-done-reloaded = Every open window and app has reloaded its data. Search rebuilds in the background.
+workspace-import-partial-title =
+    { $count ->
+        [one] Imported, with 1 file still to restore
+       *[other] Imported, with { $count } files still to restore
+    }
+workspace-import-partial-detail = { $name } is in { $workspace }. { $restored } of { $total } files were restored. Until a retry restores the rest, their tickets and pages show them as missing.
+workspace-import-retry-files = Retry files
+workspace-import-retry-unavailable = The archive is no longer stored, so the files can't be retried.
+workspace-import-failed-title = The import failed
+workspace-import-failed-detail = Nothing was imported; the workspace is as it was. Discard this import and start again from the export file.
+workspace-import-open-workspace = Open { $workspace }
+workspace-import-report = Report
+workspace-import-report-title = Import report
+workspace-import-report-subtitle = Everything the import did and couldn't do, as JSON.
+workspace-import-report-download = Download JSON
+workspace-import-report-close = Close
+workspace-import-invites-cli = Without mail, nosdesk-cli admin reset-password sets a password for each person.
+workspace-import-todo-heading = Next steps
+workspace-import-todo-count = { $done } of { $total } done
+workspace-import-todo-foot = Credentials never travel in an archive. Each step is a setting that came across without its secret, or something that only exists on the old side. Ticks are kept in this browser.
+workspace-import-todo-smtp = Re-enter the mail credentials, then turn outgoing mail on
+workspace-import-todo-smtp-detail = Outgoing mail arrived switched off.
+workspace-import-todo-go-email = Email settings
+workspace-import-todo-channels =
+    { $count ->
+        [one] Re-enter the email channel's password and turn it on
+       *[other] Re-enter the passwords of { $count } email channels and turn them on
+    }
+workspace-import-todo-channels-detail = They arrived without their passwords.
+workspace-import-todo-go-channels = Channels
+workspace-import-todo-sso = Re-enter the sign-in provider's client secret and update its redirect address
+workspace-import-todo-sso-detail = Point the provider at this server's address, then turn it on.
+workspace-import-todo-go-sso = Sign-in providers
+workspace-import-todo-ldap = Re-enter the directory bind password
+workspace-import-todo-ldap-detail = Directory sync arrived switched off.
+workspace-import-todo-go-ldap = Directory sync
+workspace-import-todo-webhooks =
+    { $count ->
+        [one] Turn the webhook on and give its receiver the new signing secret
+       *[other] Turn the { $count } webhooks on and give their receivers the new signing secrets
+    }
+workspace-import-todo-webhooks-detail = Each webhook has a new secret. Nothing was sent for imported tickets.
+workspace-import-todo-go-webhooks = Webhooks
+workspace-import-todo-plugins =
+    { $count ->
+        [one] Re-enter the plugin's secrets and turn it on
+       *[other] Re-enter the secrets of { $count } plugins and turn them on
+    }
+workspace-import-todo-plugins-detail = Their settings came across; their secret values didn't.
+workspace-import-todo-go-plugins = Plugins
+workspace-import-todo-widget = Turn the help widget on
+workspace-import-todo-widget-detail = It arrived switched off.
+workspace-import-todo-go-widget = Help widget
+workspace-import-todo-rules =
+    { $count ->
+        [one] Review the rule that arrived as a draft
+       *[other] Review { $count } rules that arrived as drafts
+    }
+workspace-import-todo-rules-detail = Each names something the archive didn't carry. Drafts don't run.
+workspace-import-todo-go-rules = Rules
+workspace-import-todo-tokens = Create new API tokens
+workspace-import-todo-tokens-detail = Tokens never move. Anything that called the API needs a new one.
+workspace-import-todo-go-tokens = API tokens
+
+workspace-import-reset-button = Reset to untouched
+workspace-import-reset-rule = Removes everything this import brought and anything added since, including the accounts it created. Available until about { $date }.
+workspace-import-reset-closed = An import can be reset for 30 days. That window has closed.
+workspace-import-reset-failed = The reset didn't run. Try again.
+workspace-import-reset-title = Reset { $workspace } to untouched?
+workspace-import-reset-subtitle = Returns it to how it was before the import on { $date }.
+workspace-import-reset-confirm = Reset workspace
+workspace-import-reset-removes = Removes everything the import brought: { $tickets } tickets, { $pages } pages, { $assets } assets, all files, and the { $people } accounts it created.
+workspace-import-reset-since = Also removes anything added since, and clears settings entered afterwards.
+workspace-import-reset-keeps = Your account and membership stay, and so do accounts that existed before the import.
+workspace-import-reset-archive = Keep your export file; importing again starts from it.
+workspace-import-reset-final = This can't be undone.
+workspace-import-reset-done-title = Reset to untouched
+workspace-import-reset-done-detail = { $workspace } has nothing in it again, as it was before the import on { $date }. Reset { $reset }.
+workspace-import-reset-discarded = This import was discarded { $date }, before anything was imported.
+workspace-import-reset-done-again = The archive was removed, so importing again starts from your export file.
+workspace-import-again = Import again
+workspace-import-discard-button = Discard this import
+workspace-import-discard-rule = Nothing was imported. Discarding removes the stored archive.
+workspace-import-discard-title = Discard this import?
+workspace-import-discard-detail = Nothing was imported. The stored archive is removed; keep your export file to try again.
+workspace-import-discard-confirm = Discard
+
+workspace-import-detail-title = Workspace import
+workspace-import-detail-source = { $name } from Nosdesk { $version } at { $origin }
+workspace-import-detail-source-no-origin = { $name } from Nosdesk { $version }
+workspace-import-detail-pruned = Thirty days have passed: the report keeps its counts; the people in it and the reset are gone.
+workspace-import-detail-load-failed = This import couldn't be loaded.
+workspace-import-type = Workspace
+workspace-import-state-checking = Checking
+workspace-import-state-importing = Importing
+workspace-import-state-files = Files to retry
+workspace-import-state-failed = Failed
+workspace-import-state-reset = Reset
+workspace-import-recent-reset = Reset to untouched
+workspace-import-recent-on-archive = Draft on Archive
+workspace-import-recent-on-preview = Draft on Preview
+workspace-import-recent-importing = Importing now
+workspace-import-recent-failed = Nothing imported
+workspace-import-recent-counts = { $tickets } tickets · { $pages } pages · { $people } people
+
+settings-export-moves-toggle = What moves and what doesn't
+settings-export-moves-heading = Moves
+settings-export-stays-heading = Doesn't move
+settings-export-moves-tickets = Tickets, comments, attachments, merges, ticket numbers
+settings-export-moves-docs = Documentation pages and their history
+settings-export-moves-assets = Assets, loans, disposals, projects, cycles
+settings-export-moves-people = People with their primary email and role
+settings-export-moves-config = Workflow, categories, SLA, calendar, branding, rules, saved views and replies
+settings-export-moves-integrations = Integration settings, without credentials
+settings-export-stays-passwords = Passwords, passkeys, two-step, sessions
+settings-export-stays-secrets = Mail, sign-in provider, webhook and plugin secrets
+settings-export-stays-tokens = API tokens and mobile push registrations
+settings-export-stays-activity = The activity feed and the audit log
+settings-export-stays-history = Earlier exports and import uploads
+settings-export-version = Made by Nosdesk { $version }. The other Nosdesk needs to run { $version } too; the import says so if not.
+settings-export-password-self = A self-hosted Nosdesk accepts it.
+onboarding-complete-open = Go to your workspace
+onboarding-complete-import = Bring a workspace from another Nosdesk
+onboarding-complete-import-note = An import needs a workspace with nothing in it, so do it before adding tickets or people. You can always start fresh instead.

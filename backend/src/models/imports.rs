@@ -162,11 +162,12 @@ pub struct ImportJobResponse {
     /// shows it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_name: Option<String>,
-    /// For a committed asset import, when Remove imported assets closes:
-    /// 30 days after the commit.
+    /// For a committed asset or documentation import, when Remove imported
+    /// assets (or pages) closes: 30 days after the commit.
     pub removal_closes_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// When Remove imported assets ran, by whom, and what it did
-    /// (`services::imports::remove::RemoveResult`).
+    /// When Remove imported assets (or pages) ran, by whom, and what it did
+    /// (`services::imports::remove::RemoveResult`, or for a documentation
+    /// import `services::imports::documentation::remove::RemoveResult`).
     pub removed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub removed_by: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -185,10 +186,44 @@ pub struct ImportJobResponse {
     /// in yet and how they will; filled where a page shows it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sign_in: Option<SignInStatus>,
+    /// For a committed documentation import, the pages it wrote, so its
+    /// detail can link to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pages_written: Option<Vec<WrittenPage>>,
+}
+
+/// A page a documentation import wrote: its page in the import's tree (by
+/// index and by path) and the page it became.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WrittenPage {
+    pub index: usize,
+    pub path: String,
+    pub id: i32,
+}
+
+/// The pages a committed documentation import wrote, from its record.
+fn pages_written(job: &ImportJob) -> Option<Vec<WrittenPage>> {
+    use crate::services::imports::documentation::{CommitRecord, JOB_TYPE};
+    if job.job_type != JOB_TYPE || job.status != "done" {
+        return None;
+    }
+    let record = CommitRecord::from_value(job.record_ids.clone()).filter(|r| !r.pending)?;
+    Some(
+        record
+            .pages
+            .into_iter()
+            .map(|p| WrittenPage {
+                index: p.index,
+                path: p.source,
+                id: p.id,
+            })
+            .collect(),
+    )
 }
 
 impl From<ImportJob> for ImportJobResponse {
     fn from(job: ImportJob) -> Self {
+        let pages_written = pages_written(&job);
         let mut source = job.source;
         let mut lift = |key: &str| {
             source
@@ -202,7 +237,7 @@ impl From<ImportJob> for ImportJobResponse {
         // Where the grid is stored stays on the server.
         lift("grid");
         let removal_closes_at = match (job.job_type.as_str(), job.status.as_str()) {
-            ("assets", "done") => job.completed_at.map(window_closes_at),
+            ("assets" | "documentation", "done") => job.completed_at.map(window_closes_at),
             _ => None,
         };
         let state = state_of(
@@ -240,6 +275,7 @@ impl From<ImportJob> for ImportJobResponse {
             previous_values: None,
             next_sheet: None,
             sign_in: None,
+            pages_written,
         }
     }
 }
@@ -268,11 +304,13 @@ pub struct ImportJobListItem {
     pub removed: Option<RemovedCounts>,
 }
 
-/// "398 of 407 assets removed".
+/// "398 of 407 assets removed", or for pages "298 removed · 11 kept".
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct RemovedCounts {
     pub deleted: i32,
     pub created: i32,
+    /// Those kept because they changed since the import.
+    pub kept: i32,
 }
 
 /// New, Updated, Unchanged and Skipped, as the tiles count them.

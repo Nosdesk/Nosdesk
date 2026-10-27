@@ -18,7 +18,7 @@ import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import { SUPPORTED_LOCALES } from '@/i18n'
-import userService from '@/services/userService'
+import userService, { type User } from '@/services/userService'
 import SectionCard from '@/components/common/SectionCard.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Button from '@/components/common/Button.vue'
@@ -36,10 +36,14 @@ const fluent = useFluent()
 const emit = defineEmits<{
   (e: 'success', message: string): void
   (e: 'error', message: string): void
+  (e: 'updated', changes: Partial<User>): void
 }>()
 
 const props = defineProps<{
   targetUserUuid?: string
+  /** The managed person's saved preferences, in admin mode. */
+  targetLocale?: string | null
+  targetTimezone?: string | null
 }>()
 
 const isAdminMode = computed(
@@ -50,20 +54,18 @@ const userUuid = computed(
   () => props.targetUserUuid ?? authStore.user?.uuid,
 )
 
-// In admin mode we don't have a separate dateStore-per-target; we
-// just send the PATCH and trust the user's next /me re-fetch to
-// re-sync. So we read raw prefs straight off the auth store when
-// editing self, and from authStore.user as a snapshot when admin.
+// In admin mode the person's own saved preferences seed the form (passed in
+// from their profile); for yourself, the date store's.
 const initialLocale = computed<string>(() => {
   if (isAdminMode.value) {
-    return authStore.user?.locale ?? ''
+    return props.targetLocale ?? ''
   }
   return dateStore.userLocale ?? ''
 })
 
 const initialTimezone = computed<string>(() => {
   if (isAdminMode.value) {
-    return authStore.user?.timezone ?? 'system'
+    return props.targetTimezone ?? 'system'
   }
   return dateStore.userTimezone
 })
@@ -146,6 +148,7 @@ async function save() {
     if (!isAdminMode.value) {
       dateStore.loadFromUser(updated)
     }
+    emit('updated', { locale: updated.locale, timezone: updated.timezone })
     emit('success', fluent.$t('settings-localization-saved'))
   } catch (e) {
     // Revert optimistic state.

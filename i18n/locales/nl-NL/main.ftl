@@ -369,22 +369,61 @@ user-menu-account = Account
 user-menu-administration = Beheer
 # MACHINE TRANSLATION, pending native review
 user-menu-team = Team
+# MACHINE TRANSLATION, pending native review
+user-menu-plan-billing = Abonnement en facturering
 user-menu-help = Help
+# MACHINE TRANSLATION, pending native review
+user-menu-contact-support = Contact met support
 user-menu-report-problem = Probleem melden
 user-menu-sign-out = Afmelden
 user-menu-guest-name = Gast
+
+# Herinneringen aan het einde van de Cloud-proefperiode, alleen voor de eigenaar.
+# MACHINE TRANSLATION, pending native review
+trial-notice-menu-line = { $days ->
+    [0] Proefperiode eindigt vandaag
+    [1] Proefperiode eindigt morgen, { $date }
+   *[other] Proefperiode eindigt op { $date }, over { $days } dagen
+}
+trial-notice-menu-line-cancelled = Proefperiode eindigt op { $date }, wordt niet verlengd
+trial-notice-soon-title = Uw proefperiode eindigt op { $date }, over { $days } dagen.
+trial-notice-soon-body = Uw abonnement en de optie om op te zeggen vindt u onder Facturering beheren, in uw Nosdesk-account. Tot dan verandert er niets in uw werkruimte.
+trial-notice-imminent-title = { $days ->
+    [0] Uw proefperiode eindigt vandaag.
+    [1] Uw proefperiode eindigt morgen, { $date }.
+   *[other] Uw proefperiode eindigt over { $days } dagen, op { $date }.
+}
+trial-notice-imminent-body = Als u nog niet hebt besloten: uw abonnement en de optie om op te zeggen vindt u onder Facturering beheren, in uw Nosdesk-account. Alles wat u hebt ingesteld blijft tot dan zoals het is.
+trial-notice-cancelled-title = Uw proefperiode eindigt op { $date } en wordt niet verlengd.
+trial-notice-cancelled-body = U hoeft niets te doen. Wilt u Nosdesk toch houden, dan kan dat tot die tijd via Facturering beheren, in uw Nosdesk-account.
+trial-notice-manage-billing = Facturering beheren
+trial-notice-manage-billing-aria = Facturering beheren, opent uw Nosdesk-account in een nieuw tabblad
+trial-notice-opens-account = Opent uw Nosdesk-account in een nieuw tabblad
+trial-notice-dismiss = Herinnering over proefperiode sluiten
 
 bug-report-modal-title = Probleem melden
 bug-report-modal-description-label = Wat is er gebeurd?
 bug-report-modal-description-placeholder = bv. ik probeerde een reactie op te slaan en kreeg een rode banner; stond net daarvoor op het menu voor toewijzing.
 bug-report-modal-description-hint = Een of twee zinnen zijn genoeg.
-bug-report-modal-attachments-hint = We voegen de huidige pagina, de buildversie, en de laatste navigaties en API-aanroepen toe. Blijft binnen deze werkruimte.
+# MACHINE TRANSLATION, pending native review
+bug-report-modal-attachments-hint-self-hosted = We voegen de huidige pagina, de buildversie, en de laatste navigaties en API-aanroepen toe. Het rapport blijft op deze server, waar de beheerders het kunnen lezen.
+bug-report-modal-attachments-hint-hosted = We voegen de huidige pagina, de buildversie, en de laatste navigaties en API-aanroepen toe. Het rapport gaat naar het Nosdesk-team.
+bug-report-modal-support-hint = Voor vragen over je account of facturering, neem contact op met support:
 bug-report-modal-cancel = Annuleren
 bug-report-modal-submit = Rapport verzenden
 bug-report-success-toast-title = Rapport verzonden
-bug-report-success-toast-body = Bedankt. Een beheerder kan het terugvinden in het diagnostieklogboek van deze werkruimte.
+# MACHINE TRANSLATION, pending native review
+bug-report-success-toast-body-self-hosted = Bedankt. De beheerders van deze server kunnen het lezen.
+bug-report-success-toast-body-hosted = Bedankt. Het is onderweg naar het Nosdesk-team.
 bug-report-error-toast-title = Kan rapport niet verzenden
 bug-report-error-toast-body = Probeer het zo opnieuw.
+
+# Contact met support (alleen Cloud).
+# MACHINE TRANSLATION, pending native review
+contact-support-title = Contact met support
+contact-support-body = Voor vragen over je account, abonnement of facturering kun je het Nosdesk-team mailen.
+support-address-copy = Adres kopiëren
+support-address-copied = Adres gekopieerd
 
 # Tickets — lege staten + bulkactiebalk.
 ticket-list-loading = Tickets laden…
@@ -1085,6 +1124,8 @@ admin-clear-search = Zoekopdracht wissen
 admin-index-subtitle = Beheer uw systeeminstellingen, integraties en werkruimteconfiguratie
 
 admin-nav-group-tickets = Tickets en workflow
+# Groep "Hulpportaal" (machine, pending native review)
+admin-nav-group-help-portal = Hulpportaal
 admin-nav-group-integrations = Integraties
 admin-nav-group-compliance = Naleving
 admin-nav-group-appearance = Uiterlijk en meldingen
@@ -1629,6 +1670,12 @@ admin-data-import-notice = Imports kunnen meldingen naar betrokken gebruikers tr
 admin-data-import-status-available = Beschikbaar
 admin-data-import-status-coming-soon = Binnenkort beschikbaar
 admin-data-import-status-beta = Bèta
+# MT: pending native review (nl-NL)
+admin-data-import-status-new = Nieuw
+# MT: pending native review (nl-NL)
+admin-data-import-docs-title = Documentatie
+# MT: pending native review (nl-NL)
+admin-data-import-docs-description = Markdown-bestanden, een export uit Notion, Obsidian of GitBook, of een Nosdesk-export.
 admin-data-import-microsoft-title = Microsoft Graph
 # TODO native-review nl-NL for the key below.
 admin-data-import-microsoft-description = Importeer gebruikers, groepen en apparaten uit Microsoft Entra ID
@@ -2020,7 +2067,6 @@ admin-backup-delete-title = Verwijderen
 admin-backup-docs-heading = Documentatie exporteren naar Markdown
 admin-backup-docs-description = Exporteer alle documentatiepagina's als markdown-bestanden in een ZIP-archief
 admin-backup-docs-export = Exporteren als Markdown
-admin-backup-docs-exporting = Exporteren { $current }/{ $total }...
 admin-backup-docs-preparing = Voorbereiden...
 admin-backup-docs-error = Kon documentatie niet exporteren. Bekijk de console voor details.
 admin-backup-restore-heading = Herstellen vanaf back-up
@@ -2646,6 +2692,10 @@ user-mgmt-bulk-skipped-staff = { $count ->
     [one] Eén medewerker wordt beheerd in uw Nosdesk-account en is hier dus niet verwijderd.
    *[other] { $count } medewerkers worden beheerd in uw Nosdesk-account en zijn hier dus niet verwijderd.
 }
+user-mgmt-bulk-skipped-elsewhere = { $count ->
+    [one] Eén persoon hoort ook bij andere werkruimten en is daarom niet verwijderd. Verwijder deze persoon in plaats daarvan uit deze werkruimte.
+   *[other] { $count } personen horen ook bij andere werkruimten en zijn daarom niet verwijderd. Verwijder ze in plaats daarvan uit deze werkruimte.
+}
 user-mgmt-bulk-delete-failed = { $count ->
     [one] Eén gebruiker kon niet worden verwijderd. Probeer het opnieuw.
    *[other] { $count } gebruikers konden niet worden verwijderd. Probeer het opnieuw.
@@ -3189,14 +3239,6 @@ docs-index-new-page = Nieuwe pagina
 # Docs: indexwerkbalk (DocumentationIndexToolbar)
 docs-index-toolbar-search = Documentatie doorzoeken
 # MACHINE TRANSLATION, pending native review
-docs-index-toolbar-search-placeholder = Documentatie doorzoeken…
-docs-index-toolbar-stats = { $pages ->
-    [one] { $pages } pagina
-   *[other] { $pages } pagina's
-  } in { $collections ->
-    [one] { $collections } collectie
-   *[other] { $collections } collecties
-  }
 docs-index-library-heading = Bibliotheek
 docs-index-library-count = { $count ->
     [one] { $count } collectie
@@ -3219,21 +3261,64 @@ docs-index-drafts-strip-suffix = { $count ->
    *[other] zitten nog niet in een collectie
   }
 docs-index-drafts-strip-review = Bekijken →
-docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = Nieuwe collectie
-docs-index-toolbar-more = Meer
 docs-index-toolbar-more-aria = Documentatie-acties
 docs-index-toolbar-scan-gaps = Scannen op kennislacunes
 docs-index-toolbar-scan-no-results = Geen nieuwe lacunes gevonden
 docs-index-toolbar-scan-success = { $created } nieuwe lacunes · { $updated } bijgewerkt
 docs-index-toolbar-scan-error = Scan mislukt. Probeer het opnieuw.
-docs-index-toolbar-maintenance-heading = Onderhoud
-docs-index-toolbar-archived = Gearchiveerde pagina's
-docs-index-toolbar-trash = Prullenbak
 docs-index-toolbar-publish-heading = Publicatie
 docs-index-toolbar-admin-heading = Beheer
 docs-index-toolbar-public-site = Publieke site bekijken
 docs-index-toolbar-guest-settings = Gasttoegang
+# MT: pending native review (nl-NL)
+docs-index-toolbar-import = Documenten importeren
+
+# Docs: documentatie exporteren (DocumentationExportDialog)
+# MT: pending native review (nl-NL)
+docs-export-menu = Documentatie exporteren
+docs-export-menu-busy = Export voorbereiden…
+docs-export-title = Documentatie exporteren
+docs-export-intro = Download de documentatie van deze werkruimte als zip met Markdown-bestanden, één per pagina, met een manifest dat hun plaats bewaart.
+docs-export-included-heading = Inbegrepen
+docs-export-included-pages = { $count ->
+    [one] { $count } pagina uit Bibliotheek en Concepten
+   *[other] { $count } pagina's uit Bibliotheek en Concepten
+  }
+docs-export-included-structure = { $count ->
+    [0] Nesting en volgorde van pagina's
+    [one] { $count } collectie, met nesting en volgorde van pagina's
+   *[other] { $count } collecties, met nesting en volgorde van pagina's
+  }
+docs-export-included-images = Afbeeldingen op die pagina's
+docs-export-excluded-heading = Niet inbegrepen
+docs-export-excluded-archived = { $count ->
+    [one] { $count } gearchiveerde pagina
+   *[other] { $count } gearchiveerde pagina's
+  }
+docs-export-excluded-trash = { $count ->
+    [one] { $count } pagina in de Prullenbak
+   *[other] { $count } pagina's in de Prullenbak
+  }
+docs-export-excluded-history = Revisiegeschiedenis en toegangsregels van pagina's
+docs-export-round-trip = De zip kan via Documenten importeren terug in elke Nosdesk-werkruimte worden geïmporteerd en opent in elke Markdown-editor.
+docs-export-preparing-hint = Een grote bibliotheek kan een minuut duren. U kunt dit venster sluiten; de download start zodra de zip klaar is.
+docs-export-download = Zip downloaden
+docs-export-preparing = Zip voorbereiden…
+docs-export-close = Sluiten
+docs-export-done = Documentatie geëxporteerd
+docs-export-error = De documentatie kon niet worden geëxporteerd. Probeer het opnieuw.
+docs-export-forbidden = Alleen beheerders en eigenaren van de werkruimte kunnen documentatie exporteren.
+
+# Docs: tabbladen en acties in de indexbalk (machine, nog na te kijken door moedertaalspreker)
+docs-index-tabs-aria = Documentatieweergaven
+docs-index-tab-library = Bibliotheek
+docs-index-tab-drafts = Concepten
+docs-index-tab-archived = Gearchiveerd
+docs-index-tab-trash = Prullenbak
+docs-index-toolbar-search-button = Zoeken
+docs-index-toolbar-more-actions = Meer acties
+docs-index-toolbar-knowledge-heading = Kennis
 
 docs-index-stat-collections = { $count ->
     [one] { $count } collectie
@@ -3303,7 +3388,6 @@ docs-index-chip-trash = { $count } in prullenbak
 docs-drafts-title = Niet in een collectie
 docs-drafts-heading = Niet in een collectie
 docs-drafts-description = Pagina's die nog niet aan een collectie zijn toegewezen
-docs-drafts-back = Terug naar Documentatie
 docs-drafts-count = { $count ->
     [one] { $count } pagina
    *[other] { $count } pagina's
@@ -3314,7 +3398,6 @@ docs-drafts-count = { $count ->
 docs-archived-title = Gearchiveerd
 docs-archived-heading = Gearchiveerd
 docs-archived-description = Pagina's die zijn gearchiveerd
-docs-archived-back = Terug naar Documentatie
 docs-archived-count = { $count ->
     [one] { $count } pagina
    *[other] { $count } pagina's
@@ -3328,7 +3411,6 @@ docs-archived-restore = Herstellen
 docs-trash-title = Prullenbak
 docs-trash-heading = Prullenbak
 docs-trash-description = Verwijderde pagina's kunnen worden hersteld of permanent worden verwijderd
-docs-trash-back = Terug naar Documentatie
 docs-trash-count = { $count ->
     [one] { $count } pagina
    *[other] { $count } pagina's
@@ -3347,19 +3429,43 @@ docs-gaps-back-docs = Documentatie
 docs-gaps-back-list = Kennislacunes
 docs-gaps-refresh = Signalen vernieuwen
 docs-gaps-refreshing = Vernieuwen
-docs-gaps-detect-no-results = Geen nieuwe clusters gevonden
+docs-gaps-detect-no-results = Niets nieuws gevonden
 docs-gaps-detect-created = { $count } nieuw
 docs-gaps-detect-updated = { $count } bijgewerkt
+# Lacunes: negeren vanuit de lijst, getelde zoekopdrachten (machine, na te kijken door moedertaalspreker).
+docs-gaps-detect-retired = { $count } opgeruimd
+docs-gaps-impact-search-count = { $count ->
+    [one] { $count } zoekopdracht
+   *[other] { $count } zoekopdrachten
+   }
+docs-gaps-impact-ticket-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+docs-gaps-impact-recent-ticket-count = { $count ->
+    [one] { $count } recent ticket
+   *[other] { $count } recente tickets
+   }
+docs-gaps-failed-search-people = { $count ->
+    [one] { $count } persoon
+   *[other] { $count } personen
+   }
+docs-gaps-selected-count = { $count ->
+    [one] { $count } lacune geselecteerd
+   *[other] { $count } lacunes geselecteerd
+   }
+docs-gaps-aria-select = { $title } selecteren
+docs-gaps-aria-dismiss = { $title } negeren
+docs-gaps-dismissed-toast = { $count ->
+    [one] Lacune genegeerd
+   *[other] { $count } lacunes genegeerd
+   }
+docs-gaps-dismiss-failed = { $count ->
+    [one] Kan de lacune niet negeren
+   *[other] Kan de lacunes niet negeren
+   }
 docs-gaps-loading = Laden
 docs-gaps-empty = Geen open kennishiaten. Markeer een ticket vanuit de zijbalk om er een toe te voegen. Groepen vergelijkbare tickets en zoekopdrachten die steeds geen document vinden verschijnen hier vanzelf.
-docs-gaps-impact-searches = zoekopdrachten
-docs-gaps-impact-recent-tickets = recente tickets
-docs-gaps-impact-tickets = tickets
-docs-gaps-impact-tooltip = { $count } { $label } die vraag naar dit document aantonen
-docs-gaps-signal-count = { $count ->
-    [one] { $count } signaal
-   *[other] { $count } signalen
-   }
 docs-gaps-select-prompt = Selecteer een lacune uit de lijst om het bewijs te bekijken.
 docs-gaps-status-label = Status:
 docs-gaps-last-evidence = Laatste bewijs: { $time }
@@ -4122,6 +4228,7 @@ import-matches-noun = { $type ->
 import-matches-nouns = { $type ->
     [users] gebruikers
     [tickets] tickets
+    [documentation] documentatie
    *[assets] assets
 }
 # MT: pending native review (nl-NL)
@@ -4661,9 +4768,17 @@ import-history-state-imported = Geïmporteerd
 # MT: pending native review (nl-NL)
 import-history-state-expired = Verlopen
 # MT: pending native review (nl-NL)
+import-history-state-removed = Verwijderd
+# MT: pending native review (nl-NL)
+import-history-count-removed-pages = { $deleted } verwijderd · { $kept } behouden
+# MT: pending native review (nl-NL)
 import-history-draft-on-map = Concept bij Kolommen
 # MT: pending native review (nl-NL)
 import-history-draft-on-review = Concept bij Controle
+# MT: pending native review (nl-NL)
+import-history-draft-on-pages = Concept bij Pagina's
+# MT: pending native review (nl-NL)
+import-history-docs-importing = Bezig met importeren
 # MT: pending native review (nl-NL)
 import-history-count-new = { $count } nieuw
 # MT: pending native review (nl-NL)
@@ -4730,6 +4845,14 @@ import-remove-load-failed = De geïmporteerde assets konden niet worden gecontro
 import-remove-failed = Het verwijderen van de geïmporteerde assets is mislukt en er is niets verwijderd.
 # MT: pending native review (nl-NL)
 import-remove-already-removed = De activa die deze import heeft gemaakt, zijn al verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-nothing-none-created = Deze import heeft geen assets aangemaakt, dus er is niets te verwijderen.
+# MT: pending native review (nl-NL)
+import-remove-nothing-all-gone = De assets die deze import heeft aangemaakt, zijn al verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-nothing-all-changed = Elke asset die deze import heeft aangemaakt, is sindsdien gewijzigd, dus er is niets verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-not-committed = Deze import is niet doorgevoerd, dus er is niets aangemaakt om te verwijderen.
 # MT: pending native review (nl-NL)
 import-remove-still-running = Nog bezig met verwijderen. Deze pagina wordt bijgewerkt zodra het klaar is.
 # MT: pending native review (nl-NL)
@@ -5054,6 +5177,10 @@ editor-toolbar-connection-disconnected = Verbinding verbroken
 editor-toolbar-connection-signed-out = Afgemeld. Meld je opnieuw aan om wijzigingen op te slaan.
 editor-toolbar-connection-no-access = Geen toegang. Wijzigingen hier worden niet opgeslagen.
 editor-toolbar-connection-gone = Verwijderd. Wijzigingen hier worden niet opgeslagen.
+# Page refused for an outdated editor (machine, pending native review)
+editor-outdated-reload = Deze pagina gebruikt een nieuwere versie van Nosdesk. Laad opnieuw om verder te bewerken.
+editor-outdated-reload-button = Opnieuw laden
+editor-outdated-update-app = Werk de Nosdesk-app bij om deze pagina te bewerken.
 editor-toolbar-user-title = { $name }
 editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })
 
@@ -5074,6 +5201,54 @@ editor-insert-menu-link = Link
 editor-insert-menu-embed-document = Document insluiten
 editor-insert-menu-image = Afbeelding
 editor-insert-menu-take-photo = Foto maken
+
+# Editor: tabelbediening (machine, nog na te kijken door moedertaalspreker).
+editor-toolbar-table = Tabel
+editor-insert-menu-table = Tabel
+editor-table-actions = Tabelacties
+editor-table-add-row = Rij toevoegen
+editor-table-add-column = Kolom toevoegen
+editor-table-insert-row-here = Hier een rij invoegen
+editor-table-insert-column-here = Hier een kolom invoegen
+editor-table-row-actions = Acties voor rij { $row }
+editor-table-column-actions = Acties voor kolom { $column }
+editor-table-menu-row = Rij { $row }
+editor-table-menu-column = Kolom { $column }
+editor-table-menu-table = Tabel
+editor-table-menu-cells = Geselecteerde cellen
+editor-table-insert-row-above = Rij erboven invoegen
+editor-table-insert-row-below = Rij eronder invoegen
+editor-table-insert-column-left = Kolom links invoegen
+editor-table-insert-column-right = Kolom rechts invoegen
+editor-table-move-up = Omhoog
+editor-table-move-down = Omlaag
+editor-table-move-left = Naar links
+editor-table-move-right = Naar rechts
+editor-table-header-row = Koprij
+editor-table-header-column = Kopkolom
+editor-table-align-left = Links uitlijnen
+editor-table-align-center = Centreren
+editor-table-align-right = Rechts uitlijnen
+editor-table-reset-width = Breedte herstellen
+editor-table-reset-widths = Kolombreedtes herstellen
+editor-table-clear = Inhoud wissen
+editor-table-delete-row = Rij verwijderen
+editor-table-delete-column = Kolom verwijderen
+editor-table-delete-table = Tabel verwijderen
+editor-table-merge = Cellen samenvoegen
+editor-table-split = Cel splitsen
+editor-table-copy-markdown = Kopiëren als Markdown
+editor-table-bar-merge = Samenvoegen
+editor-table-bar-split = Splitsen
+editor-table-bar-clear = Wissen
+editor-table-bar-clear-title = Inhoud wissen (Backspace)
+editor-table-bar-more = Meer
+editor-table-deleted = Tabel verwijderd
+editor-table-undo = Ongedaan maken
+editor-table-copied-markdown = Gekopieerd als Markdown
+editor-table-copied-html = Gekopieerd als HTML
+editor-table-copied-html-detail = Deze tabel bevat meer dan een Markdown-tabel kan bevatten, zoals samengevoegde cellen of een kopkolom, dus wordt hij als HTML-tabel gekopieerd.
+editor-table-copy-failed = Kan de tabel niet naar het klembord kopiëren.
 
 # Editor: prompt voor codeblok-taal (CollaborativeEditor)
 editor-code-block-language-prompt = Taal voor syntaxisaccentuering (optioneel):
@@ -5486,13 +5661,38 @@ settings-sessions-revoke-success = Sessie afgemeld.
 settings-sessions-revoke-error = Kan die sessie niet afmelden. Probeer het opnieuw.
 settings-sessions-revoke-others-button = Alle andere sessies afmelden
 settings-sessions-revoke-others-modal-title = Alle andere sessies afmelden?
-settings-sessions-revoke-others-modal-description = Hiermee worden alle apparaten behalve dit apparaat afgemeld. Bevestig je identiteit om door te gaan.
-settings-sessions-revoke-others-stepup-password = Bevestig je wachtwoord om door te gaan
-settings-sessions-revoke-others-stepup-mfa = Voer een verificatiecode in om door te gaan
+settings-sessions-revoke-others-modal-description = Hiermee worden alle apparaten behalve dit apparaat afgemeld.
 settings-sessions-modal-cancel = Annuleren
 settings-sessions-revoke-others-confirm = Andere afmelden
 settings-sessions-revoke-others-success = Alle andere sessies zijn afgemeld.
-settings-sessions-revoke-others-error = Kan de andere sessies niet afmelden. Controleer je gegevens en probeer het opnieuw.
+settings-sessions-revoke-others-success-remembered-kept = Alle andere sessies zijn afgemeld. Browsers die zijn aangemeld bij je Nosdesk-account kunnen nog tot 8 uur opnieuw aanmelden. Meld de andere sessies af in je Nosdesk-account om dit nu te stoppen.
+settings-sessions-revoke-others-error = Kan de andere sessies niet afmelden. Probeer het opnieuw.
+
+# Bevestigen dat jij het bent vóór een riskante actie (ConfirmIdentity, /auth/confirmed) (machine, nog na te kijken door moedertaalspreker)
+step-up-lead = Bevestig dat jij het bent om door te gaan.
+step-up-confirmed = Je hebt een paar minuten geleden bevestigd dat jij het bent.
+step-up-password-label = Wachtwoord
+step-up-code-label = Authenticator- of back-upcode
+step-up-passkey-button = Een passkey gebruiken
+step-up-provider-button = Doorgaan met { $name }
+step-up-provider-help = Er opent een venster zodat je opnieuw kunt inloggen. Kom hier terug als je klaar bent.
+step-up-waiting = Wachten tot je inlogt…
+step-up-try-again = Opnieuw proberen
+step-up-use-another-way = Een andere manier gebruiken
+step-up-choice-password = Je wachtwoord gebruiken
+step-up-choice-code = Een authenticator- of back-upcode gebruiken
+step-up-result-cancelled = Inloggen is geannuleerd.
+step-up-result-wrong-account = Dat was een ander account. Log in als { $email } om door te gaan.
+step-up-result-wrong-account-no-email = Dat was een ander account. Log in met het account dat je hier gebruikt om door te gaan.
+step-up-result-not-fresh = Je inlogprovider heeft geen recente aanmelding bevestigd. Probeer het opnieuw.
+step-up-result-signed-out = Deze browser is uitgelogd. Log opnieuw in en probeer het dan nog eens.
+step-up-result-failed = Kan niet bevestigen dat jij het bent. Probeer het opnieuw.
+step-up-no-methods = Log uit, log opnieuw in en probeer het daarna binnen { $minutes ->
+    [one] { $minutes } minuut
+   *[other] { $minutes } minuten
+} opnieuw.
+step-up-popup-confirmed = Bevestigd. Je kunt dit venster sluiten.
+step-up-popup-close = Je kunt dit venster sluiten.
 
 # Instellingen: waarschuwing voor niet-opgeslagen wijzigingen (gedeeld) (machinevertaling, na te lezen door moedertaalspreker).
 settings-unsaved-leave-title = Niet-opgeslagen wijzigingen verwerpen?
@@ -5584,7 +5784,6 @@ docs-collection-manager-saving = Opslaan...
 
 # Docs: collectie-overzicht (CollectionBrowser)
 docs-collection-browser-heading = Collecties
-docs-collection-browser-new = Nieuw
 docs-collection-browser-name-placeholder = Naam van de collectie...
 docs-collection-browser-cancel = Annuleren
 docs-collection-browser-create = Aanmaken
@@ -5659,7 +5858,6 @@ docs-breadcrumb-root = Documentatie
 docs-breadcrumb-aria = Kruimelpad
 
 # Docs: kaart (DocumentationCard)
-docs-card-empty-content = Nog geen inhoud
 docs-card-children-more = +{ $count } meer
 docs-card-relative-unknown = Onbekend
 docs-card-relative-today = Vandaag
@@ -7042,37 +7240,7 @@ settings-security-error-reset-failed = Wachtwoord opnieuw instellen mislukt
 
 # OAuth callback view + card.
 auth-callback-loading-default = Aanmelding voltooien...
-auth-callback-loading-processing = Authenticatie verwerken...
-auth-callback-loading-success = Gelukt! Doorverwijzen...
 auth-callback-loading-subtitle = Even geduld terwijl we de authenticatie voltooien
-auth-callback-success-title = Authenticatie geslaagd
-auth-callback-success-subtitle = Doorverwijzen...
-auth-callback-technical-details = Technische details
-auth-callback-provider-microsoft = Microsoft
-auth-callback-provider-sso = SSO
-auth-callback-error-missing-params = Vereiste authenticatieparameters ontbreken
-auth-callback-error-missing-detail = Ontbreekt: { $fields }
-auth-callback-error-missing-field-code = code
-auth-callback-error-missing-field-state = state
-auth-callback-error-invalid-response = Ongeldige reactie van de server
-auth-callback-error-no-response = Geen reactie van de server ontvangen
-auth-callback-error-unknown = Onbekende fout
-auth-callback-error-generic-message = Er is een onverwachte fout opgetreden tijdens de authenticatie
-auth-callback-error-status-prefix = Status: { $status }
-auth-callback-already-title = Account al gekoppeld
-auth-callback-already-message = Dit { $provider }-account is al gekoppeld aan een andere gebruiker in het systeem.
-auth-callback-already-suggestion-microsoft = Probeer in te loggen met een ander { $provider }-account of neem contact op met je beheerder.
-auth-callback-already-suggestion-generic = Probeer in te loggen met een ander account of neem contact op met je beheerder.
-auth-callback-invalid-title = Authenticatie mislukt
-auth-callback-invalid-message = Het authenticatieverzoek was ongeldig of verlopen.
-auth-callback-invalid-suggestion-microsoft = Probeer je { $provider }-account opnieuw te koppelen.
-auth-callback-invalid-suggestion-generic = Probeer opnieuw in te loggen.
-auth-callback-generic-title = Authenticatie mislukt
-auth-callback-generic-suggestion = Probeer het opnieuw of neem contact op met support als het probleem aanhoudt.
-auth-callback-action-try-different = Probeer een ander account
-auth-callback-action-back-settings = Terug naar instellingen
-auth-callback-action-return-login = Terug naar inloggen
-auth-callback-action-try-again = Opnieuw proberen
 
 # Dashboard-widgets
 dashboard-widget-shell-action-view-all = Alles tonen
@@ -7192,11 +7360,6 @@ dashboard-knowledge-gaps-action = Wachtrij bekijken
 dashboard-knowledge-gaps-error = Kan lacunes niet laden
 dashboard-knowledge-gaps-empty-title = Geen openstaande lacunes
 dashboard-knowledge-gaps-empty-description = Tickets die zijn gemarkeerd voor documentatie verschijnen hier.
-dashboard-knowledge-gaps-signal-count =
-    { $count ->
-        [one] 1 signaal
-       *[other] { $count } signalen
-    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } zoekopdrachten
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets die vraag naar dit document tonen
@@ -7724,12 +7887,15 @@ admin-ldap-preview-not-found = groep niet gevonden in directory
 admin-ldap-preview-default = Iedereen anders → Lid
 route-title-admin-csv-import = CSV-import
 # MT: pending native review (nl-NL)
+route-title-admin-docs-import = Documentatie importeren
+# MT: pending native review (nl-NL)
 route-title-admin-import-saved-matches = Opgeslagen koppelingen
 # MT: pending native review (nl-NL)
 route-title-admin-import-detail = Import
 route-title-admin-backup-restore = Back-up en herstel
 route-title-group-detail = Groepsdetails
 route-title-authenticating = Bezig met authenticeren...
+route-title-auth-confirmed = Bevestigen dat jij het bent
 route-title-pdf-viewer = PDF-viewer
 
 # Loading modals + scattered polish
@@ -8085,11 +8251,13 @@ user-settings-delete-button = Account verwijderen
 user-settings-delete-self-hint = Vraag de beheerder van je werkruimte om je account te verwijderen.
 user-settings-delete-modal-warning = { $name } verliest direct de toegang. Het account wordt na 30 dagen definitief verwijderd en een beheerder kan het tot die tijd herstellen.
 user-settings-delete-modal-removes = Na 30 dagen wordt het volgende definitief verwijderd:
-user-settings-delete-stepup-password = Voer je wachtwoord in om te bevestigen
-user-settings-delete-stepup-mfa = Voer ter bevestiging een code uit je authenticator-app of een back-upcode in
 user-settings-delete-cancel = Annuleren
 user-settings-delete-confirm = Account verwijderen
 user-settings-delete-error = Kan het account niet verwijderen. Probeer het opnieuw.
+user-settings-delete-member-elsewhere = Deze persoon hoort ook bij andere werkruimten, dus het account kan hier niet worden verwijderd. Verwijder deze persoon in plaats daarvan uit deze werkruimte.
+user-settings-delete-admin-hint = Beheerders kunnen niet worden verwijderd. Wijzig eerst de rol om dit account te verwijderen.
+user-settings-account-member-elsewhere = { $name } hoort ook bij andere werkruimten, dus alleen deze persoon kan de naam, foto, e-mailadressen en taal wijzigen. De groepen hier beheert u zelf.
+user-settings-account-administrator = { $name } is beheerder, dus alleen deze persoon of een eigenaar kan de naam, foto, e-mailadressen, taal en aanmelding wijzigen. De groepen hier beheert u zelf.
 admin-plugins-list-title = Plug-ins
 admin-plugins-list-aria-filter = Plug-ins filteren
 admin-plugins-list-search-placeholder = Plug-ins zoeken
@@ -8560,6 +8728,8 @@ admin-rules-starters-added = Toegevoegd
 admin-rules-starters-toast = { $name } toegevoegd als concept.
 admin-rules-starters-error = Kan die regel niet toevoegen.
 admin-rules-starters-error-load = Kan de kant-en-klare regels niet laden.
+# Machine, pending native review
+backend-error-starter-status-missing = Deze kant-en-klare regel zet tickets op een status in de categorie { $category }, en je werkruimte heeft er geen. Voeg er een toe in Workflow en probeer het opnieuw.
 admin-rules-activity-rule-unknown = Verwijderde regel
 admin-rules-activity-row-by-person = Op ticket #{ $ticket_id } toegepast door { $name }
 admin-rules-activity-what-it-did = Wat de regel deed
@@ -8619,6 +8789,8 @@ ticket-actions-step-status-unknown = De status wijzigen
 ticket-actions-step-assign = Toewijzen aan { $name }
 ticket-actions-step-assign-unknown = Toewijzen aan een bepaalde persoon
 ticket-actions-step-unassign = De toegewezen persoon verwijderen
+# A name inside a sentence, such as a tag a rule step adds (machine, pending native review)
+rule-step-quoted-name = ‘{ $name }’
 ticket-actions-step-add-tags =
     { $count ->
         [one] De tag { $tags } toevoegen
@@ -8898,6 +9070,9 @@ date-picker-calendar-aria = Kalender
 # MACHINE TRANSLATION, pending native review
 admin-nav-license-title = Licentie
 admin-nav-license-description = Licentiestatus, de pushrelay van Nosdesk Cloud en abonnementen.
+# MACHINE TRANSLATION, pending native review
+admin-nav-plan-billing-title = Abonnement en facturering
+admin-nav-plan-billing-description = Proefperiode, betaalmethode en facturen. Opent je Nosdesk-account.
 route-title-admin-license = Licentie
 admin-license-title = Licentie
 admin-license-description = Waarvoor deze server een licentie heeft, en hoe pushmeldingen de mobiele app bereiken.
@@ -9429,3 +9604,1701 @@ portal-new-next-2 = Ze antwoorden hier, en elk antwoord krijgt u ook per e-mail.
 portal-new-next-3 = Is het geregeld, dan bevestigt u dat het opgelost is.
 portal-approvals-intro = Verzoeken die uw akkoord nodig hebben voordat het team begint.
 portal-approval-ask = Keurt u dit verzoek goed?
+
+# Documentatie importeren (Gegevens importeren > Documentatie), machine, nog na te kijken door moedertaalspreker
+# MT: pending native review (nl-NL)
+docs-import-title = Documentatie importeren
+# MT: pending native review (nl-NL)
+docs-import-subtitle = Haal pagina's binnen uit Markdown-bestanden of een export uit een andere tool.
+# MT: pending native review (nl-NL)
+docs-import-step-pages = Pagina's
+# MT: pending native review (nl-NL)
+docs-import-nothing-changes = Er verandert niets in uw werkruimte totdat u op de stap Controle op Importeren klikt.
+# MT: pending native review (nl-NL)
+docs-import-error-generic = Het importeren is mislukt. Probeer het opnieuw of start een nieuwe import.
+# MT: pending native review (nl-NL)
+docs-import-check-failed = De controle stopte voordat deze klaar was. Er is niets geïmporteerd. Controleer de pagina's opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-commit-failed = Er is niets geïmporteerd. Klik opnieuw op Importeren.
+# MT: pending native review (nl-NL)
+docs-import-report-failed = Het conversierapport kon niet worden gedownload. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-untitled = Naamloos
+# MT: pending native review (nl-NL)
+docs-import-start-heading = Documentatie importeren
+# MT: pending native review (nl-NL)
+docs-import-drop-idle = Sleep een .zip of .md-bestanden hierheen, of klik om te kiezen
+# MT: pending native review (nl-NL)
+docs-import-drop-release = Loslaten om te uploaden
+# MT: pending native review (nl-NL)
+docs-import-drop-hint = .zip of .md, tot 200 MB en 2.000 pagina's
+# MT: pending native review (nl-NL)
+docs-import-files-count = { $count ->
+    [one] 1 bestand
+   *[other] { $count } bestanden
+}
+# MT: pending native review (nl-NL)
+docs-import-uploading = { $name } uploaden
+# MT: pending native review (nl-NL)
+docs-import-uploading-progress = { $loaded } van { $total } · u kunt dit tabblad op de achtergrond laten staan
+# MT: pending native review (nl-NL)
+docs-import-reading = Pagina's lezen
+# MT: pending native review (nl-NL)
+docs-import-start-sources = Markdown-bestanden, of een export uit Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline of Nosdesk. De bron wordt herkend; u kunt deze in de volgende stap wijzigen.
+# MT: pending native review (nl-NL)
+docs-import-start-images = Afbeeldingen in het archief komen mee. Afbeeldingen die naar het web linken worden gedownload, tenzij u anders aangeeft.
+# MT: pending native review (nl-NL)
+docs-import-start-attachments = PDF- en Office-bijlagen blijven voorlopig buiten; elke pagina die er een linkt wordt vermeld.
+# MT: pending native review (nl-NL)
+docs-import-comes-across-heading = Wat er meekomt
+# MT: pending native review (nl-NL)
+docs-import-comes-across-1 = Koppen, tekstopmaak, links, lijsten, citaten, code, tabellen en afbeeldingen, voor zover de editor ze ondersteunt. Pagina's behouden hun structuur en volgorde. Links tussen pagina's verwijzen naar de nieuwe pagina's.
+# MT: pending native review (nl-NL)
+docs-import-comes-across-2 = Callouts worden citaten met een vetgedrukt label, takenlijsten worden opsommingen met ☐ en ☑, en alles wat verandert staat per pagina vermeld bij Controle, voordat u importeert.
+# MT: pending native review (nl-NL)
+docs-import-refused-not-a-zip = Dit bestand is geen zip die we kunnen lezen.
+# MT: pending native review (nl-NL)
+docs-import-refused-inner-zip = De zip erin, { $part }, is geen zip die we kunnen lezen.
+# MT: pending native review (nl-NL)
+docs-import-refused-encrypted = Deze zip is met een wachtwoord beveiligd. Exporteer hem opnieuw zonder wachtwoord.
+# MT: pending native review (nl-NL)
+docs-import-refused-too-many-pages = De import bevat { $count } pagina's. De limiet is { $max }. Exporteer één deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-too-many-files = De zip bevat meer dan { $max } bestanden. Exporteer één deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-no-markdown = Deze zip bevat geen Markdown-bestanden.
+# MT: pending native review (nl-NL)
+docs-import-refused-source-later = Dit is een { $source }-export. Exports uit BookStack en Confluence komen in een latere update.
+# MT: pending native review (nl-NL)
+docs-import-refused-mixed-files = Kies één .zip, of alleen .md-bestanden.
+# MT: pending native review (nl-NL)
+docs-import-refused-too-large = { $name } is { $size }. De limiet is { $max }. Exporteer één deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-unsafe-path = De zip bevat een bestandsnaam die we niet kunnen accepteren: { $name }
+# MT: pending native review (nl-NL)
+docs-import-refused-duplicate-entry = De zip bevat { $name } meer dan eens.
+# MT: pending native review (nl-NL)
+docs-import-refused-compression-ratio = { $name } pakt uit tot veel meer dan de gecomprimeerde grootte, daarom wordt de zip niet gelezen.
+# MT: pending native review (nl-NL)
+docs-import-refused-entry-too-large = { $name } is groter dan { $max }.
+# MT: pending native review (nl-NL)
+docs-import-refused-unpacked-too-large = De zip pakt uit tot meer dan { $max }. Exporteer één deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-entry-damaged = { $name } is beschadigd in de zip. Exporteer opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-refused-unreadable-upload = De upload kon niet worden gelezen. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-refused-no-file = Kies een bestand om te importeren.
+# MT: pending native review (nl-NL)
+docs-import-refused-unreadable = Dit bestand kon niet als documentatie worden gelezen.
+# MT: pending native review (nl-NL)
+docs-import-refused-timed-out = Het lezen van de pagina's duurde te lang. Importeer een kleiner deel tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-collection-missing = De collectie om in te importeren bestaat niet meer. Kies een andere.
+# MT: pending native review (nl-NL)
+docs-import-refused-busy = Deze import wordt gecontroleerd of vastgelegd. Probeer het zo opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-refused-check-running = Deze import wordt gecontroleerd.
+# MT: pending native review (nl-NL)
+docs-import-refused-commit-running = Deze import wordt vastgelegd.
+# MT: pending native review (nl-NL)
+docs-import-refused-type-busy = Er wordt al een andere documentatie-import vastgelegd. Probeer het opnieuw zodra die klaar is.
+# MT: pending native review (nl-NL)
+docs-import-refused-committed = Deze import is vastgelegd; de opties kunnen niet meer wijzigen.
+# MT: pending native review (nl-NL)
+docs-import-refused-not-checked = Deze import is nog niet gecontroleerd. Controleer eerst de pagina's.
+# MT: pending native review (nl-NL)
+docs-import-refused-expired = Deze import kan niet worden hervat. Start een nieuwe.
+# MT: pending native review (nl-NL)
+docs-import-source-looks-like = Lijkt op { $profile } · { $pages ->
+    [one] 1 pagina
+   *[other] { $pages } pagina's
+}, { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+}
+# MT: pending native review (nl-NL)
+docs-import-source-read-as = Gelezen als { $profile } · { $pages ->
+    [one] 1 pagina
+   *[other] { $pages } pagina's
+}, { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+}
+# MT: pending native review (nl-NL)
+docs-import-source-rereading = Pagina's opnieuw lezen
+# MT: pending native review (nl-NL)
+docs-import-source-change = Wijzigen
+# MT: pending native review (nl-NL)
+docs-import-source-change-label = Dit archief lezen als
+# MT: pending native review (nl-NL)
+docs-import-profile-detected = { $profile } (herkend)
+# MT: pending native review (nl-NL)
+docs-import-profile-notion = een Notion-export
+# MT: pending native review (nl-NL)
+docs-import-profile-nosdesk-v2 = een Nosdesk-export
+# MT: pending native review (nl-NL)
+docs-import-profile-nosdesk-v1 = een oudere Nosdesk-export
+# MT: pending native review (nl-NL)
+docs-import-profile-obsidian = een Obsidian-vault
+# MT: pending native review (nl-NL)
+docs-import-profile-gitbook = een GitBook-export
+# MT: pending native review (nl-NL)
+docs-import-profile-mkdocs = een MkDocs-site
+# MT: pending native review (nl-NL)
+docs-import-profile-docusaurus = een Docusaurus-site
+# MT: pending native review (nl-NL)
+docs-import-profile-outline = een Outline-export
+# MT: pending native review (nl-NL)
+docs-import-profile-plain = een gewone map
+# MT: pending native review (nl-NL)
+docs-import-profile-option-notion = Notion-export
+# MT: pending native review (nl-NL)
+docs-import-profile-option-nosdesk-v2 = Nosdesk-export
+# MT: pending native review (nl-NL)
+docs-import-profile-option-nosdesk-v1 = Oudere Nosdesk-export
+# MT: pending native review (nl-NL)
+docs-import-profile-option-obsidian = Obsidian-vault
+# MT: pending native review (nl-NL)
+docs-import-profile-option-gitbook = GitBook
+# MT: pending native review (nl-NL)
+docs-import-profile-option-mkdocs = MkDocs
+# MT: pending native review (nl-NL)
+docs-import-profile-option-docusaurus = Docusaurus
+# MT: pending native review (nl-NL)
+docs-import-profile-option-outline = Outline-export
+# MT: pending native review (nl-NL)
+docs-import-profile-option-plain = Gewone map
+# MT: pending native review (nl-NL)
+docs-import-tree-title = Pagina's zoals ze in Nosdesk verschijnen
+# MT: pending native review (nl-NL)
+docs-import-tree-expand-all = Alles uitklappen
+# MT: pending native review (nl-NL)
+docs-import-tree-collapse-all = Alles inklappen
+# MT: pending native review (nl-NL)
+docs-import-tree-expand = { $title } uitklappen
+# MT: pending native review (nl-NL)
+docs-import-tree-collapse = { $title } inklappen
+# MT: pending native review (nl-NL)
+docs-import-tree-tick = { $title } importeren
+# MT: pending native review (nl-NL)
+docs-import-tree-tick-with-children = { $count ->
+    [one] { $title } en de bijbehorende pagina importeren
+   *[other] { $title } en de { $count } bijbehorende pagina's importeren
+}
+# MT: pending native review (nl-NL)
+docs-import-tree-left-out = Uitgesloten
+# MT: pending native review (nl-NL)
+docs-import-tree-no-content = Geen inhoud
+# MT: pending native review (nl-NL)
+docs-import-tree-database = Database
+# MT: pending native review (nl-NL)
+docs-import-tree-image-count = { $count ->
+    [one] 1 afbeelding
+   *[other] { $count } afbeeldingen
+}
+# MT: pending native review (nl-NL)
+docs-import-tree-page-count = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+}
+# MT: pending native review (nl-NL)
+docs-import-tree-note-count = { $count ->
+    [one] 1 opmerking
+   *[other] { $count } opmerkingen
+}
+# MT: pending native review (nl-NL)
+docs-import-tree-head-new = nieuwe collectie
+# MT: pending native review (nl-NL)
+docs-import-tree-head-existing = bestaande collectie
+# MT: pending native review (nl-NL)
+docs-import-tree-head-none = geen collectie
+# MT: pending native review (nl-NL)
+docs-import-tree-no-collection = Concepten
+# MT: pending native review (nl-NL)
+docs-import-tree-count = { $ticked } van { $total } pagina's worden geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-tree-count-unticked = { $count } uitgevinkt
+# MT: pending native review (nl-NL)
+docs-import-tree-count-left-out = { $count } uitgesloten door een patroon
+# MT: pending native review (nl-NL)
+docs-import-tree-follow = Vink een sectie uit en de pagina's eronder volgen
+# MT: pending native review (nl-NL)
+docs-import-where-title = Bestemming
+# MT: pending native review (nl-NL)
+docs-import-where-collection = Collectie
+# MT: pending native review (nl-NL)
+docs-import-where-suggested = { $name } bestaat al in Documentatie met { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+}, daarom is deze geselecteerd. Kies Nieuwe collectie om deze import apart te houden.
+# MT: pending native review (nl-NL)
+docs-import-where-existing = Bestaande collectie
+# MT: pending native review (nl-NL)
+docs-import-where-existing-desc = Nieuwe pagina's komen na de bestaande pagina's.
+# MT: pending native review (nl-NL)
+docs-import-where-existing-none = Er zijn nog geen collecties.
+# MT: pending native review (nl-NL)
+docs-import-where-collection-option = { $name } ({ $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+})
+# MT: pending native review (nl-NL)
+docs-import-where-under = Onder pagina
+# MT: pending native review (nl-NL)
+docs-import-where-top-level = Bovenste niveau van de collectie
+# MT: pending native review (nl-NL)
+docs-import-where-under-option = Onder { $title }
+# MT: pending native review (nl-NL)
+docs-import-where-new = Nieuwe collectie
+# MT: pending native review (nl-NL)
+docs-import-where-name = Naam van de collectie
+# MT: pending native review (nl-NL)
+docs-import-where-new-clash = Er bestaat al een collectie met de naam { $name }. Beide worden getoond in Documentatie.
+# MT: pending native review (nl-NL)
+docs-import-where-per-folder = Eén collectie per map op het bovenste niveau
+# MT: pending native review (nl-NL)
+docs-import-where-per-folder-desc = { $count ->
+    [one] 1 collectie: { $names }.
+   *[other] { $count } collecties: { $names }.
+} De eigen pagina van een map wordt de eerste pagina van de collectie.
+# MT: pending native review (nl-NL)
+docs-import-where-as-source = Zoals in de export
+# MT: pending native review (nl-NL)
+docs-import-where-as-source-desc = { $count ->
+    [one] 1 collectie, zoals die in Nosdesk was.
+   *[other] { $count } collecties, zoals ze in Nosdesk waren.
+}
+# MT: pending native review (nl-NL)
+docs-import-status-label = Status
+# MT: pending native review (nl-NL)
+docs-import-status-drafts = Concepten
+# MT: pending native review (nl-NL)
+docs-import-status-published = Gepubliceerd
+# MT: pending native review (nl-NL)
+docs-import-status-as-files = Zoals de bestanden aangeven
+# MT: pending native review (nl-NL)
+docs-import-status-drafts-help = Alleen medewerkers kunnen ze zien totdat u ze publiceert.
+# MT: pending native review (nl-NL)
+docs-import-status-published-help = Iedereen die de collectie kan zien, ziet ze meteen, inclusief de conversie-opmerkingen.
+# MT: pending native review (nl-NL)
+docs-import-status-as-files-help = Pagina's die de bestanden als concept markeren blijven concepten; de rest wordt gepubliceerd.
+# MT: pending native review (nl-NL)
+docs-import-status-as-files-notion = Notion-exports bevatten geen status, dus elke pagina zou een concept worden.
+# MT: pending native review (nl-NL)
+docs-import-web-label = Afbeeldingen gelinkt vanaf het web
+# MT: pending native review (nl-NL)
+docs-import-web-download = Downloaden
+# MT: pending native review (nl-NL)
+docs-import-web-links = Als links behouden
+# MT: pending native review (nl-NL)
+docs-import-web-download-help = { $count ->
+    [0] Geen enkele pagina linkt een afbeelding vanaf het web.
+    [one] 1 afbeelding linkt naar het web. Deze wordt bij de controle in Nosdesk gedownload, zodat Controle laat zien of hij is overgekomen.
+   *[other] { $count } afbeeldingen linken naar het web. Ze worden bij de controle in Nosdesk gedownload, zodat Controle laat zien welke zijn overgekomen.
+}
+# MT: pending native review (nl-NL)
+docs-import-web-links-help = { $count ->
+    [0] Geen enkele pagina linkt een afbeelding vanaf het web.
+   *[other] Behouden links worden niet getoond in Nosdesk: pagina's kunnen alleen afbeeldingen tonen die hier zijn opgeslagen. Gelinkte afbeeldingen zouden als hun alt-tekst verschijnen.
+}
+# MT: pending native review (nl-NL)
+docs-import-leave-out-label = Bestanden uitsluiten die overeenkomen met
+# MT: pending native review (nl-NL)
+docs-import-leave-out-placeholder = bijv. **/archive/**
+# MT: pending native review (nl-NL)
+docs-import-leave-out-add = Toevoegen
+# MT: pending native review (nl-NL)
+docs-import-leave-out-remove = { $pattern } verwijderen
+# MT: pending native review (nl-NL)
+docs-import-leave-out-help = Paden in het archief, vergeleken met de bestandsnamen. Druk op Enter om toe te voegen.
+# MT: pending native review (nl-NL)
+docs-import-leave-out-matches = { $count ->
+    [one] 1 pagina komt overeen.
+   *[other] { $count } pagina's komen overeen.
+}
+# MT: pending native review (nl-NL)
+docs-import-too-many-typed-patterns = Uitsluiten accepteert maximaal 100 patronen. Verwijder er een paar.
+# MT: pending native review (nl-NL)
+docs-import-pattern-too-long = Een patroon is langer dan 500 tekens. Maak het korter.
+# MT: pending native review (nl-NL)
+docs-import-choose-collection = Kies de collectie om in te importeren.
+# MT: pending native review (nl-NL)
+docs-import-change-file = Ander bestand
+# MT: pending native review (nl-NL)
+docs-import-change-file-title = Dit bestand verwerpen?
+# MT: pending native review (nl-NL)
+docs-import-change-file-message = Er is niets geïmporteerd. Uw keuzes onder Bestemming blijven bewaard voor het volgende bestand.
+# MT: pending native review (nl-NL)
+docs-import-change-file-confirm = Bestand verwerpen
+# MT: pending native review (nl-NL)
+docs-import-tick-one = Vink minstens één pagina aan
+# MT: pending native review (nl-NL)
+docs-import-check = { $count ->
+    [one] 1 pagina controleren
+   *[other] { $count } pagina's controleren
+}
+# MT: pending native review (nl-NL)
+docs-import-checking = Pagina's controleren
+# MT: pending native review (nl-NL)
+docs-import-checking-line = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+} controleren: converteren, { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+} lezen, zoeken naar pagina's die al in Nosdesk staan. Er wordt niets geschreven.
+# MT: pending native review (nl-NL)
+docs-import-checking-line-web = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+} controleren: converteren, { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+} lezen, { $web } downloaden van het web, zoeken naar pagina's die al in Nosdesk staan. Er wordt niets geschreven.
+# MT: pending native review (nl-NL)
+docs-import-dest-new = in een nieuwe collectie, { $name }
+# MT: pending native review (nl-NL)
+docs-import-dest-existing = in { $name }
+# MT: pending native review (nl-NL)
+docs-import-dest-existing-under = in { $name } onder { $under }
+# MT: pending native review (nl-NL)
+docs-import-dest-many = { $count ->
+    [one] in 1 nieuwe collectie
+   *[other] in { $count } nieuwe collecties
+}
+# MT: pending native review (nl-NL)
+docs-import-headline-checked = { $count ->
+    [one] 1 pagina gecontroleerd.
+   *[other] { $count } pagina's gecontroleerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-headline-imported = { $count ->
+    [one] 1 wordt geïmporteerd
+   *[other] { $count } worden geïmporteerd
+} { $dest }, { $status ->
+    [published] gepubliceerd
+    [as_files] zoals de bestanden aangeven
+   *[drafts] als concept
+}{ $copies ->
+    [0] {""}
+   *[other] {" "}({ $copies } als kopie)
+}.
+# MT: pending native review (nl-NL)
+docs-import-headline-nothing = Er zou niets worden geïmporteerd.
+# MT: pending native review (nl-NL)
+docs-import-headline-skipped = { $count } overgeslagen: staan al in Nosdesk.
+# MT: pending native review (nl-NL)
+docs-import-headline-errors = { $count ->
+    [one] 1 kon niet worden geconverteerd en wordt leeg geïmporteerd.
+   *[other] { $count } konden niet worden geconverteerd en worden leeg geïmporteerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-tile-new = Nieuwe pagina's
+# MT: pending native review (nl-NL)
+docs-import-tile-new-copies = { $count } als kopie
+# MT: pending native review (nl-NL)
+docs-import-tile-new-errors = { $count } leeg geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-tile-new-sections = { $count ->
+    [one] 1 sectiepagina zonder inhoud
+   *[other] { $count } sectiepagina's zonder inhoud
+}
+# MT: pending native review (nl-NL)
+docs-import-tile-images = Afbeeldingen
+# MT: pending native review (nl-NL)
+docs-import-tile-images-problems = { $count } met problemen
+# MT: pending native review (nl-NL)
+docs-import-tile-images-web = { $count } van het web
+# MT: pending native review (nl-NL)
+docs-import-tile-images-left-out = { $count } uitgesloten
+# MT: pending native review (nl-NL)
+docs-import-tile-links = Links herschreven
+# MT: pending native review (nl-NL)
+docs-import-tile-links-kept = { $count } als tekst behouden
+# MT: pending native review (nl-NL)
+docs-import-tile-links-all = Alle links worden gevonden
+# MT: pending native review (nl-NL)
+docs-import-tile-skipped = Overgeslagen
+# MT: pending native review (nl-NL)
+docs-import-tile-skipped-already = { $count } al in Nosdesk
+# MT: pending native review (nl-NL)
+docs-import-already-title = { $count ->
+    [one] 1 pagina is al eerder geïmporteerd
+   *[other] { $count } pagina's zijn al eerder geïmporteerd
+}
+# MT: pending native review (nl-NL)
+docs-import-already-names-more = { $names } en { $count } meer
+# MT: pending native review (nl-NL)
+docs-import-already-by-source = gevonden via hun pad in een eerdere import in dezelfde collectie.
+# MT: pending native review (nl-NL)
+docs-import-already-by-uuid = ze komen uit de export van deze werkruimte.
+# MT: pending native review (nl-NL)
+docs-import-already-by-both = gevonden via een eerdere import, of ze komen uit de export van deze werkruimte.
+# MT: pending native review (nl-NL)
+docs-import-already-label = Pagina's die al in Nosdesk staan
+# MT: pending native review (nl-NL)
+docs-import-already-skip = Overslaan
+# MT: pending native review (nl-NL)
+docs-import-already-copy = Als kopie importeren
+# MT: pending native review (nl-NL)
+docs-import-already-skip-help = De pagina's in Nosdesk behouden hun inhoud. Er wordt niets ter plekke bijgewerkt.
+# MT: pending native review (nl-NL)
+docs-import-already-copy-help = Naast de bestaande pagina wordt een tweede pagina met dezelfde titel gemaakt. Er wordt niets ter plekke bijgewerkt.
+# MT: pending native review (nl-NL)
+docs-import-conversion-title = Wat er verandert bij de conversie
+# MT: pending native review (nl-NL)
+docs-import-conversion-clean = Elke pagina wordt ongewijzigd geconverteerd.
+# MT: pending native review (nl-NL)
+docs-import-conversion-footer = Niets verandert ongemerkt. Elke regel hier staat per pagina in het conversierapport.
+# MT: pending native review (nl-NL)
+docs-import-show-pages = Pagina's tonen
+# MT: pending native review (nl-NL)
+docs-import-line-pages = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+}
+# MT: pending native review (nl-NL)
+docs-import-line-errors = { $count ->
+    [one] 1 pagina kon niet worden geconverteerd. Deze wordt geïmporteerd met een lege inhoud.
+   *[other] { $count } pagina's konden niet worden geconverteerd. Ze worden geïmporteerd met een lege inhoud.
+}
+# MT: pending native review (nl-NL)
+docs-import-line-sections = { $count ->
+    [one] 1 sectiepagina heeft geen inhoud: { $names }. Deze krijgt een lege inhoud die u kunt invullen.
+   *[other] { $count } sectiepagina's hebben geen inhoud: { $names }. Ze krijgen een lege inhoud die u kunt invullen.
+}
+# MT: pending native review (nl-NL)
+docs-import-line-front-matter = Front matter-velden die niet worden geïmporteerd: { $fields }.
+# MT: pending native review (nl-NL)
+docs-import-note-tables-hoisted = { $count ->
+    [one] 1 tabel in een lijst of citaat is erna geplaatst
+   *[other] { $count } tabellen in een lijst of citaat zijn erna geplaatst
+}
+# MT: pending native review (nl-NL)
+docs-import-note-table-rows-padded = { $count ->
+    [one] Bij 1 tabel zijn de rijen gelijkgetrokken
+   *[other] Bij { $count } tabellen zijn de rijen gelijkgetrokken
+}
+# MT: pending native review (nl-NL)
+docs-import-note-table-cells-flattened = { $count ->
+    [one] 1 tabelcel bevatte inhoud die een cel niet kan bevatten, nu als tekst behouden
+   *[other] { $count } tabelcellen bevatten inhoud die een cel niet kan bevatten, nu als tekst behouden
+}
+# MT: pending native review (nl-NL)
+docs-import-note-checklists-as-bullets = { $count ->
+    [one] 1 takenlijst werd een opsomming
+   *[other] { $count } takenlijsten werden opsommingen
+}
+# MT: pending native review (nl-NL)
+docs-import-note-strikethrough-removed = { $count ->
+    [one] Doorhaling of markering op 1 plek verwijderd; de tekst blijft behouden
+   *[other] Doorhaling of markering op { $count } plekken verwijderd; de tekst blijft behouden
+}
+# MT: pending native review (nl-NL)
+docs-import-note-callouts-as-quotes = { $count ->
+    [one] 1 callout werd een citaat
+   *[other] { $count } callouts werden citaten
+}
+# MT: pending native review (nl-NL)
+docs-import-note-formulas-as-code = { $count ->
+    [one] 1 formule werd code
+   *[other] { $count } formules werden code
+}
+# MT: pending native review (nl-NL)
+docs-import-note-links-dropped = { $count ->
+    [one] 1 link gaat naar een bestemming waar een pagina niet naar kan linken. De tekst blijft behouden.
+   *[other] { $count } links gaan naar bestemmingen waar een pagina niet naar kan linken. De tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-images-dropped = { $count ->
+    [one] 1 afbeelding heeft een bron die een pagina niet kan tonen. De alt-tekst blijft behouden.
+   *[other] { $count } afbeeldingen hebben een bron die een pagina niet kan tonen. De alt-tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-html-removed = { $count ->
+    [one] Ingesloten HTML op 1 plek verwijderd (scripts, stijlen, frames)
+   *[other] Ingesloten HTML op { $count } plekken verwijderd (scripts, stijlen, frames)
+}
+# MT: pending native review (nl-NL)
+docs-import-note-html-as-text = { $count ->
+    [one] HTML op 1 plek als tekst behouden
+   *[other] HTML op { $count } plekken als tekst behouden
+}
+# MT: pending native review (nl-NL)
+docs-import-note-nesting-flattened = { $count ->
+    [one] Nesting dieper dan de editor toestaat op 1 plek platgemaakt
+   *[other] Nesting dieper dan de editor toestaat op { $count } plekken platgemaakt
+}
+# MT: pending native review (nl-NL)
+docs-import-note-table-cells-dropped = { $count ->
+    [one] 1 tabelrij had meer cellen dan de kop; de extra cellen zijn verwijderd
+   *[other] { $count } tabelrijen hadden meer cellen dan de kop; de extra cellen zijn verwijderd
+}
+# MT: pending native review (nl-NL)
+docs-import-note-mentions-as-text = { $count ->
+    [one] 1 vermelding werd tekst: de persoon zit niet in deze werkruimte
+   *[other] { $count } vermeldingen werden tekst: de personen zitten niet in deze werkruimte
+}
+# MT: pending native review (nl-NL)
+docs-import-note-ticket-links-as-text = { $count ->
+    [one] 1 ticketlink werd tekst: het ticket staat niet in deze werkruimte
+   *[other] { $count } ticketlinks werden tekst: de tickets staan niet in deze werkruimte
+}
+# MT: pending native review (nl-NL)
+docs-import-note-embeds-as-text = { $count ->
+    [one] 1 ingesloten pagina werd haar titel: de pagina zit niet in de import
+   *[other] { $count } ingesloten pagina's werden hun titels: de pagina's zitten niet in de import
+}
+# MT: pending native review (nl-NL)
+docs-import-note-links-unresolved = { $count ->
+    [one] 1 link verwijst naar een pagina die niet in de import zit. De tekst blijft behouden.
+   *[other] { $count } links verwijzen naar pagina's die niet in de import zitten. De tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-links-ambiguous = { $count ->
+    [one] 1 link op naam kwam overeen met meer dan één pagina; hij gaat naar de dichtstbijzijnde
+   *[other] { $count } links op naam kwamen overeen met meer dan één pagina; elk gaat naar de dichtstbijzijnde
+}
+# MT: pending native review (nl-NL)
+docs-import-note-attachments-left-out = { $count ->
+    [one] 1 bijlage uitgesloten: PDF- en Office-bestanden worden nog niet geïmporteerd. De link behoudt zijn tekst.
+   *[other] { $count } bijlagen uitgesloten: PDF- en Office-bestanden worden nog niet geïmporteerd. De links behouden hun tekst.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-front-matter-ignored = { $count ->
+    [one] 1 front matter-blok kon niet worden gelezen en is weggelaten
+   *[other] { $count } front matter-blokken konden niet worden gelezen en zijn weggelaten
+}
+# MT: pending native review (nl-NL)
+docs-import-note-title-shortened = { $count ->
+    [one] 1 titel was langer dan 255 tekens en is ingekort
+   *[other] { $count } titels waren langer dan 255 tekens en zijn ingekort
+}
+# MT: pending native review (nl-NL)
+docs-import-note-not-utf8 = { $count ->
+    [one] 1 bestand was geen UTF-8; sommige tekens kunnen onjuist zijn
+   *[other] { $count } bestanden waren geen UTF-8; sommige tekens kunnen onjuist zijn
+}
+# MT: pending native review (nl-NL)
+docs-import-note-source-syntax-removed = { $count ->
+    [one] Syntaxis die alleen de brontool begrijpt op 1 plek verwijderd
+   *[other] Syntaxis die alleen de brontool begrijpt op { $count } plekken verwijderd
+}
+# MT: pending native review (nl-NL)
+docs-import-note-database-rows-cut = { $count ->
+    [one] 1 Notion-database had meer rijen dan een pagina toont; de eerste 200 zijn behouden
+   *[other] { $count } Notion-databases hadden meer rijen dan een pagina toont; de eerste 200 zijn behouden
+}
+# MT: pending native review (nl-NL)
+docs-import-note-images-unreadable = { $count ->
+    [one] 1 afbeelding kon niet worden gelezen. De alt-tekst blijft behouden.
+   *[other] { $count } afbeeldingen konden niet worden gelezen. De alt-tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-svg-images-refused = { $count ->
+    [one] 1 SVG-afbeelding uitgesloten: SVG kan scripts bevatten. De alt-tekst blijft behouden.
+   *[other] { $count } SVG-afbeeldingen uitgesloten: SVG kan scripts bevatten. De alt-tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-note-web-images-not-fetched = { $count ->
+    [one] 1 afbeelding van het web kon niet worden gedownload. De alt-tekst blijft behouden.
+   *[other] { $count } afbeeldingen van het web konden niet worden gedownload. De alt-tekst blijft behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-image-unreadable = kon niet worden gelezen
+# MT: pending native review (nl-NL)
+docs-import-image-too-large = is groter dan 10 MB
+# MT: pending native review (nl-NL)
+docs-import-image-not-an-image = is geen afbeelding
+# MT: pending native review (nl-NL)
+docs-import-image-svg = is een SVG, die niet kan worden geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-image-refused-address = heeft een adres waarvan niet kan worden gedownload
+# MT: pending native review (nl-NL)
+docs-import-image-timed-out = deed te lang over het downloaden
+# MT: pending native review (nl-NL)
+docs-import-image-fetch-failed = kon niet worden gedownload
+# MT: pending native review (nl-NL)
+docs-import-image-over-limit = valt buiten de 500 webafbeeldingen die één import downloadt
+# MT: pending native review (nl-NL)
+docs-import-list-title = Pagina's
+# MT: pending native review (nl-NL)
+docs-import-filter-label = Tonen
+# MT: pending native review (nl-NL)
+docs-import-filter-all = Alle { $count }
+# MT: pending native review (nl-NL)
+docs-import-filter-notes = Met opmerkingen { $count }
+# MT: pending native review (nl-NL)
+docs-import-filter-skipped = Overgeslagen { $count }
+# MT: pending native review (nl-NL)
+docs-import-filter-errors = Fouten { $count }
+# MT: pending native review (nl-NL)
+docs-import-chip-sections = Sectiepagina's zonder inhoud
+# MT: pending native review (nl-NL)
+docs-import-chip-images = Afbeeldingsproblemen
+# MT: pending native review (nl-NL)
+docs-import-chip-links = Links als tekst behouden
+# MT: pending native review (nl-NL)
+docs-import-chip-changed = Gewijzigd sinds de controle
+# MT: pending native review (nl-NL)
+docs-import-chip-errors = Pagina's die niet konden worden geconverteerd
+# MT: pending native review (nl-NL)
+docs-import-chip-clear = Alle pagina's tonen
+# MT: pending native review (nl-NL)
+docs-import-list-keys = ↑ ↓ verplaatsen · Enter voorbeeld
+# MT: pending native review (nl-NL)
+docs-import-list-loading = Pagina's lezen
+# MT: pending native review (nl-NL)
+docs-import-list-failed = De pagina's konden niet worden geladen. Herlaad om het opnieuw te proberen.
+# MT: pending native review (nl-NL)
+docs-import-list-empty = Geen pagina's gevonden.
+# MT: pending native review (nl-NL)
+docs-import-list-empty-notes = Geen opmerkingen. Elke pagina wordt netjes geconverteerd.
+# MT: pending native review (nl-NL)
+docs-import-list-empty-skipped = Niets overgeslagen.
+# MT: pending native review (nl-NL)
+docs-import-list-empty-errors = Geen fouten. Elke pagina wordt geconverteerd.
+# MT: pending native review (nl-NL)
+docs-import-col-page = Pagina
+# MT: pending native review (nl-NL)
+docs-import-col-outcome = Resultaat
+# MT: pending native review (nl-NL)
+docs-import-col-notes = Opmerkingen
+# MT: pending native review (nl-NL)
+docs-import-top-level = Bovenste niveau
+# MT: pending native review (nl-NL)
+docs-import-no-notes = Geen opmerkingen
+# MT: pending native review (nl-NL)
+docs-import-pager = { $from } tot { $to } van { $total }
+# MT: pending native review (nl-NL)
+docs-import-pager-prev = Vorige
+# MT: pending native review (nl-NL)
+docs-import-pager-next = Volgende
+# MT: pending native review (nl-NL)
+docs-import-outcome-new = Nieuw
+# MT: pending native review (nl-NL)
+docs-import-outcome-copy = Kopie
+# MT: pending native review (nl-NL)
+docs-import-outcome-skipped = Overgeslagen
+# MT: pending native review (nl-NL)
+docs-import-outcome-error = Fout
+# MT: pending native review (nl-NL)
+docs-import-outcome-left = Niet geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-outcome-trash = In prullenbak
+# MT: pending native review (nl-NL)
+docs-import-outcome-kept = Behouden
+# MT: pending native review (nl-NL)
+docs-import-row-already-skip = Staat al in Nosdesk, wordt dus overgeslagen
+# MT: pending native review (nl-NL)
+docs-import-row-already-copy = Staat al in Nosdesk, er wordt dus een kopie gemaakt
+# MT: pending native review (nl-NL)
+docs-import-row-changed = Gewijzigd sinds de controle: deze pagina staat nu in Nosdesk
+# MT: pending native review (nl-NL)
+docs-import-row-image-problem = { $name } { $problem }
+# MT: pending native review (nl-NL)
+docs-import-row-attachment = Bijlage uitgesloten: { $name }
+# MT: pending native review (nl-NL)
+docs-import-row-unresolved = Link als tekst behouden: { $name } zit niet in de import
+# MT: pending native review (nl-NL)
+docs-import-row-section = Sectiepagina zonder inhoud
+# MT: pending native review (nl-NL)
+docs-import-preview-title = Voorbeeld
+# MT: pending native review (nl-NL)
+docs-import-preview-select = Selecteer een pagina om te zien hoe die eruitziet
+# MT: pending native review (nl-NL)
+docs-import-preview-empty = De geconverteerde pagina, alleen-lezen, in de weergave van de editor.
+# MT: pending native review (nl-NL)
+docs-import-preview-read-only = Alleen-lezen · de pagina zoals die wordt geschreven · afbeeldingen worden als bestand getoond
+# MT: pending native review (nl-NL)
+docs-import-preview-loading = Pagina converteren
+# MT: pending native review (nl-NL)
+docs-import-preview-failed = Het voorbeeld kon niet worden geladen. Selecteer de pagina opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-preview-schema-failed = Het voorbeeld voldeed niet aan de schemacontrole van de editor. Dit is een fout in de converter, niet in uw pagina: { $reason }
+# MT: pending native review (nl-NL)
+docs-import-preview-error-line = { $count ->
+    [one] Deze pagina wordt geïmporteerd met een lege inhoud. De andere pagina wordt geïmporteerd zoals gepland.
+   *[other] Deze pagina wordt geïmporteerd met een lege inhoud. De andere { $count } pagina's worden geïmporteerd zoals gepland.
+}
+# MT: pending native review (nl-NL)
+docs-import-preview-aria = Voorbeeld van { $title }
+# MT: pending native review (nl-NL)
+docs-import-preview-prev = Vorige
+# MT: pending native review (nl-NL)
+docs-import-preview-next = Volgende
+# MT: pending native review (nl-NL)
+docs-import-preview-was-callout = Was een callout
+# MT: pending native review (nl-NL)
+docs-import-preview-was-checklist = Was een takenlijst
+# MT: pending native review (nl-NL)
+docs-import-preview-table-moved = Uit de lijst gehaald
+# MT: pending native review (nl-NL)
+docs-import-preview-image-web = van het web
+# MT: pending native review (nl-NL)
+docs-import-preview-image-problem = { $problem } · alt-tekst behouden: { $alt }
+# MT: pending native review (nl-NL)
+docs-import-preview-image-aria = Afbeelding: { $name }
+# MT: pending native review (nl-NL)
+docs-import-preview-image-aria-problem = Afbeelding niet geïmporteerd: { $name }
+# MT: pending native review (nl-NL)
+docs-import-review-back = Terug naar Pagina's
+# MT: pending native review (nl-NL)
+docs-import-report = Conversierapport downloaden (.csv)
+# MT: pending native review (nl-NL)
+docs-import-review-skip-reason = { $count ->
+    [one] 1 pagina wordt niet geïmporteerd
+   *[other] { $count } pagina's worden niet geïmporteerd
+}
+# MT: pending native review (nl-NL)
+docs-import-review-import = { $count ->
+    [one] 1 pagina importeren
+   *[other] { $count } pagina's importeren
+}
+# MT: pending native review (nl-NL)
+docs-import-review-importing = Bezig met importeren
+# MT: pending native review (nl-NL)
+docs-import-review-nothing = Niets te importeren
+# MT: pending native review (nl-NL)
+docs-import-confirm-title = { $count ->
+    [one] 1 pagina importeren?
+   *[other] { $count } pagina's importeren?
+}
+# MT: pending native review (nl-NL)
+docs-import-confirm-message = { $count ->
+    [one] 1 pagina
+   *[other] { $count } pagina's
+} en { $images ->
+    [one] 1 afbeelding
+   *[other] { $images } afbeeldingen
+} worden toegevoegd { $dest }, { $status ->
+    [published] gepubliceerd
+    [as_files] zoals de bestanden aangeven
+   *[drafts] als concept
+}.
+# MT: pending native review (nl-NL)
+docs-import-confirm-skipped = { $count ->
+    [one] 1 pagina die al in Nosdesk staat wordt overgeslagen.
+   *[other] { $count } pagina's die al in Nosdesk staan worden overgeslagen.
+}
+# MT: pending native review (nl-NL)
+docs-import-confirm-copies = { $count ->
+    [one] 1 pagina die al in Nosdesk staat wordt als kopie geïmporteerd.
+   *[other] { $count } pagina's die al in Nosdesk staan worden als kopie geïmporteerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-confirm-errors = { $count ->
+    [one] 1 pagina die niet kon worden geconverteerd wordt leeg geïmporteerd.
+   *[other] { $count } pagina's die niet konden worden geconverteerd worden leeg geïmporteerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-confirm-published = Iedereen die de collectie kan zien, ziet ze meteen.
+# MT: pending native review (nl-NL)
+docs-import-plan-changed = Er is iets veranderd sinds uw controle. Bekijk het nieuwe plan hieronder; de aantallen en de knop Importeren zijn bijgewerkt.
+# MT: pending native review (nl-NL)
+docs-import-plan-changed-more = { $count ->
+    [one] Er is iets veranderd sinds uw controle: nog 1 pagina staat al in Nosdesk. Bekijk het nieuwe plan hieronder; de aantallen en de knop Importeren zijn bijgewerkt.
+   *[other] Er is iets veranderd sinds uw controle: nog { $count } pagina's staan al in Nosdesk. Bekijk het nieuwe plan hieronder; de aantallen en de knop Importeren zijn bijgewerkt.
+}
+# MT: pending native review (nl-NL)
+docs-import-importing-title = { $count ->
+    [one] 1 pagina importeren
+   *[other] { $count } pagina's importeren
+}
+# MT: pending native review (nl-NL)
+docs-import-importing-progress = { $written } van { $total } pagina's geschreven
+# MT: pending native review (nl-NL)
+docs-import-importing-finishing = Afronden: links, insluitingen en de zoekindex
+# MT: pending native review (nl-NL)
+docs-import-importing-leave = U kunt deze pagina verlaten. De import loopt door en verschijnt hier, en bij Recente imports, zodra hij klaar is.
+# MT: pending native review (nl-NL)
+docs-import-done-heading = Import voltooid
+# MT: pending native review (nl-NL)
+docs-import-done-summary = { $count ->
+    [one] 1 pagina geïmporteerd in { $where }
+   *[other] { $count } pagina's geïmporteerd in { $where }
+}, { $status ->
+    [published] gepubliceerd
+    [as_files] zoals de bestanden aangeven
+   *[drafts] als concept
+}.
+# MT: pending native review (nl-NL)
+docs-import-done-many = { $count ->
+    [one] 1 nieuwe collectie
+   *[other] { $count } nieuwe collecties
+}
+# MT: pending native review (nl-NL)
+docs-import-done-images = { $count ->
+    [one] 1 afbeelding opgeslagen.
+   *[other] { $count } afbeeldingen opgeslagen.
+}
+# MT: pending native review (nl-NL)
+docs-import-done-skipped = { $count ->
+    [one] 1 pagina die al in Nosdesk stond is overgeslagen.
+   *[other] { $count } pagina's die al in Nosdesk stonden zijn overgeslagen.
+}
+# MT: pending native review (nl-NL)
+docs-import-done-errors = { $count ->
+    [one] 1 pagina kon niet worden geconverteerd en is leeg geïmporteerd.
+   *[other] { $count } pagina's konden niet worden geconverteerd en zijn leeg geïmporteerd.
+}
+# MT: pending native review (nl-NL)
+docs-import-done-drafts = De pagina's zijn concepten: alleen medewerkers kunnen ze zien. Lees er een paar en publiceer ze dan allemaal hier of een voor een.
+# MT: pending native review (nl-NL)
+docs-import-done-revision = De eerste revisie van elke pagina vermeldt "Geïmporteerd uit { $file }".
+# MT: pending native review (nl-NL)
+docs-import-done-open = { $name } openen
+# MT: pending native review (nl-NL)
+docs-import-done-open-docs = Documentatie openen
+# MT: pending native review (nl-NL)
+docs-import-done-another = Nog een bestand importeren
+# MT: pending native review (nl-NL)
+docs-import-conversion-done-title = Wat er veranderde bij de conversie
+# MT: pending native review (nl-NL)
+docs-import-conversion-done-footer = Het conversierapport vermeldt elke pagina met haar opmerkingen.
+# MT: pending native review (nl-NL)
+docs-import-detail-state = { $count ->
+    [one] Geïmporteerd: 1 pagina
+   *[other] Geïmporteerd: { $count } pagina's
+} { $status ->
+    [published] gepubliceerd
+    [as_files] zoals de bestanden aangeven
+   *[drafts] als concept
+}
+# MT: pending native review (nl-NL)
+docs-import-detail-source = Bron
+# MT: pending native review (nl-NL)
+docs-import-detail-files = { $count ->
+    [one] 1 bestand
+   *[other] { $count } bestanden
+}
+# MT: pending native review (nl-NL)
+docs-import-detail-into-existing = In { $name } (bestaand)
+# MT: pending native review (nl-NL)
+docs-import-detail-into-new = In { $name } (nieuw)
+# MT: pending native review (nl-NL)
+docs-import-detail-into-many = { $count ->
+    [one] In 1 nieuwe collectie
+   *[other] In { $count } nieuwe collecties
+}
+# MT: pending native review (nl-NL)
+docs-import-detail-web-download = Webafbeeldingen gedownload
+# MT: pending native review (nl-NL)
+docs-import-detail-web-links = Webafbeeldingen als links behouden
+# MT: pending native review (nl-NL)
+docs-import-detail-dup-skip = Pagina's die al in Nosdesk stonden overgeslagen
+# MT: pending native review (nl-NL)
+docs-import-detail-dup-copy = Pagina's die al in Nosdesk stonden als kopie geïmporteerd
+# MT: pending native review (nl-NL)
+docs-import-detail-left-out = Uitgesloten: { $patterns }
+# MT: pending native review (nl-NL)
+docs-import-detail-tree-title = Pagina's die deze import schreef
+# MT: pending native review (nl-NL)
+docs-import-detail-tree-footer = Titels openen de pagina. Overgeslagen en niet geïmporteerde rijen zijn wat de controle vond; ze hebben niets geschreven.
+# MT: pending native review (nl-NL)
+docs-import-detail-kept = Details worden 30 dagen bewaard. De aantallen en opties blijven daarna staan.
+# MT: pending native review (nl-NL)
+docs-import-detail-state-removed = { $count ->
+    [one] Verwijderd: 1 pagina naar de prullenbak verplaatst op { $date }
+   *[other] Verwijderd: { $count } pagina's naar de prullenbak verplaatst op { $date }
+}, { $kept } behouden
+
+# Publish all
+# MT: pending native review (nl-NL)
+docs-import-publish-button = { $count ->
+    [one] 1 pagina publiceren
+   *[other] Alle { $count } pagina's publiceren
+}
+# MT: pending native review (nl-NL)
+docs-import-publish-title = { $count ->
+    [one] 1 pagina publiceren?
+   *[other] { $count } pagina's publiceren?
+}
+# MT: pending native review (nl-NL)
+docs-import-publish-message = Iedereen in de werkruimte die { $collection } kan zien, ziet ze. Pagina's die iemand sinds de import al heeft gewijzigd of gepubliceerd, blijven zoals ze zijn.
+# MT: pending native review (nl-NL)
+docs-import-publish-these-collections = deze collecties
+# MT: pending native review (nl-NL)
+docs-import-publish-confirm = { $count ->
+    [one] 1 pagina publiceren
+   *[other] { $count } pagina's publiceren
+}
+# MT: pending native review (nl-NL)
+docs-import-published = { $count ->
+    [one] 1 pagina gepubliceerd
+   *[other] { $count } pagina's gepubliceerd
+}
+# MT: pending native review (nl-NL)
+docs-import-published-left = { $count ->
+    [one] 1 gelaten zoals hij was (gewijzigd sinds de import)
+   *[other] { $count } gelaten zoals ze waren (gewijzigd sinds de import)
+}
+# MT: pending native review (nl-NL)
+docs-import-publish-failed = Het publiceren van de pagina's is mislukt en er is niets gepubliceerd.
+
+# Remove imported pages
+# MT: pending native review (nl-NL)
+docs-import-remove-button = Geïmporteerde pagina's verwijderen
+# MT: pending native review (nl-NL)
+docs-import-remove-window = Verplaatst ze naar de prullenbak. Alleen pagina's die sindsdien door niemand zijn gewijzigd. Tot { $date }.
+# MT: pending native review (nl-NL)
+docs-import-remove-running = Nog bezig met verwijderen. Deze pagina wordt bijgewerkt zodra het klaar is.
+# MT: pending native review (nl-NL)
+docs-import-remove-still-running-later = Het verwijderen duurt langer dan normaal. Kom later terug naar deze pagina om te zien wat er is gebeurd.
+# MT: pending native review (nl-NL)
+docs-import-remove-load-failed = De geïmporteerde pagina's konden niet worden gecontroleerd. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-remove-failed = Het verwijderen van de geïmporteerde pagina's is mislukt en er is niets naar de prullenbak verplaatst.
+# MT: pending native review (nl-NL)
+docs-import-remove-not-committed = Deze import is niet uitgevoerd en heeft dus geen pagina's gemaakt.
+# MT: pending native review (nl-NL)
+docs-import-remove-already-removed = De pagina's die deze import heeft gemaakt, zijn al naar de prullenbak verplaatst.
+# MT: pending native review (nl-NL)
+docs-import-action-busy = Deze import wordt gewijzigd. Probeer het zo opnieuw.
+# MT: pending native review (nl-NL)
+docs-import-remove-nothing-none-created = Deze import heeft geen pagina's gemaakt, dus er is niets te verwijderen.
+# MT: pending native review (nl-NL)
+docs-import-remove-nothing-all-gone = De pagina's die deze import heeft gemaakt, zijn al verwijderd of naar de prullenbak verplaatst.
+# MT: pending native review (nl-NL)
+docs-import-remove-nothing-all-changed = Elke pagina die deze import heeft gemaakt, is sindsdien gewijzigd, dus er kan niets naar de prullenbak.
+# MT: pending native review (nl-NL)
+docs-import-remove-title = { $count ->
+    [one] 1 pagina naar de prullenbak verplaatsen?
+   *[other] { $count } pagina's naar de prullenbak verplaatsen?
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-title-none = Niets om naar de prullenbak te verplaatsen
+# MT: pending native review (nl-NL)
+docs-import-remove-confirm = { $count ->
+    [one] 1 pagina naar de prullenbak verplaatsen
+   *[other] { $count } pagina's naar de prullenbak verplaatsen
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-untouched = { $created ->
+    [one] Van de 1 pagina die deze import heeft gemaakt,
+   *[other] Van de { $created } pagina's die deze import heeft gemaakt,
+} { $count ->
+    [one] is er 1 ongewijzigd en gaat die naar de prullenbak, waar hij kan worden teruggezet.
+   *[other] zijn er { $count } ongewijzigd en gaan die naar de prullenbak, waar ze kunnen worden teruggezet.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-changed = { $count ->
+    [one] 1 is sindsdien gewijzigd en blijft behouden.
+   *[other] { $count } zijn sindsdien gewijzigd en blijven behouden.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-gone = { $count ->
+    [one] 1 was al verwijderd of in de prullenbak.
+   *[other] { $count } waren al verwijderd of in de prullenbak.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-existing-keeps = { $name } houdt zijn andere pagina's.
+# MT: pending native review (nl-NL)
+docs-import-remove-collection-if-empty = De collectie wordt verwijderd als hij leeg raakt.
+# MT: pending native review (nl-NL)
+docs-import-remove-collections-if-empty = Collecties die leeg raken, worden verwijderd.
+# MT: pending native review (nl-NL)
+docs-import-remove-once = Dit kan één keer, tot { $date }.
+# MT: pending native review (nl-NL)
+docs-import-remove-which-kept = { $count ->
+    [one] Welke pagina blijft behouden?
+   *[other] Welke { $count } blijven behouden?
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-edited = Bewerkt op { $date }
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-edited-by = Bewerkt op { $date } door { $name }
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-pages-added = { $count ->
+    [one] Er is sindsdien 1 pagina toegevoegd
+   *[other] Er zijn sindsdien { $count } pagina's toegevoegd
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-moved = Verplaatst naar een andere collectie
+# MT: pending native review (nl-NL)
+docs-import-remove-reason-kept-under = { $count ->
+    [one] Behouden omdat 1 pagina eronder is gewijzigd
+   *[other] Behouden omdat { $count } pagina's eronder zijn gewijzigd
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-result = { $count ->
+    [one] 1 pagina naar de prullenbak verplaatst.
+   *[other] { $count } pagina's naar de prullenbak verplaatst.
+} { $kept } behouden.
+# MT: pending native review (nl-NL)
+docs-import-remove-result-restore = Zet ze zoals gewoonlijk terug vanuit de prullenbak.
+# MT: pending native review (nl-NL)
+docs-import-remove-result-existing = { $name } is behouden: er staan nog andere pagina's in.
+# MT: pending native review (nl-NL)
+docs-import-remove-result-collection-deleted = { $name } is verwijderd omdat hij leeg raakte.
+# MT: pending native review (nl-NL)
+docs-import-remove-result-collection-kept = { $count ->
+    [one] { $name } is behouden: er staat nog 1 pagina in.
+   *[other] { $name } is behouden: er staan nog { $count } pagina's in.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-result-collections-deleted = { $count ->
+    [one] 1 collectie die leeg raakte, is verwijderd.
+   *[other] { $count } collecties die leeg raakten, zijn verwijderd.
+}
+# MT: pending native review (nl-NL)
+docs-import-remove-result-collections-kept = De collecties zijn behouden: er staan nog pagina's in.
+
+## Werkruimte-import: een Nosdesk-export in deze werkruimte (machine, nog na te kijken door moedertaalspreker)
+
+route-title-admin-workspace-import = Een Nosdesk-export importeren
+route-title-admin-workspace-import-detail = Werkruimte-import
+admin-data-import-nosdesk-title = Nosdesk-export
+admin-data-import-nosdesk-description = Verhuis een hele werkruimte vanuit Nosdesk Cloud of een andere zelf gehoste Nosdesk. Vult deze werkruimte zolang die nog leeg is.
+admin-data-import-nosdesk-description-cloud = Verhuis een hele werkruimte vanuit een zelf gehoste Nosdesk. Nosdesk-support voert verhuizingen naar Cloud uit; neem contact op om er een te regelen.
+admin-data-import-status-support = Nosdesk-support
+admin-data-import-nosdesk-owner-only = Verhuis een hele werkruimte vanuit een andere Nosdesk. De eigenaar van de werkruimte voert dit uit.
+admin-data-import-status-owner-only = Alleen eigenaar
+workspace-import-title = Een Nosdesk-export importeren
+workspace-import-subtitle = Vul { $workspace } met een werkruimte die is geëxporteerd uit Nosdesk Cloud of een andere Nosdesk.
+workspace-import-cloud-elsewhere = Een werkruimte naar Nosdesk Cloud verhuizen doet Nosdesk-support. Neem contact op om het te regelen, en bewaar uw exportbestand.
+workspace-import-owner-only = Alleen de eigenaar van de werkruimte kan een Nosdesk-export importeren.
+workspace-import-step-archive = Archief
+workspace-import-step-preview = Voorbeeld
+workspace-import-step-import = Importeren
+workspace-import-nothing-changes = Er verandert niets in deze werkruimte totdat u bij de stap Voorbeeld op Importeren drukt.
+workspace-import-resume-failed = Deze import kon niet worden geopend. Begin opnieuw met het exportbestand.
+workspace-import-upload-failed = Het uploaden is niet voltooid. Controleer de verbinding en kies het bestand opnieuw.
+workspace-import-check-request-failed = De controle kon niet starten. Probeer het opnieuw.
+workspace-import-confirm-failed = De import kon niet starten. Probeer het opnieuw.
+workspace-import-retry-failed = De bestanden konden niet opnieuw worden geprobeerd. Probeer het opnieuw.
+
+workspace-import-archive-heading = Archief
+workspace-import-archive-unnamed = Naamloze export
+workspace-import-archive-sealed = wachtwoord
+workspace-import-uploading = { $size } · uploaden, { $pct }%
+workspace-import-choose-another = Ander bestand kiezen
+workspace-import-drop-idle = Kies het exportbestand
+workspace-import-drop-hint = Een .nosdesk-archief uit Werkruimtegegevens exporteren. Tot { $max }.
+workspace-import-password-label = Wachtwoord van het archief
+workspace-import-password-placeholder = Alleen als er bij het exporteren een is ingesteld
+workspace-import-password-hint = Laat leeg voor een archief dat zonder wachtwoord is geëxporteerd.
+workspace-import-checks-heading = Controles
+workspace-import-checks-before = voordat er iets wordt geschreven
+workspace-import-checks-again = Dezelfde controles worden tijdens de import opnieuw uitgevoerd, dus een wijziging in de tussentijd wordt opgemerkt.
+workspace-import-found-files =
+    { $count ->
+        [one] 1 bestand
+       *[other] { $count } bestanden
+    }
+workspace-import-found-rows = { $what }: { $count }
+workspace-import-check-not-empty-settings = Instellingen die u hebt gewijzigd, zoals workflowstatussen, tellen niet mee; de import vervangt ze.
+workspace-import-fix-check = Controleren
+workspace-import-fix-check-again = Opnieuw controleren
+workspace-import-fix-new-ids = Opnieuw controleren met nieuwe id's
+workspace-import-fix-follow = Volgen
+workspace-import-fix-not-empty = Verwijder deze items en kom terug, of voer de import uit op een nieuwe installatie.
+workspace-import-archive-next-note = Het voorbeeld toont alles wat het archief zou toevoegen voordat er iets wordt geschreven.
+workspace-import-archive-wait-note = Het voorbeeld is klaar zodra het archief is gecontroleerd.
+workspace-import-continue-to-preview = Verder naar voorbeeld
+
+workspace-import-check-untouched = { $workspace } is nog leeg
+workspace-import-check-untouched-detail = Alleen de beginconfiguratie, die de import vervangt.
+workspace-import-check-untouched-pending = { $workspace } is nog leeg
+workspace-import-check-untouched-pending-detail = Gecontroleerd zodra het bestand er is.
+workspace-import-check-size-ok = { $size }, onder de limiet van { $max }
+workspace-import-check-size-pending = Kleiner dan { $max }
+workspace-import-check-version-ok = Gemaakt met Nosdesk { $export }; deze server draait { $server }
+workspace-import-check-version-ok-detail = { $slug }, geëxporteerd op { $date } vanaf { $origin }.
+workspace-import-check-reading = Archief lezen
+workspace-import-check-reading-detail = De versie en inhoud worden gecontroleerd.
+workspace-import-check-version-pending = Dezelfde release als deze server ({ $server })
+workspace-import-check-version-pending-detail = Gecontroleerd zodra het bestand er is.
+workspace-import-check-not-empty = { $workspace } bevat al gegevens
+workspace-import-check-not-empty-detail = Een import vult een werkruimte die nog leeg is. Deze bevat:
+workspace-import-check-in-progress = Er loopt al een import
+workspace-import-check-in-progress-detail = Er loopt één import tegelijk. Volg deze om hem af te ronden of terug te zetten.
+workspace-import-check-no-workspace = Deze werkruimte is niet beschikbaar
+workspace-import-check-no-workspace-detail = Mogelijk is deze gearchiveerd. Laad de pagina opnieuw.
+workspace-import-check-too-large = Dit bestand is { $size }; deze server accepteert tot { $max }
+workspace-import-check-too-large-detail = Exporteer opnieuw met minder bijlagen, of vraag de beheerder van deze server om NOSDESK_MAX_IMPORT_BYTES te verhogen of het bestand op de server te importeren met nosdesk-cli workspace import FILE --into WORKSPACE, zonder groottelimiet.
+workspace-import-check-format-too-old = Gemaakt met Nosdesk { $export } in een ouder formaat
+workspace-import-check-format-too-old-detail = Dit archief bevat geen e-mailadressen, dus niemand zou kunnen inloggen. Werk die Nosdesk bij naar { $server } en exporteer opnieuw.
+workspace-import-check-version = Gemaakt met Nosdesk { $export }; deze server draait { $server }
+workspace-import-check-earlier-detail = Een archief wordt alleen in dezelfde release geïmporteerd. Werk de Nosdesk van herkomst bij naar { $server } en exporteer opnieuw, of importeer het op een server die { $export } draait.
+workspace-import-check-newer-detail = Werk deze server bij naar Nosdesk { $export } en importeer daarna. Het archief blijft geldig.
+workspace-import-check-unknown-version = Gemaakt met een Nosdesk die deze server niet herkent
+workspace-import-check-unknown-version-detail = Het archief (Nosdesk { $export }) heeft een databasestructuur die deze server niet kent, zoals die van een ontwikkelversie. Exporteer opnieuw vanaf een server die Nosdesk { $server } draait.
+workspace-import-check-sealed = Dit archief heeft een wachtwoord
+workspace-import-check-sealed-detail = Voer het wachtwoord in waarmee het is geëxporteerd om het te controleren.
+workspace-import-check-password-wrong = Het wachtwoord opent dit archief niet
+workspace-import-check-password-wrong-detail = Het is het wachtwoord dat bij het exporteren is ingevoerd. Probeer het opnieuw.
+workspace-import-check-unreadable = Dit bestand is geen Nosdesk-werkruimte-export
+workspace-import-check-unreadable-detail = Of het is beschadigd. Kies het .nosdesk-bestand uit Werkruimtegegevens exporteren.
+workspace-import-check-archive-missing = Het geüploade archief is er niet meer
+workspace-import-check-archive-missing-detail = Kies het exportbestand opnieuw.
+workspace-import-check-stopped = De controle is gestopt voordat die klaar was
+workspace-import-check-stopped-detail = Er is niets geschreven. Controleer het archief opnieuw.
+workspace-import-check-import-stopped = De import is gestopt voordat die klaar was
+workspace-import-check-import-stopped-detail = Er is niets geïmporteerd.
+workspace-import-check-failed = Het archief kon niet worden gecontroleerd tegen deze werkruimte
+workspace-import-check-failed-detail = Er is niets geschreven. Controleer opnieuw; als het weer mislukt, staat de reden in het serverlogboek.
+workspace-import-check-collision = Dit archief overlapt met gegevens die al op deze server staan
+workspace-import-check-collision-ids-detail = { $rows } rijen in { $table } hebben id's die deze server al heeft, zoals bij een kopie van een werkruimte die nog op deze server staat. Controleer opnieuw met nieuwe id's om het als kopie te importeren.
+workspace-import-check-collision-detail = { $rows } rijen in { $table } hebben waarden die deze server al heeft. Importeer het op een nieuwe installatie.
+workspace-import-check-plan = Dit archief kan niet worden geïmporteerd zoals het is
+workspace-import-check-plan-detail = De export klopt niet. Exporteer de werkruimte opnieuw; als dit terugkomt, stuur dan het onderstaande bericht naar support.
+workspace-import-check-refused = Dit archief kan niet worden geïmporteerd
+workspace-import-check-refused-detail = De server gaf deze reden:
+
+workspace-import-preview-source = { $name }, geëxporteerd op { $date } vanaf { $origin }
+workspace-import-preview-source-no-origin = { $name }, geëxporteerd op { $date }
+workspace-import-preview-lead =
+    Importeren vult { $workspace } met alles hieronder, vervangt de beginconfiguratie van deze werkruimte en brengt { $people ->
+        [one] 1 persoon
+       *[other] { $people } personen
+    } over op e-mailadres. Inloggegevens verhuizen nooit; u voert ze daarna opnieuw in vanaf een checklist.
+workspace-import-preview-made-by = Gemaakt met Nosdesk { $version } · { $size }
+workspace-import-tile-tickets = Tickets
+workspace-import-tile-pages = Pagina's
+workspace-import-tile-assets = Assets
+workspace-import-tile-people = Personen
+workspace-import-tile-files = Bestanden
+workspace-import-tile-people-sub = { $staff } medewerkers · { $requesters } aanvragers
+workspace-import-tile-files-all = alle hersteld
+workspace-import-tile-files-missing = { $count } opnieuw te proberen
+workspace-import-tile-people-merged = inclusief u
+workspace-import-tile-files-skipped = { $count } weggelaten
+workspace-import-files-skipped =
+    { $count ->
+        [one] 1 bestand is weggelaten: het archief bevatte het niet, of deze server accepteert het type niet. Het rapport noemt het.
+       *[other] { $count } bestanden zijn weggelaten: het archief bevatte ze niet, of deze server accepteert het type niet. Het rapport noemt ze.
+    }
+workspace-import-done-unsent-mail =
+    { $count ->
+        [one] 1 e-mail die nog niet was verzonden is achtergebleven, zodat niets twee keer wordt verstuurd.
+       *[other] { $count } e-mails die nog niet waren verzonden zijn achtergebleven, zodat niets twee keer wordt verstuurd.
+    }
+workspace-import-jump-label = Onderdelen
+workspace-import-jump-across = Wat er meekomt
+workspace-import-jump-people = Personen
+workspace-import-jump-signin = Inloggen
+workspace-import-jump-replaces = Hier vervangen
+workspace-import-jump-off = Komt uitgeschakeld
+workspace-import-jump-not = Verhuist niet
+workspace-import-jump-attention = Vraagt aandacht
+
+workspace-import-across-heading = Wat er meekomt
+workspace-import-area-tickets = Tickets
+workspace-import-area-tickets-note = Ticketnummers blijven hetzelfde, dus #1042 blijft #1042.
+workspace-import-area-docs = Documentatie
+workspace-import-area-docs-note = Links en vermeldingen in pagina's wijzen naar de geïmporteerde pagina's. De welkomstcollectie hier wordt vervangen.
+workspace-import-area-assets = Assets
+workspace-import-area-projects = Projecten
+workspace-import-area-people = Personen
+workspace-import-area-people-note = Hoe elke persoon overkomt, staat hieronder bij Personen.
+workspace-import-area-config = Configuratie
+workspace-import-area-integrations = Integraties
+workspace-import-area-integrations-note = Hun instellingen komen mee, hun inloggegevens niet. Zie Komt uitgeschakeld.
+workspace-import-integration-smtp = instellingen voor uitgaande e-mail
+workspace-import-integration-sso = een inlogprovider
+workspace-import-integration-ldap = instellingen voor adreslijstsynchronisatie
+workspace-import-integration-widget = de helpwidget
+workspace-import-n-areas =
+    { $count ->
+        [one] 1 onderdeel
+       *[other] { $count } onderdelen
+    }
+workspace-import-n-items =
+    { $count ->
+        [one] 1 item
+       *[other] { $count } items
+    }
+workspace-import-n-integrations =
+    { $count ->
+        [one] 1 integratie
+       *[other] { $count } integraties
+    }
+workspace-import-n-tickets =
+    { $count ->
+        [one] 1 ticket
+       *[other] { $count } tickets
+    }
+workspace-import-n-comments =
+    { $count ->
+        [one] 1 opmerking
+       *[other] { $count } opmerkingen
+    }
+workspace-import-n-attachments =
+    { $count ->
+        [one] 1 bijlage
+       *[other] { $count } bijlagen
+    }
+workspace-import-n-merges =
+    { $count ->
+        [one] 1 samenvoeging
+       *[other] { $count } samenvoegingen
+    }
+workspace-import-n-pages =
+    { $count ->
+        [one] 1 pagina
+       *[other] { $count } pagina's
+    }
+workspace-import-n-collections =
+    { $count ->
+        [one] 1 collectie
+       *[other] { $count } collecties
+    }
+workspace-import-n-revisions =
+    { $count ->
+        [one] 1 revisie
+       *[other] { $count } revisies
+    }
+workspace-import-n-assets =
+    { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+    }
+workspace-import-n-loans =
+    { $count ->
+        [one] 1 uitlening
+       *[other] { $count } uitleningen
+    }
+workspace-import-n-disposals =
+    { $count ->
+        [one] 1 afvoer
+       *[other] { $count } afvoeren
+    }
+workspace-import-n-asset-kinds =
+    { $count ->
+        [one] 1 assetsoort
+       *[other] { $count } assetsoorten
+    }
+workspace-import-n-asset-photos =
+    { $count ->
+        [one] 1 assetfoto of -bestand
+       *[other] { $count } assetfoto's en -bestanden
+    }
+workspace-import-n-projects =
+    { $count ->
+        [one] 1 project
+       *[other] { $count } projecten
+    }
+workspace-import-n-cycles =
+    { $count ->
+        [one] 1 cyclus
+       *[other] { $count } cycli
+    }
+workspace-import-n-groups =
+    { $count ->
+        [one] 1 groep
+       *[other] { $count } groepen
+    }
+workspace-import-n-staff =
+    { $count ->
+        [one] 1 medewerker
+       *[other] { $count } medewerkers
+    }
+workspace-import-n-requesters =
+    { $count ->
+        [one] 1 aanvrager
+       *[other] { $count } aanvragers
+    }
+workspace-import-n-workflow-states =
+    { $count ->
+        [one] 1 workflowstatus
+       *[other] { $count } workflowstatussen
+    }
+workspace-import-n-categories =
+    { $count ->
+        [one] 1 categorie
+       *[other] { $count } categorieën
+    }
+workspace-import-n-sla =
+    { $count ->
+        [one] 1 SLA-beleid
+       *[other] { $count } SLA-beleidsregels
+    }
+workspace-import-n-calendars =
+    { $count ->
+        [one] 1 werkkalender
+       *[other] { $count } werkkalenders
+    }
+workspace-import-n-views =
+    { $count ->
+        [one] 1 opgeslagen weergave
+       *[other] { $count } opgeslagen weergaven
+    }
+workspace-import-n-rules =
+    { $count ->
+        [one] 1 regel
+       *[other] { $count } regels
+    }
+workspace-import-n-assignment-rules =
+    { $count ->
+        [one] 1 toewijzingsregel
+       *[other] { $count } toewijzingsregels
+    }
+workspace-import-n-replies =
+    { $count ->
+        [one] 1 opgeslagen antwoord
+       *[other] { $count } opgeslagen antwoorden
+    }
+workspace-import-n-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-n-channels =
+    { $count ->
+        [one] 1 e-mailkanaal
+       *[other] { $count } e-mailkanalen
+    }
+workspace-import-n-plugins =
+    { $count ->
+        [one] 1 plug-in
+       *[other] { $count } plug-ins
+    }
+
+workspace-import-people-heading = Personen
+workspace-import-people-by-email = { $count } op e-mailadres
+workspace-import-group-merged =
+    { $count ->
+        [one] wordt met u samengevoegd
+       *[other] worden met u samengevoegd
+    }
+workspace-import-group-staff-created =
+    { $count ->
+        [one] medewerker krijgt een nieuw account
+       *[other] medewerkers krijgen een nieuw account
+    }
+workspace-import-group-staff-mapped =
+    { $count ->
+        [one] medewerker koppelt aan een bestaand account
+       *[other] medewerkers koppelen aan bestaande accounts
+    }
+workspace-import-group-staff-no-email =
+    { $count ->
+        [one] medewerker zonder e-mailadres
+       *[other] medewerkers zonder e-mailadres
+    }
+workspace-import-group-requesters-created =
+    { $count ->
+        [one] aanvrager krijgt een nieuw account
+       *[other] aanvragers krijgen een nieuw account
+    }
+workspace-import-group-requesters-mapped =
+    { $count ->
+        [one] aanvrager koppelt aan een bestaand account
+       *[other] aanvragers koppelen aan bestaande accounts
+    }
+workspace-import-group-placeholders = alleen op naam
+workspace-import-people-note = Iedereen wordt gekoppeld op e-mailadres. Geen enkel bestaand account hier wordt gewijzigd; de geschiedenis uit het archief verwijst er alleen naar. Eigenaren in het archief anders dan u komen binnen als beheerder; maak daarna iemand eigenaar als u dat wilt.
+workspace-import-filter-staff = Medewerkers { $count }
+workspace-import-filter-attention = Het bekijken waard { $count }
+workspace-import-filter-requesters = Aanvragers { $count }
+workspace-import-person-you = u
+workspace-import-person-no-email = geen e-mailadres
+workspace-import-person-removed = verwijderd
+workspace-import-person-unnamed = Geen naam
+workspace-import-people-none = Niemand hier.
+workspace-import-outcome-merged = Wordt samengevoegd met uw account
+workspace-import-outcome-mapped = Koppelt aan het account met dit e-mailadres
+workspace-import-outcome-created = Nieuw account als { $role }
+workspace-import-outcome-created-was-owner = Nieuw account als { $role } (was eigenaar)
+workspace-import-outcome-created-no-email = Nieuw account als { $role }, zonder e-mailadres
+workspace-import-outcome-created-removed = Nieuw account, geen lid (was verwijderd)
+workspace-import-outcome-created-no-member = Nieuw account, geen lid
+workspace-import-outcome-placeholder = Alleen op naam
+workspace-import-requesters-line = Aanvragers: { $created } nieuwe accounts, { $mapped } koppelen aan accounts die hier al zijn.
+
+workspace-import-signin-heading = Hoe personen daarna inloggen
+workspace-import-signin-you = U
+workspace-import-signin-you-detail = Blijf inloggen zoals u nu doet. Als het archief uw e-mailadres bevat, wordt de geschiedenis onder dat adres meteen van u.
+workspace-import-signin-staff = Medewerkers
+workspace-import-signin-staff-detail = Krijgen hier accounts zonder wachtwoord. Stuur hun uitnodigingen vanuit de laatste stap; ieder stelt een wachtwoord in via de uitnodiging. Uitnodigingen gaan via de uitgaande e-mail van deze server, niet via de e-mailinstellingen van het archief, die uitgeschakeld binnenkomen. "Wachtwoord vergeten" werkt ook, en nosdesk-cli admin reset-password is de terugvaloptie als e-mail niet is ingesteld.
+workspace-import-signin-requesters = Aanvragers
+workspace-import-signin-requesters-detail = Loggen in op het portaal met een e-maillink of een wachtwoordherstel, zoals deze server toestaat. Hun e-mailadressen komen ongeverifieerd binnen.
+workspace-import-signin-secrets = Wachtwoorden, passkeys en tweestapsverificatie
+workspace-import-signin-secrets-detail = Verhuizen niet. Iedereen stelt tweestapsverificatie opnieuw in.
+workspace-import-signin-sso-off = De inlogprovider komt uitgeschakeld binnen totdat u het geheim opnieuw invoert en de provider naar deze server laat wijzen.
+
+workspace-import-replaces-heading = Wat deze werkruimte opgeeft
+workspace-import-replaces-config = Configuratie
+workspace-import-replaces-config-detail = De workflowstatussen, categorieën, SLA-beleidsregels, werkkalender, huisstijl, standaardmeldingen, persoonsvelden en documentatie uit het archief vervangen de beginwaarden van deze werkruimte.
+workspace-import-replaces-config-note = Alles wat u tijdens de installatie hebt gewijzigd, wordt ook vervangen.
+workspace-import-replaces-name = Naam
+workspace-import-replaces-name-detail = Deze werkruimte blijft { $workspace }. Het archief komt van { $archive }; u kunt daarna de naam wijzigen.
+workspace-import-replaces-members = Leden
+workspace-import-replaces-members-detail = Uw lidmaatschap en rol blijven zoals ze zijn.
+
+workspace-import-off-heading = Komt uitgeschakeld binnen
+workspace-import-off-smtp = Uitgaande e-mail
+workspace-import-off-smtp-detail = E-mailinstellingen komen binnen zonder inloggegevens.
+workspace-import-off-smtp-hint = Voer ze opnieuw in en zet e-mail daarna aan.
+workspace-import-off-sso = Inlogprovider
+workspace-import-off-sso-detail = Komt binnen zonder clientgeheim.
+workspace-import-off-sso-hint = Voer het opnieuw in, laat het omleidingsadres van de provider naar deze server wijzen en zet de provider aan.
+workspace-import-off-ldap = Adreslijstsynchronisatie
+workspace-import-off-ldap-detail = Komt binnen zonder bindwachtwoord.
+workspace-import-off-ldap-hint = Voer het opnieuw in en zet synchronisatie daarna aan.
+workspace-import-off-webhooks =
+    { $count ->
+        [one] 1 webhook
+       *[other] { $count } webhooks
+    }
+workspace-import-off-webhooks-detail = Elk krijgt een nieuw ondertekeningsgeheim.
+workspace-import-off-webhooks-hint = Geef de ontvangers het nieuwe geheim en zet ze daarna aan.
+workspace-import-off-channels =
+    { $count ->
+        [one] 1 e-mailkanaal
+       *[other] { $count } e-mailkanalen
+    }
+workspace-import-off-channels-detail = Komen binnen zonder wachtwoorden.
+workspace-import-off-channels-hint = Voer ze opnieuw in en zet de kanalen daarna aan.
+workspace-import-off-plugins =
+    { $count ->
+        [one] 1 plug-in
+       *[other] { $count } plug-ins
+    }
+workspace-import-off-plugins-detail = Hun instellingen komen mee, hun geheime waarden niet.
+workspace-import-off-plugins-hint = Voer de geheimen opnieuw in en zet daarna elke plug-in aan.
+workspace-import-off-widget = Helpwidget
+workspace-import-off-widget-detail = Komt uitgeschakeld binnen.
+workspace-import-off-widget-hint = Zet deze weer aan vanuit de instellingen.
+workspace-import-off-guest-links = Gastlinks
+workspace-import-off-guest-links-detail =
+    { $count ->
+        [one] 1 ticket krijgt een nieuwe gastlink. Een link die voor de verhuizing is verstuurd, werkt niet meer.
+       *[other] { $count } tickets krijgen nieuwe gastlinks. Links die voor de verhuizing zijn verstuurd, werken niet meer.
+    }
+workspace-import-off-none = Niets komt uitgeschakeld binnen.
+workspace-import-off-rule = De regel: alles wat met de buitenwereld praat, komt uitgeschakeld binnen, zodat een import nooit e-mail verstuurt, een webhook activeert of een verzoek aanneemt voordat u ernaar hebt gekeken.
+
+workspace-import-not-heading = Verhuist niet
+workspace-import-not-tokens = API-tokens
+workspace-import-not-tokens-detail = Maak hier nieuwe aan. Alles wat de API met de oude aanriep, heeft een nieuwe nodig.
+workspace-import-not-devices = Mobiele apps
+workspace-import-not-devices-detail = Telefoons die voor meldingen zijn geregistreerd, loggen opnieuw in op het adres van deze server.
+workspace-import-not-activity = Activiteitenfeeds
+workspace-import-not-activity-detail = De activiteitenfeed blijft achter. Opmerkingen, toewijzingen en status staan in elk ticket.
+workspace-import-not-passwords = Wachtwoorden en tweestapsverificatie
+workspace-import-not-passwords-detail = Worden nooit geëxporteerd. Zie Hoe personen inloggen.
+workspace-import-not-history = Importgeschiedenis
+workspace-import-not-history-detail = Eerdere spreadsheet- en documentatie-imports blijven bij de andere Nosdesk.
+workspace-import-not-mail = Onverzonden e-mail
+workspace-import-not-mail-detail =
+    { $count ->
+        [one] 1 e-mail die nog niet was verzonden blijft achter, zodat niets twee keer wordt verstuurd.
+       *[other] { $count } e-mails die nog niet waren verzonden blijven achter, zodat niets twee keer wordt verstuurd.
+    }
+
+workspace-import-attention-heading = Vraagt aandacht
+workspace-import-attention-none = Niets vraagt aandacht.
+workspace-import-attention-rules =
+    { $count ->
+        [one] 1 regel verwijst naar iets wat het archief niet bevat. Deze komt binnen als concept en wordt niet uitgevoerd totdat u hem herstelt.
+       *[other] { $count } regels verwijzen naar iets wat het archief niet bevat. Ze komen binnen als concept en worden niet uitgevoerd totdat u ze herstelt.
+    }
+workspace-import-attention-views =
+    { $count ->
+        [one] 1 opgeslagen weergave filtert op iets wat het archief niet bevat. Dat filter vervalt; de rest van de weergave blijft.
+       *[other] { $count } opgeslagen weergaven filteren op iets wat het archief niet bevat. Die filters vervallen; de rest van elke weergave blijft.
+    }
+workspace-import-attention-cleared =
+    { $count ->
+        [one] 1 waarde in { $table } verwees naar iets wat het archief niet bevat en wordt gewist.
+       *[other] { $count } waarden in { $table } verwezen naar iets wat het archief niet bevat en worden gewist.
+    }
+workspace-import-attention-rows =
+    { $count ->
+        [one] 1 rij in { $table } hangt af van iets wat het archief niet bevat en wordt weggelaten.
+       *[other] { $count } rijen in { $table } hangen af van iets wat het archief niet bevat en worden weggelaten.
+    }
+workspace-import-attention-mentions =
+    { $count ->
+        [one] 1 vermelding van iemand die het archief niet bevat, wordt platte tekst.
+       *[other] { $count } vermeldingen van personen die het archief niet bevat, worden platte tekst.
+    }
+workspace-import-attention-ticket-links =
+    { $count ->
+        [one] 1 link naar een ticket dat het archief niet bevat, wordt platte tekst.
+       *[other] { $count } links naar tickets die het archief niet bevat, worden platte tekst.
+    }
+workspace-import-attention-images =
+    { $count ->
+        [one] 1 afbeelding die het archief niet bevat, wordt de beschrijving ervan.
+       *[other] { $count } afbeeldingen die het archief niet bevat, worden hun beschrijving.
+    }
+workspace-import-attention-embeds =
+    { $count ->
+        [one] 1 ingesloten pagina die het archief niet bevat, wordt de titel ervan.
+       *[other] { $count } ingesloten pagina's die het archief niet bevat, worden hun titel.
+    }
+workspace-import-attention-documents =
+    { $count ->
+        [one] 1 document kon niet worden gelezen en wordt geladen zoals het is.
+       *[other] { $count } documenten konden niet worden gelezen en worden geladen zoals ze zijn.
+    }
+workspace-import-attention-usernames =
+    { $count ->
+        [one] De gebruikersnaam van 1 persoon is hier al in gebruik. Deze komt binnen zonder gebruikersnaam.
+       *[other] De gebruikersnamen van { $count } personen zijn hier al in gebruik. Zij komen binnen zonder gebruikersnaam.
+    }
+
+workspace-import-back-to-archive = Terug naar Archief
+workspace-import-preview-reload-note = Elk open venster en elke app laadt zijn gegevens opnieuw wanneer de import klaar is.
+workspace-import-import-button = { $name } importeren
+workspace-import-confirm-title = { $name } in { $workspace } importeren?
+workspace-import-confirm-subtitle = De import loopt op de achtergrond; u kunt de pagina intussen verlaten.
+workspace-import-confirm-fills = Vult deze werkruimte met { $tickets } tickets, { $pages } pagina's, { $assets } assets en { $people } personen, gekoppeld op e-mailadres.
+workspace-import-confirm-replaces = Vervangt de workflow, categorieën, SLA, kalender en huisstijl door die uit het archief.
+workspace-import-confirm-off = Integraties komen uitgeschakeld binnen. U voert hun inloggegevens daarna opnieuw in vanaf een checklist.
+workspace-import-confirm-reload = Elk open venster en elke app laadt zijn gegevens opnieuw wanneer het klaar is.
+workspace-import-confirm-reset = Terugzetten maakt de werkruimte daarna weer leeg, maar verwijdert alles, ook wat later is toegevoegd. Er is geen gedeeltelijk ongedaan maken.
+workspace-import-confirm-password-hint = De import leest het archief opnieuw en heeft het wachtwoord dus nog een keer nodig.
+workspace-import-type-to-confirm = Typ { $workspace } om te bevestigen
+
+workspace-import-progress-heading = { $name } wordt geïmporteerd
+workspace-import-progress-started = gestart om { $time }
+workspace-import-stage-check = Het archief en deze werkruimte controleren
+workspace-import-stage-check-detail = Dezelfde controles als eerder, met een vergrendeling.
+workspace-import-stage-rows = Het archief in de database laden
+workspace-import-stage-rows-detail = Tickets, pagina's, assets, personen en instellingen gaan er in één transactie in, dus een fout hier laat de werkruimte zoals die was.
+workspace-import-stage-files = Bestanden herstellen
+workspace-import-stage-files-detail =
+    { $count ->
+        [one] 1 bestand, na de database. Als het niet wordt hersteld, gaat Bestanden opnieuw proberen vanaf daar verder.
+       *[other] { $count } bestanden, na de database. Als sommige niet worden hersteld, gaat Bestanden opnieuw proberen verder waar het stopte.
+    }
+workspace-import-stage-finish = Afronden
+workspace-import-stage-finish-detail = Zoeken wordt op de achtergrond opnieuw opgebouwd en elk open venster en elke app laadt zijn gegevens opnieuw.
+workspace-import-progress-leave = U kunt deze pagina verlaten; de import gaat door en Recente imports toont hem.
+workspace-import-importing = Importeren
+
+workspace-import-seconds = { $s } s
+workspace-import-minutes = { $m } min { $s } s
+workspace-import-done-title = Import voltooid
+workspace-import-done-detail = { $name } staat in { $workspace }: { $tickets } tickets, { $pages } pagina's, { $assets } assets en { $people } personen.
+workspace-import-done-took = Klaar { $time }, in { $duration }.
+workspace-import-done-reloaded = Elk open venster en elke app heeft zijn gegevens opnieuw geladen. Zoeken wordt op de achtergrond opnieuw opgebouwd.
+workspace-import-partial-title =
+    { $count ->
+        [one] Geïmporteerd, met nog 1 bestand te herstellen
+       *[other] Geïmporteerd, met nog { $count } bestanden te herstellen
+    }
+workspace-import-partial-detail = { $name } staat in { $workspace }. { $restored } van de { $total } bestanden zijn hersteld. Totdat een nieuwe poging de rest herstelt, tonen hun tickets en pagina's ze als ontbrekend.
+workspace-import-retry-files = Bestanden opnieuw proberen
+workspace-import-retry-unavailable = Het archief is niet meer opgeslagen, dus de bestanden kunnen niet opnieuw worden geprobeerd.
+workspace-import-failed-title = De import is mislukt
+workspace-import-failed-detail = Er is niets geïmporteerd; de werkruimte is zoals die was. Verwijder deze import en begin opnieuw met het exportbestand.
+workspace-import-open-workspace = { $workspace } openen
+workspace-import-report = Rapport
+workspace-import-report-title = Importrapport
+workspace-import-report-subtitle = Alles wat de import deed en niet kon doen, als JSON.
+workspace-import-report-download = JSON downloaden
+workspace-import-report-close = Sluiten
+workspace-import-invites-cli = Zonder e-mail stelt nosdesk-cli admin reset-password voor elke persoon een wachtwoord in.
+workspace-import-todo-heading = Volgende stappen
+workspace-import-todo-count = { $done } van { $total } gedaan
+workspace-import-todo-foot = Inloggegevens reizen nooit mee in een archief. Elke stap is een instelling die zonder geheim is meegekomen, of iets wat alleen aan de oude kant bestaat. Vinkjes worden in deze browser bewaard.
+workspace-import-todo-smtp = Voer de e-mailgegevens opnieuw in en zet uitgaande e-mail daarna aan
+workspace-import-todo-smtp-detail = Uitgaande e-mail is uitgeschakeld binnengekomen.
+workspace-import-todo-go-email = E-mailinstellingen
+workspace-import-todo-channels =
+    { $count ->
+        [one] Voer het wachtwoord van het e-mailkanaal opnieuw in en zet het aan
+       *[other] Voer de wachtwoorden van { $count } e-mailkanalen opnieuw in en zet ze aan
+    }
+workspace-import-todo-channels-detail = Ze zijn zonder wachtwoorden binnengekomen.
+workspace-import-todo-go-channels = Kanalen
+workspace-import-todo-sso = Voer het clientgeheim van de inlogprovider opnieuw in en werk het omleidingsadres bij
+workspace-import-todo-sso-detail = Laat de provider naar het adres van deze server wijzen en zet hem daarna aan.
+workspace-import-todo-go-sso = Inlogproviders
+workspace-import-todo-ldap = Voer het bindwachtwoord van de adreslijst opnieuw in
+workspace-import-todo-ldap-detail = Adreslijstsynchronisatie is uitgeschakeld binnengekomen.
+workspace-import-todo-go-ldap = Adreslijstsynchronisatie
+workspace-import-todo-webhooks =
+    { $count ->
+        [one] Zet de webhook aan en geef de ontvanger het nieuwe ondertekeningsgeheim
+       *[other] Zet de { $count } webhooks aan en geef de ontvangers de nieuwe ondertekeningsgeheimen
+    }
+workspace-import-todo-webhooks-detail = Elke webhook heeft een nieuw geheim. Er is niets verstuurd voor geïmporteerde tickets.
+workspace-import-todo-go-webhooks = Webhooks
+workspace-import-todo-plugins =
+    { $count ->
+        [one] Voer de geheimen van de plug-in opnieuw in en zet hem aan
+       *[other] Voer de geheimen van { $count } plug-ins opnieuw in en zet ze aan
+    }
+workspace-import-todo-plugins-detail = Hun instellingen zijn meegekomen, hun geheime waarden niet.
+workspace-import-todo-go-plugins = Plug-ins
+workspace-import-todo-widget = Zet de helpwidget aan
+workspace-import-todo-widget-detail = Deze is uitgeschakeld binnengekomen.
+workspace-import-todo-go-widget = Helpwidget
+workspace-import-todo-rules =
+    { $count ->
+        [one] Bekijk de regel die als concept is binnengekomen
+       *[other] Bekijk { $count } regels die als concept zijn binnengekomen
+    }
+workspace-import-todo-rules-detail = Elk verwijst naar iets wat het archief niet bevatte. Concepten worden niet uitgevoerd.
+workspace-import-todo-go-rules = Regels
+workspace-import-todo-tokens = Maak nieuwe API-tokens aan
+workspace-import-todo-tokens-detail = Tokens verhuizen nooit. Alles wat de API aanriep, heeft een nieuwe nodig.
+workspace-import-todo-go-tokens = API-tokens
+
+workspace-import-reset-button = Terugzetten naar leeg
+workspace-import-reset-rule = Verwijdert alles wat deze import heeft gebracht en alles wat sindsdien is toegevoegd, inclusief de accounts die hij heeft aangemaakt. Beschikbaar tot ongeveer { $date }.
+workspace-import-reset-closed = Een import kan 30 dagen lang worden teruggezet. Die termijn is verstreken.
+workspace-import-reset-failed = Het terugzetten is niet uitgevoerd. Probeer het opnieuw.
+workspace-import-reset-title = { $workspace } terugzetten naar leeg?
+workspace-import-reset-subtitle = Zet de werkruimte terug naar hoe die was vóór de import van { $date }.
+workspace-import-reset-confirm = Werkruimte terugzetten
+workspace-import-reset-removes = Verwijdert alles wat de import heeft gebracht: { $tickets } tickets, { $pages } pagina's, { $assets } assets, alle bestanden en de { $people } accounts die hij heeft aangemaakt.
+workspace-import-reset-since = Verwijdert ook alles wat sindsdien is toegevoegd en wist instellingen die daarna zijn ingevoerd.
+workspace-import-reset-keeps = Uw account en lidmaatschap blijven, net als accounts die vóór de import bestonden.
+workspace-import-reset-archive = Bewaar uw exportbestand; opnieuw importeren begint daarmee.
+workspace-import-reset-final = Dit kan niet ongedaan worden gemaakt.
+workspace-import-reset-done-title = Teruggezet naar leeg
+workspace-import-reset-done-detail = { $workspace } is weer leeg, zoals vóór de import van { $date }. Teruggezet { $reset }.
+workspace-import-reset-discarded = Deze import is verwijderd { $date }, voordat er iets was geïmporteerd.
+workspace-import-reset-done-again = Het archief is verwijderd, dus opnieuw importeren begint met uw exportbestand.
+workspace-import-again = Opnieuw importeren
+workspace-import-discard-button = Deze import verwijderen
+workspace-import-discard-rule = Er is niets geïmporteerd. Verwijderen wist het opgeslagen archief.
+workspace-import-discard-title = Deze import verwijderen?
+workspace-import-discard-detail = Er is niets geïmporteerd. Het opgeslagen archief wordt gewist; bewaar uw exportbestand om het opnieuw te proberen.
+workspace-import-discard-confirm = Verwijderen
+
+workspace-import-detail-title = Werkruimte-import
+workspace-import-detail-source = { $name } uit Nosdesk { $version } op { $origin }
+workspace-import-detail-source-no-origin = { $name } uit Nosdesk { $version }
+workspace-import-detail-pruned = Er zijn dertig dagen verstreken: het rapport houdt zijn aantallen; de personen erin en het terugzetten zijn verdwenen.
+workspace-import-detail-load-failed = Deze import kon niet worden geladen.
+workspace-import-type = Werkruimte
+workspace-import-state-checking = Controleren
+workspace-import-state-importing = Importeren
+workspace-import-state-files = Bestanden opnieuw proberen
+workspace-import-state-failed = Mislukt
+workspace-import-state-reset = Teruggezet
+workspace-import-recent-reset = Teruggezet naar leeg
+workspace-import-recent-on-archive = Concept bij Archief
+workspace-import-recent-on-preview = Concept bij Voorbeeld
+workspace-import-recent-importing = Wordt nu geïmporteerd
+workspace-import-recent-failed = Niets geïmporteerd
+workspace-import-recent-counts = { $tickets } tickets · { $pages } pagina's · { $people } personen
+
+settings-export-moves-toggle = Wat er meeverhuist en wat niet
+settings-export-moves-heading = Verhuist mee
+settings-export-stays-heading = Verhuist niet
+settings-export-moves-tickets = Tickets, opmerkingen, bijlagen, samenvoegingen, ticketnummers
+settings-export-moves-docs = Documentatiepagina's en hun geschiedenis
+settings-export-moves-assets = Assets, uitleningen, afvoeren, projecten, cycli
+settings-export-moves-people = Personen met hun primaire e-mailadres en rol
+settings-export-moves-config = Workflow, categorieën, SLA, kalender, huisstijl, regels, opgeslagen weergaven en antwoorden
+settings-export-moves-integrations = Integratie-instellingen, zonder inloggegevens
+settings-export-stays-passwords = Wachtwoorden, passkeys, tweestapsverificatie, sessies
+settings-export-stays-secrets = Geheimen van e-mail, inlogprovider, webhooks en plug-ins
+settings-export-stays-tokens = API-tokens en registraties voor mobiele meldingen
+settings-export-stays-activity = De activiteitenfeed en het auditlogboek
+settings-export-stays-history = Eerdere exports en geüploade importbestanden
+settings-export-version = Gemaakt met Nosdesk { $version }. De andere Nosdesk moet ook { $version } draaien; zo niet, dan meldt de import dat.
+settings-export-password-self = Een zelf gehoste Nosdesk accepteert het.
+onboarding-complete-open = Naar uw werkruimte
+onboarding-complete-import = Een werkruimte uit een andere Nosdesk overbrengen
+onboarding-complete-import-note = Een import heeft een lege werkruimte nodig, dus doe het voordat u tickets of personen toevoegt. U kunt altijd ook opnieuw beginnen.

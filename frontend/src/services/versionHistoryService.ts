@@ -8,6 +8,8 @@ export interface ArticleRevision {
   contributed_by: (string | null)[];
   created_at: string;
   word_count: number | null;
+  /** What the revision records about itself, when it does. */
+  change_summary?: string | null;
 }
 
 export interface ArticleRevisionDetail extends ArticleRevision {

@@ -3,7 +3,7 @@ import apiClient from '@nosdesk/core/apiClient';
 import { logger } from '@nosdesk/core/utils/logger';
 import { RequestManager } from '@nosdesk/core/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
-import type { User, UserRole, UserSecurityInfo } from '@nosdesk/core/types/user';
+import type { EditableFields, User, UserRole, UserSecurityInfo } from '@nosdesk/core/types/user';
 import type { Asset, AssetLoan } from '@nosdesk/core/types/asset';
 import type { Group } from '@nosdesk/core/types/group';
 import { extractErrorMessage } from '@/utils/errors';
@@ -37,6 +37,7 @@ export interface BulkUserActionResult {
   affected: number;
   skipped_admin?: number;
   skipped_staff?: number;
+  skipped_elsewhere?: number;
   failed?: number;
 }
 
@@ -77,6 +78,8 @@ export interface UserProfileBundle {
   groups?: Group[]
   emails?: UserEmail[]
   counts?: UserProfileCounts
+  /** What the viewer may change about the person. */
+  editable?: EditableFields
 }
 
 // Request cancellation manager instance
@@ -326,9 +329,9 @@ const userService = {
    * the configured grace window. Returns the new deleted_at +
    * purge_at so the caller can show "delete in N days".
    *
-   * `credential` is the caller's own step-up (password or 2FA code), which
-   * the backend verifies. Throws on failure so the caller can show the
-   * server's reason, such as a wrong password.
+   * The backend allows it while this session has confirmed it's the caller
+   * (ConfirmIdentity); `credential` is the older inline proof and can stay
+   * empty. Throws on failure so the caller can show the server's reason.
    */
   async deleteUser(
     uuid: string,
@@ -528,8 +531,9 @@ const userService = {
     }
   },
 
-  // Bulk operations on users (admin only). `delete` needs the caller's
-  // step-up credential (`password` or `mfa_code`).
+  // Bulk operations on users (admin only). `delete` needs this session to
+  // have confirmed it's the caller (ConfirmIdentity); `password` / `mfa_code`
+  // are the older inline proof.
   async bulkAction(request: {
     action: 'delete' | 'set-role';
     ids: string[];

@@ -35,6 +35,8 @@ interface DocumentationRevisionResponse {
   created_by?: string | null;
   created_at: string;
   word_count?: number | null;
+  /** What the revision records about itself ("Imported from handbook.zip"). */
+  change_summary?: string | null;
 }
 
 interface Props {
@@ -121,6 +123,7 @@ async function loadDocumentationRevisions() {
       article_content_id: 0,
       contributed_by: (rev.created_by ? [rev.created_by] : []) as (string | null)[],
       word_count: rev.word_count ?? null,
+      change_summary: rev.change_summary ?? null,
     }))
   } catch (err) {
     const error = err as Error;
@@ -300,6 +303,10 @@ onMounted(() => {
             <Icon name="check" />
           </span>
         </div>
+
+        <p v-if="revision.change_summary" class="text-xs text-secondary mb-1 break-words">
+          {{ revision.change_summary }}
+        </p>
 
         <div v-if="revision.contributed_by && revision.contributed_by.length > 0" class="flex items-center gap-1 mb-1">
           <div v-if="revision.contributed_by.length === 1" class="flex items-center gap-1">

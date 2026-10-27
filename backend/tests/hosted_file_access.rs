@@ -74,6 +74,7 @@ fn session_token(pool: &backend::db::Pool, user_uuid: Uuid) -> String {
             location: None,
             expires_at: (Utc::now() + Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
+            confirmed_at: None,
         },
     )
     .expect("create session");
@@ -230,11 +231,16 @@ impl Fixture {
         }
     }
 
-    /// Insert an attachment row in A, and its bytes in A's storage.
+    /// Insert an attachment row in A, and its bytes in A's storage. The row is
+    /// named as uploaded: the stored name without its `{uuid}_` prefix.
     async fn attach(&self, url: &str, comment_id: Option<i32>, bytes: &[u8]) {
+        let stored = url.rsplit('/').next().expect("name");
         let row = NewAttachment {
             url: url.to_string(),
-            name: url.rsplit('/').next().expect("name").to_string(),
+            name: stored
+                .split_once('_')
+                .map_or(stored, |(_, name)| name)
+                .to_string(),
             file_size: Some(bytes.len() as i64),
             mime_type: None,
             checksum: None,

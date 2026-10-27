@@ -23,10 +23,6 @@ import { useAuthStore } from '@/stores/auth'
 import Icon from '@/components/common/Icon.vue'
 import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 
-const emit = defineEmits<{
-  (e: 'create'): void
-}>()
-
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
@@ -179,13 +175,6 @@ const onDragEnd = () => {
       <span v-if="collections.length > 0" class="text-2xs text-tertiary tabular-nums">
         {{ $t('docs-index-library-count', { count: collections.length }) }}
       </span>
-      <button
-        type="button"
-        class="text-2xs font-medium text-accent hover:underline whitespace-nowrap"
-        @click="emit('create')"
-      >
-        {{ $t('docs-collection-browser-new') }}
-      </button>
     </header>
 
     <ul v-if="collections.length > 0" class="flex flex-col">

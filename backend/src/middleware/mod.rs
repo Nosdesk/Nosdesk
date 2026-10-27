@@ -1,6 +1,7 @@
 pub mod api_token;
 pub mod cookie_auth;
 pub mod idempotency;
+pub mod rate_limit;
 pub mod request_context;
 pub mod security_headers;
 pub mod token_scope;
@@ -9,6 +10,7 @@ pub mod workspace_context;
 pub use api_token::dual_auth_middleware;
 pub use cookie_auth::cookie_auth_middleware;
 pub use idempotency::idempotency_middleware;
+pub use rate_limit::{RateLimit, RequestLimiter};
 pub use request_context::{NosdeskRootSpanBuilder, RequestContext};
 pub use security_headers::SecurityHeaders;
 pub use workspace_context::{DeploymentMode, WorkspaceContextConfig, WorkspaceContextMiddleware};

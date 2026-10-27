@@ -608,6 +608,32 @@ pub async fn get_authentication_state(email: &str) -> Result<PasskeyAuthenticati
     Ok(state)
 }
 
+/// Store a step-up passkey challenge for session `sid`. One per session: a
+/// new start replaces an unfinished one.
+pub async fn store_step_up_auth_state(sid: &Uuid, state: &PasskeyAuthentication) -> Result<()> {
+    let redis_url = get_redis_url();
+    let client = redis::Client::open(redis_url.as_str())?;
+    let mut con = client.get_multiplexed_async_connection().await?;
+    let state_json = serde_json::to_string(state)?;
+    con.set_ex::<_, _, ()>(
+        format!("webauthn:step_up:{sid}"),
+        state_json,
+        CHALLENGE_TTL_SECONDS,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Take (retrieve and delete) session `sid`'s step-up passkey challenge.
+pub async fn take_step_up_auth_state(sid: &Uuid) -> Result<PasskeyAuthentication> {
+    let redis_url = get_redis_url();
+    let client = redis::Client::open(redis_url.as_str())?;
+    let mut con = client.get_multiplexed_async_connection().await?;
+    let state_json: Option<String> = con.get_del(format!("webauthn:step_up:{sid}")).await?;
+    let state_json = state_json.ok_or_else(|| anyhow!("No step-up challenge found"))?;
+    Ok(serde_json::from_str(&state_json)?)
+}
+
 /// Hash email for Redis key (privacy protection)
 fn hash_email(email: &str) -> String {
     use ring::digest::{digest, SHA256};

@@ -44,6 +44,43 @@ ignore = [
     # range is >=0.4.16, so our 0.4 line can never match it again. Drop
     # this entry when actix-web moves to h2 0.4.
     { id = "RUSTSEC-2026-0258", reason = "0.4 line patched to 0.4.16; no patched 0.3.x exists" },
+    # RUSTSEC-2026-0367, -0368, -0369 - zip's extract APIs
+    # (`ZipArchive::extract`, `ZipStreamReader::extract`) keep SUID/SGID
+    # bits and follow or create symlinks outside the destination. Patched in
+    # 9.0.0; our direct dependency is on 9.
+    #
+    # The remaining hit is zip 8.6, which calamine 0.36 (the .xlsx reader)
+    # requires as ^8.6. calamine reads workbook entries in memory and never
+    # extracts to disk, and nothing here calls the extract APIs. Drop these
+    # entries when calamine moves to zip 9.
+    { id = "RUSTSEC-2026-0367", reason = "extract APIs unused; zip 8.6 only via calamine" },
+    { id = "RUSTSEC-2026-0368", reason = "extract APIs unused; zip 8.6 only via calamine" },
+    { id = "RUSTSEC-2026-0369", reason = "extract APIs unused; zip 8.6 only via calamine" },
+    # RUSTSEC-2026-0387 - crypto-bigint 0.5 operations meant to be
+    # constant-time can branch on secret values, a timing side channel.
+    # Patched in 0.7.6, which nothing here can use yet: elliptic-curve 0.13
+    # requires 0.5.
+    #
+    # It reaches us two ways. openidconnect uses p256/p384 only to verify
+    # identity-provider token signatures, which works on public values.
+    # aws-sigv4 uses p256 only for SigV4a signing (multi-region access
+    # points); S3 and SES here sign with plain SigV4. Drop this entry when
+    # openidconnect and aws-sigv4 move to elliptic-curve 0.14.
+    { id = "RUSTSEC-2026-0387", reason = "verify only, no SigV4a signing; crypto-bigint 0.5 pinned by elliptic-curve 0.13" },
+    # RUSTSEC-2026-0391, -0398, -0403 - zstd 0.13 and zstd-safe 7: a reused
+    # streaming context can leak data from an abandoned stream, `Seekable`
+    # can set a length past capacity, and a failed legacy-frame decode can
+    # expose uninitialised memory. Patched in zstd 0.14.3 / zstd-safe 8.2.
+    #
+    # actix-http 3.20 and zip 9 are on the patched line, so request bodies
+    # and archives decode with it. The remaining hit is tantivy-sstable 0.7,
+    # which requires zstd ^0.13 to compress the search index the server
+    # writes and reads itself; backups and imports don't carry that index,
+    # and nothing here uses `Seekable`. Drop these entries when tantivy moves
+    # to zstd 0.14.
+    { id = "RUSTSEC-2026-0391", reason = "zstd 0.13 only via tantivy, on index files the server writes" },
+    { id = "RUSTSEC-2026-0398", reason = "Seekable unused; zstd-safe 7 only via tantivy" },
+    { id = "RUSTSEC-2026-0403", reason = "zstd-safe 7 only via tantivy, on index files the server writes" },
 ]
 
 [bans]

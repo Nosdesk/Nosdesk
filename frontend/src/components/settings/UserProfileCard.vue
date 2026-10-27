@@ -53,6 +53,8 @@ const originalData = ref({
 const emit = defineEmits<{
     (e: "success", message: string): void;
     (e: "error", message: string): void;
+    // What was saved, so a parent showing someone else keeps its copy current.
+    (e: "updated", changes: Partial<User>): void;
 }>();
 
 // Props for external control
@@ -68,6 +70,9 @@ const props = withDefaults(
         enableAvatarNavigation?: boolean; // Whether clicking avatar navigates to profile
         /** Name and photo belong to the person's Nosdesk account (hosted staff). */
         identityLocked?: boolean;
+        /** The email signature: the person's own working tool, so shown on
+         * their own settings and not when an admin manages them. */
+        showSignature?: boolean;
     }>(),
     {
         canEdit: false,
@@ -77,6 +82,7 @@ const props = withDefaults(
         showPronouns: true,
         showEmail: true,
         enableAvatarNavigation: false,
+        showSignature: true,
     },
 );
 
@@ -272,6 +278,7 @@ const uploadImage = async (file: File, type: "avatar" | "banner") => {
         } else {
             formData.value.banner_url = cacheBustedUrl;
         }
+        emit("updated", { [type === "avatar" ? "avatar_url" : "banner_url"]: cacheBustedUrl });
 
         // Only update auth store if editing the current user
         const isCurrentUser = authStore.user?.uuid === targetUserUuid;
@@ -323,6 +330,7 @@ const updateName = async () => {
         if (updatedUser) {
             emit("success", t("settings-profile-name-update-success"));
             originalData.value.name = formData.value.name;
+            emit("updated", { name: updatedUser.name });
 
             // Update auth store if this is the current user
             if (authStore.user?.uuid === userUuid && authStore.user) {
@@ -358,6 +366,7 @@ const updatePronouns = async () => {
         if (updatedUser) {
             emit("success", t("settings-profile-pronouns-update-success"));
             editingPronouns.value = false;
+            emit("updated", { pronouns: updatedUser.pronouns });
 
             // Update auth store if this is the current user
             if (authStore.user?.uuid === userUuid && authStore.user) {
@@ -700,7 +709,7 @@ const getRoleDisplayName = (role: string) => {
                     </div>
 
                     <!-- Email signature — appended to outbound channel replies -->
-                    <div class="flex flex-col gap-1.5">
+                    <div v-if="showSignature" class="flex flex-col gap-1.5">
                         <label
                             for="user-email-signature"
                             class="text-xs font-medium text-tertiary uppercase tracking-wide"

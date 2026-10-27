@@ -128,6 +128,8 @@ pub async fn upload_collab_document_image(
                 warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
                 crate::errors::bad_request_error(format!("Invalid filename: {e}"))
             })?;
+        let display_name = FileValidator::display_filename(&original_filename)
+            .unwrap_or_else(|| sanitized_filename.clone());
 
         let mut file_data = Vec::new();
         let mut total_size = 0usize;
@@ -178,7 +180,7 @@ pub async fn upload_collab_document_image(
 
         uploaded_files.push(json!({
             "url": url,
-            "name": sanitized_filename,
+            "name": display_name,
             "size": total_size,
         }));
     }

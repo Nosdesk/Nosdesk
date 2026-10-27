@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useDocPages, toPage } from '@/composables/useDocPages'
@@ -9,13 +11,13 @@ import { useSyncDocsStore, isActivePage } from '@nosdesk/core/sync/stores/docume
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { useGapTitle, useKnowledgeGaps } from '@/composables/useKnowledgeGaps'
 import CollectionBrowser from '@/components/documentationComponents/CollectionBrowser.vue'
-import CollectionModal from '@/components/documentationComponents/CollectionModal.vue'
 import DocumentationIndexToolbar from '@/components/documentationComponents/DocumentationIndexToolbar.vue'
 import DocumentationHubRow from '@/components/documentationComponents/DocumentationHubRow.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import Icon from '@/components/common/Icon.vue'
+import Button from '@/components/common/Button.vue'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
@@ -42,10 +44,17 @@ const { allTree: pages } = useDocPages()
 const docs = useSyncDocsStore()
 const { gaps, isLoading: gapsLoading } = useKnowledgeGaps()
 
+const { isAdmin } = storeToRefs(useAuthStore())
+const router = useRouter()
+
 const docNavStore = useDocumentationNavStore()
 const { starredPages } = storeToRefs(docNavStore)
 
-const showCreateCollectionModal = ref(false)
+// The band owns the collection modal; the empty state opens it from here.
+const toolbarRef = ref<InstanceType<typeof DocumentationIndexToolbar> | null>(null)
+function openCreateCollection() {
+  toolbarRef.value?.openCreateCollection()
+}
 
 const uncollectedCount = computed(() => docs.uncollectedPages.length)
 const gapCount = computed(() => gaps.value.length)
@@ -114,10 +123,9 @@ const attentionCount = computed(() => gapCount.value + verificationCount.value)
 
 const totalPages = computed(() => flattenTree(pages.value).length)
 
-// The new collection reaches the Library through the sync pool.
-function onCollectionCreated() {
-  showCreateCollectionModal.value = false
-}
+/** Until a collection or a page exists the empty state stands alone,
+ *  rather than under an empty Library card. */
+const showLibrary = computed(() => docs.allCollections.length > 0 || totalPages.value > 0)
 
 function pageAuthor(page: Page) {
   return page.last_edited_by ?? page.created_by
@@ -125,12 +133,8 @@ function pageAuthor(page: Page) {
 
 const gapTitle = useGapTitle()
 
-function isSearchGap(title: string): boolean {
-  return title.startsWith('Customers searched:')
-}
-
 function gapImpactLabel(gap: KnowledgeGap): string {
-  return isSearchGap(gap.title)
+  return gap.primary_signal_type === 'failed_search'
     ? t('docs-index-gap-impact-searches', { count: gap.impact_score })
     : t('docs-index-gap-impact-tickets', { count: gap.impact_score })
 }
@@ -152,18 +156,7 @@ usePageCreateAction(handleCreatePage)
 <template>
   <div class="flex-1 flex flex-col min-h-0">
     <PullToRefresh :target="scrollEl" />
-    <header class="shrink-0 border-b border-subtle bg-surface">
-      <div class="@container px-4 sm:px-6 py-2.5 mx-auto w-full max-w-8xl">
-        <DocumentationIndexToolbar @create-collection="showCreateCollectionModal = true" />
-      </div>
-    </header>
-
-    <CollectionModal
-      mode="create"
-      :show="showCreateCollectionModal"
-      @close="showCreateCollectionModal = false"
-      @created="onCollectionCreated"
-    />
+    <DocumentationIndexToolbar ref="toolbarRef" />
 
     <!-- @container: the two-column split keys off THIS panel's width, not the
          viewport, so the layout stays correct whatever the nav sidebar does
@@ -172,17 +165,41 @@ usePageCreateAction(handleCreatePage)
       <div class="docs-index-layout px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
         <!-- Main column: the library leads; drafts collapse to one strip. -->
         <div class="flex flex-col gap-4 sm:gap-5 min-w-0">
-          <CollectionBrowser @create="showCreateCollectionModal = true" />
+          <CollectionBrowser v-if="showLibrary" />
 
-          <EmptyState
+          <div
             v-if="totalPages === 0"
-            variant="compact"
-            icon="document"
-            :title="$t('empty-documentation-index-title')"
-            :description="$t('empty-documentation-index-description')"
-            :action-label="$t('docs-index-new-page')"
-            @action="handleCreatePage"
-          />
+            class="bg-surface rounded-xl border border-default"
+            data-testid="docs-index-empty"
+          >
+            <EmptyState
+              variant="compact"
+              icon="document"
+              :title="$t('empty-documentation-index-title')"
+              :description="$t('empty-documentation-index-description')"
+            >
+              <template #actions>
+                <div class="flex flex-wrap justify-center gap-2">
+                  <Button size="sm" icon="add" @click="handleCreatePage">
+                    {{ $t('docs-index-new-page') }}
+                  </Button>
+                  <Button size="sm" variant="secondary" icon="folder" @click="openCreateCollection">
+                    {{ $t('docs-index-toolbar-new-collection') }}
+                  </Button>
+                  <Button
+                    v-if="isAdmin"
+                    size="sm"
+                    variant="secondary"
+                    icon="download"
+                    data-testid="docs-index-empty-import"
+                    @click="router.push({ name: 'admin-docs-import' })"
+                  >
+                    {{ $t('docs-index-toolbar-import') }}
+                  </Button>
+                </div>
+              </template>
+            </EmptyState>
+          </div>
 
           <RouterLink
             v-if="uncollectedCount > 0"

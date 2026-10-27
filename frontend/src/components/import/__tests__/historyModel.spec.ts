@@ -12,7 +12,9 @@ import {
   fileLabel,
   optionsLine,
   reportOffered,
+  resumeTarget,
   rowAction,
+  statePill,
 } from '../historyModel'
 
 /** Echoes the key and its arguments, so the words chosen are visible. */
@@ -100,10 +102,34 @@ describe('Recent imports rows', () => {
     )
   })
 
+  it('shows a documentation import whose pages were removed as Removed, with what moved and what was kept', () => {
+    const docs = item({ job_type: 'documentation', removed: { deleted: 34, created: 36, kept: 2 } })
+    expect(countsLine(t, docs)).toBe('import-history-count-removed-pages(deleted=34,kept=2)')
+    expect(statePill(docs)).toEqual({ key: 'import-history-state-removed', tone: 'neutral' })
+    // An asset import keeps its state; a draft or expired job its own.
+    expect(statePill(item({ removed: { deleted: 2, created: 3, kept: 1 } }))).toEqual({
+      key: 'import-history-state-imported',
+      tone: 'positive',
+    })
+    expect(statePill(item({ job_type: 'documentation', state: 'draft' }))?.key).toBe('import-history-state-draft')
+    expect(statePill(item({ state: null }))).toBeNull()
+  })
+
   it('says where a draft stopped, and that an expired one expired', () => {
     expect(countsLine(t, item({ state: 'draft', status: 'parsed', counts: null }))).toBe('import-history-draft-on-map')
     expect(countsLine(t, item({ state: 'draft', status: 'dry_run_done' }))).toBe('import-history-draft-on-review')
     expect(countsLine(t, item({ state: 'expired', status: 'dry_run_done' }))).toBe('import-history-state-expired')
+  })
+
+  it('says where a documentation draft stopped, and resumes it in its own wizard', () => {
+    const docs = (status: 'parsed' | 'checking' | 'dry_run_done' | 'committing') =>
+      countsLine(t, item({ job_type: 'documentation', state: 'draft', status, counts: null }))
+    expect(docs('parsed')).toBe('import-history-draft-on-pages')
+    expect(docs('checking')).toBe('import-history-draft-on-pages')
+    expect(docs('dry_run_done')).toBe('import-history-draft-on-review')
+    expect(docs('committing')).toBe('import-history-docs-importing')
+    expect(resumeTarget('j', 'documentation')).toEqual({ name: 'admin-docs-import', query: { job: 'j' } })
+    expect(resumeTarget('j', 'assets')).toEqual({ path: '/admin/data-import/csv', query: { job: 'j' } })
   })
 
   it('names a workbook with its sheet', () => {

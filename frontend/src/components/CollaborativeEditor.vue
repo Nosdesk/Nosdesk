@@ -8,7 +8,7 @@ import { logger } from '@nosdesk/core/utils/logger'
 // - To enable verbose logging in production: localStorage.setItem('editor-verbose-logging', 'true')
 // - To disable: localStorage.removeItem('editor-verbose-logging')
 
-import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
+import { ref, shallowRef, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { ticketPathForId } from "@/utils/ticketNumbers";
 import { useFluent } from "fluent-vue";
@@ -24,6 +24,17 @@ import { apiBaseUrl, collabWsBaseUrl } from "@nosdesk/core/transport";
 import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
+import { createTableGuardPlugin } from "@/components/editor/tableGuard";
+import { createTablePlugins, hasFinePointer } from "@/components/editor/tablePlugins";
+import { tablesAllowed } from "@/components/editor/tablesAllowed";
+import { insertTable } from "@/components/editor/tableCommands";
+import { toggleBlockquote as toggleBlockquoteCommand } from "@/components/editor/blockquote";
+import { TableNodeView, createTableControlsPlugin } from "@/components/editor/tableView";
+import type { TableUiState } from "@/components/editor/tableMenus";
+import TableControls from "@/components/editor/TableControls.vue";
+import { ICON_REGISTRY } from "@/components/common/icons";
+import { respondToOutdatedEditor, type OutdatedEditorPrompt } from "@/components/editor/outdatedEditor";
+import Button from "@/components/common/Button.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useToolbarDock } from "@/composables/useToolbarDock";
@@ -72,7 +83,6 @@ import { Schema } from "prosemirror-model";
 
 // Import individual components instead of exampleSetup
 import { dropCursor } from "prosemirror-dropcursor";
-// gapCursor removed - causes errors with empty Yjs documents in Chrome
 import {
     inputRules,
     wrappingInputRule,
@@ -100,10 +110,11 @@ import { createMentionViewPlugin } from "@/plugins/prosemirror-mention-view";
 import { useUserMentionSearch } from "@/composables/useUserMentionSearch";
 // Same identity colour the workspace/user marks use, so one person reads as one
 // colour wherever they appear.
-import { monogramColor } from "@/utils/monogram";
+import { monogramColor, monogramHex } from "@/utils/monogram";
 
-/** Fallback caret colour for an awareness state carrying no identity. */
-const NEUTRAL_CARET_COLOR = 'hsl(215, 15%, 45%)';
+/** Fallback caret colour for an awareness state carrying no identity, as hex
+ *  (hsl(215, 15%, 45%)): y-prosemirror takes `#rrggbb` only. */
+const NEUTRAL_CARET_COLOR = '#627084';
 
 // Yjs awareness user state structure
 interface AwarenessUser {
@@ -314,6 +325,19 @@ const disconnectedLabel = computed(() => {
       return t('editor-toolbar-connection-disconnected');
   }
 });
+// The server refused the document because it needs a newer editor than this
+// build's: reload into the new build once, else ask (`outdatedEditor.ts`).
+// Shown above the content rather than in the toolbar, which read-only viewers
+// and the docked phone toolbar don't show.
+const outdatedPrompt = ref<OutdatedEditorPrompt | null>(null);
+watch(
+  () => collab.connectionRefusal[props.docId] ?? null,
+  (refusal) => {
+    outdatedPrompt.value = refusal === 'outdated' ? respondToOutdatedEditor() : null;
+  },
+  { immediate: true },
+);
+const reloadPage = () => window.location.reload();
 
 // State for connected users
 const connectedUsers = ref<{ id: string; user: AwarenessUser }[]>([]);
@@ -393,6 +417,8 @@ const typeButtonRef = ref<HTMLElement | null>(null);
 const insertButtonRef = ref<HTMLElement | null>(null);
 const showTypeMenu = ref(false);
 const showInsertMenu = ref(false);
+// The table menu (TableControls), held open here for the docked toolbar.
+const tableMenuOpen = ref(false);
 
 // Keyboard-docked toolbar (phones, hosts that opt in). While docked the
 // toolbar is teleported to #overlays: `.collaborative-editor` is a size
@@ -409,7 +435,7 @@ const toolbarDocked = useToolbarDock({
     mobile: isMobile,
     canEdit,
     focused: editorFocused,
-    menuOpen: () => showTypeMenu.value || showInsertMenu.value || refocusPending.value,
+    menuOpen: () => showTypeMenu.value || showInsertMenu.value || tableMenuOpen.value || refocusPending.value,
 });
 const { keyboardHeight } = useVisualViewport(toolbarDocked);
 const DOCKED_TOOLBAR_HEIGHT = 48;
@@ -439,6 +465,32 @@ const refocusAfterMenu = () => {
         refocusPending.value = false;
     }, 50);
 };
+// Tables: the node view draws the handles, TableControls the menus and the
+// selection bar, and the toolbar's Table button opens the grouped menu while
+// the caret is in a table. None of it shows read only, over a revision, on
+// an outdated client, or before this document's server allows tables.
+// Touch (no fine pointer) drops column resizing and hover, and pins the
+// Table button first in the toolbar.
+const tableTouch = !hasFinePointer();
+const tableUi = shallowRef<TableUiState | null>(null);
+const tableControlsRef = ref<InstanceType<typeof TableControls> | null>(null);
+const tableButtonRef = ref<HTMLElement | null>(null);
+const tableControlsOn = computed(
+    () => canEdit.value && !isViewingRevision.value && !outdatedPrompt.value && tablesAllowed(props.docId),
+);
+const onTableUi = (ui: TableUiState | null) => {
+    const prev = tableUi.value;
+    if (prev === ui || (prev && ui && JSON.stringify(prev) === JSON.stringify(ui))) return;
+    tableUi.value = ui;
+};
+const openTableMenu = () => {
+    if (tableButtonRef.value) tableControlsRef.value?.openGrouped(tableButtonRef.value);
+};
+const onTableMenuOpenChange = (open: boolean) => {
+    tableMenuOpen.value = open;
+    if (!open) refocusAfterMenu();
+};
+
 const typeMenuAnchor = computed(() => ({ type: 'element' as const, element: () => typeButtonRef.value }));
 const insertMenuAnchor = computed(() => ({ type: 'element' as const, element: () => insertButtonRef.value }));
 
@@ -783,7 +835,9 @@ const initEditor = async () => {
             // Derived from the uuid rather than randomised per session: the same
             // person keeps one colour across sessions and across surfaces, and
             // two people no longer collide by chance out of a palette of eight.
-            color: authStore.user?.uuid ? monogramColor(authStore.user.uuid) : NEUTRAL_CARET_COLOR,
+            // Hex, as y-prosemirror warns on anything else and appends an alpha
+            // to it for the selection highlight.
+            color: authStore.user?.uuid ? monogramHex(authStore.user.uuid) : NEUTRAL_CARET_COLOR,
             uuid: authStore.user?.uuid || undefined,
             avatar: authStore.user?.avatar_thumb || authStore.user?.avatar_url || undefined,
         });
@@ -791,10 +845,11 @@ const initEditor = async () => {
         // Map the Yjs client ID to the user UUID once per doc
         // lifetime. Y.PermanentUserData.setUserMapping appends to
         // a YArray with no dedup, calling it on every mount would
-        // bloat the user map with duplicate entries.
+        // bloat the user map with duplicate entries. The mapping is
+        // written with this client's first edit: written on open, it
+        // made a view save the document as the viewer's change.
         if (session.isNew && authStore.user?.uuid) {
-            permanentUserData.setUserMapping(ydoc, ydoc.clientID, authStore.user.uuid);
-            log.info(`Mapped client ID ${ydoc.clientID} to user ${authStore.user.uuid}`);
+            permanentUserData.setUserMappingOnFirstEdit(ydoc, ydoc.clientID, authStore.user.uuid);
         }
 
         // 4. Get the XML fragment and initialize ProseMirror document
@@ -829,6 +884,20 @@ const initEditor = async () => {
             throw new Error("Editor element became null during initialization");
         }
 
+        // Tab, arrows, cell selection, paste and (on pointer devices) column
+        // resizing in tables. The gap cursor comes with them. It was removed
+        // once over errors on empty Yjs documents; an editor no longer starts
+        // from an empty document (`initialEditorDoc`).
+        const awareness = provider.awareness;
+        const tables = createTablePlugins({
+            docId: () => props.docId,
+            resizable: !tableTouch,
+            onTableDeleted: () => tableControlsRef.value?.announceDeleted(),
+            // Who is in the document, so a ragged table is repaired by one
+            // client only.
+            present: () => awareness.getStates().keys(),
+        });
+
         editorView = new EditorView(editorElement.value, {
             // The revision overlay hides this view but leaves it mounted and
             // syncing. Editing it while it cannot be seen would be an invisible
@@ -846,6 +915,8 @@ const initEditor = async () => {
                         // SafePermanentUserData wrapper provides fallback values for missing users
                         permanentUserData: permanentUserData as unknown as typeof PermanentUserData.prototype
                     }),
+                    // No local table until this document's server allows them.
+                    createTableGuardPlugin(() => props.docId),
                     yCursorPlugin(provider.awareness, {
                         // Custom cursor builder that handles missing users gracefully
                         cursorBuilder: (user: AwarenessUser | undefined, _clientId: number): HTMLElement => {
@@ -1029,14 +1100,18 @@ const initEditor = async () => {
                         onStateChange: handleMentionStateChange,
                         onKeyDown: handleMentionKeyDown,
                     }),
+                    tables.keymap, // After lists and mentions, before baseKeymap
                     keymap(baseKeymap), // Basic key bindings
                     dropCursor(), // Shows cursor when dragging
                     createTicketDropIndicatorPlugin(), // Shows drop indicator for ticket cards
-                    // NOTE: gapCursor() removed - causes null reference errors with empty Yjs documents
                     createImageUploadPlugin(imageUploadOptions()),
                     syntaxHighlightPlugin,
                     createMentionViewPlugin(),
                     twemojiPlugin,
+                    createTableControlsPlugin(onTableUi),
+                    // Last: cell selection takes mouse and arrow events the
+                    // gap cursor and column resizing have passed on.
+                    ...tables.plugins,
                 ],
             }),
             // Live view only: the revision overlay renders images via plain
@@ -1044,6 +1119,12 @@ const initEditor = async () => {
             nodeViews: {
                 image: (node, view, getPos) =>
                     new ImageNodeView(node, view, getPos, { t }),
+                table: (node, view, getPos) =>
+                    new TableNodeView(node, view, getPos, {
+                        t,
+                        touch: tableTouch,
+                        openMenu: (kind, index, anchor) => tableControlsRef.value?.openMenu(kind, index, anchor),
+                    }),
             },
             handleDOMEvents: {
                 focus: () => {
@@ -1424,6 +1505,7 @@ const insertMenuItems = computed<MenuItem[]>(() => [
     { id: 'ordered-list', label: t('editor-insert-menu-numbered-list') },
     { id: 'blockquote', label: t('editor-insert-menu-blockquote') },
     { id: 'code-block', label: t('editor-insert-menu-code-block') },
+    ...(tablesAllowed(props.docId) ? [{ id: 'table', label: t('editor-insert-menu-table') }] : []),
     { id: 'link', label: t('editor-insert-menu-link') },
     { id: 'embed-document', label: t('editor-insert-menu-embed-document') },
     { id: 'image', label: t('editor-insert-menu-image') },
@@ -1431,20 +1513,30 @@ const insertMenuItems = computed<MenuItem[]>(() => [
 ]);
 
 const onInsertMenuSelect = (id: string) => {
-    // The pickers and the link prompt take focus on purpose.
-    if (['bullet-list', 'ordered-list', 'blockquote', 'code-block'].includes(id)) refocusAfterMenu();
+    // The pickers and the link prompt take focus on purpose. The rest focus
+    // the editor themselves, which keeps the closing menu from handing focus
+    // back to this button.
+    if (['bullet-list', 'ordered-list', 'blockquote', 'code-block', 'table'].includes(id)) refocusAfterMenu();
     showInsertMenu.value = false;
     if (id === 'bullet-list') toggleBulletList();
     else if (id === 'ordered-list') toggleOrderedList();
     else if (id === 'blockquote') toggleBlockquote();
     else if (id === 'code-block') toggleCodeBlock();
+    else if (id === 'table') insertTableAtCaret();
     else if (id === 'link') insertLink();
     else if (id === 'embed-document') showDocumentPicker.value = true;
     else if (id === 'image') imagePickerRef.value?.click();
     else if (id === 'take-photo') cameraPickerRef.value?.click();
 };
 
-// Functions to handle toolbar actions
+const insertTableAtCaret = () => {
+    if (!editorView || !tablesAllowed(props.docId)) return;
+    insertTable(editorView.state, editorView.dispatch);
+    editorView.focus();
+};
+
+// Functions to handle toolbar actions. The block commands end with the
+// editor focused, caret in place, so a menu pick can be typed after at once.
 const setHeading = (level: number) => {
     if (!editorView) return;
     const attrs = { level };
@@ -1452,6 +1544,7 @@ const setHeading = (level: number) => {
         editorView.state,
         editorView.dispatch,
     );
+    editorView.focus();
 };
 
 const toggleBold = () => {
@@ -1466,10 +1559,8 @@ const toggleItalic = () => {
 
 const toggleBlockquote = () => {
     if (!editorView) return;
-    setBlockType(schema.nodes.blockquote, {})(
-        editorView.state,
-        editorView.dispatch,
-    );
+    toggleBlockquoteCommand(editorView.state, editorView.dispatch);
+    editorView.focus();
 };
 
 const toggleCodeBlock = () => {
@@ -1501,11 +1592,13 @@ const setParagraph = () => {
         editorView.state,
         editorView.dispatch,
     );
+    editorView.focus();
 };
 
 const toggleBulletList = () => {
     if (!editorView) return;
     wrapInList(schema.nodes.bullet_list)(editorView.state, editorView.dispatch);
+    editorView.focus();
 };
 
 const toggleOrderedList = () => {
@@ -1514,6 +1607,7 @@ const toggleOrderedList = () => {
         editorView.state,
         editorView.dispatch,
     );
+    editorView.focus();
 };
 
 // Link tooltip handlers
@@ -2057,7 +2151,7 @@ defineExpose({
 </script>
 
 <template>
-    <div class="collaborative-editor">
+    <div class="collaborative-editor" :class="{ 'table-controls-off': !tableControlsOn }">
         <!-- Toolbar. Inert while a revision is on screen: its commands dispatch
              straight to the live view, which is hidden under the overlay.
              Docked on the keyboard it lives in #overlays (see toolbarDocked). -->
@@ -2068,7 +2162,7 @@ defineExpose({
             role="toolbar"
             :aria-label="$t('editor-toolbar-label')"
             :inert="isViewingRevision"
-            :class="{ 'toolbar-inert': isViewingRevision, 'toolbar-dockable': dockToolbarOnMobile, 'toolbar-docked': toolbarDocked }"
+            :class="{ 'toolbar-inert': isViewingRevision, 'toolbar-dockable': dockToolbarOnMobile, 'toolbar-docked': toolbarDocked, 'toolbar-touch': tableTouch }"
             @mousedown="onToolbarMousedown"
         >
             <!-- Type Dropdown -->
@@ -2311,6 +2405,38 @@ defineExpose({
                 </svg>
             </button>
 
+            <!-- Table: while the caret is in a table. On touch it goes first
+                 in the row (CSS order), where a thumb reaches it. -->
+            <template v-if="tableControlsOn && tableUi">
+                <button
+                    type="button"
+                    ref="tableButtonRef"
+                    class="toolbar-button toolbar-button--table"
+                    aria-haspopup="menu"
+                    :aria-expanded="tableMenuOpen"
+                    :class="{ 'toolbar-button-active': tableMenuOpen }"
+                    :title="$t('editor-toolbar-table')"
+                    @click="openTableMenu"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                    >
+                        <path :d="ICON_REGISTRY.table.d"></path>
+                    </svg>
+                    <span class="toolbar-button-label">{{ $t('editor-toolbar-table') }}</span>
+                </button>
+                <div v-if="tableTouch" class="toolbar-divider toolbar-divider--table"></div>
+            </template>
+
             <!-- Revision History Button -->
             <button
                 type="button"
@@ -2378,7 +2504,7 @@ defineExpose({
             <div v-show="!toolbarDocked && connectionBadge === 'reconnecting'" class="connection-status-connecting">
                 {{ $t('editor-toolbar-connection-reconnecting') }}
             </div>
-            <div v-show="!toolbarDocked && connectionBadge === 'disconnected'" class="connection-status-disconnected">
+            <div v-show="!toolbarDocked && connectionBadge === 'disconnected' && !outdatedPrompt" class="connection-status-disconnected">
                 {{ disconnectedLabel }}
             </div>
 
@@ -2392,6 +2518,14 @@ defineExpose({
 
         <!-- Editor content with click handler -->
         <div ref="editorWrapper" class="editor-wrapper">
+            <div v-if="outdatedPrompt" class="outdated-editor-bar" role="status">
+                <span class="outdated-editor-label">
+                    {{ outdatedPrompt === 'reload' ? $t('editor-outdated-reload') : $t('editor-outdated-update-app') }}
+                </span>
+                <Button v-if="outdatedPrompt === 'reload'" type="button" variant="secondary" size="xs" class="ml-auto" @click="reloadPage">
+                    {{ $t('editor-outdated-reload-button') }}
+                </Button>
+            </div>
             <div
                 id="editor"
                 ref="editorElement"
@@ -2495,6 +2629,16 @@ defineExpose({
                 </div>
             </Transition>
         </Teleport>
+
+        <!-- Table menus and the selection bar -->
+        <TableControls
+            v-if="tableControlsOn"
+            ref="tableControlsRef"
+            :view="() => editorView"
+            :ui="tableUi"
+            :touch="tableTouch"
+            @open-change="onTableMenuOpenChange"
+        />
 
         <!-- Link Tooltip -->
         <LinkTooltip
@@ -2728,6 +2872,20 @@ defineExpose({
 
 .toolbar-inert {
     opacity: 0.5;
+}
+
+.outdated-editor-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background-color: var(--color-status-warning-bg, rgba(245, 158, 11, 0.15));
+    border-bottom: 1px solid var(--color-status-warning-border, rgba(245, 158, 11, 0.3));
+}
+
+.outdated-editor-label {
+    font-size: 0.8125rem;
+    color: var(--color-primary);
 }
 
 .revision-overlay:focus {
@@ -3661,6 +3819,466 @@ defineExpose({
     transform: translateX(100%);
 }
 
+/* ---- Tables: the controls around a table (tableView.ts) ----------------
+   The resting table is styled in main.css. Handles belong to the cell you
+   are in: nothing at rest, a faint pill on hover, a solid one for the
+   caret's row and column, the accent for a selected row, column or table. */
+.pm-table {
+    --table-handle-faint: color-mix(in srgb, var(--color-strong) 90%, var(--color-tertiary));
+    --table-handle-solid: color-mix(in srgb, var(--color-tertiary) 85%, var(--color-strong));
+    position: relative;
+    margin: 1rem 0;
+}
+
+.ProseMirror .pm-table > .table-scroll {
+    margin: 0;
+}
+
+/* Edge fades over the scroller's ends, so they stay put as it scrolls. */
+.pm-table::before,
+.pm-table::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 40px;
+    pointer-events: none;
+    z-index: 3;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.pm-table::before {
+    left: 0;
+    background: linear-gradient(to right, var(--color-surface), transparent);
+}
+
+.pm-table::after {
+    right: 0;
+    background: linear-gradient(to left, var(--color-surface), transparent);
+}
+
+.pm-table:is([data-fade="left"], [data-fade="both"])::before,
+.pm-table:is([data-fade="right"], [data-fade="both"])::after {
+    opacity: 1;
+}
+
+/* The column resize guide: one line from the table's top border to its
+   bottom one, over the header tint and selected cells and under the edge
+   fades, clipped to the scroller so it scrolls with the table. */
+.pm-table__guideclip {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.pm-table__guide {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 2px;
+    background-color: var(--color-accent);
+    display: none;
+}
+
+.pm-table__guide.is-on {
+    display: block;
+}
+
+.pm-table__ui {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.pm-table__ui button {
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    background: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* No controls read only, over a revision, or where tables aren't allowed,
+   and no resize guide on touch, where columns are not dragged. */
+.ProseMirror[contenteditable="false"] :is(.pm-table__ui, .pm-table__guideclip),
+.table-controls-off :is(.pm-table__ui, .pm-table__guideclip),
+.pm-table.is-touch .pm-table__guideclip {
+    display: none;
+}
+
+.pm-table__colclip {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -16px;
+    height: 16px;
+    overflow: hidden;
+}
+
+.pm-table__colstrip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 16px;
+    will-change: transform;
+}
+
+.pm-table__rowstrip {
+    position: absolute;
+    left: -16px;
+    top: 0;
+    bottom: 0;
+    width: 16px;
+}
+
+.pm-table__sideclip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: -16px;
+    overflow: hidden;
+}
+
+.pm-table__ui .pm-table__handle {
+    position: absolute;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+}
+
+.pm-table__handle::before {
+    content: "";
+    display: block;
+    border-radius: 9999px;
+    background-color: var(--table-handle-faint);
+    opacity: 0;
+    transition: opacity 0.12s, background-color 0.12s, transform 0.12s;
+}
+
+.pm-table__handle--col {
+    top: 2px;
+    height: 14px;
+}
+
+.pm-table__handle--col::before {
+    width: calc(100% - 10px);
+    max-width: 28px;
+    min-width: 14px;
+    height: 5px;
+}
+
+.pm-table__handle--row {
+    left: 0;
+    width: 14px;
+}
+
+.pm-table__handle--row::before {
+    width: 5px;
+    height: calc(100% - 10px);
+    max-height: 28px;
+    min-height: 14px;
+}
+
+.pm-table__handle.is-hover::before {
+    opacity: 1;
+}
+
+.pm-table__handle.is-active::before {
+    opacity: 1;
+    background-color: var(--table-handle-solid);
+}
+
+.pm-table__handle.is-selected::before {
+    opacity: 1;
+    background-color: var(--color-accent);
+}
+
+.pm-table__handle:hover::before {
+    opacity: 1;
+    transform: scale(1.12);
+}
+
+.pm-table__ui .pm-table__corner {
+    position: absolute;
+    left: -16px;
+    top: -16px;
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--table-handle-solid);
+    opacity: 0;
+    transition: opacity 0.12s, background-color 0.12s;
+}
+
+.pm-table__corner svg {
+    width: 10px;
+    height: 10px;
+}
+
+.pm-table__ui .pm-table__corner:hover {
+    background-color: var(--color-surface-hover);
+    opacity: 1;
+}
+
+.pm-table:is(.is-hover, .is-active) .pm-table__corner {
+    opacity: 1;
+}
+
+.pm-table.is-all-selected .pm-table__corner {
+    color: var(--color-accent);
+    opacity: 1;
+}
+
+/* Insert-between: a plus on the boundary under the pointer. */
+.pm-table__ui .pm-table__insert {
+    position: absolute;
+    pointer-events: auto;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-strong);
+    color: var(--color-secondary);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    box-shadow: 0 1px 2px var(--shadow-outer-dark);
+}
+
+.pm-table__insert svg {
+    width: 10px;
+    height: 10px;
+}
+
+.pm-table__insert.is-on {
+    display: flex;
+}
+
+.pm-table__ui .pm-table__insert:hover {
+    background-color: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-on-accent);
+}
+
+.pm-table__insert--col {
+    top: 0;
+    transform: translateX(-50%);
+}
+
+.pm-table__insert--row {
+    left: -1px;
+    transform: translateY(-50%);
+}
+
+/* Add bars after the last row and column. */
+.pm-table__ui .pm-table__addbar {
+    position: absolute;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-tertiary);
+    opacity: 0;
+    border-radius: 4px;
+    transition: opacity 0.12s, background-color 0.12s;
+}
+
+.pm-table__addbar::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: var(--color-surface-alt);
+    border: 1px dashed var(--color-strong);
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.pm-table__addbar svg {
+    position: relative;
+    width: 12px;
+    height: 12px;
+}
+
+.pm-table__addbar--row {
+    left: 0;
+    right: 0;
+    bottom: -14px;
+    height: 12px;
+}
+
+.pm-table__addbar--col {
+    top: 0;
+    bottom: 0;
+    width: 12px;
+}
+
+.pm-table:is(.is-hover, .is-active) .pm-table__addbar {
+    opacity: 0.7;
+}
+
+.pm-table__ui .pm-table__addbar:hover {
+    opacity: 1;
+    color: var(--color-accent);
+}
+
+.pm-table__addbar:hover::before {
+    opacity: 1;
+    border-color: var(--color-accent);
+    background-color: var(--color-accent-muted);
+}
+
+/* Touch: no hover; handles for the caret's cell only; add bars on while the
+   caret is in the table; 24px targets with hit areas past the glyph. The
+   app's phone editor runs edge to edge with a 16px gutter, too narrow for
+   the row strip and the side add bar, so a table being edited on touch is
+   inset by another 16px each side. That inset also keeps the sideways
+   scroller clear of the screen's left edge, where iOS starts its back
+   swipe. */
+.pm-table.is-touch {
+    margin: 1.75rem 1rem 2.25rem;
+}
+
+.ProseMirror[contenteditable="false"] .pm-table.is-touch,
+.table-controls-off .pm-table.is-touch {
+    margin: 1rem 0;
+}
+
+.pm-table.is-touch .pm-table__handle::before {
+    opacity: 0;
+}
+
+.pm-table.is-touch .pm-table__handle:is(.is-active, .is-selected)::before {
+    opacity: 1;
+}
+
+.pm-table.is-touch :is(.pm-table__handle, .pm-table__addbar, .pm-table__corner)::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+}
+
+.pm-table.is-touch .pm-table__rowstrip {
+    left: -24px;
+    width: 24px;
+}
+
+.pm-table.is-touch .pm-table__handle--row {
+    left: 0;
+    width: 24px;
+}
+
+.pm-table.is-touch .pm-table__handle--row::before {
+    width: 6px;
+}
+
+.pm-table.is-touch .pm-table__colclip {
+    top: -24px;
+    height: 28px;
+}
+
+.pm-table.is-touch .pm-table__handle--col {
+    top: 0;
+    height: 24px;
+}
+
+.pm-table.is-touch .pm-table__handle--col::before {
+    height: 6px;
+}
+
+.pm-table.is-touch .pm-table__ui .pm-table__corner {
+    width: 22px;
+    height: 22px;
+    left: -24px;
+    top: -24px;
+    opacity: 0;
+}
+
+.pm-table.is-touch.is-active .pm-table__ui .pm-table__corner {
+    opacity: 1;
+}
+
+.pm-table.is-touch .pm-table__corner svg {
+    width: 12px;
+    height: 12px;
+}
+
+.pm-table.is-touch .pm-table__addbar--row {
+    height: 24px;
+    bottom: -28px;
+}
+
+.pm-table.is-touch .pm-table__addbar--col {
+    width: 24px;
+}
+
+.pm-table.is-touch .pm-table__sideclip {
+    right: -30px;
+}
+
+.pm-table.is-touch .pm-table__addbar svg {
+    width: 14px;
+    height: 14px;
+}
+
+.pm-table.is-touch.is-active .pm-table__ui .pm-table__addbar {
+    opacity: 1;
+}
+
+.pm-table.is-touch.is-active .pm-table__addbar::before {
+    opacity: 1;
+}
+
+.pm-table.is-touch .pm-table__insert {
+    display: none !important;
+}
+
+/* The toolbar's Table button, shown while the caret is in a table. */
+.toolbar-button--table {
+    gap: 0.375rem;
+}
+
+.toolbar-button--table svg {
+    width: 16px;
+    height: 16px;
+}
+
+.toolbar-button-label {
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+.toolbar .toolbar-button--table[aria-expanded="true"] {
+    color: var(--color-accent);
+    background-color: var(--color-accent-muted);
+}
+
+/* Touch: the toolbar scrolls sideways, so the Table button goes first,
+   where a thumb reaches it, with a divider after it. */
+.toolbar-touch .toolbar-button--table {
+    order: -2;
+}
+
+.toolbar-touch .toolbar-divider--table {
+    order: -1;
+}
+
 /* Toolbar button active state */
 .toolbar-button-active {
     background-color: var(--color-surface-alt);
@@ -3970,6 +4588,14 @@ defineExpose({
   }
 
   .ProseMirror .ticket-link-dot {
+    display: none !important;
+  }
+
+  /* No table controls on paper */
+  .pm-table__ui,
+  .pm-table__guideclip,
+  .pm-table::before,
+  .pm-table::after {
     display: none !important;
   }
 
