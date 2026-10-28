@@ -30,13 +30,6 @@ vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: true, isTechni
 vi.mock('@/stores/documentationNav', () => ({
   useDocumentationNavStore: () => ({ refreshPages: vi.fn(), updatePageField: vi.fn() }),
 }))
-vi.mock('@/composables/useTitleManager', () => ({
-  useTitleManager: () => ({
-    setCustomTitle: vi.fn(),
-    onDocumentTitleSave: vi.fn(),
-    onDocumentIconSave: vi.fn(),
-  }),
-}))
 vi.mock('@/components/Modal.vue', () => ({
   default: { template: '<div><slot /><slot name="footer" /></div>' },
 }))

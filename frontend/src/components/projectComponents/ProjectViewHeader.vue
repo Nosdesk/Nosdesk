@@ -3,13 +3,13 @@
  * Shared controls bar for a project's sub-views (Board / Gantt / Cycles).
  * The project name itself lives in the main site header (PageHeader),
  * inline-editable there the same way a ticket title is (see the
- * useTitleManager wiring below); this bar carries the project meta
+ * usePageTitle claim below); this bar carries the project meta
  * (status, ticket count), the add-tickets action, per-view #actions, and
  * the project actions menu.
  */
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useTitleManager } from '@/composables/useTitleManager'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
 import { useProjectTickets } from '@/composables/useProjectTickets'
 import { useProjectTicketLink } from '@/composables/useProjectTicketLink'
@@ -35,25 +35,14 @@ const router = useRouter()
 const projectsStore = useSyncProjectsStore()
 
 // Surface the project name in the main site header (PageHeader) and make
-// it inline-editable there, exactly like the ticket view. Custom title
-// wins over the route title in useTitleManager, so it shows on Board /
-// Gantt / Cycles alike; the save handler renames the project. Both are
-// cleared on leave so they don't linger onto the next route.
-const titleManager = useTitleManager()
-watch(
-  () => props.project?.name,
-  (name) => {
-    if (name) titleManager.setCustomTitle(name)
+// it inline-editable there, exactly like the ticket view. It shows on Board /
+// Gantt / Cycles alike; the save handler renames the project.
+usePageTitle({
+  title: () => props.project?.name,
+  onTitleSave: async (name: string) => {
+    const p = props.project
+    if (p && name && name !== p.name) await projectsStore.rename(p.id, name)
   },
-  { immediate: true },
-)
-titleManager.onCustomTitleSave(async (name: string) => {
-  const p = props.project
-  if (p && name && name !== p.name) await projectsStore.rename(p.id, name)
-})
-onUnmounted(() => {
-  titleManager.setCustomTitle(null)
-  titleManager.onCustomTitleSave(null)
 })
 
 function onSetStatus(status: string): void {

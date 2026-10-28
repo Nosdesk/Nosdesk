@@ -25,8 +25,6 @@ import DocumentView from '@/views/DocumentView.vue'
 import ProfileSettingsView from '@/views/ProfileSettingsView.vue'
 import PDFViewerView from '@/views/PDFViewerView.vue'
 import authService from '@nosdesk/core/services/authService'
-import { translate } from '@/i18n'
-import { useBrandingStore } from '@/stores/branding'
 import type { Page, Article } from '@nosdesk/core/services/documentationService'
 
 declare module 'vue-router' {
@@ -1112,50 +1110,8 @@ installSlugCarrier(router)
 // the auth guards; inert for bare paths in host mode. See ./workspaceRouting.
 installWorkspaceGuard(router)
 
-// Update document title on navigation
-// Routes where useTitleManager handles document.title (skip generic title-setting)
-const titleManagedRoutes = ['ticket-view', 'device', 'documentation-article'];
-
-router.beforeResolve((to) => {
-  // Skip title-setting for routes managed by useTitleManager —
-  // those views set their own specific title (e.g. "#123 Fix the bug")
-  if (titleManagedRoutes.includes(to.name as string)) {
-    return;
-  }
-
-  // Pull the workspace-configured product name out of the branding
-  // store. Pinia stores work outside `setup()` once Pinia is installed,
-  // so this is safe inside a router guard. Falls back to "Nosdesk"
-  // when the store hasn't initialised (the computed inside the store
-  // already handles its own fallback).
-  const branding = useBrandingStore();
-
-  let title: string | undefined;
-
-  // Prefer `titleKey` so locale-aware tab titles update on navigation;
-  // fall back to `title` for any route that hasn't been migrated. The
-  // useTitleManager composable runs alongside this and may override
-  // with view-specific titles (e.g. "#123 Fix the bug").
-  const titleKey = to.meta?.titleKey as string | undefined;
-  const titleKeyArgs = to.meta?.titleKeyArgs as Record<string, string | number> | undefined;
-  if (titleKey) {
-    title = translate(titleKey, titleKeyArgs);
-  } else if (to.meta?.title) {
-    title = to.meta.title as string;
-  } else if (to.name) {
-    title = to.name.toString()
-      .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  }
-
-  // `getPageTitle(undefined)` returns the bare app name, matching the
-  // previous behaviour when no segment was derived; with a segment it
-  // appends `| <app name>`. Branding store is the single source of
-  // truth for the product label so workspace-renamed installs no
-  // longer show "Nosdesk" in the browser tab.
-  document.title = branding.getPageTitle(title);
-});
+// The tab title is set by useTitleManager (from usePageTitle claims and the
+// route's titleKey), not here.
 
 // ===== NAVIGATION GUARD MIDDLEWARE =====
 // Modern Vue Router 4 pattern using return values instead of next() callbacks

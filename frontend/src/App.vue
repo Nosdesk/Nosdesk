@@ -507,10 +507,6 @@ onMounted(async () => {
         <RouterView
           v-else
           v-slot="{ Component, route: viewRoute }"
-          @update:ticket="titleManager.setTicket"
-          @update:device="titleManager.setDevice"
-          @update:document="titleManager.setDocument"
-          @update:title="titleManager.setCustomTitle"
         >
           <!-- Scoped KeepAlive: cache only the swipe-back TARGET list views, so
                returning (native WKWebView back / popstate) restores the live

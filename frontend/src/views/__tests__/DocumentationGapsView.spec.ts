@@ -27,9 +27,6 @@ vi.mock('@nosdesk/core/sync/stores/documentation', () => ({
     pagesByStatus: () => computed(() => []),
   }),
 }))
-vi.mock('@/composables/useTitleManager', () => ({
-  useTitleManager: () => ({ setCustomTitle: () => {} }),
-}))
 vi.mock('@/composables/useTicketNumberLookup', () => ({ numberForTicketId: () => undefined }))
 vi.mock('@/utils/ticketNumbers', () => ({
   ticketPath: () => '/tickets/1',
