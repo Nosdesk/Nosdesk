@@ -5887,6 +5887,7 @@ docs-row-skeleton-label = Chargement des pages
 
 # Docs : navigation (DocumentationNav)
 docs-nav-starred = Favoris
+docs-nav-drafts = Brouillons
 docs-nav-empty = Aucun document pour le moment
 docs-nav-sort-manual = Manuel
 docs-nav-sort-alpha = Alphabétique
