@@ -39,7 +39,7 @@ so a printed ticket carries the full archival record, not the summary.
       v-else-if="visibleMode === 'inline-html'"
       ref="inlineHtmlRef"
       v-safe-html="visible"
-      class="email-inline-body text-primary"
+      class="email-inline-body comment-prose text-primary"
     />
     <div
       v-else-if="visibleMode === 'inline-text'"
@@ -67,7 +67,7 @@ so a printed ticket carries the full archival record, not the summary.
         <div
           v-else-if="quotedMode === 'inline-html'"
           v-safe-html="quoted"
-          class="email-inline-body border-l-2 border-subtle pl-3 text-secondary"
+          class="email-inline-body comment-prose border-l-2 border-subtle pl-3 text-secondary"
         />
         <div
           v-else-if="quotedMode === 'inline-text'"

@@ -441,6 +441,64 @@
 }
 
 /* ============================================
+   COMMENT PROSE
+   A comment's body, both in the composer and once posted: the same
+   elements the comment editor writes, sized for a thread. Shared so
+   what is typed is what the thread shows. Unlayered, like the scoped
+   editor styles it replaces, so global element rules don't win.
+   ============================================ */
+.comment-prose {
+  overflow-wrap: anywhere;
+}
+.comment-prose p { margin: 0 0 0.5rem; }
+.comment-prose > :last-child,
+.comment-prose li > :last-child { margin-bottom: 0; }
+.comment-prose strong { font-weight: 600; }
+.comment-prose em { font-style: italic; }
+.comment-prose a { color: var(--color-accent); text-decoration: underline; }
+.comment-prose :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0.75rem 0 0.375rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.comment-prose > :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 0; }
+.comment-prose h1 { font-size: 1.25rem; font-weight: 700; }
+.comment-prose h2 { font-size: 1.125rem; }
+.comment-prose h3 { font-size: 1rem; }
+.comment-prose :is(h4, h5, h6) { font-size: 0.875rem; }
+.comment-prose :is(ul, ol) { padding-left: 1.25rem; margin: 0.5rem 0; }
+.comment-prose ul { list-style-type: disc; }
+.comment-prose ul ul { list-style-type: circle; }
+.comment-prose ul ul ul { list-style-type: square; }
+.comment-prose ol { list-style-type: decimal; }
+.comment-prose ol ol { list-style-type: lower-alpha; }
+.comment-prose ol ol ol { list-style-type: lower-roman; }
+.comment-prose li { margin-bottom: 0.25rem; }
+.comment-prose li p { margin: 0; }
+.comment-prose blockquote {
+  border-left: 3px solid var(--color-default);
+  padding-left: 0.75rem;
+  margin: 0.5rem 0;
+  color: var(--color-secondary);
+}
+.comment-prose code {
+  background-color: var(--color-surface-alt);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.comment-prose pre {
+  background-color: var(--color-surface-alt);
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.comment-prose pre code { background-color: transparent; padding: 0; font-size: 0.8125rem; }
+.comment-prose hr { border: 0; border-top: 1px solid var(--color-default); margin: 0.75rem 0; }
+
+/* ============================================
    CUSTOM UTILITIES - Tailwind v4
    Define custom utility classes using @layer
    ============================================ */
