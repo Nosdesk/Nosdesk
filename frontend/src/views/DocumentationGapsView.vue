@@ -17,7 +17,7 @@ import { ticketPath, ticketPathForId } from '@/utils/ticketNumbers'
 import { computed, watch, ref } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { useTitleManager } from '@/composables/useTitleManager'
+import { usePageTitle } from '@/composables/usePageTitle'
 import Icon from '@/components/common/Icon.vue'
 import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
@@ -55,7 +55,6 @@ const props = defineProps<{
 
 const route = useRoute()
 const router = useRouter()
-const titleManager = useTitleManager()
 
 // Pull-to-refresh (Tauri app) binds to the master list pane (the
 // primary mobile surface); defaults to the global re-sync.
@@ -63,7 +62,7 @@ const listScrollEl = ref<HTMLElement | null>(null)
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-titleManager.setCustomTitle(t('docs-gaps-title'))
+usePageTitle({ title: () => t('docs-gaps-title') })
 
 // List. A dismissed row leaves at once; Undo or a failed request brings it
 // back. The refetch after the request settles makes it permanent.

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import IconButton from '@/components/common/IconButton.vue'
-import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
-import { useTitleManager } from '@/composables/useTitleManager';
+import { usePageTitle } from '@/composables/usePageTitle';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import BackButton from '@/components/common/BackButton.vue';
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue';
@@ -50,7 +50,6 @@ const route = useRoute();
 const router = useRouter();
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
-const emit = defineEmits(['update:device']);
 
 // State. The asset record and its persistence live in a single Pinia Colada
 // cache (useAssetDetail): `device` is the read-only cached source of truth and
@@ -592,32 +591,20 @@ const confirmUnmanageDevice = async () => {
 // (initial load, a save's reconciliation, a model stamp, or an external update).
 watch(device, (d) => { if (d) seedFromAsset(d); }, { immediate: true });
 
-// Propagate the full record to the layout (drives the header title).
-watch(device, (newDevice) => {
-  if (newDevice) emit('update:device', newDevice);
-}, { immediate: true, deep: true });
-
 // Surface a load failure (the query owns the fetch).
 watch(loadError, (e) => {
   if (e) error.value = t('asset-detail-error-load');
 });
 
-// The asset name lives in the site header (like a ticket title). Register
-// the save handler only while the asset is editable, so a sync-owned
-// asset shows its name read-only.
-const titleManager = useTitleManager();
+// The asset name lives in the site header (like a ticket title). It is
+// renamable there only while the asset is editable, so a sync-owned asset
+// shows its name read-only.
 const saveDeviceName = async (newName: string) => {
   if (!device.value) return;
   editValues.value.name = newName;
   await saveField('name');
 };
-watch(isEditable, (editable) => {
-  titleManager.onDeviceTitleSave(editable ? saveDeviceName : null);
-}, { immediate: true });
-onBeforeUnmount(() => {
-  titleManager.onDeviceTitleSave(null);
-  titleManager.clearDevice();
-});
+usePageTitle({ device, onTitleSave: saveDeviceName, titleEditable: isEditable });
 
 // The query keys on `assetId`, so navigating to a different asset refetches
 // automatically; just reset the per-session reveal state.

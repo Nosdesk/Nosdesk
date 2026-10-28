@@ -16,7 +16,7 @@ import type { Ticket } from "@nosdesk/core/types/ticket";
 import { useTicketDetail } from "@/sync/stores/ticketDetail";
 import { subscribe } from "@/sync/lifecycle";
 import { useTicketSSE } from "@/composables/useTicketSSE";
-import { useTitleManager } from "@/composables/useTitleManager";
+import { usePageTitle, type TitleableTicket } from "@/composables/usePageTitle";
 import { useTicketDrag, shouldSuppressTicketDrop } from "@/composables/useTicketDrag";
 import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
 
@@ -69,7 +69,6 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const { assetsVisible } = useWorkspaceCapabilities();
-const titleManager = useTitleManager();
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
 
@@ -502,17 +501,10 @@ const handleDocumentDragEnd = () => {
 
 onMounted(() => {
     document.addEventListener('dragend', handleDocumentDragEnd);
-
-    // Register save handler for SiteHeader title edits. Optimistic
-    // through the pool's push queue (same path as every other field).
-    titleManager.onTicketTitleSave(async (title: string) => {
-        await updateTitle(title);
-    });
 });
 
 onUnmounted(() => {
     document.removeEventListener('dragend', handleDocumentDragEnd);
-    titleManager.onTicketTitleSave(null);
     if (inactiveTimeout) {
         clearTimeout(inactiveTimeout);
     }
@@ -524,28 +516,18 @@ onUnmounted(() => {
 //   - commit:  persist the final value via PATCH, which is what
 //     stamps the activity log. Fires on idle (3s of no typing),
 //     on blur, or on a hard 8s cap to bound unsaved work.
-// Title editing moved to the SiteHeader (commit handler wired
-// via `titleManager.onTicketTitleSave` further up). The previous
-// sidebar Title field was deleted as part of the sidebar's flat-
-// property-panel redesign; if SSE typing-preview ever returns,
-// rewire SiteHeader through a `useFieldAutoSave` pipeline here.
+// Title editing lives in the SiteHeader. The previous sidebar Title
+// field was deleted as part of the sidebar's flat-property-panel
+// redesign; if SSE typing-preview ever returns, rewire SiteHeader
+// through a `useFieldAutoSave` pipeline here.
 
-// Emit ticket updates - pass the full reactive ticket object
-const emit = defineEmits<{
-    (e: "update:ticket", ticket: Ticket | null): void;
-}>();
-
-watch(
-    ticket,
-    (newTicket) => {
-        // Only emit when valid ticket data exists - prevents title flash during loading
-        // Clearing is handled by App.vue on route leave
-        if (newTicket) {
-            emit("update:ticket", newTicket as unknown as Ticket);
-        }
-    },
-    { immediate: true, deep: true }, // deep: true to watch nested property changes
-);
+// The ticket owns the header and tab while this view is mounted. A rename
+// in the header is optimistic through the pool's push queue (same path as
+// every other field).
+usePageTitle({
+    ticket: () => ticket.value as unknown as TitleableTicket | null,
+    onTitleSave: (title: string) => updateTitle(title),
+});
 
 // Load ticket on mount and route change
 // Subscribe to the ticket's sync group so the pool bootstraps the

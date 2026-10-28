@@ -896,7 +896,7 @@ watchEffect(async () => {
                content area as a click-to-edit heading and never
                duplicates it in the sidebar. The SiteHeader at the
                top of the page already provides editable-title via
-               `titleManager.onTicketTitleSave`, so the sidebar
+               the ticket view's `usePageTitle` claim, so the sidebar
                duplicate was redundant and forced the only
                remaining "carded" field in an otherwise-flat panel.
                Trade-off: the sidebar field was the only path that

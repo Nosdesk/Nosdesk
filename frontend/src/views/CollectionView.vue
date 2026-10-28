@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryCache } from '@pinia/colada'
 import { useDelayedFlag } from '@/composables/useDelayedFlag'
 import { useFluent } from 'fluent-vue'
-import { useTitleManager } from '@/composables/useTitleManager'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { getCollectionBySlug, updateCollection, deleteCollection, getPageOverridesInCollection } from '@nosdesk/core/services/collectionService'
 import type { CollectionWithPages, CollectionPage, PageOverrideInfo } from '@nosdesk/core/services/collectionService'
 import documentationService from '@nosdesk/core/services/documentationService'
@@ -29,7 +29,6 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 const route = useRoute()
 const router = useRouter()
-const titleManager = useTitleManager()
 
 // Pull-to-refresh (Tauri app) binds to the scroll container below the
 // sticky header; defaults to the global re-sync.
@@ -101,16 +100,15 @@ const pageCount = computed(
 )
 
 // Title follows the live collection name (now pool-overlaid in the
-// `collection` computed); falls back to a not-found title once the query
-// settles with no collection.
-watch(
-  collection,
-  (c) => {
-    if (c) titleManager.setCustomTitle(c.name)
-    else if (notFound.value) titleManager.setCustomTitle(t('collection-not-found-title'))
-  },
-  { immediate: true },
-)
+// `collection` computed), or a rename on its way to the server; falls back
+// to a not-found title once the query settles with no collection.
+const pendingName = ref<string | null>(null)
+usePageTitle({
+  title: () =>
+    pendingName.value ??
+    collection.value?.name ??
+    (notFound.value ? t('collection-not-found-title') : null),
+})
 
 // Editor state
 const editContent = ref('')
@@ -176,9 +174,13 @@ const updateName = async (newName: string) => {
   const name = newName.trim()
   if (!name || name === collection.value.name) return
   // Optimistic title; the pool-overlaid name + refetch update the rest.
-  titleManager.setCustomTitle(name)
-  await updateCollection(collection.value.id, { name })
-  await refetchCollection()
+  pendingName.value = name
+  try {
+    await updateCollection(collection.value.id, { name })
+    await refetchCollection()
+  } finally {
+    pendingName.value = null
+  }
 }
 
 const createPageInCollection = async () => {
