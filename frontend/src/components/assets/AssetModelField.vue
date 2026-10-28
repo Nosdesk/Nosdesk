@@ -70,15 +70,26 @@ const linkedDisplay = computed(() => {
   return [props.manufacturerSnapshot, props.modelSnapshot].filter(Boolean).join(' · ')
 })
 
+// Model text an import or a sync wrote without a catalog link.
+const uncatalogued = computed(() => !props.modelId && Boolean(props.modelSnapshot))
+const sameName = (a: string | null | undefined, b: string | null | undefined) =>
+  Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase())
+
 const CREATE = '__create__'
-const modelOptions = computed<DropdownOption[]>(() => [
-  { value: CREATE, label: t('asset-model-create-new') },
-  ...models.value.map((m) => ({
-    value: String(m.id),
-    label: m.name,
-    description: manufacturerName(m.manufacturer_id) || undefined,
-  })),
-])
+const modelOptions = computed<DropdownOption[]>(() => {
+  // A catalog model named like the asset's model text goes first.
+  const ordered = [...models.value].sort(
+    (a, b) => Number(sameName(b.name, props.modelSnapshot)) - Number(sameName(a.name, props.modelSnapshot)),
+  )
+  return [
+    { value: CREATE, label: t('asset-model-create-new') },
+    ...ordered.map((m) => ({
+      value: String(m.id),
+      label: m.name,
+      description: manufacturerName(m.manufacturer_id) || undefined,
+    })),
+  ]
+})
 
 async function stamp(modelId: number) {
   saving.value = true
@@ -128,9 +139,12 @@ const createError = ref<string | null>(null)
 const creating = ref(false)
 
 function openCreate() {
-  createMfr.value = ''
-  newMfrName.value = ''
-  createName.value = ''
+  // Start from the asset's own model text when it has some.
+  const mfr = props.manufacturerSnapshot?.trim() ?? ''
+  const known = mfr ? manufacturers.value.find((m) => sameName(m.name, mfr)) : undefined
+  createMfr.value = known ? String(known.id) : mfr ? NEW_MFR : ''
+  newMfrName.value = known ? '' : mfr
+  createName.value = props.modelSnapshot?.trim() ?? ''
   createKind.value = props.kind || 'generic'
   createError.value = null
   showCreate.value = true
@@ -216,6 +230,17 @@ async function submitCreate() {
       <button type="button" class="self-start text-xs text-tertiary hover:text-secondary" @click="picking = false">
         {{ $t('asset-detail-action-cancel') }}
       </button>
+    </div>
+
+    <!-- Model text without a catalog link -->
+    <div v-else-if="uncatalogued" class="flex items-center gap-2 flex-wrap">
+      <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-sm font-medium bg-surface-hover text-primary">
+        <Icon name="device" size="xs" />
+        {{ linkedDisplay }}
+      </span>
+      <Button v-if="editable" variant="ghost" size="sm" @click="picking = true">
+        {{ $t('asset-model-link') }}
+      </Button>
     </div>
 
     <!-- No model -->
