@@ -20,7 +20,6 @@ vi.mock('@nosdesk/core/sync/stores/documentation', () => ({
 const auth = vi.hoisted(() => ({ isAdmin: false, isTechnician: false }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('@/stores/documentationNav', () => ({ useDocumentationNavStore: () => ({ refreshPages: vi.fn() }) }))
-vi.mock('@/composables/useTitleManager', () => ({ useTitleManager: () => ({ setCustomTitle: vi.fn() }) }))
 vi.mock('@/components/CollaborativeEditor.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/components/documentationComponents/CollectionTreeList.vue', () => ({ default: { template: '<div />' } }))
 

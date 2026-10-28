@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { useTitleManager } from '@/composables/useTitleManager'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { restorePage } from '@nosdesk/core/services/documentationService'
 import { useDocPages } from '@/composables/useDocPages'
 import DocumentationIndexToolbar from '@/components/documentationComponents/DocumentationIndexToolbar.vue'
@@ -14,7 +14,6 @@ import { docUrl } from '@nosdesk/core/utils/docUrl'
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-const titleManager = useTitleManager()
 
 // Archived pages derive from the sync pool, so the list updates itself
 // when a page is archived or restored (its status change flows in as a
@@ -31,9 +30,7 @@ const handleRestore = async (pageId: string | number) => {
   await restorePage(pageId)
 }
 
-onMounted(() => {
-  titleManager.setCustomTitle(t('docs-archived-title'))
-})
+usePageTitle({ title: () => t('docs-archived-title') })
 </script>
 
 <template>

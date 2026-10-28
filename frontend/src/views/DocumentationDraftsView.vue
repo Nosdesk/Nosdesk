@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { useTitleManager } from '@/composables/useTitleManager'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { useDocPages } from '@/composables/useDocPages'
 import DocumentationIndexToolbar from '@/components/documentationComponents/DocumentationIndexToolbar.vue'
 import DocumentationCardGrid from '@/components/documentationComponents/DocumentationCardGrid.vue'
@@ -10,7 +10,6 @@ import PullToRefresh from '@/components/common/PullToRefresh.vue'
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-const titleManager = useTitleManager()
 
 // Drafts are the workspace's uncollected pages. Derived from the sync
 // pool, so bootstrap and live SSE / delta updates flow through without
@@ -21,9 +20,7 @@ const { drafts } = useDocPages()
 // band; defaults to the global re-sync.
 const scrollEl = ref<HTMLElement | null>(null)
 
-onMounted(() => {
-  titleManager.setCustomTitle(t('docs-drafts-title'))
-})
+usePageTitle({ title: () => t('docs-drafts-title') })
 </script>
 
 <template>

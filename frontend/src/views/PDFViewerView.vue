@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { performBack } from '@/router/navigation';
 import { useFluent } from 'fluent-vue';
 import PDFViewer from '@/components/ticketComponents/PDFViewer.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import { useTitleManager } from '@/composables/useTitleManager';
+import { usePageTitle } from '@/composables/usePageTitle';
 
 const route = useRoute();
 const router = useRouter();
-const titleManager = useTitleManager();
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
@@ -18,6 +17,9 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const pdfSrc = ref<string>('');
 const filename = ref<string>(t('pdf-viewer-default-filename'));
 const startPage = ref<number>(1);
+
+// The tab is named after the PDF (SiteHeader shows the icon).
+usePageTitle({ title: filename });
 const isLoading = ref<boolean>(true);
 const errorMessage = ref<string | null>(null);
 
@@ -43,9 +45,6 @@ onMounted(() => {
       startPage.value = Number(route.query.page);
     }
 
-    // Set document title (just filename, SiteHeader shows the icon)
-    titleManager.setCustomTitle(filename.value);
-
     isLoading.value = false;
   } catch (error) {
     console.error('Error loading PDF:', error);
@@ -53,11 +52,6 @@ onMounted(() => {
     isLoading.value = false;
   }
 });
-
-// The tab title is the PDF's only while it's open. The title manager keeps
-// its state when the next route is a ticket, asset or document page (the
-// usual way back from a PDF), so clear it here.
-onBeforeUnmount(() => titleManager.setCustomTitle(null));
 
 const handlePdfReady = () => {
 };
@@ -81,11 +75,6 @@ const shareDocument = async () => {
     console.error('Failed to copy link:', err);
   }
 };
-
-// Update title when filename changes
-watch(filename, (newFilename) => {
-  titleManager.setCustomTitle(newFilename);
-});
 </script>
 
 <template>

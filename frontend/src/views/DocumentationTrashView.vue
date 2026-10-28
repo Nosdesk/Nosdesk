@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { useTitleManager } from '@/composables/useTitleManager'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { restorePage, permanentlyDeletePage } from '@nosdesk/core/services/documentationService'
 import { useDocPages } from '@/composables/useDocPages'
 import DocumentationIndexToolbar from '@/components/documentationComponents/DocumentationIndexToolbar.vue'
@@ -13,7 +13,6 @@ import { formatDate } from '@nosdesk/core/utils/dateUtils'
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-const titleManager = useTitleManager()
 
 // Trashed pages (status = deleted) derive from the sync pool. Restore
 // flips the status and permanent-delete removes the row, both of which
@@ -38,9 +37,7 @@ const handlePermanentDelete = async (pageId: string | number) => {
   confirmingDeleteId.value = null
 }
 
-onMounted(() => {
-  titleManager.setCustomTitle(t('docs-trash-title'))
-})
+usePageTitle({ title: () => t('docs-trash-title') })
 </script>
 
 <template>

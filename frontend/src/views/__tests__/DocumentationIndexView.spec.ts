@@ -12,7 +12,6 @@ import { mountWithProviders } from '@/test/mountWithProviders'
 
 const createNewPage = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('@/composables/useDocumentation', () => ({ useDocumentation: () => ({ createNewPage }) }))
-vi.mock('@/composables/useTitleManager', () => ({ useTitleManager: () => ({ setCustomTitle: () => {} }) }))
 vi.mock('@/composables/usePageCreateAction', () => ({ usePageCreateAction: () => {} }))
 vi.mock('@/composables/useKnowledgeGaps', async () => {
   const { ref } = await import('vue')

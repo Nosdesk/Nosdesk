@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { useTitleManager } from '@/composables/useTitleManager'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useDocPages, toPage } from '@/composables/useDocPages'
 import { useSyncDocsStore, isActivePage } from '@nosdesk/core/sync/stores/documentation'
@@ -33,7 +33,6 @@ defineOptions({ name: 'DocumentationIndexView' })
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-const titleManager = useTitleManager()
 
 // Pull-to-refresh (Tauri app) binds to the scroll container below the
 // toolbar; defaults to the global re-sync.
@@ -146,9 +145,7 @@ function verificationMeta(page: Page): string {
   return formatRelativeTime(page.verified_at, { addSuffix: true })
 }
 
-onMounted(() => {
-  titleManager.setCustomTitle(t('docs-index-title'))
-})
+usePageTitle({ title: () => t('docs-index-title') })
 
 usePageCreateAction(handleCreatePage)
 </script>

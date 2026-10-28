@@ -46,6 +46,7 @@ import { makeWorkspaceRouter, routingModes, stubRoute } from '@/test/workspaceRo
 
 const routes = [
   stubRoute('/documentation', 'documentation'),
+  stubRoute('/documentation/drafts', 'documentation-drafts'),
   stubRoute('/documentation/collections/:slug', 'collection-view'),
   stubRoute('/documentation/:path', 'documentation-page'),
 ]
@@ -53,7 +54,7 @@ const routes = [
 const collection = (id: number, name: string): DocCollectionRow =>
   ({ id, uuid: `c${id}`, name, slug: name.toLowerCase(), display_order: id }) as DocCollectionRow
 
-const docPage = (id: number, title: string, collectionId: number): DocPageRow =>
+const docPage = (id: number, title: string, collectionId: number | null): DocPageRow =>
   ({
     id,
     uuid: `p${id}`,
@@ -129,5 +130,24 @@ describe.each(routingModes)('DocumentationNav ($mode routing)', ({ mode, prefix 
     await router.push(`${prefix}/documentation/1`)
     await flushPromises()
     expect(collectionExpanded('Handbook')).toBe(true)
+  })
+
+  it('links to Drafts, with a count, when a page is in no collection', async () => {
+    pool.allPages = [...pool.allPages, docPage(3, 'Loose', null), docPage(4, 'Gone', null)]
+    ;(pool.allPages[3] as DocPageRow).status = 'deleted'
+    const router = await mountAt(`${prefix}/documentation`)
+    const drafts = wrapper!.findAll('a').find((a) => a.text().includes('docs-nav-drafts'))!
+    expect(drafts.text()).toContain('1')
+    expect(drafts.classes()).not.toContain('font-medium')
+
+    await drafts.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe(`${prefix}/documentation/drafts`)
+    expect(drafts.classes()).toContain('font-medium')
+  })
+
+  it('leaves Drafts out when every page is in a collection', async () => {
+    await mountAt(`${prefix}/documentation`)
+    expect(wrapper!.text()).not.toContain('docs-nav-drafts')
   })
 })

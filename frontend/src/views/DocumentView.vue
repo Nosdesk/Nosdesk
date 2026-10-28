@@ -6,7 +6,7 @@ import { shareableRouteUrl } from '@/utils/shareUrl'
 import { useFluent } from 'fluent-vue'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { docUrl, slugify } from '@nosdesk/core/utils/docUrl'
-import { useTitleManager } from '@/composables/useTitleManager'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useSyncDocsStore, type DocPageRow } from '@nosdesk/core/sync/stores/documentation'
 import { useClipboard } from '@/composables/useClipboard'
@@ -43,7 +43,6 @@ const route = useRoute()
 const router = useRouter()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
-const titleManager = useTitleManager()
 
 // Pull-to-refresh (Tauri app) binds to the outer scroll container. The
 // ProseMirror editor is contenteditable, so the composable's ignore
@@ -155,11 +154,6 @@ const handleCopyLinkFromMenu = () => {
 
 const canEditPage = computed(() => authStore.isTechnician || authStore.isAdmin)
 
-// Emits
-const emit = defineEmits<{
-  (e: 'update:title', title: string): void
-  (e: 'update:document', document: { id: string; title: string; icon: string; slug?: string } | null): void
-}>()
 
 // Document object for header
 const documentObj = computed(() => {
@@ -267,8 +261,6 @@ const updateTitle = (newTitle: string) => {
   editTitle.value = newTitle
 
   if (document.value) {
-    emit('update:title', newTitle)
-    titleManager.setCustomTitle(newTitle)
 
     const slug = slugify(newTitle)
     document.value.title = newTitle
@@ -501,7 +493,6 @@ const fetchContent = async () => {
         editTitle.value = document.value.title
         savedTitle.value = document.value.title
         documentIcon.value = document.value.icon || 'mdi-folder-outline'
-        emit('update:title', document.value.title)
       } else if ('id' in result) {
         const articleData = await documentationService.getArticleById(String(result.id))
 
@@ -511,7 +502,6 @@ const fetchContent = async () => {
           editTitle.value = document.value.title
           savedTitle.value = document.value.title
           documentIcon.value = document.value.icon || 'mdi-text-box-outline'
-          emit('update:title', document.value.title)
         } else {
           router.push('/documentation')
           return
@@ -607,8 +597,6 @@ watch(
     }
     if (editTitle.value !== meta.title) {
       editTitle.value = meta.title
-      titleManager.setCustomTitle(meta.title)
-      emit('update:title', meta.title)
       if (titleElementRef.value && titleElementRef.value.textContent !== meta.title) {
         titleElementRef.value.textContent = meta.title
       }
@@ -634,28 +622,9 @@ watch(() => route.query.print, consumePrintQuery)
 onMounted(() => {
   fetchContent()
   consumePrintQuery()
-
-  // Register save handlers for SiteHeader title/icon edits
-  titleManager.onDocumentTitleSave(async (title: string) => {
-    if (!currentPageId.value || title === savedTitle.value) return
-    const newSlug = slugify(title)
-    await documentationService.updatePage(currentPageId.value, { title, slug: newSlug })
-    savedTitle.value = title
-    documentationNavStore.updatePageField(currentPageId.value, 'title', title)
-    documentationNavStore.updatePageField(currentPageId.value, 'slug', newSlug)
-    if (document.value) document.value.slug = newSlug
-  })
-
-  titleManager.onDocumentIconSave(async (icon: string) => {
-    if (!currentPageId.value) return
-    await documentationService.updatePage(currentPageId.value, { icon })
-    documentationNavStore.updatePageField(currentPageId.value, 'icon', icon)
-  })
 })
 
 onUnmounted(() => {
-  titleManager.onDocumentTitleSave(null)
-  titleManager.onDocumentIconSave(null)
   if (titleUpdateTimeout) {
     clearTimeout(titleUpdateTimeout)
   }
@@ -666,12 +635,31 @@ watch(() => route.params.path, () => {
   fetchContent()
 })
 
-// Emit document object when it changes
-watch(documentObj, (newDocument) => {
-  if (newDocument) {
-    emit('update:document', newDocument)
-  }
-}, { immediate: true })
+// The page owns the header and tab while this view is mounted; a rename or
+// icon picked in the header saves here.
+usePageTitle({
+  document: documentObj,
+  onTitleSave: async (title: string) => {
+    if (!currentPageId.value || title === savedTitle.value) return
+    const newSlug = slugify(title)
+    await documentationService.updatePage(currentPageId.value, { title, slug: newSlug })
+    savedTitle.value = title
+    editTitle.value = title
+    documentationNavStore.updatePageField(currentPageId.value, 'title', title)
+    documentationNavStore.updatePageField(currentPageId.value, 'slug', newSlug)
+    if (document.value) {
+      document.value.title = title
+      document.value.slug = newSlug
+    }
+  },
+  onIconSave: async (icon: string) => {
+    if (!currentPageId.value) return
+    await documentationService.updatePage(currentPageId.value, { icon })
+    documentationNavStore.updatePageField(currentPageId.value, 'icon', icon)
+    if (document.value) document.value.icon = icon
+    documentIcon.value = icon
+  },
+})
 </script>
 
 <template>
