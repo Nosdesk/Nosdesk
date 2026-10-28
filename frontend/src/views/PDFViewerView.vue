@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { performBack } from '@/router/navigation';
 import { useFluent } from 'fluent-vue';
 import PDFViewer from '@/components/ticketComponents/PDFViewer.vue';
+import BackButton from '@/components/common/BackButton.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import { usePageTitle } from '@/composables/usePageTitle';
@@ -28,16 +29,17 @@ onMounted(() => {
   try {
     isLoading.value = true;
 
-    // Get source from query parameters
+    // The router has already decoded query values; decoding again throws on
+    // a literal "%" (as in "50% off.pdf").
     if (route.query.src) {
-      pdfSrc.value = decodeURIComponent(route.query.src as string);
+      pdfSrc.value = route.query.src as string;
     } else {
       throw new Error(t('pdf-viewer-error-no-source'));
     }
 
     // Get filename
     if (route.query.filename) {
-      filename.value = decodeURIComponent(route.query.filename as string);
+      filename.value = route.query.filename as string;
     }
 
     // Get starting page if provided

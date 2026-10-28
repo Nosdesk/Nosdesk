@@ -60,6 +60,12 @@ export default defineConfigWithVueTs(
       // `type="button"` and only a form's real submit says `submit`.
       'vue/html-button-has-type': 'error',
 
+      // A component used in a template must be imported. An unresolved one
+      // renders as an unknown element with no warning in a production build
+      // (the PDF viewer lost its back button that way). The router's
+      // components are registered globally.
+      'vue/no-undef-components': ['error', { ignorePatterns: ['^Router(Link|View)$'] }],
+
       // Auto-strip unused imports. Pairs with no-unused-vars below
       // (which keeps reporting unused locals/args/caught errors).
       'unused-imports/no-unused-imports': 'error',
