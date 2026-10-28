@@ -5876,6 +5876,7 @@ docs-row-skeleton-label = Pagina's laden
 
 # Docs: navigatie (DocumentationNav)
 docs-nav-starred = Met ster
+docs-nav-drafts = Concepten
 docs-nav-empty = Nog geen documenten
 docs-nav-sort-manual = Handmatig
 docs-nav-sort-alpha = Alfabetisch

@@ -702,6 +702,9 @@ async function createChildOfPage(parentPage: NavPage) {
 // Collections data — populated from the sync pool (see the watchEffect
 // in "Collection loading" below), not a REST load.
 const docs = useSyncDocsStore()
+// Pages in no collection. They have no place in the collection tree, so
+// the nav links to the Drafts list instead.
+const draftCount = computed(() => docs.allPages.filter((p) => p.collection_id == null && isActivePage(p)).length)
 const collections = ref<CollectionWithDetails[]>([])
 
 function visiblePagesIn(collectionId: number): Page[] {
@@ -1400,10 +1403,29 @@ defineExpose({ reloadSidebar });
         </div>
       </div>
 
+      <RouterLink
+        v-if="draftCount > 0"
+        to="/documentation/drafts"
+        class="group flex items-center py-1 pr-2 rounded-md text-xs cursor-pointer transition-all duration-150"
+        :class="[
+          docPath === '/documentation/drafts'
+            ? 'bg-surface text-primary font-medium'
+            : 'text-secondary hover:text-primary hover:bg-surface-hover'
+        ]"
+      >
+        <span class="flex-shrink-0" style="width: 8px"></span>
+        <span class="flex-shrink-0 w-5"></span>
+        <span class="flex-shrink-0 ml-0.5 inline-flex text-tertiary">
+          <Icon name="documentEdit" />
+        </span>
+        <span class="flex-1 truncate min-w-0 ml-1 font-medium">{{ $t('docs-nav-drafts') }}</span>
+        <span class="flex-shrink-0 text-3xs text-tertiary ml-1">{{ draftCount }}</span>
+      </RouterLink>
+
       <!-- Empty State — only once the bootstrap has settled, so a
            cold load doesn't flash "no documentation" before the pool
            populates. -->
-      <div v-if="docsReady && collections.length === 0" class="px-4 py-8 text-center">
+      <div v-if="docsReady && collections.length === 0 && draftCount === 0" class="px-4 py-8 text-center">
         <div class="text-tertiary text-sm">{{ $t('docs-nav-empty') }}</div>
       </div>
     </div>

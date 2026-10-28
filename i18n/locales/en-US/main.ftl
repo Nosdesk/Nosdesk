@@ -5340,6 +5340,7 @@ docs-row-skeleton-label = Loading pages
 
 # Docs: nav (DocumentationNav)
 docs-nav-starred = Starred
+docs-nav-drafts = Drafts
 docs-nav-empty = No documents yet
 docs-nav-sort-manual = Manual
 docs-nav-sort-alpha = Alphabetical
