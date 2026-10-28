@@ -46,10 +46,9 @@ impl ReplyBody {
                 html: plaintext_to_html(&comment.content),
             },
             ContentFormat::Markdown => {
-                // Markdown isn't produced by any path we ship today.
-                // Treat its bytes as plaintext until a real consumer
-                // (Slack inbound, scripted CLI sender) lands and it's
-                // worth pulling in a Markdown renderer.
+                // The comment API converts Markdown to HTML on the way in,
+                // so only a row stored before that reaches here; its bytes
+                // go out as plain text.
                 Self {
                     text: comment.content.clone(),
                     html: plaintext_to_html(&comment.content),

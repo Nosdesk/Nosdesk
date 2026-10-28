@@ -322,25 +322,68 @@ pub async fn add_comment_to_ticket(
         .ok()
         .flatten();
 
+    // What to store, and how the thread renders it. The composer sends
+    // HTML. A script or integration may send Markdown, stored as the same
+    // HTML the composer writes (with `#n` as a ticket link for staff, who
+    // can open it), or plain text, which keeps its line breaks.
+    use crate::models::ContentFormat;
+    let (content, content_format, render_kind) = match comment_data.content_format {
+        ContentFormat::Html => (comment_data.content.clone(), ContentFormat::Html, "simple"),
+        ContentFormat::Plaintext => (
+            comment_data.content.clone(),
+            ContentFormat::Plaintext,
+            "text",
+        ),
+        ContentFormat::Markdown => {
+            let numbers = if access.auth.can_handle_tickets() {
+                crate::services::comment_markdown::ticket_numbers(&comment_data.content)
+            } else {
+                Vec::new()
+            };
+            let ticket_ids = if numbers.is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                match tc.run(|conn| {
+                    crate::repository::tickets::ids_for_numbers_in_pinned_workspace(conn, &numbers)
+                }) {
+                    Ok(ids) => ids,
+                    Err(e) => {
+                        error!(ticket_id, error = ?e, "Could not resolve ticket numbers in a Markdown comment");
+                        return json_error(
+                            &request_locale(&req),
+                            "backend-error-comment-create-failed",
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                        );
+                    }
+                }
+            };
+            (
+                crate::services::comment_markdown::to_comment_html(
+                    &comment_data.content,
+                    &ticket_ids,
+                ),
+                ContentFormat::Html,
+                "simple",
+            )
+        }
+    };
+
     // Create the new comment using the authenticated user's UUID
     let new_comment = crate::models::NewComment {
-        content: comment_data.content.clone(),
+        content,
         user_uuid: user_uuid_parsed, // Use the user_uuid from JWT token
         ticket_id,
-        // Editor-driven flow today produces HTML. Older clients that
-        // don't send the field rely on the `Default` impl on
-        // `ContentFormat`, which is also HTML, so the wire shape is
+        // Older clients that don't send the field rely on the `Default`
+        // impl on `ContentFormat`, which is HTML, so the wire shape is
         // backward-compatible.
-        content_format: comment_data.content_format,
-        // A UI-authored comment is the editor's own semantic-inline
-        // HTML: it renders inline (like an agent's reply), never in the
-        // sandboxed email iframe reserved for rich inbound mail. Stamp
-        // the tier explicitly here so the renderer never has to guess
-        // it from `content_format` (which would wrongly pick the
-        // legacy-html iframe path). The repository's create choke
-        // point also stamps this for any html caller that forgets;
-        // the inbound email pipeline sets its own classified tier.
-        render_kind: Some("simple".to_string()),
+        content_format,
+        // Stamp the tier explicitly so the renderer never has to guess it
+        // from `content_format` (which would wrongly pick the legacy-html
+        // iframe path for HTML). HTML renders inline like an agent's reply,
+        // never in the sandboxed iframe reserved for rich inbound mail;
+        // plain text renders as text. The inbound email pipeline sets its
+        // own classified tier.
+        render_kind: Some(render_kind.to_string()),
         // Honor the composer's internal-note toggle. Was dropped before
         // (defaulted to false), which saved every note as public.
         is_internal: comment_data.is_internal,

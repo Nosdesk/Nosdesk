@@ -6,6 +6,7 @@ pub mod backup;
 pub mod backup_upgrade;
 pub mod channels;
 pub mod collab_ownership;
+pub mod comment_markdown;
 pub mod connection_registry;
 pub mod custom_fields;
 pub mod dkim_verification;
