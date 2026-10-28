@@ -180,15 +180,10 @@ watch(() => pdf.scale.value, handleScaleChange)
 
 // Open fullscreen view
 const openFullscreen = () => {
-  const queryParams = {
-    src: encodeURIComponent(props.src),
-    filename: encodeURIComponent(props.filename),
-    page: currentPage.value,
-  }
-  const queryString = Object.entries(queryParams)
-    .map(([key, value]) => `${key}=${value}`)
-    .join('&')
-  router.push(`/pdf-viewer?${queryString}`)
+  router.push({
+    path: '/pdf-viewer',
+    query: { src: props.src, filename: props.filename, page: String(currentPage.value) },
+  })
 }
 
 // Fit PDF to container width

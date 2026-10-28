@@ -164,14 +164,7 @@ const deleteLabel = computed(() => {
 const openImagePreview = async (src: string) => {
   // For PDF files, navigate to full page PDF viewer
   if (isPdfFile(props.attachment.name)) {
-    const queryParams = {
-      src: encodeURIComponent(src),
-      filename: encodeURIComponent(props.attachment.name),
-    };
-    const queryString = Object.entries(queryParams)
-      .map(([key, value]) => `${key}=${value}`)
-      .join('&');
-    router.push(`/pdf-viewer?${queryString}`);
+    router.push({ path: '/pdf-viewer', query: { src, filename: props.attachment.name } });
     emit('preview', src);
     return;
   }
@@ -347,7 +340,9 @@ const generatePdfThumbnail = async () => {
     const pdfjsLib = await import('pdfjs-dist');
     pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
 
-    const response = await fetch(authenticatedUrl.value, { credentials: 'include' });
+    // Default credentials, as in usePdfViewer: the mobile asset proxy refuses
+    // a credentialed request.
+    const response = await fetch(authenticatedUrl.value);
     if (!response.ok) {
       throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
     }

@@ -68,8 +68,11 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
 
       const pdfjsLib = await initPdfJs()
 
-      // Fetch with authentication
-      const response = await fetch(src, { credentials: 'include' })
+      // Default credentials: the web app's session cookie still goes with a
+      // same-origin request, and the mobile app's asset proxy (which answers
+      // with a wildcard CORS origin) accepts the request, which it refuses
+      // when credentials are included.
+      const response = await fetch(src)
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }

@@ -85,4 +85,15 @@ describe('AttachmentPreview (compact)', () => {
     await new Promise((r) => setTimeout(r))
     expect(pdf.router.currentRoute.value.path).toBe('/pdf-viewer')
   })
+
+  // The router encodes the query once and decodes it once, so the viewer
+  // reads plain values, a "%" in the name included.
+  it('opens a PDF with its source and name as plain query values', async () => {
+    const pdf = tile('50% off.pdf')
+    await pdf.find('div').trigger('click')
+    await new Promise((r) => setTimeout(r))
+    const { query } = pdf.router.currentRoute.value
+    expect(query.filename).toBe('50% off.pdf')
+    expect(String(query.src)).toMatch(/^\/api\/files\/tickets\/7\//)
+  })
 })
