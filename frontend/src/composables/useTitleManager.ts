@@ -1,4 +1,4 @@
-import { ref, computed, watch, type ComputedRef } from 'vue';
+import { computed, ref, shallowRef, toValue, watch, type ComputedRef } from 'vue';
 import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
@@ -6,61 +6,53 @@ import { useBrandingStore } from '@/stores/branding';
 import { previewTicketField } from '@nosdesk/core/services/ticketService';
 import { ticketNumber } from '@/utils/ticketNumbers';
 
-export interface TitleableDocument {
-  id: string;
-  title: string;
-  icon: string;
-  slug?: string;
-}
+import {
+  activeClaim,
+  type ClaimRecord,
+  type TitleableDevice,
+  type TitleableDocument,
+  type TitleableTicket,
+} from './usePageTitle';
 
-export interface TitleableTicket {
-  id: number;
-  number?: number;
-  title: string;
-  [key: string]: any; // Allow other properties from the reactive ticket object
-}
+export type { TitleableDevice, TitleableDocument, TitleableTicket } from './usePageTitle';
 
-export interface TitleableDevice {
-  id: number;
-  name: string;
-  attributes?: Record<string, unknown>;
-  [key: string]: any; // Allow other properties from the reactive device object
-}
-
-// Save handler types - view components register these to handle persistence
-type TicketTitleSaveHandler = (title: string) => Promise<void>;
-type DocumentTitleSaveHandler = (title: string) => Promise<void>;
-type DocumentIconSaveHandler = (icon: string) => Promise<void>;
-
-// Singleton state - shared across all useTitleManager() calls
-const currentTicket = ref<TitleableTicket | null>(null);
-const currentDevice = ref<TitleableDevice | null>(null);
-const currentDocument = ref<TitleableDocument | null>(null);
-const documentationTitle = ref<string | null>(null);
-const customTitle = ref<string | null>(null);
+// The header and tab read whatever claim usePageTitle resolves to. Views
+// write through usePageTitle only; this module never holds a title of its
+// own, apart from a rename in progress in the site header.
+const currentTicket = computed<TitleableTicket | null>(
+  () => toValue(activeClaim.value?.claim.ticket) ?? null,
+);
+const currentDevice = computed<TitleableDevice | null>(
+  () => toValue(activeClaim.value?.claim.device) ?? null,
+);
+const currentDocument = computed<TitleableDocument | null>(
+  () => toValue(activeClaim.value?.claim.document) ?? null,
+);
+const customTitle = computed(() => toValue(activeClaim.value?.claim.title) ?? null);
 const isTransitioning = ref(false);
 
-// Save handler refs - view components register callbacks for persistence
-const ticketTitleSaveHandler = ref<TicketTitleSaveHandler | null>(null);
-const documentTitleSaveHandler = ref<DocumentTitleSaveHandler | null>(null);
-const documentIconSaveHandler = ref<DocumentIconSaveHandler | null>(null);
-// Editable custom title (e.g. a project name): when a save handler is
-// registered, the site header renders the custom title inline-editable,
-// the same way ticket titles are edited there.
-const customTitleSaveHandler = ref<TicketTitleSaveHandler | null>(null);
-// Editable device (asset) title: registered by the asset detail view so
-// the header renders the asset name inline-editable, like a ticket title.
-const deviceTitleSaveHandler = ref<TicketTitleSaveHandler | null>(null);
+// A rename typed into the header, shown until the owning view's own state
+// catches up (or the claim changes hands).
+const titleDraft = shallowRef<{ claim: ClaimRecord; value: string } | null>(null);
+const draftFor = (record: ClaimRecord | null) =>
+  record && titleDraft.value?.claim === record ? titleDraft.value.value : null;
 
-// Module-level computeds (no route/component dependency)
+const titleEditable = (record: ClaimRecord | null) =>
+  Boolean(record?.claim.onTitleSave) && (toValue(record?.claim.titleEditable) ?? true);
+
 const isTicketView = computed(() => currentTicket.value !== null);
 const isDeviceView = computed(() => currentDevice.value !== null);
 const isDocumentView = computed(() => currentDocument.value !== null);
 const isCustomTitleEditable = computed(
-  () => customTitle.value !== null && customTitleSaveHandler.value !== null,
+  () =>
+    customTitle.value !== null &&
+    !isTicketView.value &&
+    !isDeviceView.value &&
+    !isDocumentView.value &&
+    titleEditable(activeClaim.value),
 );
 const isDeviceTitleEditable = computed(
-  () => currentDevice.value !== null && deviceTitleSaveHandler.value !== null,
+  () => currentDevice.value !== null && titleEditable(activeClaim.value),
 );
 
 // Module-level watcher for recent tickets store (no route dependency)
@@ -88,88 +80,61 @@ export function useTitleManager() {
 
   // Create route-dependent computed + watchers only on first call
   if (!pageTitle) {
-    pageTitle = computed(() => {
-      if (customTitle.value) {
-        return customTitle.value;
-      }
-      if (isDocumentView.value && documentationTitle.value) {
-        return documentationTitle.value;
-      }
-      if (isTicketView.value && currentTicket.value) {
+    // The subject's own title, or null when the route's title applies.
+    const claimedTitle = computed<string | null>(() => {
+      const draft = draftFor(activeClaim.value);
+      if (draft !== null) return draft;
+      if (currentDocument.value) return currentDocument.value.title || customTitle.value;
+      if (customTitle.value) return customTitle.value;
+      if (currentTicket.value) {
         return `#${ticketNumber(currentTicket.value)} ${currentTicket.value.title}`;
       }
-      if (isDeviceView.value && currentDevice.value) {
+      if (currentDevice.value) {
         const dev = currentDevice.value;
         const label = dev.name || (dev.attributes?.hostname as string | undefined) || '';
         return `#${dev.id} ${label}`.trim();
       }
-      // Prefer `titleKey` (translatable). Routes that set a literal
-      // `title` (e.g. a document title containing user content) still
-      // fall through. Final fallback is the app name.
+      return null;
+    });
+
+    const routeTitle = computed<string | null>(() => {
+      // Prefer `titleKey` (translatable); routes that set a literal `title`
+      // still fall through.
       const titleKey = route.meta?.titleKey as string | undefined;
       const titleKeyArgs = route.meta?.titleKeyArgs as
         | Record<string, string | number>
         | undefined;
-      if (titleKey) {
-        return t(titleKey, titleKeyArgs);
-      }
-      return (route.meta?.title as string) || getAppName();
+      if (titleKey) return t(titleKey, titleKeyArgs);
+      return (route.meta?.title as string | undefined) || null;
     });
 
-    // Single watcher for document.title updates
-    watch(pageTitle, (title) => {
-      document.title = `${title} | ${getAppName()}`;
-    }, { immediate: true });
+    pageTitle = computed(() => claimedTitle.value ?? routeTitle.value ?? getAppName());
 
-    // Watch for route changes to clear stale state
-    const titleManagedRoutes = ['ticket-view', 'asset-view', 'documentation-article'];
+    // The only writer of document.title in the app.
     watch(
-      () => route.name,
-      (newRouteName) => {
-        if (!titleManagedRoutes.includes(newRouteName as string)) {
-          currentTicket.value = null;
-          currentDevice.value = null;
-          currentDocument.value = null;
-          documentationTitle.value = null;
-          customTitle.value = null;
-          customTitleSaveHandler.value = null;
-          deviceTitleSaveHandler.value = null;
-        }
-      }
+      () => brandingStore.getPageTitle(claimedTitle.value ?? routeTitle.value ?? undefined),
+      (title) => {
+        document.title = title;
+      },
+      { immediate: true },
     );
   }
 
-  // Methods
-  const setCustomTitle = (title: string | null) => {
-    customTitle.value = title;
-  };
-
-  // Register a save handler to make the custom title inline-editable in
-  // the site header (e.g. renaming a project). Pass null to clear.
-  const onCustomTitleSave = (handler: TicketTitleSaveHandler | null) => {
-    customTitleSaveHandler.value = handler;
-  };
-
-  const updateCustomTitle = async (newTitle: string) => {
-    customTitle.value = newTitle;
-    await customTitleSaveHandler.value?.(newTitle);
-  };
-
-  const setTicket = (ticketData: TitleableTicket | null) => {
-    currentTicket.value = ticketData;
-  };
-
-  const setDevice = (deviceData: TitleableDevice | null) => {
-    currentDevice.value = deviceData;
-  };
-
-  const setDocument = (documentData: TitleableDocument | null) => {
-    currentDocument.value = documentData;
-    if (documentData) {
-      documentationTitle.value = documentData.title;
-      setCustomTitle(documentData.title);
+  // Header edits. Each persists through the active claim's handler, which
+  // belongs to the view that owns the subject; the draft covers the moment
+  // between the keystroke and that view's state catching up.
+  const commitTitle = async (newTitle: string) => {
+    const record = activeClaim.value;
+    if (!record?.claim.onTitleSave) return;
+    titleDraft.value = { claim: record, value: newTitle };
+    try {
+      await record.claim.onTitleSave(newTitle);
+    } finally {
+      if (titleDraft.value?.claim === record) titleDraft.value = null;
     }
   };
+
+  const updateCustomTitle = commitTitle;
 
   const previewTicketTitle = (newTitle: string) => {
     if (!currentTicket.value) return;
@@ -184,65 +149,40 @@ export function useTitleManager() {
   };
 
   const previewDocumentTitle = (newTitle: string) => {
-    if (currentDocument.value) {
-      currentDocument.value.title = newTitle;
-      documentationTitle.value = newTitle;
-    }
+    const record = activeClaim.value;
+    if (record && currentDocument.value) titleDraft.value = { claim: record, value: newTitle };
   };
 
+  // Persist only. The registered save handler (ticketDetail.updateTitle ->
+  // patchTicket) is the SOLE writer of the canonical pool row, applying the
+  // optimistic update + rollback. currentTicket IS that pool row, so
+  // pre-setting its title here would defeat the handler's `r.title === title`
+  // no-op guard (skipping the PATCH) and corrupt the rollback baseline.
   const updateTicketTitle = async (newTitle: string) => {
     if (!currentTicket.value) return;
-    // Persist only. The registered save handler (ticketDetail.updateTitle ->
-    // patchTicket) is the SOLE writer of the canonical pool row, applying the
-    // optimistic update + rollback. currentTicket IS that pool row, so
-    // pre-setting its title here would defeat the handler's `r.title === title`
-    // no-op guard (skipping the PATCH) and corrupt the rollback baseline.
-    await ticketTitleSaveHandler.value?.(newTitle);
+    await activeClaim.value?.claim.onTitleSave?.(newTitle);
   };
 
-  // Persist only, mirroring updateTicketTitle: the registered handler
-  // (asset view -> updateAsset) is the sole writer. previewDeviceTitle is
-  // a no-op (no live collaborators on an asset name); the header shows
-  // the in-progress draft from HeaderTitle's own local state.
+  // Persist only, mirroring updateTicketTitle: the asset view's handler
+  // (updateAsset) is the sole writer. The header shows the in-progress
+  // draft from HeaderTitle's own local state.
   const updateDeviceTitle = async (newTitle: string) => {
     if (!currentDevice.value) return;
-    await deviceTitleSaveHandler.value?.(newTitle);
+    await activeClaim.value?.claim.onTitleSave?.(newTitle);
   };
 
   const previewDeviceTitle = (_newTitle: string) => {
     // No-op: assets have no title-preview broadcast.
   };
 
-  const onDeviceTitleSave = (handler: TicketTitleSaveHandler | null) => {
-    deviceTitleSaveHandler.value = handler;
-  };
-
   const updateDocumentTitle = async (newTitle: string) => {
-    if (currentDocument.value) {
-      currentDocument.value.title = newTitle;
-      documentationTitle.value = newTitle;
-      setCustomTitle(newTitle);
-      await documentTitleSaveHandler.value?.(newTitle);
-    }
+    if (!currentDocument.value) return;
+    await commitTitle(newTitle);
   };
 
   const updateDocumentIcon = async (newIcon: string) => {
-    if (currentDocument.value) {
-      currentDocument.value.icon = newIcon;
-      await documentIconSaveHandler.value?.(newIcon);
-    }
-  };
-
-  const onTicketTitleSave = (handler: TicketTitleSaveHandler | null) => {
-    ticketTitleSaveHandler.value = handler;
-  };
-
-  const onDocumentTitleSave = (handler: DocumentTitleSaveHandler | null) => {
-    documentTitleSaveHandler.value = handler;
-  };
-
-  const onDocumentIconSave = (handler: DocumentIconSaveHandler | null) => {
-    documentIconSaveHandler.value = handler;
+    if (!currentDocument.value) return;
+    await activeClaim.value?.claim.onIconSave?.(newIcon);
   };
 
   const startTransition = () => {
@@ -253,27 +193,11 @@ export function useTitleManager() {
     isTransitioning.value = false;
   };
 
-  const clearTicket = () => {
-    currentTicket.value = null;
-  };
-
-  const clearDevice = () => {
-    currentDevice.value = null;
-  };
-
-  const clearDocument = () => {
-    currentDocument.value = null;
-    documentationTitle.value = null;
-    customTitle.value = null;
-    customTitleSaveHandler.value = null;
-  };
-
   return {
     // State
     currentTicket,
     currentDevice,
     currentDocument,
-    documentationTitle,
     isTransitioning,
 
     // Computed
@@ -284,28 +208,16 @@ export function useTitleManager() {
     isCustomTitleEditable,
     isDeviceTitleEditable,
 
-    // Methods
-    setCustomTitle,
-    onCustomTitleSave,
+    // Header edits
     updateCustomTitle,
-    setTicket,
-    setDevice,
-    setDocument,
     previewTicketTitle,
     previewDocumentTitle,
     updateTicketTitle,
     updateDeviceTitle,
     previewDeviceTitle,
-    onDeviceTitleSave,
     updateDocumentTitle,
     updateDocumentIcon,
-    onTicketTitleSave,
-    onDocumentTitleSave,
-    onDocumentIconSave,
     startTransition,
     endTransition,
-    clearTicket,
-    clearDevice,
-    clearDocument
   };
 }

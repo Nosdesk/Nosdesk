@@ -3010,6 +3010,7 @@ asset-model-label = Model
 asset-model-change = Wijzigen
 asset-model-clear = Model verwijderen
 asset-model-choose = Kies een model
+asset-model-link = Koppelen aan catalogus
 asset-model-none = Geen model
 asset-model-search-placeholder = Modellen zoeken...
 asset-model-create-new = + Nieuw model
@@ -5876,6 +5877,7 @@ docs-row-skeleton-label = Pagina's laden
 
 # Docs: navigatie (DocumentationNav)
 docs-nav-starred = Met ster
+docs-nav-drafts = Concepten
 docs-nav-empty = Nog geen documenten
 docs-nav-sort-manual = Handmatig
 docs-nav-sort-alpha = Alfabetisch

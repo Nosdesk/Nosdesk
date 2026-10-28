@@ -3051,6 +3051,7 @@ asset-model-label = Model
 asset-model-change = Change
 asset-model-clear = Remove model
 asset-model-choose = Choose a model
+asset-model-link = Link to catalog
 asset-model-none = No model
 asset-model-search-placeholder = Search models...
 asset-model-create-new = + New model
@@ -5340,6 +5341,7 @@ docs-row-skeleton-label = Loading pages
 
 # Docs: nav (DocumentationNav)
 docs-nav-starred = Starred
+docs-nav-drafts = Drafts
 docs-nav-empty = No documents yet
 docs-nav-sort-manual = Manual
 docs-nav-sort-alpha = Alphabetical

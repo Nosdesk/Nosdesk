@@ -20,7 +20,7 @@ import { commentSchema as schema } from '@/components/editor/schema';
 import { tablesToTextHtml } from '@/components/editor/tableText';
 import Spinner from '@/components/common/Spinner.vue';
 import { keymap } from 'prosemirror-keymap';
-import { baseKeymap } from 'prosemirror-commands';
+import { baseKeymap, toggleMark } from 'prosemirror-commands';
 import { history, undo, redo } from 'prosemirror-history';
 import { twemojiPlugin } from '@/plugins/prosemirror-twemoji';
 import { createPlaceholderPlugin } from '@/plugins/prosemirror-placeholder';
@@ -39,6 +39,8 @@ import {
   createTicketNumberInputRule,
 } from '@/components/editor/ticketLinkPlugin';
 import { createTicketDropIndicatorPlugin } from '@/components/editor/ticketDropIndicatorPlugin';
+import { markInputRules } from '@/components/editor/markInputRules';
+import { createPasteLinkPlugin } from '@/components/editor/linkTooltipPlugin';
 import {
   inputRules,
   wrappingInputRule,
@@ -46,6 +48,7 @@ import {
   smartQuotes,
   emDash,
   ellipsis,
+  undoInputRule,
 } from 'prosemirror-inputrules';
 import { DOMSerializer, DOMParser } from 'prosemirror-model';
 import { parseInertHtml } from '@nosdesk/core/utils/inertHtml';
@@ -65,7 +68,7 @@ const props = withDefaults(defineProps<{
   minHeight?: string;
   maxHeight?: string;
 }>(), {
-  placeholder: 'Type your message... (supports @mentions, #tickets and **markdown**)',
+  placeholder: '',
   disabled: false,
   minHeight: '80px',
   maxHeight: '300px',
@@ -278,6 +281,8 @@ function buildInputRules() {
     })),
     // #123 followed by a space, when the pool knows the ticket
     createTicketNumberInputRule(schema),
+    // **bold**, *italic*, `code`, [text](url)
+    ...markInputRules(schema),
   ];
   return inputRules({ rules });
 }
@@ -314,6 +319,11 @@ onMounted(() => {
         'Mod-z': undo,
         'Mod-y': redo,
         'Mod-Shift-z': redo,
+        'Mod-b': toggleMark(schema.marks.strong),
+        'Mod-i': toggleMark(schema.marks.em),
+        'Mod-e': toggleMark(schema.marks.code),
+        // Straight after Markdown became formatting, Backspace puts it back.
+        Backspace: undoInputRule,
         'Mod-Enter': () => {
           emit('submit');
           return true;
@@ -328,6 +338,8 @@ onMounted(() => {
       keymap(baseKeymap),
       history(),
       createMentionViewPlugin(),
+      // A web address pasted over selected text links it.
+      createPasteLinkPlugin(),
       createTicketLinkPlugin(),
       createTicketDropIndicatorPlugin(),
       createPlaceholderPlugin(() => props.placeholder),
@@ -364,7 +376,7 @@ onMounted(() => {
       return true;
     },
     attributes: {
-      class: 'simple-editor-content',
+      class: 'simple-editor-content comment-prose',
       'data-placeholder': props.placeholder,
     },
   });
@@ -591,65 +603,7 @@ defineExpose({ focus, clear });
 }
 
 
-/* Basic prose styles */
-.simple-editor :deep(p) {
-  margin: 0 0 0.5rem 0;
-}
-
-.simple-editor :deep(p:last-child) {
-  margin-bottom: 0;
-}
-
-.simple-editor :deep(strong) {
-  font-weight: 600;
-}
-
-.simple-editor :deep(em) {
-  font-style: italic;
-}
-
-.simple-editor :deep(code) {
-  background-color: var(--color-surface-alt);
-  padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
-  font-size: 0.75rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-.simple-editor :deep(pre) {
-  background-color: var(--color-surface-alt);
-  padding: 0.75rem;
-  border-radius: 0.5rem;
-  overflow-x: auto;
-  margin: 0.5rem 0;
-}
-
-.simple-editor :deep(pre code) {
-  background-color: transparent;
-  padding: 0;
-}
-
-.simple-editor :deep(blockquote) {
-  border-left: 3px solid var(--color-default);
-  padding-left: 0.75rem;
-  margin: 0.5rem 0;
-  color: var(--color-secondary);
-}
-
-.simple-editor :deep(ul),
-.simple-editor :deep(ol) {
-  padding-left: 1.25rem;
-  margin: 0.5rem 0;
-}
-
-.simple-editor :deep(li) {
-  margin-bottom: 0.25rem;
-}
-
-.simple-editor :deep(a) {
-  color: var(--color-accent);
-  text-decoration: underline;
-}
+/* Body typography is the shared .comment-prose (main.css). */
 
 .simple-editor :deep(.ticket-drop-preview) {
   display: flex;
