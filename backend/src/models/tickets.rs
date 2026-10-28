@@ -149,8 +149,9 @@ impl ToSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
 pub enum ContentFormat {
     /// Rich HTML — what the ProseMirror editor produces.
     Html,
-    /// CommonMark Markdown. Reserved for chat / scripted senders that
-    /// emit Markdown natively. Not currently produced by any code path.
+    /// CommonMark Markdown, as a script or integration may send it. The
+    /// comment API converts it to HTML on the way in
+    /// (`services::comment_markdown`), so new rows don't store it.
     Markdown,
     /// Pre-formatted plaintext. Inbound emails store their `body_text`
     /// here directly; whitespace is significant.

@@ -13,6 +13,7 @@
 
 #![allow(clippy::expect_used)]
 
+mod comment_formats;
 #[path = "../common/mod.rs"]
 mod common;
 

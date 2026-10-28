@@ -140,6 +140,20 @@ pub fn numbers_in_pinned_workspace(
         .map(|rows| rows.into_iter().collect())
 }
 
+/// The ids of the tickets numbered `numbers` in the connection's pinned
+/// workspace, by number. Numbers no ticket has are absent.
+pub fn ids_for_numbers_in_pinned_workspace(
+    conn: &mut DbConnection,
+    numbers: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, i32>> {
+    tickets::table
+        .filter(tickets::workspace_id.eq(crate::repository::pinned_workspace()))
+        .filter(tickets::number.eq_any(numbers))
+        .select((tickets::number, tickets::id))
+        .load::<(i32, i32)>(conn)
+        .map(|rows| rows.into_iter().collect())
+}
+
 /// The id of the ticket numbered `number` in `workspace_id`.
 pub fn id_for_number(
     conn: &mut DbConnection,
