@@ -253,6 +253,8 @@ pub fn enqueue_for_comment(
                     } => {
                         // No mailbox to thread back through: plain mail from
                         // the default sender, no Reply-To, no quoted history.
+                        // Each copy continues the thread its recipient already
+                        // has for this ticket, so replies group in their inbox.
                         let base = super::reply_body::ReplyBody::from_comment(&comment);
                         let base = super::signature::append_signature_for_user(
                             conn,
@@ -270,6 +272,13 @@ pub fn enqueue_for_comment(
                             .chain(participants.into_iter().map(|(u, e)| (Some(u), e)));
                         let mut first = None;
                         for (to_uuid, to_email) in copies {
+                            let earlier = crate::repository::outbound_emails::thread_message_ids(
+                                conn,
+                                ticket.id,
+                                &to_email,
+                                DIRECT_THREAD_DEPTH,
+                            )?;
+                            let (in_reply_to, references) = direct_thread_headers(&earlier);
                             let body =
                                 with_request_link(conn, &ticket, to_uuid, base.clone(), true);
                             let body = with_security_note(body, note.as_deref());
@@ -281,8 +290,8 @@ pub fn enqueue_for_comment(
                                 subject.clone(),
                                 body,
                                 format_outbound_message_id(ticket.id, comment.id, &domain),
-                                None,
-                                Vec::new(),
+                                in_reply_to,
+                                references,
                                 serde_json::json!({}),
                             );
                             // One queue row per comment carries its id (a unique
@@ -492,6 +501,22 @@ fn with_security_note(
 /// mail: workspace identity, but transactional (no List-Unsubscribe on a human
 /// reply).
 #[allow(clippy::too_many_arguments)]
+/// How many earlier emails a plain-mail reply lists in `References`.
+const DIRECT_THREAD_DEPTH: i64 = 20;
+
+/// `In-Reply-To` and `References` for an email following `earlier` (stored
+/// Message-IDs, oldest first): the latest one, and all of them, each in
+/// angle brackets as the headers carry them.
+fn direct_thread_headers(earlier: &[String]) -> (Option<String>, Vec<String>) {
+    let bracketed: Vec<String> = earlier
+        .iter()
+        .map(|id| id.trim().trim_start_matches('<').trim_end_matches('>'))
+        .filter(|id| !id.is_empty())
+        .map(|id| format!("<{id}>"))
+        .collect();
+    (bracketed.last().cloned(), bracketed)
+}
+
 fn reply_row(
     channel_id: Option<i32>,
     ticket_id: i32,
@@ -577,6 +602,18 @@ mod tests {
 
         let unchanged = with_security_note(body.clone(), None);
         assert_eq!((unchanged.html, unchanged.text), (body.html, body.text));
+    }
+
+    #[test]
+    fn a_plain_mail_reply_follows_the_recipients_earlier_mail() {
+        assert_eq!(direct_thread_headers(&[]), (None, vec![]));
+        assert_eq!(
+            direct_thread_headers(&["a@desk.test".into(), "<b@desk.test>".into()]),
+            (
+                Some("<b@desk.test>".to_string()),
+                vec!["<a@desk.test>".to_string(), "<b@desk.test>".to_string()]
+            )
+        );
     }
 
     #[tokio::test]

@@ -683,6 +683,33 @@ pub fn count_recent_to(
         .get_result(conn)
 }
 
+/// The Message-IDs of the latest `limit` emails queued to `recipient` about
+/// `ticket_id`, oldest first: the thread a new email to them continues.
+/// Case-insensitive on the address. Mail that was never going to arrive
+/// (suppressed or dead) is left out.
+pub fn thread_message_ids(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    recipient: &str,
+    limit: i64,
+) -> QueryResult<Vec<String>> {
+    use crate::models::outbound_email_status::{DEAD, SUPPRESSED};
+    use crate::schema::outbound_emails::dsl as o;
+    let mut ids: Vec<String> = o::outbound_emails
+        .filter(o::ticket_id.eq(ticket_id))
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("lower(recipient) = ")
+                .bind::<diesel::sql_types::Text, _>(recipient.trim().to_lowercase()),
+        )
+        .filter(o::status.ne_all([DEAD, SUPPRESSED]))
+        .order(o::id.desc())
+        .limit(limit)
+        .select(o::message_id)
+        .load(conn)?;
+    ids.reverse();
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -751,6 +778,37 @@ mod tests {
         assert_eq!(
             count_recent_to(&mut conn, "other@example.com", "guest-confirmation:", since).unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn a_recipients_thread_is_their_mail_about_the_ticket_oldest_first() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let ticket = TestFixtures::create_ticket(&mut conn, "Thread", None, None);
+        let other = TestFixtures::create_ticket(&mut conn, "Other", None, None);
+        let row = |n: &str, ticket_id: i32, to: &str| NewOutboundEmail {
+            ticket_id: Some(ticket_id),
+            recipient: to.into(),
+            message_id: format!("m-{n}@desk.test"),
+            ..fresh_row(ch, n)
+        };
+        enqueue(&mut conn, row("1", ticket.id, "Req@Example.com")).unwrap();
+        enqueue(&mut conn, row("2", ticket.id, "agent@example.com")).unwrap();
+        enqueue(&mut conn, row("3", other.id, "req@example.com")).unwrap();
+        let suppressed = enqueue(&mut conn, row("4", ticket.id, "req@example.com")).unwrap();
+        mark_suppressed(&mut conn, suppressed.id, "test").unwrap();
+        enqueue(&mut conn, row("5", ticket.id, "req@example.com")).unwrap();
+        enqueue(&mut conn, row("6", ticket.id, "req@example.com")).unwrap();
+
+        assert_eq!(
+            thread_message_ids(&mut conn, ticket.id, "REQ@example.com", 20).unwrap(),
+            vec!["m-1@desk.test", "m-5@desk.test", "m-6@desk.test"]
+        );
+        assert_eq!(
+            thread_message_ids(&mut conn, ticket.id, "req@example.com", 2).unwrap(),
+            vec!["m-5@desk.test", "m-6@desk.test"],
+            "the latest, still oldest first"
         );
     }
 
