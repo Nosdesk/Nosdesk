@@ -18,6 +18,7 @@ import RouteProgress from './components/common/RouteProgress.vue'
 import LoadingSpinner from './components/common/LoadingSpinner.vue'
 import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch'
 import { GlobalSearchModal } from './components/GlobalSearch'
+import PdfOverlay from '@/components/ticketComponents/PdfOverlay.vue'
 import PluginModalHost from '@/plugins/components/PluginModalHost.vue'
 import PluginDialogHost from '@/plugins/components/PluginDialogHost.vue'
 import { useTitleManager } from '@/composables/useTitleManager'
@@ -553,6 +554,9 @@ onMounted(async () => {
 
   <!-- Global Search Modal -->
   <GlobalSearchModal />
+
+  <!-- PDF viewer, over whatever page opened it (`?pdf=` on the route) -->
+  <PdfOverlay />
 
   <!-- On-demand plugin modal surface (opened by plugin action contributions) -->
   <PluginModalHost />

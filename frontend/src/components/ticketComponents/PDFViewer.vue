@@ -297,18 +297,18 @@ const pageStatus = computed(() =>
     </div>
 
     <div
-      class="flex-shrink-0 bg-surface border-t border-default px-4 py-2"
+      class="flex-shrink-0 bg-surface border-t border-default px-2 sm:px-4 py-2"
       role="toolbar"
       :aria-label="$t('ticket-media-pdf-toolbar')"
     >
-      <div class="flex items-center justify-between gap-4 max-w-2xl mx-auto">
+      <div class="flex items-center justify-between gap-2 sm:gap-4 max-w-2xl mx-auto">
         <!-- Page -->
-        <div class="flex items-center gap-2 text-sm text-secondary">
+        <div class="flex items-center gap-1.5 sm:gap-2 text-sm text-secondary whitespace-nowrap">
           <input
             v-model="pageInput"
             type="text"
             inputmode="numeric"
-            class="w-12 px-2 py-1 text-center rounded-md border border-default bg-surface-alt text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            class="w-10 sm:w-12 px-1 sm:px-2 py-1 text-center rounded-md border border-default bg-surface-alt text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             :aria-label="$t('ticket-media-pdf-page-input')"
             :disabled="!pagesCount"
             data-testid="pdf-page-input"
@@ -332,7 +332,7 @@ const pageStatus = computed(() =>
             :options="zoomOptions"
             :placeholder="zoomPercent"
             size="sm"
-            class="w-36"
+            class="w-32 sm:w-36"
             :aria-label="$t('ticket-media-pdf-zoom')"
             :disabled="!pagesCount"
             @update:model-value="(value) => setZoom(value as string)"

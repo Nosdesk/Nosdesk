@@ -109,18 +109,17 @@ describe('AttachmentPreview (compact)', () => {
     await pdf.find('button[aria-label="Open invoice.pdf"]').trigger('click')
     await pdf.router.isReady()
     await new Promise((r) => setTimeout(r))
-    expect(pdf.router.currentRoute.value.path).toBe('/pdf-viewer')
+    // Over the page it was opened from, by its stored path.
+    expect(pdf.router.currentRoute.value.query.pdf).toBe(stored('invoice.pdf'))
   })
 
-  // The router encodes the query once and decodes it once, so the viewer
-  // reads plain values, a "%" in the name included.
-  it('opens a PDF with its source and name as plain query values', async () => {
+  // The router encodes the query once and decodes it once, so the overlay
+  // reads the stored path as it was, a "%" in the name included.
+  it('opens a PDF whose name has a "%" by its exact stored path', async () => {
     const pdf = tile('50% off.pdf')
     await pdf.find('button[aria-label="Open 50% off.pdf"]').trigger('click')
     await new Promise((r) => setTimeout(r))
-    const { query } = pdf.router.currentRoute.value
-    expect(query.filename).toBe('50% off.pdf')
-    expect(String(query.src)).toMatch(/^\/api\/files\/tickets\/7\//)
+    expect(pdf.router.currentRoute.value.query.pdf).toBe(stored('50% off.pdf'))
   })
 
   it('opens from the keyboard: the open target is a button named after the file', () => {
