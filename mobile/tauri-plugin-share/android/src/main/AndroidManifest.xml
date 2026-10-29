@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Serves files from the cache share/ folder to the app the user picks
+             in the share chooser. A subclass rather than FileProvider itself,
+             because the app manifest already declares one and the merger keys
+             providers by class name. The authority carries the applicationId,
+             so the debug and release builds don't clash on one device. -->
+        <provider
+            android:name="com.nosdesk.plugin.share.ShareFileProvider"
+            android:authorities="${applicationId}.nosdesk.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/nosdesk_share_paths" />
+        </provider>
+    </application>
+</manifest>

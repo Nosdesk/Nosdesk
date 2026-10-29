@@ -1,4 +1,5 @@
 mod asset_proxy;
+mod share_file;
 
 /// The custom URL scheme this build's OIDC redirect comes back on.
 ///
@@ -51,6 +52,10 @@ pub fn run() {
     // Android only: keeps the status/navigation bar icons legible against the
     // theme the user picked in the app, which the system does not know about.
     .plugin(tauri_plugin_system_bars::init())
+    // Native share sheet for a file the webview can't save or print itself
+    // (a PDF from the in-app viewer). src/share_file.rs stages the bytes in the
+    // cache first; see ../tauri-plugin-share.
+    .plugin(tauri_plugin_share::init())
     // Authenticated asset proxy: the webview loads workspace-scoped files via
     // the `nosdesk-asset` scheme; Rust forwards them to the API with the bearer
     // and Range header. See src/asset_proxy.rs.
@@ -58,6 +63,7 @@ pub fn run() {
     .register_asynchronous_uri_scheme_protocol(asset_proxy::SCHEME, asset_proxy::handle)
     .invoke_handler(tauri::generate_handler![
       asset_proxy::set_asset_proxy_session,
+      share_file::write_share_file,
       oidc_scheme
     ])
     .setup(|app| {

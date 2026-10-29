@@ -58,3 +58,22 @@ export async function openExternalUrl(url: string): Promise<void> {
     window.open(url, '_blank', 'noopener')
   }
 }
+
+/**
+ * Hand a file to the OS share sheet: Save to Files, AirDrop, Mail and Print on
+ * iOS, the app chooser on Android. The native webviews can't do any of that
+ * themselves (`<a download>` does nothing useful there and `window.print()` is
+ * a no-op). Native only: outside the Tauri shell this throws, and the caller
+ * keeps its web path (a download link, the browser's print). Resolves with
+ * `completed: false` when the user dismisses the sheet. The `@nosdesk/mobile`
+ * import stays dynamic so the web bundle never pulls the native chunk.
+ */
+export async function shareFile(
+  bytes: Uint8Array,
+  filename: string,
+  mimeType: string,
+): Promise<{ completed: boolean }> {
+  if (!isTauriRuntime()) throw new Error('shareFile needs the native app')
+  const { shareFile: nativeShareFile } = await import('@nosdesk/mobile')
+  return nativeShareFile(bytes, filename, mimeType)
+}
