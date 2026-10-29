@@ -38,7 +38,8 @@ export async function configurePlatform(): Promise<void> {
   // A rejected refresh ends the session on either platform: clear its state
   // and go to sign-in, or the next sign-in reuses the old sync runtime.
   const { setSessionLostHandler } = await import('@nosdesk/core/services/session')
-  const { redirectToLogin } = await import('@/services/sessionLost')
+  const { clearStaleRedirect, redirectToLogin } = await import('@/services/sessionLost')
+  clearStaleRedirect()
   setSessionLostHandler(redirectToLogin)
   // Both run in a browser engine: the refresh schedule's lock, shared expiry
   // and wake-ups are the same.

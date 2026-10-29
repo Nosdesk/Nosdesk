@@ -62,6 +62,9 @@ const fake = vi.hoisted(() => {
 })
 
 const purgeAllCollabDocs = vi.hoisted(() => vi.fn(async (_opts: { includeOpen: boolean }) => {}))
+/** Whether the session is gone, as a refused refresh leaves it. */
+const session = vi.hoisted(() => ({ gone: false }))
+vi.mock('@nosdesk/core/services/session', () => ({ sessionGone: () => session.gone }))
 const server = vi.hoisted(() => ({
   /** Rows each bootstrap returns, in order; the last one repeats. */
   snapshots: [] as Array<Array<Record<string, unknown>>>,
@@ -103,6 +106,7 @@ vi.mock('@/services/authFetch', () => ({
 }))
 
 const { hydrate, subscribe, pullDelta, tearDown } = await import('./lifecycle')
+const { authFetch } = await import('@/services/authFetch')
 
 const DB = 'test:u1:h:acme'
 const GROUP = 'project:5'
@@ -125,6 +129,7 @@ beforeEach(() => {
   server.snapshots = [[{ id: 1, title: 'Before the import' }]]
   server.bootstraps = 0
   server.delta = emptyDelta()
+  session.gone = false
 })
 
 afterEach(async () => {
@@ -247,5 +252,23 @@ describe('while running', () => {
     expect(fake.wipes).toEqual([DB])
     expect(purgeAllCollabDocs).not.toHaveBeenCalled()
     expect(server.bootstraps).toBe(2)
+  })
+})
+
+describe('after the session is gone', () => {
+  it('sends no delta, so no refresh is asked for every poll', async () => {
+    cachedUnder('e1')
+    await hydrate('u1', 'h', '', 'acme', 'e1')
+    await subscribe(GROUP)
+    vi.mocked(authFetch).mockClear()
+
+    session.gone = true
+    expect(await pullDelta()).toBe(false)
+    expect(authFetch).not.toHaveBeenCalled()
+
+    // Signed in again: polling resumes.
+    session.gone = false
+    await pullDelta()
+    expect(authFetch).toHaveBeenCalledTimes(1)
   })
 })

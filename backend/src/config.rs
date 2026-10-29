@@ -135,6 +135,17 @@ impl Config {
             }
         }
 
+        // Refresh reuse grace: validated here for the same reason.
+        if let Some(raw) = get("NOSDESK_REFRESH_REUSE_GRACE_SECS").as_deref() {
+            let grace = crate::utils::session_policy::refresh_reuse_grace_secs_from(Some(raw));
+            if raw.trim().parse::<i64>() != Ok(grace) {
+                warn!(
+                    "NOSDESK_REFRESH_REUSE_GRACE_SECS={raw} is not usable; using {grace} seconds (allowed 0..{})",
+                    crate::utils::session_policy::MAX_REFRESH_REUSE_GRACE_SECS,
+                );
+            }
+        }
+
         // Redis is a hard dependency: HTTP + auth/MFA rate limiting, TOTP replay
         // checks, collaboration routing across machines, and the `/readiness`
         // probe all require it. Resolve ONE

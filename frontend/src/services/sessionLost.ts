@@ -11,6 +11,15 @@ import { isLoggingOut } from '@/services/apiConfig'
  * Registered with core's `setSessionLostHandler` at platform bootstrap, on web
  * and in the mobile app, so the shared refresh runs it whoever hit the 401.
  */
+const REDIRECTING = 'redirecting-to-login'
+
+/** Drop a redirect flag left by a page that unloaded mid-redirect. sessionStorage
+ *  outlives a reload, and a flag left set would skip every later redirect in
+ *  this tab. Called at startup, when no redirect can be under way. */
+export function clearStaleRedirect(): void {
+  sessionStorage.removeItem(REDIRECTING)
+}
+
 export function redirectToLogin(): void {
   // A deliberate sign-out is already under way (a sync request can 401 while
   // it tears down); don't start a second one.
@@ -19,8 +28,8 @@ export function redirectToLogin(): void {
   // the person.
   const path = window.location.pathname
   if (path.includes('/login') || path.includes('/onboarding')) return
-  if (sessionStorage.getItem('redirecting-to-login')) return
-  sessionStorage.setItem('redirecting-to-login', 'true')
+  if (sessionStorage.getItem(REDIRECTING)) return
+  sessionStorage.setItem(REDIRECTING, 'true')
   localStorage.removeItem('authProvider')
 
   setTimeout(async () => {
@@ -28,7 +37,7 @@ export function redirectToLogin(): void {
       const { useAuthStore } = await import('@/stores/auth')
       await useAuthStore().sessionLost()
     } finally {
-      sessionStorage.removeItem('redirecting-to-login')
+      sessionStorage.removeItem(REDIRECTING)
     }
   }, 100)
 }

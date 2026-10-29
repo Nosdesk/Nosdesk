@@ -294,3 +294,20 @@ describe('the console, when an access token expires', () => {
     expect(warn).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('a redirect flag left by a page that unloaded mid-redirect', () => {
+  it('does not stop the next lost session reaching sign-in', async () => {
+    // A reload landed between setting the flag and clearing it.
+    sessionStorage.setItem('redirecting-to-login', 'true')
+    const axios = (await import('axios')).default
+    vi.spyOn(axios, 'post').mockImplementation((() => Promise.reject(httpError(401))) as never)
+    const { configurePlatform } = await import('@/platform')
+    await configurePlatform()
+    const { refreshSession } = await import('@nosdesk/core/services/session')
+
+    expect(await refreshSession()).toBe('rejected')
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(sessionLost).toHaveBeenCalledTimes(1)
+  })
+})

@@ -2977,7 +2977,8 @@ where
 
     // 8. Mark old token used (if not already)
     if !old_token.is_used {
-        let grace_until = chrono::Utc::now().naive_utc() + chrono::Duration::seconds(5);
+        let grace_until =
+            chrono::Utc::now().naive_utc() + crate::utils::session_policy::refresh_reuse_grace();
         if let Err(e) = crate::repository::refresh_tokens::mark_token_used(
             conn,
             &token_hash,
@@ -3604,6 +3605,56 @@ mod tests {
         assert!(
             family_rows(&mut conn, &family_id).iter().all(|r| r.1),
             "the family is revoked as before"
+        );
+    }
+
+    /// A spent token presented again rotates for 30 seconds after it was
+    /// spent (a lost answer, a held-up tab), and revokes the session after.
+    #[actix_web::test]
+    async fn a_spent_token_rotates_again_for_30_seconds_then_revokes() {
+        use crate::schema::refresh_tokens;
+        use diesel::prelude::*;
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let request = test::TestRequest::default().to_http_request();
+        let agent = crate::models::REFRESH_AUDIENCE_AGENT;
+        let (raw, family_id) = seed_refresh(&mut conn, &request, agent);
+        rotate_refresh_family(&mut conn, &request, &raw, agent, mints_access).expect("rotates");
+
+        let hash = JwtUtils::hash_refresh_token(&raw);
+        let (used, grace): (Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>) =
+            refresh_tokens::table
+                .filter(refresh_tokens::token_hash.eq(&hash))
+                .select((refresh_tokens::used_at, refresh_tokens::grace_expires_at))
+                .first(&mut conn)
+                .expect("spent token");
+        let window = (grace.expect("grace") - used.expect("used")).num_seconds();
+        assert!((29..=30).contains(&window), "{window}s window");
+
+        // Date the spending back by `secs`.
+        let age = |conn: &mut crate::db::DbConnection, secs: i64| {
+            let back = chrono::Duration::seconds(secs);
+            diesel::update(refresh_tokens::table.filter(refresh_tokens::token_hash.eq(&hash)))
+                .set((
+                    refresh_tokens::used_at.eq(refresh_tokens::used_at - back),
+                    refresh_tokens::grace_expires_at.eq(refresh_tokens::grace_expires_at - back),
+                ))
+                .execute(conn)
+                .expect("age the spent token");
+        };
+
+        age(&mut conn, 20);
+        rotate_refresh_family(&mut conn, &request, &raw, agent, mints_access)
+            .expect("20 seconds after it was spent, it still rotates");
+
+        age(&mut conn, 11);
+        assert!(
+            rotate_refresh_family(&mut conn, &request, &raw, agent, mints_access).is_err(),
+            "31 seconds after, it is a replay"
+        );
+        assert!(
+            family_rows(&mut conn, &family_id).iter().all(|r| r.1),
+            "and the family is revoked"
         );
     }
 
