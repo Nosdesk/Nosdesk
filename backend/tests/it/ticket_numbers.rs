@@ -140,3 +140,229 @@ fn a_restore_counts_on_from_the_restored_numbers() {
 
     assert_eq!(open(&pool, a, "VPN drops"), 3);
 }
+
+// A restore that fails after moving the ticket counters puts them back. The
+// failure is injected by wrapping `sync_ticket_number_sequences`, which runs
+// as it does in a restore and then raises, so the counters have really moved.
+
+const INJECTED: &str = "injected: the restore fails after the counters moved";
+
+/// The next restore fails straight after moving the counters, `pause_secs`
+/// later.
+fn fail_after_counters_move(conn: &mut backend::db::DbConnection, pause_secs: f64) {
+    use diesel::connection::SimpleConnection;
+    conn.batch_execute(&format!(
+        "ALTER FUNCTION public.sync_ticket_number_sequences() \
+             RENAME TO sync_ticket_number_sequences_real; \
+         CREATE FUNCTION public.sync_ticket_number_sequences() RETURNS void \
+             LANGUAGE plpgsql AS $$ \
+         BEGIN \
+             PERFORM public.sync_ticket_number_sequences_real(); \
+             PERFORM pg_sleep({pause_secs}); \
+             RAISE EXCEPTION '{INJECTED}'; \
+         END $$;"
+    ))
+    .expect("wrap the counter sync");
+}
+
+fn restore(
+    conn: &mut backend::db::DbConnection,
+    archive: &std::path::Path,
+) -> Result<backup::RestoreStats, backup::BackupError> {
+    backup::restore_database(
+        conn,
+        archive,
+        None,
+        backup::RestoreOptions {
+            force_non_empty: true,
+            ..Default::default()
+        },
+    )
+}
+
+/// The restore's own error, not a counter repair failure.
+fn assert_injected(err: backup::BackupError) {
+    assert!(
+        matches!(err, backup::BackupError::DatabaseError(_)),
+        "the restore's error comes back as it was: {err}"
+    );
+    assert!(err.to_string().contains(INJECTED), "{err}");
+}
+
+/// Delete `ws`'s ticket `number` the way the app does.
+fn delete(pool: &TestPool, ws: i32, number: i32) {
+    run_in_workspace(pool, REF, ws, |c| {
+        let id: i32 = tickets_table::table
+            .filter(tickets_table::number.eq(number))
+            .select(tickets_table::id)
+            .first(c)?;
+        tickets::delete_ticket_with_cleanup(c, id).map(|_| ())
+    })
+    .expect("delete ticket");
+}
+
+/// `ws`'s ticket numbers.
+fn numbers(pool: &TestPool, ws: i32) -> Vec<i32> {
+    run_in_workspace(pool, REF, ws, |c| {
+        tickets_table::table
+            .select(tickets_table::number)
+            .order(tickets_table::number)
+            .load(c)
+    })
+    .expect("list numbers")
+}
+
+#[test]
+fn a_failed_restore_puts_back_counters_its_backup_had_below_live_numbers() {
+    let db = common::TestDb::new();
+    let mut conn = db.conn();
+    common::with_upload_dir();
+    let seeded = common::seed_two_workspaces(&mut conn);
+    let (a, b) = (seeded.a.workspace_id, seeded.b.workspace_id);
+    let pool = db.runtime_pool(2);
+    open(&pool, a, "Printer jammed");
+    open(&pool, a, "Monitor flickers");
+    let job = common::seed_backup_job(&mut conn);
+    let archive = backup::create_backup(&mut conn, job, None).expect("create_backup");
+
+    // Since the backup: A goes on to 5 and deletes 5; B, empty in the backup,
+    // opens its first.
+    for title in ["VPN drops", "Keyboard sticks", "Mouse lost"] {
+        open(&pool, a, title);
+    }
+    delete(&pool, a, 5);
+    assert_eq!(open(&pool, b, "Laptop won't boot"), 1);
+
+    fail_after_counters_move(&mut conn, 0.0);
+    assert_injected(restore(&mut conn, &archive).expect_err("the restore fails"));
+
+    assert_eq!(numbers(&pool, a), [1, 2, 3, 4], "the rows rolled back");
+    assert_eq!(
+        open(&pool, a, "Next"),
+        6,
+        "counts on from what A handed out, not its backup's 2 or its live 4"
+    );
+    assert_eq!(
+        open(&pool, b, "Next"),
+        2,
+        "B counts on past its live ticket"
+    );
+}
+
+#[test]
+fn a_failed_restore_puts_back_counters_its_backup_had_above_live_numbers() {
+    let db = common::TestDb::new();
+    let mut conn = db.conn();
+    common::with_upload_dir();
+    let seeded = common::seed_two_workspaces(&mut conn);
+    let (a, b) = (seeded.a.workspace_id, seeded.b.workspace_id);
+    let pool = db.runtime_pool(2);
+    for title in [
+        "Printer jammed",
+        "Monitor flickers",
+        "VPN drops",
+        "Keyboard sticks",
+    ] {
+        open(&pool, a, title);
+    }
+    let job = common::seed_backup_job(&mut conn);
+    let archive = backup::create_backup(&mut conn, job, None).expect("create_backup");
+
+    // The live server never got past A's 2, as a server holding a backup from
+    // another one: its counter says so too.
+    delete(&pool, a, 4);
+    delete(&pool, a, 3);
+    diesel::sql_query(format!("SELECT setval('ticket_numbers.workspace_{a}', 2)"))
+        .execute(&mut conn)
+        .expect("set A's counter");
+
+    fail_after_counters_move(&mut conn, 0.0);
+    assert_injected(restore(&mut conn, &archive).expect_err("the restore fails"));
+
+    assert_eq!(numbers(&pool, a), [1, 2], "the rows rolled back");
+    assert_eq!(open(&pool, a, "Next"), 3, "no numbers skipped");
+    assert_eq!(
+        open(&pool, b, "Laptop won't boot"),
+        1,
+        "an empty workspace starts at 1"
+    );
+}
+
+#[test]
+fn a_ticket_opened_while_a_restore_fails_takes_the_next_live_number() {
+    let db = common::TestDb::new();
+    let mut conn = db.conn();
+    common::with_upload_dir();
+    let a = common::seed_two_workspaces(&mut conn).a.workspace_id;
+    let pool = db.runtime_pool(2);
+    open(&pool, a, "Printer jammed");
+    let job = common::seed_backup_job(&mut conn);
+    let archive = backup::create_backup(&mut conn, job, None).expect("create_backup");
+    open(&pool, a, "Monitor flickers");
+    open(&pool, a, "VPN drops");
+    // Long enough for the ticket below to be waiting before the restore ends.
+    fail_after_counters_move(&mut conn, 1.0);
+
+    let mut watcher = db.conn();
+    let number = std::thread::scope(|s| {
+        let restoring = s.spawn(move || restore(&mut conn, &archive));
+        // Wait until the restore holds tickets, then open one. pg_locks spans
+        // every database, and test databases share their template's oids.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            #[derive(QueryableByName)]
+            struct Held {
+                #[diesel(sql_type = diesel::sql_types::Bool)]
+                held: bool,
+            }
+            let held: Held = diesel::sql_query(
+                "SELECT EXISTS (SELECT 1 FROM pg_locks \
+                 WHERE database = (SELECT oid FROM pg_database WHERE datname = current_database()) \
+                   AND relation = 'public.tickets'::regclass \
+                   AND mode = 'AccessExclusiveLock' AND granted) AS held",
+            )
+            .get_result(&mut watcher)
+            .expect("read pg_locks");
+            if held.held {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the restore never held tickets"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let number = open(&pool, a, "Opened during the restore");
+        assert_injected(
+            restoring
+                .join()
+                .expect("restore thread")
+                .expect_err("the restore fails"),
+        );
+        number
+    });
+    assert_eq!(
+        number, 4,
+        "it waited for the restore, then counted on from 3"
+    );
+}
+
+#[test]
+fn a_completed_restore_counts_on_from_its_backup_over_newer_tickets() {
+    let db = common::TestDb::new();
+    let mut conn = db.conn();
+    common::with_upload_dir();
+    let a = common::seed_two_workspaces(&mut conn).a.workspace_id;
+    let pool = db.runtime_pool(2);
+    open(&pool, a, "Printer jammed");
+    open(&pool, a, "Monitor flickers");
+    let job = common::seed_backup_job(&mut conn);
+    let archive = backup::create_backup(&mut conn, job, None).expect("create_backup");
+    open(&pool, a, "VPN drops");
+    open(&pool, a, "Keyboard sticks");
+
+    restore(&mut conn, &archive).expect("restore_database");
+
+    assert_eq!(numbers(&pool, a), [1, 2]);
+    assert_eq!(open(&pool, a, "Next"), 3);
+}
