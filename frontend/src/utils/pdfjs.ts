@@ -53,9 +53,14 @@ export function loadPdfjsViewer(): Promise<PdfjsViewer> {
   return viewerPromise
 }
 
+const pdfjsAssetBase = (version: string) => new URL(`/pdfjs/${version}/`, document.baseURI).href
+
+/** Where the viewer finds the icons a text annotation shows. */
+export const pdfjsImagesUrl = (version: string) => `${pdfjsAssetBase(version)}images/`
+
 /** Absolute URLs of the decoder assets for this pdf.js version. */
 export function pdfjsAssetUrls(version: string) {
-  const base = new URL(`/pdfjs/${version}/`, document.baseURI).href
+  const base = pdfjsAssetBase(version)
   return {
     wasmUrl: `${base}wasm/`,
     cMapUrl: `${base}cmaps/`,

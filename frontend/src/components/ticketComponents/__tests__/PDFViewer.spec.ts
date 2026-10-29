@@ -57,13 +57,14 @@ const fake = vi.hoisted(() => {
     LinkTarget: { BLANK: 2 },
     FindState: { FOUND: 0, NOT_FOUND: 1, WRAPPED: 2, PENDING: 3 },
   }
-  const pdfjs = { AnnotationMode: { ENABLE: 1 }, AnnotationEditorType: { DISABLE: -1 } }
+  const pdfjs = { version: '6.4.299', AnnotationMode: { ENABLE: 1 }, AnnotationEditorType: { DISABLE: -1 } }
   return { state, lib, pdfjs }
 })
 
 vi.mock('@/utils/pdfjs', () => ({
   loadPdfjs: async () => fake.pdfjs,
   loadPdfjsViewer: async () => fake.lib,
+  pdfjsImagesUrl: (version: string) => `/pdfjs/${version}/images/`,
 }))
 
 const loader = vi.hoisted(() => ({
@@ -143,6 +144,9 @@ describe('PDFViewer', () => {
     expect(loader.load).toHaveBeenCalledWith('/api/files/tickets/7/a.pdf')
     expect(viewer.options).toMatchObject({ textLayerMode: 1, annotationMode: 1, annotationEditorMode: -1 })
     expect(viewer.options).not.toHaveProperty('scriptingManager')
+    // Annotation icons from this pdf.js version's assets, labels from our catalogue.
+    expect(viewer.options.imageResourcesPath).toBe('/pdfjs/6.4.299/images/')
+    expect(viewer.options.l10n).toEqual(expect.objectContaining({ translate: expect.any(Function) }))
     expect(fake.state.linkOptions).toMatchObject({ externalLinkTarget: 2, externalLinkRel: 'noopener noreferrer nofollow' })
   })
 

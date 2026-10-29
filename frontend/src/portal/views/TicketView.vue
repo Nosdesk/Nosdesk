@@ -63,6 +63,10 @@ watch(
   { immediate: true },
 )
 const ticketId = computed(() => resolvedIds.value.get(ticketNumber.value) ?? 0)
+
+// A PDF opens in the browser's own viewer, in a new tab so the requester
+// keeps their place in the portal. Other files download as before.
+const attachmentLinkAttrs = (name: string) => (/\.pdf$/i.test(name) ? { target: '_blank', rel: 'noopener' } : {})
 const key = computed(() => ['portal', 'ticket', ticketId.value])
 const detail = useQuery({
   key,
@@ -270,6 +274,7 @@ async function sendReply(): Promise<void> {
                     <li v-for="file in comment.attachments" :key="file.id">
                       <a
                         :href="attachmentUrl(ticketId, file.id)"
+                        v-bind="attachmentLinkAttrs(file.name)"
                         class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-app border border-default text-secondary hover:text-primary"
                       >
                         <Icon name="paperclip" />
