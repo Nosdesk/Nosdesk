@@ -49,6 +49,7 @@ pub mod reply_body;
 pub mod signature;
 pub mod supervisor;
 pub mod threading;
+pub mod ticket_links;
 
 // ---------- Error type ----------
 
