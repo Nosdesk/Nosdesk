@@ -282,10 +282,11 @@ async fn send_auto_ack(
     let service = resolver
         .resolve_owned(ticket.workspace_id)
         .map_err(|e| format!("resolve sender identity: {e}"))?;
-    service
+    let delivered = service
         .send_ticket_reply(outbound)
         .await
         .map_err(|e| format!("smtp: {e}"))?;
+    let message_id = delivered.unwrap_or(message_id);
 
     // Record the outbound so a customer reply threads back. Comment_id
     // is NULL by design: auto-ack is system-authored, not a ticket comment.

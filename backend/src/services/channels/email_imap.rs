@@ -602,13 +602,14 @@ impl ChannelAdapter for EmailImapAdapter {
             list_unsubscribe: None,
         };
 
-        self.email
+        let delivered = self
+            .email
             .send_ticket_reply(outbound)
             .await
             .map_err(ChannelError::Other)?;
 
         Ok(OutboundMessage {
-            external_id: format!("<{message_id}>"),
+            external_id: format!("<{}>", delivered.unwrap_or(message_id)),
             sent_at: Utc::now(),
             raw_metadata: None,
         })

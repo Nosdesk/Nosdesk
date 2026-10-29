@@ -25,7 +25,7 @@ use crate::services::email_queue::retry::{classify, next_attempt_at, RetryDecisi
 use crate::services::outbound_email::OutboundEmailResolver;
 use crate::utils::email::{EmailService, OutboundEmailMessage};
 use anyhow::Result;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, info, info_span, warn, Instrument};
 
@@ -219,7 +219,8 @@ pub async fn run_one_drain(
                             BreakerKey::instance(host)
                         };
                         let breaker = registry.get(key).await;
-                        dispatch(&row, svc, breaker).await
+                        let delivered = delivered_thread_ids(&pool, &row);
+                        dispatch(&row, &delivered, svc, breaker).await
                     }
                     None => DispatchOutcome::Unconfigured,
                 }
@@ -250,10 +251,47 @@ pub async fn run_one_drain(
     Ok(stats)
 }
 
+/// The Message-IDs the mail this row follows was delivered under, where a
+/// relay replaced ours after the row was queued (two replies a few seconds
+/// apart through SES). Empty when there's nothing to swap or the lookup fails;
+/// the row then goes out with the ids it was queued with.
+fn delivered_thread_ids(pool: &Pool, row: &OutboundEmail) -> HashMap<String, String> {
+    let ids: Vec<String> = row
+        .in_reply_to
+        .iter()
+        .chain(row.references_list.iter().flatten())
+        .map(|id| bare_message_id(id).to_owned())
+        .collect();
+    if ids.is_empty() {
+        return HashMap::new();
+    }
+    crate::sync::session::run_in_workspace(
+        pool,
+        "background:email_queue_thread_ids",
+        row.workspace_id,
+        |conn| repo::delivered_message_ids(conn, &ids),
+    )
+    .unwrap_or_else(|e| {
+        warn!(error = %e, queue_id = row.id, "delivered thread ids lookup failed");
+        HashMap::new()
+    })
+}
+
+fn bare_message_id(id: &str) -> &str {
+    id.trim().trim_start_matches('<').trim_end_matches('>')
+}
+
+/// `id` as delivered, in angle brackets as the headers carry it.
+fn as_delivered(id: &str, delivered: &HashMap<String, String>) -> String {
+    let bare = bare_message_id(id);
+    format!("<{}>", delivered.get(bare).map_or(bare, String::as_str))
+}
+
 /// Dispatch one row to SMTP. Returns the outcome the terminate step
 /// uses to update the row's status. Records breaker success/failure.
 async fn dispatch(
     row: &OutboundEmail,
+    delivered: &HashMap<String, String>,
     email: Arc<EmailService>,
     breaker: Arc<CircuitBreaker>,
 ) -> DispatchOutcome {
@@ -266,8 +304,13 @@ async fn dispatch(
     let references: Vec<String> = row
         .references_list
         .iter()
-        .filter_map(|r| r.as_deref().map(str::to_owned))
+        .flatten()
+        .map(|id| as_delivered(id, delivered))
         .collect();
+    let in_reply_to = row
+        .in_reply_to
+        .as_deref()
+        .map(|id| as_delivered(id, delivered));
     // headers_json carries the producer's Auto-Submitted value
     // ("auto-generated" for transactional/notification mail,
     // "auto-replied" for a direct reply). Pass it through verbatim so the
@@ -314,7 +357,7 @@ async fn dispatch(
         body_text: &row.body_text,
         body_html: row.body_html.as_deref(),
         message_id: &row.message_id,
-        in_reply_to: row.in_reply_to.as_deref(),
+        in_reply_to: in_reply_to.as_deref(),
         references: &references,
         auto_submitted,
         mail_class: &row.mail_class,
@@ -376,12 +419,13 @@ fn terminate_row(
             provider_message_id,
         } => {
             // Two writes on success:
-            //   1. Flip the queue row to `sent` (terminal), persisting any
-            //      provider message id (None for SMTP).
+            //   1. Flip the queue row to `sent` (terminal), persisting the
+            //      Message-ID the relay delivered it under, when it replaced
+            //      ours.
             //   2. Record an outbound `channel_messages` row so later
             //      inbound replies thread back via the existing
-            //      external_id lookup. The Message-ID we stamped at
-            //      enqueue is the external_id consumers will see.
+            //      external_id lookup, under the Message-ID the recipient
+            //      saw.
             if let Err(e) = repo::mark_sent(conn, row.id, provider_message_id.as_deref()) {
                 warn!(error = %e, queue_id = row.id, "mark_sent failed");
                 return;
@@ -394,9 +438,10 @@ fn terminate_row(
             let Some(channel_id) = row.channel_id else {
                 return;
             };
+            let delivered = provider_message_id.as_deref().unwrap_or(&row.message_id);
             let new_msg = NewChannelMessage {
                 channel_id,
-                external_id: format!("<{}>", row.message_id),
+                external_id: format!("<{delivered}>"),
                 direction: CHANNEL_DIRECTION_OUTBOUND.into(),
                 ticket_id: row.ticket_id,
                 comment_id: row.comment_id,
@@ -570,5 +615,80 @@ mod tests {
     fn recipient_domain_extracts_the_domain() {
         assert_eq!(recipient_domain("alice@example.com"), Some("example.com"));
         assert_eq!(recipient_domain("no-at-sign"), None);
+    }
+
+    #[test]
+    fn a_reply_names_earlier_mail_as_it_was_delivered() {
+        let delivered: HashMap<String, String> = [(
+            "ticket-7.comment-1.ab@desk.test".to_string(),
+            "0108-1@ap-southeast-2.amazonses.com".to_string(),
+        )]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            as_delivered("<ticket-7.comment-1.ab@desk.test>", &delivered),
+            "<0108-1@ap-southeast-2.amazonses.com>"
+        );
+        assert_eq!(
+            as_delivered(" <first@customer.test> ", &delivered),
+            "<first@customer.test>",
+            "mail we didn't send keeps its id"
+        );
+    }
+
+    #[test]
+    fn a_sent_reply_threads_back_under_the_message_id_it_was_delivered_under() {
+        use crate::test_helpers::{setup_test_connection, TestFixtures};
+        let mut conn = setup_test_connection();
+        let channel = TestFixtures::create_channel(&mut conn, "email_imap");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Thread", None, None);
+        let row = repo::enqueue(
+            &mut conn,
+            crate::models::NewOutboundEmail {
+                channel_id: Some(channel.id),
+                ticket_id: Some(ticket.id),
+                comment_id: None,
+                recipient: "req@example.com".into(),
+                subject: "[#1] Thread".into(),
+                body_text: "Hello".into(),
+                body_html: None,
+                message_id: "ticket-1.comment-1.ab@desk.test".into(),
+                in_reply_to: None,
+                references_list: vec![],
+                headers_json: serde_json::json!({}),
+                correlation_id: None,
+                idempotency_key: None,
+                sender_identity: outbound_email_sender_identity::WORKSPACE.to_string(),
+                mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
+            },
+        )
+        .unwrap();
+        let ses = "0108-1@ap-southeast-2.amazonses.com";
+        terminate_row(
+            &mut conn,
+            &row,
+            DispatchOutcome::Sent {
+                provider_message_id: Some(ses.into()),
+            },
+            &mut WorkerStats::default(),
+        );
+
+        assert_eq!(
+            repo::get(&mut conn, row.id)
+                .unwrap()
+                .provider_message_id
+                .as_deref(),
+            Some(ses)
+        );
+        // The customer's reply names SES's id, and finds the ticket by it.
+        assert_eq!(
+            channels_repo::find_ticket_by_reference_chain(
+                &mut conn,
+                channel.id,
+                &[format!("<{ses}>")]
+            )
+            .unwrap(),
+            Some(ticket.id)
+        );
     }
 }
