@@ -683,10 +683,12 @@ pub fn count_recent_to(
         .get_result(conn)
 }
 
-/// The Message-IDs of the latest `limit` emails queued to `recipient` about
-/// `ticket_id`, oldest first: the thread a new email to them continues.
-/// Case-insensitive on the address. Mail that was never going to arrive
-/// (suppressed or dead) is left out.
+/// The Message-IDs of the latest `limit` emails in `recipient`'s thread about
+/// `ticket_id`, oldest first: the ones queued to them and the ones the ticket
+/// received. A new email to them continues it. Case-insensitive on the
+/// address. Mail that was never going to arrive (suppressed or dead) is left
+/// out.
+// sync-audit-only: a read-only scan (raw SELECT), no write
 pub fn thread_message_ids(
     conn: &mut DbConnection,
     ticket_id: i32,
@@ -694,18 +696,37 @@ pub fn thread_message_ids(
     limit: i64,
 ) -> QueryResult<Vec<String>> {
     use crate::models::outbound_email_status::{DEAD, SUPPRESSED};
-    use crate::schema::outbound_emails::dsl as o;
-    let mut ids: Vec<String> = o::outbound_emails
-        .filter(o::ticket_id.eq(ticket_id))
-        .filter(
-            diesel::dsl::sql::<diesel::sql_types::Bool>("lower(recipient) = ")
-                .bind::<diesel::sql_types::Text, _>(recipient.trim().to_lowercase()),
-        )
-        .filter(o::status.ne_all([DEAD, SUPPRESSED]))
-        .order(o::id.desc())
-        .limit(limit)
-        .select(o::message_id)
-        .load(conn)?;
+    use crate::models::CHANNEL_DIRECTION_INBOUND;
+
+    #[derive(diesel::QueryableByName)]
+    struct Id {
+        #[diesel(sql_type = Text)]
+        id: String,
+    }
+    // At the same instant, the email received comes before the one replying.
+    let mut ids: Vec<String> = diesel::sql_query(
+        "SELECT id FROM ( \
+             SELECT message_id AS id, created_at AS at, 1 AS sent, id AS seq \
+             FROM outbound_emails \
+             WHERE ticket_id = $1 AND lower(recipient) = $2 AND status NOT IN ($3, $4) \
+             UNION ALL \
+             SELECT external_id, received_at, 0, id \
+             FROM channel_messages \
+             WHERE ticket_id = $1 AND direction = $5 \
+         ) thread \
+         ORDER BY at DESC, sent DESC, seq DESC \
+         LIMIT $6",
+    )
+    .bind::<Integer, _>(ticket_id)
+    .bind::<Text, _>(recipient.trim().to_lowercase())
+    .bind::<Text, _>(DEAD)
+    .bind::<Text, _>(SUPPRESSED)
+    .bind::<Text, _>(CHANNEL_DIRECTION_INBOUND)
+    .bind::<BigInt, _>(limit)
+    .load::<Id>(conn)?
+    .into_iter()
+    .map(|r| r.id)
+    .collect();
     ids.reverse();
     Ok(ids)
 }
@@ -809,6 +830,103 @@ mod tests {
             thread_message_ids(&mut conn, ticket.id, "req@example.com", 2).unwrap(),
             vec!["m-5@desk.test", "m-6@desk.test"],
             "the latest, still oldest first"
+        );
+    }
+
+    /// `minutes` before now: each test runs in one transaction, where now()
+    /// doesn't move.
+    fn sent_at(conn: &mut DbConnection, id: i64, minutes: i32) {
+        diesel::sql_query(
+            "UPDATE outbound_emails SET created_at = now() - make_interval(mins => $2) WHERE id = $1",
+        )
+        .bind::<BigInt, _>(id)
+        .bind::<Integer, _>(minutes)
+        .execute(conn)
+        .unwrap();
+    }
+
+    fn received(conn: &mut DbConnection, channel_id: i32, ticket_id: i32, id: &str, minutes: i32) {
+        let row = crate::repository::channels::record_message(
+            conn,
+            crate::models::NewChannelMessage {
+                channel_id,
+                external_id: id.into(),
+                direction: crate::models::CHANNEL_DIRECTION_INBOUND.into(),
+                ticket_id: Some(ticket_id),
+                comment_id: None,
+                in_reply_to: None,
+                from_address: Some("req@example.com".into()),
+                author_user_uuid: None,
+                raw_metadata: None,
+            },
+        )
+        .unwrap();
+        diesel::sql_query(
+            "UPDATE channel_messages SET received_at = now() - make_interval(mins => $2) WHERE id = $1",
+        )
+        .bind::<BigInt, _>(row.id)
+        .bind::<Integer, _>(minutes)
+        .execute(conn)
+        .unwrap();
+    }
+
+    #[test]
+    fn a_recipients_thread_takes_in_the_mail_the_ticket_received() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let ticket = TestFixtures::create_ticket(&mut conn, "Thread", None, None);
+        let other = TestFixtures::create_ticket(&mut conn, "Other", None, None);
+        let mut sent = |n: &str, minutes: i32| {
+            let row = enqueue(
+                &mut conn,
+                NewOutboundEmail {
+                    ticket_id: Some(ticket.id),
+                    recipient: "req@example.com".into(),
+                    message_id: format!("m-{n}@desk.test"),
+                    ..fresh_row(ch, n)
+                },
+            )
+            .unwrap();
+            sent_at(&mut conn, row.id, minutes);
+        };
+        sent("ack", 50);
+        sent("reply-1", 30);
+        sent("reply-2", 10);
+        received(&mut conn, ch, ticket.id, "<first@customer.test>", 60);
+        received(&mut conn, ch, ticket.id, "<second@customer.test>", 20);
+        received(&mut conn, ch, other.id, "<elsewhere@customer.test>", 15);
+        // Our own sent copy, as the worker records it: already in the list as
+        // the queued email, so not twice.
+        crate::repository::channels::record_message(
+            &mut conn,
+            crate::models::NewChannelMessage {
+                channel_id: ch,
+                external_id: "<m-reply-2@desk.test>".into(),
+                direction: crate::models::CHANNEL_DIRECTION_OUTBOUND.into(),
+                ticket_id: Some(ticket.id),
+                comment_id: None,
+                in_reply_to: None,
+                from_address: None,
+                author_user_uuid: None,
+                raw_metadata: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            thread_message_ids(&mut conn, ticket.id, "req@example.com", 20).unwrap(),
+            vec![
+                "<first@customer.test>",
+                "m-ack@desk.test",
+                "m-reply-1@desk.test",
+                "<second@customer.test>",
+                "m-reply-2@desk.test",
+            ]
+        );
+        assert_eq!(
+            thread_message_ids(&mut conn, ticket.id, "req@example.com", 2).unwrap(),
+            vec!["<second@customer.test>", "m-reply-2@desk.test"],
+            "the latest across both, still oldest first"
         );
     }
 
