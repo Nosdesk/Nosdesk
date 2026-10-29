@@ -89,10 +89,15 @@ const printer = vi.hoisted(() => ({
 }))
 vi.mock('@/utils/printPdf', () => ({ printPdfDocument: printer.print }))
 
-const platform = vi.hoisted(() => ({ tauri: false, openExternalUrl: vi.fn(async () => {}) }))
+const platform = vi.hoisted(() => ({
+  tauri: false,
+  openExternalUrl: vi.fn(async () => {}),
+  shareFile: vi.fn(async (_bytes: Uint8Array, _name: string, _type: string) => ({ completed: true })),
+}))
 vi.mock('@/platform', () => ({
   isTauriRuntime: () => platform.tauri,
   openExternalUrl: platform.openExternalUrl,
+  shareFile: platform.shareFile,
 }))
 
 import PDFViewer from '@/components/ticketComponents/PDFViewer.vue'
@@ -354,5 +359,28 @@ describe('PDFViewer print and download', () => {
     progress.value = { loaded: 512, total: null }
     await flushPromises()
     expect(wrapper!.find('[data-testid="pdf-download-status"]').text()).toBe('ticket-media-pdf-downloading-size')
+  })
+})
+
+describe('PDFViewer share in the app', () => {
+  it('hands the document to the share sheet in place of a download link', async () => {
+    platform.tauri = true
+    await mountViewer({ filename: 'invoice.pdf' })
+    const bytes = new Uint8Array([37, 80, 68, 70])
+    pdfDocument.value = { numPages: 5, getData: async () => bytes }
+    fake.state.eventBus!.dispatch('pagesinit')
+    await flushPromises()
+
+    expect(wrapper!.find('a[download]').exists()).toBe(false)
+    await wrapper!.find('[data-testid="pdf-share"]').trigger('click')
+    await flushPromises()
+    expect(platform.shareFile).toHaveBeenCalledWith(bytes, 'invoice.pdf', 'application/pdf')
+  })
+
+  it('keeps the download link on the web', async () => {
+    await mountViewer()
+    await openDocument()
+    expect(wrapper!.find('a[download]').exists()).toBe(true)
+    expect(wrapper!.find('[data-testid="pdf-share"]').exists()).toBe(false)
   })
 })

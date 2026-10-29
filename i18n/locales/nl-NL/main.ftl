@@ -5398,6 +5398,9 @@ ticket-media-pdf-downloading-size = Downloaden: { $size } MB
 ticket-media-pdf-page-landmark = Pagina { $page }
 ticket-media-pdf-annotation-type = { $type }-annotatie
 ticket-media-pdf-show-comment = Opmerking tonen
+# PDF delen in de app (machine, nog na te kijken door moedertaalspreker)
+ticket-media-pdf-share = Delen of bewaren
+ticket-media-pdf-share-failed = Kan het deelmenu niet openen
 
 # Ticket media: bestandsvoorvertoning (FilePreview)
 ticket-media-file-fallback = Bestand

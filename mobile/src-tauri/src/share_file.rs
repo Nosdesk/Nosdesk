@@ -6,14 +6,16 @@
 //! exposes, and on Android `app_cache_dir()` is the `Context.cacheDir` its
 //! `<cache-path>` resolves against.
 //!
-//! The bytes arrive as the raw invoke body so a large file doesn't go through a
-//! JSON object of numbers. iOS sends it as `InvokeBody::Raw`. Android's IPC has
-//! no request body and posts the message as JSON, so there the same
-//! `Uint8Array` arrives as a JSON array of numbers; both are accepted. The file
-//! name rides in a header, percent-encoded because header values must be ASCII.
+//! On iOS the bytes arrive as the raw invoke body (`InvokeBody::Raw`). Android's
+//! IPC has no request body and posts the message as JSON, where a `Uint8Array`
+//! would become an array of numbers, four or more bytes per byte of file; there
+//! the JS sends `{ base64 }` instead, a third larger. The file name rides in a
+//! header, percent-encoded because header values must be ASCII.
 
 use std::io;
 use std::path::{Path, PathBuf};
+
+use base64::Engine as _;
 
 use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Manager, Runtime};
@@ -62,15 +64,15 @@ pub async fn write_share_file<R: Runtime>(
 fn body_bytes(body: &InvokeBody) -> Result<Vec<u8>, String> {
     match body {
         InvokeBody::Raw(bytes) => Ok(bytes.clone()),
-        InvokeBody::Json(serde_json::Value::Array(items)) => items
-            .iter()
-            .map(|n| {
-                n.as_u64()
-                    .and_then(|n| u8::try_from(n).ok())
-                    .ok_or_else(|| "file body is not a byte array".to_string())
-            })
-            .collect(),
-        InvokeBody::Json(_) => Err("file body is not a byte array".into()),
+        InvokeBody::Json(value) => {
+            let encoded = value
+                .get("base64")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "file body is neither bytes nor { base64 }".to_string())?;
+            base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|e| format!("file body is not valid base64: {e}"))
+        }
     }
 }
 
@@ -164,11 +166,13 @@ mod tests {
             Ok(vec![37, 80, 68, 70])
         );
         assert_eq!(
-            body_bytes(&InvokeBody::Json(serde_json::json!([37, 80, 68, 70]))),
+            body_bytes(&InvokeBody::Json(serde_json::json!({ "base64": "JVBERg==" }))),
             Ok(vec![37, 80, 68, 70])
         );
-        assert!(body_bytes(&InvokeBody::Json(serde_json::json!([256]))).is_err());
-        assert!(body_bytes(&InvokeBody::Json(serde_json::json!({ "a": 1 }))).is_err());
+        assert!(body_bytes(&InvokeBody::Json(serde_json::json!({ "base64": "%%" }))).is_err());
+        // A number array (what a bare Uint8Array becomes on Android) is refused,
+        // so the 4x path can't come back unnoticed.
+        assert!(body_bytes(&InvokeBody::Json(serde_json::json!([37, 80]))).is_err());
     }
 
     #[test]
