@@ -22,6 +22,7 @@ import { notifySyncActions } from '@nosdesk/core/sync/observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
 import { authFetch } from '@/services/authFetch'
+import { sessionGone } from '@nosdesk/core/services/session'
 import { workspaceReady, workspaceReadyRef } from '@/services/activeWorkspace'
 import type {
   BootstrapLine,
@@ -92,9 +93,12 @@ function isHydrated(): boolean {
  *  hydrated AND a workspace is selected. `workspaceReady()` is the same gate the
  *  Colada queries use (true in host mode, or once the path-mode slug is set);
  *  without it the sync engine sends header-less requests that fail 400
- *  NoWorkspaceSelected, the 10s delta poll spamming them all session. */
+ *  NoWorkspaceSelected, the 10s delta poll spamming them all session.
+ *  And only while there is a session: once a refresh is refused, each poll
+ *  would otherwise 401 and ask the server for a refresh again, every 10s,
+ *  until something tore the runtime down. A sign-in resumes it. */
 function canFetchWorkspace(): boolean {
-  return isHydrated() && workspaceReady()
+  return isHydrated() && workspaceReady() && !sessionGone()
 }
 
 /**

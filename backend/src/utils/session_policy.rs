@@ -33,12 +33,23 @@ pub const MAX_MAX_LIFETIME_DAYS: i64 = 90;
 /// Concurrent sessions per user before the oldest is evicted.
 const MAX_SESSIONS_PER_USER: i64 = 10;
 
+/// How long a spent refresh token may be presented again and still rotate,
+/// rather than revoking the session as a replay. It covers a refresh whose
+/// answer was lost and a tab whose request was held up. RFC 9700 describes
+/// none; Okta defaults to 30 seconds and caps at 60, the ceiling the OAuth
+/// working group discussed for one.
+const DEFAULT_REFRESH_REUSE_GRACE_SECS: i64 = 30;
+pub const MAX_REFRESH_REUSE_GRACE_SECS: i64 = 60;
+
 lazy_static::lazy_static! {
     /// Resolved once at first use. `Config::from_source` validates the same
     /// variable at boot, so a bad value is reported there rather than silently
     /// clamped here at first login.
     static ref MAX_LIFETIME_DAYS: i64 =
         max_lifetime_days_from(std::env::var("NOSDESK_SESSION_MAX_LIFETIME_DAYS").ok().as_deref());
+    static ref REFRESH_REUSE_GRACE_SECS: i64 = refresh_reuse_grace_secs_from(
+        std::env::var("NOSDESK_REFRESH_REUSE_GRACE_SECS").ok().as_deref()
+    );
 }
 
 /// Parse and clamp the override. Shared with `Config` so boot-time validation
@@ -47,6 +58,19 @@ pub fn max_lifetime_days_from(raw: Option<&str>) -> i64 {
     raw.and_then(|v| v.trim().parse::<i64>().ok())
         .unwrap_or(DEFAULT_MAX_LIFETIME_DAYS)
         .clamp(MIN_MAX_LIFETIME_DAYS, MAX_MAX_LIFETIME_DAYS)
+}
+
+/// Parse and clamp the refresh reuse grace override, in seconds (0 turns the
+/// window off). Shared with `Config` like [`max_lifetime_days_from`].
+pub fn refresh_reuse_grace_secs_from(raw: Option<&str>) -> i64 {
+    raw.and_then(|v| v.trim().parse::<i64>().ok())
+        .unwrap_or(DEFAULT_REFRESH_REUSE_GRACE_SECS)
+        .clamp(0, MAX_REFRESH_REUSE_GRACE_SECS)
+}
+
+/// How long after a refresh token is spent it may be presented again.
+pub fn refresh_reuse_grace() -> Duration {
+    Duration::seconds(*REFRESH_REUSE_GRACE_SECS)
 }
 
 /// The sliding inactivity window applied to `expires_at` on login and refresh.
@@ -95,6 +119,19 @@ mod tests {
             DEFAULT_MAX_LIFETIME_DAYS
         );
         assert_eq!(max_lifetime_days_from(None), DEFAULT_MAX_LIFETIME_DAYS);
+    }
+
+    #[test]
+    fn the_refresh_reuse_grace_defaults_to_30_seconds_and_clamps_to_a_minute() {
+        assert_eq!(refresh_reuse_grace_secs_from(None), 30);
+        assert_eq!(refresh_reuse_grace_secs_from(Some("soon")), 30);
+        assert_eq!(refresh_reuse_grace_secs_from(Some(" 10 ")), 10);
+        assert_eq!(refresh_reuse_grace_secs_from(Some("0")), 0, "off");
+        assert_eq!(refresh_reuse_grace_secs_from(Some("-5")), 0);
+        assert_eq!(
+            refresh_reuse_grace_secs_from(Some("600")),
+            MAX_REFRESH_REUSE_GRACE_SECS
+        );
     }
 
     #[test]
