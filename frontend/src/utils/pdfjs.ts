@@ -144,8 +144,20 @@ export class PdfFetchError extends Error {
   }
 }
 
-/** Download a PDF's bytes. Throws PdfFetchError on an HTTP or network error. */
-export async function fetchPdfBytes(src: string): Promise<Uint8Array> {
+/** Bytes received so far, and the total when the server says. */
+export interface PdfDownloadProgress {
+  loaded: number
+  total: number | null
+}
+
+/**
+ * Download a PDF's bytes, reporting progress as they arrive. Throws
+ * PdfFetchError on an HTTP or network error.
+ */
+export async function fetchPdfBytes(
+  src: string,
+  onProgress?: (progress: PdfDownloadProgress) => void,
+): Promise<Uint8Array> {
   let response: Response
   try {
     // Default credentials: the web app's session cookie still goes with a
@@ -159,7 +171,31 @@ export async function fetchPdfBytes(src: string): Promise<Uint8Array> {
   if (!response.ok) {
     throw new PdfFetchError(response.status, `HTTP ${response.status}`)
   }
-  return new Uint8Array(await response.arrayBuffer())
+  if (!onProgress || !response.body) return new Uint8Array(await response.arrayBuffer())
+
+  const length = Number(response.headers.get('Content-Length'))
+  const total = Number.isFinite(length) && length > 0 ? length : null
+  const chunks: Uint8Array[] = []
+  let loaded = 0
+  const reader = response.body.getReader()
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      loaded += value.byteLength
+      onProgress({ loaded, total })
+    }
+  } catch (error) {
+    throw new PdfFetchError(null, error instanceof Error ? error.message : String(error))
+  }
+  const bytes = new Uint8Array(loaded)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
 }
 
 export type PdfFailure = 'not-found' | 'invalid' | 'network' | 'password-cancelled' | 'unknown'

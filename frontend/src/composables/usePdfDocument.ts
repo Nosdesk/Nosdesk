@@ -12,6 +12,7 @@ import {
   fetchPdfBytes,
   loadPdfjs,
   openPdfDocument,
+  type PdfDownloadProgress,
   type PdfPasswordRequest,
 } from '@/utils/pdfjs'
 
@@ -34,6 +35,8 @@ export function usePdfDocument(options: UsePdfDocumentOptions = {}) {
   const pdfDocument = shallowRef<PDFDocumentProxy | null>(null)
   const isLoading = ref(false)
   const error = shallowRef<unknown>(null)
+  /** The download's progress while the file is coming in. */
+  const progress = shallowRef<PdfDownloadProgress | null>(null)
 
   let generation = 0
   let disposed = false
@@ -44,11 +47,14 @@ export function usePdfDocument(options: UsePdfDocumentOptions = {}) {
     const isCurrent = () => !disposed && mine === generation
     isLoading.value = true
     error.value = null
+    progress.value = null
     await close()
 
     try {
       const pdfjs = await loadPdfjs()
-      const data = await fetchPdfBytes(src)
+      const data = await fetchPdfBytes(src, (p) => {
+        if (isCurrent()) progress.value = p
+      })
       if (!isCurrent()) return
 
       const doc = await awaitPdfDocument(openPdfDocument(pdfjs, data, { onPassword: options.onPassword }))
@@ -79,5 +85,5 @@ export function usePdfDocument(options: UsePdfDocumentOptions = {}) {
     void close()
   })
 
-  return { pdfDocument, isLoading, error, load, close }
+  return { pdfDocument, isLoading, error, progress, load, close }
 }

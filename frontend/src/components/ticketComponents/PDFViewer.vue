@@ -8,15 +8,18 @@ through its EventBus. -->
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
-import type { EventBus, PDFLinkService, PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs'
+import type { EventBus, PDFFindController, PDFLinkService, PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue'
 import IconButton from '@/components/common/IconButton.vue'
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
+import PdfFindBar, { type PdfFindRequest } from '@/components/ticketComponents/PdfFindBar.vue'
 import PdfPasswordPrompt from '@/components/ticketComponents/PdfPasswordPrompt.vue'
 import { usePdfDocument } from '@/composables/usePdfDocument'
 import { isTauriRuntime, openExternalUrl } from '@/platform'
 import { loadPdfjs, loadPdfjsViewer, type PdfPasswordReason } from '@/utils/pdfjs'
+import { printPdfDocument } from '@/utils/printPdf'
 
 interface Props {
   src: string
@@ -82,6 +85,7 @@ const viewerElement = ref<HTMLDivElement | null>(null)
 
 let viewer: PDFViewer | null = null
 let linkService: PDFLinkService | null = null
+let findController: PDFFindController | null = null
 let eventBus: EventBus | null = null
 let unmounted = false
 
@@ -98,6 +102,7 @@ const attachDocument = (doc: PDFDocumentProxy | null) => {
   if (!viewer || !linkService) return
   viewer.setDocument(doc as PDFDocumentProxy)
   linkService.setDocument(doc, null)
+  findController?.setDocument(doc as PDFDocumentProxy)
   pagesCount.value = doc?.numPages ?? 0
 }
 watch(pdf.pdfDocument, attachDocument, { flush: 'sync' })
@@ -112,6 +117,7 @@ onMounted(async () => {
     externalLinkTarget: lib.LinkTarget.BLANK,
     externalLinkRel: 'noopener noreferrer nofollow',
   })
+  findController = new lib.PDFFindController({ linkService, eventBus })
   // Read-only: forms show their values but can't be edited, the annotation
   // editor is off, and with no scripting manager a document's JavaScript
   // never runs. pdf.js caps canvas size itself on iOS and Android.
@@ -120,6 +126,7 @@ onMounted(async () => {
     viewer: viewerElement.value,
     eventBus,
     linkService,
+    findController,
     textLayerMode: 1,
     annotationMode: pdfjs.AnnotationMode.ENABLE,
     annotationEditorMode: pdfjs.AnnotationEditorType.DISABLE,
@@ -142,6 +149,16 @@ onMounted(async () => {
     scale.value = value
     scalePreset.value = presetValue && Number.isNaN(Number(presetValue)) ? presetValue : null
   })
+  eventBus.on('updatefindmatchescount', ({ matchesCount }: { matchesCount: FindMatches }) => {
+    findMatches.value = matchesCount
+  })
+  eventBus.on(
+    'updatefindcontrolstate',
+    ({ state, matchesCount }: { state: number; matchesCount?: FindMatches }) => {
+      findPending.value = state === lib.FindState.PENDING
+      if (matchesCount) findMatches.value = matchesCount
+    },
+  )
 
   attachDocument(pdf.pdfDocument.value)
 })
@@ -210,6 +227,26 @@ const onKeydown = (event: KeyboardEvent) => {
     emit('close')
     return
   }
+  // Cmd/Ctrl+F finds in the document, Cmd/Ctrl+G steps through matches, and
+  // Cmd/Ctrl+P prints it, in place of the browser doing so for the app.
+  if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+    const key = event.key.toLowerCase()
+    if (key === 'f' && pagesCount.value) {
+      event.preventDefault()
+      openFind()
+      return
+    }
+    if (key === 'g' && findOpen.value) {
+      event.preventDefault()
+      eventBus?.dispatch('find', { ...lastFind, source: null, type: 'again', findPrevious: event.shiftKey })
+      return
+    }
+    if (key === 'p' && canPrint) {
+      event.preventDefault()
+      void print()
+      return
+    }
+  }
   const target = event.target as HTMLElement | null
   if (target?.closest('input, textarea, select, [role="combobox"], [role="listbox"]')) return
   if (event.altKey) return
@@ -259,6 +296,79 @@ onBeforeUnmount(() => {
   container.value?.removeEventListener('wheel', onWheel)
 })
 
+// ── Find ────────────────────────────────────────────────────────
+interface FindMatches {
+  current: number
+  total: number
+}
+const findOpen = ref(false)
+const findMatches = ref<FindMatches>({ current: 0, total: 0 })
+const findPending = ref(false)
+const findBar = ref<InstanceType<typeof PdfFindBar> | null>(null)
+// The last search, for Cmd/Ctrl+G.
+let lastFind = { query: '', caseSensitive: false, entireWord: false, highlightAll: true, matchDiacritics: false }
+
+const openFind = () => {
+  if (findOpen.value) findBar.value?.focus()
+  else findOpen.value = true
+}
+const find = (request: PdfFindRequest) => {
+  lastFind = { ...lastFind, query: request.query, caseSensitive: request.caseSensitive }
+  eventBus?.dispatch('find', {
+    ...lastFind,
+    source: null,
+    type: request.again ? 'again' : '',
+    findPrevious: request.previous,
+  })
+}
+const closeFind = () => {
+  findOpen.value = false
+  findMatches.value = { current: 0, total: 0 }
+  eventBus?.dispatch('findbarclose', { source: null })
+  container.value?.focus({ preventScroll: true })
+}
+
+// ── Print ───────────────────────────────────────────────────────
+// The app's webview has no print dialog; there, print comes from the share
+// sheet.
+const canPrint = !isTauriRuntime()
+const printing = ref<{ done: number; total: number } | null>(null)
+let printAbort: AbortController | null = null
+const toast = useToastStore()
+
+const print = async () => {
+  const doc = pdf.pdfDocument.value
+  if (!doc || printing.value) return
+  printAbort = new AbortController()
+  printing.value = { done: 0, total: doc.numPages }
+  try {
+    await printPdfDocument(doc, {
+      signal: printAbort.signal,
+      onProgress: (done, total) => (printing.value = { done, total }),
+    })
+  } catch (error) {
+    console.error('PDF print failed:', error)
+    toast.error($t('ticket-media-pdf-print-failed'))
+  } finally {
+    printing.value = null
+    printAbort = null
+  }
+}
+const cancelPrint = () => printAbort?.abort()
+onBeforeUnmount(cancelPrint)
+
+// ── Download progress ───────────────────────────────────────────
+const downloadStatus = computed(() => {
+  const progress = pdf.progress.value
+  if (!progress) return $t('ticket-media-pdf-loading')
+  if (progress.total) {
+    return $t('ticket-media-pdf-downloading-percent', {
+      percent: Math.min(100, Math.floor((progress.loaded / progress.total) * 100)),
+    })
+  }
+  return $t('ticket-media-pdf-downloading-size', { size: (progress.loaded / 1_048_576).toFixed(1) })
+})
+
 const pageStatus = computed(() =>
   pagesCount.value ? $t('ticket-media-pdf-page-status', { page: pageNumber.value, total: pagesCount.value }) : '',
 )
@@ -291,8 +401,31 @@ const pageStatus = computed(() =>
       >
         <div class="flex flex-col items-center gap-3">
           <Spinner size="lg" class="text-accent" />
-          <span class="text-sm text-secondary">{{ $t('ticket-media-pdf-loading') }}</span>
+          <span class="text-sm text-secondary" data-testid="pdf-download-status">{{ downloadStatus }}</span>
         </div>
+      </div>
+
+      <PdfFindBar
+        v-if="findOpen"
+        ref="findBar"
+        class="absolute top-2 right-2 z-10"
+        :matches="findMatches"
+        :pending="findPending"
+        @find="find"
+        @close="closeFind"
+      />
+
+      <div
+        v-if="printing"
+        class="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 px-3 py-2 rounded-lg border border-default bg-surface shadow-lg text-sm text-secondary"
+        role="status"
+        data-testid="pdf-print-status"
+      >
+        <Spinner size="sm" />
+        <span>{{ $t('ticket-media-pdf-print-preparing', { done: printing.done, total: printing.total }) }}</span>
+        <button type="button" class="text-accent hover:underline" @click="cancelPrint">
+          {{ $t('ticket-media-pdf-print-cancel') }}
+        </button>
       </div>
     </div>
 
@@ -344,26 +477,47 @@ const pageStatus = computed(() =>
             :disabled="!pagesCount"
             @click="zoomIn"
           />
-          <IconButton
-            icon="rotate"
-            size="sm"
-            :label="$t('ticket-media-pdf-rotate')"
-            :disabled="!pagesCount"
-            @click="rotate"
-          />
+          <!-- Phones turn the device instead; the wrapper carries the
+               breakpoint, since IconButton's own display class wins. -->
+          <span class="hidden sm:inline-flex">
+            <IconButton
+              icon="rotate"
+              size="sm"
+              :label="$t('ticket-media-pdf-rotate')"
+              :disabled="!pagesCount"
+              @click="rotate"
+            />
+          </span>
         </div>
 
-        <!-- Download -->
-        <a
-          :href="src"
-          target="_blank"
-          :download="filename"
-          class="p-1.5 rounded text-secondary hover:bg-surface-hover"
-          :title="$t('ticket-media-pdf-download')"
-          :aria-label="$t('ticket-media-pdf-download')"
-        >
-          <Icon name="download" />
-        </a>
+        <!-- Find, print, download -->
+        <div class="flex items-center gap-1">
+          <IconButton
+            icon="search"
+            size="sm"
+            :label="$t('ticket-media-pdf-find')"
+            :disabled="!pagesCount"
+            @click="openFind"
+          />
+          <IconButton
+            v-if="canPrint"
+            icon="print"
+            size="sm"
+            :label="$t('ticket-media-pdf-print')"
+            :disabled="!pagesCount || !!printing"
+            @click="print"
+          />
+          <a
+            :href="src"
+            target="_blank"
+            :download="filename"
+            class="p-1.5 rounded text-secondary hover:bg-surface-hover"
+            :title="$t('ticket-media-pdf-download')"
+            :aria-label="$t('ticket-media-pdf-download')"
+          >
+            <Icon name="download" />
+          </a>
+        </div>
       </div>
     </div>
 

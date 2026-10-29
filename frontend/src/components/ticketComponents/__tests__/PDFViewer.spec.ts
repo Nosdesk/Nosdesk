@@ -8,12 +8,17 @@ import { flushPromises, type VueWrapper } from '@vue/test-utils'
 const fake = vi.hoisted(() => {
   class EventBus {
     handlers = new Map<string, Array<(event: Record<string, unknown>) => void>>()
+    dispatched: Array<[string, Record<string, unknown>]> = []
     on(name: string, handler: (event: Record<string, unknown>) => void) {
       this.handlers.set(name, [...(this.handlers.get(name) ?? []), handler])
     }
     dispatch(name: string, event: Record<string, unknown> = {}) {
+      this.dispatched.push([name, event])
       for (const handler of this.handlers.get(name) ?? []) handler(event)
     }
+  }
+  class PDFFindController {
+    setDocument = vi.fn()
   }
   const state = {
     viewer: null as null | InstanceType<typeof PDFViewer>,
@@ -44,7 +49,14 @@ const fake = vi.hoisted(() => {
       state.viewer = this
     }
   }
-  const lib = { EventBus, PDFLinkService, PDFViewer, LinkTarget: { BLANK: 2 } }
+  const lib = {
+    EventBus,
+    PDFLinkService,
+    PDFViewer,
+    PDFFindController,
+    LinkTarget: { BLANK: 2 },
+    FindState: { FOUND: 0, NOT_FOUND: 1, WRAPPED: 2, PENDING: 3 },
+  }
   const pdfjs = { AnnotationMode: { ENABLE: 1 }, AnnotationEditorType: { DISABLE: -1 } }
   return { state, lib, pdfjs }
 })
@@ -59,13 +71,22 @@ const loader = vi.hoisted(() => ({
   load: null as null | ((src: string) => Promise<void>),
 }))
 const pdfDocument = shallowRef<unknown>(null)
+const isLoading = ref(false)
+const progress = shallowRef<{ loaded: number; total: number | null } | null>(null)
 vi.mock('@/composables/usePdfDocument', () => ({
   usePdfDocument: (options: { onPassword: typeof loader.onPassword }) => {
     loader.onPassword = options.onPassword
     loader.load = vi.fn(async () => {})
-    return { pdfDocument, isLoading: ref(false), error: shallowRef(null), load: loader.load, close: async () => {} }
+    return { pdfDocument, isLoading, error: shallowRef(null), progress, load: loader.load, close: async () => {} }
   },
 }))
+
+const printer = vi.hoisted(() => ({
+  print: vi.fn(async (_doc: unknown, options: { onProgress?: (done: number, total: number) => void }) => {
+    options.onProgress?.(1, 5)
+  }),
+}))
+vi.mock('@/utils/printPdf', () => ({ printPdfDocument: printer.print }))
 
 const platform = vi.hoisted(() => ({ tauri: false, openExternalUrl: vi.fn(async () => {}) }))
 vi.mock('@/platform', () => ({
@@ -105,6 +126,8 @@ const press = (key: string, init: KeyboardEventInit = {}) =>
 beforeEach(() => {
   events.length = 0
   pdfDocument.value = null
+  isLoading.value = false
+  progress.value = null
   platform.tauri = false
 })
 afterEach(() => {
@@ -246,5 +269,86 @@ describe('PDFViewer password', () => {
     wrapper!.unmount()
     wrapper = null
     await expect(answer).resolves.toBeNull()
+  })
+})
+
+describe('PDFViewer find', () => {
+  const dispatched = (name: string) => fake.state.eventBus!.dispatched.filter(([n]) => n === name).map(([, e]) => e)
+
+  it('opens on Cmd or Ctrl+F, and searches as you type', async () => {
+    await mountViewer()
+    await openDocument()
+    const keydown = new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true })
+    scroller().element.dispatchEvent(keydown)
+    expect(keydown.defaultPrevented).toBe(true)
+    await flushPromises()
+
+    const input = wrapper!.find('[data-testid="pdf-find-input"]')
+    expect(document.activeElement).toBe(input.element)
+    await input.setValue('invoice')
+    expect(dispatched('find').at(-1)).toMatchObject({ query: 'invoice', type: '', caseSensitive: false, highlightAll: true })
+
+    await input.trigger('keydown', { key: 'Enter', shiftKey: true })
+    expect(dispatched('find').at(-1)).toMatchObject({ query: 'invoice', type: 'again', findPrevious: true })
+  })
+
+  it('shows how many matches pdf.js found', async () => {
+    await mountViewer()
+    await openDocument()
+    press('f', { ctrlKey: true })
+    await flushPromises()
+    await wrapper!.find('[data-testid="pdf-find-input"]').setValue('total')
+    fake.state.eventBus!.dispatch('updatefindcontrolstate', { state: 0, matchesCount: { current: 2, total: 7 } })
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="pdf-find-status"]').text()).toBe('ticket-media-pdf-find-count')
+    fake.state.eventBus!.dispatch('updatefindcontrolstate', { state: 1, matchesCount: { current: 0, total: 0 } })
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="pdf-find-status"]').text()).toBe('ticket-media-pdf-find-none')
+  })
+
+  it('closes the find bar on Escape, and only the find bar', async () => {
+    await mountViewer()
+    await openDocument()
+    press('f', { ctrlKey: true })
+    await flushPromises()
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    const seen: string[] = []
+    window.addEventListener('keydown', () => seen.push('window'), { once: true })
+    wrapper!.find('[data-testid="pdf-find-input"]').element.dispatchEvent(escape)
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="pdf-find-input"]').exists()).toBe(false)
+    expect(dispatched('findbarclose')).toHaveLength(1)
+    expect(events).not.toContain('close')
+    // The overlay's dialog listens on window; the Escape never reaches it.
+    expect(seen).toEqual([])
+  })
+})
+
+describe('PDFViewer print and download', () => {
+  it('prints the document from the toolbar or Cmd/Ctrl+P, and not in the app', async () => {
+    await mountViewer()
+    await openDocument()
+    const keydown = new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true, cancelable: true })
+    scroller().element.dispatchEvent(keydown)
+    expect(keydown.defaultPrevented).toBe(true)
+    await flushPromises()
+    expect(printer.print).toHaveBeenCalledWith({ numPages: 5 }, expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    wrapper!.unmount()
+
+    platform.tauri = true
+    await mountViewer()
+    await openDocument()
+    expect(wrapper!.find('button[aria-label="ticket-media-pdf-print"]').exists()).toBe(false)
+  })
+
+  it('shows how much of a large file has arrived', async () => {
+    await mountViewer()
+    isLoading.value = true
+    progress.value = { loaded: 512, total: 2048 }
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="pdf-download-status"]').text()).toBe('ticket-media-pdf-downloading-percent')
+    progress.value = { loaded: 512, total: null }
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="pdf-download-status"]').text()).toBe('ticket-media-pdf-downloading-size')
   })
 })

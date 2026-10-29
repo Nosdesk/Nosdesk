@@ -4847,6 +4847,20 @@ ticket-media-pdf-zoom-auto = Automatic
 ticket-media-pdf-zoom-page-width = Page width
 ticket-media-pdf-zoom-page-fit = Whole page
 ticket-media-pdf-rotate = Rotate
+ticket-media-pdf-find = Find in document
+ticket-media-pdf-find-placeholder = Find
+ticket-media-pdf-find-count = { $current } of { $total }
+ticket-media-pdf-find-none = No matches
+ticket-media-pdf-find-previous = Previous match
+ticket-media-pdf-find-next = Next match
+ticket-media-pdf-find-match-case = Match case
+ticket-media-pdf-find-close = Close find
+ticket-media-pdf-print = Print
+ticket-media-pdf-print-preparing = Preparing to print: page { $done } of { $total }
+ticket-media-pdf-print-cancel = Cancel
+ticket-media-pdf-print-failed = Couldn't print the PDF
+ticket-media-pdf-downloading-percent = Downloading: { $percent }%
+ticket-media-pdf-downloading-size = Downloading: { $size } MB
 
 # Ticket media: generic file preview (FilePreview)
 ticket-media-file-fallback = File
