@@ -5335,6 +5335,8 @@ ticket-media-attachment-audio = Audio.{ $ext }
 ticket-media-attachment-image = Image.{ $ext }
 ticket-media-attachment-file = Fichier.{ $ext }
 ticket-media-attachment-download = Télécharger la pièce jointe
+# Ouvrir une pièce jointe (machine, à relire par un locuteur natif)
+ticket-media-attachment-open = Ouvrir { $name }
 ticket-media-attachment-download-image = Télécharger l'image
 ticket-media-attachment-download-animated = Télécharger l'image animée
 ticket-media-attachment-download-pdf = Télécharger le PDF

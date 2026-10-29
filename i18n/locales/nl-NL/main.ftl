@@ -5325,6 +5325,8 @@ ticket-media-attachment-audio = Audio.{ $ext }
 ticket-media-attachment-image = Afbeelding.{ $ext }
 ticket-media-attachment-file = Bestand.{ $ext }
 ticket-media-attachment-download = Bijlage downloaden
+# Bijlage openen (machine, nog na te kijken door moedertaalspreker)
+ticket-media-attachment-open = { $name } openen
 ticket-media-attachment-download-image = Afbeelding downloaden
 ticket-media-attachment-download-animated = Geanimeerde afbeelding downloaden
 ticket-media-attachment-download-pdf = PDF downloaden
