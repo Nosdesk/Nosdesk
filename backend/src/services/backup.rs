@@ -214,6 +214,12 @@ pub enum BackupError {
     RestoreInProgress,
     /// Upgrading an older backup's rows to this build's schema failed.
     UpgradeFailed(String),
+    /// A restore failed and was rolled back, and putting the ticket number
+    /// counters back as they were failed too.
+    TicketNumbersNotRepaired {
+        restore: Box<BackupError>,
+        repair: diesel::result::Error,
+    },
 }
 
 impl BackupError {
@@ -265,6 +271,14 @@ impl std::fmt::Display for BackupError {
                  the result before restoring again."
             ),
             BackupError::UpgradeFailed(e) => write!(f, "Upgrading the backup failed: {e}"),
+            BackupError::TicketNumbersNotRepaired { restore, repair } => write!(
+                f,
+                "{restore}. The restore was rolled back, but the ticket number counters \
+                 couldn't be put back as they were ({repair}), so new tickets may be refused \
+                 as duplicates. Restore again, or run \
+                 `SELECT public.sync_ticket_number_sequences();` as the migration role while \
+                 nothing is opening tickets."
+            ),
         }
     }
 }
@@ -999,6 +1013,10 @@ pub fn restore_database(
             tracing::info!(count = stats.records_restored, "restore: finished");
             Ok(stats)
         }
+        Ok(Err(e @ BackupError::TicketNumbersNotRepaired { .. })) => {
+            tracing::error!(error = %e, "restore: failed, and the ticket number counters weren't put back");
+            Err(e)
+        }
         Ok(Err(e)) => {
             tracing::warn!(error = %e, "restore: failed; the database is as it was");
             Err(e)
@@ -1240,6 +1258,13 @@ pub(crate) fn load_archive(
         table_payloads.push((table_name.clone(), content, row_count));
     }
 
+    // Read before the transaction, so it takes no lock the restore then holds.
+    let highest = if into == LoadInto::Scratch {
+        None
+    } else {
+        Some(highest_ticket_numbers(conn)?)
+    };
+
     // ---- Single transaction with FK + trigger
     //      suppression. First row failure rolls back
     //      the entire restore.
@@ -1265,49 +1290,199 @@ pub(crate) fn load_archive(
                 .map_err(BackupError::DatabaseError)?;
         }
 
-        let mut stats = RestoreStats::default();
+        let counters = match highest {
+            Some(highest) => Some(TicketCounters::take(c, highest)?),
+            None => None,
+        };
+        // The load runs under a savepoint, so a failure can put the ticket
+        // counters back while this transaction still keeps tickets from being
+        // opened.
+        let loaded = c.transaction::<RestoreStats, BackupError, _>(|c| {
+            load_tables(c, &table_payloads, into, chunk_bytes)
+        });
+        match (loaded, counters) {
+            (Err(e), Some(counters)) => Err(counters.put_back(c, e)),
+            (loaded, _) => loaded,
+        }
+    })
+}
 
-        for (table_name, payload, rows_attempted) in &table_payloads {
-            if *rows_attempted == 0 {
-                stats.per_table.push(TableRestoreResult {
-                    table: table_name.clone(),
-                    rows_attempted: 0,
-                    rows_loaded: 0,
-                });
-                continue;
-            }
-            let rows_loaded = restore_table_data_in_chunks(c, table_name, payload, chunk_bytes)?;
-            if rows_loaded > 0 {
-                stats.tables_restored += 1;
-                stats.records_restored += rows_loaded;
-            }
+/// The rows of `table_payloads` into their emptied tables, then the sequences
+/// that number them. [`load_archive`]'s transaction.
+fn load_tables(
+    c: &mut DbConnection,
+    table_payloads: &[(String, String, usize)],
+    into: LoadInto,
+    chunk_bytes: usize,
+) -> Result<RestoreStats, BackupError> {
+    use diesel::prelude::*;
+    use diesel::sql_query;
+
+    let mut stats = RestoreStats::default();
+
+    for (table_name, payload, rows_attempted) in table_payloads {
+        if *rows_attempted == 0 {
             stats.per_table.push(TableRestoreResult {
                 table: table_name.clone(),
-                rows_attempted: *rows_attempted,
-                rows_loaded,
+                rows_attempted: 0,
+                rows_loaded: 0,
             });
+            continue;
         }
+        let rows_loaded = restore_table_data_in_chunks(c, table_name, payload, chunk_bytes)?;
+        if rows_loaded > 0 {
+            stats.tables_restored += 1;
+            stats.records_restored += rows_loaded;
+        }
+        stats.per_table.push(TableRestoreResult {
+            table: table_name.clone(),
+            rows_attempted: *rows_attempted,
+            rows_loaded,
+        });
+    }
 
-        // setval is transactional in PG 18; rollback unwinds it.
-        reset_sequences(c)?;
-        // Ticket numbers come from per-workspace sequences that the reset above
-        // doesn't see; the rows arrived with their numbers while triggers were
-        // off, so move each workspace's sequence past its highest. A scratch
-        // database at an older schema may predate them; its migrations number
-        // the tickets, and the live load that follows runs this.
-        if into != LoadInto::Scratch {
-            sql_query("SELECT public.sync_ticket_number_sequences()")
-                .execute(c)
-                .map_err(BackupError::DatabaseError)?;
+    // A rollback unwinds the setval on a sequence the TRUNCATE restarted;
+    // any other it leaves past its table's live rows.
+    reset_sequences(c)?;
+    // Ticket numbers come from per-workspace sequences that the reset above
+    // doesn't see; the rows arrived with their numbers while triggers were
+    // off, so move each workspace's sequence past its highest. A rollback
+    // doesn't unwind this setval: see `TicketCounters`. A scratch database
+    // at an older schema may predate them; its migrations number the
+    // tickets, and the live load that follows runs this.
+    if into != LoadInto::Scratch {
+        sql_query("SELECT public.sync_ticket_number_sequences()")
+            .execute(c)
+            .map_err(BackupError::DatabaseError)?;
+    }
+    if into == LoadInto::LiveUpgraded {
+        // The rows carry the schema fingerprint of the server that made
+        // the backup; this server's is the one that holds now.
+        crate::sync::system_meta::set_schema_hash(c, SERVER_SCHEMA_HASH)
+            .map_err(BackupError::DatabaseError)?;
+    }
+    Ok(stats)
+}
+
+/// Each workspace's highest ticket number.
+fn highest_ticket_numbers(
+    conn: &mut DbConnection,
+) -> Result<std::collections::HashMap<i32, i64>, BackupError> {
+    use diesel::prelude::*;
+    use diesel::sql_types::{BigInt, Integer};
+
+    #[derive(QueryableByName)]
+    struct Highest {
+        #[diesel(sql_type = Integer)]
+        workspace_id: i32,
+        #[diesel(sql_type = BigInt)]
+        top: i64,
+    }
+    let rows: Vec<Highest> = diesel::sql_query(
+        "SELECT workspace_id, max(number)::bigint AS top FROM public.tickets GROUP BY workspace_id",
+    )
+    .load(conn)
+    .map_err(BackupError::DatabaseError)?;
+    Ok(rows.into_iter().map(|r| (r.workspace_id, r.top)).collect())
+}
+
+/// The last number a counter handed out (`last`, `None` before its first),
+/// against the highest number its workspace's tickets hold: the number it
+/// should count on from, 0 for none.
+fn counts_on_from(last: Option<i64>, highest: Option<i64>) -> i64 {
+    last.unwrap_or(0).max(highest.unwrap_or(0)).max(0)
+}
+
+/// The ticket number counters (`ticket_numbers.workspace_<id>`) as they stood
+/// before a restore, to put back if it fails. The restore moves them to the
+/// backup's numbers, and a rollback doesn't unwind a setval on a sequence the
+/// transaction didn't create: left there, a counter below a workspace's live
+/// numbers hands out ones its tickets hold, and one above skips numbers.
+///
+/// Taken once the restore's TRUNCATE holds `tickets`, so no ticket is opened
+/// between taking and putting back. Each counter goes back to the last number
+/// it handed out, or the highest its workspace's tickets hold if that is
+/// higher, never lower: a deleted ticket's number may still be quoted.
+struct TicketCounters(Vec<(String, i64)>);
+
+impl TicketCounters {
+    /// `highest` is [`highest_ticket_numbers`], read before the transaction:
+    /// a ticket opened since has moved its counter past it.
+    fn take(
+        c: &mut DbConnection,
+        highest: std::collections::HashMap<i32, i64>,
+    ) -> Result<Self, BackupError> {
+        use diesel::prelude::*;
+        use diesel::sql_types::{BigInt, Bool, Nullable, Text};
+
+        #[derive(QueryableByName)]
+        struct Counter {
+            #[diesel(sql_type = Text)]
+            name: String,
+            #[diesel(sql_type = Nullable<BigInt>)]
+            last: Option<i64>,
+            #[diesel(sql_type = Bool)]
+            readable: bool,
         }
-        if into == LoadInto::LiveUpgraded {
-            // The rows carry the schema fingerprint of the server that made
-            // the backup; this server's is the one that holds now.
-            crate::sync::system_meta::set_schema_hash(c, SERVER_SCHEMA_HASH)
-                .map_err(BackupError::DatabaseError)?;
+        // A no-op behind the TRUNCATE; it holds tickets when the backup
+        // has none to truncate.
+        diesel::sql_query("LOCK TABLE public.tickets IN SHARE MODE")
+            .execute(c)
+            .map_err(BackupError::DatabaseError)?;
+        let counters: Vec<Counter> = diesel::sql_query(
+            "SELECT s.relname::text AS name, \
+                    pg_sequence_last_value(s.oid) AS last, \
+                    has_sequence_privilege(s.oid, 'SELECT, USAGE') AS readable \
+             FROM pg_class s JOIN pg_namespace n ON n.oid = s.relnamespace \
+             WHERE n.nspname = 'ticket_numbers' AND s.relkind = 'S'",
+        )
+        .load(c)
+        .map_err(BackupError::DatabaseError)?;
+        counters
+            .into_iter()
+            .map(|counter| {
+                // pg_sequence_last_value is also NULL for a sequence the role
+                // can't read, which would pass for one never used.
+                if !counter.readable {
+                    return Err(BackupError::DatabaseError(
+                        diesel::result::Error::QueryBuilderError(
+                            format!("can't read ticket number counter {}", counter.name).into(),
+                        ),
+                    ));
+                }
+                let workspace = counter
+                    .name
+                    .strip_prefix("workspace_")
+                    .and_then(|id| id.parse::<i32>().ok());
+                let highest = workspace.and_then(|ws| highest.get(&ws).copied());
+                Ok((counter.name, counts_on_from(counter.last, highest)))
+            })
+            .collect::<Result<_, _>>()
+            .map(TicketCounters)
+    }
+
+    /// Put the counters back after `failed` rolled the load back to its
+    /// savepoint. Returns `failed`, or, when that fails too, both.
+    fn put_back(self, c: &mut DbConnection, failed: BackupError) -> BackupError {
+        use diesel::prelude::*;
+        use diesel::sql_types::{Array, BigInt, Text};
+
+        let (names, from): (Vec<String>, Vec<i64>) = self.0.into_iter().unzip();
+        let put = diesel::sql_query(
+            "SELECT setval(format('ticket_numbers.%I', u.name)::regclass, greatest(u.n, 1), u.n > 0) \
+             FROM unnest($1::text[], $2::bigint[]) AS u(name, n)",
+        )
+        .bind::<Array<Text>, _>(&names)
+        .bind::<Array<BigInt>, _>(&from)
+        .execute(c);
+        match put {
+            Ok(_) => failed,
+            Err(repair) => BackupError::TicketNumbersNotRepaired {
+                restore: Box::new(failed),
+                repair,
+            },
         }
-        Ok(stats)
-    })
+    }
 }
 
 /// Re-align every column-owned sequence to MAX(col)+1. Sourced
@@ -1487,6 +1662,49 @@ fn restore_rows(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_counter_goes_back_to_its_last_number_or_its_highest_ticket() {
+        assert_eq!(
+            counts_on_from(None, None),
+            0,
+            "an unused counter stays unused"
+        );
+        assert_eq!(
+            counts_on_from(Some(5), Some(3)),
+            5,
+            "never below a number handed out"
+        );
+        assert_eq!(
+            counts_on_from(Some(3), Some(7)),
+            7,
+            "always past the tickets held"
+        );
+        assert_eq!(counts_on_from(None, Some(4)), 4);
+        assert_eq!(
+            counts_on_from(Some(6), None),
+            6,
+            "a workspace whose tickets were deleted"
+        );
+    }
+
+    #[test]
+    fn a_failed_counter_repair_names_both_failures() {
+        let e = BackupError::TicketNumbersNotRepaired {
+            restore: Box::new(BackupError::CorruptedBackup("row 501".into())),
+            repair: diesel::result::Error::QueryBuilderError("connection lost".into()),
+        };
+        let message = e.to_string();
+        assert!(
+            message.starts_with("Corrupted backup: row 501. "),
+            "{message}"
+        );
+        assert!(message.contains("connection lost"), "{message}");
+        assert!(
+            message.contains("sync_ticket_number_sequences"),
+            "{message}"
+        );
+    }
 
     // ── zip-slip guard ───────────────────────────────────────────
 
