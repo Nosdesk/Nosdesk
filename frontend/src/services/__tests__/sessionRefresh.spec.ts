@@ -254,3 +254,43 @@ describe('a refusal that arrives after another tab signed in', () => {
     expect(sessionGone()).toBe(true)
   })
 })
+
+describe('the console, when an access token expires', () => {
+  /** Boot the web platform with API requests answered by `answer` and the
+   *  refresh renewed; the logger's error and warn calls. */
+  async function bootLogging(answer: (call: number) => number) {
+    const axios = (await import('axios')).default
+    vi.spyOn(axios, 'post').mockImplementation((async () => ({ status: 200, data: {} })) as never)
+    const { configurePlatform } = await import('@/platform')
+    await configurePlatform()
+    const { logger } = await import('@nosdesk/core/utils/logger')
+    const error = vi.spyOn(logger, 'error')
+    const warn = vi.spyOn(logger, 'warn')
+    const { default: apiClient } = await import('@nosdesk/core/apiClient')
+    let calls = 0
+    apiClient.defaults.adapter = async (config) => {
+      const status = answer(calls++)
+      if (status >= 400) throw httpError(status, config)
+      return { status, statusText: '', data: {}, headers: {}, config } as AxiosResponse
+    }
+    return { apiClient, error, warn }
+  }
+
+  it('logs no error for a 401 that is renewed and retried', async () => {
+    const { apiClient, error, warn } = await bootLogging((call) => (call === 0 ? 401 : 200))
+
+    await apiClient.get('/sync/delta')
+
+    expect(error).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('warns once when the retry is refused again', async () => {
+    const { apiClient, error, warn } = await bootLogging(() => 401)
+
+    await expect(apiClient.get('/collaboration/token')).rejects.toBeTruthy()
+
+    expect(error).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+})
