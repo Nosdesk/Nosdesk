@@ -272,13 +272,8 @@ pub fn enqueue_for_comment(
                             .chain(participants.into_iter().map(|(u, e)| (Some(u), e)));
                         let mut first = None;
                         for (to_uuid, to_email) in copies {
-                            let earlier = crate::repository::outbound_emails::thread_message_ids(
-                                conn,
-                                ticket.id,
-                                &to_email,
-                                DIRECT_THREAD_DEPTH,
-                            )?;
-                            let (in_reply_to, references) = direct_thread_headers(&earlier);
+                            let (in_reply_to, references) =
+                                thread_headers_for(conn, ticket.id, &to_email)?;
                             let body =
                                 with_request_link(conn, &ticket, to_uuid, base.clone(), true);
                             let body = with_security_note(body, note.as_deref());
@@ -365,6 +360,8 @@ pub fn enqueue_for_comment(
                     .chain(participants.into_iter().map(|(u, e)| (Some(u), e)));
                 let mut first = None;
                 for (to_uuid, to_email) in copies {
+                    let (in_reply_to, references) =
+                        thread_headers_for(conn, thread.ticket_id, &to_email)?;
                     let body = with_request_link(conn, &ticket, to_uuid, base.clone(), false);
                     let body = with_security_note(body, note.as_deref());
                     let body =
@@ -377,8 +374,8 @@ pub fn enqueue_for_comment(
                         subject.clone(),
                         body,
                         format_outbound_message_id(thread.ticket_id, comment.id, &reply_domain),
-                        thread.external_thread_id.clone(),
-                        thread.references.clone(),
+                        in_reply_to,
+                        references,
                         headers_json.clone(),
                     );
                     // One queue row per comment carries its id (a unique key);
@@ -497,17 +494,30 @@ fn with_security_note(
     }
 }
 
-/// The queue row for a reply to the requester. Agent replies are conversation
-/// mail: workspace identity, but transactional (no List-Unsubscribe on a human
-/// reply).
-#[allow(clippy::too_many_arguments)]
-/// How many earlier emails a plain-mail reply lists in `References`.
-const DIRECT_THREAD_DEPTH: i64 = 20;
+/// How many earlier emails a reply lists in `References`.
+const THREAD_DEPTH: i64 = 20;
+
+/// `In-Reply-To` and `References` for a reply to `recipient` about the ticket:
+/// the latest email in their thread, and up to [`THREAD_DEPTH`] of them. The
+/// thread is the mail they were sent about it and the mail it received.
+fn thread_headers_for(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    recipient: &str,
+) -> diesel::QueryResult<(Option<String>, Vec<String>)> {
+    let earlier = crate::repository::outbound_emails::thread_message_ids(
+        conn,
+        ticket_id,
+        recipient,
+        THREAD_DEPTH,
+    )?;
+    Ok(thread_headers(&earlier))
+}
 
 /// `In-Reply-To` and `References` for an email following `earlier` (stored
 /// Message-IDs, oldest first): the latest one, and all of them, each in
 /// angle brackets as the headers carry them.
-fn direct_thread_headers(earlier: &[String]) -> (Option<String>, Vec<String>) {
+fn thread_headers(earlier: &[String]) -> (Option<String>, Vec<String>) {
     let bracketed: Vec<String> = earlier
         .iter()
         .map(|id| id.trim().trim_start_matches('<').trim_end_matches('>'))
@@ -517,6 +527,10 @@ fn direct_thread_headers(earlier: &[String]) -> (Option<String>, Vec<String>) {
     (bracketed.last().cloned(), bracketed)
 }
 
+/// The queue row for a reply to the requester. Agent replies are conversation
+/// mail: workspace identity, but transactional (no List-Unsubscribe on a human
+/// reply).
+#[allow(clippy::too_many_arguments)]
 fn reply_row(
     channel_id: Option<i32>,
     ticket_id: i32,
@@ -605,14 +619,94 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_mail_reply_follows_the_recipients_earlier_mail() {
-        assert_eq!(direct_thread_headers(&[]), (None, vec![]));
+    fn a_reply_follows_the_recipients_earlier_mail() {
+        assert_eq!(thread_headers(&[]), (None, vec![]));
         assert_eq!(
-            direct_thread_headers(&["a@desk.test".into(), "<b@desk.test>".into()]),
+            thread_headers(&["a@desk.test".into(), "<b@desk.test>".into()]),
             (
                 Some("<b@desk.test>".to_string()),
                 vec!["<a@desk.test>".to_string(), "<b@desk.test>".to_string()]
             )
+        );
+    }
+
+    /// A reply through the workspace's email channel on a ticket no email
+    /// opened: it follows the earlier reply, then the customer's email once
+    /// one arrives. QA batch O: these went out with neither header.
+    #[test]
+    fn a_reply_through_a_channel_follows_the_thread_so_far() {
+        use crate::test_helpers::TestFixtures;
+        use diesel::RunQueryDsl;
+        let mut conn = setup_test_connection();
+        let channel = TestFixtures::create_channel(&mut conn, "email_managed").id;
+        let ticket = TestFixtures::create_ticket(&mut conn, "From the portal", None, None);
+
+        assert_eq!(
+            thread_headers_for(&mut conn, ticket.id, "req@example.com").unwrap(),
+            (None, vec![]),
+            "the first reply starts the thread"
+        );
+
+        let first = crate::repository::outbound_emails::enqueue(
+            &mut conn,
+            crate::models::NewOutboundEmail {
+                channel_id: Some(channel),
+                ticket_id: Some(ticket.id),
+                comment_id: None,
+                recipient: "Req@Example.com".into(),
+                subject: "[#1] From the portal".into(),
+                body_text: "First reply".into(),
+                body_html: None,
+                message_id: "reply-1@desk.test".into(),
+                in_reply_to: None,
+                references_list: vec![],
+                headers_json: serde_json::json!({}),
+                correlation_id: None,
+                idempotency_key: None,
+                sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE
+                    .to_string(),
+                mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
+            },
+        )
+        .unwrap();
+        diesel::sql_query(
+            "UPDATE outbound_emails SET created_at = now() - interval '10 minutes' WHERE id = $1",
+        )
+        .bind::<diesel::sql_types::BigInt, _>(first.id)
+        .execute(&mut conn)
+        .unwrap();
+        assert_eq!(
+            thread_headers_for(&mut conn, ticket.id, "req@example.com").unwrap(),
+            (
+                Some("<reply-1@desk.test>".to_string()),
+                vec!["<reply-1@desk.test>".to_string()]
+            ),
+        );
+
+        channels_repo::record_message(
+            &mut conn,
+            crate::models::NewChannelMessage {
+                channel_id: channel,
+                external_id: "<answer@customer.test>".into(),
+                direction: crate::models::CHANNEL_DIRECTION_INBOUND.into(),
+                ticket_id: Some(ticket.id),
+                comment_id: None,
+                in_reply_to: Some("<reply-1@desk.test>".into()),
+                from_address: Some("req@example.com".into()),
+                author_user_uuid: None,
+                raw_metadata: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            thread_headers_for(&mut conn, ticket.id, "req@example.com").unwrap(),
+            (
+                Some("<answer@customer.test>".to_string()),
+                vec![
+                    "<reply-1@desk.test>".to_string(),
+                    "<answer@customer.test>".to_string()
+                ]
+            ),
         );
     }
 
