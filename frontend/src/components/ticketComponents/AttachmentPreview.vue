@@ -221,7 +221,9 @@ onMounted(async () => {
   if (isPdfFile(props.attachment.name)) {
     // Try server-generated thumbnail first
     const hasServerThumb = await tryLoadServerThumbnail();
-    if (hasServerThumb) return;
+    // A compact tile is too small to be worth downloading and rendering the
+    // whole PDF for; without a server thumbnail it shows the PDF icon.
+    if (hasServerThumb || props.compact) return;
 
     // Fall back to client-side generation
     // Use Intersection Observer to lazy load PDF thumbnails
@@ -323,6 +325,9 @@ const getDisplayName = (filename: string): string => {
   return filename;
 };
 
+// The PDF card is 250px wide at most.
+const THUMBNAIL_WIDTH_PX = 500;
+
 const isPdfThumbnailLoading = ref<boolean>(false);
 const pdfThumbnailSrc = ref<string | null>(null); // Separate variable for PDF thumbnails
 
@@ -342,23 +347,29 @@ const generatePdfThumbnail = async () => {
     const data = await fetchPdfBytes(authenticatedUrl.value);
     debugLog('PDF fetched successfully', { size: data.byteLength });
 
-    const pdf = await openPdfDocument(pdfjs, data).promise;
-    const page = await pdf.getPage(1);
+    const loadingTask = openPdfDocument(pdfjs, data);
+    try {
+      const pdf = await loadingTask.promise;
+      const page = await pdf.getPage(1);
 
-    const scale = 1.5; // Slightly lower scale for thumbnails
-    const viewport = page.getViewport({ scale });
+      // Twice the card's width, for sharp edges on high-density screens.
+      const width = page.getViewport({ scale: 1 }).width;
+      const viewport = page.getViewport({ scale: THUMBNAIL_WIDTH_PX / width });
 
-    const canvas = document.createElement('canvas');
+      const canvas = document.createElement('canvas');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
 
-    canvas.height = viewport.height;
-    canvas.width = viewport.width;
-
-    await page.render({ canvas, viewport }).promise;
+      await page.render({ canvas, viewport }).promise;
+      // A data URL (CSP allows data: images), WebP where the browser can
+      // encode it and PNG otherwise.
+      pdfThumbnailSrc.value = canvas.toDataURL('image/webp', 0.85);
+    } finally {
+      // Ends the document's worker; pdf.js starts one per document.
+      void loadingTask.destroy();
+    }
 
     debugLog('PDF page rendered to canvas');
-
-    // Use data URL instead of blob URL to comply with CSP
-    pdfThumbnailSrc.value = canvas.toDataURL('image/png', 0.85);
     showPlaceholder.value = false;
     isPdfThumbnailLoading.value = false;
     debugLog('PDF thumbnail created successfully');
@@ -381,8 +392,6 @@ const generatePdfThumbnail = async () => {
   <div
     v-if="compact"
     class="relative group w-20 h-20 rounded-md overflow-hidden bg-surface-alt flex-shrink-0"
-    :class="opensInViewer ? 'cursor-pointer' : ''"
-    @click="opensInViewer && openImagePreview(authenticatedUrl)"
   >
     <AssetImg
       v-if="attachmentType === 'image' && !needsConversion(attachment.name)"
@@ -391,12 +400,27 @@ const generatePdfThumbnail = async () => {
       loading="lazy"
       class="w-full h-full object-cover"
     />
+    <AssetImg
+      v-else-if="attachmentType === 'pdf' && pdfThumbnailSrc"
+      :src="pdfThumbnailSrc"
+      :alt="attachment.name"
+      loading="lazy"
+      class="w-full h-full object-cover object-top bg-white"
+    />
     <div v-else class="w-full h-full flex flex-col items-center justify-center gap-1 p-1 text-center">
       <Icon :name="attachmentType === 'pdf' ? 'book' : attachmentType === 'video' ? 'eye' : 'paperclip'" class="w-5 h-5 text-tertiary" />
       <span class="text-3xs text-tertiary leading-tight line-clamp-2 break-all">{{ getDisplayName(attachment.name) }}</span>
     </div>
+    <button
+      v-if="opensInViewer"
+      type="button"
+      class="absolute inset-0 z-10 rounded-md cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+      :title="getDisplayName(attachment.name)"
+      :aria-label="$t('ticket-media-attachment-open', { name: getDisplayName(attachment.name) })"
+      @click="openImagePreview(authenticatedUrl)"
+    ></button>
     <a
-      v-if="!opensInViewer"
+      v-else
       :href="authenticatedUrl"
       target="_blank"
       rel="noopener"
@@ -522,9 +546,11 @@ const generatePdfThumbnail = async () => {
           <Spinner />
         </div>
 
-        <!-- Preview hover overlay -->
-        <div
-          class="absolute inset-0 bg-surface/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer z-25"
+        <!-- Preview overlay: shows on hover and keyboard focus -->
+        <button
+          type="button"
+          class="absolute inset-0 bg-surface/30 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer z-25 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+          :aria-label="$t('ticket-media-attachment-open', { name: getDisplayName(attachment.name) })"
           @click.stop="openImagePreview(authenticatedUrl)"
         >
           <svg class="w-8 h-8 text-primary" viewBox="0 0 20 20" fill="currentColor">
@@ -539,7 +565,7 @@ const generatePdfThumbnail = async () => {
           >
             {{ $t('ticket-media-attachment-animated-badge') }}
           </div>
-        </div>
+        </button>
         <div
           class="absolute top-0 left-0 p-2 bg-gradient-to-b from-surface/80 to-transparent w-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-25"
         >
@@ -617,16 +643,18 @@ const generatePdfThumbnail = async () => {
           </div>
         </div>
 
-        <!-- Preview hover overlay -->
-        <div
-          class="absolute inset-0 bg-surface/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer z-25"
+        <!-- Preview overlay: shows on hover and keyboard focus -->
+        <button
+          type="button"
+          class="absolute inset-0 bg-surface/30 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer z-25 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+          :aria-label="$t('ticket-media-attachment-open', { name: getDisplayName(attachment.name) })"
           @click.stop="openImagePreview(authenticatedUrl)"
         >
           <svg class="w-12 h-12 text-primary" viewBox="0 0 20 20" fill="currentColor">
             <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
             <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
           </svg>
-        </div>
+        </button>
         
         <!-- Download button for PDF -->
         <div 

@@ -4796,6 +4796,7 @@ ticket-media-attachment-audio = Audio.{ $ext }
 ticket-media-attachment-image = Image.{ $ext }
 ticket-media-attachment-file = File.{ $ext }
 ticket-media-attachment-download = Download attachment
+ticket-media-attachment-open = Open { $name }
 ticket-media-attachment-download-image = Download image
 ticket-media-attachment-download-animated = Download animated image
 ticket-media-attachment-download-pdf = Download PDF
