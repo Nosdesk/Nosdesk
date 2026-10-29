@@ -4787,9 +4787,9 @@ editor-revisions-confirm-note = Note: A new revision will be created so you can 
 editor-revisions-confirm-cancel = Cancel
 editor-revisions-confirm-restore = Restore
 # Ticket media: attachment preview (AttachmentPreview)
-ticket-media-attachment-voice-message = Voice Message
+ticket-media-attachment-voice-message = Voice message
 ticket-media-attachment-file-fallback = File
-ticket-media-attachment-pdf-document = PDF Document.{ $ext }
+ticket-media-attachment-pdf-document = PDF document.{ $ext }
 ticket-media-attachment-video = Video.{ $ext }
 ticket-media-attachment-audio = Audio.{ $ext }
 ticket-media-attachment-image = Image.{ $ext }
@@ -4806,11 +4806,12 @@ ticket-media-attachment-delete-pdf = Delete PDF
 ticket-media-attachment-delete-file = Delete file
 ticket-media-attachment-format-unsupported = This image format is not supported by your browser
 ticket-media-attachment-loading-pdf = Loading PDF
+ticket-media-attachment-pdf-label = PDF
 ticket-media-attachment-animated-badge = ANIMATED
 ticket-media-attachment-cancel = Cancel
-ticket-media-attachment-submit-video = Submit Video
-ticket-media-attachment-preview-title-animated = Animated Image Preview
-ticket-media-attachment-preview-title-image = Image Preview
+ticket-media-attachment-submit-video = Submit video
+ticket-media-attachment-preview-title-animated = Animated image preview
+ticket-media-attachment-preview-title-image = Image preview
 
 # Ticket media: audio player (AudioPlayer)
 ticket-media-audio-play = Play
@@ -4861,16 +4862,19 @@ ticket-media-pdf-print-cancel = Cancel
 ticket-media-pdf-print-failed = Couldn't print the PDF
 ticket-media-pdf-downloading-percent = Downloading: { $percent }%
 ticket-media-pdf-downloading-size = Downloading: { $size } MB
+ticket-media-pdf-page-landmark = Page { $page }
+ticket-media-pdf-annotation-type = { $type } annotation
+ticket-media-pdf-show-comment = Show comment
 
 # Ticket media: generic file preview (FilePreview)
 ticket-media-file-fallback = File
-ticket-media-file-pdf = PDF Document.{ $ext }
-ticket-media-file-word = Word Document.{ $ext }
-ticket-media-file-excel = Excel Spreadsheet.{ $ext }
+ticket-media-file-pdf = PDF document.{ $ext }
+ticket-media-file-word = Word document.{ $ext }
+ticket-media-file-excel = Excel spreadsheet.{ $ext }
 ticket-media-file-powerpoint = Presentation.{ $ext }
 ticket-media-file-image = Image.{ $ext }
 ticket-media-file-archive = Archive.{ $ext }
-ticket-media-file-text = Text Document.{ $ext }
+ticket-media-file-text = Text document.{ $ext }
 ticket-media-file-generic = File.{ $ext }
 ticket-media-file-delete = Delete file
 ticket-media-file-download = Download

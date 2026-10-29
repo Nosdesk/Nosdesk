@@ -5404,6 +5404,10 @@ ticket-media-pdf-print-cancel = Annuler
 ticket-media-pdf-print-failed = Impossible d'imprimer le PDF
 ticket-media-pdf-downloading-percent = Téléchargement : { $percent } %
 ticket-media-pdf-downloading-size = Téléchargement : { $size } Mo
+# Libellés des pages et annotations PDF (machine, à relire par un locuteur natif)
+ticket-media-pdf-page-landmark = Page { $page }
+ticket-media-pdf-annotation-type = Annotation { $type }
+ticket-media-pdf-show-comment = Afficher le commentaire
 
 # Ticket media: aperçu de fichier (FilePreview)
 ticket-media-file-fallback = Fichier

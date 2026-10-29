@@ -5394,6 +5394,10 @@ ticket-media-pdf-print-cancel = Annuleren
 ticket-media-pdf-print-failed = Kan de PDF niet afdrukken
 ticket-media-pdf-downloading-percent = Downloaden: { $percent }%
 ticket-media-pdf-downloading-size = Downloaden: { $size } MB
+# Labels van PDF-pagina's en annotaties (machine, nog na te kijken door moedertaalspreker)
+ticket-media-pdf-page-landmark = Pagina { $page }
+ticket-media-pdf-annotation-type = { $type }-annotatie
+ticket-media-pdf-show-comment = Opmerking tonen
 
 # Ticket media: bestandsvoorvertoning (FilePreview)
 ticket-media-file-fallback = Bestand

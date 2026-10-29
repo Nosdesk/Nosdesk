@@ -18,7 +18,8 @@ import PdfFindBar, { type PdfFindRequest } from '@/components/ticketComponents/P
 import PdfPasswordPrompt from '@/components/ticketComponents/PdfPasswordPrompt.vue'
 import { usePdfDocument } from '@/composables/usePdfDocument'
 import { isTauriRuntime, openExternalUrl } from '@/platform'
-import { loadPdfjs, loadPdfjsViewer, type PdfPasswordReason } from '@/utils/pdfjs'
+import { loadPdfjs, loadPdfjsViewer, pdfjsImagesUrl, type PdfPasswordReason } from '@/utils/pdfjs'
+import { createPdfjsL10n } from '@/utils/pdfjsL10n'
 import { printPdfDocument } from '@/utils/printPdf'
 
 interface Props {
@@ -86,6 +87,8 @@ const viewerElement = ref<HTMLDivElement | null>(null)
 let viewer: PDFViewer | null = null
 let linkService: PDFLinkService | null = null
 let findController: PDFFindController | null = null
+// pdf.js's page and annotation labels, from our catalogue.
+const l10n = createPdfjsL10n((key, args) => $t(key, args), document.documentElement.lang || navigator.language)
 let eventBus: EventBus | null = null
 let unmounted = false
 
@@ -131,8 +134,14 @@ onMounted(async () => {
     annotationMode: pdfjs.AnnotationMode.ENABLE,
     annotationEditorMode: pdfjs.AnnotationEditorType.DISABLE,
     removePageBorders: true,
+    imageResourcesPath: pdfjsImagesUrl(pdfjs.version),
+    // Typed as pdf.js's own L10n class, whose private fields no adapter can
+    // have; pdf.js calls only the methods createPdfjsL10n provides.
+    l10n: l10n as unknown as ConstructorParameters<typeof PDFViewer>[0]['l10n'],
   })
   linkService.setViewer(viewer)
+  // pdf.js translates its own container only when it made the L10n itself.
+  void l10n.translate(container.value)
 
   eventBus.on('pagesinit', () => {
     if (!viewer) return
@@ -167,6 +176,7 @@ onBeforeUnmount(() => {
   unmounted = true
   answerPassword(null)
   attachDocument(null)
+  void l10n.destroy()
 })
 
 // ── Navigation ──────────────────────────────────────────────────

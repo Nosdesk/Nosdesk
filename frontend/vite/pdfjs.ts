@@ -3,15 +3,16 @@
  */
 import { cpSync, createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, normalize } from "node:path";
+import { basename, dirname, join, normalize } from "node:path";
 import postcss, { type Container, type Root } from "postcss";
 import type { Plugin } from "vite";
 
 const pdfjsRoot = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
 
 /**
- * pdf.js loads its image decoders (wasm), CMaps, standard fonts and ICC
- * profiles at runtime from the URLs `src/utils/pdfjs.ts` passes it. This
+ * pdf.js loads its image decoders (wasm), CMaps, standard fonts, ICC
+ * profiles and annotation icons at runtime from the URLs `src/utils/pdfjs.ts`
+ * passes it. This
  * copies them from the installed pdfjs-dist into `/pdfjs/<version>/`, read
  * from the same package.json the runtime's `version` comes from, so a new
  * pdf.js never meets a previous release's decoders through the immutable
@@ -21,9 +22,20 @@ const pdfjsRoot = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/pac
  */
 export function pdfjsAssets(): Plugin {
   const { version } = JSON.parse(readFileSync(join(pdfjsRoot, "package.json"), "utf8")) as { version: string };
-  const folders = ["wasm", "cmaps", "standard_fonts", "iccs"];
+  // Folder in the published `/pdfjs/<version>/` → folder in pdfjs-dist.
+  const folders: Record<string, string> = {
+    wasm: "wasm",
+    cmaps: "cmaps",
+    standard_fonts: "standard_fonts",
+    iccs: "iccs",
+    images: "web/images",
+  };
   const prefix = `/pdfjs/${version}/`;
-  const copied = (source: string) => !source.includes("quickjs");
+  // From `web/images`, only the icons a text annotation shows (the rest are
+  // pdf.js's own toolbar, which the app doesn't use); elsewhere everything
+  // but quickjs.
+  const copied = (folder: string, name: string) =>
+    folder === "images" ? /^annotation-[\w-]+\.svg$/.test(name) : !name.startsWith("quickjs");
   let outDir = "dist";
 
   return {
@@ -36,8 +48,12 @@ export function pdfjsAssets(): Plugin {
     closeBundle() {
       const target = join(outDir, "pdfjs", version);
       if (existsSync(target)) return;
-      for (const folder of folders) {
-        cpSync(join(pdfjsRoot, folder), join(target, folder), { recursive: true, filter: copied });
+      for (const [published, source] of Object.entries(folders)) {
+        const from = join(pdfjsRoot, source);
+        cpSync(from, join(target, published), {
+          recursive: true,
+          filter: (file) => file === from || copied(published, basename(file)),
+        });
       }
     },
     configureServer(server) {
@@ -45,12 +61,14 @@ export function pdfjsAssets(): Plugin {
         const path = req.url?.split("?")[0] ?? "";
         if (!path.startsWith(prefix)) return next();
         const relative = normalize(path.slice(prefix.length));
-        const file = join(pdfjsRoot, relative);
-        const folder = relative.split(/[\\/]/)[0];
-        if (!folders.includes(folder) || !copied(relative) || !existsSync(file) || !statSync(file).isFile()) {
+        const [folder, ...rest] = relative.split(/[\\/]/);
+        const source = Object.hasOwn(folders, folder) ? folders[folder] : undefined;
+        const file = source ? join(pdfjsRoot, source, ...rest) : "";
+        if (!source || !copied(folder, basename(file)) || !existsSync(file) || !statSync(file).isFile()) {
           return next();
         }
         if (file.endsWith(".wasm")) res.setHeader("Content-Type", "application/wasm");
+        if (file.endsWith(".svg")) res.setHeader("Content-Type", "image/svg+xml");
         createReadStream(file).pipe(res);
       });
     },
