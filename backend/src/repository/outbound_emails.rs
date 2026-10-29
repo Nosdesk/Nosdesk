@@ -706,7 +706,7 @@ pub fn thread_message_ids(
     // At the same instant, the email received comes before the one replying.
     let mut ids: Vec<String> = diesel::sql_query(
         "SELECT id FROM ( \
-             SELECT message_id AS id, created_at AS at, 1 AS sent, id AS seq \
+             SELECT COALESCE(provider_message_id, message_id) AS id, created_at AS at, 1 AS sent, id AS seq \
              FROM outbound_emails \
              WHERE ticket_id = $1 AND lower(recipient) = $2 AND status NOT IN ($3, $4) \
              UNION ALL \
@@ -729,6 +729,26 @@ pub fn thread_message_ids(
     .collect();
     ids.reverse();
     Ok(ids)
+}
+
+/// The Message-IDs our earlier mail was delivered under, keyed by the ones we
+/// stamped, for those whose relay replaced them (SES). A reply queued before
+/// the mail it follows went out names our id; the worker swaps in the
+/// delivered one at send time.
+pub fn delivered_message_ids(
+    conn: &mut DbConnection,
+    ids: &[String],
+) -> QueryResult<std::collections::HashMap<String, String>> {
+    use crate::schema::outbound_emails::dsl as oe;
+    if ids.is_empty() {
+        return Ok(Default::default());
+    }
+    oe::outbound_emails
+        .filter(oe::message_id.eq_any(ids))
+        .filter(oe::provider_message_id.is_not_null())
+        .select((oe::message_id, oe::provider_message_id.assume_not_null()))
+        .load::<(String, String)>(conn)
+        .map(|rows| rows.into_iter().collect())
 }
 
 #[cfg(test)]
@@ -927,6 +947,43 @@ mod tests {
             thread_message_ids(&mut conn, ticket.id, "req@example.com", 2).unwrap(),
             vec!["<second@customer.test>", "m-reply-2@desk.test"],
             "the latest across both, still oldest first"
+        );
+    }
+
+    #[test]
+    fn a_thread_names_mail_by_the_message_id_it_was_delivered_under() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let ticket = TestFixtures::create_ticket(&mut conn, "Thread", None, None);
+        let row = |n: &str| NewOutboundEmail {
+            ticket_id: Some(ticket.id),
+            recipient: "req@example.com".into(),
+            message_id: format!("m-{n}@desk.test"),
+            ..fresh_row(ch, n)
+        };
+        // SES delivered the first under its own id; the second is still queued.
+        let first = enqueue(&mut conn, row("1")).unwrap();
+        mark_sent(
+            &mut conn,
+            first.id,
+            Some("0108-1@ap-southeast-2.amazonses.com"),
+        )
+        .unwrap();
+        enqueue(&mut conn, row("2")).unwrap();
+
+        assert_eq!(
+            thread_message_ids(&mut conn, ticket.id, "req@example.com", 20).unwrap(),
+            vec!["0108-1@ap-southeast-2.amazonses.com", "m-2@desk.test"]
+        );
+        let ids = ["m-1@desk.test", "m-2@desk.test", "elsewhere@desk.test"].map(String::from);
+        assert_eq!(
+            delivered_message_ids(&mut conn, &ids).unwrap(),
+            [(
+                "m-1@desk.test".to_string(),
+                "0108-1@ap-southeast-2.amazonses.com".to_string()
+            )]
+            .into_iter()
+            .collect()
         );
     }
 

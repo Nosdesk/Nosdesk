@@ -1230,11 +1230,40 @@ fn dkim_sign_message(message: &mut Message, signer: &DkimSigner) -> Result<(), S
     Ok(())
 }
 
-/// Outcome of a transport send. Carries a provider message id when a
-/// backend returns one; `None` for SMTP, where the RFC Message-ID is the
-/// only identity.
+/// Outcome of a transport send. `provider_message_id` is the Message-ID the
+/// relay delivered the mail under when it replaced ours (Amazon SES does),
+/// bare like `message_id`; `None` when ours went out unchanged.
 pub struct SendOutcome {
     pub provider_message_id: Option<String>,
+}
+
+/// The Message-ID Amazon SES delivered a message under. SES replaces the
+/// Message-ID of mail sent through its SMTP interface with
+/// `<id>@<region>.amazonses.com` (`email.amazonses.com` in us-east-1) and
+/// names the id in its `250 Ok <id>` reply. `None` for any other relay or
+/// reply.
+fn ses_delivered_message_id(smtp_host: &str, reply: &str) -> Option<String> {
+    let host = smtp_host.trim().trim_end_matches('.').to_ascii_lowercase();
+    let region = host
+        .strip_prefix("email-smtp.")
+        .or_else(|| host.strip_prefix("email-smtp-fips."))?
+        .strip_suffix(".amazonaws.com")?;
+    if region.is_empty()
+        || !region
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return None;
+    }
+    let id = reply.trim().strip_prefix("Ok ")?.trim();
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+        return None;
+    }
+    let domain = match region {
+        "us-east-1" => "email.amazonses.com".to_string(),
+        _ => format!("{region}.amazonses.com"),
+    };
+    Some(format!("{id}@{domain}"))
 }
 
 /// A structured SMTP send failure. Replaces the old stringly-typed error so the
@@ -1442,7 +1471,7 @@ impl EmailTransport for SmtpEmailTransport {
         // round trip block the calling thread, for up to the timeout. Run it on
         // the blocking pool so a slow or dead relay never stalls an async
         // worker (the queue worker and the admin test send both land here).
-        tokio::task::spawn_blocking(move || match envelope {
+        let response = tokio::task::spawn_blocking(move || match envelope {
             Some(envelope) => mailer.send_raw(&envelope, &message.formatted()),
             None => mailer.send(&message),
         })
@@ -1450,7 +1479,9 @@ impl EmailTransport for SmtpEmailTransport {
         .map_err(|e| SmtpError::Build(format!("send task failed: {e}")))?
         .map_err(SmtpError::from_lettre)?;
         Ok(SendOutcome {
-            provider_message_id: None,
+            provider_message_id: response
+                .first_line()
+                .and_then(|reply| ses_delivered_message_id(&self.config.smtp_host, reply)),
         })
     }
 
@@ -2175,20 +2206,21 @@ impl EmailService {
     ///
     /// `in_reply_to` / `references` must already carry angle brackets;
     /// they are joined verbatim into the header values.
+    ///
+    /// Returns the Message-ID the relay delivered it under when that isn't
+    /// `message_id` (see [`SendOutcome`]); record that one as the thread's.
     pub async fn send_ticket_reply(
         &self,
         outbound: OutboundEmailMessage<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<Option<String>, String> {
         self.send_outbound(&outbound)
             .await
-            .map(|_| ())
+            .map(|outcome| outcome.provider_message_id)
             .map_err(|e| e.to_string())
     }
 
-    /// Send and return the transport outcome. SMTP carries no provider
-    /// message id (`None`); the field exists for a future transport that
-    /// returns one. `send_ticket_reply` is the thin wrapper for callers
-    /// that don't need the outcome (auto-ack, IMAP).
+    /// Send and return the transport outcome. `send_ticket_reply` is the
+    /// thin wrapper for the direct senders (auto-ack, IMAP).
     pub async fn send_outbound(
         &self,
         outbound: &OutboundEmailMessage<'_>,
@@ -3444,6 +3476,58 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             .block_on(disabled.send_ticket_reply(outbound))
             .unwrap_err();
         assert!(err.contains("not configured"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn ses_names_the_message_id_it_delivered_under() {
+        let id = "010801a18944bc95-2c5455fd-372c-4072-936c-1852c4e74a00-000000";
+        // As delivered from ap-southeast-2 in QA batch P.
+        assert_eq!(
+            ses_delivered_message_id(
+                "email-smtp.ap-southeast-2.amazonaws.com",
+                &format!("Ok {id}")
+            ),
+            Some(format!("{id}@ap-southeast-2.amazonses.com"))
+        );
+        assert_eq!(
+            ses_delivered_message_id("Email-SMTP.us-east-1.amazonaws.com.", &format!("Ok {id}")),
+            Some(format!("{id}@email.amazonses.com"))
+        );
+        assert_eq!(
+            ses_delivered_message_id(
+                "email-smtp-fips.us-gov-west-1.amazonaws.com",
+                &format!("Ok {id}")
+            ),
+            Some(format!("{id}@us-gov-west-1.amazonses.com"))
+        );
+    }
+
+    #[test]
+    fn other_relays_and_replies_keep_our_message_id() {
+        let id = "010801a18944bc95-000000";
+        assert_eq!(
+            ses_delivered_message_id("smtp.purelymail.com", &format!("Ok {id}")),
+            None
+        );
+        assert_eq!(
+            ses_delivered_message_id("email-smtp.evil.example.com", &format!("Ok {id}")),
+            None
+        );
+        assert_eq!(
+            ses_delivered_message_id(
+                "email-smtp.ap-southeast-2.amazonaws.com",
+                "Ok: queued as 4ZxY"
+            ),
+            None
+        );
+        assert_eq!(
+            ses_delivered_message_id("email-smtp.ap-southeast-2.amazonaws.com", "Ok"),
+            None
+        );
+        assert_eq!(
+            ses_delivered_message_id("email-smtp.ap-southeast-2.amazonaws.com", "2.0.0 Ok"),
+            None
+        );
     }
 
     /// The plain-text part of every letter, one per builder.
