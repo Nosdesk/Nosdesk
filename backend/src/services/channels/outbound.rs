@@ -255,7 +255,7 @@ pub fn enqueue_for_comment(
                         // the default sender, no Reply-To, no quoted history.
                         // Each copy continues the thread its recipient already
                         // has for this ticket, so replies group in their inbox.
-                        let base = super::reply_body::ReplyBody::from_comment(&comment);
+                        let base = super::reply_body::ReplyBody::for_email(conn, &comment);
                         let base = super::signature::append_signature_for_user(
                             conn,
                             comment.user_uuid,
@@ -323,7 +323,7 @@ pub fn enqueue_for_comment(
                 //   <tech's new reply>
                 //   <signature>
                 //   <quoted prior message>
-                let base = super::reply_body::ReplyBody::from_comment(&comment);
+                let base = super::reply_body::ReplyBody::for_email(conn, &comment);
                 let base =
                     super::signature::append_signature_for_user(conn, comment.user_uuid, base);
 

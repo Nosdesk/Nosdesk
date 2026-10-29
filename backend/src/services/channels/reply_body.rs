@@ -12,7 +12,7 @@
 //! in `outbound.rs` reads as a top-down recipe:
 //!
 //! ```ignore
-//! let body = ReplyBody::from_comment(comment)
+//! let body = ReplyBody::for_email(conn, comment)
 //!     .append_signature(conn, comment.user_uuid)
 //!     .prepend_quote(conn, channel, ticket);
 //! ```
@@ -54,6 +54,26 @@ impl ReplyBody {
                     html: plaintext_to_html(&comment.content),
                 }
             }
+        }
+    }
+
+    /// Seed both forms from a comment about to go out by email. As
+    /// [`Self::from_comment`], with links to other tickets reading as their
+    /// numbers, which the email has no card to show.
+    pub fn for_email(conn: &mut crate::db::DbConnection, comment: &Comment) -> Self {
+        match comment.content_format {
+            ContentFormat::Html => {
+                let html = super::ticket_links::with_ticket_numbers(
+                    conn,
+                    comment.workspace_id,
+                    &comment.content,
+                );
+                Self {
+                    text: html_to_plaintext(&html),
+                    html,
+                }
+            }
+            ContentFormat::Plaintext | ContentFormat::Markdown => Self::from_comment(comment),
         }
     }
 
