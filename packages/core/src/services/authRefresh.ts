@@ -15,6 +15,7 @@
  */
 import axios from 'axios'
 import { apiBaseUrl, transport, type RefreshResult } from '../transport'
+import { ACCESS_EXPIRES_IN_HEADER, noteAccessExpiry } from './sessionSchedule'
 
 let inFlight: Promise<RefreshResult> | null = null
 
@@ -29,11 +30,12 @@ export function refreshAccessToken(): Promise<RefreshResult> {
   if (inFlight) return inFlight
   inFlight = (async (): Promise<RefreshResult> => {
     try {
-      await axios.post(
+      const res = await axios.post(
         `${apiBaseUrl()}/auth/refresh`,
         {},
         { withCredentials: transport().auth.useCredentials },
       )
+      noteAccessExpiry(res?.headers?.[ACCESS_EXPIRES_IN_HEADER])
       return 'renewed'
     } catch (err) {
       return axios.isAxiosError(err) && err.response?.status === 401 ? 'rejected' : 'unavailable'

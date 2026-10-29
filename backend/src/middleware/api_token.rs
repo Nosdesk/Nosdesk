@@ -349,7 +349,7 @@ pub(crate) async fn authenticate<B: MessageBody>(
                     &req, &mut conn, &claims, bound,
                 )?;
                 drop(conn);
-                return finalize(req, next, claims).await;
+                return finalize(req, next, claims, false).await;
             }
             // `nsk_` on a cookie-only route: ignore it and fall through to the
             // cookie below, so API tokens can't authenticate here.
@@ -376,7 +376,7 @@ pub(crate) async fn authenticate<B: MessageBody>(
 
             crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
             drop(conn);
-            return finalize(req, next, claims).await;
+            return finalize(req, next, claims, true).await;
         }
     }
 
@@ -415,18 +415,21 @@ pub(crate) async fn authenticate<B: MessageBody>(
 
     crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
     drop(conn);
-    finalize(req, next, claims).await
+    finalize(req, next, claims, true).await
 }
 
 /// Common tail: release the pooled connection BEFORE running the handler
 /// (holding it across `next.call()` pins one connection per request, and since
 /// handlers acquire their own, a concurrent burst near the pool size deadlocks),
 /// then publish the actor context + claims and run the handler. The caller drops
-/// `conn` before calling this.
+/// `conn` before calling this. A `session` token's response says how long it
+/// has left ([`crate::utils::jwt::ACCESS_EXPIRES_IN_HEADER`]); an API token's
+/// doesn't, since nothing refreshes one.
 async fn finalize<B: MessageBody>(
     req: ServiceRequest,
     next: Next<B>,
     claims: Claims,
+    session: bool,
 ) -> Result<ServiceResponse<B>, Error> {
     // Scope enforcement runs here, at the one point every authenticated
     // request passes, rather than in a middleware each new scope has to
@@ -442,8 +445,22 @@ async fn finalize<B: MessageBody>(
         ));
     }
     request_context::populate(&req, &claims);
+    let expires_at = claims.exp;
     req.extensions_mut().insert(claims);
-    next.call(req).await
+    let mut res = next.call(req).await?;
+    if session {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as usize)
+            .unwrap_or(0);
+        res.headers_mut().insert(
+            actix_web::http::header::HeaderName::from_static(
+                crate::utils::jwt::ACCESS_EXPIRES_IN_HEADER,
+            ),
+            actix_web::http::header::HeaderValue::from(expires_at.saturating_sub(now)),
+        );
+    }
+    Ok(res)
 }
 
 /// Cookie OR session-JWT bearer OR `nsk_` API token. For routes that allow

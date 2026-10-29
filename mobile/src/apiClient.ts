@@ -18,6 +18,7 @@ import {
   transport,
 } from '@nosdesk/core/transport'
 import { refreshSession } from '@nosdesk/core/services/session'
+import { ACCESS_EXPIRES_IN_HEADER, noteAccessExpiry } from '@nosdesk/core/services/sessionSchedule'
 import axios, { CanceledError } from 'axios'
 import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { tauriHttpAdapter } from './tauriHttpAdapter'
@@ -85,7 +86,9 @@ export function setupApiClient(): void {
     (response) => {
       // A response to a request sent under a previous workspace must not land.
       const refused = refuseResponse(response.config)
-      return refused ? Promise.reject(new CanceledError(refused)) : holdIssuedSession(response)
+      if (refused) return Promise.reject(new CanceledError(refused))
+      noteAccessExpiry(response.headers[ACCESS_EXPIRES_IN_HEADER])
+      return holdIssuedSession(response)
     },
     async (error: AxiosError) => {
       if (axios.isCancel(error)) return Promise.reject(error)

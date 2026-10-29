@@ -20,6 +20,7 @@ import {
   type RefreshResult,
 } from '@nosdesk/core/transport'
 import { resetInstanceConfig } from '@nosdesk/core/services/instanceConfig'
+import { ACCESS_EXPIRES_IN_HEADER, noteAccessExpiry } from '@nosdesk/core/services/sessionSchedule'
 import { apiBaseUrlFor, collabWsBaseUrlFor, storeServer } from './serverConfig'
 import type { SecureStore } from './secureStore'
 
@@ -118,6 +119,7 @@ async function rotateTokens(): Promise<RefreshResult> {
     if (refreshToken !== sent) return 'unavailable'
     if (res.status === 401) return 'rejected'
     if (!res.ok) return 'unavailable'
+    noteAccessExpiry(res.headers.get(ACCESS_EXPIRES_IN_HEADER))
     const data = (await res.json()) as BearerTokens
     if (refreshToken !== sent || !data.access_token || !data.refresh_token) return 'unavailable'
     accessToken = data.access_token

@@ -45,7 +45,9 @@ pub fn create_access_token_cookie(token: &str) -> Cookie<'static> {
         .http_only(true)
         .secure(auth_cookies_use_secure_flag()) // HTTPS unless explicit dev (see below)
         .same_site(SameSite::Strict)
-        .max_age(actix_web::cookie::time::Duration::minutes(15))
+        .max_age(actix_web::cookie::time::Duration::seconds(
+            crate::utils::jwt::ACCESS_TOKEN_TTL_SECS as i64,
+        ))
         .finish()
 }
 
@@ -197,7 +199,9 @@ pub fn create_portal_access_cookie(token: &str) -> Cookie<'static> {
         .http_only(true)
         .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
-        .max_age(actix_web::cookie::time::Duration::minutes(15))
+        .max_age(actix_web::cookie::time::Duration::seconds(
+            crate::utils::jwt::ACCESS_TOKEN_TTL_SECS as i64,
+        ))
         .finish()
 }
 

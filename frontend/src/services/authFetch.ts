@@ -1,5 +1,6 @@
 import { apiBaseUrl, transport } from '@nosdesk/core/transport'
 import { refreshSession } from '@nosdesk/core/services/session'
+import { ACCESS_EXPIRES_IN_HEADER, noteAccessExpiry } from '@nosdesk/core/services/sessionSchedule'
 import { workspaceHeaders } from '@/services/activeWorkspace'
 
 /**
@@ -23,8 +24,8 @@ export async function authFetch(path: string, init: RequestInit = {}): Promise<R
   // Auth headers are built per attempt: a refresh replaces a bearer client's
   // (mobile's) token, so the retry must carry the new one, not the expired
   // one it just got a 401 for.
-  const attempt = () =>
-    fetch(url, {
+  const attempt = async () => {
+    const res = await fetch(url, {
       ...init,
       credentials,
       headers: {
@@ -33,6 +34,9 @@ export async function authFetch(path: string, init: RequestInit = {}): Promise<R
         ...transport().auth.authHeaders(),
       },
     })
+    noteAccessExpiry(res.headers.get(ACCESS_EXPIRES_IN_HEADER))
+    return res
+  }
   const res = await attempt()
   if (res.status !== 401) return res
   if ((await refreshSession()) !== 'renewed') return res

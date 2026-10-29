@@ -42,6 +42,14 @@ pub const CONNECTION_TOKEN_TTL_SECS: usize = 120;
 /// the client's cache never hits and every connect re-mints.
 pub const CONNECTION_TOKEN_REFRESH_BUFFER_SECS: usize = 30;
 
+/// How long a session access token (and the cookie that carries it) lasts.
+pub const ACCESS_TOKEN_TTL_SECS: usize = 15 * 60;
+
+/// Response header telling the client how many seconds its access token has
+/// left, so it can refresh before expiry rather than after a 401. Set on every
+/// response to a request authenticated with a session token, and on a refresh.
+pub const ACCESS_EXPIRES_IN_HEADER: &str = "x-access-expires-in";
+
 /// JWT token creation and validation utilities
 pub struct JwtUtils;
 
@@ -73,7 +81,7 @@ impl JwtUtils {
             scope: "full".to_string(),
             sid: Some(session_id.to_string()),
             workspace_uuid: None,
-            exp: now + 15 * 60, // 15 minutes
+            exp: now + ACCESS_TOKEN_TTL_SECS,
             iat: now,
         };
 
@@ -179,7 +187,7 @@ impl JwtUtils {
             scope: crate::middleware::cookie_auth::PORTAL_SCOPE.to_string(),
             sid: Some(session_id.to_string()),
             workspace_uuid: Some(workspace_uuid),
-            exp: now + 15 * 60, // 15 minutes
+            exp: now + ACCESS_TOKEN_TTL_SECS,
             iat: now,
         };
 
