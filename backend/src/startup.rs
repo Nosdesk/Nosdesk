@@ -1925,11 +1925,6 @@ pub async fn build_server(
             .max_age(3600);
 
         App::new()
-            // TracingLogger is the outermost wrap so its root span
-            // covers every other middleware (CORS preflight, CSRF
-            // rejections, security headers). Auth middlewares record
-            // user_uuid / actor_kind onto this span post-hoc.
-            .wrap(TracingLogger::<crate::middleware::NosdeskRootSpanBuilder>::new())
             .wrap(cors)
             .wrap(crate::middleware::SecurityHeaders) // Apply security headers globally
             .wrap(crate::utils::csrf::CsrfProtection)
@@ -1943,6 +1938,16 @@ pub async fn build_server(
             .wrap(crate::middleware::WorkspaceContextMiddleware::new(
                 workspace_config.clone(),
             ))
+            // Actix runs the last `wrap` first, so these two are the outermost:
+            // TracingLogger's root span covers every other middleware (CORS
+            // preflight, CSRF and workspace refusals, auth), and inside it
+            // `log_rejections` writes the `http_request` line for a request a
+            // middleware refused. Auth middlewares record user_uuid /
+            // actor_kind onto the span post-hoc.
+            .wrap(actix_web::middleware::from_fn(
+                crate::middleware::request_context::log_rejections,
+            ))
+            .wrap(TracingLogger::<crate::middleware::NosdeskRootSpanBuilder>::new())
             // The authenticated limiter is the app-level default that
             // `RateLimit` resolves by type (it looks up
             // `web::Data<RequestLimiter>`). The stricter public limiter is

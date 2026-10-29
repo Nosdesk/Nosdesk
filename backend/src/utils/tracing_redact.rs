@@ -297,6 +297,13 @@ const ALLOWED_FIELDS: &[&str] = &[
     "client_error_fingerprint",
     "client_error_frames",
     "client_error_surface",
+    // Token refresh (`handlers::auth::rotate_refresh_family`): the session a
+    // refresh rotated (a uuid, prefixed per the convention below), and on a
+    // reuse that revoked it, how many seconds before the spent token was used
+    // and whether its session was still live. Integers and a bool.
+    "refresh_session_id",
+    "refresh_reuse_secs",
+    "refresh_session_live",
 ];
 
 // ALLOWED_FIELDS naming convention.
@@ -627,6 +634,9 @@ mod tests {
             "client_error_fingerprint",
             "client_error_frames",
             "client_error_surface",
+            "refresh_session_id",
+            "refresh_reuse_secs",
+            "refresh_session_live",
         ] {
             assert!(is_allowed(name), "expected `{name}` in allowlist");
         }

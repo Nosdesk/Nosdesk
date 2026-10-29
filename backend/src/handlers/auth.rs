@@ -2775,6 +2775,11 @@ pub(crate) fn refresh_lookup_failed(err: diesel::result::Error, refused: &str) -
     }
 }
 
+/// Stamp how a refresh ended on the request's `http_request` line.
+fn refresh_outcome(request: &HttpRequest, outcome: &'static str) {
+    crate::middleware::request_context::record_canonical(request, "outcome", outcome);
+}
+
 pub(crate) fn rotate_refresh_family<F>(
     conn: &mut crate::db::DbConnection,
     request: &HttpRequest,
@@ -2794,8 +2799,25 @@ where
     let old_token =
         match crate::repository::refresh_tokens::get_refresh_token_by_hash(conn, &token_hash) {
             Ok(token) => token,
-            Err(e) => return Err(refresh_lookup_failed(e, "Invalid or expired refresh token")),
+            Err(e) => {
+                refresh_outcome(request, "unknown_token");
+                return Err(refresh_lookup_failed(e, "Invalid or expired refresh token"));
+            }
         };
+    // Who and which session, so a refresh can be followed across tabs and
+    // against the sign-outs it causes.
+    crate::middleware::request_context::record_canonical(
+        request,
+        "user_uuid",
+        old_token.user_uuid.to_string(),
+    );
+    if let Some(sid) = old_token.session_id {
+        crate::middleware::request_context::record_canonical(
+            request,
+            "refresh_session_id",
+            sid.to_string(),
+        );
+    }
 
     // 1b. Realm check. Each endpoint mints a session for exactly one realm, so
     // it must accept only a refresh token minted for that realm. Portal and
@@ -2811,6 +2833,7 @@ where
         // escalation attempt or a client bug, and neither should keep a
         // live token afterwards.
         let _ = crate::repository::refresh_tokens::revoke_token_family(conn, &old_token.family_id);
+        refresh_outcome(request, "wrong_realm");
         return Err(ApiError::Unauthorized(
             "Invalid or expired refresh token".into(),
         ));
@@ -2822,6 +2845,7 @@ where
             "Revoked refresh token presented, family={}",
             old_token.family_id
         );
+        refresh_outcome(request, "revoked");
         return Err(ApiError::Unauthorized(
             "Refresh token has been revoked".into(),
         ));
@@ -2834,7 +2858,30 @@ where
 
         if !within_grace {
             // Token reuse outside grace period — potential theft!
+            // How long ago the token was spent tells a lost response (seconds
+            // to hours) from a replayed copy (days); a session already gone
+            // means nothing live was cut off.
+            let reuse_secs = old_token
+                .used_at
+                .map(|used| (now - used).num_seconds())
+                .unwrap_or(-1);
+            let session_live = old_token.session_id.is_some_and(|sid| {
+                crate::repository::active_sessions::get_session_by_session_id(conn, &sid).is_ok()
+            });
+            crate::middleware::request_context::record_canonical(
+                request,
+                "refresh_reuse_secs",
+                reuse_secs,
+            );
+            crate::middleware::request_context::record_canonical(
+                request,
+                "refresh_session_live",
+                session_live,
+            );
+            refresh_outcome(request, "reuse_revoked");
             tracing::warn!(
+                refresh_reuse_secs = reuse_secs,
+                refresh_session_live = session_live,
                 "Refresh token reuse detected outside grace period! Revoking family={}",
                 old_token.family_id
             );
@@ -2857,7 +2904,10 @@ where
     // 4. Get user
     let user = match repository::get_user_by_uuid(&old_token.user_uuid, conn) {
         Ok(user) => user,
-        Err(e) => return Err(refresh_lookup_failed(e, "User not found")),
+        Err(e) => {
+            refresh_outcome(request, "user_gone");
+            return Err(refresh_lookup_failed(e, "User not found"));
+        }
     };
 
     // 5. Determine session_id (from token, or create new session for tokens without one)
@@ -2868,7 +2918,10 @@ where
                 // The session is gone (revoked, evicted at the cap, or pruned
                 // as expired). The refresh token outlives it only in the window
                 // before the cascade lands, so treat it as revoked.
-                Err(e) => return Err(refresh_lookup_failed(e, "Session no longer active")),
+                Err(e) => {
+                    refresh_outcome(request, "session_gone");
+                    return Err(refresh_lookup_failed(e, "Session no longer active"));
+                }
             }
         }
         None => {
@@ -2896,6 +2949,7 @@ where
         );
         let _ = crate::repository::refresh_tokens::revoke_token_family(conn, &old_token.family_id);
         let _ = crate::repository::active_sessions::revoke_session_by_uuid(conn, &session_id);
+        refresh_outcome(request, "lifetime_reached");
         let _ = crate::utils::security_events::record_security_event(
             conn,
             crate::utils::security_events::SecurityEventInput {
@@ -2967,6 +3021,14 @@ where
     ) {
         tracing::warn!("Failed to update session activity: {}", e);
     }
+    refresh_outcome(
+        request,
+        if old_token.is_used {
+            "rotated_in_grace"
+        } else {
+            "rotated"
+        },
+    );
     Ok(RotatedSession {
         access_token: new_access_token,
         refresh_token: new_refresh_raw,
@@ -3009,6 +3071,7 @@ pub async fn refresh_token(
     }) {
         Some(token) => token,
         None => {
+            refresh_outcome(&request, "no_token");
             return Err(ApiError::Unauthorized("Refresh token not found".into()));
         }
     };
@@ -3432,6 +3495,107 @@ mod tests {
             rows.iter().filter(|(is_used, _, _)| *is_used).count(),
             1,
             "exactly the presented token is spent: {rows:?}"
+        );
+    }
+
+    /// A request carrying the log bag, and a reader for what was stamped on it.
+    fn logged_request() -> HttpRequest {
+        let request = test::TestRequest::default().to_http_request();
+        request
+            .extensions_mut()
+            .insert(crate::middleware::request_context::CanonicalContext::default());
+        request
+    }
+
+    fn logged(request: &HttpRequest) -> serde_json::Value {
+        let bag = request
+            .extensions()
+            .get::<crate::middleware::request_context::CanonicalContext>()
+            .and_then(|c| c.snapshot_json())
+            .unwrap_or_else(|| "{}".into());
+        serde_json::from_str(&bag).expect("bag is JSON")
+    }
+
+    #[actix_web::test]
+    async fn a_refresh_logs_its_outcome_user_and_session() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let request = logged_request();
+        let (raw, _) = seed_refresh(&mut conn, &request, crate::models::REFRESH_AUDIENCE_AGENT);
+
+        rotate_refresh_family(
+            &mut conn,
+            &request,
+            &raw,
+            crate::models::REFRESH_AUDIENCE_AGENT,
+            mints_access,
+        )
+        .expect("rotates");
+        let line = logged(&request);
+        assert_eq!(line["outcome"], "rotated");
+        assert!(line["user_uuid"].is_string(), "{line}");
+        assert!(line["refresh_session_id"].is_string(), "{line}");
+
+        // A second tab presenting the same token straight away.
+        let again = logged_request();
+        rotate_refresh_family(
+            &mut conn,
+            &again,
+            &raw,
+            crate::models::REFRESH_AUDIENCE_AGENT,
+            mints_access,
+        )
+        .expect("inside the grace window");
+        assert_eq!(logged(&again)["outcome"], "rotated_in_grace");
+    }
+
+    #[actix_web::test]
+    async fn a_reuse_logs_how_long_ago_the_token_was_spent() {
+        use crate::schema::refresh_tokens;
+        use diesel::prelude::*;
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let request = logged_request();
+        let (raw, family_id) =
+            seed_refresh(&mut conn, &request, crate::models::REFRESH_AUDIENCE_AGENT);
+        rotate_refresh_family(
+            &mut conn,
+            &request,
+            &raw,
+            crate::models::REFRESH_AUDIENCE_AGENT,
+            mints_access,
+        )
+        .expect("rotates");
+        // Spent 90 seconds ago, grace long over.
+        let spent = chrono::Utc::now().naive_utc() - chrono::Duration::seconds(90);
+        diesel::update(
+            refresh_tokens::table
+                .filter(refresh_tokens::token_hash.eq(JwtUtils::hash_refresh_token(&raw))),
+        )
+        .set((
+            refresh_tokens::used_at.eq(spent),
+            refresh_tokens::grace_expires_at.eq(spent + chrono::Duration::seconds(5)),
+        ))
+        .execute(&mut conn)
+        .expect("age the spent token");
+
+        let reused = logged_request();
+        assert!(rotate_refresh_family(
+            &mut conn,
+            &reused,
+            &raw,
+            crate::models::REFRESH_AUDIENCE_AGENT,
+            mints_access,
+        )
+        .is_err());
+        let line = logged(&reused);
+        assert_eq!(line["outcome"], "reuse_revoked");
+        let secs = line["refresh_reuse_secs"].as_i64().expect("seconds");
+        assert!((90..120).contains(&secs), "{line}");
+        assert_eq!(line["refresh_session_live"], true, "{line}");
+        assert!(
+            family_rows(&mut conn, &family_id).iter().all(|r| r.1),
+            "the family is revoked as before"
         );
     }
 
