@@ -23,7 +23,7 @@ import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
 import ProfileSettingsView from '@/views/ProfileSettingsView.vue'
-import PDFViewerView from '@/views/PDFViewerView.vue'
+import { legacyPdfViewerRedirect } from '@/utils/pdfSource'
 import authService from '@nosdesk/core/services/authService'
 import type { Page, Article } from '@nosdesk/core/services/documentationService'
 
@@ -1084,14 +1084,11 @@ const router = createRouter({
       }
     },
     {
+      // Links from before PDFs opened over their ticket: open the same file
+      // over its ticket (or the home page for an upload with no ticket).
       path: '/pdf-viewer',
       name: 'pdf-viewer',
-      component: PDFViewerView,
-      meta: {
-        requiresAuth: true,
-        titleKey: 'route-title-pdf-viewer',
-        titleIcon: 'pdf'
-      }
+      redirect: legacyPdfViewerRedirect,
     },
     {
       path: '/:pathMatch(.*)*',

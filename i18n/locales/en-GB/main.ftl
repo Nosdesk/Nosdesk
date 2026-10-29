@@ -2414,10 +2414,6 @@ error-page-debug-master-toggle = Master Effects Toggle
 
 # PDF viewer (PDFViewerView)
 pdf-viewer-default-filename = Document
-pdf-viewer-back = Back
-pdf-viewer-share = Share
-pdf-viewer-share-tooltip = Copy link to clipboard
-pdf-viewer-loading = Loading PDF document...
 
 # Settings: MFA (MFASettings) - two-factor authentication setup, verify, backup codes, disable
 settings-mfa-title = Two-Factor Authentication
@@ -4487,7 +4483,6 @@ route-title-admin-csv-import = CSV import
 route-title-admin-backup-restore = Backup and restore
 route-title-group-detail = Group details
 route-title-authenticating = Authenticating...
-route-title-pdf-viewer = PDF viewer
 
 # Loading modals + scattered polish
 common-loading-projects = Loading projects...

@@ -4,7 +4,7 @@ import LinkButton from '@/components/common/LinkButton.vue'
 import IconButton from '@/components/common/IconButton.vue'
 import Button from '@/components/common/Button.vue'
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import AudioPlayer from "@/components/ticketComponents/AudioPlayer.vue";
 import VideoPlayer from "@/components/ticketComponents/VideoPlayer.vue";
@@ -15,8 +15,10 @@ import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import { useAttachmentSource } from '@/composables/useAttachmentSource';
 import { fetchPdfBytes, loadPdfjs, openPdfDocument } from '@/utils/pdfjs';
+import { usePdfOverlay } from '@/composables/usePdfOverlay';
 
 const router = useRouter();
+const pdfOverlay = usePdfOverlay(router, useRoute());
 const { $t } = useFluent();
 
 interface Props {
@@ -163,9 +165,10 @@ const deleteLabel = computed(() => {
 });
 
 const openImagePreview = async (src: string) => {
-  // For PDF files, navigate to full page PDF viewer
+  // PDFs open in the viewer over the page: a saved file by its stored path
+  // (so the link can be shared), an unsaved one by its blob URL.
   if (isPdfFile(props.attachment.name)) {
-    router.push({ path: '/pdf-viewer', query: { src, filename: props.attachment.name } });
+    pdfOverlay.open({ src: props.attachment.url, name: props.attachment.name });
     emit('preview', src);
     return;
   }

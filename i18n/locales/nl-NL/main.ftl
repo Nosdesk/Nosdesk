@@ -5073,14 +5073,14 @@ error-page-debug-master-toggle = Hoofdschakelaar effecten
 
 # PDF viewer (PDFViewerView)
 pdf-viewer-default-filename = Document
-pdf-viewer-back = Terug
-pdf-viewer-share = Delen
-pdf-viewer-share-tooltip = Link naar klembord kopiëren
-pdf-viewer-loading = PDF-document laden...
+# PDF-viewer als overlay (machine, nog na te kijken door moedertaalspreker)
+pdf-viewer-close = Sluiten
+pdf-viewer-copy-link = Link kopiëren
+pdf-viewer-link-copied = Link gekopieerd
+pdf-viewer-link-copy-failed = Kan de link niet kopiëren
 # Fouten en wachtwoord in de PDF-viewer (machine, nog na te kijken door moedertaalspreker)
 pdf-viewer-error-title = Kan de PDF niet openen
 pdf-viewer-error-body = Er ging iets mis bij het openen. Probeer het opnieuw, of ga terug en download het bestand.
-pdf-viewer-error-go-back = Terug
 pdf-viewer-error-no-source = Deze link verwijst niet naar een bestand.
 pdf-viewer-not-found-title = Deze PDF is niet beschikbaar
 pdf-viewer-not-found-body = Misschien is hij verwijderd, of heb je er geen toegang toe.
@@ -7917,7 +7917,6 @@ route-title-admin-backup-restore = Back-up en herstel
 route-title-group-detail = Groepsdetails
 route-title-authenticating = Bezig met authenticeren...
 route-title-auth-confirmed = Bevestigen dat jij het bent
-route-title-pdf-viewer = PDF-viewer
 
 # Loading modals + scattered polish
 common-loading-projects = Projecten laden...

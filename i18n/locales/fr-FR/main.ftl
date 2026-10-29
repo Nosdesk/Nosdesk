@@ -5083,14 +5083,14 @@ error-page-debug-master-toggle = Activation générale des effets
 
 # PDF viewer (PDFViewerView)
 pdf-viewer-default-filename = Document
-pdf-viewer-back = Retour
-pdf-viewer-share = Partager
-pdf-viewer-share-tooltip = Copier le lien dans le presse-papiers
-pdf-viewer-loading = Chargement du document PDF...
+# Superposition du lecteur PDF (machine, à relire par un locuteur natif)
+pdf-viewer-close = Fermer
+pdf-viewer-copy-link = Copier le lien
+pdf-viewer-link-copied = Lien copié
+pdf-viewer-link-copy-failed = Impossible de copier le lien
 # Erreurs et mot de passe du lecteur PDF (machine, à relire par un locuteur natif)
 pdf-viewer-error-title = Impossible d'ouvrir le PDF
 pdf-viewer-error-body = Une erreur s'est produite à l'ouverture. Réessayez, ou revenez en arrière pour télécharger le fichier.
-pdf-viewer-error-go-back = Retour
 pdf-viewer-error-no-source = Ce lien n'indique aucun fichier à ouvrir.
 pdf-viewer-not-found-title = Ce PDF n'est pas disponible
 pdf-viewer-not-found-body = Il a peut-être été supprimé, ou vous n'y avez pas accès.
@@ -7927,7 +7927,6 @@ route-title-admin-backup-restore = Sauvegarde et restauration
 route-title-group-detail = Détails du groupe
 route-title-authenticating = Authentification en cours...
 route-title-auth-confirmed = Confirmer que c'est vous
-route-title-pdf-viewer = Visionneuse PDF
 
 # Loading modals + scattered polish
 common-loading-projects = Chargement des projets...

@@ -4546,13 +4546,12 @@ route-title-no-workspace-access = No workspace yet
 
 # PDF viewer (PDFViewerView)
 pdf-viewer-default-filename = Document
-pdf-viewer-back = Back
-pdf-viewer-share = Share
-pdf-viewer-share-tooltip = Copy link to clipboard
-pdf-viewer-loading = Loading PDF document...
+pdf-viewer-close = Close
+pdf-viewer-copy-link = Copy link
+pdf-viewer-link-copied = Link copied
+pdf-viewer-link-copy-failed = Couldn't copy the link
 pdf-viewer-error-title = Couldn't open the PDF
 pdf-viewer-error-body = Something went wrong while opening it. Try again, or go back and download the file.
-pdf-viewer-error-go-back = Go back
 pdf-viewer-error-no-source = This link doesn't name a file to open.
 pdf-viewer-not-found-title = This PDF isn't available
 pdf-viewer-not-found-body = It may have been deleted, or you may not have access to it.
@@ -7341,7 +7340,6 @@ route-title-admin-backup-restore = Backup and restore
 route-title-group-detail = Group details
 route-title-authenticating = Authenticating...
 route-title-auth-confirmed = Confirm it's you
-route-title-pdf-viewer = PDF viewer
 
 # Loading modals + scattered polish
 common-loading-projects = Loading projects...
