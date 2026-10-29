@@ -103,6 +103,24 @@ describe('fetchPdfBytes', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/files/tickets/7/a.pdf')
   })
 
+  it('reports progress as the file arrives, against its length when known', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]))
+        controller.enqueue(new Uint8Array([3, 4, 5]))
+        controller.close()
+      },
+    })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(body, { headers: { 'Content-Length': '5' } }))
+    const seen: Array<{ loaded: number; total: number | null }> = []
+    const bytes = await fetchPdfBytes('/x.pdf', (p) => seen.push(p))
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4, 5])
+    expect(seen).toEqual([
+      { loaded: 2, total: 5 },
+      { loaded: 5, total: 5 },
+    ])
+  })
+
   it('carries the HTTP status of a failed download', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 404 }))
     await expect(fetchPdfBytes('/x.pdf')).rejects.toMatchObject({ name: 'PdfFetchError', status: 404 })

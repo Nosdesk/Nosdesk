@@ -5389,6 +5389,21 @@ ticket-media-pdf-zoom-auto = Automatique
 ticket-media-pdf-zoom-page-width = Largeur de la page
 ticket-media-pdf-zoom-page-fit = Page entière
 ticket-media-pdf-rotate = Faire pivoter
+# Recherche, impression et téléchargement du PDF (machine, à relire par un locuteur natif)
+ticket-media-pdf-find = Rechercher dans le document
+ticket-media-pdf-find-placeholder = Rechercher
+ticket-media-pdf-find-count = { $current } sur { $total }
+ticket-media-pdf-find-none = Aucun résultat
+ticket-media-pdf-find-previous = Résultat précédent
+ticket-media-pdf-find-next = Résultat suivant
+ticket-media-pdf-find-match-case = Respecter la casse
+ticket-media-pdf-find-close = Fermer la recherche
+ticket-media-pdf-print = Imprimer
+ticket-media-pdf-print-preparing = Préparation de l'impression : page { $done } sur { $total }
+ticket-media-pdf-print-cancel = Annuler
+ticket-media-pdf-print-failed = Impossible d'imprimer le PDF
+ticket-media-pdf-downloading-percent = Téléchargement : { $percent } %
+ticket-media-pdf-downloading-size = Téléchargement : { $size } Mo
 
 # Ticket media: aperçu de fichier (FilePreview)
 ticket-media-file-fallback = Fichier

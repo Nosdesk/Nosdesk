@@ -5379,6 +5379,21 @@ ticket-media-pdf-zoom-auto = Automatisch
 ticket-media-pdf-zoom-page-width = Paginabreedte
 ticket-media-pdf-zoom-page-fit = Hele pagina
 ticket-media-pdf-rotate = Draaien
+# Zoeken, afdrukken en downloaden van de PDF (machine, nog na te kijken door moedertaalspreker)
+ticket-media-pdf-find = Zoeken in document
+ticket-media-pdf-find-placeholder = Zoeken
+ticket-media-pdf-find-count = { $current } van { $total }
+ticket-media-pdf-find-none = Geen resultaten
+ticket-media-pdf-find-previous = Vorig resultaat
+ticket-media-pdf-find-next = Volgend resultaat
+ticket-media-pdf-find-match-case = Hoofdlettergevoelig
+ticket-media-pdf-find-close = Zoeken sluiten
+ticket-media-pdf-print = Afdrukken
+ticket-media-pdf-print-preparing = Afdrukken voorbereiden: pagina { $done } van { $total }
+ticket-media-pdf-print-cancel = Annuleren
+ticket-media-pdf-print-failed = Kan de PDF niet afdrukken
+ticket-media-pdf-downloading-percent = Downloaden: { $percent }%
+ticket-media-pdf-downloading-size = Downloaden: { $size } MB
 
 # Ticket media: bestandsvoorvertoning (FilePreview)
 ticket-media-file-fallback = Bestand
