@@ -36,8 +36,17 @@ const fake = vi.hoisted(() => {
   class PDFViewer {
     options: Record<string, unknown>
     currentScaleValue = ''
-    currentPageNumber = 1
     pagesRotation = 0
+    #page = 1
+    // Like pdf.js, a new page announces itself before the setter returns.
+    get currentPageNumber() {
+      return this.#page
+    }
+    set currentPageNumber(page: number) {
+      if (page === this.#page) return
+      this.#page = page
+      state.eventBus?.dispatch('pagechanging', { pageNumber: page })
+    }
     setDocument = vi.fn()
     increaseScale = vi.fn()
     decreaseScale = vi.fn()
@@ -180,9 +189,24 @@ describe('PDFViewer', () => {
     await input.setValue('99')
     await input.trigger('keydown', { key: 'Enter' })
     expect(viewer.currentPageNumber).toBe(5)
+    expect((input.element as HTMLInputElement).value).toBe('5')
     await input.setValue('0')
     await input.trigger('keydown', { key: 'Enter' })
     expect(viewer.currentPageNumber).toBe(1)
+    expect((input.element as HTMLInputElement).value).toBe('1')
+  })
+
+  it('shows the page it went to when the typed page was out of range', async () => {
+    const viewer = await mountViewer()
+    await openDocument()
+    const input = wrapper!.find('[data-testid="pdf-page-input"]')
+    viewer.currentPageNumber = 5
+    await flushPromises()
+    await input.setValue('999')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(viewer.currentPageNumber).toBe(5)
+    expect((input.element as HTMLInputElement).value).toBe('5')
   })
 
   it('zooms with + - 0 and turns pages with the side arrows', async () => {
@@ -201,14 +225,73 @@ describe('PDFViewer', () => {
     expect(viewer.previousPage).toHaveBeenCalled()
   })
 
+  it('keeps the zoom keys after a choice in the zoom picker, which holds focus', async () => {
+    // The desktop picker, a combobox that keeps focus once a zoom is picked.
+    const narrow = window.matchMedia
+    window.matchMedia = (query: string) => ({ ...narrow(query), matches: query.includes('min-width') })
+    const viewer = await mountViewer().finally(() => (window.matchMedia = narrow))
+    await openDocument()
+    const picker = wrapper!.find('[role="combobox"]').element
+    const pressOnPicker = (key: string) =>
+      picker.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    pressOnPicker('-')
+    expect(viewer.decreaseScale).toHaveBeenCalled()
+    viewer.currentScaleValue = '2'
+    pressOnPicker('0')
+    expect(viewer.currentScaleValue).toBe('auto')
+    pressOnPicker('=')
+    expect(viewer.increaseScale).toHaveBeenCalled()
+    // The arrows still belong to the picker.
+    pressOnPicker('ArrowRight')
+    expect(viewer.nextPage).not.toHaveBeenCalled()
+  })
+
+  it('leaves the zoom keys to a text field', async () => {
+    const viewer = await mountViewer()
+    await openDocument()
+    const input = wrapper!.find('[data-testid="pdf-page-input"]').element
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: '-', bubbles: true, cancelable: true }))
+    expect(viewer.decreaseScale).not.toHaveBeenCalled()
+  })
+
+  it('zooms a step per wheel notch with Ctrl or Cmd held, and smoothly on a pinch', async () => {
+    const viewer = await mountViewer()
+    await openDocument()
+    const wheel = (init: WheelEventInit) =>
+      scroller().element.dispatchEvent(new WheelEvent('wheel', { cancelable: true, ...init }))
+
+    // A pinch: ctrlKey set with no Ctrl key down, small pixel deltas.
+    wheel({ deltaY: -2, ctrlKey: true })
+    expect(viewer.updateScale).toHaveBeenLastCalledWith(expect.objectContaining({ scaleFactor: Math.exp(0.02) }))
+    viewer.updateScale.mockClear()
+
+    // A mouse with Ctrl held: one step per 100 px notch, halves add up.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true }))
+    wheel({ deltaY: -2, ctrlKey: true })
+    wheel({ deltaY: -50, ctrlKey: true })
+    expect(viewer.updateScale).not.toHaveBeenCalled()
+    wheel({ deltaY: -48, ctrlKey: true })
+    expect(viewer.updateScale).toHaveBeenLastCalledWith(expect.objectContaining({ steps: 1 }))
+    wheel({ deltaY: 300, ctrlKey: true })
+    expect(viewer.updateScale).toHaveBeenLastCalledWith(expect.objectContaining({ steps: -3 }))
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control' }))
+
+    // Firefox counts lines, three to a notch; Cmd is never a pinch.
+    viewer.updateScale.mockClear()
+    wheel({ deltaY: 3, deltaMode: WheelEvent.DOM_DELTA_LINE, metaKey: true })
+    expect(viewer.updateScale).toHaveBeenLastCalledWith(expect.objectContaining({ steps: -1 }))
+    viewer.updateScale.mockClear()
+    wheel({ deltaY: -3, metaKey: true })
+    expect(viewer.updateScale).not.toHaveBeenCalled()
+  })
+
   it('zooms the document, not the app, on Ctrl or Cmd + wheel', async () => {
     const viewer = await mountViewer()
     await openDocument()
     const wheel = new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, clientX: 10, clientY: 20, cancelable: true })
     scroller().element.dispatchEvent(wheel)
     expect(wheel.defaultPrevented).toBe(true)
-    expect(viewer.updateScale).toHaveBeenCalledWith(expect.objectContaining({ origin: [10, 20] }))
-    expect(viewer.updateScale.mock.calls[0]![0].scaleFactor).toBeCloseTo(Math.E)
+    expect(viewer.updateScale).toHaveBeenCalledWith(expect.objectContaining({ steps: 1, origin: [10, 20] }))
 
     const plain = new WheelEvent('wheel', { deltaY: 100, cancelable: true })
     scroller().element.dispatchEvent(plain)

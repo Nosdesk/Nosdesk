@@ -183,6 +183,8 @@ onBeforeUnmount(() => {
 const clampPage = (page: number) => Math.min(Math.max(1, Math.round(page)), Math.max(1, pagesCount.value))
 
 const pageInput = ref('1')
+// Wide enough for the last page's number, so typing one never scrolls a digit out of view.
+const pageInputWidth = computed(() => `calc(${Math.max(3, String(pagesCount.value).length)}ch + 1.5rem)`)
 const commitPage = () => {
   const page = Number(pageInput.value)
   if (viewer && Number.isFinite(page) && pagesCount.value > 0) {
@@ -220,13 +222,37 @@ const rotate = () => {
   if (viewer) viewer.pagesRotation = (viewer.pagesRotation + 90) % 360
 }
 
-// Ctrl/Cmd + wheel (and a trackpad pinch, which browsers report the same
-// way) zooms the document around the pointer instead of the whole app.
+// Ctrl/Cmd + wheel and a trackpad pinch zoom the document around the pointer
+// instead of the whole app. Browsers report a pinch as a wheel event with
+// ctrlKey set while no Ctrl key is down; it zooms smoothly. A mouse wheel
+// zooms a step per notch, as the toolbar buttons do.
+let ctrlDown = false
+const trackCtrl = (event: KeyboardEvent) => {
+  ctrlDown = event.ctrlKey
+}
+const releaseCtrl = () => {
+  ctrlDown = false
+}
+// Pixels (or lines, or pages) a wheel moves per notch.
+const NOTCH: Record<number, number> = { [WheelEvent.DOM_DELTA_PIXEL]: 100, [WheelEvent.DOM_DELTA_LINE]: 3, [WheelEvent.DOM_DELTA_PAGE]: 1 }
+let notches = 0
 const onWheel = (event: WheelEvent) => {
   if (!viewer || !(event.ctrlKey || event.metaKey)) return
   event.preventDefault()
-  const pixels = event.deltaY * (event.deltaMode === 1 ? 30 : event.deltaMode === 2 ? 300 : 1)
-  viewer.updateScale({ scaleFactor: Math.exp(-pixels / 100), origin: [event.clientX, event.clientY], drawingDelay: 400 })
+  const origin: [number, number] = [event.clientX, event.clientY]
+  const pinch =
+    event.ctrlKey && !ctrlDown && event.deltaMode === WheelEvent.DOM_DELTA_PIXEL && Math.abs(event.deltaY) < 50
+  if (pinch) {
+    viewer.updateScale({ scaleFactor: Math.exp(-event.deltaY / 100), origin, drawingDelay: 400 })
+    return
+  }
+  const moved = event.deltaY / (NOTCH[event.deltaMode] ?? NOTCH[WheelEvent.DOM_DELTA_PIXEL])
+  // Partial notches add up, until the wheel turns the other way.
+  notches = Math.sign(notches) === -Math.sign(moved) ? moved : notches + moved
+  const steps = Math.trunc(notches)
+  if (!steps) return
+  notches -= steps
+  viewer.updateScale({ steps: -steps, origin, drawingDelay: 400 })
 }
 
 // ── Keyboard ────────────────────────────────────────────────────
@@ -258,7 +284,7 @@ const onKeydown = (event: KeyboardEvent) => {
     }
   }
   const target = event.target as HTMLElement | null
-  if (target?.closest('input, textarea, select, [role="combobox"], [role="listbox"]')) return
+  if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
   if (event.altKey) return
 
   const handled = (() => {
@@ -276,6 +302,9 @@ const onKeydown = (event: KeyboardEvent) => {
         return true
     }
     if (event.ctrlKey || event.metaKey || event.shiftKey) return false
+    // The zoom picker keeps focus after a choice; the zoom keys above still
+    // work there, but its arrows are its own.
+    if (target?.closest('[role="combobox"], [role="listbox"]')) return false
     const scroller = container.value
     const scrollsSideways = !!scroller && scroller.scrollWidth > scroller.clientWidth
     if (event.key === 'ArrowRight' && !scrollsSideways) return viewer?.nextPage() ?? false
@@ -301,9 +330,15 @@ const onClick = (event: MouseEvent) => {
 onMounted(() => {
   // Not `@wheel`: it must be non-passive to stop the browser zooming the app.
   container.value?.addEventListener('wheel', onWheel, { passive: false })
+  window.addEventListener('keydown', trackCtrl, true)
+  window.addEventListener('keyup', trackCtrl, true)
+  window.addEventListener('blur', releaseCtrl)
 })
 onBeforeUnmount(() => {
   container.value?.removeEventListener('wheel', onWheel)
+  window.removeEventListener('keydown', trackCtrl, true)
+  window.removeEventListener('keyup', trackCtrl, true)
+  window.removeEventListener('blur', releaseCtrl)
 })
 
 // ── Find ────────────────────────────────────────────────────────
@@ -471,7 +506,8 @@ const pageStatus = computed(() =>
             v-model="pageInput"
             type="text"
             inputmode="numeric"
-            class="w-10 sm:w-12 px-1 sm:px-2 py-1 text-center rounded-md border border-default bg-surface-alt text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            class="px-1 sm:px-2 py-1 text-center tabular-nums rounded-md border border-default bg-surface-alt text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            :style="{ width: pageInputWidth }"
             :aria-label="$t('ticket-media-pdf-page-input')"
             :disabled="!pagesCount"
             data-testid="pdf-page-input"
