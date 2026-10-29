@@ -242,7 +242,9 @@ apiClient.interceptors.response.use(
     // itself: logging its failure would be re-captured by the remote
     // logger's console interceptor and re-queued, creating a ~1Hz POST loop
     // that exhausts the shared rate limit and can 429 auth / MFA setup.
-    if (!error.config?.url?.includes('/debug/frontend-logs')) {
+    // A 401 logs in its own branch below: the usual one is an access token
+    // that expired and is renewed and retried, which isn't an error.
+    if (error.response?.status !== 401 && !error.config?.url?.includes('/debug/frontend-logs')) {
       logger.error(`API Error: ${appError.message}`, {
         correlationId,
         endpoint: error.config?.url,
@@ -261,6 +263,11 @@ apiClient.interceptors.response.use(
       // Skip refresh/redirect so OnboardingView can read the
       // machine-readable `code` and show a localised message.
       if (originalRequest.url?.includes('/auth/setup/')) {
+        logger.warn(`API Error: ${appError.message}`, {
+          correlationId,
+          endpoint: originalRequest.url,
+          status: 401,
+        });
         return Promise.reject(error);
       }
 
@@ -280,6 +287,10 @@ apiClient.interceptors.response.use(
 
       // First 401 on a normal request: try to refresh the token once.
       originalRequest._retry = true;
+      logger.debug('API 401; renewing the session and retrying', {
+        correlationId,
+        endpoint: originalRequest.url,
+      });
 
       // If already refreshing, queue this request
       if (isRefreshing) {
