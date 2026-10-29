@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const workerOptions = vi.hoisted(() => ({ workerSrc: '' }))
 vi.mock('pdfjs-dist', () => ({ GlobalWorkerOptions: workerOptions }))
+vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({ default: '/static/pdf.worker.min-abc123.mjs' }))
 
 import {
   PdfFetchError,
@@ -41,7 +42,7 @@ afterEach(() => {
 describe('loadPdfjs', () => {
   it('points pdf.js at the minified worker, once', async () => {
     const first = await loadPdfjs()
-    expect(workerOptions.workerSrc).toMatch(/pdf\.worker\.min\.mjs$/)
+    expect(workerOptions.workerSrc).toBe('/static/pdf.worker.min-abc123.mjs')
     expect(await loadPdfjs()).toBe(first)
   })
 })

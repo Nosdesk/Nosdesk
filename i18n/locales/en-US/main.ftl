@@ -4836,16 +4836,18 @@ ticket-media-video-fullscreen-exit = Exit fullscreen
 # Ticket media: PDF viewer (PDFViewer)
 ticket-media-pdf-aria = PDF viewer
 ticket-media-pdf-loading = Loading PDF...
-ticket-media-pdf-zoom-out = Zoom Out
-ticket-media-pdf-zoom-out-aria = Zoom out
-ticket-media-pdf-zoom-in = Zoom In
-ticket-media-pdf-zoom-in-aria = Zoom in
-ticket-media-pdf-fit-width = Fit to Width
-ticket-media-pdf-fit-width-aria = Fit to width
-ticket-media-pdf-fullscreen = Fullscreen
-ticket-media-pdf-fullscreen-aria = Open fullscreen
+ticket-media-pdf-zoom-out = Zoom out
+ticket-media-pdf-zoom-in = Zoom in
 ticket-media-pdf-download = Download PDF
-ticket-media-pdf-download-aria = Download PDF
+ticket-media-pdf-toolbar = PDF controls
+ticket-media-pdf-page-input = Page
+ticket-media-pdf-page-total = of { $total }
+ticket-media-pdf-page-status = Page { $page } of { $total }
+ticket-media-pdf-zoom = Zoom
+ticket-media-pdf-zoom-auto = Automatic
+ticket-media-pdf-zoom-page-width = Page width
+ticket-media-pdf-zoom-page-fit = Whole page
+ticket-media-pdf-rotate = Rotate
 
 # Ticket media: generic file preview (FilePreview)
 ticket-media-file-fallback = File

@@ -5377,15 +5377,18 @@ ticket-media-video-fullscreen-exit = Quitter le plein écran
 ticket-media-pdf-aria = Visionneuse PDF
 ticket-media-pdf-loading = Chargement du PDF...
 ticket-media-pdf-zoom-out = Zoom arrière
-ticket-media-pdf-zoom-out-aria = Zoom arrière
 ticket-media-pdf-zoom-in = Zoom avant
-ticket-media-pdf-zoom-in-aria = Zoom avant
-ticket-media-pdf-fit-width = Ajuster à la largeur
-ticket-media-pdf-fit-width-aria = Ajuster à la largeur
-ticket-media-pdf-fullscreen = Plein écran
-ticket-media-pdf-fullscreen-aria = Ouvrir en plein écran
 ticket-media-pdf-download = Télécharger le PDF
-ticket-media-pdf-download-aria = Télécharger le PDF
+# Barre d'outils du lecteur PDF (machine, à relire par un locuteur natif)
+ticket-media-pdf-toolbar = Commandes du PDF
+ticket-media-pdf-page-input = Page
+ticket-media-pdf-page-total = sur { $total }
+ticket-media-pdf-page-status = Page { $page } sur { $total }
+ticket-media-pdf-zoom = Zoom
+ticket-media-pdf-zoom-auto = Automatique
+ticket-media-pdf-zoom-page-width = Largeur de la page
+ticket-media-pdf-zoom-page-fit = Page entière
+ticket-media-pdf-rotate = Faire pivoter
 
 # Ticket media: aperçu de fichier (FilePreview)
 ticket-media-file-fallback = Fichier

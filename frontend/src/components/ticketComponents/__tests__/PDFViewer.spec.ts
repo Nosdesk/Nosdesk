@@ -1,115 +1,236 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ref, shallowRef } from 'vue'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 
-// The PDF viewer offers its fullscreen button in a ticket and not on the
-// fullscreen page itself, with and without the workspace slug in the path.
+// The viewer hands pdf.js's PDFViewer the document and drives it from our
+// toolbar and keys. pdf.js is replaced by a recording stand-in.
 
-let routing: 'host' | 'path' = 'host'
-let slug: string | null = null
-vi.mock('@nosdesk/core/services/instanceConfig', () => ({
-  fetchInstanceConfig: async () => {},
-  getWorkspaceRouting: () => routing,
-}))
-vi.mock('@/stores/workspaceReset', () => ({
-  resetWorkspaceScopedState: async () => {},
-  enterWorkspace: async () => {},
-}))
-vi.mock('@/services/activeWorkspace', () => ({
-  beginWorkspaceSwitch: () => {},
-  activeWorkspaceSlug: () => slug,
-  setActiveWorkspaceSlug: (s: string | null) => {
-    slug = s
-  },
-}))
-const viewerOptions = vi.hoisted(() => ({
-  onPassword: null as null | ((reason: 'needed' | 'incorrect') => Promise<string | null>),
-}))
-vi.mock('@/composables/usePdfViewer', () => ({
-  usePdfViewer: (options: typeof viewerOptions) => {
-    viewerOptions.onPassword = options.onPassword
-    return {
-    isLoading: ref(false),
-    totalPages: ref(0),
-    scale: ref(1),
-    renderedPages: ref(new Map()),
-    loadDocument: async () => {},
-    renderPage: async () => {},
-    getPageDimensions: () => null,
-    getScaledMaxWidth: () => 0,
-    zoomIn: () => {},
-    zoomOut: () => {},
-    fitToWidth: () => {},
+const fake = vi.hoisted(() => {
+  class EventBus {
+    handlers = new Map<string, Array<(event: Record<string, unknown>) => void>>()
+    on(name: string, handler: (event: Record<string, unknown>) => void) {
+      this.handlers.set(name, [...(this.handlers.get(name) ?? []), handler])
     }
+    dispatch(name: string, event: Record<string, unknown> = {}) {
+      for (const handler of this.handlers.get(name) ?? []) handler(event)
+    }
+  }
+  const state = {
+    viewer: null as null | InstanceType<typeof PDFViewer>,
+    linkOptions: null as null | Record<string, unknown>,
+    eventBus: null as null | EventBus,
+  }
+  class PDFLinkService {
+    constructor(options: Record<string, unknown>) {
+      state.linkOptions = options
+      state.eventBus = options.eventBus as EventBus
+    }
+    setViewer = vi.fn()
+    setDocument = vi.fn()
+  }
+  class PDFViewer {
+    options: Record<string, unknown>
+    currentScaleValue = ''
+    currentPageNumber = 1
+    pagesRotation = 0
+    setDocument = vi.fn()
+    increaseScale = vi.fn()
+    decreaseScale = vi.fn()
+    updateScale = vi.fn()
+    nextPage = vi.fn(() => true)
+    previousPage = vi.fn(() => true)
+    constructor(options: Record<string, unknown>) {
+      this.options = options
+      state.viewer = this
+    }
+  }
+  const lib = { EventBus, PDFLinkService, PDFViewer, LinkTarget: { BLANK: 2 } }
+  const pdfjs = { AnnotationMode: { ENABLE: 1 }, AnnotationEditorType: { DISABLE: -1 } }
+  return { state, lib, pdfjs }
+})
+
+vi.mock('@/utils/pdfjs', () => ({
+  loadPdfjs: async () => fake.pdfjs,
+  loadPdfjsViewer: async () => fake.lib,
+}))
+
+const loader = vi.hoisted(() => ({
+  onPassword: null as null | ((reason: 'needed' | 'incorrect') => Promise<string | null>),
+  load: null as null | ((src: string) => Promise<void>),
+}))
+const pdfDocument = shallowRef<unknown>(null)
+vi.mock('@/composables/usePdfDocument', () => ({
+  usePdfDocument: (options: { onPassword: typeof loader.onPassword }) => {
+    loader.onPassword = options.onPassword
+    loader.load = vi.fn(async () => {})
+    return { pdfDocument, isLoading: ref(false), error: shallowRef(null), load: loader.load, close: async () => {} }
   },
+}))
+
+const platform = vi.hoisted(() => ({ tauri: false, openExternalUrl: vi.fn(async () => {}) }))
+vi.mock('@/platform', () => ({
+  isTauriRuntime: () => platform.tauri,
+  openExternalUrl: platform.openExternalUrl,
 }))
 
 import PDFViewer from '@/components/ticketComponents/PDFViewer.vue'
 import { mountWithProviders } from '@/test/mountWithProviders'
-import { makeWorkspaceRouter, routingModes, stubRoute } from '@/test/workspaceRouter'
-
-beforeAll(() => {
-  if (typeof globalThis.IntersectionObserver !== 'function') {
-    class StubIntersectionObserver {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    }
-    Object.defineProperty(globalThis, 'IntersectionObserver', {
-      value: StubIntersectionObserver,
-      configurable: true,
-    })
-  }
-})
-
-const routes = [stubRoute('/tickets/:id', 'ticket-view'), stubRoute('/pdf-viewer', 'pdf-viewer')]
 
 let wrapper: VueWrapper | null = null
+const events: string[] = []
+
+async function mountViewer(props: Record<string, unknown> = {}) {
+  wrapper = mountWithProviders(PDFViewer, {
+    src: '/api/files/tickets/7/a.pdf',
+    filename: 'a.pdf',
+    onReady: () => events.push('ready'),
+    onClose: () => events.push('close'),
+    ...props,
+  })
+  await flushPromises()
+  return fake.state.viewer!
+}
+
+// Give the viewer a document and let pdf.js lay it out.
+async function openDocument(pages = 5) {
+  pdfDocument.value = { numPages: pages }
+  fake.state.eventBus!.dispatch('pagesinit')
+  await flushPromises()
+}
+
+const scroller = () => wrapper!.find('[data-testid="pdf-scroller"]')
+const press = (key: string, init: KeyboardEventInit = {}) =>
+  scroller().element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
+
+beforeEach(() => {
+  events.length = 0
+  pdfDocument.value = null
+  platform.tauri = false
+})
 afterEach(() => {
   wrapper?.unmount()
   wrapper = null
+  document.body.innerHTML = ''
+  vi.clearAllMocks()
 })
 
-const fullscreenButton = () => wrapper!.find('button[aria-label="ticket-media-pdf-fullscreen-aria"]')
-
-describe.each(routingModes)('PDFViewer ($mode routing)', ({ mode, prefix }) => {
-  beforeEach(() => {
-    routing = mode
-    slug = null
+describe('PDFViewer', () => {
+  it('loads the file and sets pdf.js up read-only, with safe external links', async () => {
+    const viewer = await mountViewer()
+    expect(loader.load).toHaveBeenCalledWith('/api/files/tickets/7/a.pdf')
+    expect(viewer.options).toMatchObject({ textLayerMode: 1, annotationMode: 1, annotationEditorMode: -1 })
+    expect(viewer.options).not.toHaveProperty('scriptingManager')
+    expect(fake.state.linkOptions).toMatchObject({ externalLinkTarget: 2, externalLinkRel: 'noopener noreferrer nofollow' })
   })
 
-  it('offers fullscreen in a ticket and opens the viewer inside the workspace', async () => {
-    const router = makeWorkspaceRouter(routes)
-    await router.push(`${prefix}/tickets/12`)
-    wrapper = mountWithProviders(PDFViewer, { src: '/api/files/a.pdf', filename: 'a.pdf' }, {}, [router])
-    await flushPromises()
-    expect(fullscreenButton().exists()).toBe(true)
-
-    await fullscreenButton().trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.name).toBe('pdf-viewer')
-    expect(router.currentRoute.value.path).toBe(`${prefix}/pdf-viewer`)
-    expect(fullscreenButton().exists()).toBe(false)
+  it('shows the document at automatic zoom, on the page asked for', async () => {
+    const viewer = await mountViewer({ initialPage: 3 })
+    await openDocument()
+    expect(viewer.setDocument).toHaveBeenCalledWith({ numPages: 5 })
+    expect(viewer.currentScaleValue).toBe('auto')
+    expect(viewer.currentPageNumber).toBe(3)
+    expect(events).toContain('ready')
   })
 
-  it('has no fullscreen button on the fullscreen page', async () => {
-    const router = makeWorkspaceRouter(routes)
-    await router.push(`${prefix}/pdf-viewer?src=%2Fapi%2Ffiles%2Fa.pdf&filename=a.pdf`)
-    wrapper = mountWithProviders(PDFViewer, { src: '/api/files/a.pdf', filename: 'a.pdf' }, {}, [router])
+  it('keeps the page field and the announced page in step with scrolling', async () => {
+    await mountViewer()
+    await openDocument()
+    fake.state.eventBus!.dispatch('pagechanging', { pageNumber: 4 })
     await flushPromises()
-    expect(fullscreenButton().exists()).toBe(false)
+    expect((wrapper!.find('[data-testid="pdf-page-input"]').element as HTMLInputElement).value).toBe('4')
+    expect(wrapper!.find('[data-testid="pdf-page-status"]').text()).toBe('ticket-media-pdf-page-status')
+  })
+
+  it('jumps to a typed page, within the document', async () => {
+    const viewer = await mountViewer()
+    await openDocument()
+    const input = wrapper!.find('[data-testid="pdf-page-input"]')
+    await input.setValue('99')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(viewer.currentPageNumber).toBe(5)
+    await input.setValue('0')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(viewer.currentPageNumber).toBe(1)
+  })
+
+  it('zooms with + - 0 and turns pages with the side arrows', async () => {
+    const viewer = await mountViewer()
+    await openDocument()
+    press('+')
+    expect(viewer.increaseScale).toHaveBeenCalled()
+    press('-')
+    expect(viewer.decreaseScale).toHaveBeenCalled()
+    viewer.currentScaleValue = '2'
+    press('0')
+    expect(viewer.currentScaleValue).toBe('auto')
+    press('ArrowRight')
+    expect(viewer.nextPage).toHaveBeenCalled()
+    press('ArrowLeft')
+    expect(viewer.previousPage).toHaveBeenCalled()
+  })
+
+  it('zooms the document, not the app, on Ctrl or Cmd + wheel', async () => {
+    const viewer = await mountViewer()
+    await openDocument()
+    const wheel = new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, clientX: 10, clientY: 20, cancelable: true })
+    scroller().element.dispatchEvent(wheel)
+    expect(wheel.defaultPrevented).toBe(true)
+    expect(viewer.updateScale).toHaveBeenCalledWith(expect.objectContaining({ origin: [10, 20] }))
+    expect(viewer.updateScale.mock.calls[0]![0].scaleFactor).toBeCloseTo(Math.E)
+
+    const plain = new WheelEvent('wheel', { deltaY: 100, cancelable: true })
+    scroller().element.dispatchEvent(plain)
+    expect(plain.defaultPrevented).toBe(false)
+  })
+
+  it('rotates a quarter turn at a time', async () => {
+    const viewer = await mountViewer()
+    await openDocument()
+    viewer.pagesRotation = 270
+    await wrapper!.find('button[aria-label="ticket-media-pdf-rotate"]').trigger('click')
+    expect(viewer.pagesRotation).toBe(0)
+  })
+
+  it('asks to close on Escape', async () => {
+    await mountViewer()
+    press('Escape')
+    expect(events).toContain('close')
+  })
+
+  it('lets go of the document when it closes', async () => {
+    const viewer = await mountViewer()
+    await openDocument()
+    wrapper!.unmount()
+    wrapper = null
+    expect(viewer.setDocument).toHaveBeenLastCalledWith(null)
+  })
+
+  it('opens external links in the system browser in the app', async () => {
+    platform.tauri = true
+    await mountViewer()
+    const layer = document.createElement('div')
+    layer.className = 'annotationLayer'
+    layer.innerHTML = '<a href="https://example.com/x" target="_blank">x</a><a href="#page=2">toc</a>'
+    scroller().element.querySelector('.pdfViewer')!.appendChild(layer)
+
+    const external = new MouseEvent('click', { bubbles: true, cancelable: true })
+    layer.querySelector('a[target]')!.dispatchEvent(external)
+    expect(external.defaultPrevented).toBe(true)
+    expect(platform.openExternalUrl).toHaveBeenCalledWith('https://example.com/x')
+
+    const internal = new MouseEvent('click', { bubbles: true, cancelable: true })
+    layer.querySelector('a[href="#page=2"]')!.dispatchEvent(internal)
+    expect(internal.defaultPrevented).toBe(false)
+    expect(platform.openExternalUrl).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('PDFViewer password', () => {
   it('asks for the password when pdf.js needs one, and passes it on', async () => {
-    const router = makeWorkspaceRouter(routes)
-    await router.push('/tickets/12')
-    wrapper = mountWithProviders(PDFViewer, { src: '/api/files/a.pdf', filename: 'a.pdf' }, {}, [router])
-    await flushPromises()
+    await mountViewer()
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
 
-    const answer = viewerOptions.onPassword!('needed')
+    const answer = loader.onPassword!('needed')
     await new Promise((r) => setTimeout(r, 20))
     const input = document.body.querySelector<HTMLInputElement>('[role="dialog"] input')!
     input.value = 'hunter2'
@@ -120,13 +241,9 @@ describe('PDFViewer password', () => {
   })
 
   it('answers no password when the viewer closes with the prompt open', async () => {
-    const router = makeWorkspaceRouter(routes)
-    await router.push('/tickets/12')
-    wrapper = mountWithProviders(PDFViewer, { src: '/api/files/a.pdf', filename: 'a.pdf' }, {}, [router])
-    await flushPromises()
-
-    const answer = viewerOptions.onPassword!('needed')
-    wrapper.unmount()
+    await mountViewer()
+    const answer = loader.onPassword!('needed')
+    wrapper!.unmount()
     wrapper = null
     await expect(answer).resolves.toBeNull()
   })

@@ -163,6 +163,7 @@ const shareDocument = async () => {
           :initialPage="startPage"
           class="h-full w-full"
           @error="handlePdfError"
+          @close="goBack"
         />
       </div>
     </div>
