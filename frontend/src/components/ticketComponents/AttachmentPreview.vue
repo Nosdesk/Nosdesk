@@ -14,6 +14,7 @@ import { convertToAuthenticatedPath } from '@/services/fileService';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import { useAttachmentSource } from '@/composables/useAttachmentSource';
+import { fetchPdfBytes, loadPdfjs, openPdfDocument } from '@/utils/pdfjs';
 
 const router = useRouter();
 const { $t } = useFluent();
@@ -337,40 +338,22 @@ const generatePdfThumbnail = async () => {
   try {
     debugLog('Starting PDF thumbnail generation', { url: authenticatedUrl.value });
 
-    const pdfjsLib = await import('pdfjs-dist');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
+    const pdfjs = await loadPdfjs();
+    const data = await fetchPdfBytes(authenticatedUrl.value);
+    debugLog('PDF fetched successfully', { size: data.byteLength });
 
-    // Default credentials, as in usePdfViewer: the mobile asset proxy refuses
-    // a credentialed request.
-    const response = await fetch(authenticatedUrl.value);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    debugLog('PDF fetched successfully', { size: arrayBuffer.byteLength });
-
-    // isEvalSupported: false keeps pdf.js off `new Function()` (strict CSP).
-    const pdf = await pdfjsLib.getDocument({
-      data: new Uint8Array(arrayBuffer),
-      isEvalSupported: false,
-    }).promise;
+    const pdf = await openPdfDocument(pdfjs, data).promise;
     const page = await pdf.getPage(1);
 
     const scale = 1.5; // Slightly lower scale for thumbnails
     const viewport = page.getViewport({ scale });
 
     const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Could not get canvas context');
 
     canvas.height = viewport.height;
     canvas.width = viewport.width;
 
-    await page.render({
-      canvasContext: context,
-      viewport: viewport
-    }).promise;
+    await page.render({ canvas, viewport }).promise;
 
     debugLog('PDF page rendered to canvas');
 

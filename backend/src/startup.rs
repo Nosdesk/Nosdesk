@@ -1290,6 +1290,9 @@ pub fn configure_app(
                         Ok(ServiceResponse::new(req, res))
                     }))
             )
+            // pdf.js's decoders, CMaps and fonts, in a folder per pdf.js
+            // version (`/pdfjs/<version>/`), so the immutable cache on this
+            // prefix is safe.
             .service(
                 Files::new("/pdfjs", "./public/pdfjs")
                     .use_last_modified(true)

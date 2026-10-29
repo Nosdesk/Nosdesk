@@ -109,6 +109,10 @@ pub enum Source {
     /// `'unsafe-eval'`. Vite dev needs this for HMR; production
     /// builds should never include it.
     UnsafeEval,
+    /// `'wasm-unsafe-eval'`. Lets WebAssembly compile without
+    /// allowing `eval()` or `new Function()`. pdf.js decodes scanned
+    /// (JBIG2, CCITT) and JPEG 2000 images with wasm in its worker.
+    WasmUnsafeEval,
     /// `data:` URI scheme.
     Data,
     /// `blob:` URI scheme. Needed for File API + Worker URLs.
@@ -128,6 +132,7 @@ impl Source {
             Source::None_ => "'none'".into(),
             Source::UnsafeInline => "'unsafe-inline'".into(),
             Source::UnsafeEval => "'unsafe-eval'".into(),
+            Source::WasmUnsafeEval => "'wasm-unsafe-eval'".into(),
             Source::Data => "data:".into(),
             Source::Blob => "blob:".into(),
             Source::Ws => "ws:".into(),
@@ -228,7 +233,10 @@ impl Csp {
 fn production_policy(plugin_sandbox_origin: Option<&str>) -> Csp {
     let mut csp = Csp::new()
         .add(Directive::DefaultSrc, vec![Source::SelfOrigin])
-        .add(Directive::ScriptSrc, vec![Source::SelfOrigin])
+        .add(
+            Directive::ScriptSrc,
+            vec![Source::SelfOrigin, Source::WasmUnsafeEval],
+        )
         .add(Directive::WorkerSrc, vec![Source::SelfOrigin, Source::Blob])
         .add(
             Directive::StyleSrc,
@@ -294,7 +302,11 @@ fn development_policy(plugin_sandbox_origin: Option<&str>) -> Csp {
         .add(Directive::DefaultSrc, vec![Source::SelfOrigin])
         .add(
             Directive::ScriptSrc,
-            vec![Source::SelfOrigin, Source::UnsafeEval],
+            vec![
+                Source::SelfOrigin,
+                Source::UnsafeEval,
+                Source::WasmUnsafeEval,
+            ],
         )
         .add(Directive::WorkerSrc, vec![Source::SelfOrigin, Source::Blob])
         .add(
@@ -780,7 +792,22 @@ mod tests {
     #[test]
     fn production_script_src_has_no_unsafe_eval() {
         let csp = production_policy(None).render();
-        assert!(!csp.contains("'unsafe-eval'"));
+        let dirs = parse_directives(&csp);
+        let scripts = dirs.get("script-src").unwrap();
+        assert!(!scripts.contains(&"'unsafe-eval'".to_string()));
+    }
+
+    #[test]
+    fn production_script_src_allows_wasm_only() {
+        let csp = production_policy(None).render();
+        let dirs = parse_directives(&csp);
+        assert_eq!(
+            dirs.get("script-src"),
+            Some(&vec![
+                "'self'".to_string(),
+                "'wasm-unsafe-eval'".to_string()
+            ])
+        );
     }
 
     #[test]

@@ -4,6 +4,8 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { usePdfViewer } from '@/composables/usePdfViewer'
+import PdfPasswordPrompt from '@/components/ticketComponents/PdfPasswordPrompt.vue'
+import type { PdfPasswordReason } from '@/utils/pdfjs'
 
 const { $t } = useFluent()
 
@@ -33,10 +35,37 @@ const currentPage = ref(1)
 // workspace slug (/acme/pdf-viewer).
 const isFullscreenView = computed(() => route.name === 'pdf-viewer')
 
+// The open password prompt, if any. Its answer resolves the request pdf.js
+// is waiting on; closing it (or leaving the viewer) answers null. After a
+// submit it stays open, busy, until the document opens or pdf.js asks again.
+interface PasswordPrompt {
+  reason: PdfPasswordReason
+  busy: boolean
+  answer: (password: string | null) => void
+}
+const passwordPrompt = ref<PasswordPrompt | null>(null)
+
+const requestPassword = (reason: PdfPasswordReason) =>
+  new Promise<string | null>((resolve) => {
+    passwordPrompt.value = { reason, busy: false, answer: resolve }
+  })
+
+const answerPassword = (password: string | null) => {
+  const prompt = passwordPrompt.value
+  if (!prompt) return
+  passwordPrompt.value = password === null ? null : { ...prompt, busy: true, answer: () => {} }
+  prompt.answer(password)
+}
+
 // Initialize PDF viewer composable
 const pdf = usePdfViewer({
   onReady: () => emit('ready'),
   onError: (error) => emit('error', error),
+  onPassword: requestPassword,
+})
+
+watch(pdf.isLoading, (loading) => {
+  if (!loading && passwordPrompt.value?.busy) passwordPrompt.value = null
 })
 
 // IntersectionObserver for lazy rendering and cleanup
@@ -226,6 +255,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  answerPassword(null)
   if (scrollContainer.value) {
     scrollContainer.value.removeEventListener('scroll', handleScroll)
   }
@@ -397,6 +427,15 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <PdfPasswordPrompt
+      :show="passwordPrompt !== null"
+      :filename="filename"
+      :reason="passwordPrompt?.reason ?? 'needed'"
+      :busy="passwordPrompt?.busy ?? false"
+      @submit="answerPassword"
+      @cancel="answerPassword(null)"
+    />
   </div>
 </template>
 
