@@ -1920,7 +1920,12 @@ pub async fn build_server(
                 // app) preflight like the selection header above.
                 "X-Nosdesk-Plugin",
             ])
-            .expose_headers(vec!["content-disposition"])
+            // The native app's cross-origin sync fetch reads when its access
+            // token expires, to refresh before it does.
+            .expose_headers(vec![
+                "content-disposition",
+                crate::utils::jwt::ACCESS_EXPIRES_IN_HEADER,
+            ])
             .supports_credentials()
             .max_age(3600);
 

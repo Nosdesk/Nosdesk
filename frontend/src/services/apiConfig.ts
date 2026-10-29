@@ -7,6 +7,7 @@ import { getSSEClientId } from '@/services/sseService';
 import { getSessionId as getDiagnosticsSessionId } from '@/services/diagnostics/session';
 import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs';
 import { refreshSession } from '@nosdesk/core/services/session';
+import { ACCESS_EXPIRES_IN_HEADER, noteAccessExpiry } from '@nosdesk/core/services/sessionSchedule';
 // Transport seam: base URL, credential mode, and auth headers are resolved at
 // request time so the same axios client serves both the web (cookie + CSRF)
 // and mobile (bearer) surfaces. The host wires the active strategy at
@@ -161,6 +162,9 @@ apiClient.interceptors.response.use(
     // A response to a request sent under a previous workspace must not land.
     const refused = refuseResponse(response.config);
     if (refused) return Promise.reject(new CanceledError(refused));
+
+    // When the access token runs out, so the session refreshes before then.
+    noteAccessExpiry(response.headers[ACCESS_EXPIRES_IN_HEADER]);
 
     // Extract correlation ID from response
     const correlationId = response.headers['x-correlation-id'];

@@ -3040,6 +3040,10 @@ pub async fn refresh_token(
         };
         return Ok(HttpResponse::Ok()
             .insert_header(("Cache-Control", "no-store"))
+            .insert_header((
+                crate::utils::jwt::ACCESS_EXPIRES_IN_HEADER,
+                crate::utils::jwt::ACCESS_TOKEN_TTL_SECS,
+            ))
             .json(response));
     }
 
@@ -3052,6 +3056,10 @@ pub async fn refresh_token(
     };
 
     Ok(HttpResponse::Ok()
+        .insert_header((
+            crate::utils::jwt::ACCESS_EXPIRES_IN_HEADER,
+            crate::utils::jwt::ACCESS_TOKEN_TTL_SECS,
+        ))
         .cookie(crate::utils::cookies::create_access_token_cookie(
             &new_access_token,
         ))

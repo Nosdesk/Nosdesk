@@ -79,6 +79,8 @@ struct Reply {
     status: StatusCode,
     code: Option<String>,
     cookies: Vec<Cookie<'static>>,
+    /// Seconds the access token has left, when the response says.
+    access_expires_in: Option<u64>,
 }
 
 /// Send `req` to `srv` and read the reply. A middleware refusal surfaces as
@@ -97,6 +99,11 @@ macro_rules! send {
 async fn reply_of(res: HttpResponse) -> Reply {
     let status = res.status();
     let cookies = res.cookies().map(|c| c.into_owned()).collect();
+    let access_expires_in = res
+        .headers()
+        .get(backend::utils::jwt::ACCESS_EXPIRES_IN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok());
     let body = actix_web::body::to_bytes(res.into_body())
         .await
         .unwrap_or_default();
@@ -107,6 +114,7 @@ async fn reply_of(res: HttpResponse) -> Reply {
         status,
         code,
         cookies,
+        access_expires_in,
     }
 }
 
@@ -224,6 +232,35 @@ async fn an_agent_write_after_an_idle_spell_refreshes_and_retries() {
         send!(app, jar.post("/api/notes", CSRF_TOKEN_COOKIE)).status,
         StatusCode::OK,
         "the retried write goes through"
+    );
+}
+
+/// The client refreshes before its access token expires, so every response to
+/// a signed-in request, and a refresh, says how long the token has left.
+#[actix_web::test]
+async fn an_agent_response_says_how_long_its_access_token_has_left() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let user = crate::common::insert_user(&mut pool.get().expect("conn"), "Timed Agent");
+    let (_sid, mut jar) = agent_sign_in(&pool, &user);
+    let app = agent_app!(pool);
+    let ttl = backend::utils::jwt::ACCESS_TOKEN_TTL_SECS as u64;
+
+    let write = send!(app, jar.post("/api/notes", CSRF_TOKEN_COOKIE));
+    assert_eq!(write.status, StatusCode::OK);
+    let left = write.access_expires_in.expect("a signed-in response says");
+    assert!((ttl - 60..=ttl).contains(&left), "{left}s left");
+
+    let refresh = send!(app, jar.post("/api/auth/refresh", CSRF_TOKEN_COOKIE));
+    assert_eq!(refresh.status, StatusCode::OK);
+    assert_eq!(refresh.access_expires_in, Some(ttl), "a refresh says too");
+    jar.absorb(refresh.cookies.into_iter());
+
+    let refused = send!(app, Jar::default().post("/api/notes", CSRF_TOKEN_COOKIE));
+    assert_eq!(
+        refused.access_expires_in, None,
+        "a refusal has no token to time"
     );
 }
 

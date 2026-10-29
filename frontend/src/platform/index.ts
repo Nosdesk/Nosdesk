@@ -40,6 +40,11 @@ export async function configurePlatform(): Promise<void> {
   const { setSessionLostHandler } = await import('@nosdesk/core/services/session')
   const { redirectToLogin } = await import('@/services/sessionLost')
   setSessionLostHandler(redirectToLogin)
+  // Both run in a browser engine: the refresh schedule's lock, shared expiry
+  // and wake-ups are the same.
+  const { configureSessionSchedule } = await import('@nosdesk/core/services/sessionSchedule')
+  const { browserSessionScheduleHost } = await import('@/services/sessionScheduleHost')
+  configureSessionSchedule(browserSessionScheduleHost())
 }
 
 /**
