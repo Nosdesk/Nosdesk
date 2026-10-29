@@ -20,6 +20,7 @@ use std::time::Instant;
 
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
+use actix_web::middleware::Next;
 use actix_web::{Error, HttpMessage, HttpRequest};
 use serde_json::{Map, Value};
 use tracing::Span;
@@ -64,7 +65,7 @@ impl CanonicalContext {
 
     /// Serialise the bag for the `_canonical` field, or `None` when empty (so a
     /// request that stamped nothing doesn't carry an empty field).
-    fn snapshot_json(&self) -> Option<String> {
+    pub(crate) fn snapshot_json(&self) -> Option<String> {
         let map = self.0.lock().ok()?;
         if map.is_empty() {
             return None;
@@ -210,6 +211,57 @@ impl RootSpanBuilder for NosdeskRootSpanBuilder {
     }
 }
 
+/// The `http_request` line for a request that a middleware inside this one
+/// refused (a 401 from auth, a 403 from CSRF or the workspace gate). Such a
+/// refusal is an `Err`, which reaches [`NosdeskRootSpanBuilder::on_request_end`]
+/// without its request, so [`emit_canonical_event`] can't report it. What the
+/// line needs is read from the request before it goes in; the error passes
+/// through untouched, so the client's response is the one it always was.
+/// Registered directly inside `TracingLogger`, whose request-start values it
+/// reads.
+pub async fn log_rejections(
+    req: ServiceRequest,
+    next: Next<impl MessageBody + 'static>,
+) -> Result<ServiceResponse<impl MessageBody>, Error> {
+    let method = req.method().as_str().to_owned();
+    let route = req
+        .match_pattern()
+        .unwrap_or_else(|| req.path().to_string());
+    let (request_id, start, canonical, trace) = {
+        let ext = req.extensions();
+        (
+            ext.get::<RequestId>()
+                .map(|r| (**r).to_string())
+                .unwrap_or_default(),
+            ext.get::<RequestStart>().copied(),
+            ext.get::<CanonicalContext>().cloned().unwrap_or_default(),
+            ext.get::<TraceContext>().cloned(),
+        )
+    };
+    let result = next.call(req).await;
+    if let Err(err) = &result {
+        let response = err.error_response();
+        if let Some(kind) = response.extensions().get::<crate::errors::ErrorKind>() {
+            canonical.record("error_kind", kind.0);
+        }
+        let (trace_id, span_id) = trace.map(|t| (t.trace_id, t.span_id)).unwrap_or_default();
+        emit_http_request(HttpRequestLine {
+            request_id,
+            trace_id,
+            span_id,
+            method: &method,
+            route,
+            status: response.status().as_u16(),
+            latency_ms: start.map(|s| s.0.elapsed().as_millis() as u64).unwrap_or(0),
+            workspace_id: 0,
+            user_uuid: String::new(),
+            actor_kind: "anonymous",
+            canonical: canonical.snapshot_json(),
+        });
+    }
+    result
+}
+
 /// Requests at/above this latency are always kept by the sampler — slow
 /// requests are the interesting ones (tail sampling, loggingsucks.com).
 const SLOW_REQUEST_MS: u64 = 1_000;
@@ -336,24 +388,59 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
         )
     };
 
+    emit_http_request(HttpRequestLine {
+        request_id,
+        trace_id,
+        span_id,
+        method,
+        route,
+        status,
+        latency_ms,
+        workspace_id,
+        user_uuid,
+        actor_kind,
+        canonical,
+    });
+}
+
+/// The fields of one `http_request` line.
+struct HttpRequestLine<'a> {
+    request_id: String,
+    trace_id: String,
+    span_id: String,
+    method: &'a str,
+    route: String,
+    status: u16,
+    latency_ms: u64,
+    workspace_id: i64,
+    user_uuid: String,
+    actor_kind: &'a str,
+    canonical: Option<String>,
+}
+
+/// Write `line`, unless it is a health probe or the sampler drops it.
+fn emit_http_request(line: HttpRequestLine<'_>) {
+    if line.route == "/health" || line.route == "/readiness" {
+        return;
+    }
     // Tail sampling: always keep errors + slow requests; sample the rest.
-    if !keep_canonical(status, latency_ms, &request_id) {
+    if !keep_canonical(line.status, line.latency_ms, &line.request_id) {
         return;
     }
 
     tracing::info!(
         target: "nosdesk::request",
-        request_id = %request_id,
-        trace_id = %trace_id,
-        span_id = %span_id,
-        method = method,
-        route = %route,
-        status_code = status,
-        latency_ms = latency_ms,
-        workspace_id = workspace_id,
-        user_uuid = %user_uuid,
-        actor_kind = actor_kind,
-        _canonical = canonical.as_deref().unwrap_or(""),
+        request_id = %line.request_id,
+        trace_id = %line.trace_id,
+        span_id = %line.span_id,
+        method = line.method,
+        route = %line.route,
+        status_code = line.status,
+        latency_ms = line.latency_ms,
+        workspace_id = line.workspace_id,
+        user_uuid = %line.user_uuid,
+        actor_kind = line.actor_kind,
+        _canonical = line.canonical.as_deref().unwrap_or(""),
         "http_request"
     );
 }
@@ -715,6 +802,68 @@ mod tests {
             canonical.contains("\"error_kind\":\"not_found\""),
             "got {canonical}"
         );
+    }
+
+    /// A 401 from an auth middleware, as `authenticate` refuses a request
+    /// without a cookie, gets one `http_request` line with the route, status
+    /// and error kind, and the client gets the same response as before.
+    #[test]
+    fn a_middleware_rejection_gets_its_request_line() {
+        use actix_web::{middleware::from_fn, test, web, App};
+        use tracing_actix_web::TracingLogger;
+
+        async fn refuse(
+            _req: ServiceRequest,
+            _next: Next<impl MessageBody>,
+        ) -> Result<ServiceResponse<BoxBody>, Error> {
+            Err(crate::errors::unauthorized_error("Authentication required"))
+        }
+
+        let mut status = None;
+        let events = run_capturing(|| {
+            actix_web::rt::System::new().block_on(async {
+                let app = test::init_service(
+                    App::new()
+                        .wrap(from_fn(log_rejections))
+                        .wrap(TracingLogger::<NosdeskRootSpanBuilder>::new())
+                        .service(
+                            web::scope("/api")
+                                .wrap(from_fn(refuse))
+                                .route("/sync/delta", web::get().to(HttpResponse::Ok)),
+                        ),
+                )
+                .await;
+                // The refusal still leaves as the error it was; the server
+                // turns it into the response.
+                let Err(refused) = test::try_call_service(
+                    &app,
+                    test::TestRequest::get().uri("/api/sync/delta").to_request(),
+                )
+                .await
+                else {
+                    panic!("the refusal passes through untouched");
+                };
+                status = Some(refused.error_response().status().as_u16());
+            });
+        });
+
+        assert_eq!(status, Some(401), "the client sees the same refusal");
+        let lines: Vec<_> = events
+            .iter()
+            .filter(|e| e.target == "nosdesk::request")
+            .collect();
+        assert_eq!(lines.len(), 1, "one http_request line");
+        let ev = lines[0];
+        assert_eq!(
+            ev.fields.get("route").map(String::as_str),
+            Some("/api/sync/delta")
+        );
+        assert_eq!(
+            ev.fields.get("status_code").map(String::as_str),
+            Some("401")
+        );
+        let canonical = ev.fields.get("_canonical").expect("_canonical present");
+        assert!(canonical.contains("\"error_kind\""), "got {canonical}");
     }
 
     #[test]

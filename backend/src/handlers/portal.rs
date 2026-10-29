@@ -308,6 +308,7 @@ pub async fn refresh_portal_session(
         .filter(|t| !t.is_empty())
     else {
         // Sets no cookies, like the agent refresh: see `auth::refresh_token`.
+        crate::middleware::request_context::record_canonical(&request, "outcome", "no_token");
         return Err(ApiError::Unauthorized("Refresh token not found".into()));
     };
 
