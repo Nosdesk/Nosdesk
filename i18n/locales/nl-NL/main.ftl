@@ -5367,15 +5367,18 @@ ticket-media-video-fullscreen-exit = Volledig scherm sluiten
 ticket-media-pdf-aria = PDF-viewer
 ticket-media-pdf-loading = PDF laden...
 ticket-media-pdf-zoom-out = Uitzoomen
-ticket-media-pdf-zoom-out-aria = Uitzoomen
 ticket-media-pdf-zoom-in = Inzoomen
-ticket-media-pdf-zoom-in-aria = Inzoomen
-ticket-media-pdf-fit-width = Aanpassen aan breedte
-ticket-media-pdf-fit-width-aria = Aanpassen aan breedte
-ticket-media-pdf-fullscreen = Volledig scherm
-ticket-media-pdf-fullscreen-aria = Volledig scherm openen
 ticket-media-pdf-download = PDF downloaden
-ticket-media-pdf-download-aria = PDF downloaden
+# Werkbalk van de PDF-viewer (machine, nog na te kijken door moedertaalspreker)
+ticket-media-pdf-toolbar = PDF-bediening
+ticket-media-pdf-page-input = Pagina
+ticket-media-pdf-page-total = van { $total }
+ticket-media-pdf-page-status = Pagina { $page } van { $total }
+ticket-media-pdf-zoom = Zoom
+ticket-media-pdf-zoom-auto = Automatisch
+ticket-media-pdf-zoom-page-width = Paginabreedte
+ticket-media-pdf-zoom-page-fit = Hele pagina
+ticket-media-pdf-rotate = Draaien
 
 # Ticket media: bestandsvoorvertoning (FilePreview)
 ticket-media-file-fallback = Bestand

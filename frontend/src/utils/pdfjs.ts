@@ -14,14 +14,16 @@ type Pdfjs = typeof import('pdfjs-dist')
 
 let pdfjsPromise: Promise<Pdfjs> | null = null
 
-/** Load pdf.js once and point it at the minified worker. */
+/**
+ * Load pdf.js once and point it at the minified worker, which Vite emits as
+ * a hashed asset for the `?url` import. (Under `vite dev` the worker fails to
+ * start and pdf.js runs on the main thread instead; builds, including the
+ * dev stack's `vite build --watch`, use the real worker.)
+ */
 export function loadPdfjs(): Promise<Pdfjs> {
-  pdfjsPromise ??= import('pdfjs-dist')
-    .then((pdfjs) => {
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/build/pdf.worker.min.mjs',
-        import.meta.url,
-      ).href
+  pdfjsPromise ??= Promise.all([import('pdfjs-dist'), import('pdfjs-dist/build/pdf.worker.min.mjs?url')])
+    .then(([pdfjs, worker]) => {
+      pdfjs.GlobalWorkerOptions.workerSrc = worker.default
       return pdfjs
     })
     .catch((error: unknown) => {
@@ -29,6 +31,26 @@ export function loadPdfjs(): Promise<Pdfjs> {
       throw error
     })
   return pdfjsPromise
+}
+
+type PdfjsViewer = typeof import('pdfjs-dist/web/pdf_viewer.mjs')
+
+let viewerPromise: Promise<PdfjsViewer> | null = null
+
+/**
+ * Load pdf.js's viewer components and their stylesheet (scoped to
+ * `.pdfjs-scope` at build time). The components read `globalThis.pdfjsLib`,
+ * which pdf.js sets when it loads, so pdf.js comes first.
+ */
+export function loadPdfjsViewer(): Promise<PdfjsViewer> {
+  viewerPromise ??= loadPdfjs()
+    .then(() => Promise.all([import('pdfjs-dist/web/pdf_viewer.mjs'), import('pdfjs-dist/web/pdf_viewer.css')]))
+    .then(([viewer]) => viewer)
+    .catch((error: unknown) => {
+      viewerPromise = null
+      throw error
+    })
+  return viewerPromise
 }
 
 /** Absolute URLs of the decoder assets for this pdf.js version. */

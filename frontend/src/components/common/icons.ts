@@ -359,6 +359,19 @@ export const ICON_REGISTRY = {
   search: {
     d: 'M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z',
   },
+  /** Magnifier with a plus / minus: zoom a document in or out. Same lens
+   * as `search`, so the pair reads as "look closer / further". */
+  zoomIn: {
+    d: 'M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6',
+  },
+  zoomOut: {
+    d: 'M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM13.5 10.5h-6',
+  },
+  /** Circular arrow turning clockwise, "rotate a page a quarter turn".
+   * Built from `refresh`'s arc and arrowhead, so the two share a hand. */
+  rotate: {
+    d: 'M16.023 9.348h4.992V4.356m0 4.992l-3.181-3.183A8.25 8.25 0 1 0 20.25 12',
+  },
   /** Paper plane, "send" — outbound action like sending an email,
    * test message, or composed comment. Reserved for transmit-now
    * semantics, not for "save" or "submit form" generic actions. */
