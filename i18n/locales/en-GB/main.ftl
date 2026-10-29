@@ -2418,12 +2418,6 @@ pdf-viewer-back = Back
 pdf-viewer-share = Share
 pdf-viewer-share-tooltip = Copy link to clipboard
 pdf-viewer-loading = Loading PDF document...
-pdf-viewer-error-title = Error Loading PDF
-pdf-viewer-error-go-back = Go Back
-pdf-viewer-error-no-source = No PDF source provided
-pdf-viewer-error-failed = Failed to load PDF
-pdf-viewer-error-failed-with-reason = Failed to load PDF: { $reason }
-pdf-viewer-error-unknown = Unknown error
 
 # Settings: MFA (MFASettings) - two-factor authentication setup, verify, backup codes, disable
 settings-mfa-title = Two-Factor Authentication
@@ -2658,7 +2652,6 @@ ticket-media-file-text = Text Document.{ $ext }
 ticket-media-file-generic = File.{ $ext }
 ticket-media-file-delete = Delete file
 ticket-media-file-download = Download
-ticket-media-file-thumbnail-error = Couldn't generate thumbnail
 ticket-media-file-image-error = Couldn't load image
 ticket-media-file-animated-badge = ANIMATED
 

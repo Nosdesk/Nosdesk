@@ -5087,12 +5087,27 @@ pdf-viewer-back = Retour
 pdf-viewer-share = Partager
 pdf-viewer-share-tooltip = Copier le lien dans le presse-papiers
 pdf-viewer-loading = Chargement du document PDF...
-pdf-viewer-error-title = Échec du chargement du PDF
+# Erreurs et mot de passe du lecteur PDF (machine, à relire par un locuteur natif)
+pdf-viewer-error-title = Impossible d'ouvrir le PDF
+pdf-viewer-error-body = Une erreur s'est produite à l'ouverture. Réessayez, ou revenez en arrière pour télécharger le fichier.
 pdf-viewer-error-go-back = Retour
-pdf-viewer-error-no-source = Aucune source PDF fournie
-pdf-viewer-error-failed = Échec du chargement du PDF
-pdf-viewer-error-failed-with-reason = Échec du chargement du PDF : { $reason }
-pdf-viewer-error-unknown = Erreur inconnue
+pdf-viewer-error-no-source = Ce lien n'indique aucun fichier à ouvrir.
+pdf-viewer-not-found-title = Ce PDF n'est pas disponible
+pdf-viewer-not-found-body = Il a peut-être été supprimé, ou vous n'y avez pas accès.
+pdf-viewer-invalid-title = Ce fichier ne peut pas être affiché
+pdf-viewer-invalid-body = Ce n'est pas un PDF valide, ou il est endommagé. Revenez en arrière et téléchargez-le pour l'ouvrir dans une autre application.
+pdf-viewer-network-title = Impossible de télécharger le PDF
+pdf-viewer-network-body = Vérifiez votre connexion, puis réessayez.
+pdf-viewer-try-again = Réessayer
+pdf-viewer-locked-title = Ce PDF est protégé par un mot de passe
+pdf-viewer-locked-body = Saisissez son mot de passe pour l'ouvrir.
+pdf-viewer-locked-enter-password = Saisir le mot de passe
+pdf-viewer-password-title = Mot de passe requis
+pdf-viewer-password-description = Saisissez le mot de passe de { $filename }.
+pdf-viewer-password-label = Mot de passe
+pdf-viewer-password-incorrect = Ce mot de passe est incorrect. Réessayez.
+pdf-viewer-password-cancel = Annuler
+pdf-viewer-password-open = Ouvrir
 
 # Settings: MFA (MFASettings) - configuration, vérification, codes de secours et désactivation de la double authentification
 settings-mfa-title = Authentification à deux facteurs
@@ -5382,7 +5397,6 @@ ticket-media-file-text = Document texte.{ $ext }
 ticket-media-file-generic = Fichier.{ $ext }
 ticket-media-file-delete = Supprimer le fichier
 ticket-media-file-download = Télécharger
-ticket-media-file-thumbnail-error = Échec de la génération de la miniature
 ticket-media-file-image-error = Échec du chargement de l'image
 ticket-media-file-animated-badge = ANIMÉ
 

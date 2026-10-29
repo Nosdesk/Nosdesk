@@ -5077,12 +5077,27 @@ pdf-viewer-back = Terug
 pdf-viewer-share = Delen
 pdf-viewer-share-tooltip = Link naar klembord kopiëren
 pdf-viewer-loading = PDF-document laden...
-pdf-viewer-error-title = Kan PDF niet laden
+# Fouten en wachtwoord in de PDF-viewer (machine, nog na te kijken door moedertaalspreker)
+pdf-viewer-error-title = Kan de PDF niet openen
+pdf-viewer-error-body = Er ging iets mis bij het openen. Probeer het opnieuw, of ga terug en download het bestand.
 pdf-viewer-error-go-back = Terug
-pdf-viewer-error-no-source = Geen PDF-bron opgegeven
-pdf-viewer-error-failed = Kan PDF niet laden
-pdf-viewer-error-failed-with-reason = Kan PDF niet laden: { $reason }
-pdf-viewer-error-unknown = Onbekende fout
+pdf-viewer-error-no-source = Deze link verwijst niet naar een bestand.
+pdf-viewer-not-found-title = Deze PDF is niet beschikbaar
+pdf-viewer-not-found-body = Misschien is hij verwijderd, of heb je er geen toegang toe.
+pdf-viewer-invalid-title = Dit bestand kan niet worden weergegeven
+pdf-viewer-invalid-body = Het is geen geldige PDF, of het is beschadigd. Ga terug en download het om het in een andere app te openen.
+pdf-viewer-network-title = Kan de PDF niet downloaden
+pdf-viewer-network-body = Controleer je verbinding en probeer het opnieuw.
+pdf-viewer-try-again = Opnieuw proberen
+pdf-viewer-locked-title = Deze PDF is beveiligd met een wachtwoord
+pdf-viewer-locked-body = Voer het wachtwoord in om hem te openen.
+pdf-viewer-locked-enter-password = Wachtwoord invoeren
+pdf-viewer-password-title = Wachtwoord vereist
+pdf-viewer-password-description = Voer het wachtwoord voor { $filename } in.
+pdf-viewer-password-label = Wachtwoord
+pdf-viewer-password-incorrect = Dat wachtwoord klopt niet. Probeer het opnieuw.
+pdf-viewer-password-cancel = Annuleren
+pdf-viewer-password-open = Openen
 
 # Settings: MFA (MFASettings) - tweefactorauthenticatie instellen, verifiëren, back-upcodes en uitschakelen
 settings-mfa-title = Tweefactorauthenticatie
@@ -5372,7 +5387,6 @@ ticket-media-file-text = Tekstdocument.{ $ext }
 ticket-media-file-generic = Bestand.{ $ext }
 ticket-media-file-delete = Bestand verwijderen
 ticket-media-file-download = Downloaden
-ticket-media-file-thumbnail-error = Kon geen miniatuur maken
 ticket-media-file-image-error = Kon afbeelding niet laden
 ticket-media-file-animated-badge = GEANIMEERD
 

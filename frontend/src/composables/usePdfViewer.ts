@@ -10,6 +10,13 @@
 
 import { ref, shallowRef, onBeforeUnmount, watch } from 'vue'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
+import {
+  awaitPdfDocument,
+  fetchPdfBytes,
+  loadPdfjs,
+  openPdfDocument,
+  type PdfPasswordRequest,
+} from '@/utils/pdfjs'
 
 const PDF_CONFIG = {
   MIN_SCALE: 0.5,
@@ -25,10 +32,12 @@ interface PageDimensions {
 interface UsePdfViewerOptions {
   onError?: (error: Error) => void
   onReady?: () => void
+  /** Asks for the password of a protected document. */
+  onPassword?: PdfPasswordRequest
 }
 
 export function usePdfViewer(options: UsePdfViewerOptions = {}) {
-  const { onError, onReady } = options
+  const { onError, onReady, onPassword } = options
 
   // Core state
   const pdfDocument = shallowRef<PDFDocumentProxy | null>(null)
@@ -40,52 +49,46 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
   const renderedPages = ref<Set<number>>(new Set())
   const renderingPages = ref<Set<number>>(new Set())
 
-  // Initialize PDF.js library
-  const initPdfJs = async () => {
-    const pdfjsLib = await import('pdfjs-dist')
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.mjs',
-      import.meta.url
-    ).href
-    return pdfjsLib
+  // Each load gets a number; a load that finishes after a newer one started,
+  // or after unmount, destroys its document instead of showing it.
+  let loadGeneration = 0
+  let disposed = false
+
+  // pdf.js 6 releases a document, and ends its worker, through the task
+  // that loaded it.
+  const destroyDocument = async (doc: PDFDocumentProxy) => {
+    try {
+      await doc.loadingTask.destroy()
+    } catch (err) {
+      console.debug('PDF cleanup error:', err)
+    }
   }
 
   // Load PDF document - only get first page dimensions initially (memory efficient)
   const loadDocument = async (src: string) => {
+    const generation = ++loadGeneration
+    const isCurrent = () => !disposed && generation === loadGeneration
     isLoading.value = true
     renderedPages.value.clear()
     renderingPages.value.clear()
 
     try {
-      // Cleanup previous document. cleanup/destroy exist at runtime
-      // but pdfjs-dist's types omit them in this version.
       if (pdfDocument.value) {
-        const doc = pdfDocument.value as unknown as { cleanup?: () => Promise<void>; destroy?: () => Promise<void> }
-        await doc.cleanup?.()
-        await doc.destroy?.()
+        const previous = pdfDocument.value
         pdfDocument.value = null
+        await destroyDocument(previous)
       }
 
-      const pdfjsLib = await initPdfJs()
+      const pdfjs = await loadPdfjs()
+      const data = await fetchPdfBytes(src)
+      if (!isCurrent()) return
 
-      // Default credentials: the web app's session cookie still goes with a
-      // same-origin request, and the mobile app's asset proxy (which answers
-      // with a wildcard CORS origin) accepts the request, which it refuses
-      // when credentials are included.
-      const response = await fetch(src)
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      const doc = await awaitPdfDocument(openPdfDocument(pdfjs, data, { onPassword }))
+      if (!isCurrent()) {
+        await destroyDocument(doc)
+        return
       }
-
-      const arrayBuffer = await response.arrayBuffer()
-      // isEvalSupported: false keeps pdf.js off `new Function()` for font /
-      // PostScript compilation (it falls back to its interpreter), so it
-      // doesn't trip the app's strict `script-src 'self'` CSP.
-      const loadingTask = pdfjsLib.getDocument({
-        data: new Uint8Array(arrayBuffer),
-        isEvalSupported: false,
-      })
-      pdfDocument.value = await loadingTask.promise
+      pdfDocument.value = doc
       totalPages.value = pdfDocument.value.numPages
 
       // Get first two page dimensions (cover pages often differ from content pages)
@@ -115,10 +118,9 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
 
       onReady?.()
     } catch (error) {
-      onError?.(error as Error)
-      throw error
+      if (isCurrent()) onError?.(error as Error)
     } finally {
-      isLoading.value = false
+      if (isCurrent()) isLoading.value = false
     }
   }
 
@@ -151,8 +153,6 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
       }
 
       const viewport = page.getViewport({ scale: scale.value })
-      const context = canvas.getContext('2d')
-      if (!context) throw new Error('Could not get canvas context')
 
       // DPI-aware sizing (cap at 2x for memory efficiency)
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
@@ -161,11 +161,10 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
       canvas.style.width = `${viewport.width}px`
       canvas.style.height = `${viewport.height}px`
 
-      context.scale(pixelRatio, pixelRatio)
-
       await page.render({
-        canvasContext: context,
+        canvas,
         viewport,
+        transform: pixelRatio === 1 ? undefined : [pixelRatio, 0, 0, pixelRatio, 0, 0],
       }).promise
 
       renderedPages.value.add(pageNum)
@@ -229,15 +228,13 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
 
   // Cleanup on unmount
   const cleanup = async () => {
+    // Supersede any load still in flight, so its document is destroyed when
+    // it arrives.
+    loadGeneration++
     if (pdfDocument.value) {
-      try {
-        const doc = pdfDocument.value as unknown as { cleanup?: () => Promise<void>; destroy?: () => Promise<void> }
-        await doc.cleanup?.()
-        await doc.destroy?.()
-      } catch (err) {
-        console.debug('PDF cleanup error:', err)
-      }
+      const doc = pdfDocument.value
       pdfDocument.value = null
+      await destroyDocument(doc)
     }
     totalPages.value = 0
     pageDimensions.value = []
@@ -247,7 +244,8 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
   }
 
   onBeforeUnmount(() => {
-    cleanup()
+    disposed = true
+    void cleanup()
   })
 
   return {

@@ -4,7 +4,7 @@ import AssetImg from '@/components/common/AssetImg.vue'
 import { assetUrl } from '@nosdesk/core/transport'
 import LinkButton from '@/components/common/LinkButton.vue'
 import IconButton from '@/components/common/IconButton.vue'
-import { computed, ref, onMounted, nextTick } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useFluent } from 'fluent-vue';
 import Spinner from '@/components/common/Spinner.vue';
 
@@ -27,9 +27,7 @@ const emit = defineEmits<{
   (e: 'preview', src: string): void;
 }>();
 
-const thumbnailCanvas = ref<HTMLCanvasElement | null>(null);
 const imagePreview = ref<HTMLImageElement | null>(null);
-const isLoadingThumbnail = ref(false);
 const isLoadingImage = ref(false);
 const thumbnailError = ref<string | null>(null);
 const showPreview = ref(false);
@@ -90,66 +88,7 @@ const fileColor = computed(() => {
   }
 });
 
-const showOverlay = computed(() => {
-  if (fileType.value === 'pdf') return !isLoadingThumbnail.value;
-  if (fileType.value === 'image') return !isLoadingImage.value;
-  return false;
-});
-
-const generatePdfThumbnail = async (retryCount = 0) => {
-  if (!props.src || fileType.value !== 'pdf') return;
-  
-  try {
-    isLoadingThumbnail.value = true;
-    thumbnailError.value = null;
-
-    // Wait for next tick to ensure canvas is mounted
-    await nextTick();
-    
-    if (!thumbnailCanvas.value) {
-      // Retry up to 3 times with increasing delays
-      if (retryCount < 3) {
-        await new Promise(resolve => setTimeout(resolve, 100 * (retryCount + 1)));
-        return generatePdfThumbnail(retryCount + 1);
-      }
-      throw new Error('Canvas element not found');
-    }
-
-    // Dynamically import PDF.js only when needed
-    const pdfjsLib = await import('pdfjs-dist');
-    // Configure the worker source using Vite's asset handling
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
-
-    // Use loadingTask directly without reactivity. isEvalSupported: false
-    // keeps pdf.js off `new Function()` so it doesn't trip the strict CSP.
-    const loadingTask = pdfjsLib.getDocument({ url: props.src, isEvalSupported: false });
-    // Use shallowRef pattern - don't put PDF document directly in a reactive property
-    const pdf = await loadingTask.promise;
-    const page = await pdf.getPage(1);
-
-    const viewport = page.getViewport({ scale: 0.5 });
-    const canvas = thumbnailCanvas.value;
-    const context = canvas.getContext('2d');
-
-    if (!context) {
-      throw new Error('Could not get canvas context');
-    }
-
-    canvas.height = viewport.height;
-    canvas.width = viewport.width;
-
-    await page.render({
-      canvasContext: context,
-      viewport: viewport
-    }).promise;
-
-  } catch (error) {
-    console.error('Error generating PDF thumbnail:', error);
-    thumbnailError.value = $t('ticket-media-file-thumbnail-error');
-  } finally {
-    isLoadingThumbnail.value = false;
-  }
-};
+const showOverlay = computed(() => fileType.value === 'image' && !isLoadingImage.value);
 
 const loadImagePreview = async () => {
   if (!props.src || fileType.value !== 'image') return;
@@ -178,7 +117,7 @@ const loadImagePreview = async () => {
 };
 
 const openPreview = () => {
-  if (fileType.value === 'pdf' || fileType.value === 'image') {
+  if (fileType.value === 'image') {
     showPreview.value = true;
     emit('preview', props.src);
   }
@@ -220,13 +159,10 @@ const getDisplayName = (filename: string): string => {
   return filename;
 };
 
+// AttachmentPreview shows PDFs itself, so this component only previews
+// images and shows an icon for everything else.
 onMounted(async () => {
-  if (fileType.value === 'pdf') {
-    // Wait a bit before attempting to generate the thumbnail
-    await nextTick();
-    await new Promise(resolve => setTimeout(resolve, 100));
-    generatePdfThumbnail();
-  } else if (fileType.value === 'image') {
+  if (fileType.value === 'image') {
     await loadImagePreview();
   }
 });
@@ -257,18 +193,11 @@ onMounted(async () => {
       <!-- File Preview/Thumbnail -->
       <div class="flex-shrink-0 w-full h-40 flex items-center justify-center rounded-lg overflow-hidden bg-surface-alt relative group">
         <!-- Loading Spinner -->
-        <div v-if="isLoadingThumbnail || isLoadingImage" class="flex items-center justify-center w-full h-full">
+        <div v-if="isLoadingImage" class="flex items-center justify-center w-full h-full">
           <span class="text-tertiary inline-flex">
             <Spinner size="lg" />
           </span>
         </div>
-
-        <!-- PDF Preview -->
-        <canvas 
-          v-if="fileType === 'pdf' && !isLoadingThumbnail"
-          ref="thumbnailCanvas"
-          class="w-full h-full object-contain"
-        ></canvas>
 
         <!-- Image Preview -->
         <AssetImg
@@ -287,13 +216,13 @@ onMounted(async () => {
         </div>
 
         <!-- File Icon for other types -->
-        <div v-if="!['pdf', 'image'].includes(fileType)" :class="['p-3 rounded-lg', fileColor]">
+        <div v-if="fileType !== 'image'" :class="['p-3 rounded-lg', fileColor]">
           <svg class="w-12 h-12" viewBox="0 0 20 20" fill="currentColor">
             <path v-html="fileIcon"></path>
           </svg>
         </div>
 
-        <!-- Preview Overlay - shared between PDF and Image -->
+        <!-- Preview overlay for images -->
         <div
           v-if="showOverlay"
           class="absolute inset-0 bg-surface/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer"

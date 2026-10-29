@@ -22,8 +22,13 @@ vi.mock('@/services/activeWorkspace', () => ({
     slug = s
   },
 }))
+const viewerOptions = vi.hoisted(() => ({
+  onPassword: null as null | ((reason: 'needed' | 'incorrect') => Promise<string | null>),
+}))
 vi.mock('@/composables/usePdfViewer', () => ({
-  usePdfViewer: () => ({
+  usePdfViewer: (options: typeof viewerOptions) => {
+    viewerOptions.onPassword = options.onPassword
+    return {
     isLoading: ref(false),
     totalPages: ref(0),
     scale: ref(1),
@@ -35,7 +40,8 @@ vi.mock('@/composables/usePdfViewer', () => ({
     zoomIn: () => {},
     zoomOut: () => {},
     fitToWidth: () => {},
-  }),
+    }
+  },
 }))
 
 import PDFViewer from '@/components/ticketComponents/PDFViewer.vue'
@@ -92,5 +98,36 @@ describe.each(routingModes)('PDFViewer ($mode routing)', ({ mode, prefix }) => {
     wrapper = mountWithProviders(PDFViewer, { src: '/api/files/a.pdf', filename: 'a.pdf' }, {}, [router])
     await flushPromises()
     expect(fullscreenButton().exists()).toBe(false)
+  })
+})
+
+describe('PDFViewer password', () => {
+  it('asks for the password when pdf.js needs one, and passes it on', async () => {
+    const router = makeWorkspaceRouter(routes)
+    await router.push('/tickets/12')
+    wrapper = mountWithProviders(PDFViewer, { src: '/api/files/a.pdf', filename: 'a.pdf' }, {}, [router])
+    await flushPromises()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+
+    const answer = viewerOptions.onPassword!('needed')
+    await new Promise((r) => setTimeout(r, 20))
+    const input = document.body.querySelector<HTMLInputElement>('[role="dialog"] input')!
+    input.value = 'hunter2'
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+    input.form!.requestSubmit()
+    await expect(answer).resolves.toBe('hunter2')
+  })
+
+  it('answers no password when the viewer closes with the prompt open', async () => {
+    const router = makeWorkspaceRouter(routes)
+    await router.push('/tickets/12')
+    wrapper = mountWithProviders(PDFViewer, { src: '/api/files/a.pdf', filename: 'a.pdf' }, {}, [router])
+    await flushPromises()
+
+    const answer = viewerOptions.onPassword!('needed')
+    wrapper.unmount()
+    wrapper = null
+    await expect(answer).resolves.toBeNull()
   })
 })

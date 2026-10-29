@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { performBack } from '@/router/navigation';
 import { useFluent } from 'fluent-vue';
@@ -7,7 +7,9 @@ import PDFViewer from '@/components/ticketComponents/PDFViewer.vue';
 import BackButton from '@/components/common/BackButton.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import Button from '@/components/common/Button.vue';
 import { usePageTitle } from '@/composables/usePageTitle';
+import { classifyPdfError, type PdfFailure } from '@/utils/pdfjs';
 
 const route = useRoute();
 const router = useRouter();
@@ -22,46 +24,59 @@ const startPage = ref<number>(1);
 // The tab is named after the PDF (SiteHeader shows the icon).
 usePageTitle({ title: filename });
 const isLoading = ref<boolean>(true);
-const errorMessage = ref<string | null>(null);
+
+// Why the PDF isn't showing. 'no-source' is a link without a file.
+type ViewerFailure = PdfFailure | 'no-source';
+const failure = ref<ViewerFailure | null>(null);
+// Bumped to mount a fresh viewer, which loads the file again.
+const viewerKey = ref(0);
+
+const FAILURE_COPY: Record<ViewerFailure, { title: string; body: string; retry?: string }> = {
+  'no-source': { title: 'pdf-viewer-error-title', body: 'pdf-viewer-error-no-source' },
+  'not-found': { title: 'pdf-viewer-not-found-title', body: 'pdf-viewer-not-found-body' },
+  invalid: { title: 'pdf-viewer-invalid-title', body: 'pdf-viewer-invalid-body' },
+  network: { title: 'pdf-viewer-network-title', body: 'pdf-viewer-network-body', retry: 'pdf-viewer-try-again' },
+  'password-cancelled': {
+    title: 'pdf-viewer-locked-title',
+    body: 'pdf-viewer-locked-body',
+    retry: 'pdf-viewer-locked-enter-password',
+  },
+  unknown: { title: 'pdf-viewer-error-title', body: 'pdf-viewer-error-body', retry: 'pdf-viewer-try-again' },
+};
+const failureCopy = computed(() => (failure.value ? FAILURE_COPY[failure.value] : null));
 
 // Parse query parameters
 onMounted(() => {
-  try {
-    isLoading.value = true;
-
-    // The router has already decoded query values; decoding again throws on
-    // a literal "%" (as in "50% off.pdf").
-    if (route.query.src) {
-      pdfSrc.value = route.query.src as string;
-    } else {
-      throw new Error(t('pdf-viewer-error-no-source'));
-    }
-
-    // Get filename
-    if (route.query.filename) {
-      filename.value = route.query.filename as string;
-    }
-
-    // Get starting page if provided
-    if (route.query.page && !isNaN(Number(route.query.page))) {
-      startPage.value = Number(route.query.page);
-    }
-
-    isLoading.value = false;
-  } catch (error) {
-    console.error('Error loading PDF:', error);
-    errorMessage.value = error instanceof Error ? error.message : t('pdf-viewer-error-failed');
-    isLoading.value = false;
+  // The router has already decoded query values; decoding again throws on
+  // a literal "%" (as in "50% off.pdf").
+  if (typeof route.query.src === 'string' && route.query.src) {
+    pdfSrc.value = route.query.src;
+  } else {
+    failure.value = 'no-source';
   }
+
+  if (typeof route.query.filename === 'string' && route.query.filename) {
+    filename.value = route.query.filename;
+  }
+
+  // Get starting page if provided
+  if (route.query.page && !isNaN(Number(route.query.page))) {
+    startPage.value = Number(route.query.page);
+  }
+
+  isLoading.value = false;
 });
 
-const handlePdfReady = () => {
+const handlePdfError = (error: unknown) => {
+  failure.value = classifyPdfError(error);
+  if (failure.value !== 'password-cancelled') {
+    console.error('PDF loading error:', error);
+  }
 };
 
-const handlePdfError = (error: unknown) => {
-  console.error('PDF loading error:', error);
-  const err = error as { message?: string };
-  errorMessage.value = t('pdf-viewer-error-failed-with-reason', { reason: err?.message || t('pdf-viewer-error-unknown') });
+const retry = () => {
+  failure.value = null;
+  viewerKey.value++;
 };
 
 // Handle back navigation via the shared intelligent policy (in-app pop, else
@@ -113,20 +128,27 @@ const shareDocument = async () => {
       </div>
 
       <!-- Error state -->
-      <div v-else-if="errorMessage" class="h-full flex items-center justify-center p-6">
-        <div class="bg-status-error/30 text-status-error p-6 rounded-lg border border-status-error/70 shadow-lg max-w-md">
-          <div class="flex items-start gap-4">
-            <Icon name="warning" size="lg" class="text-status-error flex-shrink-0" />
-            <div>
-              <h3 class="text-lg font-semibold text-status-error mb-2">{{ $t('pdf-viewer-error-title') }}</h3>
-              <p>{{ errorMessage }}</p>
-              <button
-                type="button"
-                @click="goBack"
-                class="mt-4 bg-status-error/70 hover:bg-status-error/60 text-white px-4 py-2 rounded transition-colors"
-              >
+      <div v-else-if="failureCopy" class="h-full flex items-center justify-center p-6">
+        <div
+          role="alert"
+          class="bg-surface border border-default p-6 rounded-lg shadow-lg max-w-md flex items-start gap-4"
+          data-testid="pdf-viewer-failure"
+        >
+          <Icon
+            :name="failure === 'password-cancelled' ? 'lock' : 'warning'"
+            size="lg"
+            :class="failure === 'password-cancelled' ? 'text-secondary flex-shrink-0' : 'text-status-error flex-shrink-0'"
+          />
+          <div class="flex flex-col gap-2">
+            <h3 class="text-lg font-semibold text-primary">{{ $t(failureCopy.title) }}</h3>
+            <p class="text-secondary">{{ $t(failureCopy.body) }}</p>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <Button v-if="failureCopy.retry" @click="retry">
+                {{ $t(failureCopy.retry) }}
+              </Button>
+              <Button variant="ghost" @click="goBack">
                 {{ $t('pdf-viewer-error-go-back') }}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -135,11 +157,11 @@ const shareDocument = async () => {
       <!-- PDF Viewer -->
       <div v-else class="h-full overflow-hidden">
         <PDFViewer
+          :key="viewerKey"
           :src="pdfSrc"
           :filename="filename"
           :initialPage="startPage"
           class="h-full w-full"
-          @ready="handlePdfReady"
           @error="handlePdfError"
         />
       </div>
