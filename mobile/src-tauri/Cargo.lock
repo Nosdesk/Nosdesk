@@ -79,8 +79,10 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 name = "app"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "log",
  "objc2",
+ "percent-encoding",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -94,6 +96,7 @@ dependencies = [
  "tauri-plugin-os",
  "tauri-plugin-push",
  "tauri-plugin-secure-store",
+ "tauri-plugin-share",
  "tauri-plugin-system-bars",
  "tauri-plugin-web-auth",
 ]
@@ -4307,6 +4310,16 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-secure-store"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "tauri-plugin-share"
 version = "0.1.0"
 dependencies = [
  "serde",

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the cache share/ folder the app writes files to before sharing them.
+     The name is unique because library resources merge into the app's, and
+     the app already has a file_paths.xml with much wider roots. -->
+<paths>
+    <cache-path name="share" path="share/" />
+</paths>

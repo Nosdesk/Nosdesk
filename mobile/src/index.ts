@@ -6,13 +6,15 @@
  * backs the connect screen so a self-hoster can point the app at their own
  * instance. `setSession` / `clearSession` are called by the login and sign-out
  * flows. `SecureStore` is the keychain contract the native shell implements
- * (`memorySecureStore` for dev/tests).
+ * (`memorySecureStore` for dev/tests). `shareFile` opens the native share sheet
+ * for a file the webview can't save or print itself.
  */
 export { bootstrapMobile, type MobileBootstrapOptions } from './bootstrap'
 export { setSession, clearSession, setServer } from './transport'
 export { loginWithOidc, logoutViaOidc } from './oidc'
 export { registerForPush, unregisterForPush, getPendingNotificationRoute } from './push'
 export { getInitialDeepLink, onDeepLink, openInBrowser } from './deepLink'
+export { shareFile, type ShareResult } from './share'
 export {
   getStoredServer,
   clearStoredServer,

@@ -5408,6 +5408,9 @@ ticket-media-pdf-downloading-size = Téléchargement : { $size } Mo
 ticket-media-pdf-page-landmark = Page { $page }
 ticket-media-pdf-annotation-type = Annotation { $type }
 ticket-media-pdf-show-comment = Afficher le commentaire
+# Partage du PDF dans l'application (machine, à relire par un locuteur natif)
+ticket-media-pdf-share = Partager ou enregistrer
+ticket-media-pdf-share-failed = Impossible d'ouvrir le menu de partage
 
 # Ticket media: aperçu de fichier (FilePreview)
 ticket-media-file-fallback = Fichier

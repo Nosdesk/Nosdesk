@@ -4865,6 +4865,8 @@ ticket-media-pdf-downloading-size = Downloading: { $size } MB
 ticket-media-pdf-page-landmark = Page { $page }
 ticket-media-pdf-annotation-type = { $type } annotation
 ticket-media-pdf-show-comment = Show comment
+ticket-media-pdf-share = Share or save
+ticket-media-pdf-share-failed = Couldn't open the share sheet
 
 # Ticket media: generic file preview (FilePreview)
 ticket-media-file-fallback = File

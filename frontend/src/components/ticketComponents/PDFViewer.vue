@@ -17,7 +17,7 @@ import Spinner from '@/components/common/Spinner.vue'
 import PdfFindBar, { type PdfFindRequest } from '@/components/ticketComponents/PdfFindBar.vue'
 import PdfPasswordPrompt from '@/components/ticketComponents/PdfPasswordPrompt.vue'
 import { usePdfDocument } from '@/composables/usePdfDocument'
-import { isTauriRuntime, openExternalUrl } from '@/platform'
+import { isTauriRuntime, openExternalUrl, shareFile } from '@/platform'
 import { loadPdfjs, loadPdfjsViewer, pdfjsImagesUrl, type PdfPasswordReason } from '@/utils/pdfjs'
 import { createPdfjsL10n } from '@/utils/pdfjsL10n'
 import { printPdfDocument } from '@/utils/printPdf'
@@ -365,6 +365,26 @@ const print = async () => {
   }
 }
 const cancelPrint = () => printAbort?.abort()
+
+// ── Share (app) ─────────────────────────────────────────────────
+// The app's webview can't download or print, so the file goes to the native
+// share sheet instead: Save to Files, AirDrop, Mail and Print on iOS, the
+// apps that take a PDF on Android.
+const inApp = isTauriRuntime()
+const sharing = ref(false)
+const share = async () => {
+  const doc = pdf.pdfDocument.value
+  if (!doc || sharing.value) return
+  sharing.value = true
+  try {
+    await shareFile(await doc.getData(), props.filename, 'application/pdf')
+  } catch (error) {
+    console.error('PDF share failed:', error)
+    toast.error($t('ticket-media-pdf-share-failed'))
+  } finally {
+    sharing.value = false
+  }
+}
 onBeforeUnmount(cancelPrint)
 
 // ── Download progress ───────────────────────────────────────────
@@ -517,7 +537,18 @@ const pageStatus = computed(() =>
             :disabled="!pagesCount || !!printing"
             @click="print"
           />
+          <IconButton
+            v-if="inApp"
+            icon="upload"
+            size="sm"
+            :label="$t('ticket-media-pdf-share')"
+            :disabled="!pagesCount"
+            :loading="sharing"
+            data-testid="pdf-share"
+            @click="share"
+          />
           <a
+            v-else
             :href="src"
             target="_blank"
             :download="filename"

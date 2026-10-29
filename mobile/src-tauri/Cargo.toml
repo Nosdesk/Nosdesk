@@ -51,6 +51,13 @@ tauri-plugin-push = { path = "../tauri-plugin-push" }
 # Android system bar icon appearance, so the status/navigation bars stay legible
 # against the in-app theme (see ../tauri-plugin-system-bars). No-op elsewhere.
 tauri-plugin-system-bars = { path = "../tauri-plugin-system-bars" }
+# Native share sheet (Save to Files, AirDrop, Mail, Print on iOS; the app
+# chooser on Android) for a file the webview can't save or print itself (see
+# ../tauri-plugin-share and src/share_file.rs).
+tauri-plugin-share = { path = "../tauri-plugin-share" }
+# Decodes the percent-encoded file name header on write_share_file.
+percent-encoding = "2"
+base64 = "0.22"
 # Rust HTTP client for the authenticated asset proxy (see src/asset_proxy.rs).
 # rustls-tls matches tauri-plugin-http, already proven on iOS + Android.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
