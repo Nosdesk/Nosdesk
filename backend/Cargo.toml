@@ -48,7 +48,7 @@ actix-multipart = "0.6.1"
 csv = "1.3"        # RFC 4180 CSV parser for the admin bulk-import flow
 # .xlsx reader for the bulk-import flow (MIT). Uploads are repacked through a
 # bounded copy before calamine sees them (services/imports/xlsx.rs).
-calamine = { version = "0.36", default-features = false, features = ["dates"] }
+calamine = { version = "0.37", default-features = false, features = ["dates"] }
 actix-files = "0.7.0"
 futures = "0.3"
 # The `aws_lc_rs` feature is NOT optional decoration. From 10.0 the crate
@@ -234,7 +234,7 @@ webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation",
 webauthn-rs-proto = "0.5"  # Protocol types for WebAuthn
 
 # Backup and restore dependencies
-zip = "9.0.4"              # ZIP archive creation and reading
+zip = "9.0.5"              # ZIP archive creation and reading
 walkdir = "2.5"            # Directory walking for file backup
 sanitize-filename = "0.6"  # Filename sanitization for uploads
 
@@ -287,7 +287,7 @@ mockall = "0.13.0"
 # tests. aws_lc_rs because aws-lc-rs is already in the tree.
 rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
 # Builds .xlsx fixtures for the import tests (MIT OR Apache-2.0).
-rust_xlsxwriter = "0.99"
+rust_xlsxwriter = "0.101"
 
 # Trim debuginfo to line tables only. Full debug symbols are the
 # bulk of the target dir and the main driver of CI's "No space left
