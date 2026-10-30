@@ -314,6 +314,19 @@ const onKeydown = (event: KeyboardEvent) => {
   if (handled) event.preventDefault()
 }
 
+// A click on a page focuses pdf.js's text layer, which hides while the page
+// redraws after a zoom or a turn. Chromium then drops focus to the page, out
+// of reach of the keys above, so focus goes back to the scroller.
+const onFocusout = (event: FocusEvent) => {
+  const left = event.target as HTMLElement
+  if (event.relatedTarget || (left.isConnected && !left.closest('[hidden]'))) return
+  requestAnimationFrame(() => {
+    if (!document.activeElement || document.activeElement === document.body) {
+      container.value?.focus({ preventScroll: true, focusVisible: false })
+    }
+  })
+}
+
 // ── Links ───────────────────────────────────────────────────────
 // In the app a `target="_blank"` link does nothing, so external links go to
 // the system browser. Internal links (a table of contents) are `#` links
@@ -445,6 +458,7 @@ const pageStatus = computed(() =>
     role="region"
     :aria-label="$t('ticket-media-pdf-aria')"
     @keydown="onKeydown"
+    @focusout="onFocusout"
     @click="onClick"
   >
     <div class="pdfjs-scope relative flex-1 min-h-0 bg-surface-alt">
