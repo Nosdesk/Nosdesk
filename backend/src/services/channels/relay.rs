@@ -196,6 +196,42 @@ pub fn relay_participants(
     Ok(out)
 }
 
+/// Everyone who gets this comment by email as the reply itself: the requester
+/// when they get a copy, then the other participants. A "new comment"
+/// notification email to any of them would repeat it.
+pub fn reply_email_recipients(
+    conn: &mut DbConnection,
+    ticket: &Ticket,
+    comment: &Comment,
+) -> Result<Vec<uuid::Uuid>, diesel::result::Error> {
+    let requester_copy = match decide_relay(conn, ticket, comment)? {
+        RelayDecision::Relay {
+            channel,
+            requester_copy,
+            ..
+        } => {
+            // Without a route back the reply isn't sent (see `outbound`).
+            if super::outbound::reply_routing(conn, &channel).is_none() {
+                return Ok(Vec::new());
+            }
+            requester_copy
+        }
+        RelayDecision::Direct { requester_copy, .. } => requester_copy,
+        _ => return Ok(Vec::new()),
+    };
+    let mut out: Vec<uuid::Uuid> = requester_copy
+        .then_some(ticket.requester_uuid)
+        .flatten()
+        .into_iter()
+        .collect();
+    out.extend(
+        relay_participants(conn, ticket, comment)?
+            .into_iter()
+            .map(|(uuid, _)| uuid),
+    );
+    Ok(out)
+}
+
 /// The email channel a ticket with no origin channel replies through: the
 /// first enabled one that can route a reply back, preferring the managed
 /// address, then a forwarding address, then a polled mailbox.
@@ -558,5 +594,97 @@ mod tests {
             }
             other => panic!("expected a relay to the participant, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn the_reply_email_goes_to_whoever_would_otherwise_get_a_new_comment_email() {
+        let mut conn = setup_test_connection();
+        let staff = TestFixtures::create_user(&mut conn, "Staff requester", "technician");
+        TestFixtures::create_user_email(&mut conn, staff.uuid, "staff@example.com", true);
+        let colleague = TestFixtures::create_user(&mut conn, "Colleague", "user");
+        TestFixtures::create_user_email(&mut conn, colleague.uuid, "bob@example.com", true);
+        let agent = TestFixtures::create_user(&mut conn, "Agent", "technician");
+        let mailbox = channels_repo::create(
+            &mut conn,
+            crate::models::NewChannel {
+                provider: CHANNEL_PROVIDER_EMAIL_IMAP.into(),
+                name: "Support".into(),
+                enabled: true,
+                config: serde_json::json!({
+                    "host": "imap.example.com",
+                    "username": "support@example.com",
+                    "reply_domain": "example.com",
+                }),
+            },
+        )
+        .unwrap();
+        let reply = |ticket: &Ticket, is_internal: bool| {
+            let mut comment = make_comment(ticket.id, is_internal);
+            comment.user_uuid = agent.uuid;
+            comment
+        };
+
+        // Opened by email by a member of staff: the reply goes to them by email.
+        let by_email = TestFixtures::create_ticket(&mut conn, "Printer", Some(staff.uuid), None);
+        let by_email = tickets_repo::update_ticket_partial(
+            &mut conn,
+            by_email.id,
+            TicketUpdate {
+                origin_channel_id: Some(Some(mailbox.id)),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+        crate::repository::ticket_watchers::add_watcher(
+            &mut conn,
+            by_email.id,
+            colleague.uuid,
+            false,
+        )
+        .unwrap();
+        let public = reply(&by_email, false);
+        assert_eq!(
+            reply_email_recipients(&mut conn, &by_email, &public).unwrap(),
+            vec![staff.uuid, colleague.uuid]
+        );
+        let note = reply(&by_email, true);
+        assert!(reply_email_recipients(&mut conn, &by_email, &note)
+            .unwrap()
+            .is_empty());
+
+        // Opened in the app by staff: they read it there; the colleague gets
+        // it by email.
+        let in_app = TestFixtures::create_ticket(&mut conn, "Monitor", Some(staff.uuid), None);
+        crate::repository::ticket_watchers::add_watcher(
+            &mut conn,
+            in_app.id,
+            colleague.uuid,
+            false,
+        )
+        .unwrap();
+        let public = reply(&in_app, false);
+        assert_eq!(
+            reply_email_recipients(&mut conn, &in_app, &public).unwrap(),
+            vec![colleague.uuid]
+        );
+
+        // A channel with no route back sends nothing.
+        let unroutable = TestFixtures::create_channel(&mut conn, "email_imap");
+        let stuck = TestFixtures::create_ticket(&mut conn, "Phone", Some(colleague.uuid), None);
+        let stuck = tickets_repo::update_ticket_partial(
+            &mut conn,
+            stuck.id,
+            TicketUpdate {
+                origin_channel_id: Some(Some(unroutable.id)),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+        let public = reply(&stuck, false);
+        assert!(reply_email_recipients(&mut conn, &stuck, &public)
+            .unwrap()
+            .is_empty());
     }
 }

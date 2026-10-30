@@ -157,24 +157,29 @@ impl EmailChannel {
         }
     }
 
-    /// Whether the recipient is the ticket's requester and not staff, i.e. the
-    /// person the reply relay already emails every public reply to.
+    /// Whether the reply relay emails this comment to the recipient as the
+    /// reply itself (the requester or a participant on the request).
     fn recipient_gets_replies_by_email(&self, notification: &DeliverableNotification) -> bool {
+        let crate::services::notifications::types::NotificationEntity::Comment {
+            id: comment_id,
+            ticket_id,
+            ..
+        } = notification.payload.entity.clone()
+        else {
+            return false;
+        };
         let recipient = notification.payload.recipient_uuid;
-        let ticket_id = notification.payload.entity.ticket_id();
         crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_email_dedupe",
             notification.payload.workspace_id,
             move |conn| {
                 let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
-                if ticket.requester_uuid != Some(recipient) {
-                    return Ok(false);
-                }
-                let user = crate::repository::users::find_active_by_uuid(&recipient, conn)?;
-                Ok::<_, diesel::result::Error>(
-                    !crate::repository::user_helpers::user_can_handle_tickets(conn, &user),
-                )
+                let comment = crate::repository::comments::get_comment_by_id(conn, comment_id)?;
+                let recipients = crate::services::channels::relay::reply_email_recipients(
+                    conn, &ticket, &comment,
+                )?;
+                Ok::<_, diesel::result::Error>(recipients.contains(&recipient))
             },
         )
         .unwrap_or(false)
@@ -284,9 +289,9 @@ impl NotificationDeliveryChannel for EmailChannel {
     }
 
     async fn deliver(&self, notification: &DeliverableNotification) -> ChannelResult<()> {
-        // A public reply already reaches a (non-staff) requester by email, as
-        // the reply itself (services::channels::outbound). Don't send them a
-        // second "new comment" email about the same reply.
+        // A public reply already reaches the requester and the people on the
+        // request by email, as the reply itself (services::channels::outbound).
+        // Don't send them a second "new comment" email about the same reply.
         if notification.payload.notification_type == NotificationTypeCode::CommentAdded
             && self.recipient_gets_replies_by_email(notification)
         {
