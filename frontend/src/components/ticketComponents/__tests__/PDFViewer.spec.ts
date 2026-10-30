@@ -246,6 +246,34 @@ describe('PDFViewer', () => {
     expect(viewer.nextPage).not.toHaveBeenCalled()
   })
 
+  it('takes focus back when the page layer it was on hides to redraw', async () => {
+    await mountViewer()
+    await openDocument()
+    // pdf.js's text layer takes focus on a click and hides after a zoom.
+    const layer = document.createElement('div')
+    layer.tabIndex = 0
+    wrapper!.find('.pdfViewer').element.append(layer)
+    layer.focus()
+    // What Chromium does: drop focus to the page, then say the hidden layer lost it.
+    layer.blur()
+    layer.hidden = true
+    layer.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    await new Promise((done) => requestAnimationFrame(done))
+    expect(document.activeElement).toBe(scroller().element)
+  })
+
+  it('lets focus go when it moves out of the document on purpose', async () => {
+    await mountViewer()
+    await openDocument()
+    const layer = document.createElement('div')
+    layer.tabIndex = 0
+    wrapper!.find('.pdfViewer').element.append(layer)
+    layer.focus()
+    layer.blur()
+    await new Promise((done) => requestAnimationFrame(done))
+    expect(document.activeElement).toBe(document.body)
+  })
+
   it('leaves the zoom keys to a text field', async () => {
     const viewer = await mountViewer()
     await openDocument()
