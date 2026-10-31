@@ -57,6 +57,8 @@ const props = withDefaults(defineProps<{
   /** Dense trigger for split-view preview property rows — matches
    *  `UserCell` typography (11px name, xxs avatar). */
   compact?: boolean
+  /** People to leave out of the list, e.g. those a list already holds. */
+  exclude?: string[]
 }>(), {
   compact: false,
 })
@@ -171,15 +173,19 @@ function navigateToProfile() {
 type Section = 'selected' | 'you' | 'recent' | 'results'
 
 const sections = computed<{ key: Section; rows: PickerUser[] }[]>(() => {
+  const excluded = new Set(props.exclude ?? [])
+  const keep = (rows: PickerUser[]) => rows.filter((u) => !excluded.has(u.uuid))
   const out: { key: Section; rows: PickerUser[] }[] = []
   if (picker.selected.value && !picker.isFiltering.value) out.push({ key: 'selected', rows: [picker.selected.value] })
   // "You" only when you aren't already the selection, so you're listed once.
   const you = picker.currentUserRow.value
-  if (you && !picker.isFiltering.value && you.uuid !== picker.selected.value?.uuid) {
+  if (you && !excluded.has(you.uuid) && !picker.isFiltering.value && you.uuid !== picker.selected.value?.uuid) {
     out.push({ key: 'you', rows: [you] })
   }
-  if (picker.recent.value.length) out.push({ key: 'recent', rows: picker.recent.value })
-  if (picker.results.value.length) out.push({ key: 'results', rows: picker.results.value })
+  const recent = keep(picker.recent.value)
+  if (recent.length) out.push({ key: 'recent', rows: recent })
+  const results = keep(picker.results.value)
+  if (results.length) out.push({ key: 'results', rows: results })
   return out
 })
 const hasRows = computed(() => sections.value.length > 0)

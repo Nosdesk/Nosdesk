@@ -66,6 +66,8 @@ struct Fixture {
     pool: crate::common::TestPool,
     workspace_uuid: Uuid,
     requester: User,
+    /// Another requester-role member, the requester of `theirs`.
+    other: User,
     agent: User,
     /// The requester's own ticket.
     mine: Ticket,
@@ -100,6 +102,7 @@ impl Fixture {
             pool,
             workspace_uuid,
             requester,
+            other,
             agent,
             mine,
             theirs,
@@ -174,6 +177,14 @@ impl Fixture {
                         .route(
                             "/tickets/{id}/field-preview",
                             web::post().to(backend::handlers::preview_ticket_field),
+                        )
+                        .route(
+                            "/tickets/{id}/watchers",
+                            web::post().to(backend::handlers::ticket_watchers::add_watcher),
+                        )
+                        .route(
+                            "/tickets/{id}/watchers/{user_uuid}",
+                            web::delete().to(backend::handlers::ticket_watchers::remove_watcher),
                         )
                         .route(
                             "/assets/{id}/usage",
@@ -292,6 +303,61 @@ async fn tagging_and_staff_field_previews_need_staff() {
     assert_eq!(sent(&requester, "resolution_notes").await, 403);
     assert_eq!(sent(&requester, "title").await, 202);
     assert_eq!(sent(&agent, "resolution_notes").await, 202);
+}
+
+#[actix_web::test]
+async fn agents_add_and_remove_watchers() {
+    let fx = Fixture::new();
+    let requester = fx.app_as(&fx.requester);
+    let agent = fx.app_as(&fx.agent);
+    let add = |srv: &actix_test::TestServer, who: Uuid| {
+        awc::Client::new()
+            .post(srv.url(&format!("/api/tickets/{}/watchers", fx.mine.id)))
+            .send_json(&json!({ "user_uuid": who }))
+    };
+    let remove = |srv: &actix_test::TestServer, who: Uuid| {
+        awc::Client::new()
+            .delete(srv.url(&format!("/api/tickets/{}/watchers/{who}", fx.mine.id)))
+            .send()
+    };
+    let watchers = |body: serde_json::Value| -> Vec<Uuid> {
+        body["watcher_uuids"]
+            .as_array()
+            .expect("watcher_uuids")
+            .iter()
+            .filter_map(|u| u.as_str().and_then(|u| Uuid::parse_str(u).ok()))
+            .collect()
+    };
+    let sla = format!("/api/tickets/{}/sla/explain", fx.mine.id);
+    let as_other = fx.app_as(&fx.other);
+    assert_eq!(get_status(&as_other, &sla).await, 404);
+
+    assert_eq!(
+        add(&requester, fx.other.uuid).await.expect("send").status(),
+        403
+    );
+    assert_eq!(
+        add(&agent, Uuid::new_v4()).await.expect("send").status(),
+        400
+    );
+
+    // A requester-role member joins as a participant and can see the ticket.
+    let mut resp = add(&agent, fx.other.uuid).await.expect("send");
+    assert_eq!(resp.status(), 200);
+    assert!(watchers(resp.json().await.expect("json")).contains(&fx.other.uuid));
+    assert_eq!(get_status(&as_other, &sla).await, 200);
+
+    assert_eq!(
+        remove(&requester, fx.other.uuid)
+            .await
+            .expect("send")
+            .status(),
+        403
+    );
+    let mut resp = remove(&agent, fx.other.uuid).await.expect("send");
+    assert_eq!(resp.status(), 200);
+    assert!(!watchers(resp.json().await.expect("json")).contains(&fx.other.uuid));
+    assert_eq!(get_status(&as_other, &sla).await, 404);
 }
 
 #[actix_web::test]
