@@ -170,9 +170,10 @@ pub fn decide_relay(
 }
 
 /// The other people on a request who get its public replies by email: its
-/// watchers who aren't staff (the requester's colleagues), minus the requester
-/// (who gets the main copy) and the reply's author. Each with their primary
-/// address; anyone without one is skipped.
+/// watchers who are still members here and aren't staff (the requester's
+/// colleagues), minus the requester (who gets the main copy) and the reply's
+/// author. Each with their primary address; anyone without one is skipped. A
+/// watcher who left the workspace (staff included) gets nothing.
 pub fn relay_participants(
     conn: &mut DbConnection,
     ticket: &Ticket,
@@ -186,7 +187,11 @@ pub fn relay_participants(
         if Some(watcher) == ticket.requester_uuid || watcher == comment.user_uuid {
             continue;
         }
-        if user_helpers::workspace_role(conn, watcher).is_some_and(|r| r.is_staff()) {
+        match user_helpers::workspace_role(conn, watcher) {
+            Some(role) if !role.is_staff() => {}
+            _ => continue,
+        }
+        if crate::repository::users::find_active_by_uuid(&watcher, conn).is_err() {
             continue;
         }
         if let Some(email) = user_helpers::get_primary_email(&watcher, conn) {
@@ -565,6 +570,47 @@ mod tests {
         let mut note = make_comment(ticket.id, true);
         note.user_uuid = agent.uuid;
         assert!(relay_participants(&mut conn, &ticket, &note)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn someone_removed_from_the_workspace_gets_no_more_replies() {
+        let mut conn = setup_test_connection();
+        let alice = requester(&mut conn);
+        let colleague = TestFixtures::create_user(&mut conn, "Colleague", "user");
+        TestFixtures::create_user_email(&mut conn, colleague.uuid, "bob@example.com", true);
+        let former = TestFixtures::create_user(&mut conn, "Former agent", "technician");
+        TestFixtures::create_user_email(&mut conn, former.uuid, "former@example.com", true);
+        let agent = TestFixtures::create_user(&mut conn, "Agent", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(alice.uuid), None);
+        for u in [colleague.uuid, former.uuid] {
+            crate::repository::ticket_watchers::add_watcher(&mut conn, ticket.id, u, true).unwrap();
+        }
+        let mut reply = make_comment(ticket.id, false);
+        reply.user_uuid = agent.uuid;
+
+        // An agent who left reads as no longer staff here; they still get nothing.
+        crate::repository::workspaces::remove_membership(
+            &mut conn,
+            ticket.workspace_id,
+            former.uuid,
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
+        )
+        .unwrap();
+        assert_eq!(
+            relay_participants(&mut conn, &ticket, &reply).unwrap(),
+            vec![(colleague.uuid, "bob@example.com".to_string())]
+        );
+
+        crate::repository::workspaces::remove_membership(
+            &mut conn,
+            ticket.workspace_id,
+            colleague.uuid,
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
+        )
+        .unwrap();
+        assert!(relay_participants(&mut conn, &ticket, &reply)
             .unwrap()
             .is_empty());
     }
