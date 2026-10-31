@@ -79,6 +79,16 @@ pub fn sanitise(raw_html: &str) -> SanitisedEmail {
     }
 }
 
+/// Sanitise inbound HTML for sending back out in an email (a quoted reply):
+/// the same tag and URL policy as [`sanitise`], with tracking pixels removed,
+/// but images keep their own addresses (the image proxy is for the app, not a
+/// recipient's mail client). Nothing a sender wrote as a form, script, `<base>`
+/// or event handler goes back out under the workspace's name.
+pub fn sanitise_for_mail(raw_html: &str) -> String {
+    let clean = ammonia_clean(&outlook_pre_strip(raw_html));
+    strip_known_trackers(&clean).0
+}
+
 /// Rewrite every `<img src="http(s)://...">` in the HTML to point
 /// at the same-origin image proxy. The proxy signs the upstream
 /// URL with HMAC-SHA256 derived from `JWT_SECRET`, so the URL we

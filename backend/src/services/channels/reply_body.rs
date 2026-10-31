@@ -59,15 +59,22 @@ impl ReplyBody {
 
     /// Seed both forms from a comment about to go out by email. As
     /// [`Self::from_comment`], with links to other tickets reading as their
-    /// numbers, which the email has no card to show.
+    /// numbers, which the email has no card to show. HTML from someone who
+    /// isn't staff (a participant on the request) goes through the mail
+    /// sanitiser, as the API stores comment HTML as sent.
     pub fn for_email(conn: &mut crate::db::DbConnection, comment: &Comment) -> Self {
         match comment.content_format {
             ContentFormat::Html => {
-                let html = super::ticket_links::with_ticket_numbers(
-                    conn,
-                    comment.workspace_id,
-                    &comment.content,
-                );
+                let staff =
+                    crate::repository::user_helpers::workspace_role(conn, comment.user_uuid)
+                        .is_some_and(|r| r.is_staff());
+                let content = if staff {
+                    comment.content.clone()
+                } else {
+                    super::email_sanitise::sanitise_for_mail(&comment.content)
+                };
+                let html =
+                    super::ticket_links::with_ticket_numbers(conn, comment.workspace_id, &content);
                 Self {
                     text: html_to_plaintext(&html),
                     html,
