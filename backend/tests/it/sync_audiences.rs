@@ -523,6 +523,9 @@ async fn stream_rows(f: &Fixture, viewer: Uuid, actions: Vec<Value>) -> Vec<Valu
         Some(f.ws.workspace_id),
         Arc::new(allowed.into_iter().collect::<HashSet<String>>()),
         guard,
+        // Re-checked only after 30s; the test is done long before.
+        uuid::Uuid::nil(),
+        None,
     );
     let frame = stream.next().await.expect("a frame").expect("frame bytes");
     let frame = String::from_utf8(frame.to_vec()).expect("utf8 frame");

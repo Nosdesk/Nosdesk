@@ -70,17 +70,46 @@ fn visible(pool: &Pool, workspace_id: i32, viewer: Uuid, ids: BTreeSet<i32>) -> 
     .unwrap_or_default()
 }
 
+/// Whether the requester behind the stream may still have it: their account
+/// is active, the portal session it came from is live, and they're still a
+/// member here. Checked on each heartbeat, so signing out (or being removed)
+/// ends a stream that is already open.
+fn still_signed_in(pool: &Pool, workspace_id: i32, viewer: Uuid, sid: Option<&str>) -> bool {
+    {
+        let Ok(mut conn) = pool.get() else {
+            return true;
+        };
+        if !crate::utils::jwt::JwtUtils::connection_still_authorised(&mut conn, viewer, sid) {
+            return false;
+        }
+    }
+    crate::sync::session::run_in_workspace(
+        pool,
+        "background:portal_events_membership",
+        workspace_id,
+        |conn| crate::repository::workspaces::membership(conn, workspace_id, viewer),
+    )
+    .map(|m| m.is_some())
+    .unwrap_or(true)
+}
+
 enum Next {
     Event(Result<Envelope, broadcast::error::RecvError>),
     Tick,
 }
 
 pub async fn portal_events(
+    req: actix_web::HttpRequest,
     portal: PortalContext,
     ws: WorkspaceContext,
     state: web::Data<SseState>,
     pool: web::Data<Pool>,
 ) -> Result<HttpResponse, ApiError> {
+    use actix_web::HttpMessage;
+    let sid = req
+        .extensions()
+        .get::<crate::models::Claims>()
+        .and_then(|c| c.sid.clone());
     let viewer = portal.user_uuid;
     let workspace_id = ws.workspace_id;
     let Some(guard) =
@@ -95,46 +124,63 @@ pub async fn portal_events(
         stream::once(async { Ok::<_, actix_web::Error>(web::Bytes::from("retry: 5000\n\n")) });
     let hints = stream::unfold(
         (rx, pool, tokio::time::interval(HEARTBEAT), guard),
-        move |(mut rx, pool, mut tick, guard)| async move {
-            loop {
-                let next = tokio::select! {
-                    ev = rx.recv() => Next::Event(ev),
-                    _ = tick.tick() => Next::Tick,
-                };
-                let chunk = match next {
-                    Next::Tick => Some(": ping\n\n".to_string()),
-                    Next::Event(Ok(Envelope {
-                        event: SseEvent::SyncActions { actions, .. },
-                        ..
-                    })) => {
-                        let ids = touched_tickets(&actions);
-                        if ids.is_empty() {
-                            None
-                        } else {
-                            let p = pool.clone();
-                            let shown = web::block(move || visible(&p, workspace_id, viewer, ids))
-                                .await
-                                .unwrap_or_default();
-                            (!shown.is_empty()).then(|| {
-                                shown
-                                    .into_iter()
-                                    .map(|id| format!("event: ticket\ndata: {{\"id\":{id}}}\n\n"))
-                                    .collect()
+        move |(mut rx, pool, mut tick, guard)| {
+            let sid = sid.clone();
+            async move {
+                loop {
+                    let next = tokio::select! {
+                        ev = rx.recv() => Next::Event(ev),
+                        _ = tick.tick() => Next::Tick,
+                    };
+                    let chunk = match next {
+                        Next::Tick => {
+                            let (p, sid) = (pool.clone(), sid.clone());
+                            let signed_in = web::block(move || {
+                                still_signed_in(&p, workspace_id, viewer, sid.as_deref())
                             })
+                            .await
+                            .unwrap_or(true);
+                            if !signed_in {
+                                return None;
+                            }
+                            Some(": ping\n\n".to_string())
                         }
+                        Next::Event(Ok(Envelope {
+                            event: SseEvent::SyncActions { actions, .. },
+                            ..
+                        })) => {
+                            let ids = touched_tickets(&actions);
+                            if ids.is_empty() {
+                                None
+                            } else {
+                                let p = pool.clone();
+                                let shown =
+                                    web::block(move || visible(&p, workspace_id, viewer, ids))
+                                        .await
+                                        .unwrap_or_default();
+                                (!shown.is_empty()).then(|| {
+                                    shown
+                                        .into_iter()
+                                        .map(|id| {
+                                            format!("event: ticket\ndata: {{\"id\":{id}}}\n\n")
+                                        })
+                                        .collect()
+                                })
+                            }
+                        }
+                        // Missed events: tell the page to refetch everything.
+                        Next::Event(Err(broadcast::error::RecvError::Lagged(_))) => {
+                            Some("event: resync\ndata: {}\n\n".to_string())
+                        }
+                        Next::Event(Err(broadcast::error::RecvError::Closed)) => return None,
+                        Next::Event(Ok(_)) => None,
+                    };
+                    if let Some(chunk) = chunk {
+                        return Some((
+                            Ok::<_, actix_web::Error>(web::Bytes::from(chunk)),
+                            (rx, pool, tick, guard),
+                        ));
                     }
-                    // Missed events: tell the page to refetch everything.
-                    Next::Event(Err(broadcast::error::RecvError::Lagged(_))) => {
-                        Some("event: resync\ndata: {}\n\n".to_string())
-                    }
-                    Next::Event(Err(broadcast::error::RecvError::Closed)) => return None,
-                    Next::Event(Ok(_)) => None,
-                };
-                if let Some(chunk) = chunk {
-                    return Some((
-                        Ok::<_, actix_web::Error>(web::Bytes::from(chunk)),
-                        (rx, pool, tick, guard),
-                    ));
                 }
             }
         },

@@ -226,7 +226,7 @@ async fn handshake_broadcast_and_clean_disconnect() {
         .expect("seed workspace membership");
     }
 
-    // The collab WS authenticates with a sessionless, workspace-bound connection
+    // The collab WS authenticates with a workspace-bound connection
     // token carried in the query string (a browser WebSocket sets no cookie or
     // Authorization header). Bind it to the doc's workspace so the handler's
     // token-workspace match passes.
@@ -234,6 +234,7 @@ async fn handshake_broadcast_and_clean_disconnect() {
         &user.uuid.to_string(),
         &user.platform_role,
         Some(test_workspace().workspace_uuid),
+        None,
     )
     .expect("mint collab token");
 
@@ -395,6 +396,121 @@ async fn handshake_broadcast_and_clean_disconnect() {
 /// membership-gates it. The WS can't send the selection header, so the docId is
 /// the carrier. A member of the docId's workspace connects; a non-member is
 /// rejected at the handshake.
+/// Signing out, or the account being deleted, closes an editing socket that is
+/// already open (4401), and the token it opened with no longer works.
+#[actix_web::test]
+async fn a_signed_out_or_deleted_account_loses_its_open_socket() {
+    install_fast_heartbeat();
+
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+    let signed_in = common::insert_user(&mut pool.get().expect("conn"), "WSSession");
+    let deleted = common::insert_user(&mut pool.get().expect("conn"), "WSDeleted");
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor =
+            backend::sync::actor::ActorContext::user(signed_in.uuid, None).with_workspace(1);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                for user in [signed_in.uuid, deleted.uuid] {
+                    backend::repository::workspaces::add_membership(
+                        c,
+                        1,
+                        user,
+                        "admin",
+                        backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                    )?;
+                }
+                Ok(())
+            },
+        )
+        .expect("seed workspace membership");
+    }
+    let session = backend::repository::active_sessions::create_session(
+        &mut pool.get().expect("conn"),
+        backend::models::NewActiveSession {
+            user_uuid: signed_in.uuid,
+            device_name: None,
+            ip_address: None,
+            user_agent: None,
+            location: None,
+            expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
+            oidc_id_token: None,
+            confirmed_at: None,
+        },
+    )
+    .expect("session");
+    let sid = session.session_id.to_string();
+    let ws_uuid = test_workspace().workspace_uuid;
+    let session_token = JwtUtils::create_collab_token(
+        &signed_in.uuid.to_string(),
+        &signed_in.platform_role,
+        Some(ws_uuid),
+        Some(&sid),
+    )
+    .expect("mint collab token");
+    let deleted_token = JwtUtils::create_collab_token(
+        &deleted.uuid.to_string(),
+        &deleted.platform_role,
+        Some(ws_uuid),
+        None,
+    )
+    .expect("mint collab token");
+    let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
+
+    let state_pool_inner = pool.clone();
+    let srv = actix_test::start(move || {
+        let (state, _tmp) = build_app_state(&state_pool_inner);
+        std::mem::forget(_tmp);
+        let ws = test_workspace();
+        App::new()
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state_pool_inner.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ws.clone());
+                srv.call(req)
+            })
+            .route("/ws/{doc}", web::get().to(ws_handler))
+    });
+    let url = |token: &str| {
+        srv.url(&format!(
+            "/ws/ws-{ws_uuid}_ticket-{ticket_uuid}?token={token}"
+        ))
+    };
+    let client = awc::Client::new();
+    let open = |token: String| {
+        let client = client.clone();
+        let url = url(&token);
+        async move {
+            let (_resp, mut conn) = client.ws(&url).connect().await.expect("WS handshake");
+            let first = tokio::time::timeout(Duration::from_secs(2), conn.next())
+                .await
+                .expect("initial frame timeout")
+                .expect("stream ended before initial frame")
+                .expect("initial frame error");
+            assert!(matches!(first, ws::Frame::Binary(_)), "got {first:?}");
+            conn
+        }
+    };
+
+    let mut by_session = open(session_token.clone()).await;
+    let mut by_deleted = open(deleted_token).await;
+
+    backend::repository::active_sessions::revoke_session_by_uuid(
+        &mut pool.get().expect("conn"),
+        &session.session_id,
+    )
+    .expect("sign out");
+    assert_eq!(closed_within(&mut by_session, 10, || {}).await, Some(4401));
+    assert_eq!(refusal_code(&client, &url(&session_token)).await, 4401);
+
+    backend::repository::users::soft_delete_user(&deleted.uuid, &mut pool.get().expect("conn"))
+        .expect("delete the account");
+    assert_eq!(closed_within(&mut by_deleted, 10, || {}).await, Some(4401));
+}
+
 #[actix_web::test]
 async fn handshake_resolves_workspace_from_doc_id_without_host_context() {
     install_fast_heartbeat();
@@ -431,11 +547,16 @@ async fn handshake_resolves_workspace_from_doc_id_without_host_context() {
         .expect("seed membership");
     }
 
-    // Sessionless, workspace-bound connection token per user; the WS reads it
+    // Workspace-bound connection token per user (no session); the WS reads it
     // from the query string (no cookie / Authorization header on a browser WS).
     let token_for = |user: &backend::models::User| {
-        JwtUtils::create_collab_token(&user.uuid.to_string(), &user.platform_role, Some(ws1_uuid))
-            .expect("mint collab token")
+        JwtUtils::create_collab_token(
+            &user.uuid.to_string(),
+            &user.platform_role,
+            Some(ws1_uuid),
+            None,
+        )
+        .expect("mint collab token")
     };
     let member_token = token_for(&member);
     let stranger_token = token_for(&stranger);
@@ -544,7 +665,7 @@ async fn a_refused_connection_is_closed_with_why() {
         .expect("seed memberships");
     }
     let token_for = |user: uuid::Uuid, platform_role: &str| {
-        JwtUtils::create_collab_token(&user.to_string(), platform_role, Some(ws1_uuid))
+        JwtUtils::create_collab_token(&user.to_string(), platform_role, Some(ws1_uuid), None)
             .expect("mint collab token")
     };
     let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
@@ -710,6 +831,7 @@ async fn a_requesters_updates_reach_no_one() {
             &user.uuid.to_string(),
             &user.platform_role,
             Some(test_workspace().workspace_uuid),
+            None,
         )
         .expect("mint collab token");
         client
@@ -889,6 +1011,7 @@ async fn a_quiet_note_gets_a_revision_while_someone_keeps_it_open() {
         &user.uuid.to_string(),
         &user.platform_role,
         Some(test_workspace().workspace_uuid),
+        None,
     )
     .expect("mint collab token");
     let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
@@ -1079,7 +1202,7 @@ async fn losing_access_closes_an_open_page_with_no_access() {
             .route("/ws/{doc}", web::get().to(ws_handler))
     });
 
-    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid))
+    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid), None)
         .expect("mint collab token");
     let (_resp, mut conn) = awc::Client::new()
         .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
@@ -1186,7 +1309,7 @@ async fn access_withdrawn_while_connecting_still_closes_the_page() {
             .app_data(web::Data::new(state_pool_inner.clone()))
             .route("/ws/{doc}", web::get().to(ws_handler))
     });
-    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid))
+    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid), None)
         .expect("mint collab token");
     let (_resp, mut conn) = awc::Client::new()
         .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
@@ -1311,7 +1434,7 @@ async fn leaving_a_group_closes_an_open_page_with_no_access() {
             .app_data(web::Data::new(state_pool_inner.clone()))
             .route("/ws/{doc}", web::get().to(ws_handler))
     });
-    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid))
+    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid), None)
         .expect("mint collab token");
     let (_resp, mut conn) = awc::Client::new()
         .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
@@ -1460,7 +1583,7 @@ async fn losing_admin_closes_an_open_restricted_page() {
             .app_data(web::Data::new(state_pool_inner.clone()))
             .route("/ws/{doc}", web::get().to(ws_handler))
     });
-    let token = JwtUtils::create_collab_token(&admin.to_string(), "user", Some(ws1_uuid))
+    let token = JwtUtils::create_collab_token(&admin.to_string(), "user", Some(ws1_uuid), None)
         .expect("mint collab token");
     let (_resp, mut conn) = awc::Client::new()
         .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
@@ -1551,7 +1674,7 @@ async fn an_access_check_that_fails_closes_the_session_to_retry() {
             .app_data(web::Data::new(state_pool_inner.clone()))
             .route("/ws/{doc}", web::get().to(ws_handler))
     });
-    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid))
+    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid), None)
         .expect("mint collab token");
     let (_resp, mut conn) = awc::Client::new()
         .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
@@ -1650,7 +1773,7 @@ async fn removal_from_the_workspace_closes_every_open_page() {
             .app_data(web::Data::new(state_pool_inner.clone()))
             .route("/ws/{doc}", web::get().to(ws_handler))
     });
-    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid))
+    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid), None)
         .expect("mint collab token");
     let (_resp, mut conn) = awc::Client::new()
         .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
@@ -1737,7 +1860,7 @@ async fn a_failed_membership_lookup_closes_the_session_to_retry() {
             .app_data(web::Data::new(state_pool_inner.clone()))
             .route("/ws/{doc}", web::get().to(ws_handler))
     });
-    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid))
+    let token = JwtUtils::create_collab_token(&agent.to_string(), "user", Some(ws1_uuid), None)
         .expect("mint collab token");
     let (_resp, mut conn) = awc::Client::new()
         .ws(srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}")))
@@ -1807,6 +1930,7 @@ async fn converting_a_note_copies_its_live_content() {
         &user.uuid.to_string(),
         &user.platform_role,
         Some(test_workspace().workspace_uuid),
+        None,
     )
     .expect("mint collab token");
     let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
@@ -2050,6 +2174,7 @@ impl ImportedPage {
             &admin.uuid.to_string(),
             &admin.platform_role,
             Some(ws1_uuid),
+            None,
         )
         .expect("mint collab token");
         let url = srv.url(&format!("/ws/ws-{ws1_uuid}_doc-{page_uuid}?token={token}"));
