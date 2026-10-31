@@ -343,6 +343,25 @@ const emDOM: DOMOutputSpec = ['em', 0];
 const strongDOM: DOMOutputSpec = ['strong', 0];
 const codeDOM: DOMOutputSpec = ['code', 0];
 
+/**
+ * A link address the editor will render and open: http(s), mailto, tel, or a
+ * same-origin path or fragment (and the import preview's own page links). Anything else (`javascript:`, `data:`,
+ * `vbscript:`) gives null. A collaborator can write any address straight into
+ * the shared document, so this holds whatever the UI that adds links allows.
+ */
+export function safeLinkHref(href: unknown): string | null {
+  if (typeof href !== 'string') return null;
+  // Browsers ignore whitespace and control characters inside a scheme.
+  const compact = href.trim().replace(/[\u0000-\u001F\u007F\s]+/g, '');
+  if (!compact) return null;
+  if (/^(\/(?!\/)|#|\?)/.test(compact)) return href.trim();
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(compact)?.[1]?.toLowerCase();
+  if (scheme === undefined) return /^[^:]*$/.test(compact) ? href.trim() : null;
+  // `nosdesk-import:` is the docs import preview's link to another page in
+  // the import; the preview handles the click, and a browser can't open it.
+  return ['http', 'https', 'mailto', 'tel', 'nosdesk-import'].includes(scheme) ? href.trim() : null;
+}
+
 // Specs for the marks in the schema
 export const marks: {[key: string]: MarkSpec} = {
   // A link. Has `href` and `title` attributes
@@ -355,10 +374,14 @@ export const marks: {[key: string]: MarkSpec} = {
     parseDOM: [{
       tag: 'a[href]',
       getAttrs(dom: HTMLElement) {
-        return { href: dom.getAttribute('href'), title: dom.getAttribute('title') };
+        const href = safeLinkHref(dom.getAttribute('href'));
+        return href === null ? false : { href, title: dom.getAttribute('title') };
       }
     }],
-    toDOM(mark) { return ['a', mark.attrs, 0]; }
+    toDOM(mark) {
+      const href = safeLinkHref(mark.attrs.href);
+      return ['a', href === null ? { title: mark.attrs.title } : { ...mark.attrs, href }, 0];
+    }
   },
   
   // An emphasis mark. Rendered as an <em> element

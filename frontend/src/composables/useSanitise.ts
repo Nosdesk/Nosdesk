@@ -37,9 +37,10 @@ const DEFAULT_CONFIG: Config = {
   FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
 };
 
-// SVG-specific config for icon rendering
+// SVG-specific config for icon rendering. No USE_PROFILES: DOMPurify lets a
+// profile replace ALLOWED_TAGS/ALLOWED_ATTR, and the svg profile admits
+// <style>, style= and <image>, so a page icon could restyle the whole app.
 const SVG_CONFIG: Config = {
-  USE_PROFILES: { svg: true, svgFilters: true },
   ALLOWED_TAGS: [
     'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon',
     'ellipse', 'g', 'defs', 'clipPath', 'use', 'symbol', 'text', 'tspan',
@@ -51,6 +52,8 @@ const SVG_CONFIG: Config = {
     'clip-path', 'clip-rule', 'fill-rule', 'opacity', 'xmlns',
   ],
   ALLOW_DATA_ATTR: false,
+  FORBID_TAGS: ['style', 'image', 'a', 'foreignObject', 'script'],
+  FORBID_ATTR: ['style', 'href', 'xlink:href'],
 };
 
 // Markdown config with code highlighting support

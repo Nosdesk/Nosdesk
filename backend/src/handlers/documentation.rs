@@ -1151,9 +1151,16 @@ pub async fn update_documentation_page(
             });
         }
 
-        // Auto-regenerate slug when title changes (unless user explicitly provided a slug)
-        let slug = if update_req.slug.is_some() {
-            update_req.slug.clone()
+        // Auto-regenerate slug when title changes (unless user explicitly provided a slug).
+        // A given slug is normalised like a generated one: it goes into page
+        // links, notification emails among them, so only `[a-z0-9-]` gets in.
+        let slug = if let Some(raw) = update_req.slug.as_deref() {
+            let wanted = utils::slug::slugify(raw);
+            if wanted.is_empty() || wanted == current.slug {
+                None
+            } else {
+                Some(utils::slug::generate_unique_slug(&wanted, conn))
+            }
         } else {
             update_req
                 .title
