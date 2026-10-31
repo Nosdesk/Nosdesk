@@ -842,3 +842,72 @@ async fn the_sign_in_code_signs_in_once_and_dies_after_five_wrong_tries() {
         400
     );
 }
+
+/// Wrong codes sent all at once are each counted before they're compared, so
+/// no more than five are ever checked and the right code then fails.
+#[actix_web::test]
+async fn sign_in_code_guesses_sent_at_once_get_five_tries_in_all() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(8);
+    let mut conn = pool.get().expect("conn");
+    let ws = crate::common::mint_workspace(&mut conn, "racews", "Race WS");
+    let customer = backend::repository::user_helpers::create_user_with_email(
+        backend::models::NewUser {
+            uuid: uuid::Uuid::now_v7(),
+            name: "Customer".into(),
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_secret_kek_id: None,
+            mfa_enabled: false,
+            platform_role: None,
+        },
+        backend::models::WorkspaceRole::Member,
+        "racer@example.com".into(),
+        true,
+        Some("test".into()),
+        &mut conn,
+        None,
+        SeatWriteAuthority::ControlPlane,
+    )
+    .and_then(|o| o.into_created())
+    .expect("customer")
+    .0;
+    with_actor_context(
+        &mut conn,
+        &ActorContext::system("test:seed").with_workspace(ws),
+        |c| {
+            add_membership(
+                c,
+                ws,
+                customer.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )
+        },
+    )
+    .expect("membership");
+    let srv = code_server(&pool, context_of(&mut conn, ws));
+    let client = awc::Client::new();
+    let post = |code: &'static str| {
+        client
+            .post(srv.url("/api/portal/auth/code"))
+            .send_json(&serde_json::json!({ "email": "racer@example.com", "code": code }))
+    };
+
+    let hash = issue_code(&mut conn, customer.uuid, "654321");
+    let guesses = futures::future::join_all((0..20).map(|_| post("000000"))).await;
+    assert!(guesses
+        .into_iter()
+        .all(|r| r.expect("send").status() == 400));
+    let token =
+        backend::repository::reset_tokens::find_token_by_hash(&mut conn, &hash).expect("token");
+    let meta = token.metadata.expect("metadata");
+    assert_eq!(meta["attempts"], serde_json::json!(5), "{meta}");
+    assert!(meta["code_hash"].is_null(), "{meta}");
+    assert_eq!(post("654321").await.expect("send").status(), 400);
+}

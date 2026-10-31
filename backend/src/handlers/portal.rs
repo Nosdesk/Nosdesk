@@ -407,8 +407,15 @@ pub async fn request_magic_link(
         // No workspace resolved for this origin: nothing to sign in to.
         return magic_link_accepted();
     };
-    send_sign_in_link(&pool, &ctx, &body.email);
+    spawn_sign_in_link(pool.get_ref().clone(), ctx, body.email.clone());
     magic_link_accepted()
+}
+
+/// [`send_sign_in_link`] off the response path, so an address with an account
+/// here and one without are answered just as fast (the work, and the email,
+/// happen only for the first).
+pub(crate) fn spawn_sign_in_link(pool: Pool, ctx: WorkspaceContext, email: String) {
+    actix_web::rt::task::spawn_blocking(move || send_sign_in_link(&pool, &ctx, &email));
 }
 
 /// Email a sign-in link (and code) to the member of `ctx`'s workspace with
@@ -711,37 +718,29 @@ pub async fn sign_in_with_code(
         TokenType::PortalMagicLink.as_str(),
     )
     .unwrap_or_default();
+    // Each try of the code is counted before it's compared, against every
+    // live code. At the limit the CODE stops working, but the emailed link
+    // stays usable: disabling the link too would let anyone who knows the
+    // address burn the requester's sign-in without ever seeing their inbox.
     let wanted = sign_in_code_hash(user.uuid, &code);
-    let matched = live.iter().find(|t| {
-        t.metadata
-            .as_ref()
-            .and_then(|m| m.get("code_hash"))
-            .and_then(|h| h.as_str())
-            .is_some_and(|h| constant_time_eq::constant_time_eq(h.as_bytes(), wanted.as_bytes()))
-    });
-    let Some(token) = matched else {
-        // Count the miss against every live code. At the limit the CODE stops
-        // working, but the emailed link stays usable: disabling the link too
-        // would let anyone who knows the address burn the requester's sign-in
-        // without ever seeing their inbox.
-        for t in &live {
-            let Some(mut meta) = t.metadata.clone() else {
-                continue;
-            };
-            if meta.get("code_hash").and_then(|h| h.as_str()).is_none() {
-                continue;
-            }
-            let attempts = meta.get("attempts").and_then(|a| a.as_i64()).unwrap_or(0) + 1;
-            meta["attempts"] = json!(attempts);
-            if attempts >= SIGN_IN_CODE_ATTEMPTS {
-                meta["code_hash"] = serde_json::Value::Null;
-            }
-            if let Err(e) =
-                crate::repository::reset_tokens::set_metadata(&mut conn, &t.token_hash, meta)
-            {
-                tracing::warn!(error = ?e, "sign-in code: could not record a wrong attempt");
-            }
+    let mut matched = None;
+    for t in &live {
+        let taken = crate::repository::reset_tokens::take_code_attempt(
+            &mut conn,
+            &t.token_hash,
+            SIGN_IN_CODE_ATTEMPTS,
+        )
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = ?e, "sign-in code: could not record an attempt");
+            None
+        });
+        let hit = taken
+            .is_some_and(|h| constant_time_eq::constant_time_eq(h.as_bytes(), wanted.as_bytes()));
+        if hit && matched.is_none() {
+            matched = Some(t);
         }
+    }
+    let Some(token) = matched else {
         return invalid();
     };
     // Spend it; a concurrent use that got there first wins.
