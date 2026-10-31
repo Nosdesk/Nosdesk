@@ -1029,6 +1029,9 @@ async fn a_collection_created_for_some_people_never_reaches_the_rest() {
                 .collect::<std::collections::HashSet<String>>(),
         ),
         guard,
+        // Re-checked only after 30s; the test is done long before.
+        uuid::Uuid::nil(),
+        None,
     );
     let frame = stream.next().await.expect("a frame").expect("frame bytes");
     let frame = String::from_utf8(frame.to_vec()).expect("utf8 frame");
@@ -2164,6 +2167,9 @@ async fn a_demotion_ends_the_live_stream_it_outdates() {
                 .collect::<std::collections::HashSet<String>>(),
         ),
         guard,
+        // Re-checked only after 30s; the test is done long before.
+        uuid::Uuid::nil(),
+        None,
     );
     let next = stream.next().await;
     assert!(
@@ -2208,6 +2214,9 @@ async fn a_demotion_ends_the_live_stream_it_outdates() {
                 .collect::<std::collections::HashSet<String>>(),
         ),
         guard,
+        // Re-checked only after 30s; the test is done long before.
+        uuid::Uuid::nil(),
+        None,
     );
     let frame = stream
         .next()
