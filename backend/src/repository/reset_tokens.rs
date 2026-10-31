@@ -116,16 +116,47 @@ pub fn claim_unused(
     .optional()
 }
 
+#[derive(diesel::QueryableByName)]
+struct CodeHash {
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    code_hash: Option<String>,
+}
+
 // sync-audit-only: Sessions / auth tokens (covered by security_events)
-/// Replace a token's metadata (the sign-in code's attempt counter).
-pub fn set_metadata(
+/// Spend one of a sign-in code's `limit` tries, and give back the code's hash
+/// to compare against when a try was left (`None` once they're used up or the
+/// code is gone). One statement takes the try, so guesses sent at once can't
+/// all slip in before any is counted; the try that reaches the limit also
+/// clears the code, leaving the emailed link working.
+pub fn take_code_attempt(
     conn: &mut DbConnection,
     token_hash_value: &str,
-    metadata: serde_json::Value,
-) -> QueryResult<usize> {
-    diesel::update(reset_tokens::table.filter(reset_tokens::token_hash.eq(token_hash_value)))
-        .set(reset_tokens::metadata.eq(Some(metadata)))
-        .execute(conn)
+    limit: i64,
+) -> QueryResult<Option<String>> {
+    let row: Option<CodeHash> = diesel::sql_query(
+        "WITH old AS ( \
+             SELECT token_hash, metadata ->> 'code_hash' AS code_hash, \
+                    COALESCE((metadata ->> 'attempts')::bigint, 0) + 1 AS attempts \
+             FROM reset_tokens \
+             WHERE token_hash = $1 \
+               AND metadata ->> 'code_hash' IS NOT NULL \
+               AND COALESCE((metadata ->> 'attempts')::bigint, 0) < $2 \
+             FOR UPDATE \
+         ) \
+         UPDATE reset_tokens t \
+            SET metadata = jsonb_set(t.metadata, '{attempts}', to_jsonb(old.attempts)) \
+                || CASE WHEN old.attempts >= $2 \
+                        THEN jsonb_build_object('code_hash', NULL) \
+                        ELSE '{}'::jsonb END \
+           FROM old \
+          WHERE t.token_hash = old.token_hash \
+         RETURNING old.code_hash",
+    )
+    .bind::<diesel::sql_types::Text, _>(token_hash_value)
+    .bind::<diesel::sql_types::BigInt, _>(limit)
+    .get_result(conn)
+    .optional()?;
+    Ok(row.and_then(|r| r.code_hash))
 }
 
 /// Count tokens for a user created within a time window (for rate limiting)
