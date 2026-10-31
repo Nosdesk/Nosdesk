@@ -23,7 +23,7 @@ import { SafePermanentUserData } from "@nosdesk/core/utils/safePermanentUserData
 import { apiBaseUrl, collabWsBaseUrl } from "@nosdesk/core/transport";
 import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";
-import { schema } from "@/components/editor/schema";
+import { schema, safeLinkHref } from "@/components/editor/schema";
 import { createTableGuardPlugin } from "@/components/editor/tableGuard";
 import { createTablePlugins, hasFinePointer } from "@/components/editor/tablePlugins";
 import { tablesAllowed } from "@/components/editor/tablesAllowed";
@@ -1630,7 +1630,9 @@ const handleLinkClose = () => {
 };
 
 const handleLinkOpen = (url: string) => {
-    window.open(url, "_blank", "noopener,noreferrer");
+    const href = safeLinkHref(url);
+    if (href === null) return;
+    window.open(href, "_blank", "noopener,noreferrer");
 };
 
 // Handle link tooltip reposition request (on scroll)
