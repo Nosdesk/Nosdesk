@@ -108,11 +108,14 @@ pub fn index_document_from_documentation(doc_page: &models::DocumentationPage) -
     .author_uuid(Some(doc_page.last_edited_by.to_string()))
 }
 
-/// Create an index document from an attachment
+/// Create an index document from an attachment. `is_internal` is its
+/// comment's: an attachment on an internal note (a voice note's transcript)
+/// is as staff-only as the note.
 pub fn index_document_from_attachment(
     attachment: &models::Attachment,
     ticket_id: i32,
     ticket_title: &str,
+    is_internal: bool,
 ) -> IndexDocument {
     // Use transcription as content if available
     let content = attachment.transcription.clone().unwrap_or_default();
@@ -136,6 +139,7 @@ pub fn index_document_from_attachment(
         .preview(preview)
         .updated_at(chrono::Utc::now().timestamp())
         .workspace_id(attachment.workspace_id as i64)
+        .is_internal(is_internal)
 }
 
 /// Create an index document from a device
@@ -428,8 +432,12 @@ pub fn rebuild_index(
                     .get(&comment.ticket_id)
                     .map(|s| s.as_str())
                     .unwrap_or("Unknown Ticket");
-                let doc =
-                    index_document_from_attachment(attachment, comment.ticket_id, ticket_title);
+                let doc = index_document_from_attachment(
+                    attachment,
+                    comment.ticket_id,
+                    ticket_title,
+                    comment.is_internal,
+                );
                 if let Err(e) = add_document_to_index(writer, schema, &doc) {
                     warn!(attachment_id = attachment.id, error = ?e, "Failed to index attachment");
                 } else {
