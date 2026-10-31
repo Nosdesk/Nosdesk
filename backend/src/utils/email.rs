@@ -535,7 +535,7 @@ impl<'a> EmailTemplate<'a> {
               </p>
             </td>
           </tr>"#,
-            url = cta.url,
+            url = escape_html(&cta.url),
             url_text = escape_html(&cta.url),
             label = escape_html(&cta.label),
             cta = hex(brand),
@@ -2863,6 +2863,23 @@ mod tests {
             enabled: true,
             security: SmtpSecurity::StartTls,
         })
+    }
+
+    #[test]
+    fn a_notification_link_cannot_break_out_of_its_attribute() {
+        let locale: unic_langid::LanguageIdentifier = "en-US".parse().expect("locale");
+        let (html, _text) = svc().compose_notification(
+            "Page updated",
+            "A page you follow changed.",
+            "Kyle",
+            r#"https://desk.example.com/documentation/x"><img src=https://evil.example/t>"#,
+            None,
+            None,
+            &EmailBranding::default(),
+            &locale,
+        );
+        assert!(!html.contains("<img src=https://evil.example"), "{html}");
+        assert!(html.contains("x&quot;&gt;&lt;img"), "{html}");
     }
 
     fn rendered(msg: &Message) -> String {
