@@ -125,7 +125,7 @@ async fn sse_scope_jwt_rejected_on_bearer() {
     let user = crate::common::insert_user(&mut pool.get().expect("conn"), "Bearer Carol");
     // An SSE token (scope "sse") skips the session check; it must not ride the
     // agent API as a bearer.
-    let sse = JwtUtils::create_sse_token(&user.uuid.to_string(), &user.platform_role, None)
+    let sse = JwtUtils::create_sse_token(&user.uuid.to_string(), &user.platform_role, None, None)
         .expect("mint sse token");
 
     let app = protected_app!(pool);
@@ -263,4 +263,75 @@ async fn auth_refusals_carry_the_error_envelope() {
         assert!(json["error"].is_string(), "{auth:?}: {json}");
         assert_eq!(json["code"], code, "{auth:?}: {json}");
     }
+}
+
+/// An event-stream token minted by a session works only while that session
+/// does, and an open stream's re-check fails once the session is revoked or
+/// the account deleted. A token minted without a session (an API token's)
+/// still follows the account.
+#[actix_web::test]
+async fn a_stream_token_follows_its_session_and_account() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let mut conn = pool.get().expect("conn");
+    let user = crate::common::insert_user(&mut conn, "Stream Dana");
+    let session = backend::repository::active_sessions::create_session(
+        &mut conn,
+        backend::models::NewActiveSession {
+            user_uuid: user.uuid,
+            device_name: None,
+            ip_address: None,
+            user_agent: None,
+            location: None,
+            expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
+            oidc_id_token: None,
+            confirmed_at: None,
+        },
+    )
+    .expect("session");
+    let sid = session.session_id.to_string();
+    let mint = |sid: Option<&str>| {
+        JwtUtils::create_sse_token(&user.uuid.to_string(), &user.platform_role, None, sid)
+            .expect("mint sse token")
+    };
+    let with_session = mint(Some(&sid));
+    let without = mint(None);
+
+    assert!(
+        JwtUtils::validate_token_with_user_check(&with_session, &mut conn)
+            .await
+            .is_ok()
+    );
+    assert!(JwtUtils::connection_still_authorised(
+        &mut conn,
+        user.uuid,
+        Some(&sid)
+    ));
+
+    backend::repository::active_sessions::revoke_session_by_uuid(&mut conn, &session.session_id)
+        .expect("sign out");
+    assert!(
+        JwtUtils::validate_token_with_user_check(&with_session, &mut conn)
+            .await
+            .is_err()
+    );
+    assert!(!JwtUtils::connection_still_authorised(
+        &mut conn,
+        user.uuid,
+        Some(&sid)
+    ));
+
+    assert!(
+        JwtUtils::validate_token_with_user_check(&without, &mut conn)
+            .await
+            .is_ok()
+    );
+    assert!(JwtUtils::connection_still_authorised(
+        &mut conn, user.uuid, None
+    ));
+    backend::repository::users::soft_delete_user(&user.uuid, &mut conn).expect("delete");
+    assert!(!JwtUtils::connection_still_authorised(
+        &mut conn, user.uuid, None
+    ));
 }
