@@ -21,6 +21,10 @@ const WS: i32 = 1;
 const MISSING: i32 = 999_999;
 
 fn member(conn: &mut PgConnection, name: &str, role: &str) -> User {
+    member_of(conn, WS, name, role)
+}
+
+fn member_of(conn: &mut PgConnection, workspace: i32, name: &str, role: &str) -> User {
     use backend::schema::{users, workspace_members};
     let user: User = diesel::insert_into(users::table)
         .values(&NewUser {
@@ -40,7 +44,7 @@ fn member(conn: &mut PgConnection, name: &str, role: &str) -> User {
         .expect("insert user");
     diesel::insert_into(workspace_members::table)
         .values((
-            workspace_members::workspace_id.eq(WS),
+            workspace_members::workspace_id.eq(workspace),
             workspace_members::user_uuid.eq(user.uuid),
             workspace_members::role.eq(role),
         ))
@@ -438,4 +442,58 @@ async fn portal_participants_need_a_visible_ticket() {
         .and_then(|u| Uuid::parse_str(u).ok())
         .expect("added participant");
     assert_eq!(remove(fx.mine.id, added).await, 200);
+}
+
+fn verified_email(conn: &mut PgConnection, user: Uuid, email: &str) {
+    use backend::schema::user_emails;
+    diesel::insert_into(user_emails::table)
+        .values((
+            user_emails::user_uuid.eq(user),
+            user_emails::email.eq(email),
+            user_emails::email_type.eq("personal"),
+            user_emails::is_primary.eq(true),
+            user_emails::is_verified.eq(true),
+        ))
+        .execute(conn)
+        .expect("insert email");
+}
+
+#[actix_web::test]
+async fn a_participant_from_another_workspace_joins_under_the_address_name() {
+    let fx = Fixture::new();
+    {
+        let mut conn = fx.pool.get().expect("conn");
+        let elsewhere = crate::common::mint_workspace(&mut conn, "elsewhere", "Elsewhere");
+        let outsider = member_of(&mut conn, elsewhere, "Real Name", "member");
+        verified_email(&mut conn, outsider.uuid, "ceo@elsewhere.example");
+        let colleague = member(&mut conn, "Colleague Name", "member");
+        verified_email(&mut conn, colleague.uuid, "colleague@here.example");
+    }
+    let srv = fx.portal_as(fx.requester.uuid);
+    let add = |email: &'static str| {
+        awc::Client::new()
+            .post(srv.url(&format!("/api/portal/tickets/{}/participants", fx.mine.id)))
+            .send_json(&json!({ "email": email }))
+    };
+    let names = |body: serde_json::Value| -> Vec<String> {
+        body["participants"]
+            .as_array()
+            .expect("participants")
+            .iter()
+            .filter_map(|p| p["name"].as_str().map(str::to_string))
+            .collect()
+    };
+
+    let mut resp = add("ceo@elsewhere.example").await.expect("send");
+    assert_eq!(resp.status(), 200);
+    let shown = names(resp.json().await.expect("json"));
+    assert!(shown.contains(&"ceo".to_string()), "{shown:?}");
+    assert!(!shown.contains(&"Real Name".to_string()), "{shown:?}");
+
+    // Someone already in this workspace keeps the name it knows them by.
+    let mut resp = add("colleague@here.example").await.expect("send");
+    assert_eq!(resp.status(), 200);
+    let shown = names(resp.json().await.expect("json"));
+    assert!(shown.contains(&"Colleague Name".to_string()), "{shown:?}");
+    assert!(!shown.contains(&"Real Name".to_string()), "{shown:?}");
 }

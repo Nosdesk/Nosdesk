@@ -1858,6 +1858,9 @@ fn participants_of(
             uuids.push(w);
         }
     }
+    // The name this workspace knows them by, which for someone added from
+    // outside it is the one they were added with, not their account's own.
+    let mut personas = crate::repository::user_contact::persona_overrides(conn, &uuids)?;
     let mut out = Vec::new();
     for uuid in uuids {
         let Ok(user) = crate::repository::users::find_active_by_uuid(&uuid, conn) else {
@@ -1865,7 +1868,10 @@ fn participants_of(
         };
         out.push(Participant {
             uuid,
-            name: user.name,
+            name: personas
+                .remove(&uuid)
+                .and_then(|p| p.display_name)
+                .unwrap_or(user.name),
             email: show_emails
                 .then(|| user_helpers::get_primary_email(&uuid, conn))
                 .flatten(),
@@ -1925,6 +1931,19 @@ pub async fn add_participant(
         )?;
         if person.uuid == requester {
             return Ok(Err(errors::bad_request("You're already on this request")));
+        }
+        // The address can belong to an account from another workspace. It joins
+        // this one under a name taken from the address, so the requester (and
+        // the team here) never learn the name it carries elsewhere.
+        if crate::repository::workspaces::membership(conn, ticket.workspace_id, person.uuid)?
+            .is_none()
+        {
+            crate::repository::user_contact::set_display_name_if_unset(
+                conn,
+                person.uuid,
+                &name,
+                Some(requester),
+            )?;
         }
         // Already a member: a no-op (ON CONFLICT DO NOTHING).
         crate::repository::workspaces::add_membership(
