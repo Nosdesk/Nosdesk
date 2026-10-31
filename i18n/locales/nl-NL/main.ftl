@@ -6347,6 +6347,13 @@ ticket-field-watchers-overflow-title = { $count ->
     [one] nog { $count }
    *[other] nog { $count }
   }
+ticket-field-watchers-manage = Volgers toevoegen of verwijderen
+ticket-field-watchers-add-placeholder = Volger toevoegen…
+ticket-field-watchers-remove = Volger verwijderen
+ticket-field-watchers-empty = Niemand volgt dit ticket.
+ticket-field-watchers-done = Klaar
+ticket-field-watchers-add-failed = De volger is niet toegevoegd.
+ticket-field-watchers-remove-failed = De volger is niet verwijderd.
 
 # Ticket: apparatenrij (TicketDevicesField).
 ticket-field-devices-label = Activa
