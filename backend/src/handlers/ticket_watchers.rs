@@ -49,6 +49,87 @@ pub async fn watch_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Resp
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AddWatcherBody {
+    pub user_uuid: uuid::Uuid,
+}
+
+/// `POST /tickets/{id}/watchers`: an agent adds a workspace member as a
+/// watcher. Someone who isn't staff becomes a participant on the request:
+/// they see it in their portal, get the team's replies by email, and are told
+/// they were added.
+pub async fn add_watcher(
+    mut tc: TenantConn,
+    access: TicketAccess,
+    body: web::Json<AddWatcherBody>,
+) -> impl Responder {
+    let TicketAccess { ticket_id, auth } = access;
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Only agents can add watchers");
+    }
+    if let Some(refused) = crate::handlers::helpers::refuse_merged(&mut tc, &[ticket_id]) {
+        return refused;
+    }
+    let target = body.into_inner().user_uuid;
+    let email_service = crate::utils::email::EmailService::from_env().ok();
+    let result = tc.run(move |conn| {
+        let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
+        let Some(member) =
+            crate::repository::workspaces::membership(conn, ticket.workspace_id, target)?
+        else {
+            return Ok(None);
+        };
+        if crate::repository::users::find_active_by_uuid(&target, conn).is_err() {
+            return Ok(None);
+        }
+        let added = repo::add_watcher(conn, ticket_id, target, false)?;
+        let staff = crate::models::WorkspaceRole::from_db(&member.role).is_staff();
+        if added && !staff && ticket.requester_uuid != Some(target) {
+            if let (Some(svc), Some(email)) = (
+                email_service.as_ref(),
+                crate::repository::user_helpers::get_primary_email(&target, conn),
+            ) {
+                crate::handlers::portal::tell_participant_added(
+                    conn, svc, &ticket, target, &email, &auth.name,
+                );
+            }
+        }
+        repo::watcher_uuids(conn, ticket_id).map(Some)
+    });
+    match result {
+        Ok(Some(uuids)) => HttpResponse::Ok().json(serde_json::json!({ "watcher_uuids": uuids })),
+        Ok(None) => errors::bad_request("That person isn't a member of this workspace"),
+        Err(e) => {
+            error!(error = %e, ticket_id, "add_watcher failed");
+            errors::internal("Failed to add the watcher")
+        }
+    }
+}
+
+/// `DELETE /tickets/{id}/watchers/{user_uuid}`: an agent removes a watcher.
+pub async fn remove_watcher(
+    mut tc: TenantConn,
+    access: TicketAccess,
+    path: web::Path<(i32, uuid::Uuid)>,
+) -> impl Responder {
+    let TicketAccess { ticket_id, auth } = access;
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Only agents can remove watchers");
+    }
+    let (_, target) = path.into_inner();
+    let result = tc.run(move |conn| {
+        repo::remove_watcher(conn, ticket_id, &target)?;
+        repo::watcher_uuids(conn, ticket_id)
+    });
+    match result {
+        Ok(uuids) => HttpResponse::Ok().json(serde_json::json!({ "watcher_uuids": uuids })),
+        Err(e) => {
+            error!(error = %e, ticket_id, "remove_watcher failed");
+            errors::internal("Failed to remove the watcher")
+        }
+    }
+}
+
 // ticket-access: removes only the caller's own watch
 pub async fn unwatch_ticket(
     mut tc: TenantConn,

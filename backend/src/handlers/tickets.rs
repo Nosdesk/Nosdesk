@@ -101,6 +101,14 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             web::get().to(crate::handlers::ticket_watchers::list_watchers),
         )
         .route(
+            "/tickets/{id}/watchers",
+            web::post().to(crate::handlers::ticket_watchers::add_watcher),
+        )
+        .route(
+            "/tickets/{id}/watchers/{user_uuid}",
+            web::delete().to(crate::handlers::ticket_watchers::remove_watcher),
+        )
+        .route(
             "/tickets/{id}/watch",
             web::post().to(crate::handlers::ticket_watchers::watch_ticket),
         )

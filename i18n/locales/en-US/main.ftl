@@ -5794,6 +5794,13 @@ ticket-field-watchers-overflow-title = { $count ->
     [one] { $count } more
    *[other] { $count } more
   }
+ticket-field-watchers-manage = Add or remove watchers
+ticket-field-watchers-add-placeholder = Add a watcher…
+ticket-field-watchers-remove = Remove watcher
+ticket-field-watchers-empty = No one is watching this ticket.
+ticket-field-watchers-done = Done
+ticket-field-watchers-add-failed = The watcher wasn't added.
+ticket-field-watchers-remove-failed = The watcher wasn't removed.
 
 # Ticket: device chip row (TicketDevicesField).
 ticket-field-devices-label = Assets

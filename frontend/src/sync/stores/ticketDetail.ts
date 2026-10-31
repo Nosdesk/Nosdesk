@@ -491,6 +491,27 @@ export function useTicketDetail(
     }
   }
 
+  /** Add or remove someone else as a watcher. The server answers with the
+   *  new set; the sync echo of `ticket.watcher_added` / `_removed` agrees. */
+  async function setWatcher(userUuid: string, watching: boolean): Promise<void> {
+    if (id.value == null) return
+    const ticketId = id.value
+    try {
+      const { watcherService } = await import('@nosdesk/core/services/watcherService')
+      const uuids = watching
+        ? await watcherService.add(ticketId, userUuid)
+        : await watcherService.remove(ticketId, userUuid)
+      pool.patch<SyncTicketDetail>('ticket', ticketId, { watcher_uuids: uuids })
+    } catch (err) {
+      logger.error('Failed to change watchers', { error: err })
+      useToastStore().error(
+        watching
+          ? translate('ticket-field-watchers-add-failed', undefined, "The watcher wasn't added.")
+          : translate('ticket-field-watchers-remove-failed', undefined, "The watcher wasn't removed."),
+      )
+    }
+  }
+
   async function deleteTicket(): Promise<void> {
     if (id.value == null) return
     try {
@@ -954,6 +975,7 @@ export function useTicketDetail(
     updateResolutionNotes,
     updateTags,
     toggleWatch,
+    setWatcher,
     deleteTicket,
     // comments
     addComment,

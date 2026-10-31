@@ -1915,7 +1915,9 @@ pub async fn add_participant(
         }
         let current = participants_of(conn, &ticket, requester)?;
         if current.len() > MAX_PARTICIPANTS {
-            return Ok(Err(errors::bad_request("This request already has the most people it can")));
+            return Ok(Err(errors::bad_request(
+                "This request already has the most people it can",
+            )));
         }
         let name = crate::utils::name_from_email(&email).unwrap_or_else(|| email.clone());
         let person = crate::repository::user_helpers::find_or_provision_requester(
@@ -1932,44 +1934,14 @@ pub async fn add_participant(
             "member",
             crate::repository::workspaces::SeatWriteAuthority::Product,
         )?;
-        let added = crate::repository::ticket_watchers::add_watcher(conn, ticket_id, person.uuid, false)?;
+        let added =
+            crate::repository::ticket_watchers::add_watcher(conn, ticket_id, person.uuid, false)?;
         if added {
-            if let (Some(svc), Some(url)) = (
-                email_service.as_ref(),
-                crate::utils::portal_ticket_link::view_request_url(
-                    conn,
-                    ticket.workspace_id,
-                    person.uuid,
-                    ticket_id,
-                ),
-            ) {
+            if let Some(svc) = email_service.as_ref() {
                 let adder = crate::repository::users::find_active_by_uuid(&requester, conn)
                     .map(|u| u.name)
                     .unwrap_or_default();
-                let base = url
-                    .find("/api/")
-                    .map(|i| url[..i].to_string())
-                    .unwrap_or_default();
-                let branding = crate::utils::email_branding::get_email_branding(
-                    conn,
-                    &base,
-                    crate::utils::email_branding::SentFrom::Workspace,
-                );
-                let locale =
-                    crate::repository::user_locale::resolve_effective_locale(conn, person.uuid);
-                if let Err(e) = crate::services::transactional_email::enqueue_participant_added(
-                    conn,
-                    svc,
-                    &branding,
-                    &email,
-                    person.uuid,
-                    &adder,
-                    &ticket,
-                    &url,
-                    &locale,
-                ) {
-                    tracing::warn!(error = ?e, ticket_id, "portal: could not queue the participant email");
-                }
+                tell_participant_added(conn, svc, &ticket, person.uuid, &email, &adder);
             }
         }
         Ok(Ok(participants_of(conn, &ticket, requester)?))
@@ -1982,6 +1954,41 @@ pub async fn add_participant(
             tracing::error!(error = ?e, "portal: failed to add participant");
             errors::internal("Failed to add that person")
         }
+    }
+}
+
+/// Email `person` that `adder` added them to the request, with a link to it in
+/// their portal. Best effort: a failure to queue is logged, not returned.
+pub(crate) fn tell_participant_added(
+    conn: &mut DbConnection,
+    svc: &crate::utils::email::EmailService,
+    ticket: &crate::models::Ticket,
+    person: Uuid,
+    email: &str,
+    adder: &str,
+) {
+    let Some(url) = crate::utils::portal_ticket_link::view_request_url(
+        conn,
+        ticket.workspace_id,
+        person,
+        ticket.id,
+    ) else {
+        return;
+    };
+    let base = url
+        .find("/api/")
+        .map(|i| url[..i].to_string())
+        .unwrap_or_default();
+    let branding = crate::utils::email_branding::get_email_branding(
+        conn,
+        &base,
+        crate::utils::email_branding::SentFrom::Workspace,
+    );
+    let locale = crate::repository::user_locale::resolve_effective_locale(conn, person);
+    if let Err(e) = crate::services::transactional_email::enqueue_participant_added(
+        conn, svc, &branding, email, person, adder, ticket, &url, &locale,
+    ) {
+        tracing::warn!(error = ?e, ticket_id = ticket.id, "could not queue the participant email");
     }
 }
 

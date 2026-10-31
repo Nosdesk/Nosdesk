@@ -137,6 +137,7 @@ const {
     updateResolutionNotes,
     updateTags,
     toggleWatch,
+    setWatcher,
     deleteTicket,
     addComment,
     deleteComment,
@@ -783,6 +784,7 @@ const rootEl = ref<HTMLElement | null>(null);
                                 @update:slaOverride="updateSlaOverride"
                                 @update:tag-ids="updateTags"
                                 @toggle-watch="handleToggleWatch"
+                                @set-watcher="setWatcher"
                                 @add-device="showDeviceModal = true"
                                 @remove-device="removeDevice"
                                 @add-linked-ticket="showLinkedTicketModal = true"

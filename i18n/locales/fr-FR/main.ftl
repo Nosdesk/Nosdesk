@@ -6357,6 +6357,13 @@ ticket-field-watchers-overflow-title = { $count ->
     [one] { $count } de plus
    *[other] { $count } de plus
   }
+ticket-field-watchers-manage = Ajouter ou retirer des observateurs
+ticket-field-watchers-add-placeholder = Ajouter un observateur…
+ticket-field-watchers-remove = Retirer l'observateur
+ticket-field-watchers-empty = Personne ne suit ce ticket.
+ticket-field-watchers-done = Terminé
+ticket-field-watchers-add-failed = L'observateur n'a pas été ajouté.
+ticket-field-watchers-remove-failed = L'observateur n'a pas été retiré.
 
 # Ticket : ligne d'appareils (TicketDevicesField).
 ticket-field-devices-label = Actifs
