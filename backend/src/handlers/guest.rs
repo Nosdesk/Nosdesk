@@ -689,7 +689,11 @@ pub async fn submit_guest_ticket(
     let (user, is_new_guest, ticket, first_comment_id) = match create_result {
         Ok(t) => t,
         Err(CreateError::EmailClaimed) => {
-            crate::handlers::portal::send_sign_in_link(pool.get_ref(), &ws, email);
+            crate::handlers::portal::spawn_sign_in_link(
+                pool.get_ref().clone(),
+                ws.clone(),
+                email.to_string(),
+            );
             return Ok(check_your_email());
         }
         Err(CreateError::TooManyPending) => return Ok(check_your_email()),
