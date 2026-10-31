@@ -162,6 +162,41 @@ pub fn upsert_profile(
 }
 
 // sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
+/// Give someone a display name in the active workspace unless they already
+/// have one. For an account that joins a workspace on someone else's say-so,
+/// so the workspace shows the name it was given rather than the account's own.
+pub fn set_display_name_if_unset(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    display_name: &str,
+    actor: Option<Uuid>,
+) -> QueryResult<()> {
+    diesel::insert_into(user_profiles::table)
+        .values(NewUserProfile {
+            user_uuid,
+            job_title: None,
+            organization: None,
+            department: None,
+            custom_fields: serde_json::json!({}),
+            directory_synced: false,
+            created_by: actor,
+            display_name: Some(display_name.to_string()),
+            avatar_url: None,
+        })
+        .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
+        .do_nothing()
+        .execute(conn)?;
+    diesel::update(
+        user_profiles::table
+            .filter(user_profiles::user_uuid.eq(user_uuid))
+            .filter(user_profiles::display_name.is_null()),
+    )
+    .set(user_profiles::display_name.eq(display_name))
+    .execute(conn)?;
+    Ok(())
+}
+
+// sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
 /// Set (or clear) someone's manager in this workspace, creating their profile
 /// row if they have none.
 pub fn set_manager(
