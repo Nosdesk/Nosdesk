@@ -15,6 +15,15 @@ import type {
 } from '@simplewebauthn/browser';
 
 // Passkey info returned from API
+/** Where a person's own passkeys are managed: the agent app's `/auth/passkeys`
+ *  by default, or the portal's `/account/passkeys` through its client. */
+export interface PasskeyRoutes {
+  client: AxiosInstance;
+  base: string;
+}
+
+export const AGENT_PASSKEYS: PasskeyRoutes = { client: apiClient, base: '/auth/passkeys' };
+
 export interface PasskeyInfo {
   id: string;
   name: string;
@@ -131,9 +140,9 @@ class PasskeyService {
   /**
    * List all passkeys for the current user
    */
-  async listPasskeys(): Promise<PasskeyInfo[]> {
+  async listPasskeys(at: PasskeyRoutes = AGENT_PASSKEYS): Promise<PasskeyInfo[]> {
     try {
-      const response = await apiClient.get<PasskeyListResponse>('/auth/passkeys');
+      const response = await at.client.get<PasskeyListResponse>(at.base);
       return response.data.passkeys;
     } catch (error) {
       logger.error('Failed to list passkeys', { error });
@@ -144,10 +153,13 @@ class PasskeyService {
   /**
    * Start passkey registration - gets challenge from server
    */
-  async startRegistration(passkey_name?: string): Promise<CreationOptionsResponse> {
+  async startRegistration(
+    passkey_name?: string,
+    at: PasskeyRoutes = AGENT_PASSKEYS,
+  ): Promise<CreationOptionsResponse> {
     try {
-      const response = await apiClient.post<CreationOptionsResponse>(
-        '/auth/passkeys/register/start',
+      const response = await at.client.post<CreationOptionsResponse>(
+        `${at.base}/register/start`,
         { passkey_name }
       );
       return response.data;
@@ -162,11 +174,12 @@ class PasskeyService {
    */
   async finishRegistration(
     credential: RegistrationResponseJSON,
-    passkey_name?: string
+    passkey_name?: string,
+    at: PasskeyRoutes = AGENT_PASSKEYS,
   ): Promise<PasskeyRegistrationResult> {
     try {
-      const response = await apiClient.post<PasskeyRegistrationResult>(
-        '/auth/passkeys/register/finish',
+      const response = await at.client.post<PasskeyRegistrationResult>(
+        `${at.base}/register/finish`,
         {
           ...credential,
           passkey_name,
@@ -182,10 +195,13 @@ class PasskeyService {
   /**
    * Full passkey registration flow
    */
-  async registerPasskey(name?: string): Promise<PasskeyRegistrationResult> {
+  async registerPasskey(
+    name?: string,
+    at: PasskeyRoutes = AGENT_PASSKEYS,
+  ): Promise<PasskeyRegistrationResult> {
     try {
       // Get registration options from server
-      const options = await this.startRegistration(name);
+      const options = await this.startRegistration(name, at);
 
       // Unwrap options — backend usually sends unwrapped, but handle wrapped fallback
       const publicKeyOptions = unwrapCreationOptions(options);
@@ -201,7 +217,7 @@ class PasskeyService {
       const credential = await startRegistration({ optionsJSON: publicKeyOptions });
 
       // Send credential to server for verification
-      const result = await this.finishRegistration(credential, name);
+      const result = await this.finishRegistration(credential, name, at);
 
       logger.info('Passkey registered successfully', { id: result.passkey.id });
       return result;
@@ -328,9 +344,13 @@ class PasskeyService {
   /**
    * Rename a passkey
    */
-  async renamePasskey(credentialId: string, name: string): Promise<boolean> {
+  async renamePasskey(
+    credentialId: string,
+    name: string,
+    at: PasskeyRoutes = AGENT_PASSKEYS,
+  ): Promise<boolean> {
     try {
-      const response = await apiClient.patch(`/auth/passkeys/${encodeURIComponent(credentialId)}`, {
+      const response = await at.client.patch(`${at.base}/${encodeURIComponent(credentialId)}`, {
         name,
       });
       return response.data.success;
@@ -343,9 +363,13 @@ class PasskeyService {
   /**
    * Delete a passkey (requires password verification)
    */
-  async deletePasskey(credentialId: string, password: string): Promise<boolean> {
+  async deletePasskey(
+    credentialId: string,
+    password: string,
+    at: PasskeyRoutes = AGENT_PASSKEYS,
+  ): Promise<boolean> {
     try {
-      const response = await apiClient.delete(`/auth/passkeys/${encodeURIComponent(credentialId)}`, {
+      const response = await at.client.delete(`${at.base}/${encodeURIComponent(credentialId)}`, {
         data: { password },
       });
       return response.data.success;

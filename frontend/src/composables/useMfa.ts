@@ -11,6 +11,7 @@ import authService, {
 } from '@nosdesk/core/services/authService';
 import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
+import { useAccountApi } from '@/composables/useAccountApi';
 
 /**
  * Composable for MFA functionality following Vue 3 best practices
@@ -24,6 +25,8 @@ import { translate } from '@/i18n';
  * - Support for both login setup and authenticated user flows
  */
 export function useMfa(options?: { isLoginSetup?: boolean }) {
+  // The signed-in person's own authenticator, through whichever app's routes.
+  const account = useAccountApi();
   // Reactive state
   const loading = ref(false);
   const verifying = ref(false);
@@ -51,7 +54,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       loading.value = true;
       error.value = null;
 
-      const status: MFAStatusResponse = await authService.getMFAStatus();
+      const status: MFAStatusResponse = await account.mfa.status();
       mfaEnabled.value = status.enabled || false;
 
       if (mfaEnabled.value) {
@@ -110,7 +113,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       error.value = null;
       mfaStep.value = 'verify';
 
-      const data = await authService.setupMFA();
+      const data = await account.mfa.setup();
 
       qrCodeUrl.value = data.qr_code;
       qrMatrix.value = data.qr_matrix || null;
@@ -158,7 +161,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
         secret: mfaSecret.value
       };
 
-      const result = await authService.verifyMFA(request);
+      const result = await account.mfa.verify(request);
       return result.valid;
     } catch (err) {
       logger.error('Error verifying MFA', { error: err });
@@ -184,7 +187,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
         password
       };
 
-      const result = await authService.enableMFA(request);
+      const result = await account.mfa.enable(request);
 
       if (result.success) {
         backupCodes.value = result.backup_codes || [];
@@ -258,7 +261,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       loading.value = true;
       error.value = null;
 
-      const result = await authService.disableMFA(password);
+      const result = await account.mfa.disable(password);
 
       if (result.success) {
         mfaEnabled.value = false;
@@ -285,7 +288,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       loading.value = true;
       error.value = null;
 
-      const result = await authService.regenerateBackupCodes(password);
+      const result = await account.mfa.regenerateBackupCodes(password);
 
       if (result.backup_codes) {
         backupCodes.value = result.backup_codes;

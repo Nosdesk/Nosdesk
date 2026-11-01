@@ -20,7 +20,14 @@ const service = vi.hoisted(() => ({
 vi.mock('@/portal/service', () => service)
 
 // The agent app's services must never be reached from the portal's page.
-const agent = vi.hoisted(() => ({ getSessions: vi.fn(), revokeSession: vi.fn(), revokeAllOtherSessions: vi.fn() }))
+const agent = vi.hoisted(() => ({
+  getSessions: vi.fn(),
+  revokeSession: vi.fn(),
+  revokeAllOtherSessions: vi.fn(),
+  changePassword: vi.fn(),
+  getMFAStatus: vi.fn(),
+  setupMFA: vi.fn(),
+}))
 vi.mock('@nosdesk/core/services/authService', () => ({ default: agent }))
 
 import AccountView from '@/portal/views/AccountView.vue'
@@ -49,7 +56,17 @@ const portalAccount = {
     revoke: vi.fn(),
     revokeOthers: vi.fn(),
   },
-} satisfies AccountApi
+  password: { change: vi.fn(async () => {}) },
+  mfa: {
+    status: vi.fn(async () => ({ enabled: false })),
+    setup: vi.fn(async () => ({ secret: 'ABC', qr_code: 'data:image/png;base64,AAAA', backup_codes: [] })),
+    verify: vi.fn(),
+    enable: vi.fn(),
+    disable: vi.fn(),
+    regenerateBackupCodes: vi.fn(),
+  },
+  passkeys: { list: vi.fn(async () => []), register: vi.fn(), rename: vi.fn(), remove: vi.fn() },
+} as unknown as AccountApi & { [k: string]: Record<string, ReturnType<typeof vi.fn>> }
 
 const providePortalAccount: Plugin = { install: (app) => void app.provide(ACCOUNT_API, portalAccount) }
 
@@ -66,7 +83,10 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-async function mount(component: unknown, scope: unknown = { kind: 'full' }) {
+const NO_SIGN_IN = { name: true, password: false, authenticator: false, passkeys: false }
+const ALL = { name: true, password: true, authenticator: true, passkeys: true }
+
+async function mount(component: unknown, scope: unknown = { kind: 'full' }, sections = NO_SIGN_IN) {
   service.getMe.mockResolvedValue({ uuid: 'u', name: 'Pat', email: 'pat@example.com', effective_locale: 'en-US', scope })
   service.getAccount.mockResolvedValue({
     uuid: 'u',
@@ -75,7 +95,7 @@ async function mount(component: unknown, scope: unknown = { kind: 'full' }) {
     pronouns: null,
     locale: null,
     timezone: 'Australia/Sydney',
-    sections: { name: true, password: false, authenticator: false, passkeys: false },
+    sections,
   })
   const stub = { template: '<div />' }
   const router = createRouter({
@@ -117,6 +137,43 @@ describe('the portal account page', () => {
     await mount(AccountView)
     expect(portalAccount.sessions.list).toHaveBeenCalled()
     expect(agent.getSessions).not.toHaveBeenCalled()
+  })
+})
+
+describe('signing in, on the account page', () => {
+  it('shows no password, authenticator or passkeys the server leaves out', async () => {
+    const { wrapper } = await mount(AccountView)
+    expect(wrapper.text()).not.toContain('settings-security-title')
+    expect(wrapper.text()).not.toContain('settings-mfa-title')
+    expect(wrapper.text()).not.toContain('settings-passkey-section-title')
+  })
+
+  it('changes the password through the portal', async () => {
+    const { wrapper } = await mount(AccountView, { kind: 'full' }, ALL)
+    const inputs = wrapper.findAll('input[type="password"]')
+    await inputs[0]!.setValue('old-password')
+    await inputs[1]!.setValue('new-password-1')
+    await inputs[2]!.setValue('new-password-1')
+    await inputs[0]!.element.form!.dispatchEvent(new Event('submit'))
+    await flushPromises()
+    expect(portalAccount.password.change).toHaveBeenCalledWith('old-password', 'new-password-1')
+    expect(agent.changePassword).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('settings-security-success-changed')
+  })
+
+  it('sets up an authenticator and lists passkeys through the portal', async () => {
+    // jsdom has no WebAuthn; a browser that has it lists passkeys.
+    vi.stubGlobal('PublicKeyCredential', class {})
+    const { wrapper } = await mount(AccountView, { kind: 'full' }, ALL)
+    expect(portalAccount.mfa.status).toHaveBeenCalled()
+    expect(portalAccount.passkeys.list).toHaveBeenCalled()
+    const setUp = wrapper.findAll('button').find((b) => b.text() === 'portal-account-authenticator-set-up')
+    await setUp!.trigger('click')
+    await flushPromises()
+    expect(portalAccount.mfa.setup).toHaveBeenCalled()
+    expect(wrapper.find('img[alt="settings-mfa-qr-alt"]').exists()).toBe(true)
+    expect(agent.getMFAStatus).not.toHaveBeenCalled()
+    expect(agent.setupMFA).not.toHaveBeenCalled()
   })
 })
 
