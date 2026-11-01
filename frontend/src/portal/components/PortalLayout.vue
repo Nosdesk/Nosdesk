@@ -101,6 +101,10 @@ watch(
 const accountButton = ref<HTMLElement | null>(null)
 const accountOpen = ref(false)
 const accountAnchor = computed(() => ({ type: 'element' as const, element: () => accountButton.value }))
+function openAccount(): void {
+  accountOpen.value = false
+  void router.push('/account')
+}
 async function onSignOut(): Promise<void> {
   accountOpen.value = false
   try {
@@ -192,6 +196,7 @@ async function onSignOut(): Promise<void> {
           <span v-if="me.data.value?.email" class="text-xs text-secondary truncate">{{ me.data.value.email }}</span>
         </div>
       </div>
+      <MenuRow v-if="!linkSession" @click="openAccount">{{ t('portal-account-settings') }}</MenuRow>
       <MenuRow tone="danger" @click="onSignOut">{{ t('portal-sign-out') }}</MenuRow>
     </ResponsiveMenu>
 

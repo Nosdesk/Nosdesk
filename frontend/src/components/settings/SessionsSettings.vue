@@ -23,7 +23,8 @@ the backend stores and this list prefers; browsers send none.
 import { ref, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
-import authService, { type SessionInfo } from '@nosdesk/core/services/authService';
+import type { SessionInfo } from '@nosdesk/core/services/authService';
+import { useAccountApi } from '@/composables/useAccountApi';
 import { extractErrorMessage } from '@/utils/errors';
 import { logger } from '@nosdesk/core/utils/logger';
 import { formatRelativeTime, formatDate } from '@nosdesk/core/utils/dateUtils';
@@ -43,12 +44,13 @@ const emit = defineEmits<{
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const queryCache = useQueryCache();
+const account = useAccountApi();
 
 const SESSIONS_KEY = ['auth', 'sessions'];
 
 const sessionsQuery = useQuery({
   key: () => SESSIONS_KEY,
-  query: () => authService.getSessions(),
+  query: () => account.sessions.list(),
 });
 
 // The backend orders by last activity. Pin the caller's own session to the
@@ -162,7 +164,7 @@ const revokingId = ref<string | null>(null);
 async function handleRevoke(session: SessionInfo) {
   revokingId.value = session.session_id;
   try {
-    await authService.revokeSession(session.session_id);
+    await account.sessions.revoke(session.session_id);
     refresh();
     emit('success', t('settings-sessions-revoke-success'));
   } catch (err) {
@@ -201,7 +203,7 @@ async function handleRevokeAll() {
   try {
     // A wrong password or code shows inside ConfirmIdentity; stay open.
     if (!(await identity.value?.confirm())) return;
-    const result = await authService.revokeAllOtherSessions();
+    const result = await account.sessions.revokeOthers();
     closeRevokeAllModal();
     refresh();
     // Nosdesk Cloud: the helpdesk sessions are gone either way, but if the

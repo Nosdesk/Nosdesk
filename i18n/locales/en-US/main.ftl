@@ -8885,6 +8885,16 @@ requester-sso-client-secret-hint = Needed to show the sign-in button on the port
 portal-nav-label = Help portal
 portal-nav-approvals-short = Approvals
 portal-account-menu = Account
+# The portal's own account page.
+portal-account-settings = Your account
+portal-account-title = Your account
+portal-account-intro = Your name, language, and the devices you're signed in on.
+portal-account-profile-title = Profile
+portal-account-name-label = Name
+portal-account-email = You sign in with { $email }.
+portal-account-saved = Your account is saved.
+portal-account-save-failed = Your changes couldn't be saved. Please try again.
+portal-account-load-failed = Your account couldn't be loaded. Please try again.
 portal-track-sent = Sent
 portal-track-approval = Waiting for approval
 portal-track-approved = Approved

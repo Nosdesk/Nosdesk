@@ -1,3 +1,4 @@
+import type { AxiosInstance } from 'axios';
 import apiClient from '@nosdesk/core/apiClient';
 import { logger } from '@nosdesk/core/utils/logger';
 import {
@@ -304,14 +305,18 @@ class PasskeyService {
 
   /**
    * Confirm it's you with one of your own passkeys before a high-risk action.
-   * Same ceremony as sign-in, against the signed-in session's challenge.
+   * Same ceremony as sign-in, against the signed-in session's challenge, at
+   * `stepUp` through `client` (the portal passes its own).
    */
-  async confirmStepUp(): Promise<{ confirmed_until: string }> {
-    const response = await apiClient.post<RequestOptionsResponse>('/auth/step-up/passkey/start', {});
+  async confirmStepUp(
+    client: AxiosInstance = apiClient,
+    stepUp = '/auth/step-up',
+  ): Promise<{ confirmed_until: string }> {
+    const response = await client.post<RequestOptionsResponse>(`${stepUp}/passkey/start`, {});
     const { options } = unwrapRequestOptions(response.data);
     const credential = await startAuthentication({ optionsJSON: options });
-    const finished = await apiClient.post<{ confirmed_until: string }>(
-      '/auth/step-up/passkey/finish',
+    const finished = await client.post<{ confirmed_until: string }>(
+      `${stepUp}/passkey/finish`,
       {
         ...credential,
         authenticator_attachment: credential.authenticatorAttachment,
