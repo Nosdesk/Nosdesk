@@ -827,7 +827,8 @@ fn seed_one_workspace(conn: &mut TestPooledConn, label: &str) -> WorkspaceSeed {
             // `workspace_id` falls to the GUC-driven column default.
             let plugin_name = format!("fixture-plugin-{label}");
             // A manifest that parses (`PluginManifest`), declaring the event
-            // an emit is checked against.
+            // an emit is checked against and one component shown to everyone,
+            // so any member may use the plugin's endpoints.
             let manifest = serde_json::json!({
                 "manifest_version": 1,
                 "name": plugin_name,
@@ -835,6 +836,9 @@ fn seed_one_workspace(conn: &mut TestPooledConn, label: &str) -> WorkspaceSeed {
                 "version": "1.0.0",
                 "engines": { "nosdesk": ">=1.0.0", "plugin_api": "1" },
                 "events": [FIXTURE_PLUGIN_EVENT],
+                "components": {
+                    "panel": { "slot": "ticket-sidebar", "entry": "panel.js" }
+                },
             });
             let new_plugin = NewPlugin {
                 name: plugin_name.clone(),

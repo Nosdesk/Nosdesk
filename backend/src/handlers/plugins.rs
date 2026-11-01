@@ -22,6 +22,7 @@ use crate::models::{
 };
 use crate::repository::plugin_publishers;
 use crate::repository::plugins as plugin_repo;
+use crate::services::plugins::access::{self, PluginCaller};
 use crate::services::plugins::{install, registry, signing, trust};
 use crate::sync::actor::ActorContext;
 use crate::sync::session as actor_session;
@@ -320,17 +321,23 @@ pub async fn list_plugins(req: HttpRequest, mut tc: TenantConn) -> Result<HttpRe
     }
 }
 
-/// List enabled plugins (for frontend plugin loader - authenticated users)
-pub async fn list_enabled_plugins(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    // Any authenticated user can get enabled plugins
+/// List enabled plugins (for frontend plugin loader - authenticated users):
+/// those whose audience the caller is in (`services::plugins::access`).
+pub async fn list_enabled_plugins(
+    req: HttpRequest,
+    auth: AuthContext,
+    mut tc: TenantConn,
+) -> impl Responder {
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Authentication required");
     }
+    let caller = PluginCaller::of(&auth);
 
     match tc.run(plugin_repo::list_enabled_plugins) {
         Ok(plugins) => {
             let response: Vec<_> = plugins
                 .into_iter()
+                .filter(|p| access::plugin_admits(p, caller))
                 .filter_map(|p| PluginResponse::try_from(p).ok())
                 .collect();
             HttpResponse::Ok().json(response)
@@ -860,26 +867,49 @@ impl PluginGate {
     }
 }
 
-/// Load a plugin and authorize a plugin-owned data request: it must exist (under
-/// workspace RLS), be Installed, and have `needed` in its effective (consented)
-/// grant. The outer `Result` is the DB error channel (propagate with `?`); the
-/// inner is the authorization decision — callers fold `Err(gate)` into their own
-/// outcome enum and render it with `gate.into_response()`. This is the
-/// server-side boundary: `api.ts`'s check is defense-in-depth, not the gate.
-pub fn authorize_plugin_data_request(
+/// Load a plugin for a runtime endpoint (storage, collections, events, proxy,
+/// runtime settings, bundle token): it must exist under workspace RLS, be
+/// Installed, and admit `caller` by its component audience. A plugin the
+/// caller is outside of answers like a missing one, so its existence doesn't
+/// leak to them.
+pub fn authorize_plugin_runtime(
     conn: &mut crate::db::DbConnection,
     plugin_uuid: Uuid,
-    needed: &str,
-    denied_msg: &'static str,
+    caller: PluginCaller,
 ) -> Result<Result<crate::models::Plugin, PluginGate>, DieselError> {
     let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
         Ok(p) => p,
         Err(DieselError::NotFound) => return Ok(Err(PluginGate::NotFound)),
         Err(e) => return Err(e),
     };
+    if !access::plugin_admits(&plugin, caller) {
+        return Ok(Err(PluginGate::NotFound));
+    }
     if !plugin.is_active() {
         return Ok(Err(PluginGate::Inactive));
     }
+    Ok(Ok(plugin))
+}
+
+/// Load a plugin and authorize a plugin-owned data request: it must exist (under
+/// workspace RLS), be Installed, admit `caller` (its component audience, see
+/// [`crate::services::plugins::access`]), and have `needed` in its effective
+/// (consented) grant. The outer `Result` is the DB error channel (propagate
+/// with `?`); the inner is the authorization decision — callers fold
+/// `Err(gate)` into their own outcome enum and render it with
+/// `gate.into_response()`. This is the server-side boundary: `api.ts`'s check
+/// is defense-in-depth, not the gate.
+pub fn authorize_plugin_data_request(
+    conn: &mut crate::db::DbConnection,
+    plugin_uuid: Uuid,
+    caller: PluginCaller,
+    needed: &str,
+    denied_msg: &'static str,
+) -> Result<Result<crate::models::Plugin, PluginGate>, DieselError> {
+    let plugin = match authorize_plugin_runtime(conn, plugin_uuid, caller)? {
+        Ok(p) => p,
+        Err(gate) => return Ok(Err(gate)),
+    };
     if !plugin.has_effective_permission(needed) {
         return Ok(Err(PluginGate::Forbidden(denied_msg)));
     }
@@ -900,9 +930,11 @@ const MAX_STORAGE_ENTRIES_PER_PLUGIN: i64 = 1000;
 /// Get storage value for a plugin (authenticated users - for plugin use)
 pub async fn get_plugin_storage(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
+    let caller = PluginCaller::of(&auth);
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Authentication required");
     }
@@ -920,6 +952,7 @@ pub async fn get_plugin_storage(
         let plugin = match authorize_plugin_data_request(
             conn,
             plugin_uuid,
+            caller,
             "storage:plugin",
             "Plugin has not been granted storage access",
         )? {
@@ -957,10 +990,12 @@ pub async fn get_plugin_storage(
 /// otherwise answers 409 with the entry's current `version`.
 pub async fn set_plugin_storage(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<SetPluginDataRequest>,
 ) -> impl Responder {
+    let caller = PluginCaller::of(&auth);
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Authentication required");
     }
@@ -999,6 +1034,7 @@ pub async fn set_plugin_storage(
         let plugin = match authorize_plugin_data_request(
             conn,
             plugin_uuid,
+            caller,
             "storage:plugin",
             "Plugin has not been granted storage access",
         )? {
@@ -1066,9 +1102,11 @@ pub async fn set_plugin_storage(
 /// Delete storage value for a plugin (authenticated users - for plugin use)
 pub async fn delete_plugin_storage(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
+    let caller = PluginCaller::of(&auth);
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Authentication required");
     }
@@ -1084,6 +1122,7 @@ pub async fn delete_plugin_storage(
         let plugin = match authorize_plugin_data_request(
             conn,
             plugin_uuid,
+            caller,
             "storage:plugin",
             "Plugin has not been granted storage access",
         )? {
@@ -1166,6 +1205,7 @@ const PLUGIN_PROXY_RATE_WINDOW_SECS: u64 = 60;
 /// Proxy an external request for a plugin (authenticated users)
 pub async fn proxy_plugin_request(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     proxy_service: web::Data<crate::services::plugins::PluginProxyService>,
     path: web::Path<Uuid>,
@@ -1176,22 +1216,18 @@ pub async fn proxy_plugin_request(
     }
 
     let plugin_uuid = path.into_inner();
+    let caller = PluginCaller::of(&auth);
 
     enum ProxyOutcome {
         Ok(crate::models::Plugin, Vec<crate::models::PluginData>),
-        NotFound,
-        Disabled,
+        Gate(PluginGate),
     }
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        let plugin = match authorize_plugin_runtime(conn, plugin_uuid, caller)? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(ProxyOutcome::NotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(ProxyOutcome::Gate(gate)),
         };
-        if !plugin.is_active() {
-            return Ok(ProxyOutcome::Disabled);
-        }
         // Fetch plugin settings for auth injection. We squash any error
         // to an empty vec rather than failing the proxy call — same
         // degraded-fallback behaviour as the legacy path.
@@ -1207,8 +1243,7 @@ pub async fn proxy_plugin_request(
 
     let (plugin, settings) = match outcome {
         Ok(ProxyOutcome::Ok(p, s)) => (p, s),
-        Ok(ProxyOutcome::NotFound) => return errors::not_found_msg("Plugin not found"),
-        Ok(ProxyOutcome::Disabled) => return errors::forbidden("Plugin is disabled"),
+        Ok(ProxyOutcome::Gate(gate)) => return gate.into_response(),
         Err(e) => {
             error!("Failed to load plugin for proxy: {}", e);
             return errors::internal("Failed to get plugin");
@@ -1334,6 +1369,7 @@ pub async fn proxy_plugin_request(
 /// injected server-side by the egress proxy. Requires the plugin to be Installed.
 pub async fn get_plugin_runtime_settings(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
@@ -1341,22 +1377,18 @@ pub async fn get_plugin_runtime_settings(
         return errors::unauthorized("Authentication required");
     }
     let plugin_uuid = path.into_inner();
+    let caller = PluginCaller::of(&auth);
 
     enum Outcome {
         Ok(Vec<crate::models::PluginData>),
-        NotFound,
-        Inactive,
+        Gate(PluginGate),
     }
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        let plugin = match authorize_plugin_runtime(conn, plugin_uuid, caller)? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(Outcome::NotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(Outcome::Gate(gate)),
         };
-        if !plugin.is_active() {
-            return Ok(Outcome::Inactive);
-        }
         let settings = plugin_repo::get_plugin_settings(conn, plugin.id)?;
         Ok::<_, DieselError>(Outcome::Ok(settings))
     });
@@ -1367,8 +1399,7 @@ pub async fn get_plugin_runtime_settings(
                 settings.into_iter().map(Into::into).collect();
             HttpResponse::Ok().json(response)
         }
-        Ok(Outcome::NotFound) => errors::not_found_msg("Plugin not found"),
-        Ok(Outcome::Inactive) => errors::forbidden("Plugin is not active"),
+        Ok(Outcome::Gate(gate)) => gate.into_response(),
         Err(e) => {
             error!("Failed to get plugin runtime settings: {}", e);
             errors::internal("Failed to get settings")

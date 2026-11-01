@@ -63,7 +63,16 @@ fn seed_plugin(conn: &mut backend::db::DbConnection, admin: Uuid) -> Uuid {
                 display_name: "Taxonomy".to_string(),
                 version: "1.0.0".to_string(),
                 description: None,
-                manifest: json!({ "name": "taxonomy", "version": "1.0.0" }),
+                manifest: json!({
+                    "manifest_version": 1,
+                    "name": "taxonomy",
+                    "displayName": "Taxonomy",
+                    "version": "1.0.0",
+                    "engines": { "nosdesk": ">=1.0.0", "plugin_api": "1" },
+                    "components": {
+                        "panel": { "slot": "ticket-sidebar", "entry": "p.js", "audience": "staff" }
+                    },
+                }),
                 state: PluginState::Installed,
                 trust_level: "verified".to_string(),
                 installed_by: Some(admin),
