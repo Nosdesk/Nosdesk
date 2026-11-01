@@ -594,6 +594,15 @@ watch(
       document.value.title = meta.title
       document.value.slug = meta.slug
       if (meta.icon != null) document.value.icon = meta.icon
+      // The server picks the slug (normalised, `-2` when taken). Follow it
+      // so a reload or a copied address finds the page; an address by id
+      // stays as it is.
+      const id = String(document.value.id)
+      const path = route.params.path as string | undefined
+      if (meta.slug && path && path !== meta.slug && path !== id) {
+        documentationNavStore.updatePageField(id, 'slug', meta.slug)
+        void router.replace({ path: docUrl({ id, slug: meta.slug }), query: route.query, hash: route.hash })
+      }
     }
     if (editTitle.value !== meta.title) {
       editTitle.value = meta.title
@@ -630,8 +639,11 @@ onUnmounted(() => {
   }
 })
 
-// Watch for route changes
-watch(() => route.params.path, () => {
+// Watch for route changes. Following the open page's own new slug (or its
+// id) is the same page, so it doesn't refetch.
+watch(() => route.params.path, (path) => {
+  const open = document.value
+  if (open && (path === open.slug || path === String(open.id))) return
   fetchContent()
 })
 
