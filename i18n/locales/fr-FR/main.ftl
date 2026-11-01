@@ -9641,6 +9641,16 @@ requester-sso-client-secret-hint = Nécessaire pour afficher le bouton de connex
 portal-nav-label = Portail d'assistance
 portal-nav-approvals-short = Approbations
 portal-account-menu = Compte
+# Page du compte dans le portail (machine, à relire par un locuteur natif)
+portal-account-settings = Votre compte
+portal-account-title = Votre compte
+portal-account-intro = Votre nom, votre langue et les appareils sur lesquels vous êtes connecté.
+portal-account-profile-title = Profil
+portal-account-name-label = Nom
+portal-account-email = Vous vous connectez avec { $email }.
+portal-account-saved = Votre compte est enregistré.
+portal-account-save-failed = Vos modifications n'ont pas pu être enregistrées. Veuillez réessayer.
+portal-account-load-failed = Votre compte n'a pas pu être chargé. Veuillez réessayer.
 portal-track-sent = Envoyée
 portal-track-approval = En attente d'approbation
 portal-track-approved = Approuvée

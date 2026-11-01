@@ -9632,6 +9632,16 @@ requester-sso-client-secret-hint = Nodig om de aanmeldknop op het portaal te ton
 portal-nav-label = Hulpportaal
 portal-nav-approvals-short = Goedkeuringen
 portal-account-menu = Account
+# Accountpagina van het portaal (machine, nog na te kijken door moedertaalspreker)
+portal-account-settings = Uw account
+portal-account-title = Uw account
+portal-account-intro = Uw naam, taal en de apparaten waarop u bent ingelogd.
+portal-account-profile-title = Profiel
+portal-account-name-label = Naam
+portal-account-email = U logt in met { $email }.
+portal-account-saved = Uw account is opgeslagen.
+portal-account-save-failed = Uw wijzigingen konden niet worden opgeslagen. Probeer het opnieuw.
+portal-account-load-failed = Uw account kon niet worden geladen. Probeer het opnieuw.
 portal-track-sent = Verstuurd
 portal-track-approval = Wacht op goedkeuring
 portal-track-approved = Goedgekeurd
