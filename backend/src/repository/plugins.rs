@@ -57,6 +57,16 @@ pub fn get_plugin_by_uuid(
         .first::<Plugin>(conn)
 }
 
+/// The plugins among `uuids` in the pinned workspace.
+pub fn get_plugins_by_uuids(
+    conn: &mut DbConnection,
+    uuids: &[Uuid],
+) -> Result<Vec<Plugin>, diesel::result::Error> {
+    plugins::table
+        .filter(plugins::uuid.eq_any(uuids))
+        .load::<Plugin>(conn)
+}
+
 /// Create a new plugin row.
 ///
 /// The [`InstallToken`](crate::services::plugins::install::InstallToken)

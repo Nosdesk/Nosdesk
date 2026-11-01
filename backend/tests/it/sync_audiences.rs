@@ -299,12 +299,13 @@ fn seed(db: &common::TestDb) -> Fixture {
             },
         )?;
 
-        // A plugin changed: every member's session loads plugins.
+        // A plugin shown to everyone changed: every member's session loads it.
+        // Keyed by its uuid, as `repository::plugins` writes it.
         emit::record(
             c,
             SyncEmit {
                 aggregate: SyncAggregate::Plugin,
-                aggregate_id: ws.plugin_id.to_string(),
+                aggregate_id: ws.plugin_uuid.to_string(),
                 op: SyncOp::Update,
                 event_type: "plugin.updated",
                 data: json!({ "id": ws.plugin_id, "name": ws.plugin_name, "state": "disabled" }),

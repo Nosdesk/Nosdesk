@@ -8,7 +8,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::errors::{self, ApiError};
-use crate::extractors::TenantConn;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::helpers;
 use crate::handlers::plugins::{authorize_plugin_data_request, PluginGate};
 use crate::models::{
@@ -17,6 +17,7 @@ use crate::models::{
     PluginCollectionRowUpdate, UpdateCollectionRowRequest,
 };
 use crate::repository::plugin_collections as collection_repo;
+use crate::services::plugins::access::PluginCaller;
 use crate::services::plugins::validation;
 
 /// Path params: /plugins/{uuid}/collections/{name}
@@ -65,9 +66,11 @@ enum SchemaLookup {
 /// List all collections for a plugin
 pub async fn list_collections(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> Result<HttpResponse, ApiError> {
+    let caller = PluginCaller::of(&auth);
     let _claims = get_claims(&req)?;
 
     let plugin_uuid = path.into_inner();
@@ -81,6 +84,7 @@ pub async fn list_collections(
         let plugin = match authorize_plugin_data_request(
             conn,
             plugin_uuid,
+            caller,
             "collection:read",
             "Plugin has not been granted collection access",
         )? {
@@ -120,9 +124,11 @@ pub async fn list_collections(
 /// Get a single collection schema
 pub async fn get_collection_schema(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<CollectionPath>,
 ) -> Result<HttpResponse, ApiError> {
+    let caller = PluginCaller::of(&auth);
     let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
@@ -131,6 +137,7 @@ pub async fn get_collection_schema(
         let plugin = match authorize_plugin_data_request(
             conn,
             path.uuid,
+            caller,
             "collection:read",
             "Plugin has not been granted collection access",
         )? {
@@ -179,10 +186,12 @@ pub async fn get_collection_schema(
 /// List rows in a collection
 pub async fn list_collection_rows(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<CollectionPath>,
     query: web::Query<CollectionQueryParams>,
 ) -> Result<HttpResponse, ApiError> {
+    let caller = PluginCaller::of(&auth);
     let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
@@ -207,6 +216,7 @@ pub async fn list_collection_rows(
         let plugin = match authorize_plugin_data_request(
             conn,
             path.uuid,
+            caller,
             "collection:read",
             "Plugin has not been granted collection access",
         )? {
@@ -249,10 +259,12 @@ pub async fn list_collection_rows(
 /// Create a row in a collection
 pub async fn create_collection_row(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<CollectionPath>,
     body: web::Json<CreateCollectionRowRequest>,
 ) -> Result<HttpResponse, ApiError> {
+    let caller = PluginCaller::of(&auth);
     let claims = get_claims(&req)?;
 
     let path = path.into_inner();
@@ -271,6 +283,7 @@ pub async fn create_collection_row(
         let plugin = match authorize_plugin_data_request(
             conn,
             path.uuid,
+            caller,
             "collection:write",
             "Plugin has not been granted collection write access",
         )? {
@@ -333,9 +346,11 @@ pub async fn create_collection_row(
 /// Get a single row
 pub async fn get_collection_row(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<CollectionRowPath>,
 ) -> Result<HttpResponse, ApiError> {
+    let caller = PluginCaller::of(&auth);
     let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
@@ -351,6 +366,7 @@ pub async fn get_collection_row(
         let plugin = match authorize_plugin_data_request(
             conn,
             path.uuid,
+            caller,
             "collection:read",
             "Plugin has not been granted collection access",
         )? {
@@ -388,10 +404,12 @@ pub async fn get_collection_row(
 /// Update a row
 pub async fn update_collection_row(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<CollectionRowPath>,
     body: web::Json<UpdateCollectionRowRequest>,
 ) -> Result<HttpResponse, ApiError> {
+    let caller = PluginCaller::of(&auth);
     let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
@@ -409,6 +427,7 @@ pub async fn update_collection_row(
         let plugin = match authorize_plugin_data_request(
             conn,
             path.uuid,
+            caller,
             "collection:write",
             "Plugin has not been granted collection write access",
         )? {
@@ -462,9 +481,11 @@ pub async fn update_collection_row(
 /// Delete a row
 pub async fn delete_collection_row(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<CollectionRowPath>,
 ) -> Result<HttpResponse, ApiError> {
+    let caller = PluginCaller::of(&auth);
     let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
@@ -480,6 +501,7 @@ pub async fn delete_collection_row(
         let plugin = match authorize_plugin_data_request(
             conn,
             path.uuid,
+            caller,
             "collection:write",
             "Plugin has not been granted collection write access",
         )? {

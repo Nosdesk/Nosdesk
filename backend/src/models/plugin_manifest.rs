@@ -313,9 +313,8 @@ pub struct PluginComponentConfig {
 
     /// Who the host shows this component to. Omitted means `all`. A viewer
     /// below the audience gets no slot panel, nav link, action or plugin page
-    /// for it. This is a visibility setting, not a security boundary: the
-    /// plugin's permissions are enforced on the client bridge and the
-    /// viewer's own API permissions still apply to every call it makes.
+    /// for it, and the plugin's runtime endpoints admit only the widest
+    /// audience among its components (`services::plugins::access`).
     #[serde(default)]
     pub audience: PluginComponentAudience,
 }

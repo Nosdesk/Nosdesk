@@ -138,6 +138,7 @@ mod outbound_note_lint;
 mod partition_prune;
 mod people_removed_under_1_0;
 mod plugin_api_quick_wins;
+mod plugin_audience;
 mod plugin_bundle_isolation;
 mod plugin_collection_row_scoping;
 mod plugin_events_as_events;
