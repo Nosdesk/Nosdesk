@@ -124,14 +124,15 @@ pub async fn approval_link_callback(
     let Some(ctx) = req.extensions().get::<WorkspaceContext>().cloned() else {
         return Err(ApiError::BadRequest("No workspace for this origin".into()));
     };
-    let Some((approver, ticket_id)) =
-        crate::utils::portal_ticket_link::verify_approval(ctx.workspace_id, &query.t)
-    else {
-        return Ok(failed());
-    };
     let mut conn = pool
         .get()
         .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
+    let Some((approver, ticket_id)) =
+        crate::utils::portal_ticket_link::redeem_approval(&mut conn, ctx.workspace_id, &query.t)
+            .map_err(|_| ApiError::Internal("Failed to check the link".into()))?
+    else {
+        return Ok(failed());
+    };
     if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, approver) {
         return Ok(failed());
     }
