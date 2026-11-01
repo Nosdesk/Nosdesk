@@ -1,6 +1,7 @@
 import { ref, computed, onMounted } from 'vue';
 import passkeyService, { type PasskeyInfo, type PasskeyLoginResult } from '@/services/passkeyService';
 import { translate } from '@/i18n';
+import { useAccountApi } from '@/composables/useAccountApi';
 import { logger } from '@nosdesk/core/utils/logger';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 
@@ -16,6 +17,8 @@ import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
  * - Browser support detection
  */
 export function usePasskeys() {
+  // The signed-in person's own passkeys, through whichever app's routes.
+  const account = useAccountApi();
   // Reactive state
   const loading = ref(false);
   const registering = ref(false);
@@ -56,7 +59,7 @@ export function usePasskeys() {
     try {
       loading.value = true;
       error.value = null;
-      passkeys.value = await passkeyService.listPasskeys();
+      passkeys.value = await account.passkeys.list();
     } catch (err) {
       logger.error('Failed to load passkeys', { error: err });
       error.value = translate('auth-passkey-load-failed', undefined, 'Failed to load passkeys');
@@ -84,7 +87,7 @@ export function usePasskeys() {
       error.value = null;
       successMessage.value = null;
 
-      const result = await passkeyService.registerPasskey(name);
+      const result = await account.passkeys.register(name);
 
       if (result.success) {
         successMessage.value = translate(
@@ -220,7 +223,7 @@ export function usePasskeys() {
       error.value = null;
       successMessage.value = null;
 
-      const success = await passkeyService.renamePasskey(credentialId, name.trim());
+      const success = await account.passkeys.rename(credentialId, name.trim());
 
       if (success) {
         successMessage.value = translate('auth-passkey-renamed', undefined, 'Passkey renamed successfully');
@@ -256,7 +259,7 @@ export function usePasskeys() {
       error.value = null;
       successMessage.value = null;
 
-      const success = await passkeyService.deletePasskey(credentialId, password);
+      const success = await account.passkeys.remove(credentialId, password);
 
       if (success) {
         successMessage.value = translate('auth-passkey-deleted', undefined, 'Passkey deleted successfully');

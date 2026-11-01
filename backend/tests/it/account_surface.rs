@@ -179,6 +179,10 @@ async fn a_portal_sign_in_manages_its_own_profile() {
         me["sections"]["password"], false,
         "no password to change: {me}"
     );
+    assert_eq!(
+        me["sections"]["passkeys"], false,
+        "no passkey they couldn't remove: {me}"
+    );
 
     let resp = test::call_service(
         &app,

@@ -155,7 +155,8 @@ pub async fn get_account(
         "name": name,
         "password": local && has_password,
         "authenticator": local && has_password,
-        "passkeys": local,
+        // Removing a passkey asks for the password, so one comes with it.
+        "passkeys": local && has_password,
     });
     Ok(HttpResponse::Ok().json(body))
 }

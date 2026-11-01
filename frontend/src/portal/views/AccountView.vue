@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** The signed-in person's own account: their profile and where they're signed in. */
+/** The signed-in person's own account: their profile, how they sign in, and where they're signed in. */
 import { computed, ref, watch } from 'vue'
 import { useQuery, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
@@ -15,6 +15,9 @@ import { SUPPORTED_LOCALES } from '@/i18n'
 import { extractErrorMessage } from '@/utils/errors'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
+import AuthenticatorSection from '../components/account/AuthenticatorSection.vue'
+import PasskeysSection from '../components/account/PasskeysSection.vue'
+import PasswordSection from '../components/account/PasswordSection.vue'
 import PortalLayout from '../components/PortalLayout.vue'
 import { usePortalMe } from '../usePortalMe'
 import { getAccount, updateAccount, type PortalAccount } from '../service'
@@ -183,6 +186,23 @@ async function save(): Promise<void> {
           </div>
         </form>
       </SectionCard>
+
+      <!-- How they sign in, where the server says it's theirs to manage. -->
+      <PasswordSection
+        v-if="account.data.value.sections.password"
+        @success="(text: string) => (message = { tone: 'success', text })"
+        @error="(text: string) => (message = { tone: 'error', text })"
+      />
+      <AuthenticatorSection
+        v-if="account.data.value.sections.authenticator"
+        @success="(text: string) => (message = { tone: 'success', text })"
+        @error="(text: string) => (message = { tone: 'error', text })"
+      />
+      <PasskeysSection
+        v-if="account.data.value.sections.passkeys"
+        @success="(text: string) => (message = { tone: 'success', text })"
+        @error="(text: string) => (message = { tone: 'error', text })"
+      />
 
       <SessionsSettings
         @success="(text: string) => (message = { tone: 'success', text })"
