@@ -5,9 +5,10 @@
 //! the watcher set when fanning out so subscribers get notified
 //! even when they aren't the requester or assignee.
 //!
-//! Watch toggles emit a `ticket.watch_added` / `.watch_removed`
-//! sync_action so the detail sidebar's watcher list updates
-//! across tabs / devices in real time.
+//! Adding or removing a watcher emits `ticket.watcher_added` /
+//! `.watcher_removed` with the ticket `id` and the whole `watcher_uuids`
+//! set, like `ticket.tags_changed`, so the client merges it into the
+//! ticket row and the sidebar list survives a reload.
 
 use diesel::prelude::*;
 use serde_json::json;
@@ -202,6 +203,7 @@ fn insert_watcher(
                 .values((&row, ticket_watchers::notify_on_internal_notes.eq(notify)))
                 .execute(conn)?,
         };
+        let watchers = watcher_uuids(conn, ticket_id)?;
         let groups = groups::for_ticket(conn, &ticket)?;
         emit::record(
             conn,
@@ -211,6 +213,8 @@ fn insert_watcher(
                 op: SyncOp::Update,
                 event_type: "ticket.watcher_added",
                 data: json!({
+                    "id": ticket_id,
+                    "watcher_uuids": watchers,
                     "ticket_id": ticket_id,
                     "user_uuid": user_uuid,
                     "auto_added": auto_added,
@@ -243,6 +247,7 @@ pub fn remove_watcher(
         if removed == 0 {
             return Ok(false);
         }
+        let watchers = watcher_uuids(conn, ticket_id)?;
         let groups = groups::for_ticket(conn, &ticket)?;
         emit::record(
             conn,
@@ -252,6 +257,8 @@ pub fn remove_watcher(
                 op: SyncOp::Update,
                 event_type: "ticket.watcher_removed",
                 data: json!({
+                    "id": ticket_id,
+                    "watcher_uuids": watchers,
                     "ticket_id": ticket_id,
                     "user_uuid": user_uuid,
                 }),
@@ -261,4 +268,53 @@ pub fn remove_watcher(
         )?;
         Ok(true)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    fn last_watcher_event(conn: &mut DbConnection, ticket_id: i32) -> serde_json::Value {
+        use crate::schema::sync_actions::dsl as s;
+        s::sync_actions
+            .filter(s::aggregate_id.eq(ticket_id.to_string()))
+            .filter(s::event_type.like("ticket.watcher_%"))
+            .order(s::sync_id.desc())
+            .select(s::data)
+            .first(conn)
+            .unwrap()
+    }
+
+    // One test transaction gives every row the same `created_at`, so
+    // compare the set, not its order.
+    fn uuid_set(event: &serde_json::Value) -> Vec<String> {
+        let mut uuids: Vec<String> =
+            serde_json::from_value(event["watcher_uuids"].clone()).unwrap();
+        uuids.sort();
+        uuids
+    }
+
+    #[test]
+    fn watcher_events_carry_the_ticket_row_and_whole_set() {
+        let mut conn = setup_test_connection();
+        let agent = TestFixtures::create_user(&mut conn, "watch agent", "agent");
+        let member = TestFixtures::create_user(&mut conn, "watch member", "user");
+        let ticket = TestFixtures::create_ticket(&mut conn, "watched", None, None);
+
+        add_watcher(&mut conn, ticket.id, agent.uuid, false).unwrap();
+        add_watcher(&mut conn, ticket.id, member.uuid, false).unwrap();
+        let added = last_watcher_event(&mut conn, ticket.id);
+        assert_eq!(added["id"], json!(ticket.id));
+        let mut both = vec![agent.uuid.to_string(), member.uuid.to_string()];
+        both.sort();
+        assert_eq!(uuid_set(&added), both);
+        assert_eq!(added["user_uuid"], json!(member.uuid));
+
+        remove_watcher(&mut conn, ticket.id, &agent.uuid).unwrap();
+        let removed = last_watcher_event(&mut conn, ticket.id);
+        assert_eq!(removed["id"], json!(ticket.id));
+        assert_eq!(uuid_set(&removed), vec![member.uuid.to_string()]);
+        assert_eq!(removed["user_uuid"], json!(agent.uuid));
+    }
 }
