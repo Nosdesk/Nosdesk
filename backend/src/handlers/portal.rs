@@ -604,14 +604,15 @@ pub async fn ticket_link_callback(
     let Some(ctx) = req.extensions().get::<WorkspaceContext>().cloned() else {
         return Err(ApiError::BadRequest("No workspace for this origin".into()));
     };
-    let Some((user_uuid, ticket_id)) =
-        crate::utils::portal_ticket_link::verify(ctx.workspace_id, &query.t)
-    else {
-        return Ok(sign_in_error_redirect());
-    };
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => return Err(ApiError::Internal("Database connection failed".into())),
+    };
+    let Some((user_uuid, ticket_id)) =
+        crate::utils::portal_ticket_link::redeem(&mut conn, ctx.workspace_id, &query.t)
+            .map_err(|_| ApiError::Internal("Failed to check the link".into()))?
+    else {
+        return Ok(sign_in_error_redirect());
     };
     // The link outlives a membership: re-check it, pinned (see is_workspace_member).
     if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user_uuid)

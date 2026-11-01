@@ -652,8 +652,8 @@ async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
             .send()
     };
 
-    let good =
-        backend::utils::portal_ticket_link::sign(ws, customer.uuid, ticket.id).expect("sign");
+    let good = backend::utils::portal_ticket_link::sign(&mut conn, ws, customer.uuid, ticket.id)
+        .expect("sign");
     let resp = open(good.clone()).await.expect("send");
     assert_eq!(resp.status(), 302);
     assert_eq!(
@@ -681,18 +681,38 @@ async fn a_view_request_link_signs_the_requester_in_and_opens_the_ticket() {
     );
 
     let not_member =
-        backend::utils::portal_ticket_link::sign(ws, stranger.uuid, ticket.id).expect("sign");
+        backend::utils::portal_ticket_link::sign(&mut conn, ws, stranger.uuid, ticket.id)
+            .expect("sign");
     let resp = open(not_member).await.expect("send");
     assert_eq!(
         resp.headers().get("location").unwrap(),
         backend::handlers::portal::portal_path("/login?signin_error=1").as_str()
     );
 
-    let gone = backend::utils::portal_ticket_link::sign(ws, customer.uuid, i32::MAX).expect("sign");
+    let gone = backend::utils::portal_ticket_link::sign(&mut conn, ws, customer.uuid, i32::MAX)
+        .expect("sign");
     let resp = open(gone).await.expect("send");
     assert_eq!(
         resp.headers().get("location").unwrap(),
         backend::handlers::portal::portal_path("/tickets").as_str()
+    );
+
+    // Signing the customer out everywhere ends the links already sent, and a
+    // link sent afterwards works.
+    backend::repository::active_sessions::revoke_all_sessions(&mut conn, &customer.uuid)
+        .expect("sign out everywhere");
+    let resp = open(good).await.expect("send");
+    assert_eq!(
+        resp.headers().get("location").unwrap(),
+        backend::handlers::portal::portal_path("/login?signin_error=1").as_str(),
+        "a link sent before signing out everywhere"
+    );
+    let fresh = backend::utils::portal_ticket_link::sign(&mut conn, ws, customer.uuid, ticket.id)
+        .expect("sign");
+    let resp = open(fresh).await.expect("send");
+    assert_eq!(
+        resp.headers().get("location").unwrap(),
+        backend::handlers::portal::portal_path(&format!("/tickets/{}", ticket.number)).as_str()
     );
 }
 

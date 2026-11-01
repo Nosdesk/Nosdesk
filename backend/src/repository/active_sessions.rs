@@ -185,13 +185,36 @@ pub fn update_session_activity(
 /// Revoke every session for a user, including the caller's own. Used where the
 /// account's credentials just changed out from under all of them (password
 /// reset) or the account lost its upstream identity (a removed SSO mapping).
-/// To keep the caller signed in, use [`revoke_other_sessions_by_uuid`].
+/// To keep the caller signed in, use [`revoke_other_sessions_by_uuid`]. Both
+/// also end what could sign the account in again later: see
+/// [`end_standing_sign_ins`].
 pub fn revoke_all_sessions(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::delete(active_sessions::table.filter(active_sessions::user_uuid.eq(user_uuid)))
-        .execute(conn)
+    conn.transaction(|conn| {
+        let revoked =
+            diesel::delete(active_sessions::table.filter(active_sessions::user_uuid.eq(user_uuid)))
+                .execute(conn)?;
+        end_standing_sign_ins(conn, user_uuid)?;
+        Ok(revoked)
+    })
+}
+
+/// Stop every way to sign `user_uuid` in that outlives a session: raise their
+/// credential epoch, so a "View request" or approval link issued before now
+/// is refused, and spend their unused portal sign-in links and codes.
+fn end_standing_sign_ins(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> Result<(), diesel::result::Error> {
+    crate::repository::credential_epochs::raise(conn, user_uuid)?;
+    crate::repository::reset_tokens::invalidate_tokens_by_type(
+        conn,
+        *user_uuid,
+        crate::utils::reset_tokens::TokenType::PortalMagicLink.as_str(),
+    )?;
+    Ok(())
 }
 
 // sync-audit-only: Sessions / auth tokens (covered by security_events)
@@ -201,12 +224,16 @@ pub fn revoke_other_sessions_by_uuid(
     user_uuid: &Uuid,
     current_session_uuid: &Uuid,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::delete(
-        active_sessions::table
-            .filter(active_sessions::user_uuid.eq(user_uuid))
-            .filter(active_sessions::session_id.ne(current_session_uuid)),
-    )
-    .execute(conn)
+    conn.transaction(|conn| {
+        let revoked = diesel::delete(
+            active_sessions::table
+                .filter(active_sessions::user_uuid.eq(user_uuid))
+                .filter(active_sessions::session_id.ne(current_session_uuid)),
+        )
+        .execute(conn)?;
+        end_standing_sign_ins(conn, user_uuid)?;
+        Ok(revoked)
+    })
 }
 
 // sync-audit-only: Sessions / auth tokens (covered by security_events)
