@@ -5,7 +5,6 @@
  * anyone who was added can leave.
  */
 import { ref } from 'vue'
-import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useRouter } from 'vue-router'
 
@@ -14,7 +13,8 @@ import FormInput from '@/components/common/FormInput.vue'
 
 import PortalAvatar from './PortalAvatar.vue'
 
-import { addParticipant, getMe, removeParticipant, type PortalParticipant } from '../service'
+import { addParticipant, removeParticipant, type PortalParticipant } from '../service'
+import { usePortalMe } from '../usePortalMe'
 
 const props = defineProps<{
   ticketId: number
@@ -24,7 +24,7 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: [] }>()
 const { $t: t } = useFluent()
 const router = useRouter()
-const me = useQuery({ key: ['portal', 'me'], query: getMe })
+const { me } = usePortalMe()
 
 const email = ref('')
 const adding = ref(false)

@@ -16,12 +16,19 @@ import { extractErrorMessage } from '@/utils/errors'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
 import PortalLayout from '../components/PortalLayout.vue'
+import { usePortalMe } from '../usePortalMe'
 import { getAccount, updateAccount, type PortalAccount } from '../service'
 
 const { $t: t } = useFluent()
 const queryCache = useQueryCache()
 const dateStore = useDateStore()
-const account = useQuery({ key: ['portal', 'account'], query: getAccount })
+// A link's session has no account to manage: the layout offers sign-in instead.
+const { linkSession, fullSession } = usePortalMe()
+const account = useQuery({
+  key: ['portal', 'account'],
+  query: getAccount,
+  enabled: () => fullSession.value,
+})
 
 // 'system' stands for "this device's timezone", stored as no choice.
 const DEVICE = 'system'
@@ -108,7 +115,8 @@ async function save(): Promise<void> {
       {{ message.text }}
     </p>
 
-    <p v-if="account.error.value && !account.data.value" role="alert" class="text-sm text-status-error">
+    <template v-if="linkSession" />
+    <p v-else-if="account.error.value && !account.data.value" role="alert" class="text-sm text-status-error">
       {{ t('portal-account-load-failed') }}
     </p>
 

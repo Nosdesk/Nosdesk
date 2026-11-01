@@ -17,9 +17,9 @@ import ParticipantsCard from '../components/ParticipantsCard.vue'
 import PortalAvatar from '../components/PortalAvatar.vue'
 import ProgressTrack from '../components/ProgressTrack.vue'
 import ResolutionCard from '../components/ResolutionCard.vue'
+import { usePortalMe } from '../usePortalMe'
 import {
   attachmentUrl,
-  getMe,
   getMyTicket,
   getMyTicketByNumber,
   isClosed,
@@ -73,7 +73,7 @@ const detail = useQuery({
   query: () => getMyTicket(ticketId.value),
   enabled: () => ticketId.value > 0,
 })
-const me = useQuery({ key: ['portal', 'me'], query: getMe })
+const { me, linkSession } = usePortalMe()
 
 // An answer from the resolved email, taken once and cleared from the URL so a
 // reload doesn't answer again.
@@ -188,6 +188,7 @@ async function sendReply(): Promise<void> {
 <template>
   <PortalLayout wide>
     <RouterLink
+      v-if="!linkSession"
       to="/tickets"
       class="self-start -mb-2 inline-flex items-center gap-1 text-sm text-secondary hover:text-primary rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >

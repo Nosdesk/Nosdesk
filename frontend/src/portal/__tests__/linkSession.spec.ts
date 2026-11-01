@@ -10,10 +10,16 @@ const service = vi.hoisted(() => ({
   listMyApprovals: vi.fn(async () => []),
   followNotice: vi.fn(),
   signOut: vi.fn(async () => {}),
+  listRequestTypes: vi.fn(async () => []),
+  searchHelpArticles: vi.fn(async () => []),
+  createMyTicket: vi.fn(),
+  getAccount: vi.fn(),
 }))
 vi.mock('@/portal/service', () => service)
 
 import PortalLayout from '@/portal/components/PortalLayout.vue'
+import NewTicketView from '@/portal/views/NewTicketView.vue'
+import AccountView from '@/portal/views/AccountView.vue'
 
 let wrapper: VueWrapper | null = null
 afterEach(() => {
@@ -23,7 +29,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-async function mountAt(scope: unknown) {
+async function mountAt(scope: unknown, component: unknown = PortalLayout) {
   service.getMe.mockResolvedValue({ uuid: 'u', name: 'Pat', email: null, effective_locale: 'en-US', scope })
   const stub = { template: '<div />' }
   const router = createRouter({
@@ -36,7 +42,7 @@ async function mountAt(scope: unknown) {
     ],
   })
   await router.push('/tickets/7')
-  wrapper = mountWithProviders(PortalLayout, {}, {}, [router, [PiniaColada, {}] as never])
+  wrapper = mountWithProviders(component as never, {}, {}, [router, [PiniaColada, {}] as never])
   await flushPromises()
   return { wrapper, router }
 }
@@ -62,5 +68,24 @@ describe('a session opened from an email link', () => {
     expect(wrapper.text()).toContain('portal-nav-requests')
     expect(wrapper.text()).toContain('portal-nav-new')
     expect(wrapper.find('[data-testid="link-session-notice"]').exists()).toBe(false)
+  })
+})
+
+describe('pages that need a full sign-in, in a link session', () => {
+  it('shows no new request form', async () => {
+    const { wrapper } = await mountAt({ kind: 'ticket', ticket_number: 7 }, NewTicketView)
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="link-session-notice"]').exists()).toBe(true)
+  })
+
+  it('still shows it once signed in', async () => {
+    const { wrapper } = await mountAt({ kind: 'full' }, NewTicketView)
+    expect(wrapper.find('form').exists()).toBe(true)
+  })
+
+  it('loads no account and shows no error', async () => {
+    const { wrapper } = await mountAt({ kind: 'ticket', ticket_number: 7 }, AccountView)
+    expect(service.getAccount).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 })
