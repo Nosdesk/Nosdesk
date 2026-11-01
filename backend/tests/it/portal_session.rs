@@ -40,14 +40,36 @@ fn context_of(conn: &mut backend::db::DbConnection, workspace_id: i32) -> Worksp
 
 /// Portal-scope claims bound to `workspace_uuid` (or `None` to omit the
 /// binding), with the given scope so we can also exercise a non-portal token.
-fn portal_claims(user_uuid: uuid::Uuid, scope: &str, workspace_uuid: Option<uuid::Uuid>) -> Claims {
+/// Claims for a portal token, naming a live session (whose record holds the
+/// session's scope).
+fn portal_claims(
+    conn: &mut backend::db::DbConnection,
+    user_uuid: uuid::Uuid,
+    scope: &str,
+    workspace_uuid: Option<uuid::Uuid>,
+) -> Claims {
+    let sid = backend::repository::active_sessions::create_session(
+        conn,
+        backend::models::NewActiveSession {
+            user_uuid,
+            device_name: None,
+            ip_address: None,
+            user_agent: None,
+            location: None,
+            expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
+            oidc_id_token: None,
+            confirmed_at: None,
+        },
+    )
+    .expect("session")
+    .session_id;
     Claims {
         sub: user_uuid.to_string(),
         name: "Customer".to_string(),
         email: String::new(),
         platform_role: "user".to_string(),
         scope: scope.to_string(),
-        sid: Some(uuid::Uuid::new_v4().to_string()),
+        sid: Some(sid.to_string()),
         workspace_uuid,
         exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize,
         iat: chrono::Utc::now().timestamp() as usize,
@@ -115,7 +137,12 @@ fn portal_session_establishment_and_gate() {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default().to_srv_request();
         req.extensions_mut().insert(acme.clone());
-        let claims = portal_claims(customer.uuid, PORTAL_SCOPE, Some(acme.workspace_uuid));
+        let claims = portal_claims(
+            &mut conn,
+            customer.uuid,
+            PORTAL_SCOPE,
+            Some(acme.workspace_uuid),
+        );
         let ctx = authorize_portal_request(&req, &mut conn, &claims)
             .expect("member on a matching origin must be authorized");
         assert_eq!(ctx.user_uuid, customer.uuid);
@@ -128,7 +155,12 @@ fn portal_session_establishment_and_gate() {
         let other = context_of(&mut pool.get().expect("conn"), other_id);
         let req = TestRequest::default().to_srv_request();
         req.extensions_mut().insert(other);
-        let claims = portal_claims(customer.uuid, PORTAL_SCOPE, Some(acme.workspace_uuid));
+        let claims = portal_claims(
+            &mut conn,
+            customer.uuid,
+            PORTAL_SCOPE,
+            Some(acme.workspace_uuid),
+        );
         let err = authorize_portal_request(&req, &mut conn, &claims)
             .expect_err("a token bound to another tenant must be denied");
         assert_eq!(status_of(&err), 403, "binding mismatch must be 403");
@@ -139,7 +171,12 @@ fn portal_session_establishment_and_gate() {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default().to_srv_request();
         req.extensions_mut().insert(acme.clone());
-        let claims = portal_claims(stranger_uuid, PORTAL_SCOPE, Some(acme.workspace_uuid));
+        let claims = portal_claims(
+            &mut conn,
+            stranger_uuid,
+            PORTAL_SCOPE,
+            Some(acme.workspace_uuid),
+        );
         let err = authorize_portal_request(&req, &mut conn, &claims)
             .expect_err("a non-member must be denied");
         assert_eq!(status_of(&err), 403, "non-member must be 403");
@@ -150,7 +187,7 @@ fn portal_session_establishment_and_gate() {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default().to_srv_request();
         req.extensions_mut().insert(acme.clone());
-        let claims = portal_claims(customer.uuid, "full", Some(acme.workspace_uuid));
+        let claims = portal_claims(&mut conn, customer.uuid, "full", Some(acme.workspace_uuid));
         let err = authorize_portal_request(&req, &mut conn, &claims)
             .expect_err("a non-portal token must not act as a customer");
         assert_eq!(status_of(&err), 403, "non-portal scope must be 403");
@@ -161,7 +198,7 @@ fn portal_session_establishment_and_gate() {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default().to_srv_request();
         req.extensions_mut().insert(acme.clone());
-        let claims = portal_claims(customer.uuid, PORTAL_SCOPE, None);
+        let claims = portal_claims(&mut conn, customer.uuid, PORTAL_SCOPE, None);
         let err = authorize_portal_request(&req, &mut conn, &claims)
             .expect_err("an unbound portal token must be denied");
         assert_eq!(status_of(&err), 403, "unbound portal token must be 403");
@@ -930,4 +967,203 @@ async fn sign_in_code_guesses_sent_at_once_get_five_tries_in_all() {
     assert_eq!(meta["attempts"], serde_json::json!(5), "{meta}");
     assert!(meta["code_hash"].is_null(), "{meta}");
     assert_eq!(post("654321").await.expect("send").status(), 400);
+}
+
+fn requested_ticket(
+    conn: &mut backend::db::DbConnection,
+    workspace: i32,
+    requester: uuid::Uuid,
+    title: &str,
+) -> backend::models::Ticket {
+    use diesel::RunQueryDsl as _;
+    with_actor_context(
+        conn,
+        &ActorContext::system("test:seed").with_workspace(workspace),
+        |c| {
+            backend::services::seed::seed_workspace_defaults(c, None)?;
+            let state = backend::repository::workflow_states::default_state(c)?;
+            diesel::insert_into(backend::schema::tickets::table)
+                .values(&backend::models::NewTicket {
+                    title: title.to_string(),
+                    workflow_state_id: state.id,
+                    requester_uuid: Some(requester),
+                    ..Default::default()
+                })
+                .get_result(c)
+        },
+    )
+    .expect("ticket")
+}
+
+/// The link callback, refresh, and the authenticated portal API.
+fn portal_server(
+    pool: &crate::common::TestPool,
+    ctx: WorkspaceContext,
+    dir: &std::path::Path,
+) -> actix_test::TestServer {
+    use actix_web::dev::Service;
+    use actix_web::middleware::from_fn;
+    use actix_web::{web, App};
+    use backend::utils::storage::{create_storage, StorageConfig};
+    let pool = pool.clone();
+    let storage = create_storage(StorageConfig::Local {
+        base_path: dir.join("files").to_string_lossy().into_owned(),
+    });
+    let search = std::sync::Arc::new(
+        backend::services::search::SearchService::new(&dir.join("search"), &pool)
+            .expect("init search"),
+    );
+    actix_test::start(move || {
+        let ctx = ctx.clone();
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(search.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ctx.clone());
+                srv.call(req)
+            })
+            .route(
+                "/api/portal/auth/ticket",
+                web::get().to(backend::handlers::portal::ticket_link_callback),
+            )
+            .route(
+                "/api/portal/auth/refresh",
+                web::post().to(backend::handlers::portal::refresh_portal_session),
+            )
+            .service(
+                web::scope("/api/portal")
+                    .wrap(from_fn(backend::handlers::portal::portal_auth_middleware))
+                    .configure(backend::handlers::portal::config),
+            )
+    })
+}
+
+/// The cookies a response set, as a `Cookie` request header.
+fn cookie_header(resp: &awc::ClientResponse<impl futures::Stream>) -> String {
+    resp.cookies()
+        .expect("cookies")
+        .iter()
+        .map(|c| format!("{}={}", c.name(), c.value()))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// A session opened from a "View request" link reaches that ticket alone, and
+/// keeps that limit across a refresh; signing in reaches every request.
+#[actix_web::test]
+async fn a_links_session_reaches_only_its_ticket() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let mut conn = pool.get().expect("conn");
+    let ws = crate::common::mint_workspace(&mut conn, "scopews", "Scope WS");
+    let customer = crate::common::insert_user(&mut conn, "Scoped Customer");
+    with_actor_context(
+        &mut conn,
+        &ActorContext::system("test:seed").with_workspace(ws),
+        |c| {
+            add_membership(
+                c,
+                ws,
+                customer.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )
+        },
+    )
+    .expect("membership");
+    let linked = requested_ticket(&mut conn, ws, customer.uuid, "Printer jammed");
+    let other = requested_ticket(&mut conn, ws, customer.uuid, "Laptop slow");
+    let ctx = context_of(&mut conn, ws);
+    let dir = tempfile::tempdir().expect("server dir");
+    let srv = portal_server(&pool, ctx.clone(), dir.path());
+    let client = awc::Client::builder().disable_redirects().finish();
+
+    let token = backend::utils::portal_ticket_link::sign(&mut conn, ws, customer.uuid, linked.id)
+        .expect("sign");
+    let resp = client
+        .get(srv.url(&format!("/api/portal/auth/ticket?t={token}")))
+        .send()
+        .await
+        .expect("open link");
+    assert_eq!(resp.status(), 302);
+    let cookies = cookie_header(&resp);
+
+    let get = |path: &str, cookies: &str| {
+        client
+            .get(srv.url(path))
+            .insert_header(("Cookie", cookies.to_string()))
+            .send()
+    };
+    let listed = |cookies: String| {
+        let req = get("/api/portal/tickets", &cookies);
+        async move {
+            let mut resp = req.await.expect("list");
+            assert_eq!(resp.status(), 200);
+            let rows: serde_json::Value = resp.json().await.expect("json");
+            let mut ids: Vec<i64> = rows
+                .as_array()
+                .expect("array")
+                .iter()
+                .filter_map(|t| t["id"].as_i64())
+                .collect();
+            ids.sort_unstable();
+            ids
+        }
+    };
+
+    assert_eq!(listed(cookies.clone()).await, vec![linked.id as i64]);
+    let resp = get(&format!("/api/portal/tickets/{}", linked.id), &cookies)
+        .await
+        .expect("get linked");
+    assert_eq!(resp.status(), 200);
+    let resp = get(&format!("/api/portal/tickets/{}", other.id), &cookies)
+        .await
+        .expect("get other");
+    assert_eq!(
+        resp.status(),
+        404,
+        "their other request is outside the link's session"
+    );
+    let resp = client
+        .post(srv.url("/api/portal/tickets"))
+        .insert_header(("Cookie", cookies.clone()))
+        .send_json(&serde_json::json!({ "title": "A new one", "description": "Hello" }))
+        .await
+        .expect("create");
+    assert_eq!(resp.status(), 403, "a new request needs a full sign-in");
+    let mut resp = get("/api/portal/me", &cookies).await.expect("me");
+    let me: serde_json::Value = resp.json().await.expect("json");
+    assert_eq!(me["scope"]["kind"], "ticket", "{me}");
+    assert_eq!(me["scope"]["ticket_number"], linked.number, "{me}");
+
+    // A refreshed token keeps the limit: it lives on the session.
+    let resp = client
+        .post(srv.url("/api/portal/auth/refresh"))
+        .insert_header(("Cookie", cookies.clone()))
+        .send()
+        .await
+        .expect("refresh");
+    assert_eq!(resp.status(), 200);
+    let refreshed = cookie_header(&resp);
+    assert_eq!(listed(refreshed).await, vec![linked.id as i64]);
+
+    // Signing in reaches every request.
+    let http_req = actix_web::test::TestRequest::default().to_http_request();
+    let full = backend::handlers::portal::establish_portal_session(
+        &customer,
+        ctx.workspace_uuid,
+        &http_req,
+        &mut conn,
+    )
+    .expect("sign in");
+    let full_cookies = full
+        .cookies()
+        .map(|c| format!("{}={}", c.name(), c.value()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let mut both = vec![linked.id as i64, other.id as i64];
+    both.sort_unstable();
+    assert_eq!(listed(full_cookies).await, both);
 }

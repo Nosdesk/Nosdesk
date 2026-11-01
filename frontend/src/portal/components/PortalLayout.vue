@@ -48,6 +48,8 @@ void publicSettings.load()
 const helpCentre = computed(() => publicSettings.settings?.guest_public_docs_enabled === true)
 
 const me = useQuery({ key: ['portal', 'me'], query: getMe })
+// Opened from a request's email link: that request only, until they sign in.
+const linkSession = computed(() => me.data.value?.scope?.kind === 'ticket')
 // Shown only to people with requests waiting for their approval.
 const approvals = useQuery({ key: ['portal', 'approvals'], query: listMyApprovals })
 const waitingApprovals = computed(() => approvals.data.value?.length ?? 0)
@@ -59,7 +61,7 @@ interface Section {
   count?: number
 }
 const sections = computed<Section[]>(() => [
-  { to: '/tickets', label: t('portal-nav-requests'), icon: 'inbox' as const },
+  ...(linkSession.value ? [] : [{ to: '/tickets', label: t('portal-nav-requests'), icon: 'inbox' as const }]),
   ...(waitingApprovals.value > 0
     ? [{ to: '/approvals', label: t('portal-nav-approvals-short'), icon: 'checkCircle' as const, count: waitingApprovals.value }]
     : []),
@@ -152,7 +154,7 @@ async function onSignOut(): Promise<void> {
         <div class="ml-auto flex items-center gap-2">
           <!-- A wrapper carries the display toggle: Button's own inline-flex
                would beat `hidden`. Phones use the tab bar's instead. -->
-          <div :class="inTeams ? 'flex' : 'hidden sm:flex'">
+          <div v-if="!linkSession" :class="inTeams ? 'flex' : 'hidden sm:flex'">
             <Button size="sm" icon="add" @click="router.push('/tickets/new')">
               {{ t('portal-nav-new') }}
             </Button>
@@ -197,6 +199,16 @@ async function onSignOut(): Promise<void> {
       class="w-full mx-auto px-4 py-6 sm:py-8 flex flex-col gap-6"
       :class="[wide ? 'max-w-6xl' : 'max-w-4xl', !inTeams && !inWidget ? 'pb-24 sm:pb-8' : '']"
     >
+      <div
+        v-if="linkSession"
+        class="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-secondary"
+        data-testid="link-session-notice"
+      >
+        <span>{{ t('portal-link-session-notice') }}</span>
+        <Button size="sm" variant="secondary" @click="onSignOut">
+          {{ t('portal-link-session-sign-in') }}
+        </Button>
+      </div>
       <NoticeBanner
         v-if="notice.data.value?.notice"
         :notice="notice.data.value.notice"
@@ -227,6 +239,7 @@ async function onSignOut(): Promise<void> {
           {{ section.label }}
         </RouterLink>
         <RouterLink
+          v-if="!linkSession"
           to="/tickets/new"
           class="flex-1 flex flex-col items-center justify-center gap-0.5 text-[0.6875rem]"
           :class="route.path === '/tickets/new' ? 'text-accent' : 'text-secondary'"

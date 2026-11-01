@@ -351,7 +351,13 @@ pub async fn sso_callback(
         tracing::warn!("portal sso: the account isn't active");
         return Ok(back_to_login("failed"));
     };
-    let session = match mint_portal_session(&user, ws.workspace_uuid, &req, &mut conn) {
+    let session = match mint_portal_session(
+        &user,
+        ws.workspace_uuid,
+        &req,
+        &mut conn,
+        crate::handlers::portal::PortalScope::Full,
+    ) {
         Ok(session) => session,
         Err(e) => {
             tracing::error!(error = %e, "portal sso: starting the session failed");

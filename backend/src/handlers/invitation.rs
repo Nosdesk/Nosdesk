@@ -368,6 +368,7 @@ pub async fn confirm_guest_submission(
             ctx.workspace_uuid,
             &http_request,
             &mut conn,
+            crate::handlers::portal::PortalScope::Full,
         ) {
             Ok(session) => {
                 return Ok(HttpResponse::Ok()

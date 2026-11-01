@@ -147,6 +147,7 @@ mod portability_round_trip;
 mod portal_domain_sharing;
 mod portal_merged_tickets;
 mod portal_session;
+mod portal_visibility_builder_lint;
 mod priority_names;
 mod profile_write_authz;
 mod project_ticket_visibility;

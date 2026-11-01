@@ -36,7 +36,7 @@ use crate::extractors::{TenantConn, WorkspaceContext};
 use crate::middleware::cookie_auth::{require_portal_membership, PORTAL_SCOPE};
 use crate::models::{Claims, ContentFormat, NewComment, NewTicket, Ticket, TicketPriority, User};
 use crate::repository::ticket_visibility::{
-    can_view_ticket, visible_tickets_query, VisibilityContext,
+    can_view_ticket, visible_tickets_query, TicketScope, VisibilityContext,
 };
 use crate::schema::tickets;
 use crate::services::search::SearchService;
@@ -101,6 +101,71 @@ pub struct PortalContext {
     pub user_uuid: Uuid,
     pub workspace_id: i32,
     pub workspace_uuid: Uuid,
+    /// What the session reaches, from its session record.
+    pub scope: PortalScope,
+}
+
+/// What a portal session reaches. A session opened from a "View request" or
+/// approval link reaches that one ticket; signing in reaches everything the
+/// person may see.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortalScope {
+    Full,
+    Ticket(i32),
+}
+
+impl PortalContext {
+    /// The tickets this session may read: the person's own requests and the
+    /// ones they were added to, plus (when the workspace shares by domain) the
+    /// requests of people at their verified, non-free-mail domain, leaving out
+    /// requests raised by staff unless the workspace includes them; for a
+    /// link's session, only its ticket. The one place a portal handler gets a
+    /// [`VisibilityContext`] (`tests/it/portal_visibility_builder_lint.rs`).
+    pub(crate) fn visibility(&self, conn: &mut DbConnection) -> QueryResult<VisibilityContext> {
+        let base = shared_visibility(conn, self.user_uuid)?;
+        self.scoped(conn, base)
+    }
+
+    /// [`Self::visibility`] without other people's shared requests: the
+    /// person's own requests and the ones they were added to. Writes use this.
+    pub(crate) fn own_visibility(&self, conn: &mut DbConnection) -> QueryResult<VisibilityContext> {
+        self.scoped(conn, VisibilityContext::requester_only(self.user_uuid))
+    }
+
+    fn scoped(
+        &self,
+        conn: &mut DbConnection,
+        base: VisibilityContext,
+    ) -> QueryResult<VisibilityContext> {
+        match self.scope {
+            PortalScope::Full => Ok(base),
+            PortalScope::Ticket(ticket_id) => Ok(base.limited_to(TicketScope {
+                ticket_id,
+                merged_into: crate::repository::ticket_merge::merge_destination(conn, ticket_id)?,
+            })),
+        }
+    }
+
+    /// Whether this session may act on `ticket_id`, for routes that decide
+    /// access by something other than ticket visibility (an approver's own
+    /// approvals). Ticket reads go through [`Self::visibility`].
+    pub(crate) fn reaches(&self, ticket_id: i32) -> bool {
+        match self.scope {
+            PortalScope::Full => true,
+            PortalScope::Ticket(scoped) => scoped == ticket_id,
+        }
+    }
+
+    /// The refusal for what only a signed-in session may do (raise a new
+    /// request), when this session was opened from a ticket's link.
+    pub(crate) fn refuse_unless_full(&self) -> Option<HttpResponse> {
+        match self.scope {
+            PortalScope::Full => None,
+            PortalScope::Ticket(_) => Some(errors::forbidden(
+                "Sign in to do this; this session opened one request from its link",
+            )),
+        }
+    }
 }
 
 /// Authorize a portal request from its validated token claims and the
@@ -145,10 +210,26 @@ pub fn authorize_portal_request(
         .map_err(|_| crate::errors::forbidden_error("Not a member of this workspace"))?;
     require_portal_membership(conn, origin_ctx.workspace_id, user_uuid)?;
 
+    // The session record holds the scope, so a refreshed token keeps it. A
+    // portal token always names its session; without one there is nothing to
+    // read the scope from, so it is refused like an ended session.
+    let sid = claims
+        .session_uuid()
+        .ok_or_else(|| crate::errors::unauthorized_error("Session ended"))?;
+    let scope = match crate::repository::active_sessions::ticket_scope(conn, &sid) {
+        Ok(Some(ticket_id)) => PortalScope::Ticket(ticket_id),
+        Ok(None) => PortalScope::Full,
+        Err(diesel::result::Error::NotFound) => {
+            return Err(crate::errors::unauthorized_error("Session ended"));
+        }
+        Err(_) => return Err(crate::errors::internal_error("Session lookup failed")),
+    };
+
     Ok(PortalContext {
         user_uuid,
         workspace_id: origin_ctx.workspace_id,
         workspace_uuid: origin_ctx.workspace_uuid,
+        scope,
     })
 }
 
@@ -219,6 +300,7 @@ pub(crate) fn mint_portal_session(
     workspace_uuid: Uuid,
     request: &HttpRequest,
     conn: &mut DbConnection,
+    scope: PortalScope,
 ) -> Result<PortalSessionCookies, ApiError> {
     let session = crate::handlers::auth::create_session_record(
         &user.uuid,
@@ -230,6 +312,13 @@ pub(crate) fn mint_portal_session(
         tracing::error!(error = ?e, "portal session: failed to create session record");
         ApiError::Internal("Failed to establish session".into())
     })?;
+    if let PortalScope::Ticket(ticket_id) = scope {
+        crate::repository::active_sessions::limit_to_ticket(conn, &session.session_id, ticket_id)
+            .map_err(|e| {
+            tracing::error!(error = ?e, "portal session: failed to limit it to its ticket");
+            ApiError::Internal("Failed to establish session".into())
+        })?;
+    }
 
     let family_id = Uuid::new_v4();
     let tokens = crate::utils::jwt::helpers::create_portal_tokens(
@@ -262,7 +351,7 @@ pub fn establish_portal_session(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<HttpResponse, ApiError> {
-    let session = mint_portal_session(user, workspace_uuid, request, conn)?;
+    let session = mint_portal_session(user, workspace_uuid, request, conn, PortalScope::Full)?;
     Ok(HttpResponse::Ok()
         .cookie(session.access)
         .cookie(session.refresh)
@@ -571,7 +660,13 @@ pub async fn magic_link_callback(
         tracing::warn!(user_uuid = %user.uuid, error = ?e, "portal sign-in: could not mark email verified");
     }
 
-    let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
+    let session = mint_portal_session(
+        &user,
+        ctx.workspace_uuid,
+        &req,
+        &mut conn,
+        PortalScope::Full,
+    )?;
     Ok(HttpResponse::Found()
         .cookie(session.access)
         .cookie(session.refresh)
@@ -627,7 +722,13 @@ pub async fn ticket_link_callback(
     if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
         tracing::warn!(user_uuid = %user.uuid, error = ?e, "ticket link: could not mark email verified");
     }
-    let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
+    let session = mint_portal_session(
+        &user,
+        ctx.workspace_uuid,
+        &req,
+        &mut conn,
+        PortalScope::Ticket(ticket_id),
+    )?;
     // The link signs the ticket's id; the portal route takes its number.
     let number = crate::sync::session::run_in_workspace(
         &pool,
@@ -752,7 +853,13 @@ pub async fn sign_in_with_code(
     if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
         tracing::warn!(user_uuid = %user.uuid, error = ?e, "sign-in code: could not mark email verified");
     }
-    let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
+    let session = mint_portal_session(
+        &user,
+        ctx.workspace_uuid,
+        &req,
+        &mut conn,
+        PortalScope::Full,
+    )?;
     Ok(HttpResponse::Ok()
         .cookie(session.access)
         .cookie(session.refresh)
@@ -811,7 +918,8 @@ pub async fn open_portal_from_app(
         .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
     let user = crate::repository::users::find_active_by_uuid(&auth.user_uuid, &mut conn)
         .map_err(|_| ApiError::Unauthorized("Sign in again".into()))?;
-    let session = mint_portal_session(&user, ws.workspace_uuid, &req, &mut conn)?;
+    let session =
+        mint_portal_session(&user, ws.workspace_uuid, &req, &mut conn, PortalScope::Full)?;
     Ok(HttpResponse::Found()
         .cookie(session.access)
         .cookie(session.refresh)
@@ -899,18 +1007,30 @@ pub async fn portal_auth_middleware(
 /// render in (the requester's preference, else the site default).
 pub async fn get_me(mut tc: TenantConn, portal: PortalContext) -> impl Responder {
     let user_uuid = portal.user_uuid;
+    let scope = portal.scope;
     let result = tc.run(move |conn| {
         let user = crate::repository::users::find_active_by_uuid(&user_uuid, conn)?;
         let email = crate::repository::user_helpers::get_primary_email(&user_uuid, conn);
         let locale = crate::repository::user_locale::resolve_effective_locale(conn, user_uuid);
-        Ok::<_, diesel::result::Error>((user, email, locale))
+        // A link's session names its request by number, as the portal routes.
+        let scope_number = match scope {
+            PortalScope::Full => None,
+            PortalScope::Ticket(ticket_id) => {
+                crate::repository::tickets::number_of(conn, ticket_id)?
+            }
+        };
+        Ok::<_, diesel::result::Error>((user, email, locale, scope_number))
     });
     match result {
-        Ok((user, email, locale)) => HttpResponse::Ok().json(json!({
+        Ok((user, email, locale, scope_number)) => HttpResponse::Ok().json(json!({
             "uuid": user.uuid,
             "name": user.name,
             "email": email,
             "effective_locale": locale.to_string(),
+            "scope": match scope {
+                PortalScope::Full => json!({ "kind": "full" }),
+                PortalScope::Ticket(_) => json!({ "kind": "ticket", "ticket_number": scope_number }),
+            },
         })),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to load /me");
@@ -1024,15 +1144,8 @@ impl CustomerTicket {
     }
 }
 
-/// How much of the workspace a portal user can read: their own requests and
-/// the ones they were added to, plus (when the workspace shares by domain) the
-/// requests of people at their verified, non-free-mail domain, leaving out
-/// requests raised by staff unless the workspace includes them. Writes never
-/// use this; they stay on [`VisibilityContext::requester_only`].
-pub(crate) fn portal_visibility(
-    conn: &mut DbConnection,
-    viewer: Uuid,
-) -> QueryResult<VisibilityContext> {
+/// The unscoped half of [`PortalContext::visibility`].
+fn shared_visibility(conn: &mut DbConnection, viewer: Uuid) -> QueryResult<VisibilityContext> {
     use crate::schema::user_emails;
     let settings = crate::repository::site_settings::get_site_settings(conn)?;
     if !settings.portal_share_by_domain {
@@ -1162,7 +1275,7 @@ fn customer_thread(
 pub async fn list_my_tickets(mut tc: TenantConn, portal: PortalContext) -> impl Responder {
     let viewer = portal.user_uuid;
     let result = tc.run(move |conn| {
-        let vis = portal_visibility(conn, viewer)?;
+        let vis = portal.visibility(conn)?;
         let rows = visible_tickets_query(&vis)
             .order(tickets::updated_at.desc())
             .load::<Ticket>(conn)?;
@@ -1224,13 +1337,13 @@ pub async fn get_my_ticket_by_number(
 fn my_ticket(mut tc: TenantConn, portal: PortalContext, ticket_id: i32) -> HttpResponse {
     let viewer = portal.user_uuid;
     let result = tc.run(move |conn| {
-        let vis = portal_visibility(conn, viewer)?;
+        let vis = portal.visibility(conn)?;
         if !can_view_ticket(conn, &vis, ticket_id)? {
             return Ok(None);
         }
         // Read-only when it's only shared with them (not theirs, not added).
-        let can_reply =
-            can_view_ticket(conn, &VisibilityContext::requester_only(viewer), ticket_id)?;
+        let own = portal.own_visibility(conn)?;
+        let can_reply = can_view_ticket(conn, &own, ticket_id)?;
         let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
         let states = state_map(conn)?;
         let comments = customer_thread(conn, ticket_id, viewer)?;
@@ -1298,10 +1411,10 @@ pub async fn download_attachment(
     base_storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let (ticket_id, attachment_id) = path.into_inner();
-    let viewer = portal.user_uuid;
+    let downloader = portal.clone();
     let found = tc
         .run(move |conn| {
-            let vis = portal_visibility(conn, viewer)?;
+            let vis = downloader.visibility(conn)?;
             let Some((attachment, reply)) =
                 crate::repository::file_access::attachment_for_viewer(conn, &vis, attachment_id)?
             else {
@@ -1611,6 +1724,9 @@ pub async fn create_my_ticket(
     storage: crate::extractors::ScopedStorage,
     body: web::Json<NewPortalTicket>,
 ) -> impl Responder {
+    if let Some(refused) = portal.refuse_unless_full() {
+        return refused;
+    }
     let body = body.into_inner();
     let attachment_ids = body.attachment_ids.clone();
     let title = body.title.trim().to_string();
@@ -1756,11 +1872,12 @@ pub async fn reply_to_my_ticket(
     if let Some(limited) = over_write_limit("reply", portal.user_uuid, REPLIES_PER_HOUR).await {
         return limited;
     }
-    let vis = VisibilityContext::requester_only(portal.user_uuid);
     let user_uuid = portal.user_uuid;
+    let replier = portal.clone();
     let search = Arc::clone(search_service.get_ref());
 
     let result = tc.run(move |conn| {
+        let vis = replier.own_visibility(conn)?;
         if !can_view_ticket(conn, &vis, ticket_id)? {
             return Ok(PortalReply::NotFound);
         }
@@ -1905,7 +2022,7 @@ pub async fn add_participant(
     }
     let email_service = crate::utils::email::EmailService::from_env().ok();
     let result = tc.run(move |conn| {
-        let vis = portal_visibility(conn, requester)?;
+        let vis = portal.visibility(conn)?;
         if !can_view_ticket(conn, &vis, ticket_id)? {
             return Ok(Err(errors::not_found("Ticket not found")));
         }
@@ -2022,7 +2139,7 @@ pub async fn remove_participant(
     let (ticket_id, target) = path.into_inner();
     let viewer = portal.user_uuid;
     let result = tc.run(move |conn| {
-        let vis = portal_visibility(conn, viewer)?;
+        let vis = portal.visibility(conn)?;
         if !can_view_ticket(conn, &vis, ticket_id)? {
             return Ok(None);
         }
@@ -2055,7 +2172,7 @@ pub async fn mark_seen(
     let ticket_id = path.into_inner();
     let viewer = portal.user_uuid;
     let result = tc.run(move |conn| {
-        let vis = portal_visibility(conn, viewer)?;
+        let vis = portal.visibility(conn)?;
         if !can_view_ticket(conn, &vis, ticket_id)? {
             return Ok(false);
         }

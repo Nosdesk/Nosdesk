@@ -142,7 +142,13 @@ pub async fn approval_link_callback(
     if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
         tracing::warn!(error = ?e, "approval link: could not mark email verified");
     }
-    let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
+    let session = mint_portal_session(
+        &user,
+        ctx.workspace_uuid,
+        &req,
+        &mut conn,
+        crate::handlers::portal::PortalScope::Ticket(ticket_id),
+    )?;
     Ok(HttpResponse::Found()
         .cookie(session.access)
         .cookie(session.refresh)
@@ -158,6 +164,7 @@ pub async fn list_my_approvals(mut tc: TenantConn, portal: PortalContext) -> imp
         let waiting = approvals::waiting_for(conn, me)?;
         waiting
             .iter()
+            .filter(|(_, ticket)| portal.reaches(ticket.id))
             .map(|(_, ticket)| approvals::summary(conn, ticket))
             .collect::<diesel::QueryResult<Vec<_>>>()
     });
@@ -178,6 +185,9 @@ pub async fn get_my_approval(
     path: web::Path<i32>,
 ) -> impl Responder {
     let (me, ticket_id) = (portal.user_uuid, path.into_inner());
+    if !portal.reaches(ticket_id) {
+        return errors::not_found("Approval not found");
+    }
     let result = tc.run(|conn| {
         let Some(mine) = approvals::for_approver(conn, ticket_id, me)? else {
             return Ok(None);
@@ -210,6 +220,9 @@ pub async fn decide_my_approval(
     search: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     let (me, ticket_id) = (portal.user_uuid, path.into_inner());
+    if !portal.reaches(ticket_id) {
+        return errors::not_found("Approval not found");
+    }
     let Some(approve) = approve_flag(&body.decision) else {
         return errors::bad_request("Decision must be 'approve' or 'decline'");
     };

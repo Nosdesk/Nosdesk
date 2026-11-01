@@ -50,14 +50,14 @@ pub(crate) fn touched_tickets(actions: &Value) -> BTreeSet<i32> {
     ids
 }
 
-/// The subset of `ids` `viewer` can see in the portal now.
-fn visible(pool: &Pool, workspace_id: i32, viewer: Uuid, ids: BTreeSet<i32>) -> Vec<i32> {
+/// The subset of `ids` the session can see in the portal now.
+fn visible(pool: &Pool, workspace_id: i32, portal: &PortalContext, ids: BTreeSet<i32>) -> Vec<i32> {
     crate::sync::session::run_in_workspace(
         pool,
         "background:portal_events_visibility",
         workspace_id,
         move |conn| {
-            let vis = crate::handlers::portal::portal_visibility(conn, viewer)?;
+            let vis = portal.visibility(conn)?;
             let mut out = Vec::new();
             for id in ids {
                 if crate::repository::ticket_visibility::can_view_ticket(conn, &vis, id)? {
@@ -111,6 +111,7 @@ pub async fn portal_events(
         .get::<crate::models::Claims>()
         .and_then(|c| c.sid.clone());
     let viewer = portal.user_uuid;
+    let session = portal.clone();
     let workspace_id = ws.workspace_id;
     let Some(guard) =
         crate::services::connection_registry::global().try_acquire((viewer, workspace_id))
@@ -126,6 +127,7 @@ pub async fn portal_events(
         (rx, pool, tokio::time::interval(HEARTBEAT), guard),
         move |(mut rx, pool, mut tick, guard)| {
             let sid = sid.clone();
+            let session = session.clone();
             async move {
                 loop {
                     let next = tokio::select! {
@@ -153,9 +155,9 @@ pub async fn portal_events(
                             if ids.is_empty() {
                                 None
                             } else {
-                                let p = pool.clone();
+                                let (p, session) = (pool.clone(), session.clone());
                                 let shown =
-                                    web::block(move || visible(&p, workspace_id, viewer, ids))
+                                    web::block(move || visible(&p, workspace_id, &session, ids))
                                         .await
                                         .unwrap_or_default();
                                 (!shown.is_empty()).then(|| {
