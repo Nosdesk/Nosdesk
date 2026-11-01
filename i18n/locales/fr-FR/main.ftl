@@ -6065,6 +6065,9 @@ docs-page-permissions-no-collections = Dans aucune collection, visible par tous.
 docs-page-permissions-custom-description = Sélectionnez les groupes et utilisateurs autorisés à accéder à cette page. Cela remplace les permissions au niveau collection.
 docs-page-permissions-picker-placeholder = Rechercher des utilisateurs et groupes...
 docs-page-permissions-no-selection-warning = Aucun groupe ni utilisateur sélectionné, seuls les administrateurs pourront voir cette page.
+# (machine, à relire par un locuteur natif)
+docs-page-permissions-public-label = Afficher aux invités
+docs-page-permissions-public-description = Lorsque la documentation publique est activée, tout le monde peut lire cette page dans l'onglet Aide du portail, si elle est publiée et ouverte à tous.
 docs-page-permissions-cancel = Annuler
 docs-page-permissions-save = Enregistrer
 docs-page-permissions-saving = Enregistrement...

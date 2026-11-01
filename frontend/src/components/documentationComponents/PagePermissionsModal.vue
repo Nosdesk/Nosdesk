@@ -8,6 +8,7 @@ import AssignmentPicker from '@/components/common/AssignmentPicker.vue'
 import type { SelectedPrincipal } from '@/components/common/AssignmentPicker.vue'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
+import ToggleSwitch from '@/components/common/ToggleSwitch.vue'
 import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 
 useFluent()
@@ -35,8 +36,13 @@ const originalItems = ref<SelectedPrincipal[]>([])
 // Collections this page belongs to (for display in inherit mode)
 const pageCollections = ref<Collection[]>([])
 
+// Guests may read the page in the public help centre
+const isPublic = ref(false)
+const originalPublic = ref(false)
+
 const hasChanges = computed(() => {
   if (mode.value !== originalMode.value) return true
+  if (isPublic.value !== originalPublic.value) return true
   if (mode.value === 'custom') {
     if (selectedItems.value.length !== originalItems.value.length) return true
     const origKeys = new Set(originalItems.value.map(i => `${i.type}:${i.id}`))
@@ -60,7 +66,13 @@ const save = async () => {
   }
   // 'inherit' mode sends empty arrays to clear override
 
-  const success = await setPageVisibility(props.pageId, groupIds, userUuids, mode.value === 'custom')
+  const success = await setPageVisibility(
+    props.pageId,
+    groupIds,
+    userUuids,
+    mode.value === 'custom',
+    isPublic.value,
+  )
   saving.value = false
   if (success) {
     emit('updated')
@@ -76,6 +88,8 @@ onMounted(async () => {
   ])
 
   pageCollections.value = collections
+  isPublic.value = visibility.is_public === true
+  originalPublic.value = isPublic.value
 
   const hasOverride =
     visibility.restricted ?? (visibility.groups.length > 0 || visibility.users.length > 0)
@@ -182,6 +196,13 @@ onMounted(async () => {
               {{ $t('docs-page-permissions-no-selection-warning') }}
             </p>
           </div>
+
+          <ToggleSwitch
+            v-model="isPublic"
+            class="mt-4"
+            :label="$t('docs-page-permissions-public-label')"
+            :description="$t('docs-page-permissions-public-description')"
+          />
     </template>
 
     <template #footer>

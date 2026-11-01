@@ -6055,6 +6055,9 @@ docs-page-permissions-no-collections = In geen enkele collectie, zichtbaar voor 
 docs-page-permissions-custom-description = Selecteer welke groepen en gebruikers toegang hebben tot deze pagina. Dit overschrijft de rechten op collectieniveau.
 docs-page-permissions-picker-placeholder = Zoek gebruikers en groepen...
 docs-page-permissions-no-selection-warning = Geen groepen of gebruikers geselecteerd, niemand behalve beheerders kan deze pagina zien.
+# (machine, nog na te kijken door moedertaalspreker)
+docs-page-permissions-public-label = Tonen aan gasten
+docs-page-permissions-public-description = Als openbare documentatie aan staat, kan iedereen deze pagina lezen onder Help in het portaal, zolang ze gepubliceerd is en voor iedereen open staat.
 docs-page-permissions-cancel = Annuleren
 docs-page-permissions-save = Opslaan
 docs-page-permissions-saving = Opslaan...

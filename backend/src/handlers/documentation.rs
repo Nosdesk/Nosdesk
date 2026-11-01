@@ -875,6 +875,9 @@ pub async fn create_documentation_page(
     let user_uuid = auth.user_uuid;
     let audience = repository::PageAudience::from_auth(&auth);
     let request = page_request.into_inner();
+    if request.is_public == Some(true) {
+        return errors::bad_request(PUBLIC_ON_VISIBILITY);
+    }
 
     // Parse status string to enum
     let status = match request.status.as_deref() {
@@ -927,7 +930,7 @@ pub async fn create_documentation_page(
             last_edited_by: user_uuid,
             parent_id: request.parent_id,
             display_order: request.display_order.or(Some(0)),
-            is_public: request.is_public.unwrap_or(false),
+            is_public: false,
             is_template: request.is_template.unwrap_or(false),
             yjs_state_vector: request.yjs_state_vector.clone(),
             yjs_document: request.yjs_document.clone(),
@@ -1038,6 +1041,9 @@ enum CreatePageOutcome {
 /// A parent the repository refused: not a page in this workspace, or the page
 /// itself or one inside it. A page the caller can't see is refused the same way.
 const INVALID_PARENT: &str = "Invalid parent page";
+/// A page is made public with its other access rules, by an admin.
+const PUBLIC_ON_VISIBILITY: &str =
+    "Set is_public with PUT /documentation/pages/{id}/visibility (admins only)";
 
 /// A collection that doesn't exist or that the caller can't see.
 const INVALID_COLLECTION: &str = "Invalid collection";
@@ -1084,7 +1090,6 @@ impl UpdateDocumentationPageRequest {
             || self
                 .display_order
                 .is_some_and(|d| page.display_order != Some(d))
-            || differs(self.is_public.as_ref(), &page.is_public)
             || differs(self.is_template.as_ref(), &page.is_template)
     }
 }
@@ -1095,6 +1100,8 @@ enum UpdatePageOutcome {
     Unchanged(DocumentationPageResponse),
     NotFound,
     InvalidParent,
+    /// `is_public` asked to change here rather than on the page's visibility.
+    PublicNotHere,
     UpdateFailed,
     ResponseBuildFailed(String),
 }
@@ -1144,6 +1151,9 @@ pub async fn update_documentation_page(
         }
 
         let current = repository::get_documentation_page(page_id, conn)?;
+        if update_req.is_public.is_some_and(|p| p != current.is_public) {
+            return Ok(UpdatePageOutcome::PublicNotHere);
+        }
         if !update_req.changes(&current) {
             return Ok(match to_page_response(current, conn) {
                 Ok(r) => UpdatePageOutcome::Unchanged(r),
@@ -1177,7 +1187,7 @@ pub async fn update_documentation_page(
             last_edited_by: Some(user_uuid),
             parent_id: update_req.parent_id,
             display_order: update_req.display_order,
-            is_public: update_req.is_public,
+            is_public: None,
             is_template: update_req.is_template,
             archived_at,
             yjs_state_vector: None,
@@ -1218,6 +1228,7 @@ pub async fn update_documentation_page(
             return errors::not_found_msg("Documentation page not found");
         }
         Ok(UpdatePageOutcome::InvalidParent) => return errors::bad_request(INVALID_PARENT),
+        Ok(UpdatePageOutcome::PublicNotHere) => return errors::bad_request(PUBLIC_ON_VISIBILITY),
         Ok(UpdatePageOutcome::UpdateFailed) => {
             return errors::internal("Failed to update documentation page");
         }
@@ -2206,16 +2217,19 @@ pub async fn get_page_visibility(
         }
         let groups = repository::get_visible_groups_for_page(conn, page_id)?;
         let users = repository::get_visible_users_for_page(conn, page_id)?;
-        let restricted = repository::get_documentation_page(page_id, conn)?.restricted;
-        Ok::<_, diesel::result::Error>(Some((restricted, groups, users)))
+        let page = repository::get_documentation_page(page_id, conn)?;
+        Ok::<_, diesel::result::Error>(Some((page.restricted, page.is_public, groups, users)))
     });
 
     match result {
-        Ok(Some((restricted, groups, users))) => HttpResponse::Ok().json(serde_json::json!({
-            "restricted": restricted,
-            "groups": groups,
-            "users": users,
-        })),
+        Ok(Some((restricted, is_public, groups, users))) => {
+            HttpResponse::Ok().json(serde_json::json!({
+                "restricted": restricted,
+                "is_public": is_public,
+                "groups": groups,
+                "users": users,
+            }))
+        }
         Ok(None) => errors::not_found_msg("Page not found"),
         Err(e) => {
             error!(error = ?e, "Failed to get page visibility");
@@ -2232,6 +2246,9 @@ pub struct SetPageVisibilityRequest {
     /// only when there are none. Omitted, it follows from whether any grant
     /// is given.
     pub restricted: Option<bool>,
+    /// Guests may read the page in the public help centre (when the
+    /// workspace has public documentation on). Omitted, it stays as it is.
+    pub is_public: Option<bool>,
 }
 
 /// Set visibility groups for a documentation page (admin only)
@@ -2271,6 +2288,7 @@ pub async fn set_page_visibility(
             restricted,
             body.group_ids.clone(),
             user_uuids.clone(),
+            body.is_public,
             created_by,
         )
     }) {

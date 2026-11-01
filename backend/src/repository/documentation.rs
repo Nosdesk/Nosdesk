@@ -1254,7 +1254,7 @@ pub fn copy_page_rules(
         .load(conn)?;
     let groups: Vec<i32> = rules.iter().filter_map(|(g, _)| *g).collect();
     let users: Vec<uuid::Uuid> = rules.iter().filter_map(|(_, u)| *u).collect();
-    set_page_rules(conn, to, true, groups, users, created_by)?;
+    set_page_rules(conn, to, true, groups, users, None, created_by)?;
     Ok(())
 }
 
@@ -1322,19 +1322,24 @@ pub fn set_page_visibility(
     created_by: Option<uuid::Uuid>,
 ) -> Result<Vec<DocumentationPageVisibility>, Error> {
     let restricted = !(group_ids.is_empty() && user_uuids.is_empty());
-    set_page_rules(conn, page_id, restricted, group_ids, user_uuids, created_by)
+    set_page_rules(
+        conn, page_id, restricted, group_ids, user_uuids, None, created_by,
+    )
 }
 
 /// Set a page's own rules (delete-all + re-insert). `restricted` gives the
 /// page its own rules: open only to the grants, or to admins only when there
 /// are none. Unrestricted drops the grants and the page follows its
-/// collection.
+/// collection. `is_public`, when given, says whether guests may read it too
+/// (`PageAudience::Guest`); this is the one place it is written, so who may
+/// open a page is set in one transaction under one permission.
 pub fn set_page_rules(
     conn: &mut DbConnection,
     page_id: i32,
     restricted: bool,
     group_ids: Vec<i32>,
     user_uuids: Vec<uuid::Uuid>,
+    is_public: Option<bool>,
     created_by: Option<uuid::Uuid>,
 ) -> Result<Vec<DocumentationPageVisibility>, Error> {
     let (group_ids, user_uuids) = if restricted {
@@ -1348,10 +1353,14 @@ pub fn set_page_rules(
         let current: Vec<DocumentationPageVisibility> = documentation_page_visibility::table
             .filter(documentation_page_visibility::page_id.eq(page_id))
             .load(conn)?;
-        let was_restricted: bool = documentation_pages::table
+        let (was_restricted, was_public): (bool, bool) = documentation_pages::table
             .find(page_id)
-            .select(documentation_pages::restricted)
+            .select((
+                documentation_pages::restricted,
+                documentation_pages::is_public,
+            ))
             .first(conn)?;
+        let is_public = is_public.unwrap_or(was_public);
         let same_groups = current
             .iter()
             .filter_map(|v| v.group_id)
@@ -1362,11 +1371,14 @@ pub fn set_page_rules(
             .filter_map(|v| v.user_uuid)
             .collect::<std::collections::BTreeSet<_>>()
             == user_uuids.iter().copied().collect();
-        if was_restricted == restricted && same_groups && same_users {
+        if was_restricted == restricted && was_public == is_public && same_groups && same_users {
             return Ok(current);
         }
         diesel::update(documentation_pages::table.find(page_id))
-            .set(documentation_pages::restricted.eq(restricted))
+            .set((
+                documentation_pages::restricted.eq(restricted),
+                documentation_pages::is_public.eq(is_public),
+            ))
             .execute(conn)?;
         // Delete all existing page-level visibility entries
         diesel::delete(

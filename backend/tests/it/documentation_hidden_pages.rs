@@ -1429,6 +1429,104 @@ async fn the_portal_serves_no_page_a_restriction_covers() {
     );
 }
 
+/// Whether guests may read a page is set with its other access rules, on the
+/// admin-only visibility route. A page update or create that would make it
+/// public is refused and changes nothing.
+#[actix_web::test]
+async fn only_an_admin_makes_a_page_public_and_only_with_its_rules() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let f = setup(&pool);
+    let ws = f.workspace.workspace_id;
+    let open_slug = run_in_workspace(&pool, REF, ws, |c| {
+        use backend::schema::{documentation_pages as dp, site_settings};
+        backend::repository::site_settings::get_site_settings(c)?;
+        diesel::update(site_settings::table)
+            .set(site_settings::guest_public_docs_enabled.eq(true))
+            .execute(c)?;
+        diesel::update(dp::table.find(f.open))
+            .set(dp::status.eq(DocumentationStatus::Published))
+            .execute(c)?;
+        dp::table.find(f.open).select(dp::slug).first::<String>(c)
+    })
+    .expect("publish the open page");
+    let app = docs_and_sync_app!(pool, f.workspace.clone());
+    let public = format!("/api/public/docs/{open_slug}");
+    let page = format!("/api/documentation/pages/{}", f.open);
+    let visibility = format!("{page}/visibility");
+    let call = |method: Method, uri: &str, user: Uuid, body: Value| {
+        request(method, uri, user, Some(body)).to_request()
+    };
+
+    // An agent can't make it public, on the page or its rules.
+    let resp = http_test::call_service(
+        &app,
+        call(Method::PUT, &page, f.outsider, json!({ "is_public": true })),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let resp = http_test::call_service(
+        &app,
+        call(
+            Method::PUT,
+            &visibility,
+            f.outsider,
+            json!({ "group_ids": [], "is_public": true }),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let resp = http_test::call_service(
+        &app,
+        call(
+            Method::POST,
+            "/api/documentation/pages",
+            f.outsider,
+            json!({ "title": "Made public on create", "is_public": true }),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        status_of!(app, f.outsider, public.clone()),
+        StatusCode::NOT_FOUND
+    );
+
+    // An admin does, with the page's rules, and can take it back.
+    let resp = http_test::call_service(
+        &app,
+        call(
+            Method::PUT,
+            &visibility,
+            f.admin,
+            json!({ "group_ids": [], "is_public": true }),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(status_of!(app, f.outsider, public.clone()), StatusCode::OK);
+    let resp = http_test::call_service(
+        &app,
+        request(Method::GET, &visibility, f.admin, None).to_request(),
+    )
+    .await;
+    let rules: Value = http_test::read_body_json(resp).await;
+    assert_eq!(rules["is_public"], true, "{rules}");
+    let resp = http_test::call_service(
+        &app,
+        call(
+            Method::PUT,
+            &visibility,
+            f.admin,
+            json!({ "group_ids": [], "is_public": false }),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(status_of!(app, f.outsider, public), StatusCode::NOT_FOUND);
+}
+
 /// Leaving the only group a collection is shared with reaches the client as
 /// deletes of the collection and its pages.
 #[actix_web::test]
