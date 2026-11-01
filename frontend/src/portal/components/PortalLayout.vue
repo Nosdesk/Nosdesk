@@ -26,7 +26,8 @@ import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
 import NoticeBanner from '@/components/requester/NoticeBanner.vue'
 
 import PortalAvatar from './PortalAvatar.vue'
-import { followNotice, getMe, getNotice, listMyApprovals, signOut } from '../service'
+import { followNotice, getNotice, listMyApprovals, signOut } from '../service'
+import { usePortalMe } from '../usePortalMe'
 import { embedHost } from '../embed'
 
 withDefaults(defineProps<{ wide?: boolean }>(), { wide: false })
@@ -47,9 +48,7 @@ const publicSettings = usePublicSettingsStore()
 void publicSettings.load()
 const helpCentre = computed(() => publicSettings.settings?.guest_public_docs_enabled === true)
 
-const me = useQuery({ key: ['portal', 'me'], query: getMe })
-// Opened from a request's email link: that request only, until they sign in.
-const linkSession = computed(() => me.data.value?.scope?.kind === 'ticket')
+const { me, linkSession } = usePortalMe()
 // Shown only to people with requests waiting for their approval.
 const approvals = useQuery({ key: ['portal', 'approvals'], query: listMyApprovals })
 const waitingApprovals = computed(() => approvals.data.value?.length ?? 0)
