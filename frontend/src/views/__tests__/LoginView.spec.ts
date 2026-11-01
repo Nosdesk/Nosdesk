@@ -114,6 +114,7 @@ describe('LoginView after a sign-in the callback could not finish', () => {
     ['state_expired', 'login-error-state-expired'],
     ['provider_denied', 'login-error-provider-denied'],
     ['signin_failed', 'login-error-signin-failed'],
+    ['provider_mfa', 'login-error-provider-mfa'],
   ])('explains %s and does not start sign-in again by itself', async (code, message) => {
     route.query = { auth_error: code }
     wrapper = mountWithProviders(LoginView)

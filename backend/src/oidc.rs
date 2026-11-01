@@ -578,7 +578,8 @@ pub async fn verify_native_id_token(
 /// (equivalent to, and stronger than, reading the `tid` claim by hand). The
 /// verifier also checks the JWKS signature, the audience (== `client_id`) and
 /// expiry; `nonce` is the flow's replay protection, echoed by Azure. Returns
-/// the token's `auth_time`, when it carries one.
+/// what the token says about the sign-in (`auth_time`, `amr`), each only when
+/// the app registration asks for it as an optional claim.
 ///
 /// Requires a SPECIFIC tenant (GUID or verified domain): a multi-tenant
 /// authority (`common`/`organizations`/`consumers`) has no concrete issuer to
@@ -589,7 +590,7 @@ pub async fn verify_microsoft_id_token(
     tenant_id: &str,
     client_id: &str,
     nonce: &str,
-) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+) -> Result<crate::services::step_up::ProviderClaims, String> {
     use std::str::FromStr;
 
     let issuer = IssuerUrl::new(format!(
@@ -612,7 +613,12 @@ pub async fn verify_microsoft_id_token(
     let claims = id_token
         .claims(&verifier, &expected_nonce)
         .map_err(|e| format!("Microsoft ID token verification failed: {e}"))?;
-    Ok(claims.auth_time())
+    Ok(crate::services::step_up::ProviderClaims {
+        auth_time: claims.auth_time(),
+        amr: claims
+            .auth_method_refs()
+            .map(|amr| amr.iter().map(|m| m.as_str().to_owned()).collect()),
+    })
 }
 
 /// Verify ID token signature and claims

@@ -6,8 +6,8 @@
 //! one browser never covers another. What sets it:
 //! - a sign-in that checked a credential (password, LDAP, passkey, code): the
 //!   moment it did;
-//! - a provider sign-in: the id_token's `auth_time`, so a remembered sign-in
-//!   that asked for nothing proves nothing;
+//! - a provider sign-in: the id_token's `auth_time` ([`ProviderClaims`]), so
+//!   a remembered sign-in that asked for nothing proves nothing;
 //! - a confirmation in the step-up dialog: password, authenticator code,
 //!   passkey, or a fresh provider sign-in (`handlers::step_up`).
 //!
@@ -20,6 +20,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::{StepUpCredential, User};
 use crate::repository;
+use crate::services::sso_policy::AdmittedProvider;
 
 /// How long a confirmation covers: long enough to finish a task (an admin
 /// removing several people confirms once), short enough that a stolen
@@ -39,36 +40,25 @@ pub const CLOCK_SKEW_SECS: i64 = 30;
 pub const PROVIDER_MAX_AGE_SECS: u64 = (WINDOW_MINUTES * 60) as u64;
 
 /// What the sign-in that creates a session proved.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum SignInProof<'a> {
     /// A password, LDAP password, passkey or authenticator code, just now.
     Credential,
-    /// A provider sign-in. `id_token` is kept on the session for sign-out;
-    /// `auth_time` is when the provider last checked a credential, absent
-    /// when it doesn't say.
-    Provider {
-        id_token: Option<&'a str>,
-        auth_time: Option<DateTime<Utc>>,
-    },
+    /// A provider sign-in, admitted by the SSO policy
+    /// ([`crate::services::sso_policy::admit`], the only way to make one).
+    Provider(AdmittedProvider<'a>),
     /// Nothing checked here (a legacy refresh, a portal sign-in).
     Nothing,
 }
 
 impl<'a> SignInProof<'a> {
-    /// A provider sign-in, reading `auth_time` from its id_token.
-    pub fn provider(id_token: &'a str) -> Self {
-        Self::Provider {
-            id_token: Some(id_token),
-            auth_time: id_token_auth_time(id_token),
-        }
-    }
-
-    /// The session's `confirmed_at` at creation.
+    /// The session's `confirmed_at` at creation: a provider sign-in counts
+    /// from its `auth_time`, absent when the provider doesn't say.
     pub fn confirmed_at(&self, now: DateTime<Utc>) -> Option<NaiveDateTime> {
         match self {
             Self::Credential => Some(now.naive_utc()),
             // A provider clock ahead of ours must not stretch the window.
-            Self::Provider { auth_time, .. } => auth_time.map(|t| t.min(now).naive_utc()),
+            Self::Provider(p) => p.claims().auth_time.map(|t| t.min(now).naive_utc()),
             Self::Nothing => None,
         }
     }
@@ -76,26 +66,60 @@ impl<'a> SignInProof<'a> {
     /// The provider id_token to keep on the session.
     pub fn id_token(&self) -> Option<&'a str> {
         match self {
-            Self::Provider { id_token, .. } => *id_token,
+            Self::Provider(p) => p.id_token(),
+            _ => None,
+        }
+    }
+
+    /// How the provider checked who signed in (`amr`), to keep on the
+    /// session. `None` for any other sign-in.
+    pub fn provider_amr(&self) -> Option<&[String]> {
+        match self {
+            Self::Provider(p) => Some(p.claims().amr.as_deref().unwrap_or_default()),
             _ => None,
         }
     }
 }
 
-/// The `auth_time` an id_token carries. No signature check: callers pass a
-/// token they just verified, or the copy kept on their own session row.
-pub fn id_token_auth_time(id_token: &str) -> Option<DateTime<Utc>> {
-    use base64::Engine as _;
-    #[derive(serde::Deserialize)]
-    struct Claims {
-        auth_time: Option<i64>,
+/// What a provider's id_token says about the sign-in.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderClaims {
+    /// When the provider last checked a credential.
+    pub auth_time: Option<DateTime<Utc>>,
+    /// How it checked (`amr`, RFC 8176), in the provider's own words.
+    /// `None` when the token doesn't say.
+    pub amr: Option<Vec<String>>,
+}
+
+impl ProviderClaims {
+    /// Read from an id_token. No signature check: callers pass a token they
+    /// just verified, or the copy kept on their own session row.
+    pub fn from_id_token(id_token: &str) -> Self {
+        use base64::Engine as _;
+        #[derive(serde::Deserialize)]
+        struct Claims {
+            auth_time: Option<i64>,
+            amr: Option<Vec<String>>,
+        }
+        let claims = id_token
+            .split('.')
+            .nth(1)
+            .and_then(|p| {
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(p.trim_end_matches('='))
+                    .ok()
+            })
+            .and_then(|b| serde_json::from_slice::<Claims>(&b).ok());
+        let Some(claims) = claims else {
+            return Self::default();
+        };
+        Self {
+            auth_time: claims
+                .auth_time
+                .and_then(|t| DateTime::from_timestamp(t, 0)),
+            amr: claims.amr,
+        }
     }
-    let payload = id_token.split('.').nth(1)?;
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload.trim_end_matches('='))
-        .ok()?;
-    let claims: Claims = serde_json::from_slice(&bytes).ok()?;
-    DateTime::from_timestamp(claims.auth_time?, 0)
 }
 
 /// Until when a session confirmed at `confirmed_at` stays confirmed, or
@@ -353,6 +377,10 @@ mod tests {
         )
     }
 
+    fn provider(id_token: &str) -> SignInProof<'_> {
+        SignInProof::Provider(AdmittedProvider::for_test(Uuid::nil(), Some(id_token)))
+    }
+
     #[test]
     fn a_confirmation_lasts_the_window_and_no_longer() {
         let now = Utc::now();
@@ -368,7 +396,7 @@ mod tests {
         let now = Utc::now();
         let earlier = now.timestamp() - 7 * 3600;
         let remembered = token_with(serde_json::json!({ "sub": "u", "auth_time": earlier }));
-        let proof = SignInProof::provider(&remembered);
+        let proof = provider(&remembered);
         assert_eq!(
             proof.confirmed_at(now).map(|t| t.and_utc().timestamp()),
             Some(earlier),
@@ -380,15 +408,32 @@ mod tests {
     #[test]
     fn a_provider_sign_in_without_auth_time_proves_nothing() {
         let token = token_with(serde_json::json!({ "sub": "u" }));
-        assert_eq!(SignInProof::provider(&token).confirmed_at(Utc::now()), None);
+        assert_eq!(provider(&token).confirmed_at(Utc::now()), None);
     }
 
     #[test]
     fn a_provider_clock_ahead_of_ours_does_not_stretch_the_window() {
         let now = Utc::now();
         let ahead = token_with(serde_json::json!({ "auth_time": now.timestamp() + 3600 }));
-        let at = SignInProof::provider(&ahead).confirmed_at(now).unwrap();
+        let at = provider(&ahead).confirmed_at(now).unwrap();
         assert!(at <= now.naive_utc());
+    }
+
+    #[test]
+    fn a_provider_sign_in_keeps_the_methods_the_provider_named() {
+        let token = token_with(serde_json::json!({ "sub": "u", "amr": ["pwd", "mfa"] }));
+        assert_eq!(
+            provider(&token).provider_amr(),
+            Some(&["pwd".to_owned(), "mfa".to_owned()][..])
+        );
+        let silent = token_with(serde_json::json!({ "sub": "u" }));
+        assert_eq!(ProviderClaims::from_id_token(&silent).amr, None);
+        assert_eq!(provider(&silent).provider_amr(), Some(&[][..]));
+        assert_eq!(SignInProof::Credential.provider_amr(), None);
+        assert_eq!(
+            ProviderClaims::from_id_token("not-a-jwt"),
+            ProviderClaims::default()
+        );
     }
 
     #[test]

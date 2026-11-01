@@ -59,6 +59,7 @@ fn a_requester_passes_the_portal_gate_on_hosted() {
                 expires_at: (now + chrono::Duration::hours(1)).naive_utc(),
                 oidc_id_token: None,
                 confirmed_at: None,
+                provider_amr: None,
             },
         )
         .expect("session")

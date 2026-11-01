@@ -253,6 +253,7 @@ login-error-generic = Sign-in failed. Please try again.
 login-error-state-expired = Your sign-in took too long. Please sign in again.
 login-error-provider-denied = Sign-in was cancelled.
 login-error-signin-failed = Sign-in couldn't be completed. Please try again.
+login-error-provider-mfa = Staff sign-in needs multi-factor authentication at your identity provider. Set it up there, or ask your administrator.
 login-mfa-title = Two-Factor Authentication
 login-mfa-subtitle = Please enter your authentication code
 login-mfa-code-label = Authentication Code

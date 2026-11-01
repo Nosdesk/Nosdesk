@@ -131,6 +131,7 @@ pub fn embedded_session(
             expires_at: expires,
             oidc_id_token: None,
             confirmed_at: None,
+            provider_amr: None,
         },
     )
 }
@@ -329,6 +330,7 @@ mod tests {
             expires_at: (Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
             confirmed_at: None,
+            provider_amr: None,
         }
     }
 
