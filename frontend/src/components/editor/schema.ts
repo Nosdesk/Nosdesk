@@ -362,6 +362,23 @@ export function safeLinkHref(href: unknown): string | null {
   return ['http', 'https', 'mailto', 'tel', 'nosdesk-import'].includes(scheme) ? href.trim() : null;
 }
 
+/** The address someone typed into the link dialog, or null to refuse it.
+ *  A bare host ("example.com", "localhost:8080/x") gains `https://`; a web,
+ *  mail or phone address or a same-origin path is kept; any other scheme
+ *  (`javascript:`, `data:`) is refused rather than prefixed. */
+export function linkFromInput(raw: string): string | null {
+  const typed = raw.trim();
+  if (!typed) return null;
+  const compact = typed.replace(/[\u0000-\u001F\u007F\s]+/g, '');
+  const hostWithPort = /^[^:/?#]+:\d+(?:[/?#]|$)/.test(compact);
+  const scheme = hostWithPort ? undefined : /^([a-z][a-z0-9+.-]*):/i.exec(compact)?.[1]?.toLowerCase();
+  if (scheme !== undefined) {
+    return ['http', 'https', 'mailto', 'tel'].includes(scheme) ? typed : null;
+  }
+  if (/^(\/(?!\/)|#|\?)/.test(compact)) return typed;
+  return `https://${typed.replace(/^\/\//, '')}`;
+}
+
 // Specs for the marks in the schema
 export const marks: {[key: string]: MarkSpec} = {
   // A link. Has `href` and `title` attributes

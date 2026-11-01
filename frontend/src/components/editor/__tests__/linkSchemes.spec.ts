@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DOMSerializer } from 'prosemirror-model'
-import { schema, safeLinkHref } from '../schema'
+import { schema, safeLinkHref, linkFromInput } from '../schema'
 
 describe('editor links', () => {
   it('keep web, mail, phone and same-origin addresses', () => {
@@ -23,5 +23,20 @@ describe('editor links', () => {
     )
     expect(html).not.toContain('javascript')
     expect(html).toContain('click')
+  })
+
+  it('the link dialog adds https to a bare host and keeps other safe addresses', () => {
+    expect(linkFromInput(' example.com/a ')).toBe('https://example.com/a')
+    expect(linkFromInput('localhost:8080/x')).toBe('https://localhost:8080/x')
+    expect(linkFromInput('//cdn.test/y')).toBe('https://cdn.test/y')
+    for (const typed of ['https://nosdesk.com', 'HTTP://x.test', 'mailto:a@b.test', 'tel:+61299999999', '/tickets/7', '#top']) {
+      expect(linkFromInput(typed)).toBe(typed)
+    }
+  })
+
+  it('the link dialog refuses other schemes instead of prefixing them', () => {
+    for (const typed of ['javascript:alert(document.domain)', ' java\tscript:alert(1)', 'data:text/html,x', 'vbscript:x', 'file:///etc/passwd', 'nosdesk-import:page', '   ']) {
+      expect(linkFromInput(typed)).toBeNull()
+    }
   })
 })

@@ -5282,6 +5282,8 @@ editor-link-tooltip-apply = Toepassen
 editor-link-tooltip-cancel = Annuleren
 editor-link-tooltip-edit = Link bewerken
 editor-link-tooltip-remove = Link verwijderen
+# (machine, nog na te kijken door moedertaalspreker)
+editor-link-tooltip-refused = Een link kan naar een web-, e-mail- of telefoonadres gaan.
 
 # Editor: documentkiezer (DocumentPicker)
 editor-doc-picker-title = Document insluiten
