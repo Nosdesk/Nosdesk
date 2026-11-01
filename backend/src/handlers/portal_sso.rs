@@ -316,8 +316,8 @@ pub async fn sso_callback(
         }
         Err(e) => Err(e),
     };
-    let info = match info {
-        Ok(info) => info,
+    let (info, sign_in) = match info {
+        Ok(found) => found,
         Err(e) => {
             tracing::warn!(error = %e, "portal sso: sign-in failed");
             return Ok(back_to_login("failed"));
@@ -351,12 +351,22 @@ pub async fn sso_callback(
         tracing::warn!("portal sso: the account isn't active");
         return Ok(back_to_login("failed"));
     };
+    // The workspace's provider keeps its id_token to itself (no single
+    // logout), so only its claims go on the session.
+    let proof = match crate::services::sso_policy::admit(&mut conn, &req, &user, None, sign_in) {
+        Ok(proof) => proof,
+        Err(crate::services::sso_policy::Refusal::MfaNotReported) => {
+            return Ok(back_to_login("mfa"))
+        }
+        Err(crate::services::sso_policy::Refusal::Unknown) => return Ok(back_to_login("failed")),
+    };
     let session = match mint_portal_session(
         &user,
         ws.workspace_uuid,
         &req,
         &mut conn,
         crate::handlers::portal::PortalScope::Full,
+        proof,
     ) {
         Ok(session) => session,
         Err(e) => {

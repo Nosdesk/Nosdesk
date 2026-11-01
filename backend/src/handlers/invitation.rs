@@ -369,6 +369,8 @@ pub async fn confirm_guest_submission(
             &http_request,
             &mut conn,
             crate::handlers::portal::PortalScope::Full,
+            // The confirmation link came to their inbox.
+            crate::handlers::auth::SignInProof::Credential,
         ) {
             Ok(session) => {
                 return Ok(HttpResponse::Ok()

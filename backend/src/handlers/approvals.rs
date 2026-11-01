@@ -148,6 +148,7 @@ pub async fn approval_link_callback(
         &req,
         &mut conn,
         crate::handlers::portal::PortalScope::Ticket(ticket_id),
+        crate::handlers::auth::SignInProof::Nothing,
     )?;
     Ok(HttpResponse::Found()
         .cookie(session.access)

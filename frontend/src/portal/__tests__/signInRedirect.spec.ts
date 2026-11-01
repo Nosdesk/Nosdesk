@@ -87,6 +87,28 @@ describe('portal sign-in', () => {
   })
 })
 
+describe('a sign-in the workspace provider could not finish', () => {
+  it('explains why, staff without multi-factor included', async () => {
+    const bundle = new FluentBundle('en-US', { useIsolating: false })
+    bundle.addResource(new FluentResource(enUS))
+    const message = (key: string) => bundle.formatPattern(bundle.getMessage(key)!.value!)
+    for (const [reason, key] of [
+      ['mfa', 'login-error-provider-mfa'],
+      ['domain', 'portal-sso-error-domain'],
+      ['failed', 'portal-sso-error'],
+    ]) {
+      const router = makeRouter()
+      await router.push(`/login?sso_error=${reason}`)
+      const wrapper = mount(LoginView, {
+        global: { plugins: [createFluentVue({ bundles: [bundle] }), router] },
+      })
+      await flushPromises()
+      expect(wrapper.find('[role="alert"]').text()).toBe(message(key))
+      wrapper.unmount()
+    }
+  })
+})
+
 describe('an expired portal session', () => {
   it('sends the requester to sign in with the page they were on', async () => {
     // The session can't be renewed: the refresh is refused.

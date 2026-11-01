@@ -993,8 +993,31 @@ pub fn configure_app(
                         crate::handlers::portal::portal_auth_middleware,
                     ))
                     .wrap(crate::middleware::RateLimit)
+                    // The person's own account, as `/api/account` is for the
+                    // agent app. First, so no portal pattern absorbs it.
+                    .service(
+                        web::scope("/account")
+                            .wrap(actix_web::middleware::from_fn(
+                                crate::handlers::account::full_portal_session,
+                            ))
+                            .configure(crate::handlers::account::config),
+                    )
                     .configure(crate::handlers::portal::config)
                     .configure(crate::handlers::approvals::portal_config),
+            )
+            // The person's own account from the agent app: a signed-in session
+            // only (no API tokens, as `/api/auth`), with the strict limiter for
+            // the password and code checks. The portal mounts the same routes
+            // under `/api/portal/account`.
+            .service(
+                web::scope("/api/account")
+                    .default_service(web::to(crate::errors::api_route_not_found))
+                    .app_data(state.public_limiter_data.clone())
+                    .wrap(actix_web::middleware::from_fn(
+                        crate::middleware::cookie_auth::cookie_auth_middleware,
+                    ))
+                    .wrap(crate::middleware::RateLimit)
+                    .configure(crate::handlers::account::config),
             )
             // Authentication routes (public by design)
             .service(

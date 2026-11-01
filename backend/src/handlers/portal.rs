@@ -295,23 +295,23 @@ pub(crate) fn embedded_sign_in(
 /// agent session machinery wholesale (`create_session_record`, refresh-token
 /// rotation, CSRF); only the access token's scope/binding and the cookie names
 /// are portal-specific.
+///
+/// `proof` is what the sign-in checked: a redeemed code or sign-in link proved
+/// the mailbox (`Credential`), so the new session counts as confirmed for the
+/// step-up window. A ticket's link and the app's hand-off prove nothing new.
 pub(crate) fn mint_portal_session(
     user: &User,
     workspace_uuid: Uuid,
     request: &HttpRequest,
     conn: &mut DbConnection,
     scope: PortalScope,
+    proof: crate::handlers::auth::SignInProof<'_>,
 ) -> Result<PortalSessionCookies, ApiError> {
-    let session = crate::handlers::auth::create_session_record(
-        &user.uuid,
-        request,
-        conn,
-        crate::handlers::auth::SignInProof::Nothing,
-    )
-    .map_err(|e| {
-        tracing::error!(error = ?e, "portal session: failed to create session record");
-        ApiError::Internal("Failed to establish session".into())
-    })?;
+    let session = crate::handlers::auth::create_session_record(&user.uuid, request, conn, proof)
+        .map_err(|e| {
+            tracing::error!(error = ?e, "portal session: failed to create session record");
+            ApiError::Internal("Failed to establish session".into())
+        })?;
     if let PortalScope::Ticket(ticket_id) = scope {
         crate::repository::active_sessions::limit_to_ticket(conn, &session.session_id, ticket_id)
             .map_err(|e| {
@@ -351,7 +351,14 @@ pub fn establish_portal_session(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<HttpResponse, ApiError> {
-    let session = mint_portal_session(user, workspace_uuid, request, conn, PortalScope::Full)?;
+    let session = mint_portal_session(
+        user,
+        workspace_uuid,
+        request,
+        conn,
+        PortalScope::Full,
+        crate::handlers::auth::SignInProof::Credential,
+    )?;
     Ok(HttpResponse::Ok()
         .cookie(session.access)
         .cookie(session.refresh)
@@ -666,6 +673,7 @@ pub async fn magic_link_callback(
         &req,
         &mut conn,
         PortalScope::Full,
+        crate::handlers::auth::SignInProof::Credential,
     )?;
     Ok(HttpResponse::Found()
         .cookie(session.access)
@@ -728,6 +736,7 @@ pub async fn ticket_link_callback(
         &req,
         &mut conn,
         PortalScope::Ticket(ticket_id),
+        crate::handlers::auth::SignInProof::Nothing,
     )?;
     // The link signs the ticket's id; the portal route takes its number.
     let number = crate::sync::session::run_in_workspace(
@@ -859,6 +868,7 @@ pub async fn sign_in_with_code(
         &req,
         &mut conn,
         PortalScope::Full,
+        crate::handlers::auth::SignInProof::Credential,
     )?;
     Ok(HttpResponse::Ok()
         .cookie(session.access)
@@ -918,8 +928,14 @@ pub async fn open_portal_from_app(
         .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
     let user = crate::repository::users::find_active_by_uuid(&auth.user_uuid, &mut conn)
         .map_err(|_| ApiError::Unauthorized("Sign in again".into()))?;
-    let session =
-        mint_portal_session(&user, ws.workspace_uuid, &req, &mut conn, PortalScope::Full)?;
+    let session = mint_portal_session(
+        &user,
+        ws.workspace_uuid,
+        &req,
+        &mut conn,
+        PortalScope::Full,
+        crate::handlers::auth::SignInProof::Nothing,
+    )?;
     Ok(HttpResponse::Found()
         .cookie(session.access)
         .cookie(session.refresh)
