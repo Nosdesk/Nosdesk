@@ -17,6 +17,7 @@ mod comment_formats;
 #[path = "../common/mod.rs"]
 mod common;
 
+mod account_surface;
 mod add_requester;
 mod admin_grant_needs_owner;
 mod admin_workspace_members;

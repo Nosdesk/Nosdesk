@@ -1423,9 +1423,17 @@ pub async fn get_current_user(
     req: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
-
     let claims = rbac::require_auth(&req)?;
+    Ok(HttpResponse::Ok().json(current_user_response(&req, &claims, &mut conn)?))
+}
 
+/// The caller's own profile, with their primary email, preferences and
+/// effective locale and timezone. `/auth/me` and `/account` answer with it.
+pub(crate) fn current_user_response(
+    req: &HttpRequest,
+    claims: &crate::models::Claims,
+    conn: &mut DbConnection,
+) -> Result<crate::models::UserResponse, ApiError> {
     // Parse UUID from claims
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
@@ -1435,10 +1443,10 @@ pub async fn get_current_user(
     // Pin the request's workspace so the user's workspace_role resolves
     // under RLS (workspace_members is workspace-isolated). Without this the
     // /me response carries a null workspace_role in hosted multi-tenant mode.
-    helpers::pin_request_workspace(&req, &mut conn);
+    helpers::pin_request_workspace(req, conn);
 
     // Get user from database using claims
-    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
+    let user = match repository::get_user_by_uuid(&user_uuid, conn) {
         Ok(user) => user,
         Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
@@ -1446,8 +1454,7 @@ pub async fn get_current_user(
     // Flatten user_preferences + primary_email into the response so
     // /me carries the same shape it did before the preferences
     // refactor.
-    let mut response =
-        crate::repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+    let mut response = crate::repository::user_helpers::get_user_with_primary_email(user, conn);
 
     // Populate effective_locale / effective_timezone by walking the
     // chain: user pref -> site default -> hardcoded fallback. A
@@ -1462,8 +1469,8 @@ pub async fn get_current_user(
     // read site_settings through with_actor_context with a
     // workspace pin from the request's RequestContext.
     let (default_locale, default_timezone) = {
-        let actor = crate::handlers::helpers::actor_for(&req, "handler:auth_me");
-        match crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        let actor = crate::handlers::helpers::actor_for(req, "handler:auth_me");
+        match crate::sync::session::with_actor_context(conn, &actor, |c| {
             crate::repository::site_settings::get_site_settings(c)
         }) {
             Ok(s) => (s.default_locale, s.default_timezone),
@@ -1477,7 +1484,7 @@ pub async fn get_current_user(
     response.effective_locale = Some(eff_locale.to_string());
     response.effective_timezone = Some(eff_timezone.name().to_string());
 
-    Ok(HttpResponse::Ok().json(response))
+    Ok(response)
 }
 
 /// Check if system requires initial setup
@@ -1963,8 +1970,8 @@ pub async fn mfa_disable(
         None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
-    // Verify scope - must be "full" (MFA disable requires being fully authenticated)
-    if claims.scope != "full" {
+    // A signed-in session, not an MFA-pending one.
+    if !claims.is_account_session() {
         return Err(ApiError::Forbidden(
             "This action requires a full session".into(),
         ));
@@ -2621,7 +2628,7 @@ pub(crate) async fn verify_step_up(
     refused: &str,
 ) -> Result<(), ApiError> {
     use crate::services::step_up;
-    if claims.scope != "full" {
+    if !claims.is_account_session() {
         return Err(ApiError::Forbidden(
             "This action requires a full session".into(),
         ));

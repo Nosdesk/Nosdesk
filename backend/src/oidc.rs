@@ -858,12 +858,13 @@ pub fn begin_provider_login(client: &OidcClientKind, state: String) -> (String, 
 }
 
 /// Finish a sign-in with a workspace provider: exchange the code and verify the
-/// ID token (signature, issuer, audience, expiry, nonce).
+/// ID token (signature, issuer, audience, expiry, nonce). Returns the person
+/// and what the token says about the sign-in.
 pub async fn finish_provider_login(
     client: &OidcClientKind,
     code: &str,
     auth_data: &OidcAuthData,
-) -> Result<OidcUserInfo, String> {
+) -> Result<(OidcUserInfo, crate::services::step_up::ProviderClaims), String> {
     let token_response = client
         .exchange_code(
             AuthorizationCode::new(code.to_string()),
@@ -899,7 +900,13 @@ pub async fn finish_provider_login(
             }
         }
     }
-    Ok(info)
+    let sign_in = crate::services::step_up::ProviderClaims {
+        auth_time: claims.auth_time(),
+        amr: claims
+            .auth_method_refs()
+            .map(|amr| amr.iter().map(|m| m.as_str().to_owned()).collect()),
+    };
+    Ok((info, sign_in))
 }
 
 #[cfg(test)]
