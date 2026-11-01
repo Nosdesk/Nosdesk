@@ -4752,6 +4752,7 @@ editor-link-tooltip-apply = Apply
 editor-link-tooltip-cancel = Cancel
 editor-link-tooltip-edit = Edit link
 editor-link-tooltip-remove = Remove link
+editor-link-tooltip-refused = Links can go to a web, email or phone address.
 
 # Editor: document picker (DocumentPicker)
 editor-doc-picker-title = Embed Document

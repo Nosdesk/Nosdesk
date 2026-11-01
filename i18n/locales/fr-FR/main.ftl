@@ -5292,6 +5292,8 @@ editor-link-tooltip-apply = Appliquer
 editor-link-tooltip-cancel = Annuler
 editor-link-tooltip-edit = Modifier le lien
 editor-link-tooltip-remove = Supprimer le lien
+# (machine, à relire par un locuteur natif)
+editor-link-tooltip-refused = Un lien peut mener à une adresse web, e-mail ou téléphone.
 
 # Éditeur : sélecteur de document (DocumentPicker)
 editor-doc-picker-title = Intégrer un document
