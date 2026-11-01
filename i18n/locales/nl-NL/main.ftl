@@ -9268,6 +9268,9 @@ portal-sso-error-domain = Met dat account kun je hier niet aanmelden. Vul hieron
 portal-nav-requests = Mijn verzoeken
 portal-nav-help = Help
 portal-nav-new = Nieuw verzoek
+# (machine, nog na te kijken door moedertaalspreker)
+portal-link-session-notice = U hebt deze aanvraag geopend via een link in een e-mail.
+portal-link-session-sign-in = Meld u aan om al uw aanvragen te zien
 portal-sign-out = Uitloggen
 portal-filter-open = Open
 portal-filter-closed = Gesloten

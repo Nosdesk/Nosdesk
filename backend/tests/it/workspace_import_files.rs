@@ -321,6 +321,7 @@ macro_rules! app_as {
             user_uuid: user,
             workspace_id,
             workspace_uuid,
+            scope: backend::handlers::portal::PortalScope::Full,
         };
         let corr = Uuid::now_v7();
         let actor = ActorContext::user(user, Some(corr)).with_workspace(workspace_id);

@@ -206,6 +206,7 @@ impl Fixture {
             user_uuid: user,
             workspace_id: WS,
             workspace_uuid: self.workspace_uuid,
+            scope: backend::handlers::portal::PortalScope::Full,
         };
         actix_test::start(move || {
             let corr = Uuid::now_v7();

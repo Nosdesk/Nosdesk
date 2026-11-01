@@ -237,6 +237,31 @@ pub fn revoke_other_sessions_by_uuid(
 }
 
 // sync-audit-only: Sessions / auth tokens (covered by security_events)
+/// Limit session `sid` to one ticket: a portal session opened from that
+/// ticket's link.
+pub fn limit_to_ticket(
+    conn: &mut DbConnection,
+    sid: &Uuid,
+    ticket_id: i32,
+) -> Result<usize, diesel::result::Error> {
+    diesel::update(active_sessions::table.filter(active_sessions::session_id.eq(sid)))
+        .set(active_sessions::scope_ticket_id.eq(Some(ticket_id)))
+        .execute(conn)
+}
+
+/// The ticket session `sid` is limited to, if any. `NotFound` when there is
+/// no such session.
+pub fn ticket_scope(
+    conn: &mut DbConnection,
+    sid: &Uuid,
+) -> Result<Option<i32>, diesel::result::Error> {
+    active_sessions::table
+        .filter(active_sessions::session_id.eq(sid))
+        .select(active_sessions::scope_ticket_id)
+        .first(conn)
+}
+
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Record that session `sid` of `user_uuid` proved who is using it at `at`,
 /// and when `id_token` is given, keep it as the session's provider id_token
 /// (a fresh provider sign-in starts a new provider session). Never moves the

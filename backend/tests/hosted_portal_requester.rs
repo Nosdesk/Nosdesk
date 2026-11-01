@@ -47,13 +47,29 @@ fn a_requester_passes_the_portal_gate_on_hosted() {
     };
     let authorize = |user: uuid::Uuid| {
         let now = chrono::Utc::now();
+        // A portal token names its session, whose record holds its scope.
+        let sid = backend::repository::active_sessions::create_session(
+            &mut pool.get().expect("conn"),
+            backend::models::NewActiveSession {
+                user_uuid: user,
+                device_name: None,
+                ip_address: None,
+                user_agent: None,
+                location: None,
+                expires_at: (now + chrono::Duration::hours(1)).naive_utc(),
+                oidc_id_token: None,
+                confirmed_at: None,
+            },
+        )
+        .expect("session")
+        .session_id;
         let claims = Claims {
             sub: user.to_string(),
             name: "Customer".to_string(),
             email: String::new(),
             platform_role: "user".to_string(),
             scope: PORTAL_SCOPE.to_string(),
-            sid: Some(uuid::Uuid::new_v4().to_string()),
+            sid: Some(sid.to_string()),
             workspace_uuid: Some(origin.workspace_uuid),
             exp: (now + chrono::Duration::hours(1)).timestamp() as usize,
             iat: now.timestamp() as usize,

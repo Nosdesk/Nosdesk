@@ -22,9 +22,12 @@ pub struct ActiveSession {
     /// NULL for local/password logins.
     pub oidc_id_token: Option<String>,
     /// When the session last proved who is using it (see
-    /// `services::step_up`). Queryable is positional, so this must stay last,
-    /// matching the appended column in the schema.
+    /// `services::step_up`). Queryable is positional, so the fields follow
+    /// the schema's column order.
     pub confirmed_at: Option<chrono::NaiveDateTime>,
+    /// A portal session opened from a ticket's link reaches only that ticket
+    /// (`handlers::portal::PortalScope`). NULL for every other session.
+    pub scope_ticket_id: Option<i32>,
 }
 
 /// New active session for creation

@@ -96,6 +96,8 @@ export interface PortalMe {
   name: string
   email: string | null
   effective_locale: string
+  /** A session opened from a request's email link reaches that request alone. */
+  scope?: { kind: 'full' } | { kind: 'ticket'; ticket_number: number | null }
 }
 
 /** Closed means resolved, cancelled or merged into another request. */

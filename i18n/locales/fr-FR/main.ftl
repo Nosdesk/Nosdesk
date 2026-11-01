@@ -9277,6 +9277,9 @@ portal-sso-error-domain = Ce compte ne peut pas se connecter ici. Saisissez plut
 portal-nav-requests = Mes demandes
 portal-nav-help = Aide
 portal-nav-new = Nouvelle demande
+# (machine, à relire par un locuteur natif)
+portal-link-session-notice = Vous avez ouvert cette demande depuis un lien reçu par e-mail.
+portal-link-session-sign-in = Connectez-vous pour voir toutes vos demandes
 portal-sign-out = Se déconnecter
 portal-filter-open = En cours
 portal-filter-closed = Clôturées
