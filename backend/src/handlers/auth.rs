@@ -380,6 +380,9 @@ pub fn create_session_record(
         expires_at: crate::utils::session_policy::next_expiry(chrono::Utc::now().naive_utc()),
         oidc_id_token: proof.id_token().map(str::to_owned),
         confirmed_at: proof.confirmed_at(chrono::Utc::now()),
+        provider_amr: proof
+            .provider_amr()
+            .map(|amr| amr.iter().cloned().map(Some).collect()),
     };
 
     let (session, evicted) =
@@ -449,6 +452,17 @@ pub(crate) fn establish_login_session(
     proof: SignInProof<'_>,
 ) -> Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens), ApiError> {
     let user_uuid = user.uuid;
+    if let SignInProof::Provider(admitted) = &proof {
+        if admitted.user_uuid() != user_uuid {
+            tracing::error!(user_uuid = %user_uuid, "Provider sign-in admitted for another account");
+            return Err(ApiError::Internal(
+                "Failed to create authentication session".into(),
+            ));
+        }
+    }
+    let details = proof
+        .provider_amr()
+        .map(|amr| json!({ "via": "provider", "amr": amr }));
 
     // Pin the request's workspace so the login response's workspace_role
     // resolves under RLS (workspace_members is workspace-isolated).
@@ -474,7 +488,7 @@ pub(crate) fn establish_login_session(
             user_uuid: Some(user_uuid),
             event_type: "login_success",
             severity: "info",
-            details: None,
+            details,
             request: Some(request),
         },
     );
@@ -2515,6 +2529,9 @@ pub async fn get_user_sessions(
                 "created_at": session.created_at,
                 "last_active": session.last_active,
                 "expires_at": session.expires_at,
+                // How the identity provider checked who signed in (`amr`);
+                // null for a sign-in that didn't go through one.
+                "provider_amr": session.provider_amr.map(|amr| amr.into_iter().flatten().collect::<Vec<_>>()),
                 "is_current": is_current
             })
         })
@@ -3143,6 +3160,33 @@ mod tests {
     use super::*;
     use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
     use actix_web::{http::StatusCode, test, App};
+
+    #[actix_web::test]
+    async fn a_provider_session_keeps_how_the_provider_checked() {
+        use crate::services::sso_policy::AdmittedProvider;
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "SSO Session", "technician");
+        let request = test::TestRequest::default().to_http_request();
+        let (h, p) = (r#"{"alg":"RS256"}"#, r#"{"sub":"s","amr":["pwd","mfa"]}"#);
+        let enc = |v: &str| {
+            use base64::Engine as _;
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v)
+        };
+        let token = format!("{}.{}.sig", enc(h), enc(p));
+
+        let proof = SignInProof::Provider(AdmittedProvider::for_test(user.uuid, Some(&token)));
+        let session = create_session_record(&user.uuid, &request, &mut conn, proof)
+            .expect("provider session");
+        assert_eq!(
+            session.provider_amr,
+            Some(vec![Some("pwd".to_owned()), Some("mfa".to_owned())])
+        );
+        assert_eq!(session.oidc_id_token.as_deref(), Some(token.as_str()));
+
+        let local = create_session_record(&user.uuid, &request, &mut conn, SignInProof::Credential)
+            .expect("password session");
+        assert_eq!(local.provider_amr, None);
+    }
 
     /// Helper to create a test app with the public auth routes used by
     /// the tests below.

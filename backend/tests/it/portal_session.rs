@@ -59,6 +59,7 @@ fn portal_claims(
             expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
             confirmed_at: None,
+            provider_amr: None,
         },
     )
     .expect("session")

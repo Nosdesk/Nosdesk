@@ -208,6 +208,8 @@ login-error-generic = Échec de la connexion. Veuillez réessayer.
 login-error-state-expired = Votre connexion a pris trop de temps. Veuillez vous reconnecter.
 login-error-provider-denied = La connexion a été annulée.
 login-error-signin-failed = La connexion n'a pas pu aboutir. Veuillez réessayer.
+# (machine, à relire par un locuteur natif)
+login-error-provider-mfa = La connexion du personnel exige l'authentification multifacteur auprès de votre fournisseur d'identité. Configurez-la chez ce fournisseur ou contactez votre administrateur.
 login-mfa-title = Authentification à deux facteurs
 login-mfa-subtitle = Veuillez saisir votre code d'authentification
 login-mfa-code-label = Code d'authentification

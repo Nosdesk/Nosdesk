@@ -205,6 +205,8 @@ login-error-generic = Inloggen mislukt. Probeer het opnieuw.
 login-error-state-expired = Het inloggen duurde te lang. Log opnieuw in.
 login-error-provider-denied = Het inloggen is geannuleerd.
 login-error-signin-failed = Het inloggen kon niet worden voltooid. Probeer het opnieuw.
+# (machine, nog na te kijken door moedertaalspreker)
+login-error-provider-mfa = Voor medewerkers is meervoudige verificatie bij uw identiteitsprovider vereist. Stel die daar in, of neem contact op met uw beheerder.
 login-mfa-title = Tweefactorauthenticatie
 login-mfa-subtitle = Voer uw authenticatiecode in
 login-mfa-code-label = Authenticatiecode

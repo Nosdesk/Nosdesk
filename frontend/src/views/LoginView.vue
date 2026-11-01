@@ -84,6 +84,7 @@ const AUTH_ERROR_KEYS: Record<string, string> = {
   state_expired: "login-error-state-expired",
   provider_denied: "login-error-provider-denied",
   signin_failed: "login-error-signin-failed",
+  provider_mfa: "login-error-provider-mfa",
 };
 
 function consumeAuthErrorParam(): boolean {

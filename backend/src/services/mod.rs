@@ -35,6 +35,7 @@ pub mod search_replicator;
 pub mod seed;
 pub mod ses_identity;
 pub mod sla;
+pub mod sso_policy;
 pub mod starter_catalog;
 pub mod step_up;
 pub mod sync_outbox;

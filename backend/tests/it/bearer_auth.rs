@@ -54,6 +54,7 @@ fn session_jwt(pool: &backend::db::Pool, user: &backend::models::User) -> (uuid:
             expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
             confirmed_at: None,
+            provider_amr: None,
         },
     )
     .expect("create active session");
@@ -287,6 +288,7 @@ async fn a_stream_token_follows_its_session_and_account() {
             expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
             confirmed_at: None,
+            provider_amr: None,
         },
     )
     .expect("session");
