@@ -4543,6 +4543,19 @@ no-workspace-access-description = An administrator adds people to workspaces. On
 no-workspace-access-check-again = Check again
 no-workspace-access-wrong-account = Not your account?
 no-workspace-access-sign-out = Sign out
+# Where requesters find their requests, from the app.
+requester-portal-link-toggle = Looking for your requests?
+requester-portal-link-help = If you ask your organization for help, your requests are at its support portal. Enter its address, or its name on Nosdesk.
+requester-portal-link-label = Support portal
+requester-portal-link-placeholder = acme or support.acme.com
+requester-portal-link-invalid = That doesn't look like an address.
+requester-portal-link-open = Open in browser
+requester-portal-title = Your requests are in the portal
+requester-portal-message = This app is for your support team. Your requests and replies are in your organization's support portal, which opens in your browser, already signed in.
+requester-portal-open = Open the portal
+requester-portal-sign-out = Sign out
+requester-portal-open-failed = The portal couldn't be opened. Try again.
+route-title-requester-portal = Your requests
 route-title-no-workspace-access = No workspace yet
 
 # PDF viewer (PDFViewerView)

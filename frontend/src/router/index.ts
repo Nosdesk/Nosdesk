@@ -149,6 +149,14 @@ const router = createRouter({
       },
     },
     {
+      // A requester signed in to the native app (self-hosted): their requests
+      // are in the portal, which opens in the browser.
+      path: '/requests',
+      name: 'requester-portal',
+      component: () => import('@/views/RequesterPortalView.vue'),
+      meta: { layout: 'blank', requiresAuth: false, titleKey: 'route-title-requester-portal' },
+    },
+    {
       path: '/submit-ticket',
       name: 'guest-submit-ticket',
       component: () => import('@/views/public/GuestTicketSubmitView.vue'),
@@ -1305,8 +1313,8 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   }
 
   // Self-hosted requesters live in the portal: a member landing on the app's
-  // home is handed over to it, already signed in. Staff stay; the native apps
-  // bundle only the agent app, so they stay too.
+  // home is handed over to it, already signed in. Staff stay. The native app
+  // shows where their requests are and opens the portal in the browser.
   if (
     to.name === 'home' &&
     authStore.isAuthenticated &&
@@ -1316,10 +1324,9 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
     !isHostedDeployment()
   ) {
     const { isTauriRuntime } = await import('@/platform');
-    if (!isTauriRuntime()) {
-      window.location.replace('/api/me/portal');
-      return false;
-    }
+    if (isTauriRuntime()) return { name: 'requester-portal' };
+    window.location.replace('/api/me/portal');
+    return false;
   }
 
   // Load feature flags once per session for any authenticated route. Failures
