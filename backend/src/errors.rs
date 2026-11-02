@@ -520,7 +520,76 @@ pub fn db_conn(pool: &web::Data<Pool>) -> Result<DbConnection, ApiError> {
 /// [`ApiError`] shapes. `cause` is what logs see, so keep it a fixed
 /// literal, never request content.
 pub fn from_response(cause: &'static str, resp: HttpResponse) -> actix_web::Error {
-    actix_web::error::InternalError::from_response(cause, resp).into()
+    BuiltResponse::new(cause, resp).into()
+}
+
+/// A built response carried as an error, rendered the same every time it is
+/// asked for. actix's `InternalError::from_response` hands its response out
+/// once and renders an empty 500 after that, and a failed request's error is
+/// rendered more than once: the request log reads its status before actix
+/// writes it to the client.
+pub struct BuiltResponse {
+    cause: &'static str,
+    status: StatusCode,
+    headers: actix_web::http::header::HeaderMap,
+    body: actix_web::web::Bytes,
+    kind: Option<ErrorKind>,
+}
+
+impl BuiltResponse {
+    fn new(cause: &'static str, resp: HttpResponse) -> Self {
+        let kind = resp.extensions().get::<ErrorKind>().copied();
+        let (head, body) = resp.into_parts();
+        // Every error response here is a buffered body (JSON, text, a
+        // redirect's empty one), never a stream.
+        let body = actix_web::body::MessageBody::try_into_bytes(body).unwrap_or_else(|_| {
+            tracing::error!(
+                kind = cause,
+                "an error response carried a streaming body; sending it empty"
+            );
+            actix_web::web::Bytes::new()
+        });
+        Self {
+            cause,
+            status: head.status(),
+            headers: head.headers().clone(),
+            body,
+            kind,
+        }
+    }
+}
+
+impl std::fmt::Debug for BuiltResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BuiltResponse")
+            .field("cause", &self.cause)
+            .field("status", &self.status)
+            .finish()
+    }
+}
+
+impl std::fmt::Display for BuiltResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.cause)
+    }
+}
+
+impl actix_web::ResponseError for BuiltResponse {
+    fn status_code(&self) -> StatusCode {
+        self.status
+    }
+
+    fn error_response(&self) -> HttpResponse {
+        let mut resp =
+            HttpResponse::with_body(self.status, self.body.clone()).map_into_boxed_body();
+        for (name, value) in self.headers.iter() {
+            resp.headers_mut().append(name.clone(), value.clone());
+        }
+        if let Some(kind) = self.kind {
+            resp.extensions_mut().insert(kind);
+        }
+        resp
+    }
 }
 
 // =================================================================
@@ -892,6 +961,29 @@ mod tests {
             .unwrap();
         let actual = to_bytes(rendered.into_body()).await.unwrap();
         assert_eq!(actual, expected);
+    }
+
+    /// A built response renders the same however many times it is asked
+    /// for: the request log renders a failed request's error before actix
+    /// does, and a second render used to be an empty 500.
+    #[actix_web::test]
+    async fn a_built_response_renders_the_same_every_time() {
+        let err = invalid_token_error("Invalid or expired token");
+        for _ in 0..3 {
+            let rendered = err.error_response();
+            assert_eq!(rendered.status(), StatusCode::UNAUTHORIZED);
+            assert_eq!(
+                rendered
+                    .headers()
+                    .get(actix_web::http::header::WWW_AUTHENTICATE)
+                    .and_then(|v| v.to_str().ok()),
+                Some("Bearer error=\"invalid_token\"")
+            );
+            assert_eq!(kind_of(&rendered), Some("unauthorized"));
+            let body: serde_json::Value =
+                serde_json::from_slice(&to_bytes(rendered.into_body()).await.unwrap()).unwrap();
+            assert_eq!(body["code"], "INVALID_TOKEN", "{body}");
+        }
     }
 
     /// A wrapped actix error keeps its own response, stamp included when

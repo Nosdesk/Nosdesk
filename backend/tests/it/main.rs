@@ -157,6 +157,7 @@ mod push_preference_defaults;
 mod rate_limit_middleware;
 mod rebuild_search_index;
 mod recurring_tickets;
+mod refusals_reach_the_client;
 mod reply_sent_twice;
 mod requester_asset_visibility;
 mod retention_jobs_audit_context;
