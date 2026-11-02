@@ -852,6 +852,11 @@ async function runBootstrap(groups: string[]): Promise<void> {
   // memory-only mode the persistence writes below are individually skipped, but
   // the fetch + pool.upsert still run so views populate.
   if (!canFetchWorkspace()) return
+  // A group added to a session that is caught up (opening a ticket) leaves
+  // the cursor where it is. Its snapshot ends at the server's horizon, which
+  // can be past events for the other groups that nothing has delivered yet;
+  // the delta after it replays that span for every group instead.
+  const keepCursor = state.caughtUp && pool.getLastXid8() > 0
   const url = `/sync/bootstrap?groups=${encodeURIComponent(groups.join(','))}&schema=${encodeURIComponent(state.schemaHash)}`
   const epoch = pool.currentEpoch()
   let res: Response
@@ -943,16 +948,20 @@ async function runBootstrap(groups: string[]): Promise<void> {
         await flushPersistBatch()
         if (bootstrapMeta) {
           await reconcileWithSnapshot(bootstrapMeta.groups_granted ?? [], seen)
-          // The end line advances the cursor to now, which tears any cached
-          // group not currently subscribed; prune before persisting.
-          await pruneTornWatermarks()
-          setCaughtUp(true)
-          // Advance the in-memory cursor always; persist it only when IDB is
-          // available (memory-only keeps the cursor in the pool for delta polls).
-          pool.setCursor(bootstrapMeta.last_xid8, bootstrapMeta.last_sync_id)
+          if (!keepCursor) {
+            // The end line advances the cursor to now, which tears any cached
+            // group not currently subscribed; prune before persisting.
+            await pruneTornWatermarks()
+            setCaughtUp(true)
+            // Advance the in-memory cursor always; persist it only when IDB is
+            // available (memory-only keeps the cursor in the pool for delta polls).
+            pool.setCursor(bootstrapMeta.last_xid8, bootstrapMeta.last_sync_id)
+          }
           if (state.handle) {
-            await idb.setLastSyncId(state.handle, bootstrapMeta.last_sync_id)
-            await idb.setLastXid8(state.handle, bootstrapMeta.last_xid8)
+            if (!keepCursor) {
+              await idb.setLastSyncId(state.handle, bootstrapMeta.last_sync_id)
+              await idb.setLastXid8(state.handle, bootstrapMeta.last_xid8)
+            }
             // Watermark the snapshots the server actually granted (not the
             // request list: a requested-but-denied group must not gain a
             // watermark or the next launch would warm-path it into
@@ -973,6 +982,11 @@ async function runBootstrap(groups: string[]): Promise<void> {
     }
   }
   await flushPersistBatch()
+  // Replays what the snapshot's horizon passed, for every subscribed group.
+  // Rows come back to their latest state: events carry whole rows, in order.
+  if (keepCursor && bootstrapMeta && pool.currentEpoch() === epoch) {
+    await catchUpViaDelta()
+  }
 }
 
 function applyActions(actions: SyncAction[]): void {
