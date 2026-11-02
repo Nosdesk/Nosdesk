@@ -13,6 +13,8 @@ import { useWorkspacePortal } from '@/composables/useWorkspacePortal'
 const props = defineProps<{
   /** Workspace admin: shows the mailbox, request form and invite links. */
   isAdmin: boolean
+  /** A create is running: the button takes no more presses. */
+  creating?: boolean
 }>()
 const emit = defineEmits<{ (e: 'create'): void }>()
 
@@ -56,7 +58,13 @@ const linkClass =
       <button v-if="props.isAdmin" type="button" :class="linkClass" @click="copyRequestForm">
         {{ t('ticket-list-first-share-form') }}
       </button>
-      <button type="button" :class="linkClass" @click="emit('create')">
+      <button
+        type="button"
+        :class="linkClass"
+        :disabled="props.creating"
+        :aria-busy="props.creating || undefined"
+        @click="emit('create')"
+      >
         {{ t('ticket-list-first-create') }}
       </button>
     </div>

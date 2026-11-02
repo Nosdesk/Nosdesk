@@ -12,6 +12,7 @@ import ItemIdentifier from "./ItemIdentifier.vue";
 import CreateActionIcon, { type CreateIconType } from "./common/CreateActionIcon.vue";
 import NotificationBell from "./NotificationBell.vue";
 import Icon from "./common/Icon.vue";
+import Spinner from "./common/Spinner.vue";
 import { useAuthStore } from '@/stores/auth';
 import { useMobileDetection } from '@/composables/useMobileDetection';
 import { HEADER_ACTION_SLOT_ID, headerActionSlotFilled } from '@/composables/useHeaderActionSlot';
@@ -52,6 +53,8 @@ interface Props {
   showCreateButton?: boolean;
   createButtonText?: string;
   createButtonIcon?: CreateIconType;
+  /** A create is running: the button shows busy and takes no more presses. */
+  creating?: boolean;
   useRouteTitle?: boolean;
   ticket: { id: number; number?: number; title: string } | null;
   document: { id: string; title: string; icon: string } | null;
@@ -188,6 +191,7 @@ const closeUserMenu = () => {
 };
 
 const handleCreateClick = () => {
+  if (props.creating) return;
   emit('create');
 };
 
@@ -319,11 +323,14 @@ const handleCreateClick = () => {
           type="button"
           v-if="props.showCreateButton"
           @click="handleCreateClick"
-          class="group flex create-button px-2.5 py-1.5 sm:px-3 min-h-[44px] sm:min-h-0 text-sm font-medium text-secondary border border-default rounded-lg hover:text-primary hover:border-accent hover:bg-accent-muted transition-colors items-center gap-2"
+          :disabled="props.creating"
+          :aria-busy="props.creating || undefined"
+          class="group flex create-button disabled:opacity-60 disabled:cursor-wait px-2.5 py-1.5 sm:px-3 min-h-[44px] sm:min-h-0 text-sm font-medium text-secondary border border-default rounded-lg hover:text-primary hover:border-accent hover:bg-accent-muted transition-colors items-center gap-2"
           :aria-label="t('ui-site-header-create-aria', { action: resolvedCreateButtonText })"
           :title="resolvedCreateButtonText"
         >
-          <CreateActionIcon :icon="props.createButtonIcon" />
+          <Spinner v-if="props.creating" size="sm" />
+          <CreateActionIcon v-else :icon="props.createButtonIcon" />
           <span class="create-button-text">{{ resolvedCreateButtonText }}</span>
         </button>
 

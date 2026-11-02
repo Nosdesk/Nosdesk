@@ -101,6 +101,8 @@ function choose(ticket: Ticket) {
 }
 
 async function createAndSelect() {
+  // One at a time: a second press while it runs would mint another ticket.
+  if (creating.value) return
   creating.value = true
   error.value = null
   try {
