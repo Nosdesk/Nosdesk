@@ -25,6 +25,8 @@ interface InstanceConfig {
   control_plane_url: string;
   /** The signed-in person's own Nosdesk account settings (hosted). */
   account_url?: string;
+  /** Hosted: the domain workspace portals sit under (`<slug>.<domain>`). */
+  portal_domain?: string;
   /** Tickets carry a per-workspace number that URLs use. */
   ticket_numbers?: boolean;
   /** The Nosdesk release this server runs. */
@@ -52,6 +54,8 @@ let inboundForwardingEnabled = false;
 // only when this is non-empty (unset -> a plain explainer, never a dead form).
 let controlPlaneUrl = '';
 let accountUrl = '';
+// Hosted: workspace portals live at `<slug>.<portalDomain>`. Empty otherwise.
+let portalDomain = '';
 
 // Default true: this build's own server numbers tickets. Only a resolved config
 // from an older server (the mobile app can reach one) turns it off, and there
@@ -135,6 +139,9 @@ export function fetchInstanceConfig(): Promise<void> {
         if (typeof data?.control_plane_url === 'string') {
           controlPlaneUrl = data.control_plane_url;
         }
+        if (typeof data?.portal_domain === 'string') {
+          portalDomain = data.portal_domain;
+        }
         ticketNumbers = data?.ticket_numbers === true;
         if (typeof data?.server_version === 'string') {
           serverVersion = data.server_version;
@@ -171,6 +178,7 @@ export function resetInstanceConfig(): void {
   accountUrl = '';
   ticketNumbers = true;
   serverVersion = '';
+  portalDomain = '';
 }
 
 /** Reactive: `true` once {@link fetchInstanceConfig} has settled (success or
@@ -190,6 +198,11 @@ export function serverHasTicketNumbers(): boolean {
 }
 
 /** The Nosdesk release this server runs; '' until the config resolves. */
+/** Hosted: the domain workspace portals sit under; '' when not known. */
+export function getPortalDomain(): string {
+  return portalDomain;
+}
+
 export function getServerVersion(): string {
   return serverVersion;
 }

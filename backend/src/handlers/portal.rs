@@ -51,6 +51,7 @@ pub fn auth_config(cfg: &mut web::ServiceConfig) {
         .route("/callback", web::get().to(magic_link_callback))
         .route("/ticket", web::get().to(ticket_link_callback))
         .route("/code", web::post().to(sign_in_with_code))
+        .route("/handoff", web::get().to(portal_handoff_callback))
         // The portal refresh cookie is Path-scoped to exactly this route.
         .route("/refresh", web::post().to(refresh_portal_session));
 }
@@ -897,7 +898,15 @@ pub fn portal_path(path: &str) -> String {
 /// Routes behind the agent app's own authentication (mounted in the
 /// authenticated `/api` scope).
 pub fn app_config(cfg: &mut web::ServiceConfig) {
-    cfg.route("/me/portal", web::get().to(open_portal_from_app));
+    cfg.route("/me/portal", web::get().to(open_portal_from_app))
+        .route("/me/portal-handoff", web::post().to(start_portal_handoff));
+}
+
+/// A portal path to land on: `next` when it is one of the request pages,
+/// else the request list.
+fn portal_next(next: Option<&str>) -> &str {
+    next.filter(|p| p.starts_with("/tickets") && !p.contains("//") && !p.contains('\\'))
+        .unwrap_or("/tickets")
 }
 
 #[derive(Deserialize)]
@@ -918,11 +927,7 @@ pub async fn open_portal_from_app(
     pool: web::Data<Pool>,
     query: web::Query<OpenPortalQuery>,
 ) -> Result<HttpResponse, ApiError> {
-    let next = query
-        .next
-        .as_deref()
-        .filter(|p| p.starts_with("/tickets") && !p.contains("//") && !p.contains('\\'))
-        .unwrap_or("/tickets");
+    let next = portal_next(query.next.as_deref());
     let mut conn = pool
         .get()
         .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
@@ -941,6 +946,125 @@ pub async fn open_portal_from_app(
         .cookie(session.refresh)
         .cookie(session.csrf)
         .append_header(("Location", portal_path(next)))
+        .finish())
+}
+
+#[derive(Deserialize, Default)]
+pub struct PortalHandoffRequest {
+    /// A portal path to land on (`/tickets/12`).
+    #[serde(default)]
+    next: Option<String>,
+}
+
+/// `POST /api/me/portal-handoff` (an agent session, self-hosted): a one-time
+/// address that opens the portal signed in as the caller. For the native app,
+/// whose session is a bearer token the system browser can't carry; the app
+/// opens the address there. Single use, two minutes long, and spent by
+/// signing out everywhere.
+pub async fn start_portal_handoff(
+    req: HttpRequest,
+    auth: crate::extractors::AuthContext,
+    ws: WorkspaceContext,
+    pool: web::Data<Pool>,
+    body: Option<web::Json<PortalHandoffRequest>>,
+) -> Result<HttpResponse, ApiError> {
+    // Hosted requesters sign in at their workspace's portal; there is no
+    // app session to hand over.
+    if crate::middleware::workspace_context::is_hosted() {
+        return Err(ApiError::NotFoundMsg("Not found".into()));
+    }
+    // A person's own session, not an API token.
+    if crate::utils::rbac::require_auth(&req)?
+        .session_uuid()
+        .is_none()
+    {
+        return Err(ApiError::Forbidden("Sign in to open the portal".into()));
+    }
+    let next = portal_next(body.as_ref().and_then(|b| b.next.as_deref())).to_string();
+    let mut conn = pool
+        .get()
+        .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
+    // Self-hosted serves the portal on the app's own origin, so the address
+    // the app reached is the last resort when `FRONTEND_URL` isn't set.
+    let origin = crate::utils::portal_ticket_link::portal_origin(&mut conn, ws.workspace_id)
+        .unwrap_or_else(|| {
+            let info = req.connection_info();
+            format!("{}://{}", info.scheme(), info.host())
+        });
+    let token = crate::utils::reset_tokens::ResetTokenUtils::create_reset_token(
+        auth.user_uuid,
+        TokenType::PortalHandoff,
+    );
+    crate::repository::reset_tokens::create_reset_token(
+        &mut conn,
+        &token.token_hash,
+        auth.user_uuid,
+        TokenType::PortalHandoff.as_str(),
+        None,
+        None,
+        token.expires_at,
+        None,
+    )?;
+    Ok(HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-store"))
+        .json(json!({
+            "url": format!(
+                "{origin}/api/portal/auth/handoff?t={}&next={}",
+                token.raw_token,
+                urlencoding::encode(&next)
+            ),
+            "expires_at": token.expires_at,
+        })))
+}
+
+#[derive(Deserialize)]
+pub struct PortalHandoffQuery {
+    t: String,
+    #[serde(default)]
+    next: Option<String>,
+}
+
+/// `GET /api/portal/auth/handoff?t=`: redeem a hand-off from the app (see
+/// [`start_portal_handoff`]) for a portal session, and open the portal.
+pub async fn portal_handoff_callback(
+    req: HttpRequest,
+    query: web::Query<PortalHandoffQuery>,
+    pool: web::Data<Pool>,
+) -> Result<HttpResponse, ApiError> {
+    let Some(ctx) = req.extensions().get::<WorkspaceContext>().cloned() else {
+        return Err(ApiError::BadRequest("No workspace for this origin".into()));
+    };
+    let mut conn = pool
+        .get()
+        .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
+    // Single-use: claimed atomically here.
+    let Ok(user_uuid) = crate::repository::reset_tokens::validate_and_consume_token(
+        &mut conn,
+        &query.t,
+        TokenType::PortalHandoff.as_str(),
+    ) else {
+        return Ok(sign_in_error_redirect());
+    };
+    if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user_uuid)
+    {
+        return Ok(sign_in_error_redirect());
+    }
+    let Ok(user) = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn) else {
+        return Ok(sign_in_error_redirect());
+    };
+    let session = mint_portal_session(
+        &user,
+        ctx.workspace_uuid,
+        &req,
+        &mut conn,
+        PortalScope::Full,
+        crate::handlers::auth::SignInProof::Nothing,
+    )?;
+    Ok(HttpResponse::Found()
+        .cookie(session.access)
+        .cookie(session.refresh)
+        .cookie(session.csrf)
+        .append_header(("Location", portal_path(portal_next(query.next.as_deref()))))
         .finish())
 }
 

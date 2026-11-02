@@ -55,12 +55,22 @@ pub async fn get_public_config() -> impl Responder {
     // The signed-in person's own Nosdesk account settings (hosted), where staff
     // change their name, avatar, email addresses and sign-in.
     let account_url = crate::utils::nosdesk_account::account_settings_url().unwrap_or_default();
+    // Hosted: the domain each workspace's portal sits under
+    // (`<slug>.<portal_domain>`), so the app can open a requester's portal from
+    // the short name they know. Empty on self-hosted.
+    let portal_domain = match crate::middleware::DeploymentMode::current() {
+        crate::middleware::DeploymentMode::Hosted => {
+            crate::utils::tenant_origin::tenant_domain().unwrap_or_default()
+        }
+        crate::middleware::DeploymentMode::SelfHosted => String::new(),
+    };
     HttpResponse::Ok().json(json!({
         "workspace_routing": workspace_routing,
         "deployment_mode": deployment_mode,
         "inbound_forwarding_enabled": inbound_forwarding_enabled,
         "control_plane_url": control_plane_url,
         "account_url": account_url,
+        "portal_domain": portal_domain,
         "ticket_numbers": true,
         "server_version": env!("CARGO_PKG_VERSION"),
         "min_app_version": MIN_APP_VERSION,

@@ -20,6 +20,7 @@ import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";
 import Button from "@/components/common/Button.vue";
 import FormInput from "@/components/common/FormInput.vue";
+import RequesterPortalLink from "@/components/auth/RequesterPortalLink.vue";
 import PasswordInput from "@/components/common/PasswordInput.vue";
 import { extractErrorMessage } from "@/utils/errors";
 import { isInAppPath } from "@/utils/inAppPath";
@@ -1012,6 +1013,9 @@ const handleOidcLogoutClick = async () => {
           <span v-if="loadingAction === 'oidc'">{{ $t("login-oidc-connecting") }}</span>
           <span v-else>{{ $t("login-oidc-cta", { provider: oidcDisplayName }) }}</span>
         </button>
+
+        <!-- Requesters ask for help at their organisation's portal, not here. -->
+        <RequesterPortalLink />
       </div>
 
       <!-- Forgot Password Modal -->

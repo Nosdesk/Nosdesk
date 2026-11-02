@@ -210,11 +210,16 @@ fn end_standing_sign_ins(
     user_uuid: &Uuid,
 ) -> Result<(), diesel::result::Error> {
     crate::repository::credential_epochs::raise(conn, user_uuid)?;
-    crate::repository::reset_tokens::invalidate_tokens_by_type(
-        conn,
-        *user_uuid,
-        crate::utils::reset_tokens::TokenType::PortalMagicLink.as_str(),
-    )?;
+    for unused in [
+        crate::utils::reset_tokens::TokenType::PortalMagicLink,
+        crate::utils::reset_tokens::TokenType::PortalHandoff,
+    ] {
+        crate::repository::reset_tokens::invalidate_tokens_by_type(
+            conn,
+            *user_uuid,
+            unused.as_str(),
+        )?;
+    }
     Ok(())
 }
 
