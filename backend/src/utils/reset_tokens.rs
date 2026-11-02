@@ -20,6 +20,11 @@ pub enum TokenType {
     /// because `reset_tokens` is user-scoped and a user may have several
     /// unverified addresses at once.
     EmailVerification,
+    /// A one-time hand-off from the native app's session (a bearer token a
+    /// browser can't carry) to a portal session in the system browser. Short
+    /// enough to cover opening the browser, single-use, and spent by signing
+    /// out everywhere like the portal's own sign-in link.
+    PortalHandoff,
 }
 
 impl TokenType {
@@ -29,6 +34,7 @@ impl TokenType {
             TokenType::Invitation => "invitation",
             TokenType::PortalMagicLink => "portal_magic_link",
             TokenType::EmailVerification => "email_verification",
+            TokenType::PortalHandoff => "portal_handoff",
         }
     }
 
@@ -43,6 +49,7 @@ impl TokenType {
             // address. Nothing is signed in by it, so the risk of the longer
             // window is bounded.
             TokenType::EmailVerification => Duration::hours(24),
+            TokenType::PortalHandoff => Duration::minutes(2),
         }
     }
 }
