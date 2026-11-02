@@ -1925,6 +1925,7 @@ diesel::table! {
         approval_state -> Nullable<Text>,
         number -> Int4,
         raised_by_staff -> Bool,
+        blank_at -> Nullable<Timestamptz>,
     }
 }
 

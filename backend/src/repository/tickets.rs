@@ -314,6 +314,41 @@ pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryRes
     create_ticket_with_annotation(conn, new_ticket, TicketCreationAnnotation::default(), None)
 }
 
+// sync-audit-only: takes a lock and writes nothing
+/// Holds, until the transaction ends, the lock that makes "New ticket" one at
+/// a time per requester, so two presses that arrive together find or make the
+/// same blank ticket.
+pub fn lock_blank_ticket(conn: &mut DbConnection, requester: Uuid) -> QueryResult<()> {
+    diesel::sql_query("SELECT pg_advisory_xact_lock(hashtext('blank-ticket:' || $1))")
+        .bind::<diesel::sql_types::Text, _>(requester.to_string())
+        .execute(conn)
+        .map(|_| ())
+}
+
+/// The requester's blank ticket: one "New ticket" made for them that nothing
+/// has touched since (any edit, comment or description moves `updated_at`
+/// past `blank_at`), and that is still open.
+pub fn blank_ticket_for(conn: &mut DbConnection, requester: Uuid) -> QueryResult<Option<Ticket>> {
+    tickets::table
+        .filter(tickets::requester_uuid.eq(requester))
+        .filter(tickets::blank_at.eq(tickets::updated_at.nullable()))
+        .filter(tickets::closed_at.is_null())
+        .order(tickets::id.desc())
+        .first(conn)
+        .optional()
+}
+
+// sync-audit-only: blank_at is not in the sync row; modified moves only by the time the creating request took
+/// Marks a ticket "New ticket" has just made, once everything that goes with
+/// making it (assignment, its description) is written: `updated_at` and
+/// `blank_at` take the same moment, after every write so far.
+pub fn mark_blank(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Ticket> {
+    let at = chrono::Utc::now().naive_utc();
+    diesel::update(tickets::table.find(ticket_id))
+        .set((tickets::updated_at.eq(at), tickets::blank_at.eq(Some(at))))
+        .get_result(conn)
+}
+
 /// Create a ticket and link it to a project in one transaction, so
 /// the `project_tickets` row exists before `groups::for_ticket`
 /// runs. That ordering is what puts `project:<id>` in the
