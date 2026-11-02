@@ -114,6 +114,19 @@ async fn new_ticket_opens_the_blank_ticket_until_it_is_touched() {
     let (status, first) = press_new_ticket!(pool, search, a, a.admin_uuid);
     assert_eq!(status, StatusCode::CREATED);
 
+    // The response nests the ticket's workflow state as its sync row does,
+    // so the client that puts it in its pool keeps it in its lists.
+    let body: Value = as_user(&pool, a, a.admin_uuid, |c| {
+        backend::repository::get_complete_ticket(
+            c,
+            first,
+            backend::repository::ticket_visibility::CommentAudience::system(),
+        )
+        .map(|t| serde_json::to_value(t).expect("json"))
+    });
+    assert_eq!(body["workflow_state"]["id"], body["workflow_state_id"]);
+    assert!(body["workflow_state"]["category"].is_string(), "{body}");
+
     // Pressed again, it opens the same ticket and makes none.
     let (status, again) = press_new_ticket!(pool, search, a, a.admin_uuid);
     assert_eq!(status, StatusCode::OK);

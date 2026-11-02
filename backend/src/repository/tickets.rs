@@ -1271,9 +1271,11 @@ pub fn get_complete_ticket(
     let tag_ids = crate::repository::tags::tag_ids_for_ticket(conn, ticket_id).unwrap_or_default();
     let watcher_uuids =
         crate::repository::ticket_watchers::watcher_uuids(conn, ticket_id).unwrap_or_default();
+    let workflow_state = workflow_state_payload(conn, ticket.workflow_state_id)?;
 
     Ok(CompleteTicket {
         ticket,
+        workflow_state,
         requester_user,
         assignee_user,
         devices,
