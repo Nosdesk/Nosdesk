@@ -745,6 +745,10 @@ pub struct NewTicketAsset {
 pub struct CompleteTicket {
     #[serde(flatten)]
     pub ticket: Ticket,
+    /// The ticket's workflow state, nested as in its sync row, so a client
+    /// that puts this response in its pool keeps the ticket in its lists.
+    #[serde(default)]
+    pub workflow_state: serde_json::Value,
     pub requester_user: Option<UserInfoWithAvatar>, // Complete requester data
     pub assignee_user: Option<UserInfoWithAvatar>,  // Complete assignee data
     pub devices: Vec<Asset>,

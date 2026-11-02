@@ -88,9 +88,17 @@ export interface SyncTicket {
 
 export function apiTicketToSync(ticket: Ticket): SyncTicket {
   const ws = ticket.workflow_state
+  // A response without the nested state (a server before it sent one) keeps
+  // the pool row's state for the same id: lists show a ticket only when its
+  // row has one, and the pool merges this row over the one it holds.
+  const held = ws
+    ? null
+    : pool.get<SyncTicket>('ticket', ticket.id)?.workflow_state ?? null
   const cardWs: CardWorkflowState | null = ws
     ? { id: ws.id, name: ws.name, category: ws.category, color: ws.color }
-    : null
+    : held && held.id === ticket.workflow_state_id
+      ? held
+      : null
   return {
     id: ticket.id,
     number: ticket.number,
