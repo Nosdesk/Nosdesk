@@ -1030,6 +1030,7 @@ function startPaneResize(event: PointerEvent): void {
       <FirstTicketsState
         v-if="populated && allCards.length === 0"
         :is-admin="authStore.isAdmin"
+        :creating="pageActions.creating"
         @create="pageActions.invokeCreate()"
       />
       <template v-else-if="filters.activeFacets.value.length > 0">

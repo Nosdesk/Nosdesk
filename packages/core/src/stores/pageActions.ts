@@ -19,6 +19,12 @@
  * .createButtonText` so first-paint shows the right button label
  * before the view's `onMounted` fires. The handler simply no-ops
  * if a view forgets to register, rather than the button vanishing.
+ *
+ * One create at a time: a handler usually mints a row and then
+ * navigates to it, and until it settles every further press joins the
+ * one in flight instead of minting another. `creating` drives the
+ * buttons' busy state. Every Create button reaches its handler through
+ * `invokeCreate`, so this holds for all of them.
  */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -30,6 +36,7 @@ export interface CreateAction {
 
 export const usePageActionsStore = defineStore('pageActions', () => {
   const createAction = ref<CreateAction | null>(null)
+  const inFlight = ref<Promise<void> | null>(null)
 
   function setCreateAction(action: CreateAction | (() => void | Promise<void>)) {
     createAction.value = typeof action === 'function' ? { handler: action } : action
@@ -39,13 +46,26 @@ export const usePageActionsStore = defineStore('pageActions', () => {
     createAction.value = null
   }
 
-  async function invokeCreate(): Promise<void> {
-    await createAction.value?.handler()
+  function invokeCreate(): Promise<void> {
+    if (inFlight.value) return inFlight.value
+    const action = createAction.value
+    if (!action) return Promise.resolve()
+    const run = (async () => {
+      try {
+        await action.handler()
+      } finally {
+        inFlight.value = null
+      }
+    })()
+    inFlight.value = run
+    return run
   }
 
   return {
     createAction,
     hasCreateAction: computed(() => createAction.value !== null),
+    /** A create is running: its button shows busy and further presses join it. */
+    creating: computed(() => inFlight.value !== null),
     setCreateAction,
     clearCreateAction,
     invokeCreate,
