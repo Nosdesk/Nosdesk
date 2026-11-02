@@ -19,6 +19,8 @@ import { transport } from '@nosdesk/core/transport';
 import { sessionGone } from '@nosdesk/core/services/session';
 import { releaseSsoAutoStart } from '@/utils/ssoAutoStart';
 import { withRateLimitRetry } from '@/utils/rateLimitRetry';
+import { followPortalLanding } from '@/utils/portalLanding';
+
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -283,6 +285,9 @@ export const useAuthStore = defineStore('auth', () => {
         return false;
       }
 
+      // A requester on self-hosted is signed in to the portal instead.
+      if (followPortalLanding(response.data)) return true;
+
       // Handle successful login (cookies set by backend, csrf_token in response)
       if (response.data.success && response.data.csrf_token) {
         setAuthData(response.data.user);
@@ -322,6 +327,8 @@ export const useAuthStore = defineStore('auth', () => {
         hasCsrfToken: !!response.data.csrf_token,
         hasUser: !!response.data.user
       });
+
+      if (followPortalLanding(response.data)) return true;
 
       if (response.data.success && response.data.csrf_token) {
         logger.debug('🔐 MFA Login: Setting auth data for user', response.data.user);

@@ -23,6 +23,7 @@ import FormInput from "@/components/common/FormInput.vue";
 import PasswordInput from "@/components/common/PasswordInput.vue";
 import { extractErrorMessage } from "@/utils/errors";
 import { isInAppPath } from "@/utils/inAppPath";
+import { followPortalLanding } from "@/utils/portalLanding";
 import { isTauriRuntime } from "@/platform";
 import { getCsrfToken } from "@/utils/csrf";
 import { recordSsoStart, ssoStartedElsewhere } from "@/utils/ssoAutoStart";
@@ -346,6 +347,8 @@ const handleMfaPaste = (event: ClipboardEvent) => {
 // carries a slimmer user shape than the canonical User type; the auth
 // store hydrates the rest from /me on its first authenticated fetch.
 const completePasskeyLogin = async (result: PasskeyLoginResult) => {
+  // A requester on self-hosted is signed in to the portal instead.
+  if (followPortalLanding(result)) return;
   authStore.user = result.user as unknown as typeof authStore.user;
   authStore.setAuthProvider('local');
   // Lands on the resolved workspace (path mode), honouring any ?redirect=.
@@ -394,6 +397,7 @@ const handlePasskeyMfaVerify = async () => {
     // Use the email from the login form for targeted passkey lookup
     const result = await loginWithPasskey(email.value.trim());
 
+    if (result && followPortalLanding(result)) return;
     if (result) {
       // Passkey verified - update auth store and redirect.
       // Slimmer user shape from passkey response; the auth store
