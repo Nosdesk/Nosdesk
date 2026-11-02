@@ -1168,3 +1168,83 @@ async fn a_links_session_reaches_only_its_ticket() {
     both.sort_unstable();
     assert_eq!(listed(full_cookies).await, both);
 }
+
+/// Signing out everywhere else ends a link's session: its next request and
+/// its refresh are both 401, so the portal sends the browser to sign in.
+#[actix_web::test]
+async fn signing_out_other_sessions_ends_a_links_session() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(6);
+    let mut conn = pool.get().expect("conn");
+    let ws = crate::common::mint_workspace(&mut conn, "endlink", "End Link");
+    let customer = crate::common::insert_user(&mut conn, "Ended Customer");
+    with_actor_context(
+        &mut conn,
+        &ActorContext::system("test:seed").with_workspace(ws),
+        |c| {
+            add_membership(
+                c,
+                ws,
+                customer.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )
+        },
+    )
+    .expect("membership");
+    let ticket = requested_ticket(&mut conn, ws, customer.uuid, "Printer jammed");
+    let ctx = context_of(&mut conn, ws);
+    let dir = tempfile::tempdir().expect("server dir");
+    let srv = portal_server(&pool, ctx.clone(), dir.path());
+    let client = awc::Client::builder().disable_redirects().finish();
+
+    let token = backend::utils::portal_ticket_link::sign(&mut conn, ws, customer.uuid, ticket.id)
+        .expect("sign");
+    let resp = client
+        .get(srv.url(&format!("/api/portal/auth/ticket?t={token}")))
+        .send()
+        .await
+        .expect("open link");
+    assert_eq!(resp.status(), 302);
+    let cookies = cookie_header(&resp);
+
+    // Signed in elsewhere, they sign out every other session.
+    let kept = backend::repository::active_sessions::create_session(
+        &mut conn,
+        backend::models::NewActiveSession {
+            user_uuid: customer.uuid,
+            device_name: None,
+            ip_address: None,
+            user_agent: None,
+            location: None,
+            expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
+            oidc_id_token: None,
+            confirmed_at: None,
+            provider_amr: None,
+        },
+    )
+    .expect("session")
+    .session_id;
+    backend::repository::active_sessions::revoke_other_sessions_by_uuid(
+        &mut conn,
+        &customer.uuid,
+        &kept,
+    )
+    .expect("sign out others");
+
+    let resp = client
+        .get(srv.url(&format!("/api/portal/tickets/by-number/{}", ticket.number)))
+        .insert_header(("Cookie", cookies.clone()))
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(resp.status(), 401, "the request");
+    let resp = client
+        .post(srv.url("/api/portal/auth/refresh"))
+        .insert_header(("Cookie", cookies))
+        .send()
+        .await
+        .expect("refresh");
+    assert_eq!(resp.status(), 401, "the refresh");
+}

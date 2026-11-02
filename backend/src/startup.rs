@@ -657,6 +657,7 @@ fn is_portal_route(path: &str) -> bool {
         || path == "/new"
         || under("/tickets")
         || under("/approvals")
+        || path == "/account"
         || path == "/help"
         || path == "/submit-ticket"
         || under("/ticket-status")
@@ -2112,6 +2113,9 @@ mod tests {
             "/tickets/new",
             // The short new-request link sends you on to /tickets/new.
             "/new",
+            "/approvals",
+            "/approvals/7",
+            "/account",
         ] {
             assert_eq!(
                 spa_shell_path(hosted, true, path),
