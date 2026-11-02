@@ -50,6 +50,8 @@ export interface PasskeyRegistrationResult {
 export interface PasskeyLoginResult {
   success: boolean;
   csrf_token: string;
+  /** Set instead of a session in the app: the portal address to go to. */
+  portal?: string;
   user: {
     uuid: string;
     name: string;
@@ -289,7 +291,7 @@ class PasskeyService {
       // Send assertion to server for verification (include sessionId for discoverable auth)
       const result = await this.finishLogin(credential, sessionId);
 
-      logger.info('Passkey login successful', { userUuid: result.user.uuid });
+      logger.info('Passkey login successful', { userUuid: result.user?.uuid });
       return result;
     } catch (error) {
       logger.error('Passkey login failed', { error });
@@ -315,7 +317,7 @@ class PasskeyService {
     });
 
     const result = await this.finishLogin(credential, sessionId);
-    logger.info('Passkey autofill login successful', { userUuid: result.user.uuid });
+    logger.info('Passkey autofill login successful', { userUuid: result.user?.uuid });
     return result;
   }
 

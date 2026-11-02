@@ -676,6 +676,15 @@ pub async fn finish_passkey_login(
     // Pin the workspace so the response's workspace_role resolves under RLS
     // (workspace_members is workspace-isolated).
     let user_uuid = user.uuid;
+    if let Some(ws) = super::auth::portal_landing(&req, &mut conn, &user) {
+        return super::auth::portal_sign_in(
+            &user,
+            &ws,
+            &req,
+            &mut conn,
+            super::auth::SignInProof::Credential,
+        );
+    }
     super::helpers::pin_request_workspace(&req, &mut conn);
     let session = super::auth::create_session_record(
         &user_uuid,

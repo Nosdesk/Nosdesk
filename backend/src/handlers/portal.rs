@@ -236,7 +236,7 @@ pub fn authorize_portal_request(
 /// The cookies + CSRF value that make up a freshly minted portal session,
 /// ready to attach to either a JSON response (XHR) or a redirect (the
 /// magic-link callback's top-level navigation).
-pub(crate) struct PortalSessionCookies {
+pub struct PortalSessionCookies {
     pub(crate) access: Cookie<'static>,
     pub(crate) refresh: Cookie<'static>,
     pub(crate) csrf: Cookie<'static>,
