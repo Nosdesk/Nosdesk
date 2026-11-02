@@ -338,10 +338,14 @@ pub struct Ticket {
     /// The requester was staff when the ticket was raised (set by the
     /// `ticket_raised_by_staff` trigger, never by app code). Organisation
     /// sharing in the portal leaves these out unless the workspace includes
-    /// them. Server-side only. Must stay the LAST field to match `schema.rs`
-    /// column order (positional Queryable).
+    /// them. Server-side only.
     #[serde(skip_serializing, default)]
     pub raised_by_staff: bool,
+    /// When "New ticket" made this blank ticket for its requester; it is still
+    /// blank while `updated_at` equals it. Server-side only. Must stay the
+    /// LAST field to match `schema.rs` column order (positional Queryable).
+    #[serde(skip_serializing, default)]
+    pub blank_at: Option<NaiveDateTime>,
 }
 
 /// Merge metadata for a ticket that was merged into another (the satellite of
@@ -992,6 +996,7 @@ mod new_ticket_write_tests {
             approval_state: None,
             number: 1,
             raised_by_staff: false,
+            blank_at: None,
         }
     }
 

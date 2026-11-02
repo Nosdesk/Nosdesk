@@ -14,7 +14,7 @@ use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
-use crate::services::ticket_updates::assign_new_ticket;
+use crate::services::ticket_updates::{assign_new_ticket, blank_ticket, BlankTicket};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/tickets", web::get().to(crate::handlers::get_tickets))
@@ -881,7 +881,10 @@ pub async fn import_tickets_from_json_string(
     }))
 }
 
-// Create an empty ticket with default values
+/// "New ticket": the caller's blank ticket. One they made earlier and haven't
+/// touched since is theirs to fill in, so it comes back instead of another;
+/// otherwise a new one is made. Under a per-requester lock, so presses that
+/// arrive together get the same ticket.
 pub async fn create_empty_ticket(
     mut tc: TenantConn,
     search_service: web::Data<Arc<SearchService>>,
@@ -899,62 +902,34 @@ pub async fn create_empty_ticket(
         Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
-    // Create a new ticket with default values using the authenticated user's UUID
-    let default_state = match tc.run(repository::workflow_states::default_state) {
-        Ok(s) => s,
-        Err(e) => {
-            error!(error = ?e, "Failed to resolve default workflow state");
-            return errors::internal("Failed to resolve workflow state");
-        }
-    };
-    let empty_ticket = NewTicket {
-        title: "New Ticket".to_string(),
-        workflow_state_id: default_state.id,
-        requester_uuid: Some(user_uuid),
-        ..Default::default()
-    };
+    let search = search_service.get_ref();
+    let blank = tc.transaction(|db| blank_ticket(db, user_uuid, Some(search)));
 
-    // Create the ticket and then add empty article content
-    let mut ticket = match tc.run(|conn| repository::create_ticket(conn, empty_ticket)) {
-        Ok(ticket) => ticket,
+    let (ticket, made) = match blank {
+        Ok(BlankTicket::Reused(ticket)) => (ticket, false),
+        Ok(BlankTicket::Made(ticket, article_content)) => {
+            indexing_tasks::spawn_index_ticket(search.clone(), ticket.clone(), article_content);
+            (ticket, true)
+        }
         Err(e) => {
             error!(error = ?e, "Failed to create empty ticket");
-            return errors::internal(format!("Failed to create empty ticket: {e}"));
+            return errors::internal("Failed to create empty ticket");
         }
     };
-
-    // The assignment rules pick an assignee when it has none.
-    ticket = assign_new_ticket(&mut tc, Some(search_service.get_ref()), ticket);
-
-    // Create empty article content for the ticket
-    let new_article_content = crate::models::NewArticleContent {
-        ticket_id: ticket.id,
-        yjs_state_vector: None,
-        yjs_document: None,
-        yjs_client_id: None,
-    };
-
-    // Try to create article content, but don't fail if it doesn't work
-    let article_content = tc
-        .run(|conn| repository::create_article_content(conn, new_article_content))
-        .ok();
-
-    // Index the new ticket in search
-    indexing_tasks::spawn_index_ticket(
-        search_service.get_ref().clone(),
-        ticket.clone(),
-        article_content,
-    );
 
     // Canonical wide event: fold the outcome into the one per-request line so
     // "a ticket was created, id N" is queryable without a separate log line.
     record_canonical(&req, "ticket_id", ticket.id);
-    record_canonical(&req, "outcome", "created");
+    record_canonical(&req, "outcome", if made { "created" } else { "reused" });
 
-    // Return the complete ticket with article content
-    // The ticket was created moments ago and has no comments, so the audience
-    // filters nothing. Stated explicitly rather than defaulted, because the
-    // argument exists precisely so nobody has to guess.
+    let mut response = if made {
+        HttpResponse::Created()
+    } else {
+        HttpResponse::Ok()
+    };
+    // A blank ticket has no comments, so the audience filters nothing. Stated
+    // explicitly rather than defaulted, because the argument exists precisely
+    // so nobody has to guess.
     match tc.run(|conn| {
         repository::get_complete_ticket(
             conn,
@@ -962,8 +937,8 @@ pub async fn create_empty_ticket(
             crate::repository::ticket_visibility::CommentAudience::system(),
         )
     }) {
-        Ok(complete_ticket) => HttpResponse::Created().json(complete_ticket),
-        Err(_) => HttpResponse::Created().json(ticket), // Fallback to just the ticket if getting complete ticket fails
+        Ok(complete_ticket) => response.json(complete_ticket),
+        Err(_) => response.json(ticket), // Fallback to just the ticket if getting complete ticket fails
     }
 }
 
