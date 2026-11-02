@@ -453,6 +453,7 @@ onMounted(async () => {
         :showCreateButton="showCreateButton"
         :createButtonText="createButtonText"
         :createButtonIcon="createButtonIcon"
+        :creating="pageActions.creating"
         :ticket="titleManager.currentTicket.value"
         :device="titleManager.currentDevice.value"
         :document="titleManager.currentDocument.value"
