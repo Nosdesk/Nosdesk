@@ -60,8 +60,8 @@ export function setupApiClient(): void {
   apiClient.interceptors.response.clear()
 
   apiClient.interceptors.request.use(async (config) => {
-    // Held while a workspace switch is in progress.
-    await passRequestGates()
+    // Held while a workspace switch is in progress, refused during a sign-out.
+    await passRequestGates(config)
     config.baseURL = apiBaseUrl()
     config.withCredentials = transport().auth.useCredentials
     // Use AxiosHeaders.set (not Object.assign) so values land in the instance's
