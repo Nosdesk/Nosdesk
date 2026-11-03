@@ -17,9 +17,9 @@
  * `localStorage['nosdesk:error-reports'] = 'on'`.
  */
 import type { App } from 'vue'
-import axios from 'axios'
 
 import { isStaleChunkError } from './staleBuild'
+import { isCancellation } from '@nosdesk/core/utils/cancellation'
 
 export type Surface = 'agent' | 'portal' | 'teams' | 'widget'
 type Kind = 'error' | 'unhandled_rejection' | 'vue' | 'http'
@@ -100,7 +100,7 @@ function describe(error: unknown): Described {
 }
 
 function ignored(error: unknown, d: Described): boolean {
-  if (axios.isCancel(error) || d.name === 'AbortError' || d.name === 'CanceledError') return true
+  if (isCancellation(error)) return true
   if (isStaleChunkError(error)) return true
   const bare = d.message.replace(/^(?:\w*Error|Uncaught): /, '')
   if (RESIZE_OBSERVER.test(bare) || NETWORK.test(bare)) return true
