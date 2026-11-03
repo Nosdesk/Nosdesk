@@ -6248,6 +6248,16 @@ ticket-comments-attachments-missing =
        *[reply] Votre réponse a été envoyée, mais certains de ses fichiers n'ont pas été joints.
     }
 # Réponse non envoyée et non conservée après un changement d'espace (machine, à relire par un locuteur natif).
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-too-large =
+    { $kind ->
+        [note] Votre note n'a pas été envoyée : ses pièces jointes sont trop volumineuses. Retirez-en et réessayez.
+       *[reply] Votre réponse n'a pas été envoyée : ses pièces jointes sont trop volumineuses. Retirez-en et réessayez.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachment-too-large = { $name } est trop volumineux pour être joint. Les fichiers peuvent faire jusqu'à { $limit } Mo.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachments-total-too-large = { $name } n'a pas été joint : les pièces jointes d'une réponse peuvent faire jusqu'à { $limit } Mo au total.
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Votre note n'a pas été envoyée. Elle n'a pas pu être conservée, car vous avez changé d'espace de travail.

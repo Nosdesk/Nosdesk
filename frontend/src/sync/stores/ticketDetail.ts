@@ -40,6 +40,7 @@ import { stashPreview } from '@/services/attachmentPreviewCache'
 import { registerOptimisticCreate, clearOptimisticCreate, isEchoSuppressed } from '@/sync/optimisticCreates'
 import { replyStarted, replyFinished } from '@/sync/repliesInFlight'
 import { useToastStore } from '@nosdesk/core/stores/toast'
+import { UPLOAD_TOO_LARGE } from '@nosdesk/core/services/uploadLimits'
 import { resendMark, useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
 import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
 import { htmlHasText } from '@nosdesk/core/utils/inertHtml'
@@ -155,6 +156,13 @@ interface UploadedFile {
 
 interface FileWithTranscription extends File {
   _transcription?: string
+}
+
+/** Whether a reply failed for the size of its attachments: the server's 413,
+ *  or the mobile app's transport refusing the request before sending it. */
+function attachmentsTooLarge(err: unknown): boolean {
+  const e = err as { code?: unknown; response?: { status?: unknown } } | null
+  return e?.code === UPLOAD_TOO_LARGE || e?.response?.status === 413
 }
 
 /**
@@ -665,11 +673,19 @@ export function useTicketDetail(
           failedReplyToasts.set(
             replyKey,
             toast.error(
-              translate(
-                'ticket-comments-send-failed',
-                { kind },
-                kind === 'note' ? "Your note wasn't sent. Try again." : "Your reply wasn't sent. Try again.",
-              ),
+              attachmentsTooLarge(err)
+                ? translate(
+                    'ticket-comments-send-failed-too-large',
+                    { kind },
+                    kind === 'note'
+                      ? "Your note wasn't sent: its attachments are too large. Remove some and try again."
+                      : "Your reply wasn't sent: its attachments are too large. Remove some and try again.",
+                  )
+                : translate(
+                    'ticket-comments-send-failed',
+                    { kind },
+                    kind === 'note' ? "Your note wasn't sent. Try again." : "Your reply wasn't sent. Try again.",
+                  ),
             ),
           )
         } else {

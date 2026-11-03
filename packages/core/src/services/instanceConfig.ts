@@ -31,6 +31,8 @@ interface InstanceConfig {
   ticket_numbers?: boolean;
   /** The Nosdesk release this server runs. */
   server_version?: string;
+  /** The largest attachment `/upload` accepts, in MB. Absent before 1.1.5. */
+  max_file_size_mb?: number;
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
@@ -64,6 +66,10 @@ let ticketNumbers = true;
 
 // The release `/api/config` reports; empty until it resolves.
 let serverVersion = '';
+
+// The largest upload the server accepts, in bytes; null until the config
+// resolves, or from a server older than 1.1.5 that doesn't say.
+let maxUploadBytes: number | null = null;
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -146,6 +152,9 @@ export function fetchInstanceConfig(): Promise<void> {
         if (typeof data?.server_version === 'string') {
           serverVersion = data.server_version;
         }
+        if (typeof data?.max_file_size_mb === 'number' && data.max_file_size_mb > 0) {
+          maxUploadBytes = data.max_file_size_mb * 1024 * 1024;
+        }
         configResolved.value = true;
       } catch (e) {
         logger.error('Failed to fetch instance config; will retry on next call', e);
@@ -178,6 +187,7 @@ export function resetInstanceConfig(): void {
   accountUrl = '';
   ticketNumbers = true;
   serverVersion = '';
+  maxUploadBytes = null;
   portalDomain = '';
 }
 
@@ -205,6 +215,11 @@ export function getPortalDomain(): string {
 
 export function getServerVersion(): string {
   return serverVersion;
+}
+
+/** The largest upload the server accepts, in bytes; null when not known. */
+export function getServerMaxUploadBytes(): number | null {
+  return maxUploadBytes;
 }
 
 /** The instance's deployment mode. 'self_hosted' until the config resolves. */
