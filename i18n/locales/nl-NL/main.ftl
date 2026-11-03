@@ -7061,6 +7061,12 @@ plugin-dialog-pick-ticket-title = { $plugin } vraagt u een ticket te kiezen
 plugin-dialog-pick-date-title = { $plugin } vraagt u een datum te kiezen
 plugin-dialog-date-label = Datum
 plugin-dialog-choose = Kiezen
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-title = { $plugin } wil een link openen
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-message = Er wordt een pagina op { $host } geopend in een nieuw tabblad.
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-open = Openen
 plugin-detail-metadata-heading = Metadata
 plugin-detail-metadata-source = Bron
 plugin-detail-metadata-permissions = Machtigingen
@@ -8078,6 +8084,10 @@ plugin-permission-network-description = Netwerkverzoeken doen naar { $host }
 plugin-permission-resource-label = { $kind }-bronnen laden
 # MACHINE TRANSLATION, pending native review
 plugin-permission-resource-description = { $kind } laden vanaf { $host } in de eigen weergave van de plug-in. Een goedgekeurde oorsprong kan gegevens ontvangen via de bron-URL, sta daarom alleen vertrouwde hosts toe.
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-label = Links openen
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-description = Pagina's op { $host } openen in een nieuw tabblad
 # MACHINE TRANSLATION, pending native review
 plugin-permission-reason-prefix = Reden van de auteur:
 plugin-permission-unknown-label = { $permission }
