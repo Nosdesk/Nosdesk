@@ -4,6 +4,7 @@ import { installNavigationTracking } from './navigation'
 import { canOpenRoute, isGatedRoute, routeViewer } from './access'
 import { fetchInstanceConfig, getWorkspaceRouting, isHostedDeployment } from '@nosdesk/core/services/instanceConfig'
 import { lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
+import { transport } from '@nosdesk/core/transport'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
 import { ticketNumberForId } from '@/utils/ticketNumbers'
@@ -1249,8 +1250,16 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   // Session restoration: when frontend auth state is cleared (e.g. page refresh after
   // the 15-min access token expires), attempt to restore the session using the 7-day
   // refresh token. fetchUserData() calls /auth/me → gets 401 → apiConfig interceptor
-  // transparently refreshes the access token and retries the request.
-  if (requiresAuth && !authStore.isAuthenticated && !authStore.loading && to.name !== 'login') {
+  // transparently refreshes the access token and retries the request. Only with a
+  // session to restore: the CSRF cookie lives exactly as long as the refresh cookie,
+  // so without it /auth/me and the refresh can only be refused.
+  if (
+    requiresAuth &&
+    !authStore.isAuthenticated &&
+    !authStore.loading &&
+    to.name !== 'login' &&
+    transport().auth.hasSession()
+  ) {
     try {
       await authStore.fetchUserData();
     } catch {

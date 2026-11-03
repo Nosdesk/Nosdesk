@@ -105,6 +105,7 @@ import {
   installWorkspaceGuard,
   withWorkspaceRouting,
 } from '@/router/workspaceRouting'
+import { ensureSignedInTransport } from '@/test/workspaceRouter'
 
 let nextId = 1
 function page(status: string, collectionId: number | null): DocPageRow {
@@ -160,6 +161,7 @@ function makeRouter(): Router {
   })
   installSlugCarrier(router)
   installWorkspaceGuard(router)
+  ensureSignedInTransport()
   return router
 }
 
