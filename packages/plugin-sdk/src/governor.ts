@@ -44,6 +44,8 @@ export const INTERACTIVE_HOST_METHODS: ReadonlySet<string> = new Set([
   'ui.pickAsset',
   'ui.pickTicket',
   'ui.pickDate',
+  // Opens a tab straight away, or asks first when the browser would block it.
+  'ui.openExternal',
 ]);
 
 export class BridgeGovernor {

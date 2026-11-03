@@ -15,6 +15,7 @@ import type {
 import type { UserInfo } from '../types/user';
 import type { PaginatedResponse } from '../types/pagination';
 import type { CommentWithAttachments } from '../types/comment';
+import { isCancellation } from '../utils/cancellation';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();
@@ -90,8 +91,7 @@ export const getPaginatedTickets = async (
     const response = await apiClient.get('/tickets/paginated', { params, signal });
     return response.data;
   } catch (error) {
-    const errorWithName = error as { name?: string };
-    if (errorWithName.name === 'AbortError' || errorWithName.name === 'CanceledError') {
+    if (isCancellation(error)) {
       // Legacy requestManager callers expect the sentinel; Colada-signal
       // callers get the original abort error so Colada recognises its own
       // stale-query cancellation and doesn't surface it as an error.

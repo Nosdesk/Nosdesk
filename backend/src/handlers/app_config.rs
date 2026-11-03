@@ -74,6 +74,9 @@ pub async fn get_public_config() -> impl Responder {
         "ticket_numbers": true,
         "server_version": env!("CARGO_PKG_VERSION"),
         "min_app_version": MIN_APP_VERSION,
+        // The largest attachment `/upload` accepts, so a client can refuse a
+        // bigger file before reading any of it.
+        "max_file_size_mb": crate::utils::file_validation::get_max_file_size() / (1024 * 1024),
     }))
 }
 
@@ -94,5 +97,9 @@ mod tests {
         .await;
         assert_eq!(body["server_version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(body["min_app_version"], "1.1.0");
+        assert_eq!(
+            body["max_file_size_mb"],
+            crate::utils::file_validation::get_max_file_size() / (1024 * 1024)
+        );
     }
 }

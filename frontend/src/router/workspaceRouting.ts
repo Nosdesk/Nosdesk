@@ -28,6 +28,7 @@ import type {
   RouteLocationRaw,
 } from 'vue-router';
 import { fetchInstanceConfig, getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
+import { transport } from '@nosdesk/core/transport';
 import {
   setActiveWorkspaceSlug,
   activeWorkspaceSlug,
@@ -178,26 +179,26 @@ export function installWorkspaceGuard(router: Router): void {
       // views or plugins with it. Then the new workspace's own state loads
       // once the slug (and so the selection header) is published.
       const previous = activeWorkspaceSlug();
-      if (previous !== slug) {
-        const { resetWorkspaceScopedState, enterWorkspace } = await import(
-          '@/stores/workspaceReset'
-        );
-        if (previous !== null) {
-          // Hold requests from the outgoing views until the new slug is set;
-          // set it even if the reset fails, so held requests are released.
-          beginWorkspaceSwitch();
-          try {
-            await resetWorkspaceScopedState('switch');
-          } finally {
-            setActiveWorkspaceSlug(slug);
-          }
-        } else {
+      const { resetWorkspaceScopedState, enterWorkspace } = await import(
+        '@/stores/workspaceReset'
+      );
+      if (previous !== null && previous !== slug) {
+        // Hold requests from the outgoing views until the new slug is set;
+        // set it even if the reset fails, so held requests are released.
+        beginWorkspaceSwitch();
+        try {
+          await resetWorkspaceScopedState('switch');
+        } finally {
           setActiveWorkspaceSlug(slug);
         }
-        if (isAuthed(to)) void enterWorkspace(slug);
-        return true;
+      } else {
+        setActiveWorkspaceSlug(slug);
       }
-      setActiveWorkspaceSlug(slug);
+      // Only with a session: a signed-out visit (on its way to the sign-in
+      // page) would be refused the workspace's branding and plugins. Entering
+      // loads once per session and workspace, so the first navigation after
+      // signing in enters, whether or not the slug changed.
+      if (isAuthed(to) && transport().auth.hasSession()) void enterWorkspace(slug);
       return true;
     }
     if (!isAuthed(to)) return true;

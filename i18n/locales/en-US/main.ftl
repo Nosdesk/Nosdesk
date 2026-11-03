@@ -5682,6 +5682,13 @@ ticket-comments-attachments-missing =
         [note] Your note was sent, but some of its files weren't attached.
        *[reply] Your reply was sent, but some of its files weren't attached.
     }
+ticket-comments-send-failed-too-large =
+    { $kind ->
+        [note] Your note wasn't sent: its attachments are too large. Remove some and try again.
+       *[reply] Your reply wasn't sent: its attachments are too large. Remove some and try again.
+    }
+ticket-comments-attachment-too-large = { $name } is too large to attach. Files can be up to { $limit } MB.
+ticket-comments-attachments-total-too-large = { $name } wasn't attached: a reply's attachments can be up to { $limit } MB together.
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Your note wasn't sent. It couldn't be kept because you switched workspace.
@@ -6464,6 +6471,9 @@ plugin-dialog-pick-ticket-title = { $plugin } asks you to choose a ticket
 plugin-dialog-pick-date-title = { $plugin } asks you to choose a date
 plugin-dialog-date-label = Date
 plugin-dialog-choose = Choose
+plugin-dialog-open-link-title = { $plugin } wants to open a link
+plugin-dialog-open-link-message = It opens a page on { $host } in a new tab.
+plugin-dialog-open-link-open = Open
 plugin-detail-metadata-heading = Metadata
 plugin-detail-metadata-source = Source
 plugin-detail-metadata-permissions = Permissions
@@ -7487,6 +7497,8 @@ plugin-permission-network-label = Network access
 plugin-permission-network-description = Make network requests to { $host }
 plugin-permission-resource-label = Load { $kind } resources
 plugin-permission-resource-description = Load { $kind } from { $host } in the plugin's own view. An approved origin can receive data through the resource URL, so only allow hosts you trust.
+plugin-permission-link-label = Open links
+plugin-permission-link-description = Open pages on { $host } in a new tab
 plugin-permission-reason-prefix = Author's reason:
 plugin-permission-unknown-label = { $permission }
 plugin-permission-unknown-description = An unrecognized permission

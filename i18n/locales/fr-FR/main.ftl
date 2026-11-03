@@ -6248,6 +6248,16 @@ ticket-comments-attachments-missing =
        *[reply] Votre réponse a été envoyée, mais certains de ses fichiers n'ont pas été joints.
     }
 # Réponse non envoyée et non conservée après un changement d'espace (machine, à relire par un locuteur natif).
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-too-large =
+    { $kind ->
+        [note] Votre note n'a pas été envoyée : ses pièces jointes sont trop volumineuses. Retirez-en et réessayez.
+       *[reply] Votre réponse n'a pas été envoyée : ses pièces jointes sont trop volumineuses. Retirez-en et réessayez.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachment-too-large = { $name } est trop volumineux pour être joint. Les fichiers peuvent faire jusqu'à { $limit } Mo.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachments-total-too-large = { $name } n'a pas été joint : les pièces jointes d'une réponse peuvent faire jusqu'à { $limit } Mo au total.
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Votre note n'a pas été envoyée. Elle n'a pas pu être conservée, car vous avez changé d'espace de travail.
@@ -7061,6 +7071,12 @@ plugin-dialog-pick-ticket-title = { $plugin } vous demande de choisir un ticket
 plugin-dialog-pick-date-title = { $plugin } vous demande de choisir une date
 plugin-dialog-date-label = Date
 plugin-dialog-choose = Choisir
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-title = { $plugin } souhaite ouvrir un lien
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-message = Une page de { $host } s'ouvrira dans un nouvel onglet.
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-open = Ouvrir
 plugin-detail-metadata-heading = Métadonnées
 plugin-detail-metadata-source = Source
 plugin-detail-metadata-permissions = Permissions
@@ -8078,6 +8094,10 @@ plugin-permission-network-description = Effectuer des requêtes réseau vers { $
 plugin-permission-resource-label = Charger des ressources { $kind }
 # MACHINE TRANSLATION, pending native review
 plugin-permission-resource-description = Charger { $kind } depuis { $host } dans la vue du plugin. Une origine approuvée peut recevoir des données via l'URL de la ressource, n'autorisez donc que les hôtes de confiance.
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-label = Ouvrir des liens
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-description = Ouvrir des pages de { $host } dans un nouvel onglet
 # MACHINE TRANSLATION, pending native review
 plugin-permission-reason-prefix = Raison de l'auteur :
 plugin-permission-unknown-label = { $permission }

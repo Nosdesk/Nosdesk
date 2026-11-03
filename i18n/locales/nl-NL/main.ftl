@@ -6238,6 +6238,16 @@ ticket-comments-attachments-missing =
        *[reply] Je antwoord is verzonden, maar enkele bestanden zijn niet bijgevoegd.
     }
 # Antwoord niet verzonden en niet bewaard na wisselen van werkruimte (machine, na te kijken door moedertaalspreker).
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-too-large =
+    { $kind ->
+        [note] Je notitie is niet verzonden: de bijlagen zijn te groot. Verwijder er een paar en probeer het opnieuw.
+       *[reply] Je antwoord is niet verzonden: de bijlagen zijn te groot. Verwijder er een paar en probeer het opnieuw.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachment-too-large = { $name } is te groot om toe te voegen. Bestanden mogen maximaal { $limit } MB zijn.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachments-total-too-large = { $name } is niet toegevoegd: de bijlagen van een antwoord mogen samen maximaal { $limit } MB zijn.
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Je notitie is niet verzonden. Ze kon niet worden bewaard, omdat je van werkruimte bent gewisseld.
@@ -7051,6 +7061,12 @@ plugin-dialog-pick-ticket-title = { $plugin } vraagt u een ticket te kiezen
 plugin-dialog-pick-date-title = { $plugin } vraagt u een datum te kiezen
 plugin-dialog-date-label = Datum
 plugin-dialog-choose = Kiezen
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-title = { $plugin } wil een link openen
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-message = Er wordt een pagina op { $host } geopend in een nieuw tabblad.
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-open = Openen
 plugin-detail-metadata-heading = Metadata
 plugin-detail-metadata-source = Bron
 plugin-detail-metadata-permissions = Machtigingen
@@ -8068,6 +8084,10 @@ plugin-permission-network-description = Netwerkverzoeken doen naar { $host }
 plugin-permission-resource-label = { $kind }-bronnen laden
 # MACHINE TRANSLATION, pending native review
 plugin-permission-resource-description = { $kind } laden vanaf { $host } in de eigen weergave van de plug-in. Een goedgekeurde oorsprong kan gegevens ontvangen via de bron-URL, sta daarom alleen vertrouwde hosts toe.
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-label = Links openen
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-description = Pagina's op { $host } openen in een nieuw tabblad
 # MACHINE TRANSLATION, pending native review
 plugin-permission-reason-prefix = Reden van de auteur:
 plugin-permission-unknown-label = { $permission }

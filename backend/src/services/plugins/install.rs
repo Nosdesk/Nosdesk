@@ -96,6 +96,10 @@ pub enum InstallError {
     MissingManifest,
     InvalidManifest(String),
     BundleTooLarge(usize),
+    /// `bundle.js` has no default export with a `mount` in it, so the sandbox
+    /// runtime could not start it. Refused here so a bundle built to an old
+    /// contract fails at install, not later on a ticket page.
+    BundleContract,
     BundleWriteFailed(String),
     InvalidIcon(svg_validate::SvgValidationError),
     /// One or more manifest schema rules violated (unknown
@@ -147,6 +151,10 @@ impl std::fmt::Display for InstallError {
             Self::BundleTooLarge(sz) => {
                 write!(f, "bundle is {sz} bytes, exceeds {MAX_BUNDLE_SIZE}")
             }
+            Self::BundleContract => write!(
+                f,
+                "bundle.js must export a default object with a mount function (export default {{ mount }})"
+            ),
             Self::BundleWriteFailed(m) => write!(f, "failed to stage bundle: {m}"),
             Self::InvalidIcon(e) => write!(f, "icon.svg rejected: {e}"),
             Self::InvalidManifestSchema(errs) => {
@@ -275,6 +283,9 @@ pub fn install_verified(
     if let Some(b) = bundle_bytes {
         if b.len() > MAX_BUNDLE_SIZE {
             return Err(InstallError::BundleTooLarge(b.len()));
+        }
+        if !bundle_meets_contract(b) {
+            return Err(InstallError::BundleContract);
         }
     }
 
@@ -617,6 +628,35 @@ fn create_row(
     )?)
 }
 
+/// A default export, in either form a bundler emits: `export default ...` as
+/// written, or `export { x as default }` after esbuild or Rollup.
+static DEFAULT_EXPORT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"\bexport\s+default\b|\bexport\s*\{[^}]*\bas\s+default\b")
+        .expect("default-export pattern compiles")
+});
+
+/// `mount` being defined: a method or property key (`mount(`, `mount:`,
+/// `{ mount }`, `"mount":`), a class field (`mount = `) or an assignment
+/// (`p.mount = `). Not a call on something else (`app.mount(`, Vue 2's
+/// `$mount(`) or a comparison (`mount ==`).
+static MOUNT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(
+        r#"(?:^|[^\w$.])mount\s*(?:[:(,}]|=(?:[^=>]|$))|["']mount["']\s*:|\.mount\s*=(?:[^=>]|$)"#,
+    )
+    .expect("mount pattern compiles")
+});
+
+/// Whether a bundle looks like it meets the runtime contract: a default export
+/// and a `mount` in the bundle. A text check, not a parse: it can't prove the
+/// default export's `mount` is a function, but it refuses the bundles that
+/// plainly can't load, such as a Vue component object with no `mount`. A
+/// bundle that ships a framework runtime defining its own `mount` (Vue's
+/// `createApp`) passes whatever its default export is.
+fn bundle_meets_contract(bundle: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(bundle);
+    DEFAULT_EXPORT.is_match(&text) && MOUNT.is_match(&text)
+}
+
 /// Persist pre-verified bundle bytes inline on the plugin row.
 /// Replaces the previous on-disk staging: `bundle_js` BYTEA, plus
 /// the denormalised `bundle_hash` / `bundle_size` /
@@ -817,5 +857,70 @@ mod reconsent_tests {
             &v(&["network:a.com"]),
             "community"
         ));
+    }
+}
+
+#[cfg(test)]
+mod bundle_contract_tests {
+    use super::bundle_meets_contract;
+
+    #[test]
+    fn a_hand_written_default_export_passes() {
+        let src = "export default {\n  mount(root, api, context) {\n    root.textContent = 'hi';\n  },\n};\n";
+        assert!(bundle_meets_contract(src.as_bytes()));
+        let shorthand = "function mount(root) {}\nexport default { mount };\n";
+        assert!(bundle_meets_contract(shorthand.as_bytes()));
+        let async_method = "export default { async mount(root, api) { await api.version; } };";
+        assert!(bundle_meets_contract(async_method.as_bytes()));
+    }
+
+    #[test]
+    fn an_esbuild_shaped_bundle_passes() {
+        let minified = "var a=(r,o)=>{r.textContent=\"x\"},s={mount:a};export{s as default};\n";
+        assert!(bundle_meets_contract(minified.as_bytes()));
+        let spaced = "var plugin = { mount: mountPanel };\nexport {\n  plugin as default\n};\n";
+        assert!(bundle_meets_contract(spaced.as_bytes()));
+    }
+
+    #[test]
+    fn other_ways_of_defining_mount_pass() {
+        let assigned = "var p={};p.mount=function(r){r.textContent='x'};export{p as default};";
+        assert!(bundle_meets_contract(assigned.as_bytes()));
+        let spaced_assign =
+            "const plugin = {};\nplugin.mount = (root) => {};\nexport default plugin;\n";
+        assert!(bundle_meets_contract(spaced_assign.as_bytes()));
+        let class_field =
+            "class Panel {\n  mount = (root) => {};\n}\nexport default new Panel();\n";
+        assert!(bundle_meets_contract(class_field.as_bytes()));
+        let quoted = "export default {\"mount\":function(r){}};";
+        assert!(bundle_meets_contract(quoted.as_bytes()));
+        let single_quoted = "export default { 'mount': (r) => {} };";
+        assert!(bundle_meets_contract(single_quoted.as_bytes()));
+    }
+
+    #[test]
+    fn comparing_or_calling_mount_is_not_defining_it() {
+        let compared = "export default { name: 'x', check(o) { return o.mount == null; } };";
+        assert!(!bundle_meets_contract(compared.as_bytes()));
+        let strict = "export default { check(mount) { return mount === 1; } };";
+        assert!(!bundle_meets_contract(strict.as_bytes()));
+    }
+
+    #[test]
+    fn a_bundle_without_mount_is_refused() {
+        // The shape of GitHub Integration 0.1.1: a Vue 2 component object.
+        let vue2 = "export default {\n  name: 'GithubPanel',\n  template: `<div class=\"p-4\"></div>`,\n  mounted() { this.load(); },\n  methods: { load() { this.$mount(); } },\n};\n";
+        assert!(!bundle_meets_contract(vue2.as_bytes()));
+        // A Vue 3 app mounted at import time, with no default export at all.
+        let side_effect = "import { createApp } from 'vue';\ncreateApp({}).mount('#app');\n";
+        assert!(!bundle_meets_contract(side_effect.as_bytes()));
+    }
+
+    #[test]
+    fn a_bundle_without_a_default_export_is_refused() {
+        let named = "export function mount(root) { root.textContent = 'hi'; }\n";
+        assert!(!bundle_meets_contract(named.as_bytes()));
+        let comment_only = "// mount: see docs\nconst defaultish = 1;\n";
+        assert!(!bundle_meets_contract(comment_only.as_bytes()));
     }
 }

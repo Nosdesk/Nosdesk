@@ -53,8 +53,8 @@ afterEach(() => {
 })
 
 describe('plugin ui dialogs', () => {
-  it('reports runtime API 1.2', () => {
-    expect(api().version).toBe('1.2.0')
+  it('reports runtime API 1.3', () => {
+    expect(api().version).toBe('1.3.0')
   })
 
   it('confirm opens an attributed request and resolves true on confirm', async () => {

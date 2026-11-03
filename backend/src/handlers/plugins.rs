@@ -65,6 +65,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::post().to(crate::handlers::plugins::install_from_registry),
     )
     .route(
+        "/admin/plugins/registry/icons/{name}",
+        web::get().to(crate::handlers::plugins::serve_registry_icon),
+    )
+    .route(
         "/admin/plugins/{uuid}",
         web::get().to(crate::handlers::plugins::get_plugin),
     )
@@ -1705,6 +1709,7 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
         install::InstallError::MissingManifest
         | install::InstallError::InvalidManifest(_)
         | install::InstallError::BundleTooLarge(_)
+        | install::InstallError::BundleContract
         | install::InstallError::InvalidIcon(_)
         | install::InstallError::InvalidManifestSchema(_) => errors::bad_request(err.to_string()),
         install::InstallError::ReinstallSignerMismatch { .. }
@@ -1796,7 +1801,7 @@ pub async fn get_registry(
             "snapshot": {
                 "fetched_at": snapshot.fetched_at,
                 "publishers": snapshot.publishers,
-                "index": snapshot.index,
+                "index": snapshot.index_for_client(),
             },
         })));
     }
@@ -1851,9 +1856,30 @@ pub async fn refresh_registry(
         "snapshot": {
             "fetched_at": snapshot.fetched_at,
             "publishers": snapshot.publishers,
-            "index": snapshot.index,
+            "index": snapshot.index_for_client(),
         },
     })))
+}
+
+/// Serve a registry catalog icon, fetched and checked at registry sync (see
+/// `registry::RegistryCache::icons`), so the browser never loads it from the
+/// registry origin. Any signed-in user: the icon is public catalog content,
+/// and an `<img>` request carries no workspace header to check a role against.
+pub async fn serve_registry_icon(
+    req: HttpRequest,
+    cache: web::Data<registry::SharedCache>,
+    path: web::Path<String>,
+) -> Result<HttpResponse, ApiError> {
+    require_auth(&req)?;
+    let name = path.into_inner();
+    let guard = cache.read().await;
+    match guard.snapshot.as_ref().and_then(|s| s.icons.get(&name)) {
+        Some(icon) => Ok(HttpResponse::Ok()
+            .content_type("image/svg+xml")
+            .insert_header(("Cache-Control", "private, max-age=86400"))
+            .body(icon.svg.clone())),
+        None => Err(ApiError::NotFoundMsg("Not found".into())),
+    }
 }
 
 #[derive(Deserialize)]

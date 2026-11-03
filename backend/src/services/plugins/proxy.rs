@@ -929,7 +929,9 @@ impl PluginProxyService {
                 PluginProxyError::Network(e)
             })?;
 
-            if !response.status().is_redirection() {
+            // Only the redirect codes are followed. 304 Not Modified (and the
+            // rest of 3xx) is an answer, handed back to the plugin as is.
+            if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
                 return Ok(response);
             }
             if hop == Self::MAX_REDIRECTS {
@@ -1102,20 +1104,17 @@ impl PluginProxyService {
             }
         }
 
-        // Get response body — try JSON first, fall back to text string
-        let body_text = response.text().await.ok();
-        let body = body_text.and_then(|text| {
-            serde_json::from_str::<serde_json::Value>(&text)
-                .ok()
-                .or(Some(serde_json::Value::String(text)))
-        });
+        // The body goes back as the upstream text, verbatim, so the plugin
+        // decides how to read it. A bodyless status (204, 304) reads as "". A
+        // body cut off mid-read is a failed request, not an empty answer.
+        let body = response.text().await.map_err(PluginProxyError::Network)?;
 
         if status >= 400 {
             warn!(
                 plugin = plugin_name,
                 url = request.url,
                 status = status,
-                response_body = ?body,
+                response_body = %body.chars().take(500).collect::<String>(),
                 "Proxied request failed"
             );
         } else {
@@ -1294,7 +1293,7 @@ mod tests {
         let (port, _h) = serve_canned(vec![
             // Relative Location, resolved against the current URL.
             "HTTP/1.1 302 Found\r\nLocation: /landed\r\nContent-Length: 0\r\n\r\n".to_string(),
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n\
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 13\r\n\r\n\
              {\"ok\":\"true\"}"
                 .to_string(),
         ])
@@ -1316,6 +1315,158 @@ mod tests {
 
         let response = result.expect("same-host redirect should be followed");
         assert_eq!(response.status, 200);
+    }
+
+    /// A text body comes back verbatim and a JSON body unparsed, so the
+    /// plugin sees exactly what the upstream sent.
+    #[tokio::test]
+    async fn body_is_the_upstream_text_verbatim() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, _h) = serve_canned(vec![
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello"
+                .to_string(),
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\n\r\n\
+             { \"a\" : 1 }\n"
+                .to_string(),
+        ])
+        .await;
+
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:localhost"]);
+        let text = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!("http://localhost:{port}/text")),
+                &HashMap::new(),
+            )
+            .await;
+        let json = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!("http://localhost:{port}/json")),
+                &HashMap::new(),
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+
+        assert_eq!(text.expect("text response").body, "hello");
+        assert_eq!(json.expect("json response").body, "{ \"a\" : 1 }\n");
+    }
+
+    /// A body the upstream cuts off is a failed request (502), not an empty
+    /// 200 the plugin would take for an answer.
+    #[tokio::test]
+    async fn a_body_cut_off_mid_read_is_a_bad_gateway() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, _h) = serve_canned(vec![
+            "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nshort".to_string()
+        ])
+        .await;
+
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:localhost"]);
+        let result = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!("http://localhost:{port}/cut")),
+                &HashMap::new(),
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+
+        let err = result.expect_err("a truncated body is an error");
+        assert!(matches!(err, PluginProxyError::Network(_)), "got {err:?}");
+        assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
+    }
+
+    /// 204 and 304 come back with an empty body, and a 304 is returned rather
+    /// than treated as a redirect. The ETag survives in the headers and the
+    /// plugin's `If-None-Match` reaches the upstream.
+    #[tokio::test]
+    async fn bodyless_statuses_return_an_empty_body_and_keep_the_etag() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            for reply in [
+                "HTTP/1.1 304 Not Modified\r\nETag: \"abc\"\r\nLocation: /elsewhere\r\n\r\n",
+                "HTTP/1.1 204 No Content\r\n\r\n",
+            ] {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = [0u8; 4096];
+                let n = sock.read(&mut buf).await.unwrap();
+                seen.push(String::from_utf8_lossy(&buf[..n]).to_string());
+                sock.write_all(reply.as_bytes()).await.unwrap();
+                sock.flush().await.unwrap();
+            }
+            seen
+        });
+
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:localhost"]);
+        let mut conditional = proxy_req(&format!("http://localhost:{port}/issue"));
+        conditional.headers = Some(HashMap::from([(
+            "If-None-Match".to_string(),
+            "\"abc\"".to_string(),
+        )]));
+        let not_modified = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                conditional,
+                &HashMap::new(),
+            )
+            .await;
+        let mut delete = proxy_req(&format!("http://localhost:{port}/label"));
+        delete.method = "DELETE".to_string();
+        let no_content = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                delete,
+                &HashMap::new(),
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+
+        let not_modified = not_modified.expect("304 is a response, not an error");
+        assert_eq!(not_modified.status, 304);
+        assert_eq!(not_modified.body, "");
+        assert_eq!(
+            not_modified.headers.get("etag").map(String::as_str),
+            Some("\"abc\"")
+        );
+        let no_content = no_content.expect("204 response");
+        assert_eq!(no_content.status, 204);
+        assert_eq!(no_content.body, "");
+
+        let seen = server.await.unwrap();
+        assert!(
+            seen[0]
+                .to_ascii_lowercase()
+                .contains("if-none-match: \"abc\""),
+            "If-None-Match should be forwarded, got {}",
+            seen[0]
+        );
     }
 
     /// A manifest-declared `apiKey` header is resolved per hop, keyed on the
