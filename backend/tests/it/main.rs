@@ -155,6 +155,7 @@ mod priority_names;
 mod profile_write_authz;
 mod project_ticket_visibility;
 mod projection_membership_role_model;
+mod push_device_session;
 mod push_preference_defaults;
 mod rate_limit_middleware;
 mod rebuild_search_index;

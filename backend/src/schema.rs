@@ -2083,6 +2083,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         last_seen_at -> Timestamptz,
         revoked_at -> Nullable<Timestamptz>,
+        session_id -> Uuid,
     }
 }
 
