@@ -1315,26 +1315,51 @@ pub async fn proxy_plugin_request(
         }
     };
 
-    // Build secrets map for auth injection (decrypt encrypted secrets)
+    // Build secrets map for auth injection (decrypt encrypted secrets), and
+    // the other settings as text for `private_key_jwt` (`issuer`, `{key}`
+    // placeholders in its token URL).
     let mut secrets = std::collections::HashMap::new();
+    let mut plain_settings = std::collections::HashMap::new();
     for setting in settings {
-        if setting.is_secret {
-            if let Some(value) = setting.value {
-                if let Some(encrypted) = value.as_str() {
-                    match decrypt_plugin_secret(encrypted, &plugin.uuid, &setting.key) {
-                        Ok(decrypted) => {
-                            secrets.insert(setting.key, decrypted);
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to decrypt secret '{}' for plugin '{}': {}",
-                                setting.key, plugin.name, e
-                            );
-                            // Fail closed - don't use potentially compromised data
-                        }
-                    }
+        if !setting.is_secret {
+            let text = match setting.value {
+                Some(serde_json::Value::String(s)) => Some(s),
+                Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+                Some(serde_json::Value::Bool(b)) => Some(b.to_string()),
+                _ => None,
+            };
+            if let Some(text) = text {
+                plain_settings.insert(setting.key, text);
+            }
+        } else if let Some(encrypted) = setting.value.as_ref().and_then(|v| v.as_str()) {
+            match decrypt_plugin_secret(encrypted, &plugin.uuid, &setting.key) {
+                Ok(decrypted) => {
+                    secrets.insert(setting.key, decrypted);
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to decrypt secret '{}' for plugin '{}': {}",
+                        setting.key, plugin.name, e
+                    );
+                    // Fail closed - don't use potentially compromised data
                 }
             }
+        }
+    }
+
+    // A setting the admin hasn't saved yet reads as its manifest default.
+    for def in &manifest.settings {
+        if def.setting_type == "secret" || plain_settings.contains_key(&def.key) {
+            continue;
+        }
+        let text = match &def.default {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+            Some(serde_json::Value::Bool(b)) => Some(b.to_string()),
+            _ => None,
+        };
+        if let Some(text) = text {
+            plain_settings.insert(def.key.clone(), text);
         }
     }
 
@@ -1342,17 +1367,26 @@ pub async fn proxy_plugin_request(
     // gated on the effective (consented) permission set, not the raw manifest,
     // consistent with every other plugin authorization check.
     let network_perms = plugin.effective_permission_set();
+    let creds = crate::services::plugins::proxy::PluginCredentials {
+        secrets,
+        settings: plain_settings,
+        cache_scope: format!("{}:{}", workspace_id.unwrap_or(0), plugin.uuid),
+    };
     match proxy_service
-        .proxy_request(
+        .proxy_request_with(
             &plugin.name,
             &manifest,
             &network_perms,
             body.into_inner(),
-            &secrets,
+            &creds,
         )
         .await
     {
         Ok(response) => HttpResponse::Ok().json(response),
+        Err(crate::services::plugins::PluginProxyError::AuthFailed { message }) => {
+            warn!(plugin = %plugin.name, error = %message, "plugin credential exchange failed");
+            auth_failed_response(&message)
+        }
         Err(e) => {
             // Structured status per failure mode: 403 permission/SSRF, 400 bad
             // method, 504 timeout, 502 other network faults (was a flat 400).
@@ -1365,6 +1399,21 @@ pub async fn proxy_plugin_request(
             )
         }
     }
+}
+
+/// The proxy response for `auth_failed`: a 401 inside a successful proxy
+/// call, marked so a plugin can tell it from an upstream 401, with the reason
+/// in the body. Never an HTTP 401 from this API, which the app would read as
+/// a lost session.
+fn auth_failed_response(message: &str) -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": 401,
+        "headers": {
+            "content-type": "application/json",
+            "x-nosdesk-proxy-error": "auth_failed",
+        },
+        "body": crate::services::plugins::proxy::auth_failed_body(message),
+    }))
 }
 
 /// Read a plugin's own settings at runtime (non-admin, for plugin use). Secret
@@ -2099,6 +2148,24 @@ mod tests {
     use crate::test_helpers::{claims_for, setup_test_pool};
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
+
+    /// `auth_failed` reaches the plugin as a 401 inside a successful proxy
+    /// call, marked by its header, with the reason in a JSON text body.
+    #[actix_web::test]
+    async fn auth_failed_is_a_marked_401_inside_a_200() {
+        let res = auth_failed_response("Bad credentials");
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = actix_web::body::to_bytes(res.into_body()).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["status"], 401);
+        assert_eq!(json["headers"]["x-nosdesk-proxy-error"], "auth_failed");
+        let body: serde_json::Value =
+            serde_json::from_str(json["body"].as_str().expect("body is text")).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "auth_failed", "message": "Bad credentials" })
+        );
+    }
 
     fn test_app(
         pool: crate::db::Pool,

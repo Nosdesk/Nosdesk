@@ -290,7 +290,13 @@ export interface HostApi {
     ): Promise<{ data: string; name: string; mimeType: string } | null>;
   };
   /** Outbound HTTP via the host's SSRF-guarded, manifest-allowlisted proxy.
-   * Throws a `PluginApiError` on denial / invalid URL / upstream failure. */
+   * Throws a `PluginApiError` on denial / invalid URL / upstream failure.
+   *
+   * When a host's manifest `auth` is `private_key_jwt` and no token can be
+   * had (the token endpoint refused, or a setting is missing or not a usable
+   * key), the request isn't sent and this resolves to a 401 with the header
+   * `x-nosdesk-proxy-error: auth_failed` and the body
+   * `{"error":"auth_failed","message":"<reason>"}`. Since runtime API 1.3. */
   fetch(url: string, options?: PluginFetchOptions): Promise<PluginFetchResponse>;
   storage: {
     get<T>(key: string): Promise<T | null>;
