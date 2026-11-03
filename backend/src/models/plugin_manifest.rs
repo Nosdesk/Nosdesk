@@ -272,6 +272,30 @@ pub enum PluginAuthConfig {
         client_id_secret: String,
         client_secret_secret: String,
     },
+    /// Sign an RS256 JWT with a private key and exchange it for a short-lived
+    /// access token (a GitHub App installation token, for one). `private_key`
+    /// names a `secret` setting holding an RSA PEM; `issuer` a setting whose
+    /// value is the JWT's `iss`. `token_url` is https and may hold `{key}`
+    /// placeholders filled from non-secret settings. The response's
+    /// `token_field` is the token and `expires_field` its expiry, an RFC 3339
+    /// time or a number of seconds.
+    PrivateKeyJwt {
+        private_key: String,
+        issuer: String,
+        token_url: String,
+        #[serde(default = "default_token_field")]
+        token_field: String,
+        #[serde(default = "default_expires_field")]
+        expires_field: String,
+    },
+}
+
+fn default_token_field() -> String {
+    "access_token".to_string()
+}
+
+fn default_expires_field() -> String {
+    "expires_in".to_string()
 }
 
 /// Plugin component configuration in manifest. The `kind` field

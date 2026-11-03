@@ -158,6 +158,13 @@ pub enum ManifestValidationError {
     },
     AuthorRequired,
     AuthRefersToUndeclaredHost(String),
+    /// A `private_key_jwt` auth entry is inconsistent with the manifest: a
+    /// setting it names is missing or of the wrong kind, or its `token_url`
+    /// is not an https URL on a host the plugin declared.
+    InvalidPrivateKeyJwt {
+        host: String,
+        reason: String,
+    },
     InvalidDependencyVersion {
         plugin: String,
         requirement: String,
@@ -240,6 +247,9 @@ impl std::fmt::Display for ManifestValidationError {
                 f,
                 "manifest.auth declares host {h:?} but no matching `network:{h}` permission is granted"
             ),
+            Self::InvalidPrivateKeyJwt { host, reason } => {
+                write!(f, "manifest.auth[{host:?}] (private_key_jwt): {reason}")
+            }
             Self::InvalidDependencyVersion { plugin, requirement } => write!(
                 f,
                 "dependencies[{plugin:?}] requirement {requirement:?} is not a valid semver range"
@@ -381,6 +391,32 @@ pub fn validate(
             errors.push(ManifestValidationError::AuthRefersToUndeclaredHost(
                 host.as_str().to_string(),
             ));
+        }
+    }
+
+    for (host, config) in &manifest.auth {
+        if let crate::models::PluginAuthConfig::PrivateKeyJwt {
+            private_key,
+            issuer,
+            token_url,
+            token_field,
+            expires_field,
+        } = config
+        {
+            for reason in check_private_key_jwt(
+                manifest,
+                &network_patterns,
+                private_key,
+                issuer,
+                token_url,
+                token_field,
+                expires_field,
+            ) {
+                errors.push(ManifestValidationError::InvalidPrivateKeyJwt {
+                    host: host.as_str().to_string(),
+                    reason,
+                });
+            }
         }
     }
 
@@ -637,6 +673,97 @@ fn validate_component(component: &PluginComponentConfig) -> Result<(), ManifestV
         });
     }
     Ok(())
+}
+
+/// Every way a `private_key_jwt` entry disagrees with the rest of the
+/// manifest. The key must be a `secret` setting; the issuer and every `{key}`
+/// in the token URL must be non-secret settings (a secret never leaves the
+/// server, not even in a URL). The token URL's host is literal, https, and
+/// covered by a `network:` permission, like any host the proxy dials.
+fn check_private_key_jwt(
+    manifest: &crate::models::PluginManifest,
+    network_patterns: &[&crate::services::plugins::types::HostPattern],
+    private_key: &str,
+    issuer: &str,
+    token_url: &str,
+    token_field: &str,
+    expires_field: &str,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+    let setting = |key: &str| manifest.settings.iter().find(|s| s.key == key);
+
+    match setting(private_key) {
+        Some(s) if s.setting_type == "secret" => {}
+        Some(_) => reasons.push(format!(
+            "private_key {private_key:?} must be a secret setting"
+        )),
+        None => reasons.push(format!(
+            "private_key {private_key:?} is not a declared setting"
+        )),
+    }
+    match setting(issuer) {
+        Some(s) if s.setting_type != "secret" => {}
+        Some(_) => reasons.push(format!("issuer {issuer:?} must not be a secret setting")),
+        None => reasons.push(format!("issuer {issuer:?} is not a declared setting")),
+    }
+    if token_field.trim().is_empty() {
+        reasons.push("token_field is empty".to_string());
+    }
+    if expires_field.trim().is_empty() {
+        reasons.push("expires_field is empty".to_string());
+    }
+
+    // Placeholders: each `{key}` names a non-secret setting.
+    let mut sample = String::with_capacity(token_url.len());
+    let mut rest = token_url;
+    while let Some(open) = rest.find('{') {
+        sample.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('}') else {
+            reasons.push("token_url has an unclosed {".to_string());
+            return reasons;
+        };
+        let key = &after[..close];
+        match setting(key) {
+            Some(s) if s.setting_type != "secret" => {}
+            Some(_) => reasons.push(format!(
+                "token_url placeholder {{{key}}} is a secret setting"
+            )),
+            None => reasons.push(format!(
+                "token_url placeholder {{{key}}} is not a declared setting"
+            )),
+        }
+        sample.push('x');
+        rest = &after[close + 1..];
+    }
+    sample.push_str(rest);
+
+    let Some(after_scheme) = token_url.strip_prefix("https://") else {
+        reasons.push("token_url must be an https URL".to_string());
+        return reasons;
+    };
+    let authority = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('{') {
+        reasons.push("token_url's host cannot hold a placeholder".to_string());
+        return reasons;
+    }
+    let host = url::Url::parse(&sample)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .and_then(|h| crate::services::plugins::types::Host::parse(&h).ok());
+    match host {
+        Some(h) => {
+            let pattern = crate::services::plugins::types::HostPattern::Exact(h.clone());
+            if !network_patterns.iter().any(|p| p.covers(&pattern)) {
+                reasons.push(format!(
+                    "token_url host {:?} needs a matching network: permission",
+                    h.as_str()
+                ));
+            }
+        }
+        None => reasons.push("token_url is not a valid URL".to_string()),
+    }
+    reasons
 }
 
 fn validate_setting(setting: &PluginSettingDefinition) -> Result<(), ManifestValidationError> {
@@ -1049,6 +1176,142 @@ mod tests {
             validate(&m, &ctx_official()),
             ManifestValidationError::AuthRefersToUndeclaredHost(_),
         );
+    }
+
+    fn jwt_manifest(auth: crate::models::PluginAuthConfig) -> crate::models::PluginManifest {
+        use crate::models::{PluginSettingDefinition, PluginSettingScope};
+        let mut m = baseline_manifest();
+        let setting = |key: &str, kind: &str| PluginSettingDefinition {
+            key: key.into(),
+            setting_type: kind.into(),
+            label: key.into(),
+            description: None,
+            required: true,
+            default: None,
+            scope: PluginSettingScope::Global,
+            options: None,
+        };
+        m.settings = vec![
+            setting("github_app_id", "string"),
+            setting("github_installation_id", "string"),
+            setting("github_app_private_key", "secret"),
+        ];
+        m.auth.insert(host("api.github.com"), auth);
+        m
+    }
+
+    fn github_jwt(token_url: &str) -> crate::models::PluginAuthConfig {
+        crate::models::PluginAuthConfig::PrivateKeyJwt {
+            private_key: "github_app_private_key".into(),
+            issuer: "github_app_id".into(),
+            token_url: token_url.into(),
+            token_field: "token".into(),
+            expires_field: "expires_at".into(),
+        }
+    }
+
+    #[test]
+    fn accepts_the_github_app_private_key_jwt() {
+        let m = jwt_manifest(github_jwt(
+            "https://api.github.com/app/installations/{github_installation_id}/access_tokens",
+        ));
+        validate(&m, &ctx_official()).unwrap();
+    }
+
+    #[test]
+    fn private_key_jwt_defaults_its_response_fields() {
+        let json = serde_json::json!({
+            "type": "private_key_jwt",
+            "private_key": "k",
+            "issuer": "i",
+            "token_url": "https://api.example.com/token",
+        });
+        match serde_json::from_value::<crate::models::PluginAuthConfig>(json).unwrap() {
+            crate::models::PluginAuthConfig::PrivateKeyJwt {
+                token_field,
+                expires_field,
+                ..
+            } => {
+                assert_eq!(token_field, "access_token");
+                assert_eq!(expires_field, "expires_in");
+            }
+            other => panic!("expected private_key_jwt, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_a_private_key_jwt_that_disagrees_with_the_manifest() {
+        let reasons = |m: crate::models::PluginManifest| -> Vec<String> {
+            match validate(&m, &ctx_official()) {
+                Err(errs) => errs
+                    .iter()
+                    .filter_map(|e| match e {
+                        ManifestValidationError::InvalidPrivateKeyJwt { reason, .. } => {
+                            Some(reason.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect(),
+                Ok(()) => vec![],
+            }
+        };
+        let ok_url =
+            "https://api.github.com/app/installations/{github_installation_id}/access_tokens";
+
+        // The key is a plain string setting, the issuer a secret.
+        let mut swapped = jwt_manifest(github_jwt(ok_url));
+        if let Some(crate::models::PluginAuthConfig::PrivateKeyJwt {
+            private_key,
+            issuer,
+            ..
+        }) = swapped.auth.values_mut().next()
+        {
+            *private_key = "github_app_id".into();
+            *issuer = "github_app_private_key".into();
+        }
+        let got = reasons(swapped);
+        assert!(
+            got.iter().any(|r| r.contains("must be a secret setting")),
+            "{got:?}"
+        );
+        assert!(
+            got.iter()
+                .any(|r| r.contains("must not be a secret setting")),
+            "{got:?}"
+        );
+
+        for (url, want) in [
+            (
+                "http://api.github.com/app/installations/{github_installation_id}/access_tokens",
+                "https",
+            ),
+            (
+                "https://{github_installation_id}.github.com/token",
+                "host cannot hold a placeholder",
+            ),
+            (
+                "https://api.github.com/app/installations/{nope}/access_tokens",
+                "not a declared setting",
+            ),
+            (
+                "https://api.github.com/app/{github_app_private_key}/access_tokens",
+                "is a secret setting",
+            ),
+            (
+                "https://evil.example.com/token",
+                "needs a matching network: permission",
+            ),
+            (
+                "https://api.github.com/app/installations/{github_installation_id/access_tokens",
+                "unclosed",
+            ),
+        ] {
+            let got = reasons(jwt_manifest(github_jwt(url)));
+            assert!(
+                got.iter().any(|r| r.contains(want)),
+                "{url}: expected {want:?}, got {got:?}"
+            );
+        }
     }
 
     #[test]
