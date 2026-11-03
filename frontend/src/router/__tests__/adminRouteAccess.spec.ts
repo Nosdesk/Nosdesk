@@ -49,6 +49,9 @@ vi.mock('@nosdesk/core/stores/workflowStates', () => ({
 vi.mock('@/sync/lifecycle', () => ({ ensureSyncRuntime: async () => {} }))
 
 import router from '@/router'
+import { ensureSignedInTransport } from '@/test/workspaceRouter'
+
+ensureSignedInTransport()
 
 /** A concrete URL for a route record's path, in workspace `acme`. */
 function concrete(path: string): string {
