@@ -33,12 +33,13 @@ async function copyRequestForm(): Promise<void> {
   toast.success(t('ticket-list-first-form-copied'))
 }
 
+// Stacked on a phone, each with room to tap; one wrapping row from `sm` up.
 const linkClass =
-  'text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:underline'
+  'py-2 text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:underline sm:py-0'
 </script>
 
 <template>
-  <div class="flex flex-col items-center gap-4 text-center">
+  <div class="flex w-full max-w-md flex-col items-center gap-4 text-center">
     <div class="flex flex-col gap-1">
       <p class="font-medium text-primary">{{ t('ticket-list-first-title') }}</p>
       <p class="text-xs text-tertiary">
@@ -51,7 +52,9 @@ const linkClass =
         >
       </p>
     </div>
-    <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+    <div
+      class="flex w-full flex-col items-center sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6 sm:gap-y-2"
+    >
       <RouterLink v-if="props.isAdmin" :to="{ name: 'admin-email-settings' }" :class="linkClass">
         {{ t('ticket-list-first-connect-mailbox') }}
       </RouterLink>
