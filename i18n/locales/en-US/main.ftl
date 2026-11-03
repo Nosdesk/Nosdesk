@@ -5682,6 +5682,13 @@ ticket-comments-attachments-missing =
         [note] Your note was sent, but some of its files weren't attached.
        *[reply] Your reply was sent, but some of its files weren't attached.
     }
+ticket-comments-send-failed-too-large =
+    { $kind ->
+        [note] Your note wasn't sent: its attachments are too large. Remove some and try again.
+       *[reply] Your reply wasn't sent: its attachments are too large. Remove some and try again.
+    }
+ticket-comments-attachment-too-large = { $name } is too large to attach. Files can be up to { $limit } MB.
+ticket-comments-attachments-total-too-large = { $name } wasn't attached: a reply's attachments can be up to { $limit } MB together.
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Your note wasn't sent. It couldn't be kept because you switched workspace.

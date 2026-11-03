@@ -17,6 +17,33 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 import { AxiosError, AxiosHeaders } from 'axios'
 import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
+import { UPLOAD_TOO_LARGE } from '@nosdesk/core/services/uploadLimits'
+
+/**
+ * The largest request body this adapter sends. The HTTP plugin reads the whole
+ * body into the webview, turns it into an array of one number per byte and
+ * passes that through the IPC bridge as JSON, which the app parses into a value
+ * per byte: tens of times the body's size in memory, so a phone video got the
+ * app killed by iOS. Provisional, not yet measured on a device; at least the
+ * asset media limit (25 MB) so no in-app path's own limit is undercut. Goes
+ * when uploads stream from disk (docs/plans/mobile-media-upload.md).
+ */
+export const BRIDGE_UPLOAD_CAP_BYTES = 25 * 1024 * 1024
+
+/** A body's size from its parts' sizes, without reading any of their bytes. */
+function bodySize(body: unknown): number {
+  if (body instanceof Blob) return body.size
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return body.byteLength
+  if (typeof body === 'string') return body.length
+  if (body instanceof FormData) {
+    let total = 0
+    body.forEach((value) => {
+      total += typeof value === 'string' ? value.length : value.size
+    })
+    return total
+  }
+  return 0
+}
 
 function buildUrl(config: InternalAxiosRequestConfig): string {
   const path = config.url ?? ''
@@ -49,6 +76,10 @@ export const tauriHttpAdapter: AxiosAdapter = async (config) => {
   const method = (config.method ?? 'get').toUpperCase()
   const init: RequestInit = { method, headers: toHeaderRecord(config) }
   if (config.data != null && method !== 'GET' && method !== 'HEAD') {
+    // Refused before the plugin reads a byte of it.
+    if (bodySize(config.data) > BRIDGE_UPLOAD_CAP_BYTES) {
+      throw new AxiosError('Request body is larger than the app can send', UPLOAD_TOO_LARGE, config)
+    }
     init.body = config.data as BodyInit
     // For a FormData body, drop any caller-set Content-Type so the native fetch
     // generates `multipart/form-data; boundary=...` itself. Axios hard-codes

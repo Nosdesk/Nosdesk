@@ -6238,6 +6238,16 @@ ticket-comments-attachments-missing =
        *[reply] Je antwoord is verzonden, maar enkele bestanden zijn niet bijgevoegd.
     }
 # Antwoord niet verzonden en niet bewaard na wisselen van werkruimte (machine, na te kijken door moedertaalspreker).
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-too-large =
+    { $kind ->
+        [note] Je notitie is niet verzonden: de bijlagen zijn te groot. Verwijder er een paar en probeer het opnieuw.
+       *[reply] Je antwoord is niet verzonden: de bijlagen zijn te groot. Verwijder er een paar en probeer het opnieuw.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachment-too-large = { $name } is te groot om toe te voegen. Bestanden mogen maximaal { $limit } MB zijn.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachments-total-too-large = { $name } is niet toegevoegd: de bijlagen van een antwoord mogen samen maximaal { $limit } MB zijn.
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Je notitie is niet verzonden. Ze kon niet worden bewaard, omdat je van werkruimte bent gewisseld.
