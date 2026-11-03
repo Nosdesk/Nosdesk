@@ -214,6 +214,19 @@ fn expires_in_secs(value: Option<&serde_json::Value>) -> Option<i64> {
     }
 }
 
+/// The token cache key for an exchanged credential: a digest over the install
+/// and everything that identifies the credential, so a token is never served
+/// to another workspace or after a setting changes. Each part is
+/// length-prefixed, so no two part lists hash alike.
+fn token_cache_key(kind: &str, parts: &[&str]) -> String {
+    let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
+    for part in parts {
+        ctx.update(&(part.len() as u64).to_be_bytes());
+        ctx.update(part.as_bytes());
+    }
+    format!("{kind}:{}", hex::encode(ctx.finish().as_ref()))
+}
+
 /// Used when the token response names no expiry: short, so a token is never
 /// held past a lifetime we can't see.
 const DEFAULT_EXCHANGED_TOKEN_SECS: i64 = 300;
@@ -424,8 +437,18 @@ impl PluginProxyService {
                     .get(client_secret_secret)
                     .ok_or_else(|| fail(format!("missing secret '{client_secret_secret}'")))?;
 
-                // Check token cache
-                let cache_key = format!("{plugin_name}:{host}");
+                // Check token cache: one entry per install and per credential,
+                // so two workspaces running the same plugin never share a token.
+                let cache_key = token_cache_key(
+                    "oauth2",
+                    &[
+                        &creds.cache_scope,
+                        host.as_str(),
+                        token_url,
+                        client_id,
+                        client_secret,
+                    ],
+                );
                 if let Ok(cache) = self.token_cache.lock() {
                     if let Some(cached) = cache.get(&cache_key) {
                         if cached.expires_at > Instant::now() {
@@ -598,20 +621,10 @@ impl PluginProxyService {
 
         // One cache entry per install and per credential: changing the key,
         // issuer or any setting in the URL mints a fresh token.
-        let cache_key = {
-            let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
-            for part in [
-                creds.cache_scope.as_str(),
-                host.as_str(),
-                token_url.as_str(),
-                issuer,
-                pem.as_str(),
-            ] {
-                ctx.update(&(part.len() as u64).to_be_bytes());
-                ctx.update(part.as_bytes());
-            }
-            format!("private_key_jwt:{}", hex::encode(ctx.finish().as_ref()))
-        };
+        let cache_key = token_cache_key(
+            "private_key_jwt",
+            &[&creds.cache_scope, host.as_str(), &token_url, issuer, pem],
+        );
         if let Ok(cache) = self.token_cache.lock() {
             if let Some(cached) = cache.get(&cache_key) {
                 if cached.expires_at > Instant::now() {
@@ -1887,6 +1900,73 @@ mod tests {
                 other => panic!("expected AuthFailed for {want:?}, got {other:?}"),
             }
         }
+    }
+
+    /// An OAuth2 token is cached per install: a second workspace running the
+    /// same plugin against the same host exchanges its own credentials rather
+    /// than reusing the first workspace's token.
+    #[tokio::test]
+    async fn oauth2_tokens_are_not_shared_between_installs() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, server) = serve_recording(vec![
+            http_json(
+                "200 OK",
+                r#"{"access_token":"token-for-ws1","expires_in":3600}"#,
+            ),
+            http_json(
+                "200 OK",
+                r#"{"access_token":"token-for-ws2","expires_in":3600}"#,
+            ),
+        ])
+        .await;
+        let mut manifest =
+            create_test_manifest(vec!["network:localhost", "network:api.vendor.com"]);
+        manifest.auth.insert(
+            host("api.vendor.com"),
+            PluginAuthConfig::Oauth2ClientCredentials {
+                token_url: format!("http://localhost:{port}/oauth/token"),
+                client_id_secret: "client_id".to_string(),
+                client_secret_secret: "client_secret".to_string(),
+            },
+        );
+        let install = |scope: &str, secret: &str| PluginCredentials {
+            secrets: HashMap::from([
+                ("client_id".to_string(), "app".to_string()),
+                ("client_secret".to_string(), secret.to_string()),
+            ]),
+            settings: HashMap::new(),
+            cache_scope: scope.to_string(),
+        };
+        let service = PluginProxyService::new();
+        let perms = net_perms(&manifest);
+        let url = "https://api.vendor.com/v1/thing";
+        let mut tokens = Vec::new();
+        for creds in [
+            install("1:plugin-a", "secret-1"),
+            install("2:plugin-b", "secret-2"),
+            install("1:plugin-a", "secret-1"),
+        ] {
+            tokens.push(
+                service
+                    .get_auth_for_url("test-plugin", url, &manifest, &perms, &creds)
+                    .await
+                    .expect("oauth2 resolves")
+                    .map(|(_, v)| v),
+            );
+        }
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+        assert_eq!(
+            tokens,
+            vec![
+                Some("Bearer token-for-ws1".to_string()),
+                Some("Bearer token-for-ws2".to_string()),
+                Some("Bearer token-for-ws1".to_string()),
+            ]
+        );
+        assert_eq!(server.await.unwrap().len(), 2, "one exchange per install");
     }
 
     #[test]
