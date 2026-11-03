@@ -3,6 +3,10 @@
 //! A user may have several devices. The push channel loads a recipient's ACTIVE
 //! tokens (revoked_at IS NULL) to send to; the registration endpoints upsert /
 //! revoke; the sender's invalid-token reports prune dead devices.
+//!
+//! Each registration belongs to the session that made it and is deleted with
+//! it (`session_id`, ON DELETE CASCADE), so however a session ends, its device
+//! stops receiving the person's notifications.
 
 use chrono::Utc;
 use diesel::prelude::*;
@@ -14,10 +18,12 @@ use crate::schema::user_push_devices::dsl as d;
 // sync-audit-only: server-side push infra; no sync client subscribes to a device list.
 /// Register (or refresh) a device token for a user. Upserts on the token so a
 /// reinstall / a token reassigned to another user lands on one row, and
-/// re-registering un-revokes it.
+/// re-registering un-revokes it. The row moves to `session`, so a sign-in on
+/// the same phone carries the token over to the new session.
 pub fn register(
     conn: &mut DbConnection,
     user: Uuid,
+    session: Uuid,
     workspace: i32,
     platform: &str,
     token: &str,
@@ -27,6 +33,7 @@ pub fn register(
     diesel::insert_into(d::user_push_devices)
         .values((
             d::user_uuid.eq(user),
+            d::session_id.eq(session),
             d::workspace_id.eq(workspace),
             d::platform.eq(platform),
             d::token.eq(token),
@@ -39,6 +46,7 @@ pub fn register(
         .do_update()
         .set((
             d::user_uuid.eq(user),
+            d::session_id.eq(session),
             d::workspace_id.eq(workspace),
             d::platform.eq(platform),
             d::app_version.eq(app_version),
