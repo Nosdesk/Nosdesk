@@ -254,8 +254,10 @@ pub struct PluginUrlHandler {
 }
 
 /// Authentication configuration for a specific domain/host pattern
+/// Unknown fields are refused, as everywhere in the manifest: a misspelt
+/// optional field (`token_feild`) would otherwise fall back to its default.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PluginAuthConfig {
     /// Authorization: Bearer <secret_value>
     Bearer { secret: String },

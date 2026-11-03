@@ -91,12 +91,23 @@ pub fn auth_failed_body(message: &str) -> String {
 /// What the proxy authenticates a plugin's requests with: its decrypted
 /// `secret` settings, its other settings as text (for `{key}` placeholders and
 /// `issuer`), and the install the exchanged tokens are cached for.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct PluginCredentials {
     pub secrets: HashMap<String, String>,
     pub settings: HashMap<String, String>,
     /// Identifies the install (workspace and plugin) in the token cache key.
     pub cache_scope: String,
+}
+
+/// Names the settings but never prints a value: `secrets` holds private keys.
+impl std::fmt::Debug for PluginCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginCredentials")
+            .field("secrets", &self.secrets.keys().collect::<Vec<_>>())
+            .field("settings", &self.settings.keys().collect::<Vec<_>>())
+            .field("cache_scope", &self.cache_scope)
+            .finish()
+    }
 }
 
 impl PluginCredentials {
@@ -150,7 +161,8 @@ fn normalize_pem(pem: &str) -> Option<String> {
 }
 
 /// Fill each `{key}` in `template` with the setting's value, path-encoded.
-/// Refuses an unknown or empty setting, or an unclosed brace.
+/// Refuses an unknown or empty setting, an unclosed brace, or a value of `.`
+/// or `..`, which encoding leaves as is and would move up the URL's path.
 fn fill_token_url(template: &str, settings: &HashMap<String, String>) -> Result<String, String> {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
@@ -166,6 +178,9 @@ fn fill_token_url(template: &str, settings: &HashMap<String, String>) -> Result<
             .map(|v| v.trim())
             .filter(|v| !v.is_empty())
             .ok_or_else(|| format!("the {key} setting is empty"))?;
+        if value == "." || value == ".." {
+            return Err(format!("the {key} setting is not a valid value"));
+        }
         out.push_str(&urlencoding::encode(value));
         rest = &after[close + 1..];
     }
@@ -233,6 +248,23 @@ const DEFAULT_EXCHANGED_TOKEN_SECS: i64 = 300;
 
 /// A cached token is dropped this long before it expires.
 const TOKEN_EXPIRY_MARGIN_SECS: i64 = 60;
+
+/// The longest any token is cached, whatever expiry its response names.
+const MAX_TOKEN_CACHE_SECS: i64 = 60 * 60;
+
+/// Until when a token that expires in `lifetime_secs` may be served from the
+/// cache: `TOKEN_EXPIRY_MARGIN_SECS` early and at most `MAX_TOKEN_CACHE_SECS`
+/// out. `None` when it shouldn't be cached. Total over any response value, so
+/// a huge or negative expiry can't overflow while the cache lock is held.
+fn cache_deadline(now: Instant, lifetime_secs: i64) -> Option<Instant> {
+    let keep = lifetime_secs
+        .saturating_sub(TOKEN_EXPIRY_MARGIN_SECS)
+        .min(MAX_TOKEN_CACHE_SECS);
+    if keep <= 0 {
+        return None;
+    }
+    now.checked_add(Duration::from_secs(keep.unsigned_abs()))
+}
 
 /// The `private_key_jwt` fields of a manifest `auth` entry.
 struct PrivateKeyJwtConfig<'a> {
@@ -527,21 +559,22 @@ impl PluginProxyService {
                     })?;
                 let bearer = format!("Bearer {access_token}");
 
-                // Cache with TTL (use expires_in from response, default 50 min)
-                let ttl = json
-                    .get("expires_in")
-                    .and_then(|v| v.as_u64())
-                    .map(|s| s.saturating_sub(60)) // 1 min buffer
-                    .unwrap_or(3000);
-
-                if let Ok(mut cache) = self.token_cache.lock() {
-                    cache.insert(
-                        cache_key,
-                        CachedToken {
-                            token: bearer.clone(),
-                            expires_at: Instant::now() + Duration::from_secs(ttl),
-                        },
-                    );
+                // Cached until a minute before `expires_in`, or for 50 minutes
+                // when the response names no expiry.
+                let lifetime = expires_in_secs(json.get("expires_in"))
+                    .unwrap_or(50 * 60 + TOKEN_EXPIRY_MARGIN_SECS);
+                let now = Instant::now();
+                if let Some(expires_at) = cache_deadline(now, lifetime) {
+                    if let Ok(mut cache) = self.token_cache.lock() {
+                        cache.retain(|_, t| t.expires_at > now);
+                        cache.insert(
+                            cache_key,
+                            CachedToken {
+                                token: bearer.clone(),
+                                expires_at,
+                            },
+                        );
+                    }
                 }
 
                 Ok(Some(("Authorization".into(), bearer)))
@@ -705,16 +738,15 @@ impl PluginProxyService {
 
         let lifetime =
             expires_in_secs(json.get(config.expires_field)).unwrap_or(DEFAULT_EXCHANGED_TOKEN_SECS);
-        let keep = lifetime - TOKEN_EXPIRY_MARGIN_SECS;
-        if keep > 0 {
+        let now = Instant::now();
+        if let Some(expires_at) = cache_deadline(now, lifetime) {
             if let Ok(mut cache) = self.token_cache.lock() {
-                let now = Instant::now();
                 cache.retain(|_, t| t.expires_at > now);
                 cache.insert(
                     cache_key,
                     CachedToken {
                         token: value.clone(),
-                        expires_at: now + Duration::from_secs(keep as u64),
+                        expires_at,
                     },
                 );
             }
@@ -1666,6 +1698,66 @@ mod tests {
             .contains("blank setting is empty"));
         assert!(fill_token_url("https://h/{missing}/t", &settings).is_err());
         assert!(fill_token_url("https://h/{id/t", &settings).is_err());
+        for dots in [".", "..", " .. "] {
+            let settings = HashMap::from([("id".to_string(), dots.to_string())]);
+            assert!(
+                fill_token_url("https://h/app/installations/{id}/access_tokens", &settings)
+                    .is_err(),
+                "{dots:?} should be refused"
+            );
+        }
+    }
+
+    /// Any expiry a token response names gives a deadline within the cap, or
+    /// none, and never overflows.
+    #[test]
+    fn cache_deadline_is_bounded_for_any_expiry() {
+        let now = Instant::now();
+        let cap = Duration::from_secs(MAX_TOKEN_CACHE_SECS as u64);
+        for lifetime in [i64::MAX, i64::MAX - 1, 10 * 365 * 24 * 3600, 3600] {
+            let deadline = cache_deadline(now, lifetime).expect("cached");
+            assert!(deadline <= now + cap, "{lifetime}");
+        }
+        assert_eq!(
+            cache_deadline(now, 3600),
+            Some(now + Duration::from_secs(3600 - TOKEN_EXPIRY_MARGIN_SECS as u64))
+        );
+        for lifetime in [i64::MIN, -5, 0, TOKEN_EXPIRY_MARGIN_SECS] {
+            assert_eq!(cache_deadline(now, lifetime), None, "{lifetime}");
+        }
+        let far = (chrono::Utc::now() + chrono::Duration::days(365 * 100)).to_rfc3339();
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        assert!(
+            cache_deadline(now, expires_in_secs(Some(&serde_json::json!(far))).unwrap())
+                .is_some_and(|d| d <= now + cap)
+        );
+        assert!(cache_deadline(
+            now,
+            expires_in_secs(Some(&serde_json::json!(past))).unwrap()
+        )
+        .is_none());
+        assert_eq!(
+            expires_in_secs(Some(&serde_json::json!(u64::MAX))),
+            None,
+            "a number past i64 is no expiry"
+        );
+    }
+
+    /// The credentials' Debug output names settings without their values.
+    #[test]
+    fn credentials_debug_hides_values() {
+        let creds = PluginCredentials {
+            secrets: HashMap::from([(
+                "github_app_private_key".to_string(),
+                "-----BEGIN RSA PRIVATE KEY-----secret".to_string(),
+            )]),
+            settings: HashMap::from([("github_app_id".to_string(), "12345".to_string())]),
+            cache_scope: "1:github".to_string(),
+        };
+        let printed = format!("{creds:?}");
+        assert!(printed.contains("github_app_private_key"), "{printed}");
+        assert!(!printed.contains("PRIVATE KEY-----"), "{printed}");
+        assert!(!printed.contains("12345"), "{printed}");
     }
 
     #[test]

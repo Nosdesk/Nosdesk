@@ -1239,6 +1239,25 @@ mod tests {
         }
     }
 
+    /// A misspelt field is refused rather than ignored, which would leave the
+    /// field it meant at its default.
+    #[test]
+    fn auth_entries_refuse_unknown_fields() {
+        let typo = serde_json::json!({
+            "type": "private_key_jwt",
+            "private_key": "k",
+            "issuer": "i",
+            "token_url": "https://api.example.com/token",
+            "token_feild": "token",
+        });
+        let err = serde_json::from_value::<crate::models::PluginAuthConfig>(typo).unwrap_err();
+        assert!(err.to_string().contains("token_feild"), "{err}");
+        let bearer = serde_json::json!({ "type": "bearer", "secret": "s", "scheme": "Token" });
+        assert!(serde_json::from_value::<crate::models::PluginAuthConfig>(bearer).is_err());
+        let ok = serde_json::json!({ "type": "bearer", "secret": "s" });
+        assert!(serde_json::from_value::<crate::models::PluginAuthConfig>(ok).is_ok());
+    }
+
     #[test]
     fn rejects_a_private_key_jwt_that_disagrees_with_the_manifest() {
         let reasons = |m: crate::models::PluginManifest| -> Vec<String> {
