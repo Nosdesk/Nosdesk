@@ -25,7 +25,7 @@ import { PluginApiError } from '@nosdesk/plugin-sdk';
 import { effectivePermissions } from './permissions';
 import { viewerMeetsAudience } from './audience';
 import { createDialogOwner, openPluginDialog, releaseDialogOwner } from './usePluginDialogs';
-import { isTauriRuntime, openExternalUrl } from '@/platform';
+import { openExternalUrl } from '@/platform';
 import type {
   PluginUserQuery,
   PluginUserList,
@@ -92,15 +92,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([101, 103, 204, 205, 304]);
 
 /**
- * Whether the browser would let the host open a tab now. A click in the
- * plugin's frame gives the host transient activation too, but it lapses after
- * a few seconds. Browsers without `navigator.userActivation` are assumed to
- * allow it.
+ * Whether the user has just clicked, so the host may open a tab now. A click in
+ * the plugin's frame gives the host transient activation too, but it lapses
+ * after a few seconds. Without `navigator.userActivation` there is no way to
+ * tell, so the host asks first.
  */
 function canOpenTabNow(): boolean {
   const activation = (navigator as Navigator & { userActivation?: { isActive: boolean } })
     .userActivation;
-  return activation ? activation.isActive : true;
+  return activation?.isActive ?? false;
 }
 
 /** A real calendar date in `YYYY-MM-DD` form (rejects `2026-02-30`). */
@@ -538,8 +538,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         logger.warn(`Plugin ${plugin.name} fetch refused: invalid URL`, { url });
         throw new PluginApiError('invalid', `invalid fetch URL: ${url}`);
       }
-      if (!hasHostPermission('network:', parsed.host)) {
-        denied(`network:${parsed.host}`);
+      if (!hasHostPermission('network:', parsed.hostname)) {
+        denied(`network:${parsed.hostname}`);
       }
 
       try {
@@ -558,8 +558,12 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         const response = await pluginService.proxyRequest(plugin.uuid, request);
 
         // The body is the upstream text, verbatim. A 204 / 205 / 304 must be
-        // built with a null body (it reads back as '').
-        return new Response(NULL_BODY_STATUSES.has(response.status) ? null : response.body, {
+        // built with a null body (it reads back as ''). A server older than
+        // API 1.3 sends the body parsed as JSON, so that is put back into text.
+        const legacy: unknown = response.body;
+        const body =
+          typeof legacy === 'string' ? legacy : legacy == null ? '' : JSON.stringify(legacy);
+        return new Response(NULL_BODY_STATUSES.has(response.status) ? null : body, {
           status: response.status,
           headers: response.headers,
         });
@@ -833,13 +837,14 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
         if (!hasHostPermission('link:', parsed.hostname)) denied(`link:${parsed.hostname}`);
 
+        // Only straight after a user's click, in the app as well as the
+        // browser: otherwise a plugin could open pages unprompted. Without one,
+        // the dialog's Open button opens it from the user's own click.
         const href = parsed.href;
-        if (isTauriRuntime() || canOpenTabNow()) {
+        if (canOpenTabNow()) {
           await openExternalUrl(href);
           return;
         }
-        // The browser would block the tab, so ask: the dialog's Open button
-        // opens it from the user's own click.
         await openPluginDialog(dialogOwner, 'link', pluginName, { url: href, host: parsed.hostname });
       },
     },

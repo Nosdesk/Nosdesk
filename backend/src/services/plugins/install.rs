@@ -635,16 +635,23 @@ static DEFAULT_EXPORT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::
         .expect("default-export pattern compiles")
 });
 
-/// `mount` as a definition or a property key (`mount(`, `mount:`, `{ mount }`),
-/// not a call on something else (`app.mount(`, Vue 2's `$mount(`).
+/// `mount` being defined: a method or property key (`mount(`, `mount:`,
+/// `{ mount }`, `"mount":`), a class field (`mount = `) or an assignment
+/// (`p.mount = `). Not a call on something else (`app.mount(`, Vue 2's
+/// `$mount(`) or a comparison (`mount ==`).
 static MOUNT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-    regex::Regex::new(r"(?:^|[^\w$.])mount\s*[:(,}]").expect("mount pattern compiles")
+    regex::Regex::new(
+        r#"(?:^|[^\w$.])mount\s*(?:[:(,}]|=(?:[^=>]|$))|["']mount["']\s*:|\.mount\s*=(?:[^=>]|$)"#,
+    )
+    .expect("mount pattern compiles")
 });
 
 /// Whether a bundle looks like it meets the runtime contract: a default export
 /// and a `mount` in the bundle. A text check, not a parse: it can't prove the
 /// default export's `mount` is a function, but it refuses the bundles that
-/// plainly can't load, such as a Vue component object with no `mount`.
+/// plainly can't load, such as a Vue component object with no `mount`. A
+/// bundle that ships a framework runtime defining its own `mount` (Vue's
+/// `createApp`) passes whatever its default export is.
 fn bundle_meets_contract(bundle: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bundle);
     DEFAULT_EXPORT.is_match(&text) && MOUNT.is_match(&text)
@@ -873,6 +880,30 @@ mod bundle_contract_tests {
         assert!(bundle_meets_contract(minified.as_bytes()));
         let spaced = "var plugin = { mount: mountPanel };\nexport {\n  plugin as default\n};\n";
         assert!(bundle_meets_contract(spaced.as_bytes()));
+    }
+
+    #[test]
+    fn other_ways_of_defining_mount_pass() {
+        let assigned = "var p={};p.mount=function(r){r.textContent='x'};export{p as default};";
+        assert!(bundle_meets_contract(assigned.as_bytes()));
+        let spaced_assign =
+            "const plugin = {};\nplugin.mount = (root) => {};\nexport default plugin;\n";
+        assert!(bundle_meets_contract(spaced_assign.as_bytes()));
+        let class_field =
+            "class Panel {\n  mount = (root) => {};\n}\nexport default new Panel();\n";
+        assert!(bundle_meets_contract(class_field.as_bytes()));
+        let quoted = "export default {\"mount\":function(r){}};";
+        assert!(bundle_meets_contract(quoted.as_bytes()));
+        let single_quoted = "export default { 'mount': (r) => {} };";
+        assert!(bundle_meets_contract(single_quoted.as_bytes()));
+    }
+
+    #[test]
+    fn comparing_or_calling_mount_is_not_defining_it() {
+        let compared = "export default { name: 'x', check(o) { return o.mount == null; } };";
+        assert!(!bundle_meets_contract(compared.as_bytes()));
+        let strict = "export default { check(mount) { return mount === 1; } };";
+        assert!(!bundle_meets_contract(strict.as_bytes()));
     }
 
     #[test]

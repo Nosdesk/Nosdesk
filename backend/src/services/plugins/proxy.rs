@@ -696,8 +696,9 @@ impl PluginProxyService {
         }
 
         // The body goes back as the upstream text, verbatim, so the plugin
-        // decides how to read it. A bodyless status (204, 304) reads as "".
-        let body = response.text().await.unwrap_or_default();
+        // decides how to read it. A bodyless status (204, 304) reads as "". A
+        // body cut off mid-read is a failed request, not an empty answer.
+        let body = response.text().await.map_err(PluginProxyError::Network)?;
 
         if status >= 400 {
             warn!(
@@ -883,7 +884,7 @@ mod tests {
         let (port, _h) = serve_canned(vec![
             // Relative Location, resolved against the current URL.
             "HTTP/1.1 302 Found\r\nLocation: /landed\r\nContent-Length: 0\r\n\r\n".to_string(),
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n\
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 13\r\n\r\n\
              {\"ok\":\"true\"}"
                 .to_string(),
         ])
@@ -948,6 +949,37 @@ mod tests {
 
         assert_eq!(text.expect("text response").body, "hello");
         assert_eq!(json.expect("json response").body, "{ \"a\" : 1 }\n");
+    }
+
+    /// A body the upstream cuts off is a failed request (502), not an empty
+    /// 200 the plugin would take for an answer.
+    #[tokio::test]
+    async fn a_body_cut_off_mid_read_is_a_bad_gateway() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, _h) = serve_canned(vec![
+            "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nshort".to_string()
+        ])
+        .await;
+
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:localhost"]);
+        let result = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!("http://localhost:{port}/cut")),
+                &HashMap::new(),
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+
+        let err = result.expect_err("a truncated body is an error");
+        assert!(matches!(err, PluginProxyError::Network(_)), "got {err:?}");
+        assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
     }
 
     /// 204 and 304 come back with an empty body, and a 304 is returned rather

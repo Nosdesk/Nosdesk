@@ -253,11 +253,32 @@ impl RegistryCache {
     }
 }
 
+/// One catalog icon gets this long. Icons are cosmetic, so a slow host costs
+/// the catalog its icon rather than holding up the sync.
+const ICON_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The icons in `previous` whose entry still names the same `icon_url`, so a
+/// fresh snapshot keeps them while the rest are fetched.
+fn reusable_icons(
+    index: &IndexSnapshot,
+    previous: &HashMap<String, RegistryIcon>,
+) -> HashMap<String, RegistryIcon> {
+    index
+        .plugins
+        .iter()
+        .filter_map(|p| {
+            let url = p.icon_url.as_deref()?;
+            let icon = previous.get(&p.name).filter(|i| i.source_url == url)?;
+            Some((p.name.clone(), icon.clone()))
+        })
+        .collect()
+}
+
 /// Fetch the catalog icon for each index entry that names one, reusing
 /// `previous` when the URL hasn't changed. Each icon must be https, an
 /// `image/svg+xml` response within the icon size cap, and pass the same SVG
-/// check as an installed plugin's `icon.svg`. A failed icon is logged and
-/// skipped: the catalog shows its placeholder and the sync still succeeds.
+/// check as an installed plugin's `icon.svg`. A failed or slow icon is logged
+/// and skipped: the catalog shows its placeholder and the sync still succeeds.
 async fn fetch_icons(
     http: &reqwest::Client,
     index: &IndexSnapshot,
@@ -272,7 +293,10 @@ async fn fetch_icons(
         if let Some(icon) = previous.get(name).filter(|i| i.source_url == url) {
             return Some((name.to_string(), icon.clone()));
         }
-        match fetch_icon(http, url).await {
+        let fetched = tokio::time::timeout(ICON_FETCH_TIMEOUT, fetch_icon(http, url))
+            .await
+            .unwrap_or_else(|_| Err("timed out".to_string()));
+        match fetched {
             Ok(svg) => Some((
                 name.to_string(),
                 RegistryIcon {
@@ -484,6 +508,8 @@ pub async fn sync_once(
         })?;
     }
 
+    // The snapshot goes up first, with the icons that haven't changed, so the
+    // catalog never waits on an icon host; new icons are filled in after.
     let previous_icons = cache
         .read()
         .await
@@ -491,8 +517,6 @@ pub async fn sync_once(
         .as_ref()
         .map(|s| s.icons.clone())
         .unwrap_or_default();
-    let icons = fetch_icons(http, &index, &previous_icons).await;
-
     let fetched_at = Utc::now();
     {
         let mut state = cache.write().await;
@@ -500,9 +524,22 @@ pub async fn sync_once(
             publishers: publishers.clone(),
             index: index.clone(),
             fetched_at,
-            icons,
+            icons: reusable_icons(&index, &previous_icons),
         });
         state.last_error = None;
+    }
+
+    let icons = fetch_icons(http, &index, &previous_icons).await;
+    {
+        let mut state = cache.write().await;
+        // Unless a later sync has replaced the snapshot meanwhile.
+        if let Some(snapshot) = state
+            .snapshot
+            .as_mut()
+            .filter(|s| s.fetched_at == fetched_at)
+        {
+            snapshot.icons = icons;
+        }
     }
 
     info!(
@@ -932,6 +969,27 @@ mod tests {
             .plugins
             .iter()
             .all(|p| p.icon_url.is_none()));
+    }
+
+    /// A new snapshot keeps an icon only while its entry names the same URL.
+    #[test]
+    fn icons_carry_over_only_for_an_unchanged_url() {
+        let mut index: IndexSnapshot = serde_json::from_slice(INDEX).expect("fixture index parses");
+        let name = index.plugins[0].name.clone();
+        let icon = RegistryIcon {
+            source_url: "https://nosdesk.com/registry/icons/a.svg".into(),
+            svg: b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>".to_vec(),
+        };
+        let previous = HashMap::from([(name.clone(), icon.clone())]);
+
+        index.plugins[0].icon_url = Some(icon.source_url.clone());
+        assert_eq!(reusable_icons(&index, &previous).get(&name), Some(&icon));
+
+        index.plugins[0].icon_url = Some("https://nosdesk.com/registry/icons/b.svg".into());
+        assert!(reusable_icons(&index, &previous).is_empty());
+
+        index.plugins[0].icon_url = None;
+        assert!(reusable_icons(&index, &previous).is_empty());
     }
 
     #[test]

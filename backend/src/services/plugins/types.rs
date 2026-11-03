@@ -462,6 +462,15 @@ impl Permission {
         }
         if let Some(host_str) = s.strip_prefix("link:") {
             let pattern = HostPattern::parse(host_str).map_err(PermissionError::LinkPattern)?;
+            // A wildcard names a site, not a whole top-level domain: `*.com`
+            // would let a plugin open any .com page.
+            if let HostPattern::Wildcard(apex) = &pattern {
+                if !apex.as_str().contains('.') {
+                    return Err(PermissionError::LinkPattern(
+                        HostPatternError::BadWildcardShape,
+                    ));
+                }
+            }
             return Ok(Permission::Link(pattern));
         }
         if let Some(rest) = s.strip_prefix("resource:") {
@@ -891,6 +900,7 @@ mod tests {
             "link:github.com:443",
             "link:user@github.com",
             "link:*.*.github.com",
+            "link:*.com",
         ] {
             assert!(
                 matches!(Permission::parse(s), Err(PermissionError::LinkPattern(_))),

@@ -35,6 +35,21 @@ describe('api.fetch bodies', () => {
     await expect(res.json()).resolves.toEqual({ number: 12 })
   })
 
+  it('turns a body parsed by a server older than API 1.3 back into text', async () => {
+    proxyRequest.mockResolvedValue({ status: 200, headers: {}, body: { number: 12 } })
+    const res = await createPluginAPI(plugin).fetch('https://api.github.com/repos/o/r/issues/12')
+    await expect(res.json()).resolves.toEqual({ number: 12 })
+    proxyRequest.mockResolvedValue({ status: 200, headers: {}, body: null })
+    const empty = await createPluginAPI(plugin).fetch('https://api.github.com/zen')
+    await expect(empty.text()).resolves.toBe('')
+  })
+
+  it('matches the network grant on the host name, whatever the port', async () => {
+    proxyRequest.mockResolvedValue({ status: 200, headers: {}, body: 'ok' })
+    const res = await createPluginAPI(plugin).fetch('https://api.github.com:8443/zen')
+    await expect(res.text()).resolves.toBe('ok')
+  })
+
   it.each([204, 205, 304])('returns %i with an empty body', async (status) => {
     proxyRequest.mockResolvedValue({ status, headers: { etag: '"abc"' }, body: '' })
     const res = await createPluginAPI(plugin).fetch('https://api.github.com/repos/o/r/issues/12', {

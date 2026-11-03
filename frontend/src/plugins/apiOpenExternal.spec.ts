@@ -110,11 +110,28 @@ describe('ui.openExternal', () => {
     await expect(p).resolves.toBeUndefined()
   })
 
-  it('opens straight away in the app, where nothing blocks the tab', async () => {
+  it('asks first in the app too, unless the user has just clicked', async () => {
     setActivation(false)
     platform.isTauriRuntime.mockReturnValue(true)
-    await api().ui.openExternal('https://github.com/o/r')
-    expect(platform.openExternalUrl).toHaveBeenCalledWith('https://github.com/o/r')
-    expect(pluginDialogs.value).toHaveLength(0)
+    const p = api().ui.openExternal('https://github.com/o/r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(platform.openExternalUrl).not.toHaveBeenCalled()
+    const req = pluginDialogs.value[pluginDialogs.value.length - 1]
+    expect(req).toMatchObject({ kind: 'link', options: { url: 'https://github.com/o/r' } })
+    settlePluginDialog(req.id, true)
+    await expect(p).resolves.toBeUndefined()
+  })
+
+  it('asks first when the browser cannot say whether the user clicked', async () => {
+    setActivation(undefined)
+    const p = api().ui.openExternal('https://github.com/o/r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(platform.openExternalUrl).not.toHaveBeenCalled()
+    const req = pluginDialogs.value[pluginDialogs.value.length - 1]
+    expect(req).toMatchObject({ kind: 'link' })
+    settlePluginDialog(req.id, false)
+    await p
   })
 })
