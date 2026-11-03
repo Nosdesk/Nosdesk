@@ -26,6 +26,7 @@
 //! `NOSDESK_REGISTRY_URL` env var opting to an empty string disables
 //! the sync entirely (air-gapped deployments).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,7 +41,7 @@ use tracing::{debug, error, info, warn};
 use crate::db::{DbConnection, Pool};
 use crate::models::{NewTrustedPublisher, PluginRegistryStateUpdate};
 use crate::repository::plugin_publishers;
-use crate::services::plugins::signing;
+use crate::services::plugins::{signing, svg_validate};
 use crate::sync::actor::ActorContext;
 use crate::sync::session as actor_session;
 
@@ -195,6 +196,17 @@ pub struct RegistryCache {
     pub publishers: PublishersSnapshot,
     pub index: IndexSnapshot,
     pub fetched_at: DateTime<Utc>,
+    /// Catalog icons fetched from each entry's `icon_url` at sync, keyed by
+    /// plugin name. The admin catalog loads them from this server, never from
+    /// the registry origin, which the app's `img-src` doesn't allow.
+    pub icons: HashMap<String, RegistryIcon>,
+}
+
+/// One catalog icon: the `icon_url` it came from and its validated SVG bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryIcon {
+    pub source_url: String,
+    pub svg: Vec<u8>,
 }
 
 /// Sync state. `snapshot.is_none() && last_error.is_none()` is
@@ -222,6 +234,71 @@ impl RegistryCache {
     pub fn find_plugin(&self, name: &str) -> Option<&PluginIndexEntry> {
         self.index.plugins.iter().find(|p| p.name == name)
     }
+
+    /// The index as the admin catalog sees it: each `icon_url` points at this
+    /// server's copy of the icon, or is `None` when no icon was fetched.
+    pub fn index_for_client(&self) -> IndexSnapshot {
+        let mut index = self.index.clone();
+        for plugin in &mut index.plugins {
+            plugin.icon_url = self.icons.get(&plugin.name).map(|icon| {
+                let digest = ring::digest::digest(&ring::digest::SHA256, &icon.svg);
+                format!(
+                    "/api/admin/plugins/registry/icons/{}?v={}",
+                    urlencoding::encode(&plugin.name),
+                    &hex::encode(digest.as_ref())[..12]
+                )
+            });
+        }
+        index
+    }
+}
+
+/// Fetch the catalog icon for each index entry that names one, reusing
+/// `previous` when the URL hasn't changed. Each icon must be https, an
+/// `image/svg+xml` response within the icon size cap, and pass the same SVG
+/// check as an installed plugin's `icon.svg`. A failed icon is logged and
+/// skipped: the catalog shows its placeholder and the sync still succeeds.
+async fn fetch_icons(
+    http: &reqwest::Client,
+    index: &IndexSnapshot,
+    previous: &HashMap<String, RegistryIcon>,
+) -> HashMap<String, RegistryIcon> {
+    let wanted: Vec<(&str, &str)> = index
+        .plugins
+        .iter()
+        .filter_map(|p| p.icon_url.as_deref().map(|url| (p.name.as_str(), url)))
+        .collect();
+    let fetched = futures::future::join_all(wanted.into_iter().map(|(name, url)| async move {
+        if let Some(icon) = previous.get(name).filter(|i| i.source_url == url) {
+            return Some((name.to_string(), icon.clone()));
+        }
+        match fetch_icon(http, url).await {
+            Ok(svg) => Some((
+                name.to_string(),
+                RegistryIcon {
+                    source_url: url.to_string(),
+                    svg,
+                },
+            )),
+            Err(reason) => {
+                warn!(plugin = name, url, error = %reason, "Registry icon skipped");
+                None
+            }
+        }
+    }))
+    .await;
+    fetched.into_iter().flatten().collect()
+}
+
+async fn fetch_icon(http: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+    if !url.starts_with("https://") {
+        return Err("icon_url must be https".to_string());
+    }
+    let bytes = fetch_bytes(http, url, svg_validate::MAX_ICON_SIZE, &["image/svg+xml"])
+        .await
+        .map_err(|e| e.to_string())?;
+    svg_validate::validate(&bytes).map_err(|e| e.to_string())?;
+    Ok(bytes)
 }
 
 impl PluginIndexEntry {
@@ -407,6 +484,15 @@ pub async fn sync_once(
         })?;
     }
 
+    let previous_icons = cache
+        .read()
+        .await
+        .snapshot
+        .as_ref()
+        .map(|s| s.icons.clone())
+        .unwrap_or_default();
+    let icons = fetch_icons(http, &index, &previous_icons).await;
+
     let fetched_at = Utc::now();
     {
         let mut state = cache.write().await;
@@ -414,6 +500,7 @@ pub async fn sync_once(
             publishers: publishers.clone(),
             index: index.clone(),
             fetched_at,
+            icons,
         });
         state.last_error = None;
     }
@@ -797,6 +884,55 @@ mod tests {
         include_bytes!("../../../tests/fixtures/registry/publishers.json.sig");
     const INDEX: &[u8] = include_bytes!("../../../tests/fixtures/registry/index.json");
     const INDEX_SIG: &[u8] = include_bytes!("../../../tests/fixtures/registry/index.json.sig");
+
+    /// The admin catalog gets this server's copy of each icon, versioned by
+    /// content, and no icon at all (never the registry origin) when none was
+    /// fetched.
+    #[test]
+    fn client_index_points_icons_at_this_server() {
+        let index: IndexSnapshot = serde_json::from_slice(INDEX).expect("fixture index parses");
+        let mut with_icon = index.clone();
+        with_icon.plugins[0].icon_url = Some("https://nosdesk.com/registry/icons/a.svg".into());
+        let name = with_icon.plugins[0].name.clone();
+        let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>".to_vec();
+        let digest = ring::digest::digest(&ring::digest::SHA256, &svg);
+
+        let cache = RegistryCache {
+            publishers: serde_json::from_slice(PUBLISHERS).expect("fixture publishers parse"),
+            index: with_icon.clone(),
+            fetched_at: Utc::now(),
+            icons: HashMap::from([(
+                name.clone(),
+                RegistryIcon {
+                    source_url: "https://nosdesk.com/registry/icons/a.svg".into(),
+                    svg,
+                },
+            )]),
+        };
+        let client = cache.index_for_client();
+        assert_eq!(
+            client.plugins[0].icon_url.as_deref(),
+            Some(
+                format!(
+                    "/api/admin/plugins/registry/icons/{name}?v={}",
+                    &hex::encode(digest.as_ref())[..12]
+                )
+                .as_str()
+            )
+        );
+        // The cached index itself keeps the registry's URL.
+        assert_eq!(cache.index, with_icon);
+
+        let without = RegistryCache {
+            icons: HashMap::new(),
+            ..cache
+        };
+        assert!(without
+            .index_for_client()
+            .plugins
+            .iter()
+            .all(|p| p.icon_url.is_none()));
+    }
 
     #[test]
     fn baked_root_verifies_the_published_registry() {

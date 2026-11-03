@@ -25,6 +25,7 @@ import { PluginApiError } from '@nosdesk/plugin-sdk';
 import { effectivePermissions } from './permissions';
 import { viewerMeetsAudience } from './audience';
 import { createDialogOwner, openPluginDialog, releaseDialogOwner } from './usePluginDialogs';
+import { isTauriRuntime, openExternalUrl } from '@/platform';
 import type {
   PluginUserQuery,
   PluginUserList,
@@ -86,6 +87,21 @@ export interface PluginUIHelpers extends Omit<PluginUiApi, 'isPrinting'> {
 const PAGE_SLOTS: ReadonlySet<string> = new Set(['nav.item', 'nav.assets.item']);
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Statuses whose Response must have a null body: the constructor throws on any
+// other body, an empty string included.
+const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([101, 103, 204, 205, 304]);
+
+/**
+ * Whether the browser would let the host open a tab now. A click in the
+ * plugin's frame gives the host transient activation too, but it lapses after
+ * a few seconds. Browsers without `navigator.userActivation` are assumed to
+ * allow it.
+ */
+function canOpenTabNow(): boolean {
+  const activation = (navigator as Navigator & { userActivation?: { isActive: boolean } })
+    .userActivation;
+  return activation ? activation.isActive : true;
+}
 
 /** A real calendar date in `YYYY-MM-DD` form (rejects `2026-02-30`). */
 function isIsoDate(value: string): boolean {
@@ -150,22 +166,22 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
   const permissions = new Set<string>(effectivePermissions(plugin));
   const eventHandlers = new Map<PluginEvent, EventHandler[]>();
 
-  // Typed permission check. Accepts non-network permissions
-  // directly; for `network:<host>` use `hasNetworkPermission(host)`.
+  // Typed permission check. Accepts plain permissions directly; for the
+  // host-scoped `network:<host>` and `link:<host>` use `hasHostPermission`.
   const hasPermission = (permission: PluginPermission): boolean => {
     return permissions.has(permission);
   };
 
-  // Host-coverage check shared by `api.fetch` (and any future
-  // network-using surface). Mirrors the backend proxy's logic so a
-  // denied request fails closed at the boundary instead of round-
-  // tripping. Single-level wildcard semantics: `*.example.com`
-  // covers `example.com` and `<one_label>.example.com`, not deeper.
-  const hasNetworkPermission = (host: string): boolean => {
+  // Host-coverage check for the host-scoped grants: `network:` for `api.fetch`
+  // and `link:` for `api.ui.openExternal`. Mirrors the backend's HostPattern so
+  // a denied call fails closed at the boundary instead of round-tripping.
+  // Single-level wildcard semantics: `*.example.com` covers `example.com` and
+  // `<one_label>.example.com`, not deeper.
+  const hasHostPermission = (prefix: 'network:' | 'link:', host: string): boolean => {
     const target = host.toLowerCase();
     for (const p of permissions) {
-      if (!p.startsWith('network:')) continue;
-      const pattern = p.slice('network:'.length).toLowerCase();
+      if (!p.startsWith(prefix)) continue;
+      const pattern = p.slice(prefix.length).toLowerCase();
       if (pattern.startsWith('*.')) {
         const apex = pattern.slice(2);
         if (target === apex) return true;
@@ -223,7 +239,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
   };
 
   const api: PluginAPI = {
-    version: '1.2.0',
+    version: '1.3.0',
 
     // === Plugin Info ===
     plugin: {
@@ -522,7 +538,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         logger.warn(`Plugin ${plugin.name} fetch refused: invalid URL`, { url });
         throw new PluginApiError('invalid', `invalid fetch URL: ${url}`);
       }
-      if (!hasNetworkPermission(parsed.host)) {
+      if (!hasHostPermission('network:', parsed.host)) {
         denied(`network:${parsed.host}`);
       }
 
@@ -541,8 +557,9 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
 
         const response = await pluginService.proxyRequest(plugin.uuid, request);
 
-        // Convert to Response-like object
-        return new Response(JSON.stringify(response.body), {
+        // The body is the upstream text, verbatim. A 204 / 205 / 304 must be
+        // built with a null body (it reads back as '').
+        return new Response(NULL_BODY_STATUSES.has(response.status) ? null : response.body, {
           status: response.status,
           headers: response.headers,
         });
@@ -800,6 +817,30 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           );
         }
         return navigate({ type: 'page', pluginUuid: plugin.uuid, componentName });
+      },
+      async openExternal(url: string) {
+        let parsed: URL;
+        try {
+          parsed = new URL(url);
+        } catch {
+          throw new PluginApiError('invalid', `invalid URL: ${String(url)}`);
+        }
+        if (parsed.protocol !== 'https:') {
+          throw new PluginApiError('invalid', 'openExternal opens https URLs only');
+        }
+        if (parsed.username || parsed.password) {
+          throw new PluginApiError('invalid', 'a link cannot carry a user name or password');
+        }
+        if (!hasHostPermission('link:', parsed.hostname)) denied(`link:${parsed.hostname}`);
+
+        const href = parsed.href;
+        if (isTauriRuntime() || canOpenTabNow()) {
+          await openExternalUrl(href);
+          return;
+        }
+        // The browser would block the tab, so ask: the dialog's Open button
+        // opens it from the user's own click.
+        await openPluginDialog(dialogOwner, 'link', pluginName, { url: href, host: parsed.hostname });
       },
     },
 

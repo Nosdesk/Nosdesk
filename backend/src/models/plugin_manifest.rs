@@ -622,5 +622,7 @@ fn default_method() -> String {
 pub struct PluginProxyResponse {
     pub status: u16,
     pub headers: std::collections::HashMap<String, String>,
-    pub body: Option<serde_json::Value>,
+    /// The upstream body as text, verbatim: JSON is not parsed and text is not
+    /// quoted. Empty for a bodyless response (204, 205, 304).
+    pub body: String,
 }

@@ -7061,6 +7061,12 @@ plugin-dialog-pick-ticket-title = { $plugin } vous demande de choisir un ticket
 plugin-dialog-pick-date-title = { $plugin } vous demande de choisir une date
 plugin-dialog-date-label = Date
 plugin-dialog-choose = Choisir
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-title = { $plugin } souhaite ouvrir un lien
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-message = Une page de { $host } s'ouvrira dans un nouvel onglet.
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-open = Ouvrir
 plugin-detail-metadata-heading = Métadonnées
 plugin-detail-metadata-source = Source
 plugin-detail-metadata-permissions = Permissions
@@ -8078,6 +8084,10 @@ plugin-permission-network-description = Effectuer des requêtes réseau vers { $
 plugin-permission-resource-label = Charger des ressources { $kind }
 # MACHINE TRANSLATION, pending native review
 plugin-permission-resource-description = Charger { $kind } depuis { $host } dans la vue du plugin. Une origine approuvée peut recevoir des données via l'URL de la ressource, n'autorisez donc que les hôtes de confiance.
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-label = Ouvrir des liens
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-description = Ouvrir des pages de { $host } dans un nouvel onglet
 # MACHINE TRANSLATION, pending native review
 plugin-permission-reason-prefix = Raison de l'auteur :
 plugin-permission-unknown-label = { $permission }

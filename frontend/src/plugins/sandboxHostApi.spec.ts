@@ -15,6 +15,7 @@ const inprocUi = {
   pickDate: vi.fn(),
   openRecord: vi.fn(async () => undefined),
   openPage: vi.fn(async () => undefined),
+  openExternal: vi.fn(async () => undefined),
 }
 const inprocAssets = {
   groups: vi.fn(),
@@ -57,6 +58,8 @@ describe('sandbox host api ui forwarding', () => {
     expect(inprocUi.openRecord).toHaveBeenCalledWith({ type: 'asset', id: 1 })
     await hostApi.ui.openPage('page')
     expect(inprocUi.openPage).toHaveBeenCalledWith('page')
+    await hostApi.ui.openExternal('https://github.com/o/r/issues/1')
+    expect(inprocUi.openExternal).toHaveBeenCalledWith('https://github.com/o/r/issues/1')
     await expect(hostApi.ui.isPrinting()).resolves.toBe(false)
   })
 
