@@ -97,3 +97,34 @@ fn a_requester_passes_the_portal_gate_on_hosted() {
     .expect_err("a requester on the hosted agent app");
     assert_eq!(status_of(&agent_app), 403);
 }
+
+/// Hosted portals have no password sign-in, so their sign-in page doesn't
+/// link to one.
+#[actix_web::test]
+async fn the_hosted_portal_offers_no_password_sign_in() {
+    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let w = find_by_id(&mut pool.get().expect("conn"), seeded.a.workspace_id)
+        .expect("workspace lookup")
+        .expect("workspace exists");
+    let req = TestRequest::default().to_http_request();
+    req.extensions_mut().insert(WorkspaceContext {
+        workspace_id: w.id,
+        workspace_uuid: w.uuid,
+        slug: w.slug,
+        name: w.name,
+        custom_domain: w.custom_domain,
+        organisation_id: w.organisation_id,
+    });
+    let resp =
+        backend::handlers::portal_sso::sso_info(req, actix_web::web::Data::new(pool.clone())).await;
+    let body: serde_json::Value = serde_json::from_slice(
+        &actix_web::body::to_bytes(resp.into_body())
+            .await
+            .expect("body"),
+    )
+    .expect("json");
+    assert_eq!(body["password"], false);
+}

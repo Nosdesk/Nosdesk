@@ -144,6 +144,15 @@ async function submit(): Promise<void> {
           <Button type="submit" :loading="submitting">{{ t('portal-sign-in-submit') }}</Button>
         </form>
       </div>
+      <!-- Self-hosted: a requester the admin gave a password signs in at the
+           agent app's /login, which lands them back in the portal. -->
+      <a
+        v-if="sso.password && !sent"
+        href="/login"
+        class="self-center text-sm text-accent hover:underline"
+      >
+        {{ t('portal-sign-in-password') }}
+      </a>
     </div>
   </div>
 </template>

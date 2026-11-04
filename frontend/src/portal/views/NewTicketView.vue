@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ticketRoute } from '@nosdesk/core/utils/ticketRoutes'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuery, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
+import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
 
 import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
@@ -21,6 +22,14 @@ const router = useRouter()
 const queryCache = useQueryCache()
 // A link's session can't start a request: the layout offers sign-in instead.
 const { fullSession: canRequest } = usePortalMe()
+// Suggest help articles only when the help centre and its search are on; the
+// search refuses otherwise. PortalLayout loads the settings.
+const publicSettings = usePublicSettingsStore()
+const suggestArticles = computed(
+  () =>
+    publicSettings.settings?.guest_public_docs_enabled === true &&
+    publicSettings.settings?.guest_kb_search_enabled === true,
+)
 
 const types = useQuery({ key: ['portal', 'request-types'], query: listRequestTypes })
 const requestType = ref<number | null>(null)
@@ -94,7 +103,7 @@ async function submit(): Promise<void> {
         </form>
 
         <aside class="flex flex-col gap-4 lg:sticky lg:top-20">
-          <ArticleSuggestions :subject="title" :search="searchHelpArticles" />
+          <ArticleSuggestions v-if="suggestArticles" :subject="title" :search="searchHelpArticles" />
           <section class="flex flex-col gap-3 bg-surface border border-default rounded-xl p-4">
             <h2 class="text-sm font-semibold text-primary">{{ t('portal-new-next-title') }}</h2>
             <ol class="flex flex-col gap-3 text-sm text-secondary">

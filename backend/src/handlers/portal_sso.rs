@@ -130,9 +130,13 @@ fn redirect_uri(origin: &str) -> String {
     format!("{origin}{}", crate::handlers::requester_sso::CALLBACK_PATH)
 }
 
-/// `GET /api/portal/auth/sso`: whether to show "Sign in with …" on the portal.
+/// `GET /api/portal/auth/sso`: whether to show "Sign in with …" on the portal,
+/// and whether to link to the password sign-in. Self-hosted serves the portal
+/// under `/portal` on the agent app's origin, where `/login` takes a password;
+/// hosted portals have no password sign-in.
 pub async fn sso_info(req: HttpRequest, pool: web::Data<Pool>) -> HttpResponse {
-    let off = || HttpResponse::Ok().json(json!({ "enabled": false }));
+    let password = crate::middleware::workspace_context::local_credentials_permitted();
+    let off = || HttpResponse::Ok().json(json!({ "enabled": false, "password": password }));
     let Some(ws) = req.extensions().get::<WorkspaceContext>().cloned() else {
         return off();
     };
@@ -153,6 +157,7 @@ pub async fn sso_info(req: HttpRequest, pool: web::Data<Pool>) -> HttpResponse {
                 "enabled": true,
                 "label": p.display_name,
                 "kind": p.kind,
+                "password": password,
             }))
         }
         _ => off(),

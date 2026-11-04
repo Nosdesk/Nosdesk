@@ -122,6 +122,8 @@ export interface PortalSso {
   /** The button text: "Microsoft", "Google" or the admin's own. */
   label?: string
   kind?: 'entra' | 'google' | 'oidc'
+  /** Self-hosted: `/login` takes a password, so the page links to it. */
+  password?: boolean
 }
 
 export async function getSso(): Promise<PortalSso> {

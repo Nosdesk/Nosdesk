@@ -1248,3 +1248,28 @@ async fn signing_out_other_sessions_ends_a_links_session() {
         .expect("refresh");
     assert_eq!(resp.status(), 401, "the refresh");
 }
+
+/// Self-hosted, the portal's sign-in page links to the password sign-in: the
+/// portal shares the agent app's origin, and a requester the admin gave a
+/// password has no other way in when the server can't send email.
+#[actix_web::test]
+async fn the_self_hosted_portal_offers_password_sign_in() {
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let mut conn = pool.get().expect("conn");
+    let ws = crate::common::mint_workspace(&mut conn, "ssoinfo", "SSO info");
+    let req = TestRequest::default().to_http_request();
+    req.extensions_mut().insert(context_of(&mut conn, ws));
+    let resp =
+        backend::handlers::portal_sso::sso_info(req, actix_web::web::Data::new(pool.clone())).await;
+    let body: serde_json::Value = serde_json::from_slice(
+        &actix_web::body::to_bytes(resp.into_body())
+            .await
+            .expect("body"),
+    )
+    .expect("json");
+    assert_eq!(
+        body,
+        serde_json::json!({ "enabled": false, "password": true })
+    );
+}

@@ -7617,6 +7617,8 @@ search-result-group-documentation = Documentation
 search-result-group-attachment = Pièces jointes
 search-result-group-device = Actifs
 search-result-group-user = Utilisateurs
+# MACHINE TRANSLATION, pending native review
+search-result-group-project = Projets
 tickets-cycle-burndown-load-error = Échec du chargement des statistiques
 tickets-cycle-burndown-cat-triage = Tri
 tickets-cycle-burndown-cat-backlog = Backlog
@@ -9325,6 +9327,8 @@ portal-sign-in-email-label = E-mail
 portal-sign-in-submit = Envoyer le lien de connexion
 portal-sign-in-sent = Si votre e-mail est enregistré, un lien de connexion est en route. Consultez votre boîte de réception.
 portal-sign-in-use-another = Utiliser une autre adresse e-mail
+# MACHINE TRANSLATION, pending native review
+portal-sign-in-password = Se connecter avec un mot de passe
 portal-sign-in-error = Ce lien de connexion n'a pas fonctionné. Il a peut-être expiré ou déjà été utilisé. Saisissez votre e-mail pour en recevoir un nouveau.
 # Traduction automatique, en attente de relecture par un locuteur natif.
 portal-sso-button = Se connecter avec { $provider }
