@@ -22,9 +22,16 @@ pub struct ActiveSession {
     /// NULL for local/password logins.
     pub oidc_id_token: Option<String>,
     /// When the session last proved who is using it (see
-    /// `services::step_up`). Queryable is positional, so this must stay last,
-    /// matching the appended column in the schema.
+    /// `services::step_up`). Queryable is positional, so the fields follow
+    /// the schema's column order.
     pub confirmed_at: Option<chrono::NaiveDateTime>,
+    /// A portal session opened from a ticket's link reaches only that ticket
+    /// (`handlers::portal::PortalScope`). NULL for every other session.
+    pub scope_ticket_id: Option<i32>,
+    /// How the identity provider checked who signed in (its `amr`), on a
+    /// session opened through the provider; empty when it didn't say. NULL
+    /// for every other sign-in.
+    pub provider_amr: Option<Vec<Option<String>>>,
 }
 
 /// New active session for creation
@@ -41,4 +48,6 @@ pub struct NewActiveSession {
     pub oidc_id_token: Option<String>,
     /// See `ActiveSession::confirmed_at`.
     pub confirmed_at: Option<chrono::NaiveDateTime>,
+    /// See `ActiveSession::provider_amr`.
+    pub provider_amr: Option<Vec<Option<String>>>,
 }

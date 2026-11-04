@@ -30,11 +30,10 @@ const sso = ref<PortalSso>({ enabled: false })
 const ssoError = computed(() => {
   const reason = route.query.sso_error
   if (typeof reason !== 'string') return ''
-  return reason === 'domain'
-    ? t('portal-sso-error-domain')
-    : reason === 'cancelled'
-      ? ''
-      : t('portal-sso-error')
+  if (reason === 'cancelled') return ''
+  if (reason === 'domain') return t('portal-sso-error-domain')
+  if (reason === 'mfa') return t('login-error-provider-mfa')
+  return t('portal-sso-error')
 })
 onMounted(async () => {
   try {

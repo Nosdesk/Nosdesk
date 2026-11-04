@@ -1,5 +1,6 @@
 // Performance monitoring utility for tracking API and image loading performance
 import { ref, computed } from 'vue'
+import { isCancellation } from '@nosdesk/core/utils/cancellation'
 
 interface PerformanceMetric {
   id: string
@@ -192,8 +193,7 @@ export const withPerformanceTracking = async <T>(
     tracker.success()
     return result
   } catch (error) {
-    const err = error as { name?: string; message?: string };
-    if (err.name === 'AbortError' || err.name === 'CanceledError' || err.message === 'REQUEST_CANCELLED') {
+    if (isCancellation(error)) {
       tracker.cancel()
     } else {
       tracker.error()

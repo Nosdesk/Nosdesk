@@ -95,7 +95,7 @@ fn skips_origin_check(path: &str) -> bool {
 /// Wrap one of our JSON error responses as an actix `Error` so a middleware
 /// can short-circuit with the same wire contract handlers use.
 fn reject(response: actix_web::HttpResponse) -> Error {
-    actix_web::error::InternalError::from_response("", response).into()
+    crate::errors::from_response("csrf refused", response)
 }
 
 // === CSRF MIDDLEWARE ===

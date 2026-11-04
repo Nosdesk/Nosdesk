@@ -14,9 +14,12 @@ import { initErrorTracking } from '@/utils/errorTracking'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
 import { IN_PORTAL } from '@/components/public/inPortal'
+import { ACCOUNT_API } from '@/composables/useAccountApi'
+import { createAccountApi } from '@/services/accountApi'
 
 import App from './App.vue'
 import router from './router'
+import portalApi from './api'
 import { embedHost, isEmbed } from './embed'
 import { browserLocale } from './locale'
 
@@ -31,6 +34,9 @@ async function bootstrap(): Promise<void> {
 
   const app = createApp(App)
   app.provide(IN_PORTAL, true)
+  // The shared account settings (sessions, confirming it's you) call the
+  // portal's own routes.
+  app.provide(ACCOUNT_API, createAccountApi(portalApi))
   app.directive('safe-html', vSafeHtml)
 
   const pinia = createPinia()

@@ -124,14 +124,15 @@ pub async fn approval_link_callback(
     let Some(ctx) = req.extensions().get::<WorkspaceContext>().cloned() else {
         return Err(ApiError::BadRequest("No workspace for this origin".into()));
     };
-    let Some((approver, ticket_id)) =
-        crate::utils::portal_ticket_link::verify_approval(ctx.workspace_id, &query.t)
-    else {
-        return Ok(failed());
-    };
     let mut conn = pool
         .get()
         .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
+    let Some((approver, ticket_id)) =
+        crate::utils::portal_ticket_link::redeem_approval(&mut conn, ctx.workspace_id, &query.t)
+            .map_err(|_| ApiError::Internal("Failed to check the link".into()))?
+    else {
+        return Ok(failed());
+    };
     if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, approver) {
         return Ok(failed());
     }
@@ -141,7 +142,14 @@ pub async fn approval_link_callback(
     if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
         tracing::warn!(error = ?e, "approval link: could not mark email verified");
     }
-    let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
+    let session = mint_portal_session(
+        &user,
+        ctx.workspace_uuid,
+        &req,
+        &mut conn,
+        crate::handlers::portal::PortalScope::Ticket(ticket_id),
+        crate::handlers::auth::SignInProof::Nothing,
+    )?;
     Ok(HttpResponse::Found()
         .cookie(session.access)
         .cookie(session.refresh)
@@ -157,6 +165,7 @@ pub async fn list_my_approvals(mut tc: TenantConn, portal: PortalContext) -> imp
         let waiting = approvals::waiting_for(conn, me)?;
         waiting
             .iter()
+            .filter(|(_, ticket)| portal.reaches(ticket.id))
             .map(|(_, ticket)| approvals::summary(conn, ticket))
             .collect::<diesel::QueryResult<Vec<_>>>()
     });
@@ -177,6 +186,9 @@ pub async fn get_my_approval(
     path: web::Path<i32>,
 ) -> impl Responder {
     let (me, ticket_id) = (portal.user_uuid, path.into_inner());
+    if !portal.reaches(ticket_id) {
+        return errors::not_found("Approval not found");
+    }
     let result = tc.run(|conn| {
         let Some(mine) = approvals::for_approver(conn, ticket_id, me)? else {
             return Ok(None);
@@ -209,6 +221,9 @@ pub async fn decide_my_approval(
     search: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     let (me, ticket_id) = (portal.user_uuid, path.into_inner());
+    if !portal.reaches(ticket_id) {
+        return errors::not_found("Approval not found");
+    }
     let Some(approve) = approve_flag(&body.decision) else {
         return errors::bad_request("Decision must be 'approve' or 'decline'");
     };

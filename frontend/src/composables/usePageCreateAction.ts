@@ -2,18 +2,14 @@
  * Lifecycle-correct registration helper for the global Create
  * button's per-view handler.
  *
- * Plain `onMounted`/`onUnmounted` is enough now that list views
- * are no longer KeepAlive-cached (see the comment in
- * `App.vue`'s KeepAlive block). The cached-view branch with
- * `onActivated`/`onDeactivated` was load-bearing only because
- * KeepAlive doesn't unmount; with views unmounting on nav-away
- * the registration follows the natural component lifecycle.
- *
- * `TicketView` is still KeepAlive-cached but doesn't register a
- * page-action that conflicts with sibling views, so this
- * simplification doesn't regress it.
+ * The view registers while it is shown and releases its own
+ * registration when it goes. A KeepAlive-cached view (the tickets
+ * and assets lists, for swipe-back) is activated rather than
+ * mounted when you return to it, and the view you came from
+ * unmounts after that, so registration follows activation too and
+ * a release never clears another view's action.
  */
-import { onMounted, onUnmounted } from 'vue'
+import { onActivated, onDeactivated, onMounted, onUnmounted } from 'vue'
 
 import { usePageActionsStore, type CreateAction } from '@nosdesk/core/stores/pageActions'
 
@@ -21,7 +17,18 @@ export function usePageCreateAction(
   action: CreateAction | (() => void | Promise<void>),
 ): void {
   const store = usePageActionsStore()
+  let registered: CreateAction | undefined
 
-  onMounted(() => store.setCreateAction(action))
-  onUnmounted(() => store.clearCreateAction())
+  const register = () => {
+    registered = store.setCreateAction(action)
+  }
+  const release = () => {
+    if (registered) store.clearCreateAction(registered)
+    registered = undefined
+  }
+
+  onMounted(register)
+  onActivated(register)
+  onDeactivated(release)
+  onUnmounted(release)
 }

@@ -16,7 +16,7 @@ lazy_static::lazy_static! {
         std::env::var("JWT_SECRET").expect("JWT_SECRET environment variable must be set");
 }
 
-/// Lifetime of a sessionless connection token (SSE + collab WebSocket). Single
+/// Lifetime of a connection token (SSE + collab WebSocket). Single
 /// source of truth: it sets both the JWT `exp` (in `create_connection_token`)
 /// and the `expires_in` the mint endpoints report to the client, so the client's
 /// refresh-before-expiry cache can never disagree with the real expiry.
@@ -26,8 +26,9 @@ lazy_static::lazy_static! {
 /// parameter, and query strings are logged by default at essentially every
 /// reverse proxy, CDN, and load balancer. That makes an ordinary access log a
 /// store of replayable credentials, and the collab token is write-capable.
-/// These are only ever presented at connection setup (an established stream is
-/// unaffected by expiry), so the useful lifetime is seconds, not an hour: the
+/// These are only ever presented at connection setup (an established stream
+/// re-checks its session and account instead, see
+/// `connection_still_authorised`), so the useful lifetime is seconds, not an hour: the
 /// window only has to cover mint, navigate, connect, and the client re-mints
 /// through the authenticated session when its cache goes stale.
 ///
@@ -93,8 +94,8 @@ impl JwtUtils {
         .map_err(JwtError::EncodingError)
     }
 
-    /// Mint a short-lived (`CONNECTION_TOKEN_TTL_SECS`), sessionless
-    /// "connection token" for a URL-only
+    /// Mint a short-lived (`CONNECTION_TOKEN_TTL_SECS`) "connection token"
+    /// for a URL-only
     /// channel that can't send an `Authorization` header (EventSource SSE,
     /// WebSocket collab), so the token rides in the query string instead.
     /// `workspace_uuid` binds the selected workspace (Model C) so the channel
@@ -102,10 +103,15 @@ impl JwtUtils {
     /// Host-derived / self-hosted callers. `scope` distinguishes what a channel
     /// accepts (read-only `sse` vs write-capable `collab`); the per-channel
     /// handler enforces the scope it requires.
+    ///
+    /// `sid` is the session that asked for it, when there is one (an API token
+    /// has none): the token then works only while that session does, and the
+    /// stream it opens re-checks the session as it runs.
     fn create_connection_token(
         user_id: &str,
         platform_role: &str,
         workspace_uuid: Option<uuid::Uuid>,
+        sid: Option<&str>,
         scope: &str,
         name: &str,
     ) -> Result<String, JwtError> {
@@ -120,7 +126,7 @@ impl JwtUtils {
             email: String::new(),
             platform_role: platform_role.to_string(),
             scope: scope.to_string(),
-            sid: None,
+            sid: sid.map(str::to_string),
             workspace_uuid,
             exp: now + CONNECTION_TOKEN_TTL_SECS,
             iat: now,
@@ -139,8 +145,16 @@ impl JwtUtils {
         user_id: &str,
         platform_role: &str,
         workspace_uuid: Option<uuid::Uuid>,
+        sid: Option<&str>,
     ) -> Result<String, JwtError> {
-        Self::create_connection_token(user_id, platform_role, workspace_uuid, "sse", "SSE_TOKEN")
+        Self::create_connection_token(
+            user_id,
+            platform_role,
+            workspace_uuid,
+            sid,
+            "sse",
+            "SSE_TOKEN",
+        )
     }
 
     /// Write-capable connection token for the collaborative-editing WebSocket.
@@ -150,11 +164,13 @@ impl JwtUtils {
         user_id: &str,
         platform_role: &str,
         workspace_uuid: Option<uuid::Uuid>,
+        sid: Option<&str>,
     ) -> Result<String, JwtError> {
         Self::create_connection_token(
             user_id,
             platform_role,
             workspace_uuid,
+            sid,
             "collab",
             "COLLAB_TOKEN",
         )
@@ -266,57 +282,39 @@ impl JwtUtils {
             });
         }
 
-        // Connection tokens (sse / collab streams) are short-lived and
-        // sessionless (never written to active_sessions), so skip the session
-        // lookup. The per-channel handler enforces the scope it accepts.
+        // A connection token (sse / collab stream) minted by an API token
+        // has no session to check; one minted by a session is checked like
+        // any other token, so it stops opening streams once that session ends.
         let is_connection_token = matches!(claims.scope.as_str(), "sse" | "collab");
 
-        if !is_connection_token {
-            // Use sid claim to look up session by stable UUID
+        if !is_connection_token || claims.sid.is_some() {
             let sid_str = claims.sid.as_deref().ok_or(JwtError::SessionRevoked)?;
-
-            let session_uuid =
-                uuid::Uuid::parse_str(sid_str).map_err(|_| JwtError::SessionRevoked)?;
-
-            match crate::repository::active_sessions::get_session_by_session_id(conn, &session_uuid)
-            {
-                Ok(session) => {
-                    if session.user_uuid != user_uuid {
-                        tracing::warn!(
-                            "Session UUID mismatch: session belongs to {}, token claims {}",
-                            session.user_uuid,
-                            user_uuid
-                        );
-                        return Err(JwtError::SessionRevoked);
-                    }
-                    let now = chrono::Utc::now().naive_utc();
-                    if session.expires_at < now {
-                        tracing::debug!("Session expired for sid {}", sid_str);
-                        return Err(JwtError::SessionRevoked);
-                    }
-                    // The absolute ceiling, checked here as well as on
-                    // refresh: an access token minted just before the deadline
-                    // would otherwise keep working for the rest of its 15
-                    // minutes. The row is already loaded, so this is free.
-                    if crate::utils::session_policy::absolute_deadline(session.created_at) <= now {
-                        tracing::debug!("Session past its absolute lifetime for sid {}", sid_str);
-                        return Err(JwtError::SessionRevoked);
-                    }
-                }
-                Err(_) => {
-                    tracing::debug!("Session not found or revoked for sid: {}", sid_str);
-                    return Err(JwtError::SessionRevoked);
-                }
-            }
+            check_session(conn, sid_str, user_uuid)?;
         } else {
             tracing::debug!(
                 scope = %claims.scope,
-                "Validating sessionless connection token for user {}",
+                "Validating a connection token with no session for user {}",
                 user_uuid
             );
         }
 
         Ok((claims, user))
+    }
+
+    /// Whether an open stream's credentials still hold: the account is active
+    /// and, for a stream opened from a session, that session is live. Long-lived
+    /// streams (SSE, the collab socket) call it as they run, so signing out,
+    /// signing out everywhere, a password reset or deleting the account ends
+    /// them rather than waiting for the connection to drop.
+    pub fn connection_still_authorised(
+        conn: &mut DbConnection,
+        user_uuid: uuid::Uuid,
+        sid: Option<&str>,
+    ) -> bool {
+        if repository::users::find_active_by_uuid(&user_uuid, conn).is_err() {
+            return false;
+        }
+        sid.is_none_or(|sid| check_session(conn, sid, user_uuid).is_ok())
     }
 
     /// Authenticate request using token string (for cookie-based auth)
@@ -690,6 +688,46 @@ pub mod helpers {
     }
 }
 
+/// The session `sid_str` belongs to `user_uuid`, hasn't been revoked, and is
+/// inside both its idle expiry and its absolute lifetime.
+fn check_session(
+    conn: &mut DbConnection,
+    sid_str: &str,
+    user_uuid: uuid::Uuid,
+) -> Result<(), JwtError> {
+    let session_uuid = uuid::Uuid::parse_str(sid_str).map_err(|_| JwtError::SessionRevoked)?;
+    match crate::repository::active_sessions::get_session_by_session_id(conn, &session_uuid) {
+        Ok(session) => {
+            if session.user_uuid != user_uuid {
+                tracing::warn!(
+                    "Session UUID mismatch: session belongs to {}, token claims {}",
+                    session.user_uuid,
+                    user_uuid
+                );
+                return Err(JwtError::SessionRevoked);
+            }
+            let now = chrono::Utc::now().naive_utc();
+            if session.expires_at < now {
+                tracing::debug!("Session expired for sid {}", sid_str);
+                return Err(JwtError::SessionRevoked);
+            }
+            // The absolute ceiling, checked here as well as on
+            // refresh: an access token minted just before the deadline
+            // would otherwise keep working for the rest of its 15
+            // minutes. The row is already loaded, so this is free.
+            if crate::utils::session_policy::absolute_deadline(session.created_at) <= now {
+                tracing::debug!("Session past its absolute lifetime for sid {}", sid_str);
+                return Err(JwtError::SessionRevoked);
+            }
+        }
+        Err(_) => {
+            tracing::debug!("Session not found or revoked for sid: {}", sid_str);
+            return Err(JwtError::SessionRevoked);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -830,7 +868,7 @@ mod tests {
         let _ = &*JWT_SECRET;
 
         let token =
-            JwtUtils::create_collab_token(&uuid::Uuid::new_v4().to_string(), "member", None)
+            JwtUtils::create_collab_token(&uuid::Uuid::new_v4().to_string(), "member", None, None)
                 .expect("mint collab token");
         let claims = JwtUtils::validate_token(&token).expect("validate");
         assert_eq!(
@@ -861,11 +899,12 @@ mod tests {
         }
         let _ = &*JWT_SECRET;
 
-        let token = JwtUtils::create_sse_token(&uuid::Uuid::new_v4().to_string(), "member", None)
-            .expect(
-                "signing failed: jsonwebtoken has no crypto backend. Restore \
+        let token =
+            JwtUtils::create_sse_token(&uuid::Uuid::new_v4().to_string(), "member", None, None)
+                .expect(
+                    "signing failed: jsonwebtoken has no crypto backend. Restore \
                  `features = [\"aws_lc_rs\"]` on the jsonwebtoken dependency in Cargo.toml.",
-            );
+                );
         JwtUtils::validate_token(&token).expect(
             "verification failed: jsonwebtoken has no crypto backend. Restore \
              `features = [\"aws_lc_rs\"]` on the jsonwebtoken dependency in Cargo.toml.",
@@ -881,7 +920,7 @@ mod tests {
 
         let user_id = uuid::Uuid::new_v4().to_string();
         let ws = uuid::Uuid::new_v4();
-        let token = JwtUtils::create_sse_token(&user_id, "platform_admin", Some(ws))
+        let token = JwtUtils::create_sse_token(&user_id, "platform_admin", Some(ws), None)
             .expect("Failed to create SSE token");
         let claims = JwtUtils::validate_token(&token).expect("Failed to validate SSE token");
         assert_eq!(claims.scope, "sse");

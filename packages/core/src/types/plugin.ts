@@ -113,12 +113,12 @@ export type PluginComponentKind =
  *   * `staff` : workspace agents and up (the backend `can_handle_tickets` tier).
  *   * `admin` : workspace admins and owners.
  *
- * A visibility setting, not a security boundary. It decides whether the host
- * renders the component (slot panel, nav link, action, plugin page, modal);
- * it does not protect data. The plugin's permissions are enforced on the
- * client bridge and the viewer's own API permissions still apply to every call
- * the plugin makes, so a component that must not leak data to requesters has
- * to rely on those, not on `audience`.
+ * It decides whether the host renders the component (slot panel, nav link,
+ * action, plugin page, modal). The server also holds the plugin's runtime
+ * endpoints (storage, collections, events, network proxy, settings, bundle
+ * token) to the widest audience among its components: a plugin whose
+ * components are all `staff` refuses a requester. Within that, the plugin's
+ * consented permissions and the viewer's own API permissions still apply.
  */
 export type PluginAudience = 'all' | 'staff' | 'admin';
 
@@ -137,8 +137,8 @@ export interface PluginComponentConfig {
    *  Omit to take the slot's default from `SLOT_REGISTRY`. Set `'none'` for
    *  full-bleed content a card would frame wrongly. */
   chrome?: SlotChrome;
-  /** Who the host shows this component to; omit for `'all'`. Visibility
-   *  only, not a security boundary: see `PluginAudience`. */
+  /** Who the host shows this component to; omit for `'all'`. See
+   *  `PluginAudience` for how the server applies it. */
   audience?: PluginAudience;
 }
 
@@ -410,7 +410,8 @@ export interface PluginProxyRequest {
 export interface PluginProxyResponse {
   status: number;
   headers: Record<string, string>;
-  body: unknown | null;
+  /** The upstream body as text, verbatim; `''` for 204, 205 and 304. */
+  body: string;
 }
 
 // =============================================================================
@@ -442,7 +443,8 @@ export type PluginSlot = AnySlotName;
 // in `services/plugins/manifest_validate.rs::KNOWN_PERMISSIONS`
 // and is enforced at runtime by `hasPermission()` checks in
 // `plugins/api.ts`. Singular resource names, `<resource>:<action>`
-// shape, plus a `network:<host>` prefix for outbound HTTP claims.
+// shape, plus a `network:<host>` prefix for outbound HTTP claims and a
+// `link:<host>` prefix for pages `api.ui.openExternal` may open.
 //
 // Adding a permission: extend the backend allowlist, add the
 // runtime check at the relevant `api.*` method, and add the
@@ -460,6 +462,7 @@ export type PluginPermission =
   | 'collection:read'
   | 'collection:write'
   | `network:${string}`
+  | `link:${string}`
   | `resource:${string}`;
 
 /** Permission metadata, keys resolved at render time via
@@ -505,6 +508,14 @@ export function describePermission(value: PluginPermission | string): Permission
       descriptionKey: 'plugin-permission-network-description',
       destructive: false,
       args: { host: value.slice('network:'.length) },
+    };
+  }
+  if (value.startsWith('link:')) {
+    return {
+      labelKey: 'plugin-permission-link-label',
+      descriptionKey: 'plugin-permission-link-description',
+      destructive: false,
+      args: { host: value.slice('link:'.length) },
     };
   }
   if (value.startsWith('resource:')) {

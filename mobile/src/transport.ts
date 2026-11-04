@@ -82,17 +82,24 @@ export async function setSession(access: string, refresh: string): Promise<void>
   syncAssetProxy()
 }
 
-/** Clear the session locally (sign-out, or before switching servers). */
-export async function clearSession(): Promise<void> {
-  // Best-effort: revoke this device's push token while the bearer is still
-  // valid, before dropping it. Dynamic import keeps the transport bootstrap
-  // decoupled from the push module; a no-op if nothing was registered.
+/** Best-effort: revoke this device's push token, which needs a live bearer.
+ *  Dynamic import keeps the transport bootstrap decoupled from the push
+ *  module; a no-op if nothing was registered or it was already revoked. */
+async function releasePush(): Promise<void> {
   try {
     const { unregisterForPush } = await import('./push')
     await unregisterForPush()
   } catch {
     // Sign-out must never block on push cleanup.
   }
+}
+
+/** Clear the session locally (sign-out, or before switching servers). */
+export async function clearSession(): Promise<void> {
+  // Before switching servers the session is still live here. On a sign-out
+  // the push token was released before the session was revoked, and this is
+  // a no-op.
+  await releasePush()
   accessToken = null
   refreshToken = null
   await store?.clear()
@@ -162,9 +169,14 @@ const bearerAuthStrategy: AuthStrategy = {
     void store?.clear()
     syncAssetProxy()
   },
-  // Intentional sign-out: drop the bearer + keychain refresh token and
-  // unregister this device for push. `clearSession` already does exactly this
-  // teardown, so the seam just delegates to it.
+  // A revoked session's bearer is refused at once, so the push token goes
+  // while the session is still live.
+  beforeSignOut() {
+    return releasePush()
+  },
+  // Intentional sign-out: drop the bearer + keychain refresh token.
+  // `clearSession` already does exactly this teardown, so the seam just
+  // delegates to it.
   endSession() {
     return clearSession()
   },

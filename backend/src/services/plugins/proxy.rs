@@ -3,7 +3,7 @@
 //! Proxies external HTTP requests for plugins, providing:
 //! - Permission validation (plugins can only access whitelisted domains)
 //! - Declarative auth injection (manifest-driven, no hardcoded domain checks)
-//! - OAuth2 client credentials with token caching
+//! - OAuth2 client credentials and private-key JWT exchange, with token caching
 //! - Request logging for audit
 //! - Rate limiting (future)
 //! - Response sanitization
@@ -50,6 +50,14 @@ pub enum PluginProxyError {
     /// `Ok(None)`, not this error, and proceeds normally.
     #[error("could not resolve declared auth for '{url}': {reason}")]
     AuthResolution { url: String, reason: String },
+
+    /// A `private_key_jwt` credential couldn't be made: the token endpoint
+    /// refused the exchange (its message is kept), or the settings it needs are
+    /// missing or malformed. Not sent upstream. The handler answers with the
+    /// 401-like `auth_failed` response (see `auth_failed_body`) so a plugin's
+    /// settings page can show the reason.
+    #[error("auth_failed: {message}")]
+    AuthFailed { message: String },
 }
 
 impl PluginProxyError {
@@ -66,8 +74,205 @@ impl PluginProxyError {
             PluginProxyError::Network(_) | PluginProxyError::AuthResolution { .. } => {
                 StatusCode::BAD_GATEWAY
             }
+            // Relayed as a 401 inside a successful proxy response, never as an
+            // HTTP 401 from this API (which the app reads as a lost session).
+            PluginProxyError::AuthFailed { .. } => StatusCode::OK,
         }
     }
+}
+
+/// The body of the 401-like response a plugin gets for `auth_failed`, so it
+/// can tell this apart from an upstream 401: `{"error":"auth_failed",
+/// "message": ...}`, with the `x-nosdesk-proxy-error: auth_failed` header.
+pub fn auth_failed_body(message: &str) -> String {
+    serde_json::json!({ "error": "auth_failed", "message": message }).to_string()
+}
+
+/// What the proxy authenticates a plugin's requests with: its decrypted
+/// `secret` settings, its other settings as text (for `{key}` placeholders and
+/// `issuer`), and the install the exchanged tokens are cached for.
+#[derive(Clone, Default)]
+pub struct PluginCredentials {
+    pub secrets: HashMap<String, String>,
+    pub settings: HashMap<String, String>,
+    /// Identifies the install (workspace and plugin) in the token cache key.
+    pub cache_scope: String,
+}
+
+/// Names the settings but never prints a value: `secrets` holds private keys.
+impl std::fmt::Debug for PluginCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginCredentials")
+            .field("secrets", &self.secrets.keys().collect::<Vec<_>>())
+            .field("settings", &self.settings.keys().collect::<Vec<_>>())
+            .field("cache_scope", &self.cache_scope)
+            .finish()
+    }
+}
+
+impl PluginCredentials {
+    pub fn from_secrets(secrets: HashMap<String, String>) -> Self {
+        Self {
+            secrets,
+            ..Self::default()
+        }
+    }
+}
+
+/// The claims of the RS256 JWT a `private_key_jwt` exchange presents.
+#[derive(serde::Serialize)]
+struct ExchangeClaims<'a> {
+    iss: &'a str,
+    iat: i64,
+    exp: i64,
+}
+
+/// Rebuild a PEM whose line breaks were lost, as happens when it is pasted
+/// into a single-line input: keep the BEGIN / END lines and re-wrap the base64
+/// between them at 64 columns. A PEM that already has its lines is returned
+/// in the same form.
+fn normalize_pem(pem: &str) -> Option<String> {
+    let pem = pem.trim();
+    let begin_end = pem.find("-----BEGIN ")?;
+    let header_end = pem[begin_end + 11..].find("-----")? + begin_end + 11 + 5;
+    let header = &pem[begin_end..header_end];
+    let footer_start = pem.rfind("-----END ")?;
+    let footer = pem[footer_start..].trim();
+    if footer_start < header_end {
+        return None;
+    }
+    let body: String = pem[header_end..footer_start]
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    if body.is_empty() {
+        return None;
+    }
+    let mut out = String::with_capacity(pem.len() + body.len() / 64 + 4);
+    out.push_str(header);
+    out.push('\n');
+    for chunk in body.as_bytes().chunks(64) {
+        out.push_str(std::str::from_utf8(chunk).ok()?);
+        out.push('\n');
+    }
+    out.push_str(footer);
+    out.push('\n');
+    Some(out)
+}
+
+/// Fill each `{key}` in `template` with the setting's value, path-encoded.
+/// Refuses an unknown or empty setting, an unclosed brace, or a value of `.`
+/// or `..`, which encoding leaves as is and would move up the URL's path.
+fn fill_token_url(template: &str, settings: &HashMap<String, String>) -> Result<String, String> {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let close = after
+            .find('}')
+            .ok_or_else(|| "token_url has an unclosed {".to_string())?;
+        let key = &after[..close];
+        let value = settings
+            .get(key)
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| format!("the {key} setting is empty"))?;
+        if value == "." || value == ".." {
+            return Err(format!("the {key} setting is not a valid value"));
+        }
+        out.push_str(&urlencoding::encode(value));
+        rest = &after[close + 1..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// The upstream's own reason from an error body: GitHub's `message`, OAuth's
+/// `error_description` or `error`, else the start of the text.
+fn upstream_reason(status: reqwest::StatusCode, text: &str) -> String {
+    let parsed: Option<serde_json::Value> = serde_json::from_str(text).ok();
+    let field = |k: &str| {
+        parsed
+            .as_ref()
+            .and_then(|v| v.get(k))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+    };
+    field("message")
+        .or_else(|| field("error_description"))
+        .or_else(|| field("error"))
+        .unwrap_or_else(|| {
+            let snippet: String = text.trim().chars().take(200).collect();
+            if snippet.is_empty() {
+                format!("the token endpoint answered {status}")
+            } else {
+                snippet
+            }
+        })
+}
+
+/// Seconds until the token expires, from `expires_field`: an RFC 3339 time
+/// (GitHub's `expires_at`) or a number of seconds (`expires_in`).
+fn expires_in_secs(value: Option<&serde_json::Value>) -> Option<i64> {
+    match value? {
+        serde_json::Value::Number(n) => n.as_i64(),
+        serde_json::Value::String(s) => {
+            if let Ok(secs) = s.trim().parse::<i64>() {
+                return Some(secs);
+            }
+            chrono::DateTime::parse_from_rfc3339(s.trim())
+                .ok()
+                .map(|t| (t.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_seconds())
+        }
+        _ => None,
+    }
+}
+
+/// The token cache key for an exchanged credential: a digest over the install
+/// and everything that identifies the credential, so a token is never served
+/// to another workspace or after a setting changes. Each part is
+/// length-prefixed, so no two part lists hash alike.
+fn token_cache_key(kind: &str, parts: &[&str]) -> String {
+    let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
+    for part in parts {
+        ctx.update(&(part.len() as u64).to_be_bytes());
+        ctx.update(part.as_bytes());
+    }
+    format!("{kind}:{}", hex::encode(ctx.finish().as_ref()))
+}
+
+/// Used when the token response names no expiry: short, so a token is never
+/// held past a lifetime we can't see.
+const DEFAULT_EXCHANGED_TOKEN_SECS: i64 = 300;
+
+/// A cached token is dropped this long before it expires.
+const TOKEN_EXPIRY_MARGIN_SECS: i64 = 60;
+
+/// The longest any token is cached, whatever expiry its response names.
+const MAX_TOKEN_CACHE_SECS: i64 = 60 * 60;
+
+/// Until when a token that expires in `lifetime_secs` may be served from the
+/// cache: `TOKEN_EXPIRY_MARGIN_SECS` early and at most `MAX_TOKEN_CACHE_SECS`
+/// out. `None` when it shouldn't be cached. Total over any response value, so
+/// a huge or negative expiry can't overflow while the cache lock is held.
+fn cache_deadline(now: Instant, lifetime_secs: i64) -> Option<Instant> {
+    let keep = lifetime_secs
+        .saturating_sub(TOKEN_EXPIRY_MARGIN_SECS)
+        .min(MAX_TOKEN_CACHE_SECS);
+    if keep <= 0 {
+        return None;
+    }
+    now.checked_add(Duration::from_secs(keep.unsigned_abs()))
+}
+
+/// The `private_key_jwt` fields of a manifest `auth` entry.
+struct PrivateKeyJwtConfig<'a> {
+    private_key: &'a str,
+    issuer: &'a str,
+    token_url: &'a str,
+    token_field: &'a str,
+    expires_field: &'a str,
 }
 
 /// Cached OAuth2 token
@@ -169,8 +374,9 @@ impl PluginProxyService {
         url: &str,
         manifest: &PluginManifest,
         network_perms: &[String],
-        secrets: &HashMap<String, String>,
+        creds: &PluginCredentials,
     ) -> Result<Option<(String, String)>, PluginProxyError> {
+        let secrets = &creds.secrets;
         // A URL that reached here already passed `has_permission` (which parses
         // it), so these are effectively unreachable; if the host can't be
         // determined, no declared auth can match, so proceed unauthenticated.
@@ -263,8 +469,18 @@ impl PluginProxyService {
                     .get(client_secret_secret)
                     .ok_or_else(|| fail(format!("missing secret '{client_secret_secret}'")))?;
 
-                // Check token cache
-                let cache_key = format!("{plugin_name}:{host}");
+                // Check token cache: one entry per install and per credential,
+                // so two workspaces running the same plugin never share a token.
+                let cache_key = token_cache_key(
+                    "oauth2",
+                    &[
+                        &creds.cache_scope,
+                        host.as_str(),
+                        token_url,
+                        client_id,
+                        client_secret,
+                    ],
+                );
                 if let Ok(cache) = self.token_cache.lock() {
                     if let Some(cached) = cache.get(&cache_key) {
                         if cached.expires_at > Instant::now() {
@@ -343,26 +559,199 @@ impl PluginProxyService {
                     })?;
                 let bearer = format!("Bearer {access_token}");
 
-                // Cache with TTL (use expires_in from response, default 50 min)
-                let ttl = json
-                    .get("expires_in")
-                    .and_then(|v| v.as_u64())
-                    .map(|s| s.saturating_sub(60)) // 1 min buffer
-                    .unwrap_or(3000);
-
-                if let Ok(mut cache) = self.token_cache.lock() {
-                    cache.insert(
-                        cache_key,
-                        CachedToken {
-                            token: bearer.clone(),
-                            expires_at: Instant::now() + Duration::from_secs(ttl),
-                        },
-                    );
+                // Cached until a minute before `expires_in`, or for 50 minutes
+                // when the response names no expiry.
+                let lifetime = expires_in_secs(json.get("expires_in"))
+                    .unwrap_or(50 * 60 + TOKEN_EXPIRY_MARGIN_SECS);
+                let now = Instant::now();
+                if let Some(expires_at) = cache_deadline(now, lifetime) {
+                    if let Ok(mut cache) = self.token_cache.lock() {
+                        cache.retain(|_, t| t.expires_at > now);
+                        cache.insert(
+                            cache_key,
+                            CachedToken {
+                                token: bearer.clone(),
+                                expires_at,
+                            },
+                        );
+                    }
                 }
 
                 Ok(Some(("Authorization".into(), bearer)))
             }
+            PluginAuthConfig::PrivateKeyJwt {
+                private_key,
+                issuer,
+                token_url,
+                token_field,
+                expires_field,
+            } => {
+                let token = self
+                    .exchange_private_key_jwt(
+                        plugin_name,
+                        manifest,
+                        network_perms,
+                        creds,
+                        &host,
+                        PrivateKeyJwtConfig {
+                            private_key,
+                            issuer,
+                            token_url,
+                            token_field,
+                            expires_field,
+                        },
+                    )
+                    .await?;
+                Ok(Some(("Authorization".into(), token)))
+            }
         }
+    }
+
+    /// Mint an access token for a `private_key_jwt` host: sign an RS256 JWT
+    /// with the private key setting, POST it to the token URL, and cache the
+    /// returned token per (install, settings) until shortly before it expires.
+    /// Returns the `Authorization` value. The exchange is built here, not
+    /// through `build_hop_request`, so it never carries an injected token.
+    async fn exchange_private_key_jwt(
+        &self,
+        plugin_name: &str,
+        manifest: &PluginManifest,
+        network_perms: &[String],
+        creds: &PluginCredentials,
+        host: &crate::services::plugins::types::Host,
+        config: PrivateKeyJwtConfig<'_>,
+    ) -> Result<String, PluginProxyError> {
+        let failed = |message: String| PluginProxyError::AuthFailed { message };
+
+        let pem = creds
+            .secrets
+            .get(config.private_key)
+            .filter(|v| !v.trim().is_empty())
+            .ok_or_else(|| failed(format!("the {} setting is empty", config.private_key)))?;
+        let issuer = creds
+            .settings
+            .get(config.issuer)
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| failed(format!("the {} setting is empty", config.issuer)))?;
+        let token_url = fill_token_url(config.token_url, &creds.settings).map_err(failed)?;
+
+        // The URL is the manifest's with settings filled in, so it clears the
+        // same gates as a request URL: the consented network allowlist and the
+        // IP-literal SSRF guard (the resolver covers hostnames).
+        if !self.has_permission(network_perms, &token_url) {
+            return Err(PluginProxyError::AuthResolution {
+                url: token_url,
+                reason: "token_url is not in the plugin's network permissions".to_string(),
+            });
+        }
+        if let Err(e) = crate::utils::safe_http::reject_unsafe_ip_literal(&token_url) {
+            return Err(PluginProxyError::AuthResolution {
+                url: token_url,
+                reason: format!("token_url blocked by SSRF guard: {e}"),
+            });
+        }
+
+        // One cache entry per install and per credential: changing the key,
+        // issuer or any setting in the URL mints a fresh token.
+        let cache_key = token_cache_key(
+            "private_key_jwt",
+            &[&creds.cache_scope, host.as_str(), &token_url, issuer, pem],
+        );
+        if let Ok(cache) = self.token_cache.lock() {
+            if let Some(cached) = cache.get(&cache_key) {
+                if cached.expires_at > Instant::now() {
+                    return Ok(cached.token.clone());
+                }
+            }
+        }
+
+        let pem = normalize_pem(pem).ok_or_else(|| {
+            failed(format!(
+                "the {} setting is not a PEM key",
+                config.private_key
+            ))
+        })?;
+        let key = jsonwebtoken::EncodingKey::from_rsa_pem(pem.as_bytes()).map_err(|_| {
+            failed(format!(
+                "the {} setting is not an RSA private key",
+                config.private_key
+            ))
+        })?;
+        let now = chrono::Utc::now().timestamp();
+        let jwt = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256),
+            &ExchangeClaims {
+                iss: issuer,
+                iat: now - 60,
+                exp: now + 9 * 60,
+            },
+            &key,
+        )
+        .map_err(|e| failed(format!("could not sign the token request: {e}")))?;
+
+        let resp = self
+            .client
+            .post(&token_url)
+            .header("Authorization", format!("Bearer {jwt}"))
+            .header("Accept", "application/json")
+            .header(
+                "User-Agent",
+                format!("Nosdesk-Plugin/{} ({})", manifest.version, plugin_name),
+            )
+            .header("Content-Length", "0")
+            .send()
+            .await
+            .map_err(|e| {
+                error!(plugin = plugin_name, error = %e, "private_key_jwt exchange failed");
+                PluginProxyError::AuthResolution {
+                    url: token_url.clone(),
+                    reason: format!("token exchange failed: {e}"),
+                }
+            })?;
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            let reason = upstream_reason(status, &text);
+            warn!(
+                plugin = plugin_name,
+                status = %status,
+                error = %reason,
+                "private_key_jwt token endpoint refused the exchange"
+            );
+            return Err(failed(reason));
+        }
+
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|_| failed("the token response was not JSON".to_string()))?;
+        let access_token = json
+            .get(config.token_field)
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| {
+                failed(format!(
+                    "the token response had no {} field",
+                    config.token_field
+                ))
+            })?;
+        let value = format!("Bearer {access_token}");
+
+        let lifetime =
+            expires_in_secs(json.get(config.expires_field)).unwrap_or(DEFAULT_EXCHANGED_TOKEN_SECS);
+        let now = Instant::now();
+        if let Some(expires_at) = cache_deadline(now, lifetime) {
+            if let Ok(mut cache) = self.token_cache.lock() {
+                cache.retain(|_, t| t.expires_at > now);
+                cache.insert(
+                    cache_key,
+                    CachedToken {
+                        token: value.clone(),
+                        expires_at,
+                    },
+                );
+            }
+        }
+        Ok(value)
     }
 
     /// Maximum redirect hops the proxy will follow. Matches the shared
@@ -386,7 +775,7 @@ impl PluginProxyService {
         plugin_name: &str,
         manifest: &PluginManifest,
         network_perms: &[String],
-        secrets: &HashMap<String, String>,
+        creds: &PluginCredentials,
         request: &PluginProxyRequest,
         include_body: bool,
     ) -> Result<reqwest::RequestBuilder, PluginProxyError> {
@@ -442,7 +831,7 @@ impl PluginProxyService {
         // closed rather than sending the request without the intended
         // credentials.
         if let Some((header_name, header_value)) = self
-            .get_auth_for_url(plugin_name, url, manifest, network_perms, secrets)
+            .get_auth_for_url(plugin_name, url, manifest, network_perms, creds)
             .await?
         {
             debug!(
@@ -520,7 +909,7 @@ impl PluginProxyService {
         plugin_name: &str,
         manifest: &PluginManifest,
         network_perms: &[String],
-        secrets: &HashMap<String, String>,
+        creds: &PluginCredentials,
         request: &PluginProxyRequest,
         method: &Method,
     ) -> Result<reqwest::Response, PluginProxyError> {
@@ -540,7 +929,9 @@ impl PluginProxyService {
                 PluginProxyError::Network(e)
             })?;
 
-            if !response.status().is_redirection() {
+            // Only the redirect codes are followed. 304 Not Modified (and the
+            // rest of 3xx) is an answer, handed back to the plugin as is.
+            if !matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
                 return Ok(response);
             }
             if hop == Self::MAX_REDIRECTS {
@@ -601,7 +992,7 @@ impl PluginProxyService {
                     plugin_name,
                     manifest,
                     network_perms,
-                    secrets,
+                    creds,
                     request,
                     include_body,
                 )
@@ -612,10 +1003,8 @@ impl PluginProxyService {
         unreachable!("redirect loop returns from inside the body")
     }
 
-    /// Execute a proxied request for a plugin
-    ///
-    /// The `secrets` parameter contains plugin settings marked as secrets,
-    /// which are used to inject Authorization headers based on the manifest's auth config.
+    /// Execute a proxied request for a plugin, authenticated with its secret
+    /// settings alone. See [`Self::proxy_request_with`].
     pub async fn proxy_request(
         &self,
         plugin_name: &str,
@@ -623,6 +1012,28 @@ impl PluginProxyService {
         network_perms: &[String],
         request: PluginProxyRequest,
         secrets: &HashMap<String, String>,
+    ) -> Result<PluginProxyResponse, PluginProxyError> {
+        self.proxy_request_with(
+            plugin_name,
+            manifest,
+            network_perms,
+            request,
+            &PluginCredentials::from_secrets(secrets.clone()),
+        )
+        .await
+    }
+
+    /// Execute a proxied request for a plugin
+    ///
+    /// `creds` carries the plugin's settings, which the manifest's `auth`
+    /// config turns into the credential injected for the request's host.
+    pub async fn proxy_request_with(
+        &self,
+        plugin_name: &str,
+        manifest: &PluginManifest,
+        network_perms: &[String],
+        request: PluginProxyRequest,
+        creds: &PluginCredentials,
     ) -> Result<PluginProxyResponse, PluginProxyError> {
         // Check permission
         if !self.has_permission(network_perms, &request.url) {
@@ -663,7 +1074,7 @@ impl PluginProxyService {
                 plugin_name,
                 manifest,
                 network_perms,
-                secrets,
+                creds,
                 &request,
                 true,
             )
@@ -677,7 +1088,7 @@ impl PluginProxyService {
                 plugin_name,
                 manifest,
                 network_perms,
-                secrets,
+                creds,
                 &request,
                 &method,
             )
@@ -693,20 +1104,17 @@ impl PluginProxyService {
             }
         }
 
-        // Get response body — try JSON first, fall back to text string
-        let body_text = response.text().await.ok();
-        let body = body_text.and_then(|text| {
-            serde_json::from_str::<serde_json::Value>(&text)
-                .ok()
-                .or(Some(serde_json::Value::String(text)))
-        });
+        // The body goes back as the upstream text, verbatim, so the plugin
+        // decides how to read it. A bodyless status (204, 304) reads as "". A
+        // body cut off mid-read is a failed request, not an empty answer.
+        let body = response.text().await.map_err(PluginProxyError::Network)?;
 
         if status >= 400 {
             warn!(
                 plugin = plugin_name,
                 url = request.url,
                 status = status,
-                response_body = ?body,
+                response_body = %body.chars().take(500).collect::<String>(),
                 "Proxied request failed"
             );
         } else {
@@ -885,7 +1293,7 @@ mod tests {
         let (port, _h) = serve_canned(vec![
             // Relative Location, resolved against the current URL.
             "HTTP/1.1 302 Found\r\nLocation: /landed\r\nContent-Length: 0\r\n\r\n".to_string(),
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n\
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 13\r\n\r\n\
              {\"ok\":\"true\"}"
                 .to_string(),
         ])
@@ -907,6 +1315,158 @@ mod tests {
 
         let response = result.expect("same-host redirect should be followed");
         assert_eq!(response.status, 200);
+    }
+
+    /// A text body comes back verbatim and a JSON body unparsed, so the
+    /// plugin sees exactly what the upstream sent.
+    #[tokio::test]
+    async fn body_is_the_upstream_text_verbatim() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, _h) = serve_canned(vec![
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello"
+                .to_string(),
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\n\r\n\
+             { \"a\" : 1 }\n"
+                .to_string(),
+        ])
+        .await;
+
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:localhost"]);
+        let text = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!("http://localhost:{port}/text")),
+                &HashMap::new(),
+            )
+            .await;
+        let json = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!("http://localhost:{port}/json")),
+                &HashMap::new(),
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+
+        assert_eq!(text.expect("text response").body, "hello");
+        assert_eq!(json.expect("json response").body, "{ \"a\" : 1 }\n");
+    }
+
+    /// A body the upstream cuts off is a failed request (502), not an empty
+    /// 200 the plugin would take for an answer.
+    #[tokio::test]
+    async fn a_body_cut_off_mid_read_is_a_bad_gateway() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, _h) = serve_canned(vec![
+            "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nshort".to_string()
+        ])
+        .await;
+
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:localhost"]);
+        let result = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!("http://localhost:{port}/cut")),
+                &HashMap::new(),
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+
+        let err = result.expect_err("a truncated body is an error");
+        assert!(matches!(err, PluginProxyError::Network(_)), "got {err:?}");
+        assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
+    }
+
+    /// 204 and 304 come back with an empty body, and a 304 is returned rather
+    /// than treated as a redirect. The ETag survives in the headers and the
+    /// plugin's `If-None-Match` reaches the upstream.
+    #[tokio::test]
+    async fn bodyless_statuses_return_an_empty_body_and_keep_the_etag() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            for reply in [
+                "HTTP/1.1 304 Not Modified\r\nETag: \"abc\"\r\nLocation: /elsewhere\r\n\r\n",
+                "HTTP/1.1 204 No Content\r\n\r\n",
+            ] {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = [0u8; 4096];
+                let n = sock.read(&mut buf).await.unwrap();
+                seen.push(String::from_utf8_lossy(&buf[..n]).to_string());
+                sock.write_all(reply.as_bytes()).await.unwrap();
+                sock.flush().await.unwrap();
+            }
+            seen
+        });
+
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:localhost"]);
+        let mut conditional = proxy_req(&format!("http://localhost:{port}/issue"));
+        conditional.headers = Some(HashMap::from([(
+            "If-None-Match".to_string(),
+            "\"abc\"".to_string(),
+        )]));
+        let not_modified = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                conditional,
+                &HashMap::new(),
+            )
+            .await;
+        let mut delete = proxy_req(&format!("http://localhost:{port}/label"));
+        delete.method = "DELETE".to_string();
+        let no_content = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                delete,
+                &HashMap::new(),
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+
+        let not_modified = not_modified.expect("304 is a response, not an error");
+        assert_eq!(not_modified.status, 304);
+        assert_eq!(not_modified.body, "");
+        assert_eq!(
+            not_modified.headers.get("etag").map(String::as_str),
+            Some("\"abc\"")
+        );
+        let no_content = no_content.expect("204 response");
+        assert_eq!(no_content.status, 204);
+        assert_eq!(no_content.body, "");
+
+        let seen = server.await.unwrap();
+        assert!(
+            seen[0]
+                .to_ascii_lowercase()
+                .contains("if-none-match: \"abc\""),
+            "If-None-Match should be forwarded, got {}",
+            seen[0]
+        );
     }
 
     /// A manifest-declared `apiKey` header is resolved per hop, keyed on the
@@ -938,7 +1498,7 @@ mod tests {
                 "https://api.vendor.com/v1/thing",
                 &manifest,
                 &perms,
-                &secrets,
+                &PluginCredentials::from_secrets(secrets.clone()),
             )
             .await
             .expect("declared host resolves");
@@ -954,7 +1514,7 @@ mod tests {
                 "https://redirect-target.example.com/steal",
                 &manifest,
                 &perms,
-                &secrets,
+                &PluginCredentials::from_secrets(secrets.clone()),
             )
             .await
             .expect("undeclared host is not an error");
@@ -1088,7 +1648,7 @@ mod tests {
                 "https://api.github.com/repos",
                 &manifest,
                 &net_perms(&manifest),
-                &secrets,
+                &PluginCredentials::from_secrets(secrets.clone()),
             )
             .await
             .expect("auth resolution should not error");
@@ -1126,7 +1686,7 @@ mod tests {
                 "https://api.example.com/data",
                 &manifest,
                 &net_perms(&manifest),
-                &secrets,
+                &PluginCredentials::from_secrets(secrets.clone()),
             )
             .await
             .expect("auth resolution should not error");
@@ -1164,7 +1724,7 @@ mod tests {
                 "https://api.example.com/data",
                 &manifest,
                 &net_perms(&manifest),
-                &secrets,
+                &PluginCredentials::from_secrets(secrets.clone()),
             )
             .await
             .expect("auth resolution should not error");
@@ -1187,7 +1747,7 @@ mod tests {
                 "https://api.example.com/data",
                 &manifest,
                 &net_perms(&manifest),
-                &secrets,
+                &PluginCredentials::from_secrets(secrets.clone()),
             )
             .await
             .expect("auth resolution should not error");
@@ -1219,13 +1779,446 @@ mod tests {
                 "https://api.example.com/data",
                 &manifest,
                 &net_perms(&manifest),
-                &secrets,
+                &PluginCredentials::from_secrets(secrets.clone()),
             )
             .await;
 
         assert!(
             matches!(result, Err(PluginProxyError::AuthResolution { .. })),
             "a missing declared secret must fail closed, got: {result:?}"
+        );
+    }
+
+    // ---- private_key_jwt ----
+
+    /// One 2048-bit key for every test (keygen is slow in a debug build), as
+    /// PKCS#1 (what GitHub issues), PKCS#8, and the public half.
+    fn test_rsa_key() -> &'static (String, String, String) {
+        static KEY: std::sync::OnceLock<(String, String, String)> = std::sync::OnceLock::new();
+        KEY.get_or_init(|| {
+            use rsa::pkcs1::EncodeRsaPrivateKey;
+            use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
+            let key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048).unwrap();
+            (
+                key.to_pkcs1_pem(LineEnding::LF).unwrap().to_string(),
+                key.to_pkcs8_pem(LineEnding::LF).unwrap().to_string(),
+                key.to_public_key()
+                    .to_public_key_pem(LineEnding::LF)
+                    .unwrap(),
+            )
+        })
+    }
+
+    #[test]
+    fn a_pem_pasted_on_one_line_is_rebuilt() {
+        let (pkcs1, pkcs8, _) = test_rsa_key();
+        for pem in [pkcs1, pkcs8] {
+            assert_eq!(normalize_pem(pem).as_deref(), Some(pem.as_str()));
+            let one_line = pem.replace('\n', " ");
+            let rebuilt = normalize_pem(&one_line).expect("one-line PEM rebuilds");
+            assert_eq!(&rebuilt, pem);
+            jsonwebtoken::EncodingKey::from_rsa_pem(rebuilt.as_bytes())
+                .expect("PKCS#1 and PKCS#8 keys both load");
+            let joined = pem.replace('\n', "");
+            assert_eq!(normalize_pem(&joined).as_deref(), Some(pem.as_str()));
+        }
+        assert_eq!(normalize_pem("not a key"), None);
+        assert_eq!(
+            normalize_pem("-----BEGIN RSA PRIVATE KEY----------END RSA PRIVATE KEY-----"),
+            None
+        );
+    }
+
+    #[test]
+    fn token_url_placeholders_are_filled_and_path_encoded() {
+        let settings = HashMap::from([
+            ("id".to_string(), " 42 ".to_string()),
+            ("odd".to_string(), "a/b?c".to_string()),
+            ("blank".to_string(), "  ".to_string()),
+        ]);
+        assert_eq!(
+            fill_token_url("https://h/app/installations/{id}/access_tokens", &settings).unwrap(),
+            "https://h/app/installations/42/access_tokens"
+        );
+        assert_eq!(
+            fill_token_url("https://h/{odd}/t", &settings).unwrap(),
+            "https://h/a%2Fb%3Fc/t"
+        );
+        assert!(fill_token_url("https://h/{blank}/t", &settings)
+            .unwrap_err()
+            .contains("blank setting is empty"));
+        assert!(fill_token_url("https://h/{missing}/t", &settings).is_err());
+        assert!(fill_token_url("https://h/{id/t", &settings).is_err());
+        for dots in [".", "..", " .. "] {
+            let settings = HashMap::from([("id".to_string(), dots.to_string())]);
+            assert!(
+                fill_token_url("https://h/app/installations/{id}/access_tokens", &settings)
+                    .is_err(),
+                "{dots:?} should be refused"
+            );
+        }
+    }
+
+    /// Any expiry a token response names gives a deadline within the cap, or
+    /// none, and never overflows.
+    #[test]
+    fn cache_deadline_is_bounded_for_any_expiry() {
+        let now = Instant::now();
+        let cap = Duration::from_secs(MAX_TOKEN_CACHE_SECS as u64);
+        for lifetime in [i64::MAX, i64::MAX - 1, 10 * 365 * 24 * 3600, 3600] {
+            let deadline = cache_deadline(now, lifetime).expect("cached");
+            assert!(deadline <= now + cap, "{lifetime}");
+        }
+        assert_eq!(
+            cache_deadline(now, 3600),
+            Some(now + Duration::from_secs(3600 - TOKEN_EXPIRY_MARGIN_SECS as u64))
+        );
+        for lifetime in [i64::MIN, -5, 0, TOKEN_EXPIRY_MARGIN_SECS] {
+            assert_eq!(cache_deadline(now, lifetime), None, "{lifetime}");
+        }
+        let far = (chrono::Utc::now() + chrono::Duration::days(365 * 100)).to_rfc3339();
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        assert!(
+            cache_deadline(now, expires_in_secs(Some(&serde_json::json!(far))).unwrap())
+                .is_some_and(|d| d <= now + cap)
+        );
+        assert!(cache_deadline(
+            now,
+            expires_in_secs(Some(&serde_json::json!(past))).unwrap()
+        )
+        .is_none());
+        assert_eq!(
+            expires_in_secs(Some(&serde_json::json!(u64::MAX))),
+            None,
+            "a number past i64 is no expiry"
+        );
+    }
+
+    /// The credentials' Debug output names settings without their values.
+    #[test]
+    fn credentials_debug_hides_values() {
+        let creds = PluginCredentials {
+            secrets: HashMap::from([(
+                "github_app_private_key".to_string(),
+                "-----BEGIN RSA PRIVATE KEY-----secret".to_string(),
+            )]),
+            settings: HashMap::from([("github_app_id".to_string(), "12345".to_string())]),
+            cache_scope: "1:github".to_string(),
+        };
+        let printed = format!("{creds:?}");
+        assert!(printed.contains("github_app_private_key"), "{printed}");
+        assert!(!printed.contains("PRIVATE KEY-----"), "{printed}");
+        assert!(!printed.contains("12345"), "{printed}");
+    }
+
+    #[test]
+    fn expiry_reads_a_time_or_seconds() {
+        let in_an_hour = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let secs = expires_in_secs(Some(&serde_json::json!(in_an_hour))).unwrap();
+        assert!((3590..=3600).contains(&secs), "{secs}");
+        assert_eq!(expires_in_secs(Some(&serde_json::json!(3600))), Some(3600));
+        assert_eq!(expires_in_secs(Some(&serde_json::json!("120"))), Some(120));
+        assert_eq!(expires_in_secs(Some(&serde_json::json!("soon"))), None);
+        assert_eq!(expires_in_secs(None), None);
+    }
+
+    /// A manifest with the GitHub App shape, pointed at a local server.
+    fn jwt_manifest(port: u16) -> PluginManifest {
+        let mut manifest = create_test_manifest(vec!["network:localhost"]);
+        manifest.auth.insert(
+            host("localhost"),
+            PluginAuthConfig::PrivateKeyJwt {
+                private_key: "github_app_private_key".to_string(),
+                issuer: "github_app_id".to_string(),
+                token_url: format!(
+                    "http://localhost:{port}/app/installations/{{github_installation_id}}/access_tokens"
+                ),
+                token_field: "token".to_string(),
+                expires_field: "expires_at".to_string(),
+            },
+        );
+        manifest
+    }
+
+    fn jwt_creds(pem: &str) -> PluginCredentials {
+        PluginCredentials {
+            secrets: HashMap::from([("github_app_private_key".to_string(), pem.to_string())]),
+            settings: HashMap::from([
+                ("github_app_id".to_string(), "12345".to_string()),
+                ("github_installation_id".to_string(), "42".to_string()),
+            ]),
+            cache_scope: "1:test-plugin".to_string(),
+        }
+    }
+
+    /// Serve `replies` in order, one connection each, and hand back the
+    /// request text each connection carried.
+    async fn serve_recording(replies: Vec<String>) -> (u16, tokio::task::JoinHandle<Vec<String>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            for reply in replies {
+                let Ok(Ok((mut sock, _))) =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+                        .await
+                else {
+                    break;
+                };
+                let mut buf = vec![0u8; 8192];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                seen.push(String::from_utf8_lossy(&buf[..n]).to_string());
+                let _ = sock.write_all(reply.as_bytes()).await;
+                let _ = sock.flush().await;
+            }
+            seen
+        });
+        (port, handle)
+    }
+
+    fn http_json(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn header_value<'a>(request: &'a str, name: &str) -> Option<&'a str> {
+        request.lines().find_map(|line| {
+            let (k, v) = line.split_once(':')?;
+            k.trim().eq_ignore_ascii_case(name).then(|| v.trim())
+        })
+    }
+
+    /// The whole exchange: a signed RS256 JWT goes to the filled-in token URL,
+    /// the returned token is injected on the request, and a second request
+    /// reuses the cached token rather than exchanging again.
+    #[tokio::test]
+    async fn private_key_jwt_exchanges_injects_and_caches() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let expires_at = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let (port, server) = serve_recording(vec![
+            http_json(
+                "201 Created",
+                &format!(r#"{{"token":"ghs_installation","expires_at":"{expires_at}"}}"#),
+            ),
+            http_json("200 OK", "[]"),
+            http_json("200 OK", "[]"),
+        ])
+        .await;
+
+        let (pkcs1, _, public) = test_rsa_key();
+        let manifest = jwt_manifest(port);
+        // Pasted into a single-line input: the newlines are gone.
+        let creds = jwt_creds(&pkcs1.replace('\n', " "));
+        let service = PluginProxyService::new();
+        for _ in 0..2 {
+            let mut req = proxy_req(&format!(
+                "http://localhost:{port}/installation/repositories"
+            ));
+            // A plugin can't supply its own Authorization for a declared host.
+            req.headers = Some(HashMap::from([(
+                "Authorization".to_string(),
+                "Bearer from-the-plugin".to_string(),
+            )]));
+            let res = service
+                .proxy_request_with("test-plugin", &manifest, &net_perms(&manifest), req, &creds)
+                .await;
+            assert!(res.is_ok(), "proxied request should succeed: {res:?}");
+        }
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+        let seen = server.await.unwrap();
+        assert_eq!(seen.len(), 3, "one exchange, then two API calls");
+
+        let exchange = &seen[0];
+        assert!(
+            exchange.starts_with("POST /app/installations/42/access_tokens "),
+            "{exchange}"
+        );
+        assert!(header_value(exchange, "user-agent").is_some());
+        let jwt = header_value(exchange, "authorization")
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .expect("the exchange carries the JWT");
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
+        validation.set_required_spec_claims(&["exp", "iat", "iss"]);
+        validation.set_issuer(&["12345"]);
+        let claims = jsonwebtoken::decode::<serde_json::Value>(
+            jwt,
+            &jsonwebtoken::DecodingKey::from_rsa_pem(public.as_bytes()).unwrap(),
+            &validation,
+        )
+        .expect("the JWT verifies with the app's public key")
+        .claims;
+        let iat = claims["iat"].as_i64().unwrap();
+        let exp = claims["exp"].as_i64().unwrap();
+        assert_eq!(
+            exp - iat,
+            600,
+            "iat is backdated 60 s and exp is 9 min ahead"
+        );
+
+        for api_call in &seen[1..] {
+            assert_eq!(
+                header_value(api_call, "authorization"),
+                Some("Bearer ghs_installation"),
+                "{api_call}"
+            );
+        }
+    }
+
+    /// A refused exchange is `auth_failed` carrying the endpoint's message, and
+    /// the API request is never sent.
+    #[tokio::test]
+    async fn a_refused_exchange_is_auth_failed_with_the_upstream_message() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, server) = serve_recording(vec![http_json(
+            "401 Unauthorized",
+            r#"{"message":"A JSON web token could not be decoded","documentation_url":"https://docs.github.com"}"#,
+        )])
+        .await;
+        let (_, pkcs8, _) = test_rsa_key();
+        let manifest = jwt_manifest(port);
+        let mut creds = jwt_creds(pkcs8);
+        creds.cache_scope = "1:refused".to_string();
+        let res = PluginProxyService::new()
+            .proxy_request_with(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!(
+                    "http://localhost:{port}/installation/repositories"
+                )),
+                &creds,
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+        match res {
+            Err(PluginProxyError::AuthFailed { message }) => {
+                assert_eq!(message, "A JSON web token could not be decoded")
+            }
+            other => panic!("expected AuthFailed, got {other:?}"),
+        }
+        assert_eq!(
+            server.await.unwrap().len(),
+            1,
+            "only the exchange was attempted"
+        );
+    }
+
+    /// Settings problems are `auth_failed` too, before anything is sent.
+    #[tokio::test]
+    async fn missing_or_malformed_settings_are_auth_failed() {
+        let manifest = jwt_manifest(9);
+        let service = PluginProxyService::new();
+        let perms = net_perms(&manifest);
+        let (pkcs1, _, _) = test_rsa_key();
+        let url = "http://localhost:9/installation/repositories";
+
+        let mut no_installation = jwt_creds(pkcs1);
+        no_installation.settings.remove("github_installation_id");
+        let mut no_key = jwt_creds(pkcs1);
+        no_key.secrets.clear();
+        let not_a_key =
+            jwt_creds("-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----");
+
+        for (creds, want) in [
+            (no_installation, "github_installation_id setting is empty"),
+            (no_key, "github_app_private_key setting is empty"),
+            (not_a_key, "not an RSA private key"),
+        ] {
+            match service
+                .get_auth_for_url("test-plugin", url, &manifest, &perms, &creds)
+                .await
+            {
+                Err(PluginProxyError::AuthFailed { message }) => {
+                    assert!(message.contains(want), "expected {want:?}, got {message:?}")
+                }
+                other => panic!("expected AuthFailed for {want:?}, got {other:?}"),
+            }
+        }
+    }
+
+    /// An OAuth2 token is cached per install: a second workspace running the
+    /// same plugin against the same host exchanges its own credentials rather
+    /// than reusing the first workspace's token.
+    #[tokio::test]
+    async fn oauth2_tokens_are_not_shared_between_installs() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, server) = serve_recording(vec![
+            http_json(
+                "200 OK",
+                r#"{"access_token":"token-for-ws1","expires_in":3600}"#,
+            ),
+            http_json(
+                "200 OK",
+                r#"{"access_token":"token-for-ws2","expires_in":3600}"#,
+            ),
+        ])
+        .await;
+        let mut manifest =
+            create_test_manifest(vec!["network:localhost", "network:api.vendor.com"]);
+        manifest.auth.insert(
+            host("api.vendor.com"),
+            PluginAuthConfig::Oauth2ClientCredentials {
+                token_url: format!("http://localhost:{port}/oauth/token"),
+                client_id_secret: "client_id".to_string(),
+                client_secret_secret: "client_secret".to_string(),
+            },
+        );
+        let install = |scope: &str, secret: &str| PluginCredentials {
+            secrets: HashMap::from([
+                ("client_id".to_string(), "app".to_string()),
+                ("client_secret".to_string(), secret.to_string()),
+            ]),
+            settings: HashMap::new(),
+            cache_scope: scope.to_string(),
+        };
+        let service = PluginProxyService::new();
+        let perms = net_perms(&manifest);
+        let url = "https://api.vendor.com/v1/thing";
+        let mut tokens = Vec::new();
+        for creds in [
+            install("1:plugin-a", "secret-1"),
+            install("2:plugin-b", "secret-2"),
+            install("1:plugin-a", "secret-1"),
+        ] {
+            tokens.push(
+                service
+                    .get_auth_for_url("test-plugin", url, &manifest, &perms, &creds)
+                    .await
+                    .expect("oauth2 resolves")
+                    .map(|(_, v)| v),
+            );
+        }
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+        assert_eq!(
+            tokens,
+            vec![
+                Some("Bearer token-for-ws1".to_string()),
+                Some("Bearer token-for-ws2".to_string()),
+                Some("Bearer token-for-ws1".to_string()),
+            ]
+        );
+        assert_eq!(server.await.unwrap().len(), 2, "one exchange per install");
+    }
+
+    #[test]
+    fn auth_failed_body_names_the_error() {
+        let body: serde_json::Value =
+            serde_json::from_str(&auth_failed_body("Bad credentials")).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "auth_failed", "message": "Bad credentials" })
         );
     }
 }

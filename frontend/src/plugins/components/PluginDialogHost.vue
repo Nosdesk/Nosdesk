@@ -1,6 +1,7 @@
 <!--
 PluginDialogHost: renders the dialogs plugins ask the host to draw
-(`api.ui.confirm` and the `api.ui.pick*` calls; see usePluginDialogs.ts).
+(`api.ui.confirm`, the `api.ui.pick*` calls and `api.ui.openExternal` when the
+browser would block its tab; see usePluginDialogs.ts).
 
 Mounted once at app root, after PluginModalHost. Every pending request renders
 as its own dialog, in order, so a later one stacks over an earlier one and over
@@ -19,6 +20,7 @@ import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import AssetSelectionModal from '@/components/ticketComponents/AssetSelectionModal.vue';
 import TicketPickerModal from '@/components/ticketComponents/TicketPickerModal.vue';
 import type { Asset } from '@nosdesk/core/types/asset';
+import { openExternalUrl } from '@/platform';
 import { pluginDialogs, settlePluginDialog, type PluginDialogRequest } from '../usePluginDialogs';
 
 const fluent = useFluent();
@@ -34,7 +36,9 @@ const PICK_TITLE_KEYS = {
 /** The plugin's own title when it gave one, else ours naming the plugin. */
 function titleFor(req: PluginDialogRequest): string {
   if (req.options.title) return req.options.title;
-  return req.kind === 'confirm' ? '' : t(PICK_TITLE_KEYS[req.kind], { plugin: req.pluginName });
+  if (req.kind === 'confirm') return '';
+  if (req.kind === 'link') return t('plugin-dialog-open-link-title', { plugin: req.pluginName });
+  return t(PICK_TITLE_KEYS[req.kind], { plugin: req.pluginName });
 }
 
 /** The attribution subtitle, needed whenever the title is the plugin's own. */
@@ -67,6 +71,12 @@ watch(
   },
   { immediate: true },
 );
+
+/** Open the link from this click, which the browser counts as the user's own. */
+function openLink(id: number, url: string) {
+  void openExternalUrl(url);
+  settlePluginDialog(id, true);
+}
 
 function chooseDate(id: number) {
   const value = dates.value[id];
@@ -140,6 +150,33 @@ function chooseDate(id: number) {
           </Button>
           <Button variant="primary" :disabled="!dates[req.id]" @click="chooseDate(req.id)">
             {{ t('plugin-dialog-choose') }}
+          </Button>
+        </div>
+      </template>
+    </Modal>
+
+    <Modal
+      v-else-if="req.kind === 'link'"
+      show
+      size="sm"
+      :title="titleFor(req)"
+      @close="settlePluginDialog(req.id)"
+    >
+      <div class="flex flex-col gap-2">
+        <p class="text-sm text-secondary">
+          {{ t('plugin-dialog-open-link-message', { host: req.options.host }) }}
+        </p>
+        <p class="break-all rounded-md bg-surface-alt px-3 py-2 font-mono text-xs text-primary">
+          {{ req.options.url }}
+        </p>
+      </div>
+      <template #footer>
+        <div class="modal-actions">
+          <Button variant="ghost" @click="settlePluginDialog(req.id)">
+            {{ t('common-cancel') }}
+          </Button>
+          <Button variant="primary" @click="openLink(req.id, req.options.url)">
+            {{ t('plugin-dialog-open-link-open') }}
           </Button>
         </div>
       </template>

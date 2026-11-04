@@ -392,6 +392,7 @@ pub fn keep_rules_on_leaving(
         grants.iter().filter_map(|(g, _)| *g).collect(),
         grants.iter().filter_map(|(_, u)| *u).collect(),
         None,
+        None,
     )?;
     Ok(())
 }

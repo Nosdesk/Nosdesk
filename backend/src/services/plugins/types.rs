@@ -407,6 +407,10 @@ pub enum Permission {
     CollectionRead,
     CollectionWrite,
     Network(HostPattern),
+    /// `link:<host>`: `api.ui.openExternal` may open https pages on `host` in
+    /// a new tab. Separate from `network:`, which names API hosts the proxy
+    /// dials, not the page hosts a user is sent to.
+    Link(HostPattern),
     /// `resource:<kind>:<host>` — widens the plugin's sandbox CSP to load
     /// passive resources of `kind` from `host` (HTTPS enforced at emission).
     Resource(ResourceKind, HostPattern),
@@ -419,6 +423,8 @@ pub enum PermissionError {
     Unknown(String),
     /// `network:<pattern>` was malformed.
     NetworkPattern(HostPatternError),
+    /// `link:<pattern>` was malformed.
+    LinkPattern(HostPatternError),
     /// `resource:<kind>:<host>` named an unknown kind.
     UnknownResourceKind(String),
     /// `resource:<kind>:<host>` had a malformed host.
@@ -431,6 +437,7 @@ impl fmt::Display for PermissionError {
         match self {
             Self::Unknown(s) => write!(f, "unknown permission {s:?}"),
             Self::NetworkPattern(e) => write!(f, "invalid network permission: {e}"),
+            Self::LinkPattern(e) => write!(f, "invalid link permission: {e}"),
             Self::UnknownResourceKind(s) => write!(
                 f,
                 "unknown resource kind {s:?} (expected img, font, media, or style)"
@@ -452,6 +459,19 @@ impl Permission {
         if let Some(host_str) = s.strip_prefix("network:") {
             let pattern = HostPattern::parse(host_str).map_err(PermissionError::NetworkPattern)?;
             return Ok(Permission::Network(pattern));
+        }
+        if let Some(host_str) = s.strip_prefix("link:") {
+            let pattern = HostPattern::parse(host_str).map_err(PermissionError::LinkPattern)?;
+            // A wildcard names a site, not a whole top-level domain: `*.com`
+            // would let a plugin open any .com page.
+            if let HostPattern::Wildcard(apex) = &pattern {
+                if !apex.as_str().contains('.') {
+                    return Err(PermissionError::LinkPattern(
+                        HostPatternError::BadWildcardShape,
+                    ));
+                }
+            }
+            return Ok(Permission::Link(pattern));
         }
         if let Some(rest) = s.strip_prefix("resource:") {
             // resource:<kind>:<host-pattern>
@@ -491,6 +511,7 @@ impl Permission {
             Permission::CollectionRead => "collection:read".to_string(),
             Permission::CollectionWrite => "collection:write".to_string(),
             Permission::Network(p) => format!("network:{}", p.as_string()),
+            Permission::Link(p) => format!("link:{}", p.as_string()),
             Permission::Resource(kind, p) => {
                 format!("resource:{}:{}", kind.as_str(), p.as_string())
             }
@@ -500,6 +521,14 @@ impl Permission {
     pub fn network_pattern(&self) -> Option<&HostPattern> {
         match self {
             Permission::Network(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    /// The host pattern of a `link:` permission, else `None`.
+    pub fn link_pattern(&self) -> Option<&HostPattern> {
+        match self {
+            Permission::Link(p) => Some(p),
             _ => None,
         }
     }
@@ -845,6 +874,42 @@ mod tests {
     }
 
     #[test]
+    fn permission_parses_link() {
+        match Permission::parse("link:github.com").unwrap() {
+            Permission::Link(HostPattern::Exact(h)) => assert_eq!(h.as_str(), "github.com"),
+            other => panic!("expected exact link pattern, got {other:?}"),
+        }
+        match Permission::parse("link:*.github.com").unwrap() {
+            Permission::Link(HostPattern::Wildcard(h)) => assert_eq!(h.as_str(), "github.com"),
+            other => panic!("expected wildcard link pattern, got {other:?}"),
+        }
+        let p = Permission::parse("link:github.com").unwrap();
+        assert!(
+            p.network_pattern().is_none(),
+            "a link grant is not a network grant"
+        );
+        assert!(p.link_pattern().is_some());
+    }
+
+    #[test]
+    fn permission_rejects_malformed_link() {
+        for s in [
+            "link:",
+            "link:*",
+            "link:127.0.0.1",
+            "link:github.com:443",
+            "link:user@github.com",
+            "link:*.*.github.com",
+            "link:*.com",
+        ] {
+            assert!(
+                matches!(Permission::parse(s), Err(PermissionError::LinkPattern(_))),
+                "{s} should be refused"
+            );
+        }
+    }
+
+    #[test]
     fn permission_parses_resource_kinds() {
         let cases = [
             ("resource:img:*.tile.openstreetmap.org", ResourceKind::Img),
@@ -891,6 +956,8 @@ mod tests {
             "storage:plugin",
             "network:api.github.com",
             "network:*.github.com",
+            "link:github.com",
+            "link:*.github.com",
             "resource:img:*.tile.openstreetmap.org",
             "resource:style:cdn.example.com",
         ];
