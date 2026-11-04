@@ -92,6 +92,14 @@ const bootstrapToken = ref('');
 // we flip this back to false so the operator can correct.
 const tokenFromUrl = ref(false);
 
+// The hero names a second-factor step only when the server will ask for one
+// (REQUIRE_ADMIN_MFA). Until the status answers, assume it will, as the
+// server does by default.
+const adminMfaRequired = ref(true);
+const heroSubtitleKey = computed(() =>
+  adminMfaRequired.value ? 'onboarding-hero-subtitle' : 'onboarding-hero-subtitle-no-mfa'
+);
+
 const isSetupStep = computed(() => currentStep.value === 'setup');
 const isLoggingIn = computed(() => currentStep.value === 'logging-in');
 const isComplete = computed(() => currentStep.value === 'complete');
@@ -164,6 +172,7 @@ onMounted(async () => {
 
   try {
     const status = await authService.checkSetupStatus();
+    adminMfaRequired.value = status.admin_mfa_required !== false;
     if (!status.requires_setup) {
       router.push('/login');
     } else {
@@ -288,7 +297,7 @@ onUnmounted(() => {
     <!-- The hero says what happens after this form, and nothing else.
          Setup-token help sits by the field on every breakpoint. -->
     <template #hero-title>{{ $t('onboarding-hero-title') }}</template>
-    <template #hero-subtitle>{{ $t('onboarding-hero-subtitle') }}</template>
+    <template #hero-subtitle>{{ $t(heroSubtitleKey) }}</template>
 
     <div class="flex flex-col gap-6">
       <header class="flex flex-col gap-1.5 text-center lg:text-left">

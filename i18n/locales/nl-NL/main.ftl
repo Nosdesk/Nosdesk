@@ -629,6 +629,8 @@ onboarding-welcome-subtitle = Laten we beginnen door uw beheerdersaccount aan te
 # MACHINE TRANSLATION, pending native review
 onboarding-hero-title = Je helpdesk begint hier
 onboarding-hero-subtitle = Maak het beheerdersaccount aan, voeg een tweede factor toe en ga naar je werkruimte.
+# MACHINE TRANSLATION, pending native review
+onboarding-hero-subtitle-no-mfa = Maak het beheerdersaccount aan en ga naar je werkruimte.
 # Onboarding hero (machine, na te kijken door moedertaalspreker).
 onboarding-error-setup-status = Kan de installatiestatus niet verifiëren. Probeer het opnieuw.
 onboarding-success-logging-in = Beheerdersaccount aangemaakt. U wordt aangemeld...

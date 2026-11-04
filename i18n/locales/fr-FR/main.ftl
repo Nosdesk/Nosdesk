@@ -633,6 +633,8 @@ onboarding-welcome-subtitle = Commençons par créer votre compte administrateur
 # MACHINE TRANSLATION, pending native review
 onboarding-hero-title = Votre centre d'assistance commence ici
 onboarding-hero-subtitle = Créez le compte administrateur, ajoutez un second facteur, puis accédez à votre espace de travail.
+# MACHINE TRANSLATION, pending native review
+onboarding-hero-subtitle-no-mfa = Créez le compte administrateur, puis accédez à votre espace de travail.
 # Onboarding hero (machine, à relire par un locuteur natif).
 onboarding-error-setup-status = Impossible de vérifier l'état de l'installation. Veuillez réessayer.
 onboarding-success-logging-in = Compte administrateur créé. Connexion en cours...
