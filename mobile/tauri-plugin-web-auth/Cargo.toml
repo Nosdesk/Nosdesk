@@ -1,0 +1,23 @@
+# Vendored from tauri-plugin-web-auth 1.0.0 (MIT, Manaf941,
+# https://github.com/Manaf941/tauri-plugin-web_auth), which has had no release
+# since April 2025. Kept here so its iOS entry point can be `public`: Xcode 27's
+# Swift build gives a non-public `@_cdecl` function local visibility in release
+# builds and the app fails to link (tauri#16130).
+[package]
+name = "tauri-plugin-web-auth"
+version = "1.0.0"
+authors = ["Manaf941", "Nosdesk"]
+description = "ASWebAuthenticationSession on iOS and Custom Tabs on Android for signing in"
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+exclude = ["/examples", "/dist-js", "/guest-js", "/node_modules"]
+links = "tauri-plugin-web-auth"
+
+[dependencies]
+tauri = "2"
+serde = "1.0"
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
