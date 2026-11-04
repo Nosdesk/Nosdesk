@@ -26,6 +26,7 @@ import { extractErrorMessage } from "@/utils/errors";
 import { isInAppPath } from "@/utils/inAppPath";
 import { followPortalLanding } from "@/utils/portalLanding";
 import { isTauriRuntime } from "@/platform";
+import { isHostedDeployment } from "@nosdesk/core/services/instanceConfig";
 import { getCsrfToken } from "@/utils/csrf";
 import { recordSsoStart, ssoStartedElsewhere } from "@/utils/ssoAutoStart";
 import { setActiveWorkspaceSlug } from "@/services/activeWorkspace";
@@ -66,8 +67,10 @@ const oidcEnabled = ref(false);
 const oidcDisplayName = ref("SSO");
 // Hosted mode: local password + passkey are disabled and the platform
 // OIDC is the only sign-in path. The local forms are hidden and SSO is
-// auto-initiated on mount.
-const ssoOnly = ref(false);
+// auto-initiated on mount. The instance config resolves before the app
+// mounts, so a hosted page starts here rather than showing the password
+// form until the setup status arrives.
+const ssoOnly = ref(isHostedDeployment());
 
 // MFA state
 const mfaToken = ref("");

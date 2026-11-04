@@ -45,6 +45,11 @@ const ssoOnlyStatus = {
 }
 const checkSetupStatus = vi.hoisted(() => vi.fn())
 vi.mock('@nosdesk/core/services/authService', () => ({ default: { checkSetupStatus } }))
+const hosted = vi.hoisted(() => ({ value: false }))
+vi.mock('@nosdesk/core/services/instanceConfig', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  isHostedDeployment: () => hosted.value,
+}))
 
 import LoginView from '@/views/LoginView.vue'
 import { activeWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
@@ -58,6 +63,7 @@ beforeEach(() => {
   sessionStorage.clear()
   auth.user = null
   route.query = {}
+  hosted.value = false
   fetchMock.mockResolvedValue({ ok: true, json: async () => ({ auth_url: 'about:blank' }) })
   vi.stubGlobal('fetch', fetchMock)
 })
@@ -192,5 +198,25 @@ describe('LoginView SSO with several tabs open', () => {
     wrapper = mountWithProviders(LoginView)
     await flushPromises()
     expect(activeWorkspaceSlug()).toBeNull()
+  })
+})
+
+describe('LoginView before the setup status arrives', () => {
+  beforeEach(() => {
+    checkSetupStatus.mockReturnValue(new Promise(() => {}))
+  })
+
+  it('shows hosted sign-in, not the password form, on a hosted server', async () => {
+    hosted.value = true
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(wrapper.find('input[type="password"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('login-oidc-cta')
+  })
+
+  it('shows the password form on a self-hosted server', async () => {
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(wrapper.find('input[type="password"]').exists()).toBe(true)
   })
 })
