@@ -7607,6 +7607,8 @@ search-result-group-documentation = Documentatie
 search-result-group-attachment = Bijlagen
 search-result-group-device = Activa
 search-result-group-user = Gebruikers
+# MACHINE TRANSLATION, pending native review
+search-result-group-project = Projecten
 tickets-cycle-burndown-load-error = Kan statistieken niet laden
 tickets-cycle-burndown-cat-triage = Triage
 tickets-cycle-burndown-cat-backlog = Backlog
@@ -9316,6 +9318,8 @@ portal-sign-in-email-label = E-mail
 portal-sign-in-submit = Inloglink sturen
 portal-sign-in-sent = Als we je e-mailadres kennen, is er een inloglink onderweg. Kijk in je inbox.
 portal-sign-in-use-another = Een ander e-mailadres gebruiken
+# MACHINE TRANSLATION, pending native review
+portal-sign-in-password = Inloggen met een wachtwoord
 portal-sign-in-error = Die inloglink werkte niet. Hij is misschien verlopen of al gebruikt. Vul je e-mailadres in voor een nieuwe.
 # Machinevertaling, te controleren door moedertaalspreker.
 portal-sso-button = Aanmelden met { $provider }
