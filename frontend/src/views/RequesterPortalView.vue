@@ -4,31 +4,27 @@
      opened the portal in the browser, already signed in, and this screen opens
      it there again. -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 
 import AuthLayout from '@/components/auth/AuthLayout.vue'
 import Button from '@/components/common/Button.vue'
 import { openExternalUrl } from '@/platform'
-import { isWebAddress } from '@/utils/portalLanding'
+import { landedPortalAddress } from '@/utils/portalLanding'
 
 const { $t: t } = useFluent()
-const route = useRoute()
 const router = useRouter()
 const failed = ref(false)
 
 /** The portal's address, from the sign-in that landed here. */
-const portalUrl = computed(() => {
-  const portal = route.query.portal
-  return isWebAddress(portal) ? portal : null
-})
+const portalUrl = landedPortalAddress()
 
 async function openPortal(): Promise<void> {
-  if (!portalUrl.value) return
+  if (!portalUrl) return
   failed.value = false
   try {
-    await openExternalUrl(portalUrl.value)
+    await openExternalUrl(portalUrl)
   } catch {
     failed.value = true
   }
