@@ -6,7 +6,7 @@ import { PiniaColada } from '@pinia/colada'
 
 import { configurePlatform } from '@/platform'
 import { vSafeHtml } from '@/directives/vSafeHtml'
-import { createI18n as createI18nPlugin } from '@/i18n'
+import { createI18n as createI18nPlugin, localeReady } from '@/i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useBrandingStore } from '@/stores/branding'
 import { reloadForNewBuild } from '@/utils/staleBuild'
@@ -78,13 +78,14 @@ async function bootstrap(): Promise<void> {
     }
     const signedIn = context !== null && (await teams.signInTeams()) === null
     await router.replace(signedIn ? teams.routeForSubPage(context?.subPageId ?? null) : '/teams-status')
-    await router.isReady()
+    await Promise.all([router.isReady(), localeReady()])
     app.mount('#app')
     teams.notifyTeamsReady()
     return
   }
   if (embedHost === 'widget') await router.replace('/embed')
-  await router.isReady()
+  // The visitor's language is a chunk of its own; draw in it from the start.
+  await Promise.all([router.isReady(), localeReady()])
   app.mount('#app')
 }
 

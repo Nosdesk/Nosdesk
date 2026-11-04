@@ -5,28 +5,39 @@ import { canOpenRoute, isGatedRoute, routeViewer } from './access'
 import { fetchInstanceConfig, getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig'
 import { lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
 import { transport } from '@nosdesk/core/transport'
-import DashboardView from '../views/DashboardView.vue'
-import TicketView from '../views/TicketView.vue'
 import { ticketNumberForId } from '@/utils/ticketNumbers'
 import LoginView from '../views/LoginView.vue'
 import PasswordResetView from '../views/PasswordResetView.vue'
 import OnboardingView from '../views/OnboardingView.vue'
 import ErrorView from '../views/ErrorView.vue'
-// Sync-engine views — pool-backed, optimistic, real-time. The
-// legacy REST views were retired alongside their dispatchers
-// once the sync runtime was the canonical implementation.
-import TicketsListView from '@/sync/views/TicketsListView.vue'
-import ProjectsView from '../views/ProjectsView.vue'
-import ProjectDetailView from '../views/ProjectDetailView.vue'
-import CycleDetailView from '../views/CycleDetailView.vue'
-import ProjectCyclesView from '../views/ProjectCyclesView.vue'
-import UserProfileView from '../views/UserProfileView.vue'
-import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
-import DocumentView from '@/views/DocumentView.vue'
-import ProfileSettingsView from '@/views/ProfileSettingsView.vue'
 import { legacyPdfViewerRedirect } from '@/utils/pdfSource'
 import authService from '@nosdesk/core/services/authService'
 import type { Page, Article } from '@nosdesk/core/services/documentationService'
+// The app's views load with their route, so a signed-out visitor's first
+// screen (sign-in, set-up, an error) doesn't wait for the editor, the
+// sync views and everything they import. The sidebar's links prefetch
+// their sections (v-prefetch), and warmAppViews loads the rest once
+// someone is signed in.
+const DashboardView = () => import('../views/DashboardView.vue')
+const TicketView = () => import('../views/TicketView.vue')
+const TicketsListView = () => import('@/sync/views/TicketsListView.vue')
+const ProjectsView = () => import('../views/ProjectsView.vue')
+const ProjectDetailView = () => import('../views/ProjectDetailView.vue')
+const CycleDetailView = () => import('../views/CycleDetailView.vue')
+const ProjectCyclesView = () => import('../views/ProjectCyclesView.vue')
+const UserProfileView = () => import('../views/UserProfileView.vue')
+const DocumentationIndexView = () => import('@/views/DocumentationIndexView.vue')
+const DocumentView = () => import('@/views/DocumentView.vue')
+const ProfileSettingsView = () => import('@/views/ProfileSettingsView.vue')
+
+/**
+ * Load the views a signed-in person opens from inside other views (a ticket
+ * from the list, a page from the docs), which the sidebar can't prefetch.
+ * Fire and forget: a failure surfaces on the real navigation.
+ */
+export function warmAppViews(): void {
+  for (const view of [TicketView, DocumentView]) void view().catch(() => {})
+}
 
 declare module 'vue-router' {
   interface RouteMeta {
