@@ -106,6 +106,12 @@ onMounted(async () => {
     brandingStore.loadBranding();
   }
 
+  // The setup status is a round trip and the passkey check is local, so
+  // neither waits for the other. Handled here so a refusal that lands
+  // before the await below isn't reported as unhandled.
+  const setupStatusRequest = authService.checkSetupStatus();
+  setupStatusRequest.catch(() => {});
+
   // Check passkey support
   await checkPasskeySupport();
 
@@ -116,7 +122,7 @@ onMounted(async () => {
 
   // Check if onboarding is required before showing login
   try {
-    const setupStatus = await authService.checkSetupStatus();
+    const setupStatus = await setupStatusRequest;
     if (setupStatus.requires_setup) {
       router.replace({ name: 'onboarding' });
       return;
