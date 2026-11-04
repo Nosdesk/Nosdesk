@@ -1662,6 +1662,7 @@ pub async fn check_setup_status(
                 oidc_enabled,
                 oidc_display_name,
                 local_auth_disabled: hosted_local_auth_disabled(),
+                admin_mfa_required: crate::utils::mfa::admin_mfa_required(),
             };
 
             // Security headers now applied globally by SecurityHeaders middleware
@@ -3551,6 +3552,7 @@ mod tests {
         assert!(json.get("user_count").is_some());
         assert!(json.get("microsoft_auth_enabled").is_some());
         assert!(json.get("oidc_enabled").is_some());
+        assert!(json.get("admin_mfa_required").is_some());
     }
 
     #[actix_web::test]

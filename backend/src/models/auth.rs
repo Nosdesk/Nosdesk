@@ -334,6 +334,10 @@ pub struct OnboardingStatus {
     /// the platform OIDC is the only sign-in path (hosted mode). The login
     /// UI hides the password/passkey forms and auto-initiates SSO.
     pub local_auth_disabled: bool,
+    /// Whether the first admin adds a second factor before reaching the
+    /// workspace (`REQUIRE_ADMIN_MFA`), so the setup page describes the steps
+    /// that will actually follow.
+    pub admin_mfa_required: bool,
 }
 
 #[derive(Debug, Deserialize)]

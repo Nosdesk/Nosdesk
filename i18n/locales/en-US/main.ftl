@@ -667,6 +667,7 @@ onboarding-welcome-title = Welcome to Nosdesk
 onboarding-welcome-subtitle = Let's get started by creating your administrator account
 onboarding-hero-title = Your helpdesk starts here
 onboarding-hero-subtitle = Create the administrator account, add a second factor, and land in your workspace.
+onboarding-hero-subtitle-no-mfa = Create the administrator account and land in your workspace.
 onboarding-error-setup-status = Failed to verify setup status. Please try again.
 onboarding-success-logging-in = Admin account created. Logging you in...
 onboarding-success-fallback = Account created successfully. Please log in with your credentials.

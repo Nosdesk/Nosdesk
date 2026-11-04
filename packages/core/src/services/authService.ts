@@ -12,6 +12,10 @@ export interface OnboardingStatus {
    * platform OIDC is the only sign-in path (hosted mode). The login view
    * hides the local forms and auto-initiates SSO. */
   local_auth_disabled?: boolean;
+  /** The first admin adds a second factor before reaching the workspace
+   * (`REQUIRE_ADMIN_MFA`). Absent from older servers; read as true, the
+   * server's default. */
+  admin_mfa_required?: boolean;
   /** Set on the stand-in answer used when the server couldn't be asked; the
    * server never sends it. */
   assumed?: boolean;

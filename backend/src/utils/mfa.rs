@@ -615,6 +615,12 @@ pub async fn consume_setup_secret(user_uuid: &Uuid) {
     let _: Result<(), _> = con.del(&key).await;
 }
 
+/// Whether admins must have a second factor: `REQUIRE_ADMIN_MFA`, on unless a
+/// deployment turns it off (accepts 1/0, yes/no, on/off).
+pub fn admin_mfa_required() -> bool {
+    parse_env_bool("REQUIRE_ADMIN_MFA", true)
+}
+
 /// Check if MFA should be required for a user based on OWASP
 /// recommendations, given the W2 role split (platform role + the
 /// user's bootstrap-workspace role).
@@ -635,7 +641,7 @@ pub fn should_require_mfa(
     let admin_tier = platform_role.is_platform_admin()
         || workspace_role.is_some_and(|r| r.meets(WorkspaceRole::Admin));
     if admin_tier {
-        return parse_env_bool("REQUIRE_ADMIN_MFA", true);
+        return admin_mfa_required();
     }
     workspace_role.is_some_and(|r| r.meets(WorkspaceRole::Agent))
 }
