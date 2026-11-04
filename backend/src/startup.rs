@@ -1115,8 +1115,6 @@ pub fn configure_app(
                     // GET / POST list + create; per-id rename /
                     // archive / restore / hard-delete. Hard-delete
                     // requires ?confirm=<slug> matching the row.
-                    // Hand an app session over to the requester portal.
-                    .configure(crate::handlers::portal::app_config)
                     .configure(crate::handlers::admin_workspaces::config)
                     .configure(crate::handlers::admin_license::config)
                     .configure(crate::handlers::workspace_export::config)

@@ -338,7 +338,7 @@ pub fn is_workspace_member(
 /// `workspace_id`, else a 403 (500 on lookup error). This is the raw gate behind
 /// [`resolve_pin_and_gate`]; **agent surfaces (REST / SSE / collab) reach it only
 /// through that funnel**, so a new connection surface can't be wired without
-/// resolve + pin + gate. On hosted it admits staff seats only
+/// resolve + pin + gate. It admits staff seats only
 /// ([`crate::repository::workspaces::admits_agent_surface`]); the customer
 /// portal, a distinct principal realm with its own origin + `PORTAL_SCOPE`,
 /// uses [`require_portal_membership`] instead.
@@ -365,7 +365,7 @@ pub fn require_workspace_membership(
 
 /// The portal's membership gate: `Ok(())` iff `user_uuid` is a member of
 /// `workspace_id` in any role, else a 403 (500 on lookup error). The portal is
-/// where requesters go, so it admits them on hosted too, unlike
+/// where requesters go, so it admits them, unlike
 /// [`require_workspace_membership`]. RLS-pinned the same way.
 pub fn require_portal_membership(
     conn: &mut DbConnection,
@@ -393,7 +393,7 @@ fn membership_gate(
             warn!(
                 user = %user_uuid,
                 workspace_id,
-                "Workspace membership 403 gate: a requester on the hosted agent app; denying"
+                "Workspace membership 403 gate: a requester on the agent app; denying"
             );
             Err(crate::errors::forbidden_error(
                 "Not a member of this workspace",

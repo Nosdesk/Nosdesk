@@ -169,7 +169,7 @@ fn set_role(pool: &common::TestPool, seed: &common::WorkspaceSeed, user: Uuid, r
 }
 
 #[actix_web::test]
-async fn a_token_made_for_a_member_stops_when_they_are_promoted() {
+async fn a_token_made_for_an_agent_stops_when_they_are_promoted() {
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
@@ -182,15 +182,24 @@ async fn a_token_made_for_a_member_stops_when_they_are_promoted() {
             .execute(&mut c)
             .expect("unlimited seats");
     }
+
+    // Made for a requester, a token reaches no agent route at all: the agent
+    // surface is for staff.
+    let token = mint(&pool, &a, a.admin_uuid, a.member_uuid).await;
+    let [admin, _, collab] = statuses(&pool, &a, &token).await;
+    assert_eq!(admin, StatusCode::FORBIDDEN);
+    assert_eq!(collab, StatusCode::FORBIDDEN);
+
+    set_role(&pool, &a, a.member_uuid, "agent");
     let token = mint(&pool, &a, a.admin_uuid, a.member_uuid).await;
 
-    // As a member: no admin route, but the token authenticates.
+    // As an agent: no admin route, but the token authenticates.
     let [admin, sync, collab] = statuses(&pool, &a, &token).await;
     assert_eq!(admin, StatusCode::FORBIDDEN);
     assert_ne!(sync, StatusCode::UNAUTHORIZED);
     assert_eq!(collab, StatusCode::OK);
 
-    // Promoted to admin: the token was made for a member, so it stops.
+    // Promoted to admin: the token was made for an agent, so it stops.
     set_role(&pool, &a, a.member_uuid, "admin");
     assert_eq!(
         statuses(&pool, &a, &token).await,

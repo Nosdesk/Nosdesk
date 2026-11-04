@@ -16,8 +16,15 @@ vi.mock('@nosdesk/core/apiClient', () => ({
   },
 }))
 const landAfterLogin = vi.hoisted(() => vi.fn())
-vi.mock('@/router', () => ({ default: { currentRoute: { value: {} }, push: vi.fn() }, landAfterLogin }))
+const replace = vi.hoisted(() => vi.fn())
+vi.mock('@/router', () => ({
+  default: { currentRoute: { value: {} }, push: vi.fn(), replace },
+  landAfterLogin,
+}))
+const openExternalUrl = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('@/platform', () => ({ openExternalUrl }))
 
+import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { followPortalLanding } from '@/utils/portalLanding'
 import { useAuthStore } from '@/stores/auth'
@@ -41,6 +48,30 @@ describe('followPortalLanding', () => {
       expect(followPortalLanding(data)).toBe(false)
     }
     expect(assign).not.toHaveBeenCalled()
+  })
+})
+
+describe('a native sign-in answered with the portal', () => {
+  const handoff = 'https://help.example.com/api/portal/auth/handoff?t=abc&next=%2Ftickets'
+
+  it('opens the one-time address in the browser and shows where the requests are', async () => {
+    const data = { success: true, portal_handoff: handoff, portal_url: 'https://help.example.com/portal/tickets' }
+    expect(followPortalLanding(data)).toBe(true)
+    await flushPromises()
+    expect(openExternalUrl).toHaveBeenCalledWith(handoff)
+    expect(replace).toHaveBeenCalledWith({
+      name: 'requester-portal',
+      query: { portal: 'https://help.example.com/portal/tickets' },
+    })
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('opens nothing that is not a web address', async () => {
+    expect(followPortalLanding({ portal_handoff: 'javascript:alert(1)' })).toBe(false)
+    expect(followPortalLanding({ portal_handoff: 'tauri://localhost/x' })).toBe(false)
+    await flushPromises()
+    expect(openExternalUrl).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
   })
 })
 
