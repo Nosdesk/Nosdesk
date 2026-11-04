@@ -20,6 +20,7 @@ import { sessionGone } from '@nosdesk/core/services/session';
 import { releaseSsoAutoStart } from '@/utils/ssoAutoStart';
 import { withRateLimitRetry } from '@/utils/rateLimitRetry';
 import { followPortalLanding } from '@/utils/portalLanding';
+import { getCsrfToken } from '@/utils/csrf';
 
 
 // Configure axios to use relative URLs and send cookies
@@ -31,7 +32,7 @@ axios.defaults.withCredentials = true; // Enable sending httpOnly cookies with a
 // NOTE: This is for UX optimization only (preventing unnecessary API calls)
 // Authentication state is always determined by backend responses
 function hasCsrfToken(): boolean {
-  return !!document.cookie.match(/(?:^|;\s*)(?:__Host-)?csrf_token=([^;]+)/);
+  return getCsrfToken() !== null;
 }
 
 /**
@@ -95,7 +96,8 @@ export const useAuthStore = defineStore('auth', () => {
   // user is fetched. Read once into a ref: document.cookie isn't reactive, so a
   // computed that read it would keep its first answer, and stay signed in after
   // a sign-out. Cleared with the user when the session ends.
-  const heldSessionAtLoad = ref(hasCsrfToken());
+  const csrfAtLoad = getCsrfToken();
+  const heldSessionAtLoad = ref(csrfAtLoad !== null);
 
   // Computed properties
   // UX ONLY: a session the page loaded with, or a loaded user. Actual
@@ -602,6 +604,22 @@ export const useAuthStore = defineStore('auth', () => {
     return sessionLostInFlight;
   }
 
+  /**
+   * The server has no accounts yet (first-run setup), so a session cookie the
+   * page loaded with is left from an earlier install and signs nobody in.
+   * Forget it before the profile fetch and plugins start on it and are
+   * refused. Only that cookie: one a sign-in in another tab has set since is
+   * kept.
+   */
+  async function forgetStaleSession(): Promise<void> {
+    if (!heldSessionAtLoad.value || user.value) return;
+    heldSessionAtLoad.value = false;
+    authProvider.value = null;
+    localStorage.removeItem('authProvider');
+    delete axios.defaults.headers.common['X-Auth-Provider'];
+    if (getCsrfToken() === csrfAtLoad) await transport().auth.endSession();
+  }
+
   /** Deliberate sign-out: revoke the server session, clear the tab, and end
    *  the IdP session for an OIDC sign-in. */
   async function signOut() {
@@ -752,6 +770,7 @@ export const useAuthStore = defineStore('auth', () => {
     clearMfaState,
     logout,
     sessionLost,
+    forgetStaleSession,
     fetchUserData,
     ensureWorkspaceIdentity,
     setExternalAuth,

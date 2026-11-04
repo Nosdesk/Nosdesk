@@ -12,6 +12,9 @@ export interface OnboardingStatus {
    * platform OIDC is the only sign-in path (hosted mode). The login view
    * hides the local forms and auto-initiates SSO. */
   local_auth_disabled?: boolean;
+  /** Set on the stand-in answer used when the server couldn't be asked; the
+   * server never sends it. */
+  assumed?: boolean;
 }
 
 /// Mirrors the JSON shape returned by `GET /api/auth/sessions`
@@ -201,7 +204,8 @@ class AuthService {
           requires_setup: true,
           user_count: 0,
           microsoft_auth_enabled: false,
-          oidc_enabled: false
+          oidc_enabled: false,
+          assumed: true
         };
       }
 
