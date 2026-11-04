@@ -64,7 +64,7 @@ jobs:
         with:
           toolchain: "1.95.0"
           targets: aarch64-apple-ios
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: mobile/src-tauri -> target
 
@@ -131,7 +131,7 @@ jobs:
         with:
           toolchain: "1.95.0"
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: mobile/src-tauri -> target
 
