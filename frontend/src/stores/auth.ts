@@ -290,8 +290,13 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // Simplified login - returns boolean, sets MFA state if needed
-  async function login(credentials: LoginCredentials): Promise<boolean> {
+  // Simplified login - returns boolean, sets MFA state if needed. `land: false`
+  // signs in without leaving the page, for a caller that shows its own next
+  // steps (first-run setup's finish screen).
+  async function login(
+    credentials: LoginCredentials,
+    { land = true }: { land?: boolean } = {},
+  ): Promise<boolean> {
     loading.value = true;
     error.value = null;
     mfaRequired.value = false;
@@ -333,7 +338,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (response.data.success && response.data.csrf_token) {
         setAuthData(response.data.user);
         // Land on the resolved workspace (path mode), honouring any ?redirect=.
-        await landAfterLogin();
+        if (land) await landAfterLogin();
         return true;
       }
 

@@ -62,7 +62,7 @@ export function useAutoLogin(options: AutoLoginOptions) {
     message.value = 'Logging you in...';
 
     try {
-      const loginSuccess = await authStore.login({ email, password });
+      const loginSuccess = await authStore.login({ email, password }, { land: redirect });
 
       if (loginSuccess) {
         isComplete.value = true;
