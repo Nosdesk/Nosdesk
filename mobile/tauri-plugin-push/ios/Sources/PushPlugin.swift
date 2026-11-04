@@ -247,6 +247,6 @@ extension PushPlugin {
 }
 
 @_cdecl("init_plugin_push")
-func initPlugin() -> Plugin {
+public func initPlugin() -> Plugin {
   return PushPlugin()
 }
