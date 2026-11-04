@@ -1290,7 +1290,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
- "constant_time_eq 0.3.1",
+ "constant_time_eq 0.6.1",
  "csv",
  "dashmap",
  "derive_more 2.1.1",

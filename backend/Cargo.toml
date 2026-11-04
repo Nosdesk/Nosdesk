@@ -157,7 +157,7 @@ sha2 = "0.10"
 x509-parser = "0.18"
 zeroize = { version = "1.8.1", features = ["derive"] } # Memory zeroing for sensitive data
 hex = "0.4.3"             # Hex encoding/decoding
-constant_time_eq = "0.3"  # Constant-time comparison for CSRF tokens
+constant_time_eq = "0.6"  # Constant-time comparison for CSRF tokens
 ipnetwork = { version = "0.21.1", features = ["serde"] }  # IP network types for security events and sessions (must match diesel version)
 anyhow = "1.0"             # Error handling for applications
 thiserror = "2"            # Derive macros for explicit error enums
