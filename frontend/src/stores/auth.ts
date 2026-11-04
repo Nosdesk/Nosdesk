@@ -34,6 +34,24 @@ function hasCsrfToken(): boolean {
   return !!document.cookie.match(/(?:^|;\s*)(?:__Host-)?csrf_token=([^;]+)/);
 }
 
+/**
+ * What `fetchUserData` throws when the server refused the workspace in the URL
+ * (path mode): the account isn't a member of it, or there is no such
+ * workspace, which the server answers alike. The session itself is fine.
+ */
+export interface WorkspaceRefusedError extends Error {
+  workspaceRefused: string | null;
+}
+
+function workspaceRefused(slug: string | null): WorkspaceRefusedError {
+  return Object.assign(new Error('Not a member of this workspace'), { workspaceRefused: slug });
+}
+
+/** Whether `err` is a refusal of the URL's workspace, not of the session. */
+export function isWorkspaceRefused(err: unknown): err is WorkspaceRefusedError {
+  return err instanceof Error && 'workspaceRefused' in err;
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
   const loading = ref(false);
@@ -202,6 +220,14 @@ export const useAuthStore = defineStore('auth', () => {
               error.value = translate('auth-login-network-error', undefined, 'Network error. Please check your connection.');
               throw err;
             }
+          } else if (status === 403 && getWorkspaceRouting() === 'path' && activeWorkspaceSlug()) {
+            // On the central app the workspace comes from the URL, and the
+            // membership gate refuses one this account isn't in (or one that
+            // doesn't exist) with a 403. That's a bad link, not a lost
+            // session: keep the person signed in and let the router turn
+            // them away from the workspace.
+            resolvedWorkspaceSlug.value = null;
+            throw workspaceRefused(activeWorkspaceSlug());
           } else if (status === 403) {
             logger.debug('Signing out after the profile was refused:', status);
             logout();
@@ -244,7 +270,8 @@ export const useAuthStore = defineStore('auth', () => {
    *
    * The route guard awaits this before the role-gated guards and any
    * workspace-scoped view renders, so the first paint already carries the
-   * correct role.
+   * correct role. Throws a `WorkspaceRefusedError` when the account can't
+   * open the active workspace.
    */
   async function ensureWorkspaceIdentity(): Promise<void> {
     if (getWorkspaceRouting() !== 'path') return; // host mode: always pinned
@@ -253,9 +280,11 @@ export const useAuthStore = defineStore('auth', () => {
     if (user.value && resolvedWorkspaceSlug.value === active) return; // current
     try {
       await fetchUserData({ force: true });
-    } catch {
-      // fetchUserData handles its own errors (401/403 → logout, others
-      // surfaced); never break navigation here.
+    } catch (err) {
+      // A workspace this account can't open is the router's to handle: it
+      // turns the person away from it. fetchUserData handles every other
+      // error itself, and those must never break navigation here.
+      if (isWorkspaceRefused(err)) throw err;
     }
   }
 
