@@ -22,10 +22,15 @@ const { tauriHttpAdapter, BRIDGE_UPLOAD_CAP_BYTES } = await import(
   '@nosdesk/mobile/tauriHttpAdapter'
 )
 
-async function serverLimit(mb: number | undefined) {
+async function serverLimit(mb: number | undefined, blocked?: string[]) {
   config.resetInstanceConfig()
   api.get.mockResolvedValue({
-    data: { workspace_routing: 'host', deployment_mode: 'hosted', max_file_size_mb: mb },
+    data: {
+      workspace_routing: 'host',
+      deployment_mode: 'hosted',
+      max_file_size_mb: mb,
+      blocked_file_extensions: blocked,
+    },
   })
   await config.fetchInstanceConfig()
 }
@@ -57,6 +62,16 @@ describe('upload limits', () => {
     await serverLimit(50)
     config.resetInstanceConfig()
     expect(limits.uploadLimitBytes()).toBeNull()
+  })
+
+  it('refuses the file types the server refuses, by extension, whatever the case', async () => {
+    const named = (name: string) => new File(['x'], name)
+    await serverLimit(50, undefined)
+    expect(limits.disallowedFiles([named('setup.exe')])).toEqual([])
+
+    await serverLimit(50, ['exe', 'bin'])
+    const files = [named('setup.EXE'), named('qa.bin'), named('notes.txt'), named('.bin'), named('bin')]
+    expect(limits.disallowedFiles(files).map((f) => f.name)).toEqual(['setup.EXE', 'qa.bin'])
   })
 
   it("uses the transport's cap when it is lower than the server's", async () => {

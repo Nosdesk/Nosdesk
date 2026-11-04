@@ -77,6 +77,9 @@ pub async fn get_public_config() -> impl Responder {
         // The largest attachment `/upload` accepts, so a client can refuse a
         // bigger file before reading any of it.
         "max_file_size_mb": crate::utils::file_validation::get_max_file_size() / (1024 * 1024),
+        // Extensions `/upload` refuses whatever the file holds, for the same
+        // check before sending.
+        "blocked_file_extensions": crate::utils::file_validation::blocked_extensions(),
     }))
 }
 
@@ -101,5 +104,12 @@ mod tests {
             body["max_file_size_mb"],
             crate::utils::file_validation::get_max_file_size() / (1024 * 1024)
         );
+        let blocked = body["blocked_file_extensions"]
+            .as_array()
+            .expect("blocked_file_extensions");
+        assert!(blocked.iter().any(|e| e == "exe"), "{blocked:?}");
+        assert!(blocked.iter().all(|e| e
+            .as_str()
+            .is_some_and(|s| !s.starts_with('.') && s == s.to_lowercase())));
     }
 }

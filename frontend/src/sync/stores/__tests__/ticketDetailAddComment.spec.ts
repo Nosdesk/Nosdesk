@@ -322,6 +322,69 @@ describe('the failure toast', () => {
     expect(toast.removeToast).toHaveBeenCalledWith('failure-toast')
   })
 
+  it('names a file the server refused, and why', async () => {
+    post.mockRejectedValueOnce({
+      response: {
+        status: 400,
+        data: { code: 'FILE_TYPE_NOT_ALLOWED', file: 'setup.bin', error: "File extension '.bin' is not allowed" },
+      },
+    })
+    const detail = useTicketDetail(101)
+    await detail.addComment({ ...reply(), files: [new File(['x'], 'setup.bin')] })
+    expect(translate).toHaveBeenCalledWith(
+      'ticket-comments-send-failed-file-type',
+      { kind: 'reply', name: 'setup.bin' },
+      expect.any(String),
+    )
+
+    post.mockRejectedValueOnce({
+      response: { status: 400, data: { code: 'INVALID_FILENAME', file: '..', error: 'Invalid filename' } },
+    })
+    await detail.addComment({ ...reply(), files: [new File(['x'], '..')] })
+    expect(translate).toHaveBeenCalledWith(
+      'ticket-comments-send-failed-file-name',
+      { kind: 'reply', name: '..' },
+      expect.any(String),
+    )
+  })
+
+  it('says the attachments are too large, by any of the ways it is told', async () => {
+    const detail = useTicketDetail(101)
+    for (const err of [
+      { response: { status: 413, data: { code: 'FILE_TOO_LARGE', file: 'clip.mov' } } },
+      { response: { status: 413, data: {} } },
+      { code: 'ERR_UPLOAD_TOO_LARGE' },
+    ]) {
+      translate.mockClear()
+      post.mockRejectedValueOnce(err)
+      await detail.addComment(reply())
+      expect(translate).toHaveBeenCalledWith(
+        'ticket-comments-send-failed-too-large',
+        { kind: 'reply' },
+        expect.any(String),
+      )
+    }
+  })
+
+  it('says the server could not be reached only when the connection failed', async () => {
+    post.mockRejectedValueOnce({ code: 'ERR_NETWORK', message: 'Network Error' })
+    const detail = useTicketDetail(101)
+    await detail.addComment(reply())
+    expect(translate).toHaveBeenCalledWith(
+      'ticket-comments-send-failed-offline',
+      { kind: 'reply' },
+      expect.any(String),
+    )
+
+    // A server error, or anything else, is just a failure to try again.
+    for (const err of [{ response: { status: 500, data: { code: 'INTERNAL_ERROR' } } }, new Error('boom')]) {
+      translate.mockClear()
+      post.mockRejectedValueOnce(err)
+      await detail.addComment(reply())
+      expect(translate).toHaveBeenCalledWith('ticket-comments-send-failed', { kind: 'reply' }, expect.any(String))
+    }
+  })
+
   it('says note for an internal note', async () => {
     addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
     const detail = useTicketDetail(101)

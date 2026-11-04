@@ -78,15 +78,18 @@ pub async fn upload_files(
 
         // Get the filename from the field
         let content_disposition = field.content_disposition();
+        // Owned: it names the file in a refusal after the field is read.
         let original_filename = content_disposition
             .get_filename()
+            .map(str::to_string)
             .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?;
+        let original_filename = original_filename.as_str();
 
         // SECURITY: Sanitize filename to prevent path traversal attacks
         let sanitized_filename = FileValidator::sanitize_filename(original_filename)
             .map_err(|e| {
                 warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                crate::errors::bad_request_error(format!("Invalid filename: {e}"))
+                e.refusal(original_filename)
             })?;
 
         // The storage key is the sanitized name; the row keeps the name as
@@ -108,7 +111,8 @@ pub async fn upload_files(
 
             // SECURITY: Validate chunk doesn't cause file to exceed max size
             // This prevents memory exhaustion attacks
-            FileValidator::validate_chunk_size(total_size, data.len())?;
+            FileValidator::validate_chunk_size(total_size, data.len())
+                .map_err(|e| e.refusal(original_filename))?;
 
             total_size += data.len();
             file_data.extend_from_slice(&data);
@@ -121,7 +125,7 @@ pub async fn upload_files(
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
                 warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                crate::errors::bad_request_error(format!("Invalid file: {e}"))
+                e.refusal(original_filename)
             })?;
 
         debug!(mime_type = %detected_mime, filename = %sanitized_filename, "File validated");
@@ -512,15 +516,18 @@ pub async fn upload_ticket_note_image(
 
         // Get the filename from the field
         let content_disposition = field.content_disposition();
+        // Owned: it names the file in a refusal after the field is read.
         let original_filename = content_disposition
             .get_filename()
+            .map(str::to_string)
             .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?;
+        let original_filename = original_filename.as_str();
 
         // SECURITY: Sanitize filename to prevent path traversal attacks
         let sanitized_filename = FileValidator::sanitize_filename(original_filename)
             .map_err(|e| {
                 warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                crate::errors::bad_request_error(format!("Invalid filename: {e}"))
+                e.refusal(original_filename)
             })?;
 
         let display_name = FileValidator::display_filename(original_filename)
@@ -556,7 +563,7 @@ pub async fn upload_ticket_note_image(
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
                 warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                crate::errors::bad_request_error(format!("Invalid file: {e}"))
+                e.refusal(original_filename)
             })?;
 
         // Only allow image types for ticket note images

@@ -4,7 +4,7 @@
  * cap of its native HTTP bridge, whichever is lower. With neither known,
  * nothing is refused here and the server's own check stands.
  */
-import { getServerMaxUploadBytes } from './instanceConfig';
+import { getServerBlockedExtensions, getServerMaxUploadBytes } from './instanceConfig';
 
 /** The axios error code a transport throws for a body over its cap. */
 export const UPLOAD_TOO_LARGE = 'ERR_UPLOAD_TOO_LARGE';
@@ -36,6 +36,16 @@ export function uploadLimitBytes(): number | null {
 export function oversizeFiles<T extends Blob>(files: readonly T[]): T[] {
   const limit = uploadLimitBytes();
   return limit == null ? [] : files.filter((f) => f.size > limit);
+}
+
+/** The files the server refuses by their extension, whatever they hold. */
+export function disallowedFiles<T extends { name: string }>(files: readonly T[]): T[] {
+  const blocked = getServerBlockedExtensions();
+  if (blocked.size === 0) return [];
+  return files.filter((f) => {
+    const dot = f.name.lastIndexOf('.');
+    return dot > 0 && blocked.has(f.name.slice(dot + 1).toLowerCase());
+  });
 }
 
 /** A byte count in whole megabytes, rounded down, for messages. */

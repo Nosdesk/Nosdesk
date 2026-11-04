@@ -5689,6 +5689,22 @@ ticket-comments-send-failed-too-large =
     }
 ticket-comments-attachment-too-large = { $name } is too large to attach. Files can be up to { $limit } MB.
 ticket-comments-attachments-total-too-large = { $name } wasn't attached: a reply's attachments can be up to { $limit } MB together.
+ticket-comments-attachment-type-not-allowed = { $name } can't be attached: files of this type aren't allowed.
+ticket-comments-send-failed-file-type =
+    { $kind ->
+        [note] Your note wasn't sent: { $name } can't be attached, as files of this type aren't allowed. Remove it and try again.
+       *[reply] Your reply wasn't sent: { $name } can't be attached, as files of this type aren't allowed. Remove it and try again.
+    }
+ticket-comments-send-failed-file-name =
+    { $kind ->
+        [note] Your note wasn't sent: { $name } has a name that can't be used. Rename it and try again.
+       *[reply] Your reply wasn't sent: { $name } has a name that can't be used. Rename it and try again.
+    }
+ticket-comments-send-failed-offline =
+    { $kind ->
+        [note] Your note wasn't sent: the server couldn't be reached. Check your connection and try again.
+       *[reply] Your reply wasn't sent: the server couldn't be reached. Check your connection and try again.
+    }
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Your note wasn't sent. It couldn't be kept because you switched workspace.

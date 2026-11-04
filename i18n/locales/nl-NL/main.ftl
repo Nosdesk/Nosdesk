@@ -6250,6 +6250,26 @@ ticket-comments-send-failed-too-large =
 ticket-comments-attachment-too-large = { $name } is te groot om toe te voegen. Bestanden mogen maximaal { $limit } MB zijn.
 # MACHINE TRANSLATION, pending native review
 ticket-comments-attachments-total-too-large = { $name } is niet toegevoegd: de bijlagen van een antwoord mogen samen maximaal { $limit } MB zijn.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachment-type-not-allowed = { $name } kan niet worden toegevoegd: dit type bestand is niet toegestaan.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-file-type =
+    { $kind ->
+        [note] Je notitie is niet verzonden: { $name } kan niet worden toegevoegd, omdat dit type bestand niet is toegestaan. Verwijder het en probeer het opnieuw.
+       *[reply] Je antwoord is niet verzonden: { $name } kan niet worden toegevoegd, omdat dit type bestand niet is toegestaan. Verwijder het en probeer het opnieuw.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-file-name =
+    { $kind ->
+        [note] Je notitie is niet verzonden: de naam van { $name } kan niet worden gebruikt. Wijzig de naam en probeer het opnieuw.
+       *[reply] Je antwoord is niet verzonden: de naam van { $name } kan niet worden gebruikt. Wijzig de naam en probeer het opnieuw.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-offline =
+    { $kind ->
+        [note] Je notitie is niet verzonden: de server is niet bereikbaar. Controleer je verbinding en probeer het opnieuw.
+       *[reply] Je antwoord is niet verzonden: de server is niet bereikbaar. Controleer je verbinding en probeer het opnieuw.
+    }
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Je notitie is niet verzonden. Ze kon niet worden bewaard, omdat je van werkruimte bent gewisseld.

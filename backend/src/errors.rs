@@ -299,6 +299,30 @@ pub fn payload_too_large(message: impl Into<String>) -> HttpResponse {
     )
 }
 
+/// An upload the server refused, naming the file: `{error, code, file}`, so a
+/// client can say which file and why without reading the message. 413 for a
+/// file over the size limit, else 400.
+pub fn file_refused(
+    status: actix_web::http::StatusCode,
+    message: impl Into<String>,
+    code: &str,
+    file: &str,
+) -> HttpResponse {
+    let kind = if status == actix_web::http::StatusCode::PAYLOAD_TOO_LARGE {
+        "payload_too_large"
+    } else {
+        "bad_request"
+    };
+    stamp(
+        HttpResponse::build(status).json(json!({
+            "error": message.into(),
+            "code": code,
+            "file": file,
+        })),
+        kind,
+    )
+}
+
 /// 422 Unprocessable Entity — request was syntactically valid but
 /// semantically invalid (e.g. validation failure on a well-formed
 /// payload). Use 400 for malformed input, 422 for "we understood it
