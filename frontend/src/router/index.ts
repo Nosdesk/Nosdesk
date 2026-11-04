@@ -1221,11 +1221,35 @@ export async function landAfterLogin(redirect?: string | null): Promise<void> {
 }
 
 /**
+ * Turn the person away from a workspace the server refused (path mode): the URL
+ * names one this account isn't in, or one that doesn't exist. That's a bad
+ * link, not a lost session, so they stay signed in. Leave the workspace, which
+ * stops the selection header naming it (every request under it is refused,
+ * the workspace list included), load the profile outside any workspace, and
+ * show the not-found page, whose way home lands in a workspace of theirs.
+ */
+async function leaveRefusedWorkspace(
+  authStore: ReturnType<typeof import('@/stores/auth').useAuthStore>,
+) {
+  const { resetWorkspaceScopedState } = await import('@/stores/workspaceReset');
+  await resetWorkspaceScopedState('switch');
+  // Forced: the refused fetch started the failure cooldown, which would
+  // otherwise skip this and leave the person with no profile.
+  try {
+    await authStore.fetchUserData({ force: true });
+  } catch {
+    // Handled below: with no profile there is nothing to stay signed in to.
+  }
+  if (!authStore.user) return { name: 'login' };
+  return { name: 'error', params: { code: '404' }, replace: true };
+}
+
+/**
  * Fetch user data if authenticated but not yet loaded
  * Handles authentication state and redirects
  */
 async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLocationNormalized) {
-  const { useAuthStore } = await import('@/stores/auth');
+  const { useAuthStore, isWorkspaceRefused } = await import('@/stores/auth');
   const authStore = useAuthStore();
 
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
@@ -1238,7 +1262,8 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   if (authStore.isAuthenticated && !authStore.user && !authStore.loading && to.name !== 'login') {
     try {
       await authStore.fetchUserData();
-    } catch {
+    } catch (err) {
+      if (isWorkspaceRefused(err)) return leaveRefusedWorkspace(authStore);
       // fetchUserData handles errors internally; the apiConfig interceptor
       // already handles 401 → refresh → retry. If it still fails, redirect.
       if (requiresAuth) {
@@ -1262,7 +1287,8 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   ) {
     try {
       await authStore.fetchUserData();
-    } catch {
+    } catch (err) {
+      if (isWorkspaceRefused(err)) return leaveRefusedWorkspace(authStore);
       // Refresh token expired or invalid — session cannot be restored
     }
     if (!authStore.user) {
@@ -1318,7 +1344,12 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   // and switch all converge on one pinned /auth/me and the first paint already
   // carries the correct role. No-op in host mode and once already resolved.
   if (authStore.isAuthenticated && authStore.user) {
-    await authStore.ensureWorkspaceIdentity();
+    try {
+      await authStore.ensureWorkspaceIdentity();
+    } catch (err) {
+      if (isWorkspaceRefused(err)) return leaveRefusedWorkspace(authStore);
+      throw err;
+    }
   }
 
   // Load feature flags once per session for any authenticated route. Failures
