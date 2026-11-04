@@ -1,3 +1,14 @@
+let landedPortal: string | null = null
+
+/**
+ * The portal's address from the native sign-in that landed in it, or null. It's
+ * held here rather than in the requester screen's URL, so a link from anywhere
+ * else can't choose where that screen's button goes.
+ */
+export function landedPortalAddress(): string | null {
+  return landedPortal
+}
+
 /**
  * A sign-in at the app that the server answered by signing the person in to
  * the portal instead (a requester on self-hosted): go there. Returns whether
@@ -12,11 +23,9 @@
 export function followPortalLanding(data: unknown): boolean {
   const body = (data ?? {}) as { portal?: unknown; portal_handoff?: unknown; portal_url?: unknown }
   if (isWebAddress(body.portal_handoff)) {
-    const portal = isWebAddress(body.portal_url) ? body.portal_url : undefined
+    landedPortal = isWebAddress(body.portal_url) ? body.portal_url : null
     void import('@/platform').then(({ openExternalUrl }) => openExternalUrl(body.portal_handoff as string))
-    void import('@/router').then(({ default: router }) =>
-      router.replace({ name: 'requester-portal', query: portal ? { portal } : {} }),
-    )
+    void import('@/router').then(({ default: router }) => router.replace({ name: 'requester-portal' }))
     return true
   }
   const to = body.portal

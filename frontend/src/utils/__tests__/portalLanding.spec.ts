@@ -26,7 +26,7 @@ vi.mock('@/platform', () => ({ openExternalUrl }))
 
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { followPortalLanding } from '@/utils/portalLanding'
+import { followPortalLanding, landedPortalAddress } from '@/utils/portalLanding'
 import { useAuthStore } from '@/stores/auth'
 
 afterEach(() => vi.clearAllMocks())
@@ -59,10 +59,8 @@ describe('a native sign-in answered with the portal', () => {
     expect(followPortalLanding(data)).toBe(true)
     await flushPromises()
     expect(openExternalUrl).toHaveBeenCalledWith(handoff)
-    expect(replace).toHaveBeenCalledWith({
-      name: 'requester-portal',
-      query: { portal: 'https://help.example.com/portal/tickets' },
-    })
+    expect(replace).toHaveBeenCalledWith({ name: 'requester-portal' })
+    expect(landedPortalAddress()).toBe('https://help.example.com/portal/tickets')
     expect(assign).not.toHaveBeenCalled()
   })
 

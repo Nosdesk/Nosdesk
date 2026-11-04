@@ -7,6 +7,8 @@ import { mountWithProviders } from '@/test/mountWithProviders'
 // another account.
 const openExternalUrl = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('@/platform', () => ({ openExternalUrl }))
+const landed = vi.hoisted(() => ({ portal: null as string | null }))
+vi.mock('@/utils/portalLanding', () => ({ landedPortalAddress: () => landed.portal }))
 const route = vi.hoisted(() => ({ query: {} as Record<string, unknown> }))
 const replace = vi.hoisted(() => vi.fn())
 vi.mock('vue-router', async (orig) => ({
@@ -23,6 +25,7 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = null
   route.query = {}
+  landed.portal = null
   vi.clearAllMocks()
 })
 
@@ -32,7 +35,7 @@ function button(label: string) {
 
 describe('a requester in the app', () => {
   it('opens the portal in the browser', async () => {
-    route.query = { portal: 'https://help.example.com/portal/tickets' }
+    landed.portal = 'https://help.example.com/portal/tickets'
     wrapper = mountWithProviders(RequesterPortalView)
     await button('requester-portal-open')!.trigger('click')
     await flushPromises()
@@ -40,7 +43,7 @@ describe('a requester in the app', () => {
   })
 
   it('says so when the portal could not be opened', async () => {
-    route.query = { portal: 'https://help.example.com/portal/tickets' }
+    landed.portal = 'https://help.example.com/portal/tickets'
     openExternalUrl.mockRejectedValueOnce(new Error('no browser'))
     wrapper = mountWithProviders(RequesterPortalView)
     await button('requester-portal-open')!.trigger('click')
@@ -48,11 +51,17 @@ describe('a requester in the app', () => {
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
   })
 
-  it('offers no portal button without a web address, and goes back to sign in', async () => {
-    route.query = { portal: 'javascript:alert(1)' }
+  it('offers no portal button without a sign-in, and goes back to sign in', async () => {
     wrapper = mountWithProviders(RequesterPortalView)
     expect(button('requester-portal-open')).toBeUndefined()
     await button('requester-portal-another-account')!.trigger('click')
     expect(replace).toHaveBeenCalledWith({ name: 'login' })
+  })
+
+  it('takes no address from a link', async () => {
+    route.query = { portal: 'https://evil.example/portal' }
+    wrapper = mountWithProviders(RequesterPortalView)
+    expect(button('requester-portal-open')).toBeUndefined()
+    expect(openExternalUrl).not.toHaveBeenCalled()
   })
 })
