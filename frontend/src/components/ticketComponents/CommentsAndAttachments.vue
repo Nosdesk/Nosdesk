@@ -24,6 +24,7 @@ import { resendClientId, useTicketDraftsStore } from "@nosdesk/core/stores/ticke
 import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
 import { useToastStore } from "@nosdesk/core/stores/toast";
 import {
+    disallowedFiles,
     formatUploadLimitMb,
     getTransportUploadCap,
     oversizeFiles,
@@ -287,15 +288,20 @@ const processFiles = async (files: File[]): Promise<File[]> => {
 };
 
 /**
- * Drop the files over the upload limit, saying which, and keep the rest. Reads
- * only their sizes, so a file too big to send is never read into memory.
+ * Drop the files the server would refuse, saying which and why, and keep the
+ * rest: a type it never stores, or a file over the upload limit. Reads only
+ * names and sizes, so a file too big to send is never read into memory.
  */
 const withinUploadLimit = (files: File[]): File[] => {
+    const notAllowed = new Set(disallowedFiles(files));
     const tooBig = new Set(oversizeFiles(files));
     const limit = uploadLimitBytes();
-    if (tooBig.size === 0 || limit == null) return files;
     const toast = useToastStore();
+    for (const file of notAllowed) {
+        toast.error(t("ticket-comments-attachment-type-not-allowed", { name: file.name }));
+    }
     for (const file of tooBig) {
+        if (notAllowed.has(file) || limit == null) continue;
         toast.error(
             t("ticket-comments-attachment-too-large", {
                 name: file.name,
@@ -303,7 +309,7 @@ const withinUploadLimit = (files: File[]): File[] => {
             }),
         );
     }
-    return files.filter((file) => !tooBig.has(file));
+    return files.filter((file) => !notAllowed.has(file) && !tooBig.has(file));
 };
 
 /**

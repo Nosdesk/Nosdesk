@@ -33,6 +33,8 @@ interface InstanceConfig {
   server_version?: string;
   /** The largest attachment `/upload` accepts, in MB. Absent before 1.1.5. */
   max_file_size_mb?: number;
+  /** Extensions `/upload` refuses, lowercase, no dot. Absent before 1.1.5. */
+  blocked_file_extensions?: string[];
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
@@ -70,6 +72,10 @@ let serverVersion = '';
 // The largest upload the server accepts, in bytes; null until the config
 // resolves, or from a server older than 1.1.5 that doesn't say.
 let maxUploadBytes: number | null = null;
+
+// The extensions the server refuses to store, whatever the file holds; empty
+// until the config resolves, or from a server older than 1.1.5.
+let blockedExtensions: ReadonlySet<string> = new Set();
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -155,6 +161,11 @@ export function fetchInstanceConfig(): Promise<void> {
         if (typeof data?.max_file_size_mb === 'number' && data.max_file_size_mb > 0) {
           maxUploadBytes = data.max_file_size_mb * 1024 * 1024;
         }
+        if (Array.isArray(data?.blocked_file_extensions)) {
+          blockedExtensions = new Set(
+            data.blocked_file_extensions.filter((e): e is string => typeof e === 'string').map((e) => e.toLowerCase()),
+          );
+        }
         configResolved.value = true;
       } catch (e) {
         logger.error('Failed to fetch instance config; will retry on next call', e);
@@ -188,6 +199,7 @@ export function resetInstanceConfig(): void {
   ticketNumbers = true;
   serverVersion = '';
   maxUploadBytes = null;
+  blockedExtensions = new Set();
   portalDomain = '';
 }
 
@@ -220,6 +232,11 @@ export function getServerVersion(): string {
 /** The largest upload the server accepts, in bytes; null when not known. */
 export function getServerMaxUploadBytes(): number | null {
   return maxUploadBytes;
+}
+
+/** The extensions the server refuses (lowercase, no dot); empty when not known. */
+export function getServerBlockedExtensions(): ReadonlySet<string> {
+  return blockedExtensions;
 }
 
 /** The instance's deployment mode. 'self_hosted' until the config resolves. */

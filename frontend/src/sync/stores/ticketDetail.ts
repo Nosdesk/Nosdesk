@@ -41,6 +41,7 @@ import { registerOptimisticCreate, clearOptimisticCreate, isEchoSuppressed } fro
 import { replyStarted, replyFinished } from '@/sync/repliesInFlight'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import { UPLOAD_TOO_LARGE } from '@nosdesk/core/services/uploadLimits'
+import { isCancellation } from '@nosdesk/core/utils/cancellation'
 import { resendMark, useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
 import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
 import { htmlHasText } from '@nosdesk/core/utils/inertHtml'
@@ -158,11 +159,53 @@ interface FileWithTranscription extends File {
   _transcription?: string
 }
 
-/** Whether a reply failed for the size of its attachments: the server's 413,
- *  or the mobile app's transport refusing the request before sending it. */
-function attachmentsTooLarge(err: unknown): boolean {
-  const e = err as { code?: unknown; response?: { status?: unknown } } | null
-  return e?.code === UPLOAD_TOO_LARGE || e?.response?.status === 413
+/**
+ * Why a reply (or note) wasn't sent, in words for the person who wrote it: a
+ * file the server refused (named, and why), attachments too large, no
+ * connection, or else just that it failed. Reads the server's code, never its
+ * message; the server logs the detail.
+ */
+function sendFailureMessage(err: unknown, kind: 'reply' | 'note'): string {
+  const e = err as {
+    code?: unknown
+    response?: { status?: unknown; data?: { code?: unknown; file?: unknown } }
+  } | null
+  const code = e?.response?.data?.code
+  const file = e?.response?.data?.file
+  const name = typeof file === 'string' && file ? file : null
+  const what = kind === 'note' ? 'note' : 'reply'
+  if (code === 'FILE_TYPE_NOT_ALLOWED' && name) {
+    return translate(
+      'ticket-comments-send-failed-file-type',
+      { kind, name },
+      `Your ${what} wasn't sent: ${name} can't be attached, as files of this type aren't allowed. Remove it and try again.`,
+    )
+  }
+  if (code === 'INVALID_FILENAME' && name) {
+    return translate(
+      'ticket-comments-send-failed-file-name',
+      { kind, name },
+      `Your ${what} wasn't sent: ${name} has a name that can't be used. Rename it and try again.`,
+    )
+  }
+  if (e?.code === UPLOAD_TOO_LARGE || e?.response?.status === 413 || code === 'FILE_TOO_LARGE') {
+    return translate(
+      'ticket-comments-send-failed-too-large',
+      { kind },
+      `Your ${what} wasn't sent: its attachments are too large. Remove some and try again.`,
+    )
+  }
+  // Only what axios reports as the connection failing: a request that never got
+  // an answer, or timed out. Any other error is not the network's.
+  const unanswered = e?.code === 'ERR_NETWORK' || e?.code === 'ECONNABORTED' || e?.code === 'ETIMEDOUT'
+  if (unanswered && !e?.response && !isCancellation(err)) {
+    return translate(
+      'ticket-comments-send-failed-offline',
+      { kind },
+      `Your ${what} wasn't sent: the server couldn't be reached. Check your connection and try again.`,
+    )
+  }
+  return translate('ticket-comments-send-failed', { kind }, `Your ${what} wasn't sent. Try again.`)
 }
 
 /**
@@ -672,21 +715,7 @@ export function useTicketDetail(
           })
           failedReplyToasts.set(
             replyKey,
-            toast.error(
-              attachmentsTooLarge(err)
-                ? translate(
-                    'ticket-comments-send-failed-too-large',
-                    { kind },
-                    kind === 'note'
-                      ? "Your note wasn't sent: its attachments are too large. Remove some and try again."
-                      : "Your reply wasn't sent: its attachments are too large. Remove some and try again.",
-                  )
-                : translate(
-                    'ticket-comments-send-failed',
-                    { kind },
-                    kind === 'note' ? "Your note wasn't sent. Try again." : "Your reply wasn't sent. Try again.",
-                  ),
-            ),
+            toast.error(sendFailureMessage(err, kind)),
           )
         } else {
           toast.error(

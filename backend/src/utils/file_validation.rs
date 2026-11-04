@@ -94,24 +94,42 @@ impl std::fmt::Display for FileValidationError {
 
 impl std::error::Error for FileValidationError {}
 
-/// Convert FileValidationError to Actix error
-impl From<FileValidationError> for actix_web::Error {
-    fn from(error: FileValidationError) -> Self {
-        match error {
-            FileValidationError::FileTooLarge { .. } => {
-                crate::errors::payload_too_large_error(error.to_string())
-            }
-            FileValidationError::BlockedMimeType { .. } => {
-                crate::errors::bad_request_error(error.to_string())
-            }
-            FileValidationError::BlockedExtension { .. } => {
-                crate::errors::bad_request_error(error.to_string())
-            }
-            FileValidationError::InvalidFilename(_) => {
-                crate::errors::bad_request_error(error.to_string())
-            }
+impl FileValidationError {
+    /// The code a client branches on: `FILE_TOO_LARGE`, `FILE_TYPE_NOT_ALLOWED`
+    /// (by extension or by detected type) or `INVALID_FILENAME`.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::FileTooLarge { .. } => "FILE_TOO_LARGE",
+            Self::BlockedMimeType { .. } | Self::BlockedExtension { .. } => "FILE_TYPE_NOT_ALLOWED",
+            Self::InvalidFilename(_) => "INVALID_FILENAME",
         }
     }
+
+    /// The refusal of the upload of `file` (its name as the client sent it).
+    pub fn refusal(&self, file: &str) -> actix_web::Error {
+        let status = match self {
+            Self::FileTooLarge { .. } => actix_web::http::StatusCode::PAYLOAD_TOO_LARGE,
+            _ => actix_web::http::StatusCode::BAD_REQUEST,
+        };
+        crate::errors::from_response(
+            "file refused",
+            crate::errors::file_refused(status, self.to_string(), self.code(), file),
+        )
+    }
+}
+
+/// Convert FileValidationError to Actix error, for a caller with no file name
+/// to give; an upload handler uses [`FileValidationError::refusal`].
+impl From<FileValidationError> for actix_web::Error {
+    fn from(error: FileValidationError) -> Self {
+        error.refusal("")
+    }
+}
+
+/// The extensions an upload is refused for, whatever its contents, so a client
+/// can refuse such a file before sending it (`GET /api/config`).
+pub fn blocked_extensions() -> &'static [&'static str] {
+    BLOCKED_EXTENSIONS
 }
 
 /// Public guest upload: tight allowlist of MIME types. Anything not on this
@@ -455,6 +473,52 @@ fn cap_display_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refused upload names the file and carries a code a client branches
+    /// on, at 413 for a file over the limit and 400 otherwise.
+    #[actix_web::test]
+    async fn a_refusal_names_the_file_and_its_reason() {
+        let cases = [
+            (
+                FileValidationError::BlockedExtension {
+                    extension: "bin".into(),
+                },
+                400,
+                "FILE_TYPE_NOT_ALLOWED",
+            ),
+            (
+                FileValidationError::BlockedMimeType {
+                    detected: "application/x-dosexec".into(),
+                },
+                400,
+                "FILE_TYPE_NOT_ALLOWED",
+            ),
+            (
+                FileValidationError::InvalidFilename("empty".into()),
+                400,
+                "INVALID_FILENAME",
+            ),
+            (
+                FileValidationError::FileTooLarge {
+                    size: 2,
+                    max_size: 1,
+                },
+                413,
+                "FILE_TOO_LARGE",
+            ),
+        ];
+        for (err, status, code) in cases {
+            let resp = err.refusal("report.bin").error_response();
+            assert_eq!(resp.status().as_u16(), status, "{err}");
+            let body = actix_web::body::to_bytes(resp.into_body())
+                .await
+                .expect("body");
+            let body: serde_json::Value = serde_json::from_slice(&body).expect("json");
+            assert_eq!(body["code"], code, "{err}");
+            assert_eq!(body["file"], "report.bin", "{err}");
+            assert_eq!(body["error"], err.to_string());
+        }
+    }
 
     #[test]
     fn display_filename_keeps_spaces_and_punctuation() {

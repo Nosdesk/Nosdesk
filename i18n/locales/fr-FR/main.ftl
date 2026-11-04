@@ -6260,6 +6260,26 @@ ticket-comments-send-failed-too-large =
 ticket-comments-attachment-too-large = { $name } est trop volumineux pour être joint. Les fichiers peuvent faire jusqu'à { $limit } Mo.
 # MACHINE TRANSLATION, pending native review
 ticket-comments-attachments-total-too-large = { $name } n'a pas été joint : les pièces jointes d'une réponse peuvent faire jusqu'à { $limit } Mo au total.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachment-type-not-allowed = { $name } ne peut pas être joint : ce type de fichier n'est pas autorisé.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-file-type =
+    { $kind ->
+        [note] Votre note n'a pas été envoyée : { $name } ne peut pas être joint, car ce type de fichier n'est pas autorisé. Retirez-le et réessayez.
+       *[reply] Votre réponse n'a pas été envoyée : { $name } ne peut pas être joint, car ce type de fichier n'est pas autorisé. Retirez-le et réessayez.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-file-name =
+    { $kind ->
+        [note] Votre note n'a pas été envoyée : le nom de { $name } ne peut pas être utilisé. Renommez le fichier et réessayez.
+       *[reply] Votre réponse n'a pas été envoyée : le nom de { $name } ne peut pas être utilisé. Renommez le fichier et réessayez.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-offline =
+    { $kind ->
+        [note] Votre note n'a pas été envoyée : le serveur est injoignable. Vérifiez votre connexion et réessayez.
+       *[reply] Votre réponse n'a pas été envoyée : le serveur est injoignable. Vérifiez votre connexion et réessayez.
+    }
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Votre note n'a pas été envoyée. Elle n'a pas pu être conservée, car vous avez changé d'espace de travail.
