@@ -12,11 +12,7 @@ export function isTauriRuntime(): boolean {
 }
 
 async function setupWebPlatform(): Promise<void> {
-  // Side-effect modules: each configures one core seam on import.
-  await import('@/utils/loggerSetup')
-  await import('@/utils/storageSetup')
-  await import('@/services/transport')
-  await import('@/services/apiConfig')
+  await import('./web')
 }
 
 async function setupTauriPlatform(): Promise<void> {
@@ -35,16 +31,24 @@ async function setupTauriPlatform(): Promise<void> {
 export async function configurePlatform(): Promise<void> {
   if (isTauriRuntime()) await setupTauriPlatform()
   else await setupWebPlatform()
+  // Fetched together, after the platform's seams are set.
+  const [
+    { setSessionLostHandler },
+    { clearStaleRedirect, redirectToLogin },
+    { configureSessionSchedule },
+    { browserSessionScheduleHost },
+  ] = await Promise.all([
+    import('@nosdesk/core/services/session'),
+    import('@/services/sessionLost'),
+    import('@nosdesk/core/services/sessionSchedule'),
+    import('@/services/sessionScheduleHost'),
+  ])
   // A rejected refresh ends the session on either platform: clear its state
   // and go to sign-in, or the next sign-in reuses the old sync runtime.
-  const { setSessionLostHandler } = await import('@nosdesk/core/services/session')
-  const { clearStaleRedirect, redirectToLogin } = await import('@/services/sessionLost')
   clearStaleRedirect()
   setSessionLostHandler(redirectToLogin)
   // Both run in a browser engine: the refresh schedule's lock, shared expiry
   // and wake-ups are the same.
-  const { configureSessionSchedule } = await import('@nosdesk/core/services/sessionSchedule')
-  const { browserSessionScheduleHost } = await import('@/services/sessionScheduleHost')
   configureSessionSchedule(browserSessionScheduleHost())
 }
 
