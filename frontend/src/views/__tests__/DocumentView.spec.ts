@@ -27,8 +27,9 @@ vi.mock('@/stores/myWorkspaces', () => ({
   useMyWorkspacesStore: () => ({ activeWorkspace: { workspace_uuid: WS_UUID } }),
 }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: true, isTechnician: true }) }))
+const nav = vi.hoisted(() => ({ refreshPages: vi.fn(), updatePageField: vi.fn() }))
 vi.mock('@/stores/documentationNav', () => ({
-  useDocumentationNavStore: () => ({ refreshPages: vi.fn(), updatePageField: vi.fn() }),
+  useDocumentationNavStore: () => nav,
 }))
 vi.mock('@/components/Modal.vue', () => ({
   default: { template: '<div><slot /><slot name="footer" /></div>' },
@@ -111,10 +112,12 @@ afterEach(() => {
   editorStub.docked.value = false
 })
 
+let router: ReturnType<typeof createRouter>
+
 async function openPage(page: typeof PAGE = PAGE): Promise<void> {
   docs.getPageByPath.mockResolvedValue({ id: page.id, title: page.title, slug: page.slug })
   docs.getArticleById.mockResolvedValue({ ...page })
-  const router = createRouter({
+  router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/documentation', component: { template: '<div />' } },
@@ -241,5 +244,33 @@ describe('DocumentView title', () => {
     await title.trigger('blur')
     await afterDebounce()
     expect(docs.updatePage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('DocumentView address', () => {
+  it('follows the slug the server gave the open page, without reloading it', async () => {
+    pool.upsert('documentation_page', ROW.id, { ...ROW })
+    await openPage()
+    expect(docs.getArticleById).toHaveBeenCalledTimes(1)
+
+    pool.upsert('documentation_page', ROW.id, { ...ROW, title: 'Payroll', slug: 'payroll-2' })
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/documentation/payroll-2')
+    expect(nav.updatePageField).toHaveBeenCalledWith('5', 'slug', 'payroll-2')
+    expect(docs.getArticleById).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves an address by id alone', async () => {
+    pool.upsert('documentation_page', ROW.id, { ...ROW })
+    await openPage()
+    await router.replace('/documentation/5')
+    await flushPromises()
+
+    pool.upsert('documentation_page', ROW.id, { ...ROW, slug: 'payroll-2' })
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/documentation/5')
+    expect(docs.getArticleById).toHaveBeenCalledTimes(1)
   })
 })

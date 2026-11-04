@@ -96,6 +96,8 @@ export interface PortalMe {
   name: string
   email: string | null
   effective_locale: string
+  /** A session opened from a request's email link reaches that request alone. */
+  scope?: { kind: 'full' } | { kind: 'ticket'; ticket_number: number | null }
 }
 
 /** Closed means resolved, cancelled or merged into another request. */
@@ -138,6 +140,38 @@ export async function signInWithCode(email: string, code: string): Promise<void>
 export async function getMe(): Promise<PortalMe> {
   const { data } = await portalApi.get<PortalMe>('/me')
   return data
+}
+
+/** The signed-in person's own account (`GET /account`). */
+export interface PortalAccount {
+  uuid: string
+  name: string
+  email: string | null
+  pronouns: string | null
+  /** Their own choice; absent means the workspace default. */
+  locale?: string | null
+  timezone?: string | null
+  effective_locale?: string
+  effective_timezone?: string
+  /** What they manage here, as the server decides. */
+  sections: { name: boolean; password: boolean; authenticator: boolean; passkeys: boolean }
+}
+
+/** The fields `PATCH /account` takes. An empty locale or timezone clears it. */
+export interface PortalAccountUpdate {
+  name?: string
+  pronouns?: string
+  locale?: string
+  timezone?: string
+}
+
+export async function getAccount(): Promise<PortalAccount> {
+  const { data } = await portalApi.get<PortalAccount>('/account')
+  return data
+}
+
+export async function updateAccount(update: PortalAccountUpdate): Promise<void> {
+  await portalApi.patch('/account', update)
 }
 
 export async function signOut(): Promise<void> {

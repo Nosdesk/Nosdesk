@@ -19,6 +19,7 @@ pub mod canned_responses;
 pub mod categories;
 pub mod channels;
 pub mod comments;
+pub mod credential_epochs;
 pub mod cycles;
 pub mod dashboard_stats;
 pub mod directory;

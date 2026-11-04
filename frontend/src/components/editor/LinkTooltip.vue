@@ -2,6 +2,7 @@
 import Button from '@/components/common/Button.vue'
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { linkFromInput } from '@/components/editor/schema';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -37,6 +38,9 @@ const tooltipRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
 const linkUrl = ref('');
 const showInput = ref(false);
+// The last address applied was refused (an unsafe scheme); cleared on edit.
+const refused = ref(false);
+watch(linkUrl, () => { refused.value = false; });
 const adjustedPosition = ref({ x: 0, y: 0, openUp: false });
 
 // Update adjusted position when props change
@@ -134,12 +138,12 @@ watch(() => props.visible, async (visible) => {
 
 // Methods
 const handleApply = () => {
-  const trimmedUrl = linkUrl.value.trim();
-  if (trimmedUrl) {
-    // Add https:// if no protocol specified
-    const finalUrl = trimmedUrl.match(/^https?:\/\//)
-      ? trimmedUrl
-      : `https://${trimmedUrl}`;
+  if (linkUrl.value.trim()) {
+    const finalUrl = linkFromInput(linkUrl.value);
+    if (finalUrl === null) {
+      refused.value = true;
+      return;
+    }
     emit('apply', finalUrl);
   }
   showInput.value = false;
@@ -226,6 +230,8 @@ onBeforeUnmount(() => {
         type="text"
         :placeholder="t('editor-link-tooltip-placeholder')"
         class="flex-1 px-3 py-1.5 bg-surface border border-default rounded-lg text-sm text-primary focus:ring-2 focus:ring-accent focus:border-accent focus:outline-none"
+        :aria-invalid="refused || undefined"
+        :aria-describedby="refused ? 'link-tooltip-refused' : undefined"
         @keydown="handleKeydown"
       />
       <Button
@@ -247,6 +253,13 @@ onBeforeUnmount(() => {
         </svg>
       </button>
     </div>
+    <p
+      v-if="showInput && refused"
+      id="link-tooltip-refused"
+      class="px-3 pb-2 text-xs text-status-error"
+    >
+      {{ t('editor-link-tooltip-refused') }}
+    </p>
 
     <!-- Display mode (showing existing link) -->
     <div v-else class="flex items-center gap-2 p-2">

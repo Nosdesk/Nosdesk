@@ -11,6 +11,8 @@
  * to the backend separately (frontend/src/utils/remoteLogger.ts); this module
  * stays a pure console sink.
  */
+import { isCancellation } from './cancellation'
+
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,
@@ -71,6 +73,12 @@ class Logger {
   }
 
   private log(level: LogLevel, message: string, context?: Record<string, unknown>) {
+    // A request the app cancelled (a sign-out, a workspace switch, a newer
+    // search) isn't a failure, whichever catch block reports it: keep it out of
+    // the console's errors and out of what the web app reports to its server.
+    if (level >= LogLevel.WARN && carriesCancellation(context)) {
+      level = LogLevel.DEBUG
+    }
     if (level < this.minLevel) {
       return
     }
@@ -127,6 +135,12 @@ class Logger {
 
     return sanitized
   }
+}
+
+/** Whether a log context's values include a cancellation (callers pass the
+ * caught error as `{ error }` or `{ err }`, but any key counts). */
+function carriesCancellation(context?: Record<string, unknown>): boolean {
+  return !!context && Object.values(context).some(isCancellation)
 }
 
 // Singleton instance. Runs with dev-friendly defaults until the host calls

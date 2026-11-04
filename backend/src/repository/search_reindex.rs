@@ -76,13 +76,14 @@ pub fn comments_after(
 }
 
 /// A page of the workspace's transcribed attachments on comments, each with
-/// its comment's ticket id and title.
+/// its comment's ticket id, the ticket's title and whether the comment is an
+/// internal note.
 pub fn transcribed_attachments_after(
     conn: &mut DbConnection,
     workspace_id: i32,
     after: i32,
     limit: i64,
-) -> QueryResult<Vec<(models::Attachment, i32, String)>> {
+) -> QueryResult<Vec<(models::Attachment, i32, String, bool)>> {
     attachments::table
         .inner_join(comments::table.on(comments::id.nullable().eq(attachments::comment_id)))
         .inner_join(tickets::table.on(tickets::id.eq(comments::ticket_id)))
@@ -95,6 +96,7 @@ pub fn transcribed_attachments_after(
             attachments::all_columns,
             comments::ticket_id,
             tickets::title,
+            comments::is_internal,
         ))
         .load(conn)
 }

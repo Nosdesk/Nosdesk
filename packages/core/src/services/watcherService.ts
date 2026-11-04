@@ -27,6 +27,23 @@ export const watcherService = {
     await apiClient.delete(`/tickets/${ticketId}/watch`)
   },
 
+  /** Add someone else as a watcher (agents only). Returns the new set. */
+  async add(ticketId: number, userUuid: string): Promise<string[]> {
+    const response = await apiClient.post<{ watcher_uuids: string[] }>(
+      `/tickets/${ticketId}/watchers`,
+      { user_uuid: userUuid },
+    )
+    return response.data.watcher_uuids ?? []
+  },
+
+  /** Remove a watcher (agents only). Returns the new set. */
+  async remove(ticketId: number, userUuid: string): Promise<string[]> {
+    const response = await apiClient.delete<{ watcher_uuids: string[] }>(
+      `/tickets/${ticketId}/watchers/${userUuid}`,
+    )
+    return response.data.watcher_uuids ?? []
+  },
+
   /** Per-user watch state on a ticket (including the
    *  notify-on-internal preference). Returns sensible defaults
    *  when the user isn't watching, so the UI can render the

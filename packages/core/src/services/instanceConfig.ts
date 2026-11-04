@@ -25,10 +25,14 @@ interface InstanceConfig {
   control_plane_url: string;
   /** The signed-in person's own Nosdesk account settings (hosted). */
   account_url?: string;
+  /** Hosted: the domain workspace portals sit under (`<slug>.<domain>`). */
+  portal_domain?: string;
   /** Tickets carry a per-workspace number that URLs use. */
   ticket_numbers?: boolean;
   /** The Nosdesk release this server runs. */
   server_version?: string;
+  /** The largest attachment `/upload` accepts, in MB. Absent before 1.1.5. */
+  max_file_size_mb?: number;
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
@@ -52,6 +56,8 @@ let inboundForwardingEnabled = false;
 // only when this is non-empty (unset -> a plain explainer, never a dead form).
 let controlPlaneUrl = '';
 let accountUrl = '';
+// Hosted: workspace portals live at `<slug>.<portalDomain>`. Empty otherwise.
+let portalDomain = '';
 
 // Default true: this build's own server numbers tickets. Only a resolved config
 // from an older server (the mobile app can reach one) turns it off, and there
@@ -60,6 +66,10 @@ let ticketNumbers = true;
 
 // The release `/api/config` reports; empty until it resolves.
 let serverVersion = '';
+
+// The largest upload the server accepts, in bytes; null until the config
+// resolves, or from a server older than 1.1.5 that doesn't say.
+let maxUploadBytes: number | null = null;
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -135,9 +145,15 @@ export function fetchInstanceConfig(): Promise<void> {
         if (typeof data?.control_plane_url === 'string') {
           controlPlaneUrl = data.control_plane_url;
         }
+        if (typeof data?.portal_domain === 'string') {
+          portalDomain = data.portal_domain;
+        }
         ticketNumbers = data?.ticket_numbers === true;
         if (typeof data?.server_version === 'string') {
           serverVersion = data.server_version;
+        }
+        if (typeof data?.max_file_size_mb === 'number' && data.max_file_size_mb > 0) {
+          maxUploadBytes = data.max_file_size_mb * 1024 * 1024;
         }
         configResolved.value = true;
       } catch (e) {
@@ -171,6 +187,8 @@ export function resetInstanceConfig(): void {
   accountUrl = '';
   ticketNumbers = true;
   serverVersion = '';
+  maxUploadBytes = null;
+  portalDomain = '';
 }
 
 /** Reactive: `true` once {@link fetchInstanceConfig} has settled (success or
@@ -190,8 +208,18 @@ export function serverHasTicketNumbers(): boolean {
 }
 
 /** The Nosdesk release this server runs; '' until the config resolves. */
+/** Hosted: the domain workspace portals sit under; '' when not known. */
+export function getPortalDomain(): string {
+  return portalDomain;
+}
+
 export function getServerVersion(): string {
   return serverVersion;
+}
+
+/** The largest upload the server accepts, in bytes; null when not known. */
+export function getServerMaxUploadBytes(): number | null {
+  return maxUploadBytes;
 }
 
 /** The instance's deployment mode. 'self_hosted' until the config resolves. */

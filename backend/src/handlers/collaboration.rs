@@ -3237,6 +3237,7 @@ pub async fn get_collab_token(req: HttpRequest) -> impl Responder {
         &user_info.sub,
         &user_info.platform_role,
         workspace_uuid,
+        user_info.sid.as_deref(),
     ) {
         Ok(token) => HttpResponse::Ok().json(json!({
             "token": token,
@@ -3442,7 +3443,7 @@ pub async fn ws_handler(
 
     // Validate the token, resolve the connection's workspace, and build the
     // visibility context used to gate per-document access below.
-    let (user_uuid, accessor, workspace_id) = if let Some(pool) =
+    let (user_uuid, accessor, workspace_id, sid) = if let Some(pool) =
         req.app_data::<web::Data<crate::db::Pool>>()
     {
         let mut conn = pool
@@ -3525,7 +3526,7 @@ pub async fn ws_handler(
             return refuse_after_upgrade(&req, body, CollabRefusal::Unauthenticated);
         };
 
-        (user.uuid, accessor, workspace_id)
+        (user.uuid, accessor, workspace_id, claims.sid.clone())
     } else {
         return Err(crate::errors::internal_error("Database pool not available"));
     };
@@ -3651,6 +3652,7 @@ pub async fn ws_handler(
         doc_id,
         app_state_inner,
         user_uuid,
+        sid,
         workspace_id,
         fence,
         doc_type,
@@ -3671,6 +3673,9 @@ async fn session_task(
     doc_id: String,
     app_state: YjsAppState,
     user_uuid: Uuid,
+    // The session the connection token came from (`None` for an API token),
+    // re-checked on each heartbeat with the account.
+    sid: Option<String>,
     workspace_id: i32,
     fence: Option<i64>,
     doc_type: DocumentType,
@@ -3955,6 +3960,31 @@ async fn session_task(
                 if idle > *CLIENT_TIMEOUT {
                     warn!(session_id = %session_id, idle_secs = idle.as_secs(),
                         "WebSocket Client heartbeat WARNING");
+                }
+
+                // A sign-out, a revoked session or a deleted account ends the
+                // socket here instead of when the connection drops.
+                let pool = app_state.pool.clone();
+                let check_sid = sid.clone();
+                let still = web::block(move || {
+                    let Ok(mut conn) = pool.get() else {
+                        return true;
+                    };
+                    crate::utils::jwt::JwtUtils::connection_still_authorised(
+                        &mut conn,
+                        user_uuid,
+                        check_sid.as_deref(),
+                    )
+                })
+                .await
+                .unwrap_or(true);
+                if !still {
+                    info!(session_id = %session_id, doc_id = %doc_id,
+                        "Session closed: the session or account behind it ended");
+                    break Some(CloseReason {
+                        code: CloseCode::Other(CollabRefusal::Unauthenticated.code()),
+                        description: Some(CollabRefusal::Unauthenticated.reason().to_string()),
+                    });
                 }
             }
             else => break None,

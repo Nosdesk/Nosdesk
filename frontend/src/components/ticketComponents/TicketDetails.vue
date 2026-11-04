@@ -210,6 +210,7 @@ const emit = defineEmits<{
   (e: "update:tag-ids", value: number[]): void;
   /** Toggle the current user's watch status on this ticket. */
   (e: "toggle-watch"): void;
+  (e: "set-watcher", userUuid: string, watching: boolean): void;
   /** Open the device-attach modal. Modal state lives in the
    *  parent (TicketView) since the modal renders at page scope. */
   (e: "add-device"): void;
@@ -1320,6 +1321,7 @@ watchEffect(async () => {
             :watcher-uuids="ticket.watcher_uuids ?? []"
             :readonly="readonly"
             @toggle="emit('toggle-watch')"
+            @set-watcher="(uuid, watching) => emit('set-watcher', uuid, watching)"
           />
 
           <!-- Attached collections rendered as property-list rows

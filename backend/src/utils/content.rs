@@ -21,20 +21,125 @@ const PLAINTEXT_WRAP_COLS: usize = 78;
 
 /// Convert HTML to a UTF-8 plaintext rendering.
 ///
-/// Uses `html2text`, which preserves block structure (paragraphs become
-/// blank-line-separated, lists get `*` / `1.` prefixes, blockquotes get
-/// `>` prefixes — exactly what an email recipient expects). Inline
-/// formatting (`<strong>`, `<em>`) is dropped because plaintext can't
-/// represent it without ASCII-art crutches that look worse than no
-/// formatting at all.
+/// Uses `html2text` for the block structure: paragraphs become
+/// blank-line-separated, list items get a `•` or `1.` prefix, and blockquotes
+/// get `>` prefixes, as mail clients quote. Inline formatting, heading levels
+/// and code spans carry no marks, so a reader sees no stray `**`, `#` or
+/// backticks. A link reads as its text with the address after it in
+/// parentheses, or as the bare address when that is its text.
 /// Overflowing the wrap width beats failing: deeply nested quotes or lists
 /// would otherwise return `TooNarrow`. Reading from a byte slice cannot hit
 /// an I/O error, so the empty fallback is unreachable in practice.
 pub fn html_to_plaintext(html: &str) -> String {
-    html2text::config::plain()
+    let (html, addresses) = inline_link_addresses(html);
+    let mut text = html2text::config::with_decorator(MailDecorator)
         .allow_width_overflow()
         .string_from_read(html.as_bytes(), PLAINTEXT_WRAP_COLS)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    for (i, address) in addresses.iter().enumerate() {
+        text = text.replacen(&address_token(i), address, 1);
+    }
+    text
+}
+
+/// An `<a>` element with an `href`, and what's inside it. The editor's
+/// links don't nest, so the first `</a>` closes the one that opened.
+static ANCHOR_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?is)<a\b[^>]*?\bhref\s*=\s*"([^"]*)"[^>]*>(.*?)</a\s*>"#).expect("valid regex")
+});
+
+/// Stands in for a link address while the text wraps, so a long address is
+/// never split across lines (which would stop it opening). Private-use
+/// characters, which no comment contains.
+fn address_token(i: usize) -> String {
+    format!("\u{E000}{i}\u{E001}")
+}
+
+/// Write each link's address into the text after it, since plain text has
+/// nowhere else to keep it, as a token for [`address_token`]. A link whose
+/// text is already its address (or the address without `mailto:`) shows just
+/// that.
+fn inline_link_addresses(html: &str) -> (String, Vec<String>) {
+    let mut addresses = Vec::new();
+    let out = ANCHOR_RE.replace_all(html, |caps: &regex::Captures| {
+        let inner = &caps[2];
+        let href = html_escape::decode_html_entities(&caps[1]).into_owned();
+        let text = html_escape::decode_html_entities(&HTML_TAG_RE.replace_all(inner, ""))
+            .trim()
+            .to_string();
+        let shown = href.strip_prefix("mailto:").unwrap_or(&href).to_string();
+        if href.is_empty() || href.starts_with('#') {
+            return inner.to_string();
+        }
+        let token = address_token(addresses.len());
+        let same = text == href || text == shown;
+        addresses.push(shown);
+        if same {
+            token
+        } else {
+            format!("{inner} ({token})")
+        }
+    });
+    (out.into_owned(), addresses)
+}
+
+/// `html2text`'s plain decorator without the Markdown-style marks.
+#[derive(Clone, Debug)]
+struct MailDecorator;
+
+impl html2text::render::TextDecorator for MailDecorator {
+    type Annotation = ();
+
+    fn decorate_link_start(&mut self, _url: &str) -> (String, Self::Annotation) {
+        (String::new(), ())
+    }
+    fn decorate_link_end(&mut self) -> String {
+        String::new()
+    }
+    fn decorate_em_start(&self) -> (String, Self::Annotation) {
+        (String::new(), ())
+    }
+    fn decorate_em_end(&self) -> String {
+        String::new()
+    }
+    fn decorate_strong_start(&self) -> (String, Self::Annotation) {
+        (String::new(), ())
+    }
+    fn decorate_strong_end(&self) -> String {
+        String::new()
+    }
+    fn decorate_strikeout_start(&self) -> (String, Self::Annotation) {
+        (String::new(), ())
+    }
+    fn decorate_strikeout_end(&self) -> String {
+        String::new()
+    }
+    fn decorate_code_start(&self) -> (String, Self::Annotation) {
+        (String::new(), ())
+    }
+    fn decorate_code_end(&self) -> String {
+        String::new()
+    }
+    fn decorate_preformat_first(&self) -> Self::Annotation {}
+    fn decorate_preformat_cont(&self) -> Self::Annotation {}
+    fn decorate_image(&mut self, _src: &str, title: &str) -> (String, Self::Annotation) {
+        (title.to_string(), ())
+    }
+    fn header_prefix(&self, _level: usize) -> String {
+        String::new()
+    }
+    fn quote_prefix(&self) -> String {
+        "> ".to_string()
+    }
+    fn unordered_item_prefix(&self) -> String {
+        "• ".to_string()
+    }
+    fn ordered_item_prefix(&self, i: i64) -> String {
+        format!("{i}. ")
+    }
+    fn make_subblock_decorator(&self) -> Self {
+        self.clone()
+    }
 }
 
 /// Wrap a plaintext string in the minimal HTML needed for it to render
@@ -112,6 +217,46 @@ mod tests {
         assert!(!out.contains('<'));
         assert!(out.contains("bold"));
         assert!(out.contains("italic"));
+    }
+
+    #[test]
+    fn html_to_plaintext_leaves_no_markdown_marks() {
+        let out = html_to_plaintext(
+            "<h2>A heading</h2><p><strong>bold words</strong>, <em>italic words</em> and \
+             <code>code</code></p><ul><li><p>apple item</p></li><li><p>banana item</p></li></ul>\
+             <ol><li><p>first</p></li></ol>",
+        );
+        for mark in ["**", "*", "#", "`", "[", "]"] {
+            assert!(!out.contains(mark), "{mark:?} in {out:?}");
+        }
+        assert!(out.contains("A heading"), "{out:?}");
+        assert!(out.contains("bold words, italic words and code"), "{out:?}");
+        assert!(out.contains("• apple item"), "{out:?}");
+        assert!(out.contains("• banana item"), "{out:?}");
+        assert!(out.contains("1. first"), "{out:?}");
+    }
+
+    #[test]
+    fn html_to_plaintext_writes_a_link_address_after_its_text() {
+        let out = html_to_plaintext(
+            "<p>See the <a href=\"https://nosdesk.com/?a=1&amp;b=2\" target=\"_blank\">\
+             <strong>Nosdesk site</strong></a>, <a href=\"https://nosdesk.dev/docs\">\
+             https://nosdesk.dev/docs</a> or <a href=\"mailto:help@example.com\">\
+             help@example.com</a>.</p>",
+        );
+        assert!(
+            out.contains("Nosdesk site (https://nosdesk.com/?a=1&b=2)"),
+            "{out:?}"
+        );
+        assert!(out.contains("https://nosdesk.dev/docs"), "{out:?}");
+        assert!(!out.contains("docs ("), "{out:?}");
+        assert!(out.contains("help@example.com."), "{out:?}");
+        assert!(!out.contains("mailto"), "{out:?}");
+
+        // An address longer than a line stays whole, so it still opens.
+        let long = format!("https://example.com/{}", "a".repeat(100));
+        let out = html_to_plaintext(&format!("<p>Read <a href=\"{long}\">this</a> first.</p>"));
+        assert!(out.contains(&long), "{out:?}");
     }
 
     #[test]

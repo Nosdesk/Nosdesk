@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { logger } from '@nosdesk/core/utils/logger';
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import axios from 'axios';
 import apiClient from '@nosdesk/core/apiClient';
 import { isLoggingOut, setLoggingOut } from '@/services/apiConfig';
@@ -19,6 +19,8 @@ import { transport } from '@nosdesk/core/transport';
 import { sessionGone } from '@nosdesk/core/services/session';
 import { releaseSsoAutoStart } from '@/utils/ssoAutoStart';
 import { withRateLimitRetry } from '@/utils/rateLimitRetry';
+import { followPortalLanding } from '@/utils/portalLanding';
+
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -66,11 +68,16 @@ export const useAuthStore = defineStore('auth', () => {
     axios.defaults.headers.common['X-Auth-Provider'] = authProvider.value;
   }
 
+  // Whether the page loaded holding a session (the CSRF cookie), before the
+  // user is fetched. Read once into a ref: document.cookie isn't reactive, so a
+  // computed that read it would keep its first answer, and stay signed in after
+  // a sign-out. Cleared with the user when the session ends.
+  const heldSessionAtLoad = ref(hasCsrfToken());
+
   // Computed properties
-  // UX ONLY: Consider authenticated if CSRF token exists OR user data is loaded
-  // The user data check handles the timing gap where cookies are being set but not yet in document.cookie
-  // NOTE: Actual authentication is always verified by backend on every request
-  const isAuthenticated = computed(() => hasCsrfToken() || !!user.value);
+  // UX ONLY: a session the page loaded with, or a loaded user. Actual
+  // authentication is always verified by the backend on every request.
+  const isAuthenticated = computed(() => heldSessionAtLoad.value || !!user.value);
   // Admin tier = platform admin OR workspace owner/admin in the
   // resolved workspace. Technician tier additionally includes
   // workspace agents (can handle tickets). Derived from the W2 role
@@ -283,6 +290,9 @@ export const useAuthStore = defineStore('auth', () => {
         return false;
       }
 
+      // A requester on self-hosted is signed in to the portal instead.
+      if (followPortalLanding(response.data)) return true;
+
       // Handle successful login (cookies set by backend, csrf_token in response)
       if (response.data.success && response.data.csrf_token) {
         setAuthData(response.data.user);
@@ -322,6 +332,8 @@ export const useAuthStore = defineStore('auth', () => {
         hasCsrfToken: !!response.data.csrf_token,
         hasUser: !!response.data.user
       });
+
+      if (followPortalLanding(response.data)) return true;
 
       if (response.data.success && response.data.csrf_token) {
         logger.debug('🔐 MFA Login: Setting auth data for user', response.data.user);
@@ -500,12 +512,20 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
-    // Mark the session as intentionally tearing down for as long as this
-    // runs, so the API layer treats the 401s from in-flight / settling
-    // requests as expected teardown noise rather than failures to log and
-    // refresh. Not a moment longer: afterwards the login page covers its own
-    // 401s, and a latch would outlive the next sign-in (a passkey sign-in
-    // sets the user directly) and swallow that session's 401s.
+    // Whatever needs the session goes first, before the window below opens:
+    // in it nothing but /auth/logout is sent. Mobile gives up its push
+    // registration, which a revoked session's bearer couldn't.
+    try {
+      await transport().auth.beforeSignOut?.();
+    } catch (e) {
+      logger.error('Failed to release the device before signing out', e);
+    }
+
+    // Mark the session as tearing down for as long as this runs: the API
+    // layer sends nothing else for it (see setLoggingOut). Not a moment
+    // longer: afterwards the login page covers its own 401s, and a latch would
+    // outlive the next sign-in (a passkey sign-in sets the user directly) and
+    // hold that session's requests.
     setLoggingOut(true);
     try {
       await signOut();
@@ -531,11 +551,15 @@ export const useAuthStore = defineStore('auth', () => {
       setLoggingOut(true);
       try {
         await clearLocalSession();
+        // Inside the window, so the views' held requests are cancelled once
+        // they have unmounted.
+        if (!here.startsWith('/login')) {
+          await router.push(here === '/' ? '/login' : { name: 'login', query: { redirect: here } });
+          await nextTick();
+        }
       } finally {
         setLoggingOut(false);
       }
-      if (here.startsWith('/login')) return;
-      await router.push(here === '/' ? '/login' : { name: 'login', query: { redirect: here } });
     })().finally(() => {
       sessionLostInFlight = null;
     });
@@ -571,9 +595,9 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     // Platform-local session teardown through the transport seam: web clears
-    // the JS-accessible auth cookies (so isAuthenticated flips false at once);
-    // mobile drops the bearer + keychain refresh token and unregisters push.
-    // Keeps the platform specifics in each AuthStrategy, not in this store.
+    // the JS-accessible auth cookies; mobile drops the bearer + keychain
+    // refresh token. Keeps the platform specifics in each AuthStrategy, not in
+    // this store.
     try {
       await transport().auth.endSession();
     } catch (e) {
@@ -606,13 +630,19 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     // Return to the login screen (non-OIDC sessions, native, or a failed
-    // web redirect).
-    router.push('/login');
+    // web redirect). Awaited, with the render after it, so the signed-in views
+    // have unmounted before logout() closes the window and their held
+    // requests are cancelled.
+    await router.push('/login');
+    await nextTick();
   }
 
   /** What this tab holds for the session: the user, every workspace-scoped
    *  store and cache, the user's theme. No network, no navigation. */
   async function clearLocalSession() {
+    // Signed out first, so everything gated on isAuthenticated stops before
+    // the user and caches below are dropped.
+    heldSessionAtLoad.value = false;
     user.value = null;
     resolvedWorkspaceSlug.value = null;
     authProvider.value = null;

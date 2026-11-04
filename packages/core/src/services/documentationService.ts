@@ -577,7 +577,6 @@ export const createArticle = async (
       // ticket_id, so this field is write-only on the frontend.
       ticket_id: (article as Partial<Page> & { ticket_id?: string | number | null }).ticket_id ?? null,
       display_order: article.display_order !== undefined ? article.display_order : 0,
-      is_public: false,
       is_template: false,
       yjs_state_vector: null,
       yjs_document: null,
@@ -896,6 +895,8 @@ export const permanentlyDeletePage = async (pageId: string | number): Promise<bo
 export interface PageVisibilityResponse {
   /** The page has its own rules (admins only when no one is listed). */
   restricted?: boolean;
+  /** Guests may read it in the public help centre. */
+  is_public?: boolean;
   groups: Array<{ id: number; name: string }>;
   users: Array<{ uuid: string; name: string; avatar_url?: string | null; avatar_thumb?: string | null }>;
 }
@@ -917,19 +918,22 @@ export const getPageVisibility = async (pageId: number): Promise<PageVisibilityR
  * Set visibility for a documentation page (admin only). `restricted` gives
  * the page its own rules: open only to the groups and people given, admins
  * only when there are none. Unrestricted, the page follows its collection.
- * Omitted, it follows from whether any are given.
+ * Omitted, it follows from whether any are given. `isPublic` lets guests read
+ * it in the public help centre; omitted, it stays as it is.
  */
 export const setPageVisibility = async (
   pageId: number,
   groupIds: number[],
   userUuids: string[] = [],
   restricted?: boolean,
+  isPublic?: boolean,
 ): Promise<boolean> => {
   try {
     await apiClient.put(`/documentation/pages/${pageId}/visibility`, {
       group_ids: groupIds,
       user_uuids: userUuids,
       ...(restricted !== undefined ? { restricted } : {}),
+      ...(isPublic !== undefined ? { is_public: isPublic } : {}),
     });
     return true;
   } catch (error) {

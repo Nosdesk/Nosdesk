@@ -154,7 +154,11 @@ export interface PluginFetchOptions {
  * `Response` (which cannot cross the bridge). */
 export interface PluginFetchResponse {
   status: number;
+  /** Response headers, names lowercased (`etag`, `content-type`). */
   headers: Record<string, string>;
+  /** The upstream body as text, verbatim: `JSON.parse` it yourself for JSON.
+   * `''` for 204, 205 and 304. Before runtime API 1.3 a text body arrived
+   * JSON-quoted and a 204 or 304 threw `upstream`. */
   body: string;
 }
 
@@ -286,7 +290,13 @@ export interface HostApi {
     ): Promise<{ data: string; name: string; mimeType: string } | null>;
   };
   /** Outbound HTTP via the host's SSRF-guarded, manifest-allowlisted proxy.
-   * Throws a `PluginApiError` on denial / invalid URL / upstream failure. */
+   * Throws a `PluginApiError` on denial / invalid URL / upstream failure.
+   *
+   * When a host's manifest `auth` is `private_key_jwt` and no token can be
+   * had (the token endpoint refused, or a setting is missing or not a usable
+   * key), the request isn't sent and this resolves to a 401 with the header
+   * `x-nosdesk-proxy-error: auth_failed` and the body
+   * `{"error":"auth_failed","message":"<reason>"}`. Since runtime API 1.3. */
   fetch(url: string, options?: PluginFetchOptions): Promise<PluginFetchResponse>;
   storage: {
     get<T>(key: string): Promise<T | null>;
@@ -317,8 +327,8 @@ export interface HostApi {
    * plugin's iframe, so it is never clipped to the panel. There is no
    * `ui.toast`: `notify` already is the toast.
    *
-   * Everything here except `isPrinting` arrived in runtime API 1.1. Feature
-   * detect before calling on an older host:
+   * Everything here except `isPrinting` arrived in runtime API 1.1, and
+   * `openExternal` in 1.3. Feature detect before calling on an older host:
    *
    *     const [major, minor] = (await api.version).split('.').map(Number);
    *     const hasHostDialogs = major > 1 || (major === 1 && minor >= 1);
@@ -393,6 +403,21 @@ export interface PluginUiApi {
    * throws `invalid`. Resolves once navigation starts. Since 1.1.
    */
   openPage(componentName: string): Promise<void>;
+  /**
+   * Open an https page in a new browser tab (the system browser in the app),
+   * with no opener or referrer. The URL's host must be covered by a
+   * `link:<host>` permission (`link:github.com`, or `link:*.example.com` for
+   * one level of subdomain), or the call throws `denied`. Anything that isn't
+   * an https URL, or carries a user name or password, throws `invalid`.
+   *
+   * Call it from the user's click. If the browser would block the tab (the
+   * click was too long ago), Nosdesk asks first, in a dialog naming the
+   * plugin and showing the URL, and opens it from the user's own click. The
+   * call then waits on that dialog like the other host dialogs: no timeout,
+   * one at a time. Resolves once the link is handed off or the dialog is
+   * dismissed. Since 1.3.
+   */
+  openExternal(url: string): Promise<void>;
 }
 
 /** Options for `ui.confirm`. */

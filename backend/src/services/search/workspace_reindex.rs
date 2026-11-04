@@ -257,8 +257,10 @@ impl SearchService {
             workspace_id,
             &mut seen,
             |conn, after| repo::transcribed_attachments_after(conn, workspace_id, after, PAGE),
-            |(a, _, _)| a.id,
-            |(a, ticket_id, title)| indexer::index_document_from_attachment(a, *ticket_id, title),
+            |(a, _, _, _)| a.id,
+            |(a, ticket_id, title, internal)| {
+                indexer::index_document_from_attachment(a, *ticket_id, title, *internal)
+            },
         )?;
 
         stats.indexed.documentation = self.index_pages(

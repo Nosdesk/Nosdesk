@@ -106,6 +106,28 @@ impl TenantConn {
         session::with_actor_context(&mut conn, &self.actor, f)
     }
 
+    /// Runs several steps as one transaction: they commit together, and a lock
+    /// taken in one holds until the last. Each `run` on the [`ActorConn`] is a
+    /// savepoint that sets this actor again, so a step that credits its write
+    /// to someone else (an assignment rule) doesn't carry over to the next.
+    ///
+    /// [`ActorConn`]: crate::services::ticket_updates::ActorConn
+    pub fn transaction<T, E>(
+        &mut self,
+        f: impl FnOnce(&mut crate::services::ticket_updates::ActorConn) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<diesel::result::Error>,
+    {
+        let mut conn = self.pool.get().map_err(|e| {
+            diesel::result::Error::QueryBuilderError(format!("pool acquire: {e}").into())
+        })?;
+        let actor = &self.actor;
+        session::with_actor_context(&mut conn, actor, |conn| {
+            f(&mut crate::services::ticket_updates::ActorConn { conn, actor })
+        })
+    }
+
     /// Workspace the request actor is pinned to, if any. Mirrors
     /// the value set by auth middleware from `WorkspaceContext`.
     pub fn workspace_id(&self) -> Option<i32> {

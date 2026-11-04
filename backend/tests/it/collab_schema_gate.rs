@@ -182,6 +182,7 @@ fn token(user: &backend::models::User) -> String {
         &user.uuid.to_string(),
         &user.platform_role,
         Some(workspace().workspace_uuid),
+        None,
     )
     .expect("mint collab token")
 }

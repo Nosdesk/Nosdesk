@@ -355,9 +355,61 @@ fn staff_among(
         .map(|v| v.into_iter().collect())
 }
 
-/// Payloads for one intent. Runs on a connection pinned to the row's
-/// workspace, so watcher and membership reads are RLS-scoped.
+/// Who among `candidates` still belongs to the workspace: an active member,
+/// or a platform admin, and not a deleted account. Someone removed keeps their
+/// watcher and assignee rows, and must not keep hearing about the tickets
+/// through them.
+fn still_in_workspace(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    candidates: &[Uuid],
+) -> QueryResult<HashSet<Uuid>> {
+    use crate::schema::{users, workspace_members};
+    if candidates.is_empty() {
+        return Ok(HashSet::new());
+    }
+    users::table
+        .filter(users::uuid.eq_any(candidates))
+        .filter(users::deleted_at.is_null())
+        .filter(
+            users::platform_role
+                .eq("platform_admin")
+                .or(diesel::dsl::exists(
+                    workspace_members::table
+                        .filter(workspace_members::user_uuid.eq(users::uuid))
+                        .filter(workspace_members::workspace_id.eq(workspace_id))
+                        .filter(workspace_members::removed_at.is_null()),
+                )),
+        )
+        .select(users::uuid)
+        .load::<Uuid>(conn)
+        .map(|v| v.into_iter().collect())
+}
+
+/// Payloads for one intent: the ticket's requester (who may have written in
+/// from an account with no membership here), and everyone else only while
+/// they still belong to the row's workspace. Runs on a connection pinned to
+/// that workspace, so watcher and membership reads are RLS-scoped.
 pub fn resolve(
+    conn: &mut DbConnection,
+    row: &SyncActionRow,
+    intent: Intent,
+) -> QueryResult<Vec<NotificationPayload>> {
+    let requester = repository::tickets::get_ticket_by_id(conn, intent.ticket_id())
+        .ok()
+        .and_then(|t| t.requester_uuid);
+    let mut out = resolve_for_anyone(conn, row, intent)?;
+    let others: Vec<Uuid> = out
+        .iter()
+        .map(|p| p.recipient_uuid)
+        .filter(|u| Some(*u) != requester)
+        .collect();
+    let current = still_in_workspace(conn, row.workspace_id, &others)?;
+    out.retain(|p| Some(p.recipient_uuid) == requester || current.contains(&p.recipient_uuid));
+    Ok(out)
+}
+
+fn resolve_for_anyone(
     conn: &mut DbConnection,
     row: &SyncActionRow,
     intent: Intent,
@@ -734,6 +786,57 @@ mod tests {
             payloads[0].body.as_deref(),
             Some(format!("You have been auto-assigned to ticket #{}", ticket.number).as_str())
         );
+    }
+
+    #[test]
+    fn comment_notifications_skip_people_who_left_but_keep_the_requester() {
+        use crate::repository::workspaces::{remove_membership, SeatWriteAuthority};
+        use crate::test_helpers::{setup_test_connection, TestFixtures};
+        let mut conn = setup_test_connection();
+        let requester = TestFixtures::create_user(&mut conn, "Requester", "user");
+        let watcher = TestFixtures::create_user(&mut conn, "Watcher", "technician");
+        let former = TestFixtures::create_user(&mut conn, "Former agent", "technician");
+        let commenter = TestFixtures::create_user(&mut conn, "Agent", "technician");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(requester.uuid), None);
+        let ticket = TestFixtures::renumber_ticket(&mut conn, ticket);
+        for w in [watcher.uuid, former.uuid] {
+            crate::repository::ticket_watchers::add_watcher(&mut conn, ticket.id, w, true).unwrap();
+        }
+        for gone in [former.uuid, requester.uuid] {
+            remove_membership(
+                &mut conn,
+                ticket.workspace_id,
+                gone,
+                SeatWriteAuthority::ControlPlane,
+            )
+            .unwrap();
+        }
+
+        let payloads = resolve(
+            &mut conn,
+            &row(
+                "comment.created",
+                json!({}),
+                Some(&commenter.uuid.to_string()),
+            ),
+            Intent::Commented {
+                ticket_id: ticket.id,
+                ticket_title: ticket.title.clone(),
+                comment_id: 1,
+                commenter: commenter.uuid,
+                is_internal: false,
+                requester: Some(requester.uuid),
+                assignee: Some(former.uuid),
+                mentions: Vec::new(),
+                preview: "Fixed".into(),
+            },
+        )
+        .unwrap();
+        let mut to: Vec<Uuid> = payloads.iter().map(|p| p.recipient_uuid).collect();
+        to.sort();
+        let mut expected = vec![requester.uuid, watcher.uuid];
+        expected.sort();
+        assert_eq!(to, expected);
     }
 
     #[test]

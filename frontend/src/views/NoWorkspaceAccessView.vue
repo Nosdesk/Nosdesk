@@ -15,8 +15,11 @@ import AuthLayout from '@/components/auth/AuthLayout.vue';
 import Button from '@/components/common/Button.vue';
 import Icon from '@/components/common/Icon.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
+import RequesterPortalLink from '@/components/auth/RequesterPortalLink.vue';
+import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
 
 const auth = useAuthStore();
+const hosted = isHostedDeployment();
 
 const refreshing = ref(false);
 const signingOut = ref(false);
@@ -116,6 +119,10 @@ async function signOut() {
           </button>
         </p>
       </div>
+
+      <!-- On Nosdesk Cloud a requester has no seat here: their requests are
+           at their organisation's portal. -->
+      <RequesterPortalLink v-if="hosted" />
     </div>
   </AuthLayout>
 </template>

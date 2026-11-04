@@ -208,6 +208,8 @@ login-error-generic = Échec de la connexion. Veuillez réessayer.
 login-error-state-expired = Votre connexion a pris trop de temps. Veuillez vous reconnecter.
 login-error-provider-denied = La connexion a été annulée.
 login-error-signin-failed = La connexion n'a pas pu aboutir. Veuillez réessayer.
+# (machine, à relire par un locuteur natif)
+login-error-provider-mfa = La connexion du personnel exige l'authentification multifacteur auprès de votre fournisseur d'identité. Configurez-la chez ce fournisseur ou contactez votre administrateur.
 login-mfa-title = Authentification à deux facteurs
 login-mfa-subtitle = Veuillez saisir votre code d'authentification
 login-mfa-code-label = Code d'authentification
@@ -5077,6 +5079,19 @@ no-workspace-access-description = Un administrateur ajoute les personnes aux esp
 no-workspace-access-check-again = Vérifier à nouveau
 no-workspace-access-wrong-account = Ce n'est pas votre compte ?
 no-workspace-access-sign-out = Se déconnecter
+# Où les demandeurs trouvent leurs demandes, depuis l'application (machine, à relire par un locuteur natif)
+requester-portal-link-toggle = Vous cherchez vos demandes ?
+requester-portal-link-help = Si vous demandez de l'aide à votre organisation, vos demandes se trouvent sur son portail d'assistance. Saisissez son adresse, ou son nom sur Nosdesk.
+requester-portal-link-label = Portail d'assistance
+requester-portal-link-placeholder = acme ou support.acme.com
+requester-portal-link-invalid = Cela ne ressemble pas à une adresse.
+requester-portal-link-open = Ouvrir dans le navigateur
+requester-portal-title = Vos demandes sont sur le portail
+requester-portal-message = Cette application est destinée à votre équipe d'assistance. Vos demandes et réponses se trouvent sur le portail d'assistance de votre organisation, qui s'ouvre dans votre navigateur, déjà connecté.
+requester-portal-open = Ouvrir le portail
+requester-portal-sign-out = Se déconnecter
+requester-portal-open-failed = Le portail n'a pas pu s'ouvrir. Réessayez.
+route-title-requester-portal = Vos demandes
 route-title-no-workspace-access = Pas encore d'espace de travail
 error-page-debug-title = Contrôles de débogage (appuyez sur « d » pour basculer)
 error-page-debug-master-toggle = Activation générale des effets
@@ -5292,6 +5307,8 @@ editor-link-tooltip-apply = Appliquer
 editor-link-tooltip-cancel = Annuler
 editor-link-tooltip-edit = Modifier le lien
 editor-link-tooltip-remove = Supprimer le lien
+# (machine, à relire par un locuteur natif)
+editor-link-tooltip-refused = Un lien peut mener à une adresse web, e-mail ou téléphone.
 
 # Éditeur : sélecteur de document (DocumentPicker)
 editor-doc-picker-title = Intégrer un document
@@ -6063,6 +6080,9 @@ docs-page-permissions-no-collections = Dans aucune collection, visible par tous.
 docs-page-permissions-custom-description = Sélectionnez les groupes et utilisateurs autorisés à accéder à cette page. Cela remplace les permissions au niveau collection.
 docs-page-permissions-picker-placeholder = Rechercher des utilisateurs et groupes...
 docs-page-permissions-no-selection-warning = Aucun groupe ni utilisateur sélectionné, seuls les administrateurs pourront voir cette page.
+# (machine, à relire par un locuteur natif)
+docs-page-permissions-public-label = Afficher aux invités
+docs-page-permissions-public-description = Lorsque la documentation publique est activée, tout le monde peut lire cette page dans l'onglet Aide du portail, si elle est publiée et ouverte à tous.
 docs-page-permissions-cancel = Annuler
 docs-page-permissions-save = Enregistrer
 docs-page-permissions-saving = Enregistrement...
@@ -6228,6 +6248,16 @@ ticket-comments-attachments-missing =
        *[reply] Votre réponse a été envoyée, mais certains de ses fichiers n'ont pas été joints.
     }
 # Réponse non envoyée et non conservée après un changement d'espace (machine, à relire par un locuteur natif).
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-too-large =
+    { $kind ->
+        [note] Votre note n'a pas été envoyée : ses pièces jointes sont trop volumineuses. Retirez-en et réessayez.
+       *[reply] Votre réponse n'a pas été envoyée : ses pièces jointes sont trop volumineuses. Retirez-en et réessayez.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachment-too-large = { $name } est trop volumineux pour être joint. Les fichiers peuvent faire jusqu'à { $limit } Mo.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachments-total-too-large = { $name } n'a pas été joint : les pièces jointes d'une réponse peuvent faire jusqu'à { $limit } Mo au total.
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Votre note n'a pas été envoyée. Elle n'a pas pu être conservée, car vous avez changé d'espace de travail.
@@ -6357,6 +6387,13 @@ ticket-field-watchers-overflow-title = { $count ->
     [one] { $count } de plus
    *[other] { $count } de plus
   }
+ticket-field-watchers-manage = Ajouter ou retirer des observateurs
+ticket-field-watchers-add-placeholder = Ajouter un observateur…
+ticket-field-watchers-remove = Retirer l'observateur
+ticket-field-watchers-empty = Personne ne suit ce ticket.
+ticket-field-watchers-done = Terminé
+ticket-field-watchers-add-failed = L'observateur n'a pas été ajouté.
+ticket-field-watchers-remove-failed = L'observateur n'a pas été retiré.
 
 # Ticket : ligne d'appareils (TicketDevicesField).
 ticket-field-devices-label = Actifs
@@ -7034,6 +7071,12 @@ plugin-dialog-pick-ticket-title = { $plugin } vous demande de choisir un ticket
 plugin-dialog-pick-date-title = { $plugin } vous demande de choisir une date
 plugin-dialog-date-label = Date
 plugin-dialog-choose = Choisir
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-title = { $plugin } souhaite ouvrir un lien
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-message = Une page de { $host } s'ouvrira dans un nouvel onglet.
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-open = Ouvrir
 plugin-detail-metadata-heading = Métadonnées
 plugin-detail-metadata-source = Source
 plugin-detail-metadata-permissions = Permissions
@@ -8051,6 +8094,10 @@ plugin-permission-network-description = Effectuer des requêtes réseau vers { $
 plugin-permission-resource-label = Charger des ressources { $kind }
 # MACHINE TRANSLATION, pending native review
 plugin-permission-resource-description = Charger { $kind } depuis { $host } dans la vue du plugin. Une origine approuvée peut recevoir des données via l'URL de la ressource, n'autorisez donc que les hôtes de confiance.
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-label = Ouvrir des liens
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-description = Ouvrir des pages de { $host } dans un nouvel onglet
 # MACHINE TRANSLATION, pending native review
 plugin-permission-reason-prefix = Raison de l'auteur :
 plugin-permission-unknown-label = { $permission }
@@ -9265,6 +9312,9 @@ portal-sso-error-domain = Ce compte ne peut pas se connecter ici. Saisissez plut
 portal-nav-requests = Mes demandes
 portal-nav-help = Aide
 portal-nav-new = Nouvelle demande
+# (machine, à relire par un locuteur natif)
+portal-link-session-notice = Vous avez ouvert cette demande depuis un lien reçu par e-mail.
+portal-link-session-sign-in = Connectez-vous pour voir toutes vos demandes
 portal-sign-out = Se déconnecter
 portal-filter-open = En cours
 portal-filter-closed = Clôturées
@@ -9624,6 +9674,22 @@ requester-sso-client-secret-hint = Nécessaire pour afficher le bouton de connex
 portal-nav-label = Portail d'assistance
 portal-nav-approvals-short = Approbations
 portal-account-menu = Compte
+# Page du compte dans le portail (machine, à relire par un locuteur natif)
+portal-account-settings = Votre compte
+portal-account-title = Votre compte
+portal-account-intro = Votre profil, votre façon de vous connecter et les appareils sur lesquels vous êtes connecté.
+portal-account-profile-title = Profil
+portal-account-name-label = Nom
+portal-account-email = Vous vous connectez avec { $email }.
+portal-account-saved = Votre compte est enregistré.
+portal-account-save-failed = Vos modifications n'ont pas pu être enregistrées. Veuillez réessayer.
+portal-account-load-failed = Votre compte n'a pas pu être chargé. Veuillez réessayer.
+portal-account-authenticator-set-up = Configurer
+portal-account-authenticator-on = L'authentification à deux facteurs est activée.
+portal-account-authenticator-off = L'authentification à deux facteurs est désactivée.
+portal-account-authenticator-failed = Cela n'a pas fonctionné. Vérifiez votre mot de passe et réessayez.
+portal-account-authenticator-new-codes = Nouveaux codes de récupération
+portal-account-authenticator-turn-off = Désactiver
 portal-track-sent = Envoyée
 portal-track-approval = En attente d'approbation
 portal-track-approved = Approuvée
