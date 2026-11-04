@@ -19,9 +19,10 @@ import {
 } from '@nosdesk/core/transport'
 import { refreshSession } from '@nosdesk/core/services/session'
 import { ACCESS_EXPIRES_IN_HEADER, noteAccessExpiry } from '@nosdesk/core/services/sessionSchedule'
+import { setTransportUploadCap } from '@nosdesk/core/services/uploadLimits'
 import axios, { CanceledError } from 'axios'
 import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import { tauriHttpAdapter } from './tauriHttpAdapter'
+import { BRIDGE_UPLOAD_CAP_BYTES, tauriHttpAdapter } from './tauriHttpAdapter'
 import { setSession } from './transport'
 
 type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean }
@@ -51,6 +52,8 @@ export function setupApiClient(): void {
 
   // Route the shared axios instance through Tauri's native HTTP client.
   apiClient.defaults.adapter = tauriHttpAdapter
+  // Pickers refuse a file the adapter would refuse, before it's staged.
+  setTransportUploadCap(BRIDGE_UPLOAD_CAP_BYTES)
 
   // The web apiConfig auto-registers its (cookie-oriented) interceptors when it
   // loads via stores/auth.ts, even in Tauri mode. Clear them so only the
@@ -60,8 +63,8 @@ export function setupApiClient(): void {
   apiClient.interceptors.response.clear()
 
   apiClient.interceptors.request.use(async (config) => {
-    // Held while a workspace switch is in progress.
-    await passRequestGates()
+    // Held while a workspace switch is in progress, refused during a sign-out.
+    await passRequestGates(config)
     config.baseURL = apiBaseUrl()
     config.withCredentials = transport().auth.useCredentials
     // Use AxiosHeaders.set (not Object.assign) so values land in the instance's

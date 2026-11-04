@@ -380,6 +380,9 @@ pub fn create_session_record(
         expires_at: crate::utils::session_policy::next_expiry(chrono::Utc::now().naive_utc()),
         oidc_id_token: proof.id_token().map(str::to_owned),
         confirmed_at: proof.confirmed_at(chrono::Utc::now()),
+        provider_amr: proof
+            .provider_amr()
+            .map(|amr| amr.iter().cloned().map(Some).collect()),
     };
 
     let (session, evicted) =
@@ -418,6 +421,9 @@ pub(crate) fn complete_login(
     conn: &mut DbConnection,
 ) -> Result<HttpResponse, ApiError> {
     // The local password (or LDAP) login, which just checked a credential.
+    if let Some(ws) = portal_landing(request, conn, &user) {
+        return portal_sign_in(&user, &ws, request, conn, SignInProof::Credential);
+    }
     let (response, tokens) = establish_login_session(user, request, conn, SignInProof::Credential)?;
     Ok(build_auth_response(request, response, &tokens))
 }
@@ -436,8 +442,100 @@ pub(crate) fn complete_login_redirect(
     location: &str,
     proof: SignInProof<'_>,
 ) -> Result<HttpResponse, ApiError> {
+    if let Some(ws) = portal_landing(request, conn, &user) {
+        let session = portal_session(&user, &ws, request, conn, proof)?;
+        return Ok(HttpResponse::Found()
+            .cookie(session.access)
+            .cookie(session.refresh)
+            .cookie(session.csrf)
+            .append_header(("Location", crate::handlers::portal::portal_path("/tickets")))
+            .finish());
+    }
     let (_response, tokens) = establish_login_session(user, request, conn, proof)?;
     Ok(build_auth_cookie_redirect(&tokens, location))
+}
+
+/// The workspace whose portal a sign-in at the agent app lands in, when it
+/// isn't the app. On self-hosted the app is for staff: a plain member of the
+/// request's workspace is signed in to its portal instead. Hosted requesters
+/// sign in at their own portal, and native sign-ins (bearer) stay in the app,
+/// which opens the portal itself.
+pub(crate) fn portal_landing(
+    request: &HttpRequest,
+    conn: &mut DbConnection,
+    user: &crate::models::User,
+) -> Option<crate::extractors::WorkspaceContext> {
+    use crate::models::{PlatformRole, WorkspaceRole};
+    use crate::utils::auth_mode::{auth_mode_from_request, AuthMode};
+    if crate::middleware::workspace_context::is_hosted()
+        || auth_mode_from_request(request) != AuthMode::Cookie
+        || PlatformRole::from_db(&user.platform_role) != PlatformRole::User
+    {
+        return None;
+    }
+    let ws = request
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .cloned()?;
+    helpers::pin_request_workspace(request, conn);
+    match repository::workspaces::get_membership_role(conn, ws.workspace_id, user.uuid) {
+        Ok(Some(role)) if WorkspaceRole::from_db(&role) == WorkspaceRole::Member => Some(ws),
+        Ok(_) => None,
+        Err(e) => {
+            // The app's own gate still decides what the session reaches.
+            warn!(user_uuid = %user.uuid, error = %e, "sign-in: reading the workspace role failed");
+            None
+        }
+    }
+}
+
+/// A portal session for `user` in `ws`, from a sign-in at the agent app.
+fn portal_session(
+    user: &crate::models::User,
+    ws: &crate::extractors::WorkspaceContext,
+    request: &HttpRequest,
+    conn: &mut DbConnection,
+    proof: SignInProof<'_>,
+) -> Result<crate::handlers::portal::PortalSessionCookies, ApiError> {
+    let session = crate::handlers::portal::mint_portal_session(
+        user,
+        ws.workspace_uuid,
+        request,
+        conn,
+        crate::handlers::portal::PortalScope::Full,
+        proof,
+    )?;
+    let _ = crate::utils::security_events::record_security_event(
+        conn,
+        crate::utils::security_events::SecurityEventInput {
+            user_uuid: Some(user.uuid),
+            event_type: "login_success",
+            severity: "info",
+            details: Some(json!({ "via": "portal" })),
+            request: Some(request),
+        },
+    );
+    Ok(session)
+}
+
+/// Sign `user` in to the portal of `ws` from the agent app's sign-in form: the
+/// portal's cookies, and where to go (`portal`) in place of the app's session.
+pub(crate) fn portal_sign_in(
+    user: &crate::models::User,
+    ws: &crate::extractors::WorkspaceContext,
+    request: &HttpRequest,
+    conn: &mut DbConnection,
+    proof: SignInProof<'_>,
+) -> Result<HttpResponse, ApiError> {
+    let session = portal_session(user, ws, request, conn, proof)?;
+    Ok(HttpResponse::Ok()
+        .cookie(session.access)
+        .cookie(session.refresh)
+        .cookie(session.csrf)
+        .json(json!({
+            "success": true,
+            "portal": crate::handlers::portal::portal_path("/tickets"),
+        })))
 }
 
 /// Create the session record, log the success event, and mint the login
@@ -449,6 +547,17 @@ pub(crate) fn establish_login_session(
     proof: SignInProof<'_>,
 ) -> Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens), ApiError> {
     let user_uuid = user.uuid;
+    if let SignInProof::Provider(admitted) = &proof {
+        if admitted.user_uuid() != user_uuid {
+            tracing::error!(user_uuid = %user_uuid, "Provider sign-in admitted for another account");
+            return Err(ApiError::Internal(
+                "Failed to create authentication session".into(),
+            ));
+        }
+    }
+    let details = proof
+        .provider_amr()
+        .map(|amr| json!({ "via": "provider", "amr": amr }));
 
     // Pin the request's workspace so the login response's workspace_role
     // resolves under RLS (workspace_members is workspace-isolated).
@@ -474,7 +583,7 @@ pub(crate) fn establish_login_session(
             user_uuid: Some(user_uuid),
             event_type: "login_success",
             severity: "info",
-            details: None,
+            details,
             request: Some(request),
         },
     );
@@ -492,6 +601,9 @@ fn complete_mfa_login(
     conn: &mut DbConnection,
 ) -> Result<HttpResponse, ApiError> {
     let user_uuid = user.uuid;
+    if let Some(ws) = portal_landing(request, conn, &user) {
+        return portal_sign_in(&user, &ws, request, conn, SignInProof::Credential);
+    }
 
     // Pin the request's workspace so the login response's workspace_role
     // resolves under RLS (workspace_members is workspace-isolated).
@@ -1409,9 +1521,17 @@ pub async fn get_current_user(
     req: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
-
     let claims = rbac::require_auth(&req)?;
+    Ok(HttpResponse::Ok().json(current_user_response(&req, &claims, &mut conn)?))
+}
 
+/// The caller's own profile, with their primary email, preferences and
+/// effective locale and timezone. `/auth/me` and `/account` answer with it.
+pub(crate) fn current_user_response(
+    req: &HttpRequest,
+    claims: &crate::models::Claims,
+    conn: &mut DbConnection,
+) -> Result<crate::models::UserResponse, ApiError> {
     // Parse UUID from claims
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
@@ -1421,10 +1541,10 @@ pub async fn get_current_user(
     // Pin the request's workspace so the user's workspace_role resolves
     // under RLS (workspace_members is workspace-isolated). Without this the
     // /me response carries a null workspace_role in hosted multi-tenant mode.
-    helpers::pin_request_workspace(&req, &mut conn);
+    helpers::pin_request_workspace(req, conn);
 
     // Get user from database using claims
-    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
+    let user = match repository::get_user_by_uuid(&user_uuid, conn) {
         Ok(user) => user,
         Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
@@ -1432,8 +1552,7 @@ pub async fn get_current_user(
     // Flatten user_preferences + primary_email into the response so
     // /me carries the same shape it did before the preferences
     // refactor.
-    let mut response =
-        crate::repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+    let mut response = crate::repository::user_helpers::get_user_with_primary_email(user, conn);
 
     // Populate effective_locale / effective_timezone by walking the
     // chain: user pref -> site default -> hardcoded fallback. A
@@ -1448,8 +1567,8 @@ pub async fn get_current_user(
     // read site_settings through with_actor_context with a
     // workspace pin from the request's RequestContext.
     let (default_locale, default_timezone) = {
-        let actor = crate::handlers::helpers::actor_for(&req, "handler:auth_me");
-        match crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        let actor = crate::handlers::helpers::actor_for(req, "handler:auth_me");
+        match crate::sync::session::with_actor_context(conn, &actor, |c| {
             crate::repository::site_settings::get_site_settings(c)
         }) {
             Ok(s) => (s.default_locale, s.default_timezone),
@@ -1463,7 +1582,7 @@ pub async fn get_current_user(
     response.effective_locale = Some(eff_locale.to_string());
     response.effective_timezone = Some(eff_timezone.name().to_string());
 
-    Ok(HttpResponse::Ok().json(response))
+    Ok(response)
 }
 
 /// Check if system requires initial setup
@@ -1949,8 +2068,8 @@ pub async fn mfa_disable(
         None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
-    // Verify scope - must be "full" (MFA disable requires being fully authenticated)
-    if claims.scope != "full" {
+    // A signed-in session, not an MFA-pending one.
+    if !claims.is_account_session() {
         return Err(ApiError::Forbidden(
             "This action requires a full session".into(),
         ));
@@ -2515,6 +2634,9 @@ pub async fn get_user_sessions(
                 "created_at": session.created_at,
                 "last_active": session.last_active,
                 "expires_at": session.expires_at,
+                // How the identity provider checked who signed in (`amr`);
+                // null for a sign-in that didn't go through one.
+                "provider_amr": session.provider_amr.map(|amr| amr.into_iter().flatten().collect::<Vec<_>>()),
                 "is_current": is_current
             })
         })
@@ -2604,7 +2726,7 @@ pub(crate) async fn verify_step_up(
     refused: &str,
 ) -> Result<(), ApiError> {
     use crate::services::step_up;
-    if claims.scope != "full" {
+    if !claims.is_account_session() {
         return Err(ApiError::Forbidden(
             "This action requires a full session".into(),
         ));
@@ -3143,6 +3265,95 @@ mod tests {
     use super::*;
     use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
     use actix_web::{http::StatusCode, test, App};
+
+    /// A sign-in at the app, finished for `user` in workspace 1, with
+    /// `bearer` as the native app sends it. The cookie names it set and its body.
+    async fn finish_sign_in(
+        conn: &mut DbConnection,
+        user: crate::models::User,
+        bearer: bool,
+    ) -> (Vec<String>, serde_json::Value) {
+        // The value every unit test that mints a token uses.
+        if std::env::var("JWT_SECRET").is_err() {
+            std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only-32chars");
+        }
+        let ws = crate::repository::workspaces::find_by_id(conn, 1)
+            .expect("workspace lookup")
+            .expect("workspace 1");
+        let mut req = test::TestRequest::default();
+        if bearer {
+            req = req.insert_header((crate::utils::auth_mode::AUTH_MODE_HEADER, "bearer"));
+        }
+        let req = req.to_http_request();
+        req.extensions_mut()
+            .insert(crate::extractors::WorkspaceContext {
+                workspace_id: ws.id,
+                workspace_uuid: ws.uuid,
+                slug: ws.slug,
+                name: ws.name,
+                custom_domain: ws.custom_domain,
+                organisation_id: ws.organisation_id,
+            });
+        let resp = complete_login(user, &req, conn).expect("sign in");
+        let cookies = resp.cookies().map(|c| c.name().to_string()).collect();
+        let body = actix_web::body::to_bytes(resp.into_body())
+            .await
+            .expect("body");
+        (cookies, serde_json::from_slice(&body).expect("json"))
+    }
+
+    #[actix_web::test]
+    async fn a_requester_signing_in_at_the_app_lands_in_the_portal() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let requester = TestFixtures::create_user(&mut conn, "Landing Requester", "user");
+        let (cookies, body) = finish_sign_in(&mut conn, requester, false).await;
+        assert!(cookies.iter().any(|c| c == "portal_access"), "{cookies:?}");
+        assert!(!cookies.iter().any(|c| c == "access_token"), "{cookies:?}");
+        assert_eq!(body["portal"], "/portal/tickets", "{body}");
+    }
+
+    #[actix_web::test]
+    async fn staff_and_the_native_app_sign_in_to_the_app() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let agent = TestFixtures::create_user(&mut conn, "Landing Agent", "technician");
+        let (cookies, body) = finish_sign_in(&mut conn, agent, false).await;
+        assert!(cookies.iter().any(|c| c == "access_token"), "{cookies:?}");
+        assert!(body.get("portal").is_none(), "{body}");
+
+        // The native app opens the portal itself.
+        let requester = TestFixtures::create_user(&mut conn, "Native Requester", "user");
+        let (cookies, body) = finish_sign_in(&mut conn, requester, true).await;
+        assert!(cookies.is_empty(), "{cookies:?}");
+        assert!(body["access_token"].is_string(), "{body}");
+        assert!(body.get("portal").is_none(), "{body}");
+    }
+
+    #[actix_web::test]
+    async fn a_provider_session_keeps_how_the_provider_checked() {
+        use crate::services::sso_policy::AdmittedProvider;
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "SSO Session", "technician");
+        let request = test::TestRequest::default().to_http_request();
+        let (h, p) = (r#"{"alg":"RS256"}"#, r#"{"sub":"s","amr":["pwd","mfa"]}"#);
+        let enc = |v: &str| {
+            use base64::Engine as _;
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v)
+        };
+        let token = format!("{}.{}.sig", enc(h), enc(p));
+
+        let proof = SignInProof::Provider(AdmittedProvider::for_test(user.uuid, Some(&token)));
+        let session = create_session_record(&user.uuid, &request, &mut conn, proof)
+            .expect("provider session");
+        assert_eq!(
+            session.provider_amr,
+            Some(vec![Some("pwd".to_owned()), Some("mfa".to_owned())])
+        );
+        assert_eq!(session.oidc_id_token.as_deref(), Some(token.as_str()));
+
+        let local = create_session_record(&user.uuid, &request, &mut conn, SignInProof::Credential)
+            .expect("password session");
+        assert_eq!(local.provider_amr, None);
+    }
 
     /// Helper to create a test app with the public auth routes used by
     /// the tests below.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { configureAssetUrl, proxiedAssetResolver } from '@nosdesk/core/transport'
-import { useSanitise } from '@/composables/useSanitise'
+import { sanitiseSvg, useSanitise } from '@/composables/useSanitise'
 
 // Images inside sanitised HTML (comments, articles) go through the platform's
 // asset resolver like any other image, so they load in the mobile app.
@@ -51,5 +51,21 @@ describe('editor tables', () => {
   it('still drop data attributes and inline styles on cells', () => {
     const out = useSanitise().sanitiseHtml('<table><tbody><tr><td data-colwidth="90" style="color:red">a</td></tr></tbody></table>')
     expect(out).toBe('<table><tbody><tr><td>a</td></tr></tbody></table>')
+  })
+})
+
+describe('svg icons', () => {
+  it('keep their shapes but no styles, images or links', () => {
+    const out = sanitiseSvg(
+      '<svg viewBox="0 0 24 24"><style>body{display:none}</style>' +
+        '<rect width="4" height="4" style="position:fixed;inset:0"/>' +
+        '<path d="M0 0h24"/><image href="https://evil.test/x.png"/><a href="https://evil.test"><circle r="2"/></a></svg>',
+    )
+    expect(out).toContain('<path d="M0 0h24"')
+    expect(out).toContain('<rect')
+    expect(out).not.toContain('<style')
+    expect(out).not.toContain('style=')
+    expect(out).not.toContain('<image')
+    expect(out).not.toContain('evil.test')
   })
 })

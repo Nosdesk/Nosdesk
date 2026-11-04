@@ -33,6 +33,7 @@ import { ACCOUNT_SCOPED_QUERY_KEYS } from '@/stores/accountQueryKeys';
 export type WorkspaceResetReason = 'sign-out' | 'switch';
 
 export async function resetWorkspaceScopedState(reason: WorkspaceResetReason): Promise<void> {
+  enteredSlug = null;
   // Sync runtime, SSE bridge, and collab IndexedDB, first: stopping the poll
   // and the stream before the workspace is cleared below means neither fires
   // with no workspace set. The sync pool's IDB is keyed
@@ -136,12 +137,20 @@ export async function resetWorkspaceScopedState(reason: WorkspaceResetReason): P
   }
 }
 
+// The workspace whose state is loaded, so it loads once per session and
+// workspace. A signed-out visit publishes the slug from the URL but enters
+// nothing; the first navigation once signed in enters. The reset clears it.
+let enteredSlug: string | null = null;
+
 /**
  * The other half of a switch: what a workspace needs loaded once its slug is
- * published (so the selection header is set). Called by the workspace guard
- * after `resetWorkspaceScopedState`, and on the first entry of a session.
+ * published (so the selection header is set). The workspace guard calls it on
+ * every navigation into a workspace while a session is held; it loads only
+ * when this session hasn't entered that workspace yet.
  */
 export async function enterWorkspace(slug: string): Promise<void> {
+  if (enteredSlug === slug) return;
+  enteredSlug = slug;
   const loads = await Promise.allSettled([
     import('@nosdesk/core/stores/ticketDrafts').then((m) =>
       m.useTicketDraftsStore().setScope(slug),

@@ -32,6 +32,7 @@ import {
   installWorkspaceGuard,
   withWorkspaceRouting,
 } from '@/router/workspaceRouting'
+import { ensureSignedInTransport } from '@/test/workspaceRouter'
 
 function makeRouter(): Router {
   const page = { template: '<div />' }
@@ -46,6 +47,7 @@ function makeRouter(): Router {
   })
   installSlugCarrier(router)
   installWorkspaceGuard(router)
+  ensureSignedInTransport()
   return router
 }
 

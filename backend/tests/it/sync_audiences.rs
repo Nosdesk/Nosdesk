@@ -299,12 +299,13 @@ fn seed(db: &common::TestDb) -> Fixture {
             },
         )?;
 
-        // A plugin changed: every member's session loads plugins.
+        // A plugin shown to everyone changed: every member's session loads it.
+        // Keyed by its uuid, as `repository::plugins` writes it.
         emit::record(
             c,
             SyncEmit {
                 aggregate: SyncAggregate::Plugin,
-                aggregate_id: ws.plugin_id.to_string(),
+                aggregate_id: ws.plugin_uuid.to_string(),
                 op: SyncOp::Update,
                 event_type: "plugin.updated",
                 data: json!({ "id": ws.plugin_id, "name": ws.plugin_name, "state": "disabled" }),
@@ -523,6 +524,9 @@ async fn stream_rows(f: &Fixture, viewer: Uuid, actions: Vec<Value>) -> Vec<Valu
         Some(f.ws.workspace_id),
         Arc::new(allowed.into_iter().collect::<HashSet<String>>()),
         guard,
+        // Re-checked only after 30s; the test is done long before.
+        uuid::Uuid::nil(),
+        None,
     );
     let frame = stream.next().await.expect("a frame").expect("frame bytes");
     let frame = String::from_utf8(frame.to_vec()).expect("utf8 frame");

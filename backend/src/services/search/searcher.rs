@@ -387,6 +387,56 @@ mod tests {
     }
 
     #[test]
+    fn an_attachment_on_an_internal_note_is_staff_only() {
+        let attachment = |id: i32| crate::models::Attachment {
+            id,
+            url: format!("/files/{id}"),
+            name: format!("memo-{id}.webm"),
+            file_size: None,
+            mime_type: Some("audio/webm".into()),
+            checksum: None,
+            comment_id: Some(id),
+            uploaded_by: None,
+            created_at: chrono::Utc::now().naive_utc(),
+            transcription: Some("the printer password is on the sticky note".into()),
+            workspace_id: 1,
+        };
+        let docs = vec![
+            crate::services::search::indexer::index_document_from_attachment(
+                &attachment(1),
+                7,
+                "Printer",
+                true,
+            ),
+            crate::services::search::indexer::index_document_from_attachment(
+                &attachment(2),
+                7,
+                "Printer",
+                false,
+            ),
+        ];
+        let (_index, schema, reader) = index_docs(&docs);
+        let found = |include_internal| {
+            ids(&execute_search(
+                &reader,
+                &schema,
+                "printer",
+                10,
+                None,
+                include_internal,
+                1,
+                SortOrder::Relevance,
+                None,
+            )
+            .expect("search"))
+        };
+        assert_eq!(found(false), vec!["attachment-2"]);
+        let mut staff = found(true);
+        staff.sort();
+        assert_eq!(staff, vec!["attachment-1", "attachment-2"]);
+    }
+
+    #[test]
     fn search_is_gated_to_caller_workspace() {
         let docs = vec![ticket(1, 1), ticket(2, 2)];
         let (_index, schema, reader) = index_docs(&docs);

@@ -22,6 +22,7 @@ use crate::models::{
 };
 use crate::repository::plugin_publishers;
 use crate::repository::plugins as plugin_repo;
+use crate::services::plugins::access::{self, PluginCaller};
 use crate::services::plugins::{install, registry, signing, trust};
 use crate::sync::actor::ActorContext;
 use crate::sync::session as actor_session;
@@ -62,6 +63,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/plugins/registry/install",
         web::post().to(crate::handlers::plugins::install_from_registry),
+    )
+    .route(
+        "/admin/plugins/registry/icons/{name}",
+        web::get().to(crate::handlers::plugins::serve_registry_icon),
     )
     .route(
         "/admin/plugins/{uuid}",
@@ -320,17 +325,23 @@ pub async fn list_plugins(req: HttpRequest, mut tc: TenantConn) -> Result<HttpRe
     }
 }
 
-/// List enabled plugins (for frontend plugin loader - authenticated users)
-pub async fn list_enabled_plugins(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    // Any authenticated user can get enabled plugins
+/// List enabled plugins (for frontend plugin loader - authenticated users):
+/// those whose audience the caller is in (`services::plugins::access`).
+pub async fn list_enabled_plugins(
+    req: HttpRequest,
+    auth: AuthContext,
+    mut tc: TenantConn,
+) -> impl Responder {
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Authentication required");
     }
+    let caller = PluginCaller::of(&auth);
 
     match tc.run(plugin_repo::list_enabled_plugins) {
         Ok(plugins) => {
             let response: Vec<_> = plugins
                 .into_iter()
+                .filter(|p| access::plugin_admits(p, caller))
                 .filter_map(|p| PluginResponse::try_from(p).ok())
                 .collect();
             HttpResponse::Ok().json(response)
@@ -860,26 +871,49 @@ impl PluginGate {
     }
 }
 
-/// Load a plugin and authorize a plugin-owned data request: it must exist (under
-/// workspace RLS), be Installed, and have `needed` in its effective (consented)
-/// grant. The outer `Result` is the DB error channel (propagate with `?`); the
-/// inner is the authorization decision — callers fold `Err(gate)` into their own
-/// outcome enum and render it with `gate.into_response()`. This is the
-/// server-side boundary: `api.ts`'s check is defense-in-depth, not the gate.
-pub fn authorize_plugin_data_request(
+/// Load a plugin for a runtime endpoint (storage, collections, events, proxy,
+/// runtime settings, bundle token): it must exist under workspace RLS, be
+/// Installed, and admit `caller` by its component audience. A plugin the
+/// caller is outside of answers like a missing one, so its existence doesn't
+/// leak to them.
+pub fn authorize_plugin_runtime(
     conn: &mut crate::db::DbConnection,
     plugin_uuid: Uuid,
-    needed: &str,
-    denied_msg: &'static str,
+    caller: PluginCaller,
 ) -> Result<Result<crate::models::Plugin, PluginGate>, DieselError> {
     let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
         Ok(p) => p,
         Err(DieselError::NotFound) => return Ok(Err(PluginGate::NotFound)),
         Err(e) => return Err(e),
     };
+    if !access::plugin_admits(&plugin, caller) {
+        return Ok(Err(PluginGate::NotFound));
+    }
     if !plugin.is_active() {
         return Ok(Err(PluginGate::Inactive));
     }
+    Ok(Ok(plugin))
+}
+
+/// Load a plugin and authorize a plugin-owned data request: it must exist (under
+/// workspace RLS), be Installed, admit `caller` (its component audience, see
+/// [`crate::services::plugins::access`]), and have `needed` in its effective
+/// (consented) grant. The outer `Result` is the DB error channel (propagate
+/// with `?`); the inner is the authorization decision — callers fold
+/// `Err(gate)` into their own outcome enum and render it with
+/// `gate.into_response()`. This is the server-side boundary: `api.ts`'s check
+/// is defense-in-depth, not the gate.
+pub fn authorize_plugin_data_request(
+    conn: &mut crate::db::DbConnection,
+    plugin_uuid: Uuid,
+    caller: PluginCaller,
+    needed: &str,
+    denied_msg: &'static str,
+) -> Result<Result<crate::models::Plugin, PluginGate>, DieselError> {
+    let plugin = match authorize_plugin_runtime(conn, plugin_uuid, caller)? {
+        Ok(p) => p,
+        Err(gate) => return Ok(Err(gate)),
+    };
     if !plugin.has_effective_permission(needed) {
         return Ok(Err(PluginGate::Forbidden(denied_msg)));
     }
@@ -900,9 +934,11 @@ const MAX_STORAGE_ENTRIES_PER_PLUGIN: i64 = 1000;
 /// Get storage value for a plugin (authenticated users - for plugin use)
 pub async fn get_plugin_storage(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
+    let caller = PluginCaller::of(&auth);
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Authentication required");
     }
@@ -920,6 +956,7 @@ pub async fn get_plugin_storage(
         let plugin = match authorize_plugin_data_request(
             conn,
             plugin_uuid,
+            caller,
             "storage:plugin",
             "Plugin has not been granted storage access",
         )? {
@@ -957,10 +994,12 @@ pub async fn get_plugin_storage(
 /// otherwise answers 409 with the entry's current `version`.
 pub async fn set_plugin_storage(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<SetPluginDataRequest>,
 ) -> impl Responder {
+    let caller = PluginCaller::of(&auth);
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Authentication required");
     }
@@ -999,6 +1038,7 @@ pub async fn set_plugin_storage(
         let plugin = match authorize_plugin_data_request(
             conn,
             plugin_uuid,
+            caller,
             "storage:plugin",
             "Plugin has not been granted storage access",
         )? {
@@ -1066,9 +1106,11 @@ pub async fn set_plugin_storage(
 /// Delete storage value for a plugin (authenticated users - for plugin use)
 pub async fn delete_plugin_storage(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
+    let caller = PluginCaller::of(&auth);
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Authentication required");
     }
@@ -1084,6 +1126,7 @@ pub async fn delete_plugin_storage(
         let plugin = match authorize_plugin_data_request(
             conn,
             plugin_uuid,
+            caller,
             "storage:plugin",
             "Plugin has not been granted storage access",
         )? {
@@ -1166,6 +1209,7 @@ const PLUGIN_PROXY_RATE_WINDOW_SECS: u64 = 60;
 /// Proxy an external request for a plugin (authenticated users)
 pub async fn proxy_plugin_request(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     proxy_service: web::Data<crate::services::plugins::PluginProxyService>,
     path: web::Path<Uuid>,
@@ -1176,22 +1220,18 @@ pub async fn proxy_plugin_request(
     }
 
     let plugin_uuid = path.into_inner();
+    let caller = PluginCaller::of(&auth);
 
     enum ProxyOutcome {
         Ok(crate::models::Plugin, Vec<crate::models::PluginData>),
-        NotFound,
-        Disabled,
+        Gate(PluginGate),
     }
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        let plugin = match authorize_plugin_runtime(conn, plugin_uuid, caller)? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(ProxyOutcome::NotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(ProxyOutcome::Gate(gate)),
         };
-        if !plugin.is_active() {
-            return Ok(ProxyOutcome::Disabled);
-        }
         // Fetch plugin settings for auth injection. We squash any error
         // to an empty vec rather than failing the proxy call — same
         // degraded-fallback behaviour as the legacy path.
@@ -1207,8 +1247,7 @@ pub async fn proxy_plugin_request(
 
     let (plugin, settings) = match outcome {
         Ok(ProxyOutcome::Ok(p, s)) => (p, s),
-        Ok(ProxyOutcome::NotFound) => return errors::not_found_msg("Plugin not found"),
-        Ok(ProxyOutcome::Disabled) => return errors::forbidden("Plugin is disabled"),
+        Ok(ProxyOutcome::Gate(gate)) => return gate.into_response(),
         Err(e) => {
             error!("Failed to load plugin for proxy: {}", e);
             return errors::internal("Failed to get plugin");
@@ -1276,26 +1315,51 @@ pub async fn proxy_plugin_request(
         }
     };
 
-    // Build secrets map for auth injection (decrypt encrypted secrets)
+    // Build secrets map for auth injection (decrypt encrypted secrets), and
+    // the other settings as text for `private_key_jwt` (`issuer`, `{key}`
+    // placeholders in its token URL).
     let mut secrets = std::collections::HashMap::new();
+    let mut plain_settings = std::collections::HashMap::new();
     for setting in settings {
-        if setting.is_secret {
-            if let Some(value) = setting.value {
-                if let Some(encrypted) = value.as_str() {
-                    match decrypt_plugin_secret(encrypted, &plugin.uuid, &setting.key) {
-                        Ok(decrypted) => {
-                            secrets.insert(setting.key, decrypted);
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to decrypt secret '{}' for plugin '{}': {}",
-                                setting.key, plugin.name, e
-                            );
-                            // Fail closed - don't use potentially compromised data
-                        }
-                    }
+        if !setting.is_secret {
+            let text = match setting.value {
+                Some(serde_json::Value::String(s)) => Some(s),
+                Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+                Some(serde_json::Value::Bool(b)) => Some(b.to_string()),
+                _ => None,
+            };
+            if let Some(text) = text {
+                plain_settings.insert(setting.key, text);
+            }
+        } else if let Some(encrypted) = setting.value.as_ref().and_then(|v| v.as_str()) {
+            match decrypt_plugin_secret(encrypted, &plugin.uuid, &setting.key) {
+                Ok(decrypted) => {
+                    secrets.insert(setting.key, decrypted);
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to decrypt secret '{}' for plugin '{}': {}",
+                        setting.key, plugin.name, e
+                    );
+                    // Fail closed - don't use potentially compromised data
                 }
             }
+        }
+    }
+
+    // A setting the admin hasn't saved yet reads as its manifest default.
+    for def in &manifest.settings {
+        if def.setting_type == "secret" || plain_settings.contains_key(&def.key) {
+            continue;
+        }
+        let text = match &def.default {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+            Some(serde_json::Value::Bool(b)) => Some(b.to_string()),
+            _ => None,
+        };
+        if let Some(text) = text {
+            plain_settings.insert(def.key.clone(), text);
         }
     }
 
@@ -1303,17 +1367,26 @@ pub async fn proxy_plugin_request(
     // gated on the effective (consented) permission set, not the raw manifest,
     // consistent with every other plugin authorization check.
     let network_perms = plugin.effective_permission_set();
+    let creds = crate::services::plugins::proxy::PluginCredentials {
+        secrets,
+        settings: plain_settings,
+        cache_scope: format!("{}:{}", workspace_id.unwrap_or(0), plugin.uuid),
+    };
     match proxy_service
-        .proxy_request(
+        .proxy_request_with(
             &plugin.name,
             &manifest,
             &network_perms,
             body.into_inner(),
-            &secrets,
+            &creds,
         )
         .await
     {
         Ok(response) => HttpResponse::Ok().json(response),
+        Err(crate::services::plugins::PluginProxyError::AuthFailed { message }) => {
+            warn!(plugin = %plugin.name, error = %message, "plugin credential exchange failed");
+            auth_failed_response(&message)
+        }
         Err(e) => {
             // Structured status per failure mode: 403 permission/SSRF, 400 bad
             // method, 504 timeout, 502 other network faults (was a flat 400).
@@ -1328,12 +1401,28 @@ pub async fn proxy_plugin_request(
     }
 }
 
+/// The proxy response for `auth_failed`: a 401 inside a successful proxy
+/// call, marked so a plugin can tell it from an upstream 401, with the reason
+/// in the body. Never an HTTP 401 from this API, which the app would read as
+/// a lost session.
+fn auth_failed_response(message: &str) -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": 401,
+        "headers": {
+            "content-type": "application/json",
+            "x-nosdesk-proxy-error": "auth_failed",
+        },
+        "body": crate::services::plugins::proxy::auth_failed_body(message),
+    }))
+}
+
 /// Read a plugin's own settings at runtime (non-admin, for plugin use). Secret
 /// values are redacted by `PluginSettingResponse` (`value: None` when
 /// `is_secret`) — a plugin never sees its admin-configured secrets, which are
 /// injected server-side by the egress proxy. Requires the plugin to be Installed.
 pub async fn get_plugin_runtime_settings(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
@@ -1341,22 +1430,18 @@ pub async fn get_plugin_runtime_settings(
         return errors::unauthorized("Authentication required");
     }
     let plugin_uuid = path.into_inner();
+    let caller = PluginCaller::of(&auth);
 
     enum Outcome {
         Ok(Vec<crate::models::PluginData>),
-        NotFound,
-        Inactive,
+        Gate(PluginGate),
     }
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        let plugin = match authorize_plugin_runtime(conn, plugin_uuid, caller)? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(Outcome::NotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(Outcome::Gate(gate)),
         };
-        if !plugin.is_active() {
-            return Ok(Outcome::Inactive);
-        }
         let settings = plugin_repo::get_plugin_settings(conn, plugin.id)?;
         Ok::<_, DieselError>(Outcome::Ok(settings))
     });
@@ -1367,8 +1452,7 @@ pub async fn get_plugin_runtime_settings(
                 settings.into_iter().map(Into::into).collect();
             HttpResponse::Ok().json(response)
         }
-        Ok(Outcome::NotFound) => errors::not_found_msg("Plugin not found"),
-        Ok(Outcome::Inactive) => errors::forbidden("Plugin is not active"),
+        Ok(Outcome::Gate(gate)) => gate.into_response(),
         Err(e) => {
             error!("Failed to get plugin runtime settings: {}", e);
             errors::internal("Failed to get settings")
@@ -1625,6 +1709,7 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
         install::InstallError::MissingManifest
         | install::InstallError::InvalidManifest(_)
         | install::InstallError::BundleTooLarge(_)
+        | install::InstallError::BundleContract
         | install::InstallError::InvalidIcon(_)
         | install::InstallError::InvalidManifestSchema(_) => errors::bad_request(err.to_string()),
         install::InstallError::ReinstallSignerMismatch { .. }
@@ -1716,7 +1801,7 @@ pub async fn get_registry(
             "snapshot": {
                 "fetched_at": snapshot.fetched_at,
                 "publishers": snapshot.publishers,
-                "index": snapshot.index,
+                "index": snapshot.index_for_client(),
             },
         })));
     }
@@ -1771,9 +1856,30 @@ pub async fn refresh_registry(
         "snapshot": {
             "fetched_at": snapshot.fetched_at,
             "publishers": snapshot.publishers,
-            "index": snapshot.index,
+            "index": snapshot.index_for_client(),
         },
     })))
+}
+
+/// Serve a registry catalog icon, fetched and checked at registry sync (see
+/// `registry::RegistryCache::icons`), so the browser never loads it from the
+/// registry origin. Any signed-in user: the icon is public catalog content,
+/// and an `<img>` request carries no workspace header to check a role against.
+pub async fn serve_registry_icon(
+    req: HttpRequest,
+    cache: web::Data<registry::SharedCache>,
+    path: web::Path<String>,
+) -> Result<HttpResponse, ApiError> {
+    require_auth(&req)?;
+    let name = path.into_inner();
+    let guard = cache.read().await;
+    match guard.snapshot.as_ref().and_then(|s| s.icons.get(&name)) {
+        Some(icon) => Ok(HttpResponse::Ok()
+            .content_type("image/svg+xml")
+            .insert_header(("Cache-Control", "private, max-age=86400"))
+            .body(icon.svg.clone())),
+        None => Err(ApiError::NotFoundMsg("Not found".into())),
+    }
 }
 
 #[derive(Deserialize)]
@@ -2042,6 +2148,24 @@ mod tests {
     use crate::test_helpers::{claims_for, setup_test_pool};
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
+
+    /// `auth_failed` reaches the plugin as a 401 inside a successful proxy
+    /// call, marked by its header, with the reason in a JSON text body.
+    #[actix_web::test]
+    async fn auth_failed_is_a_marked_401_inside_a_200() {
+        let res = auth_failed_response("Bad credentials");
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = actix_web::body::to_bytes(res.into_body()).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["status"], 401);
+        assert_eq!(json["headers"]["x-nosdesk-proxy-error"], "auth_failed");
+        let body: serde_json::Value =
+            serde_json::from_str(json["body"].as_str().expect("body is text")).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "auth_failed", "message": "Bad credentials" })
+        );
+    }
 
     fn test_app(
         pool: crate::db::Pool,

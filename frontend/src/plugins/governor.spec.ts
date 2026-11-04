@@ -133,6 +133,7 @@ describe('governHostApi routing', () => {
   it('lists exactly the dialog methods as interactive', () => {
     expect([...INTERACTIVE_HOST_METHODS].sort()).toEqual([
       'ui.confirm',
+      'ui.openExternal',
       'ui.pickAsset',
       'ui.pickDate',
       'ui.pickTicket',

@@ -15,13 +15,13 @@ name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.6.3", features = [] }
+tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.11.3", features = [] }
+tauri = { version = "2.12.5", features = [] }
 # Native HTTP client: the webview can't reach the API cross-origin from the
 # tauri:// origin, so REST goes through this (see mobile/src/tauriHttpAdapter.ts).
 tauri-plugin-http = "2"
@@ -31,8 +31,9 @@ tauri-plugin-log = "2"
 # (see frontend/src/platform/haptics.ts). No-ops on desktop.
 tauri-plugin-haptics = "2"
 # System-browser OAuth (ASWebAuthenticationSession / Custom Tabs) for the native
-# OIDC login against the central IdP (see mobile/src/oidc.ts).
-tauri-plugin-web-auth = "1"
+# OIDC login against the central IdP (see mobile/src/oidc.ts). Vendored, see
+# ../tauri-plugin-web-auth/Cargo.toml.
+tauri-plugin-web-auth = { path = "../tauri-plugin-web-auth" }
 # iOS Universal Links / Android App Links: routes a scanned ticket QR
 # (https://<slug>.nosdesk.app/tickets/<id>) into the app. The associated-domains
 # entitlement (gen/apple) + App Links intent-filter (gen/android) + the backend

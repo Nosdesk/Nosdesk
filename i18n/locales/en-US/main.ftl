@@ -253,6 +253,7 @@ login-error-generic = Sign-in failed. Please try again.
 login-error-state-expired = Your sign-in took too long. Please sign in again.
 login-error-provider-denied = Sign-in was cancelled.
 login-error-signin-failed = Sign-in couldn't be completed. Please try again.
+login-error-provider-mfa = Staff sign-in needs multi-factor authentication at your identity provider. Set it up there, or ask your administrator.
 login-mfa-title = Two-Factor Authentication
 login-mfa-subtitle = Please enter your authentication code
 login-mfa-code-label = Authentication Code
@@ -4542,6 +4543,19 @@ no-workspace-access-description = An administrator adds people to workspaces. On
 no-workspace-access-check-again = Check again
 no-workspace-access-wrong-account = Not your account?
 no-workspace-access-sign-out = Sign out
+# Where requesters find their requests, from the app.
+requester-portal-link-toggle = Looking for your requests?
+requester-portal-link-help = If you ask your organization for help, your requests are at its support portal. Enter its address, or its name on Nosdesk.
+requester-portal-link-label = Support portal
+requester-portal-link-placeholder = acme or support.acme.com
+requester-portal-link-invalid = That doesn't look like an address.
+requester-portal-link-open = Open in browser
+requester-portal-title = Your requests are in the portal
+requester-portal-message = This app is for your support team. Your requests and replies are in your organization's support portal, which opens in your browser, already signed in.
+requester-portal-open = Open the portal
+requester-portal-sign-out = Sign out
+requester-portal-open-failed = The portal couldn't be opened. Try again.
+route-title-requester-portal = Your requests
 route-title-no-workspace-access = No workspace yet
 
 # PDF viewer (PDFViewerView)
@@ -4752,6 +4766,7 @@ editor-link-tooltip-apply = Apply
 editor-link-tooltip-cancel = Cancel
 editor-link-tooltip-edit = Edit link
 editor-link-tooltip-remove = Remove link
+editor-link-tooltip-refused = Links can go to a web, email or phone address.
 
 # Editor: document picker (DocumentPicker)
 editor-doc-picker-title = Embed Document
@@ -5511,6 +5526,8 @@ docs-page-permissions-no-collections = Not in any collection, visible to everyon
 docs-page-permissions-custom-description = Select which groups and users can access this page. This overrides collection-level permissions.
 docs-page-permissions-picker-placeholder = Search users and groups...
 docs-page-permissions-no-selection-warning = No groups or users selected, no one except admins will be able to see this page.
+docs-page-permissions-public-label = Show to guests
+docs-page-permissions-public-description = When Public documentation is on, anyone can read this page under Help in the portal, as long as it's published and open to everyone.
 docs-page-permissions-cancel = Cancel
 docs-page-permissions-save = Save
 docs-page-permissions-saving = Saving...
@@ -5665,6 +5682,13 @@ ticket-comments-attachments-missing =
         [note] Your note was sent, but some of its files weren't attached.
        *[reply] Your reply was sent, but some of its files weren't attached.
     }
+ticket-comments-send-failed-too-large =
+    { $kind ->
+        [note] Your note wasn't sent: its attachments are too large. Remove some and try again.
+       *[reply] Your reply wasn't sent: its attachments are too large. Remove some and try again.
+    }
+ticket-comments-attachment-too-large = { $name } is too large to attach. Files can be up to { $limit } MB.
+ticket-comments-attachments-total-too-large = { $name } wasn't attached: a reply's attachments can be up to { $limit } MB together.
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Your note wasn't sent. It couldn't be kept because you switched workspace.
@@ -5794,6 +5818,13 @@ ticket-field-watchers-overflow-title = { $count ->
     [one] { $count } more
    *[other] { $count } more
   }
+ticket-field-watchers-manage = Add or remove watchers
+ticket-field-watchers-add-placeholder = Add a watcher…
+ticket-field-watchers-remove = Remove watcher
+ticket-field-watchers-empty = No one is watching this ticket.
+ticket-field-watchers-done = Done
+ticket-field-watchers-add-failed = The watcher wasn't added.
+ticket-field-watchers-remove-failed = The watcher wasn't removed.
 
 # Ticket: device chip row (TicketDevicesField).
 ticket-field-devices-label = Assets
@@ -6440,6 +6471,9 @@ plugin-dialog-pick-ticket-title = { $plugin } asks you to choose a ticket
 plugin-dialog-pick-date-title = { $plugin } asks you to choose a date
 plugin-dialog-date-label = Date
 plugin-dialog-choose = Choose
+plugin-dialog-open-link-title = { $plugin } wants to open a link
+plugin-dialog-open-link-message = It opens a page on { $host } in a new tab.
+plugin-dialog-open-link-open = Open
 plugin-detail-metadata-heading = Metadata
 plugin-detail-metadata-source = Source
 plugin-detail-metadata-permissions = Permissions
@@ -7463,6 +7497,8 @@ plugin-permission-network-label = Network access
 plugin-permission-network-description = Make network requests to { $host }
 plugin-permission-resource-label = Load { $kind } resources
 plugin-permission-resource-description = Load { $kind } from { $host } in the plugin's own view. An approved origin can receive data through the resource URL, so only allow hosts you trust.
+plugin-permission-link-label = Open links
+plugin-permission-link-description = Open pages on { $host } in a new tab
 plugin-permission-reason-prefix = Author's reason:
 plugin-permission-unknown-label = { $permission }
 plugin-permission-unknown-description = An unrecognized permission
@@ -8519,6 +8555,8 @@ portal-sso-error-domain = That account can't sign in here. Enter your email belo
 portal-nav-requests = My requests
 portal-nav-help = Help
 portal-nav-new = New request
+portal-link-session-notice = You opened this request from an email link.
+portal-link-session-sign-in = Sign in to see all your requests
 portal-sign-out = Sign out
 portal-filter-open = Open
 portal-filter-closed = Closed
@@ -8872,6 +8910,22 @@ requester-sso-client-secret-hint = Needed to show the sign-in button on the port
 portal-nav-label = Help portal
 portal-nav-approvals-short = Approvals
 portal-account-menu = Account
+# The portal's own account page.
+portal-account-settings = Your account
+portal-account-title = Your account
+portal-account-intro = Your profile, how you sign in, and the devices you're signed in on.
+portal-account-profile-title = Profile
+portal-account-name-label = Name
+portal-account-email = You sign in with { $email }.
+portal-account-saved = Your account is saved.
+portal-account-save-failed = Your changes couldn't be saved. Please try again.
+portal-account-load-failed = Your account couldn't be loaded. Please try again.
+portal-account-authenticator-set-up = Set up
+portal-account-authenticator-on = Two-factor authentication is on.
+portal-account-authenticator-off = Two-factor authentication is off.
+portal-account-authenticator-failed = That didn't work. Check your password and try again.
+portal-account-authenticator-new-codes = New recovery codes
+portal-account-authenticator-turn-off = Turn off
 portal-track-sent = Sent
 portal-track-approval = Waiting for approval
 portal-track-approved = Approved

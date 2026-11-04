@@ -50,10 +50,16 @@ export interface AuthStrategy {
    */
   onSessionLost(): void
   /**
+   * Before a deliberate sign-out revokes the session: release what this device
+   * holds on the server and can only release while the session still
+   * authenticates. Mobile: its push registration. Web holds nothing.
+   */
+  beforeSignOut?(): Promise<void>
+  /**
    * Intentional sign-out teardown of the client-held session, distinct from
    * the involuntary `onSessionLost`. Web: clear the JS-accessible auth cookies.
-   * Mobile: drop the bearer + keychain refresh token and unregister push. The
-   * server-side session revocation happens separately (POST /auth/logout).
+   * Mobile: drop the bearer + keychain refresh token. The server-side session
+   * revocation happens before this (POST /auth/logout).
    */
   endSession(): Promise<void>
 }
@@ -115,20 +121,30 @@ export function hostHeadersFor(requestConfig: object): Record<string, string> {
 }
 
 // Hosts can hold requests until they may be sent (a workspace switch in
-// progress), and refuse responses that no longer apply (a request sent under the
-// previous workspace). Both interceptors, web and mobile, run these, so the rule
-// lives in one place rather than in every store that fetches.
-const requestGates: Array<() => Promise<void> | void> = []
+// progress) or refuse to send them (a sign-out under way), and refuse responses
+// that no longer apply (a request sent under the previous workspace). Both
+// interceptors, web and mobile, run these, so the rule lives in one place
+// rather than in every store that fetches.
+
+/** What a gate is told about the request it is holding. */
+export interface GatedRequest {
+  url?: string
+}
+
+/** Resolves when the request may go; rejects to refuse it unsent. */
+export type RequestGate = (request: GatedRequest) => Promise<void> | void
+
+const requestGates: RequestGate[] = []
 const responseGuards: Array<(sentHeaders: Record<string, string>) => string | null> = []
 
 /** Register a gate each request awaits before its headers are built. */
-export function addRequestGate(gate: () => Promise<void> | void): void {
+export function addRequestGate(gate: RequestGate): void {
   requestGates.push(gate)
 }
 
 /** Wait for every registered gate. */
-export async function passRequestGates(): Promise<void> {
-  for (const gate of requestGates) await gate()
+export async function passRequestGates(request: GatedRequest = {}): Promise<void> {
+  for (const gate of requestGates) await gate(request)
 }
 
 /**

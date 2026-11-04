@@ -171,6 +171,11 @@ pub async fn register_push_device(
     body: web::Json<RegisterDeviceRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let (user_uuid, workspace_id) = caller(&req)?;
+    // The registration lives as long as the session that makes it. An API
+    // token has none, and a device registered with one would never be released.
+    let session = require_auth(&req)?.session_uuid().ok_or_else(|| {
+        ApiError::Forbidden("A push device is registered from a signed-in session".into())
+    })?;
     if !matches!(body.platform.as_str(), "ios" | "android" | "web") {
         return Err(ApiError::BadRequest(format!(
             "Invalid platform: {}",
@@ -191,6 +196,7 @@ pub async fn register_push_device(
         crate::repository::push_devices::register(
             conn,
             user_uuid,
+            session,
             workspace_id,
             &body.platform,
             token,
@@ -208,6 +214,11 @@ pub async fn register_push_device(
                 .await;
             Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
         }
+        // The session ended after this request authenticated.
+        Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+            _,
+        )) => Err(ApiError::Unauthorized("Session no longer active".into())),
         Err(e) => Err(ApiError::Database(e)),
     }
 }

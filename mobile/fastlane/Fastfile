@@ -27,6 +27,12 @@ def build_number
   ENV["BUILD_NUMBER"] || "1"
 end
 
+# A build-only run (the workflow's `build_only`) builds and signs, then stops
+# before the store upload.
+def build_only?
+  ENV["NOSDESK_BUILD_ONLY"] == "1"
+end
+
 # Run the Tauri CLI through the workspace's pinned pnpm.
 def tauri(*args)
   sh("pnpm", "tauri", *args)
@@ -109,6 +115,7 @@ platform :ios do
     # IOS_CERTIFICATE / IOS_CERTIFICATE_PASSWORD / IOS_MOBILE_PROVISION +
     # APPLE_DEVELOPMENT_TEAM. No fastlane cert/profile handling needed.
     tauri("ios", "build", "--export-method", "app-store-connect")
+    next UI.success("Build only: #{IPA_PATH} not uploaded") if build_only?
 
     upload_to_testflight(
       api_key: api_key,
@@ -137,6 +144,8 @@ platform :android do
   desc "Build and upload an Android build to the Play internal track"
   lane :beta do
     tauri("android", "build", "--aab")
+    next UI.success("Build only: #{AAB_PATH} not uploaded") if build_only?
+
     upload_to_play_store(
       track: "internal",
       aab: AAB_PATH,

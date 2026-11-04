@@ -197,6 +197,7 @@ fn session(
             expires_at: (now + chrono::Duration::days(1)).naive_utc(),
             oidc_id_token: None,
             confirmed_at: confirmed_ago.map(|ago| (now - ago).naive_utc()),
+            provider_amr: None,
         },
     )
     .expect("session")

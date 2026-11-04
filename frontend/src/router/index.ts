@@ -4,6 +4,7 @@ import { installNavigationTracking } from './navigation'
 import { canOpenRoute, isGatedRoute, routeViewer } from './access'
 import { fetchInstanceConfig, getWorkspaceRouting, isHostedDeployment } from '@nosdesk/core/services/instanceConfig'
 import { lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
+import { transport } from '@nosdesk/core/transport'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
 import { ticketNumberForId } from '@/utils/ticketNumbers'
@@ -147,6 +148,14 @@ const router = createRouter({
         requiresAuth: false,
         titleKey: 'route-title-no-workspace-access',
       },
+    },
+    {
+      // A requester signed in to the native app (self-hosted): their requests
+      // are in the portal, which opens in the browser.
+      path: '/requests',
+      name: 'requester-portal',
+      component: () => import('@/views/RequesterPortalView.vue'),
+      meta: { layout: 'blank', requiresAuth: false, titleKey: 'route-title-requester-portal' },
     },
     {
       path: '/submit-ticket',
@@ -1241,8 +1250,16 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   // Session restoration: when frontend auth state is cleared (e.g. page refresh after
   // the 15-min access token expires), attempt to restore the session using the 7-day
   // refresh token. fetchUserData() calls /auth/me → gets 401 → apiConfig interceptor
-  // transparently refreshes the access token and retries the request.
-  if (requiresAuth && !authStore.isAuthenticated && !authStore.loading && to.name !== 'login') {
+  // transparently refreshes the access token and retries the request. Only with a
+  // session to restore: the CSRF cookie lives exactly as long as the refresh cookie,
+  // so without it /auth/me and the refresh can only be refused.
+  if (
+    requiresAuth &&
+    !authStore.isAuthenticated &&
+    !authStore.loading &&
+    to.name !== 'login' &&
+    transport().auth.hasSession()
+  ) {
     try {
       await authStore.fetchUserData();
     } catch {
@@ -1305,8 +1322,8 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   }
 
   // Self-hosted requesters live in the portal: a member landing on the app's
-  // home is handed over to it, already signed in. Staff stay; the native apps
-  // bundle only the agent app, so they stay too.
+  // home is handed over to it, already signed in. Staff stay. The native app
+  // shows where their requests are and opens the portal in the browser.
   if (
     to.name === 'home' &&
     authStore.isAuthenticated &&
@@ -1316,10 +1333,9 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
     !isHostedDeployment()
   ) {
     const { isTauriRuntime } = await import('@/platform');
-    if (!isTauriRuntime()) {
-      window.location.replace('/api/me/portal');
-      return false;
-    }
+    if (isTauriRuntime()) return { name: 'requester-portal' };
+    window.location.replace('/api/me/portal');
+    return false;
   }
 
   // Load feature flags once per session for any authenticated route. Failures

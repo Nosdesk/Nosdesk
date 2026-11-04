@@ -58,6 +58,8 @@ diesel::table! {
         session_id -> Uuid,
         oidc_id_token -> Nullable<Text>,
         confirmed_at -> Nullable<Timestamptz>,
+        scope_ticket_id -> Nullable<Int4>,
+        provider_amr -> Nullable<Array<Nullable<Text>>>,
     }
 }
 
@@ -622,6 +624,14 @@ diesel::table! {
         #[max_length = 16]
         render_kind -> Nullable<Varchar>,
         client_id -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    credential_epochs (user_uuid) {
+        user_uuid -> Uuid,
+        epoch -> Int4,
+        raised_at -> Timestamptz,
     }
 }
 
@@ -1915,6 +1925,7 @@ diesel::table! {
         approval_state -> Nullable<Text>,
         number -> Int4,
         raised_by_staff -> Bool,
+        blank_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -2072,6 +2083,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         last_seen_at -> Timestamptz,
         revoked_at -> Nullable<Timestamptz>,
+        session_id -> Uuid,
     }
 }
 
@@ -2533,6 +2545,7 @@ diesel::joinable!(channels -> workspaces (workspace_id));
 diesel::joinable!(comment_ticket_references -> workspaces (workspace_id));
 diesel::joinable!(comments -> users (user_uuid));
 diesel::joinable!(comments -> workspaces (workspace_id));
+diesel::joinable!(credential_epochs -> users (user_uuid));
 diesel::joinable!(csp_reports -> users (user_uuid));
 diesel::joinable!(csp_reports -> workspaces (workspace_id));
 diesel::joinable!(cycle_tickets -> users (added_by));
@@ -2697,6 +2710,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     channels,
     comment_ticket_references,
     comments,
+    credential_epochs,
     csp_reports,
     cycle_tickets,
     cycles,

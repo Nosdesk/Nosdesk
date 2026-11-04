@@ -521,6 +521,17 @@ impl From<ApiError> for CallbackFailure {
     }
 }
 
+impl From<crate::services::sso_policy::Refusal> for CallbackFailure {
+    fn from(refusal: crate::services::sso_policy::Refusal) -> Self {
+        use crate::services::sso_policy::Refusal;
+        match refusal {
+            // Logged and recorded where it was decided.
+            Refusal::MfaNotReported => Self::Denied(AUTH_ERROR_PROVIDER_MFA),
+            Refusal::Unknown => Self::Failed("Reading the account's seats failed".into()),
+        }
+    }
+}
+
 impl CallbackFailure {
     fn code(&self) -> &'static str {
         match self {
@@ -798,11 +809,11 @@ async fn complete_oauth_callback(
                         ));
                     }
                 };
-                let auth_time =
+                let provider_claims =
                     match oidc::verify_microsoft_id_token(id_token, &tenant_id, &client_id, &nonce)
                         .await
                     {
-                        Ok(auth_time) => auth_time,
+                        Ok(claims) => claims,
                         Err(e) => {
                             error!(error = %e, "Microsoft ID token verification failed");
                             return Err(CallbackFailure::Failed(
@@ -942,18 +953,22 @@ async fn complete_oauth_callback(
                             user.uuid,
                         );
                     }
+                    // Microsoft logout uses its own endpoint (no id_token_hint
+                    // requirement), so no id_token to store.
+                    let proof = crate::services::sso_policy::admit(
+                        &mut conn,
+                        request,
+                        &user,
+                        None,
+                        provider_claims,
+                    )
+                    .map_err(CallbackFailure::from)?;
                     crate::handlers::auth::complete_login_redirect(
                         user,
                         request,
                         &mut conn,
                         &safe_post_login_location(&state_data.redirect_uri),
-                        // Microsoft logout uses its own endpoint (no id_token_hint
-                        // requirement), so no id_token to store; auth_time is
-                        // when Microsoft last asked for a credential.
-                        crate::handlers::auth::SignInProof::Provider {
-                            id_token: None,
-                            auth_time,
-                        },
+                        proof,
                     )
                     .map_err(CallbackFailure::from)
                 }
@@ -1123,12 +1138,20 @@ async fn complete_oauth_callback(
                             user.uuid,
                         );
                     }
+                    let proof = crate::services::sso_policy::admit(
+                        &mut conn,
+                        request,
+                        &user,
+                        Some(&id_token),
+                        crate::services::step_up::ProviderClaims::from_id_token(&id_token),
+                    )
+                    .map_err(CallbackFailure::from)?;
                     crate::handlers::auth::complete_login_redirect(
                         user,
                         request,
                         &mut conn,
                         &safe_post_login_location(&state_data.redirect_uri),
-                        crate::handlers::auth::SignInProof::provider(&id_token),
+                        proof,
                     )
                     .map_err(CallbackFailure::from)
                 }
@@ -1555,6 +1578,9 @@ const AUTH_ERROR_STATE_EXPIRED: &str = "state_expired";
 const AUTH_ERROR_PROVIDER_DENIED: &str = "provider_denied";
 /// Any other failure to finish signing in; the detail is in the server log.
 const AUTH_ERROR_SIGNIN_FAILED: &str = "signin_failed";
+/// Staff signed in without multi-factor at the provider while
+/// `SSO_REQUIRE_MFA` is on (`services::sso_policy`).
+const AUTH_ERROR_PROVIDER_MFA: &str = "provider_mfa";
 
 /// Longest return path sign-in follows; a longer one falls back to "/".
 const MAX_RETURN_PATH_LEN: usize = 2048;
@@ -1711,15 +1737,27 @@ pub async fn native_oidc_login(
         }
     };
 
-    let (response, tokens) = crate::handlers::auth::establish_login_session(
-        user,
-        &request,
+    // The verified id_token the app presented, kept for RP-initiated logout.
+    let proof = match crate::services::sso_policy::admit(
         &mut conn,
-        // The verified id_token the app presented, kept for RP-initiated
-        // logout; its auth_time is when the provider last asked for a
-        // credential.
-        crate::handlers::auth::SignInProof::provider(&body.id_token),
-    )?;
+        &request,
+        &user,
+        Some(&body.id_token),
+        crate::services::step_up::ProviderClaims::from_id_token(&body.id_token),
+    ) {
+        Ok(proof) => proof,
+        Err(crate::services::sso_policy::Refusal::MfaNotReported) => {
+            return Err(ApiError::Forbidden(
+                "Staff sign-in needs multi-factor authentication at your identity provider. Set it up there, or ask your administrator."
+                    .into(),
+            ))
+        }
+        Err(crate::services::sso_policy::Refusal::Unknown) => {
+            return Err(ApiError::Internal("Failed to authenticate user".into()))
+        }
+    };
+    let (response, tokens) =
+        crate::handlers::auth::establish_login_session(user, &request, &mut conn, proof)?;
     Ok(crate::handlers::auth::build_auth_response(
         &request, response, &tokens,
     ))
@@ -2403,7 +2441,8 @@ async fn confirm_step_up(
                         warn!(error = %e, "step-up: OIDC code exchange failed");
                         STEP_UP_FAILED
                     })?;
-            let auth_time = crate::services::step_up::id_token_auth_time(&id_token);
+            let auth_time =
+                crate::services::step_up::ProviderClaims::from_id_token(&id_token).auth_time;
             (oidc_identity_issuer(), info.sub, Some(id_token), auth_time)
         }
         "microsoft" => {
@@ -2425,7 +2464,8 @@ async fn confirm_step_up(
                     .map_err(|e| {
                         warn!(error = %e, "step-up: Microsoft ID token verification failed");
                         STEP_UP_FAILED
-                    })?;
+                    })?
+                    .auth_time;
             let me = get_microsoft_user_info(&tokens.access_token)
                 .await
                 .map_err(|e| {
@@ -2841,6 +2881,19 @@ mod login_claims_tests {
         assert_eq!(resp.status(), actix_web::http::StatusCode::FOUND);
         let loc = resp.headers().get("location").unwrap().to_str().unwrap();
         assert_eq!(loc, "/login?auth_error=no_seat");
+    }
+
+    #[test]
+    fn staff_without_provider_mfa_land_on_sign_in_with_its_code() {
+        use crate::services::sso_policy::Refusal;
+        assert_eq!(
+            super::CallbackFailure::from(Refusal::MfaNotReported).code(),
+            "provider_mfa"
+        );
+        assert_eq!(
+            super::CallbackFailure::from(Refusal::Unknown).code(),
+            super::AUTH_ERROR_SIGNIN_FAILED
+        );
     }
 
     #[test]

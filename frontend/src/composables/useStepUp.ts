@@ -1,7 +1,7 @@
 import { computed, onScopeDispose, ref, watch } from 'vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import { useFluent } from 'fluent-vue';
-import stepUpService, {
+import {
   STEP_UP_CHANNEL,
   STEP_UP_POPUP_FEATURES,
   STEP_UP_POPUP_NAME,
@@ -14,6 +14,7 @@ import stepUpService, {
   type StepUpStatus,
 } from '@/services/stepUpService';
 import passkeyService from '@/services/passkeyService';
+import { useAccountApi } from '@/composables/useAccountApi';
 import { extractErrorMessage } from '@/utils/errors';
 
 export const STEP_UP_KEY = ['auth', 'step-up'] as const;
@@ -48,10 +49,11 @@ export const STEP_UP_WAIT_MS = 30 * 60 * 1000;
 export function useStepUp() {
   const fluent = useFluent();
   const queryCache = useQueryCache();
+  const account = useAccountApi();
 
   const query = useQuery({
     key: STEP_UP_KEY,
-    query: () => stepUpService.status(),
+    query: () => account.stepUp.status(),
     staleTime: 0,
   });
 
@@ -120,7 +122,7 @@ export function useStepUp() {
     error.value = null;
     popupResult.value = null;
     try {
-      const result = await stepUpService.confirm(credential);
+      const result = await account.stepUp.confirm(credential);
       setConfirmedUntil(result.confirmed_until);
       return true;
     } catch (err) {
@@ -136,7 +138,7 @@ export function useStepUp() {
     error.value = null;
     popupResult.value = null;
     try {
-      const result = await passkeyService.confirmStepUp();
+      const result = await account.stepUp.confirmWithPasskey();
       setConfirmedUntil(result.confirmed_until);
       return true;
     } catch (err) {

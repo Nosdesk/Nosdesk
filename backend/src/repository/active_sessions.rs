@@ -131,6 +131,7 @@ pub fn embedded_session(
             expires_at: expires,
             oidc_id_token: None,
             confirmed_at: None,
+            provider_amr: None,
         },
     )
 }
@@ -185,13 +186,41 @@ pub fn update_session_activity(
 /// Revoke every session for a user, including the caller's own. Used where the
 /// account's credentials just changed out from under all of them (password
 /// reset) or the account lost its upstream identity (a removed SSO mapping).
-/// To keep the caller signed in, use [`revoke_other_sessions_by_uuid`].
+/// To keep the caller signed in, use [`revoke_other_sessions_by_uuid`]. Both
+/// also end what could sign the account in again later: see
+/// [`end_standing_sign_ins`].
 pub fn revoke_all_sessions(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::delete(active_sessions::table.filter(active_sessions::user_uuid.eq(user_uuid)))
-        .execute(conn)
+    conn.transaction(|conn| {
+        let revoked =
+            diesel::delete(active_sessions::table.filter(active_sessions::user_uuid.eq(user_uuid)))
+                .execute(conn)?;
+        end_standing_sign_ins(conn, user_uuid)?;
+        Ok(revoked)
+    })
+}
+
+/// Stop every way to sign `user_uuid` in that outlives a session: raise their
+/// credential epoch, so a "View request" or approval link issued before now
+/// is refused, and spend their unused portal sign-in links and codes.
+fn end_standing_sign_ins(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> Result<(), diesel::result::Error> {
+    crate::repository::credential_epochs::raise(conn, user_uuid)?;
+    for unused in [
+        crate::utils::reset_tokens::TokenType::PortalMagicLink,
+        crate::utils::reset_tokens::TokenType::PortalHandoff,
+    ] {
+        crate::repository::reset_tokens::invalidate_tokens_by_type(
+            conn,
+            *user_uuid,
+            unused.as_str(),
+        )?;
+    }
+    Ok(())
 }
 
 // sync-audit-only: Sessions / auth tokens (covered by security_events)
@@ -201,12 +230,41 @@ pub fn revoke_other_sessions_by_uuid(
     user_uuid: &Uuid,
     current_session_uuid: &Uuid,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::delete(
-        active_sessions::table
-            .filter(active_sessions::user_uuid.eq(user_uuid))
-            .filter(active_sessions::session_id.ne(current_session_uuid)),
-    )
-    .execute(conn)
+    conn.transaction(|conn| {
+        let revoked = diesel::delete(
+            active_sessions::table
+                .filter(active_sessions::user_uuid.eq(user_uuid))
+                .filter(active_sessions::session_id.ne(current_session_uuid)),
+        )
+        .execute(conn)?;
+        end_standing_sign_ins(conn, user_uuid)?;
+        Ok(revoked)
+    })
+}
+
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
+/// Limit session `sid` to one ticket: a portal session opened from that
+/// ticket's link.
+pub fn limit_to_ticket(
+    conn: &mut DbConnection,
+    sid: &Uuid,
+    ticket_id: i32,
+) -> Result<usize, diesel::result::Error> {
+    diesel::update(active_sessions::table.filter(active_sessions::session_id.eq(sid)))
+        .set(active_sessions::scope_ticket_id.eq(Some(ticket_id)))
+        .execute(conn)
+}
+
+/// The ticket session `sid` is limited to, if any. `NotFound` when there is
+/// no such session.
+pub fn ticket_scope(
+    conn: &mut DbConnection,
+    sid: &Uuid,
+) -> Result<Option<i32>, diesel::result::Error> {
+    active_sessions::table
+        .filter(active_sessions::session_id.eq(sid))
+        .select(active_sessions::scope_ticket_id)
+        .first(conn)
 }
 
 // sync-audit-only: Sessions / auth tokens (covered by security_events)
@@ -277,6 +335,7 @@ mod tests {
             expires_at: (Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
             confirmed_at: None,
+            provider_amr: None,
         }
     }
 

@@ -34,6 +34,8 @@ const router = createRouter({
     { path: '/new', redirect: '/tickets/new' },
     // The request's number, as the requester quotes it.
     { path: '/tickets/:number(\\d+)', name: 'ticket', component: TicketView, props: true },
+    // The signed-in person's own account.
+    { path: '/account', name: 'account', component: () => import('./views/AccountView.vue') },
     // Requests waiting for the signed-in person's approval.
     { path: '/approvals', name: 'approvals', component: () => import('./views/ApprovalsView.vue') },
     {

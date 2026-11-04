@@ -205,6 +205,8 @@ login-error-generic = Inloggen mislukt. Probeer het opnieuw.
 login-error-state-expired = Het inloggen duurde te lang. Log opnieuw in.
 login-error-provider-denied = Het inloggen is geannuleerd.
 login-error-signin-failed = Het inloggen kon niet worden voltooid. Probeer het opnieuw.
+# (machine, nog na te kijken door moedertaalspreker)
+login-error-provider-mfa = Voor medewerkers is meervoudige verificatie bij uw identiteitsprovider vereist. Stel die daar in, of neem contact op met uw beheerder.
 login-mfa-title = Tweefactorauthenticatie
 login-mfa-subtitle = Voer uw authenticatiecode in
 login-mfa-code-label = Authenticatiecode
@@ -5067,6 +5069,19 @@ no-workspace-access-description = Een beheerder voegt mensen toe aan werkruimten
 no-workspace-access-check-again = Opnieuw controleren
 no-workspace-access-wrong-account = Niet jouw account?
 no-workspace-access-sign-out = Afmelden
+# Waar aanvragers hun aanvragen vinden, vanuit de app (machine, nog na te kijken door moedertaalspreker)
+requester-portal-link-toggle = Op zoek naar uw aanvragen?
+requester-portal-link-help = Als u uw organisatie om hulp vraagt, staan uw aanvragen op haar supportportaal. Vul het adres in, of de naam op Nosdesk.
+requester-portal-link-label = Supportportaal
+requester-portal-link-placeholder = acme of support.acme.com
+requester-portal-link-invalid = Dat lijkt geen adres.
+requester-portal-link-open = Openen in browser
+requester-portal-title = Uw aanvragen staan op het portaal
+requester-portal-message = Deze app is voor uw supportteam. Uw aanvragen en antwoorden staan op het supportportaal van uw organisatie, dat in uw browser opent, al ingelogd.
+requester-portal-open = Portaal openen
+requester-portal-sign-out = Uitloggen
+requester-portal-open-failed = Het portaal kon niet worden geopend. Probeer het opnieuw.
+route-title-requester-portal = Uw aanvragen
 route-title-no-workspace-access = Nog geen werkruimte
 error-page-debug-title = Debug-instellingen (druk op 'd' om te wisselen)
 error-page-debug-master-toggle = Hoofdschakelaar effecten
@@ -5282,6 +5297,8 @@ editor-link-tooltip-apply = Toepassen
 editor-link-tooltip-cancel = Annuleren
 editor-link-tooltip-edit = Link bewerken
 editor-link-tooltip-remove = Link verwijderen
+# (machine, nog na te kijken door moedertaalspreker)
+editor-link-tooltip-refused = Een link kan naar een web-, e-mail- of telefoonadres gaan.
 
 # Editor: documentkiezer (DocumentPicker)
 editor-doc-picker-title = Document insluiten
@@ -6053,6 +6070,9 @@ docs-page-permissions-no-collections = In geen enkele collectie, zichtbaar voor 
 docs-page-permissions-custom-description = Selecteer welke groepen en gebruikers toegang hebben tot deze pagina. Dit overschrijft de rechten op collectieniveau.
 docs-page-permissions-picker-placeholder = Zoek gebruikers en groepen...
 docs-page-permissions-no-selection-warning = Geen groepen of gebruikers geselecteerd, niemand behalve beheerders kan deze pagina zien.
+# (machine, nog na te kijken door moedertaalspreker)
+docs-page-permissions-public-label = Tonen aan gasten
+docs-page-permissions-public-description = Als openbare documentatie aan staat, kan iedereen deze pagina lezen onder Help in het portaal, zolang ze gepubliceerd is en voor iedereen open staat.
 docs-page-permissions-cancel = Annuleren
 docs-page-permissions-save = Opslaan
 docs-page-permissions-saving = Opslaan...
@@ -6218,6 +6238,16 @@ ticket-comments-attachments-missing =
        *[reply] Je antwoord is verzonden, maar enkele bestanden zijn niet bijgevoegd.
     }
 # Antwoord niet verzonden en niet bewaard na wisselen van werkruimte (machine, na te kijken door moedertaalspreker).
+# MACHINE TRANSLATION, pending native review
+ticket-comments-send-failed-too-large =
+    { $kind ->
+        [note] Je notitie is niet verzonden: de bijlagen zijn te groot. Verwijder er een paar en probeer het opnieuw.
+       *[reply] Je antwoord is niet verzonden: de bijlagen zijn te groot. Verwijder er een paar en probeer het opnieuw.
+    }
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachment-too-large = { $name } is te groot om toe te voegen. Bestanden mogen maximaal { $limit } MB zijn.
+# MACHINE TRANSLATION, pending native review
+ticket-comments-attachments-total-too-large = { $name } is niet toegevoegd: de bijlagen van een antwoord mogen samen maximaal { $limit } MB zijn.
 ticket-comments-send-failed-not-kept =
     { $kind ->
         [note] Je notitie is niet verzonden. Ze kon niet worden bewaard, omdat je van werkruimte bent gewisseld.
@@ -6347,6 +6377,13 @@ ticket-field-watchers-overflow-title = { $count ->
     [one] nog { $count }
    *[other] nog { $count }
   }
+ticket-field-watchers-manage = Volgers toevoegen of verwijderen
+ticket-field-watchers-add-placeholder = Volger toevoegen…
+ticket-field-watchers-remove = Volger verwijderen
+ticket-field-watchers-empty = Niemand volgt dit ticket.
+ticket-field-watchers-done = Klaar
+ticket-field-watchers-add-failed = De volger is niet toegevoegd.
+ticket-field-watchers-remove-failed = De volger is niet verwijderd.
 
 # Ticket: apparatenrij (TicketDevicesField).
 ticket-field-devices-label = Activa
@@ -7024,6 +7061,12 @@ plugin-dialog-pick-ticket-title = { $plugin } vraagt u een ticket te kiezen
 plugin-dialog-pick-date-title = { $plugin } vraagt u een datum te kiezen
 plugin-dialog-date-label = Datum
 plugin-dialog-choose = Kiezen
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-title = { $plugin } wil een link openen
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-message = Er wordt een pagina op { $host } geopend in een nieuw tabblad.
+# MACHINE TRANSLATION, pending native review
+plugin-dialog-open-link-open = Openen
 plugin-detail-metadata-heading = Metadata
 plugin-detail-metadata-source = Bron
 plugin-detail-metadata-permissions = Machtigingen
@@ -8041,6 +8084,10 @@ plugin-permission-network-description = Netwerkverzoeken doen naar { $host }
 plugin-permission-resource-label = { $kind }-bronnen laden
 # MACHINE TRANSLATION, pending native review
 plugin-permission-resource-description = { $kind } laden vanaf { $host } in de eigen weergave van de plug-in. Een goedgekeurde oorsprong kan gegevens ontvangen via de bron-URL, sta daarom alleen vertrouwde hosts toe.
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-label = Links openen
+# MACHINE TRANSLATION, pending native review
+plugin-permission-link-description = Pagina's op { $host } openen in een nieuw tabblad
 # MACHINE TRANSLATION, pending native review
 plugin-permission-reason-prefix = Reden van de auteur:
 plugin-permission-unknown-label = { $permission }
@@ -9256,6 +9303,9 @@ portal-sso-error-domain = Met dat account kun je hier niet aanmelden. Vul hieron
 portal-nav-requests = Mijn verzoeken
 portal-nav-help = Help
 portal-nav-new = Nieuw verzoek
+# (machine, nog na te kijken door moedertaalspreker)
+portal-link-session-notice = U hebt deze aanvraag geopend via een link in een e-mail.
+portal-link-session-sign-in = Meld u aan om al uw aanvragen te zien
 portal-sign-out = Uitloggen
 portal-filter-open = Open
 portal-filter-closed = Gesloten
@@ -9615,6 +9665,22 @@ requester-sso-client-secret-hint = Nodig om de aanmeldknop op het portaal te ton
 portal-nav-label = Hulpportaal
 portal-nav-approvals-short = Goedkeuringen
 portal-account-menu = Account
+# Accountpagina van het portaal (machine, nog na te kijken door moedertaalspreker)
+portal-account-settings = Uw account
+portal-account-title = Uw account
+portal-account-intro = Uw profiel, hoe u inlogt en de apparaten waarop u bent ingelogd.
+portal-account-profile-title = Profiel
+portal-account-name-label = Naam
+portal-account-email = U logt in met { $email }.
+portal-account-saved = Uw account is opgeslagen.
+portal-account-save-failed = Uw wijzigingen konden niet worden opgeslagen. Probeer het opnieuw.
+portal-account-load-failed = Uw account kon niet worden geladen. Probeer het opnieuw.
+portal-account-authenticator-set-up = Instellen
+portal-account-authenticator-on = Tweestapsverificatie staat aan.
+portal-account-authenticator-off = Tweestapsverificatie staat uit.
+portal-account-authenticator-failed = Dat is niet gelukt. Controleer uw wachtwoord en probeer het opnieuw.
+portal-account-authenticator-new-codes = Nieuwe herstelcodes
+portal-account-authenticator-turn-off = Uitschakelen
 portal-track-sent = Verstuurd
 portal-track-approval = Wacht op goedkeuring
 portal-track-approved = Goedgekeurd

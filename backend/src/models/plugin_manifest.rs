@@ -254,8 +254,10 @@ pub struct PluginUrlHandler {
 }
 
 /// Authentication configuration for a specific domain/host pattern
+/// Unknown fields are refused, as everywhere in the manifest: a misspelt
+/// optional field (`token_feild`) would otherwise fall back to its default.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PluginAuthConfig {
     /// Authorization: Bearer <secret_value>
     Bearer { secret: String },
@@ -272,6 +274,30 @@ pub enum PluginAuthConfig {
         client_id_secret: String,
         client_secret_secret: String,
     },
+    /// Sign an RS256 JWT with a private key and exchange it for a short-lived
+    /// access token (a GitHub App installation token, for one). `private_key`
+    /// names a `secret` setting holding an RSA PEM; `issuer` a setting whose
+    /// value is the JWT's `iss`. `token_url` is https and may hold `{key}`
+    /// placeholders filled from non-secret settings. The response's
+    /// `token_field` is the token and `expires_field` its expiry, an RFC 3339
+    /// time or a number of seconds.
+    PrivateKeyJwt {
+        private_key: String,
+        issuer: String,
+        token_url: String,
+        #[serde(default = "default_token_field")]
+        token_field: String,
+        #[serde(default = "default_expires_field")]
+        expires_field: String,
+    },
+}
+
+fn default_token_field() -> String {
+    "access_token".to_string()
+}
+
+fn default_expires_field() -> String {
+    "expires_in".to_string()
 }
 
 /// Plugin component configuration in manifest. The `kind` field
@@ -313,9 +339,8 @@ pub struct PluginComponentConfig {
 
     /// Who the host shows this component to. Omitted means `all`. A viewer
     /// below the audience gets no slot panel, nav link, action or plugin page
-    /// for it. This is a visibility setting, not a security boundary: the
-    /// plugin's permissions are enforced on the client bridge and the
-    /// viewer's own API permissions still apply to every call it makes.
+    /// for it, and the plugin's runtime endpoints admit only the widest
+    /// audience among its components (`services::plugins::access`).
     #[serde(default)]
     pub audience: PluginComponentAudience,
 }
@@ -623,5 +648,7 @@ fn default_method() -> String {
 pub struct PluginProxyResponse {
     pub status: u16,
     pub headers: std::collections::HashMap<String, String>,
-    pub body: Option<serde_json::Value>,
+    /// The upstream body as text, verbatim: JSON is not parsed and text is not
+    /// quoted. Empty for a bodyless response (204, 205, 304).
+    pub body: String,
 }
