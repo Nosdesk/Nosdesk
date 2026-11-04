@@ -115,6 +115,40 @@ describe('LoginView SSO', () => {
   })
 })
 
+describe('LoginView on load', () => {
+  it('asks for the setup status without waiting for the passkey check', async () => {
+    let passkeyCheckDone = false
+    const passkeys = await import('@/composables/usePasskeys')
+    vi.spyOn(passkeys, 'usePasskeys').mockReturnValue({
+      ...passkeys.usePasskeys(),
+      checkSupport: () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            passkeyCheckDone = true
+            resolve()
+          }, 50),
+        ),
+    } as never)
+    let askedBeforePasskeyCheck = false
+    checkSetupStatus.mockImplementation(async () => {
+      askedBeforePasskeyCheck = !passkeyCheckDone
+      return ssoOnlyStatus
+    })
+    wrapper = mountWithProviders(LoginView)
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    await flushPromises()
+    expect(checkSetupStatus).toHaveBeenCalledOnce()
+    expect(askedBeforePasskeyCheck).toBe(true)
+  })
+
+  it('still shows the sign-in form when the setup status fails', async () => {
+    checkSetupStatus.mockRejectedValue(new Error('offline'))
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(wrapper.find('input[type="password"]').exists()).toBe(true)
+  })
+})
+
 describe('LoginView after a sign-in the callback could not finish', () => {
   it.each([
     ['state_expired', 'login-error-state-expired'],
