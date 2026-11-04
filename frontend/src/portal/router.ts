@@ -3,9 +3,12 @@ import { createMemoryHistory, createRouter, createWebHistory } from 'vue-router'
 import { isEmbed } from './embed'
 
 import LoginView from './views/LoginView.vue'
-import NewTicketView from './views/NewTicketView.vue'
 import TicketsView from './views/TicketsView.vue'
-import TicketView from './views/TicketView.vue'
+// A request and the new-request form load with their route: the request
+// page's comment renderer brings the editor's libraries, which the sign-in
+// page and the request list don't need.
+const NewTicketView = () => import('./views/NewTicketView.vue')
+const TicketView = () => import('./views/TicketView.vue')
 
 // Hosted serves the portal at the root of each workspace's own origin;
 // self-hosted shares the agent app's origin and serves it under `/portal`.

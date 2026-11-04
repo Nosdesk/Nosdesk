@@ -1,17 +1,19 @@
 /**
  * Fluent message catalogue loader for the frontend.
  *
- * Eagerly imports every shared `.ftl` file from the workspace-root
+ * Bundles the shared `.ftl` files from the workspace-root
  * `i18n/locales/` tree at build time so the production bundle ships
- * its own translations. The same files feed the Rust backend via
+ * its own translations. en-US, the fallback every lookup ends at, is
+ * in the startup code; each other locale is its own chunk, loaded
+ * when it becomes the active one. The same files feed the Rust backend via
  * `include_str!`; keeping the two in lockstep is the whole reason
  * the directory lives at the workspace root instead of inside
  * either package.
  *
- * Active locale follows `dateStore.locale` — set by `/auth/me` after
- * login (see `dateStore.loadFromUser`). When it changes,
- * `fluent.bundles` is reassigned so the next render uses the new
- * catalogue. Vue components consume strings via `useFluent().$t`
+ * Active locale follows `dateStore.locale`, set by `/auth/me` after
+ * login (see `dateStore.loadFromUser`). When it changes, its
+ * catalogue loads and `fluent.bundles` is reassigned so the next
+ * render uses it; until then the current one stays. Vue components consume strings via `useFluent().$t`
  * (composable) or `$t('key')` in template (global property), both
  * provided by `fluent-vue`.
  *
@@ -36,15 +38,24 @@ export { translate } from '@nosdesk/core/i18n'
 
 const DEFAULT_LOCALE = 'en-US'
 
-// Vite eager-glob: every `.ftl` file under workspace-root i18n/
-// gets bundled as a raw string. The relative path is from this
-// file (`frontend/src/i18n/index.ts`); three `..` reach workspace
-// root.
-const ftlFiles = import.meta.glob('../../../i18n/locales/*/main.ftl', {
+// Vite globs over the workspace-root i18n/ tree: the relative path is
+// from this file (`frontend/src/i18n/index.ts`); three `..` reach
+// workspace root. en-US comes in as a raw string with the startup
+// code; the rest as loaders, one chunk per locale.
+const DEFAULT_SOURCE = import.meta.glob('../../../i18n/locales/en-US/main.ftl', {
   eager: true,
   query: '?raw',
   import: 'default',
 }) as Record<string, string>
+const ftlLoaders = import.meta.glob(['../../../i18n/locales/*/main.ftl', '!../../../i18n/locales/en-US/main.ftl'], {
+  query: '?raw',
+  import: 'default',
+}) as Record<string, () => Promise<string>>
+
+/** `../../../i18n/locales/en-AU/main.ftl` -> `en-AU` */
+function localeOf(path: string): string | null {
+  return /\/locales\/([^/]+)\/main\.ftl$/.exec(path)?.[1] ?? null
+}
 
 function buildBundle(locale: string, source: string): FluentBundle {
   // useIsolating=false disables the U+2068/U+2069 directional
@@ -63,12 +74,45 @@ function buildBundle(locale: string, source: string): FluentBundle {
 }
 
 const bundles: Record<string, FluentBundle> = {}
-for (const [path, source] of Object.entries(ftlFiles)) {
-  // e.g. `../../../i18n/locales/en-AU/main.ftl` -> `en-AU`
-  const match = /\/locales\/([^/]+)\/main\.ftl$/.exec(path)
-  if (match) {
-    bundles[match[1]] = buildBundle(match[1], source)
+for (const [path, source] of Object.entries(DEFAULT_SOURCE)) {
+  const locale = localeOf(path)
+  if (locale) bundles[locale] = buildBundle(locale, source)
+}
+
+const loaders: Record<string, () => Promise<string>> = {}
+for (const [path, load] of Object.entries(ftlLoaders)) {
+  const locale = localeOf(path)
+  if (locale) loaders[locale] = load
+}
+
+const loading = new Map<string, Promise<void>>()
+
+/** Load a locale's catalogue once. An unknown or failed one leaves en-US. */
+function loadLocale(locale: string): Promise<void> {
+  if (bundles[locale] || !loaders[locale]) return Promise.resolve()
+  let pending = loading.get(locale)
+  if (!pending) {
+    pending = loaders[locale]()
+      .then((source) => {
+        bundles[locale] = buildBundle(locale, source)
+      })
+      .catch((error) => {
+        loading.delete(locale)
+        console.warn(`[i18n] Could not load the ${locale} catalogue:`, error)
+      })
+    loading.set(locale, pending)
   }
+  return pending
+}
+
+let activeLoad: Promise<void> = Promise.resolve()
+
+/**
+ * Settles once the active locale's catalogue is in, so a first paint
+ * after it speaks that language rather than en-US. Never rejects.
+ */
+export function localeReady(): Promise<void> {
+  return activeLoad
 }
 
 /**
@@ -98,6 +142,15 @@ export function createI18n(pinia: Pinia): FluentVue {
     bundles: bundlesForLocale(dateStore.locale),
   })
 
+  // Swap in a locale's bundles once its catalogue is in, unless the
+  // locale changed again while it loaded.
+  const activate = (locale: string) => {
+    activeLoad = loadLocale(locale).then(() => {
+      if (dateStore.locale === locale) fluent.bundles = bundlesForLocale(locale)
+    })
+  }
+  activate(dateStore.locale)
+
   // `<html lang>` follows the active locale so assistive tech picks the
   // right voice and hyphenation; the static `lang="en"` in index.html is
   // the pre-boot fallback.
@@ -109,7 +162,7 @@ export function createI18n(pinia: Pinia): FluentVue {
   watch(
     () => dateStore.locale,
     (locale) => {
-      fluent.bundles = bundlesForLocale(locale)
+      activate(locale)
       applyLang(locale)
     },
   )
@@ -123,4 +176,4 @@ export function createI18n(pinia: Pinia): FluentVue {
 
 /** Locales we ship catalogues for. Exposed so the settings UI
  * picker can render the list without duplicating the constant. */
-export const SUPPORTED_LOCALES = Object.keys(bundles).sort()
+export const SUPPORTED_LOCALES = [...Object.keys(bundles), ...Object.keys(loaders)].sort()

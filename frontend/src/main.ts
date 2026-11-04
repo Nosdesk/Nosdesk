@@ -10,15 +10,17 @@ import { PiniaColada } from '@pinia/colada'
 
 import App from './App.vue'
 import router from './router'
+import { loadAppShell } from './loadAppShell'
+import { whenIdle } from './utils/whenIdle'
 import { reloadForNewBuild } from './utils/staleBuild'
 import { initErrorTracking } from './utils/errorTracking'
 import { apiBaseUrl } from '@nosdesk/core/transport'
 
 import { vSafeHtml } from './directives/vSafeHtml'
 import { vTwemoji } from './directives/vTwemoji'
-import { vPrefetch } from './directives/vPrefetch'
+import { vPrefetch, warmRoute } from './directives/vPrefetch'
 import { vScrollRestore } from './directives/vScrollRestore'
-import { createI18n as createI18nPlugin } from './i18n'
+import { createI18n as createI18nPlugin, localeReady } from './i18n'
 import { useThemeStore } from './stores/theme'
 import { fetchInstanceConfig } from '@nosdesk/core/services/instanceConfig'
 
@@ -28,6 +30,9 @@ import { fetchInstanceConfig } from '@nosdesk/core/services/instanceConfig'
 window.addEventListener('vite:preloadError', (event) => {
   if (reloadForNewBuild()) event.preventDefault()
 })
+
+/** Pages a sign-in completes on, in this tab. */
+const LEADS_INTO_APP = new Set(['login', 'onboarding', 'mfa-setup'])
 
 async function bootstrap() {
   // Configure the @nosdesk/core seams for the current platform (web: cookies +
@@ -87,7 +92,22 @@ async function bootstrap() {
   // the stronger property. It is bounded by CONFIG_REQUEST_TIMEOUT_MS in
   // services/instanceConfig precisely so this await, and the router guard that
   // shares the same promise, cannot hang the mount on an unreachable server.
-  await Promise.all([fetchInstanceConfig(), router.isReady()])
+  //
+  // The first route's view and, inside the signed-in frame, the frame load
+  // while the session is checked rather than after, and the first paint
+  // waits for both so it has its sidebar.
+  const first = `${window.location.pathname}${window.location.search}`
+  warmRoute(router, first)
+  if (router.resolve(first).meta.layout !== 'blank') void loadAppShell().catch(() => {})
+  await Promise.all([
+    fetchInstanceConfig(),
+    router.isReady().then(() => (router.currentRoute.value.meta.layout === 'blank' ? undefined : loadAppShell())),
+  ])
+  // A signed-in person's language came with the session the router just
+  // checked, and its catalogue is a chunk of its own: draw in it from the start.
+  // nextTick first, so the locale watcher has started that load.
+  await nextTick()
+  await localeReady()
   app.mount('#app')
 
   // Signal the launch splash (public/splash.js) that the first real
@@ -100,6 +120,11 @@ async function bootstrap() {
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       document.getElementById('app-splash')?.setAttribute('data-ready', '')
+      // Sign-in and set-up lead into the signed-in frame: fetch it once the
+      // page is idle, so it's ready when the sign-in completes in this tab.
+      if (LEADS_INTO_APP.has(String(router.currentRoute.value.name))) {
+        whenIdle(() => void loadAppShell().catch(() => {}))
+      }
     }),
   )
 }

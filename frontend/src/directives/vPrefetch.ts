@@ -53,17 +53,18 @@ function resolveRouter(el: HTMLElement): Router | undefined {
   return undefined
 }
 
-async function prefetch(el: HTMLElement, to: RouteLocationRaw) {
-  const router = resolveRouter(el)
-  if (!router) return
+/**
+ * Start loading a route's lazy view chunks without waiting for them. Used by
+ * the directive, and by main.ts for the first route so its view loads while
+ * the session is checked rather than after.
+ */
+export function warmRoute(router: Router, to: RouteLocationRaw): void {
   let resolved
   try {
     resolved = router.resolve(to)
   } catch {
     return
   }
-  // Fire chunk import + loader queries in parallel. We don't
-  // await; the directive is fire-and-forget.
   for (const record of resolved.matched) {
     // Chunk: the `components` map holds either eager components
     // or lazy import functions. Calling the function returns a
@@ -72,7 +73,7 @@ async function prefetch(el: HTMLElement, to: RouteLocationRaw) {
     for (const value of Object.values(componentEntries)) {
       if (typeof value === 'function') {
         try {
-          ;(value as () => Promise<unknown>)()
+          void (value as () => Promise<unknown>)()?.catch?.(() => {})
         } catch {
           // Swallow: a failed prefetch isn't a user-visible
           // error. The eventual real navigation will surface it.
@@ -80,6 +81,11 @@ async function prefetch(el: HTMLElement, to: RouteLocationRaw) {
       }
     }
   }
+}
+
+function prefetch(el: HTMLElement, to: RouteLocationRaw) {
+  const router = resolveRouter(el)
+  if (router) warmRoute(router, to)
 }
 
 function setupTriggers(el: PrefetchableElement, to: RouteLocationRaw) {
