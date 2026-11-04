@@ -731,12 +731,11 @@ async fn a_refused_connection_is_closed_with_why() {
     );
 }
 
-/// A user who isn't staff opens a document read-only: their document
-/// updates reach neither the document nor anyone else in the room, while
-/// staff edits still reach them. Here the requester of a ticket opens its
-/// notes beside an agent.
+/// The editor is for staff: the requester of a ticket can't open its notes,
+/// while an agent can. Refused after the upgrade with 4403 (no access), so the
+/// client knows why.
 #[actix_web::test]
-async fn a_requesters_updates_reach_no_one() {
+async fn a_requester_cannot_open_their_tickets_notes() {
     use diesel::prelude::*;
 
     install_fast_heartbeat();
@@ -840,85 +839,23 @@ async fn a_requesters_updates_reach_no_one() {
             .connect()
     };
     let (_, mut theirs) = connect(&requester).await.expect("requester handshake");
+    let first = tokio::time::timeout(Duration::from_secs(2), theirs.next())
+        .await
+        .expect("a frame or a close");
+    match first {
+        Some(Ok(ws::Frame::Close(Some(reason)))) => {
+            assert_eq!(u16::from(reason.code), 4403, "{reason:?}");
+        }
+        other => panic!("the requester's connection must close with 4403, got {other:?}"),
+    }
+
     let (_, mut staff) = connect(&agent).await.expect("agent handshake");
-    for conn in [&mut theirs, &mut staff] {
-        let _ = tokio::time::timeout(Duration::from_secs(2), conn.next())
-            .await
-            .expect("initial frame timeout");
-    }
-
-    // A SyncUpdate inserting `text`, as a client editing the document sends.
-    let update = |text: &str| -> Bytes {
-        use yrs::sync::{Message, SyncMessage};
-        use yrs::updates::encoder::Encode;
-        use yrs::{Doc, ReadTxn, StateVector, Text, Transact};
-        let doc = Doc::new();
-        let content = doc.get_or_insert_text("content");
-        content.insert(&mut doc.transact_mut(), 0, text);
-        let update = doc
-            .transact()
-            .encode_state_as_update_v1(&StateVector::default());
-        Bytes::from(Message::Sync(SyncMessage::Update(update)).encode_v1())
-    };
-    // Whether `frame` arrives on `conn` within `wait`.
-    async fn receives<S, E>(conn: &mut S, frame: &Bytes, wait: Duration) -> bool
-    where
-        S: futures_util::Stream<Item = Result<ws::Frame, E>> + Unpin,
-        E: std::fmt::Debug,
-    {
-        tokio::time::timeout(wait, async {
-            loop {
-                match conn.next().await {
-                    Some(Ok(ws::Frame::Binary(b))) if b.as_ref() == frame.as_ref() => break true,
-                    Some(Ok(_)) => continue,
-                    Some(Err(e)) => panic!("stream error: {e:?}"),
-                    None => break false,
-                }
-            }
-        })
+    let first = tokio::time::timeout(Duration::from_secs(2), staff.next())
         .await
-        .unwrap_or(false)
-    }
-
-    let edit = update("from the requester");
-    theirs
-        .send(ws::Message::Binary(edit.clone()))
-        .await
-        .expect("requester send");
+        .expect("initial frame timeout");
     assert!(
-        !receives(&mut staff, &edit, Duration::from_millis(800)).await,
-        "a requester's update must not reach the room"
-    );
-
-    // y-sync allows several messages in one frame: presence first, then an
-    // edit. The edit still mustn't reach anyone.
-    let packed = {
-        use yrs::sync::{Awareness, Message};
-        use yrs::updates::encoder::Encode;
-        let awareness = Awareness::new(yrs::Doc::new());
-        awareness.set_local_state("{}").expect("local state");
-        let mut frame =
-            Message::Awareness(awareness.update().expect("awareness update")).encode_v1();
-        frame.extend_from_slice(&update("packed after presence"));
-        Bytes::from(frame)
-    };
-    theirs
-        .send(ws::Message::Binary(packed.clone()))
-        .await
-        .expect("requester send");
-    assert!(
-        !receives(&mut staff, &packed, Duration::from_millis(800)).await,
-        "an edit packed after presence must not reach the room"
-    );
-
-    let edit = update("from the agent");
-    staff
-        .send(ws::Message::Binary(edit.clone()))
-        .await
-        .expect("agent send");
-    assert!(
-        receives(&mut theirs, &edit, Duration::from_secs(3)).await,
-        "the requester still receives staff edits"
+        matches!(first, Some(Ok(ws::Frame::Binary(_)))),
+        "the agent gets the document: {first:?}"
     );
 }
 

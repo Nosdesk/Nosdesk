@@ -456,19 +456,17 @@ pub(crate) fn complete_login_redirect(
 }
 
 /// The workspace whose portal a sign-in at the agent app lands in, when it
-/// isn't the app. On self-hosted the app is for staff: a plain member of the
-/// request's workspace is signed in to its portal instead. Hosted requesters
-/// sign in at their own portal, and native sign-ins (bearer) stay in the app,
-/// which opens the portal itself.
+/// isn't the app. The app is for staff (`admits_agent_surface`): on
+/// self-hosted a plain member of the request's workspace is signed in to its
+/// portal instead, from the web app or the native one. Hosted requesters sign
+/// in at their own portal.
 pub(crate) fn portal_landing(
     request: &HttpRequest,
     conn: &mut DbConnection,
     user: &crate::models::User,
 ) -> Option<crate::extractors::WorkspaceContext> {
     use crate::models::{PlatformRole, WorkspaceRole};
-    use crate::utils::auth_mode::{auth_mode_from_request, AuthMode};
     if crate::middleware::workspace_context::is_hosted()
-        || auth_mode_from_request(request) != AuthMode::Cookie
         || PlatformRole::from_db(&user.platform_role) != PlatformRole::User
     {
         return None;
@@ -527,6 +525,40 @@ pub(crate) fn portal_sign_in(
     conn: &mut DbConnection,
     proof: SignInProof<'_>,
 ) -> Result<HttpResponse, ApiError> {
+    use crate::utils::auth_mode::{auth_mode_from_request, AuthMode};
+    // The native app holds bearer tokens the system browser can't carry, and
+    // the app itself is for staff: it gets no session, only a one-time address
+    // that signs the system browser in to the portal.
+    if auth_mode_from_request(request) != AuthMode::Cookie {
+        let handoff = crate::handlers::portal::mint_portal_handoff(
+            conn,
+            request,
+            ws.workspace_id,
+            user.uuid,
+        )?;
+        let portal_url = format!(
+            "{}{}",
+            crate::handlers::portal::portal_origin_for(conn, request, ws.workspace_id),
+            crate::handlers::portal::portal_path("/tickets")
+        );
+        let _ = crate::utils::security_events::record_security_event(
+            conn,
+            crate::utils::security_events::SecurityEventInput {
+                user_uuid: Some(user.uuid),
+                event_type: "login_success",
+                severity: "info",
+                details: Some(json!({ "via": "portal_handoff" })),
+                request: Some(request),
+            },
+        );
+        return Ok(HttpResponse::Ok()
+            .insert_header(("Cache-Control", "no-store"))
+            .json(json!({
+                "success": true,
+                "portal_handoff": handoff,
+                "portal_url": portal_url,
+            })));
+    }
     let session = portal_session(user, ws, request, conn, proof)?;
     Ok(HttpResponse::Ok()
         .cookie(session.access)
@@ -3313,19 +3345,35 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn staff_and_the_native_app_sign_in_to_the_app() {
+    async fn staff_sign_in_to_the_app_and_a_native_requester_to_the_portal() {
         let mut conn = crate::test_helpers::setup_test_connection();
         let agent = TestFixtures::create_user(&mut conn, "Landing Agent", "technician");
-        let (cookies, body) = finish_sign_in(&mut conn, agent, false).await;
+        let (cookies, body) = finish_sign_in(&mut conn, agent.clone(), false).await;
         assert!(cookies.iter().any(|c| c == "access_token"), "{cookies:?}");
         assert!(body.get("portal").is_none(), "{body}");
+        let (cookies, body) = finish_sign_in(&mut conn, agent, true).await;
+        assert!(cookies.is_empty(), "{cookies:?}");
+        assert!(body["access_token"].is_string(), "{body}");
 
-        // The native app opens the portal itself.
+        // A requester in the native app gets no session there, only a
+        // one-time address that signs the system browser in to the portal.
         let requester = TestFixtures::create_user(&mut conn, "Native Requester", "user");
         let (cookies, body) = finish_sign_in(&mut conn, requester, true).await;
         assert!(cookies.is_empty(), "{cookies:?}");
-        assert!(body["access_token"].is_string(), "{body}");
-        assert!(body.get("portal").is_none(), "{body}");
+        assert!(body.get("access_token").is_none(), "{body}");
+        assert!(body.get("refresh_token").is_none(), "{body}");
+        assert!(
+            body["portal_handoff"]
+                .as_str()
+                .is_some_and(|u| u.contains("/api/portal/auth/handoff?t=")),
+            "{body}"
+        );
+        assert!(
+            body["portal_url"]
+                .as_str()
+                .is_some_and(|u| u.ends_with("/portal/tickets")),
+            "{body}"
+        );
     }
 
     #[actix_web::test]

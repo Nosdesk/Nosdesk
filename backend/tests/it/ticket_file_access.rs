@@ -275,8 +275,8 @@ macro_rules! status {
     };
 }
 
-/// The paths a requester's agent session and portal session take to the same
-/// files. Every denial is a 404.
+/// Who reaches a ticket's files, and by which route: staff through the agent
+/// routes, the requester through the portal. Every denial is a 404.
 #[actix_web::test]
 async fn a_ticket_file_follows_its_reply() {
     let fx = Fixture::new();
@@ -361,58 +361,43 @@ async fn a_ticket_file_follows_its_reply() {
     let portal = |f: &File| format!("/api/portal/tickets/{tid}/attachments/{}", f.attachment_id);
     let raw = |f: &File| format!("/api/comments/{}/raw.eml", f.comment_id);
 
-    // The requester: their ticket's public replies, merged-in ones included,
-    // and nothing internal or unaccounted for.
+    // The requester, through the portal: their ticket's public replies,
+    // merged-in ones included, and nothing internal.
     let app = app_as!(fx, fx.requester);
     for (uri, want, what) in [
-        (file(&public), StatusCode::OK, "a public reply's file"),
-        (
-            file(&merged_in),
-            StatusCode::OK,
-            "a file on a reply merged in from another ticket",
-        ),
-        (
-            file(&internal),
-            StatusCode::NOT_FOUND,
-            "an internal note's file",
-        ),
-        (
-            format!("/api/files/tickets/{orphan}"),
-            StatusCode::NOT_FOUND,
-            "a file with no attachment row",
-        ),
-        (
-            format!("/api/files/tickets/{pdf_thumb}"),
-            StatusCode::OK,
-            "a public PDF's thumbnail",
-        ),
-        (
-            raw(&internal),
-            StatusCode::NOT_FOUND,
-            "an internal note's raw mail",
-        ),
-        (
-            portal(&public),
-            StatusCode::OK,
-            "portal: a public reply's file",
-        ),
+        (portal(&public), StatusCode::OK, "a public reply's file"),
         (
             portal(&merged_in),
             StatusCode::OK,
-            "portal: a file on a merged-in reply",
+            "a file on a merged-in reply",
         ),
         (
             portal(&internal),
             StatusCode::NOT_FOUND,
-            "portal: an internal note's file",
-        ),
-        (
-            file(&cloned),
-            StatusCode::OK,
-            "a file whose URL another workspace also holds",
+            "an internal note's file",
         ),
     ] {
-        assert_eq!(status!(&app, &uri), want, "requester, {what}: {uri}");
+        assert_eq!(
+            status!(&app, &uri),
+            want,
+            "requester, portal: {what}: {uri}"
+        );
+    }
+    // The agent routes are for staff: a requester's session gets none of
+    // their files there, not even their own.
+    for uri in [
+        file(&public),
+        file(&merged_in),
+        file(&internal),
+        file(&cloned),
+        format!("/api/files/tickets/{pdf_thumb}"),
+        raw(&internal),
+    ] {
+        assert_eq!(
+            status!(&app, &uri),
+            StatusCode::NOT_FOUND,
+            "requester on an agent route: {uri}"
+        );
     }
 
     // A requester who is on neither ticket: the ticket's visibility decides.

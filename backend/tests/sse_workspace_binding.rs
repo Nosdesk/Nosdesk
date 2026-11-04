@@ -40,7 +40,7 @@ async fn stream_authorizes_against_the_token_bound_workspace() {
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);
 
-    // Workspace `acme`; a member and a non-member.
+    // Workspace `acme`; a staff member and a non-member.
     let (acme_uuid, member_uuid, stranger_uuid) = {
         let mut conn = pool.get().expect("conn");
         let acme = common::mint_workspace(&mut conn, "acme-sse", "Acme SSE");
@@ -56,7 +56,7 @@ async fn stream_authorizes_against_the_token_bound_workspace() {
                 c,
                 acme,
                 member.uuid,
-                "member",
+                "agent",
                 SeatWriteAuthority::ControlPlane,
             )?;
             Ok(())

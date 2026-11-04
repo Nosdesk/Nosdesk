@@ -290,8 +290,8 @@ fn authorize_ticket_access(
 /// the owning workspace on an elevated (BYPASSRLS) read, the one cross-tenant
 /// step, which reveals only a workspace id. Then, as the caller pinned to that
 /// workspace under RLS, the caller's membership there is read and held to the
-/// same rule as every agent-app request (`admits_agent_surface`: on hosted,
-/// staff seats only), and `check` gets the workspace and the caller's role and
+/// same rule as every agent-app request (`admits_agent_surface`: staff seats
+/// only), and `check` gets the workspace and the caller's role and
 /// returns what the handler needs, or `None` to deny. A workspace-bound
 /// credential (an API token) is held to its own workspace here too.
 ///

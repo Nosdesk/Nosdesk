@@ -5077,9 +5077,11 @@ requester-portal-link-placeholder = acme of support.acme.com
 requester-portal-link-invalid = Dat lijkt geen adres.
 requester-portal-link-open = Openen in browser
 requester-portal-title = Uw aanvragen staan op het portaal
-requester-portal-message = Deze app is voor uw supportteam. Uw aanvragen en antwoorden staan op het supportportaal van uw organisatie, dat in uw browser opent, al ingelogd.
+# MACHINE TRANSLATION, pending native review
+requester-portal-message = Deze app is voor uw supportteam. Uw aanvragen en antwoorden staan op het supportportaal van uw organisatie, dat in uw browser is geopend, al ingelogd.
 requester-portal-open = Portaal openen
-requester-portal-sign-out = Uitloggen
+# MACHINE TRANSLATION, pending native review
+requester-portal-another-account = Ander account gebruiken
 requester-portal-open-failed = Het portaal kon niet worden geopend. Probeer het opnieuw.
 route-title-requester-portal = Uw aanvragen
 route-title-no-workspace-access = Nog geen werkruimte

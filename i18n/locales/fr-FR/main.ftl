@@ -5087,9 +5087,11 @@ requester-portal-link-placeholder = acme ou support.acme.com
 requester-portal-link-invalid = Cela ne ressemble pas à une adresse.
 requester-portal-link-open = Ouvrir dans le navigateur
 requester-portal-title = Vos demandes sont sur le portail
-requester-portal-message = Cette application est destinée à votre équipe d'assistance. Vos demandes et réponses se trouvent sur le portail d'assistance de votre organisation, qui s'ouvre dans votre navigateur, déjà connecté.
+# MACHINE TRANSLATION, pending native review
+requester-portal-message = Cette application est destinée à votre équipe d'assistance. Vos demandes et réponses se trouvent sur le portail d'assistance de votre organisation, qui s'est ouvert dans votre navigateur, déjà connecté.
 requester-portal-open = Ouvrir le portail
-requester-portal-sign-out = Se déconnecter
+# MACHINE TRANSLATION, pending native review
+requester-portal-another-account = Utiliser un autre compte
 requester-portal-open-failed = Le portail n'a pas pu s'ouvrir. Réessayez.
 route-title-requester-portal = Vos demandes
 route-title-no-workspace-access = Pas encore d'espace de travail

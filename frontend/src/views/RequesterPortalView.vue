@@ -1,32 +1,36 @@
 <!-- RequesterPortalView.vue
-     Where a requester signed in to the native app lands on a self-hosted
-     server: their requests live in the portal, which opens in the browser
-     already signed in (a one-time hand-off, asked for on each press). -->
+     Where a requester who signed in at the native app lands on a self-hosted
+     server. The app is for staff, so they hold no session in it: their sign-in
+     opened the portal in the browser, already signed in, and this screen opens
+     it there again. -->
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 
 import AuthLayout from '@/components/auth/AuthLayout.vue'
 import Button from '@/components/common/Button.vue'
 import { openExternalUrl } from '@/platform'
-import { useAuthStore } from '@/stores/auth'
-import { extractErrorMessage } from '@/utils/errors'
-import { requestPortalHandoff } from '@nosdesk/core/services/workspacePortalService'
+import { isWebAddress } from '@/utils/portalLanding'
 
 const { $t: t } = useFluent()
-const auth = useAuthStore()
-const opening = ref(false)
-const failed = ref<string | null>(null)
+const route = useRoute()
+const router = useRouter()
+const failed = ref(false)
+
+/** The portal's address, from the sign-in that landed here. */
+const portalUrl = computed(() => {
+  const portal = route.query.portal
+  return isWebAddress(portal) ? portal : null
+})
 
 async function openPortal(): Promise<void> {
-  opening.value = true
-  failed.value = null
+  if (!portalUrl.value) return
+  failed.value = false
   try {
-    await openExternalUrl(await requestPortalHandoff())
-  } catch (e) {
-    failed.value = extractErrorMessage(e, t('requester-portal-open-failed'))
-  } finally {
-    opening.value = false
+    await openExternalUrl(portalUrl.value)
+  } catch {
+    failed.value = true
   }
 }
 </script>
@@ -40,10 +44,12 @@ async function openPortal(): Promise<void> {
         </h1>
         <p class="text-base text-secondary text-pretty">{{ t('requester-portal-message') }}</p>
       </div>
-      <p v-if="failed" role="alert" class="text-sm text-status-error">{{ failed }}</p>
+      <p v-if="failed" role="alert" class="text-sm text-status-error">{{ t('requester-portal-open-failed') }}</p>
       <div class="flex flex-col gap-3">
-        <Button size="lg" block :loading="opening" @click="openPortal">{{ t('requester-portal-open') }}</Button>
-        <Button size="lg" block variant="secondary" @click="auth.logout()">{{ t('requester-portal-sign-out') }}</Button>
+        <Button v-if="portalUrl" size="lg" block @click="openPortal">{{ t('requester-portal-open') }}</Button>
+        <Button size="lg" block variant="secondary" @click="router.replace({ name: 'login' })">
+          {{ t('requester-portal-another-account') }}
+        </Button>
       </div>
     </div>
   </AuthLayout>

@@ -9,8 +9,10 @@
 //! cross-tenant breach, not a degraded query.
 //!
 //! These prove the invariants the gate must hold:
-//!  - a member of the pinned workspace passes,
+//!  - a staff member of the pinned workspace passes,
 //!  - a non-member is denied with 403 (not 500, not a silent pass),
+//!  - a requester (`member`) of the pinned workspace is denied too: the agent
+//!    surface is for staff, and requesters use the portal,
 //!  - the check reads correctly even on a raw pooled connection whose GUC is
 //!    cleared (the SSE/collab entry condition), because it pins via the actor,
 //!  - a member of a *different* workspace is still denied (the cross-tenant
@@ -36,7 +38,7 @@ fn member_passes_non_member_gets_403() {
     let (ws, member_uuid, stranger_uuid) = {
         let mut conn = pool.get().expect("conn");
         let ws = crate::common::mint_workspace(&mut conn, "acme-gate", "Acme Gate");
-        let member = crate::common::insert_user(&mut conn, "Gate Member");
+        let member = crate::common::insert_user(&mut conn, "Gate Agent");
         let stranger = crate::common::insert_user(&mut conn, "Gate Stranger");
         (ws, member.uuid, stranger.uuid)
     };
@@ -51,7 +53,7 @@ fn member_passes_non_member_gets_403() {
                 c,
                 ws,
                 member_uuid,
-                "member",
+                "agent",
                 SeatWriteAuthority::ControlPlane,
             )?;
             Ok(())
@@ -65,7 +67,7 @@ fn member_passes_non_member_gets_403() {
     {
         let mut conn = pool.get().expect("conn");
         require_workspace_membership(&mut conn, ws, member_uuid)
-            .expect("member of the pinned workspace must pass the gate");
+            .expect("staff of the pinned workspace must pass the gate");
     }
 
     // The stranger is denied, and specifically with 403 (a tenant-boundary
@@ -75,6 +77,21 @@ fn member_passes_non_member_gets_403() {
         let err = require_workspace_membership(&mut conn, ws, stranger_uuid)
             .expect_err("non-member must be denied");
         assert_eq!(status_of(&err), 403, "non-member must get 403, not {err}");
+    }
+
+    // A requester of the same workspace is denied the same way.
+    {
+        let mut conn = pool.get().expect("conn");
+        let requester = crate::common::insert_plain_user(&mut conn, "Gate Requester");
+        let actor = ActorContext::user(requester, None).with_workspace(ws);
+        with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+            add_membership(c, ws, requester, "member", SeatWriteAuthority::ControlPlane)?;
+            Ok(())
+        })
+        .expect("add requester membership");
+        let err = require_workspace_membership(&mut conn, ws, requester)
+            .expect_err("a requester must not reach the agent surface");
+        assert_eq!(status_of(&err), 403, "a requester must get 403, not {err}");
     }
 }
 
@@ -103,7 +120,7 @@ fn member_of_another_workspace_is_denied() {
                 c,
                 ws_a,
                 user_uuid,
-                "member",
+                "agent",
                 SeatWriteAuthority::ControlPlane,
             )?;
             Ok(())

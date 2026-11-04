@@ -895,13 +895,6 @@ pub fn portal_path(path: &str) -> String {
     }
 }
 
-/// Routes behind the agent app's own authentication (mounted in the
-/// authenticated `/api` scope).
-pub fn app_config(cfg: &mut web::ServiceConfig) {
-    cfg.route("/me/portal", web::get().to(open_portal_from_app))
-        .route("/me/portal-handoff", web::post().to(start_portal_handoff));
-}
-
 /// A portal path to land on: `next` when it is one of the request pages,
 /// else the request list.
 fn portal_next(next: Option<&str>) -> &str {
@@ -909,112 +902,51 @@ fn portal_next(next: Option<&str>) -> &str {
         .unwrap_or("/tickets")
 }
 
-#[derive(Deserialize)]
-pub struct OpenPortalQuery {
-    /// A portal path to land on (`/tickets/12`). Anything else lands on the
-    /// request list.
-    #[serde(default)]
-    next: Option<String>,
+/// The origin this workspace's portal is served from. Self-hosted serves it on
+/// the app's own origin, so the address the request reached is the last resort
+/// when `FRONTEND_URL` isn't set.
+pub(crate) fn portal_origin_for(
+    conn: &mut DbConnection,
+    req: &HttpRequest,
+    workspace_id: i32,
+) -> String {
+    crate::utils::portal_ticket_link::portal_origin(conn, workspace_id).unwrap_or_else(|| {
+        let info = req.connection_info();
+        format!("{}://{}", info.scheme(), info.host())
+    })
 }
 
-/// `GET /api/me/portal` (agent session): hand someone signed in to the app over
-/// to the portal already signed in, so a requester who reached the app (a
-/// password or SSO account on self-hosted) never signs in twice.
-pub async fn open_portal_from_app(
-    req: HttpRequest,
-    auth: crate::extractors::AuthContext,
-    ws: WorkspaceContext,
-    pool: web::Data<Pool>,
-    query: web::Query<OpenPortalQuery>,
-) -> Result<HttpResponse, ApiError> {
-    let next = portal_next(query.next.as_deref());
-    let mut conn = pool
-        .get()
-        .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
-    let user = crate::repository::users::find_active_by_uuid(&auth.user_uuid, &mut conn)
-        .map_err(|_| ApiError::Unauthorized("Sign in again".into()))?;
-    let session = mint_portal_session(
-        &user,
-        ws.workspace_uuid,
-        &req,
-        &mut conn,
-        PortalScope::Full,
-        crate::handlers::auth::SignInProof::Nothing,
-    )?;
-    Ok(HttpResponse::Found()
-        .cookie(session.access)
-        .cookie(session.refresh)
-        .cookie(session.csrf)
-        .append_header(("Location", portal_path(next)))
-        .finish())
-}
-
-#[derive(Deserialize, Default)]
-pub struct PortalHandoffRequest {
-    /// A portal path to land on (`/tickets/12`).
-    #[serde(default)]
-    next: Option<String>,
-}
-
-/// `POST /api/me/portal-handoff` (an agent session, self-hosted): a one-time
-/// address that opens the portal signed in as the caller. For the native app,
-/// whose session is a bearer token the system browser can't carry; the app
-/// opens the address there. Single use, two minutes long, and spent by
-/// signing out everywhere.
-pub async fn start_portal_handoff(
-    req: HttpRequest,
-    auth: crate::extractors::AuthContext,
-    ws: WorkspaceContext,
-    pool: web::Data<Pool>,
-    body: Option<web::Json<PortalHandoffRequest>>,
-) -> Result<HttpResponse, ApiError> {
-    // Hosted requesters sign in at their workspace's portal; there is no
-    // app session to hand over.
-    if crate::middleware::workspace_context::is_hosted() {
-        return Err(ApiError::NotFoundMsg("Not found".into()));
-    }
-    // A person's own session, not an API token.
-    if crate::utils::rbac::require_auth(&req)?
-        .session_uuid()
-        .is_none()
-    {
-        return Err(ApiError::Forbidden("Sign in to open the portal".into()));
-    }
-    let next = portal_next(body.as_ref().and_then(|b| b.next.as_deref())).to_string();
-    let mut conn = pool
-        .get()
-        .map_err(|_| ApiError::Internal("Database connection failed".into()))?;
-    // Self-hosted serves the portal on the app's own origin, so the address
-    // the app reached is the last resort when `FRONTEND_URL` isn't set.
-    let origin = crate::utils::portal_ticket_link::portal_origin(&mut conn, ws.workspace_id)
-        .unwrap_or_else(|| {
-            let info = req.connection_info();
-            format!("{}://{}", info.scheme(), info.host())
-        });
+/// A one-time address that opens the portal signed in as `user_uuid`: how a
+/// requester's sign-in in the native app reaches the portal, whose session the
+/// system browser holds rather than the app (see `auth::portal_sign_in`).
+/// Single use, two minutes long, and spent by signing out everywhere;
+/// [`portal_handoff_callback`] redeems it.
+pub(crate) fn mint_portal_handoff(
+    conn: &mut DbConnection,
+    req: &HttpRequest,
+    workspace_id: i32,
+    user_uuid: uuid::Uuid,
+) -> Result<String, ApiError> {
+    let origin = portal_origin_for(conn, req, workspace_id);
     let token = crate::utils::reset_tokens::ResetTokenUtils::create_reset_token(
-        auth.user_uuid,
+        user_uuid,
         TokenType::PortalHandoff,
     );
     crate::repository::reset_tokens::create_reset_token(
-        &mut conn,
+        conn,
         &token.token_hash,
-        auth.user_uuid,
+        user_uuid,
         TokenType::PortalHandoff.as_str(),
         None,
         None,
         token.expires_at,
         None,
     )?;
-    Ok(HttpResponse::Ok()
-        .insert_header(("Cache-Control", "no-store"))
-        .json(json!({
-            "url": format!(
-                "{origin}/api/portal/auth/handoff?t={}&next={}",
-                token.raw_token,
-                urlencoding::encode(&next)
-            ),
-            "expires_at": token.expires_at,
-        })))
+    Ok(format!(
+        "{origin}/api/portal/auth/handoff?t={}&next={}",
+        token.raw_token,
+        urlencoding::encode(portal_next(None))
+    ))
 }
 
 #[derive(Deserialize)]
