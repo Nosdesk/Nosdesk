@@ -428,6 +428,10 @@ onMounted(async () => {
        Always false on the web. -->
   <ConnectServerView v-if="needsServerSelection" />
 
+  <!-- Signing out: the session is gone, so the signed-in views give way at
+       once rather than render again for no one before the login page. -->
+  <div v-else-if="authStore.signingOut" class="h-full w-full bg-app" aria-busy="true" />
+
   <!-- Blank layout for login -->
   <RouterView v-else-if="isBlankLayout" />
 

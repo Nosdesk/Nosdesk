@@ -37,6 +37,11 @@ function hasCsrfToken(): boolean {
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
   const loading = ref(false);
+  // From the moment this tab's session is torn down until the login page has
+  // taken over: the app shell covers the signed-in views meanwhile, so they
+  // never render again for no one (a settings page in its signed-out layout,
+  // a placeholder avatar) on their way out.
+  const signingOut = ref(false);
   const error = ref<string | null>(null);
   const authProvider = ref<string | null>(localStorage.getItem('authProvider'));
 
@@ -549,6 +554,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Come back to this page after signing in again.
       const here = window.location.pathname + window.location.search;
       setLoggingOut(true);
+      signingOut.value = true;
       try {
         await clearLocalSession();
         // Inside the window, so the views' held requests are cancelled once
@@ -558,6 +564,7 @@ export const useAuthStore = defineStore('auth', () => {
           await nextTick();
         }
       } finally {
+        signingOut.value = false;
         setLoggingOut(false);
       }
     })().finally(() => {
@@ -594,47 +601,57 @@ export const useAuthStore = defineStore('auth', () => {
       // Continue with frontend logout even if backend call fails
     }
 
-    // Platform-local session teardown through the transport seam: web clears
-    // the JS-accessible auth cookies; mobile drops the bearer + keychain
-    // refresh token. Keeps the platform specifics in each AuthStrategy, not in
-    // this store.
+    // From here the tab holds no session: cover the signed-in views until the
+    // login page, or the IdP's end-session page, replaces them.
+    signingOut.value = true;
+    let leavingForIdp = false;
     try {
-      await transport().auth.endSession();
-    } catch (e) {
-      logger.error('Failed to tear down the local session on logout', e);
-    }
-
-    await clearLocalSession();
-
-    // RP-initiated logout at the IdP, if the session was an OIDC one. Ending
-    // the IdP session (not just the local one) is what stops a re-login from
-    // silently re-authenticating as the same user.
-    if (logoutUrl) {
-      if (isTauriRuntime()) {
-        // Native: open the end_session URL in the system browser (which clears
-        // the shared IdP cookie) and return on the custom scheme. Best-effort:
-        // the local session is already gone, so a cancel/error must not block
-        // routing back to the login screen.
-        try {
-          const { logoutViaOidc } = await import('@nosdesk/mobile');
-          await logoutViaOidc(logoutUrl);
-        } catch (e) {
-          logger.error('Native IdP logout failed', e);
-        }
-      } else {
-        // Web: full-page navigation to the IdP end_session endpoint, which
-        // redirects back to redirectUri (/login) once the session is ended.
-        window.location.href = logoutUrl;
-        return; // full redirect in progress, skip router navigation
+      // Platform-local session teardown through the transport seam: web clears
+      // the JS-accessible auth cookies; mobile drops the bearer + keychain
+      // refresh token. Keeps the platform specifics in each AuthStrategy, not
+      // in this store.
+      try {
+        await transport().auth.endSession();
+      } catch (e) {
+        logger.error('Failed to tear down the local session on logout', e);
       }
-    }
 
-    // Return to the login screen (non-OIDC sessions, native, or a failed
-    // web redirect). Awaited, with the render after it, so the signed-in views
-    // have unmounted before logout() closes the window and their held
-    // requests are cancelled.
-    await router.push('/login');
-    await nextTick();
+      await clearLocalSession();
+
+      // RP-initiated logout at the IdP, if the session was an OIDC one. Ending
+      // the IdP session (not just the local one) is what stops a re-login from
+      // silently re-authenticating as the same user.
+      if (logoutUrl) {
+        if (isTauriRuntime()) {
+          // Native: open the end_session URL in the system browser (which clears
+          // the shared IdP cookie) and return on the custom scheme. Best-effort:
+          // the local session is already gone, so a cancel/error must not block
+          // routing back to the login screen.
+          try {
+            const { logoutViaOidc } = await import('@nosdesk/mobile');
+            await logoutViaOidc(logoutUrl);
+          } catch (e) {
+            logger.error('Native IdP logout failed', e);
+          }
+        } else {
+          // Web: full-page navigation to the IdP end_session endpoint, which
+          // redirects back to redirectUri (/login) once the session is ended.
+          // The page stays covered until it unloads.
+          leavingForIdp = true;
+          window.location.href = logoutUrl;
+          return; // full redirect in progress, skip router navigation
+        }
+      }
+
+      // Return to the login screen (non-OIDC sessions, native, or a failed
+      // web redirect). Awaited, with the render after it, so the signed-in
+      // views have unmounted before logout() closes the window and their held
+      // requests are cancelled.
+      await router.push('/login');
+      await nextTick();
+    } finally {
+      if (!leavingForIdp) signingOut.value = false;
+    }
   }
 
   /** What this tab holds for the session: the user, every workspace-scoped
@@ -685,6 +702,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     user,
     loading,
+    signingOut,
     error,
     authProvider,
     mfaRequired,
