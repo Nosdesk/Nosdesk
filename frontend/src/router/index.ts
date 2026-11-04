@@ -1130,8 +1130,8 @@ installWorkspaceGuard(router)
 let onboardingChecked = false;
 
 async function checkOnboarding(to: RouteLocationNormalized, _from: RouteLocationNormalized) {
-  // Skip check for onboarding, error, and login pages
-  if (to.name === 'onboarding' || to.name === 'error' || to.name === 'login' || to.name === 'auth-confirmed') {
+  // Skip check for error and login pages
+  if (to.name === 'error' || to.name === 'login' || to.name === 'auth-confirmed') {
     return;
   }
 
@@ -1144,13 +1144,21 @@ async function checkOnboarding(to: RouteLocationNormalized, _from: RouteLocation
     const setupStatus = await authService.checkSetupStatus();
 
     if (setupStatus.requires_setup) {
-      return { name: 'onboarding' };
+      // No account exists yet, so nobody can be signed in: a session cookie
+      // this browser still holds is from an earlier install. Forget it before
+      // the guard below asks for the profile and the app starts on it.
+      if (!setupStatus.assumed) {
+        const { useAuthStore } = await import('@/stores/auth');
+        await useAuthStore().forgetStaleSession();
+      }
+      return to.name === 'onboarding' ? undefined : { name: 'onboarding' };
     }
 
     // Setup is complete — cache the result
     onboardingChecked = true;
   } catch (error) {
-    console.error('Failed to check setup status:', error);
+    // The onboarding page asks for the status itself and reports a failure.
+    if (to.name !== 'onboarding') console.error('Failed to check setup status:', error);
     // Continue navigation - error handled by onboarding component if needed
   }
 }
