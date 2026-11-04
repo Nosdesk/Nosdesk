@@ -76,6 +76,38 @@ async function untilNavigating() {
 const reachGates = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('signing out', () => {
+  it('covers the signed-in views from the teardown until the login page has taken over', async () => {
+    const { apiClient, auth } = await bootSignedIn()
+    let signingOutDuringLogout: boolean | null = null
+    const send = apiClient.defaults.adapter as (c: InternalAxiosRequestConfig) => Promise<AxiosResponse>
+    apiClient.defaults.adapter = async (config) => {
+      if (config.url?.includes('/auth/logout')) signingOutDuringLogout = auth.signingOut
+      return send(config)
+    }
+
+    const done = auth.logout()
+    await untilNavigating()
+    // The page stays as it is while the server ends the session...
+    expect(signingOutDuringLogout).toBe(false)
+    // ...then is covered, signed out, while the views give way to the login page.
+    expect(auth.user).toBeNull()
+    expect(auth.signingOut).toBe(true)
+
+    navigation.finish()
+    await done
+    expect(auth.signingOut).toBe(false)
+  })
+
+  it('covers them the same way when the session was lost', async () => {
+    const { auth } = await bootSignedIn()
+    const done = auth.sessionLost()
+    await untilNavigating()
+    expect(auth.signingOut).toBe(true)
+    navigation.finish()
+    await done
+    expect(auth.signingOut).toBe(false)
+  })
+
   it('is signed out at once, and signed in again by the next sign-in', async () => {
     const { auth } = await bootSignedIn()
     expect(auth.isAuthenticated).toBe(true)
