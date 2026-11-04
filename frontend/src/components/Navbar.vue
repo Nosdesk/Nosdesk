@@ -39,6 +39,8 @@ const { unreadCount } = useNotificationFeed('all');
 // Keyboard shortcut hint based on platform
 const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 const searchShortcut = isMac ? '\u2318K' : 'Ctrl+K';
+// The same shortcut for assistive tech (aria-keyshortcuts).
+const searchKeyshortcuts = isMac ? 'Meta+K' : 'Control+K';
 
 // Get branding and theme stores
 const brandingStore = useBrandingStore();
@@ -421,7 +423,9 @@ const isOverflowRouteActive = computed(() =>
 
 
             <!-- Search, above the nav links. A field when expanded, a bare
-                 icon with a tooltip in the rail. -->
+                 icon with a tooltip in the rail. Expanded, its name is what it
+                 shows ("Search Ctrl+K"), so a speech user can say it (WCAG
+                 2.5.3); the bare icon is named by its label. -->
             <Tooltip :text="$t('nav-search-with-shortcut', { shortcut: searchShortcut })" side="right" :disabled="!isCollapsed">
                 <button
                     type="button"
@@ -432,7 +436,8 @@ const isOverflowRouteActive = computed(() =>
                             ? 'px-2 justify-center'
                             : 'px-2.5 gap-2 justify-between bg-surface-alt border border-default hover:border-subtle',
                     ]"
-                    :aria-label="$t('nav-search')"
+                    :aria-label="isCollapsed ? $t('nav-search') : undefined"
+                    :aria-keyshortcuts="searchKeyshortcuts"
                 >
                     <div class="flex items-center gap-2">
                         <Icon name="search" />
