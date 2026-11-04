@@ -370,8 +370,9 @@ const handleCreateClick = () => {
             class="flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 hover:ring-2 hover:ring-accent rounded-full focus:outline-none focus:ring-2 focus:ring-accent"
             aria-haspopup="menu"
             :aria-expanded="showUserMenu"
-            :aria-label="$t('user-menu-aria')"
           >
+            <!-- Named by what it shows, so a speech user can say it (WCAG
+                 2.5.3): the initials or the photo's name, then "User menu". -->
             <UserAvatar
               :showName="false"
               :uuid="authStore.user?.uuid"
@@ -380,6 +381,7 @@ const handleCreateClick = () => {
               :size="avatarSize"
               :clickable="false"
             />
+            <span class="sr-only">{{ $t('user-menu-aria') }}</span>
           </button>
 
           <!-- User Dropdown Menu -->
