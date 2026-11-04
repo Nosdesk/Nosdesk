@@ -21,8 +21,46 @@ permissions:
 # Dependabot (.github/dependabot.yml) raises the bumps and rewrites the SHA.
 
 jobs:
+  # A pull request that touches nothing the Rust build reads skips the two
+  # backend jobs: they take 15 minutes or more, and a frontend change can't
+  # break them. A skipped job still satisfies the required check. Pushes to
+  # main always run everything. The paths are backend/, the i18n catalogues
+  # it compiles in (the only files it reads from outside itself), and this
+  # file.
+  changes:
+    name: Pick jobs
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.pick.outputs.backend }}
+    steps:
+      # The pull request checkout is its merge commit, so its first parent is
+      # the base it merges onto and the diff between them is the PR's change.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - id: pick
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != pull_request ]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          if grep -qE '^(backend/|i18n/|\.github/workflows/ci\.yml$)' <<<"$changed"; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No backend paths changed; the Rust jobs are skipped."
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
+
   backend:
     name: Backend (Rust)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     # Postgres for DB-backed integration tests. Mirrors the
     # compose.dev.yaml postgres so test_helpers' bootstrap finds
@@ -170,6 +208,8 @@ jobs:
   # the shipped-binaries check below does, and this job is a required check.
   backend-clippy:
     name: Backend clippy
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
