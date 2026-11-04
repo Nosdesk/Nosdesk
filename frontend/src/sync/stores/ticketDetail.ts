@@ -40,6 +40,7 @@ import { stashPreview } from '@/services/attachmentPreviewCache'
 import { registerOptimisticCreate, clearOptimisticCreate, isEchoSuppressed } from '@/sync/optimisticCreates'
 import { replyStarted, replyFinished } from '@/sync/repliesInFlight'
 import { useToastStore } from '@nosdesk/core/stores/toast'
+import { UPLOAD_TOO_LARGE } from '@nosdesk/core/services/uploadLimits'
 import { resendMark, useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
 import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
 import { htmlHasText } from '@nosdesk/core/utils/inertHtml'
@@ -155,6 +156,13 @@ interface UploadedFile {
 
 interface FileWithTranscription extends File {
   _transcription?: string
+}
+
+/** Whether a reply failed for the size of its attachments: the server's 413,
+ *  or the mobile app's transport refusing the request before sending it. */
+function attachmentsTooLarge(err: unknown): boolean {
+  const e = err as { code?: unknown; response?: { status?: unknown } } | null
+  return e?.code === UPLOAD_TOO_LARGE || e?.response?.status === 413
 }
 
 /**
@@ -491,6 +499,27 @@ export function useTicketDetail(
     }
   }
 
+  /** Add or remove someone else as a watcher. The server answers with the
+   *  new set; the sync echo of `ticket.watcher_added` / `_removed` agrees. */
+  async function setWatcher(userUuid: string, watching: boolean): Promise<void> {
+    if (id.value == null) return
+    const ticketId = id.value
+    try {
+      const { watcherService } = await import('@nosdesk/core/services/watcherService')
+      const uuids = watching
+        ? await watcherService.add(ticketId, userUuid)
+        : await watcherService.remove(ticketId, userUuid)
+      pool.patch<SyncTicketDetail>('ticket', ticketId, { watcher_uuids: uuids })
+    } catch (err) {
+      logger.error('Failed to change watchers', { error: err })
+      useToastStore().error(
+        watching
+          ? translate('ticket-field-watchers-add-failed', undefined, "The watcher wasn't added.")
+          : translate('ticket-field-watchers-remove-failed', undefined, "The watcher wasn't removed."),
+      )
+    }
+  }
+
   async function deleteTicket(): Promise<void> {
     if (id.value == null) return
     try {
@@ -644,11 +673,19 @@ export function useTicketDetail(
           failedReplyToasts.set(
             replyKey,
             toast.error(
-              translate(
-                'ticket-comments-send-failed',
-                { kind },
-                kind === 'note' ? "Your note wasn't sent. Try again." : "Your reply wasn't sent. Try again.",
-              ),
+              attachmentsTooLarge(err)
+                ? translate(
+                    'ticket-comments-send-failed-too-large',
+                    { kind },
+                    kind === 'note'
+                      ? "Your note wasn't sent: its attachments are too large. Remove some and try again."
+                      : "Your reply wasn't sent: its attachments are too large. Remove some and try again.",
+                  )
+                : translate(
+                    'ticket-comments-send-failed',
+                    { kind },
+                    kind === 'note' ? "Your note wasn't sent. Try again." : "Your reply wasn't sent. Try again.",
+                  ),
             ),
           )
         } else {
@@ -954,6 +991,7 @@ export function useTicketDetail(
     updateResolutionNotes,
     updateTags,
     toggleWatch,
+    setWatcher,
     deleteTicket,
     // comments
     addComment,

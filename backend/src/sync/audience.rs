@@ -57,7 +57,8 @@ pub fn audience(aggregate: SyncAggregate) -> Audience {
         SyncAggregate::Project => Audience::All,
         SyncAggregate::WorkflowState => Audience::All,
         // Plugins load in every signed-in session and tear down on a
-        // `plugin.*` record.
+        // `plugin.*` record. `sync::visibility` keeps a plugin's records from
+        // anyone outside its audience (`services::plugins::access`).
         SyncAggregate::Plugin => Audience::All,
         // Everyone gets the workspace's people, but only some of each row:
         // see `sync::user_projection`.

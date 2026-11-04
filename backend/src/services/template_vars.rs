@@ -194,6 +194,7 @@ mod tests {
             // Distinct from the id, so output that quotes the id fails.
             number: id + 1000,
             raised_by_staff: false,
+            blank_at: None,
         }
     }
 

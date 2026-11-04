@@ -4,7 +4,8 @@
 //! frontend's advisory `hasPermission`. This exercises the gate directly against
 //! seeded plugin rows: a consented permission passes, a non-consented one is
 //! Forbidden, an inactive plugin is refused even for a consented permission, and
-//! an unknown uuid is NotFound.
+//! an unknown uuid is NotFound. The caller must also be in the plugin's
+//! audience (its widest component audience); anyone else gets NotFound.
 
 #![allow(clippy::expect_used)]
 
@@ -15,6 +16,7 @@ use uuid::Uuid;
 use backend::handlers::plugins::{authorize_plugin_data_request, PluginGate};
 use backend::models::{NewPlugin, Plugin, PluginState};
 use backend::schema::plugins;
+use backend::services::plugins::access::PluginCaller;
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 
@@ -26,6 +28,40 @@ fn seed_plugin(
     consented: Option<Vec<&str>>,
     state: PluginState,
 ) -> Uuid {
+    seed_plugin_shown_to(conn, ws_id, admin, name, consented, state, &["all"])
+}
+
+/// A plugin whose manifest parses and declares one component per audience.
+fn manifest(name: &str, audiences: &[&str]) -> serde_json::Value {
+    let components: serde_json::Map<String, serde_json::Value> = audiences
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            (
+                format!("c{i}"),
+                json!({ "slot": "ticket-sidebar", "entry": "c.js", "audience": a }),
+            )
+        })
+        .collect();
+    json!({
+        "manifest_version": 1,
+        "name": name,
+        "displayName": name,
+        "version": "1.0.0",
+        "engines": { "nosdesk": ">=1.0.0", "plugin_api": "1" },
+        "components": components,
+    })
+}
+
+fn seed_plugin_shown_to(
+    conn: &mut backend::db::DbConnection,
+    ws_id: i32,
+    admin: Uuid,
+    name: &str,
+    consented: Option<Vec<&str>>,
+    state: PluginState,
+    audiences: &[&str],
+) -> Uuid {
     let actor = ActorContext::user(admin, None).with_workspace(ws_id);
     with_actor_context::<_, diesel::result::Error>(conn, &actor, |c| {
         let new_plugin = NewPlugin {
@@ -33,7 +69,7 @@ fn seed_plugin(
             display_name: name.to_string(),
             version: "1.0.0".to_string(),
             description: None,
-            manifest: json!({ "name": name, "version": "1.0.0" }),
+            manifest: manifest(name, audiences),
             state,
             trust_level: "verified".to_string(),
             installed_by: Some(admin),
@@ -62,9 +98,19 @@ fn gate(
     uuid: Uuid,
     needed: &str,
 ) -> Result<Plugin, PluginGate> {
+    gate_as(conn, ws_id, uuid, PluginCaller::Staff, needed)
+}
+
+fn gate_as(
+    conn: &mut backend::db::DbConnection,
+    ws_id: i32,
+    uuid: Uuid,
+    caller: PluginCaller,
+    needed: &str,
+) -> Result<Plugin, PluginGate> {
     let actor = ActorContext::system("test:plugin_gate").with_workspace(ws_id);
     with_actor_context::<_, diesel::result::Error>(conn, &actor, |c| {
-        authorize_plugin_data_request(c, uuid, needed, "denied")
+        authorize_plugin_data_request(c, uuid, caller, needed, "denied")
     })
     .expect("pinned gate")
 }
@@ -127,4 +173,113 @@ fn gate_enforces_consented_scope() {
         ),
         "an unknown plugin uuid must be NotFound"
     );
+}
+
+#[test]
+fn gate_admits_only_the_plugins_audience() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let mut conn = db.conn();
+    let ws = crate::common::mint_workspace(&mut conn, "aud-ws", "Audience WS");
+    let admin = crate::common::insert_user(&mut conn, "Audience Admin").uuid;
+    let consent = || Some(vec!["storage:plugin"]);
+    let installed = PluginState::Installed;
+    let refused = |r: Result<Plugin, PluginGate>| matches!(r, Err(PluginGate::NotFound));
+
+    let staff = seed_plugin_shown_to(
+        &mut conn,
+        ws,
+        admin,
+        "aud-staff",
+        consent(),
+        installed,
+        &["staff", "admin"],
+    );
+    assert!(refused(gate_as(
+        &mut conn,
+        ws,
+        staff,
+        PluginCaller::Requester,
+        "storage:plugin"
+    )));
+    assert!(gate_as(&mut conn, ws, staff, PluginCaller::Staff, "storage:plugin").is_ok());
+
+    let admin_only = seed_plugin_shown_to(
+        &mut conn,
+        ws,
+        admin,
+        "aud-admin",
+        consent(),
+        installed,
+        &["admin"],
+    );
+    assert!(refused(gate_as(
+        &mut conn,
+        ws,
+        admin_only,
+        PluginCaller::Staff,
+        "storage:plugin"
+    )));
+    assert!(gate_as(
+        &mut conn,
+        ws,
+        admin_only,
+        PluginCaller::Admin,
+        "storage:plugin"
+    )
+    .is_ok());
+
+    let everyone = seed_plugin_shown_to(
+        &mut conn,
+        ws,
+        admin,
+        "aud-all",
+        consent(),
+        installed,
+        &["staff", "all"],
+    );
+    assert!(gate_as(
+        &mut conn,
+        ws,
+        everyone,
+        PluginCaller::Requester,
+        "storage:plugin"
+    )
+    .is_ok());
+
+    let headless =
+        seed_plugin_shown_to(&mut conn, ws, admin, "aud-none", consent(), installed, &[]);
+    assert!(refused(gate_as(
+        &mut conn,
+        ws,
+        headless,
+        PluginCaller::Requester,
+        "storage:plugin"
+    )));
+    assert!(gate_as(
+        &mut conn,
+        ws,
+        headless,
+        PluginCaller::Staff,
+        "storage:plugin"
+    )
+    .is_ok());
+
+    // A refused caller learns nothing about the plugin's state either.
+    let disabled_staff = seed_plugin_shown_to(
+        &mut conn,
+        ws,
+        admin,
+        "aud-off",
+        consent(),
+        PluginState::Disabled,
+        &["staff"],
+    );
+    assert!(refused(gate_as(
+        &mut conn,
+        ws,
+        disabled_staff,
+        PluginCaller::Requester,
+        "storage:plugin"
+    )));
 }

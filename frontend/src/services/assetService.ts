@@ -4,6 +4,7 @@ import type { Asset, AssetFormData } from '@nosdesk/core/types/asset';
 import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
 import { logger } from '@nosdesk/core/utils/logger';
 import { RequestManager } from '@nosdesk/core/utils/requestManager';
+import { isCancellation } from '@nosdesk/core/utils/cancellation';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();
@@ -243,8 +244,7 @@ export const getPaginatedAssets = async (params: AssetPaginationParams, requestK
     };
   } catch (error) {
     // Don't throw if request was cancelled
-    const errorWithName = error as { name?: string };
-    if (errorWithName.name === 'AbortError' || errorWithName.name === 'CanceledError') {
+    if (isCancellation(error)) {
       logger.debug('Request cancelled', { requestKey });
       throw new Error('REQUEST_CANCELLED');
     }

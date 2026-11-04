@@ -23,6 +23,10 @@
  *     activeWorkspaceSlug: () => slug,
  *     setActiveWorkspaceSlug: (s: string | null) => { slug = s },
  *   }))
+ *
+ * The guard enters a workspace only while a session is held, so the router is
+ * built signed in: it configures a transport that holds one, unless the spec
+ * configured its own.
  */
 import { createMemoryHistory, createRouter, type RouteRecordRaw, type Router } from 'vue-router'
 import {
@@ -30,6 +34,7 @@ import {
   installWorkspaceGuard,
   withWorkspaceRouting,
 } from '@/router/workspaceRouting'
+import { configureTransport, transport } from '@nosdesk/core/transport'
 
 /** The two routing modes, and the prefix a path carries in each. */
 export const routingModes = [
@@ -44,7 +49,29 @@ export function stubRoute(path: string, name: string): RouteRecordRaw {
   return { path, name, component: page, meta: { requiresAuth: true } }
 }
 
+/** Configure a signed-in transport, as the app's bootstrap would, unless the
+ *  spec already configured one. */
+export function ensureSignedInTransport(): void {
+  try {
+    transport()
+  } catch {
+    configureTransport({
+      baseUrl: '/api',
+      collabWsBaseUrl: '/api/collaboration/ws',
+      auth: {
+        authHeaders: () => ({}),
+        useCredentials: true,
+        refresh: async () => 'renewed',
+        hasSession: () => true,
+        onSessionLost: () => {},
+        endSession: async () => {},
+      },
+    })
+  }
+}
+
 export function makeWorkspaceRouter(routes: RouteRecordRaw[]): Router {
+  ensureSignedInTransport()
   const router = createRouter({
     history: createMemoryHistory(),
     routes: withWorkspaceRouting(routes),

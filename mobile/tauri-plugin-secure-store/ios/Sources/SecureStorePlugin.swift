@@ -78,6 +78,6 @@ class SecureStorePlugin: Plugin {
 }
 
 @_cdecl("init_plugin_secure_store")
-func initPlugin() -> Plugin {
+public func initPlugin() -> Plugin {
   return SecureStorePlugin()
 }

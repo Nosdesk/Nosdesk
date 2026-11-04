@@ -44,6 +44,22 @@ impl Claims {
     pub fn session_uuid(&self) -> Option<Uuid> {
         self.sid.as_deref().and_then(|s| s.parse().ok())
     }
+
+    /// A signed-in session of the agent app (`full`) or the portal
+    /// (`portal`), as opposed to an MFA-pending, stream or collaboration
+    /// token. A person manages their own account from either.
+    pub fn is_account_session(&self) -> bool {
+        matches!(
+            self.scope.as_str(),
+            "full" | crate::middleware::cookie_auth::PORTAL_SCOPE
+        )
+    }
+
+    /// A portal session, whose provider confirmations and sign-in links are
+    /// the portal's own.
+    pub fn is_portal_session(&self) -> bool {
+        self.scope == crate::middleware::cookie_auth::PORTAL_SCOPE
+    }
 }
 
 // Default scope for backward compatibility

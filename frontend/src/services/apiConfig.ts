@@ -13,6 +13,7 @@ import { ACCESS_EXPIRES_IN_HEADER, noteAccessExpiry } from '@nosdesk/core/servic
 // and mobile (bearer) surfaces. The host wires the active strategy at
 // bootstrap (web: services/transport.ts).
 import {
+  addRequestGate,
   addRequestHeaderProvider,
   apiBaseUrl,
   passRequestGates,
@@ -77,17 +78,50 @@ addRequestHeaderProvider(diagnosticsHeaders);
 let isRefreshing = false;
 let refreshSubscribers: ((success: boolean) => void)[] = [];
 
-// Set while an intentional sign-out (the auth store's logout()) runs. During
-// it the session is gone on purpose, so 401s from requests still settling
-// are expected teardown noise: the interceptor skips the token-refresh dance
-// and the error-level logging for them. Cleared when logout() finishes; the
-// login page's own 401s are covered by `onPublicAuthPage`.
+// Set while a session is torn down: a deliberate sign-out (the auth store's
+// logout()) or a session the server rejected (sessionLost()). Cleared when the
+// teardown finishes; the login page's own 401s are covered by
+// `onPublicAuthPage`.
+//
+// Nothing is sent for the session during the window. Its views are still
+// mounted while their caches are dropped, and each mounted query refetches at
+// once; sent, those requests could only come back 401. So they are held until
+// the teardown ends, by when the views have unmounted, and then cancelled
+// unsent. The sign-out's own /auth/logout goes out, and so do the sign-in
+// page's requests once it is showing. Anything else that needs the session is
+// done before it ends. A request already in flight when the window opens can
+// still be refused; the response interceptor treats that 401 as expected.
+//
+// Bounded like the workspace-switch hold, so a teardown that never finishes
+// can't wedge every request.
+const TEARDOWN_HOLD_MAX_MS = 10_000;
 let loggingOut = false;
+let teardownHold: { done: Promise<void>; release: () => void } | null = null;
+
 export function setLoggingOut(value: boolean): void {
   loggingOut = value;
+  if (value) {
+    if (teardownHold) return;
+    let release!: () => void;
+    const done = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const hold = { done, release };
+    teardownHold = hold;
+    setTimeout(() => {
+      if (teardownHold === hold) endTeardownHold();
+    }, TEARDOWN_HOLD_MAX_MS);
+  } else {
+    endTeardownHold();
+  }
 }
 export function isLoggingOut(): boolean {
   return loggingOut;
+}
+
+function endTeardownHold(): void {
+  teardownHold?.release();
+  teardownHold = null;
 }
 
 /** True on the unauthenticated shell pages, where a 401 is expected. */
@@ -97,6 +131,13 @@ function onPublicAuthPage(): boolean {
     window.location.pathname.includes('/onboarding')
   );
 }
+
+addRequestGate(async (request) => {
+  const hold = teardownHold;
+  if (!hold || request.url?.includes('/auth/logout') || onPublicAuthPage()) return;
+  await hold.done;
+  throw new CanceledError('The session ended before this request was sent');
+});
 
 function subscribeTokenRefresh(callback: (success: boolean) => void) {
   refreshSubscribers.push(callback);
@@ -111,8 +152,9 @@ function onRefreshComplete(success: boolean) {
 // Add request interceptor for CSRF token and correlation ID
 apiClient.interceptors.request.use(
   async (config) => {
-    // Held while a workspace switch is in progress (see activeWorkspace).
-    await passRequestGates();
+    // Held while a workspace switch is in progress (see activeWorkspace),
+    // refused during a sign-out (see setLoggingOut).
+    await passRequestGates(config);
 
     // Resolve base URL and credential mode from the active transport (web:
     // same-origin + cookies; mobile: absolute base + bearer, no cookies).

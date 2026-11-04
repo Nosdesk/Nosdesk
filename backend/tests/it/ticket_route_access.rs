@@ -21,6 +21,10 @@ const WS: i32 = 1;
 const MISSING: i32 = 999_999;
 
 fn member(conn: &mut PgConnection, name: &str, role: &str) -> User {
+    member_of(conn, WS, name, role)
+}
+
+fn member_of(conn: &mut PgConnection, workspace: i32, name: &str, role: &str) -> User {
     use backend::schema::{users, workspace_members};
     let user: User = diesel::insert_into(users::table)
         .values(&NewUser {
@@ -40,7 +44,7 @@ fn member(conn: &mut PgConnection, name: &str, role: &str) -> User {
         .expect("insert user");
     diesel::insert_into(workspace_members::table)
         .values((
-            workspace_members::workspace_id.eq(WS),
+            workspace_members::workspace_id.eq(workspace),
             workspace_members::user_uuid.eq(user.uuid),
             workspace_members::role.eq(role),
         ))
@@ -66,6 +70,8 @@ struct Fixture {
     pool: crate::common::TestPool,
     workspace_uuid: Uuid,
     requester: User,
+    /// Another requester-role member, the requester of `theirs`.
+    other: User,
     agent: User,
     /// The requester's own ticket.
     mine: Ticket,
@@ -100,6 +106,7 @@ impl Fixture {
             pool,
             workspace_uuid,
             requester,
+            other,
             agent,
             mine,
             theirs,
@@ -176,6 +183,14 @@ impl Fixture {
                             web::post().to(backend::handlers::preview_ticket_field),
                         )
                         .route(
+                            "/tickets/{id}/watchers",
+                            web::post().to(backend::handlers::ticket_watchers::add_watcher),
+                        )
+                        .route(
+                            "/tickets/{id}/watchers/{user_uuid}",
+                            web::delete().to(backend::handlers::ticket_watchers::remove_watcher),
+                        )
+                        .route(
                             "/assets/{id}/usage",
                             web::get().to(backend::handlers::asset_usage::list_for_asset),
                         ),
@@ -191,6 +206,7 @@ impl Fixture {
             user_uuid: user,
             workspace_id: WS,
             workspace_uuid: self.workspace_uuid,
+            scope: backend::handlers::portal::PortalScope::Full,
         };
         actix_test::start(move || {
             let corr = Uuid::now_v7();
@@ -295,6 +311,61 @@ async fn tagging_and_staff_field_previews_need_staff() {
 }
 
 #[actix_web::test]
+async fn agents_add_and_remove_watchers() {
+    let fx = Fixture::new();
+    let requester = fx.app_as(&fx.requester);
+    let agent = fx.app_as(&fx.agent);
+    let add = |srv: &actix_test::TestServer, who: Uuid| {
+        awc::Client::new()
+            .post(srv.url(&format!("/api/tickets/{}/watchers", fx.mine.id)))
+            .send_json(&json!({ "user_uuid": who }))
+    };
+    let remove = |srv: &actix_test::TestServer, who: Uuid| {
+        awc::Client::new()
+            .delete(srv.url(&format!("/api/tickets/{}/watchers/{who}", fx.mine.id)))
+            .send()
+    };
+    let watchers = |body: serde_json::Value| -> Vec<Uuid> {
+        body["watcher_uuids"]
+            .as_array()
+            .expect("watcher_uuids")
+            .iter()
+            .filter_map(|u| u.as_str().and_then(|u| Uuid::parse_str(u).ok()))
+            .collect()
+    };
+    let sla = format!("/api/tickets/{}/sla/explain", fx.mine.id);
+    let as_other = fx.app_as(&fx.other);
+    assert_eq!(get_status(&as_other, &sla).await, 404);
+
+    assert_eq!(
+        add(&requester, fx.other.uuid).await.expect("send").status(),
+        403
+    );
+    assert_eq!(
+        add(&agent, Uuid::new_v4()).await.expect("send").status(),
+        400
+    );
+
+    // A requester-role member joins as a participant and can see the ticket.
+    let mut resp = add(&agent, fx.other.uuid).await.expect("send");
+    assert_eq!(resp.status(), 200);
+    assert!(watchers(resp.json().await.expect("json")).contains(&fx.other.uuid));
+    assert_eq!(get_status(&as_other, &sla).await, 200);
+
+    assert_eq!(
+        remove(&requester, fx.other.uuid)
+            .await
+            .expect("send")
+            .status(),
+        403
+    );
+    let mut resp = remove(&agent, fx.other.uuid).await.expect("send");
+    assert_eq!(resp.status(), 200);
+    assert!(!watchers(resp.json().await.expect("json")).contains(&fx.other.uuid));
+    assert_eq!(get_status(&as_other, &sla).await, 404);
+}
+
+#[actix_web::test]
 async fn asset_usage_history_hides_ticket_details_from_non_staff() {
     let fx = Fixture::new();
     {
@@ -372,4 +443,58 @@ async fn portal_participants_need_a_visible_ticket() {
         .and_then(|u| Uuid::parse_str(u).ok())
         .expect("added participant");
     assert_eq!(remove(fx.mine.id, added).await, 200);
+}
+
+fn verified_email(conn: &mut PgConnection, user: Uuid, email: &str) {
+    use backend::schema::user_emails;
+    diesel::insert_into(user_emails::table)
+        .values((
+            user_emails::user_uuid.eq(user),
+            user_emails::email.eq(email),
+            user_emails::email_type.eq("personal"),
+            user_emails::is_primary.eq(true),
+            user_emails::is_verified.eq(true),
+        ))
+        .execute(conn)
+        .expect("insert email");
+}
+
+#[actix_web::test]
+async fn a_participant_from_another_workspace_joins_under_the_address_name() {
+    let fx = Fixture::new();
+    {
+        let mut conn = fx.pool.get().expect("conn");
+        let elsewhere = crate::common::mint_workspace(&mut conn, "elsewhere", "Elsewhere");
+        let outsider = member_of(&mut conn, elsewhere, "Real Name", "member");
+        verified_email(&mut conn, outsider.uuid, "ceo@elsewhere.example");
+        let colleague = member(&mut conn, "Colleague Name", "member");
+        verified_email(&mut conn, colleague.uuid, "colleague@here.example");
+    }
+    let srv = fx.portal_as(fx.requester.uuid);
+    let add = |email: &'static str| {
+        awc::Client::new()
+            .post(srv.url(&format!("/api/portal/tickets/{}/participants", fx.mine.id)))
+            .send_json(&json!({ "email": email }))
+    };
+    let names = |body: serde_json::Value| -> Vec<String> {
+        body["participants"]
+            .as_array()
+            .expect("participants")
+            .iter()
+            .filter_map(|p| p["name"].as_str().map(str::to_string))
+            .collect()
+    };
+
+    let mut resp = add("ceo@elsewhere.example").await.expect("send");
+    assert_eq!(resp.status(), 200);
+    let shown = names(resp.json().await.expect("json"));
+    assert!(shown.contains(&"ceo".to_string()), "{shown:?}");
+    assert!(!shown.contains(&"Real Name".to_string()), "{shown:?}");
+
+    // Someone already in this workspace keeps the name it knows them by.
+    let mut resp = add("colleague@here.example").await.expect("send");
+    assert_eq!(resp.status(), 200);
+    let shown = names(resp.json().await.expect("json"));
+    assert!(shown.contains(&"Colleague Name".to_string()), "{shown:?}");
+    assert!(!shown.contains(&"Real Name".to_string()), "{shown:?}");
 }

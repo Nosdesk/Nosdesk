@@ -1,5 +1,6 @@
 /**
- * Host-drawn plugin dialogs (`api.ui.confirm` and the `api.ui.pick*` calls).
+ * Host-drawn plugin dialogs (`api.ui.confirm`, the `api.ui.pick*` calls, and
+ * the ask-first fallback of `api.ui.openExternal`).
  *
  * A sandboxed plugin's iframe is sized to its content, so anything it draws as
  * an overlay is clipped to the panel. These calls ask the host to draw the
@@ -38,6 +39,8 @@ export interface PluginDialogResults {
   asset: PluginPickedAsset | null;
   ticket: PluginPickedTicket | null;
   date: string | null;
+  /** `true` once the user opened the link. */
+  link: boolean;
 }
 
 export type PluginDialogKind = keyof PluginDialogResults;
@@ -48,6 +51,8 @@ interface DialogOptionsByKind {
   asset: { title?: string };
   ticket: { title?: string };
   date: { title?: string; initial?: string };
+  /** `url` is the checked https URL; `host` its hostname, shown to the user. */
+  link: { title?: string; url: string; host: string };
 }
 
 /** A pending dialog as the host renders it. */
@@ -93,6 +98,7 @@ const CANCELLED: { [K in PluginDialogKind]: PluginDialogResults[K] } = {
   asset: null,
   ticket: null,
   date: null,
+  link: false,
 };
 
 const entries = shallowRef<Entry[]>([]);

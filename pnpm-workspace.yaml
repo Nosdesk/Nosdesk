@@ -2,3 +2,11 @@ packages:
   - frontend
   - packages/*
   - mobile
+
+# The advisory fixes for these are new majors that their parents don't accept
+# yet: glob 14 (GHSA-3g3m-2fjr-6pw4) under js-beautify, through
+# @vue/test-utils, and minimatch 11 (GHSA-g3hv-75wg-m249) under eslint. Both
+# are dev-only. Drop each once its parent's range admits the fix.
+overrides:
+  glob@<14.0.2: ^14.0.2
+  minimatch@<11.0.1: ^11.0.1

@@ -96,6 +96,7 @@ fn validate_event_body(body: &PluginEventBody) -> Result<(), &'static str> {
 
 /// POST /api/plugins/{plugin_uuid}/events
 pub async fn emit_plugin_event(
+    auth: crate::extractors::AuthContext,
     pool: web::Data<Pool>,
     path: web::Path<Uuid>,
     body: web::Json<PluginEventBody>,
@@ -129,6 +130,12 @@ pub async fn emit_plugin_event(
             return Err(ApiError::Internal("Failed to look up plugin".into()));
         }
     };
+    // Only a caller in the plugin's audience may emit for it; anyone else is
+    // answered as for a missing plugin (see `services::plugins::access`).
+    let caller = crate::services::plugins::access::PluginCaller::of(&auth);
+    if !crate::services::plugins::access::plugin_admits(&plugin, caller) {
+        return Err(ApiError::NotFoundMsg("Plugin not found".into()));
+    }
 
     // Only an active (installed) plugin may emit. A disabled / failed / pending
     // plugin emitting events would let a member forge activity through a plugin

@@ -1021,7 +1021,7 @@ function startPaneResize(event: PointerEvent): void {
          nav surface look broken. -->
     <div
       v-else-if="sortedCards.length === 0"
-      class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm gap-1"
+      class="flex-1 flex flex-col items-center justify-center gap-1 px-6 text-center text-tertiary text-sm"
     >
       <!-- Never had a ticket: the pool holds every ticket in every state, so
            an empty pool that reflects the server is the first run, not a
@@ -1030,6 +1030,7 @@ function startPaneResize(event: PointerEvent): void {
       <FirstTicketsState
         v-if="populated && allCards.length === 0"
         :is-admin="authStore.isAdmin"
+        :creating="pageActions.creating"
         @create="pageActions.invokeCreate()"
       />
       <template v-else-if="filters.activeFacets.value.length > 0">

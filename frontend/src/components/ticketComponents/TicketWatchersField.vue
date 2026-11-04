@@ -24,6 +24,10 @@
  * height for the average ticket that doesn't need to inspect the
  * preference.
  *
+ * The `+` button opens an inline panel (like the tags picker) where an
+ * agent adds or removes other people. Someone who isn't staff joins the
+ * request as a participant and gets the team's replies by email.
+ *
  * Comment-notification fan-out happens server-side: backend reads
  * the watcher set when a comment lands and notifies every uuid
  * (deduped against the requester / assignee / @mentions). This
@@ -36,6 +40,8 @@ import { watcherService } from '@nosdesk/core/services/watcherService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
+import UserPicker from '@/components/ticketComponents/UserPicker.vue'
+import type { PickerUser } from '@/composables/useUserPicker'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -50,6 +56,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'toggle'): void
+  (e: 'set-watcher', userUuid: string, watching: boolean): void
 }>()
 
 const authStore = useAuthStore()
@@ -75,6 +82,20 @@ function handleToggle() {
   if (props.readonly && !isWatching.value) return
   emit('toggle')
 }
+
+// Add / remove panel. The picker's own value is only a staging slot: a pick
+// adds that person and the slot clears for the next one.
+const manageOpen = ref(false)
+const picking = ref('')
+
+function addWatcher(user: PickerUser) {
+  picking.value = ''
+  if (!props.watcherUuids.includes(user.uuid)) emit('set-watcher', user.uuid, true)
+}
+
+watch(() => props.readonly, (ro) => {
+  if (ro) manageOpen.value = false
+})
 
 // Per-watch preference: mute internal-note notifications. Loaded
 // on demand whenever the current user is watching; cleared back to
@@ -189,6 +210,17 @@ watch(isWatching, (watching) => {
         </div>
       </div>
       <div v-if="!readonly || isWatching" class="flex items-center gap-0.5 shrink-0">
+        <button
+          v-if="!readonly"
+          type="button"
+          class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover transition-colors"
+          :aria-expanded="manageOpen"
+          :title="t('ticket-field-watchers-manage')"
+          :aria-label="t('ticket-field-watchers-manage')"
+          @click="manageOpen = !manageOpen"
+        >
+          <Icon name="add" class="w-3.5 h-3.5" />
+        </button>
         <!-- Bell toggle. Same bell glyph for both states; colour +
              weight distinguishes them (no `bellOff` in the registry).
              Subscribed reads as a quiet accent text colour with a
@@ -230,6 +262,45 @@ watch(isWatching, (watching) => {
           <Icon name="chevronDown" class="w-3 h-3" />
         </button>
       </div>
+    </div>
+
+    <!-- Add / remove panel, inline under the row like the tags picker. -->
+    <div
+      v-if="manageOpen && !readonly"
+      class="mt-1 bg-surface-alt rounded-lg border border-default p-1.5 flex flex-col gap-1"
+    >
+      <p v-if="watcherCount === 0" class="px-2 py-1 text-xs text-tertiary">
+        {{ t('ticket-field-watchers-empty') }}
+      </p>
+      <div
+        v-for="uuid in watcherUuids"
+        :key="uuid"
+        class="flex items-center justify-between gap-2 px-2 py-0.5 rounded hover:bg-surface-hover"
+      >
+        <UserAvatar :uuid="uuid" size="xs" :clickable="false" />
+        <button
+          type="button"
+          class="inline-flex items-center justify-center w-5 h-5 shrink-0 rounded text-tertiary hover:text-primary hover:bg-surface-hover transition-colors"
+          :title="t('ticket-field-watchers-remove')"
+          :aria-label="t('ticket-field-watchers-remove')"
+          @click="emit('set-watcher', uuid, false)"
+        >
+          <Icon name="close" class="w-3 h-3" />
+        </button>
+      </div>
+      <UserPicker
+        v-model="picking"
+        type="requester"
+        hide-inline-clear
+        :exclude="watcherUuids"
+        :placeholder="t('ticket-field-watchers-add-placeholder')"
+        @pick="addWatcher"
+      />
+      <button
+        type="button"
+        class="text-2xs text-tertiary hover:text-primary px-2 py-1 self-end"
+        @click="manageOpen = false"
+      >{{ t('ticket-field-watchers-done') }}</button>
     </div>
 
     <!-- Preferences popover. Anchored to the chevron button next

@@ -37,9 +37,27 @@ fn stored_push_rows(conn: &mut backend::db::DbConnection, user: Uuid) -> i64 {
 }
 
 fn register_device(conn: &mut backend::db::DbConnection, user: Uuid, workspace: i32, token: &str) {
+    let session = backend::repository::active_sessions::create_session(
+        conn,
+        backend::models::NewActiveSession {
+            user_uuid: user,
+            device_name: None,
+            ip_address: None,
+            user_agent: None,
+            location: None,
+            expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
+            oidc_id_token: None,
+            confirmed_at: None,
+            provider_amr: None,
+        },
+    )
+    .expect("session")
+    .session_id;
     let actor = ActorContext::system("test:register_device").with_workspace(workspace);
     with_actor_bypass_context::<_, diesel::result::Error>(conn, &actor, |c| {
-        backend::repository::push_devices::register(c, user, workspace, "ios", token, None)?;
+        backend::repository::push_devices::register(
+            c, user, session, workspace, "ios", token, None,
+        )?;
         Ok(())
     })
     .expect("register device");

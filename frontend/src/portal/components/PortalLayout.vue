@@ -26,7 +26,8 @@ import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
 import NoticeBanner from '@/components/requester/NoticeBanner.vue'
 
 import PortalAvatar from './PortalAvatar.vue'
-import { followNotice, getMe, getNotice, listMyApprovals, signOut } from '../service'
+import { followNotice, getNotice, listMyApprovals, signOut } from '../service'
+import { usePortalMe } from '../usePortalMe'
 import { embedHost } from '../embed'
 
 withDefaults(defineProps<{ wide?: boolean }>(), { wide: false })
@@ -47,7 +48,7 @@ const publicSettings = usePublicSettingsStore()
 void publicSettings.load()
 const helpCentre = computed(() => publicSettings.settings?.guest_public_docs_enabled === true)
 
-const me = useQuery({ key: ['portal', 'me'], query: getMe })
+const { me, linkSession } = usePortalMe()
 // Shown only to people with requests waiting for their approval.
 const approvals = useQuery({ key: ['portal', 'approvals'], query: listMyApprovals })
 const waitingApprovals = computed(() => approvals.data.value?.length ?? 0)
@@ -59,7 +60,7 @@ interface Section {
   count?: number
 }
 const sections = computed<Section[]>(() => [
-  { to: '/tickets', label: t('portal-nav-requests'), icon: 'inbox' as const },
+  ...(linkSession.value ? [] : [{ to: '/tickets', label: t('portal-nav-requests'), icon: 'inbox' as const }]),
   ...(waitingApprovals.value > 0
     ? [{ to: '/approvals', label: t('portal-nav-approvals-short'), icon: 'checkCircle' as const, count: waitingApprovals.value }]
     : []),
@@ -99,6 +100,10 @@ watch(
 const accountButton = ref<HTMLElement | null>(null)
 const accountOpen = ref(false)
 const accountAnchor = computed(() => ({ type: 'element' as const, element: () => accountButton.value }))
+function openAccount(): void {
+  accountOpen.value = false
+  void router.push('/account')
+}
 async function onSignOut(): Promise<void> {
   accountOpen.value = false
   try {
@@ -152,7 +157,7 @@ async function onSignOut(): Promise<void> {
         <div class="ml-auto flex items-center gap-2">
           <!-- A wrapper carries the display toggle: Button's own inline-flex
                would beat `hidden`. Phones use the tab bar's instead. -->
-          <div :class="inTeams ? 'flex' : 'hidden sm:flex'">
+          <div v-if="!linkSession" :class="inTeams ? 'flex' : 'hidden sm:flex'">
             <Button size="sm" icon="add" @click="router.push('/tickets/new')">
               {{ t('portal-nav-new') }}
             </Button>
@@ -190,6 +195,7 @@ async function onSignOut(): Promise<void> {
           <span v-if="me.data.value?.email" class="text-xs text-secondary truncate">{{ me.data.value.email }}</span>
         </div>
       </div>
+      <MenuRow v-if="!linkSession" @click="openAccount">{{ t('portal-account-settings') }}</MenuRow>
       <MenuRow tone="danger" @click="onSignOut">{{ t('portal-sign-out') }}</MenuRow>
     </ResponsiveMenu>
 
@@ -197,6 +203,16 @@ async function onSignOut(): Promise<void> {
       class="w-full mx-auto px-4 py-6 sm:py-8 flex flex-col gap-6"
       :class="[wide ? 'max-w-6xl' : 'max-w-4xl', !inTeams && !inWidget ? 'pb-24 sm:pb-8' : '']"
     >
+      <div
+        v-if="linkSession"
+        class="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-secondary"
+        data-testid="link-session-notice"
+      >
+        <span>{{ t('portal-link-session-notice') }}</span>
+        <Button size="sm" variant="secondary" @click="onSignOut">
+          {{ t('portal-link-session-sign-in') }}
+        </Button>
+      </div>
       <NoticeBanner
         v-if="notice.data.value?.notice"
         :notice="notice.data.value.notice"
@@ -227,6 +243,7 @@ async function onSignOut(): Promise<void> {
           {{ section.label }}
         </RouterLink>
         <RouterLink
+          v-if="!linkSession"
           to="/tickets/new"
           class="flex-1 flex flex-col items-center justify-center gap-0.5 text-[0.6875rem]"
           :class="route.path === '/tickets/new' ? 'text-accent' : 'text-secondary'"

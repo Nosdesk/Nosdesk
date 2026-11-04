@@ -96,6 +96,7 @@ fn session(conn: &mut backend::db::DbConnection, user: Uuid, id_token: Option<St
             expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             oidc_id_token: id_token,
             confirmed_at: None,
+            provider_amr: None,
         },
     )
     .expect("session")

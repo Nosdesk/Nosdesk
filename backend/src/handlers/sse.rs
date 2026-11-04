@@ -384,6 +384,9 @@ impl SseState {
 /// heartbeat ticks. Disconnects cleanly when any topic stream ends or
 /// reports lag — the frontend reconnects with `Last-Event-ID` and the
 /// server fills the gap from each topic's ring.
+/// How often an open stream re-checks the account and session behind it.
+const AUTH_RECHECK: Duration = Duration::from_secs(30);
+
 pub struct SseStream {
     event_streams: futures::stream::SelectAll<BroadcastStream<Envelope>>,
     replay_queue: VecDeque<Envelope>,
@@ -424,6 +427,13 @@ pub struct SseStream {
     /// `None` from it ends the stream (a documentation row it couldn't
     /// classify; the client reconnects and catches up).
     pending: Option<Pin<Box<dyn Future<Output = Option<String>> + Send>>>,
+    /// Who opened the stream and from which session (`None` for an API
+    /// token), re-checked every `AUTH_RECHECK` so a sign-out, a revoked
+    /// session or a deleted account ends a stream that is already open.
+    user_uuid: Uuid,
+    sid: Option<String>,
+    auth_interval: tokio::time::Interval,
+    auth_check: Option<Pin<Box<dyn Future<Output = bool> + Send>>>,
     /// Holds this connection's slot in the shared connection cap. Dropped with
     /// the stream (alongside `remove_client`), releasing the slot on every
     /// stream-end path.
@@ -442,6 +452,8 @@ impl SseStream {
         workspace_id: Option<i32>,
         allowed_groups: Arc<HashSet<String>>,
         conn_guard: crate::services::connection_registry::ConnGuard,
+        user_uuid: Uuid,
+        sid: Option<String>,
     ) -> Self {
         // 15-second heartbeat. EventSource auto-reconnects when the
         // read side dies, so this is mostly a NAT/proxy keepalive
@@ -453,6 +465,10 @@ impl SseStream {
             futures::stream::select_all(receivers.into_iter().map(BroadcastStream::new));
 
         let replay_max_id = replay.iter().map(|e| e.id).max().unwrap_or(0);
+
+        let mut auth_interval =
+            tokio::time::interval_at(tokio::time::Instant::now() + AUTH_RECHECK, AUTH_RECHECK);
+        auth_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         Self {
             event_streams,
@@ -466,6 +482,10 @@ impl SseStream {
             workspace_id,
             allowed_groups,
             pending: None,
+            user_uuid,
+            sid,
+            auth_interval,
+            auth_check: None,
             _conn_guard: conn_guard,
         }
     }
@@ -719,6 +739,37 @@ impl Stream for SseStream {
         let client_id = this.client_id.clone();
 
         loop {
+            // 0. Every AUTH_RECHECK, confirm the account and session that
+            //    opened the stream still hold; end it if not.
+            if this.auth_check.is_none() && this.auth_interval.poll_tick(cx).is_ready() {
+                let pool = this.pool.clone();
+                let (user_uuid, sid) = (this.user_uuid, this.sid.clone());
+                this.auth_check = Some(Box::pin(async move {
+                    web::block(move || {
+                        let Ok(mut conn) = pool.get() else {
+                            return true;
+                        };
+                        crate::utils::jwt::JwtUtils::connection_still_authorised(
+                            &mut conn,
+                            user_uuid,
+                            sid.as_deref(),
+                        )
+                    })
+                    .await
+                    .unwrap_or(true)
+                }));
+            }
+            if let Some(check) = this.auth_check.as_mut() {
+                match check.as_mut().poll(cx) {
+                    Poll::Ready(true) => this.auth_check = None,
+                    Poll::Ready(false) => {
+                        tracing::info!("SSE: the session or account behind the stream ended");
+                        return Poll::Ready(None);
+                    }
+                    Poll::Pending => return Poll::Pending,
+                }
+            }
+
             // 1. Drive an in-flight per-subscriber documentation filter,
             //    if one is running. It produces the already-framed bytes.
             if let Some(fut) = this.pending.as_mut() {
@@ -952,6 +1003,8 @@ pub async fn sse_events_stream(
         workspace_id,
         allowed_groups,
         conn_guard,
+        user.uuid,
+        user_info.sid.clone(),
     );
 
     // Build initial "connected" event so the client knows its own ID
@@ -1142,6 +1195,7 @@ pub async fn get_sse_token(
         &user_info.sub,
         &user_info.platform_role,
         workspace_uuid,
+        user_info.sid.as_deref(),
     ) {
         Ok(token) => token,
         Err(_) => {

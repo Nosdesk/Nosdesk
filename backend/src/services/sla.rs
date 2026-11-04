@@ -1411,6 +1411,7 @@ mod tests {
             approval_state: None,
             number: 1,
             raised_by_staff: false,
+            blank_at: None,
         }
     }
 
