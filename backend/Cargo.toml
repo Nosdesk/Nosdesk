@@ -242,7 +242,7 @@ sanitize-filename = "0.6"  # Filename sanitization for uploads
 tantivy = "0.26"           # Fast full-text search engine (Rust equivalent of Lucene)
 
 # Channel adapter: IMAP ingestion
-async-imap = { version = "0.11", default-features = false, features = ["runtime-tokio"] }  # Async IMAP client for pull-based email ingestion
+async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }  # Async IMAP client for pull-based email ingestion
 tokio-native-tls = "0.3"   # TLS transport for async-imap over 993 (tokio io traits)
 native-tls = "0.2"         # Underlying TLS connector type
 
