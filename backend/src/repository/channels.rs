@@ -458,7 +458,8 @@ pub fn latest_inbound_for_ticket(
         .filter(cm::channel_id.eq(channel_id))
         .filter(cm::ticket_id.eq(ticket_id))
         .filter(cm::direction.eq(CHANNEL_DIRECTION_INBOUND))
-        .order(cm::received_at.desc())
+        // Rows recorded together share `received_at`; the later insert wins.
+        .order((cm::received_at.desc(), cm::id.desc()))
         .first(conn)
         .optional()
 }

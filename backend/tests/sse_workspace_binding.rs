@@ -25,8 +25,13 @@ fn sse_token_for(user_uuid: uuid::Uuid, workspace_uuid: Option<uuid::Uuid>) -> S
     }
     // common::insert_user seeds platform_role = platform_admin; the token's
     // platform_role must match or validation rejects it (demotion guard).
-    JwtUtils::create_sse_token(&user_uuid.to_string(), "platform_admin", workspace_uuid)
-        .expect("mint sse token")
+    JwtUtils::create_sse_token(
+        &user_uuid.to_string(),
+        "platform_admin",
+        workspace_uuid,
+        None,
+    )
+    .expect("mint sse token")
 }
 
 #[actix_web::test]

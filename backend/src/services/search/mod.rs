@@ -33,6 +33,26 @@ pub use types::{EntityType, IndexDocument, SearchQuery, SearchResponse};
 /// Memory budget for the index writer (50MB)
 const INDEX_WRITER_MEMORY_BYTES: usize = 50_000_000;
 
+/// What the indexed documents hold, beyond the schema's fields. Raise it when
+/// a change to how documents are built needs every existing one rebuilt (an
+/// index written by an older version is recreated, then filled from the
+/// database). 2: attachments on internal notes carry `is_internal`.
+const INDEX_CONTENT_VERSION: u32 = 2;
+const INDEX_CONTENT_VERSION_FILE: &str = "nosdesk_content_version";
+
+fn index_content_version(index_path: &Path) -> Option<u32> {
+    std::fs::read_to_string(index_path.join(INDEX_CONTENT_VERSION_FILE))
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+}
+
+fn write_index_content_version(index_path: &Path) -> std::io::Result<()> {
+    std::fs::write(
+        index_path.join(INDEX_CONTENT_VERSION_FILE),
+        INDEX_CONTENT_VERSION.to_string(),
+    )
+}
+
 /// Search service that manages the Tantivy index
 pub struct SearchService {
     _index: Index,
@@ -73,7 +93,11 @@ impl SearchService {
             let idx = Index::open_in_dir(index_path)?;
 
             // Check if the existing index has a compatible schema
-            if SearchSchema::is_compatible_with_index(&idx) {
+            if index_content_version(index_path) != Some(INDEX_CONTENT_VERSION) {
+                warn!("Existing index was built by an older version, recreating index");
+                drop(idx);
+                Self::recreate_index(index_path)?
+            } else if SearchSchema::is_compatible_with_index(&idx) {
                 match SearchSchema::from_index(&idx) {
                     Ok(sch) => {
                         debug!("Using existing index schema");
@@ -94,6 +118,7 @@ impl SearchService {
             info!(path = ?index_path, "Creating new search index");
             let sch = SearchSchema::new();
             let idx = Index::create_in_dir(index_path, sch.schema.clone())?;
+            write_index_content_version(index_path)?;
             (idx, sch)
         };
 
@@ -163,6 +188,7 @@ impl SearchService {
         // Create fresh index with new schema
         let schema = SearchSchema::new();
         let index = Index::create_in_dir(index_path, schema.schema.clone())?;
+        write_index_content_version(index_path)?;
         info!(path = ?index_path, "Created fresh search index with new schema");
         Ok((index, schema))
     }

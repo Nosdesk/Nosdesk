@@ -3,8 +3,9 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 // The workspace guard owns the switch: a change of slug in the URL, by
 // whatever route, resets the previous workspace's state and loads the
-// next one's. The same slug is a no-op; the first slug of a session only
-// enters.
+// next one's. The first slug of a session only enters. It enters only while
+// a session is held (entering is once per session and workspace, which
+// `enterWorkspace` itself keeps; see workspaceEnter.spec.ts).
 
 const reset = vi.fn(async () => {})
 const enter = vi.fn(async () => {})
@@ -17,6 +18,10 @@ vi.mock('@nosdesk/core/services/instanceConfig', () => ({
   getWorkspaceRouting: () => 'path',
 }))
 let slug: string | null = null
+let signedIn = true
+vi.mock('@nosdesk/core/transport', () => ({
+  transport: () => ({ auth: { hasSession: () => signedIn } }),
+}))
 const { beginSwitch } = vi.hoisted(() => ({ beginSwitch: vi.fn() }))
 vi.mock('@/services/activeWorkspace', () => ({
   beginWorkspaceSwitch: beginSwitch,
@@ -46,6 +51,7 @@ beforeEach(() => {
   enter.mockClear()
   beginSwitch.mockClear()
   slug = null
+  signedIn = true
 })
 
 describe('workspace guard', () => {
@@ -59,7 +65,7 @@ describe('workspace guard', () => {
     await router.push('/mercury/tickets')
     expect(reset).not.toHaveBeenCalled()
     expect(beginSwitch).not.toHaveBeenCalled()
-    expect(enter).toHaveBeenCalledTimes(1)
+    expect(enter).toHaveBeenLastCalledWith('mercury')
 
     // A typed URL, a back button, a deep link: no menu involved.
     await router.push('/venus/tickets')
@@ -82,5 +88,20 @@ describe('workspace guard', () => {
     // Requests are held from before the reset until the new slug is set.
     expect(heldDuringReset).toBe(true)
     expect(slug).toBe('venus')
+  })
+
+  // A signed-out visit to a workspace URL is on its way to the sign-in page:
+  // the workspace's branding and plugins would only be refused (401).
+  it('enters nothing while signed out, and enters on the first navigation once signed in', async () => {
+    signedIn = false
+    const router = makeRouter()
+    await router.push('/mercury/tickets')
+    expect(slug).toBe('mercury')
+    expect(enter).not.toHaveBeenCalled()
+
+    signedIn = true
+    await router.push('/mercury/tickets?view=my-open')
+    expect(reset).not.toHaveBeenCalled()
+    expect(enter).toHaveBeenCalledWith('mercury')
   })
 })

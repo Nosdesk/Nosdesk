@@ -22,6 +22,13 @@ import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 import { resendClientId, useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
 import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
+import { useToastStore } from "@nosdesk/core/stores/toast";
+import {
+    formatUploadLimitMb,
+    getTransportUploadCap,
+    oversizeFiles,
+    uploadLimitBytes,
+} from "@nosdesk/core/services/uploadLimits";
 
 // Local re-export of the canonical types so this component can use
 // them without churn through every consumer.
@@ -279,23 +286,77 @@ const processFiles = async (files: File[]): Promise<File[]> => {
     return processedFiles;
 };
 
+/**
+ * Drop the files over the upload limit, saying which, and keep the rest. Reads
+ * only their sizes, so a file too big to send is never read into memory.
+ */
+const withinUploadLimit = (files: File[]): File[] => {
+    const tooBig = new Set(oversizeFiles(files));
+    const limit = uploadLimitBytes();
+    if (tooBig.size === 0 || limit == null) return files;
+    const toast = useToastStore();
+    for (const file of tooBig) {
+        toast.error(
+            t("ticket-comments-attachment-too-large", {
+                name: file.name,
+                limit: formatUploadLimitMb(limit),
+            }),
+        );
+    }
+    return files.filter((file) => !tooBig.has(file));
+};
+
+/**
+ * Keep the files that fit, with those already on the reply, under the
+ * transport's cap on one request (the mobile app's), saying which don't. All
+ * of a reply's attachments go up in one request.
+ */
+const withinTransportCap = (files: File[]): File[] => {
+    const cap = getTransportUploadCap();
+    if (cap == null) return files;
+    let total = newAttachments.value.reduce((sum, file) => sum + file.size, 0);
+    const kept: File[] = [];
+    for (const file of files) {
+        if (total + file.size > cap) {
+            useToastStore().error(
+                t("ticket-comments-attachments-total-too-large", {
+                    name: file.name,
+                    limit: formatUploadLimitMb(cap),
+                }),
+            );
+            continue;
+        }
+        total += file.size;
+        kept.push(file);
+    }
+    return kept;
+};
+
+/**
+ * Stage picked, dropped or pasted files on the reply: HEIC images are
+ * converted, audio goes as is, and anything over the upload limit is refused,
+ * before conversion and again after it (a converted image can grow).
+ */
+const stageFiles = async (files: File[]) => {
+    const allowed = withinUploadLimit(files);
+    const processedFiles = await processFiles(
+        allowed.filter((file) => !file.type.startsWith("audio/")),
+    );
+    const audioFiles = allowed.filter((file) => file.type.startsWith("audio/"));
+
+    // Reassign rather than mutate-in-place: `newAttachments` is a writable
+    // computed backed by `useTicketUiStore`, and a `.push()` would skip the
+    // setter that writes to the store.
+    newAttachments.value = [
+        ...newAttachments.value,
+        ...withinTransportCap([...withinUploadLimit(processedFiles), ...audioFiles]),
+    ];
+};
+
 const handleFileUpload = async (event: Event) => {
     const input = event.target as HTMLInputElement;
     if (input.files) {
-        const files = Array.from(input.files);
-
-        // Process non-audio files (convert HEIC images if needed)
-        const nonAudioFiles = files.filter((file) => !file.type.startsWith("audio/"));
-        const processedFiles = await processFiles(nonAudioFiles);
-
-        // Audio files go directly to attachments (no special processing needed)
-        const audioFiles = files.filter((file) => file.type.startsWith("audio/"));
-
-        // Reassign rather than mutate-in-place: `newAttachments`
-        // is now a writable computed backed by `useTicketUiStore`,
-        // and a `.push()` would skip the setter that writes to
-        // the store.
-        newAttachments.value = [...newAttachments.value, ...processedFiles, ...audioFiles];
+        await stageFiles(Array.from(input.files));
     }
     // Reset input so the same file can be selected again
     if (input) input.value = '';
@@ -430,16 +491,7 @@ const handleDrop = async (event: DragEvent) => {
 
     if (!event.dataTransfer?.files.length) return;
 
-    const files = Array.from(event.dataTransfer.files);
-
-    // Process non-audio files (convert HEIC images if needed)
-    const nonAudioFiles = files.filter((file) => !file.type.startsWith("audio/"));
-    const processedFiles = await processFiles(nonAudioFiles);
-
-    // Audio files go directly to attachments
-    const audioFiles = files.filter((file) => file.type.startsWith("audio/"));
-
-    newAttachments.value = [...newAttachments.value, ...processedFiles, ...audioFiles];
+    await stageFiles(Array.from(event.dataTransfer.files));
 };
 
 // Image files pasted into the composer (screenshots from macOS
@@ -464,8 +516,7 @@ const handlePastedFiles = async (files: File[]) => {
         return new File([file], `pasted-${ts}.${ext}`, { type: file.type });
     });
 
-    const processed = await processFiles(stamped);
-    newAttachments.value = [...newAttachments.value, ...processed];
+    await stageFiles(stamped);
 };
 </script>
 

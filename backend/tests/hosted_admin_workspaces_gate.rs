@@ -45,6 +45,7 @@ fn session_token(pool: &backend::db::Pool, user_uuid: Uuid) -> String {
             expires_at: (Utc::now() + Duration::hours(1)).naive_utc(),
             oidc_id_token: None,
             confirmed_at: None,
+            provider_amr: None,
         },
     )
     .expect("create session");

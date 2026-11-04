@@ -2,6 +2,7 @@ import { ref, readonly } from 'vue'
 import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 import type { Priority } from '@nosdesk/core/sync/views/types'
 import { shareableTicketUrl } from '@/utils/shareUrl'
+import { escapeHtml } from '@nosdesk/core/utils/escape'
 import { ticketIdFromUrl } from '@/utils/ticketNumbers'
 import { createDragEdgeScroller } from '@/composables/useDragEdgeScroll'
 
@@ -184,7 +185,12 @@ export function useTicketDrag() {
       event.dataTransfer.setData('text/uri-list', ticketUrl)
 
       // text/html - apps that support rich text (creates clickable link)
-      event.dataTransfer.setData('text/html', `<a href="${ticketUrl}">${ticketLabel}</a>`)
+      // The title is whatever the requester typed or the email subject said,
+      // so it's escaped before it becomes markup in another app.
+      event.dataTransfer.setData(
+        'text/html',
+        `<a href="${escapeHtml(ticketUrl)}">${escapeHtml(ticketLabel)}</a>`,
+      )
 
       // Internal app data for in-app drops
       event.dataTransfer.setData('application/json', JSON.stringify({

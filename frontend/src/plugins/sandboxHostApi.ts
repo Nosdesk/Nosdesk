@@ -123,6 +123,7 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
       pickDate: (opts) => inproc.ui.pickDate(opts),
       openRecord: (ref) => inproc.ui.openRecord(ref),
       openPage: (componentName) => inproc.ui.openPage(componentName),
+      openExternal: (url) => inproc.ui.openExternal(url),
     },
   };
 

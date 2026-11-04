@@ -112,6 +112,27 @@ pub struct VisibilityContext {
     /// (`tickets.raised_by_staff`). Off, a request an agent or admin raised
     /// under their own name isn't shared.
     share_staff: bool,
+    /// Portal only: a session opened from one ticket's link reaches that
+    /// ticket alone, within what the rest of the context allows. Set by
+    /// [`Self::limited_to`].
+    only: Option<TicketScope>,
+}
+
+/// The tickets a scoped portal session reaches: the one its link named, and
+/// the ticket it was merged into, so the link still opens the conversation
+/// after a merge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TicketScope {
+    pub ticket_id: i32,
+    pub merged_into: Option<i32>,
+}
+
+impl TicketScope {
+    fn ids(self) -> Vec<i32> {
+        std::iter::once(self.ticket_id)
+            .chain(self.merged_into)
+            .collect()
+    }
 }
 
 impl VisibilityContext {
@@ -129,6 +150,7 @@ impl VisibilityContext {
             sees_all,
             share_domain: false,
             share_staff: false,
+            only: None,
         }
     }
 
@@ -159,6 +181,7 @@ impl VisibilityContext {
             sees_all: false,
             share_domain: false,
             share_staff: false,
+            only: None,
         }
     }
 
@@ -171,6 +194,7 @@ impl VisibilityContext {
             sees_all: auth.can_handle_tickets(),
             share_domain: false,
             share_staff: false,
+            only: None,
         }
     }
 
@@ -184,6 +208,15 @@ impl VisibilityContext {
             sees_all: false,
             share_domain: true,
             share_staff: include_staff,
+            only: None,
+        }
+    }
+
+    /// This context, reaching only `scope`'s tickets.
+    pub fn limited_to(self, scope: TicketScope) -> Self {
+        Self {
+            only: Some(scope),
+            ..self
         }
     }
 
@@ -215,6 +248,16 @@ fn same_domain_requester(
     )
 }
 
+/// The ticket filter `ctx`'s scope adds: its tickets only, or no limit.
+fn within_scope(
+    ctx: &VisibilityContext,
+) -> Box<dyn diesel::BoxableExpression<tickets::table, Pg, SqlType = diesel::sql_types::Bool>> {
+    match ctx.only {
+        Some(scope) => Box::new(tickets::id.eq_any(scope.ids())),
+        None => Box::new(diesel::dsl::sql::<diesel::sql_types::Bool>("TRUE")),
+    }
+}
+
 /// Tickets not awaiting guest email confirmation (NULL or any other state).
 fn not_pending() -> diesel::dsl::Or<
     diesel::dsl::IsNull<tickets::verification_state>,
@@ -236,7 +279,10 @@ fn not_pending() -> diesel::dsl::Or<
 pub fn visible_tickets_query<'a>(ctx: &VisibilityContext) -> tickets::BoxedQuery<'a, Pg> {
     // A guest ticket awaiting email confirmation isn't in the workspace yet:
     // nobody sees it, staff included, until the submitter confirms.
-    let base = tickets::table.into_boxed().filter(not_pending());
+    let base = tickets::table
+        .into_boxed()
+        .filter(not_pending())
+        .filter(within_scope(ctx));
     if ctx.sees_all() {
         return base;
     }
@@ -252,7 +298,11 @@ pub fn visible_tickets_query<'a>(ctx: &VisibilityContext) -> tickets::BoxedQuery
     if !ctx.share_domain {
         return own;
     }
-    let shared = not_pending().and(same_domain_requester(ctx.user_uuid));
+    // `or_filter` ORs this with everything before it, so it repeats the
+    // pending and scope filters `base` applied.
+    let shared = not_pending()
+        .and(within_scope(ctx))
+        .and(same_domain_requester(ctx.user_uuid));
     if ctx.share_staff {
         own.or_filter(shared)
     } else {
@@ -307,8 +357,13 @@ pub fn can_view_ticket(
     if ctx.sees_all() {
         // Admin / Technician: visibility check collapses to "does the ticket
         // exist (and isn't awaiting confirmation)?" Cheap single-keyed lookup.
-        return select(exists(tickets::table.find(ticket_id).filter(not_pending())))
-            .get_result(conn);
+        return select(exists(
+            tickets::table
+                .find(ticket_id)
+                .filter(not_pending())
+                .filter(within_scope(ctx)),
+        ))
+        .get_result(conn);
     }
     if ctx.share_domain {
         // The list predicate, keyed: one definition for both.
@@ -322,11 +377,15 @@ pub fn can_view_ticket(
         .filter(ticket_watchers::user_uuid.eq(ctx.user_uuid))
         .select(ticket_watchers::ticket_id);
     select(exists(
-        tickets::table.find(ticket_id).filter(not_pending()).filter(
-            tickets::requester_uuid
-                .eq(ctx.user_uuid)
-                .or(tickets::id.eq_any(watched_ticket_ids)),
-        ),
+        tickets::table
+            .find(ticket_id)
+            .filter(not_pending())
+            .filter(within_scope(ctx))
+            .filter(
+                tickets::requester_uuid
+                    .eq(ctx.user_uuid)
+                    .or(tickets::id.eq_any(watched_ticket_ids)),
+            ),
     ))
     .get_result(conn)
 }
@@ -510,6 +569,53 @@ mod tests {
         assert!(ids.contains(&mine.id));
         assert!(ids.contains(&watched.id));
         assert!(!ids.contains(&_hers.id));
+    }
+
+    /// A context limited to one ticket (and what it was merged into) reaches
+    /// nothing else, its own requests or a colleague's shared ones alike.
+    #[test]
+    fn a_limited_context_reaches_only_its_tickets() {
+        let mut conn = setup_test_connection();
+        let alice = TestFixtures::create_user(&mut conn, "scope_alice", "user");
+        TestFixtures::create_user_email(&mut conn, alice.uuid, "alice@scope.test", true);
+        let bob = TestFixtures::create_user(&mut conn, "scope_bob", "user");
+        TestFixtures::create_user_email(&mut conn, bob.uuid, "bob@scope.test", true);
+        let linked = TestFixtures::create_ticket(&mut conn, "Linked", Some(alice.uuid), None);
+        let merged_into = TestFixtures::create_ticket(&mut conn, "Into", Some(alice.uuid), None);
+        let other = TestFixtures::create_ticket(&mut conn, "Other", Some(alice.uuid), None);
+        let bobs = TestFixtures::create_ticket(&mut conn, "Bob's", Some(bob.uuid), None);
+        let all = [linked.id, merged_into.id, other.id, bobs.id];
+        let scope = TicketScope {
+            ticket_id: linked.id,
+            merged_into: Some(merged_into.id),
+        };
+
+        let shared = VisibilityContext::portal_sharing(alice.uuid, true);
+        assert_eq!(
+            visible_ticket_ids(&mut conn, &shared, &all).unwrap(),
+            all.into_iter().collect(),
+            "unlimited, she reads her own and her colleague's"
+        );
+        for ctx in [
+            VisibilityContext::requester_only(alice.uuid).limited_to(scope),
+            shared.limited_to(scope),
+        ] {
+            assert_eq!(
+                visible_ticket_ids(&mut conn, &ctx, &all).unwrap(),
+                [linked.id, merged_into.id].into_iter().collect()
+            );
+            assert!(can_view_ticket(&mut conn, &ctx, linked.id).unwrap());
+            assert!(can_view_ticket(&mut conn, &ctx, merged_into.id).unwrap());
+            assert!(!can_view_ticket(&mut conn, &ctx, other.id).unwrap());
+            assert!(!can_view_ticket(&mut conn, &ctx, bobs.id).unwrap());
+        }
+        // The limit narrows; it never grants a ticket the person can't read.
+        let bobs_scope = TicketScope {
+            ticket_id: bobs.id,
+            merged_into: None,
+        };
+        let own = VisibilityContext::requester_only(alice.uuid).limited_to(bobs_scope);
+        assert!(!can_view_ticket(&mut conn, &own, bobs.id).unwrap());
     }
 
     #[test]

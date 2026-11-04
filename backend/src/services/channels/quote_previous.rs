@@ -39,6 +39,17 @@ pub fn build_for_outbound(
     // only carries metadata. A missing comment row shouldn't happen in
     // practice but we no-op rather than fabricate.
     let comment = comments_repo::get_comment_by_id(conn, last.comment_id?).ok()?;
+    // A message staff forwarded in carries their covering note, signature and
+    // address (it was mailed from them), none of it for the customer: it
+    // isn't quoted.
+    let forwarded = comment
+        .channel_metadata
+        .as_ref()
+        .and_then(|m| m.get("forwarded_by_user_uuid"))
+        .is_some_and(|v| !v.is_null());
+    if forwarded {
+        return None;
+    }
     let from_email = last.from_address.as_deref().unwrap_or("customer");
     // Resolve the author's display name from the users table when we
     // can — Gmail / Apple Mail render "On <date>, Jake Ingram <abc@...>
@@ -106,13 +117,13 @@ fn format_quote(
     }
 
     // HTML side: the prior body lands inside a `<blockquote>` so mail
-    // clients style and collapse it. If the source was already HTML we
-    // embed it verbatim (it was sanitized at ingest time and we don't
-    // want to re-escape the markup); plaintext gets escaped and
-    // line-broken so its layout survives.
+    // clients style and collapse it. `content` is the raw inbound HTML, so
+    // it goes through the mail sanitiser first (no forms, scripts or
+    // trackers go back out); plaintext gets escaped and line-broken so its
+    // layout survives.
     let attribution_html = html_escape::encode_safe(&attribution_text);
     let body_html = match comment.content_format {
-        ContentFormat::Html => comment.content.clone(),
+        ContentFormat::Html => super::email_sanitise::sanitise_for_mail(&comment.content),
         ContentFormat::Plaintext | ContentFormat::Markdown => {
             html_escape::encode_safe(&comment.content).replace('\n', "<br>\n")
         }
@@ -241,9 +252,10 @@ mod tests {
     }
 
     #[test]
-    fn html_source_embeds_verbatim_inside_blockquote() {
-        // Source was HTML — must not be re-escaped, but must live
-        // inside a blockquote so mail clients style and collapse it.
+    fn html_source_keeps_its_formatting_inside_blockquote() {
+        // Source was HTML: its formatting survives the mail sanitiser
+        // unescaped, inside a blockquote so mail clients style and
+        // collapse it.
         let c = make_comment("<p>printer <strong>dead</strong></p>", ContentFormat::Html);
         let at = Utc.with_ymd_and_hms(2024, 1, 2, 10, 15, 0).unwrap();
         let q = format_quote(&c, Some("Alice"), "alice@example.com", at);
@@ -252,6 +264,90 @@ mod tests {
             .contains("<blockquote><p>printer <strong>dead</strong></p></blockquote>"));
         // Plaintext side rendered the HTML through html2text.
         assert!(q.text.contains("> "), "got:\n{}", q.text);
+    }
+
+    #[test]
+    fn html_source_loses_forms_scripts_and_trackers() {
+        let c = make_comment(
+            "<base href=\"https://evil.example/\"><p onclick=\"steal()\">Hi</p>\
+             <form action=\"https://evil.example/login\"><input name=\"password\"></form>\
+             <script>alert(1)</script><a href=\"javascript:alert(1)\">link</a>\
+             <img src=\"https://www.google-analytics.com/collect?v=1\" width=\"1\" height=\"1\">",
+            ContentFormat::Html,
+        );
+        let at = Utc.with_ymd_and_hms(2024, 1, 2, 10, 15, 0).unwrap();
+        let q = format_quote(&c, Some("Alice"), "alice@example.com", at);
+        for gone in [
+            "<base",
+            "onclick",
+            "<form",
+            "<input",
+            "<script",
+            "javascript:",
+            "google-analytics",
+        ] {
+            assert!(!q.html.contains(gone), "{gone} in:\n{}", q.html);
+        }
+        assert!(q.html.contains("<p>Hi</p>"), "got:\n{}", q.html);
+    }
+
+    #[test]
+    fn a_message_staff_forwarded_in_is_not_quoted() {
+        use crate::models::{NewChannelMessage, CHANNEL_DIRECTION_INBOUND};
+        use crate::test_helpers::{setup_test_connection, TestFixtures};
+        let mut conn = setup_test_connection();
+        let customer = TestFixtures::create_user(&mut conn, "Customer", "user");
+        let channel = TestFixtures::create_channel(&mut conn, "email_imap");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Printer", Some(customer.uuid), None);
+        let inbound =
+            |conn: &mut DbConnection, body: &str, from: &str, forwarded: bool, id: &str| {
+                let comment = TestFixtures::create_comment(conn, ticket.id, customer.uuid, body);
+                let mut metadata = serde_json::json!({ "provider": "email_imap" });
+                if forwarded {
+                    metadata["forwarded_by_user_uuid"] =
+                        serde_json::json!(Uuid::new_v4().to_string());
+                }
+                diesel::update(crate::schema::comments::table.find(comment.id))
+                    .set(crate::schema::comments::channel_metadata.eq(Some(metadata)))
+                    .execute(conn)
+                    .unwrap();
+                channels_repo::record_message(
+                    conn,
+                    NewChannelMessage {
+                        channel_id: channel.id,
+                        external_id: format!("<{id}@example.com>"),
+                        direction: CHANNEL_DIRECTION_INBOUND.to_string(),
+                        ticket_id: Some(ticket.id),
+                        comment_id: Some(comment.id),
+                        in_reply_to: None,
+                        from_address: Some(from.to_string()),
+                        author_user_uuid: Some(customer.uuid),
+                        raw_metadata: None,
+                    },
+                )
+                .unwrap();
+            };
+        use diesel::prelude::*;
+
+        inbound(
+            &mut conn,
+            "FYI see below. Jo, IT",
+            "jo.agent@corp.example",
+            true,
+            "fwd",
+        );
+        assert!(build_for_outbound(&mut conn, &channel, &ticket).is_none());
+
+        inbound(
+            &mut conn,
+            "Still broken",
+            "customer@example.com",
+            false,
+            "reply",
+        );
+        let q = build_for_outbound(&mut conn, &channel, &ticket).expect("quotes the customer");
+        assert!(q.text.contains("Still broken"), "got:\n{}", q.text);
+        assert!(!q.text.contains("jo.agent"), "got:\n{}", q.text);
     }
 
     #[test]

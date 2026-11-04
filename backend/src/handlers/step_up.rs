@@ -22,7 +22,7 @@ fn caller(
     req: &HttpRequest,
 ) -> Result<(Claims, User, Uuid, DbConnection), ApiError> {
     let claims = rbac::require_auth(req)?;
-    if claims.scope != "full" {
+    if !claims.is_account_session() {
         return Err(ApiError::Forbidden(
             "This action requires a full session".into(),
         ));
@@ -62,8 +62,14 @@ fn confirmed(
 /// `GET /api/auth/step-up`: whether this session is confirmed, until when,
 /// and how the caller can confirm (best first).
 pub async fn status(pool: web::Data<Pool>, req: HttpRequest) -> Result<HttpResponse, ApiError> {
-    let (_claims, user, sid, mut conn) = caller(&pool, &req)?;
-    let (methods, provider) = step_up::methods(&mut conn, &user);
+    let (claims, user, sid, mut conn) = caller(&pool, &req)?;
+    let (mut methods, mut provider) = step_up::methods(&mut conn, &user);
+    // A provider confirmation reads the agent app's cookies, so a portal
+    // session confirms another way or signs in again.
+    if claims.is_portal_session() {
+        methods.retain(|m| !matches!(m, Method::Provider));
+        provider = None;
+    }
     let confirmed_until = step_up::session_confirmed_until(&mut conn, &sid, &user.uuid);
     let email = crate::repository::user_helpers::get_primary_email(&user.uuid, &mut conn);
     Ok(HttpResponse::Ok().json(json!({

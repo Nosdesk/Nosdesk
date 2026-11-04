@@ -11,6 +11,10 @@ on:
         type: choice
         options: [both, ios, android]
         default: both
+      build_only:
+        description: Build and sign, but don't upload to TestFlight or Play
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,20 +30,22 @@ env:
   # not collide on TestFlight / Play.
   BUILD_NUMBER: ${{ github.run_number }}
   NOSDESK_VERSION_CODE: ${{ github.run_number }}
+  # Read by the fastlane beta lanes: a build-only run stops before the upload.
+  NOSDESK_BUILD_ONLY: ${{ inputs.build_only && '1' || '' }}
 
 jobs:
   ios:
     if: ${{ inputs.platform == 'both' || inputs.platform == 'ios' }}
-    runs-on: macos-15
+    # GitHub's Xcode 27 image (public preview, macOS 27); macos-26 stops at 26.6.
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Pinned, not the newest installed: an image that gains Xcode 27 must not
-      # switch the toolchain under a release (Xcode 27 release builds fail to
-      # link, tauri#16130). 26.3 built the last good upload and carries the
-      # iOS 26 SDK App Store uploads need. Unpin with the Tauri upgrade for iOS 27.
-      - name: Select Xcode 26.3
+      # Pinned, not the image's default, so a new default never switches the
+      # toolchain under a release. Building with Xcode 27 needs Tauri 2.12.4+
+      # and every plugin's `@_cdecl` entry point `public` (tauri#16130).
+      - name: Select Xcode 27.1
         env:
-          XCODE_APP: /Applications/Xcode_26.3.app
+          XCODE_APP: /Applications/Xcode_27.1.app
         run: |
           if [ ! -d "$XCODE_APP" ]; then
             echo "::error::$XCODE_APP is not on this runner image. Installed:"

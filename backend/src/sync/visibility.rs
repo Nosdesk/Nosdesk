@@ -43,6 +43,7 @@ use crate::models::{PlatformRole, SyncAggregate, SyncOp, User};
 use crate::repository::ticket_visibility::{self, VisibilityContext};
 use crate::repository::{comments, directory, documentation, knowledge_gaps, user_helpers};
 use crate::schema::tickets;
+use crate::services::plugins::access::{self as plugin_access, PluginCaller};
 use crate::sync::audience::{audience, Audience};
 use crate::sync::user_projection;
 
@@ -246,6 +247,9 @@ struct Resolved {
     /// asset record reaches them (`site_settings.requester_asset_visibility`).
     /// Read per batch, so a change reaches open streams with their next one.
     assets_hidden: bool,
+    /// The batch's plugins the viewer is in the audience of
+    /// (`services::plugins::access`). A failed lookup leaves it empty.
+    visible_plugins: HashSet<Uuid>,
     /// Fail-closed flags: a lookup error drops the affected family.
     doc_fail: bool,
     ticket_fail: bool,
@@ -264,6 +268,7 @@ impl Resolved {
             hidden_gaps: HashSet::new(),
             people: HashSet::new(),
             assets_hidden: !viewer.sees_all(),
+            visible_plugins: HashSet::new(),
             doc_fail: true,
             ticket_fail: true,
             gap_fail: true,
@@ -419,6 +424,13 @@ fn action_is_visible(v: &ActionView, viewer: &SyncViewer, r: &Resolved) -> bool 
             }
             // Everyone, unless the workspace shows requesters no assets.
             SyncAggregate::Asset => !r.assets_hidden,
+            // Those in the plugin's audience. A delete names only the plugin,
+            // and lets any client holding it tear it down.
+            SyncAggregate::Plugin => {
+                v.is_delete
+                    || v.subject_uuid
+                        .is_some_and(|u| r.visible_plugins.contains(&u))
+            }
             _ => true,
         },
         Audience::Staff => {
@@ -625,6 +637,31 @@ pub fn deliveries<T>(
             }
         };
 
+    // --- Plugins (applies to every viewer) ---
+    // A plugin's records reach those its components are shown to. A plugin
+    // that is gone, or a failed lookup, sends nothing but deletes.
+    let plugin_uuids: Vec<Uuid> = views
+        .iter()
+        .filter(|v| v.aggregate == Some(SyncAggregate::Plugin) && !v.is_delete)
+        .filter_map(|v| v.subject_uuid)
+        .collect();
+    let visible_plugins: HashSet<Uuid> = if plugin_uuids.is_empty() {
+        HashSet::new()
+    } else {
+        let caller = PluginCaller::from_tier(viewer.is_admin, sees_all);
+        match crate::repository::plugins::get_plugins_by_uuids(conn, &plugin_uuids) {
+            Ok(found) => found
+                .iter()
+                .filter(|p| plugin_access::plugin_admits(p, caller))
+                .map(|p| p.uuid)
+                .collect(),
+            Err(e) => {
+                tracing::error!(error = %e, "sync visibility: plugin lookup failed; dropping plugin rows (fail-closed)");
+                HashSet::new()
+            }
+        }
+    };
+
     // --- Ticket-gated families (only for restricted viewers) ---
     let needs_resolution = views
         .iter()
@@ -691,6 +728,7 @@ pub fn deliveries<T>(
         hidden_gaps,
         people,
         assets_hidden,
+        visible_plugins,
         doc_fail,
         ticket_fail,
         gap_fail,
@@ -863,6 +901,7 @@ mod tests {
             hidden_gaps: HashSet::new(),
             people: HashSet::new(),
             assets_hidden: false,
+            visible_plugins: HashSet::new(),
             doc_fail: false,
             ticket_fail: false,
             gap_fail: false,
@@ -876,6 +915,25 @@ mod tests {
     /// The workspace shows requesters no assets: no asset record reaches a
     /// member, even one on their own ticket or addressed to them; staff keep
     /// every one.
+    /// A plugin's record reaches a viewer only when the batch resolved them
+    /// into its audience; its delete reaches everyone.
+    #[test]
+    fn plugin_records_reach_only_the_plugins_audience() {
+        let plugin = Uuid::now_v7();
+        let mut event = view(SyncAggregate::Plugin, false);
+        event.subject_uuid = Some(plugin);
+        let mut removal = view(SyncAggregate::Plugin, true);
+        removal.subject_uuid = Some(plugin);
+        for v in [member(), staff(), admin()] {
+            let outside = resolved(&v);
+            assert!(!action_is_visible(&event, &v, &outside));
+            assert!(action_is_visible(&removal, &v, &outside));
+            let mut inside = resolved(&v);
+            inside.visible_plugins.insert(plugin);
+            assert!(action_is_visible(&event, &v, &inside));
+        }
+    }
+
     #[test]
     fn hidden_assets_reach_no_member() {
         let me = Uuid::nil();
@@ -1208,7 +1266,6 @@ mod tests {
             SyncAggregate::WorkflowState,
             SyncAggregate::Project,
             SyncAggregate::Cycle,
-            SyncAggregate::Plugin,
         ] {
             assert!(check(&view(agg, false), &member()), "{agg:?} allowed");
         }
@@ -1262,8 +1319,23 @@ mod tests {
             "ticket_fail drops ticket row"
         );
         assert!(
-            action_is_visible(&view(SyncAggregate::Plugin, false), &member(), &failed),
+            action_is_visible(
+                &view(SyncAggregate::WorkflowState, false),
+                &member(),
+                &failed
+            ),
             "records for everyone need no lookup"
+        );
+        let mut plugin = view(SyncAggregate::Plugin, false);
+        plugin.subject_uuid = Some(Uuid::now_v7());
+        assert!(
+            !action_is_visible(&plugin, &member(), &failed),
+            "a plugin's audience needs a lookup"
+        );
+        plugin.is_delete = true;
+        assert!(
+            action_is_visible(&plugin, &member(), &failed),
+            "a plugin's delete reaches everyone"
         );
     }
 

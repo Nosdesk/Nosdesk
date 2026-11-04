@@ -48,6 +48,7 @@ fn runtime_origin() -> String {
 /// fetch this plugin's bundle cross-origin (it can't send the session cookie).
 pub async fn mint_bundle_token(
     req: HttpRequest,
+    auth: crate::extractors::AuthContext,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
@@ -63,17 +64,17 @@ pub async fn mint_bundle_token(
         return errors::unauthorized("No active workspace");
     };
 
-    let plugin = match tc.run(|conn| plugin_repo::get_plugin_by_uuid(conn, plugin_uuid)) {
-        Ok(p) => p,
-        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Plugin not found"),
+    let caller = crate::services::plugins::access::PluginCaller::of(&auth);
+    let plugin = match tc
+        .run(|conn| crate::handlers::plugins::authorize_plugin_runtime(conn, plugin_uuid, caller))
+    {
+        Ok(Ok(p)) => p,
+        Ok(Err(gate)) => return gate.into_response(),
         Err(e) => {
             error!(error = %e, %plugin_uuid, "failed to look up plugin for bundle token");
             return errors::internal("Failed to look up plugin");
         }
     };
-    if !plugin.is_active() {
-        return errors::forbidden("Plugin is not active");
-    }
     let Some(hash) = plugin.bundle_hash.as_deref() else {
         return errors::not_found_msg("Plugin has no bundle");
     };

@@ -31,6 +31,9 @@ export function useAssetDetail(id: Ref<number>) {
   const query = useQuery({
     key: () => assetDetailKey(id.value),
     query: () => getAssetById(id.value),
+    // Leaving the asset page, the route has no id while the page is still
+    // on screen (NaN), and a fetch then asks for /assets/NaN.
+    enabled: () => Number.isInteger(id.value) && id.value > 0,
   });
 
   const asset = computed<Asset | null>(() => query.data.value ?? null);
