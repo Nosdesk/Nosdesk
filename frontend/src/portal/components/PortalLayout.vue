@@ -28,6 +28,7 @@ import NoticeBanner from '@/components/requester/NoticeBanner.vue'
 import PortalAvatar from './PortalAvatar.vue'
 import { followNotice, getNotice, listMyApprovals, signOut } from '../service'
 import { usePortalMe } from '../usePortalMe'
+import { closePortalEvents } from '../usePortalEvents'
 import { embedHost } from '../embed'
 
 withDefaults(defineProps<{ wide?: boolean }>(), { wide: false })
@@ -106,6 +107,8 @@ function openAccount(): void {
 }
 async function onSignOut(): Promise<void> {
   accountOpen.value = false
+  // Before the session goes, or the stream reconnects without it.
+  closePortalEvents()
   try {
     await signOut()
   } finally {
