@@ -3,7 +3,7 @@ import { withWorkspaceRouting, installWorkspaceGuard, installSlugCarrier, worksp
 import { installNavigationTracking } from './navigation'
 import { canOpenRoute, isGatedRoute, routeViewer } from './access'
 import { fetchInstanceConfig, getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig'
-import { lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
+import { activeWorkspaceSlug, lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
 import { transport } from '@nosdesk/core/transport'
 import { ticketNumberForId } from '@/utils/ticketNumbers'
 import LoginView from '../views/LoginView.vue'
@@ -1373,7 +1373,14 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
 
   // Load feature flags once per session for any authenticated route. Failures
   // are swallowed inside the store; the app falls back to flags-disabled.
-  if (authStore.isAuthenticated && authStore.user) {
+  //
+  // All of it belongs to a workspace. On the central app (path mode) a page
+  // outside any workspace (the not-found page after a refused link, the "no
+  // workspace" page) has none selected, so it loads nothing: every request
+  // would be refused, and flags read there would be kept as the next
+  // workspace's. Entering a workspace loads them.
+  const outsideWorkspace = getWorkspaceRouting() === 'path' && !activeWorkspaceSlug();
+  if (authStore.isAuthenticated && authStore.user && !outsideWorkspace) {
     const { useFeatureFlagsStore } = await import('@nosdesk/core/stores/featureFlags');
     const flagsStore = useFeatureFlagsStore();
     if (!flagsStore.loaded && !flagsStore.loading) {
@@ -1399,7 +1406,6 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
       // round-trip nor races hydrate()'s IndexedDB open. The prefix guard ran
       // before this, so the workspace slug is already set for cache keying.
       const { ensureSyncRuntime } = await import('@/sync/lifecycle');
-      const { activeWorkspaceSlug } = await import('@/services/activeWorkspace');
       await ensureSyncRuntime(authStore.user.uuid, activeWorkspaceSlug());
     }
   }

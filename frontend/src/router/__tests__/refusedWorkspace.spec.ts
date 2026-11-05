@@ -34,13 +34,26 @@ vi.mock('@/stores/workspaceReset', () => ({
   }),
   enterWorkspace: async () => {},
 }))
+// What a workspace loads once the person is in it: flags, workflow states and
+// the sync runtime (which opens the live-updates stream). Never loaded, so
+// every navigation into a workspace asks.
+const loads = vi.hoisted(() => ({
+  flags: vi.fn(async () => {}),
+  workflowStates: vi.fn(async () => {}),
+  syncRuntime: vi.fn(async (_user: string, _workspace: string | null) => {}),
+}))
 vi.mock('@nosdesk/core/stores/featureFlags', () => ({
-  useFeatureFlagsStore: () => ({ loaded: true, loading: false, load: async () => {}, reset: () => {} }),
+  useFeatureFlagsStore: () => ({ loaded: false, loading: false, load: loads.flags, reset: () => {} }),
 }))
 vi.mock('@nosdesk/core/stores/workflowStates', () => ({
-  useWorkflowStatesStore: () => ({ loaded: true, loading: false, load: async () => {}, reset: () => {} }),
+  useWorkflowStatesStore: () => ({
+    loaded: false,
+    loading: false,
+    load: loads.workflowStates,
+    reset: () => {},
+  }),
 }))
-vi.mock('@/sync/lifecycle', () => ({ ensureSyncRuntime: async () => {}, tearDown: async () => {} }))
+vi.mock('@/sync/lifecycle', () => ({ ensureSyncRuntime: loads.syncRuntime, tearDown: async () => {} }))
 
 const MEMBER_OF = ['acme']
 
@@ -94,7 +107,15 @@ beforeAll(async () => {
 
 beforeEach(() => {
   sent.length = 0
+  for (const load of Object.values(loads)) load.mockClear()
 })
+
+/** Nothing that belongs to a workspace was loaded with none selected. */
+function expectNothingLoadedOutsideAWorkspace() {
+  expect(loads.flags).not.toHaveBeenCalled()
+  expect(loads.workflowStates).not.toHaveBeenCalled()
+  expect(loads.syncRuntime).not.toHaveBeenCalled()
+}
 
 function expectStillSignedIn() {
   expect(sent.filter((s) => s.includes('/auth/logout'))).toEqual([])
@@ -110,6 +131,9 @@ describe('a link to a workspace the account cannot open', () => {
     expectStillSignedIn()
     // The refused workspace is left: nothing more is asked of the server under it.
     expect(activeSlug()).toBeNull()
+    // Nor outside it: the not-found page isn't in a workspace, so it loads none
+    // of one, the live-updates stream included.
+    expectNothingLoadedOutsideAWorkspace()
   })
 
   it('leads home to a workspace of theirs', async () => {
@@ -118,11 +142,14 @@ describe('a link to a workspace the account cannot open', () => {
     expect(router.currentRoute.value.name).toBe('home')
     expect(router.currentRoute.value.params.workspace).toBe('acme')
     expect(auth.user?.workspace_role).toBe('admin')
+    expect(loads.syncRuntime).toHaveBeenCalledWith('agent-1', 'acme')
+    expect(loads.flags).toHaveBeenCalled()
   })
 
   it('does the same when followed from inside a workspace', async () => {
     await router.push('/acme/tickets')
     expect(router.currentRoute.value.name).toBe('tickets')
+    for (const load of Object.values(loads)) load.mockClear()
 
     await router.push('/someone-elses/tickets/5')
 
@@ -130,5 +157,6 @@ describe('a link to a workspace the account cannot open', () => {
     expect(router.currentRoute.value.params.code).toBe('404')
     expectStillSignedIn()
     expect(activeSlug()).toBeNull()
+    expectNothingLoadedOutsideAWorkspace()
   })
 })
