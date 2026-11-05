@@ -119,8 +119,8 @@ const RELEASED_SCHEMA_POINTS: &[ReleasedSchemaPoint] = &[
     },
     ReleasedSchemaPoint {
         release: "1.1.5",
-        migration: "20261103000000",
-        prefix_sha256: "c3e81615ef32c353b8caba654d55a5b609bd246faf5c20848f593e4445b06afe",
+        migration: "20261105013625",
+        prefix_sha256: "a87da12b567d4b82c6529da6c6101582df41481e62f2a1da73b81be4c53f8e51",
     },
 ];
 
