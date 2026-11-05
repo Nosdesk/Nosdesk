@@ -114,12 +114,15 @@ pub fn create_initial_admin(
         // the 403 gate in cookie_auth_middleware finds a membership
         // row on first login. Workspace pinned explicitly because
         // this is the bootstrap path (no request context to drive the
-        // GUC-backed column default).
+        // GUC-backed column default). They own it: the owner-only
+        // workspace export and import are theirs to run, and the
+        // last-owner guard keeps the workspace from being left
+        // without one.
         crate::repository::workspaces::add_membership(
             c,
             BOOTSTRAP_WORKSPACE_ID,
             user.uuid,
-            "admin",
+            "owner",
             // First-run bootstrap is an authoritative grant.
             crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
         )?;
@@ -165,11 +168,10 @@ pub fn create_initial_admin(
                     "uuid": user.uuid,
                     "name": user.name,
                     "email": user_email.email,
-                    // Bootstrap admin: platform super-user with an admin
-                    // membership in the bootstrap workspace (seeded
-                    // below via add_membership).
+                    // Bootstrap admin: platform super-user and owner of
+                    // the bootstrap workspace (the membership above).
                     "platform_role": "platform_admin",
-                    "workspace_role": "admin",
+                    "workspace_role": "owner",
                     "pronouns": user.pronouns,
                     "avatar_url": user.avatar_url,
                     "avatar_thumb": user.avatar_thumb,
