@@ -664,13 +664,12 @@ inbox-time-weekday = { $day } at { $time }
 
 # First-run admin onboarding (OnboardingView). Bootstrap token,
 # admin form, fallback / completion screens, migration hint.
-onboarding-welcome-title = Welcome to Nosdesk
-onboarding-welcome-subtitle = Let's get started by creating your administrator account
+onboarding-welcome-title = Set up Nosdesk
+onboarding-welcome-subtitle = Start with your administrator account. It manages the workspace and invites everyone else.
 onboarding-hero-title = Your helpdesk starts here
 onboarding-hero-subtitle = Create the administrator account, add a second factor, and land in your workspace.
 onboarding-hero-subtitle-no-mfa = Create the administrator account and land in your workspace.
 onboarding-error-setup-status = Failed to verify setup status. Please try again.
-onboarding-success-logging-in = Admin account created. Logging you in...
 onboarding-success-fallback = Account created successfully. Please log in with your credentials.
 onboarding-success-fallback-redirect = Account created successfully. Please log in.
 onboarding-error-setup-failed = Setup failed. Please try again.
@@ -701,10 +700,15 @@ onboarding-confirm-password-label = Confirm Password
 onboarding-confirm-password-placeholder = Confirm your password
 onboarding-submit = Create Administrator Account
 onboarding-submit-loading = Creating Administrator...
-onboarding-progress-title = Setting up your account
-onboarding-progress-subtitle = This will only take a moment...
+onboarding-progress-title = Signing you in
+onboarding-progress-subtitle = Your administrator account is created. This takes a moment.
 onboarding-complete-title = Welcome to Nosdesk
-onboarding-complete-subtitle = Your administrator account is ready.
+onboarding-complete-subtitle = Your account is set up and you are signed in.
+onboarding-complete-eyebrow = Setup complete
+onboarding-complete-role = Owner
+onboarding-complete-hero-title = Your helpdesk is ready
+onboarding-complete-hero-subtitle = Invite the team, connect a mailbox and take the first ticket from the workspace.
+onboarding-complete-opening = Opening your workspace
 
 # MFA setup wizard (MFASetupView). Method-choice screen, post-
 # setup offer screens, navigation labels.
@@ -10332,4 +10336,4 @@ settings-export-version = Made by Nosdesk { $version }. The other Nosdesk needs 
 settings-export-password-self = A self-hosted Nosdesk accepts it.
 onboarding-complete-open = Go to your workspace
 onboarding-complete-import = Bring a workspace from another Nosdesk
-onboarding-complete-import-note = An import needs a workspace with nothing in it, so do it before adding tickets or people. You can always start fresh instead.
+onboarding-complete-import-note = Moves the tickets, people and settings from an export into this workspace. It only works while the workspace is still empty.

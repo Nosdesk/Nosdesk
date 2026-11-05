@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue';
+import { ref, onMounted, computed, onUnmounted, nextTick, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useAutoLogin } from '@/composables/useAutoLogin';
@@ -15,6 +15,7 @@ import authService, {
   type AdminSetupRequest,
 } from '@nosdesk/core/services/authService';
 import { useThemeStore } from '@/stores/theme';
+import { initialsFrom } from '@/utils/monogram';
 
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
@@ -96,13 +97,48 @@ const tokenFromUrl = ref(false);
 // (REQUIRE_ADMIN_MFA). Until the status answers, assume it will, as the
 // server does by default.
 const adminMfaRequired = ref(true);
-const heroSubtitleKey = computed(() =>
-  adminMfaRequired.value ? 'onboarding-hero-subtitle' : 'onboarding-hero-subtitle-no-mfa'
-);
 
 const isSetupStep = computed(() => currentStep.value === 'setup');
 const isLoggingIn = computed(() => currentStep.value === 'logging-in');
 const isComplete = computed(() => currentStep.value === 'complete');
+
+// The hero describes what comes next. Before the account exists that is the
+// setup itself; once the admin is signed in it is the workspace.
+const heroTitleKey = computed(() =>
+  isComplete.value ? 'onboarding-complete-hero-title' : 'onboarding-hero-title'
+);
+const heroSubtitleKey = computed(() => {
+  if (isComplete.value) return 'onboarding-complete-hero-subtitle';
+  return adminMfaRequired.value ? 'onboarding-hero-subtitle' : 'onboarding-hero-subtitle-no-mfa';
+});
+
+// The finished screen is a new page in all but the URL, so focus moves to its
+// heading as it would on navigation. The signed-in line is the live region,
+// so the announcement and the focused heading say different things.
+const completeHeading = ref<HTMLHeadingElement | null>(null);
+watch(isComplete, async (done) => {
+  if (!done) return;
+  await nextTick();
+  completeHeading.value?.focus({ preventScroll: true });
+});
+
+const adminInitials = computed(() => initialsFrom(adminData.value.name));
+
+// Entering the workspace runs the sync bootstrap, a few seconds on a fresh
+// install, so the button says so rather than appearing to do nothing. The
+// view unmounts on arrival; the flag only resets if the navigation fails.
+const isOpeningWorkspace = ref(false);
+const openWorkspace = async () => {
+  if (isOpeningWorkspace.value) return;
+  isOpeningWorkspace.value = true;
+  try {
+    await router.push('/');
+  } catch (error) {
+    console.error('Failed to open the workspace:', error);
+  } finally {
+    isOpeningWorkspace.value = false;
+  }
+};
 
 const validateForm = (): boolean => {
   if (!bootstrapToken.value.trim()) {
@@ -232,7 +268,6 @@ const handleSetup = async () => {
       authService.clearSetupStatusCache();
       discardBootstrapToken();
       currentStep.value = 'logging-in';
-      successMessage.value = t('onboarding-success-logging-in');
       autoLoginAttempted.value = true;
 
       const loginSuccess = await attemptLogin(adminData.value.email, adminData.value.password);
@@ -294,12 +329,92 @@ onUnmounted(() => {
     </template>
     <template #pill>{{ $t('auth-hero-pill') }}</template>
 
-    <!-- The hero says what happens after this form, and nothing else.
+    <!-- The hero says what happens after this screen, and nothing else.
          Setup-token help sits by the field on every breakpoint. -->
-    <template #hero-title>{{ $t('onboarding-hero-title') }}</template>
+    <template #hero-title>{{ $t(heroTitleKey) }}</template>
     <template #hero-subtitle>{{ $t(heroSubtitleKey) }}</template>
 
-    <div class="flex flex-col gap-6">
+    <!-- Finished: the account exists and the admin is signed in. This block
+         owns the column, so the setup header above the form is gone and the
+         page says welcome once, now that it is true. -->
+    <div v-if="isComplete" class="flex flex-col gap-8">
+      <header class="flex flex-col items-center gap-3 text-center lg:items-start lg:text-left">
+        <p class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-status-success">
+          <Icon name="check" size="sm" aria-hidden="true" />
+          {{ $t('onboarding-complete-eyebrow') }}
+        </p>
+        <div class="flex flex-col gap-1.5">
+          <h1
+            ref="completeHeading"
+            tabindex="-1"
+            class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary outline-none"
+          >
+            {{ $t('onboarding-complete-title') }}
+          </h1>
+          <p role="status" class="text-base text-secondary">{{ $t('onboarding-complete-subtitle') }}</p>
+        </div>
+      </header>
+
+      <!-- What was set up: the identity this Nosdesk now has an owner under. -->
+      <div
+        class="flex items-center gap-3 rounded-lg border border-default bg-surface-alt px-4 py-3"
+        data-test="onboarding-account"
+      >
+        <span
+          aria-hidden="true"
+          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-muted text-sm font-semibold text-accent"
+        >
+          {{ adminInitials }}
+        </span>
+        <div class="flex min-w-0 flex-1 flex-col">
+          <span class="truncate text-sm font-medium text-primary">{{ adminData.name }}</span>
+          <span class="truncate text-xs text-secondary">{{ adminData.email }}</span>
+        </div>
+        <span class="shrink-0 text-xs text-tertiary">{{ $t('onboarding-complete-role') }}</span>
+      </div>
+
+      <div class="flex flex-col gap-3">
+        <Button
+          block
+          size="lg"
+          data-test="onboarding-open"
+          :loading="isOpeningWorkspace"
+          @click="openWorkspace"
+        >
+          {{ isOpeningWorkspace ? $t('onboarding-complete-opening') : $t('onboarding-complete-open') }}
+        </Button>
+
+        <!-- The other way in. A card rather than a second button, so the
+             import reads as a path with a condition, not a lesser version of
+             the one above. -->
+        <button
+          type="button"
+          data-test="onboarding-import"
+          :disabled="isOpeningWorkspace"
+          class="group flex w-full items-start gap-3 rounded-lg border border-default p-4 text-left transition-colors hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:pointer-events-none disabled:opacity-60"
+          @click="router.push({ name: 'admin-workspace-import' })"
+        >
+          <span
+            aria-hidden="true"
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-surface-alt text-secondary"
+          >
+            <Icon name="move" size="md" />
+          </span>
+          <span class="flex min-w-0 flex-1 flex-col gap-1">
+            <span class="text-sm font-medium text-primary">{{ $t('onboarding-complete-import') }}</span>
+            <span class="text-xs leading-relaxed text-secondary">{{ $t('onboarding-complete-import-note') }}</span>
+          </span>
+          <Icon
+            name="chevronRight"
+            size="sm"
+            aria-hidden="true"
+            class="mt-0.5 shrink-0 text-tertiary transition-colors group-hover:text-secondary"
+          />
+        </button>
+      </div>
+    </div>
+
+    <div v-else class="flex flex-col gap-6">
       <header class="flex flex-col gap-1.5 text-center lg:text-left">
         <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
           {{ $t('onboarding-welcome-title') }}
@@ -307,7 +422,8 @@ onUnmounted(() => {
         <p class="text-base text-secondary">{{ $t('onboarding-welcome-subtitle') }}</p>
       </header>
 
-      <!-- Success Message -->
+      <!-- Sign-in fallback: the account exists but the session did not start,
+           so the login page takes over in a moment. -->
       <div v-if="successMessage" class="bg-status-success/20 border border-status-success/50 text-status-success px-4 py-3 rounded-lg text-sm">
         <div class="flex items-center gap-3">
           <Icon name="check" size="lg" class="flex-shrink-0" />
@@ -403,40 +519,18 @@ onUnmounted(() => {
         </Button>
       </form>
 
-      <!-- Auto-login Progress -->
-      <div v-else-if="isLoggingIn" class="flex flex-col items-center gap-6 text-center">
+      <!-- Signing the new admin in. Shown between the account's creation and
+           the finished screen; the fallback banner above replaces it when the
+           session did not start. -->
+      <div v-else-if="isLoggingIn && !successMessage" class="flex flex-col items-center gap-6 text-center lg:items-start lg:text-left">
         <div class="flex items-center justify-center w-16 h-16 bg-accent/10 rounded-full">
           <Spinner size="lg" class="text-accent" />
         </div>
         <div class="flex flex-col gap-2">
-          <h3 class="text-lg font-semibold text-primary">{{ $t('onboarding-progress-title') }}</h3>
+          <h2 class="text-lg font-semibold text-primary">{{ $t('onboarding-progress-title') }}</h2>
           <p class="text-secondary">{{ $t('onboarding-progress-subtitle') }}</p>
         </div>
       </div>
-
-      <!-- Completion State -->
-      <div v-else-if="isComplete" class="flex flex-col items-center gap-6 text-center">
-        <div class="flex items-center justify-center w-16 h-16 bg-status-success/10 rounded-full">
-          <Icon name="check" size="lg" class="text-status-success" />
-        </div>
-        <div class="flex flex-col gap-2">
-          <h3 class="text-lg font-semibold text-primary">{{ $t('onboarding-complete-title') }}</h3>
-          <p class="text-secondary">{{ $t('onboarding-complete-subtitle') }}</p>
-        </div>
-        <div class="flex flex-col sm:flex-row flex-wrap justify-center gap-2 w-full">
-          <Button data-test="onboarding-open" @click="router.push('/')">{{ $t('onboarding-complete-open') }}</Button>
-          <Button
-            variant="secondary"
-            icon="move"
-            data-test="onboarding-import"
-            @click="router.push({ name: 'admin-workspace-import' })"
-          >
-            {{ $t('onboarding-complete-import') }}
-          </Button>
-        </div>
-        <p class="text-xs text-tertiary">{{ $t('onboarding-complete-import-note') }}</p>
-      </div>
-
     </div>
   </AuthLayout>
 </template>

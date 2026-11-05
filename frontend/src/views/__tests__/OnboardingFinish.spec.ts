@@ -79,6 +79,37 @@ describe('OnboardingView', () => {
     expect(view.find('[data-test="onboarding-import"]').exists()).toBe(true)
   })
 
+  it('says welcome once, with the setup header and its banner gone', async () => {
+    post.mockResolvedValue({ data: { success: true, csrf_token: 'csrf', user: admin } })
+
+    const view = await createAdministrator()
+
+    const text = view.text()
+    expect(text).toContain('onboarding-complete-title')
+    expect(text).not.toContain('onboarding-welcome-title')
+    expect(text).not.toContain('onboarding-welcome-subtitle')
+    expect(text).not.toContain('onboarding-success-logging-in')
+    expect(text).not.toContain('onboarding-progress-title')
+    expect(text).toContain(admin.name)
+    expect(text).toContain(admin.email)
+    expect(view.find('h1').text()).toBe('onboarding-complete-title')
+  })
+
+  it('shows the workspace opening while the navigation runs', async () => {
+    post.mockResolvedValue({ data: { success: true, csrf_token: 'csrf', user: admin } })
+    const view = await createAdministrator()
+    // The sync bootstrap keeps this navigation pending for a few seconds.
+    push.mockReturnValueOnce(new Promise(() => {}))
+
+    await view.find('[data-test="onboarding-open"]').trigger('click')
+
+    const open = view.find('[data-test="onboarding-open"]')
+    expect(open.text()).toContain('onboarding-complete-opening')
+    expect(open.attributes('disabled')).toBeDefined()
+    expect(open.find('[role="status"]').exists()).toBe(true)
+    expect(view.find('[data-test="onboarding-import"]').attributes('disabled')).toBeDefined()
+  })
+
   it('goes into the app or the import from the finish screen', async () => {
     post.mockResolvedValue({ data: { success: true, csrf_token: 'csrf', user: admin } })
     const view = await createAdministrator()

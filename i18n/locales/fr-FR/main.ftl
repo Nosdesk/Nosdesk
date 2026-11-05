@@ -630,8 +630,10 @@ password-reset-body-text =
     -- { $app }
 
 # Onboarding administrateur (premier démarrage).
-onboarding-welcome-title = Bienvenue dans Nosdesk
-onboarding-welcome-subtitle = Commençons par créer votre compte administrateur
+# MACHINE TRANSLATION, pending native review
+onboarding-welcome-title = Configurer Nosdesk
+# MACHINE TRANSLATION, pending native review
+onboarding-welcome-subtitle = Commencez par votre compte administrateur. Il gère l'espace de travail et invite tous les autres.
 # MACHINE TRANSLATION, pending native review
 onboarding-hero-title = Votre centre d'assistance commence ici
 onboarding-hero-subtitle = Créez le compte administrateur, ajoutez un second facteur, puis accédez à votre espace de travail.
@@ -639,7 +641,6 @@ onboarding-hero-subtitle = Créez le compte administrateur, ajoutez un second fa
 onboarding-hero-subtitle-no-mfa = Créez le compte administrateur, puis accédez à votre espace de travail.
 # Onboarding hero (machine, à relire par un locuteur natif).
 onboarding-error-setup-status = Impossible de vérifier l'état de l'installation. Veuillez réessayer.
-onboarding-success-logging-in = Compte administrateur créé. Connexion en cours...
 onboarding-success-fallback = Compte créé avec succès. Veuillez vous connecter avec vos identifiants.
 onboarding-success-fallback-redirect = Compte créé avec succès. Veuillez vous connecter.
 onboarding-error-setup-failed = L'installation a échoué. Veuillez réessayer.
@@ -670,10 +671,23 @@ onboarding-confirm-password-label = Confirmer le mot de passe
 onboarding-confirm-password-placeholder = Confirmez votre mot de passe
 onboarding-submit = Créer le compte administrateur
 onboarding-submit-loading = Création de l'administrateur...
-onboarding-progress-title = Configuration de votre compte
-onboarding-progress-subtitle = Cela ne prendra qu'un instant...
+# MACHINE TRANSLATION, pending native review
+onboarding-progress-title = Connexion en cours
+# MACHINE TRANSLATION, pending native review
+onboarding-progress-subtitle = Votre compte administrateur est créé. Cela prend un instant.
 onboarding-complete-title = Bienvenue dans Nosdesk
-onboarding-complete-subtitle = Votre compte administrateur est prêt.
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-subtitle = Votre compte est configuré et vous êtes connecté.
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-eyebrow = Configuration terminée
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-role = Propriétaire
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-hero-title = Votre helpdesk est prêt
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-hero-subtitle = Invitez l'équipe, connectez une boîte mail et traitez le premier ticket depuis l'espace de travail.
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-opening = Ouverture de votre espace de travail
 # Reformulé (machine, à relire) : la restauration ne nécessite pas de créer un compte au préalable.
 
 # Assistant de configuration MFA.
@@ -11448,4 +11462,5 @@ settings-export-version = Créé par Nosdesk { $version }. L'autre Nosdesk doit 
 settings-export-password-self = Un Nosdesk auto-hébergé l'accepte.
 onboarding-complete-open = Aller à votre espace de travail
 onboarding-complete-import = Importer un espace de travail depuis un autre Nosdesk
-onboarding-complete-import-note = Un import nécessite un espace de travail vide, faites-le donc avant d'ajouter des tickets ou des personnes. Vous pouvez toujours repartir de zéro.
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-import-note = Transfère les tickets, les personnes et les paramètres d'un export vers cet espace de travail. Cela ne fonctionne que tant que l'espace de travail est encore vide.
