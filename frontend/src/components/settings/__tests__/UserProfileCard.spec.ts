@@ -45,4 +45,16 @@ describe('UserProfileCard', () => {
     expect(users.updateUser).toHaveBeenCalledWith('person-1', { name: 'QA renamed' })
     expect(card.emitted('updated')).toEqual([[{ name: 'QA renamed' }]])
   })
+
+  it('shows a workspace owner as Owner and an admin as Administrator', () => {
+    const owner = { ...person, workspace_role: 'owner' } as unknown as User
+    wrapper = mountWithProviders(UserProfileCard, { user: owner })
+    expect(wrapper.text()).toContain('settings-profile-role-owner')
+    wrapper.unmount()
+
+    const admin = { ...person, workspace_role: 'admin' } as unknown as User
+    wrapper = mountWithProviders(UserProfileCard, { user: admin })
+    expect(wrapper.text()).toContain('settings-profile-role-admin')
+    expect(wrapper.text()).not.toContain('settings-profile-role-owner')
+  })
 })

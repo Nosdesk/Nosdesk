@@ -2701,6 +2701,7 @@ user-mgmt-grouping-joined = Joined
 user-mgmt-grouping-joined-this-month = Last 30 days
 user-mgmt-grouping-joined-this-year = This year
 user-mgmt-grouping-joined-older = Earlier
+user-mgmt-role-owner = Owner
 user-mgmt-role-admin = Admin
 user-mgmt-role-technician = Agent
 user-mgmt-role-audit_reviewer = Audit reviewer
@@ -5005,6 +5006,7 @@ settings-profile-signature-placeholder = Agent Name
     IT Support
 settings-profile-unknown-user = Unknown User
 settings-profile-role-developer = Developer
+settings-profile-role-owner = Owner
 settings-profile-role-admin = Administrator
 settings-profile-role-technician = Agent
 settings-profile-role-user = User

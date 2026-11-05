@@ -15,7 +15,7 @@ import FormInput from "@/components/common/FormInput.vue";
 import FormTextarea from "@/components/common/FormTextarea.vue";
 import userService from "@/services/userService";
 import uploadService from "@/services/uploadService";
-import { effectiveRole, type User } from "@nosdesk/core/types/user";
+import { displayRole, effectiveRole, type User } from "@nosdesk/core/types/user";
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -453,7 +453,7 @@ const getRoleBadgeClass = (role: string) => {
 const getRoleDisplayName = (role: string) => {
     // Easter egg: Special role for Kyle Phillips
     if (
-        role === "admin" &&
+        (role === "admin" || role === "owner") &&
         displayUser.value?.name === "Kyle Phillips" &&
         displayUser.value?.email?.endsWith("@kyle.au")
     ) {
@@ -461,6 +461,8 @@ const getRoleDisplayName = (role: string) => {
     }
 
     switch (role) {
+        case "owner":
+            return t("settings-profile-role-owner");
         case "admin":
             return t("settings-profile-role-admin");
         case "technician":
@@ -681,7 +683,7 @@ const getRoleDisplayName = (role: string) => {
                         class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap flex-shrink-0"
                         :class="getRoleBadgeClass(displayUser ? effectiveRole(displayUser) : 'user')"
                     >
-                        {{ getRoleDisplayName(displayUser ? effectiveRole(displayUser) : "user") }}
+                        {{ getRoleDisplayName(displayUser ? displayRole(displayUser) : "user") }}
                     </div>
                 </div>
 
@@ -780,7 +782,7 @@ const getRoleDisplayName = (role: string) => {
                         class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap flex-shrink-0"
                         :class="getRoleBadgeClass(displayUser ? effectiveRole(displayUser) : 'user')"
                     >
-                        {{ getRoleDisplayName(displayUser ? effectiveRole(displayUser) : "user") }}
+                        {{ getRoleDisplayName(displayUser ? displayRole(displayUser) : "user") }}
                     </div>
                 </div>
 
