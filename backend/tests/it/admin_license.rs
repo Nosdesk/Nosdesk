@@ -5,8 +5,6 @@
 //! so the licence half covers rejection, removal and the page payload; the
 //! verification itself is unit-tested in `license.rs` with an ephemeral key.
 
-#![allow(clippy::expect_used)]
-
 use std::sync::Arc;
 
 use actix_web::{web, App};
@@ -18,7 +16,7 @@ use backend::middleware::dual_auth_middleware;
 use backend::models::{NewUser, User};
 use backend::services::notifications::channels::push_mode::{self, SwitchablePushSender};
 
-mod common;
+use crate::common;
 
 fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, platform_role: &str) -> User {
     use backend::schema::users;

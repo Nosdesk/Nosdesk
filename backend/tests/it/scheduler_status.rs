@@ -1,5 +1,5 @@
 //! Self-hosted: a workspace admin reads the scheduler status (the instance is
-//! theirs); a plain member doesn't. Hosted is `tests/hosted_scheduler_status.rs`.
+//! theirs); a plain member doesn't. Hosted is `tests/hosted/hosted_scheduler_status.rs`.
 
 use actix_web::dev::Service;
 use actix_web::test as http_test;

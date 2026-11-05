@@ -11,8 +11,6 @@
 //! for a workspace that is deliberately NOT id 1 and asserts both
 //! directions: the tenant's ticket streams, workspace 1's does not.
 
-#![allow(clippy::expect_used)]
-
 use actix_web::middleware::from_fn;
 use actix_web::{test, web, App};
 use diesel::prelude::*;
@@ -25,7 +23,7 @@ use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 use backend::utils::jwt::JwtUtils;
 
-mod common;
+use crate::common;
 
 /// Insert a default workflow state for the pinned workspace and a
 /// ticket in it. Runs under the actor context so the RLS WITH CHECK

@@ -13,13 +13,11 @@
 //!   5. `/me/workspaces` carries `billing` for the workspace's owner only;
 //!      admin and agent rows have no `billing` key.
 //!
-//! A standalone binary rather than part of `tests/it`: hosted mode is
+//! Part of the hosted binary rather than `tests/it`: hosted mode is
 //! process-wide environment. The self-hosted case is in
 //! `tests/it/admin_workspace_members.rs`.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use actix_web::body::MessageBody;
 use actix_web::dev::ServiceResponse;
@@ -113,6 +111,7 @@ where
 
 #[actix_web::test]
 async fn control_plane_pushes_billing_state_behind_the_as_of_fence() {
+    crate::hosted_env();
     common::ensure_test_keyring();
     common::enable_platform_auth();
     let test_db = common::TestDb::new();
@@ -273,8 +272,7 @@ async fn control_plane_pushes_billing_state_behind_the_as_of_fence() {
 
 #[actix_web::test]
 async fn only_a_hosted_owner_sees_billing_on_me_workspaces() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
-    std::env::set_var("NOSDESK_WORKSPACE_SELECTION", "1");
+    crate::hosted_env();
     common::ensure_test_keyring();
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);

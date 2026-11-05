@@ -6,13 +6,10 @@
 //! resource gets the file, while anyone else (staff of another workspace
 //! included) and any unknown id get a 404. No request below sends the header.
 //!
-//! A standalone binary rather than part of `tests/it`: selection mode is
-//! process-wide environment. Every test sets the same two values and none
-//! clears them, so they can share the process.
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
+//! process-wide environment.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use std::sync::{Arc, OnceLock};
 
@@ -36,11 +33,6 @@ use backend::utils::jwt::JwtUtils;
 use backend::utils::storage::{
     create_storage, set_process_storage, Storage, StorageConfig, WorkspaceScopedStorage,
 };
-
-fn enable_selection_mode() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
-    std::env::set_var("NOSDESK_WORKSPACE_SELECTION", "1");
-}
 
 /// One local storage root for the binary, installed as the process storage
 /// too, which the export download reads through. Tests write under their own
@@ -183,8 +175,8 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        crate::hosted_env();
         common::ensure_test_keyring();
-        enable_selection_mode();
         let db = common::TestDb::new();
         let pool = db.pool_with_size(4);
         let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));

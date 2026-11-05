@@ -7,8 +7,6 @@
 //! workspace are both denied (no existence leak). It's the same tenant boundary
 //! the REST gate enforces, reached over a different transport.
 
-#![allow(clippy::expect_used)]
-
 use actix_web::{web, App};
 
 use backend::handlers::sse::{sse_events_stream, SseState};
@@ -17,7 +15,7 @@ use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 use backend::utils::jwt::JwtUtils;
 
-mod common;
+use crate::common;
 
 fn sse_token_for(user_uuid: uuid::Uuid, workspace_uuid: Option<uuid::Uuid>) -> String {
     if std::env::var("JWT_SECRET").is_err() {

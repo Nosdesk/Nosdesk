@@ -3,12 +3,10 @@
 //! The ticket here has an id that is not its number, so a link built from the
 //! id would land on another ticket or none.
 //!
-//! A standalone binary rather than part of `tests/it`: deployment mode is
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
 //! process-wide environment.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use actix_web::dev::Service as _;
 use actix_web::{web, App, HttpMessage as _};
@@ -69,7 +67,7 @@ fn guest_token(conn: &mut DbConnection, user: uuid::Uuid) -> String {
 
 #[actix_web::test]
 async fn confirming_on_hosted_sends_the_guest_to_the_tickets_number() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    crate::hosted_env();
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let pool = db.pool_with_size(4);

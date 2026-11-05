@@ -17,8 +17,6 @@
 //!      byte-identical 201 response, even if the payload differs;
 //!      `workspaces` table holds only one row.
 
-#![allow(clippy::expect_used)]
-
 use actix_web::{web, App};
 use diesel::prelude::*;
 use serde_json::json;
@@ -26,7 +24,7 @@ use serde_json::json;
 use backend::handlers::internal_workspaces;
 use backend::middleware::idempotency_middleware;
 
-mod common;
+use crate::common;
 
 fn count_workspaces_with_slug(pool: &backend::db::Pool, slug: &str) -> i64 {
     use backend::schema::workspaces;
@@ -40,6 +38,7 @@ fn count_workspaces_with_slug(pool: &backend::db::Pool, slug: &str) -> i64 {
 
 #[actix_web::test]
 async fn workspaces_create_full_contract() {
+    crate::hosted_env();
     common::ensure_test_keyring();
     common::enable_platform_auth();
     let test_db = common::TestDb::new();

@@ -1,6 +1,6 @@
 //! Self-hosted: "sign out all other sessions" ends the helpdesk's own sessions
 //! and makes no control-plane call; the response carries no
-//! `remembered_sign_ins_ended`. Hosted is `tests/hosted_signout_others.rs`.
+//! `remembered_sign_ins_ended`. Hosted is `tests/hosted/hosted_signout_others.rs`.
 
 use actix_web::dev::Service;
 use actix_web::test as http_test;

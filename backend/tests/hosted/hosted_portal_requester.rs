@@ -2,12 +2,10 @@
 //! admits staff seats only there; the portal admits any member of the
 //! workspace its origin serves.
 //!
-//! A standalone binary rather than part of `tests/it`: deployment mode is
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
 //! process-wide environment.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use actix_web::test::TestRequest;
 use actix_web::HttpMessage as _;
@@ -24,7 +22,7 @@ fn status_of(err: &actix_web::Error) -> u16 {
 
 #[test]
 fn a_requester_passes_the_portal_gate_on_hosted() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    crate::hosted_env();
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let pool = db.pool_with_size(2);
@@ -102,7 +100,7 @@ fn a_requester_passes_the_portal_gate_on_hosted() {
 /// link to one.
 #[actix_web::test]
 async fn the_hosted_portal_offers_no_password_sign_in() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    crate::hosted_env();
     let db = common::TestDb::new();
     let pool = db.pool_with_size(2);
     let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));

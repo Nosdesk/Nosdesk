@@ -9,7 +9,7 @@
 //! the attachment's row to its comment, and from the comment to its ticket.
 //!
 //! Self-hosted, so a requester-role member signs into the agent app and reaches
-//! the agent routes; the hosted cases live in `tests/hosted_file_access.rs`.
+//! the agent routes; the hosted cases live in `tests/hosted/hosted_file_access.rs`.
 
 use std::sync::Arc;
 

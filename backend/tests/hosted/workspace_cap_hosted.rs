@@ -1,29 +1,25 @@
-//! Self-hosted single-workspace license gate, enforced in
-//! `admin_workspaces::create_workspace`.
+//! Regression: the workspace cap is gated on the license, not the deployment
+//! mode. `NOSDESK_DEPLOYMENT_MODE` is an env var, so keying the self-serve
+//! admin create gate on it let a self-hoster flip to `hosted` and create
+//! unlimited workspaces with no Enterprise license. This proves that even in
+//! hosted mode (no license -> Community edition), the self-serve
+//! `/api/admin/workspaces` create is capped at one active workspace.
 //!
-//! Contract (Community edition, self-hosted):
-//!   1. GET  /admin/edition reports community / max 1 / active 1 / can't create.
-//!   2. POST /admin/workspaces at the cap returns 402 `license_required`.
-//!   3. With the seeded workspace archived (active = 0), a create succeeds.
-//!   4. A second create (back at the cap) returns 402 again.
-//!
-//! The seeded `default` workspace (id 1) means a fresh deployment is already
-//! at the Community cap of one active workspace.
-
-#![allow(clippy::expect_used)]
+//! Hosted deployments provision through the control-plane `/api/internal`
+//! surface instead, which is a separate route this test does not touch.
 
 use actix_web::{web, App};
-use diesel::prelude::*;
 use serde_json::json;
 
 use backend::handlers::admin_workspaces;
 use backend::middleware::dual_auth_middleware;
 use backend::models::{NewUser, User};
 
-mod common;
+use crate::common;
 
 fn mint_platform_admin(conn: &mut diesel::pg::PgConnection, name: &str) -> User {
     use backend::schema::users;
+    use diesel::prelude::*;
     let new_user = NewUser {
         uuid: uuid::Uuid::new_v4(),
         name: name.to_string(),
@@ -44,11 +40,10 @@ fn mint_platform_admin(conn: &mut diesel::pg::PgConnection, name: &str) -> User 
 }
 
 #[actix_web::test]
-async fn self_hosted_caps_workspaces_at_one() {
-    // Force self-hosted (the gated mode). Set before any
-    // DeploymentMode::current() call, which caches process-wide. No
-    // NOSDESK_LICENSE_KEY -> Community edition (cap = 1).
-    std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
+async fn hosted_mode_does_not_bypass_the_workspace_cap() {
+    // Hosted mode, no license -> Community edition (cap = 1). Set before any
+    // DeploymentMode::current() call, which caches process-wide.
+    crate::hosted_env();
     std::env::remove_var("NOSDESK_LICENSE_KEY");
     common::ensure_test_keyring();
 
@@ -77,7 +72,8 @@ async fn self_hosted_caps_workspaces_at_one() {
     let client = awc::Client::new();
     let auth = || ("Authorization", format!("Bearer {admin_token}"));
 
-    // --- 1: edition reflects the cap ---
+    // The seeded `default` workspace already fills the Community slot, so even
+    // in hosted mode the edition summary must report the cap reached.
     let mut resp = client
         .get(srv.url("/api/admin/edition"))
         .insert_header(auth())
@@ -88,57 +84,27 @@ async fn self_hosted_caps_workspaces_at_one() {
     let edition: serde_json::Value =
         serde_json::from_slice(&resp.body().await.expect("body")).expect("json");
     assert_eq!(edition["edition"], "community");
-    assert_eq!(edition["max_workspaces"], 1);
-    assert_eq!(edition["active_workspaces"], 1);
-    assert_eq!(edition["can_create_workspace"], false);
+    assert_eq!(
+        edition["can_create_workspace"], false,
+        "hosted mode must not report an uncapped self-serve create"
+    );
 
-    // --- 2: create at the cap is rejected ---
+    // The actual create must be blocked (402), not silently allowed as it was
+    // when the gate keyed on the deployment mode.
     let resp = client
         .post(srv.url("/api/admin/workspaces"))
         .insert_header(auth())
         .insert_header(("Content-Type", "application/json"))
-        .send_json(&json!({"slug": "second-ws", "name": "Second"}))
+        .send_json(&json!({"slug": "bypass-attempt", "name": "Bypass"}))
         .await
-        .expect("send create-at-cap");
+        .expect("send create");
     assert_eq!(
         resp.status(),
         402,
-        "creating a second workspace on self-hosted Community must be blocked"
+        "hosted mode must not bypass the Community workspace cap"
     );
     let mut resp = resp;
     let body: serde_json::Value =
         serde_json::from_slice(&resp.body().await.expect("body")).expect("json");
     assert_eq!(body["code"], "license_required");
-
-    // --- 3: archive the seeded workspace, then a create succeeds ---
-    diesel::sql_query("UPDATE workspaces SET archived_at = now() WHERE id = 1")
-        .execute(&mut pool.get().expect("conn"))
-        .expect("archive seed workspace");
-
-    let resp = client
-        .post(srv.url("/api/admin/workspaces"))
-        .insert_header(auth())
-        .insert_header(("Content-Type", "application/json"))
-        .send_json(&json!({"slug": "only-ws", "name": "Only"}))
-        .await
-        .expect("send create-under-cap");
-    assert_eq!(
-        resp.status(),
-        201,
-        "create under the cap (active=0) must succeed"
-    );
-
-    // --- 4: now back at the cap, another create is rejected ---
-    let resp = client
-        .post(srv.url("/api/admin/workspaces"))
-        .insert_header(auth())
-        .insert_header(("Content-Type", "application/json"))
-        .send_json(&json!({"slug": "third-ws", "name": "Third"}))
-        .await
-        .expect("send create-over-cap");
-    assert_eq!(
-        resp.status(),
-        402,
-        "back at the cap, create is blocked again"
-    );
 }

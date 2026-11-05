@@ -18,8 +18,6 @@
 //!   3. Unknown slug -> 404.
 //!   4. Wrong-scope token -> 401 (PlatformAuth rejects).
 
-#![allow(clippy::expect_used)]
-
 use actix_web::{web, App};
 use diesel::prelude::*;
 use serde_json::json;
@@ -27,7 +25,7 @@ use serde_json::json;
 use backend::handlers::internal_workspaces;
 use backend::middleware::idempotency_middleware;
 
-mod common;
+use crate::common;
 
 fn workspace_id_for_slug(pool: &backend::db::Pool, slug: &str) -> i32 {
     use backend::schema::workspaces;
@@ -41,6 +39,7 @@ fn workspace_id_for_slug(pool: &backend::db::Pool, slug: &str) -> i32 {
 
 #[actix_web::test]
 async fn workspace_provisioning_full_contract() {
+    crate::hosted_env();
     common::ensure_test_keyring();
     common::enable_platform_auth();
     let test_db = common::TestDb::new();

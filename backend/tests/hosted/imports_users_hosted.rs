@@ -2,12 +2,10 @@
 //! member-role endpoint does, and can't create an audit reviewer, as the
 //! add-user API can't.
 //!
-//! A standalone binary rather than part of `tests/it`: deployment mode is
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
 //! process-wide environment.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use diesel::prelude::*;
 use uuid::Uuid;
@@ -29,7 +27,7 @@ fn add_primary_email(conn: &mut common::TestPooledConn, user: Uuid, email: &str)
 
 #[test]
 fn staff_seats_and_audit_reviewers_are_refused_on_hosted() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    crate::hosted_env();
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let mut conn = db.conn();
@@ -144,7 +142,7 @@ fn the_sign_in_line_names_the_requester_provider_on_hosted() {
     use backend::repository::workspace_identity_providers::{self as providers, ProviderInput};
     use backend::services::imports::sign_in::{self, SignInMethod, SignInStatus};
 
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    crate::hosted_env();
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let mut conn = db.conn();

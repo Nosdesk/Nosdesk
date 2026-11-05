@@ -7,12 +7,10 @@
 //! people. A platform admin on the same routes gets 200, so the 403s come from
 //! the role gate and not from routing.
 //!
-//! A standalone binary rather than part of `tests/it`: hosted selection mode
-//! is process-wide environment.
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
+//! process-wide environment.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use actix_web::body::MessageBody;
 use actix_web::dev::ServiceResponse;
@@ -78,8 +76,7 @@ where
 
 #[actix_web::test]
 async fn hosted_workspace_admins_cannot_reach_other_workspaces() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
-    std::env::set_var("NOSDESK_WORKSPACE_SELECTION", "1");
+    crate::hosted_env();
     common::ensure_test_keyring();
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);

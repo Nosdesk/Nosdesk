@@ -8,18 +8,17 @@
 //!   3. Restore clears the archive -> 200 `archived:false`.
 //!   4. Both verbs 404 on a slug that never existed.
 
-#![allow(clippy::expect_used)]
-
 use actix_web::{web, App};
 use serde_json::json;
 
 use backend::handlers::internal_workspaces;
 use backend::middleware::idempotency_middleware;
 
-mod common;
+use crate::common;
 
 #[actix_web::test]
 async fn workspaces_deprovision_restore_lifecycle() {
+    crate::hosted_env();
     common::ensure_test_keyring();
     common::enable_platform_auth();
     let test_db = common::TestDb::new();
