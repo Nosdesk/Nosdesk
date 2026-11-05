@@ -347,10 +347,7 @@ inbox-time-yesterday = Yesterday at { $time }
 inbox-time-weekday = { $day } at { $time }
 
 # First-run admin onboarding.
-onboarding-welcome-title = Welcome to Nosdesk
-onboarding-welcome-subtitle = Let's get you set up. First step: create your admin account.
 onboarding-error-setup-status = Couldn't verify setup status. Give it another go.
-onboarding-success-logging-in = Admin account created. Logging you in...
 onboarding-success-fallback = Account created. Log in with your credentials.
 onboarding-success-fallback-redirect = Account created. Log in to continue.
 onboarding-error-setup-failed = Setup failed. Have another crack.
@@ -381,10 +378,7 @@ onboarding-confirm-password-label = Confirm Password
 onboarding-confirm-password-placeholder = Confirm your password
 onboarding-submit = Create Administrator Account
 onboarding-submit-loading = Creating Administrator...
-onboarding-progress-title = Setting up your account
-onboarding-progress-subtitle = Won't take a sec...
 onboarding-complete-title = Welcome to Nosdesk
-onboarding-complete-subtitle = Your administrator account is ready.
 
 # MFA setup wizard.
 mfa-setup-header-default = Finish setting up your account

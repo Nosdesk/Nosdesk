@@ -626,8 +626,10 @@ password-reset-body-text =
     -- { $app }
 
 # Beheerders-onboarding (eerste start).
-onboarding-welcome-title = Welkom bij Nosdesk
-onboarding-welcome-subtitle = Laten we beginnen door uw beheerdersaccount aan te maken
+# MACHINE TRANSLATION, pending native review
+onboarding-welcome-title = Nosdesk instellen
+# MACHINE TRANSLATION, pending native review
+onboarding-welcome-subtitle = Begin met uw beheerdersaccount. Het beheert de werkruimte en nodigt alle anderen uit.
 # MACHINE TRANSLATION, pending native review
 onboarding-hero-title = Je helpdesk begint hier
 onboarding-hero-subtitle = Maak het beheerdersaccount aan, voeg een tweede factor toe en ga naar je werkruimte.
@@ -635,7 +637,6 @@ onboarding-hero-subtitle = Maak het beheerdersaccount aan, voeg een tweede facto
 onboarding-hero-subtitle-no-mfa = Maak het beheerdersaccount aan en ga naar je werkruimte.
 # Onboarding hero (machine, na te kijken door moedertaalspreker).
 onboarding-error-setup-status = Kan de installatiestatus niet verifiëren. Probeer het opnieuw.
-onboarding-success-logging-in = Beheerdersaccount aangemaakt. U wordt aangemeld...
 onboarding-success-fallback = Account aangemaakt. Log in met uw gegevens.
 onboarding-success-fallback-redirect = Account aangemaakt. Log in om door te gaan.
 onboarding-error-setup-failed = De installatie is mislukt. Probeer het opnieuw.
@@ -666,10 +667,23 @@ onboarding-confirm-password-label = Wachtwoord bevestigen
 onboarding-confirm-password-placeholder = Bevestig uw wachtwoord
 onboarding-submit = Beheerdersaccount aanmaken
 onboarding-submit-loading = Beheerder aanmaken...
-onboarding-progress-title = Uw account instellen
-onboarding-progress-subtitle = Dit duurt slechts een moment...
+# MACHINE TRANSLATION, pending native review
+onboarding-progress-title = U wordt aangemeld
+# MACHINE TRANSLATION, pending native review
+onboarding-progress-subtitle = Uw beheerdersaccount is aangemaakt. Dit duurt even.
 onboarding-complete-title = Welkom bij Nosdesk
-onboarding-complete-subtitle = Uw beheerdersaccount is klaar.
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-subtitle = Uw account is ingesteld en u bent aangemeld.
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-eyebrow = Installatie voltooid
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-role = Eigenaar
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-hero-title = Uw helpdesk is klaar
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-hero-subtitle = Nodig het team uit, koppel een mailbox en pak het eerste ticket op vanuit de werkruimte.
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-opening = Uw werkruimte wordt geopend
 # Herschreven (machine, na te kijken): voor restore hoeft vooraf geen account te worden aangemaakt.
 
 # MFA-installatiewizard.
@@ -11439,4 +11453,5 @@ settings-export-version = Gemaakt met Nosdesk { $version }. De andere Nosdesk mo
 settings-export-password-self = Een zelf gehoste Nosdesk accepteert het.
 onboarding-complete-open = Naar uw werkruimte
 onboarding-complete-import = Een werkruimte uit een andere Nosdesk overbrengen
-onboarding-complete-import-note = Een import heeft een lege werkruimte nodig, dus doe het voordat u tickets of personen toevoegt. U kunt altijd ook opnieuw beginnen.
+# MACHINE TRANSLATION, pending native review
+onboarding-complete-import-note = Brengt de tickets, personen en instellingen uit een export over naar deze werkruimte. Dit werkt alleen zolang de werkruimte nog leeg is.
