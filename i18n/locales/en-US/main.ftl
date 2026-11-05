@@ -227,6 +227,7 @@ connect-submit = Connect
 connect-back = Back
 connect-no-account = You need a Nosdesk workspace to sign in. Learn more at nosdesk.com.
 connect-switch-server = Switch server
+connect-update-app = Update the app
 login-email-label = Email
 login-email-placeholder = Enter your email
 login-password-label = Password

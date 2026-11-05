@@ -13,7 +13,7 @@ import { ref } from 'vue';
 import AuthLayout from '@/components/auth/AuthLayout.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
-import { selectCloud, connectTo, serverGateError } from '@/platform/serverGate';
+import { selectCloud, connectTo, serverGateError, appUpdateNeeded, openAppStore } from '@/platform/serverGate';
 
 const mode = ref<'choose' | 'self-hosted'>('choose');
 const serverUrl = ref('');
@@ -58,11 +58,16 @@ async function connectSelfHosted() {
         <p class="mt-2 text-sm text-secondary">{{ $t('connect-subtitle') }}</p>
       </div>
 
-      <div
-        v-if="error"
-        class="flex items-center gap-2 rounded-lg border border-status-error/50 bg-status-error/10 px-4 py-3 text-sm text-status-error"
-      >
-        {{ error }}
+      <div v-if="error" class="flex flex-col gap-3">
+        <div
+          class="flex items-center gap-2 rounded-lg border border-status-error/50 bg-status-error/10 px-4 py-3 text-sm text-status-error"
+        >
+          {{ error }}
+        </div>
+        <!-- The server needs a newer app: send them to the store to update. -->
+        <Button v-if="appUpdateNeeded" variant="primary" block @click="openAppStore">
+          {{ $t('connect-update-app') }}
+        </Button>
       </div>
 
       <!-- Choose: cloud or self-hosted -->

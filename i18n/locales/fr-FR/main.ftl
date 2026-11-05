@@ -182,6 +182,8 @@ connect-submit = Se connecter
 connect-back = Retour
 connect-no-account = Il vous faut un espace de travail Nosdesk pour vous connecter. En savoir plus sur nosdesk.com.
 connect-switch-server = Changer de serveur
+# MACHINE TRANSLATION, pending native review
+connect-update-app = Mettre à jour l'application
 login-email-label = E-mail
 login-email-placeholder = Saisissez votre e-mail
 login-password-label = Mot de passe

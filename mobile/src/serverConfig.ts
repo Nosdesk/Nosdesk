@@ -10,6 +10,7 @@
  */
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 import { getVersion } from '@tauri-apps/api/app'
+import { platform } from '@tauri-apps/plugin-os'
 import { storage } from '@nosdesk/core/storage'
 
 const SERVER_KEY = 'nosdesk:server-origin'
@@ -52,6 +53,20 @@ export interface ServerValidation {
   /** The normalized origin (scheme + host[:port]) on success. */
   origin?: string
   error?: string
+  /** The server needs a newer app: the connect screen offers the store. */
+  appOutdated?: boolean
+}
+
+const APP_STORE_URL = 'https://apps.apple.com/app/id6806547339'
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.nosdesk.app'
+
+/** Where this device updates the app: Google Play on Android, else the App Store. */
+export function appStoreUrl(): string {
+  try {
+    return platform() === 'android' ? PLAY_STORE_URL : APP_STORE_URL
+  } catch {
+    return APP_STORE_URL
+  }
 }
 
 /**
@@ -96,7 +111,9 @@ export async function validateServer(input: string): Promise<ServerValidation> {
 
   const compatibility = await checkCompatibility(origin)
   if (compatibility.status === 'unknown') return { ok: false, error: 'Could not reach that server' }
-  if (compatibility.status === 'incompatible') return { ok: false, error: compatibility.message }
+  if (compatibility.status === 'incompatible') {
+    return { ok: false, error: compatibility.message, appOutdated: compatibility.appOutdated }
+  }
   return { ok: true, origin }
 }
 
@@ -116,7 +133,8 @@ function isOlder(a: [number, number, number], b: [number, number, number]): bool
 
 export type Compatibility =
   | { status: 'ok' }
-  | { status: 'incompatible'; message: string }
+  /** `appOutdated`: this app is older than the server accepts, so updating it fixes this. */
+  | { status: 'incompatible'; message: string; appOutdated?: boolean }
   /** The server couldn't be asked: offline, a timeout, a server error. */
   | { status: 'unknown' }
 
@@ -149,6 +167,7 @@ export async function checkCompatibility(origin: string): Promise<Compatibility>
     return {
       status: 'incompatible',
       message: 'This server needs a newer version of the Nosdesk app. Update the app, then try again.',
+      appOutdated: true,
     }
   }
   return { status: 'ok' }

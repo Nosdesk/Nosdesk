@@ -179,6 +179,8 @@ connect-submit = Verbinden
 connect-back = Terug
 connect-no-account = Je hebt een Nosdesk-workspace nodig om in te loggen. Meer informatie op nosdesk.com.
 connect-switch-server = Andere server
+# MACHINE TRANSLATION, pending native review
+connect-update-app = App bijwerken
 login-email-label = E-mail
 login-email-placeholder = Voer uw e-mailadres in
 login-password-label = Wachtwoord

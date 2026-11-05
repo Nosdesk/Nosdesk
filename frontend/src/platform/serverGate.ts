@@ -15,6 +15,9 @@ export const needsServerSelection = ref(false)
 /** Why the connect screen came back: the stored server no longer works with this app. */
 export const serverGateError = ref('')
 
+/** The server needs a newer app, so the connect screen offers the store. */
+export const appUpdateNeeded = ref(false)
+
 /** Decide on boot whether the connect screen is needed. */
 export async function initServerGate(): Promise<void> {
   if (!isTauriRuntime()) return
@@ -32,7 +35,14 @@ async function recheckServer(origin: string): Promise<void> {
   const result = await checkCompatibility(origin)
   if (result.status !== 'incompatible') return
   serverGateError.value = result.message
+  appUpdateNeeded.value = result.appOutdated === true
   needsServerSelection.value = true
+}
+
+/** Open this device's app store page, to update an app the server says is too old. */
+export async function openAppStore(): Promise<void> {
+  const { appStoreUrl, openInBrowser } = await import('@nosdesk/mobile')
+  await openInBrowser(appStoreUrl())
 }
 
 /** Connect to the official cloud and dismiss the gate. */
@@ -44,6 +54,7 @@ export async function selectCloud(): Promise<{ ok: boolean; error?: string }> {
   // on whatever that host served -- with no obvious way back. Picking the
   // official option should not be the one path that can strand you.
   const result = await validateServer(DEFAULT_SERVER)
+  appUpdateNeeded.value = result.appOutdated === true
   if (!result.ok || !result.origin) return { ok: false, error: result.error }
   await setServer(result.origin)
   needsServerSelection.value = false
@@ -57,6 +68,7 @@ export async function selectCloud(): Promise<{ ok: boolean; error?: string }> {
 export async function connectTo(input: string): Promise<{ ok: boolean; error?: string }> {
   const { validateServer, setServer } = await import('@nosdesk/mobile')
   const result = await validateServer(input)
+  appUpdateNeeded.value = result.appOutdated === true
   if (!result.ok || !result.origin) return { ok: false, error: result.error }
   await setServer(result.origin)
   needsServerSelection.value = false
