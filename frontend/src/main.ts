@@ -22,7 +22,7 @@ import { vPrefetch, warmRoute } from './directives/vPrefetch'
 import { vScrollRestore } from './directives/vScrollRestore'
 import { createI18n as createI18nPlugin, localeReady } from './i18n'
 import { useThemeStore } from './stores/theme'
-import { fetchInstanceConfig } from '@nosdesk/core/services/instanceConfig'
+import { fetchInstanceConfig, isHostedDeployment } from '@nosdesk/core/services/instanceConfig'
 
 // A lazy import outside routing (a dialog, an editor extension) whose chunk a
 // deploy removed: load the new build instead of failing. Vite fires this for
@@ -122,7 +122,10 @@ async function bootstrap() {
       document.getElementById('app-splash')?.setAttribute('data-ready', '')
       // Sign-in and set-up lead into the signed-in frame: fetch it once the
       // page is idle, so it's ready when the sign-in completes in this tab.
-      if (LEADS_INTO_APP.has(String(router.currentRoute.value.name))) {
+      // Not on hosted, where sign-in leaves for id.nosdesk.dev at once and
+      // comes back as a fresh page load, so the fetch would only compete with
+      // that redirect.
+      if (!isHostedDeployment() && LEADS_INTO_APP.has(String(router.currentRoute.value.name))) {
         whenIdle(() => void loadAppShell().catch(() => {}))
       }
     }),
