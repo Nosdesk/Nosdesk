@@ -5,6 +5,7 @@ import { useAuthStore } from "@/stores/auth";
 import { sseStreamUrl } from "@nosdesk/core/transport";
 import apiClient from "@nosdesk/core/apiClient";
 import { retryDelay } from "@nosdesk/core/retryDelay";
+import { activeWorkspaceSlug } from "@/services/activeWorkspace";
 
 // Event handler type - uses unknown since SSE events have varying shapes
 type EventHandler = (data: unknown) => void;
@@ -62,6 +63,10 @@ class SSEService {
   private readonly baseReconnectDelay = 1000;
   private sseToken: string | null = null;
   private tokenExpiryTime: number | null = null;
+  /** The workspace selected when the cached token was asked for. The server
+   *  binds the token to that workspace, and the stream refuses it under any
+   *  other, so it is only reused while the same one is selected. */
+  private tokenWorkspace: string | null = null;
   // Unique client ID assigned by the server on connection (for echo suppression)
   private _clientId: string | null = null;
   // Who wants the stream. The sync runtime holds it for as long as a workspace
@@ -136,7 +141,13 @@ class SSEService {
     // than hardcoded here: the token TTL is deliberately short because it
     // travels in the URL, and a buffer larger than the TTL would mean the cache
     // never hits and every connect re-mints.
-    if (this.sseToken && this.tokenExpiryTime && Date.now() < this.tokenExpiryTime) {
+    const workspace = activeWorkspaceSlug();
+    if (
+      this.sseToken &&
+      this.tokenExpiryTime &&
+      Date.now() < this.tokenExpiryTime &&
+      this.tokenWorkspace === workspace
+    ) {
       return this.sseToken;
     }
 
@@ -155,6 +166,7 @@ class SSEService {
       // the backend-served refresh buffer), falling back to half the TTL if an
       // older backend omits the field.
       this.sseToken = data.sse_token;
+      this.tokenWorkspace = workspace;
       const bufferSecs = data.refresh_buffer ?? data.expires_in * 0.5;
       this.tokenExpiryTime =
         Date.now() + Math.max(0, data.expires_in - bufferSecs) * 1000;
@@ -269,6 +281,11 @@ class SSEService {
     this.isConnecting.value = false;
     this.lastError.value = translate('sse-connection-failed', undefined, 'Connection failed');
 
+    // EventSource doesn't say why the stream failed, and a refused one (403,
+    // say a token bound to a workspace no longer selected) looks the same as
+    // a dropped connection. Retrying with the same token would be refused
+    // until it expires, so the next attempt asks for a fresh one.
+    this.dropToken();
     this.cleanup();
     this.scheduleReconnection();
   }
@@ -446,13 +463,18 @@ class SSEService {
   // and clearing them here left later streams with no `sync-actions` handler).
   disconnect(): void {
     this.cleanup();
-    this.sseToken = null;
-    this.tokenExpiryTime = null;
+    this.dropToken();
     this.isConnected.value = false;
     this.isConnecting.value = false;
     this.lastError.value = null;
     this.reconnectAttempts = 0;
     this._clientId = null;
+  }
+
+  private dropToken(): void {
+    this.sseToken = null;
+    this.tokenExpiryTime = null;
+    this.tokenWorkspace = null;
   }
 
   // Cleanup resources

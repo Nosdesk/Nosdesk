@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // The live-update stream keeps trying to come back, however long the server
 // is unreachable, and tries at once when the device is back online.
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAuthenticated: true }) }))
-const api = vi.hoisted(() => ({ hangNext: 0, configs: [] as Array<{ timeout?: number } | undefined> }))
+const api = vi.hoisted(() => ({
+  hangNext: 0,
+  /** Hold the next token request until the test answers it. */
+  holdNext: false,
+  held: null as (() => void) | null,
+  configs: [] as Array<{ timeout?: number } | undefined>,
+  minted: 0,
+}))
 vi.mock('@nosdesk/core/apiClient', () => ({
   default: {
     post: async (_url: string, _body?: unknown, config?: { timeout?: number }) => {
@@ -12,7 +19,15 @@ vi.mock('@nosdesk/core/apiClient', () => ({
         api.hangNext--
         return new Promise(() => {})
       }
-      return { data: { sse_token: 't', expires_in: 3600, refresh_buffer: 60 } }
+      // Each token is a new one, so a stream's URL shows which it was given.
+      const data = { sse_token: `t${++api.minted}`, expires_in: 3600, refresh_buffer: 60 }
+      if (api.holdNext) {
+        api.holdNext = false
+        return new Promise((resolve) => {
+          api.held = () => resolve({ data })
+        })
+      }
+      return { data }
     },
   },
 }))
@@ -36,6 +51,7 @@ class FakeEventSource {
 }
 
 import { useSSE } from '../sseService'
+import { setActiveWorkspaceSlug } from '@/services/activeWorkspace'
 
 const sse = useSSE()
 
@@ -44,10 +60,14 @@ beforeEach(() => {
   vi.stubGlobal('EventSource', FakeEventSource)
   FakeEventSource.opened = []
   api.hangNext = 0
+  api.holdNext = false
+  api.held = null
   api.configs.length = 0
+  api.minted = 0
 })
 afterEach(() => {
   sse.stop()
+  setActiveWorkspaceSlug(null)
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
@@ -143,5 +163,69 @@ describe('the live-update stream', () => {
       Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
       window.dispatchEvent(new Event('online'))
     }
+  })
+})
+
+/** The token the stream at `index` was opened with. */
+function tokenOf(index: number): string | null {
+  return new URL(FakeEventSource.opened[index].url, 'http://localhost').searchParams.get('sse_token')
+}
+
+// The server binds a stream token to the workspace selected when it was asked
+// for, and refuses the stream under any other. EventSource can't say a stream
+// was refused, so a failed stream never retries with the token it was given.
+describe('the stream token', () => {
+  it('is asked for again after the stream fails, rather than retried until it expires', async () => {
+    sse.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(tokenOf(0)).toBe('t1')
+
+    await failAndWait(8_000)
+    expect(tokenOf(1)).toBe('t2')
+    await failAndWait(8_000)
+    expect(tokenOf(2)).toBe('t3')
+  })
+
+  it('is reused while the workspace stays the same', async () => {
+    setActiveWorkspaceSlug('acme')
+    sse.start()
+    await vi.advanceTimersByTimeAsync(0)
+    FakeEventSource.opened[0].onopen!()
+    // Watching a ticket reopens the stream with one more topic.
+    const release = sse.watchTicket(5)
+    await vi.advanceTimersByTimeAsync(0)
+    release()
+    expect(FakeEventSource.opened).toHaveLength(2)
+    expect(tokenOf(1)).toBe('t1')
+  })
+
+  it('from one workspace is not used in another', async () => {
+    setActiveWorkspaceSlug('acme')
+    sse.start()
+    await vi.advanceTimersByTimeAsync(0)
+    FakeEventSource.opened[0].onopen!()
+
+    setActiveWorkspaceSlug('beta')
+    const release = sse.watchTicket(5)
+    await vi.advanceTimersByTimeAsync(0)
+    release()
+    expect(tokenOf(1)).toBe('t2')
+  })
+
+  it('answered after the stream was closed is not used for the next workspace', async () => {
+    setActiveWorkspaceSlug('acme')
+    api.holdNext = true
+    sse.start()
+    await vi.advanceTimersByTimeAsync(0)
+    // Leaving the workspace closes the stream while its token is on the way.
+    sse.stop()
+    api.held!()
+    await vi.advanceTimersByTimeAsync(0)
+
+    setActiveWorkspaceSlug('beta')
+    sse.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(FakeEventSource.opened).toHaveLength(1)
+    expect(tokenOf(0)).toBe('t2')
   })
 })

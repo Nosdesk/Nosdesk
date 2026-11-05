@@ -222,6 +222,10 @@ export function ensureSyncRuntime(
     })
     let rebootstrap: Promise<void> | null = null
     rebootstrap = (async () => {
+      // The live-updates stream, its pending retry and its cached token are
+      // the other workspace's too; the new runtime opens its own.
+      const { detachSseBridge } = await import('@/sync/sseBridge')
+      detachSseBridge()
       await tearDown() // clears runtimePromise; restore it so callers share this run
       // A collab token is bound to the workspace it was minted in.
       const { resetCollabToken } = await import('@/services/collabToken')
