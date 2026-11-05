@@ -7,13 +7,11 @@
 //!
 //! Self-hosted makes no such call (`tests/it/signout_others_self_hosted.rs`).
 //!
-//! A standalone binary rather than part of `tests/it`: the deployment mode and
+//! Part of the hosted binary rather than `tests/it`: the deployment mode and
 //! the control-plane URL and key are process-wide environment. One test drives
 //! every case in turn for the same reason.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use std::sync::{Arc, Mutex};
 
@@ -236,7 +234,7 @@ fn verified_claims(token: &str) -> Value {
 
 #[actix_web::test]
 async fn on_hosted_signing_out_ends_remembered_sign_ins() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    crate::hosted_env();
     std::env::set_var("OIDC_ISSUER_URL", ISSUER);
     std::env::set_var(remembered_sign_ins::KEY_ENV, TEST_PRIV);
     common::ensure_test_keyring();

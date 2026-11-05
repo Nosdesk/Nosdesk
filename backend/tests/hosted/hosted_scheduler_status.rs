@@ -2,12 +2,10 @@
 //! workspace on it, so only a platform admin reads it; a workspace admin gets
 //! 403. Self-hosted is unchanged (`tests/it/scheduler_status.rs`).
 //!
-//! A standalone binary rather than part of `tests/it`: the deployment mode is
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
 //! process-wide environment.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use actix_web::dev::Service;
 use actix_web::test as http_test;
@@ -33,7 +31,7 @@ fn claims(user: Uuid, platform_role: &str) -> Claims {
 
 #[actix_web::test]
 async fn on_hosted_only_a_platform_admin_reads_the_scheduler_status() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    crate::hosted_env();
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let pool = db.pool_with_size(4);

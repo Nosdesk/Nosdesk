@@ -3,13 +3,18 @@
 //! backend, so 84 of them spent most of a CI run linking; this crate links
 //! once.
 //!
-//! A test stays a standalone file in `tests/` when it cannot share a process
-//! with the rest, since tests here run in parallel threads of one process:
-//! it sets environment variables or cached process-wide state (deployment
-//! mode, the licence; `common::enable_platform_auth` flips the process to
-//! hosted), or it asserts on something cluster-wide in Postgres
-//! (`sync_commit_cursor` reads the commit horizon, which any concurrent
-//! transaction moves).
+//! A test stays out of this binary when it cannot share a process with the
+//! rest, since tests here run in parallel threads of one process: it sets
+//! environment variables or cached process-wide state (deployment mode;
+//! `common::enable_platform_auth` flips the process to hosted), or it asserts
+//! on something cluster-wide in Postgres (`sync_commit_cursor` reads the
+//! commit horizon, which any concurrent transaction moves). Tests that run in
+//! hosted mode share `tests/hosted`; the rest are standalone files in
+//! `tests/`.
+//!
+//! The licence is process-wide state too, but `admin_license` only stores a
+//! licence that fails verification, so the edition every other test here sees
+//! stays Community.
 
 #![allow(clippy::expect_used)]
 
@@ -20,7 +25,9 @@ mod common;
 mod account_surface;
 mod add_requester;
 mod admin_grant_needs_owner;
+mod admin_license;
 mod admin_workspace_members;
+mod admin_workspaces;
 mod analytics_breakdown_labels;
 mod analytics_kpi_summary;
 mod api_token_role_ceiling;
@@ -179,8 +186,10 @@ mod sla_breach_sweep;
 mod sla_defaults;
 mod sla_policy_changes;
 mod sla_policy_priority;
+mod sse_workspace_binding;
 mod step_up_confirm;
 mod sync_audiences;
+mod sync_bootstrap_workspace_scope;
 mod sync_emit_lint;
 mod sync_model_registry;
 mod sync_ticket_group_auth;
@@ -226,6 +235,7 @@ mod workspace_import_apply;
 mod workspace_import_files;
 mod workspace_import_jobs;
 mod workspace_import_plaintext;
+mod workspace_license_gate;
 mod workspace_member_soft_remove;
 mod workspace_members_active_filter_lint;
 mod workspace_membership_gate;

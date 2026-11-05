@@ -354,7 +354,7 @@ fn a_platform_admin_outside_the_workspace_is_left_alone() {
 
 /// `audit_reviewer` is never granted to an existing member. A new account
 /// gets it as the add-user API gives it: self-hosted, by a workspace admin
-/// (the hosted refusal is in `tests/imports_users_hosted.rs`).
+/// (the hosted refusal is in `tests/hosted/imports_users_hosted.rs`).
 #[test]
 fn audit_reviewer_is_refused_on_update_and_created_as_add_user_does() {
     let db = TestDb::new();

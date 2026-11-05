@@ -13,8 +13,6 @@
 //!      workspace wrote is. A webhook counts as an integration.
 //!   5. Unknown slug -> 404; wrong-scope token -> 401.
 
-#![allow(clippy::expect_used)]
-
 use actix_web::{web, App};
 use diesel::prelude::*;
 use serde_json::json;
@@ -26,7 +24,7 @@ use backend::repository::workspaces::SeatWriteAuthority;
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 
-mod common;
+use crate::common;
 
 const SLUG: &str = "act-co";
 
@@ -80,6 +78,7 @@ fn comment(pool: &backend::db::Pool, workspace_id: i32, ticket_id: i32, by: Uuid
 
 #[actix_web::test]
 async fn workspace_activation_full_contract() {
+    crate::hosted_env();
     common::ensure_test_keyring();
     common::enable_platform_auth();
     let test_db = common::TestDb::new();

@@ -3,13 +3,12 @@
 //! address (`email_forward`), as the acknowledgement does, and the ticket
 //! records that it went.
 //!
-//! Its own binary: routing those channels reads the process-wide
-//! `NOSDESK_TENANT_DOMAIN` and `NOSDESK_INBOUND_DOMAIN`, which no other test
-//! may see set.
+//! Part of the hosted binary rather than `tests/it`: routing those channels
+//! reads the process-wide `NOSDESK_TENANT_DOMAIN` and `NOSDESK_INBOUND_DOMAIN`,
+//! which `tests/it` must not see set. The hosted binary sets both, as a hosted
+//! deployment does.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use diesel::prelude::*;
 
@@ -19,14 +18,6 @@ use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 
 const WS: i32 = 1;
-
-fn hosted_env() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        std::env::set_var("NOSDESK_TENANT_DOMAIN", "nosdesk.test");
-        std::env::set_var("NOSDESK_INBOUND_DOMAIN", "inbound.nosdesk.test");
-    });
-}
 
 struct Sent {
     notices: usize,
@@ -39,7 +30,7 @@ struct Sent {
 /// Merge a ticket that came in on a `provider` channel (after `prepare` has
 /// run against it) and send the notice.
 fn merge_notice(provider: &str, prepare: impl FnOnce(&mut DbConnection, &Channel)) -> Sent {
-    hosted_env();
+    crate::hosted_env();
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let pool = db.pool_with_size(2);

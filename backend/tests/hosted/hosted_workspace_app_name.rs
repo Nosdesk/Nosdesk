@@ -3,9 +3,8 @@
 //! the name was never changed), and the one-time boot task that names
 //! workspaces provisioned before this.
 //!
-//! Its own binary: hosted mode is a process-wide env var.
-
-#![allow(clippy::expect_used)]
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
+//! process-wide environment.
 
 use actix_web::{web, App};
 use diesel::prelude::*;
@@ -16,7 +15,7 @@ use backend::middleware::{dual_auth_middleware, idempotency_middleware};
 use backend::models::{NewUser, User};
 use backend::sync::actor::ActorContext;
 
-mod common;
+use crate::common;
 
 fn mint_platform_admin(conn: &mut diesel::pg::PgConnection) -> User {
     use backend::schema::users;
@@ -69,7 +68,7 @@ fn set_app_name(pool: &backend::db::Pool, workspace_id: i32, name: &str) {
 
 #[actix_web::test]
 async fn hosted_workspaces_are_named_after_the_workspace() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    crate::hosted_env();
     common::ensure_test_keyring();
     common::enable_platform_auth();
     let test_db = common::TestDb::new();

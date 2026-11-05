@@ -19,8 +19,6 @@
 //!   4. role `owner` -> 400 (only admin|agent|member are settable).
 //!   5. Wrong-scope token -> 401; absent token -> 401.
 
-#![allow(clippy::expect_used)]
-
 use actix_web::{web, App};
 use diesel::prelude::*;
 use serde_json::json;
@@ -28,7 +26,7 @@ use serde_json::json;
 use backend::handlers::internal_workspaces;
 use backend::middleware::idempotency_middleware;
 
-mod common;
+use crate::common;
 
 fn membership_role(pool: &backend::db::Pool, workspace_id: i32, user_uuid: uuid::Uuid) -> String {
     use backend::schema::workspace_members;
@@ -121,6 +119,7 @@ async fn project_member(
 
 #[actix_web::test]
 async fn set_member_role_full_contract() {
+    crate::hosted_env();
     common::ensure_test_keyring();
     common::enable_platform_auth();
     let test_db = common::TestDb::new();
@@ -337,6 +336,7 @@ fn session_count(pool: &backend::db::Pool, user_uuid: uuid::Uuid) -> i64 {
 /// person holds; an unknown identity is a 404; a wrong-scope token is refused.
 #[actix_web::test]
 async fn revoke_member_sessions_signs_the_person_out_of_the_helpdesk() {
+    crate::hosted_env();
     common::ensure_test_keyring();
     common::enable_platform_auth();
     let test_db = common::TestDb::new();

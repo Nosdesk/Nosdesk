@@ -20,8 +20,6 @@
 //!  11. Non-admin token gets 403 on every mutating endpoint.
 //!  12. Reserved slug returns 400 on create (Phase 4 W4 still wired).
 
-#![allow(clippy::expect_used)]
-
 use actix_web::{web, App};
 use diesel::prelude::*;
 use serde_json::json;
@@ -30,7 +28,7 @@ use backend::handlers::admin_workspaces;
 use backend::middleware::dual_auth_middleware;
 use backend::models::{NewUser, User};
 
-mod common;
+use crate::common;
 
 fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: &str) -> User {
     use backend::schema::users;

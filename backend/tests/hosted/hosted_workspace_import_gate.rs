@@ -3,12 +3,10 @@
 //! `/api/workspace/imports` route answers 404 to the workspace's own owner,
 //! and nothing is created. The platform-admin routes still answer.
 //!
-//! A standalone binary rather than part of `tests/it`: the deployment mode
-//! is process-wide environment.
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
+//! process-wide environment.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use actix_web::dev::Service;
 use actix_web::http::StatusCode;
@@ -77,8 +75,7 @@ async fn call(
 
 #[actix_web::test]
 async fn hosted_owners_get_404_from_the_import_routes() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
-    std::env::set_var("NOSDESK_WORKSPACE_SELECTION", "1");
+    crate::hosted_env();
     common::ensure_test_keyring();
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);

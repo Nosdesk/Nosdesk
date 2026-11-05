@@ -2,12 +2,10 @@
 //! addresses) but not a staff member's, whose Nosdesk account owns it, and
 //! not anyone's sign-in, which stays the person's own there.
 //!
-//! A standalone binary rather than part of `tests/it`: deployment mode is
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
 //! process-wide environment.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 
@@ -54,7 +52,7 @@ fn agent(conn: &mut PgConnection, workspace_id: i32) -> User {
 
 #[actix_web::test]
 async fn a_workspace_admin_manages_requesters_but_not_staff_on_hosted() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    crate::hosted_env();
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let pool = db.pool_with_size(4);

@@ -3,12 +3,10 @@
 //! gate, so a Cloud owner isn't left with the API as the only way out.
 //! Agents are refused there too.
 //!
-//! A standalone binary rather than part of `tests/it`: the deployment mode
-//! is process-wide environment.
+//! Part of the hosted binary rather than `tests/it`: the deployment mode is
+//! process-wide environment.
 
-#![allow(clippy::expect_used)]
-
-mod common;
+use crate::common;
 
 use std::io::{Cursor, Read};
 
@@ -47,8 +45,7 @@ fn claims(user: Uuid) -> Claims {
 
 #[actix_web::test]
 async fn hosted_owners_and_admins_download_the_documentation() {
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
-    std::env::set_var("NOSDESK_WORKSPACE_SELECTION", "1");
+    crate::hosted_env();
     assert!(backend::middleware::workspace_context::is_hosted());
     common::ensure_test_keyring();
     let test_db = common::TestDb::new();
