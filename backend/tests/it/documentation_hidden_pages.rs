@@ -590,10 +590,20 @@ async fn hidden_pages_and_collections_are_absent_on_every_docs_route() {
         .await;
         assert_eq!(secret_resp.status(), StatusCode::NOT_FOUND);
     }
-    let export = get_json("/api/documentation/pages/export".into(), f.outsider).await;
-    assert!(!ids(&export, "id").contains(&(hidden as i64)));
-    assert!(!ids(&export, "id").contains(&(in_secret as i64)));
-    assert!(ids(&export, "id").contains(&(open as i64)));
+    // Taking every page at once is an admin action: agents are refused the
+    // export outright, and an admin's covers the workspace.
+    for agent in [f.outsider, f.insider] {
+        let resp = http_test::call_service(
+            &app,
+            request(Method::GET, "/api/documentation/pages/export", agent, None).to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+    let export = get_json("/api/documentation/pages/export".into(), f.admin).await;
+    for page in [hidden, in_secret, open] {
+        assert!(ids(&export, "id").contains(&(page as i64)));
+    }
     let starred = get_json("/api/documentation/starred".into(), f.outsider).await;
     assert!(
         ids(&starred, "page_id").is_empty(),
