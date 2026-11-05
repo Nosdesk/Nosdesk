@@ -1786,12 +1786,13 @@ pub struct DocumentationPageExport {
     pub updated_at: chrono::NaiveDateTime,
 }
 
-// Export all documentation pages with their Yjs content for markdown export
+/// `GET /documentation/pages/export`: every page the caller can open, with its
+/// Yjs content. Workspace admins and owners only, like the Markdown export
+/// below: an agent reads pages one at a time, and taking every page at once
+/// is an admin action.
 pub async fn export_documentation_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    if !auth.can_handle_tickets() {
-        return errors::forbidden(
-            "Forbidden: Only technicians and administrators can export documentation",
-        );
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Forbidden: Only workspace admins can export documentation");
     }
     let audience = repository::PageAudience::from_auth(&auth);
 
