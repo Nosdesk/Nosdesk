@@ -11,6 +11,14 @@ vi.mock('../../../mobile/node_modules/@tauri-apps/plugin-http/dist-js/index.js',
 vi.mock('../../../mobile/node_modules/@tauri-apps/api/app.js', () => ({
   getVersion: vi.fn(async () => tauri.appVersion),
 }))
+const os = vi.hoisted(() => ({ platform: 'ios' }))
+vi.mock('../../../mobile/node_modules/@tauri-apps/plugin-os/dist-js/index.js', () => ({
+  platform: () => os.platform,
+}))
+const opener = vi.hoisted(() => ({ openUrl: vi.fn(async () => {}) }))
+vi.mock('../../../mobile/node_modules/@tauri-apps/plugin-opener/dist-js/index.js', () => ({
+  openUrl: opener.openUrl,
+}))
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -61,6 +69,13 @@ describe('connecting the app to a server', () => {
     const result = await validateServer('help.example.com')
     expect(result.ok).toBe(false)
     expect(result.error).toMatch(/needs a newer version of the Nosdesk app/)
+    expect(result.appOutdated).toBe(true)
+  })
+
+  it('offers no app update when the server is the one that is out of date', async () => {
+    serverWith(json({ error: 'Authentication required', code: 'AUTH_REQUIRED' }, 401))
+    const { validateServer } = await import('@nosdesk/mobile/serverConfig')
+    expect((await validateServer('help.example.com')).appOutdated).toBeUndefined()
   })
 
   it('reports an unreachable server as unreachable, not as old', async () => {
@@ -95,6 +110,24 @@ describe('launching with a stored server', () => {
     const gate = await launch('https://help.example.com')
     await vi.waitFor(() => expect(gate.needsServerSelection.value).toBe(true))
     expect(gate.serverGateError.value).toMatch(OLD_SERVER)
+  })
+
+  it('offers the store when the server needs a newer app', async () => {
+    tauri.appVersion = '1.1.4'
+    http.fetch.mockResolvedValue(json({ server_version: '1.1.5', min_app_version: '1.1.5' }))
+    const gate = await launch('https://help.example.com')
+    await vi.waitFor(() => expect(gate.needsServerSelection.value).toBe(true))
+    expect(gate.appUpdateNeeded.value).toBe(true)
+
+    await gate.openAppStore()
+    expect(opener.openUrl).toHaveBeenLastCalledWith('https://apps.apple.com/app/id6806547339')
+    os.platform = 'android'
+    await gate.openAppStore()
+    expect(opener.openUrl).toHaveBeenLastCalledWith(
+      'https://play.google.com/store/apps/details?id=com.nosdesk.app',
+    )
+    os.platform = 'ios'
+    tauri.appVersion = '1.1.0'
   })
 
   it('stays put when the server is current or out of reach', async () => {

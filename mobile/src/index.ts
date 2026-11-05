@@ -20,6 +20,7 @@ export {
   clearStoredServer,
   validateServer,
   checkCompatibility,
+  appStoreUrl,
   DEFAULT_SERVER,
   type ServerValidation,
   type Compatibility,

@@ -8,8 +8,10 @@ use actix_web::{HttpResponse, Responder};
 use serde_json::json;
 
 /// The oldest mobile app this server works with. Raise it when a server change
-/// breaks an app release still in the stores.
-const MIN_APP_VERSION: &str = "1.1.0";
+/// breaks an app release still in the stores. 1.1.5: an older app can't sign a
+/// requester in (they move to the portal) and reads plugin `api.fetch` bodies
+/// in the old shape.
+const MIN_APP_VERSION: &str = "1.1.5";
 
 /// GET /api/config — instance-level config the frontend needs before auth.
 ///
@@ -99,7 +101,7 @@ mod tests {
         )
         .await;
         assert_eq!(body["server_version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(body["min_app_version"], "1.1.0");
+        assert_eq!(body["min_app_version"], "1.1.5");
         assert_eq!(
             body["max_file_size_mb"],
             crate::utils::file_validation::get_max_file_size() / (1024 * 1024)
