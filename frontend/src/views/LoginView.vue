@@ -71,6 +71,8 @@ const oidcDisplayName = ref("SSO");
 // mounts, so a hosted page starts here rather than showing the password
 // form until the setup status arrives.
 const ssoOnly = ref(isHostedDeployment());
+// The native app shows requesters the way to their portal (see the template).
+const inApp = isTauriRuntime();
 
 // MFA state
 const mfaToken = ref("");
@@ -1023,8 +1025,11 @@ const handleOidcLogoutClick = async () => {
           <span v-else>{{ $t("login-oidc-cta", { provider: oidcDisplayName }) }}</span>
         </button>
 
-        <!-- Requesters ask for help at their organisation's portal, not here. -->
-        <RequesterPortalLink />
+        <!-- Requesters ask for help at their organization's portal, not here.
+             Only in the app, where a requester who installed it is otherwise
+             stuck: on the web this page goes on to sign-in within a second or
+             two, so the link only flashed past. -->
+        <RequesterPortalLink v-if="inApp" />
       </div>
 
       <!-- Forgot Password Modal -->

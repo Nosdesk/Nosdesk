@@ -28,7 +28,7 @@ function go(): void {
   <div class="flex flex-col gap-3 rounded-xl border border-default bg-surface px-4 py-3">
     <button
       type="button"
-      class="self-start text-sm font-medium text-accent hover:underline"
+      class="self-center text-sm font-medium text-accent hover:underline lg:self-start"
       :aria-expanded="open"
       @click="open = !open"
     >

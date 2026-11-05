@@ -254,3 +254,26 @@ describe('LoginView before the setup status arrives', () => {
     expect(wrapper.find('input[type="password"]').exists()).toBe(true)
   })
 })
+
+describe('LoginView and the way to the portal', () => {
+  beforeEach(() => {
+    checkSetupStatus.mockReturnValue(new Promise(() => {}))
+    hosted.value = true
+  })
+  afterEach(() => {
+    delete (globalThis as { isTauri?: boolean }).isTauri
+  })
+
+  it('leaves it off the web, where the page goes on to sign-in at once', async () => {
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('requester-portal-link-toggle')
+  })
+
+  it('shows it in the app, where a requester would otherwise be stuck', async () => {
+    ;(globalThis as { isTauri?: boolean }).isTauri = true
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('requester-portal-link-toggle')
+  })
+})
