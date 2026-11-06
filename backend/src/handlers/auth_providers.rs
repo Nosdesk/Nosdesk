@@ -140,10 +140,7 @@ fn get_provider_by_type(provider_type: &str) -> Result<AuthProvider, diesel::res
             true,
         )),
         "microsoft" => {
-            if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
-                && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
-                && std::env::var("MICROSOFT_TENANT_ID").is_ok()
-            {
+            if crate::config_utils::is_microsoft_auth_enabled() {
                 Ok(AuthProvider::new(
                     2,
                     "Microsoft".to_string(),
@@ -199,9 +196,7 @@ pub async fn get_auth_providers(
     })];
 
     // Check if Microsoft is configured
-    if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
-        && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
-    {
+    if crate::config_utils::is_microsoft_auth_enabled() {
         providers.push(json!({
             "id": 2,
             "name": "Microsoft",
@@ -244,9 +239,7 @@ pub async fn get_enabled_auth_providers(_db_pool: web::Data<Pool>) -> impl Respo
         }));
 
         // Check if Microsoft is configured
-        if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
-            && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
-        {
+        if crate::config_utils::is_microsoft_auth_enabled() {
             providers.push(json!({
                 "id": 2,
                 "provider_type": "microsoft",

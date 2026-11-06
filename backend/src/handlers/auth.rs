@@ -1634,9 +1634,7 @@ pub async fn check_setup_status(
     match repository::count_users(&mut conn) {
         Ok(user_count) => {
             // Check if Microsoft auth is configured via environment variables
-            let microsoft_auth_enabled = std::env::var("MICROSOFT_CLIENT_ID").is_ok()
-                && std::env::var("MICROSOFT_TENANT_ID").is_ok()
-                && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok();
+            let microsoft_auth_enabled = crate::config_utils::is_microsoft_auth_enabled();
 
             // Check if OIDC is configured
             let oidc_enabled = crate::config_utils::is_oidc_enabled();

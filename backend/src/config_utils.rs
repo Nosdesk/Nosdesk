@@ -107,6 +107,14 @@ pub fn get_microsoft_redirect_uri() -> Result<String, ConfigError> {
     get_env_var("MICROSOFT_REDIRECT_URI")
 }
 
+/// Microsoft sign-in is configured: the client ID, secret and a single tenant
+/// are all set. An empty value counts as unset, as `.env.example` leaves them.
+pub fn is_microsoft_auth_enabled() -> bool {
+    get_microsoft_client_id().is_ok()
+        && get_microsoft_client_secret().is_ok()
+        && get_microsoft_tenant_id().is_ok()
+}
+
 // ===== OIDC Configuration =====
 
 /// Check if OIDC is enabled (minimum required vars are set)
@@ -198,5 +206,34 @@ mod tests {
         // Empty is a missing-config case (handled by get_env_var), not a
         // multi-tenant authority.
         assert!(!is_microsoft_multitenant_authority(""));
+    }
+
+    /// The only test that sets the MICROSOFT_* variables, so it can't race
+    /// another reading them.
+    #[test]
+    fn microsoft_sign_in_needs_all_three_values_set() {
+        let vars = [
+            "MICROSOFT_CLIENT_ID",
+            "MICROSOFT_CLIENT_SECRET",
+            "MICROSOFT_TENANT_ID",
+        ];
+        // As a fresh install copies them from `.env.example`: present, empty.
+        for v in vars {
+            env::set_var(v, "");
+        }
+        assert!(!is_microsoft_auth_enabled());
+
+        env::set_var("MICROSOFT_CLIENT_ID", "client");
+        env::set_var("MICROSOFT_CLIENT_SECRET", "secret");
+        env::set_var("MICROSOFT_TENANT_ID", "common");
+        assert!(!is_microsoft_auth_enabled());
+
+        env::set_var("MICROSOFT_TENANT_ID", "contoso.onmicrosoft.com");
+        assert!(is_microsoft_auth_enabled());
+
+        for v in vars {
+            env::remove_var(v);
+        }
+        assert!(!is_microsoft_auth_enabled());
     }
 }
