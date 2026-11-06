@@ -9,8 +9,8 @@ const route = reactive<{ name: string; meta: Record<string, unknown> }>({
   meta: { titleKey: 'route-title-tickets' },
 })
 vi.mock('vue-router', () => ({ useRoute: () => route }))
-vi.mock('@nosdesk/core/services/ticketService', () => ({ previewTicketField: vi.fn(async () => {}) }))
-vi.mock('@/stores/recentTickets', () => ({ useRecentTicketsStore: () => ({ updateTicketData: vi.fn() }) }))
+const recent = vi.hoisted(() => ({ updateTicketData: vi.fn() }))
+vi.mock('@/stores/recentTickets', () => ({ useRecentTicketsStore: () => recent }))
 vi.mock('@/utils/ticketNumbers', () => ({
   ticketNumber: (t: { id: number; number?: number }) => t.number ?? t.id,
 }))
@@ -91,6 +91,37 @@ describe('useTitleManager', () => {
     await flushPromises()
     expect(document.title).toBe('Roadmap 2027 | Nosdesk')
     project.unmount()
+  })
+
+  it("shows a colleague's rename in progress in the header only, and passes your typing to the view", async () => {
+    route.name = 'ticket-view'
+    route.meta = {}
+    const preview = ref<string | null>(null)
+    const onTitlePreview = vi.fn()
+    const ticket = claim(() =>
+      usePageTitle({
+        ticket: () => ({ id: 1, number: 12, title: 'Fix the printer' }),
+        titlePreview: () => preview.value,
+        onTitlePreview,
+      }),
+    )
+    await nextTick()
+    recent.updateTicketData.mockClear()
+
+    preview.value = 'Fix the printer on level 3'
+    await nextTick()
+    expect(manager.headerTicket.value?.title).toBe('Fix the printer on level 3')
+    expect(manager.currentTicket.value?.title).toBe('Fix the printer')
+    expect(document.title).toBe('#12 Fix the printer | Nosdesk')
+    expect(recent.updateTicketData).not.toHaveBeenCalled()
+
+    manager.previewTicketTitle('Fix the')
+    expect(onTitlePreview).toHaveBeenCalledWith('Fix the')
+
+    ticket.unmount()
+    await nextTick()
+    route.name = 'tickets'
+    route.meta = { titleKey: 'route-title-tickets' }
   })
 
   it('offers an asset rename only while the asset view allows it', async () => {

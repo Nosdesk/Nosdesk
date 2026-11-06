@@ -15,7 +15,9 @@ import type { Ticket } from "@nosdesk/core/types/ticket";
 // Composables
 import { useTicketDetail } from "@/sync/stores/ticketDetail";
 import { subscribe } from "@/sync/lifecycle";
-import { useTicketSSE } from "@/composables/useTicketSSE";
+import { useTicketPresence } from "@/composables/useTicketPresence";
+import { useSSE } from "@/services/sseService";
+import { previewTicketField } from "@nosdesk/core/services/ticketService";
 import { usePageTitle, type TitleableTicket } from "@/composables/usePageTitle";
 import { useTicketDrag, shouldSuppressTicketDrop } from "@/composables/useTicketDrag";
 import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
@@ -190,11 +192,21 @@ function handleToggleWatch() {
     void toggleWatch(uuid);
 }
 
-// Presence + live field preview over the per-ticket SSE topic.
-const {
-    isConnected,
-    otherViewers,
-} = useTicketSSE(ticketId);
+// Who else is on the ticket and what they are typing, from the ticket room's
+// awareness; the live-updates stream's state for the connection badge.
+const { isConnected } = useSSE();
+const { otherViewers, previewOver, publishPreview } = useTicketPresence(ticketId);
+const titlePreview = previewOver("title", () => ticket.value?.title);
+
+// Typing in the header title, shown to colleagues on this ticket. The 1.1.5
+// app reads previews from the live-updates stream, so they still go there
+// until the app minimum passes this release.
+function previewTitle(value: string) {
+    const id = ticket.value?.id;
+    if (id == null) return;
+    publishPreview("title", value === ticket.value?.title ? null : value);
+    void previewTicketField(id, "title", value).catch(() => {});
+}
 
 // Drag-to-link state
 const { dragState } = useTicketDrag();
@@ -527,7 +539,16 @@ onUnmounted(() => {
 // every other field).
 usePageTitle({
     ticket: () => ticket.value as unknown as TitleableTicket | null,
-    onTitleSave: (title: string) => updateTitle(title),
+    // A colleague's typing, shown in the header over the saved title.
+    titlePreview: () => titlePreview.value,
+    onTitleSave: async (title: string) => {
+        try {
+            await updateTitle(title);
+        } finally {
+            publishPreview("title", null);
+        }
+    },
+    onTitlePreview: previewTitle,
 });
 
 // Load ticket on mount and route change

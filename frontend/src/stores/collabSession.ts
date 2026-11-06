@@ -1056,6 +1056,17 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     return { ydoc, provider, permanentUserData, isNew: true }
   }
 
+  /**
+   * The session open for `docId`, if any, without holding it: for readers of
+   * a room another consumer holds (ticket presence reads the awareness of the
+   * room the ticket's notes editor opened). Re-read when `sessionSnapshot`
+   * changes, since the session can be evicted or reopened.
+   */
+  function peek(docId: string): { ydoc: Y.Doc; provider: WebsocketProvider } | null {
+    const entry = sessions.get(docId)
+    return entry ? { ydoc: entry.ydoc, provider: entry.provider } : null
+  }
+
   function release(docId: string): void {
     const entry = sessions.get(docId)
     if (!entry) return
@@ -1154,6 +1165,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     connectionRefusal,
     closeAll,
     acquire,
+    peek,
     release,
     destroy,
     warm,

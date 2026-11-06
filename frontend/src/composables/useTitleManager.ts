@@ -3,7 +3,6 @@ import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
 import { useBrandingStore } from '@/stores/branding';
-import { previewTicketField } from '@nosdesk/core/services/ticketService';
 import { ticketNumber } from '@/utils/ticketNumbers';
 
 import {
@@ -29,6 +28,13 @@ const currentDocument = computed<TitleableDocument | null>(
   () => toValue(activeClaim.value?.claim.document) ?? null,
 );
 const customTitle = computed(() => toValue(activeClaim.value?.claim.title) ?? null);
+// The ticket as the site header shows it: a colleague's rename in progress
+// over the saved title. Everything else reads `currentTicket`, the pool row.
+const headerTicket = computed<TitleableTicket | null>(() => {
+  const ticket = currentTicket.value;
+  const preview = toValue(activeClaim.value?.claim.titlePreview) ?? null;
+  return ticket && preview !== null ? { ...ticket, title: preview } : ticket;
+});
 const isTransitioning = ref(false);
 
 // A rename typed into the header, shown until the owning view's own state
@@ -138,14 +144,12 @@ export function useTitleManager() {
 
   const previewTicketTitle = (newTitle: string) => {
     if (!currentTicket.value) return;
-    // Transient broadcast ONLY. Do not mutate currentTicket.title: it IS the
-    // sync pool row, the canonical value the commit path diffs against (and
-    // patchTicket's rollback baseline). Writing the in-progress draft here
-    // is what silently broke title saves. The header shows the draft from
-    // InlineEdit's own local state; this just tells other viewers. The
-    // field-preview endpoint is a DB no-op (no write, no audit) and our own
-    // SSE echo is dropped via the X-SSE-Client-Id source match.
-    void previewTicketField(currentTicket.value.id, 'title', newTitle).catch(() => {});
+    // Tells other viewers ONLY, through the view that owns the ticket. Do not
+    // mutate currentTicket.title: it IS the sync pool row, the canonical value
+    // the commit path diffs against (and patchTicket's rollback baseline).
+    // Writing the in-progress draft here is what silently broke title saves.
+    // The header shows the draft from InlineEdit's own local state.
+    activeClaim.value?.claim.onTitlePreview?.(newTitle);
   };
 
   const previewDocumentTitle = (newTitle: string) => {
@@ -196,6 +200,7 @@ export function useTitleManager() {
   return {
     // State
     currentTicket,
+    headerTicket,
     currentDevice,
     currentDocument,
     isTransitioning,

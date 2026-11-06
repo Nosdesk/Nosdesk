@@ -156,7 +156,7 @@ const handleCreateClick = () => {
         :createButtonText="createButtonText"
         :createButtonIcon="createButtonIcon"
         :creating="pageActions.creating"
-        :ticket="titleManager.currentTicket.value"
+        :ticket="titleManager.headerTicket.value"
         :device="titleManager.currentDevice.value"
         :document="titleManager.currentDocument.value"
         :custom-title-editable="titleManager.isCustomTitleEditable.value"
