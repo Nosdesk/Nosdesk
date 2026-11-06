@@ -2457,3 +2457,222 @@ async fn an_edit_whose_save_failed_is_saved_later() {
         "the save that ends the session announces it"
     );
 }
+
+/// The awareness entries in one frame from the server, by Yjs client id.
+fn awareness_in(frame: &[u8]) -> Vec<(u64, serde_json::Value)> {
+    use yrs::encoding::read::Cursor;
+    use yrs::sync::{Message, MessageReader};
+    use yrs::updates::decoder::DecoderV1;
+    let mut decoder = DecoderV1::new(Cursor::new(frame));
+    let mut out = Vec::new();
+    for message in MessageReader::new(&mut decoder) {
+        if let Ok(Message::Awareness(update)) = message {
+            for (id, entry) in update.clients {
+                out.push((
+                    id.get(),
+                    serde_json::from_str(&entry.json).unwrap_or(serde_json::Value::Null),
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// An awareness frame as a client sends it: one entry per `(client id, state)`.
+fn awareness_frame(entries: &[(u64, serde_json::Value)]) -> Bytes {
+    use yrs::sync::awareness::AwarenessUpdateEntry;
+    use yrs::sync::{AwarenessUpdate, Message};
+    use yrs::updates::encoder::Encode;
+    let clients = entries
+        .iter()
+        .map(|(id, state)| {
+            (
+                yrs::ClientID::new(*id),
+                AwarenessUpdateEntry {
+                    clock: 1,
+                    json: Arc::from(state.to_string()),
+                },
+            )
+        })
+        .collect();
+    Bytes::from(Message::Awareness(AwarenessUpdate { clients }).encode_v1())
+}
+
+/// Every awareness entry `conn` receives within `window`.
+async fn awareness_heard<S>(conn: &mut S, window: Duration) -> Vec<(u64, serde_json::Value)>
+where
+    S: futures_util::Stream<Item = Result<ws::Frame, awc::error::WsProtocolError>> + Unpin,
+{
+    let mut heard = Vec::new();
+    let _ = tokio::time::timeout(window, async {
+        while let Some(Ok(frame)) = conn.next().await {
+            if let ws::Frame::Binary(bytes) = frame {
+                heard.extend(awareness_in(&bytes));
+            }
+        }
+    })
+    .await;
+    heard
+}
+
+/// The room's awareness is attested: a session speaks only for its own Yjs
+/// client, as its own signed-in user. A claimed identity is replaced, an id
+/// another session holds is refused, and echoes of others are not relayed.
+#[actix_web::test]
+async fn awareness_speaks_only_for_the_session_and_its_user() {
+    use serde_json::json;
+    install_fast_heartbeat();
+
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+    let alice = common::insert_user(&mut pool.get().expect("conn"), "Alice");
+    let bob = common::insert_user(&mut pool.get().expect("conn"), "Bob");
+    {
+        let mut conn = pool.get().expect("conn");
+        for who in [alice.uuid, bob.uuid] {
+            let actor = backend::sync::actor::ActorContext::user(who, None).with_workspace(1);
+            backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+                &mut conn,
+                &actor,
+                |c| {
+                    backend::repository::workspaces::add_membership(
+                        c,
+                        1,
+                        who,
+                        "agent",
+                        backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                    )?;
+                    Ok(())
+                },
+            )
+            .expect("seed workspace membership");
+        }
+    }
+    let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
+    let state_pool_inner = pool.clone();
+    let srv = actix_test::start(move || {
+        let (state, tmp) = build_app_state(&state_pool_inner);
+        std::mem::forget(tmp);
+        let ws = test_workspace();
+        App::new()
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state_pool_inner.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ws.clone());
+                srv.call(req)
+            })
+            .route("/ws/{doc}", web::get().to(ws_handler))
+    });
+    let doc_id = format!(
+        "ws-{}_ticket-{ticket_uuid}",
+        test_workspace().workspace_uuid
+    );
+    let url_for = |user: &backend::models::User| {
+        let token = JwtUtils::create_collab_token(
+            &user.uuid.to_string(),
+            &user.platform_role,
+            Some(test_workspace().workspace_uuid),
+            None,
+        )
+        .expect("mint collab token");
+        srv.url(&format!("/ws/{doc_id}?token={token}"))
+    };
+    let client = awc::Client::new();
+    let (_, mut a) = client
+        .ws(url_for(&alice))
+        .connect()
+        .await
+        .expect("Alice connects");
+    let (_, mut b) = client
+        .ws(url_for(&bob))
+        .connect()
+        .await
+        .expect("Bob connects");
+    let settle = Duration::from_millis(400);
+    awareness_heard(&mut a, settle).await;
+    awareness_heard(&mut b, settle).await;
+
+    const ALICE: u64 = 111;
+    const BOB: u64 = 222;
+
+    // Alice claims to be Bob. Bob hears her as herself.
+    a.send(ws::Message::Binary(awareness_frame(&[(
+        ALICE,
+        json!({ "user": { "name": "Bob", "uuid": bob.uuid } }),
+    )])))
+    .await
+    .expect("Alice sends");
+    let heard = awareness_heard(&mut b, settle).await;
+    assert_eq!(heard.len(), 1, "Bob hears Alice once: {heard:?}");
+    assert_eq!(heard[0].0, ALICE);
+    assert_eq!(heard[0].1["user"]["uuid"], alice.uuid.to_string());
+
+    // Bob's first frame claims Alice's client id: it isn't pinned, and
+    // nothing of it reaches Alice.
+    b.send(ws::Message::Binary(awareness_frame(&[(
+        ALICE,
+        json!({ "user": { "name": "Alice" }, "cursor": null }),
+    )])))
+    .await
+    .expect("Bob sends");
+    assert!(
+        awareness_heard(&mut a, settle).await.is_empty(),
+        "a taken client id carries no one"
+    );
+
+    // Bob's own id pins and reaches Alice, as Bob.
+    b.send(ws::Message::Binary(awareness_frame(&[(
+        BOB,
+        json!({ "user": { "name": "Bob" } }),
+    )])))
+    .await
+    .expect("Bob sends his own");
+    let heard = awareness_heard(&mut a, settle).await;
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    assert_eq!(heard[0].0, BOB);
+    assert_eq!(heard[0].1["user"]["uuid"], bob.uuid.to_string());
+
+    // Alice echoes Bob's state back with a change of her own: only hers
+    // reaches Bob.
+    a.send(ws::Message::Binary(awareness_frame(&[
+        (ALICE, json!({ "user": { "name": "Alice" }, "preview": { "field": "title", "value": "Printer" } })),
+        (BOB, json!({ "user": { "name": "Mallory" } })),
+    ])))
+    .await
+    .expect("Alice sends an echo");
+    let heard = awareness_heard(&mut b, settle).await;
+    assert_eq!(
+        heard.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        vec![ALICE]
+    );
+    assert_eq!(heard[0].1["preview"]["value"], "Printer");
+
+    // Alice reconnects before her first socket is noticed closing. The same
+    // client keeps its Yjs id, and it passes to the new socket: she isn't
+    // left mute, and the old socket closing doesn't remove her.
+    let (_, mut a2) = client
+        .ws(url_for(&alice))
+        .connect()
+        .await
+        .expect("Alice reconnects");
+    awareness_heard(&mut a2, settle).await;
+    awareness_heard(&mut b, settle).await;
+    a2.send(ws::Message::Binary(awareness_frame(&[(
+        ALICE,
+        json!({ "user": { "name": "Alice" } }),
+    )])))
+    .await
+    .expect("Alice sends from the new socket");
+    let heard = awareness_heard(&mut b, settle).await;
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    assert_eq!(heard[0].1["user"]["uuid"], alice.uuid.to_string());
+
+    drop(a);
+    let heard = awareness_heard(&mut b, Duration::from_millis(800)).await;
+    assert!(
+        heard
+            .iter()
+            .all(|(id, state)| *id != ALICE || !state.is_null()),
+        "the old socket's close leaves Alice's live state: {heard:?}"
+    );
+}
