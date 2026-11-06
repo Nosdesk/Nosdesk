@@ -54,6 +54,16 @@ export function effectiveRole(u: {
   }
 }
 
+/** The role a badge shows: a workspace owner reads as Owner, everyone else
+ * as their {@link effectiveRole} tier. Display only; permission checks use
+ * `effectiveRole`, where an owner is an admin. */
+export function displayRole(u: {
+  platform_role?: PlatformRole | null;
+  workspace_role?: WorkspaceRole | null;
+}): UserRole | 'owner' {
+  return u.workspace_role === 'owner' ? 'owner' : effectiveRole(u);
+}
+
 /** The workspace roles that are billed staff seats (owner/admin/agent). In
  * hosted (Model C) these are owned by the control plane; `member` (a requester)
  * is always tenant-local. Mirrors the backend `STAFF_ROLES`. */

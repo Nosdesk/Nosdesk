@@ -2666,6 +2666,8 @@ user-mgmt-grouping-joined = Joined
 user-mgmt-grouping-joined-this-month = Last 30 days
 user-mgmt-grouping-joined-this-year = This year
 user-mgmt-grouping-joined-older = Earlier
+# MT: pending native review (nl-NL)
+user-mgmt-role-owner = Eigenaar
 user-mgmt-role-admin = Beheerder
 user-mgmt-role-technician = Agent
 # MT: pending native review (nl-NL)
@@ -5556,6 +5558,8 @@ settings-profile-signature-placeholder = Naam van agent
     IT-ondersteuning
 settings-profile-unknown-user = Onbekende gebruiker
 settings-profile-role-developer = Ontwikkelaar
+# MT: pending native review (nl-NL)
+settings-profile-role-owner = Eigenaar
 settings-profile-role-admin = Beheerder
 settings-profile-role-technician = Agent
 settings-profile-role-user = Gebruiker

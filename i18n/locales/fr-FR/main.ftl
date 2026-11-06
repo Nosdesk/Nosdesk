@@ -2670,6 +2670,8 @@ user-mgmt-grouping-joined = Joined
 user-mgmt-grouping-joined-this-month = Last 30 days
 user-mgmt-grouping-joined-this-year = This year
 user-mgmt-grouping-joined-older = Earlier
+# MT: pending native review (fr-FR)
+user-mgmt-role-owner = Propriétaire
 user-mgmt-role-admin = Administrateur
 user-mgmt-role-technician = Agent
 # MT: pending native review (fr-FR)
@@ -5566,6 +5568,8 @@ settings-profile-signature-placeholder = Nom de l'agent
     Support informatique
 settings-profile-unknown-user = Utilisateur inconnu
 settings-profile-role-developer = Développeur
+# MT: pending native review (fr-FR)
+settings-profile-role-owner = Propriétaire
 settings-profile-role-admin = Administrateur
 settings-profile-role-technician = Agent
 settings-profile-role-user = Utilisateur

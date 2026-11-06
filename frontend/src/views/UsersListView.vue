@@ -38,7 +38,7 @@ import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import userService, { type BulkUserActionResult } from '@/services/userService'
 import { usersKeys } from '@nosdesk/core/queries/users'
-import { effectiveRole, type User, type UserRole } from '@nosdesk/core/types/user'
+import { displayRole, effectiveRole, type User, type UserRole } from '@nosdesk/core/types/user'
 import { peopleColumns, peopleFacets, peopleGroupAxes } from '@/utils/peopleListLayout'
 
 defineOptions({ name: 'UsersListView' })
@@ -656,7 +656,7 @@ function formatPurgeAt(deletedAt: string): string {
           </template>
 
           <template #cell-role="{ item }">
-            <StatusBadgeCell type="role" :value="effectiveRole(item)" :label="roleLabel(effectiveRole(item))" />
+            <StatusBadgeCell type="role" :value="effectiveRole(item)" :label="roleLabel(displayRole(item))" />
           </template>
 
           <template #cell-open_ticket_count="{ item }">
@@ -701,7 +701,7 @@ function formatPurgeAt(deletedAt: string): string {
                   'bg-surface-alt text-secondary': effectiveRole(item) === 'user',
                 }"
               >
-                {{ roleLabel(effectiveRole(item)) }}
+                {{ roleLabel(displayRole(item)) }}
               </span>
               <span v-if="item.open_ticket_count" class="text-secondary tabular-nums">
                 {{ $t('user-mgmt-mobile-tickets', { count: item.open_ticket_count }) }}
