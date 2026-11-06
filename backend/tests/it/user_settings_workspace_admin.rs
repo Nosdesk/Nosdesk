@@ -427,3 +427,78 @@ async fn an_agent_manages_no_one_elses_account() {
     assert_eq!(resp.status(), 403);
     assert_eq!(name_of(&mut conn, requester.uuid), "Requester");
 }
+
+#[actix_web::test]
+async fn an_agent_opens_a_colleagues_and_a_requesters_profile() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let mut conn = pool.get().expect("conn");
+    let admin = user(&mut conn, "Admin");
+    join(&mut conn, WS, &admin, "admin");
+    email(&mut conn, &admin, "admin@example.test");
+    let agent = user(&mut conn, "Agent");
+    join(&mut conn, WS, &agent, "agent");
+    let requester = user(&mut conn, "Requester");
+    join(&mut conn, WS, &requester, "member");
+    email(&mut conn, &requester, "requester@example.test");
+    let client = awc::Client::new();
+
+    let srv = spawn(&pool, &agent);
+    for (person, contact) in [(&admin, false), (&requester, true)] {
+        let mut resp = client
+            .get(srv.url(&format!("/users/{}/profile", person.uuid)))
+            .send()
+            .await
+            .expect("send");
+        assert_eq!(resp.status(), 200, "{}'s profile", person.name);
+        let bundle: serde_json::Value = resp.json().await.expect("json");
+        let row = bundle["user"].as_object().expect("user row");
+        assert_eq!(row["name"], person.name.as_str());
+        assert!(row.contains_key("email"), "staff see how to reach them");
+        assert!(row.contains_key("workspace_role"));
+        for private in ["platform_role", "theme", "locale", "timezone"] {
+            assert!(
+                !row.contains_key(private),
+                "{private} stays with {}",
+                person.name
+            );
+        }
+        assert!(
+            bundle.get("emails").is_none(),
+            "the address list goes only to those who manage the account"
+        );
+        assert_eq!(bundle["editable"]["contact"], contact);
+        assert_eq!(bundle["editable"]["name"], false);
+        assert_eq!(bundle["editable"]["role"], false);
+    }
+
+    // A requester still opens only their own.
+    let srv = spawn(&pool, &requester);
+    let resp = client
+        .get(srv.url(&format!("/users/{}/profile", agent.uuid)))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 403);
+    let resp = client
+        .get(srv.url(&format!("/users/{}/profile", requester.uuid)))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 200);
+
+    // An admin keeps the whole row, preferences included, to manage them.
+    let srv = spawn(&pool, &admin);
+    let mut resp = client
+        .get(srv.url(&format!("/users/{}/profile", agent.uuid)))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), 200);
+    let bundle: serde_json::Value = resp.json().await.expect("json");
+    assert!(bundle["user"]
+        .as_object()
+        .expect("user row")
+        .contains_key("theme"));
+}

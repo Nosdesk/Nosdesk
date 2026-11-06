@@ -3258,7 +3258,9 @@ pub struct ProfileQuery {
 
 /// Bundled profile read for the user profile page. One request,
 /// one cache entry, only the requested sub-resources serialised.
-/// Self or admin only.
+/// The person themselves, or staff of a workspace they belong to. An agent
+/// sees the person's row as sync shows it to staff, without their platform
+/// role or preferences; an admin, who manages those, sees all of it.
 pub async fn get_user_profile_bundle(
     pool: web::Data<crate::db::Pool>,
     path: web::Path<String>,
@@ -3272,7 +3274,7 @@ pub async fn get_user_profile_bundle(
         Err(_) => return Err(ApiError::BadRequest("Invalid UUID format".into())),
     };
 
-    if user_uuid_parsed != auth.user_uuid && !auth.is_workspace_admin() {
+    if user_uuid_parsed != auth.user_uuid && !auth.can_handle_tickets() {
         return Err(ApiError::Forbidden(
             "Not authorized to view this profile".into(),
         ));
@@ -3337,6 +3339,15 @@ pub async fn get_user_profile_bundle(
             let editable = editable_fields(&auth, &bundle.user, &account);
             let mut body = serde_json::to_value(bundle)
                 .map_err(|_| ApiError::Internal("Failed to load profile".into()))?;
+            if !auth.is_workspace_admin() {
+                crate::sync::user_projection::value_for_viewer(
+                    &mut body["user"],
+                    crate::sync::user_projection::Viewer {
+                        uuid: auth.user_uuid,
+                        is_staff: true,
+                    },
+                );
+            }
             body["editable"] = serde_json::to_value(editable)
                 .map_err(|_| ApiError::Internal("Failed to load profile".into()))?;
             Ok(HttpResponse::Ok().json(body))
