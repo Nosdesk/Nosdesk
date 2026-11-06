@@ -28,6 +28,13 @@ const currentDocument = computed<TitleableDocument | null>(
   () => toValue(activeClaim.value?.claim.document) ?? null,
 );
 const customTitle = computed(() => toValue(activeClaim.value?.claim.title) ?? null);
+// The ticket as the site header shows it: a colleague's rename in progress
+// over the saved title. Everything else reads `currentTicket`, the pool row.
+const headerTicket = computed<TitleableTicket | null>(() => {
+  const ticket = currentTicket.value;
+  const preview = toValue(activeClaim.value?.claim.titlePreview) ?? null;
+  return ticket && preview !== null ? { ...ticket, title: preview } : ticket;
+});
 const isTransitioning = ref(false);
 
 // A rename typed into the header, shown until the owning view's own state
@@ -193,6 +200,7 @@ export function useTitleManager() {
   return {
     // State
     currentTicket,
+    headerTicket,
     currentDevice,
     currentDocument,
     isTransitioning,

@@ -538,12 +538,9 @@ onUnmounted(() => {
 // in the header is optimistic through the pool's push queue (same path as
 // every other field).
 usePageTitle({
-    // A colleague's typing shows over the saved title; the pool row itself
-    // only ever holds what was saved.
-    ticket: () =>
-        (ticket.value && titlePreview.value !== null
-            ? { ...ticket.value, title: titlePreview.value }
-            : ticket.value) as unknown as TitleableTicket | null,
+    ticket: () => ticket.value as unknown as TitleableTicket | null,
+    // A colleague's typing, shown in the header over the saved title.
+    titlePreview: () => titlePreview.value,
     onTitleSave: async (title: string) => {
         try {
             await updateTitle(title);
