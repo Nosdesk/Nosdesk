@@ -584,6 +584,12 @@ const router = createRouter({
           try {
             const { getPageByPath, getArticleById } = await import('@nosdesk/core/services/documentationService');
             const result = await getPageByPath(path);
+            // The editor's body, fetched alongside the rest of the preload so
+            // it paints with the title (see utils/collabSeed).
+            if (result && 'uuid' in result && typeof result.uuid === 'string') {
+              const { prefetchSavedCopy } = await import('@/utils/collabSeed');
+              prefetchSavedCopy(result.uuid);
+            }
 
             if (result) {
               let doc: Page | Article = result;

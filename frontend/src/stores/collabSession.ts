@@ -55,6 +55,8 @@ import { collabWsBaseUrl } from '@nosdesk/core/transport'
 import { sessionGone } from '@nosdesk/core/services/session'
 import { discardCollabToken, getCollabToken, peekCollabToken } from '@/services/collabToken'
 import { retryDelay } from '@nosdesk/core/retryDelay'
+import { parseCollabDocId } from '@nosdesk/core/utils/collabDocId'
+import { takeSavedCopy } from '@/utils/collabSeed'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -1052,8 +1054,31 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       void pruneIdbStores()
       void mergeLegacyLocalCopy(entry, idb)
     }
+    void mergeSavedCopy(entry)
     refreshSnapshot()
     return { ydoc, provider, permanentUserData, isNew: true }
+  }
+
+  /**
+   * Merge a documentation page's saved copy into a new session's document, so
+   * the editor paints its body before the room syncs (`utils/collabSeed`).
+   * Applied as the provider's own origin: it is the server's content already,
+   * so y-websocket doesn't send it back, and the editor treats it like the
+   * room's sync rather than a local edit.
+   */
+  async function mergeSavedCopy(entry: SessionEntry): Promise<void> {
+    const parsed = parseCollabDocId(entry.docId)
+    if (parsed?.kind !== 'doc') return
+    const copy = await takeSavedCopy(parsed.id)
+    if (!copy || sessions.get(entry.docId) !== entry) return
+    try {
+      Y.applyUpdate(entry.ydoc, copy, entry.provider)
+    } catch (err) {
+      logger.warn('Collab session: the saved copy did not apply; the room will sync', {
+        docId: entry.docId,
+        err,
+      })
+    }
   }
 
   /**

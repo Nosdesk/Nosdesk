@@ -287,6 +287,15 @@ vi.mock('@nosdesk/core/transport', async (importOriginal) => ({
   }),
 }))
 
+// A documentation page's saved copy, answered when the test says.
+const saved = vi.hoisted(() => ({ answer: null as null | ((copy: Uint8Array | null) => void), asked: [] as string[] }))
+vi.mock('@/utils/collabSeed', () => ({
+  takeSavedCopy: (uuid: string) => {
+    saved.asked.push(uuid)
+    return new Promise<Uint8Array | null>((resolve) => (saved.answer = resolve))
+  },
+}))
+
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { logger } from '@nosdesk/core/utils/logger'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
@@ -1316,5 +1325,49 @@ describe('a note whose network came back without the browser saying so', () => {
     const fetches = token.fetches
     await vi.advanceTimersByTimeAsync(5 * 60_000)
     expect(token.fetches - fetches).toBeLessThanOrEqual(10)
+  })
+})
+
+describe("a documentation page's saved copy", () => {
+  const WS = '11111111-1111-4111-8111-111111111111'
+  const PAGE = '22222222-2222-4222-8222-222222222222'
+  const PAGE_DOC = `ws-${WS}_doc-${PAGE}`
+
+  /** A saved document whose fragment holds one paragraph of `text`. */
+  function savedDoc(text: string): Uint8Array {
+    const doc = new Y.Doc()
+    const paragraph = new Y.XmlElement('paragraph')
+    paragraph.insert(0, [new Y.XmlText(text)])
+    doc.getXmlFragment('prosemirror').insert(0, [paragraph])
+    return Y.encodeStateAsUpdate(doc)
+  }
+
+  beforeEach(() => {
+    saved.answer = null
+    saved.asked = []
+  })
+
+  it("fills a new page's document as the room's own content, before the room syncs", async () => {
+    const { ydoc } = store.acquire(PAGE_DOC, OPTS)
+    expect(saved.asked).toEqual([PAGE])
+    const origins: unknown[] = []
+    ydoc.on('update', (_update: Uint8Array, origin: unknown) => origins.push(origin))
+
+    saved.answer!(savedDoc('From the server'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ydoc.getXmlFragment('prosemirror').toString()).toContain('From the server')
+    // As the provider's own origin, so y-websocket doesn't send it back.
+    expect(origins).toEqual([providers[0]])
+  })
+
+  it('is not asked for a ticket note, or applied once the session is gone', async () => {
+    store.acquire(`ws-${WS}_ticket-${PAGE}`, OPTS)
+    expect(saved.asked).toEqual([])
+
+    const { ydoc } = store.acquire(PAGE_DOC, OPTS)
+    store.destroy(PAGE_DOC)
+    saved.answer!(savedDoc('Too late'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ydoc.getXmlFragment('prosemirror').length).toBe(0)
   })
 })
