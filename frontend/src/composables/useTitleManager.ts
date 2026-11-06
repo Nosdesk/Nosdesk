@@ -3,7 +3,6 @@ import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
 import { useBrandingStore } from '@/stores/branding';
-import { previewTicketField } from '@nosdesk/core/services/ticketService';
 import { ticketNumber } from '@/utils/ticketNumbers';
 
 import {
@@ -138,14 +137,12 @@ export function useTitleManager() {
 
   const previewTicketTitle = (newTitle: string) => {
     if (!currentTicket.value) return;
-    // Transient broadcast ONLY. Do not mutate currentTicket.title: it IS the
-    // sync pool row, the canonical value the commit path diffs against (and
-    // patchTicket's rollback baseline). Writing the in-progress draft here
-    // is what silently broke title saves. The header shows the draft from
-    // InlineEdit's own local state; this just tells other viewers. The
-    // field-preview endpoint is a DB no-op (no write, no audit) and our own
-    // SSE echo is dropped via the X-SSE-Client-Id source match.
-    void previewTicketField(currentTicket.value.id, 'title', newTitle).catch(() => {});
+    // Tells other viewers ONLY, through the view that owns the ticket. Do not
+    // mutate currentTicket.title: it IS the sync pool row, the canonical value
+    // the commit path diffs against (and patchTicket's rollback baseline).
+    // Writing the in-progress draft here is what silently broke title saves.
+    // The header shows the draft from InlineEdit's own local state.
+    activeClaim.value?.claim.onTitlePreview?.(newTitle);
   };
 
   const previewDocumentTitle = (newTitle: string) => {

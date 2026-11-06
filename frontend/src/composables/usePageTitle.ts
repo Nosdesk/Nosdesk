@@ -45,6 +45,8 @@ export interface PageTitleClaim {
   document?: MaybeRefOrGetter<TitleableDocument | null | undefined>;
   /** Persists a rename typed into the site header. */
   onTitleSave?: TitleSaveHandler;
+  /** Hears a rename while it is typed into the site header, before it is saved. */
+  onTitlePreview?: (title: string) => void;
   /** Whether the header offers the rename. Defaults to true when onTitleSave is set. */
   titleEditable?: MaybeRefOrGetter<boolean>;
   /** Persists a document icon picked in the site header. */

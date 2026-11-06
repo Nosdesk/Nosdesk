@@ -79,6 +79,13 @@ async function failAndWait(ms: number) {
 }
 
 describe('the live-update stream', () => {
+  it('subscribes once, to the caller and global topics; ticket presence is not on it', async () => {
+    sse.start()
+    await vi.advanceTimersByTimeAsync(0)
+    const url = new URL(FakeEventSource.opened[0].url, 'http://test')
+    expect(url.searchParams.get('topics')).toBe('user,global')
+  })
+
   it('keeps reconnecting after many failures, at most 30 seconds apart', async () => {
     sse.start()
     await vi.advanceTimersByTimeAsync(0)
@@ -191,10 +198,10 @@ describe('the stream token', () => {
     sse.start()
     await vi.advanceTimersByTimeAsync(0)
     FakeEventSource.opened[0].onopen!()
-    // Watching a ticket reopens the stream with one more topic.
-    const release = sse.watchTicket(5)
+    // Back online after an outage, the stream starts over.
+    window.dispatchEvent(new Event('offline'))
+    window.dispatchEvent(new Event('online'))
     await vi.advanceTimersByTimeAsync(0)
-    release()
     expect(FakeEventSource.opened).toHaveLength(2)
     expect(tokenOf(1)).toBe('t1')
   })
@@ -206,9 +213,9 @@ describe('the stream token', () => {
     FakeEventSource.opened[0].onopen!()
 
     setActiveWorkspaceSlug('beta')
-    const release = sse.watchTicket(5)
+    window.dispatchEvent(new Event('offline'))
+    window.dispatchEvent(new Event('online'))
     await vi.advanceTimersByTimeAsync(0)
-    release()
     expect(tokenOf(1)).toBe('t2')
   })
 

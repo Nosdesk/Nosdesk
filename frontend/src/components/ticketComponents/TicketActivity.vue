@@ -117,8 +117,7 @@ async function refreshNewest() {
 }
 
 // Live-refresh on collaborators' changes. The connection itself is
-// owned by useTicketSSE at the TicketView level; this only adds
-// listeners.
+// owned by the sync runtime; this only adds listeners.
 useTicketActivitySSE(
   computed(() => props.ticketId),
   refreshNewest,

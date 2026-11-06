@@ -69,12 +69,11 @@ class SSEService {
   private tokenWorkspace: string | null = null;
   // Unique client ID assigned by the server on connection (for echo suppression)
   private _clientId: string | null = null;
-  // Who wants the stream. The sync runtime holds it for as long as a workspace
-  // is open (`start`/`stop`); ticket views add their ticket's presence topic
-  // (`watchTicket`), counted so two views of one ticket share it. One
-  // connection serves all of them; its topic set is rebuilt on every connect.
+  // Who wants the stream: the sync runtime, for as long as a workspace is open
+  // (`start`/`stop`). Its topics never change while it is open, so moving
+  // between pages never reopens it. Ticket presence rides the ticket's
+  // collaboration room instead (`useTicketPresence`).
   private started = false;
-  private watchedTickets = new Map<number, number>();
   /** Bumped whenever the stream is torn down, so a connect still waiting on
    *  its token when that happened doesn't open a stream afterwards. */
   private connectGeneration = 0;
@@ -82,7 +81,7 @@ class SSEService {
   private wentOffline = false;
 
   private wanted(): boolean {
-    return this.started || this.watchedTickets.size > 0;
+    return this.started;
   }
 
   constructor() {
@@ -333,61 +332,10 @@ class SSEService {
     void this.connect();
   }
 
-  /** Close the stream and drop every holder (workspace teardown, logout). */
+  /** Close the stream (workspace teardown, logout). */
   stop(): void {
     this.started = false;
-    this.watchedTickets.clear();
     this.disconnect();
-  }
-
-  /**
-   * Receive a ticket's presence events (`viewers-changed`, field previews)
-   * on the shared stream. Returns the release function.
-   */
-  watchTicket(ticketId: number): () => void {
-    const count = this.watchedTickets.get(ticketId) ?? 0;
-    this.watchedTickets.set(ticketId, count + 1);
-    if (count === 0) this.reopen();
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      const left = (this.watchedTickets.get(ticketId) ?? 1) - 1;
-      if (left > 0) {
-        this.watchedTickets.set(ticketId, left);
-        return;
-      }
-      this.watchedTickets.delete(ticketId);
-      this.reopen();
-    };
-  }
-
-  /**
-   * Reconnect so the topic set matches the holders, or close if none remain.
-   * Coalesced into one microtask, so swapping tickets reopens once.
-   */
-  private reopenQueued = false;
-  private reopen(): void {
-    if (this.reopenQueued) return;
-    this.reopenQueued = true;
-    queueMicrotask(() => {
-      this.reopenQueued = false;
-      this.applyReopen();
-    });
-  }
-
-  private applyReopen(): void {
-    if (!this.wanted()) {
-      this.disconnect();
-      return;
-    }
-    // A connect in flight builds its topics after its token fetch, so it
-    // already picks up the change.
-    if (this.isConnecting.value) return;
-    this.cleanup();
-    this.isConnected.value = false;
-    this.reconnectAttempts = 0;
-    void this.connect();
   }
 
   // Connect to SSE
@@ -414,21 +362,11 @@ class SSEService {
       // Torn down while the token was on its way; a newer connect owns it.
       if (generation !== this.connectGeneration) return;
 
-      // Build URL. `topics` declares the subscription set the server
-      // should attach this connection to: the caller's personal
-      // topic for targeted notifications plus the shared global
-      // topic for cross-resource events. When a ticket id is
-      // supplied, the per-ticket presence topic (`ticket-<id>`) is
-      // appended so this connection receives `viewers-changed`
-      // events for that ticket only. The server enforces that
-      // `user` resolves to the authenticated caller and gates
-      // `ticket-<id>` through ticket_visibility::can_view_ticket,
-      // so this can't be used to read another user's notifications
-      // or learn that a ticket exists.
+      // Build URL. `topics` declares the subscription set: the caller's
+      // personal topic for targeted notifications plus the shared global
+      // topic. The server binds `user` to the authenticated caller and adds
+      // the workspace's sync feed itself.
       const topicTokens = ["user", "global"];
-      for (const ticketId of this.watchedTickets.keys()) {
-        topicTokens.push(`ticket-${ticketId}`);
-      }
       // Released while the token was being fetched.
       if (!this.wanted()) {
         this.isConnecting.value = false;
@@ -567,7 +505,6 @@ export function useSSE() {
     // Methods
     start: sseService.start.bind(sseService),
     stop: sseService.stop.bind(sseService),
-    watchTicket: sseService.watchTicket.bind(sseService),
     addEventListener: sseService.addEventListener.bind(sseService),
     removeEventListener: sseService.removeEventListener.bind(sseService),
     triggerReconnection: sseService.triggerReconnection.bind(sseService),

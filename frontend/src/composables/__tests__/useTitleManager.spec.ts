@@ -9,7 +9,6 @@ const route = reactive<{ name: string; meta: Record<string, unknown> }>({
   meta: { titleKey: 'route-title-tickets' },
 })
 vi.mock('vue-router', () => ({ useRoute: () => route }))
-vi.mock('@nosdesk/core/services/ticketService', () => ({ previewTicketField: vi.fn(async () => {}) }))
 vi.mock('@/stores/recentTickets', () => ({ useRecentTicketsStore: () => ({ updateTicketData: vi.fn() }) }))
 vi.mock('@/utils/ticketNumbers', () => ({
   ticketNumber: (t: { id: number; number?: number }) => t.number ?? t.id,
