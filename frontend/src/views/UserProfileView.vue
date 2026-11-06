@@ -156,16 +156,12 @@ const canHaveAssignedTickets = computed(() => {
     return role === 'technician' || role === 'admin';
 });
 
-// An agent may edit the CONTACT satellite (custom fields, phones, addresses) of
-// a requester (the `user` tier) in their workspace, matching the backend
-// contact-edit gate that A.2 widened for requesters. Name / email / role stay
-// self-or-admin, so this is the only edit path an agent gains.
-const targetIsRequester = computed(() => {
-    const role = userProfile.value ? effectiveRole(userProfile.value) : undefined;
-    return role === 'user';
-});
+// The contact satellite (custom fields, phones, addresses) is read and changed
+// under one server gate: your own, any as an admin, or a requester's as an
+// agent. The server reports it as `editable.contact`; anyone else doesn't
+// see the cards, which would only fetch a refusal.
 const canEditContact = computed(
-    () => canEdit.value || (authStore.isTechnician && targetIsRequester.value),
+    () => isOwnProfile.value || !!profileQuery.bundle.value?.editable?.contact,
 );
 
 // In hosted, a staff member's identity is control-plane-owned, so the product
@@ -707,7 +703,7 @@ watch(
                         </div>
 
                         <!-- Contact details: standard + custom fields -->
-                        <div v-if="userProfile?.uuid" class="break-inside-avoid md:mb-4">
+                        <div v-if="userProfile?.uuid && canEditContact" class="break-inside-avoid md:mb-4">
                             <UserContactCard
                                 :uuid="userProfile.uuid"
                                 :editable="canEditContact"
@@ -715,7 +711,7 @@ watch(
                         </div>
 
                         <!-- Phone numbers -->
-                        <div v-if="userProfile?.uuid" class="break-inside-avoid md:mb-4">
+                        <div v-if="userProfile?.uuid && canEditContact" class="break-inside-avoid md:mb-4">
                             <UserPhonesCard
                                 :uuid="userProfile.uuid"
                                 :editable="canEditContact"
@@ -723,7 +719,7 @@ watch(
                         </div>
 
                         <!-- Addresses -->
-                        <div v-if="userProfile?.uuid" class="break-inside-avoid md:mb-4">
+                        <div v-if="userProfile?.uuid && canEditContact" class="break-inside-avoid md:mb-4">
                             <UserAddressesCard
                                 :uuid="userProfile.uuid"
                                 :editable="canEditContact"

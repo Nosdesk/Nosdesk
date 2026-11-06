@@ -20,7 +20,17 @@ const fake = vi.hoisted(() => {
     get ws(): object | null {
       return this.wsconnecting || this.wsconnected ? {} : null
     }
-    awareness = { setLocalState: () => {} }
+    /** y-protocols' awareness, as far as the store uses it: a local state
+     *  that starts as `{}` and is `null` once this client has left. */
+    awareness = {
+      state: {} as Record<string, unknown> | null,
+      getLocalState() {
+        return this.state
+      },
+      setLocalState(state: Record<string, unknown> | null) {
+        this.state = state
+      },
+    }
     private listeners = new Map<string, Set<Listener>>()
     /** Updates handed to the socket, as y-websocket's doc `update` handler
      *  does (it queues them while disconnected and sends on sync). */
@@ -1316,5 +1326,44 @@ describe('a note whose network came back without the browser saying so', () => {
     const fetches = token.fetches
     await vi.advanceTimersByTimeAsync(5 * 60_000)
     expect(token.fetches - fetches).toBeLessThanOrEqual(10)
+  })
+})
+
+describe("a note's presence in its room", () => {
+  const sam = { name: 'Sam', uuid: 'u-1' }
+
+  it('leaves the room as soon as the last view closes the note, while the connection stays open', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+    providers[0].awareness.setLocalState({ user: sam, cursor: { anchor: 1 } })
+
+    store.release('doc-a')
+
+    expect(providers[0].awareness.getLocalState()).toBeNull()
+    expect(providers[0].wsconnected).toBe(true)
+  })
+
+  it('stays while another view still has the note open', () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    store.acquire('doc-a', OPTS)
+    providers[0].awareness.setLocalState({ user: sam })
+
+    store.release('doc-a')
+
+    expect(providers[0].awareness.getLocalState()).toEqual({ user: sam })
+  })
+
+  it('comes back as the same person, without the old cursor, when the note is opened again', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+    providers[0].awareness.setLocalState({ user: sam, cursor: { anchor: 1 }, preview: { field: 'title', value: 'x' } })
+    store.release('doc-a')
+
+    store.acquire('doc-a', OPTS)
+
+    expect(providers[0].awareness.getLocalState()).toEqual({ user: sam })
   })
 })
