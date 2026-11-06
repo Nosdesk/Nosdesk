@@ -2503,13 +2503,44 @@ impl YjsAppState {
     /// sends; before that the field is `None` (an unfilled awareness
     /// state on a stale session does no harm — the JS peer's own
     /// 30s outdatedTimeout cleans it up).
-    async fn record_yjs_client_id(&self, doc_id: &str, session_id: &str, client_id: u64) {
+    /// Pin `client_id` to the session. A client may speak in the room's
+    /// awareness only as its pinned id (`services::yjs::awareness`), so an id
+    /// another person's session holds is refused: claiming it would
+    /// overwrite their cursor and presence. One the same person's session
+    /// holds passes over: a client that reconnects keeps its Yjs client id,
+    /// and the socket it left may not have been noticed closing yet. That
+    /// session gives the id up, so its eventual cleanup doesn't tombstone the
+    /// live client's state.
+    async fn claim_yjs_client_id(&self, doc_id: &str, session_id: &str, client_id: u64) -> bool {
         let mut sessions = self.sessions.write().await;
-        if let Some(room) = sessions.get_mut(doc_id) {
-            if let Some(info) = room.get_mut(session_id) {
-                info.yjs_client_id = Some(client_id);
+        let Some(room) = sessions.get_mut(doc_id) else {
+            return false;
+        };
+        let Some(claimant) = room.get(session_id).map(|info| info.user_uuid) else {
+            return false;
+        };
+        for (id, info) in room.iter_mut() {
+            if id == session_id || info.yjs_client_id != Some(client_id) {
+                continue;
             }
+            if info.user_uuid != claimant {
+                return false;
+            }
+            info.yjs_client_id = None;
         }
+        if let Some(info) = room.get_mut(session_id) {
+            info.yjs_client_id = Some(client_id);
+        }
+        true
+    }
+
+    /// The Yjs client id `session_id` holds in the room, if any.
+    async fn pinned_yjs_client_id(&self, doc_id: &str, session_id: &str) -> Option<u64> {
+        let sessions = self.sessions.read().await;
+        sessions
+            .get(doc_id)
+            .and_then(|room| room.get(session_id))
+            .and_then(|info| info.yjs_client_id)
     }
 
     // Remove session
@@ -3866,32 +3897,32 @@ async fn session_task(
                     messages_received += 1;
 
                     // Capture the yjs clientID from the first awareness
-                    // message (msg type 1). Needed to clean up the
+                    // frame that names one client. It is the only client
+                    // the session may speak for in the room's awareness
+                    // (see `process_inbound_binary`). Also needed to clean up the
                     // awareness state on disconnect AND to make
                     // `cleanup_stale_sessions` able to call
                     // `Awareness::remove_state` for stale clients
                     // (it reads the id from SessionInfo).
-                    if yjs_client_id.is_none()
-                        && bin.first() == Some(&1)
-                        && bin.len() > 1
-                    {
-                        use yrs::encoding::read::Cursor;
-                        use yrs::sync::AwarenessUpdate;
-                        use yrs::updates::decoder::DecoderV1 as ADecV1;
-                        if let Ok(update) =
-                            AwarenessUpdate::decode(&mut ADecV1::new(Cursor::new(&bin[1..])))
+                    if yjs_client_id.is_none() {
+                        if let Some(client_id) =
+                            crate::services::yjs::awareness::sole_client(&bin)
                         {
-                            if let Some(&client_id) = update.clients.keys().next() {
-                                let client_id_u64 = client_id.get();
-                                yjs_client_id = Some(client_id_u64);
-                                // Mirror into the session map so the
-                                // stale-sweep can find it without
-                                // looking inside our task frame.
-                                app_state
-                                    .record_yjs_client_id(&doc_id, &session_id, client_id_u64)
-                                    .await;
-                                debug!(session_id = %session_id, yjs_client_id = client_id_u64,
+                            // Mirror into the session map so the stale-sweep
+                            // can find it without looking inside our task
+                            // frame. An id another session holds isn't
+                            // pinned, and this session's awareness then
+                            // carries no one.
+                            if app_state
+                                .claim_yjs_client_id(&doc_id, &session_id, client_id)
+                                .await
+                            {
+                                yjs_client_id = Some(client_id);
+                                debug!(session_id = %session_id, yjs_client_id = client_id,
                                     "Captured yjs clientID from awareness");
+                            } else {
+                                warn!(session_id = %session_id, yjs_client_id = client_id,
+                                    "Refusing a yjs clientID another session in the room holds");
                             }
                         }
                     }
@@ -3910,6 +3941,7 @@ async fn session_task(
                         doc_id_c,
                         session_id_c,
                         user_uuid,
+                        yjs_client_id,
                         read_only,
                         schema,
                         revoke.clone(),
@@ -4012,6 +4044,10 @@ async fn session_task(
     // machine no longer owns, and a final save would race the new owner
     // (the fence protects the snapshot regardless). Just close the wire.
     if !evicted {
+        // The id the session holds now, not the one it pinned: a reconnect of
+        // the same client may have taken it over (`claim_yjs_client_id`), and
+        // its state is the live client's.
+        let still_pinned = app_state.pinned_yjs_client_id(&doc_id, &session_id).await;
         app_state.remove_session(&doc_id, &session_id).await;
 
         // Clean up the disconnected client's awareness state and notify
@@ -4019,7 +4055,7 @@ async fn session_task(
         // the client can't send this itself, so the server must. Use a
         // non-creating lookup: if the doc was evicted concurrently there
         // is nothing to clean up (and we must not resurrect it).
-        if let Some(client_id) = yjs_client_id {
+        if let Some(client_id) = still_pinned {
             if let Some(awareness) = app_state.get_awareness(&doc_id).await {
                 let yrs_client_id = yrs::ClientID::new(client_id);
                 awareness.remove_state(yrs_client_id);
@@ -4084,6 +4120,9 @@ async fn process_inbound_binary(
     doc_id: String,
     session_id: String,
     user_uuid: Uuid,
+    // The Yjs client id the session is pinned to, the only one it may speak
+    // for in the room's awareness.
+    own_client_id: Option<u64>,
     read_only: bool,
     // The editor schema the session's client declared, and the handle that
     // closes the session when its editor is too old for the document.
@@ -4112,6 +4151,20 @@ async fn process_inbound_binary(
         return;
     }
     let awareness = &doc.awareness;
+
+    // Awareness says who someone is to everyone in the room, so it is
+    // attested before it reaches the room's state or any peer: the session
+    // speaks only for its own client, as its own user.
+    use crate::services::yjs::awareness::{attest, Attested};
+    let bin = match attest(&bin, own_client_id, user_uuid) {
+        Attested::Unchanged => bin,
+        Attested::Rewritten(frame) => Bytes::from(frame),
+        Attested::Empty => return,
+        Attested::Malformed => {
+            debug!(doc_id = %doc_id, session_id = %session_id, "Dropping a frame that doesn't decode");
+            return;
+        }
+    };
 
     // A read-only session's frames that carry document changes (SyncStep2 or
     // SyncUpdate, in any of their messages) are dropped before they reach the

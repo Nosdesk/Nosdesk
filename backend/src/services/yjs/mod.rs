@@ -8,6 +8,7 @@
 //! Markdown export reads them (`utils::markdown_export`), and a workspace
 //! import rewrites the references inside them ([`rewrite`]).
 
+pub mod awareness;
 pub mod rewrite;
 
 use yrs::updates::decoder::Decode;
