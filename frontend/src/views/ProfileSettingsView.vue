@@ -12,7 +12,6 @@ import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import Button from '@/components/common/Button.vue';
 import Modal from '@/components/Modal.vue';
-import HorizontalScrollContainer from '@/components/common/HorizontalScrollContainer.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import {
   UserProfileCard,
@@ -476,26 +475,25 @@ const cancelDelete = () => {
       />
     </div>
 
-    <!-- Mobile Tab Navigation (horizontal scroll) - sticky full-width on mobile -->
-    <div class="lg:hidden sticky top-0 z-20 bg-app border-b border-default">
-      <div class="px-4 sm:px-6 py-2">
-        <HorizontalScrollContainer container-class="gap-2" fade-background="bg-app" :show-dots="false">
-          <button
-            type="button"
-            v-for="tab in settingsTabs"
-            :key="tab.id"
-            @click="activeTab = tab.id"
-            class="flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all whitespace-nowrap flex-shrink-0 min-h-[44px]"
-            :class="[
-              activeTab === tab.id
-                ? 'bg-accent/10 border border-accent text-accent font-medium'
-                : 'bg-surface border border-subtle text-secondary hover:bg-surface-hover hover:text-primary active:scale-95'
-            ]"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
-            <span class="text-sm">{{ $t(tab.labelKey) }}</span>
-          </button>
-        </HorizontalScrollContainer>
+    <!-- Narrow-width tabs. They wrap rather than scroll, so every tab, Security
+         included, shows without scrolling the strip. -->
+    <div class="lg:hidden bg-app border-b border-default">
+      <div class="flex flex-wrap gap-2 px-4 sm:px-6 py-2">
+        <button
+          type="button"
+          v-for="tab in settingsTabs"
+          :key="tab.id"
+          @click="activeTab = tab.id"
+          class="flex items-center gap-2 px-3 py-2 rounded-lg transition-all whitespace-nowrap min-h-[40px]"
+          :class="[
+            activeTab === tab.id
+              ? 'bg-accent/10 border border-accent text-accent font-medium'
+              : 'bg-surface border border-subtle text-secondary hover:bg-surface-hover hover:text-primary active:scale-95'
+          ]"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
+          <span class="text-sm">{{ $t(tab.labelKey) }}</span>
+        </button>
       </div>
     </div>
 
