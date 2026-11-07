@@ -391,6 +391,9 @@ interface SessionEntry {
   lastReleasedAt: number | null
   /** Pending grace-period disconnect timer. */
   graceTimer: ReturnType<typeof setTimeout> | null
+  /** Who this client is in the room, withdrawn from its awareness while no
+   *  view holds the session and put back when one acquires it again. */
+  parkedPresence: { user: unknown } | null
 }
 
 /**
@@ -810,6 +813,27 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     }
   }
 
+  /**
+   * Leave the room's awareness when the last view lets go. The connection
+   * stays open through the grace period, so coming back is instant, but
+   * colleagues stop seeing this client on a ticket or page it has left.
+   */
+  function parkPresence(entry: SessionEntry): void {
+    const awareness = entry.provider.awareness
+    const state = awareness.getLocalState() as { user?: unknown } | null
+    if (!state) return
+    entry.parkedPresence = state.user === undefined ? null : { user: state.user }
+    awareness.setLocalState(null)
+  }
+
+  /** Rejoin the room's awareness as who this client was before it left. */
+  function restorePresence(entry: SessionEntry): void {
+    const parked = entry.parkedPresence
+    entry.parkedPresence = null
+    const awareness = entry.provider.awareness
+    if (awareness.getLocalState() === null) awareness.setLocalState(parked ?? {})
+  }
+
   function scheduleGrace(entry: SessionEntry): void {
     cancelGrace(entry)
     entry.graceTimer = setTimeout(() => {
@@ -918,6 +942,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
         }
       }
       existing.refCount++
+      restorePresence(existing)
       // Clear `lastReleasedAt` while at least one consumer holds a
       // reference. Without this, an actively-bounced session (idle
       // → reacquire → idle → reacquire) keeps the stamp from its
@@ -1038,6 +1063,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       refCount: 1,
       lastReleasedAt: null,
       graceTimer: null,
+      parkedPresence: null,
     }
     linkState(provider).changed = onStatus
     provider.on('status', onStatus)
@@ -1098,6 +1124,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     entry.refCount = Math.max(0, entry.refCount - 1)
     if (entry.refCount === 0) {
       entry.lastReleasedAt = Date.now()
+      parkPresence(entry)
       scheduleGrace(entry)
       refreshStatus(entry)
     }
