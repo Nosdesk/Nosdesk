@@ -212,7 +212,7 @@ html5ever = "0.40"
 # Front matter and source config files (mkdocs.yml, _category_.yml) in a
 # documentation import. An event parser, so anchors and aliases are refused
 # before any value is built. `serde_yaml` is archived.
-saphyr-parser = "0.2"
+saphyr-parser = "0.3"
 # `+++` front matter in a documentation import (already in the tree).
 toml = { version = "0.9", default-features = false, features = ["std", "parse", "serde"] }
 # Unnamed temporary files: the documentation export zip, and uploaded archives
