@@ -15,11 +15,13 @@
 //! degrade by [`NoteCode`] so an import can show them before anything is
 //! written.
 //!
-//! A documentation import reads an archive through [`tree::build`]: a source
-//! profile ([`profiles`]) lays out the tree, [`front_matter`] reads each
-//! page's metadata, [`links`] resolves links, images and embeds to
-//! placeholders the commit fills in, and [`html`] reads raw HTML (including
-//! what export v2 writes as HTML) into the same tree.
+//! A documentation import reads an archive through [`tree::build`]: a
+//! [`source::DocsSource`] reads it into a tree of pages (every profile in
+//! [`profiles`] is a [`markdown_family`] today, [`front_matter`] reading each
+//! page's metadata), the planner in [`tree`] applies the admin's options,
+//! [`links`] resolves links, images and embeds to placeholders the commit
+//! fills in, and [`html`] reads raw HTML (including what export v2 writes as
+//! HTML) into the same tree.
 
 pub mod encode;
 pub mod front_matter;
@@ -28,9 +30,11 @@ pub mod html;
 pub(crate) mod import_tests;
 pub mod ir;
 pub mod links;
+pub mod markdown_family;
 pub mod normalise;
 pub mod parse;
 pub mod profiles;
+pub mod source;
 #[cfg(test)]
 mod tests;
 pub mod tree;

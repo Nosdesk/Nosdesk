@@ -338,16 +338,7 @@ pub fn find_duplicates(
 pub fn duplicate_keys(plan: &Plan) -> Vec<(usize, String, Option<String>)> {
     plan.pages
         .iter()
-        .map(|p| {
-            (
-                p.index,
-                p.source
-                    .clone()
-                    .or_else(|| p.folder.clone())
-                    .unwrap_or_default(),
-                p.uuid.clone(),
-            )
-        })
+        .map(|p| (p.index, p.key.clone(), p.uuid.clone()))
         .collect()
 }
 
@@ -452,11 +443,7 @@ async fn check(run: &CheckRun) -> Result<Checked, Failure> {
         let duplicate = duplicates.get(&page.index).cloned();
         rows.push(PageRow {
             index: page.index,
-            path: page
-                .source
-                .clone()
-                .or_else(|| page.folder.clone())
-                .unwrap_or_default(),
+            path: page.key.clone(),
             title: page.title.clone(),
             parent: page.parent,
             outcome: outcome_of(

@@ -607,14 +607,7 @@ async fn commit(
 fn same_plan(plan: &Plan, rows: &DocsRows) -> bool {
     plan.pages.len() == rows.pages.len()
         && plan.pages.iter().zip(&rows.pages).all(|(p, r)| {
-            p.index == r.index
-                && p.title == r.title
-                && p.parent == r.parent
-                && p.source
-                    .clone()
-                    .or_else(|| p.folder.clone())
-                    .unwrap_or_default()
-                    == r.path
+            p.index == r.index && p.title == r.title && p.parent == r.parent && p.key == r.path
         })
 }
 

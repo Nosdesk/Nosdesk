@@ -437,7 +437,9 @@ pub struct PageImage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageRow {
     pub index: usize,
-    /// The Markdown file, or the folder a section page stands for.
+    /// The page's key in its source (a Markdown file, or the folder a
+    /// section page stands for), recorded for later imports' duplicate
+    /// check.
     pub path: String,
     pub title: String,
     pub parent: Option<usize>,
@@ -585,7 +587,7 @@ pub struct RecordedPage {
     pub id: i32,
     pub uuid: Uuid,
     pub index: usize,
-    /// The archive path it came from.
+    /// The key it came from: its row's `path`.
     pub source: String,
     pub collection_id: Option<i32>,
     /// `updated_at` after the commit wrote its body, as the page row
@@ -1002,6 +1004,71 @@ mod tests {
         assert_ne!(
             web_key(job, "https://example.com/a.png", "png"),
             web_key(job, "https://example.com/b.png", "png")
+        );
+    }
+
+    /// A Markdown page's duplicate key is the archive path every import
+    /// has recorded: its file, the folder a section page stands for, or
+    /// nothing for a nav heading. Records written before the source seam
+    /// still find the pages they wrote.
+    #[test]
+    fn duplicate_keys_are_the_archive_paths_imports_recorded() {
+        let keys = |built: &tree::Built| {
+            let mut keys: Vec<(String, String)> = check::duplicate_keys(&built.plan)
+                .into_iter()
+                .map(|(i, key, _)| (built.plan.pages[i].title.clone(), key))
+                .collect();
+            keys.sort();
+            keys
+        };
+        let pair = |title: &str, key: &str| (title.to_string(), key.to_string());
+
+        let options = DocsOptions {
+            leave_out: vec!["drafts/**".to_string()],
+            ..DocsOptions::default()
+        };
+        let (built, _) = read(
+            &[
+                ("getting-started.md", "Start here.\n"),
+                ("network/index.md", "About the network.\n"),
+                ("network/vpn.md", "Connect.\n"),
+                ("policies/leave.md", "Ask first.\n"),
+                ("drafts/old.md", "Not yet.\n"),
+            ],
+            &options,
+            None,
+        );
+        assert_eq!(
+            keys(&built),
+            vec![
+                pair("Getting started", "getting-started.md"),
+                pair("Leave", "policies/leave.md"),
+                pair("Network", "network/index.md"),
+                pair("Policies", "policies"),
+                pair("Vpn", "network/vpn.md"),
+            ]
+        );
+
+        let (built, _) = read(
+            &[
+                (
+                    "mkdocs.yml",
+                    "site_name: Handbook\nnav:\n  - Home: index.md\n  - Guides:\n      - Setup: setup.md\n",
+                ),
+                ("docs/index.md", "Welcome.\n"),
+                ("docs/setup.md", "Install it.\n"),
+            ],
+            &DocsOptions::default(),
+            None,
+        );
+        assert_eq!(built.plan.profile, ProfileKind::Mkdocs);
+        assert_eq!(
+            keys(&built),
+            vec![
+                pair("Guides", ""),
+                pair("Home", "docs/index.md"),
+                pair("Setup", "docs/setup.md"),
+            ]
         );
     }
 }
