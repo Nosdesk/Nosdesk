@@ -1772,6 +1772,14 @@ pub async fn build_server(
     // login attempt doesn't pay the one-shot init cost.
     crate::utils::login_timing::prewarm();
 
+    // Hosted sign-in is OIDC only: build the client now, in the background, so
+    // the first sign-in after a deploy doesn't wait on discovery.
+    if crate::middleware::DeploymentMode::current() == crate::middleware::DeploymentMode::Hosted
+        && crate::config_utils::is_oidc_enabled()
+    {
+        tokio::spawn(crate::oidc::warm_client());
+    }
+
     // Surface the compiled-in Nosdesk root pubkey fingerprint on
     // every startup. Operators can diff this against what they
     // know the real root to be; an attacker who swaps the backend
