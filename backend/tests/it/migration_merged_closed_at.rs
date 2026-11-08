@@ -9,7 +9,7 @@
 
 #![allow(clippy::expect_used)]
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Integer, Nullable, Text, Timestamptz, Uuid as SqlUuid};
 use diesel_migrations::MigrationHarness;
@@ -50,8 +50,13 @@ fn existing(conn: &mut PgConnection, table: &str, sql: &str) -> Option<i32> {
     id
 }
 
+/// `t` as a timestamptz literal, cut to the microseconds Postgres keeps, so
+/// the stored value is what `micros` reads back rather than a rounding of it.
 fn at(t: DateTime<Utc>) -> String {
-    format!("'{}'::timestamptz", t.to_rfc3339())
+    format!(
+        "'{}'::timestamptz",
+        t.to_rfc3339_opts(SecondsFormat::Micros, true)
+    )
 }
 
 struct Seeded {
