@@ -4604,6 +4604,11 @@ import-review-changes-records = { $type ->
 # MT: pending native review (fr-FR)
 import-review-changes-constant = défini pour chaque ligne
 # MT: pending native review (fr-FR)
+import-review-changes-others = { $count ->
+    [one] (et 1 autre modification)
+   *[other] (et { $count } autres modifications)
+   }
+# MT: pending native review (fr-FR)
 import-review-changes-new = Nouveaux
 # MT: pending native review (fr-FR)
 import-review-changes-blanks = Une cellule vide ne modifie jamais une valeur existante. Les colonnes réglées sur Ne pas importer ne sont pas touchées.
