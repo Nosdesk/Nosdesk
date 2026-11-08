@@ -12,7 +12,7 @@ import OnboardingView from '../views/OnboardingView.vue'
 import ErrorView from '../views/ErrorView.vue'
 import { legacyPdfViewerRedirect } from '@/utils/pdfSource'
 import authService from '@nosdesk/core/services/authService'
-import type { Page, Article } from '@nosdesk/core/services/documentationService'
+import { preloadDocumentationPage } from './documentationPreload'
 // The app's views load with their route, so a signed-out visitor's first
 // screen (sign-in, set-up, an error) doesn't wait for the editor, the
 // sync views and everything they import. The sidebar's links prefetch
@@ -567,53 +567,7 @@ const router = createRouter({
         titleKey: 'route-title-documentation'
       },
       props: true,
-      beforeEnter: async (to) => {
-        // Set a generic title initially
-        to.meta.titleKey = 'route-title-documentation';
-        to.meta.title = undefined;
-        to.meta.titleKeyArgs = undefined;
-        to.meta.preloadedDocument = undefined;
-
-        // A page that doesn't exist and one the viewer can't open read the
-        // same: the not-found page, not the documentation index.
-        const docNotFound = { name: 'error', params: { code: '404' }, replace: true } as const;
-
-        // Preload document data so the view renders instantly
-        const path = to.params.path?.toString();
-        if (path) {
-          try {
-            const { getPageByPath, getArticleById } = await import('@nosdesk/core/services/documentationService');
-            const result = await getPageByPath(path);
-            // The editor's body, fetched alongside the rest of the preload so
-            // it paints with the title (see utils/collabSeed).
-            if (result && 'uuid' in result && typeof result.uuid === 'string') {
-              const { prefetchSavedCopy } = await import('@/utils/collabSeed');
-              prefetchSavedCopy(result.uuid);
-            }
-
-            if (result) {
-              let doc: Page | Article = result;
-              // If the result is a page stub (no children array), fetch full article
-              if (!('children' in result && Array.isArray(result.children)) && 'id' in result) {
-                const articleData = await getArticleById(String(result.id));
-                if (articleData) doc = articleData;
-                else return docNotFound;
-              }
-              to.meta.preloadedDocument = doc;
-              // Document title is user content, not translatable. Set as
-              // literal `title`; consumers prefer titleKey, so clear it.
-              if (doc.title) {
-                to.meta.title = doc.title;
-                to.meta.titleKey = undefined;
-              }
-            } else {
-              return docNotFound;
-            }
-          } catch {
-            return docNotFound;
-          }
-        }
-      }
+      beforeEnter: preloadDocumentationPage
     },
     {
       path: '/profile',

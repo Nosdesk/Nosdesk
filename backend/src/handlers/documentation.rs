@@ -747,11 +747,10 @@ pub async fn get_documentation_page_by_slug(
     }
 }
 
-/// Outcome enum mirroring `PageLoadOutcome` but carrying the UUID-
-/// content payload, which is a raw JSON value rather than the
-/// hydrated DocumentationPageResponse used elsewhere.
+/// Outcome enum mirroring `PageLoadOutcome` for the UUID-content route: the
+/// page and its stored document, before the live room is consulted.
 enum PageContentOutcome {
-    Ok(serde_json::Value),
+    Ok(Box<DocumentationPage>, Option<Vec<u8>>),
     NotFound,
     VisibilityCheckFailed,
 }
@@ -772,6 +771,8 @@ pub async fn get_documentation_page_content_by_uuid(
     uuid_path: web::Path<String>,
     query: web::Query<PageContentQuery>,
     auth: AuthContext,
+    workspace: WorkspaceContext,
+    collab: web::Data<YjsAppState>,
 ) -> impl Responder {
     let uuid_str = uuid_path.into_inner();
     let page_uuid = match Uuid::parse_str(&uuid_str) {
@@ -790,34 +791,72 @@ pub async fn get_documentation_page_content_by_uuid(
             Ok(false) => return Ok(PageContentOutcome::NotFound),
             Err(_) => return Ok(PageContentOutcome::VisibilityCheckFailed),
         }
-
-        use base64::{engine::general_purpose, Engine as _};
-        let yjs_b64 = resolve_yjs_document(&page, conn)
-            .filter(|doc| match query.schema {
-                None => true,
-                Some(schema) => crate::handlers::collaboration::stored_document_schema(doc)
-                    .is_some_and(|needed| needed <= schema),
-            })
-            .map(|doc| general_purpose::STANDARD.encode(&doc));
-
-        Ok::<_, diesel::result::Error>(PageContentOutcome::Ok(json!({
-            "uuid": page.uuid,
-            "slug": page.slug,
-            "title": page.title,
-            "icon": page.icon,
-            "status": page.status,
-            "yjs_document": yjs_b64,
-        })))
+        let stored = resolve_yjs_document(&page, conn);
+        Ok::<_, diesel::result::Error>(PageContentOutcome::Ok(Box::new(page), stored))
     });
-
-    match outcome {
-        Ok(PageContentOutcome::Ok(payload)) => HttpResponse::Ok().json(payload),
-        Ok(PageContentOutcome::NotFound) => errors::not_found_msg("Page not found"),
+    let (page, stored) = match outcome {
+        Ok(PageContentOutcome::Ok(page, stored)) => (page, stored),
+        Ok(PageContentOutcome::NotFound) => return errors::not_found_msg("Page not found"),
         Ok(PageContentOutcome::VisibilityCheckFailed) => {
-            errors::internal("Failed to check page visibility")
+            return errors::internal("Failed to check page visibility")
         }
-        Err(_) => errors::internal("Failed to load page"),
-    }
+        Err(_) => return errors::internal("Failed to load page"),
+    };
+
+    // Serve the page as its editors see it. While its room is open the row
+    // trails the room by up to a save interval, and a page created moments
+    // ago has nothing in its row until the room's first save, so a reader of
+    // the row alone would get an empty page.
+    let doc_id = DocKind::Documentation.doc_id(workspace.workspace_uuid, page.uuid);
+    let live = match collab
+        .live_document(
+            workspace.workspace_id,
+            DocumentType::Documentation(page.id),
+            &doc_id,
+        )
+        .await
+    {
+        LiveDocument::Here { document, .. } => Some(document),
+        // Another machine holds the room: fly-proxy replays this request
+        // there, where the room is local.
+        LiveDocument::OnMachine(owner) => {
+            debug!(
+                page_id = page.id,
+                "Replaying page content to the machine holding its room"
+            );
+            return HttpResponse::Ok()
+                .insert_header(("fly-replay", format!("instance={owner}")))
+                .finish();
+        }
+        LiveDocument::NotOpen => None,
+    };
+    // The room loaded the row, so it holds everything the row does, except a
+    // legacy page's ticket note the room never loads. Merged, the copy is
+    // never less than the row served before.
+    let document = match (live, stored) {
+        (Some(live), Some(stored)) => {
+            Some(yrs::merge_updates_v1([stored.as_slice(), live.as_slice()]).unwrap_or(live))
+        }
+        (live, stored) => live.or(stored),
+    };
+
+    use base64::{engine::general_purpose, Engine as _};
+    let yjs_b64 = document
+        .filter(|doc| match query.schema {
+            None => true,
+            Some(schema) => crate::handlers::collaboration::stored_document_schema(doc)
+                .is_some_and(|needed| needed <= schema),
+        })
+        .map(|doc| general_purpose::STANDARD.encode(&doc));
+
+    HttpResponse::Ok().json(json!({
+        "uuid": page.uuid,
+        "slug": page.slug,
+        "title": page.title,
+        "icon": page.icon,
+        "status": page.status,
+        "yjs_document": yjs_b64,
+    }))
 }
 
 // Sync the embedding references for a page

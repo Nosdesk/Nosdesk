@@ -2338,6 +2338,164 @@ async fn opening_a_page_without_editing_changes_nothing() {
     );
 }
 
+/// A page's content, read the way an editor's first paint reads it, is what
+/// its open room holds. A page created moments ago has nothing in its row
+/// until the room's first save, so a read of the row alone served an empty
+/// page and the editor waited for the room to show the text.
+#[actix_web::test]
+async fn a_new_pages_content_is_read_from_its_open_room() {
+    use backend::models::Claims;
+    use backend::schema::documentation_pages as dp;
+    use diesel::prelude::*;
+
+    install_fast_heartbeat();
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+    let admin = common::insert_user(&mut pool.get().expect("conn"), "WSNewPage");
+    let page_uuid = uuid::Uuid::new_v4();
+    let page_id: i32 = {
+        let mut conn = pool.get().expect("conn");
+        let actor = backend::sync::actor::ActorContext::user(admin.uuid, None).with_workspace(1);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                backend::repository::workspaces::add_membership(
+                    c,
+                    1,
+                    admin.uuid,
+                    "admin",
+                    backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                )?;
+                // Created in the editor: no document until the room saves.
+                diesel::insert_into(dp::table)
+                    .values((
+                        dp::uuid.eq(page_uuid),
+                        dp::title.eq("Printer setup"),
+                        dp::slug.eq(format!("printer-setup-{}", page_uuid.simple())),
+                        dp::status.eq(backend::models::DocumentationStatus::Draft),
+                        dp::created_by.eq(admin.uuid),
+                        dp::last_edited_by.eq(admin.uuid),
+                    ))
+                    .returning(dp::id)
+                    .get_result(c)
+            },
+        )
+        .expect("seed the new page")
+    };
+    let stored = || -> Option<Vec<u8>> {
+        dp::table
+            .find(page_id)
+            .select(dp::yjs_document)
+            .first(&mut pool.get().expect("conn"))
+            .expect("page row")
+    };
+
+    // One collaboration server shared by the socket and the content route,
+    // as in production.
+    let (state, _tmp) = build_app_state(&pool);
+    let state = web::Data::new(state);
+    let app_pool = pool.clone();
+    let caller = admin.clone();
+    let srv = actix_test::start(move || {
+        let ws = test_workspace();
+        let caller = caller.clone();
+        App::new()
+            .app_data(state.clone())
+            .app_data(web::Data::new(app_pool.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ws.clone());
+                if req.path().starts_with("/api/") {
+                    let now = chrono::Utc::now().timestamp();
+                    req.extensions_mut().insert(Claims {
+                        sub: caller.uuid.to_string(),
+                        name: caller.name.clone(),
+                        email: "new-page@example.com".to_string(),
+                        platform_role: caller.platform_role.clone(),
+                        scope: "full".to_string(),
+                        sid: None,
+                        workspace_uuid: None,
+                        exp: (now + 3600) as usize,
+                        iat: now as usize,
+                    });
+                    let actor = backend::sync::actor::ActorContext::user(caller.uuid, None)
+                        .with_workspace(ws.workspace_id);
+                    req.extensions_mut()
+                        .insert(backend::middleware::RequestContext::new(
+                            uuid::Uuid::now_v7(),
+                            actor,
+                        ));
+                }
+                srv.call(req)
+            })
+            .route("/ws/{doc}", web::get().to(ws_handler))
+            .service(web::scope("/api").configure(backend::handlers::documentation::config))
+    });
+    let client = awc::Client::new();
+    let content_url = srv.url(&format!(
+        "/api/documentation/pages/uuid/{page_uuid}/content?schema=2"
+    ));
+    let read_content = || async {
+        let mut resp = client
+            .get(&content_url)
+            .send()
+            .await
+            .expect("content request");
+        assert_eq!(resp.status().as_u16(), 200, "the page's content is served");
+        let body: serde_json::Value = resp.json().await.expect("content json");
+        body["yjs_document"].as_str().map(|b64| {
+            use base64::Engine as _;
+            base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .expect("base64 document")
+        })
+    };
+
+    // Nobody has the page open and nothing is saved: nothing to serve.
+    assert_eq!(
+        read_content().await,
+        None,
+        "a page never edited has no content"
+    );
+
+    // Its author types into it.
+    let token = JwtUtils::create_collab_token(
+        &admin.uuid.to_string(),
+        &admin.platform_role,
+        Some(test_workspace().workspace_uuid),
+        None,
+    )
+    .expect("mint collab token");
+    let doc_id = format!("ws-{}_doc-{page_uuid}", test_workspace().workspace_uuid);
+    let (_resp, mut editor) = client
+        .ws(srv.url(&format!("/ws/{doc_id}?token={token}")))
+        .connect()
+        .await
+        .expect("editor connects");
+    let room = synced_doc(&mut editor).await;
+    editor
+        .send(ws::Message::Binary(append_text(
+            &room,
+            "Hold the reset button.",
+        )))
+        .await
+        .expect("send edit");
+    // The session handles its frames in order, so once the room answers a
+    // request sent after the edit, it holds the edit.
+    let _ = room_document(&mut editor).await;
+
+    let served = read_content().await;
+    assert!(
+        holds(&served, "Hold the reset button."),
+        "the content is what the room holds"
+    );
+    assert_eq!(
+        stored(),
+        None,
+        "the room hasn't saved yet (its first save waits five seconds), so only the room has the text"
+    );
+}
+
 /// An edit saved while its editor is still there tells the other machines to
 /// index it, even when a quiet spell already made it a revision and nothing is
 /// left to save when the editor leaves.

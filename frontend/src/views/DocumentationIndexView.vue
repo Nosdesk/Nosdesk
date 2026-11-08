@@ -326,6 +326,7 @@ usePageCreateAction(handleCreatePage)
               <li v-for="sp in visibleStarred" :key="sp.page_id">
                 <DocumentationHubRow
                   :href="docUrl({ slug: sp.slug, id: sp.page_id })"
+                  :page-id="sp.page_id"
                   :title="sp.title"
                   :icon="sp.icon"
                   compact
