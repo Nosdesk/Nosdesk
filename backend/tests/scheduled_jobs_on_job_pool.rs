@@ -79,6 +79,10 @@ const NOT_EXERCISED: &[(&str, &str)] = &[
         "needs logo image files in storage",
     ),
     (
+        "upload_spool.sweep",
+        "sweeps local spool files, not the database; services::upload_intake tests cover it",
+    ),
+    (
         "knowledge_gaps.detect",
         "needs ticket clusters and search history to find a gap",
     ),

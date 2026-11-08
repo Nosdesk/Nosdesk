@@ -2046,6 +2046,13 @@ pub async fn guest_residue_cleanup(pool: Pool, search: Arc<SearchService>) -> Re
     guest_residue_sweep(&pool, Some(&search)).await
 }
 
+/// Remove upload spool files over an hour old from this machine's spool
+/// directory (`services::upload_intake`).
+pub async fn sweep_upload_spool() -> Result<()> {
+    tokio::task::spawn_blocking(crate::services::upload_intake::sweep_global).await?;
+    Ok(())
+}
+
 /// One pass of [`guest_residue_cleanup`], without the job lock.
 pub async fn guest_residue_sweep(pool: &Pool, search: Option<&Arc<SearchService>>) -> Result<()> {
     use crate::repository::guest_residue;

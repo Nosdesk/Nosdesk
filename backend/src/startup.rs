@@ -494,6 +494,17 @@ pub fn build_state(
     // abstraction instead of writing straight to the local filesystem.
     crate::utils::storage::set_process_storage(storage.clone());
 
+    // Uploads spool here while the intake reads them. Clear what a killed
+    // process left; the scheduler repeats it hourly.
+    let spool = crate::services::upload_intake::SpoolArea::configure(
+        config.spool_dir.clone(),
+        config.spool_budget_mb,
+    );
+    if let Err(e) = std::fs::create_dir_all(spool.dir()) {
+        error!(error = %e, "Upload spool directory can't be created; uploads will fail");
+    }
+    crate::services::upload_intake::sweep_global();
+
     // Inbound-email S3 reader (hosted forwarding path). `None` on self-host or
     // when `NOSDESK_INBOUND_S3_BUCKET` is unset; a bucket configured without
     // SES credentials is a hard misconfig we surface loudly but don't crash on.

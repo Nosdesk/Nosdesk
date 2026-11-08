@@ -2,7 +2,6 @@ use actix_web::{web, HttpMessage, HttpResponse};
 
 use crate::errors::ApiError;
 use actix_multipart::Multipart;
-use futures::{StreamExt, TryStreamExt};
 use serde_json::json;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -13,9 +12,9 @@ use crate::models::{NewAttachment, WorkspaceRole};
 use crate::repository;
 use crate::repository::file_access::{self, TicketFile};
 use crate::repository::ticket_visibility::{self, VisibilityContext};
+use crate::services::upload_intake::{self as intake, Part, UploadPolicy};
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
-use crate::utils::file_validation::FileValidator;
 use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
 use diesel::QueryResult;
 
@@ -23,9 +22,12 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/upload", web::post().to(crate::handlers::upload_files));
 }
 
-// Upload files using the storage abstraction
+// Upload reply and note attachments, staged in `temp/` until a reply claims
+// them. Each file is spooled to disk by the intake, which owns the cap, the
+// type check and the hash, and stored from there.
 pub async fn upload_files(
-    mut payload: Multipart,
+    req: actix_web::HttpRequest,
+    payload: Multipart,
     mut tc: TenantConn,
     auth: AuthContext,
     storage: ScopedStorage,
@@ -36,139 +38,51 @@ pub async fn upload_files(
     // `attachments.workspace_id` is NOT NULL and defaults from that GUC,
     // and the table FORCEs RLS. A plain pooled connection leaves the GUC
     // unset, so the default resolves to NULL and the insert fails.
+    let policy = UploadPolicy::attachments();
+    let mut upload = intake::multipart(intake::content_length(&req), payload, &policy)?;
     let mut uploaded_attachments = Vec::new();
+    // Applies to the files after it; the composer sends it first.
     let mut transcription_text: Option<String> = None;
 
-    // Process each field in the multipart form
-    while let Some(mut field) = payload.try_next().await? {
-        let field_name = field.name();
-
-        // Handle transcription field
-        if field_name == "transcription" {
-            // SECURITY: Limit transcription size to prevent memory exhaustion attacks
-            // 64KB is more than enough for any realistic voice transcription (~10,000+ words)
-            const MAX_TRANSCRIPTION_SIZE: usize = 64 * 1024;
-
-            let mut text_data = Vec::new();
-            while let Some(chunk) = field.next().await {
-                let data = chunk.map_err(|e| {
-                    error!(error = ?e, "Error reading transcription chunk");
-                    crate::errors::internal_error("Error reading transcription")
-                })?;
-
-                if text_data.len() + data.len() > MAX_TRANSCRIPTION_SIZE {
-                    return Err(crate::errors::bad_request_error(
-                        "Transcription too large (max 64KB)",
-                    ));
+    while let Some(part) = upload.next().await? {
+        let file = match part {
+            Part::File(file) => file,
+            Part::Text { name, value } => {
+                if name == "transcription" && !value.is_empty() {
+                    transcription_text = Some(value);
                 }
-
-                text_data.extend_from_slice(&data);
+                continue;
             }
-            if !text_data.is_empty() {
-                transcription_text = Some(String::from_utf8_lossy(&text_data).to_string());
-            }
-            continue;
-        }
+        };
 
-        // Check if the field name is "files"
-        if field_name != "files" {
-            debug!(field_name = %field_name, "Skipping non-file field");
-            continue;
-        }
-
-        // Get the filename from the field
-        let content_disposition = field.content_disposition();
-        // Owned: it names the file in a refusal after the field is read.
-        let original_filename = content_disposition
-            .get_filename()
-            .map(str::to_string)
-            .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?;
-        let original_filename = original_filename.as_str();
-
-        // SECURITY: Sanitize filename to prevent path traversal attacks
-        let sanitized_filename = FileValidator::sanitize_filename(original_filename)
-            .map_err(|e| {
-                warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                e.refusal(original_filename)
-            })?;
-
-        // The storage key is the sanitized name; the row keeps the name as
-        // uploaded for display and download.
-        let display_name = FileValidator::display_filename(original_filename)
-            .unwrap_or_else(|| sanitized_filename.clone());
-
-        debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing uploaded file");
-
-        // Read the field data with incremental size validation
-        let mut file_data = Vec::new();
-        let mut total_size = 0usize;
-
-        while let Some(chunk) = field.next().await {
-            let data = chunk.map_err(|e| {
-                error!(error = ?e, "Error reading chunk");
-                crate::errors::internal_error("Error reading chunk")
-            })?;
-
-            // SECURITY: Validate chunk doesn't cause file to exceed max size
-            // This prevents memory exhaustion attacks
-            FileValidator::validate_chunk_size(total_size, data.len())
-                .map_err(|e| e.refusal(original_filename))?;
-
-            total_size += data.len();
-            file_data.extend_from_slice(&data);
-        }
-
-        debug!(filename = %sanitized_filename, bytes = total_size, "File data read complete");
-
-        // SECURITY: Validate file type using magic number detection AND extension check
-        // This uses a blocklist approach - blocking dangerous types while allowing most files
-        let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
-            .map_err(|e| {
-                warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                e.refusal(original_filename)
-            })?;
-
-        debug!(mime_type = %detected_mime, filename = %sanitized_filename, "File validated");
-
-        // SECURITY: Compute SHA-256 checksum for file integrity verification
-        use ring::digest;
-        let checksum_bytes = digest::digest(&digest::SHA256, &file_data);
-        let checksum = checksum_bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
-
-        // Store the file using the storage abstraction with validated MIME type
-        let stored_file = storage
-            .0
-            .store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
+        let stored_file = file
+            .store(storage.0.as_ref(), &policy.folder)
             .await
             .map_err(|e| {
-                error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
+                error!(error = ?e, filename = %file.sanitized_name, "Failed to store file");
                 crate::errors::internal_error("Failed to store file")
             })?;
 
         // Generate PDF thumbnail if applicable, beside the PDF in the
         // workspace's storage so it moves with the PDF when attached.
-        let thumbnail_url = if detected_mime == "application/pdf" {
+        let thumbnail_url = if file.mime == "application/pdf" {
             match crate::utils::pdf::store_pdf_thumbnail(
                 storage.0.as_ref(),
-                &file_data,
+                file.path(),
                 &stored_file.path,
             )
             .await
             {
                 Ok(Some(url)) => {
-                    info!(thumbnail_url = %url, filename = %sanitized_filename, "Generated PDF thumbnail");
+                    info!(thumbnail_url = %url, filename = %file.sanitized_name, "Generated PDF thumbnail");
                     Some(url)
                 }
                 Ok(None) => {
-                    debug!(filename = %sanitized_filename, "PDF thumbnail generation not available");
+                    debug!(filename = %file.sanitized_name, "PDF thumbnail generation not available");
                     None
                 }
                 Err(e) => {
-                    warn!(error = %e, filename = %sanitized_filename, "Failed to generate PDF thumbnail");
+                    warn!(error = %e, filename = %file.sanitized_name, "Failed to generate PDF thumbnail");
                     None
                 }
             }
@@ -179,10 +93,10 @@ pub async fn upload_files(
         // Create a new attachment record in the database
         let new_attachment = NewAttachment {
             url: stored_file.url.clone(),
-            name: display_name,
-            file_size: Some(total_size as i64),
-            mime_type: Some(detected_mime.clone()),
-            checksum: Some(checksum),
+            name: file.display_name.clone(),
+            file_size: Some(file.size as i64),
+            mime_type: Some(file.mime.clone()),
+            checksum: Some(file.sha256.clone()),
             comment_id: None, // Not linked to a comment yet
             // Only the uploader can preview the draft or attach it to a comment.
             uploaded_by: Some(auth.user_uuid),
@@ -201,7 +115,7 @@ pub async fn upload_files(
                     "transcription": attachment.transcription,
                     "thumbnail_url": thumbnail_url
                 });
-                info!(attachment_id = attachment.id, filename = %sanitized_filename, "Attachment created successfully");
+                info!(attachment_id = attachment.id, filename = %file.sanitized_name, "Attachment created successfully");
                 uploaded_attachments.push(attachment_json);
             }
             Err(e) => {
@@ -477,8 +391,9 @@ pub(crate) async fn serve_named_or_not_found(
 /// Upload images for ticket notes (collaborative editor)
 /// Images are stored in tickets/{ticket_id}/notes/ folder
 pub async fn upload_ticket_note_image(
+    req: actix_web::HttpRequest,
     path: web::Path<i32>,
-    mut payload: Multipart,
+    payload: Multipart,
     mut tc: TenantConn,
     auth: AuthContext,
     storage: ScopedStorage,
@@ -504,94 +419,27 @@ pub async fn upload_ticket_note_image(
     }
     authorize_ticket_access(&mut tc, &auth, ticket_id)?;
 
+    let policy = UploadPolicy::ticket_note_images(ticket_id);
+    let mut upload = intake::multipart(intake::content_length(&req), payload, &policy)?;
     let mut uploaded_files = Vec::new();
 
-    // Process each field in the multipart form
-    while let Some(mut field) = payload.try_next().await? {
-        let field_name = field.name();
-        if field_name != "files" {
-            debug!(field_name = %field_name, "Skipping non-file field");
-            continue;
-        }
+    while let Some(part) = upload.next().await? {
+        let Part::File(file) = part else { continue };
 
-        // Get the filename from the field
-        let content_disposition = field.content_disposition();
-        // Owned: it names the file in a refusal after the field is read.
-        let original_filename = content_disposition
-            .get_filename()
-            .map(str::to_string)
-            .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?;
-        let original_filename = original_filename.as_str();
-
-        // SECURITY: Sanitize filename to prevent path traversal attacks
-        let sanitized_filename = FileValidator::sanitize_filename(original_filename)
-            .map_err(|e| {
-                warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                e.refusal(original_filename)
-            })?;
-
-        let display_name = FileValidator::display_filename(original_filename)
-            .unwrap_or_else(|| sanitized_filename.clone());
-
-        debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing ticket note image");
-
-        // Read the field data with incremental size validation
-        let mut file_data = Vec::new();
-        let mut total_size = 0usize;
-
-        while let Some(chunk) = field.next().await {
-            let data = chunk.map_err(|e| {
-                error!(error = ?e, "Error reading chunk");
-                crate::errors::internal_error("Error reading chunk")
-            })?;
-
-            // SECURITY: Validate chunk doesn't cause file to exceed max size (10MB for images)
-            const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
-            if total_size + data.len() > MAX_IMAGE_SIZE {
-                return Err(crate::errors::bad_request_error(
-                    "File too large (max 10MB)",
-                ));
-            }
-
-            total_size += data.len();
-            file_data.extend_from_slice(&data);
-        }
-
-        debug!(filename = %sanitized_filename, bytes = total_size, "File data read complete");
-
-        // SECURITY: Validate file type with extension check
-        let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
-            .map_err(|e| {
-                warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                e.refusal(original_filename)
-            })?;
-
-        // Only allow image types for ticket note images
-        if !detected_mime.starts_with("image/") {
-            return Err(crate::errors::bad_request_error(
-                "Only image files are allowed",
-            ));
-        }
-
-        debug!(mime_type = %detected_mime, filename = %sanitized_filename, "File validated");
-
-        // Store in tickets/{ticket_id}/notes/ folder
-        let folder = format!("tickets/{ticket_id}/notes");
-        let stored_file = storage
-            .0
-            .store_file(&file_data, &sanitized_filename, &detected_mime, &folder)
+        let stored_file = file
+            .store(storage.0.as_ref(), &policy.folder)
             .await
             .map_err(|e| {
-                error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
+                error!(error = ?e, filename = %file.sanitized_name, "Failed to store file");
                 crate::errors::internal_error("Failed to store file")
             })?;
 
-        info!(url = %stored_file.url, filename = %sanitized_filename, "Stored ticket note image");
+        info!(url = %stored_file.url, filename = %file.sanitized_name, "Stored ticket note image");
 
         uploaded_files.push(json!({
             "url": stored_file.url,
-            "name": display_name,
-            "size": total_size
+            "name": file.display_name,
+            "size": file.size
         }));
     }
 

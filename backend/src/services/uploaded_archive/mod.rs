@@ -5,7 +5,8 @@
 //!
 //! - [`spool`]: a multipart field streamed to a local temp file with a hard
 //!   byte cap enforced while it streams, then copied to workspace storage
-//!   (and back to a temp file later) without buffering the whole file.
+//!   (and back to a temp file later) without buffering the whole file. It
+//!   lives in [`crate::services::upload_intake`] and is re-exported here.
 //! - [`reader::SafeArchive`]: opens the zip from any `Read + Seek` (a temp
 //!   file, or the bytes of an unsealed workspace export) and exposes its
 //!   entries as validated lookup keys with bounded readers.
@@ -19,8 +20,9 @@
 
 pub mod paths;
 pub mod reader;
-pub mod spool;
 pub mod text;
+
+pub use crate::services::upload_intake::spool;
 
 use std::path::PathBuf;
 

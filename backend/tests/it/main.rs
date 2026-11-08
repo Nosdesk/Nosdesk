@@ -214,6 +214,7 @@ mod ticket_write_lint;
 mod tracing_field_allowlist_lint;
 mod two_workspace_fixture;
 mod upgrade_from_1_0_12;
+mod upload_intake;
 mod user_contact_gate;
 mod user_delete_reauth;
 mod user_delete_workspace_admin;

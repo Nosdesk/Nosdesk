@@ -354,6 +354,14 @@ pub fn scheduled_jobs(
         move || jobs::guest_residue_cleanup(p.clone(), s.clone()),
     ));
 
+    // Hourly: remove upload spool files a killed process left on this
+    // machine's disk. Local, so every machine runs it; no lock.
+    registry.push(ScheduledJob::new(
+        "upload_spool.sweep",
+        Duration::from_secs(60 * 60),
+        jobs::sweep_upload_spool,
+    ));
+
     // Hourly: approve requests nobody answered within their workspace's
     // automatic-approval period (a no-op unless one is set).
     let p = pool.clone();

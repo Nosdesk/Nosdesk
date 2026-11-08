@@ -2,9 +2,10 @@
 //! copied to and from workspace storage without holding it in memory.
 //!
 //! The cap is the caller's and is checked before each chunk is written, so
-//! a too-large upload stops at the first chunk past it. `MAX_FILE_SIZE_MB`
-//! doesn't apply: it sizes the urlencoded form config, not a multipart
-//! stream a handler reads itself.
+//! a too-large upload stops at the first chunk past it. The archive imports
+//! call this directly with their own caps; an attachment goes through the
+//! intake ([`super::multipart`]), which adds the policy, the head buffer, the
+//! hash and the spool budget.
 //!
 //! The temp file is removed when the [`Spooled`] drops, on success or
 //! failure alike.
@@ -31,13 +32,23 @@ pub struct Spooled {
 }
 
 impl Spooled {
+    /// A temp file already written, for the intake's own spooling loop.
+    pub(super) fn new(file: NamedTempFile, filename: Option<String>, size: u64) -> Self {
+        Self {
+            file,
+            filename,
+            size,
+        }
+    }
+
     /// The temp file's path, for [`Storage::put_file_from_path`].
     pub fn path(&self) -> &Path {
         self.file.path()
     }
 
     /// A new read handle at the start of the file, for
-    /// [`super::SafeArchive::open`]. The file stays until `self` drops.
+    /// [`crate::services::uploaded_archive::SafeArchive::open`]. The file
+    /// stays until `self` drops.
     pub fn open(&self) -> io::Result<std::fs::File> {
         self.file.reopen()
     }
@@ -299,9 +310,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let mut archive = super::super::SafeArchive::open(
+        let mut archive = crate::services::uploaded_archive::SafeArchive::open(
             spooled.open().unwrap(),
-            &super::super::ArchiveOptions::documentation(),
+            &crate::services::uploaded_archive::ArchiveOptions::documentation(),
         )
         .unwrap();
         assert_eq!(archive.read_text("a.md", 100).unwrap().text, "# A");
