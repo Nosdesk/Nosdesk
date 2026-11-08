@@ -55,6 +55,8 @@ import { collabWsBaseUrl } from '@nosdesk/core/transport'
 import { sessionGone } from '@nosdesk/core/services/session'
 import { discardCollabToken, getCollabToken, peekCollabToken } from '@/services/collabToken'
 import { retryDelay } from '@nosdesk/core/retryDelay'
+import { parseCollabDocId } from '@nosdesk/core/utils/collabDocId'
+import { takeSavedCopy } from '@/utils/collabSeed'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -389,6 +391,9 @@ interface SessionEntry {
   lastReleasedAt: number | null
   /** Pending grace-period disconnect timer. */
   graceTimer: ReturnType<typeof setTimeout> | null
+  /** Who this client is in the room, withdrawn from its awareness while no
+   *  view holds the session and put back when one acquires it again. */
+  parkedPresence: { user: unknown } | null
 }
 
 /**
@@ -808,6 +813,27 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     }
   }
 
+  /**
+   * Leave the room's awareness when the last view lets go. The connection
+   * stays open through the grace period, so coming back is instant, but
+   * colleagues stop seeing this client on a ticket or page it has left.
+   */
+  function parkPresence(entry: SessionEntry): void {
+    const awareness = entry.provider.awareness
+    const state = awareness.getLocalState() as { user?: unknown } | null
+    if (!state) return
+    entry.parkedPresence = state.user === undefined ? null : { user: state.user }
+    awareness.setLocalState(null)
+  }
+
+  /** Rejoin the room's awareness as who this client was before it left. */
+  function restorePresence(entry: SessionEntry): void {
+    const parked = entry.parkedPresence
+    entry.parkedPresence = null
+    const awareness = entry.provider.awareness
+    if (awareness.getLocalState() === null) awareness.setLocalState(parked ?? {})
+  }
+
   function scheduleGrace(entry: SessionEntry): void {
     cancelGrace(entry)
     entry.graceTimer = setTimeout(() => {
@@ -916,6 +942,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
         }
       }
       existing.refCount++
+      restorePresence(existing)
       // Clear `lastReleasedAt` while at least one consumer holds a
       // reference. Without this, an actively-bounced session (idle
       // → reacquire → idle → reacquire) keeps the stamp from its
@@ -1036,6 +1063,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       refCount: 1,
       lastReleasedAt: null,
       graceTimer: null,
+      parkedPresence: null,
     }
     linkState(provider).changed = onStatus
     provider.on('status', onStatus)
@@ -1052,8 +1080,31 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       void pruneIdbStores()
       void mergeLegacyLocalCopy(entry, idb)
     }
+    void mergeSavedCopy(entry)
     refreshSnapshot()
     return { ydoc, provider, permanentUserData, isNew: true }
+  }
+
+  /**
+   * Merge a documentation page's saved copy into a new session's document, so
+   * the editor paints its body before the room syncs (`utils/collabSeed`).
+   * Applied as the provider's own origin: it is the server's content already,
+   * so y-websocket doesn't send it back, and the editor treats it like the
+   * room's sync rather than a local edit.
+   */
+  async function mergeSavedCopy(entry: SessionEntry): Promise<void> {
+    const parsed = parseCollabDocId(entry.docId)
+    if (parsed?.kind !== 'doc') return
+    const copy = await takeSavedCopy(parsed.id)
+    if (!copy || sessions.get(entry.docId) !== entry) return
+    try {
+      Y.applyUpdate(entry.ydoc, copy, entry.provider)
+    } catch (err) {
+      logger.warn('Collab session: the saved copy did not apply; the room will sync', {
+        docId: entry.docId,
+        err,
+      })
+    }
   }
 
   /**
@@ -1073,6 +1124,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     entry.refCount = Math.max(0, entry.refCount - 1)
     if (entry.refCount === 0) {
       entry.lastReleasedAt = Date.now()
+      parkPresence(entry)
       scheduleGrace(entry)
       refreshStatus(entry)
     }

@@ -20,7 +20,17 @@ const fake = vi.hoisted(() => {
     get ws(): object | null {
       return this.wsconnecting || this.wsconnected ? {} : null
     }
-    awareness = { setLocalState: () => {} }
+    /** y-protocols' awareness, as far as the store uses it: a local state
+     *  that starts as `{}` and is `null` once this client has left. */
+    awareness = {
+      state: {} as Record<string, unknown> | null,
+      getLocalState() {
+        return this.state
+      },
+      setLocalState(state: Record<string, unknown> | null) {
+        this.state = state
+      },
+    }
     private listeners = new Map<string, Set<Listener>>()
     /** Updates handed to the socket, as y-websocket's doc `update` handler
      *  does (it queues them while disconnected and sends on sync). */
@@ -285,6 +295,15 @@ vi.mock('@nosdesk/core/transport', async (importOriginal) => ({
       },
     },
   }),
+}))
+
+// A documentation page's saved copy, answered when the test says.
+const saved = vi.hoisted(() => ({ answer: null as null | ((copy: Uint8Array | null) => void), asked: [] as string[] }))
+vi.mock('@/utils/collabSeed', () => ({
+  takeSavedCopy: (uuid: string) => {
+    saved.asked.push(uuid)
+    return new Promise<Uint8Array | null>((resolve) => (saved.answer = resolve))
+  },
 }))
 
 import { useCollabSessionStore } from '@/stores/collabSession'
@@ -1316,5 +1335,88 @@ describe('a note whose network came back without the browser saying so', () => {
     const fetches = token.fetches
     await vi.advanceTimersByTimeAsync(5 * 60_000)
     expect(token.fetches - fetches).toBeLessThanOrEqual(10)
+  })
+})
+
+describe("a note's presence in its room", () => {
+  const sam = { name: 'Sam', uuid: 'u-1' }
+
+  it('leaves the room as soon as the last view closes the note, while the connection stays open', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+    providers[0].awareness.setLocalState({ user: sam, cursor: { anchor: 1 } })
+
+    store.release('doc-a')
+
+    expect(providers[0].awareness.getLocalState()).toBeNull()
+    expect(providers[0].wsconnected).toBe(true)
+  })
+
+  it('stays while another view still has the note open', () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    store.acquire('doc-a', OPTS)
+    providers[0].awareness.setLocalState({ user: sam })
+
+    store.release('doc-a')
+
+    expect(providers[0].awareness.getLocalState()).toEqual({ user: sam })
+  })
+
+  it('comes back as the same person, without the old cursor, when the note is opened again', async () => {
+    token.cached = 't'
+    store.acquire('doc-a', OPTS)
+    providers[0].open()
+    providers[0].awareness.setLocalState({ user: sam, cursor: { anchor: 1 }, preview: { field: 'title', value: 'x' } })
+    store.release('doc-a')
+
+    store.acquire('doc-a', OPTS)
+
+    expect(providers[0].awareness.getLocalState()).toEqual({ user: sam })
+  })
+})
+
+describe("a documentation page's saved copy", () => {
+  const WS = '11111111-1111-4111-8111-111111111111'
+  const PAGE = '22222222-2222-4222-8222-222222222222'
+  const PAGE_DOC = `ws-${WS}_doc-${PAGE}`
+
+  /** A saved document whose fragment holds one paragraph of `text`. */
+  function savedDoc(text: string): Uint8Array {
+    const doc = new Y.Doc()
+    const paragraph = new Y.XmlElement('paragraph')
+    paragraph.insert(0, [new Y.XmlText(text)])
+    doc.getXmlFragment('prosemirror').insert(0, [paragraph])
+    return Y.encodeStateAsUpdate(doc)
+  }
+
+  beforeEach(() => {
+    saved.answer = null
+    saved.asked = []
+  })
+
+  it("fills a new page's document as the room's own content, before the room syncs", async () => {
+    const { ydoc } = store.acquire(PAGE_DOC, OPTS)
+    expect(saved.asked).toEqual([PAGE])
+    const origins: unknown[] = []
+    ydoc.on('update', (_update: Uint8Array, origin: unknown) => origins.push(origin))
+
+    saved.answer!(savedDoc('From the server'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ydoc.getXmlFragment('prosemirror').toString()).toContain('From the server')
+    // As the provider's own origin, so y-websocket doesn't send it back.
+    expect(origins).toEqual([providers[0]])
+  })
+
+  it('is not asked for a ticket note, or applied once the session is gone', async () => {
+    store.acquire(`ws-${WS}_ticket-${PAGE}`, OPTS)
+    expect(saved.asked).toEqual([])
+
+    const { ydoc } = store.acquire(PAGE_DOC, OPTS)
+    store.destroy(PAGE_DOC)
+    saved.answer!(savedDoc('Too late'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ydoc.getXmlFragment('prosemirror').length).toBe(0)
   })
 })

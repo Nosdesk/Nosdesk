@@ -21,6 +21,9 @@ const toast = useToastStore()
 const queryCache = useQueryCache()
 const KEY = ['admin-widget']
 const settings = useQuery({ key: KEY, query: () => widgetService.get() })
+// Bound from here: vue-tsc 3.3.14 misreads `//` in a template attribute
+// (vuejs/language-tools#6322).
+const originsPlaceholder = 'https://www.acme.com'
 
 const enabled = ref(false)
 const origins = ref('')
@@ -151,7 +154,7 @@ async function copy(text: string): Promise<void> {
           v-model="origins"
           :label="t('widget-admin-origins-label')"
           :description="t('widget-admin-origins-hint')"
-          placeholder="https://www.acme.com"
+          :placeholder="originsPlaceholder"
           :rows="3"
         />
         <p class="text-xs text-secondary">{{ t('widget-admin-anonymous-hint') }}</p>
