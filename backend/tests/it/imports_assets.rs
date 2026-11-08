@@ -817,6 +817,21 @@ pub(crate) async fn call_import_route(
     user: uuid::Uuid,
     req: actix_web::test::TestRequest,
 ) -> (actix_web::http::StatusCode, actix_web::web::Bytes) {
+    let (status, _, body) = call_import_route_with_headers(pool, ws, user, req).await;
+    (status, body)
+}
+
+/// [`call_import_route`] with the response headers.
+pub(crate) async fn call_import_route_with_headers(
+    pool: &crate::common::TestPool,
+    ws: &crate::common::WorkspaceSeed,
+    user: uuid::Uuid,
+    req: actix_web::test::TestRequest,
+) -> (
+    actix_web::http::StatusCode,
+    actix_web::http::header::HeaderMap,
+    actix_web::web::Bytes,
+) {
     use actix_web::dev::Service;
     use actix_web::test as http_test;
     use actix_web::{web, App, HttpMessage};
@@ -869,7 +884,8 @@ pub(crate) async fn call_import_route(
     .await;
     let resp = http_test::call_service(&app, req.to_request()).await;
     let status = resp.status();
-    (status, http_test::read_body(resp).await)
+    let headers = resp.headers().clone();
+    (status, headers, http_test::read_body(resp).await)
 }
 
 /// The names of the files kept for job `id` in workspace `workspace_id`,

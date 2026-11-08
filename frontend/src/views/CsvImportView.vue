@@ -63,6 +63,7 @@ import {
   type ImportJob,
   type ImportJobType,
   type ImportOptions,
+  type ImportTemplateFormat,
   type ImportValues,
   type SignInStatus,
   type ValueAnswers,
@@ -314,9 +315,20 @@ const templateKindOptions = computed(() => [
   ...kindOptions.value,
 ])
 
+/** CSV, or an Excel workbook with dropdowns and a Fields sheet. */
+const templateFormat = ref<ImportTemplateFormat>('csv')
+const templateFormatOptions = computed(() => [
+  { value: 'csv' as ImportTemplateFormat, label: t('import-template-format-csv') },
+  { value: 'xlsx' as ImportTemplateFormat, label: t('import-template-format-excel') },
+])
+
 function downloadTemplate() {
   const kind = selectedType.value === 'assets' ? templateKind.value : ''
-  window.location.href = importService.templateUrl(selectedType.value, kind || undefined)
+  window.location.href = importService.templateUrl(
+    selectedType.value,
+    kind || undefined,
+    templateFormat.value,
+  )
 }
 
 function chooseFile() {
@@ -862,6 +874,7 @@ function viewImported() {
             <p v-if="selectedType === 'assets'" class="text-xs text-tertiary">
               {{ $t('import-template-kind-help') }}
             </p>
+            <p class="text-xs text-tertiary">{{ $t('import-template-format-help') }}</p>
             <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
               <div v-if="selectedType === 'assets'" class="w-full sm:w-64" data-test="import-template-kind">
                 <BaseDropdown
@@ -871,8 +884,23 @@ function viewImported() {
                   :placeholder="$t('import-template-kind-none')"
                 />
               </div>
+              <div class="flex flex-col gap-1.5" data-test="import-template-format">
+                <span class="text-xs font-medium text-tertiary uppercase tracking-wide" aria-hidden="true">
+                  {{ $t('import-template-format-label') }}
+                </span>
+                <SegmentedControl
+                  v-model="templateFormat"
+                  :options="templateFormatOptions"
+                  :aria-label="$t('import-template-format-label')"
+                />
+              </div>
               <div>
-                <Button variant="secondary" icon="download" @click="downloadTemplate">
+                <Button
+                  variant="secondary"
+                  icon="download"
+                  data-test="import-template-download"
+                  @click="downloadTemplate"
+                >
                   {{ $t('import-template-download') }}
                 </Button>
               </div>

@@ -52,8 +52,10 @@
 //!   and the header memory of its latest mapped import;
 //!   `DELETE /admin/import/answers?type=` deletes every saved match of
 //!   the type and `DELETE /admin/import/answers/{id}` one of them.
-//! - `GET  /admin/import/template/{type}?kind=` returns a CSV header
-//!   row the admin can fill in; for assets, with the kind's attributes.
+//! - `GET  /admin/import/template/{type}?kind=&format=` returns a CSV
+//!   header row the admin can fill in, or with `format=xlsx` a workbook
+//!   with dropdowns and a Fields sheet (`services::imports::template`);
+//!   for assets, with the kind's attributes.
 //!
 //! - `POST /admin/import?type=documentation` and the
 //!   `/admin/import/{id}/docs/...` routes import documentation from a zip of
@@ -3356,11 +3358,17 @@ fn previous_values_of(
 pub struct TemplateQuery {
     /// Assets only: the kind whose attributes follow the core columns.
     pub kind: Option<String>,
+    /// `csv` (the default) or `xlsx`.
+    pub format: Option<String>,
 }
 
-/// CSV template for the requested import type: a header row the admin
-/// fills in. For assets, the core columns, then the attributes of `?kind=`
-/// when given, with a BOM and each header guarded against formulas.
+const XLSX_CONTENT_TYPE: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/// Template for the requested import type: a header row the admin fills
+/// in. For assets, the core columns, then the attributes of `?kind=` when
+/// given. As CSV (the default), with a BOM and each header guarded against
+/// formulas; with `?format=xlsx`, a workbook with dropdowns and a Fields
+/// sheet (`imports::template`).
 pub async fn template(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -3379,50 +3387,75 @@ pub async fn template(
         .as_deref()
         .map(str::trim)
         .filter(|k| !k.is_empty());
-    let (body, name) = match job_type {
-        ImportType::Assets => {
-            let headers = match tc.run(|conn| imports::assets::template_headers(conn, kind)) {
-                Ok(Some(headers)) => headers,
-                Ok(None) => {
-                    return errors::bad_request(format!(
-                        "unknown kind '{}'",
-                        kind.unwrap_or_default()
-                    ))
-                }
-                Err(e) => {
-                    error!(error = ?e, "failed to read asset kinds for a template");
-                    return errors::internal("failed to build the template");
-                }
-            };
-            let body = match imports::assets::template_csv(&headers) {
-                Ok(body) => body,
-                Err(e) => {
-                    error!(error = ?e, "failed to write an import template");
-                    return errors::internal("failed to build the template");
-                }
-            };
-            let name = match kind {
-                Some(kind) => format!(
-                    "{}.csv",
-                    download_stem(&format!("nosdesk-assets-{kind}-template.csv"))
-                ),
-                None => "nosdesk-assets-template.csv".to_string(),
-            };
-            (body, name)
-        }
-        other => {
-            if kind.is_some() {
-                return errors::bad_request("kind applies to asset templates only");
-            }
-            let body = imports::importer_for(other).template_headers().join(",") + "\n";
-            (
-                body.into_bytes(),
-                format!("nosdesk-{}-template.csv", other.as_str()),
-            )
-        }
+    let xlsx = match query.format.as_deref().map(str::trim) {
+        None | Some("" | "csv") => false,
+        Some("xlsx") => true,
+        Some(_) => return errors::bad_request("format is csv or xlsx"),
     };
+    if kind.is_some() && job_type != ImportType::Assets {
+        return errors::bad_request("kind applies to asset templates only");
+    }
+    let importer = imports::importer_for(job_type);
+    let stem = match (job_type, kind) {
+        (ImportType::Assets, Some(kind)) => {
+            download_stem(&format!("nosdesk-assets-{kind}-template.csv"))
+        }
+        _ => format!("nosdesk-{}-template", job_type.as_str()),
+    };
+    let headers = match job_type {
+        ImportType::Assets => match tc.run(|conn| imports::assets::template_headers(conn, kind)) {
+            Ok(Some(headers)) => headers,
+            Ok(None) => {
+                return errors::bad_request(format!("unknown kind '{}'", kind.unwrap_or_default()))
+            }
+            Err(e) => {
+                error!(error = ?e, "failed to read asset kinds for a template");
+                return errors::internal("failed to build the template");
+            }
+        },
+        _ => importer
+            .template_headers()
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+    };
+
+    if xlsx {
+        let columns = match tc
+            .run(|conn| imports::template::columns(conn, importer.as_ref(), &headers, kind))
+        {
+            Ok(columns) => columns,
+            Err(e) => {
+                error!(error = ?e, "failed to read the fields for a template");
+                return errors::internal("failed to build the template");
+            }
+        };
+        let body = match imports::template::xlsx(&columns) {
+            Ok(body) => body,
+            Err(e) => {
+                error!(error = ?e, "failed to write an import template workbook");
+                return errors::internal("failed to build the template");
+            }
+        };
+        return template_response(XLSX_CONTENT_TYPE, &format!("{stem}.xlsx"), body);
+    }
+
+    let body = match job_type {
+        ImportType::Assets => match imports::assets::template_csv(&headers) {
+            Ok(body) => body,
+            Err(e) => {
+                error!(error = ?e, "failed to write an import template");
+                return errors::internal("failed to build the template");
+            }
+        },
+        _ => (headers.join(",") + "\n").into_bytes(),
+    };
+    template_response("text/csv; charset=utf-8", &format!("{stem}.csv"), body)
+}
+
+fn template_response(content_type: &str, name: &str, body: Vec<u8>) -> HttpResponse {
     HttpResponse::Ok()
-        .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
+        .insert_header((header::CONTENT_TYPE, content_type.to_string()))
         .insert_header((
             header::CONTENT_DISPOSITION,
             format!("attachment; filename=\"{name}\""),

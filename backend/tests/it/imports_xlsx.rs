@@ -617,3 +617,458 @@ struct Count {
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     count: i64,
 }
+
+/// A template download's content type, filename and bytes, asserting 200.
+async fn template_download(
+    pool: &crate::common::TestPool,
+    ws: &crate::common::WorkspaceSeed,
+    uri: &str,
+) -> (String, String, Vec<u8>) {
+    let (status, headers, body) = crate::imports_assets::call_import_route_with_headers(
+        pool,
+        ws,
+        ws.admin_uuid,
+        TestRequest::get().uri(uri),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{uri}");
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
+    };
+    (
+        header("content-type"),
+        header("content-disposition"),
+        body.to_vec(),
+    )
+}
+
+/// Each sheet's name and whether it's visible.
+fn sheets(bytes: &[u8]) -> Vec<(String, bool)> {
+    use calamine::Reader;
+    let wb: calamine::Xlsx<_> = calamine::Xlsx::new(Cursor::new(bytes.to_vec())).expect("xlsx");
+    wb.sheets_metadata()
+        .iter()
+        .map(|s| (s.name.clone(), s.visible == calamine::SheetVisible::Visible))
+        .collect()
+}
+
+/// A sheet's cells, row by row, as calamine reads them.
+fn cells(bytes: &[u8], sheet: &str) -> Vec<Vec<calamine::Data>> {
+    use calamine::Reader;
+    let mut wb: calamine::Xlsx<_> = calamine::Xlsx::new(Cursor::new(bytes.to_vec())).expect("xlsx");
+    let range = wb.worksheet_range(sheet).expect("sheet");
+    range.rows().map(<[calamine::Data]>::to_vec).collect()
+}
+
+fn text(cell: &calamine::Data) -> String {
+    match cell {
+        calamine::Data::String(s) => s.clone(),
+        calamine::Data::Empty => String::new(),
+        other => panic!("{other:?} is not a string cell"),
+    }
+}
+
+/// The Lists sheet's columns in order, as field id and entries, every
+/// cell a string.
+fn lists(bytes: &[u8]) -> Vec<(String, Vec<String>)> {
+    let rows = cells(bytes, "Lists");
+    let Some(head) = rows.first() else {
+        return Default::default();
+    };
+    head.iter()
+        .enumerate()
+        .map(|(col, id)| {
+            let entries = rows[1..]
+                .iter()
+                .map(|row| text(&row[col]))
+                .filter(|v| !v.is_empty())
+                .collect();
+            (text(id), entries)
+        })
+        .collect()
+}
+
+fn part(bytes: &[u8], name: &str) -> String {
+    use std::io::Read;
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("zip");
+    let mut xml = String::new();
+    archive
+        .by_name(name)
+        .expect("part")
+        .read_to_string(&mut xml)
+        .expect("read part");
+    xml
+}
+
+/// `?format=xlsx` gives a workbook for every type and kind: the Template
+/// sheet's header row is the CSV template's, bold and frozen, with
+/// Warning-style dropdowns on rows 2 to 5,001 pointing at the hidden Lists
+/// sheet; Fields describes each column. Dropdowns list labels, a kind's
+/// attributes list that kind's options, and a workspace-named value that
+/// looks like a formula is a string cell.
+#[actix_web::test]
+async fn the_xlsx_template_has_dropdowns_and_a_fields_sheet() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = crate::imports_attributes::workspace(&pool);
+    crate::imports_attributes::seed_kind(
+        &pool,
+        &ws,
+        "hostile",
+        "=1+1",
+        320,
+        serde_json::json!({ "type": "object", "properties": {} }),
+    );
+
+    for (path, kind, stem) in [
+        ("assets", None, "nosdesk-assets-template"),
+        ("assets", Some("vehicle"), "nosdesk-assets-vehicle-template"),
+        ("assets", Some("camera"), "nosdesk-assets-camera-template"),
+        ("users", None, "nosdesk-users-template"),
+        ("tickets", None, "nosdesk-tickets-template"),
+    ] {
+        let csv_uri = match kind {
+            Some(kind) => format!("/api/admin/import/template/{path}?kind={kind}"),
+            None => format!("/api/admin/import/template/{path}"),
+        };
+        let xlsx_uri = match kind {
+            Some(_) => format!("{csv_uri}&format=xlsx"),
+            None => format!("{csv_uri}?format=xlsx"),
+        };
+        let (content_type, disposition, bytes) = template_download(&pool, &ws, &xlsx_uri).await;
+        assert_eq!(
+            content_type,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        assert_eq!(disposition, format!("attachment; filename=\"{stem}.xlsx\""));
+        assert_eq!(
+            sheets(&bytes),
+            vec![
+                ("Template".to_string(), true),
+                ("Fields".to_string(), true),
+                ("Lists".to_string(), false),
+            ],
+            "{xlsx_uri}"
+        );
+
+        // The header row is the CSV template's, unguarded.
+        let (_, _, csv) = template_download(&pool, &ws, &csv_uri).await;
+        let csv = String::from_utf8(csv).expect("utf8");
+        let csv_headers: Vec<String> = csv
+            .trim_start_matches('\u{FEFF}')
+            .trim_end()
+            .split(',')
+            .map(|h| h.strip_prefix('\'').unwrap_or(h).to_string())
+            .collect();
+        let template = cells(&bytes, "Template");
+        assert_eq!(template.len(), 1, "{xlsx_uri}: header row only");
+        let headers: Vec<String> = template[0].iter().map(text).collect();
+        assert_eq!(headers, csv_headers, "{xlsx_uri}");
+
+        // Fields: a heading row, then one row per column in header order.
+        let fields = cells(&bytes, "Fields");
+        assert_eq!(
+            fields[0].iter().map(text).collect::<Vec<_>>(),
+            [
+                "Column",
+                "Label",
+                "Type",
+                "Required",
+                "Allowed values",
+                "Format"
+            ]
+        );
+        assert_eq!(
+            fields[1..].iter().map(|r| text(&r[0])).collect::<Vec<_>>(),
+            headers,
+            "{xlsx_uri}"
+        );
+
+        // Every dropdown on the Template sheet points at its Lists column,
+        // as a warning, over the data rows.
+        let lists = lists(&bytes);
+        let sheet = part(&bytes, "xl/worksheets/sheet1.xml");
+        assert!(
+            sheet.contains(r#"<pane ySplit="1""#),
+            "{xlsx_uri}: frozen header"
+        );
+        for (i, (id, entries)) in lists.iter().enumerate() {
+            let col = headers.iter().position(|h| h == id).expect("list column");
+            let letter = backend::services::imports::xlsx::column_letter(col as u32);
+            let list = backend::services::imports::xlsx::column_letter(i as u32);
+            let formula = format!(
+                "<formula1>Lists!${list}$2:${list}${}</formula1>",
+                entries.len() + 1
+            );
+            assert!(sheet.contains(&formula), "{xlsx_uri}: {id} {formula}");
+            assert!(
+                sheet.contains(&format!(r#"sqref="{letter}2:{letter}5001""#)),
+                "{xlsx_uri}: {id}"
+            );
+        }
+        assert!(!sheet.contains(r#"errorStyle="stop""#));
+        assert_eq!(
+            sheet.matches("<dataValidation ").count(),
+            sheet.matches(r#"errorStyle="warning""#).count(),
+            "{xlsx_uri}"
+        );
+        for name in [
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml",
+        ] {
+            assert!(!part(&bytes, name).contains("<f>"), "{xlsx_uri}: {name}");
+        }
+
+        let list = |id: &str| {
+            lists
+                .iter()
+                .find(|(list, _)| list == id)
+                .map(|(_, entries)| entries.clone())
+                .unwrap_or_default()
+        };
+        let field_row = |id: &str| {
+            fields
+                .iter()
+                .find(|r| text(&r[0]) == id)
+                .map(|r| r.iter().map(text).collect::<Vec<_>>())
+                .unwrap_or_else(|| panic!("{xlsx_uri}: no {id} on Fields"))
+        };
+        match (path, kind) {
+            ("assets", kind) => {
+                let kinds = list("kind");
+                assert!(kinds.contains(&"Vehicle".to_string()), "{kinds:?}");
+                assert!(kinds.contains(&"=1+1".to_string()), "{kinds:?}");
+                assert_eq!(
+                    list("status"),
+                    [
+                        "In service",
+                        "In stock",
+                        "On order",
+                        "In transit",
+                        "In repair",
+                        "Retired",
+                        "Lost"
+                    ]
+                );
+                assert_eq!(
+                    field_row("kind")[..4],
+                    ["kind", "Kind", "Choice", "Yes"].map(String::from)
+                );
+                assert!(field_row("kind")[4].contains("=1+1"));
+                assert_eq!(field_row("purchase_date")[2], "Date");
+                assert_eq!(field_row("purchase_date")[5], "YYYY-MM-DD");
+                assert!(sheet.contains(r#"type="date""#));
+                assert!(sheet.contains(r#"type="decimal""#));
+                match kind {
+                    Some("vehicle") => {
+                        assert_eq!(list("fuel"), ["Diesel", "Petrol", "Electric"]);
+                        assert_eq!(list("condition"), ["Roadworthy", "Unregistered"]);
+                        assert_eq!(list("insured"), ["Yes", "No"]);
+                        assert_eq!(field_row("fuel")[3], "For Vehicle");
+                        assert_eq!(field_row("serviced")[5], "YYYY-MM-DD");
+                        assert!(headers.contains(&"@tare".to_string()));
+                    }
+                    Some("camera") => {
+                        assert_eq!(list("condition"), ["Good", "Damaged"]);
+                        assert_eq!(list("mount"), ["EF", "PL"]);
+                        assert!(list("fuel").is_empty());
+                    }
+                    _ => assert!(list("fuel").is_empty()),
+                }
+            }
+            ("users", _) => {
+                assert_eq!(list("role"), ["Admin", "Technician", "User"]);
+                assert_eq!(field_row("email")[3], "Yes");
+            }
+            _ => {
+                assert_eq!(
+                    list("priority"),
+                    ["None", "Low", "Medium", "High", "Urgent"]
+                );
+                assert!(!list("workflow_state").is_empty());
+                assert_eq!(field_row("due_date")[5], "YYYY-MM-DD");
+            }
+        }
+    }
+
+    // CSV stays the default; an unknown format is refused.
+    let (content_type, _, default) =
+        template_download(&pool, &ws, "/api/admin/import/template/users").await;
+    assert_eq!(content_type, "text/csv; charset=utf-8");
+    let (_, _, csv) =
+        template_download(&pool, &ws, "/api/admin/import/template/users?format=csv").await;
+    assert_eq!(default, csv);
+    assert_eq!(String::from_utf8_lossy(&csv), "email,name,role,pronouns\n");
+    let (status, _) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        TestRequest::get().uri("/api/admin/import/template/assets?format=pdf"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call_import_route(
+        &pool,
+        &ws,
+        ws.member_uuid,
+        TestRequest::get().uri("/api/admin/import/template/assets?format=xlsx"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// A template filled in with the dropdowns' labels imports as it stands:
+/// every header maps by its exact id, every value matches exactly, and
+/// the rows are written.
+#[actix_web::test]
+async fn a_filled_xlsx_template_imports_with_exact_matches() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = crate::imports_attributes::workspace(&pool);
+    let (_, _, bytes) = template_download(
+        &pool,
+        &ws,
+        "/api/admin/import/template/assets?kind=vehicle&format=xlsx",
+    )
+    .await;
+    let headers: Vec<String> = cells(&bytes, "Template")[0].iter().map(text).collect();
+    let lists = lists(&bytes);
+    let entries = |id: &str| {
+        lists
+            .iter()
+            .find(|(list, _)| list == id)
+            .map(|(_, entries)| entries.clone())
+            .unwrap_or_else(|| panic!("no {id} list"))
+    };
+    let pick = |id: &str, i: usize| entries(id)[i].clone();
+    let vehicle = entries("kind")
+        .into_iter()
+        .find(|k| k == "Vehicle")
+        .expect("Vehicle on the kind list");
+
+    // The admin's copy: the template's header row and three rows, choice
+    // cells typed from the dropdowns, a date and a number as Excel stores
+    // them.
+    let mut wb = Workbook::new();
+    let date = Format::new().set_num_format("yyyy-mm-dd");
+    {
+        let sheet = wb.add_worksheet();
+        sheet.set_name("Template").expect("name");
+        for (c, h) in headers.iter().enumerate() {
+            sheet.write_string(0, c as u16, h).expect("write");
+        }
+        let col = |id: &str| headers.iter().position(|h| h == id).expect(id) as u16;
+        for r in 1..=3u32 {
+            let i = r as usize - 1;
+            sheet
+                .write_string(r, col("name"), format!("QA van {r}"))
+                .expect("write");
+            sheet.write_string(r, col("kind"), &vehicle).expect("write");
+            sheet
+                .write_string(r, col("asset_tag"), format!("QA-X-{r}"))
+                .expect("write");
+            sheet
+                .write_string(r, col("status"), pick("status", 4))
+                .expect("write");
+            sheet
+                .write_string(r, col("location"), "Studio A")
+                .expect("write");
+            sheet
+                .write_string(r, col("fuel"), pick("fuel", i))
+                .expect("write");
+            sheet
+                .write_string(r, col("condition"), pick("condition", 0))
+                .expect("write");
+            sheet
+                .write_string(r, col("insured"), pick("insured", i % 2))
+                .expect("write");
+            sheet
+                .write_number(r, col("odometer"), 1000.0 * f64::from(r))
+                .expect("write");
+            sheet
+                .write_datetime_with_format(
+                    r,
+                    col("serviced"),
+                    ExcelDateTime::from_ymd(2026, 3, r as u8).expect("date"),
+                    &date,
+                )
+                .expect("write");
+        }
+    }
+    let filled = wb.save_to_buffer().expect("save");
+
+    let (status, job) = upload(&pool, &ws, &filled).await;
+    assert_eq!(status, StatusCode::OK, "{job}");
+    assert_eq!(job["source"]["sheet"], "Template", "{job}");
+    let suggested = job["suggested_mapping"].as_array().expect("suggestions");
+    assert_eq!(suggested.len(), headers.len(), "{job}");
+    let mut mapping = serde_json::Map::new();
+    for s in suggested {
+        let index = s["index"].as_u64().expect("index") as usize;
+        assert_eq!(s["reason"], "exact", "{s}");
+        assert_eq!(s["field"], headers[index].as_str(), "{s}");
+        mapping.insert(headers[index].clone(), index.into());
+    }
+    let id = job["id"].as_str().expect("id").to_string();
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        mapping_request(&id, serde_json::json!({ "mapping": mapping })),
+    )
+    .await;
+    let checked = json(&body);
+    assert_eq!(status, StatusCode::OK, "{checked}");
+    assert_eq!(checked["summary"]["would_create"], 3, "{checked}");
+    assert_eq!(checked["summary"]["rows_with_errors"], 0, "{checked}");
+
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        TestRequest::get().uri(&format!("/api/admin/import/{id}/values")),
+    )
+    .await;
+    let view = json(&body);
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let columns = view["columns"].as_array().expect("columns");
+    for field in ["kind", "status", "fuel", "insured", "condition"] {
+        assert!(
+            columns.iter().any(|c| c["field"] == field),
+            "no {field} column in {view}"
+        );
+    }
+    for column in columns {
+        for value in column["values"].as_array().expect("values") {
+            assert_eq!(value["match"], "exact", "{} {value}", column["field"]);
+        }
+    }
+
+    crate::imports_attributes::commit(&pool, &ws, &id).await;
+    #[derive(QueryableByName)]
+    struct Stored {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        kind: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        status: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        attributes: String,
+    }
+    let stored: Stored = diesel::sql_query(
+        "SELECT kind, status, attributes::text AS attributes FROM assets WHERE asset_tag = 'QA-X-2'",
+    )
+    .get_result(&mut pool.get().expect("conn"))
+    .expect("asset");
+    assert_eq!(stored.kind, "vehicle");
+    assert_eq!(stored.status, "in_repair");
+    let attributes: serde_json::Value = serde_json::from_str(&stored.attributes).expect("json");
+    assert_eq!(attributes["fuel"], "Petrol");
+    assert_eq!(attributes["insured"], false);
+    assert_eq!(attributes["odometer"], 2000);
+    assert_eq!(attributes["serviced"], "2026-03-02");
+}
