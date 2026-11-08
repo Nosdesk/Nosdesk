@@ -23,6 +23,11 @@ vi.mock('@/services/activeWorkspace', () => ({
   },
 }))
 
+// Hovering a sidebar row only prefetches the page's saved copy: the pointer
+// crosses many rows, so it opens no session.
+const prefetch = vi.hoisted(() => ({ prefetchPageLink: vi.fn(), warmPage: vi.fn() }))
+vi.mock('@/utils/docBodyPrefetch', () => prefetch)
+
 import DocumentationNavItem from '@/components/documentationComponents/DocumentationNavItem.vue'
 import { mountWithProviders } from '@/test/mountWithProviders'
 import { makeWorkspaceRouter, routingModes, stubRoute } from '@/test/workspaceRouter'
@@ -55,5 +60,20 @@ describe.each(routingModes)('DocumentationNavItem ($mode routing)', ({ mode, pre
     await router.push(`${prefix}/documentation/offboarding`)
     await flushPromises()
     expect(lit()).toBe(false)
+  })
+})
+
+describe('DocumentationNavItem hover', () => {
+  it("prefetches the page's saved copy and opens no session", async () => {
+    routing = 'host'
+    const router = makeWorkspaceRouter(routes)
+    await router.push('/documentation')
+    const p = page(1, 'onboarding')
+    wrapper = mountWithProviders(DocumentationNavItem, { page: p }, {}, [router])
+    await flushPromises()
+
+    await wrapper.find('li > div').trigger('mouseenter')
+    expect(prefetch.prefetchPageLink).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
+    expect(prefetch.warmPage).not.toHaveBeenCalled()
   })
 })

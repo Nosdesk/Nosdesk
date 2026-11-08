@@ -13,6 +13,8 @@ const service = vi.hoisted(() => ({
 vi.mock('@nosdesk/core/services/collectionService', () => service)
 const auth = vi.hoisted(() => ({ isTechnician: false }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
+const prefetch = vi.hoisted(() => ({ warmPage: vi.fn() }))
+vi.mock('@/utils/docBodyPrefetch', () => prefetch)
 
 import CollectionBrowser from '@/components/documentationComponents/CollectionBrowser.vue'
 
@@ -130,6 +132,28 @@ describe('CollectionBrowser', () => {
     }
     expect(vm.collections.map((c) => vm.pageCount(c))).toEqual([2])
     expect(wrapper!.text()).not.toContain('Page 12')
+  })
+
+  it("warms a page's session when its link is hovered or focused", async () => {
+    put(row(1, 'Alpha'))
+    const page = {
+      id: 10,
+      uuid: '6f1c2b8e-4d3a-4f5b-9c7d-2e1a0b9c8d7f',
+      collection_id: 1,
+      title: 'Payroll runbook',
+      slug: 'payroll-runbook',
+      status: 'published',
+      parent_id: null,
+      updated_at: '2026-10-01T00:00:00Z',
+    }
+    pool.upsert('documentation_page', 10, page)
+    await mountBrowser()
+
+    const link = wrapper!.findAll('a').find((a) => a.text() === 'Payroll runbook')!
+    await link.trigger('mouseenter')
+    expect(prefetch.warmPage).toHaveBeenCalledWith(expect.objectContaining({ id: 10, uuid: page.uuid }))
+    await link.trigger('focus')
+    expect(prefetch.warmPage).toHaveBeenCalledTimes(2)
   })
 
   it('follows the pool order and never asks REST for the list', async () => {

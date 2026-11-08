@@ -26,6 +26,7 @@ vi.mock('@/stores/collabSession', () => ({
     connectionBadge: {},
     connectionRefusal: {},
     peek: () => null,
+    needsSavedCopy: () => true,
   }),
 }))
 const seed = vi.hoisted(() => ({ prefetchSavedCopy: vi.fn() }))

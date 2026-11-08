@@ -24,6 +24,7 @@ import { updateCollection, deleteCollection } from '@nosdesk/core/services/colle
 import type { CollectionWithDetails } from '@nosdesk/core/services/collectionService'
 import { findInTree } from '@/utils/treeUtils'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
+import { prefetchPageLink } from '@/utils/docBodyPrefetch'
 import { useWorkspaceGroupSubscription } from '@/sync/useWorkspaceGroup'
 import { useDelayedFlag } from '@/composables/useDelayedFlag'
 import { useClipboard } from '@/composables/useClipboard'
@@ -1268,6 +1269,8 @@ defineExpose({ reloadSidebar });
             :key="sp.page_id"
             :to="docUrl({ slug: sp.slug, id: sp.page_id })"
             class="group flex items-center py-1 pr-2 rounded-md text-xs cursor-pointer transition-all duration-150"
+            @mouseenter="prefetchPageLink({ id: sp.page_id })"
+            @focus="prefetchPageLink({ id: sp.page_id })"
             :class="[
               docPath === docUrl({ slug: sp.slug, id: sp.page_id })
                 ? 'bg-surface text-primary font-medium'
