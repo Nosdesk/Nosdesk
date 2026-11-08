@@ -20,7 +20,7 @@ vi.mock('@/stores/myWorkspaces', () => ({
   useMyWorkspacesStore: () => ({ activeWorkspace: { workspace_uuid: WS_UUID } }),
 }))
 
-import { pageUuidForPath, prefetchPageBody, warmPage } from '../docBodyPrefetch'
+import { pageUuidForPath, prefetchPageBody, prefetchPageLink, warmPage } from '../docBodyPrefetch'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -74,5 +74,21 @@ describe("warming a page's session from a link to it", () => {
     warmPage({})
     warmPage({ uuid: 'not-a-uuid' })
     expect(sessions.warm).not.toHaveBeenCalled()
+  })
+})
+
+describe("prefetching a page's saved copy from a link to it", () => {
+  it('fetches the copy for a page named by its uuid, or by an id the pool knows, and opens no session', () => {
+    prefetchPageLink({ uuid: PAGE_UUID })
+    prefetchPageLink({ id: 5 })
+    expect(seed.prefetchSavedCopy.mock.calls).toEqual([[PAGE_UUID], [PAGE_UUID]])
+    expect(sessions.warm).not.toHaveBeenCalled()
+  })
+
+  it("fetches nothing for a page it can't name, or one a session already follows", () => {
+    prefetchPageLink({ id: 6 })
+    sessions.current.add(`ws-${WS_UUID}_doc-${PAGE_UUID}`)
+    prefetchPageLink({ uuid: PAGE_UUID })
+    expect(seed.prefetchSavedCopy).not.toHaveBeenCalled()
   })
 })

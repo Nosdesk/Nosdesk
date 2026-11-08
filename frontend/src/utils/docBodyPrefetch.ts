@@ -51,20 +51,30 @@ function needsCopy(pageUuid: string): boolean {
   return useCollabSessionStore().needsSavedCopy(docId)
 }
 
+/** A page link names its page by uuid, or by an id the docs pool knows. */
+export interface PageRef {
+  uuid?: string | null
+  id?: number | string | null
+}
+
+function uuidOf(page: PageRef): string | null {
+  if (page.uuid) return page.uuid
+  const id = page.id == null ? NaN : Number(page.id)
+  if (!Number.isFinite(id)) return null
+  return useSyncDocsStore().allPages.find((p) => p.id === id)?.uuid ?? null
+}
+
 /**
  * Hover-prefetch a page's collaborative session, as ticket rows do: the
  * WebSocket, the local cache and the saved copy are on their way before the
  * click. The session disconnects on its own after the grace window if the
- * page isn't opened. For any link to a page: pass its uuid, or its id for
- * the docs pool to name it. Skipped while the workspace or the page's uuid is
- * unknown.
+ * page isn't opened. For the docs lists a pointer rests on; skipped while the
+ * workspace or the page's uuid is unknown.
  */
-export function warmPage(page: { uuid?: string | null; id?: number | string | null }): void {
+export function warmPage(page: PageRef): void {
   const workspaceUuid = useMyWorkspacesStore().activeWorkspace?.workspace_uuid
   if (!workspaceUuid) return
-  const id = page.id == null ? NaN : Number(page.id)
-  const pageUuid =
-    page.uuid ?? (Number.isFinite(id) ? useSyncDocsStore().allPages.find((p) => p.id === id)?.uuid : undefined)
+  const pageUuid = uuidOf(page)
   if (!pageUuid) return
   let docId: string
   try {
@@ -73,4 +83,15 @@ export function warmPage(page: { uuid?: string | null; id?: number | string | nu
     return
   }
   useCollabSessionStore().warm(docId)
+}
+
+/**
+ * Hover-prefetch only a page's saved copy: one request, no socket and no
+ * room. For links a pointer crosses on its way elsewhere (the sidebar, the
+ * collection tree), where opening a session per row passed over would cost
+ * more than it saves. Skipped while the page's uuid is unknown.
+ */
+export function prefetchPageLink(page: PageRef): void {
+  const pageUuid = uuidOf(page)
+  if (pageUuid) prefetchPageBody(pageUuid)
 }
