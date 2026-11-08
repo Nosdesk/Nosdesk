@@ -860,18 +860,30 @@ export const importService = {
     return { blob: response.data, filename: match?.[1] ?? 'previous-values.csv' }
   },
 
-  /** Build a URL for the template; trigger via anchor
-   *  download in the caller so the browser handles the file
-   *  save rather than us decoding the response body. For assets, `kind`
-   *  (a slug) adds that kind's attribute columns. `xlsx` is a workbook
-   *  with dropdowns and a Fields sheet; CSV, the default, adds nothing to
-   *  the URL. */
-  templateUrl(jobType: ImportJobType, kind?: string, format: ImportTemplateFormat = 'csv'): string {
-    const params = new URLSearchParams()
-    if (kind) params.set('kind', kind)
-    if (format === 'xlsx') params.set('format', 'xlsx')
-    const query = params.toString()
-    const base = `/api/admin/import/template/${jobType}`
-    return query ? `${base}?${query}` : base
+  /** The template file, fetched through the API client so it carries the
+   *  workspace selection like every other request. For assets, `kind` (a
+   *  slug) adds that kind's attribute columns. `xlsx` is a workbook with
+   *  dropdowns and a Fields sheet; CSV, the default, adds nothing to the
+   *  query. */
+  async template(
+    jobType: ImportJobType,
+    kind?: string,
+    format: ImportTemplateFormat = 'csv',
+  ): Promise<{ blob: Blob; filename: string }> {
+    const params: Record<string, string> = {}
+    if (kind) params.kind = kind
+    if (format === 'xlsx') params.format = 'xlsx'
+    const response = await withJsonError(() =>
+      apiClient.get<Blob>(`/admin/import/template/${jobType}`, {
+        params,
+        responseType: 'blob',
+      }),
+    )
+    const disposition = String(response.headers['content-disposition'] ?? '')
+    const match = /filename="([^"]+)"/.exec(disposition)
+    return {
+      blob: response.data,
+      filename: match?.[1] ?? `nosdesk-${jobType}-template.${format}`,
+    }
   },
 }

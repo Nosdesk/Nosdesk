@@ -3755,6 +3755,8 @@ import-template-format-excel = Excel
 # MT: pending native review (nl-NL)
 import-template-format-help = Het Excel-sjabloon voegt keuzelijsten toe en een blad Fields dat elke kolom beschrijft.
 # MT: pending native review (nl-NL)
+import-template-failed = Het sjabloon kon niet worden gedownload. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
 import-drop-idle = Sleep een .csv- of .xlsx-bestand hierheen, of tik om er een te kiezen
 # MT: pending native review (nl-NL)
 import-drop-release = Loslaten om te uploaden
@@ -5404,6 +5406,8 @@ ticket-media-attachment-cancel = Annuleren
 ticket-media-attachment-submit-video = Video versturen
 ticket-media-attachment-preview-title-animated = Voorvertoning geanimeerde afbeelding
 ticket-media-attachment-preview-title-image = Voorvertoning afbeelding
+# MT: pending native review (nl-NL)
+ticket-media-attachment-preview-title-video = Voorvertoning video
 
 # Ticket media: audiospeler (AudioPlayer)
 ticket-media-audio-play = Afspelen

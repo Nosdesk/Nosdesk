@@ -322,13 +322,38 @@ const templateFormatOptions = computed(() => [
   { value: 'xlsx' as ImportTemplateFormat, label: t('import-template-format-excel') },
 ])
 
-function downloadTemplate() {
+/** Hand a downloaded file to the browser to save under its name. */
+function saveFile(blob: Blob, filename: string) {
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(link.href)
+}
+
+const downloadingTemplate = ref(false)
+
+/** Save the template through the API client, which names the workspace;
+ *  a plain link to the URL would leave it out. */
+async function downloadTemplate() {
+  if (downloadingTemplate.value) return
+  downloadingTemplate.value = true
+  errorMessage.value = ''
   const kind = selectedType.value === 'assets' ? templateKind.value : ''
-  window.location.href = importService.templateUrl(
-    selectedType.value,
-    kind || undefined,
-    templateFormat.value,
-  )
+  try {
+    const { blob, filename } = await importService.template(
+      selectedType.value,
+      kind || undefined,
+      templateFormat.value,
+    )
+    saveFile(blob, filename)
+  } catch (e) {
+    errorMessage.value = apiError(e, 'import-template-failed')
+  } finally {
+    downloadingTemplate.value = false
+  }
 }
 
 function chooseFile() {
@@ -571,13 +596,7 @@ async function downloadReport(only?: { group?: number; dropped?: number[] }) {
     const { blob, filename } = only
       ? await importService.errorReport(job.value.id, only)
       : await importService.errorReport(job.value.id)
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(link.href)
+    saveFile(blob, filename)
   } catch (e) {
     errorMessage.value =
       errorBody(e)?.code === 'import_file_missing'
@@ -899,6 +918,7 @@ function viewImported() {
                   variant="secondary"
                   icon="download"
                   data-test="import-template-download"
+                  :loading="downloadingTemplate"
                   @click="downloadTemplate"
                 >
                   {{ $t('import-template-download') }}
