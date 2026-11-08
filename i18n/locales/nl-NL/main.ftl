@@ -5406,6 +5406,8 @@ ticket-media-attachment-cancel = Annuleren
 ticket-media-attachment-submit-video = Video versturen
 ticket-media-attachment-preview-title-animated = Voorvertoning geanimeerde afbeelding
 ticket-media-attachment-preview-title-image = Voorvertoning afbeelding
+# MT: pending native review (nl-NL)
+ticket-media-attachment-preview-title-video = Voorvertoning video
 
 # Ticket media: audiospeler (AudioPlayer)
 ticket-media-audio-play = Afspelen

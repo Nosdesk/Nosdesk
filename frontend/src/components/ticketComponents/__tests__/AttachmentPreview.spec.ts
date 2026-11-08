@@ -41,7 +41,7 @@ const served = (name: string) => `/api/files/tickets/7/019eb4e2-dbaa-75e5-9eb2-a
 
 /** An attachment as the comment thread renders it: a compact tile for every
  * non-voice file, or the full card (`compact` false) the composer shows. */
-function tile(name: string, compact = true) {
+function tile(name: string, compact = true, renderModal = false) {
   const bundle = new FluentBundle('en-US', { useIsolating: false })
   bundle.addResource(new FluentResource(enUS))
   const router = createRouter({
@@ -58,7 +58,8 @@ function tile(name: string, compact = true) {
     },
     global: {
       plugins: [createFluentVue({ bundles: [bundle] }), router],
-      stubs: { Modal: true, Icon: true, Spinner: true, AssetImg: true },
+      stubs: { Modal: true, Icon: true, Spinner: true, AssetImg: true, VideoPlayer: true },
+      renderStubDefaultSlot: renderModal,
     },
   })
   return Object.assign(wrapper, { router })
@@ -81,10 +82,22 @@ describe('AttachmentPreview (compact)', () => {
     expect(tile('notes.txt').find('a').attributes('href')).toBe(`nosdesk-asset://localhost${served('notes.txt')}`)
   })
 
-  it('downloads a video, which has no viewer in the thread', () => {
-    const link = tile('clip.mp4').find('a')
-    expect(link.attributes('href')).toBe(served('clip.mp4'))
-    expect(link.attributes('download')).toBe('clip.mp4')
+  it('opens a video in the player instead of downloading it, keeping Download there', async () => {
+    // The tile is no longer a download link.
+    expect(tile('clip.mov').find('a').exists()).toBe(false)
+
+    const video = tile('clip.mov', true, true)
+    await video.find('button[aria-label="Open clip.mov"]').trigger('click')
+    const modal = video.findComponent({ name: 'Modal' })
+    expect(modal.props('show')).toBe(true)
+    expect(modal.props('title')).toBe('Video preview')
+    expect(video.findComponent({ name: 'VideoPlayer' }).props('src')).toBe(served('clip.mov'))
+
+    const download = modal.find('a[download]')
+    expect(download.attributes('href')).toBe(served('clip.mov'))
+    expect(download.attributes('download')).toBe('clip.mov')
+    expect(download.text()).toBe('Download attachment')
+    expect(modal.text()).toContain('Delete video')
   })
 
   it('names the kind of file it deletes', () => {

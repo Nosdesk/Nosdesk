@@ -150,9 +150,18 @@ const attachmentType = computed(() => {
   return 'file';
 });
 
-// In the compact tile, images open in the preview and PDFs in the viewer;
-// everything else downloads.
-const opensInViewer = computed(() => attachmentType.value === 'image' || attachmentType.value === 'pdf');
+// In the compact tile, images and videos open in the preview and PDFs in the
+// viewer; everything else downloads.
+const opensInViewer = computed(() =>
+  attachmentType.value === 'image' || attachmentType.value === 'video' || attachmentType.value === 'pdf'
+);
+
+const previewTitle = computed(() => {
+  if (attachmentType.value === 'video') return $t('ticket-media-attachment-preview-title-video');
+  return isAnimatedImage(props.attachment.name)
+    ? $t('ticket-media-attachment-preview-title-animated')
+    : $t('ticket-media-attachment-preview-title-image');
+});
 
 const deleteLabel = computed(() => {
   switch (attachmentType.value) {
@@ -173,7 +182,7 @@ const openImagePreview = async (src: string) => {
     return;
   }
 
-  // For all image formats, use the original source
+  // Images and videos open in the preview modal from the original source.
   previewImageSrc.value = src;
   showPreviewModal.value = true;
   emit('preview', previewImageSrc.value);
@@ -389,8 +398,8 @@ const generatePdfThumbnail = async () => {
 <template>
   <!-- Compact thumbnail tile for the comment attachment grid. Reuses the
        optimistic image display (displaySrc / isPending) and the shared preview
-       modal below. Images and PDFs open in their viewers; every other type is
-       a download link over the tile (beside the delete button, not around it,
+       modal below. Images, videos and PDFs open in their viewers; every other
+       type is a download link over the tile (beside the delete button, not around it,
        so a delete never also follows the link). -->
   <div
     v-if="compact"
@@ -708,16 +717,21 @@ const generatePdfThumbnail = async () => {
     
   </div>
 
-    <!-- Image Preview Modal (PDFs open in full page view) -->
+    <!-- Image and video preview modal (PDFs open in full page view) -->
     <Modal
       :show="showPreviewModal"
-      :title="isAnimatedImage(attachment.name) ? $t('ticket-media-attachment-preview-title-animated') : $t('ticket-media-attachment-preview-title-image')"
+      :title="previewTitle"
       size="lg"
       @close="closeImagePreview"
     >
       <div class="flex flex-col items-center gap-1">
+        <VideoPlayer
+          v-if="attachmentType === 'video'"
+          :src="previewImageSrc"
+          class="w-full h-[60vh]"
+        />
         <!-- Image Preview -->
-        <div class="relative">
+        <div v-else class="relative">
           <AssetImg
             :src="previewImageSrc"
             :alt="attachment.name"
@@ -751,7 +765,9 @@ const generatePdfThumbnail = async () => {
               : 'px-4 py-2 bg-surface-alt text-primary text-sm rounded hover:bg-surface-hover transition-colors flex items-center gap-2'"
           >
             <Icon name="download" />
-            {{ isAnimatedImage(attachment.name) ? $t('ticket-media-attachment-download-animated') : $t('ticket-media-attachment-download-image') }}
+            {{ attachmentType === 'video'
+              ? $t('ticket-media-attachment-download')
+              : isAnimatedImage(attachment.name) ? $t('ticket-media-attachment-download-animated') : $t('ticket-media-attachment-download-image') }}
           </a>
           <!-- Delete lives in the preview (not on the thumbnail on mobile, where
                the hover-only thumbnail button is invisible yet tappable). -->
@@ -762,7 +778,7 @@ const generatePdfThumbnail = async () => {
             class="px-4 py-2 bg-surface-alt text-status-error text-sm rounded hover:bg-status-error/10 transition-colors flex items-center gap-2"
           >
             <Icon name="trash" />
-            {{ $t('ticket-media-attachment-delete-image') }}
+            {{ deleteLabel }}
           </button>
         </div>
       </div>

@@ -4845,6 +4845,7 @@ ticket-media-attachment-cancel = Cancel
 ticket-media-attachment-submit-video = Submit video
 ticket-media-attachment-preview-title-animated = Animated image preview
 ticket-media-attachment-preview-title-image = Image preview
+ticket-media-attachment-preview-title-video = Video preview
 
 # Ticket media: audio player (AudioPlayer)
 ticket-media-audio-play = Play

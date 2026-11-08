@@ -5416,6 +5416,8 @@ ticket-media-attachment-cancel = Annuler
 ticket-media-attachment-submit-video = Envoyer la vidéo
 ticket-media-attachment-preview-title-animated = Aperçu de l'image animée
 ticket-media-attachment-preview-title-image = Aperçu de l'image
+# MT: pending native review (fr-FR)
+ticket-media-attachment-preview-title-video = Aperçu de la vidéo
 
 # Ticket media: lecteur audio (AudioPlayer)
 ticket-media-audio-play = Lecture
