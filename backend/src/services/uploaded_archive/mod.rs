@@ -16,7 +16,8 @@
 //! with a random name.
 //!
 //! Each caller picks its own [`ArchiveOptions`]: limits, which names are
-//! ignored, and whether a zip of zips (a split export) is opened as one.
+//! ignored, and whether a zip of zips (a split export, or a bundle of
+//! several exports) is opened as one.
 
 pub mod paths;
 pub mod reader;
@@ -27,7 +28,7 @@ pub use crate::services::upload_intake::spool;
 use std::path::PathBuf;
 
 pub use paths::IgnoreRules;
-pub use reader::{Entry, SafeArchive, SkipReason, Skipped};
+pub use reader::{BundlePart, Entry, SafeArchive, SkipReason, Skipped};
 pub use text::{decode_text, Text, TextEncoding};
 
 use crate::services::imports::refusal::Refused;
@@ -40,7 +41,8 @@ const MIB: u64 = 1024 * 1024;
 pub struct ArchiveLimits {
     /// Entries in the archive, nested parts' entries included.
     pub max_entries: usize,
-    /// One entry's uncompressed size. A read may ask for less.
+    /// One entry's uncompressed size. A read may ask for less, and a caller
+    /// may set another cap for one key ([`SafeArchive::set_entry_cap`]).
     pub max_entry_bytes: u64,
     /// Everything read from the archive, nested parts included.
     pub max_total_bytes: u64,
@@ -81,8 +83,16 @@ pub enum NestedZips {
     /// the same rules and their entries merged into one key space: Notion
     /// and others split a large export into parts. One level only; a zip
     /// inside a part is an ordinary entry. An outer zip that holds anything
-    /// else keeps its zips as ordinary entries.
+    /// else keeps its zips as ordinary entries. A key in two parts refuses
+    /// the archive.
     SplitExport,
+    /// A zip of exports, opened by the same rule as [`Self::SplitExport`].
+    /// When no key is in two parts it opens exactly as a split export. When
+    /// any is, every part's keys go under the part's name without `.zip`
+    /// (`Book A.zip` holds `data.json`, read as `Book A/data.json`), so each
+    /// export keeps its own key space ([`SafeArchive::bundle_parts`]). A
+    /// key still shared after that refuses the archive.
+    Bundle,
 }
 
 /// How a caller opens an archive.
