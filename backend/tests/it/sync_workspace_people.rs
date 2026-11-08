@@ -442,3 +442,76 @@ fn a_purge_reaches_colleagues_sessions_as_a_bare_prune() {
         "the delete names only the row"
     );
 }
+
+/// The `user.updated` rows about `who` that `workspace`'s feed holds.
+fn updates_about_in(f: &Fixture, workspace: i32, who: Uuid) -> Vec<UserRow> {
+    run_in_workspace(&f.pool, REF, workspace, |c| {
+        use backend::schema::sync_actions::dsl as s;
+        s::sync_actions
+            .filter(s::workspace_id.eq(workspace))
+            .filter(s::event_type.eq("user.updated"))
+            .filter(s::aggregate_id.eq(who.to_string()))
+            .order(s::sync_id.asc())
+            .select((s::aggregate, s::op, s::aggregate_id, s::data))
+            .load(c)
+    })
+    .expect("user.updated rows")
+}
+
+/// A change to the user row itself (an avatar) holds in every workspace, so it
+/// reaches each workspace whose pool carries the person, whichever one the
+/// writer is pinned to: B, where they are a member, and A, whose ticket names
+/// them though they hold no membership there. Each event carries the person's
+/// role in its own workspace, and the writer's pin is put back.
+#[test]
+fn an_avatar_change_reaches_every_workspace_that_holds_the_person() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let (a, b) = (f.ws.a.workspace_id, f.ws.b.workspace_id);
+    let who = f.requester_from_b;
+    let thumb = "/uploads/users/thumbs/requester_thumb.webp";
+
+    let mut conn = f.pool.get().expect("conn");
+    let pin_after = with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &ActorContext::system(REF).with_workspace(b),
+        |c| {
+            backend::repository::users::set_avatar_thumb(c, &who, Some(thumb))?;
+            backend::sync::session::current_workspace_id(c)
+        },
+    )
+    .expect("set the thumb from B");
+    assert_eq!(pin_after, Some(b), "the writer puts the caller's pin back");
+
+    let in_b = updates_about_in(&f, b, who);
+    assert_eq!(in_b.len(), 1, "B, where they are a member, hears it once");
+    assert_eq!(in_b[0].3["avatar_thumb"], thumb);
+    assert_eq!(
+        in_b[0].3["workspace_role"], "member",
+        "B's event has B's role"
+    );
+
+    let in_a = updates_about_in(&f, a, who);
+    assert_eq!(
+        in_a.len(),
+        1,
+        "A, whose ticket names them, hears it once (the case under test)"
+    );
+    assert_eq!(in_a[0].3["avatar_thumb"], thumb);
+    assert!(
+        in_a[0].3["workspace_role"].is_null(),
+        "they hold no role in A"
+    );
+    let delivered = delivered_in_a(&f, f.ws.a.admin_uuid, &in_a);
+    assert_eq!(delivered.len(), 1, "A's sessions receive it");
+
+    // Someone only in B is not one of A's people: A's feed never hears of them.
+    with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &ActorContext::system(REF).with_workspace(b),
+        |c| backend::repository::users::set_avatar_url(c, &f.ws.b.member_uuid, Some("/b.png")),
+    )
+    .expect("set B's member's avatar from B");
+    assert_eq!(updates_about_in(&f, b, f.ws.b.member_uuid).len(), 1);
+    assert!(updates_about_in(&f, a, f.ws.b.member_uuid).is_empty());
+}

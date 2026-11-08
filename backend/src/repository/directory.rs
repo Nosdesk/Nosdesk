@@ -104,12 +104,18 @@ pub fn listed_people(workspace_id: i32) -> diesel::expression::SqlLiteral<Bool> 
 /// one of the workspace's people, as one probe per source rather than a scan
 /// of the workspace. For checking a few known users.
 fn is_person_sql(workspace_id: i32, uuid_expr: &str) -> String {
+    person_probes_sql(&workspace_id.to_string(), uuid_expr)
+}
+
+/// [`is_person_sql`] with the workspace as a SQL expression too (such as
+/// `workspaces.id`). Both expressions come from code, never from input.
+fn person_probes_sql(workspace_expr: &str, uuid_expr: &str) -> String {
     let probes = PEOPLE_SOURCES
         .iter()
         .map(|(table, column)| {
             format!(
                 "EXISTS (SELECT 1 FROM {table} \
-                 WHERE {table}.workspace_id = {workspace_id} AND {table}.{column} = {uuid_expr})"
+                 WHERE {table}.workspace_id = {workspace_expr} AND {table}.{column} = {uuid_expr})"
             )
         })
         .collect::<Vec<_>>()
@@ -188,4 +194,44 @@ pub fn find_members(
     users::table
         .filter(users::uuid.eq_any(known))
         .load::<User>(conn)
+}
+
+#[derive(QueryableByName)]
+struct WorkspaceIdRow {
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    id: i32,
+}
+
+// sync-audit-only: read-only lookup
+/// Every workspace `user_uuid` is one of the people of, whatever workspace the
+/// connection is pinned to: the workspaces whose sync pools hold the person's
+/// row, former members included, so a change to it is sent to each of them.
+/// One probe per source per workspace, each on its `(workspace_id, column)`
+/// index.
+///
+/// Reads through the bypass role inside a savepoint that is then rolled back,
+/// as `workspaces::workspace_ids_of_user` does, so the caller's transaction
+/// carries on with its own role, actor and pin.
+pub fn workspaces_of_person(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Vec<i32>> {
+    let sql = format!(
+        "SELECT workspaces.id FROM workspaces WHERE {} ORDER BY workspaces.id",
+        person_probes_sql("workspaces.id", "$1")
+    );
+    let mut ids = None;
+    let outcome = conn.transaction::<(), diesel::result::Error, _>(|conn| {
+        let actor = crate::sync::actor::ActorContext::system("repository:workspaces_of_person");
+        // cross-tenant: which workspaces name a person, for a change to their user row, which every one of those workspaces' pools holds; ids only, and rolled back with the savepoint.
+        let read = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            diesel::sql_query(&sql)
+                .bind::<diesel::sql_types::Uuid, _>(user_uuid)
+                .load::<WorkspaceIdRow>(conn)
+        })?;
+        ids = Some(read.into_iter().map(|r| r.id).collect());
+        Err(diesel::result::Error::RollbackTransaction)
+    });
+    match (ids, outcome) {
+        (Some(ids), _) => Ok(ids),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(diesel::result::Error::NotFound),
+    }
 }

@@ -198,12 +198,13 @@ fn persist_thumb(
         return Ok(());
     };
 
+    let user_uuid = uuid::Uuid::parse_str(&row.uuid_str)
+        .map_err(|e| diesel::result::Error::DeserializationError(Box::new(e)))?;
     let actor = ActorContext::system(reference).with_workspace(workspace_id);
+    // The writer sends `user.updated` to every workspace holding the row, so
+    // open clients stop showing the old thumb.
     with_actor_context(conn, &actor, |conn| {
-        diesel::sql_query("UPDATE users SET avatar_thumb = $1 WHERE uuid = $2::uuid")
-            .bind::<Text, _>(thumb_url)
-            .bind::<Text, _>(&row.uuid_str)
-            .execute(conn)?;
+        crate::repository::users::set_avatar_thumb(conn, &user_uuid, Some(thumb_url))?;
         Ok::<(), diesel::result::Error>(())
     })
 }
@@ -238,5 +239,46 @@ mod tests {
             .find(|r| r.uuid_str == user.uuid.to_string())
             .expect("the user is listed");
         assert_eq!(mine.workspace_id, Some(1));
+    }
+
+    /// A regenerated thumb that changes the column goes out as `user.updated`
+    /// carrying it, so open clients stop showing the old one. Run unpinned on
+    /// the runtime role, as the scheduler runs it.
+    #[test]
+    fn persisting_a_thumb_sends_it_to_open_clients() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "thumb_persist_member", "user");
+        let row = AvatarRow {
+            uuid_str: user.uuid.to_string(),
+            avatar_url: "/uploads/users/avatars/a.png".to_string(),
+            avatar_thumb: None,
+            workspace_id: Some(1),
+        };
+        let thumb = format!("/uploads/users/thumbs/{}_thumb.webp", user.uuid);
+
+        conn.transaction::<_, diesel::result::Error, _>(|c| {
+            diesel::sql_query("SELECT set_config('app.workspace_id', '', true)").execute(c)?;
+            persist_thumb(c, &row, &thumb, "test:persist_thumb")
+        })
+        .expect("persist the thumb");
+
+        #[derive(QueryableByName)]
+        struct Sent {
+            #[diesel(sql_type = Nullable<Text>)]
+            avatar_thumb: Option<String>,
+        }
+        diesel::sql_query("SELECT set_config('app.workspace_id', '1', true)")
+            .execute(&mut conn)
+            .expect("pin workspace 1 to read its feed");
+        let sent: Vec<Sent> = diesel::sql_query(
+            "SELECT data->>'avatar_thumb' AS avatar_thumb FROM sync_actions \
+             WHERE event_type = 'user.updated' AND aggregate_id = $1 \
+               AND 'workspace:1' = ANY(groups)",
+        )
+        .bind::<Text, _>(user.uuid.to_string())
+        .load(&mut conn)
+        .expect("read user.updated");
+        assert_eq!(sent.len(), 1, "one user.updated in the user's workspace");
+        assert_eq!(sent[0].avatar_thumb.as_deref(), Some(thumb.as_str()));
     }
 }

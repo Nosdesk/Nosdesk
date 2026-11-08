@@ -54,8 +54,21 @@ fn emit_user_event(
     } else {
         let email = crate::repository::user_helpers::get_primary_email(&user.uuid, conn)
             .unwrap_or_default();
-        let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid)
-            .map(|r| r.as_str().to_string());
+        // The role in the workspace the event is recorded in, named by the pin
+        // rather than left to row security, so an elevated writer that pins
+        // each workspace in turn sends each one its own role.
+        let workspace_role = workspace_members::table
+            .filter(
+                workspace_members::workspace_id
+                    .nullable()
+                    .eq(crate::repository::pinned_workspace().nullable()),
+            )
+            .filter(workspace_members::user_uuid.eq(user.uuid))
+            .filter(workspace_members::removed_at.is_null())
+            .select(workspace_members::role)
+            .first::<String>(conn)
+            .optional()?
+            .map(|r| WorkspaceRole::from_db(&r).as_str().to_string());
         // Personal dashboard layout lives in `user_preferences`; carry it
         // so a user's own sessions sync the arrangement live through the
         // pool.
@@ -88,6 +101,41 @@ fn emit_user_event(
         },
     )?;
     Ok(())
+}
+
+/// The workspaces a change to `user_uuid`'s row must reach: every one whose
+/// sync pool holds it ([`directory::workspaces_of_person`]), plus the pinned
+/// one, which may not name the person yet (a projection writes the row before
+/// it grants the membership).
+///
+/// [`directory::workspaces_of_person`]: crate::repository::directory::workspaces_of_person
+fn workspaces_holding_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Vec<i32>> {
+    let mut workspaces = crate::repository::directory::workspaces_of_person(conn, user_uuid)?;
+    if let Some(pinned) = crate::sync::session::current_workspace_id(conn)? {
+        if !workspaces.contains(&pinned) {
+            workspaces.push(pinned);
+        }
+    }
+    Ok(workspaces)
+}
+
+/// [`emit_user_event`] once in each of `workspaces`, pinning each in turn so
+/// the event lands in that workspace's group with the person's role there,
+/// then putting the caller's pin back. Runs inside the caller's transaction:
+/// the pin is transaction-local.
+fn emit_user_event_in_each(
+    conn: &mut DbConnection,
+    workspaces: &[i32],
+    user: &User,
+    op: SyncOp,
+    event_type: &'static str,
+) -> QueryResult<()> {
+    let previous = crate::sync::session::current_workspace_id(conn)?;
+    for &workspace_id in workspaces {
+        crate::sync::session::pin_workspace(conn, workspace_id)?;
+        emit_user_event(conn, user, op, event_type)?;
+    }
+    crate::sync::session::restore_workspace_pin(conn, previous)
 }
 
 /// Observer fired after a user's row is updated. Mirrors
@@ -943,6 +991,44 @@ pub fn set_password_changed_at(
     diesel::update(users::table.find(user_uuid))
         .set(users::password_changed_at.eq(at))
         .execute(conn)
+}
+
+/// Set `avatar_thumb` and send `user.updated` to every workspace holding the
+/// person's row. Runs in the caller's actor and workspace context (the audit
+/// trigger on `users` reads `app.workspace_id`).
+pub fn set_avatar_thumb(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    avatar_thumb: Option<&str>,
+) -> Result<User, Error> {
+    conn.transaction(|conn| {
+        let updated: User = diesel::update(users::table.find(user_uuid))
+            .set(users::avatar_thumb.eq(avatar_thumb))
+            .get_result(conn)?;
+        // emit::record fires inside emit_user_event, once per workspace.
+        let workspaces = workspaces_holding_user(conn, updated.uuid)?;
+        emit_user_event_in_each(conn, &workspaces, &updated, SyncOp::Update, "user.updated")?;
+        Ok(updated)
+    })
+}
+
+/// Set `avatar_url` and send `user.updated` to every workspace holding the
+/// person's row. Runs in the caller's actor and workspace context (the audit
+/// trigger on `users` reads `app.workspace_id`).
+pub fn set_avatar_url(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    avatar_url: Option<&str>,
+) -> Result<User, Error> {
+    conn.transaction(|conn| {
+        let updated: User = diesel::update(users::table.find(user_uuid))
+            .set(users::avatar_url.eq(avatar_url))
+            .get_result(conn)?;
+        // emit::record fires inside emit_user_event, once per workspace.
+        let workspaces = workspaces_holding_user(conn, updated.uuid)?;
+        emit_user_event_in_each(conn, &workspaces, &updated, SyncOp::Update, "user.updated")?;
+        Ok(updated)
+    })
 }
 
 /// Outcome of [`set_user_roles`].

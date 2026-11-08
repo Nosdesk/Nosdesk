@@ -155,3 +155,72 @@ fn audit_with_matching_count_records_zero_delta() {
     assert_eq!(outcome.row.delta, BigDecimal::from(0));
     assert_eq!(read_quantity(&mut conn, asset_id).to_string(), "25.000");
 }
+
+/// The on-hand quantity each `asset.updated` row for the asset carried,
+/// oldest first.
+fn quantities_sent(conn: &mut backend::db::DbConnection, asset_id: i32) -> Vec<BigDecimal> {
+    use backend::schema::sync_actions::dsl as s;
+    let rows: Vec<serde_json::Value> = s::sync_actions
+        .filter(s::event_type.eq("asset.updated"))
+        .filter(s::aggregate_id.eq(asset_id.to_string()))
+        .order(s::sync_id.asc())
+        .select(s::data)
+        .load(&mut **conn)
+        .expect("asset.updated rows");
+    rows.iter()
+        .map(|data| match &data["quantity"] {
+            serde_json::Value::String(q) => BigDecimal::from_str(q).expect("quantity"),
+            other => BigDecimal::from_str(&other.to_string()).expect("quantity"),
+        })
+        .collect()
+}
+
+/// A count corrects the on-hand quantity, and open clients hold the asset row,
+/// so the correction goes out as `asset.updated` carrying the new count.
+#[test]
+fn audit_sends_the_new_quantity_to_open_clients() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    let asset_id = seed_stock_asset(&mut conn, "50.000", None);
+
+    asset_audits::record_audit(
+        &mut conn,
+        asset_id,
+        BigDecimal::from_str("42.000").unwrap(),
+        None,
+        None,
+    )
+    .expect("audit");
+
+    assert_eq!(
+        quantities_sent(&mut conn, asset_id),
+        vec![BigDecimal::from_str("42.000").unwrap()]
+    );
+}
+
+/// Usage and restock move the on-hand quantity, and each move goes out as
+/// `asset.updated` carrying the new count.
+#[test]
+fn usage_and_restock_send_the_new_quantity_to_open_clients() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    let asset_id = seed_stock_asset(&mut conn, "10.000", None);
+
+    let event = |kind: &str, qty: &str| backend::models::NewAssetUsage {
+        asset_id,
+        ticket_id: None,
+        quantity_used: BigDecimal::from_str(qty).unwrap(),
+        unit: "pcs".to_string(),
+        recorded_by: None,
+        notes: None,
+        event_kind: kind.to_string(),
+    };
+    backend::repository::asset_usage::record_event(&mut conn, event("usage", "3")).expect("usage");
+    backend::repository::asset_usage::record_event(&mut conn, event("restock", "5"))
+        .expect("restock");
+
+    assert_eq!(
+        quantities_sent(&mut conn, asset_id),
+        vec![BigDecimal::from(7), BigDecimal::from(12)]
+    );
+}
