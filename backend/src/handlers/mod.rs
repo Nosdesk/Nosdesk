@@ -819,8 +819,8 @@ pub async fn get_comment_raw_eml(
         base_storage.get_ref().clone(),
         workspace_id,
     );
-    match storage.get_file(&storage_path).await {
-        Ok(bytes) => HttpResponse::Ok()
+    match storage.read(&storage_path, None).await {
+        Ok(object) => HttpResponse::Ok()
             .insert_header(("Content-Type", "text/plain; charset=utf-8"))
             .insert_header((
                 "Content-Disposition",
@@ -832,7 +832,7 @@ pub async fn get_comment_raw_eml(
             // is conservative; the agent UI re-fetches on tab
             // reload anyway.
             .insert_header(("Cache-Control", "private, max-age=3600"))
-            .body(bytes),
+            .body(object.into_body()),
         Err(e) => {
             warn!(comment_id, error = ?e, "raw .eml fetch failed; file may have been pruned");
             errors::not_found_msg("Not found")

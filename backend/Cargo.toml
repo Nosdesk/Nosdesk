@@ -85,7 +85,7 @@ maxminddb = "0.32"  # offline IP geolocation for session display (operator-suppl
 actix-ws = "0.4"
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }  # Stream wrappers for tokio types
-tokio-util = "0.7"  # CancellationToken used by the periodic scheduler + future graceful-shutdown wiring
+tokio-util = { version = "0.7", features = ["io"] }  # CancellationToken for the periodic scheduler; ReaderStream for streamed storage reads
 # Async Postgres client used only by the sync-outbox listener
 # (services/sync_outbox.rs) for `LISTEN sync_actions_new`. Diesel's
 # libpq client is synchronous and doesn't expose notifications cleanly,
