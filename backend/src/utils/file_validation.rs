@@ -730,7 +730,7 @@ mod tests {
             "application/vnd.ms-excel"
         );
         assert_eq!(
-            FileValidator::validate_file(&head, Some("archive.bin")).unwrap(),
+            FileValidator::validate_file(&head, Some("compound")).unwrap(),
             "application/x-ole-storage"
         );
     }
