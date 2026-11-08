@@ -755,10 +755,10 @@ pub async fn preview(
     if !matches!(job.status.as_str(), "dry_run_done" | "committing" | "done") {
         return errors::conflict_with_code(NOT_CHECKED, "import_not_checked");
     }
-    match storage.0.get_file(&docs::preview_key(id, index)).await {
-        Ok(bytes) => HttpResponse::Ok()
+    match storage.0.read(&docs::preview_key(id, index), None).await {
+        Ok(object) => HttpResponse::Ok()
             .insert_header((header::CONTENT_TYPE, "application/json"))
-            .body(bytes),
+            .body(object.into_body()),
         Err(crate::utils::storage::StorageError::NotFound(_)) => {
             errors::not_found_msg(format!("page {index} isn't in this import"))
         }

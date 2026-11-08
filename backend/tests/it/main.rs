@@ -82,6 +82,7 @@ mod email_quote_corpus;
 mod email_suppression_scoping;
 mod email_verification_round_trip;
 mod error_envelope_lint;
+mod file_ranges;
 mod foreign_references_refused;
 mod guest_pending_hold;
 mod guest_residue_sweep;

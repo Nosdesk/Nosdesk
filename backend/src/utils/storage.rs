@@ -1,11 +1,15 @@
+use actix_web::body::SizedStream;
 use actix_web::http::header::{
     Charset, ContentDisposition, DispositionParam, DispositionType, ExtendedValue, ACCEPT_RANGES,
-    CACHE_CONTROL, CONTENT_TYPE,
+    CACHE_CONTROL, CONTENT_RANGE, CONTENT_TYPE, RANGE,
 };
 use actix_web::{HttpRequest, HttpResponse};
 use async_trait::async_trait;
+use bytes::Bytes;
+use futures::Stream;
 use std::io;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use tracing::{error, warn};
 use uuid::Uuid;
@@ -58,11 +62,79 @@ pub enum StorageError {
     Backend(String),
     /// The path could leave the storage root (see [`is_safe_storage_path`]).
     InvalidPath(String),
+    /// A read asked for a range that starts past the end of an object of
+    /// `total` bytes.
+    RangeNotSatisfiable {
+        total: u64,
+    },
 }
 
 impl From<io::Error> for StorageError {
     fn from(error: io::Error) -> Self {
         StorageError::Io(error)
+    }
+}
+
+/// The bytes of an object a [`Storage::read`] asks for, as a `Range` header
+/// names them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ByteRange {
+    /// From `start` through `end` inclusive, or to the end of the object.
+    From { start: u64, end: Option<u64> },
+    /// The last `n` bytes.
+    Suffix(u64),
+}
+
+/// The body of a [`Storage::read`].
+pub type ObjectStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>> + Send>>;
+
+/// An object, or part of one, streamed by [`Storage::read`].
+pub struct ObjectRead {
+    pub body: ObjectStream,
+    /// The whole object's length.
+    pub total: u64,
+    /// The inclusive bounds `body` holds when a range was read; `None` is the
+    /// whole object.
+    pub range: Option<(u64, u64)>,
+}
+
+impl ObjectRead {
+    /// The number of bytes in `body`.
+    pub fn body_len(&self) -> u64 {
+        self.range
+            .map_or(self.total, |(start, end)| end - start + 1)
+    }
+
+    /// `body` as a response body sent with its `Content-Length`.
+    pub fn into_body(self) -> SizedStream<ObjectStream> {
+        SizedStream::new(self.body_len(), self.body)
+    }
+}
+
+/// The inclusive bounds `range` names in an object of `total` bytes, its end
+/// clamped to the object's. `None` reads the whole object: no range, or an
+/// inverted one, which is ignored as S3 ignores it. A start past the end, an
+/// empty suffix or any range of an empty object can't be satisfied.
+pub fn resolve_range(
+    range: Option<ByteRange>,
+    total: u64,
+) -> Result<Option<(u64, u64)>, StorageError> {
+    let Some(range) = range else {
+        return Ok(None);
+    };
+    let unsatisfiable = StorageError::RangeNotSatisfiable { total };
+    let Some(last) = total.checked_sub(1) else {
+        return Err(unsatisfiable);
+    };
+    match range {
+        ByteRange::From { start, .. } if start > last => Err(unsatisfiable),
+        ByteRange::From {
+            start,
+            end: Some(end),
+        } if end < start => Ok(None),
+        ByteRange::From { start, end } => Ok(Some((start, end.map_or(last, |e| e.min(last))))),
+        ByteRange::Suffix(0) => Err(unsatisfiable),
+        ByteRange::Suffix(n) => Ok(Some((total.saturating_sub(n), last))),
     }
 }
 
@@ -115,6 +187,24 @@ pub trait Storage: Send + Sync {
 
     /// Retrieve a file by path
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError>;
+
+    /// Stream a stored file, or `range` of it, with the file's length. A range
+    /// that starts past the end is [`StorageError::RangeNotSatisfiable`]. The
+    /// default reads the file whole and slices it; the backends stream it.
+    async fn read(&self, path: &str, range: Option<ByteRange>) -> Result<ObjectRead, StorageError> {
+        let data = Bytes::from(self.get_file(path).await?);
+        let total = data.len() as u64;
+        let range = resolve_range(range, total)?;
+        let body = match range {
+            Some((start, end)) => data.slice(start as usize..=end as usize),
+            None => data,
+        };
+        Ok(ObjectRead {
+            body: Box::pin(futures::stream::once(async move { Ok(body) })),
+            total,
+            range,
+        })
+    }
 
     /// [`Storage::put_file`] from a local file, for uploads too large to
     /// hold in memory. The default reads the file whole; the backends
@@ -263,13 +353,42 @@ impl Storage for LocalStorage {
 
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         let full_path = self.full_path(path)?;
-        match std::fs::read(&full_path) {
+        match tokio::fs::read(&full_path).await {
             Ok(data) => Ok(data),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 Err(StorageError::NotFound(format!("File not found: {path}")))
             }
             Err(e) => Err(StorageError::Io(e)),
         }
+    }
+
+    async fn read(&self, path: &str, range: Option<ByteRange>) -> Result<ObjectRead, StorageError> {
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+        let not_found = || StorageError::NotFound(format!("File not found: {path}"));
+        let mut file = match tokio::fs::File::open(self.full_path(path)?).await {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(not_found()),
+            Err(e) => return Err(StorageError::Io(e)),
+        };
+        // A directory opens, then fails on the first read; it isn't a file.
+        let meta = file.metadata().await?;
+        if !meta.is_file() {
+            return Err(not_found());
+        }
+        let total = meta.len();
+        let range = resolve_range(range, total)?;
+        let (start, len) = range.map_or((0, total), |(start, end)| (start, end - start + 1));
+        if start > 0 {
+            file.seek(io::SeekFrom::Start(start)).await?;
+        }
+        Ok(ObjectRead {
+            body: Box::pin(tokio_util::io::ReaderStream::with_capacity(
+                file.take(len),
+                READ_CHUNK,
+            )),
+            total,
+            range,
+        })
     }
 
     async fn put_file_from_path(
@@ -403,8 +522,8 @@ impl Storage for LocalStorage {
 /// the app proxies serving via `serve_file_from_storage`, `get_public_url`
 /// returns the same app-relative `/uploads/...` path the local backend
 /// does, the bucket can stay private and access control stays in the
-/// handlers. No streaming: the `Storage` trait is byte-oriented, so each
-/// op buffers a whole object (matches the existing local behaviour).
+/// handlers. `read` streams, with a `Range` passed through to `GetObject`;
+/// `get_file` buffers a whole object.
 pub struct S3Storage {
     client: aws_sdk_s3::Client,
     bucket: String,
@@ -445,6 +564,54 @@ impl S3Storage {
         }
     }
 }
+
+impl S3Storage {
+    /// An object's length, from `HeadObject`.
+    async fn object_len(&self, path: &str) -> Result<u64, StorageError> {
+        use aws_sdk_s3::operation::head_object::HeadObjectError;
+        let head = self
+            .client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(checked_path(path)?)
+            .send()
+            .await
+            .map_err(|e| match &e {
+                aws_sdk_s3::error::SdkError::ServiceError(se)
+                    if matches!(se.err(), HeadObjectError::NotFound(_)) =>
+                {
+                    StorageError::NotFound(format!("File not found: {path}"))
+                }
+                _ => StorageError::Backend(format!("S3 head_object failed: {e}")),
+            })?;
+        Ok(head
+            .content_length()
+            .and_then(|len| u64::try_from(len).ok())
+            .unwrap_or(0))
+    }
+}
+
+/// The `Range` header [`S3Storage::read`] sends for `range`.
+fn s3_range_header(range: ByteRange) -> String {
+    match range {
+        ByteRange::From {
+            start,
+            end: Some(end),
+        } => format!("bytes={start}-{end}"),
+        ByteRange::From { start, end: None } => format!("bytes={start}-"),
+        ByteRange::Suffix(n) => format!("bytes=-{n}"),
+    }
+}
+
+/// `(start, end, total)` from a `Content-Range: bytes {start}-{end}/{total}`.
+fn parse_content_range(value: &str) -> Option<(u64, u64, u64)> {
+    let (span, total) = value.trim().strip_prefix("bytes ")?.split_once('/')?;
+    let (start, end) = span.split_once('-')?;
+    Some((start.parse().ok()?, end.parse().ok()?, total.parse().ok()?))
+}
+
+/// The buffer a streamed read fills per chunk.
+const READ_CHUNK: usize = 64 * 1024;
 
 #[async_trait]
 impl Storage for S3Storage {
@@ -529,6 +696,74 @@ impl Storage for S3Storage {
             .map_err(|e| StorageError::Backend(format!("S3 body read failed: {e}")))?
             .into_bytes();
         Ok(bytes.to_vec())
+    }
+
+    async fn read(&self, path: &str, range: Option<ByteRange>) -> Result<ObjectRead, StorageError> {
+        use aws_sdk_s3::error::ProvideErrorMetadata;
+        use aws_sdk_s3::operation::get_object::GetObjectError;
+        let key = checked_path(path)?;
+        if range == Some(ByteRange::Suffix(0)) {
+            // Unsatisfiable at any length, so not worth a GetObject.
+            return Err(StorageError::RangeNotSatisfiable {
+                total: self.object_len(path).await?,
+            });
+        }
+        let out = match self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .set_range(range.map(s3_range_header))
+            .send()
+            .await
+        {
+            Ok(out) => out,
+            Err(e)
+                if e.code() == Some("InvalidRange")
+                    || e.raw_response().is_some_and(|r| r.status().as_u16() == 416) =>
+            {
+                // S3's 416 carries no length; a 416 is rare enough to ask.
+                return Err(StorageError::RangeNotSatisfiable {
+                    total: self.object_len(path).await?,
+                });
+            }
+            Err(e) => {
+                return Err(match &e {
+                    aws_sdk_s3::error::SdkError::ServiceError(se)
+                        if matches!(se.err(), GetObjectError::NoSuchKey(_)) =>
+                    {
+                        StorageError::NotFound(format!("File not found: {path}"))
+                    }
+                    _ => StorageError::Backend(format!("S3 get_object failed: {e}")),
+                })
+            }
+        };
+        // A store that ignores the range answers 200 with the whole object
+        // and no `Content-Range`, which is then served whole.
+        let (range, total) = match (range, out.content_range()) {
+            (Some(_), Some(value)) => {
+                let (start, end, total) = parse_content_range(value).ok_or_else(|| {
+                    StorageError::Backend(format!("S3 get_object gave Content-Range {value}"))
+                })?;
+                (Some((start, end)), total)
+            }
+            _ => (
+                None,
+                out.content_length()
+                    .and_then(|len| u64::try_from(len).ok())
+                    .ok_or_else(|| {
+                        StorageError::Backend("S3 get_object gave no length".to_string())
+                    })?,
+            ),
+        };
+        Ok(ObjectRead {
+            body: Box::pin(tokio_util::io::ReaderStream::with_capacity(
+                out.body.into_async_read(),
+                READ_CHUNK,
+            )),
+            total,
+            range,
+        })
     }
 
     async fn put_file_from_path(
@@ -779,6 +1014,10 @@ impl Storage for WorkspaceScopedStorage {
 
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         self.inner.get_file(&self.physical(path)).await
+    }
+
+    async fn read(&self, path: &str, range: Option<ByteRange>) -> Result<ObjectRead, StorageError> {
+        self.inner.read(&self.physical(path), range).await
     }
 
     async fn put_file_from_path(
@@ -1099,17 +1338,36 @@ pub async fn serve_named_file_from_storage(
     // Extract filename from path for content type detection
     let filename = path.split('/').next_back().unwrap_or("file");
 
-    // Get file data from storage
-    let file_data = storage.get_file(path).await.map_err(|e| {
-        error!("Failed to get file from storage: {:?}", e);
-        crate::errors::not_found_error("File not found")
-    })?;
+    let range = requested_range(req.headers().get(RANGE).and_then(|v| v.to_str().ok()));
+    let object = match storage.read(path, range).await {
+        Ok(object) => object,
+        Err(StorageError::RangeNotSatisfiable { total }) => {
+            return Ok(HttpResponse::RangeNotSatisfiable()
+                .insert_header((ACCEPT_RANGES, "bytes"))
+                .insert_header((CONTENT_RANGE, format!("bytes */{total}")))
+                .finish());
+        }
+        Err(e) => {
+            error!("Failed to get file from storage: {:?}", e);
+            return Err(crate::errors::not_found_error("File not found"));
+        }
+    };
 
     // Determine content type based on file extension
     let content_type = get_content_type(filename);
 
-    // Build response with proper headers
-    let mut response_builder = HttpResponse::Ok();
+    // A range read is a 206 naming the bytes it holds; the whole file is a 200.
+    let mut response_builder = match object.range {
+        Some((start, end)) => {
+            let mut partial = HttpResponse::PartialContent();
+            partial.insert_header((
+                CONTENT_RANGE,
+                format!("bytes {start}-{end}/{}", object.total),
+            ));
+            partial
+        }
+        None => HttpResponse::Ok(),
+    };
 
     // No CORS headers here: the app is same-origin, the app-wide CORS layer
     // answers for its allowed origins, and the mobile app reads files through
@@ -1126,48 +1384,34 @@ pub async fn serve_named_file_from_storage(
                 .map_or_else(|| inline_disposition(filename), |n| named_disposition(&n)),
         );
 
-    // Handle range requests for PDF.js and other file types
-    let range_header = req.headers().get("Range");
-    if let Some(range_value) = range_header {
-        if let Ok(range_str) = range_value.to_str() {
-            if let Some(range_spec) = range_str.strip_prefix("bytes=") {
-                // Remove "bytes="
+    // Streamed, with `Content-Length` from the read.
+    Ok(response_builder.body(object.into_body()))
+}
 
-                // Parse range like "0-1023" or "1024-"
-                if let Some((start_str, end_str)) = range_spec.split_once('-') {
-                    let start = start_str.parse::<usize>().unwrap_or(0);
-                    let end = if end_str.is_empty() {
-                        file_data.len() - 1
-                    } else {
-                        end_str
-                            .parse::<usize>()
-                            .unwrap_or(file_data.len() - 1)
-                            .min(file_data.len() - 1)
-                    };
-
-                    if start <= end && start < file_data.len() {
-                        let content_length = end - start + 1;
-                        let range_data = file_data[start..=end].to_vec();
-
-                        // Return partial content response
-                        return Ok(response_builder
-                            .status(actix_web::http::StatusCode::PARTIAL_CONTENT)
-                            .insert_header(("Content-Length", content_length.to_string()))
-                            .insert_header((
-                                "Content-Range",
-                                format!("bytes {}-{}/{}", start, end, file_data.len()),
-                            ))
-                            .body(range_data));
-                    }
-                }
-            }
-        }
+/// The one range a `Range` header asks for, or `None` to send the whole file:
+/// no header, a unit other than bytes, a malformed or inverted range, or more
+/// than one range (multipart responses aren't served).
+fn requested_range(header: Option<&str>) -> Option<ByteRange> {
+    let (unit, spec) = header?.split_once('=')?;
+    if !unit.trim().eq_ignore_ascii_case("bytes") || spec.contains(',') {
+        return None;
     }
-
-    // Full file response (no range request or invalid range)
-    Ok(response_builder
-        .insert_header(("Content-Length", file_data.len().to_string()))
-        .body(file_data))
+    let (first, last) = spec.trim().split_once('-')?;
+    let number = |s: &str| {
+        (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| s.parse::<u64>().ok())
+            .flatten()
+    };
+    if first.is_empty() {
+        return number(last).map(ByteRange::Suffix);
+    }
+    let start = number(first)?;
+    let end = if last.is_empty() {
+        None
+    } else {
+        Some(number(last).filter(|&end| end >= start)?)
+    };
+    Some(ByteRange::From { start, end })
 }
 
 /// Helper function to determine content type based on file extension
@@ -1184,6 +1428,10 @@ fn get_content_type(filename: &str) -> &'static str {
         // octet-stream fallback here means the browser refuses to render them.
         "ico" => "image/x-icon",
         "mp4" => "video/mp4",
+        // iPhone video and audio.
+        "mov" => "video/quicktime",
+        "m4v" => "video/x-m4v",
+        "m4a" => "audio/mp4",
         "webm" => "video/webm",
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
@@ -1215,6 +1463,237 @@ mod tests {
         assert_eq!(get_content_type("doc.pdf"), "application/pdf");
         assert_eq!(get_content_type("data.json"), "application/json");
         assert_eq!(get_content_type("archive.zip"), "application/zip");
+        // iPhone video and audio play rather than download.
+        assert_eq!(get_content_type("IMG_0001.MOV"), "video/quicktime");
+        assert_eq!(get_content_type("clip.m4v"), "video/x-m4v");
+        assert_eq!(get_content_type("memo.m4a"), "audio/mp4");
+    }
+
+    // ── Ranges ───────────────────────────────────────────────────
+
+    #[test]
+    fn requested_range_reads_one_byte_range() {
+        let from = |start, end| Some(ByteRange::From { start, end });
+        assert_eq!(requested_range(Some("bytes=0-1")), from(0, Some(1)));
+        assert_eq!(requested_range(Some("bytes=100-")), from(100, None));
+        assert_eq!(requested_range(Some("bytes=5-5")), from(5, Some(5)));
+        assert_eq!(
+            requested_range(Some("bytes=-500")),
+            Some(ByteRange::Suffix(500))
+        );
+        assert_eq!(
+            requested_range(Some("bytes=-0")),
+            Some(ByteRange::Suffix(0))
+        );
+        // A start past the end parses; resolving it against the length refuses it.
+        assert_eq!(requested_range(Some("bytes=999999-")), from(999_999, None));
+        assert_eq!(requested_range(Some("Bytes=0-1")), from(0, Some(1)));
+    }
+
+    #[test]
+    fn requested_range_ignores_what_it_cannot_serve() {
+        for header in [
+            None,
+            Some(""),
+            Some("bytes="),
+            Some("bytes=-"),
+            Some("bytes=abc"),
+            Some("bytes=1-abc"),
+            Some("bytes=+1-2"),
+            Some("bytes=0x1-2"),
+            Some("bytes=5-2"),
+            Some("bytes=0-1,3-4"),
+            Some("bytes=0-1, -5"),
+            Some("items=0-1"),
+            Some("0-1"),
+            Some("bytes=99999999999999999999999-"),
+        ] {
+            assert_eq!(requested_range(header), None, "{header:?}");
+        }
+    }
+
+    #[test]
+    fn resolve_range_clamps_or_refuses() {
+        let from = |start, end| Some(ByteRange::From { start, end });
+        let unsatisfiable = |r: Result<Option<(u64, u64)>, StorageError>| {
+            matches!(r, Err(StorageError::RangeNotSatisfiable { total: 1000 }))
+        };
+        assert_eq!(resolve_range(None, 1000).unwrap(), None);
+        assert_eq!(resolve_range(from(0, Some(1)), 1000).unwrap(), Some((0, 1)));
+        assert_eq!(
+            resolve_range(from(100, None), 1000).unwrap(),
+            Some((100, 999))
+        );
+        assert_eq!(
+            resolve_range(from(990, Some(5000)), 1000).unwrap(),
+            Some((990, 999))
+        );
+        assert_eq!(
+            resolve_range(from(999, None), 1000).unwrap(),
+            Some((999, 999))
+        );
+        assert_eq!(
+            resolve_range(Some(ByteRange::Suffix(500)), 1000).unwrap(),
+            Some((500, 999))
+        );
+        assert_eq!(
+            resolve_range(Some(ByteRange::Suffix(5000)), 1000).unwrap(),
+            Some((0, 999))
+        );
+        // Inverted: the whole object, as S3 answers it.
+        assert_eq!(resolve_range(from(5, Some(2)), 1000).unwrap(), None);
+        assert!(unsatisfiable(resolve_range(from(1000, None), 1000)));
+        assert!(unsatisfiable(resolve_range(from(1000, Some(2000)), 1000)));
+        assert!(unsatisfiable(resolve_range(
+            Some(ByteRange::Suffix(0)),
+            1000
+        )));
+        // An empty object has no bytes to range over.
+        for range in [from(0, None), from(0, Some(0)), Some(ByteRange::Suffix(5))] {
+            assert!(matches!(
+                resolve_range(range, 0),
+                Err(StorageError::RangeNotSatisfiable { total: 0 })
+            ));
+        }
+        assert_eq!(resolve_range(None, 0).unwrap(), None);
+    }
+
+    #[test]
+    fn s3_range_header_names_each_kind_of_range() {
+        assert_eq!(
+            s3_range_header(ByteRange::From {
+                start: 0,
+                end: Some(1)
+            }),
+            "bytes=0-1"
+        );
+        assert_eq!(
+            s3_range_header(ByteRange::From {
+                start: 100,
+                end: None
+            }),
+            "bytes=100-"
+        );
+        assert_eq!(s3_range_header(ByteRange::Suffix(500)), "bytes=-500");
+    }
+
+    #[test]
+    fn content_range_gives_the_span_and_total() {
+        assert_eq!(parse_content_range("bytes 0-1/1000"), Some((0, 1, 1000)));
+        assert_eq!(
+            parse_content_range("bytes 500-999/1000"),
+            Some((500, 999, 1000))
+        );
+        assert_eq!(parse_content_range("bytes */1000"), None);
+        assert_eq!(parse_content_range("bytes 0-1/*"), None);
+        assert_eq!(parse_content_range("0-1/1000"), None);
+    }
+
+    async fn collect(object: ObjectRead) -> Vec<u8> {
+        use futures::TryStreamExt;
+        object
+            .body
+            .try_fold(Vec::new(), |mut acc, chunk| async move {
+                acc.extend_from_slice(&chunk);
+                Ok(acc)
+            })
+            .await
+            .unwrap()
+    }
+
+    /// The local backend streams the file in chunks, exactly the bytes a range
+    /// names, and refuses a start past the end with the length.
+    #[tokio::test]
+    async fn local_read_streams_the_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let base: Arc<dyn Storage> = Arc::new(LocalStorage::new(
+            dir.path().to_string_lossy().into_owned(),
+            "/uploads".into(),
+        ));
+        let scoped = WorkspaceScopedStorage::arc(base, 4);
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i * 31 % 251) as u8).collect();
+        scoped
+            .put_file(&data, "tickets/1/clip.mov", "video/quicktime")
+            .await
+            .unwrap();
+
+        let whole = scoped.read("tickets/1/clip.mov", None).await.unwrap();
+        assert_eq!(
+            (whole.total, whole.range, whole.body_len()),
+            (200_000, None, 200_000)
+        );
+        let chunks: Vec<Bytes> = futures::TryStreamExt::try_collect(whole.body)
+            .await
+            .unwrap();
+        assert!(chunks.len() > 1, "streamed, not read whole");
+        assert_eq!(chunks.concat(), data);
+
+        let cases = [
+            (
+                ByteRange::From {
+                    start: 0,
+                    end: Some(1),
+                },
+                0,
+                1,
+            ),
+            (
+                ByteRange::From {
+                    start: 70_000,
+                    end: None,
+                },
+                70_000,
+                199_999,
+            ),
+            (
+                ByteRange::From {
+                    start: 10,
+                    end: Some(900_000),
+                },
+                10,
+                199_999,
+            ),
+            (ByteRange::Suffix(500), 199_500, 199_999),
+        ];
+        for (range, start, end) in cases {
+            let part = scoped
+                .read("tickets/1/clip.mov", Some(range))
+                .await
+                .unwrap();
+            assert_eq!(part.range, Some((start, end)), "{range:?}");
+            assert_eq!(part.body_len(), end - start + 1);
+            assert_eq!(
+                collect(part).await,
+                data[start as usize..=end as usize],
+                "{range:?}"
+            );
+        }
+        assert!(matches!(
+            scoped
+                .read(
+                    "tickets/1/clip.mov",
+                    Some(ByteRange::From {
+                        start: 200_000,
+                        end: None
+                    })
+                )
+                .await,
+            Err(StorageError::RangeNotSatisfiable { total: 200_000 })
+        ));
+        // Missing files and directories are not found; the prefix stays.
+        for path in [
+            "tickets/1/missing.mov",
+            "tickets/1",
+            "../ws/4/tickets/1/clip.mov",
+        ] {
+            assert!(
+                matches!(
+                    scoped.read(path, None).await,
+                    Err(StorageError::NotFound(_) | StorageError::InvalidPath(_))
+                ),
+                "{path}"
+            );
+        }
     }
 
     // ── inline_disposition ───────────────────────────────────────
@@ -1672,6 +2151,27 @@ mod tests {
 
         fake.seed("ws/7/tickets/5/x.pdf", b"new");
         assert_eq!(scoped.get_file("tickets/5/x.pdf").await.unwrap(), b"new");
+    }
+
+    /// The default `read`, which buffers, slices the same way the backends
+    /// stream, through the workspace's prefix.
+    #[actix_rt::test]
+    async fn scoped_read_uses_the_prefix_and_the_default_slices() {
+        let fake = Arc::new(FakeStorage::new());
+        fake.seed("ws/7/tickets/5/x.pdf", b"0123456789");
+        let scoped = WorkspaceScopedStorage::new(fake.clone(), 7);
+        let part = scoped
+            .read("tickets/5/x.pdf", Some(ByteRange::Suffix(3)))
+            .await
+            .unwrap();
+        assert_eq!((part.total, part.range), (10, Some((7, 9))));
+        assert_eq!(collect(part).await, b"789");
+        assert!(matches!(
+            WorkspaceScopedStorage::new(fake, 8)
+                .read("tickets/5/x.pdf", None)
+                .await,
+            Err(StorageError::NotFound(_))
+        ));
     }
 
     #[actix_rt::test]

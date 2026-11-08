@@ -201,8 +201,8 @@ pub async fn download_export(
     };
 
     let scoped = WorkspaceScopedStorage::arc(process_storage(), workspace_id);
-    let bytes = match scoped.get_file(&key).await {
-        Ok(b) => b,
+    let object = match scoped.read(&key, None).await {
+        Ok(object) => object,
         Err(e) => {
             return Err(ApiError::Internal(format!("read export artifact: {e:?}")).into());
         }
@@ -216,7 +216,7 @@ pub async fn download_export(
             format!("attachment; filename=\"workspace-{workspace_id}.nosdesk\""),
         ))
         .insert_header((header::CACHE_CONTROL, "no-store"))
-        .body(bytes))
+        .body(object.into_body()))
 }
 
 /// Run the export end to end and record the terminal status. Never panics the
