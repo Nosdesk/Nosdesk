@@ -31,6 +31,7 @@ import type { StatusPillTone } from '@/components/common/statusPillTone'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import {
   importService,
+  type ChangeCount,
   type ImportField,
   type ImportJob,
   type ImportRowResult,
@@ -245,13 +246,27 @@ const firstCreated = computed(() => catalogLines.value.find((l) => l.names.lengt
 
 // ---- what changes ----
 
-const changes = computed(() => summary.value.changes ?? [])
+const changes = computed(() =>
+  (summary.value.changes ?? []).map((c) => ({ ...c, shownExample: shownExample(c) })),
+)
 const newKinds = computed(() =>
   (summary.value.kinds ?? []).map((k) => `${fmt(k.count)} ${kindLabel(k.kind)}`).join(' · '),
 )
 const showChanges = computed(
   () => o.value.updated > 0 || changes.value.length > 0 || newKinds.value !== '' || snapped.value > 0,
 )
+
+/** A field's example change as the card shows it, values read as rows read
+ *  them (`null` is blank). A constant shows its value alone. None on an
+ *  import checked before examples, or past its detail window. */
+function shownExample(c: ChangeCount) {
+  if (!c.example) return null
+  return {
+    before: shown(c.field, c.example.before),
+    after: shown(c.field, c.example.after),
+    others: c.others ?? 0,
+  }
+}
 
 // ---- rows ----
 
@@ -587,6 +602,32 @@ const linkClass =
           <span class="font-medium text-primary">{{ changeName(c.field) }}</span>
           <span class="text-tertiary">· {{ $t('import-review-changes-records', { type: job.job_type, count: c.count }) }}</span>
           <span v-if="c.constant" class="text-tertiary">· {{ $t('import-review-changes-constant') }}</span>
+          <!-- Phones: the example on its own line under the field. -->
+          <span
+            v-if="c.shownExample"
+            class="flex min-w-0 max-w-full basis-full md:basis-auto items-baseline gap-1 text-secondary"
+            data-test="import-change-example"
+          >
+            <span class="hidden md:inline text-tertiary" aria-hidden="true">·</span>
+            <template v-if="!c.constant">
+              <span
+                class="min-w-0 max-w-64 truncate"
+                :class="c.shownExample.before === null ? 'italic text-tertiary' : ''"
+                :title="c.shownExample.before ?? undefined"
+                data-test="import-change-before"
+              >{{ c.shownExample.before ?? $t('import-review-blank') }}</span>
+              <span class="shrink-0 text-tertiary" aria-hidden="true">→</span>
+            </template>
+            <span
+              class="min-w-0 max-w-64 truncate"
+              :class="c.shownExample.after === null ? 'italic text-tertiary' : ''"
+              :title="c.shownExample.after ?? undefined"
+              data-test="import-change-after"
+            >{{ c.shownExample.after ?? $t('import-review-blank') }}</span>
+            <span v-if="c.shownExample.others > 0" class="shrink-0 text-tertiary" data-test="import-change-others">
+              {{ $t('import-review-changes-others', { count: c.shownExample.others }) }}
+            </span>
+          </span>
         </li>
         <li v-if="newKinds" class="flex flex-wrap gap-x-2 px-3 py-2 text-sm" data-test="import-change-kinds">
           <span class="font-medium text-primary">{{ $t('import-review-changes-new') }}</span>

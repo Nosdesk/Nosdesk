@@ -4214,6 +4214,10 @@ import-review-changes-records = { $type ->
        }
    }
 import-review-changes-constant = set for every row
+import-review-changes-others = { $count ->
+    [one] (and 1 other change)
+   *[other] (and { $count } other changes)
+   }
 import-review-changes-new = New
 import-review-changes-blanks = Blank cells never change an existing value. Columns set to Don't import are left alone.
 import-review-empty-skipped = No skipped rows. Every row checks out.

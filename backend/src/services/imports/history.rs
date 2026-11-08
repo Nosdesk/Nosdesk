@@ -70,10 +70,15 @@ pub fn state_of(
 /// The summary as the prune keeps it: the outcome counts, the fields
 /// updates changed and the kinds created, each with its count, and how
 /// many values each unmapped column held. The errors (with the cells they
-/// quote), the problem groups, the left-out values, the catalog names and
-/// the notices go. `None` when there was no summary or it doesn't read.
+/// quote), the problem groups, the left-out values, the catalog names, the
+/// notices and each change's example go. `None` when there was no summary
+/// or it doesn't read.
 pub fn pruned_summary(summary: Option<serde_json::Value>) -> Option<serde_json::Value> {
-    let s: ImportSummary = serde_json::from_value(summary?).ok()?;
+    let mut s: ImportSummary = serde_json::from_value(summary?).ok()?;
+    for change in &mut s.changes {
+        change.example = None;
+        change.others = 0;
+    }
     let kept = ImportSummary {
         row_count: s.row_count,
         would_create: s.would_create,
@@ -163,7 +168,16 @@ mod tests {
             "error_groups": [{ "column": "name", "message": "m", "count": 1, "rows": [4] }],
             "notices": [{ "code": "no_key", "message": "m", "count": 1 }],
             "catalog": { "manufacturers": ["Sony"], "models": [], "groups": [] },
-            "changes": [{ "field": "location", "count": 1 }],
+            "changes": [
+                {
+                    "field": "location",
+                    "count": 1,
+                    "example": { "before": "Studio A", "after": "Home of x@example.com" },
+                    "others": 2,
+                },
+                // As 1.1.2 to 1.1.6 stored it: no example.
+                { "field": "status", "count": 1 },
+            ],
             "kinds": [{ "kind": "camera", "count": 2 }],
             "unmapped": [{ "index": 3, "values": 5 }],
         });
@@ -174,6 +188,10 @@ mod tests {
         assert_eq!(kept["rows_with_errors"], 1);
         assert_eq!(kept["kinds"][0]["count"], 2);
         assert_eq!(kept["changes"][0]["field"], "location");
+        assert_eq!(kept["changes"][0]["count"], 1);
+        assert_eq!(kept["changes"][0]["example"], serde_json::Value::Null);
+        assert_eq!(kept["changes"][0]["others"], 0);
+        assert_eq!(kept["changes"][1]["field"], "status");
         assert_eq!(kept["errors"], serde_json::json!([]));
         assert_eq!(kept["error_groups"], serde_json::json!([]));
         assert_eq!(kept["notices"], serde_json::json!([]));

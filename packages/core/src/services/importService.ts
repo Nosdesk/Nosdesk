@@ -40,6 +40,12 @@ export interface ChangeCount {
   count: number
   /** A constant set for every row, existing records included, writes it. */
   constant?: boolean
+  /** The most common before and after pair, the first in the file of
+   *  equals; for a constant, the constant alone (`before` is null). None on
+   *  imports checked before 1.1.7 or past the detail window. */
+  example?: { before: string | null; after: string | null } | null
+  /** Distinct pairs besides the example. */
+  others?: number
 }
 
 /** How many records of one kind the import creates. */

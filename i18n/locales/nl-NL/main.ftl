@@ -4594,6 +4594,11 @@ import-review-changes-records = { $type ->
 # MT: pending native review (nl-NL)
 import-review-changes-constant = ingesteld voor elke rij
 # MT: pending native review (nl-NL)
+import-review-changes-others = { $count ->
+    [one] (en 1 andere wijziging)
+   *[other] (en { $count } andere wijzigingen)
+   }
+# MT: pending native review (nl-NL)
 import-review-changes-new = Nieuw
 # MT: pending native review (nl-NL)
 import-review-changes-blanks = Lege cellen wijzigen nooit een bestaande waarde. Kolommen ingesteld op Niet importeren blijven ongemoeid.

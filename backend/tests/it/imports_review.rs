@@ -1,6 +1,7 @@
 //! What Review reads: a matched row that changes nothing is Unchanged and
-//! the commit writes nothing for it; the summary's per-field change counts,
-//! per-kind new counts and columns no field takes; where each problem is
+//! the commit writes nothing for it; the summary's per-field change counts
+//! with each field's most common change, per-kind new counts and columns no
+//! field takes; where each problem is
 //! fixed; the error report with its skipped and partly imported rows,
 //! uploaded again once fixed; and the report narrowed to one problem's rows
 //! or to the rows that import without some of their values.
@@ -152,9 +153,18 @@ async fn an_identical_row_is_unchanged_and_writes_nothing() {
     assert_eq!(
         summary["changes"],
         serde_json::json!([
-            { "field": "groups", "source_column": "Groups", "count": 1, "constant": false },
-            { "field": "location", "source_column": "Location", "count": 1, "constant": false },
-            { "field": "status", "source_column": "Status", "count": 1, "constant": false },
+            {
+                "field": "groups", "source_column": "Groups", "count": 1, "constant": false,
+                "example": { "before": null, "after": "Field kit" }, "others": 0,
+            },
+            {
+                "field": "location", "source_column": "Location", "count": 1, "constant": false,
+                "example": { "before": "Studio A", "after": "Studio B" }, "others": 0,
+            },
+            {
+                "field": "status", "source_column": "Status", "count": 1, "constant": false,
+                "example": { "before": "in_service", "after": "in_repair" }, "others": 0,
+            },
         ]),
         "{summary}"
     );
@@ -202,6 +212,112 @@ async fn an_identical_row_is_unchanged_and_writes_nothing() {
     assert!(sync_actions_for(&pool, moved) > 0);
     // The commit records what it wrote as the check said it would.
     assert_eq!(row_of(&done, 3)["fields_written"], update["fields_written"]);
+}
+
+/// The job, as Done and the import detail read it.
+async fn job_of(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> serde_json::Value {
+    let (status, body) = get(pool, ws, &format!("/api/admin/import/{id}")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    serde_json::from_str(&body).expect("job json")
+}
+
+/// What changes shows each field's most common before and after pair and
+/// how many other pairs there are; the commit keeps the line. A constant's
+/// example is the constant alone. A draft whose stored summary has no
+/// examples (checked before 1.1.7) still loads and commits.
+#[actix_web::test]
+async fn what_changes_shows_the_most_common_change_and_how_many_others() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    seed_kinds(&pool, &ws);
+    for (tag, location) in [
+        ("E-1", "Studio A"),
+        ("E-2", "Studio A"),
+        ("E-3", "Studio A"),
+        ("E-4", "Yard"),
+    ] {
+        seed_asset(&pool, &ws, tag, "camera", location);
+    }
+
+    let job = checked(
+        &pool,
+        &ws,
+        &format!(
+            "{HEADER}\n\
+             E-1,E-1,Camera,Field kit,,,,,\n\
+             E-2,E-2,Camera,Studio B,,,,,\n\
+             E-3,E-3,Camera,Field kit,,,,,\n\
+             E-4,E-4,Camera,Field kit,,,,,\n"
+        ),
+        MAPPING,
+        serde_json::json!({}),
+    )
+    .await;
+    let expected = serde_json::json!([{
+        "field": "location", "source_column": "Location", "count": 4, "constant": false,
+        "example": { "before": "Studio A", "after": "Field kit" }, "others": 2,
+    }]);
+    assert_eq!(job["summary"]["changes"], expected, "{job}");
+    let id = id_of(&job);
+    commit(&pool, &ws, &id).await;
+    assert_eq!(
+        job_of(&pool, &ws, &id).await["summary"]["changes"],
+        expected
+    );
+
+    // Depot on every row, whatever each held: E-1 and E-3 Field kit, E-2
+    // Studio B. E-1's Rego is left out, which the commit holds the
+    // reviewed summary to.
+    let job = checked(
+        &pool,
+        &ws,
+        &format!(
+            "{HEADER}\n\
+             E-1,E-1,Camera,,,,XYZ9,,\n\
+             E-2,E-2,Camera,,,,,,\n\
+             E-3,E-3,Camera,,,,,,\n"
+        ),
+        &[
+            ("Name", "name"),
+            ("Tag", "asset_tag"),
+            ("Kind", "kind"),
+            ("Rego", "rego"),
+        ],
+        serde_json::json!({
+            "constants": [{ "field": "location", "value": "Depot", "apply_to": "all" }]
+        }),
+    )
+    .await;
+    assert_eq!(
+        job["summary"]["changes"],
+        serde_json::json!([{
+            "field": "location", "source_column": null, "count": 3, "constant": true,
+            "example": { "before": null, "after": "Depot" }, "others": 0,
+        }]),
+        "{job}"
+    );
+    assert_eq!(job["summary"]["dropped"][0]["column"], "rego", "{job}");
+
+    // Store the summary as 1.1.2 to 1.1.5 wrote it.
+    let id = id_of(&job);
+    let mut stored = job["summary"].clone();
+    for change in stored["changes"].as_array_mut().expect("changes") {
+        let change = change.as_object_mut().expect("change");
+        change.remove("example");
+        change.remove("others");
+    }
+    diesel::sql_query("UPDATE import_jobs SET summary = $1::jsonb WHERE id = $2::uuid")
+        .bind::<Text, _>(stored.to_string())
+        .bind::<Text, _>(&id)
+        .execute(&mut pool.get().expect("conn"))
+        .expect("store an old summary");
+    let draft = job_of(&pool, &ws, &id).await;
+    let change = &draft["summary"]["changes"][0];
+    assert_eq!(change["count"], 3, "{draft}");
+    assert!(change.get("example").is_none(), "{draft}");
+    let done = commit(&pool, &ws, &id).await;
+    assert_eq!(done["status"], "done", "{done}");
 }
 
 /// Each problem says where it is fixed: a value Match values asks about

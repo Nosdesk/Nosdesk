@@ -1,6 +1,6 @@
 //! Shared types for the import pipeline.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -142,6 +142,15 @@ pub struct ChangeCount {
     /// A constant set for every row, existing records included, writes it.
     #[serde(default)]
     pub constant: bool,
+    /// The most common before and after pair, ties going to the one first
+    /// in the file. For a constant, the constant alone: `after` is its
+    /// value and `before` is `None`. Summaries stored before 1.1.7 have
+    /// none.
+    #[serde(default)]
+    pub example: Option<FieldChange>,
+    /// Distinct pairs besides the example.
+    #[serde(default)]
+    pub others: usize,
 }
 
 /// How many records of one kind an import creates.
@@ -301,24 +310,67 @@ impl ImportSummary {
 }
 
 /// Per field, how many updated rows change it, most first; equal counts
-/// keep the order fields first appear in.
+/// keep the order fields first appear in. Each carries its most common
+/// before and after pair and how many other pairs there are.
 fn change_counts(rows: &[RowResult]) -> Vec<ChangeCount> {
-    let mut out: Vec<ChangeCount> = Vec::new();
+    // Each field's distinct pairs with their rows, in file order, and
+    // where each pair sits in that list.
+    type Pairs<'a> = (
+        Vec<(&'a FieldChange, usize)>,
+        HashMap<&'a FieldChange, usize>,
+    );
+    let mut out: Vec<(ChangeCount, Pairs)> = Vec::new();
     for row in rows.iter().filter(|r| r.outcome == RowOutcome::Update) {
-        for field in row.fields_written.keys() {
-            match out.iter_mut().find(|c| &c.field == field) {
-                Some(change) => change.count += 1,
-                None => out.push(ChangeCount {
-                    field: field.clone(),
-                    source_column: None,
-                    count: 1,
-                    constant: false,
-                }),
+        for (field, change) in &row.fields_written {
+            let i = match out.iter().position(|(c, _)| &c.field == field) {
+                Some(i) => i,
+                None => {
+                    out.push((
+                        ChangeCount {
+                            field: field.clone(),
+                            source_column: None,
+                            count: 0,
+                            constant: false,
+                            example: None,
+                            others: 0,
+                        },
+                        (Vec::new(), HashMap::new()),
+                    ));
+                    out.len() - 1
+                }
+            };
+            let (count, (pairs, index)) = &mut out[i];
+            count.count += 1;
+            match index.get(change) {
+                Some(&p) => pairs[p].1 += 1,
+                None => {
+                    index.insert(change, pairs.len());
+                    pairs.push((change, 1));
+                }
             }
         }
     }
+    let mut out: Vec<ChangeCount> = out
+        .into_iter()
+        .map(|(mut count, (pairs, _))| {
+            count.example = most_common(&pairs).cloned();
+            count.others = pairs.len().saturating_sub(1);
+            count
+        })
+        .collect();
     out.sort_by_key(|c| std::cmp::Reverse(c.count));
     out
+}
+
+/// The pair with the most rows; the first of equals.
+fn most_common<'a>(pairs: &[(&'a FieldChange, usize)]) -> Option<&'a FieldChange> {
+    let mut best: Option<(&FieldChange, usize)> = None;
+    for &(pair, rows) in pairs {
+        if best.is_none_or(|(_, most)| rows > most) {
+            best = Some((pair, rows));
+        }
+    }
+    best.map(|(pair, _)| pair)
 }
 
 /// Per kind, how many created rows take it, most first.
@@ -490,7 +542,7 @@ pub struct RowResult {
 }
 
 /// One field's value before and after a write, as text; `None` is blank.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FieldChange {
     pub before: Option<String>,
     pub after: Option<String>,
@@ -1204,6 +1256,97 @@ mod tests {
             (1, 1, 1, 1, 2)
         );
         assert_eq!(summary.errors[0].row, 5);
+    }
+
+    /// A row with `outcome` writing `changes`, each (field, before, after).
+    fn writing(
+        row: usize,
+        outcome: RowOutcome,
+        changes: &[(&str, Option<&str>, Option<&str>)],
+    ) -> RowResult {
+        let mut result = RowResult::planned(row, outcome);
+        for (field, before, after) in changes {
+            result.fields_written.insert(
+                field.to_string(),
+                FieldChange {
+                    before: before.map(String::from),
+                    after: after.map(String::from),
+                },
+            );
+        }
+        result
+    }
+
+    fn updated(row: usize, changes: &[(&str, Option<&str>, Option<&str>)]) -> RowResult {
+        writing(row, RowOutcome::Update, changes)
+    }
+
+    fn pair(before: Option<&str>, after: Option<&str>) -> Option<FieldChange> {
+        Some(FieldChange {
+            before: before.map(String::from),
+            after: after.map(String::from),
+        })
+    }
+
+    #[test]
+    fn each_change_shows_its_most_common_pair() {
+        let rows = vec![
+            writing(
+                2,
+                RowOutcome::Create,
+                &[("status", Some("in_service"), Some("in_storage"))],
+            ),
+            updated(3, &[("location", Some("Studio A"), Some("Studio B"))]),
+            updated(
+                4,
+                &[
+                    ("location", Some("Studio A"), Some("Field kit")),
+                    ("status", Some("in_service"), Some("in_repair")),
+                ],
+            ),
+            updated(5, &[("location", Some("Studio A"), Some("Field kit"))]),
+            updated(6, &[("location", None, Some("Studio B"))]),
+            updated(7, &[("location", Some("Studio A"), Some("Field kit"))]),
+        ];
+        let changes = change_counts(&rows);
+        let fields: Vec<(&str, usize)> = changes
+            .iter()
+            .map(|c| (c.field.as_str(), c.count))
+            .collect();
+        assert_eq!(fields, [("location", 5), ("status", 1)]);
+        assert_eq!(
+            changes[0].example,
+            pair(Some("Studio A"), Some("Field kit"))
+        );
+        assert_eq!(changes[0].others, 2);
+        // The new row's status move isn't an update.
+        assert_eq!(
+            changes[1].example,
+            pair(Some("in_service"), Some("in_repair"))
+        );
+        assert_eq!(changes[1].others, 0);
+    }
+
+    #[test]
+    fn equal_pairs_show_the_one_first_in_the_file() {
+        let rows = vec![
+            updated(2, &[("location", Some("Desk"), Some("Studio B"))]),
+            updated(3, &[("location", Some("Studio A"), None)]),
+            updated(4, &[("location", Some("Studio A"), None)]),
+            updated(5, &[("location", Some("Desk"), Some("Studio B"))]),
+        ];
+        let changes = change_counts(&rows);
+        assert_eq!(changes[0].example, pair(Some("Desk"), Some("Studio B")));
+        assert_eq!(changes[0].others, 1);
+    }
+
+    #[test]
+    fn a_stored_change_without_an_example_loads() {
+        let stored: ChangeCount = serde_json::from_value(serde_json::json!({
+            "field": "location", "source_column": "Location", "count": 3, "constant": false
+        }))
+        .expect("a 1.1.5 change loads");
+        assert_eq!((stored.count, stored.example, stored.others), (3, None, 0));
     }
 
     #[test]

@@ -1132,6 +1132,14 @@ fn plan(
             .constants
             .iter()
             .any(|c| c.field == change.field && c.apply_to == imports::ApplyTo::All);
+        if change.constant {
+            // Every row writes the constant, as the rows spell it: the
+            // example is that value alone, whatever each row held before.
+            if let Some(example) = &mut change.example {
+                example.before = None;
+            }
+            change.others = 0;
+        }
     }
     summary.unmapped = mapping::unmapped_columns(column_mapping, &stored.source.headers, grid);
     Ok((summary, rows))
