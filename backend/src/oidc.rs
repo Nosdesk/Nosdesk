@@ -28,9 +28,7 @@ use openidconnect::{
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::config_utils;
 
@@ -123,11 +121,10 @@ pub fn get_display_name_cached() -> String {
 /// Get the cached end_session_endpoint URL (from discovery or manual config)
 /// This is used for RP-initiated logout
 pub async fn get_end_session_endpoint() -> Option<String> {
-    // Ensure metadata + endpoint cache are populated
-    let _ = get_oidc_client().await;
-
-    let endpoint_guard = END_SESSION_ENDPOINT.read().await;
-    endpoint_guard.clone()
+    instance_client()
+        .await
+        .ok()
+        .and_then(|cached| cached.end_session_endpoint.clone())
 }
 
 /// Generate a logout URL for RP-initiated logout (OpenID Connect RP-Initiated Logout 1.0)
@@ -300,14 +297,17 @@ impl OidcClientKind {
     }
 }
 
-/// Cached, fully-built OIDC client (rebuilt lazily, then reused). Avoids
-/// running OIDC discovery on every request.
-static OIDC_CLIENT: once_cell::sync::Lazy<Arc<RwLock<Option<OidcClientKind>>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(None)));
+/// The instance's OIDC client and the end_session_endpoint its discovery
+/// document names (or `OIDC_LOGOUT_URI`), built once per process.
+struct InstanceClient {
+    client: OidcClientKind,
+    end_session_endpoint: Option<String>,
+}
 
-/// Cached end_session_endpoint URL (discovered from provider metadata)
-static END_SESSION_ENDPOINT: once_cell::sync::Lazy<Arc<RwLock<Option<String>>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(None)));
+/// Cached instance client. Built on first use, or by [`warm_client`] at hosted
+/// startup, then reused. Concurrent first callers share one build; a failed
+/// build leaves it empty, so the next caller tries again.
+static OIDC_CLIENT: tokio::sync::OnceCell<InstanceClient> = tokio::sync::OnceCell::const_new();
 
 // openidconnect 4.x uses stateful HTTP clients and only the reqwest::Client
 // re-exported by openidconnect implements its AsyncHttpClient trait. We can't
@@ -325,32 +325,68 @@ static OIDC_HTTP_CLIENT: once_cell::sync::Lazy<openidconnect::reqwest::Client> =
 
 /// Initialize or get the cached OIDC client.
 pub async fn get_oidc_client() -> Result<OidcClientKind, String> {
-    {
-        let client_guard = OIDC_CLIENT.read().await;
-        if let Some(client) = client_guard.as_ref() {
-            return Ok(client.clone_kind());
-        }
-    }
-
-    let config = OidcConfig::from_env()?;
-    let client = create_oidc_client(&config).await?;
-
-    let cloned = client.clone_kind();
-    {
-        let mut client_guard = OIDC_CLIENT.write().await;
-        *client_guard = Some(client);
-    }
-
-    Ok(cloned)
+    instance_client()
+        .await
+        .map(|cached| cached.client.clone_kind())
 }
 
-/// Create an OIDC client from configuration
-async fn create_oidc_client(config: &OidcConfig) -> Result<OidcClientKind, String> {
-    let client_id = ClientId::new(config.client_id.clone());
-    let client_secret = ClientSecret::new(config.client_secret.clone());
-    let redirect_url = RedirectUrl::new(config.redirect_uri.clone())
-        .map_err(|e| format!("Invalid redirect URI: {e}"))?;
+/// How long building the instance client may take. Every sign-in waiting on
+/// the build waits this long at most when the issuer hangs.
+const CLIENT_BUILD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+async fn instance_client() -> Result<&'static InstanceClient, String> {
+    build_once(&OIDC_CLIENT, CLIENT_BUILD_TIMEOUT, || async {
+        let config = OidcConfig::from_env()?;
+        create_oidc_client(&config).await
+    })
+    .await
+}
+
+/// Fill `cell` with `build`, bounded by `limit`. A build that fails or times
+/// out leaves the cell empty, so the next caller tries again.
+async fn build_once<F, Fut>(
+    cell: &tokio::sync::OnceCell<InstanceClient>,
+    limit: std::time::Duration,
+    build: F,
+) -> Result<&InstanceClient, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<InstanceClient, String>>,
+{
+    cell.get_or_try_init(|| async {
+        tokio::time::timeout(limit, build())
+            .await
+            .map_err(|_| format!("OIDC discovery timed out after {}s", limit.as_secs_f64()))?
+    })
+    .await
+}
+
+/// Whether the instance client is already built, so the next sign-in skips
+/// discovery.
+pub fn is_client_warm() -> bool {
+    OIDC_CLIENT.initialized()
+}
+
+/// Build the instance client ahead of the first sign-in. A failure only logs:
+/// the first sign-in then tries again.
+pub async fn warm_client() {
+    let started = std::time::Instant::now();
+    match instance_client().await {
+        Ok(_) => info!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "OIDC: client warmed"
+        ),
+        Err(e) => warn!(
+            error = %e,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "OIDC: warming the client failed; the first sign-in will build it"
+        ),
+    }
+}
+
+/// Create an OIDC client from configuration: one discovery fetch (the
+/// document, then its JWKS).
+async fn create_oidc_client(config: &OidcConfig) -> Result<InstanceClient, String> {
     info!(
         "OIDC: Using auto-discovery from issuer: {}",
         config.issuer_url
@@ -360,44 +396,55 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<OidcClientKind, Strin
         .map_err(|e| format!("Invalid issuer URL: {e}"))?;
 
     let provider_metadata: ProviderMetadataWithLogout =
-        ProviderMetadataWithLogout::discover_async(issuer.clone(), &*OIDC_HTTP_CLIENT)
+        ProviderMetadataWithLogout::discover_async(issuer, &*OIDC_HTTP_CLIENT)
             .await
             .map_err(|e| format!("OIDC discovery failed: {e}"))?;
 
-    if let Some(end_session_url) = provider_metadata
+    client_from_metadata(config, provider_metadata)
+}
+
+/// The instance client from a discovery document. `from_provider_metadata`
+/// takes any additional metadata, so the logout-aware document feeds the
+/// client directly.
+fn client_from_metadata(
+    config: &OidcConfig,
+    provider_metadata: ProviderMetadataWithLogout,
+) -> Result<InstanceClient, String> {
+    let client_id = ClientId::new(config.client_id.clone());
+    let client_secret = ClientSecret::new(config.client_secret.clone());
+    let redirect_url = RedirectUrl::new(config.redirect_uri.clone())
+        .map_err(|e| format!("Invalid redirect URI: {e}"))?;
+
+    let end_session_endpoint = if let Some(end_session_url) = provider_metadata
         .additional_metadata()
         .end_session_endpoint
         .as_ref()
     {
         let url_string = end_session_url.url().to_string();
         info!("OIDC: Discovered end_session_endpoint: {}", url_string);
-        let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
-        *endpoint_guard = Some(url_string);
+        Some(url_string)
     } else if let Some(ref logout_uri) = config.logout_uri {
         info!(
             "OIDC: Using manually configured logout URI as fallback: {}",
             logout_uri
         );
-        let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
-        *endpoint_guard = Some(logout_uri.clone());
+        Some(logout_uri.clone())
     } else {
         info!(
             "OIDC: Provider does not advertise end_session_endpoint and no \
              OIDC_LOGOUT_URI configured"
         );
-    }
+        None
+    };
 
-    // Re-discover as CoreProviderMetadata to feed the client. The logout-augmented
-    // metadata above carries the same data but uses a different additional-metadata type,
-    // so it isn't directly compatible with from_provider_metadata's CoreClient signature.
-    let core_metadata = CoreProviderMetadata::discover_async(issuer, &*OIDC_HTTP_CLIENT)
-        .await
-        .map_err(|e| format!("OIDC discovery failed: {e}"))?;
+    let client =
+        CoreClient::from_provider_metadata(provider_metadata, client_id, Some(client_secret))
+            .set_redirect_uri(redirect_url);
 
-    let client = CoreClient::from_provider_metadata(core_metadata, client_id, Some(client_secret))
-        .set_redirect_uri(redirect_url);
-
-    Ok(OidcClientKind::Discovered(client))
+    Ok(InstanceClient {
+        client: OidcClientKind::Discovered(client),
+        end_session_endpoint,
+    })
 }
 
 /// Generate PKCE challenge and verifier pair
@@ -952,6 +999,190 @@ mod tests {
             display_name_from_claim(&u, "preferred_username").as_deref(),
             Some("flast")
         );
+    }
+
+    fn config(issuer_url: &str, logout_uri: Option<&str>) -> OidcConfig {
+        OidcConfig {
+            client_id: "nosdesk-product".into(),
+            client_secret: "secret".into(),
+            redirect_uri: "https://app.example.test/api/auth/oauth/callback".into(),
+            issuer_url: issuer_url.into(),
+            display_name: "Nosdesk".into(),
+            scopes: vec!["openid".into(), "email".into()],
+            username_claim: "email".into(),
+            logout_uri: logout_uri.map(str::to_string),
+        }
+    }
+
+    fn discovery_document(issuer: &str, end_session: bool) -> serde_json::Value {
+        let mut doc = json!({
+            "issuer": issuer,
+            "authorization_endpoint": format!("{issuer}/oauth2/auth"),
+            "token_endpoint": format!("{issuer}/oauth2/token"),
+            "jwks_uri": format!("{issuer}/.well-known/jwks.json"),
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+        });
+        if end_session {
+            doc["end_session_endpoint"] = json!(format!("{issuer}/oauth2/sessions/logout"));
+        }
+        doc
+    }
+
+    #[test]
+    fn the_client_keeps_the_documents_end_session_endpoint() {
+        let issuer = "https://id.example.test";
+        let metadata = serde_json::from_value(discovery_document(issuer, true)).unwrap();
+        let built = client_from_metadata(
+            &config(issuer, Some("https://elsewhere.test/logout")),
+            metadata,
+        )
+        .expect("client");
+        assert_eq!(
+            built.end_session_endpoint.as_deref(),
+            Some("https://id.example.test/oauth2/sessions/logout")
+        );
+        let (url, _) = begin_provider_login(&built.client, "state".into());
+        assert!(
+            url.starts_with("https://id.example.test/oauth2/auth?"),
+            "{url}"
+        );
+    }
+
+    #[test]
+    fn without_one_the_client_falls_back_to_the_configured_logout_uri() {
+        let issuer = "https://id.example.test";
+        let metadata = serde_json::from_value(discovery_document(issuer, false)).unwrap();
+        let built = client_from_metadata(
+            &config(issuer, Some("https://elsewhere.test/logout")),
+            metadata,
+        )
+        .expect("client");
+        assert_eq!(
+            built.end_session_endpoint.as_deref(),
+            Some("https://elsewhere.test/logout")
+        );
+
+        let metadata = serde_json::from_value(discovery_document(issuer, false)).unwrap();
+        let built = client_from_metadata(&config(issuer, None), metadata).expect("client");
+        assert_eq!(built.end_session_endpoint, None);
+    }
+
+    type Hits = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, usize>>>;
+
+    /// A local issuer serving a discovery document and an empty JWKS, counting
+    /// requests per path. Returns its URL, the counts and the server task.
+    async fn local_issuer() -> (String, Hits, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let issuer = format!("http://{}", listener.local_addr().unwrap());
+        let hits: Hits = Default::default();
+        let document = discovery_document(&issuer, true).to_string();
+        let server = {
+            let hits = hits.clone();
+            tokio::spawn(async move {
+                loop {
+                    let Ok((mut socket, _)) = listener.accept().await else {
+                        return;
+                    };
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 1024];
+                    while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match socket.read(&mut chunk).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&buf);
+                    let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+                    *hits.lock().unwrap().entry(path.clone()).or_default() += 1;
+                    let body = match path.as_str() {
+                        "/.well-known/openid-configuration" => document.clone(),
+                        "/.well-known/jwks.json" => r#"{"keys":[]}"#.to_string(),
+                        _ => String::new(),
+                    };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                }
+            })
+        };
+        (issuer, hits, server)
+    }
+
+    /// Building the client fetches the discovery document once and its JWKS
+    /// once.
+    #[tokio::test]
+    async fn building_the_client_fetches_discovery_once() {
+        use std::collections::HashMap;
+
+        let (issuer, hits, server) = local_issuer().await;
+        let built = create_oidc_client(&config(&issuer, None))
+            .await
+            .expect("client from the local issuer");
+        server.abort();
+
+        assert_eq!(
+            built.end_session_endpoint,
+            Some(format!("{issuer}/oauth2/sessions/logout"))
+        );
+        let hits = hits.lock().unwrap().clone();
+        assert_eq!(
+            hits,
+            HashMap::from([
+                ("/.well-known/openid-configuration".to_string(), 1),
+                ("/.well-known/jwks.json".to_string(), 1),
+            ])
+        );
+    }
+
+    /// An issuer that accepts and never answers fails the build within the
+    /// bound and leaves the cache empty, so a later build still succeeds.
+    #[tokio::test]
+    async fn a_hung_issuer_times_out_and_a_later_build_succeeds() {
+        let hung = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let hung_issuer = format!("http://{}", hung.local_addr().unwrap());
+        // Accept connections and hold them open without a reply.
+        let holder = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = hung.accept().await {
+                held.push(socket);
+            }
+        });
+
+        let cell = tokio::sync::OnceCell::new();
+        let limit = std::time::Duration::from_millis(300);
+        let started = std::time::Instant::now();
+        let hung_config = config(&hung_issuer, None);
+        let err = build_once(&cell, limit, || create_oidc_client(&hung_config))
+            .await
+            .err()
+            .expect("a hung issuer fails the build");
+        assert!(err.contains("timed out"), "{err}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "the build gave up at the bound, not later: {:?}",
+            started.elapsed()
+        );
+        assert!(!cell.initialized(), "a timed-out build caches nothing");
+        holder.abort();
+
+        let (issuer, _, server) = local_issuer().await;
+        let live_config = config(&issuer, None);
+        let built = build_once(&cell, limit, || create_oidc_client(&live_config))
+            .await
+            .expect("the next build succeeds");
+        server.abort();
+        assert_eq!(
+            built.end_session_endpoint,
+            Some(format!("{issuer}/oauth2/sessions/logout"))
+        );
+        assert!(cell.initialized());
     }
 
     #[test]

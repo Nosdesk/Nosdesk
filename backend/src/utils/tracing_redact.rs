@@ -304,6 +304,9 @@ const ALLOWED_FIELDS: &[&str] = &[
     "refresh_session_id",
     "refresh_reuse_secs",
     "refresh_session_live",
+    // Hosted sign-in start (`hosted_login`): whether that sign-in had to build
+    // the OIDC client first (discovery). A bool.
+    "client_cold",
 ];
 
 // ALLOWED_FIELDS naming convention.

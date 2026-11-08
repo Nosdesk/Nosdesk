@@ -5,7 +5,7 @@ use reqwest;
 use serde::Deserialize;
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{error, info, warn};
+use tracing::{error, info, warn, Instrument};
 use urlencoding;
 
 use crate::db::{DbConnection, Pool};
@@ -406,15 +406,44 @@ pub async fn oauth_authorize(
         // exchange in the callback presents the identical redirect_uri.
         let callback_redirect = oauth_callback_redirect_uri(&req);
 
+        // Hosted sign-in starts here. Time the authorize URL, which includes
+        // discovery while the client is cold, for the `hosted_login` line and
+        // the response's `Server-Timing`.
+        let hosted = crate::middleware::workspace_context::is_hosted();
+        let span = if hosted {
+            tracing::info_span!("hosted_login")
+        } else {
+            tracing::Span::none()
+        };
+        let client_cold = !oidc::is_client_warm();
+        let started = std::time::Instant::now();
+
         // Generate OIDC authorization URL with PKCE
-        match oidc::generate_auth_url(
+        let generated = oidc::generate_auth_url(
             oauth_request.redirect_uri.clone(),
             oauth_request.user_connection,
             callback_redirect.clone(),
             None,
         )
-        .await
-        {
+        .instrument(span.clone())
+        .await;
+        let elapsed = started.elapsed();
+        if hosted {
+            span.in_scope(|| {
+                info!(
+                    outcome = if generated.is_ok() {
+                        "auth_url"
+                    } else {
+                        "oidc_error"
+                    },
+                    client_cold,
+                    elapsed_ms = elapsed.as_millis() as u64,
+                    "Hosted sign-in started"
+                )
+            });
+        }
+
+        match generated {
             Ok((auth_url, auth_data)) => {
                 // Create state JWT with PKCE verifier and nonce
                 let (state, binding) = match create_oauth_state_with_oidc(
@@ -440,12 +469,15 @@ pub async fn oauth_authorize(
                 let auth_url_with_state = replace_state_in_url(&auth_url, &state);
 
                 // Bind the flow to this user-agent (RFC 9700 §2.1).
-                Ok(HttpResponse::Ok()
-                    .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
-                    .json(json!({
-                        "auth_url": auth_url_with_state,
-                        "state": state
-                    })))
+                let mut response = HttpResponse::Ok();
+                response.cookie(crate::utils::cookies::create_oauth_state_cookie(&binding));
+                if hosted {
+                    response.insert_header(oidc_server_timing(elapsed));
+                }
+                Ok(response.json(json!({
+                    "auth_url": auth_url_with_state,
+                    "state": state
+                })))
             }
             Err(e) => {
                 error!(error = %e, "Failed to generate OIDC authorization URL");
@@ -1539,6 +1571,15 @@ fn callback_redirect_for(
         return None;
     }
     Some(format!("https://{host}/api/auth/oauth/callback"))
+}
+
+/// `Server-Timing` for what starting an OIDC sign-in spent on the client and
+/// the authorize URL, shown in the request's Timing tab in DevTools.
+fn oidc_server_timing(elapsed: std::time::Duration) -> (&'static str, String) {
+    (
+        "Server-Timing",
+        format!("oidc;dur={:.1}", elapsed.as_secs_f64() * 1000.0),
+    )
 }
 
 /// Build the standard auth-error redirect: bounce to the login page with a
@@ -2952,8 +2993,23 @@ mod login_claims_tests {
 
 #[cfg(test)]
 mod hosted_auth_tests {
-    use super::{callback_redirect_for, issuer_for_identity, safe_post_login_location};
+    use super::{
+        callback_redirect_for, issuer_for_identity, oidc_server_timing, safe_post_login_location,
+    };
     use crate::middleware::DeploymentMode;
+
+    #[test]
+    fn server_timing_names_oidc_in_milliseconds() {
+        use std::time::Duration;
+        assert_eq!(
+            oidc_server_timing(Duration::from_micros(4_712_345)),
+            ("Server-Timing", "oidc;dur=4712.3".to_string())
+        );
+        assert_eq!(
+            oidc_server_timing(Duration::ZERO),
+            ("Server-Timing", "oidc;dur=0.0".to_string())
+        );
+    }
 
     #[test]
     fn post_login_location_allows_relative_blocks_absolute() {
