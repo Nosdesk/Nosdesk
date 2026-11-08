@@ -57,6 +57,7 @@ const SEEDED: &[&str] = &[
     "sla.detect_breaches",
     "asset_loans.due_reminders",
     "guest_residue.cleanup",
+    "attachments.sweep_unattached",
     "import_history.prune",
     "workspace_imports.prune",
 ];
@@ -332,6 +333,17 @@ fn seed(conn: &mut Conn) -> Seeded {
         .bind::<SqlUuid, _>(ws.a.member_uuid)
         .get_result::<Id>(c)?
         .id)
+    });
+
+    // A reply upload nobody attached, past the claim window.
+    pinned(conn, a, |c| {
+        diesel::sql_query(
+            "INSERT INTO attachments (url, name, uploaded_by, created_at) \
+             VALUES ('/uploads/temp/unattached.png', 'unattached.png', $1, \
+                     now() - interval '2 days')",
+        )
+        .bind::<SqlUuid, _>(ws.a.admin_uuid)
+        .execute(c)
     });
 
     // An import committed past its 30 days, and a refused upload as old.
@@ -634,6 +646,11 @@ async fn every_scheduled_job_runs_cleanly_on_the_job_pool() {
         &mut conn,
         "abandoned upload removed",
         "SELECT count(*) AS n FROM attachments WHERE name = 'abandoned.png'".into(),
+    );
+    gone(
+        &mut conn,
+        "unattached reply upload removed",
+        "SELECT count(*) AS n FROM attachments WHERE name = 'unattached.png'".into(),
     );
     gone(
         &mut conn,

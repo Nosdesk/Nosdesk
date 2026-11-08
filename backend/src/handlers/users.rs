@@ -44,10 +44,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             web::post().to(crate::handlers::regenerate_avatar_thumbnails),
         )
         .route(
-            "/files/cleanup-temp",
-            web::post().to(crate::handlers::cleanup_temp_files),
-        )
-        .route(
             "/users/auth-identities",
             web::get().to(crate::handlers::get_user_auth_identities),
         )

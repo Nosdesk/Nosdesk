@@ -233,10 +233,6 @@ pub async fn get_comments_by_ticket_id(
     }
 }
 
-/// How long an agent upload stays claimable by a comment: as long as the temp
-/// cleanup keeps it.
-const UPLOAD_CLAIM_HOURS: i64 = 24;
-
 pub async fn add_comment_to_ticket(
     access: crate::extractors::TicketAccess,
     comment_data: web::Json<crate::models::NewCommentWithAttachments>,
@@ -492,8 +488,8 @@ pub async fn add_comment_to_ticket(
                 .iter()
                 .filter_map(|a| a.id)
                 .collect();
-            let since =
-                chrono::Utc::now().naive_utc() - chrono::Duration::hours(UPLOAD_CLAIM_HOURS);
+            let since = chrono::Utc::now().naive_utc()
+                - chrono::Duration::hours(crate::repository::comments::UPLOAD_CLAIM_HOURS);
             let mut claimable: std::collections::HashMap<i32, crate::models::Attachment> =
                 if requested.is_empty() {
                     std::collections::HashMap::new()

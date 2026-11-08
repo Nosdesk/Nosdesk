@@ -39,6 +39,7 @@ const LDAP_RECONCILE_LOCK: i64 = 0x004e_6f73_4c44_5243;
 const KNOWLEDGE_GAP_DETECT_LOCK: i64 = 0x004e_6f73_4b47_4450;
 const APPROVAL_TIMEOUT_LOCK: i64 = 0x004e_6f73_4150_544f;
 const GUEST_RESIDUE_LOCK: i64 = 0x004e_6f73_4752_4553;
+const UNATTACHED_UPLOAD_LOCK: i64 = 0x004e_6f73_5550_4c44;
 const EMAIL_LOGO_COPIES_LOCK: i64 = 0x004e_6f73_454d_4c47;
 const IMPORT_HISTORY_PRUNE_LOCK: i64 = 0x004e_6f73_494d_5048;
 const WORKSPACE_IMPORT_PRUNE_LOCK: i64 = 0x004e_6f73_5749_4d50;
@@ -2147,6 +2148,77 @@ pub async fn guest_residue_sweep(pool: &Pool, search: Option<&Arc<SearchService>
     }
     warn_homeless_accounts("scheduler:guest_residue", homeless);
     info!("scheduler:guest_residue: removed {requests} unconfirmed requests, {files} abandoned uploads, {purged} unused guest accounts");
+    Ok(())
+}
+
+/// Uploads one run of [`unattached_upload_cleanup`] looks at, so a backlog
+/// drains over several days rather than stalling one run.
+const UNATTACHED_UPLOAD_BATCH: i64 = 500;
+
+/// Delete uploads a signed-in user staged (a staff reply's, a portal
+/// requester's) that no comment claimed within the claim window
+/// ([`crate::repository::comments::UPLOAD_CLAIM_HOURS`]). Found
+/// cross-workspace; each file is deleted through its workspace's storage,
+/// then its row, pinned to that workspace.
+pub async fn unattached_upload_cleanup(pool: Pool) -> Result<()> {
+    let _lock = match try_job_lock(
+        &pool,
+        UNATTACHED_UPLOAD_LOCK,
+        "attachments.sweep_unattached",
+    )? {
+        Some(guard) => guard,
+        None => return Ok(()),
+    };
+    unattached_upload_sweep(&pool, crate::utils::storage::process_storage()).await
+}
+
+/// One pass of [`unattached_upload_cleanup`] against `storage`, without the
+/// job lock. The object goes first: a failed delete keeps the row, so the next
+/// run tries again and no file is left without a row pointing at it.
+pub async fn unattached_upload_sweep(
+    pool: &Pool,
+    storage: Arc<dyn crate::utils::storage::Storage>,
+) -> Result<()> {
+    use crate::repository::comments;
+    let cutoff = chrono::Utc::now().naive_utc()
+        - chrono::Duration::hours(
+            comments::UPLOAD_CLAIM_HOURS + comments::UNATTACHED_SWEEP_MARGIN_HOURS,
+        );
+    let uploads =
+        // cross-tenant: cross-workspace scan builds the work-list; each upload is deleted per-workspace below.
+        crate::sync::session::background_run(pool, "scheduler:unattached_uploads_scan", |conn| {
+            comments::unattached_uploads(conn, cutoff, UNATTACHED_UPLOAD_BATCH)
+        })
+        .context("scan unattached uploads")?;
+    let (mut removed, mut kept) = (0usize, 0usize);
+    'uploads: for (workspace_id, attachment_id, url) in uploads {
+        let Some(path) = crate::repository::tickets::extract_storage_path_from_url(&url) else {
+            continue;
+        };
+        let storage =
+            crate::utils::storage::WorkspaceScopedStorage::arc(storage.clone(), workspace_id);
+        // The thumbnail `/upload` renders beside a PDF goes with it.
+        let thumbnail = crate::utils::pdf::thumbnail_path(&path);
+        for object in std::iter::once(path).chain(thumbnail) {
+            if let Err(e) = storage.delete_file(&object).await {
+                warn!(workspace_id, attachment_id, error = ?e, "scheduler:unattached_uploads: file delete failed; keeping the row for the next run");
+                kept += 1;
+                continue 'uploads;
+            }
+        }
+        match crate::sync::session::run_in_workspace(
+            pool,
+            "background:unattached_upload",
+            workspace_id,
+            |conn| comments::delete_unattached_upload(conn, attachment_id, cutoff),
+        ) {
+            Ok(n) => removed += n,
+            Err(e) => {
+                warn!(workspace_id, attachment_id, error = ?e, "scheduler:unattached_uploads: row delete failed")
+            }
+        }
+    }
+    info!("scheduler:unattached_uploads: removed {removed} unattached uploads, kept {kept} whose file couldn't be deleted");
     Ok(())
 }
 
