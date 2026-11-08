@@ -438,6 +438,89 @@ async fn pages_imported_before_are_skipped_or_copied() {
     assert_eq!(list["pages"][0]["duplicate"]["page_id"], written[0].id);
 }
 
+/// A commit recorded before the importer read its sources through one seam
+/// keyed each page by its archive path, a section page by its folder. The
+/// same export imported again into that collection still finds every page.
+#[actix_web::test]
+async fn pages_recorded_by_archive_path_are_found_again() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = import_workspaces(&pool);
+    let ws = &seeded.a;
+    let collection = new_collection(&pool, ws, "Handbook");
+    let into = serde_json::json!({ "collections": "existing", "collection_id": collection });
+    let export = || {
+        zip_of(&[
+            ("getting-started.md", b"Start here.\n"),
+            ("network/index.md", b"About the network.\n"),
+            ("network/vpn.md", b"Connect.\n"),
+            ("policies/leave.md", b"Ask first.\n"),
+        ])
+    };
+    let first = id_of(&uploaded(&pool, ws, "handbook.zip", &export()).await);
+    checked(&pool, ws, &first, into.clone()).await;
+    committed(&pool, ws, &first, serde_json::json!({})).await;
+    let written = pages(&pool, ws);
+    assert_eq!(written.len(), 5, "{written:?}");
+
+    // The record as those imports wrote it, each source spelled out.
+    #[derive(QueryableByName)]
+    struct Record {
+        #[diesel(sql_type = Nullable<diesel::sql_types::Jsonb>)]
+        record_ids: Option<serde_json::Value>,
+    }
+    let job = Uuid::parse_str(&first).unwrap();
+    let mut record = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query("SELECT record_ids FROM import_jobs WHERE id = $1")
+            .bind::<SqlUuid, _>(job)
+            .get_result::<Record>(c)
+    })
+    .expect("record")
+    .record_ids
+    .expect("record ids");
+    for page in record["pages"].as_array_mut().expect("pages") {
+        let title = &written
+            .iter()
+            .find(|p| page["id"] == p.id)
+            .expect("written")
+            .title;
+        let path = match title.as_str() {
+            "Getting started" => "getting-started.md",
+            "Network" => "network/index.md",
+            "Vpn" => "network/vpn.md",
+            "Policies" => "policies",
+            "Leave" => "policies/leave.md",
+            other => panic!("unexpected page {other}"),
+        };
+        page["source"] = serde_json::json!(path);
+    }
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query("UPDATE import_jobs SET record_ids = $2 WHERE id = $1")
+            .bind::<SqlUuid, _>(job)
+            .bind::<diesel::sql_types::Jsonb, _>(&record)
+            .execute(c)
+    })
+    .expect("record as written before");
+
+    let second = id_of(&uploaded(&pool, ws, "handbook.zip", &export()).await);
+    let job = checked(&pool, ws, &second, into).await;
+    assert_eq!(job["summary"]["duplicates"], 5, "{job}");
+    assert_eq!(job["summary"]["skipped"], 5);
+    assert_eq!(job["summary"]["would_create"], 0);
+    let (_, list, _) = call_docs(
+        &pool,
+        ws,
+        ws.admin_uuid,
+        pages_request(&second, "?filter=skipped"),
+        None,
+    )
+    .await;
+    assert_eq!(list["total"], 5, "{list}");
+    for page in list["pages"].as_array().expect("pages") {
+        assert_eq!(page["duplicate"]["by"], "source", "{list}");
+    }
+}
+
 /// A Nosdesk export of three collections, a page in each, and an empty
 /// fourth. The page in the second carries `round_trip`.
 fn three_collections(ws: &WorkspaceSeed, round_trip: &str) -> Vec<u8> {

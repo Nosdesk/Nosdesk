@@ -1,4 +1,4 @@
-//! An archive of Markdown as a plan of pages, and each page as a document.
+//! An uploaded archive as a plan of pages, and each page as a document.
 //!
 //! [`build`] reads an uploaded archive under a source profile and returns:
 //!
@@ -10,33 +10,22 @@
 //!   its archive images as [`Placeholder`](super::links::Placeholder)s the
 //!   commit fills in once the pages exist.
 //!
-//! Titles: front matter `title`, then an H1 that opens the file, then a
-//! SUMMARY, nav or `_category_` label, then the file name cleaned (ids and
-//! number prefixes stripped, `kebab-case` humanised). An opening H1 equal to
-//! the title is removed from the body.
-//!
-//! Order among siblings: a nav's order, then explicit order keys (front
-//! matter `weight`, `nav_order`, `order`, `sidebar_position`, `_category_`
-//! `position`, the manifest's order), then, for Notion, the order the parent
-//! page links its children, then number prefixes, then a natural sort of
-//! the title.
+//! It works in two halves either side of [`super::source`]: a source reads
+//! the archive into a [`SourceTree`] (today every profile is a
+//! [`MarkdownFamily`]), and the planner here turns that tree into the plan
+//! under the admin's options, converting each page through the source.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::front_matter::{self, Fields};
-use super::ir::{Block, Document, Inline, Table, TableCell};
-use super::links::{
-    file_stem, join_normalised, parent, percent_decode, strip_notion_id, LinkIndex, LinkReport,
-    PageResolver, Workspace,
-};
-use super::parse::{self, ParseOptions};
-use super::profiles::{
-    self, is_markdown, Detection, Listing, Manifest, ManifestPage, NavItem, ProfileKind, Rules,
-};
-use super::{normalise, FrontMatter, NoteCode, Notes};
+use super::ir::Document;
+use super::links::{file_stem, parent, LinkIndex, LinkReport, PageResolver, Workspace};
+use super::markdown_family::{MarkdownFamily, MarkdownFiles};
+use super::profiles::{self, Detection, Listing, ProfileKind};
+use super::source::{DocsSource, SourceInput, SourcePage, SourceTree};
+use super::{normalise, NoteCode, Notes};
 use crate::services::imports::refusal::Refused;
 use crate::services::uploaded_archive::{SafeArchive, SkipReason};
 
@@ -45,7 +34,7 @@ pub const MAX_PAGES: usize = 2_000;
 /// Largest Markdown file read.
 pub const MAX_MARKDOWN_BYTES: u64 = 2 * 1024 * 1024;
 /// Largest config file or database CSV read.
-const MAX_CONFIG_BYTES: u64 = 10 * 1024 * 1024;
+pub(super) const MAX_CONFIG_BYTES: u64 = 10 * 1024 * 1024;
 /// Longest title kept.
 pub const MAX_TITLE_CHARS: usize = 255;
 /// Rows of a Notion database shown on its page.
@@ -178,6 +167,8 @@ pub struct PlannedCollection {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PlannedPage {
     pub index: usize,
+    /// What a later import finds the page by: [`SourcePage::key`].
+    pub key: String,
     /// The Markdown file, by archive key.
     pub source: Option<String>,
     /// The folder the page stands for, by archive key.
@@ -237,14 +228,7 @@ pub struct Built {
     pub documents: Vec<Document>,
 }
 
-fn refused_no_markdown() -> Refused {
-    Refused::new(
-        "docs_import_no_markdown",
-        "There are no Markdown files in this zip.",
-    )
-}
-
-fn refused_too_many(count: usize) -> Refused {
+pub(super) fn refused_too_many(count: usize) -> Refused {
     Refused::new(
         "docs_import_too_many_pages",
         format!(
@@ -253,6 +237,22 @@ fn refused_too_many(count: usize) -> Refused {
     )
     .arg("count", count)
     .arg("max", MAX_PAGES)
+}
+
+/// A title as a page holds it: whitespace runs as one space, "Untitled"
+/// when empty, at most [`MAX_TITLE_CHARS`]. Also says whether it was cut.
+pub fn fit_title(title: &str) -> (String, bool) {
+    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let title = if title.is_empty() {
+        "Untitled".to_string()
+    } else {
+        title
+    };
+    if title.chars().count() > MAX_TITLE_CHARS {
+        (title.chars().take(MAX_TITLE_CHARS).collect(), true)
+    } else {
+        (title, false)
+    }
 }
 
 /// Read `archive` into a plan and documents. Reads every Markdown file once;
@@ -285,31 +285,7 @@ pub fn build(
         .filter(|s| s.reason == SkipReason::Ignored)
         .map(|s| s.key.clone())
         .collect();
-    let markdown: Vec<String> = files
-        .iter()
-        .filter(|k| is_markdown(k) && !in_tool_folder(k))
-        .cloned()
-        .collect();
-    if markdown.len() > MAX_PAGES {
-        return Err(refused_too_many(markdown.len()));
-    }
-
-    let mut texts: HashMap<String, String> = HashMap::new();
-    let mut errors: HashMap<String, String> = HashMap::new();
-    let mut lossy: HashSet<String> = HashSet::new();
-    for key in &markdown {
-        match archive.read_text(key, MAX_MARKDOWN_BYTES) {
-            Ok(text) => {
-                if text.lossy {
-                    lossy.insert(key.clone());
-                }
-                texts.insert(key.clone(), text.text);
-            }
-            Err(e) => {
-                errors.insert(key.clone(), e.to_string());
-            }
-        }
-    }
+    let markdown = MarkdownFiles::read(archive, &files)?;
 
     let mut read_small = |key: &str| {
         archive
@@ -321,7 +297,7 @@ pub fn build(
         files: &files,
         ignored: &ignored,
         read: &mut read_small,
-        markdown: &texts,
+        markdown: &markdown.texts,
     });
     let (kind, detected, base) = match options.profile {
         // A forced profile reads what detection would refuse, and says what
@@ -339,743 +315,64 @@ pub fn build(
             (kind, None, base)
         }
     };
-    if markdown.is_empty() {
-        return Err(refused_no_markdown());
-    }
-    let rules = kind.rules();
 
-    let mut source = Source {
-        kind,
-        rules,
-        base,
+    // Every profile today is a Markdown family.
+    let mut source = MarkdownFamily::new(kind, base, markdown);
+    let tree = source.read(&mut SourceInput::Archive {
+        archive,
         files: &files,
-        texts: &texts,
-        read: &mut read_small,
-        nodes: vec![Node::root()],
-        left_out: &mut left_out,
-        manifest: None,
-        site_name: None,
-    };
-    source.lay_out();
-    let Source {
-        nodes,
-        manifest,
-        site_name,
-        base,
-        ..
-    } = source;
-    let root = base.clone();
-
+    })?;
     Planner {
-        kind,
+        source: &source,
         detected,
-        rules,
         options,
         workspace,
-        root,
-        files: &files,
-        texts: &texts,
-        errors: &errors,
-        lossy: &lossy,
-        manifest,
-        site_name,
         left_out,
-        read: &mut read_small,
     }
-    .plan(nodes)
+    .plan(tree)
 }
 
-/// Files under a tool's own folder (`.gitbook/`), which hold assets and
-/// includes rather than pages.
-fn in_tool_folder(key: &str) -> bool {
-    key.split('/')
-        .rev()
-        .skip(1)
-        .any(|segment| segment.starts_with('.'))
-}
+// From the source's tree to the plan.
 
-// The source's tree.
-
-#[derive(Debug, Clone, Default)]
-struct Node {
-    file: Option<String>,
-    folder: Option<String>,
-    /// A nav, SUMMARY or `_category_` label.
-    label: Option<String>,
-    nav_index: Option<usize>,
-    /// An explicit order from the source (a `_category_` position, the
-    /// manifest's order).
-    order: Option<f64>,
-    /// A root `index.md` or `README.md`, ordered first among its siblings.
-    first: bool,
-    /// A folder or a heading group: it may become a collection.
-    group: bool,
-    /// A Notion database's CSV, shown on the page.
-    csv: Option<String>,
-    manifest: Option<ManifestPage>,
-    parent: Option<usize>,
-    children: Vec<usize>,
-}
-
-impl Node {
-    fn root() -> Self {
-        Node::default()
-    }
-}
-
-struct Source<'a> {
-    kind: ProfileKind,
-    rules: Rules,
-    base: String,
-    files: &'a [String],
-    texts: &'a HashMap<String, String>,
-    read: &'a mut dyn FnMut(&str) -> Option<String>,
-    nodes: Vec<Node>,
-    left_out: &'a mut Vec<LeftOut>,
-    manifest: Option<Manifest>,
-    site_name: Option<String>,
-}
-
-fn join(base: &str, name: &str) -> String {
-    if base.is_empty() {
-        name.to_string()
-    } else if name.is_empty() {
-        base.to_string()
-    } else {
-        format!("{base}/{name}")
-    }
-}
-
-fn under(root: &str, key: &str) -> bool {
-    root.is_empty() || key.starts_with(&format!("{root}/"))
-}
-
-impl Source<'_> {
-    fn add(&mut self, node: Node, parent: usize) -> usize {
-        let index = self.nodes.len();
-        self.nodes.push(Node {
-            parent: Some(parent),
-            ..node
-        });
-        self.nodes[parent].children.push(index);
-        index
-    }
-
-    fn markdown_under(&self, root: &str) -> Vec<String> {
-        let mut keys: Vec<String> = self
-            .files
-            .iter()
-            .filter(|k| is_markdown(k) && !in_tool_folder(k) && under(root, k))
-            .cloned()
-            .collect();
-        keys.sort();
-        keys
-    }
-
-    fn lay_out(&mut self) {
-        match self.kind {
-            ProfileKind::NosdeskV2 => self.manifest_layout(),
-            ProfileKind::NosdeskV1 => {
-                let root = join(&self.base, "documentation");
-                let root = if self.markdown_under(&root).is_empty() {
-                    self.base.clone()
-                } else {
-                    root
-                };
-                self.base = root.clone();
-                let keys = self.markdown_under(&root);
-                self.folder_layout(&root, &keys, 0);
-            }
-            ProfileKind::Gitbook => self.gitbook_layout(),
-            ProfileKind::Mkdocs => self.mkdocs_layout(),
-            ProfileKind::Docusaurus => {
-                let docs = join(&self.base, "docs");
-                if !self.markdown_under(&docs).is_empty() {
-                    self.base = docs;
-                }
-                let root = self.base.clone();
-                let keys = self.markdown_under(&root);
-                self.folder_layout(&root, &keys, 0);
-                self.apply_categories();
-            }
-            ProfileKind::Notion
-            | ProfileKind::Obsidian
-            | ProfileKind::Outline
-            | ProfileKind::Plain => {
-                let root = self.base.clone();
-                let keys = self.markdown_under(&root);
-                self.folder_layout(&root, &keys, 0);
-            }
-        }
-    }
-
-    /// Folders become parent pages. A folder's page is its `index.md`,
-    /// `README.md` or `_index.md`, a same-name file inside it (when the
-    /// profile says), or a same-name file beside it; otherwise it is a
-    /// section page with no content.
-    fn folder_layout(&mut self, root: &str, keys: &[String], under_node: usize) {
-        let mut folders: Vec<String> = Vec::new();
-        for key in keys {
-            let mut dir = parent(key);
-            while !dir.is_empty() && dir != root && under(root, dir) {
-                folders.push(dir.to_string());
-                dir = parent(dir);
-            }
-        }
-        folders.sort();
-        folders.dedup();
-        let find = |dir: &str, name: &str| -> Option<String> {
-            ["md", "mdx", "markdown"].iter().find_map(|ext| {
-                let wanted = join(dir, &format!("{name}.{ext}")).to_lowercase();
-                keys.iter().find(|k| k.to_lowercase() == wanted).cloned()
-            })
-        };
-
-        let mut claimed: HashMap<String, String> = HashMap::new();
-        for folder in &folders {
-            let name = folder.rsplit('/').next().unwrap_or(folder);
-            let page = ["index", "README", "_index"]
-                .iter()
-                .find_map(|n| find(folder, n))
-                .or_else(|| {
-                    self.rules
-                        .folder_note_inside
-                        .then(|| find(folder, name))
-                        .flatten()
-                })
-                .or_else(|| find(parent(folder), name));
-            if let Some(page) = page.filter(|p| !claimed.contains_key(p)) {
-                claimed.insert(page, folder.clone());
-            }
-        }
-        let folder_page: HashMap<&str, &str> = claimed
-            .iter()
-            .map(|(file, folder)| (folder.as_str(), file.as_str()))
-            .collect();
-
-        // Nodes for folders, outermost first, then files.
-        let mut node_of: HashMap<String, usize> = HashMap::new();
-        node_of.insert(root.to_string(), under_node);
-        for folder in &folders {
-            let parent_node = node_of.get(parent(folder)).copied().unwrap_or(under_node);
-            let csv = if folder_page.contains_key(folder.as_str()) {
-                None
-            } else {
-                self.database_csv(folder)
-            };
-            let node = self.add(
-                Node {
-                    file: folder_page.get(folder.as_str()).map(|f| f.to_string()),
-                    folder: Some(folder.clone()),
-                    group: true,
-                    csv,
-                    ..Node::default()
-                },
-                parent_node,
-            );
-            node_of.insert(folder.clone(), node);
-        }
-        for key in keys {
-            if claimed.contains_key(key) {
-                continue;
-            }
-            let dir = parent(key);
-            let parent_node = node_of.get(dir).copied().unwrap_or(under_node);
-            let stem = file_stem(key).to_ascii_lowercase();
-            let first = dir == root && matches!(stem.as_str(), "index" | "readme" | "_index");
-            self.add(
-                Node {
-                    file: Some(key.clone()),
-                    first,
-                    ..Node::default()
-                },
-                parent_node,
-            );
-        }
-    }
-
-    /// A Notion database: `Name.csv` (or `Name_all.csv`, all its rows)
-    /// beside the folder of its rows' pages.
-    fn database_csv(&self, folder: &str) -> Option<String> {
-        if !self.rules.notion_ids {
-            return None;
-        }
-        let all = format!("{folder}_all.csv").to_lowercase();
-        let view = format!("{folder}.csv").to_lowercase();
-        self.files
-            .iter()
-            .find(|k| k.to_lowercase() == all)
-            .or_else(|| self.files.iter().find(|k| k.to_lowercase() == view))
-            .cloned()
-    }
-
-    /// Docusaurus `_category_` files name and order their folders.
-    fn apply_categories(&mut self) {
-        for i in 0..self.nodes.len() {
-            let Some(folder) = self.nodes[i].folder.clone() else {
-                continue;
-            };
-            let key = ["_category_.json", "_category_.yml", "_category_.yaml"]
-                .iter()
-                .map(|n| join(&folder, n))
-                .find(|k| self.files.contains(k));
-            let Some(key) = key else {
-                continue;
-            };
-            if let Some(text) = (self.read)(&key) {
-                let category = profiles::read_category(&key, &text);
-                self.nodes[i].label = category.label;
-                self.nodes[i].order = category.position;
-            }
-        }
-    }
-
-    fn gitbook_layout(&mut self) {
-        let config_text = (self.read)(&join(&self.base, ".gitbook.yaml"));
-        let config = profiles::read_gitbook(config_text.as_deref());
-        let root = join(&self.base, &config.root);
-        self.base = root.clone();
-        let summary_key = join(&root, &config.summary);
-        let nav = self
-            .texts
-            .get(&summary_key)
-            .map(|t| profiles::read_summary(t))
-            .unwrap_or_default();
-        let mut claimed: HashSet<String> = HashSet::new();
-        claimed.insert(summary_key.clone());
-        let readme = join(&root, &config.readme);
-        if self.texts.contains_key(&readme) && !nav_mentions(&nav, &root, &config.readme) {
-            let node = self.add(
-                Node {
-                    file: Some(readme.clone()),
-                    first: true,
-                    ..Node::default()
-                },
-                0,
-            );
-            self.nodes[node].nav_index = Some(0);
-            claimed.insert(readme);
-        }
-        self.nav_layout(&nav, &root, 0, &mut claimed, 1);
-        self.leftovers(&root, &claimed);
-    }
-
-    fn mkdocs_layout(&mut self) {
-        let key = ["mkdocs.yml", "mkdocs.yaml"]
-            .iter()
-            .map(|n| join(&self.base, n))
-            .find(|k| self.files.contains(k));
-        let config = key
-            .and_then(|k| (self.read)(&k))
-            .map(|t| profiles::read_mkdocs(&t))
-            .unwrap_or_default();
-        let docs_dir = if config.docs_dir.is_empty() {
-            "docs".to_string()
-        } else {
-            config.docs_dir.clone()
-        };
-        let root = join(&self.base, &docs_dir);
-        let root = if self.markdown_under(&root).is_empty() {
-            self.base.clone()
-        } else {
-            root
-        };
-        self.base = root.clone();
-        self.site_name = config.site_name.clone();
-        match &config.nav {
-            Some(nav) => {
-                let mut claimed = HashSet::new();
-                self.nav_layout(nav, &root, 0, &mut claimed, 0);
-                self.leftovers(&root, &claimed);
-            }
-            None => {
-                let keys = self.markdown_under(&root);
-                self.folder_layout(&root, &keys, 0);
-            }
-        }
-    }
-
-    /// Pages from a nav, in its order. A section with no page of its own
-    /// becomes a section page.
-    fn nav_layout(
-        &mut self,
-        items: &[NavItem],
-        dir: &str,
-        parent_node: usize,
-        claimed: &mut HashSet<String>,
-        offset: usize,
-    ) {
-        for (i, item) in items.iter().enumerate() {
-            let file = item
-                .path
-                .as_deref()
-                .filter(|p| !p.contains("://"))
-                .and_then(|p| {
-                    let path = percent_decode(p.split(['#', '?']).next().unwrap_or(""));
-                    let joined = join_normalised(dir, &path)?;
-                    let candidates = [
-                        joined.clone(),
-                        join(&joined, "index.md"),
-                        join(&joined, "README.md"),
-                        format!("{joined}.md"),
-                    ];
-                    candidates
-                        .into_iter()
-                        .find(|c| self.texts.contains_key(c) && !claimed.contains(c))
-                });
-            if file.is_none() && item.children.is_empty() {
-                continue;
-            }
-            if let Some(file) = &file {
-                claimed.insert(file.clone());
-            }
-            let node = self.add(
-                Node {
-                    group: file.is_none() || item.group,
-                    file,
-                    label: item.title.clone(),
-                    nav_index: Some(offset + i),
-                    ..Node::default()
-                },
-                parent_node,
-            );
-            self.nav_layout(&item.children, dir, node, claimed, 0);
-        }
-    }
-
-    /// Files a nav doesn't list, as top-level pages after the nav's.
-    fn leftovers(&mut self, root: &str, claimed: &HashSet<String>) {
-        for key in self.markdown_under(root) {
-            if !claimed.contains(&key) {
-                self.add(
-                    Node {
-                        file: Some(key),
-                        ..Node::default()
-                    },
-                    0,
-                );
-            }
-        }
-    }
-
-    /// A Nosdesk export's tree, from its manifest.
-    fn manifest_layout(&mut self) {
-        let key = join(&self.base, profiles::MANIFEST);
-        let manifest = (self.read)(&key)
-            .and_then(|t| profiles::read_manifest(&t))
-            .unwrap_or_default();
-        let mut node_of_uuid: HashMap<String, usize> = HashMap::new();
-        let mut listed: HashSet<String> = HashSet::new();
-        let mut deleted: HashMap<String, Option<String>> = HashMap::new();
-        let mut pending: Vec<(usize, Option<String>)> = Vec::new();
-        for page in &manifest.pages {
-            let file = join(&self.base, &page.path);
-            listed.insert(file.clone());
-            if page.status.as_deref() == Some("deleted") {
-                if let Some(uuid) = &page.uuid {
-                    deleted.insert(uuid.to_lowercase(), page.parent.clone());
-                }
-                self.left_out.push(LeftOut {
-                    path: file,
-                    reason: "deleted",
-                });
-                continue;
-            }
-            let node = self.nodes.len();
-            self.nodes.push(Node {
-                file: Some(file),
-                order: page.order.map(f64::from),
-                manifest: Some(page.clone()),
-                ..Node::default()
-            });
-            if let Some(uuid) = &page.uuid {
-                node_of_uuid.insert(uuid.to_lowercase(), node);
-            }
-            pending.push((node, page.parent.clone()));
-        }
-        for (node, parent_uuid) in pending {
-            // A parent in the trash hands its children to its own parent.
-            let mut parent_uuid = parent_uuid.map(|p| p.to_lowercase());
-            let mut hops = 0;
-            while let Some(p) = parent_uuid.clone() {
-                match deleted.get(&p) {
-                    Some(grand) if hops < 64 => {
-                        parent_uuid = grand.clone().map(|g| g.to_lowercase());
-                        hops += 1;
-                    }
-                    _ => break,
-                }
-            }
-            let parent_node = parent_uuid
-                .and_then(|p| node_of_uuid.get(&p).copied())
-                .filter(|p| *p != node)
-                .unwrap_or(0);
-            self.nodes[node].parent = Some(parent_node);
-            self.nodes[parent_node].children.push(node);
-        }
-        // A parent loop leaves pages reachable from nowhere: lift them.
-        let reachable = reachable(&self.nodes);
-        for node in 1..self.nodes.len() {
-            if !reachable.contains(&node) {
-                if let Some(old) = self.nodes[node].parent {
-                    self.nodes[old].children.retain(|c| *c != node);
-                }
-                self.nodes[node].parent = Some(0);
-                self.nodes[0].children.push(node);
-            }
-        }
-        for key in self.files.iter() {
-            if is_markdown(key) && under(&self.base, key) && !listed.contains(key) {
-                self.left_out.push(LeftOut {
-                    path: key.clone(),
-                    reason: "not_in_manifest",
-                });
-            }
-        }
-        self.manifest = Some(manifest);
-    }
-}
-
-/// Whether a nav already lists `name` under `root`.
-fn nav_mentions(items: &[NavItem], _root: &str, name: &str) -> bool {
-    items.iter().any(|item| {
-        item.path
-            .as_deref()
-            .is_some_and(|p| p.trim_start_matches("./").eq_ignore_ascii_case(name))
-            || nav_mentions(&item.children, _root, name)
-    })
-}
-
-fn reachable(nodes: &[Node]) -> HashSet<usize> {
-    let mut seen = HashSet::new();
-    let mut stack = vec![0];
-    while let Some(n) = stack.pop() {
-        if seen.insert(n) {
-            stack.extend(nodes[n].children.iter().copied());
-        }
-    }
-    seen
-}
-
-// From the tree to the plan.
-
-/// What one page's file says about it before it is converted.
-#[derive(Debug, Default)]
-struct Peek {
-    fields: Option<Fields>,
-    front_matter_unreadable: bool,
-    /// The text of an H1 that opens the file.
-    first_heading: Option<String>,
-    /// Link destinations in order, for Notion's child order.
-    links: Vec<String>,
-}
-
-fn peek(markdown: &str, wikilinks: bool) -> Peek {
-    use pulldown_cmark::{Event, HeadingLevel, MetadataBlockKind, Parser, Tag, TagEnd};
-    let mut options = parse::options();
-    if wikilinks {
-        options |= pulldown_cmark::Options::ENABLE_WIKILINKS;
-    }
-    let mut peek = Peek::default();
-    let mut metadata: Option<(MetadataBlockKind, String)> = None;
-    let mut heading: Option<String> = None;
-    let mut seen_block = false;
-    for event in Parser::new_ext(markdown, options) {
-        match event {
-            Event::Start(Tag::MetadataBlock(kind)) if !seen_block => {
-                metadata = Some((kind, String::new()));
-            }
-            Event::End(TagEnd::MetadataBlock(_)) => {
-                if let Some((kind, raw)) = metadata.take() {
-                    let block = FrontMatter {
-                        kind: match kind {
-                            MetadataBlockKind::YamlStyle => super::FrontMatterKind::Yaml,
-                            MetadataBlockKind::PlusesStyle => super::FrontMatterKind::Pluses,
-                        },
-                        raw,
-                    };
-                    match front_matter::read(&block) {
-                        Ok(fields) => peek.fields = Some(fields),
-                        Err(_) => peek.front_matter_unreadable = true,
-                    }
-                }
-            }
-            Event::Start(Tag::Heading {
-                level: HeadingLevel::H1,
-                ..
-            }) if !seen_block => {
-                heading = Some(String::new());
-                seen_block = true;
-            }
-            Event::End(TagEnd::Heading(HeadingLevel::H1)) => {
-                if let Some(text) = heading.take() {
-                    let text = text.trim().to_string();
-                    if !text.is_empty() {
-                        peek.first_heading = Some(text);
-                    }
-                }
-            }
-            Event::Start(Tag::Link { dest_url, .. }) => {
-                peek.links.push(dest_url.to_string());
-                seen_block = true;
-            }
-            Event::Text(t) | Event::Code(t) => {
-                if let Some((_, raw)) = metadata.as_mut() {
-                    raw.push_str(&t);
-                } else if let Some(h) = heading.as_mut() {
-                    h.push_str(&t);
-                }
-            }
-            Event::Start(_) | Event::Rule | Event::Html(_) if metadata.is_none() => {
-                seen_block = true;
-            }
-            _ => {}
-        }
-    }
-    peek
-}
-
-/// The front matter keys the import reads.
-const USED_KEYS: &[&str] = &[
-    "title",
-    "slug",
-    "icon",
-    "emoji",
-    "draft",
-    "status",
-    "published",
-    "weight",
-    "nav_order",
-    "order",
-    "sidebar_position",
-    "sidebar_label",
-    "aliases",
-    "uuid",
-];
-
+/// What every source shares: the admin's options applied to a
+/// [`SourceTree`], and each page converted through its source.
 struct Planner<'a> {
-    kind: ProfileKind,
+    source: &'a dyn DocsSource,
     detected: Option<ProfileKind>,
-    rules: Rules,
     options: &'a ImportOptions,
     workspace: &'a dyn Workspace,
-    root: String,
-    files: &'a [String],
-    texts: &'a HashMap<String, String>,
-    errors: &'a HashMap<String, String>,
-    lossy: &'a HashSet<String>,
-    manifest: Option<Manifest>,
-    site_name: Option<String>,
+    /// Files left out so far: those the leave-out patterns matched.
     left_out: Vec<LeftOut>,
-    read: &'a mut dyn FnMut(&str) -> Option<String>,
-}
-
-/// A node with what its file said, ready to order.
-struct Draft {
-    title: String,
-    title_cut: bool,
-    peek: Peek,
-    order_key: Option<f64>,
-    prefix: Option<u64>,
-    notion_position: Option<usize>,
 }
 
 impl Planner<'_> {
-    fn plan(mut self, mut nodes: Vec<Node>) -> Result<Built, Refused> {
-        // What each file says.
-        let mut drafts: Vec<Option<Draft>> = (0..nodes.len()).map(|_| None).collect();
-        for (i, node) in nodes.iter().enumerate().skip(1) {
-            let peek = node
-                .file
-                .as_ref()
-                .and_then(|f| self.texts.get(f))
-                .map(|t| peek(t, self.rules.wikilinks))
-                .unwrap_or_default();
-            let (title, title_cut) = self.title(node, &peek);
-            let order_key = peek.fields.as_ref().and_then(|f| {
-                ["weight", "nav_order", "order", "sidebar_position"]
-                    .iter()
-                    .find_map(|k| f.get(k).and_then(|v| v.as_f64()))
-            });
-            let name = node
-                .file
-                .as_deref()
-                .map(|f| match &node.folder {
-                    Some(folder) if is_index_name(f) => folder.rsplit('/').next().unwrap_or(folder),
-                    _ => file_stem(f),
-                })
-                .or_else(|| {
-                    node.folder
-                        .as_deref()
-                        .map(|f| f.rsplit('/').next().unwrap_or(f))
-                })
-                .unwrap_or("");
-            let prefix = if self.rules.number_prefixes {
-                number_prefix(self.clean_ids(name)).map(|(n, _)| n)
-            } else {
-                None
-            };
-            drafts[i] = Some(Draft {
-                title,
-                title_cut,
-                peek,
-                order_key,
-                prefix,
-                notion_position: None,
-            });
-        }
+    fn plan(mut self, tree: SourceTree) -> Result<Built, Refused> {
+        let SourceTree {
+            root,
+            site_name,
+            default_collections,
+            collections: source_collections,
+            mut pages,
+            top: roots,
+            files,
+            left_out,
+            workspace_uuid,
+        } = tree;
+        self.left_out.extend(left_out);
 
-        // Notion: children in the order their parent links them.
-        if self.kind == ProfileKind::Notion {
-            for p in 1..nodes.len() {
-                let Some(file) = nodes[p].file.clone() else {
-                    continue;
-                };
-                let links = drafts[p]
-                    .as_ref()
-                    .map(|d| d.peek.links.clone())
-                    .unwrap_or_default();
-                let dir = parent(&file).to_string();
-                let positions: HashMap<String, usize> = links
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, l)| {
-                        let path = percent_decode(l.split(['#', '?']).next().unwrap_or(""));
-                        join_normalised(&dir, &path).map(|k| (k.to_lowercase(), i))
-                    })
-                    .rev()
-                    .collect();
-                for &child in &nodes[p].children.clone() {
-                    let keys = [nodes[child].file.clone(), nodes[child].folder.clone()];
-                    let position = keys
-                        .iter()
-                        .flatten()
-                        .find_map(|k| positions.get(&k.to_lowercase()).copied());
-                    if let Some(d) = drafts[child].as_mut() {
-                        d.notion_position = position;
-                    }
-                }
-            }
-        }
-
-        // Order siblings.
-        for n in 0..nodes.len() {
-            let mut children = nodes[n].children.clone();
-            children.sort_by(|a, b| self.compare(&nodes, &drafts, *a, *b));
-            nodes[n].children = children;
+        // Titles as the pages will hold them.
+        let mut shortened = vec![false; pages.len()];
+        for (page, cut) in pages.iter_mut().zip(shortened.iter_mut()) {
+            let (title, was_cut) = fit_title(&page.title);
+            page.title = title;
+            *cut = was_cut;
         }
 
         // Collections, which may restructure the top level.
-        let mode = match self.options.collections {
-            Some(mode) => mode,
-            None => match self.kind {
-                ProfileKind::NosdeskV2 => CollectionMode::AsSource,
-                ProfileKind::Outline => CollectionMode::PerTopLevelFolder,
-                _ => CollectionMode::New,
-            },
-        };
-        let (mut collections, mut top) = self.collections(mode, &mut nodes, &drafts);
-        let excluded_files = self.leave_out_pages(&mut nodes, &drafts, &mut top);
+        let mode = self.options.collections.unwrap_or(default_collections);
+        let (mut collections, mut top) =
+            self.collections(mode, &mut pages, roots, site_name, source_collections);
+        let excluded_files = self.leave_out_pages(&mut pages, &mut top);
         if !self.options.exclude.is_empty() {
             // Unticked pages don't bring their collections along: only the
             // collections a kept page goes in are created.
@@ -1085,9 +382,9 @@ impl Planner<'_> {
         // Pages in tree order, parents first.
         let mut order: Vec<(usize, Option<usize>, u32, Option<usize>)> = Vec::new();
         let mut positions: HashMap<Option<usize>, u32> = HashMap::new();
-        for (node, collection) in &top {
+        for (page, collection) in &top {
             let position = positions.entry(*collection).or_insert(0);
-            walk(&nodes, *node, None, *position, *collection, &mut order);
+            walk(&pages, *page, None, *position, *collection, &mut order);
             *position += 1;
         }
         if order.len() > MAX_PAGES {
@@ -1096,159 +393,100 @@ impl Planner<'_> {
         let index_of: HashMap<usize, usize> = order
             .iter()
             .enumerate()
-            .map(|(i, (node, ..))| (*node, i))
+            .map(|(i, (page, ..))| (*page, i))
             .collect();
 
         // The link index.
-        let mut index = LinkIndex::new(&self.root);
-        for key in self.files {
+        let mut index = LinkIndex::new(&root);
+        for key in &files {
             if !excluded_files.contains(key) {
                 index.add_file(key);
             }
         }
-        for (i, (node, ..)) in order.iter().enumerate() {
-            let node_ref = &nodes[*node];
-            let Some(draft) = drafts[*node].as_ref() else {
-                continue;
-            };
-            let file = node_ref
-                .file
-                .as_deref()
-                .filter(|f| self.texts.contains_key(*f));
-            index.add_page(i, &draft.title, file, node_ref.folder.as_deref());
-            if let Some(fields) = &draft.peek.fields {
-                if let Some(aliases) = fields.get("aliases") {
-                    for alias in aliases.strings() {
-                        index.add_alias(&alias, i);
-                    }
-                }
-                if let Some(slug) = fields.text("slug") {
-                    index.add_slug(&slug, i);
-                }
-                if let Some(uuid) = fields.text("uuid") {
-                    index.add_uuid(&uuid, i);
-                }
+        for (i, (page, ..)) in order.iter().enumerate() {
+            let page = &pages[*page];
+            let file = page.file.as_deref().filter(|_| page.error.is_none());
+            index.add_page(i, &page.title, file, page.folder.as_deref());
+            for alias in &page.names.aliases {
+                index.add_alias(alias, i);
             }
-            if let Some(page) = &node_ref.manifest {
-                if let Some(slug) = &page.slug {
-                    index.add_slug(slug, i);
-                }
-                if let Some(uuid) = &page.uuid {
-                    index.add_uuid(uuid, i);
-                }
+            for slug in &page.names.slugs {
+                index.add_slug(slug, i);
+            }
+            for uuid in &page.names.uuids {
+                index.add_uuid(uuid, i);
             }
         }
-        let same_workspace = self
-            .manifest
-            .as_ref()
-            .and_then(|m| m.workspace_uuid.as_deref())
+        let same_workspace = workspace_uuid
+            .as_deref()
             .is_some_and(|w| self.workspace.is_this_workspace(w));
 
         // Convert each page.
-        let mut pages = Vec::with_capacity(order.len());
+        let mut planned = Vec::with_capacity(order.len());
         let mut documents = Vec::with_capacity(order.len());
         let mut not_imported: BTreeMap<String, u32> = BTreeMap::new();
         let mut section_pages = 0;
         let mut totals = Notes::default();
-        for (i, (node, parent_node, position, collection)) in order.iter().enumerate() {
-            let node_ref = &nodes[*node];
-            let draft = drafts[*node].as_ref().expect("every page node has a draft");
-            let mut notes = Notes::default();
-            if draft.title_cut {
+        for (i, (p, parent_page, position, collection)) in order.iter().enumerate() {
+            let page = &pages[*p];
+            let mut notes = page.notes.clone();
+            if shortened[*p] {
                 notes.add(NoteCode::TitleShortened);
             }
-            if draft.peek.front_matter_unreadable {
-                notes.add(NoteCode::FrontMatterIgnored);
+            for key in &page.metadata_not_imported {
+                *not_imported.entry(key.clone()).or_insert(0) += 1;
             }
-            let mut used = Vec::new();
-            if let Some(fields) = &draft.peek.fields {
-                for key in fields.keys() {
-                    if USED_KEYS.contains(&key) {
-                        used.push(key.to_string());
-                    } else {
-                        *not_imported.entry(key.to_string()).or_insert(0) += 1;
-                    }
-                }
-            }
-            let mut error = None;
-            let (document, links) = match node_ref.file.as_ref() {
-                Some(file) if self.texts.contains_key(file) => {
-                    if self.lossy.contains(file) {
-                        notes.add(NoteCode::NotUtf8);
-                    }
-                    self.convert(file, &draft.title, &index, same_workspace, &mut notes)
-                }
-                Some(file) => {
-                    error = Some(
-                        self.errors
-                            .get(file)
-                            .cloned()
-                            .unwrap_or_else(|| "The file isn't in the zip.".to_string()),
-                    );
-                    (Document::default(), LinkReport::default())
-                }
-                None => {
-                    let document = match &node_ref.csv {
-                        Some(csv) => self.database(csv, &mut notes),
-                        None => {
-                            section_pages += 1;
-                            Document::default()
-                        }
-                    };
-                    let document =
-                        normalise::normalise(document, &super::DefaultResolver, &mut notes);
-                    (document, LinkReport::default())
-                }
-            };
+            let (document, links) =
+                self.convert(page, &index, same_workspace, &mut notes, &mut section_pages);
             totals.merge(&notes);
-            let kind = match (&node_ref.file, &node_ref.csv) {
-                (Some(_), _) if parent_node.is_some_and(|p| nodes[p].csv.is_some()) => {
-                    PageKind::DatabaseRow
+            // A row whose database isn't its parent any more is a page.
+            let kind = match page.kind {
+                PageKind::DatabaseRow
+                    if !parent_page.is_some_and(|q| pages[q].kind == PageKind::Database) =>
+                {
+                    PageKind::Page
                 }
-                (Some(_), _) => PageKind::Page,
-                (None, Some(_)) => PageKind::Database,
-                (None, None) => PageKind::Section,
+                kind => kind,
             };
-            let manifest = node_ref.manifest.as_ref();
-            pages.push(PlannedPage {
+            planned.push(PlannedPage {
                 index: i,
-                source: node_ref.file.clone(),
-                folder: node_ref.folder.clone(),
-                title: draft.title.clone(),
-                parent: parent_node.and_then(|p| index_of.get(&p).copied()),
+                key: page.key.clone(),
+                source: page.file.clone(),
+                folder: page.folder.clone(),
+                title: page.title.clone(),
+                parent: parent_page.and_then(|q| index_of.get(&q).copied()),
                 order: *position,
                 collection: *collection,
                 kind,
-                status: self.status(draft.peek.fields.as_ref(), manifest),
-                icon: manifest
-                    .and_then(|m| m.icon.clone())
-                    .or_else(|| {
-                        let fields = draft.peek.fields.as_ref()?;
-                        fields.text("icon").or_else(|| fields.text("emoji"))
-                    })
+                status: match self.options.status {
+                    StatusMode::Drafts => PageStatus::Draft,
+                    StatusMode::Published => PageStatus::Published,
+                    StatusMode::AsFiles => page.status.unwrap_or(PageStatus::Published),
+                },
+                icon: page
+                    .icon
+                    .clone()
                     .filter(|i| i.chars().count() <= MAX_ICON_CHARS),
-                slug: manifest
-                    .and_then(|m| m.slug.clone())
-                    .or_else(|| draft.peek.fields.as_ref()?.text("slug"))
+                slug: page
+                    .slug
+                    .clone()
                     .filter(|s| s.chars().count() <= MAX_TITLE_CHARS),
-                uuid: manifest
-                    .and_then(|m| m.uuid.clone())
-                    .or_else(|| draft.peek.fields.as_ref()?.text("uuid")),
-                front_matter_used: used,
+                uuid: page.uuid.clone(),
+                front_matter_used: page.metadata_used.clone(),
                 notes,
                 links,
-                error,
+                error: page.error.clone(),
             });
             documents.push(document);
         }
 
         Ok(Built {
             plan: Plan {
-                profile: self.kind,
-                root: self.root.clone(),
+                profile: self.source.kind(),
+                root,
                 detected: self.detected,
                 collections,
-                pages,
+                pages: planned,
                 section_pages,
                 front_matter_not_imported: not_imported,
                 left_out: std::mem::take(&mut self.left_out),
@@ -1258,14 +496,48 @@ impl Planner<'_> {
         })
     }
 
+    /// One page's document and link report. A page whose content couldn't
+    /// be read is imported empty; one without links of its own (a section,
+    /// a database) resolves nothing.
+    fn convert(
+        &self,
+        page: &SourcePage,
+        index: &LinkIndex,
+        same_workspace: bool,
+        notes: &mut Notes,
+        section_pages: &mut u32,
+    ) -> (Document, LinkReport) {
+        if page.error.is_some() {
+            return (Document::default(), LinkReport::default());
+        }
+        if page.body.has_links() {
+            let dir = page.file.as_deref().map(parent).unwrap_or("");
+            let resolver = PageResolver::new(index, dir, self.workspace, same_workspace);
+            let document = self.source.convert(page, &resolver, notes);
+            let document = normalise::normalise(document, &resolver, notes);
+            let (report, resolver_notes) = resolver.finish();
+            notes.merge(&resolver_notes);
+            return (document, report);
+        }
+        if page.kind == PageKind::Section {
+            *section_pages += 1;
+        }
+        let document = if page.has_content() {
+            self.source.convert(page, &super::DefaultResolver, notes)
+        } else {
+            Document::default()
+        };
+        let document = normalise::normalise(document, &super::DefaultResolver, notes);
+        (document, LinkReport::default())
+    }
+
     /// Take the pages the admin unticked out of the tree, with everything
     /// under them, before it is numbered. Returns the files they stood for
     /// (their Markdown and a database's CSV), which are left out: a link to
     /// one is kept as text, as for a file a pattern leaves out.
     fn leave_out_pages(
         &mut self,
-        nodes: &mut [Node],
-        drafts: &[Option<Draft>],
+        pages: &mut [SourcePage],
         top: &mut Vec<(usize, Option<usize>)>,
     ) -> HashSet<String> {
         let mut files = HashSet::new();
@@ -1276,11 +548,9 @@ impl Planner<'_> {
         let mut trail = Vec::new();
         let options = self.options;
         let excluded = &options.exclude;
-        top.retain(|(node, _)| {
-            !drop_if_excluded(nodes, drafts, excluded, *node, &mut trail, &mut gone)
-        });
-        for node in gone {
-            for key in [&nodes[node].file, &nodes[node].csv].into_iter().flatten() {
+        top.retain(|(page, _)| !drop_if_excluded(pages, excluded, *page, &mut trail, &mut gone));
+        for page in gone {
+            for key in &pages[page].entries {
                 if files.insert(key.clone()) {
                     self.left_out.push(LeftOut {
                         path: key.clone(),
@@ -1292,68 +562,22 @@ impl Planner<'_> {
         files
     }
 
-    fn compare(&self, nodes: &[Node], drafts: &[Option<Draft>], a: usize, b: usize) -> Ordering {
-        let (na, nb) = (&nodes[a], &nodes[b]);
-        let (da, db) = (drafts[a].as_ref(), drafts[b].as_ref());
-        let some_first = |x: Option<f64>, y: Option<f64>| match (x, y) {
-            (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(Ordering::Equal),
-            (Some(_), None) => Ordering::Less,
-            (None, Some(_)) => Ordering::Greater,
-            (None, None) => Ordering::Equal,
-        };
-        let as_f = |x: Option<usize>| x.map(|v| v as f64);
-        nb.first
-            .cmp(&na.first)
-            .then_with(|| some_first(as_f(na.nav_index), as_f(nb.nav_index)))
-            .then_with(|| {
-                some_first(
-                    na.order.or(da.and_then(|d| d.order_key)),
-                    nb.order.or(db.and_then(|d| d.order_key)),
-                )
-            })
-            .then_with(|| {
-                some_first(
-                    as_f(da.and_then(|d| d.notion_position)),
-                    as_f(db.and_then(|d| d.notion_position)),
-                )
-            })
-            .then_with(|| {
-                some_first(
-                    da.and_then(|d| d.prefix).map(|p| p as f64),
-                    db.and_then(|d| d.prefix).map(|p| p as f64),
-                )
-            })
-            .then_with(|| {
-                natural_cmp(
-                    &da.map(|d| d.title.to_lowercase()).unwrap_or_default(),
-                    &db.map(|d| d.title.to_lowercase()).unwrap_or_default(),
-                )
-            })
-            .then_with(|| na.file.cmp(&nb.file))
-            .then_with(|| a.cmp(&b))
-    }
-
     /// The top-level pages, each with its collection, after applying the
     /// collection mode.
     fn collections(
         &self,
         mode: CollectionMode,
-        nodes: &mut [Node],
-        drafts: &[Option<Draft>],
+        pages: &mut [SourcePage],
+        roots: Vec<usize>,
+        site_name: Option<String>,
+        source_collections: Option<Vec<PlannedCollection>>,
     ) -> (Vec<PlannedCollection>, Vec<(usize, Option<usize>)>) {
-        let roots = nodes[0].children.clone();
         let default_name = {
             self.options
                 .collection_name
                 .clone()
                 .filter(|n| !n.trim().is_empty())
-                .or_else(|| self.site_name.clone())
-                .or_else(|| {
-                    // Notion's single top page names the export.
-                    (self.kind == ProfileKind::Notion && roots.len() == 1)
-                        .then(|| drafts[roots[0]].as_ref().map(|d| d.title.clone()))
-                        .flatten()
-                })
+                .or(site_name)
                 .or_else(|| {
                     self.options
                         .archive_name
@@ -1371,75 +595,32 @@ impl Planner<'_> {
             description: None,
             source_uuid: None,
         };
-        match mode {
-            CollectionMode::Existing => (Vec::new(), roots.iter().map(|r| (*r, None)).collect()),
-            CollectionMode::AsSource if self.manifest.is_some() => {
-                let manifest = self.manifest.as_ref().expect("checked");
-                let mut collections: Vec<(i32, usize, PlannedCollection)> = manifest
-                    .collections
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        (
-                            c.order.unwrap_or(i32::MAX),
-                            i,
-                            PlannedCollection {
-                                name: c.name.clone(),
-                                slug: c.slug.clone(),
-                                icon: c.icon.clone(),
-                                color: c.color.clone(),
-                                description: c.description.clone(),
-                                source_uuid: c.uuid.clone(),
-                            },
-                        )
-                    })
-                    .collect();
-                collections.sort_by_key(|(order, i, _)| (*order, *i));
-                let by_uuid: HashMap<String, usize> = collections
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, (_, _, c))| {
-                        c.source_uuid.as_ref().map(|u| (u.to_lowercase(), i))
-                    })
-                    .collect();
-                let top = roots
-                    .iter()
-                    .map(|r| {
-                        let collection = nodes[*r]
-                            .manifest
-                            .as_ref()
-                            .and_then(|m| m.collection.as_ref())
-                            .and_then(|u| by_uuid.get(&u.to_lowercase()).copied());
-                        (*r, collection)
-                    })
-                    .collect();
-                // Collections in their order, pages without one after.
-                let mut top: Vec<(usize, Option<usize>)> = top;
-                top.sort_by_key(|(_, c)| (c.is_none(), *c));
-                (collections.into_iter().map(|(_, _, c)| c).collect(), top)
+        match (mode, source_collections) {
+            (CollectionMode::Existing, _) => {
+                (Vec::new(), roots.iter().map(|r| (*r, None)).collect())
             }
-            CollectionMode::PerTopLevelFolder => {
+            (CollectionMode::AsSource, Some(collections)) => {
+                // Collections in their order, pages without one after.
+                let mut top: Vec<(usize, Option<usize>)> =
+                    roots.iter().map(|r| (*r, pages[*r].collection)).collect();
+                top.sort_by_key(|(_, c)| (c.is_none(), *c));
+                (collections, top)
+            }
+            (CollectionMode::PerTopLevelFolder, _) => {
                 let mut collections = Vec::new();
                 let mut top = Vec::new();
                 let mut loose: Option<usize> = None;
                 for root in roots {
-                    let node = &nodes[root];
-                    if node.group {
-                        let name = drafts[root]
-                            .as_ref()
-                            .map(|d| d.title.clone())
-                            .unwrap_or_default();
-                        collections.push(new_collection(name));
+                    if pages[root].group {
+                        collections.push(new_collection(pages[root].title.clone()));
                         let collection = collections.len() - 1;
-                        let has_content = node.file.is_some() || node.csv.is_some();
-                        let children = node.children.clone();
-                        if has_content {
+                        let children = pages[root].children.clone();
+                        if pages[root].has_content() {
                             // The folder's own page leads its collection.
-                            nodes[root].children.clear();
+                            pages[root].children.clear();
                             top.push((root, Some(collection)));
                         }
                         for child in children {
-                            nodes[child].parent = Some(0);
                             top.push((child, Some(collection)));
                         }
                     } else {
@@ -1452,198 +633,42 @@ impl Planner<'_> {
                 }
                 (collections, top)
             }
-            CollectionMode::New | CollectionMode::AsSource => (
+            (CollectionMode::New | CollectionMode::AsSource, _) => (
                 vec![new_collection(default_name)],
                 roots.iter().map(|r| (*r, Some(0))).collect(),
             ),
         }
     }
-
-    fn clean_ids<'n>(&self, name: &'n str) -> &'n str {
-        if self.rules.notion_ids {
-            strip_notion_id(name)
-        } else {
-            name
-        }
-    }
-
-    /// The title, and whether it was cut to fit.
-    fn title(&self, node: &Node, peek: &Peek) -> (String, bool) {
-        let from_file = || -> Option<String> {
-            let name = match (&node.file, &node.folder) {
-                (Some(file), Some(folder)) if is_index_name(file) => {
-                    folder.rsplit('/').next().unwrap_or(folder).to_string()
-                }
-                (Some(file), _) => file_stem(file).to_string(),
-                (None, Some(folder)) => folder.rsplit('/').next().unwrap_or(folder).to_string(),
-                (None, None) => return None,
-            };
-            let name = self.clean_ids(&name);
-            let name = if self.rules.number_prefixes {
-                number_prefix(name).map(|(_, rest)| rest).unwrap_or(name)
-            } else {
-                name
-            };
-            Some(humanise(name))
-        };
-        let title = node
-            .manifest
-            .as_ref()
-            .map(|m| m.title.trim().to_string())
-            .filter(|t| !t.is_empty())
-            .or_else(|| peek.fields.as_ref().and_then(|f| f.text("title")))
-            .or_else(|| {
-                self.rules
-                    .title_heading
-                    .then(|| peek.first_heading.clone())
-                    .flatten()
-            })
-            .or_else(|| node.label.clone().filter(|l| !l.trim().is_empty()))
-            .or_else(|| peek.fields.as_ref().and_then(|f| f.text("sidebar_label")))
-            .or_else(from_file)
-            .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
-            .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| "Untitled".to_string());
-        if title.chars().count() > MAX_TITLE_CHARS {
-            (title.chars().take(MAX_TITLE_CHARS).collect(), true)
-        } else {
-            (title, false)
-        }
-    }
-
-    fn status(&self, fields: Option<&Fields>, manifest: Option<&ManifestPage>) -> PageStatus {
-        match self.options.status {
-            StatusMode::Drafts => PageStatus::Draft,
-            StatusMode::Published => PageStatus::Published,
-            StatusMode::AsFiles => {
-                let status = manifest
-                    .and_then(|m| m.status.clone())
-                    .or_else(|| fields?.text("status"))
-                    .map(|s| s.to_ascii_lowercase());
-                match status.as_deref() {
-                    Some("draft") => return PageStatus::Draft,
-                    Some("archived") => return PageStatus::Archived,
-                    Some("published") => return PageStatus::Published,
-                    _ => {}
-                }
-                let draft = fields
-                    .and_then(|f| f.get("draft"))
-                    .and_then(|v| v.as_bool())
-                    == Some(true);
-                let unpublished = fields
-                    .and_then(|f| f.get("published"))
-                    .and_then(|v| v.as_bool())
-                    == Some(false);
-                if draft || unpublished {
-                    PageStatus::Draft
-                } else {
-                    PageStatus::Published
-                }
-            }
-        }
-    }
-
-    fn convert(
-        &self,
-        file: &str,
-        title: &str,
-        index: &LinkIndex,
-        same_workspace: bool,
-        notes: &mut Notes,
-    ) -> (Document, LinkReport) {
-        let text = &self.texts[file];
-        let text = profiles::rewrite(text, &self.rules, notes);
-        let resolver = PageResolver::new(index, parent(file), self.workspace, same_workspace);
-        let parsed = parse::parse_with(
-            &text,
-            ParseOptions {
-                wikilinks: self.rules.wikilinks,
-            },
-            &resolver,
-        );
-        notes.merge(&parsed.notes);
-        let mut document = parsed.document;
-        if self.rules.title_heading {
-            remove_title_heading(&mut document, title);
-        }
-        let document = normalise::normalise(document, &resolver, notes);
-        let (report, resolver_notes) = resolver.finish();
-        notes.merge(&resolver_notes);
-        (document, report)
-    }
-
-    /// A Notion database's page: its CSV as a table, the first rows only.
-    fn database(&mut self, key: &str, notes: &mut Notes) -> Document {
-        let Some(text) = (self.read)(key) else {
-            return Document::default();
-        };
-        let mut reader = csv::ReaderBuilder::new()
-            .has_headers(false)
-            .flexible(true)
-            .from_reader(text.trim_start_matches('\u{feff}').as_bytes());
-        let mut rows: Vec<Vec<TableCell>> = Vec::new();
-        let mut cut = false;
-        for (r, record) in reader.records().enumerate() {
-            let Ok(record) = record else {
-                break;
-            };
-            if r > DATABASE_ROWS {
-                cut = true;
-                break;
-            }
-            rows.push(
-                record
-                    .iter()
-                    .map(|cell| TableCell::new(r == 0, vec![Inline::text(cell.trim())]))
-                    .collect(),
-            );
-        }
-        if cut {
-            notes.add(NoteCode::DatabaseRowsCut);
-        }
-        if rows.is_empty() {
-            return Document::default();
-        }
-        Document {
-            blocks: vec![Block::Table(Table { rows })],
-        }
-    }
 }
 
-/// Whether `node` is excluded; if so, it and everything under it go in
+/// Whether `page` is excluded; if so, it and everything under it go in
 /// `gone`, and otherwise its excluded children leave it.
 fn drop_if_excluded(
-    nodes: &mut [Node],
-    drafts: &[Option<Draft>],
+    pages: &mut [SourcePage],
     excluded: &ExcludedPages,
-    node: usize,
+    page: usize,
     trail: &mut Vec<String>,
     gone: &mut Vec<usize>,
 ) -> bool {
-    trail.push(
-        drafts[node]
-            .as_ref()
-            .map(|d| d.title.clone())
-            .unwrap_or_default(),
-    );
+    trail.push(pages[page].title.clone());
     let hit = excluded.matches(
-        nodes[node].file.as_deref(),
-        nodes[node].folder.as_deref(),
+        pages[page].file.as_deref(),
+        pages[page].folder.as_deref(),
         trail,
     );
     if hit {
-        let mut stack = vec![node];
+        let mut stack = vec![page];
         while let Some(n) = stack.pop() {
             gone.push(n);
-            stack.extend(nodes[n].children.iter().copied());
+            stack.extend(pages[n].children.iter().copied());
         }
     } else {
-        let children = nodes[node].children.clone();
+        let children = pages[page].children.clone();
         let kept: Vec<usize> = children
             .into_iter()
-            .filter(|c| !drop_if_excluded(nodes, drafts, excluded, *c, trail, gone))
+            .filter(|c| !drop_if_excluded(pages, excluded, *c, trail, gone))
             .collect();
-        nodes[node].children = kept;
+        pages[page].children = kept;
     }
     trail.pop();
     hit
@@ -1671,34 +696,16 @@ fn keep_used_collections(
 }
 
 fn walk(
-    nodes: &[Node],
-    node: usize,
+    pages: &[SourcePage],
+    page: usize,
     parent: Option<usize>,
     position: u32,
     collection: Option<usize>,
     out: &mut Vec<(usize, Option<usize>, u32, Option<usize>)>,
 ) {
-    out.push((node, parent, position, collection));
-    for (i, child) in nodes[node].children.iter().enumerate() {
-        walk(nodes, *child, Some(node), i as u32, None, out);
-    }
-}
-
-fn is_index_name(file: &str) -> bool {
-    matches!(
-        file_stem(file).to_ascii_lowercase().as_str(),
-        "index" | "readme" | "_index"
-    )
-}
-
-/// Remove an H1 that opens the document and repeats the title.
-fn remove_title_heading(document: &mut Document, title: &str) {
-    if let Some(Block::Heading { level: 1, content }) = document.blocks.first() {
-        let text = super::ir::plain_text(content);
-        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        if text == title {
-            document.blocks.remove(0);
-        }
+    out.push((page, parent, position, collection));
+    for (i, child) in pages[page].children.iter().enumerate() {
+        walk(pages, *child, Some(page), i as u32, None, out);
     }
 }
 
