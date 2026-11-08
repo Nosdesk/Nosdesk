@@ -756,11 +756,21 @@ enum PageContentOutcome {
     VisibilityCheckFailed,
 }
 
-// Get a documentation page's content by UUID (for embedding)
-// Returns the Yjs document as base64 + metadata
+#[derive(Deserialize)]
+pub struct PageContentQuery {
+    /// The editor schema the caller builds, when it will open the document in
+    /// the editor (its first paint, before the room syncs). A document that
+    /// needs a newer editor is withheld, as the room withholds it, so an
+    /// older editor never receives nodes it would delete.
+    pub schema: Option<u16>,
+}
+
+// Get a documentation page's content by UUID (for embedding, and for the
+// editor's first paint). Returns the Yjs document as base64 + metadata.
 pub async fn get_documentation_page_content_by_uuid(
     mut tc: TenantConn,
     uuid_path: web::Path<String>,
+    query: web::Query<PageContentQuery>,
     auth: AuthContext,
 ) -> impl Responder {
     let uuid_str = uuid_path.into_inner();
@@ -782,8 +792,13 @@ pub async fn get_documentation_page_content_by_uuid(
         }
 
         use base64::{engine::general_purpose, Engine as _};
-        let yjs_b64 =
-            resolve_yjs_document(&page, conn).map(|doc| general_purpose::STANDARD.encode(&doc));
+        let yjs_b64 = resolve_yjs_document(&page, conn)
+            .filter(|doc| match query.schema {
+                None => true,
+                Some(schema) => crate::handlers::collaboration::stored_document_schema(doc)
+                    .is_some_and(|needed| needed <= schema),
+            })
+            .map(|doc| general_purpose::STANDARD.encode(&doc));
 
         Ok::<_, diesel::result::Error>(PageContentOutcome::Ok(json!({
             "uuid": page.uuid,
