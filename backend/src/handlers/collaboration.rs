@@ -1019,6 +1019,16 @@ fn fragment_schema<T: ReadTxn>(fragment: &XmlFragmentRef, txn: &T) -> u16 {
         .fold(1, u16::max)
 }
 
+/// The editor schema a stored document's visible content needs, at least 1;
+/// `None` when it doesn't decode. For handing a document to a client outside
+/// the room (the editor's first paint), under the same rule the room applies.
+pub(crate) fn stored_document_schema(yjs_document: &[u8]) -> Option<u16> {
+    let doc = crate::services::yjs::load(yjs_document)?;
+    let txn = doc.transact();
+    let fragment = txn.get_xml_fragment(crate::services::yjs::FRAGMENT)?;
+    Some(fragment_schema(&fragment, &txn))
+}
+
 /// Raise `required` whenever a transaction on `fragment` adds an element that
 /// needs a newer editor schema.
 ///
@@ -4813,6 +4823,34 @@ mod schema_gate_tests {
         let cell = row.push_back(txn, XmlElementPrelim::empty("table_cell"));
         let paragraph = cell.push_back(txn, XmlElementPrelim::empty("paragraph"));
         paragraph.push_back(txn, XmlTextPrelim::new("cell"));
+    }
+
+    #[test]
+    fn a_stored_document_needs_the_schema_of_what_it_shows() {
+        let stored = |with_table: bool, delete_it: bool| {
+            let doc = Doc::new();
+            let fragment = doc.transact_mut().get_or_insert_xml_fragment("prosemirror");
+            {
+                let mut txn = doc.transact_mut();
+                let p = fragment.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+                p.push_back(&mut txn, XmlTextPrelim::new("text"));
+                if with_table {
+                    push_table(&fragment, &mut txn);
+                }
+            }
+            if delete_it {
+                fragment.remove_range(&mut doc.transact_mut(), 1, 1);
+            }
+            let update = doc
+                .transact()
+                .encode_state_as_update_v1(&StateVector::default());
+            update
+        };
+        assert_eq!(stored_document_schema(&stored(false, false)), Some(1));
+        assert_eq!(stored_document_schema(&stored(true, false)), Some(2));
+        // A table someone deleted needs nothing: no editor renders it.
+        assert_eq!(stored_document_schema(&stored(true, true)), Some(1));
+        assert_eq!(stored_document_schema(b"not a document"), None);
     }
 
     #[test]
