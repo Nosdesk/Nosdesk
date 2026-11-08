@@ -775,7 +775,6 @@ admin-nav-webhooks-description = Configure webhooks to send events to external s
 admin-nav-plugins-title = Plugins
 admin-nav-plugins-description = Manage installed plugins and integrations
 admin-nav-data-import-title = Data Import
-admin-nav-data-import-description = Import data from Microsoft Entra ID, CSV files, and other sources
 admin-nav-audit-log-title = Audit Log
 admin-nav-audit-log-description = Forensic record of who changed what, drawn from per-table triggers
 admin-nav-branding-title = Branding
@@ -981,19 +980,9 @@ admin-guest-saved = Guest access settings saved
 
 # Admin: Data Import hub.
 admin-data-import-title = Data Import
-admin-data-import-description = Import and synchronise data from external sources
-admin-data-import-notice = Data imports may trigger notifications to affected users. Existing records are updated based on matching IDs.
 admin-data-import-status-available = Available
 admin-data-import-status-coming-soon = Coming Soon
 admin-data-import-status-beta = Beta
-admin-data-import-microsoft-title = Microsoft Graph
-admin-data-import-microsoft-description = Import users, groups and devices from Microsoft Entra ID
-admin-data-import-csv-title = CSV Import
-admin-data-import-csv-description = Import data from CSV files, including assets, users, and other resources
-admin-data-import-api-title = API Integrations
-admin-data-import-api-description = Connect to third-party APIs to import and synchronise data
-admin-data-import-ad-title = Active Directory
-admin-data-import-ad-description = Import data from on-prem Active Directory servers
 
 # Admin: Authentication Providers.
 admin-auth-providers-title = Authentication Providers
