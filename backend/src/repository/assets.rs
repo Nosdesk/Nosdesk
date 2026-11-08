@@ -715,6 +715,24 @@ pub fn update_device(
     })
 }
 
+/// Set a stock-tracked asset's on-hand `quantity` and send `asset.updated`, so
+/// every open client shows the new count. The usage and audit ledgers call it
+/// inside the transaction that writes their row.
+pub fn set_quantity(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    quantity: &bigdecimal::BigDecimal,
+) -> QueryResult<Asset> {
+    // emit::record fires inside emit_asset_event.
+    conn.transaction::<Asset, Error, _>(|conn| {
+        let device: Asset = diesel::update(assets::table.find(asset_id))
+            .set(assets::quantity.eq(quantity))
+            .get_result(conn)?;
+        emit_asset_event(conn, &device, SyncOp::Update, "asset.updated")?;
+        Ok(device)
+    })
+}
+
 pub fn delete_device(
     conn: &mut DbConnection,
     device_id: i32,

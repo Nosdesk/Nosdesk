@@ -78,9 +78,7 @@ pub fn record_event(
         let row: AssetUsage = diesel::insert_into(asset_usage_log::table)
             .values(&new_usage)
             .get_result(conn)?;
-        diesel::update(assets::table.find(asset_id))
-            .set(assets::quantity.eq(&new_qty))
-            .execute(conn)?;
+        crate::repository::assets::set_quantity(conn, asset_id, &new_qty)?;
 
         // Append-only ledger event on the sync stream so the usage
         // history panels (asset detail + ticket detail) see the row land

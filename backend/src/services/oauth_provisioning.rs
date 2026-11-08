@@ -414,14 +414,11 @@ pub fn find_or_create_projected_user(
         }
         // O5: sync the CP-hosted avatar when the projection is authoritative for
         // it. `Some(av)` sets (av `None` => clear); outer `None` => no change.
-        // CP-owned, so written directly (not via the general UserUpdate surface).
+        // CP-owned, so written through its own writer (not the general
+        // UserUpdate surface), which tells every workspace holding the row.
         if let Some(av) = avatar_url {
             if user.avatar_url != av {
-                use crate::schema::users::dsl as u;
-                use diesel::prelude::*;
-                diesel::update(u::users.filter(u::uuid.eq(user.uuid)))
-                    .set(u::avatar_url.eq(av.as_deref()))
-                    .execute(conn)
+                crate::repository::users::set_avatar_url(conn, &user.uuid, av.as_deref())
                     .map_err(|e| format!("reproject avatar: {e:?}"))?;
                 user.avatar_url = av;
             }

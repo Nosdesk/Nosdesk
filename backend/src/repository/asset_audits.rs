@@ -81,9 +81,7 @@ pub fn record_audit(
             .values(&new_audit)
             .get_result(conn)?;
 
-        diesel::update(assets::table.find(asset_id))
-            .set(assets::quantity.eq(&counted_quantity))
-            .execute(conn)?;
+        crate::repository::assets::set_quantity(conn, asset_id, &counted_quantity)?;
 
         // Append-only audit event on the sync stream so the usage
         // history panels see the count land cross-machine.
