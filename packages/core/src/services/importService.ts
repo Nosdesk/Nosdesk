@@ -2,6 +2,9 @@ import apiClient from '../apiClient'
 
 export type ImportJobType = 'assets' | 'users' | 'tickets'
 
+/** A template download's file format. */
+export type ImportTemplateFormat = 'csv' | 'xlsx'
+
 export type ImportJobStatus =
   | 'parsed'
   | 'dry_run_done'
@@ -857,12 +860,18 @@ export const importService = {
     return { blob: response.data, filename: match?.[1] ?? 'previous-values.csv' }
   },
 
-  /** Build a URL for the CSV template; trigger via anchor
+  /** Build a URL for the template; trigger via anchor
    *  download in the caller so the browser handles the file
    *  save rather than us decoding the response body. For assets, `kind`
-   *  (a slug) adds that kind's attribute columns. */
-  templateUrl(jobType: ImportJobType, kind?: string): string {
+   *  (a slug) adds that kind's attribute columns. `xlsx` is a workbook
+   *  with dropdowns and a Fields sheet; CSV, the default, adds nothing to
+   *  the URL. */
+  templateUrl(jobType: ImportJobType, kind?: string, format: ImportTemplateFormat = 'csv'): string {
+    const params = new URLSearchParams()
+    if (kind) params.set('kind', kind)
+    if (format === 'xlsx') params.set('format', 'xlsx')
+    const query = params.toString()
     const base = `/api/admin/import/template/${jobType}`
-    return kind ? `${base}?kind=${encodeURIComponent(kind)}` : base
+    return query ? `${base}?${query}` : base
   },
 }

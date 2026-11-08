@@ -27,6 +27,7 @@ const api = vi.hoisted(() => ({
   previewValues: vi.fn(),
   nextSheet: vi.fn(),
   sendInvites: vi.fn(),
+  templateUrl: vi.fn(),
 }))
 
 vi.mock('@nosdesk/core/services/importService', () => ({
@@ -49,7 +50,7 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     previewValues: (...a: unknown[]) => api.previewValues(...a),
     nextSheet: (...a: unknown[]) => api.nextSheet(...a),
     sendInvites: (...a: unknown[]) => api.sendInvites(...a),
-    templateUrl: (type: string) => `/api/admin/import/template/${type}`,
+    templateUrl: (...a: unknown[]) => api.templateUrl(...a),
   },
 }))
 
@@ -285,6 +286,7 @@ beforeEach(() => {
   api.fields.mockResolvedValue(FIELDS)
   api.rows.mockResolvedValue(rowsPage())
   api.values.mockResolvedValue(noValues())
+  api.templateUrl.mockImplementation((type: string) => `/api/admin/import/template/${type}`)
   hooks.list.mockReset()
   hooks.list.mockResolvedValue([])
   localStorage.clear()
@@ -664,6 +666,42 @@ describe('CsvImportView Done', () => {
   it('links Recent imports from Start', async () => {
     await mountAt()
     expect(wrapper!.find('[data-test="import-recent-link"]').attributes('href')).toBe('/admin/data-import')
+  })
+
+  it('downloads the template in the format chosen beside the kind', async () => {
+    const location = { href: '' }
+    vi.stubGlobal('location', location)
+    try {
+      await mountAt()
+      const format = () => wrapper!.find('[data-test="import-template-format"]')
+      const download = () => wrapper!.find('[data-test="import-template-download"]')
+      expect(format().findAll('[role="radio"]').map((r) => r.text())).toEqual([
+        'import-template-format-csv',
+        'import-template-format-excel',
+      ])
+      expect(format().find('[role="radio"][data-state="checked"]').text()).toBe('import-template-format-csv')
+
+      // CSV stays the default.
+      await download().trigger('click')
+      expect(api.templateUrl).toHaveBeenLastCalledWith('assets', undefined, 'csv')
+
+      await wrapper!.find('[data-test="import-template-kind"] [data-value="camera"]').trigger('click')
+      await format().findAll('[role="radio"]')[1].trigger('click')
+      expect(format().find('[role="radio"][data-state="checked"]').text()).toBe('import-template-format-excel')
+      api.templateUrl.mockReturnValue('/api/admin/import/template/assets?kind=camera&format=xlsx')
+      await download().trigger('click')
+      expect(api.templateUrl).toHaveBeenLastCalledWith('assets', 'camera', 'xlsx')
+      expect(location.href).toBe('/api/admin/import/template/assets?kind=camera&format=xlsx')
+
+      // Users have no kind; the format carries over.
+      const users = wrapper!.findAll('[role="radio"]').find((r) => r.text() === 'csv-import-type-users')
+      await users!.trigger('click')
+      expect(format().exists()).toBe(true)
+      await download().trigger('click')
+      expect(api.templateUrl).toHaveBeenLastCalledWith('users', undefined, 'xlsx')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 

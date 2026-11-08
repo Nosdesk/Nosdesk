@@ -3747,6 +3747,14 @@ import-template-kind-none = Elke soort (alleen basiskolommen)
 # MT: pending native review (nl-NL)
 import-template-kind-help = Kies een soort om de kolommen voor de kenmerken ervan toe te voegen.
 # MT: pending native review (nl-NL)
+import-template-format-label = Indeling
+# MT: pending native review (nl-NL)
+import-template-format-csv = CSV
+# MT: pending native review (nl-NL)
+import-template-format-excel = Excel
+# MT: pending native review (nl-NL)
+import-template-format-help = Het Excel-sjabloon voegt keuzelijsten toe en een blad Fields dat elke kolom beschrijft.
+# MT: pending native review (nl-NL)
 import-drop-idle = Sleep een .csv- of .xlsx-bestand hierheen, of tik om er een te kiezen
 # MT: pending native review (nl-NL)
 import-drop-release = Loslaten om te uploaden

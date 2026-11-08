@@ -3757,6 +3757,14 @@ import-template-kind-none = Tous les types (colonnes de base uniquement)
 # MT: pending native review (fr-FR)
 import-template-kind-help = Choisissez un type pour ajouter ses colonnes d'attributs.
 # MT: pending native review (fr-FR)
+import-template-format-label = Format
+# MT: pending native review (fr-FR)
+import-template-format-csv = CSV
+# MT: pending native review (fr-FR)
+import-template-format-excel = Excel
+# MT: pending native review (fr-FR)
+import-template-format-help = Le modèle Excel ajoute des listes déroulantes et une feuille Fields qui décrit chaque colonne.
+# MT: pending native review (fr-FR)
 import-drop-idle = Déposez un fichier .csv ou .xlsx ici, ou touchez pour en choisir un
 # MT: pending native review (fr-FR)
 import-drop-release = Relâchez pour envoyer

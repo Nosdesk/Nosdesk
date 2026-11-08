@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { withJsonError } from '@nosdesk/core/services/importService'
+import { importService, withJsonError } from '@nosdesk/core/services/importService'
 
 describe('import downloads', () => {
   it('read a failed download\'s JSON body back so its code can be read', async () => {
@@ -21,5 +21,23 @@ describe('import downloads', () => {
 
   it('pass a download through', async () => {
     await expect(withJsonError(() => Promise.resolve('file'))).resolves.toBe('file')
+  })
+})
+
+describe('template URL', () => {
+  it('is unchanged for CSV and adds the format for Excel', () => {
+    expect(importService.templateUrl('users')).toBe('/api/admin/import/template/users')
+    expect(importService.templateUrl('assets', 'camera')).toBe(
+      '/api/admin/import/template/assets?kind=camera',
+    )
+    expect(importService.templateUrl('assets', 'camera', 'csv')).toBe(
+      '/api/admin/import/template/assets?kind=camera',
+    )
+    expect(importService.templateUrl('assets', 'camera', 'xlsx')).toBe(
+      '/api/admin/import/template/assets?kind=camera&format=xlsx',
+    )
+    expect(importService.templateUrl('tickets', undefined, 'xlsx')).toBe(
+      '/api/admin/import/template/tickets?format=xlsx',
+    )
   })
 })
