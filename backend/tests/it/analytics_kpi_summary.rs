@@ -187,3 +187,83 @@ fn kpi_summary_without_prior_has_no_deltas() {
     assert_eq!(r.created.delta_pct, None);
     assert!(r.created.sparkline.is_none(), "sparkline suppressed");
 }
+
+#[test]
+fn a_merged_ticket_is_closed_but_not_resolved() {
+    use backend::models::WorkflowStateCategory;
+    use backend::schema::workflow_states::dsl as s;
+
+    let db = crate::common::TestDb::new();
+    let mut conn = db.conn();
+    let open = default_state_id(&mut conn);
+    let merged: i32 = s::workflow_states
+        .filter(s::workspace_id.eq(WS))
+        .filter(s::category.eq(WorkflowStateCategory::Merged))
+        .select(s::id)
+        .first(&mut conn)
+        .expect("merged workflow state seeded");
+
+    let from = Utc.with_ymd_and_hms(2026, 3, 10, 0, 0, 0).unwrap();
+    let to = Utc.with_ymd_and_hms(2026, 3, 17, 0, 0, 0).unwrap();
+    let prior_from = Utc.with_ymd_and_hms(2026, 3, 3, 0, 0, 0).unwrap();
+    let before = Utc.with_ymd_and_hms(2026, 3, 1, 9, 0, 0).unwrap();
+    let in_prior = Utc.with_ymd_and_hms(2026, 3, 5, 9, 0, 0).unwrap();
+    let in_win = Utc.with_ymd_and_hms(2026, 3, 12, 9, 0, 0).unwrap();
+
+    // Open throughout.
+    ticket(&mut conn, open, before, None);
+    // Resolved in the window, and in the prior window.
+    ticket(&mut conn, open, before, Some(in_win));
+    ticket(&mut conn, open, before, Some(in_prior));
+    // Merged while open, in the window and in the prior window.
+    ticket(&mut conn, merged, before, Some(in_win));
+    ticket(&mut conn, merged, before, Some(in_prior));
+
+    let r = analytics::kpi_summary(
+        &mut conn,
+        KpiSummaryQuery {
+            from,
+            to,
+            prior: Some((prior_from, from)),
+            include_sparkline: true,
+            tz: "UTC".to_string(),
+        },
+    )
+    .expect("kpi_summary");
+
+    assert_eq!(r.open.value, 1, "the merged tickets left Open");
+    assert_eq!(r.resolved.value, 1, "a merge isn't a resolution");
+    assert_eq!(r.resolved.delta_value, Some(0), "nor in the prior window");
+    let resolved_spark = r.resolved.sparkline.expect("resolved sparkline");
+    assert_eq!(resolved_spark.iter().sum::<i64>(), 1);
+
+    // The backlog counts the merge as a closing, so it still ends on the
+    // open snapshot: 3 open at the window start (two closed in the prior
+    // window), then two closings on 03-12.
+    let open_spark = r.open.sparkline.expect("open sparkline");
+    assert_eq!(
+        open_spark,
+        vec![3, 3, 1, 1, 1, 1, 1, 1],
+        "open backlog series"
+    );
+    assert_eq!(*open_spark.last().unwrap(), r.open.value);
+
+    // The per-metric endpoint agrees.
+    let kpi = |conn: &mut backend::db::DbConnection, metric| {
+        analytics::kpi(
+            conn,
+            analytics::KpiQuery {
+                metric,
+                from,
+                to,
+                prior: None,
+                include_sparkline: false,
+                tz: "UTC".to_string(),
+            },
+        )
+        .expect("kpi")
+        .value
+    };
+    assert_eq!(kpi(&mut conn, analytics::KpiMetric::TicketsResolved), 1);
+    assert_eq!(kpi(&mut conn, analytics::KpiMetric::TicketsOpen), 1);
+}

@@ -95,6 +95,19 @@ fn closed_at_and_closed_by_follow_the_state() {
             assert_eq!(t.closed_at, Some(given));
             let t = move_to(c, t.id, merged.id)?;
             assert_eq!(t.closed_at, Some(given));
+
+            // Merged while open: stamped, by the acting agent.
+            let t: Ticket = diesel::insert_into(backend::schema::tickets::table)
+                .values(&NewTicket {
+                    title: "Merged while open".to_string(),
+                    workflow_state_id: open.id,
+                    ..Default::default()
+                })
+                .get_result(c)?;
+            assert_eq!((t.closed_at, t.closed_by), (None, None));
+            let t = move_to(c, t.id, merged.id)?;
+            assert!(t.closed_at.is_some());
+            assert_eq!(t.closed_by, Some(agent));
             Ok::<_, diesel::result::Error>(())
         },
     )

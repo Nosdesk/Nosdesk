@@ -1248,6 +1248,98 @@ mod tests {
     }
 
     #[test]
+    fn merging_an_open_ticket_closes_it() {
+        use crate::repository::analytics::{self, KpiMetric, KpiQuery};
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_closes", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        assert_eq!(src.closed_at, None);
+
+        let now = chrono::Utc::now();
+        let count = |conn: &mut DbConnection, metric| {
+            analytics::kpi(
+                conn,
+                KpiQuery {
+                    metric,
+                    from: now - chrono::Duration::hours(1),
+                    to: now + chrono::Duration::hours(1),
+                    prior: None,
+                    include_sparkline: false,
+                    tz: "UTC".to_string(),
+                },
+            )
+            .unwrap()
+            .value
+        };
+        let open_before = count(&mut conn, KpiMetric::TicketsOpen);
+        let resolved_before = count(&mut conn, KpiMetric::TicketsResolved);
+
+        let outcome = execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        // Stamped by the merging agent, and the row every client receives
+        // carries the stamp.
+        let merged = &outcome.merged_sources[0];
+        assert!(merged.closed_at.is_some());
+        assert_eq!(merged.closed_by, Some(user.uuid));
+        let data = sync_row(&mut conn, "ticket.merged_into", merged.id).data;
+        assert_eq!(data["closed_at"], serde_json::json!(merged.closed_at));
+        assert_eq!(data["closed_by"], serde_json::json!(user.uuid));
+
+        // It leaves Open, and isn't counted as resolved.
+        assert_eq!(count(&mut conn, KpiMetric::TicketsOpen), open_before - 1);
+        assert_eq!(
+            count(&mut conn, KpiMetric::TicketsResolved),
+            resolved_before
+        );
+    }
+
+    #[test]
+    fn merging_a_closed_ticket_keeps_its_close() {
+        use crate::schema::tickets::dsl as t;
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merge_keeps_close", "user");
+        let closer = TestFixtures::create_user(&mut conn, "merge_closer", "user");
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        let done = crate::repository::workflow_states::first_in_category(
+            &mut conn,
+            WorkflowStateCategory::Done,
+        )
+        .unwrap();
+        // Closed a day before the merge, by someone else.
+        let closed_at = (chrono::Utc::now() - chrono::Duration::days(1)).naive_utc();
+        diesel::update(t::tickets.find(src.id))
+            .set((
+                t::created_at.eq(closed_at - chrono::Duration::days(1)),
+                t::workflow_state_id.eq(done.id),
+                t::closed_at.eq(Some(closed_at)),
+                t::closed_by.eq(Some(closer.uuid)),
+            ))
+            .execute(&mut conn)
+            .unwrap();
+
+        let outcome = execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+
+        let merged = &outcome.merged_sources[0];
+        assert_eq!(
+            merged.closed_at.map(|c| c.and_utc().timestamp_micros()),
+            Some(closed_at.and_utc().timestamp_micros())
+        );
+        assert_eq!(merged.closed_by, Some(closer.uuid));
+    }
+
+    #[test]
     fn a_merged_source_keeps_no_sla_target() {
         use crate::schema::tickets::dsl as t;
         let mut conn = setup_test_connection();
