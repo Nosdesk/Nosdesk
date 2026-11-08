@@ -67,7 +67,8 @@ impl WorkflowStateCategory {
     }
 
     /// Moving a ticket into this category closes it: `closed_at` is set, and
-    /// cleared again when it moves back out.
+    /// cleared again when it moves back out. Merged sets `closed_at` too, but
+    /// the work goes on in the destination, so it isn't a close here.
     pub fn closes_ticket(&self) -> bool {
         matches!(self, Self::Done | Self::Cancelled)
     }

@@ -35,8 +35,9 @@ pub enum KpiMetric {
     /// Tickets created in the time range (count). `time_field` is
     /// implicitly `created_at`.
     TicketsCreated,
-    /// Tickets resolved (closed_at in range, terminal workflow
-    /// state). Count.
+    /// Tickets resolved (closed_at in range). Count. A merged
+    /// ticket is closed but not resolved: its destination's
+    /// resolution is the one that counts.
     TicketsResolved,
     /// Tickets currently open (snapshot at query time). Ignores
     /// the time range; delta vs prior period is `None`.
@@ -152,6 +153,7 @@ fn kpi_count(
             .filter(tickets::closed_at.is_not_null())
             .filter(tickets::closed_at.ge(from))
             .filter(tickets::closed_at.lt(to))
+            .filter(sql::<diesel::sql_types::Bool>(NOT_MERGED))
             .count()
             .get_result(conn),
         KpiMetric::TicketsOpen => tickets::table
@@ -160,6 +162,11 @@ fn kpi_count(
             .get_result(conn),
     }
 }
+
+/// SQL condition on `tickets` that leaves merged tickets out of the
+/// resolved counts. A code-controlled literal.
+const NOT_MERGED: &str = "NOT EXISTS (SELECT 1 FROM workflow_states ws \
+     WHERE ws.id = tickets.workflow_state_id AND ws.category = 'merged')";
 
 /// Parameters for the consolidated ticket-volume KPI summary. Mirrors
 /// `KpiQuery` but drops `metric`: the summary computes created,
@@ -212,9 +219,9 @@ struct KpiCountsRow {
 /// scan to rows that feed at least one aggregate so the right indexes
 /// can drive it (a BitmapOr over the created/closed indexes plus the
 /// open-snapshot rows). Sparklines, when requested, reuse
-/// `bucketed_counts` on the same connection; `open`'s series is the
-/// backlog trend reconstructed from those buckets plus one boundary
-/// count (see the sparkline block below).
+/// `bucketed_series` on the same connection; `open`'s series is the
+/// backlog trend reconstructed from the created and closed buckets
+/// plus one boundary count (see the sparkline block below).
 pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<KpiSummaryResult> {
     use diesel::sql_types::Timestamptz as Tz;
 
@@ -223,20 +230,20 @@ pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<K
     // true, so both prior aggregates resolve to 0.
     let (prior_from, prior_to) = q.prior.unwrap_or((q.from, q.from));
 
-    let counts: KpiCountsRow = diesel::sql_query(
+    let counts: KpiCountsRow = diesel::sql_query(format!(
         "SELECT \
             COUNT(*) FILTER (WHERE created_at >= $1 AND created_at < $2)::bigint AS created, \
-            COUNT(*) FILTER (WHERE closed_at >= $1 AND closed_at < $2)::bigint AS resolved, \
+            COUNT(*) FILTER (WHERE closed_at >= $1 AND closed_at < $2 AND {NOT_MERGED})::bigint AS resolved, \
             COUNT(*) FILTER (WHERE closed_at IS NULL)::bigint AS open, \
             COUNT(*) FILTER (WHERE created_at >= $3 AND created_at < $4)::bigint AS prior_created, \
-            COUNT(*) FILTER (WHERE closed_at >= $3 AND closed_at < $4)::bigint AS prior_resolved \
+            COUNT(*) FILTER (WHERE closed_at >= $3 AND closed_at < $4 AND {NOT_MERGED})::bigint AS prior_resolved \
          FROM tickets \
          WHERE (created_at >= $1 AND created_at < $2) \
             OR (closed_at >= $1 AND closed_at < $2) \
             OR closed_at IS NULL \
             OR (created_at >= $3 AND created_at < $4) \
             OR (closed_at >= $3 AND closed_at < $4)",
-    )
+    ))
     .bind::<Tz, _>(q.from)
     .bind::<Tz, _>(q.to)
     .bind::<Tz, _>(prior_from)
@@ -247,30 +254,21 @@ pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<K
     // to the user's zone. Computed on the same connection so the whole
     // summary is one checkout.
     let (created_spark, resolved_spark, open_spark) = if q.include_sparkline {
-        let c: Vec<i64> = bucketed_counts(
-            conn,
-            KpiMetric::TicketsCreated,
-            q.from,
-            q.to,
-            Grain::Day,
-            &q.tz,
-        )?
-        .into_iter()
-        .map(|(_, v)| v)
-        .collect();
-        let r: Vec<i64> = bucketed_counts(
-            conn,
-            KpiMetric::TicketsResolved,
-            q.from,
-            q.to,
-            Grain::Day,
-            &q.tz,
-        )?
-        .into_iter()
-        .map(|(_, v)| v)
-        .collect();
+        let daily = |conn: &mut DbConnection, series: Series| -> QueryResult<Vec<i64>> {
+            Ok(
+                bucketed_series(conn, series, q.from, q.to, Grain::Day, &q.tz)?
+                    .into_iter()
+                    .map(|(_, v)| v)
+                    .collect(),
+            )
+        };
+        let c = daily(conn, Series::Created)?;
+        let r = daily(conn, Series::Resolved)?;
+        // A merged ticket leaves the backlog without being resolved, so
+        // the backlog's outflow counts every closing.
+        let closed = daily(conn, Series::Closed)?;
         // Open backlog at the end of each day: the count open at the
-        // window's start plus the running net flow (created − resolved)
+        // window's start plus the running net flow (created − closed)
         // through that day. `open` is otherwise a point-in-time snapshot
         // with no series; this reconstructs the trend exactly from the
         // same daily buckets plus one boundary count. Its last point
@@ -281,9 +279,9 @@ pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<K
         let mut running = baseline;
         let o: Vec<i64> = c
             .iter()
-            .zip(&r)
-            .map(|(created, resolved)| {
-                running += created - resolved;
+            .zip(&closed)
+            .map(|(created, closed)| {
+                running += created - closed;
                 running.max(0)
             })
             .collect();
@@ -385,14 +383,43 @@ fn bucketed_counts(
     grain: Grain,
     tz: &str,
 ) -> QueryResult<Vec<(DateTime<Utc>, i64)>> {
-    use diesel::sql_types::Text;
-
-    // Column + presence filter per metric (code-controlled literals).
-    let (col, extra_filter) = match metric {
-        KpiMetric::TicketsCreated => ("created_at", ""),
-        KpiMetric::TicketsResolved => ("closed_at", "AND t.closed_at IS NOT NULL"),
+    let series = match metric {
+        KpiMetric::TicketsCreated => Series::Created,
+        KpiMetric::TicketsResolved => Series::Resolved,
         // Snapshot metric has no time breakdown; caller short-circuits.
         KpiMetric::TicketsOpen => return Ok(Vec::new()),
+    };
+    bucketed_series(conn, series, from, to, grain, tz)
+}
+
+/// What a bucketed series counts. `Closed` is every closing, merges
+/// included; it feeds the open-backlog trend, which no metric exposes.
+#[derive(Debug, Clone, Copy)]
+enum Series {
+    Created,
+    Resolved,
+    Closed,
+}
+
+/// [`bucketed_counts`] for a [`Series`].
+fn bucketed_series(
+    conn: &mut DbConnection,
+    series: Series,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+    grain: Grain,
+    tz: &str,
+) -> QueryResult<Vec<(DateTime<Utc>, i64)>> {
+    use diesel::sql_types::Text;
+
+    // Column + presence filter per series (code-controlled literals).
+    let (col, extra_filter) = match series {
+        Series::Created => ("created_at", String::new()),
+        Series::Resolved => (
+            "closed_at",
+            format!("AND tickets.closed_at IS NOT NULL AND {NOT_MERGED}"),
+        ),
+        Series::Closed => ("closed_at", "AND tickets.closed_at IS NOT NULL".to_string()),
     };
     let unit = grain.trunc_unit();
     let step = grain.interval_literal();
@@ -409,10 +436,10 @@ fn bucketed_counts(
              interval '{step}' \
          ) AS gs \
          LEFT JOIN ( \
-             SELECT date_trunc('{unit}', (t.{col} AT TIME ZONE $1)) AS bucket, \
+             SELECT date_trunc('{unit}', (tickets.{col} AT TIME ZONE $1)) AS bucket, \
                     COUNT(*)::bigint AS value \
-             FROM tickets t \
-             WHERE t.{col} >= $2 AND t.{col} < $3 {extra_filter} \
+             FROM tickets \
+             WHERE tickets.{col} >= $2 AND tickets.{col} < $3 {extra_filter} \
              GROUP BY 1 \
          ) c ON c.bucket = gs \
          ORDER BY gs"

@@ -131,6 +131,7 @@ mod migration_documentation_restriction;
 mod migration_email_suppressions_scope;
 mod migration_knowledge_gap_subject_page;
 mod migration_merge_notes_internal;
+mod migration_merged_closed_at;
 mod migration_portal_share_staff_requests;
 mod migration_reserved_slugs;
 mod migration_setup_admin_owner;

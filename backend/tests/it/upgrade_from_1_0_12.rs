@@ -239,6 +239,13 @@ fn assert_upgraded(conn: &mut PgConnection, seeded: &Seeded, before: &BTreeMap<S
         (None, None),
         "a reopened ticket loses the closed_at and closed_by 1.0.x left on it"
     );
+    let merged = closed(conn, tickets.merged);
+    assert_eq!(
+        merged.closed_at,
+        at("2026-08-10T09:00:00Z"),
+        "merged while open: closed when merged"
+    );
+    assert_eq!(merged.closed_by, Some(people.agent), "by who merged it");
 
     if let (Some(teams), Some(foreign_state)) = (&ws.teams, tickets.foreign_state) {
         let moved = diesel::sql_query(format!(

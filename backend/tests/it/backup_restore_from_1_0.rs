@@ -149,13 +149,14 @@ fn assert_upgraded(conn: &mut PgConnection, release: &str) {
         "{release}: no pre-1.1 refresh token is live"
     );
 
-    // A closed ticket names who closed it (closed_follows_state backfill).
+    // A closed ticket names who closed it (closed_follows_state backfill),
+    // and the merged one is closed too (merged_closed_at backfill).
     assert_eq!(
         count(
             conn,
             "SELECT count(*) AS n FROM tickets WHERE closed_at IS NOT NULL"
         ),
-        2
+        3
     );
     assert_eq!(
         count(
