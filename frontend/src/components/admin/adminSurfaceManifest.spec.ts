@@ -67,6 +67,24 @@ describe('selfHostedOnly nav items', () => {
   });
 });
 
+describe('the LDAP nav item', () => {
+  const ldap = (isHosted: boolean) =>
+    filterAdminNavGroupsForRole(adminNavGroups, {
+      isAdmin: true,
+      isAuditReviewer: false,
+      isPlatformAdmin: false,
+      isHosted,
+    }).flatMap(g => g.items).find(i => i.route === '/admin/ldap')
+
+  it('stays on Cloud, saying the server must be reachable from the internet', () => {
+    expect(ldap(true)?.descriptionKey).toBe('admin-nav-ldap-description-cloud')
+  })
+
+  it('keeps its own description on self-hosted', () => {
+    expect(ldap(false)?.descriptionKey).toBe('admin-nav-ldap-description')
+  })
+});
+
 describe('a hosted workspace admin', () => {
   // An owner or admin of one Cloud workspace, with no platform role.
   const routes = filterAdminNavGroupsForRole(adminNavGroups, {

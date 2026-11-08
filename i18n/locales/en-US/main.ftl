@@ -1266,9 +1266,10 @@ admin-nav-webhooks-description = Configure webhooks to send events to external s
 admin-nav-plugins-title = Plugins
 admin-nav-plugins-description = Manage installed plugins and integrations
 admin-nav-data-import-title = Data Import
-admin-nav-data-import-description = Import data from Microsoft Entra ID, CSV files, and other sources
+admin-nav-data-import-description = Import from spreadsheets, documentation exports or another Nosdesk, and sync with a directory
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Sync users and groups from an LDAP or Active Directory server
+admin-nav-ldap-description-cloud = Sync users and groups from an LDAPS server reachable from the internet
 admin-nav-audit-log-title = Audit Log
 admin-nav-audit-log-description = Forensic record of who changed what, drawn from per-table triggers
 admin-nav-branding-title = Branding
@@ -1743,22 +1744,23 @@ admin-guest-saved = Guest access settings saved
 # Admin: Data Import hub (DataImportView). Landing page with
 # tiles for the available import sources.
 admin-data-import-title = Data Import
-admin-data-import-description = Import and synchronize data from external sources
-admin-data-import-notice = Data imports may trigger notifications to affected users. Existing records are updated based on matching IDs.
+admin-data-import-description = Bring data in from another tool once, or keep it in sync with a directory.
+admin-data-import-notice = Imports can notify the people they affect. Spreadsheet imports and directory syncs update records that match; documentation and Nosdesk imports only add.
+admin-data-import-group-once = Import once
+admin-data-import-group-sync = Keep in sync
 admin-data-import-status-available = Available
 admin-data-import-status-coming-soon = Coming Soon
 admin-data-import-status-beta = Beta
 admin-data-import-status-new = New
 admin-data-import-docs-title = Documentation
 admin-data-import-docs-description = Markdown files, a Notion, Obsidian or GitBook export, or a Nosdesk export.
-admin-data-import-microsoft-title = Microsoft Graph
-admin-data-import-microsoft-description = Import users, groups and devices from Microsoft Entra ID
-admin-data-import-csv-title = CSV Import
-admin-data-import-csv-description = Import assets, users and tickets from a .csv or .xlsx file
-admin-data-import-api-title = API Integrations
-admin-data-import-api-description = Connect to third-party APIs to import and synchronize data
+admin-data-import-microsoft-title = Microsoft Entra ID
+admin-data-import-microsoft-description = Users, groups and devices from Microsoft Entra ID and Intune.
+admin-data-import-csv-title = Spreadsheet
+admin-data-import-csv-description = Assets, users and tickets from a .csv or .xlsx file.
 admin-data-import-ad-title = LDAP / Active Directory
-admin-data-import-ad-description = Sync users and groups from Active Directory or another LDAP directory
+admin-data-import-ad-description = Users and groups from Active Directory or another LDAP directory.
+admin-data-import-ad-description-cloud = Users and groups from Active Directory or another LDAP directory. Needs an LDAPS server reachable from the internet.
 
 # Admin: Authentication Providers (AuthProvidersView).
 admin-auth-providers-title = Authentication Providers

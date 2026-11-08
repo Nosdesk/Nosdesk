@@ -55,46 +55,60 @@ const nosdeskExport = computed<ImportOption>(() => {
 /** Workspace imports join Recent imports for the owner on self-hosted. */
 const workspaceImports = computed(() => auth.isOwner && !hosted.value);
 
-const otherOptions: ImportOption[] = [
-  {
-    titleKey: 'admin-data-import-microsoft-title',
-    descriptionKey: 'admin-data-import-microsoft-description',
-    icon: 'microsoft',
-    route: '/admin/data-import/microsoft-graph',
-    status: 'available'
-  },
-  {
-    titleKey: 'admin-data-import-csv-title',
-    descriptionKey: 'admin-data-import-csv-description',
-    icon: 'document',
-    route: '/admin/data-import/csv',
-    status: 'available'
-  },
-  {
-    titleKey: 'admin-data-import-docs-title',
-    descriptionKey: 'admin-data-import-docs-description',
-    icon: 'book',
-    route: '/admin/data-import/documentation',
-    status: 'new'
-  },
-  {
-    titleKey: 'admin-data-import-api-title',
-    descriptionKey: 'admin-data-import-api-description',
-    icon: 'api',
-    route: '/admin/data-import/api',
-    status: 'coming-soon'
-  },
-  {
-    titleKey: 'admin-data-import-ad-title',
-    descriptionKey: 'admin-data-import-ad-description',
-    icon: 'directory',
-    // Directory sync has its own page; the card is a shortcut to it.
-    route: '/admin/ldap',
-    status: 'available'
-  }
-];
+const documentation: ImportOption = {
+  titleKey: 'admin-data-import-docs-title',
+  descriptionKey: 'admin-data-import-docs-description',
+  icon: 'book',
+  route: '/admin/data-import/documentation',
+  status: 'new',
+  test: 'hub-documentation',
+};
 
-const importOptions = computed(() => [nosdeskExport.value, ...otherOptions]);
+const spreadsheet: ImportOption = {
+  titleKey: 'admin-data-import-csv-title',
+  descriptionKey: 'admin-data-import-csv-description',
+  icon: 'document',
+  route: '/admin/data-import/csv',
+  status: 'available',
+  test: 'hub-spreadsheet',
+};
+
+/** Hidden on Cloud: the Graph connection runs on the instance's own app
+ *  credentials until 1.2 gives each workspace its own. */
+const microsoft: ImportOption = {
+  titleKey: 'admin-data-import-microsoft-title',
+  descriptionKey: 'admin-data-import-microsoft-description',
+  icon: 'microsoft',
+  route: '/admin/data-import/microsoft-graph',
+  status: 'available',
+  test: 'hub-microsoft',
+};
+
+/** Directory sync has its own page; the card is a shortcut to it. On Cloud
+ *  the egress policy admits only a server on the public internet. */
+const directory = computed<ImportOption>(() => ({
+  titleKey: 'admin-data-import-ad-title',
+  descriptionKey: hosted.value
+    ? 'admin-data-import-ad-description-cloud'
+    : 'admin-data-import-ad-description',
+  icon: 'directory',
+  route: '/admin/ldap',
+  status: 'available',
+  test: 'hub-directory',
+}));
+
+const groups = computed(() => [
+  {
+    labelKey: 'admin-data-import-group-once',
+    test: 'hub-group-once',
+    items: [nosdeskExport.value, documentation, spreadsheet],
+  },
+  {
+    labelKey: 'admin-data-import-group-sync',
+    test: 'hub-group-sync',
+    items: hosted.value ? [directory.value] : [microsoft, directory.value],
+  },
+]);
 
 const contactSupportOpen = ref(false);
 
@@ -128,44 +142,54 @@ const statusBadges = computed<Record<string, { text: string; class: string }>>((
         <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('admin-data-import-description') }}</p>
       </div>
 
-      <!-- Import options -->
-      <div class="bg-surface border border-default rounded-xl overflow-hidden divide-y divide-default">
-        <component
-          v-for="item in importOptions"
-          :key="item.titleKey"
-          :is="!opens(item) ? 'div' : item.support ? 'button' : 'RouterLink'"
-          v-bind="linkAttrs(item)"
-          @click="item.support && opens(item) ? (contactSupportOpen = true) : undefined"
-          :data-test="item.test"
-          class="flex items-center gap-3 sm:gap-4 px-4 py-4 w-full text-left transition-colors"
-          :class="opens(item)
-            ? 'hover:bg-surface-hover cursor-pointer group'
-            : 'opacity-60'"
-        >
-          <div
-            class="flex-shrink-0 h-10 w-10 rounded-lg flex items-center justify-center bg-accent/15 text-accent"
+      <!-- Import options, by what they do -->
+      <section
+        v-for="group in groups"
+        :key="group.labelKey"
+        :data-test="group.test"
+        class="flex flex-col gap-2"
+      >
+        <h2 class="text-2xs font-semibold uppercase tracking-wider text-tertiary px-1">
+          {{ $t(group.labelKey) }}
+        </h2>
+        <div class="bg-surface border border-default rounded-xl overflow-hidden divide-y divide-default">
+          <component
+            v-for="item in group.items"
+            :key="item.titleKey"
+            :is="!opens(item) ? 'div' : item.support ? 'button' : 'RouterLink'"
+            v-bind="linkAttrs(item)"
+            @click="item.support && opens(item) ? (contactSupportOpen = true) : undefined"
+            :data-test="item.test"
+            class="flex items-center gap-3 sm:gap-4 px-4 py-4 w-full text-left transition-colors"
+            :class="opens(item)
+              ? 'hover:bg-surface-hover cursor-pointer group'
+              : 'opacity-60'"
           >
-            <Icon :name="item.icon" size="md" />
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="flex flex-wrap items-center gap-2">
-              <h3 class="text-sm font-medium text-primary">{{ $t(item.titleKey) }}</h3>
-              <span
-                class="px-1.5 py-0.5 text-2xs font-medium rounded-full"
-                :class="statusBadges[item.status]?.class"
-              >
-                {{ statusBadges[item.status]?.text }}
-              </span>
+            <div
+              class="flex-shrink-0 h-10 w-10 rounded-lg flex items-center justify-center bg-accent/15 text-accent"
+            >
+              <Icon :name="item.icon" size="md" />
             </div>
-            <p class="text-xs text-secondary mt-0.5 line-clamp-2 sm:line-clamp-1">{{ $t(item.descriptionKey) }}</p>
-          </div>
-          <Icon
-            v-if="opens(item)"
-            :name="'chevronRight'"
-            class="text-tertiary group-hover:text-secondary transition-colors flex-shrink-0"
-          />
-        </component>
-      </div>
+            <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+              <div class="flex flex-wrap items-center gap-2">
+                <h3 class="text-sm font-medium text-primary">{{ $t(item.titleKey) }}</h3>
+                <span
+                  class="px-1.5 py-0.5 text-2xs font-medium rounded-full"
+                  :class="statusBadges[item.status]?.class"
+                >
+                  {{ statusBadges[item.status]?.text }}
+                </span>
+              </div>
+              <p class="text-xs text-secondary">{{ $t(item.descriptionKey) }}</p>
+            </div>
+            <Icon
+              v-if="opens(item)"
+              :name="'chevronRight'"
+              class="text-tertiary group-hover:text-secondary transition-colors flex-shrink-0"
+            />
+          </component>
+        </div>
+      </section>
 
       <RecentImportsCard :workspace-imports="workspaceImports" />
 

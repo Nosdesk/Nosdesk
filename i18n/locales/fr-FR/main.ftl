@@ -1178,9 +1178,11 @@ admin-nav-plugins-title = Plugins
 admin-nav-plugins-description = Gérez les plugins installés et les intégrations
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Synchroniser les utilisateurs et les groupes depuis un serveur LDAP ou Active Directory
+# MT: pending native review (fr-FR)
+admin-nav-ldap-description-cloud = Synchroniser les utilisateurs et les groupes depuis un serveur LDAPS accessible depuis Internet
 admin-nav-data-import-title = Import de données
-# TODO native-review fr-FR for the key below.
-admin-nav-data-import-description = Importez des données depuis Microsoft Entra ID, des fichiers CSV et d'autres sources
+# MT: pending native review (fr-FR)
+admin-nav-data-import-description = Importez depuis des feuilles de calcul, des exports de documentation ou un autre Nosdesk, et synchronisez avec un annuaire
 admin-nav-audit-log-title = Journal d'audit
 admin-nav-audit-log-description = Trace forensique des modifications, issue des triggers par table
 admin-nav-branding-title = Marque
@@ -1689,8 +1691,14 @@ admin-guest-saved = Paramètres d'accès invité enregistrés
 
 # Admin : Import de données.
 admin-data-import-title = Import de données
-admin-data-import-description = Importez et synchronisez des données depuis des sources externes
-admin-data-import-notice = Les imports peuvent déclencher des notifications aux utilisateurs concernés. Les enregistrements existants sont mis à jour selon les ID correspondants.
+# MT: pending native review (fr-FR)
+admin-data-import-description = Importez une fois les données d'un autre outil, ou gardez-les synchronisées avec un annuaire.
+# MT: pending native review (fr-FR)
+admin-data-import-notice = Les imports peuvent notifier les personnes concernées. Les imports de feuilles de calcul et les synchronisations d'annuaire mettent à jour les enregistrements correspondants ; les imports de documentation et Nosdesk ne font qu'ajouter.
+# MT: pending native review (fr-FR)
+admin-data-import-group-once = Importer une fois
+# MT: pending native review (fr-FR)
+admin-data-import-group-sync = Garder synchronisé
 admin-data-import-status-available = Disponible
 admin-data-import-status-coming-soon = Bientôt disponible
 admin-data-import-status-beta = Bêta
@@ -1700,17 +1708,19 @@ admin-data-import-status-new = Nouveau
 admin-data-import-docs-title = Documentation
 # MT: pending native review (fr-FR)
 admin-data-import-docs-description = Des fichiers Markdown, un export Notion, Obsidian ou GitBook, ou un export Nosdesk.
-admin-data-import-microsoft-title = Microsoft Graph
-# TODO native-review fr-FR for the key below.
-admin-data-import-microsoft-description = Importez des utilisateurs, des groupes et des appareils depuis Microsoft Entra ID
-admin-data-import-csv-title = Import CSV
 # MT: pending native review (fr-FR)
-admin-data-import-csv-description = Importer des actifs, des utilisateurs et des tickets depuis un fichier .csv ou .xlsx
-admin-data-import-api-title = Intégrations API
-admin-data-import-api-description = Connectez-vous à des API tierces pour importer et synchroniser des données
+admin-data-import-microsoft-title = Microsoft Entra ID
+# MT: pending native review (fr-FR)
+admin-data-import-microsoft-description = Des utilisateurs, des groupes et des appareils depuis Microsoft Entra ID et Intune.
+# MT: pending native review (fr-FR)
+admin-data-import-csv-title = Feuille de calcul
+# MT: pending native review (fr-FR)
+admin-data-import-csv-description = Des actifs, des utilisateurs et des tickets depuis un fichier .csv ou .xlsx.
 admin-data-import-ad-title = LDAP / Active Directory
 # MT: pending native review (fr-FR)
-admin-data-import-ad-description = Synchronisez les utilisateurs et les groupes depuis Active Directory ou un autre annuaire LDAP
+admin-data-import-ad-description = Des utilisateurs et des groupes depuis Active Directory ou un autre annuaire LDAP.
+# MT: pending native review (fr-FR)
+admin-data-import-ad-description-cloud = Des utilisateurs et des groupes depuis Active Directory ou un autre annuaire LDAP. Nécessite un serveur LDAPS accessible depuis Internet.
 
 # Admin : Fournisseurs d'authentification.
 admin-auth-providers-title = Fournisseurs d'authentification

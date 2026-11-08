@@ -4,6 +4,8 @@ import { CONTROL_PLANE_BILLING_PATH } from '@/services/nosdeskAccount';
 export interface AdminNavItem {
   titleKey: string;
   descriptionKey: string;
+  /** Replaces `descriptionKey` on hosted deployments. */
+  hostedDescriptionKey?: string;
   icon: IconName;
   /** In-app admin page. Absent on an item that leaves the app
    * (`controlPlanePath`). */
@@ -207,6 +209,7 @@ export const adminNavGroups: AdminNavGroup[] = [
       {
         titleKey: 'admin-nav-ldap-title',
         descriptionKey: 'admin-nav-ldap-description',
+        hostedDescriptionKey: 'admin-nav-ldap-description-cloud',
         icon: 'directory',
         route: '/admin/ldap',
         keywords: ['ldap', 'active directory', 'directory', 'ad', 'sync', 'sso', 'entra', 'openldap']
@@ -343,11 +346,15 @@ export function filterAdminNavGroupsForRole(
   groups = groups
     .map(group => ({
       ...group,
-      items: group.items.filter(i =>
-        (opts.isHosted ? !i.selfHostedOnly : !i.hostedOnly) &&
-        (!i.ownerOnly || opts.isOwner) &&
-        (!i.controlPlanePath || !!opts.controlPlaneUrl)
-      ),
+      items: group.items
+        .filter(i =>
+          (opts.isHosted ? !i.selfHostedOnly : !i.hostedOnly) &&
+          (!i.ownerOnly || opts.isOwner) &&
+          (!i.controlPlanePath || !!opts.controlPlaneUrl)
+        )
+        .map(i =>
+          opts.isHosted && i.hostedDescriptionKey ? { ...i, descriptionKey: i.hostedDescriptionKey } : i
+        ),
     }))
     .filter(group => group.items.length > 0);
   if (opts.isAdmin) {

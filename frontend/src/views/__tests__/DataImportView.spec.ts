@@ -90,3 +90,44 @@ describe('DataImportView: the Nosdesk export card', () => {
     expect(wrapper!.find('[data-test="recent"]').attributes('data-workspace')).toBe('false')
   })
 })
+
+describe('DataImportView: groups and tiles', () => {
+  const group = (name: 'once' | 'sync') => wrapper!.find(`[data-test="hub-group-${name}"]`)
+  const tiles = (name: 'once' | 'sync') =>
+    group(name).findAll('[data-test^="hub-"]').map((t) => t.attributes('data-test'))
+  const tile = (test: string) => wrapper!.find(`[data-test="${test}"]`)
+
+  it('splits one-off imports from directory syncs on a self-hosted server', async () => {
+    await mountHub()
+    expect(group('once').text()).toContain('admin-data-import-group-once')
+    expect(tiles('once')).toEqual(['hub-nosdesk-export', 'hub-documentation', 'hub-spreadsheet'])
+    expect(group('sync').text()).toContain('admin-data-import-group-sync')
+    expect(tiles('sync')).toEqual(['hub-microsoft', 'hub-directory'])
+  })
+
+  it('links every tile to its page', async () => {
+    await mountHub()
+    expect(tile('hub-documentation').attributes('href')).toBe('/admin/data-import/documentation')
+    expect(tile('hub-spreadsheet').attributes('href')).toBe('/admin/data-import/csv')
+    expect(tile('hub-microsoft').attributes('href')).toBe('/admin/data-import/microsoft-graph')
+    expect(tile('hub-directory').attributes('href')).toBe('/admin/ldap')
+    expect(tile('hub-directory').text()).toContain('admin-data-import-ad-description')
+    expect(tile('hub-directory').text()).not.toContain('admin-data-import-ad-description-cloud')
+  })
+
+  it('offers nothing that does not open', async () => {
+    await mountHub()
+    expect(wrapper!.text()).not.toContain('admin-data-import-api-title')
+    expect(wrapper!.text()).not.toContain('admin-data-import-status-coming-soon')
+  })
+
+  it('on Cloud, leaves out Microsoft and says LDAP needs a server on the internet', async () => {
+    env.hosted = true
+    await mountHub()
+    expect(tiles('once')).toEqual(['hub-nosdesk-export', 'hub-documentation', 'hub-spreadsheet'])
+    expect(tiles('sync')).toEqual(['hub-directory'])
+    expect(wrapper!.text()).not.toContain('admin-data-import-microsoft-title')
+    expect(tile('hub-directory').attributes('href')).toBe('/admin/ldap')
+    expect(tile('hub-directory').text()).toContain('admin-data-import-ad-description-cloud')
+  })
+})

@@ -1174,9 +1174,11 @@ admin-nav-plugins-title = Plug-ins
 admin-nav-plugins-description = Beheer geïnstalleerde plug-ins en integraties
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Synchroniseer gebruikers en groepen vanuit een LDAP- of Active Directory-server
+# MT: pending native review (nl-NL)
+admin-nav-ldap-description-cloud = Synchroniseer gebruikers en groepen vanaf een LDAPS-server die bereikbaar is via internet
 admin-nav-data-import-title = Gegevensimport
-# TODO native-review nl-NL for the key below.
-admin-nav-data-import-description = Importeer gegevens uit Microsoft Entra ID, CSV-bestanden en andere bronnen
+# MT: pending native review (nl-NL)
+admin-nav-data-import-description = Importeer uit spreadsheets, documentatie-exports of een andere Nosdesk, en synchroniseer met een directory
 admin-nav-audit-log-title = Auditlogboek
 admin-nav-audit-log-description = Forensisch overzicht van wijzigingen, gevoed door triggers per tabel
 admin-nav-branding-title = Branding
@@ -1685,8 +1687,14 @@ admin-guest-saved = Gasttoegangsinstellingen opgeslagen
 
 # Beheer: Gegevensimport.
 admin-data-import-title = Gegevensimport
-admin-data-import-description = Importeer en synchroniseer gegevens uit externe bronnen
-admin-data-import-notice = Imports kunnen meldingen naar betrokken gebruikers triggeren. Bestaande records worden bijgewerkt op basis van overeenkomende ID's.
+# MT: pending native review (nl-NL)
+admin-data-import-description = Haal eenmalig gegevens uit een andere tool, of houd ze gesynchroniseerd met een directory.
+# MT: pending native review (nl-NL)
+admin-data-import-notice = Imports kunnen meldingen sturen naar de mensen die ze raken. Spreadsheetimports en directorysynchronisaties werken overeenkomende records bij; documentatie- en Nosdesk-imports voegen alleen toe.
+# MT: pending native review (nl-NL)
+admin-data-import-group-once = Eenmalig importeren
+# MT: pending native review (nl-NL)
+admin-data-import-group-sync = Gesynchroniseerd houden
 admin-data-import-status-available = Beschikbaar
 admin-data-import-status-coming-soon = Binnenkort beschikbaar
 admin-data-import-status-beta = Bèta
@@ -1696,17 +1704,19 @@ admin-data-import-status-new = Nieuw
 admin-data-import-docs-title = Documentatie
 # MT: pending native review (nl-NL)
 admin-data-import-docs-description = Markdown-bestanden, een export uit Notion, Obsidian of GitBook, of een Nosdesk-export.
-admin-data-import-microsoft-title = Microsoft Graph
-# TODO native-review nl-NL for the key below.
-admin-data-import-microsoft-description = Importeer gebruikers, groepen en apparaten uit Microsoft Entra ID
-admin-data-import-csv-title = CSV-import
 # MT: pending native review (nl-NL)
-admin-data-import-csv-description = Importeer activa, gebruikers en tickets uit een .csv- of .xlsx-bestand
-admin-data-import-api-title = API-integraties
-admin-data-import-api-description = Maak verbinding met API's van derden om gegevens te importeren en synchroniseren
+admin-data-import-microsoft-title = Microsoft Entra ID
+# MT: pending native review (nl-NL)
+admin-data-import-microsoft-description = Gebruikers, groepen en apparaten uit Microsoft Entra ID en Intune.
+# MT: pending native review (nl-NL)
+admin-data-import-csv-title = Spreadsheet
+# MT: pending native review (nl-NL)
+admin-data-import-csv-description = Activa, gebruikers en tickets uit een .csv- of .xlsx-bestand.
 admin-data-import-ad-title = LDAP / Active Directory
 # MT: pending native review (nl-NL)
-admin-data-import-ad-description = Synchroniseer gebruikers en groepen vanuit Active Directory of een andere LDAP-directory
+admin-data-import-ad-description = Gebruikers en groepen uit Active Directory of een andere LDAP-directory.
+# MT: pending native review (nl-NL)
+admin-data-import-ad-description-cloud = Gebruikers en groepen uit Active Directory of een andere LDAP-directory. Vereist een LDAPS-server die bereikbaar is via internet.
 
 # Beheer: Authenticatieproviders.
 admin-auth-providers-title = Authenticatieproviders
