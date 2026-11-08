@@ -3705,6 +3705,7 @@ import-template-format-label = Format
 import-template-format-csv = CSV
 import-template-format-excel = Excel
 import-template-format-help = The Excel template adds dropdowns and a Fields sheet that describes each column.
+import-template-failed = The template couldn't be downloaded. Try again.
 import-drop-idle = Drop a .csv or .xlsx here, or tap to choose one
 import-drop-release = Release to upload
 import-drop-hint = .csv or .xlsx, up to 10 MB and 5,000 rows

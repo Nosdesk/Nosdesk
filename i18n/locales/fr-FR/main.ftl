@@ -3765,6 +3765,8 @@ import-template-format-excel = Excel
 # MT: pending native review (fr-FR)
 import-template-format-help = Le modèle Excel ajoute des listes déroulantes et une feuille Fields qui décrit chaque colonne.
 # MT: pending native review (fr-FR)
+import-template-failed = Le modèle n'a pas pu être téléchargé. Veuillez réessayer.
+# MT: pending native review (fr-FR)
 import-drop-idle = Déposez un fichier .csv ou .xlsx ici, ou touchez pour en choisir un
 # MT: pending native review (fr-FR)
 import-drop-release = Relâchez pour envoyer

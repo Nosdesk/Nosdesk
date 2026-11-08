@@ -27,7 +27,7 @@ const api = vi.hoisted(() => ({
   previewValues: vi.fn(),
   nextSheet: vi.fn(),
   sendInvites: vi.fn(),
-  templateUrl: vi.fn(),
+  template: vi.fn(),
 }))
 
 vi.mock('@nosdesk/core/services/importService', () => ({
@@ -50,7 +50,7 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     previewValues: (...a: unknown[]) => api.previewValues(...a),
     nextSheet: (...a: unknown[]) => api.nextSheet(...a),
     sendInvites: (...a: unknown[]) => api.sendInvites(...a),
-    templateUrl: (...a: unknown[]) => api.templateUrl(...a),
+    template: (...a: unknown[]) => api.template(...a),
   },
 }))
 
@@ -286,7 +286,10 @@ beforeEach(() => {
   api.fields.mockResolvedValue(FIELDS)
   api.rows.mockResolvedValue(rowsPage())
   api.values.mockResolvedValue(noValues())
-  api.templateUrl.mockImplementation((type: string) => `/api/admin/import/template/${type}`)
+  api.template.mockImplementation(async (type: string) => ({
+    blob: new Blob(['a,b\n']),
+    filename: `nosdesk-${type}-template.csv`,
+  }))
   hooks.list.mockReset()
   hooks.list.mockResolvedValue([])
   localStorage.clear()
@@ -669,8 +672,12 @@ describe('CsvImportView Done', () => {
   })
 
   it('downloads the template in the format chosen beside the kind', async () => {
-    const location = { href: '' }
-    vi.stubGlobal('location', location)
+    const createObjectURL = vi.fn(() => 'blob:template')
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL: vi.fn() })
+    const saved: string[] = []
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push(this.download)
+    })
     try {
       await mountAt()
       const format = () => wrapper!.find('[data-test="import-template-format"]')
@@ -683,25 +690,50 @@ describe('CsvImportView Done', () => {
 
       // CSV stays the default.
       await download().trigger('click')
-      expect(api.templateUrl).toHaveBeenLastCalledWith('assets', undefined, 'csv')
+      await flushPromises()
+      expect(api.template).toHaveBeenLastCalledWith('assets', undefined, 'csv')
+      expect(saved).toEqual(['nosdesk-assets-template.csv'])
 
       await wrapper!.find('[data-test="import-template-kind"] [data-value="camera"]').trigger('click')
       await format().findAll('[role="radio"]')[1].trigger('click')
       expect(format().find('[role="radio"][data-state="checked"]').text()).toBe('import-template-format-excel')
-      api.templateUrl.mockReturnValue('/api/admin/import/template/assets?kind=camera&format=xlsx')
+      api.template.mockResolvedValueOnce({
+        blob: new Blob(['xlsx']),
+        filename: 'nosdesk-assets-camera-template.xlsx',
+      })
       await download().trigger('click')
-      expect(api.templateUrl).toHaveBeenLastCalledWith('assets', 'camera', 'xlsx')
-      expect(location.href).toBe('/api/admin/import/template/assets?kind=camera&format=xlsx')
+      await flushPromises()
+      expect(api.template).toHaveBeenLastCalledWith('assets', 'camera', 'xlsx')
+      expect(saved.at(-1)).toBe('nosdesk-assets-camera-template.xlsx')
+      expect(createObjectURL).toHaveBeenCalledTimes(2)
 
       // Users have no kind; the format carries over.
       const users = wrapper!.findAll('[role="radio"]').find((r) => r.text() === 'csv-import-type-users')
       await users!.trigger('click')
       expect(format().exists()).toBe(true)
       await download().trigger('click')
-      expect(api.templateUrl).toHaveBeenLastCalledWith('users', undefined, 'xlsx')
+      await flushPromises()
+      expect(api.template).toHaveBeenLastCalledWith('users', undefined, 'xlsx')
     } finally {
+      click.mockRestore()
       vi.unstubAllGlobals()
     }
+  })
+
+  it('shows why a template download failed and stays on Start', async () => {
+    api.template.mockRejectedValue({
+      response: { status: 400, data: { error: 'No workspace selected', code: 'NO_WORKSPACE_SELECTED' } },
+    })
+    await mountAt()
+    await wrapper!.find('[data-test="import-template-download"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('No workspace selected')
+    expect(currentStep()).toBe('start')
+
+    api.template.mockRejectedValue({})
+    await wrapper!.find('[data-test="import-template-download"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('import-template-failed')
   })
 })
 
