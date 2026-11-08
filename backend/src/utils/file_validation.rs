@@ -1,14 +1,30 @@
 use std::path::Path;
 
-/// Maximum file size in bytes (configurable via environment)
-/// Default: 50MB matches MAX_FILE_SIZE_MB in main.rs
+/// `MAX_FILE_SIZE_MB` when it is unset or unreadable.
+const DEFAULT_MAX_FILE_SIZE_MB: usize = 50;
+
+/// The range `MAX_FILE_SIZE_MB` is clamped to.
+pub const MIN_MAX_FILE_SIZE_MB: usize = 1;
+pub const MAX_MAX_FILE_SIZE_MB: usize = 500;
+
+lazy_static::lazy_static! {
+    /// Resolved once at first use, through the same parse `Config` uses at
+    /// boot, so the two can't disagree.
+    static ref MAX_FILE_SIZE_MB: usize =
+        max_file_size_mb_from(std::env::var("MAX_FILE_SIZE_MB").ok().as_deref());
+}
+
+/// Parse and clamp `MAX_FILE_SIZE_MB`. Shared with `Config`.
+pub fn max_file_size_mb_from(raw: Option<&str>) -> usize {
+    raw.and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(DEFAULT_MAX_FILE_SIZE_MB)
+        .clamp(MIN_MAX_FILE_SIZE_MB, MAX_MAX_FILE_SIZE_MB)
+}
+
+/// The largest file an upload may carry, in bytes: `MAX_FILE_SIZE_MB`,
+/// default 50, clamped to 1..500.
 pub fn get_max_file_size() -> usize {
-    std::env::var("MAX_FILE_SIZE_MB")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(50)
-        * 1024
-        * 1024
+    *MAX_FILE_SIZE_MB * 1024 * 1024
 }
 
 /// Dangerous file types that are explicitly blocked

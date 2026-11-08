@@ -38,6 +38,13 @@ pub struct Config {
     pub max_file_size_mb: usize,
     /// `max_file_size_mb` in bytes, for the actix payload/multipart caps.
     pub max_payload_size: usize,
+    /// Where uploads are spooled while the intake reads them
+    /// (`NOSDESK_SPOOL_DIR`, default `<OS temp>/nosdesk-spool`).
+    pub spool_dir: std::path::PathBuf,
+    /// How many MB of uploads may be spooled at once
+    /// (`NOSDESK_SPOOL_BUDGET_MB`, default 4 x `max_file_size_mb`, never
+    /// below it).
+    pub spool_budget_mb: u64,
     pub frontend_url: String,
     pub additional_origins: Vec<String>,
     /// Optional separate origin the plugin sandbox runtime is served from
@@ -177,13 +184,17 @@ impl Config {
                 std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid PORT")
             })?;
 
-        // Security: file upload limits from environment.
-        let max_file_size_mb = get("MAX_FILE_SIZE_MB")
-            .unwrap_or_else(|| "50".to_string())
-            .parse::<usize>()
-            .unwrap_or(50)
-            .clamp(1, 500); // 1MB to 500MB limit
+        // Security: file upload limits from environment, 1 MB to 500 MB.
+        let max_file_size_mb = crate::utils::file_validation::max_file_size_mb_from(
+            get("MAX_FILE_SIZE_MB").as_deref(),
+        );
         let max_payload_size = max_file_size_mb * 1024 * 1024;
+        let spool_dir =
+            crate::services::upload_intake::spool_dir_from(get("NOSDESK_SPOOL_DIR").as_deref());
+        let spool_budget_mb = crate::services::upload_intake::spool_budget_mb_from(
+            get("NOSDESK_SPOOL_BUDGET_MB").as_deref(),
+            max_file_size_mb,
+        );
 
         // CORS: FRONTEND_URL required in production.
         let frontend_url = match get("FRONTEND_URL") {
@@ -255,6 +266,8 @@ impl Config {
             redis_url,
             max_file_size_mb,
             max_payload_size,
+            spool_dir,
+            spool_budget_mb,
             frontend_url,
             additional_origins,
             sandbox_origin,
@@ -386,6 +399,22 @@ mod tests {
         assert_eq!(c.port, 8080);
         assert_eq!(c.frontend_url, "http://localhost:3000");
         assert_eq!(c.max_payload_size, 50 * 1024 * 1024);
+        assert_eq!(c.spool_dir, std::env::temp_dir().join("nosdesk-spool"));
+        assert_eq!(c.spool_budget_mb, 200);
+    }
+
+    #[test]
+    fn the_file_cap_is_clamped_and_the_spool_budget_holds_one_file() {
+        let c = build(&[
+            ("JWT_SECRET", GOOD_JWT),
+            ("MAX_FILE_SIZE_MB", "900"),
+            ("NOSDESK_SPOOL_BUDGET_MB", "100"),
+            ("NOSDESK_SPOOL_DIR", "/var/tmp/spool"),
+        ])
+        .unwrap();
+        assert_eq!(c.max_file_size_mb, 500);
+        assert_eq!(c.spool_budget_mb, 500);
+        assert_eq!(c.spool_dir, std::path::PathBuf::from("/var/tmp/spool"));
     }
 
     #[test]

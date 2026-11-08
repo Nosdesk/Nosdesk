@@ -1,5 +1,6 @@
 use image::ImageFormat;
 use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
+use std::path::Path;
 use std::sync::OnceLock;
 use tracing::{debug, error, info, warn};
 
@@ -66,11 +67,16 @@ fn create_pdfium() -> Option<Pdfium> {
     None
 }
 
-/// Render a PDF's first page as WebP, within `max_width` x `max_height`.
+/// The largest PDF a thumbnail is rendered for. Pdfium reads the file as it
+/// needs it, but a huge scan still costs a render on the request.
+pub const THUMBNAIL_MAX_PDF_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Render the first page of the PDF at `pdf` as WebP, within `max_width` x
+/// `max_height`.
 ///
 /// `Ok(None)` when pdfium isn't available or the PDF can't be rendered.
 async fn render_pdf_thumbnail(
-    pdf_bytes: &[u8],
+    pdf: &Path,
     max_width: u32,
     max_height: u32,
 ) -> Result<Option<Vec<u8>>, String> {
@@ -79,14 +85,13 @@ async fn render_pdf_thumbnail(
         return Ok(None);
     }
 
-    let pdf_bytes = pdf_bytes.to_vec();
+    let pdf = pdf.to_path_buf();
 
     // Process PDF in a blocking task to avoid blocking the async runtime
-    let thumbnail_result = tokio::task::spawn_blocking(move || {
-        generate_thumbnail_sync(&pdf_bytes, max_width, max_height)
-    })
-    .await
-    .map_err(|e| format!("PDF thumbnail task panicked: {e}"))?;
+    let thumbnail_result =
+        tokio::task::spawn_blocking(move || generate_thumbnail_sync(&pdf, max_width, max_height))
+            .await
+            .map_err(|e| format!("PDF thumbnail task panicked: {e}"))?;
 
     match thumbnail_result {
         Ok(bytes) => Ok(bytes),
@@ -99,7 +104,7 @@ async fn render_pdf_thumbnail(
 
 /// Synchronous thumbnail generation (runs in blocking task)
 fn generate_thumbnail_sync(
-    pdf_bytes: &[u8],
+    pdf: &Path,
     max_width: u32,
     max_height: u32,
 ) -> Result<Option<Vec<u8>>, String> {
@@ -108,9 +113,9 @@ fn generate_thumbnail_sync(
         None => return Ok(None),
     };
 
-    // Load the PDF from bytes
+    // Load the PDF from the file, read as pdfium needs it
     let document = pdfium
-        .load_pdf_from_byte_slice(pdf_bytes, None)
+        .load_pdf_from_file(pdf, None)
         .map_err(|e| format!("Failed to load PDF: {e}"))?;
 
     // Get the first page
@@ -178,21 +183,31 @@ pub fn pdf_paths_for_thumbnail(thumb_path: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Render a thumbnail of the PDF stored at `pdf_path` and store it beside the
-/// PDF, at [`thumbnail_path`], through the same storage. Pass the request's
-/// workspace-scoped storage so the thumbnail lands in the workspace's prefix and
-/// moves with the PDF when it is attached. Returns the thumbnail's URL, or
-/// `None` when no thumbnail could be rendered.
+/// Render a thumbnail of the PDF in the local file `pdf` (an upload's spool
+/// file) and store it beside the PDF's stored copy at `pdf_path`, at
+/// [`thumbnail_path`], through the same storage. Pass the request's
+/// workspace-scoped storage so the thumbnail lands in the workspace's prefix
+/// and moves with the PDF when it is attached. Returns the thumbnail's URL,
+/// or `None` when no thumbnail could be rendered or the PDF is over
+/// [`THUMBNAIL_MAX_PDF_BYTES`].
 pub async fn store_pdf_thumbnail(
     storage: &dyn Storage,
-    pdf_bytes: &[u8],
+    pdf: &Path,
     pdf_path: &str,
 ) -> Result<Option<String>, String> {
     let Some(thumb_path) = thumbnail_path(pdf_path) else {
         return Ok(None);
     };
+    let size = tokio::fs::metadata(pdf)
+        .await
+        .map_err(|e| format!("Failed to read PDF: {e}"))?
+        .len();
+    if size > THUMBNAIL_MAX_PDF_BYTES {
+        debug!(byte_count = size, "PDF over the thumbnail limit");
+        return Ok(None);
+    }
     // 300x400 max for the attachment grid.
-    let Some(webp) = render_pdf_thumbnail(pdf_bytes, 300, 400).await? else {
+    let Some(webp) = render_pdf_thumbnail(pdf, 300, 400).await? else {
         return Ok(None);
     };
     storage

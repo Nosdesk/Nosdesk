@@ -94,6 +94,25 @@ pub trait Storage: Send + Sync {
         content_type: &str,
     ) -> Result<StoredFile, StorageError>;
 
+    /// [`Storage::store_file`] from a local file, streamed: the same
+    /// `{folder}/{uuid7}_{filename}` key, which `inline_disposition` reads
+    /// the download name back from.
+    async fn store_file_from_path(
+        &self,
+        local: &Path,
+        filename: &str,
+        content_type: &str,
+        folder: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let unique_filename = format!("{}_{}", Uuid::now_v7(), filename);
+        let key = format!("{}/{}", folder.trim_end_matches('/'), unique_filename);
+        let stored = self.put_file_from_path(local, &key, content_type).await?;
+        Ok(StoredFile {
+            id: unique_filename,
+            ..stored
+        })
+    }
+
     /// Retrieve a file by path
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError>;
 
@@ -262,7 +281,25 @@ impl Storage for LocalStorage {
         let relative_path = path.trim_start_matches('/').to_string();
         let full_path = self.full_path(&relative_path)?;
         self.ensure_directory_exists(&full_path)?;
-        let size = tokio::fs::copy(local, &full_path).await?;
+        // A new file, not `fs::copy`: that carries the source's mode over,
+        // and a spooled upload is 0600. Written beside the key and renamed
+        // over it, as `put_file` does.
+        let local = local.to_path_buf();
+        let size = tokio::task::spawn_blocking(move || -> io::Result<u64> {
+            let partial = format!("{full_path}.{}.partial", Uuid::new_v4().simple());
+            let copied = std::fs::File::open(&local).and_then(|mut src| {
+                let mut dst = std::fs::File::create(&partial)?;
+                let size = io::copy(&mut src, &mut dst)?;
+                std::fs::rename(&partial, &full_path)?;
+                Ok(size)
+            });
+            if copied.is_err() {
+                let _ = std::fs::remove_file(&partial);
+            }
+            copied
+        })
+        .await
+        .map_err(|e| StorageError::Io(io::Error::other(e)))??;
         Ok(StoredFile {
             id: relative_path
                 .rsplit('/')
@@ -1335,6 +1372,58 @@ mod tests {
             );
         }
         assert!(dir.path().join("ws/10/tickets/c.txt").exists());
+    }
+
+    /// A file stored from disk gets the key `store_file` gives bytes, inside
+    /// the workspace's prefix, with the mode a new file gets rather than the
+    /// spool file's 0600, and nothing left beside it.
+    #[tokio::test]
+    async fn store_file_from_path_keeps_the_store_file_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let base: Arc<dyn Storage> = Arc::new(LocalStorage::new(
+            dir.path().to_string_lossy().into_owned(),
+            "/uploads".into(),
+        ));
+        let scoped = WorkspaceScopedStorage::arc(base, 3);
+        let spooled = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(spooled.path(), b"%PDF-1.7").unwrap();
+
+        let from_path = scoped
+            .store_file_from_path(spooled.path(), "report.pdf", "application/pdf", "temp")
+            .await
+            .unwrap();
+        let from_bytes = scoped
+            .store_file(b"%PDF-1.7", "report.pdf", "application/pdf", "temp")
+            .await
+            .unwrap();
+        for stored in [&from_path, &from_bytes] {
+            let id = stored
+                .id
+                .strip_suffix("_report.pdf")
+                .expect("{uuid}_{name}");
+            assert!(Uuid::parse_str(id).is_ok(), "{id}");
+            assert_eq!(stored.path, format!("temp/{}", stored.id));
+            assert_eq!(stored.url, format!("/uploads/temp/{}", stored.id));
+            assert_eq!(stored.size, 8);
+            assert_eq!(stored.content_type, "application/pdf");
+        }
+        let on_disk = dir.path().join("ws/3").join(&from_path.path);
+        assert_eq!(std::fs::read(&on_disk).unwrap(), b"%PDF-1.7");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            assert_eq!(
+                mode(&on_disk),
+                mode(&dir.path().join("ws/3").join(&from_bytes.path))
+            );
+        }
+        assert_eq!(
+            std::fs::read_dir(dir.path().join("ws/3/temp"))
+                .unwrap()
+                .count(),
+            2
+        );
     }
 
     /// Every write, move, read and delete stays inside the root, whatever name
