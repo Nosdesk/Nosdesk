@@ -5,13 +5,14 @@
 //! and symlinks are set aside, and the archive is refused for an encrypted
 //! entry, an unsafe or duplicate name, too many entries, or a header that
 //! declares a bomb's ratio. Nothing is decompressed at open except the
-//! parts of a split export.
+//! parts of a split export or a bundle.
 //!
 //! Every read goes through `Read::take` with the smallest of the read's own
-//! cap, the per-entry cap, the ratio bound and what is left of the total, so
-//! a header that lies about sizes gains nothing.
+//! cap, the per-entry cap (or the key's own, [`SafeArchive::set_entry_cap`]),
+//! the ratio bound and what is left of the total, so a header that lies
+//! about sizes gains nothing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
 use tempfile::NamedTempFile;
@@ -60,6 +61,16 @@ pub enum SkipReason {
     Symlink,
 }
 
+/// A bundle part whose keys were put under a prefix because another part
+/// shared a key with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundlePart {
+    /// The part's key in the outer zip.
+    pub name: String,
+    /// The folder its keys sit under: `name` without `.zip`.
+    pub prefix: String,
+}
+
 struct Part {
     zip: Zip,
     /// The spooled bytes of a nested part, removed when the archive drops.
@@ -82,6 +93,9 @@ pub struct SafeArchive {
     listing: Listing,
     limits: ArchiveLimits,
     split: Vec<String>,
+    bundle: Vec<BundlePart>,
+    /// Per-key entry caps in place of `limits.max_entry_bytes`.
+    entry_caps: HashMap<String, u64>,
     read_total: u64,
 }
 
@@ -90,6 +104,7 @@ impl std::fmt::Debug for SafeArchive {
         f.debug_struct("SafeArchive")
             .field("entries", &self.listing.entries.len())
             .field("parts", &self.split)
+            .field("bundle", &self.bundle)
             .field("read_total", &self.read_total)
             .finish()
     }
@@ -110,6 +125,8 @@ impl SafeArchive {
             listing: Listing::default(),
             limits: options.limits.clone(),
             split: Vec::new(),
+            bundle: Vec::new(),
+            entry_caps: HashMap::new(),
             read_total: 0,
         };
         list_part(
@@ -124,7 +141,7 @@ impl SafeArchive {
             && entries
                 .iter()
                 .all(|e| e.key.to_ascii_lowercase().ends_with(".zip"));
-        if options.nested == NestedZips::SplitExport && only_zips {
+        if options.nested != NestedZips::Never && only_zips {
             archive.open_parts(options)?;
         }
         Ok(archive)
@@ -140,6 +157,9 @@ impl SafeArchive {
             nested: NestedZips::Never,
             ..options.clone()
         };
+        if options.nested == NestedZips::Bundle {
+            return self.open_bundle(&outer_entries, options, &single);
+        }
         for entry in &outer_entries {
             let spool = self.spool_part(entry, options)?;
             let file = spool.reopen().map_err(io_error)?;
@@ -162,6 +182,62 @@ impl SafeArchive {
                 _spool: Some(spool),
             });
             self.split.push(entry.key.clone());
+        }
+        Ok(())
+    }
+
+    /// [`NestedZips::Bundle`]: list every part on its own, then merge them
+    /// as a split export when no key is in two parts, else with each part's
+    /// keys under its prefix.
+    fn open_bundle(
+        &mut self,
+        outer_entries: &[Entry],
+        options: &ArchiveOptions,
+        single: &ArchiveOptions,
+    ) -> Result<(), ArchiveError> {
+        let mut listed = Vec::with_capacity(outer_entries.len());
+        for entry in outer_entries {
+            let spool = self.spool_part(entry, options)?;
+            let file = spool.reopen().map_err(io_error)?;
+            let mut zip = open_zip(
+                Box::new(file),
+                Some(&entry.key),
+                &self.limits,
+                self.listing.counted,
+            )?;
+            let mut listing = Listing {
+                counted: self.listing.counted,
+                ..Listing::default()
+            };
+            list_part(
+                &mut zip,
+                self.parts.len(),
+                Some(&entry.key),
+                single,
+                &mut listing,
+            )?;
+            self.listing.counted = listing.counted;
+            self.parts.push(Part {
+                zip,
+                _spool: Some(spool),
+            });
+            self.split.push(entry.key.clone());
+            listed.push(listing);
+        }
+        let mut seen = HashSet::new();
+        let shared = listed
+            .iter()
+            .flat_map(|l| &l.entries)
+            .any(|e| !seen.insert(e.key.as_str()));
+        for (listing, name) in listed.into_iter().zip(&self.split) {
+            let prefix = shared.then(|| part_prefix(name));
+            merge(&mut self.listing, listing, prefix.as_deref(), &self.limits)?;
+            if let Some(prefix) = prefix {
+                self.bundle.push(BundlePart {
+                    name: name.clone(),
+                    prefix,
+                });
+            }
         }
         Ok(())
     }
@@ -206,9 +282,25 @@ impl SafeArchive {
         &self.listing.skipped
     }
 
-    /// The nested parts' names when this was a split export.
+    /// The nested parts' names when this was a split export or a bundle.
     pub fn split_parts(&self) -> &[String] {
         &self.split
+    }
+
+    /// A bundle's parts and their prefixes, in [`Self::split_parts`] order,
+    /// when its parts shared a key. Empty otherwise, a bundle whose parts
+    /// are disjoint included: that opens exactly as a split export.
+    pub fn bundle_parts(&self) -> &[BundlePart] {
+        &self.bundle
+    }
+
+    /// Read the entry at `key` under `cap` in place of the per-entry cap: a
+    /// source's one large file (a BookStack `data.json`). Only this key;
+    /// the ratio bound and the total budget still apply.
+    pub fn set_entry_cap(&mut self, key: &str, cap: u64) -> Result<(), ArchiveError> {
+        let key = self.lookup(key)?.key;
+        self.entry_caps.insert(key, cap);
+        Ok(())
     }
 
     /// Uncompressed bytes read so far, nested parts included.
@@ -217,7 +309,7 @@ impl SafeArchive {
     }
 
     /// The entry at `key`, at most `max` bytes (and never more than the
-    /// per-entry cap).
+    /// entry cap).
     pub fn read(&mut self, key: &str, max: u64) -> Result<Vec<u8>, ArchiveError> {
         let entry = self.lookup(key)?;
         // The header only sizes the first allocation, and only up to 1 MiB.
@@ -255,7 +347,12 @@ impl SafeArchive {
     fn allowance(&self, entry: &Entry, max: u64, entry_cap: bool) -> (u64, ArchiveError) {
         let limits = &self.limits;
         let cap = if entry_cap {
-            max.min(limits.max_entry_bytes)
+            let entry_max = self
+                .entry_caps
+                .get(&entry.key)
+                .copied()
+                .unwrap_or(limits.max_entry_bytes);
+            max.min(entry_max)
         } else {
             max
         };
@@ -443,6 +540,61 @@ fn declared_entries(src: &mut Box<dyn Source>) -> io::Result<Option<u64>> {
         return Ok(Some(u64_at(&eocd64, 32)));
     }
     Ok(None)
+}
+
+/// The folder a bundle part's keys go under: its key without `.zip`, or
+/// the whole key when that would leave an empty name. Two parts share a
+/// prefix only when their names differ in the case of `.zip`; a key both
+/// hold then refuses the archive as a duplicate.
+fn part_prefix(name: &str) -> String {
+    let stem = name.len().saturating_sub(4);
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".zip") && stem > 0 && !name[..stem].ends_with('/') {
+        name[..stem].to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+/// Add one part's listing to `into`, its keys under `prefix` when given.
+/// A prefixed key is checked against the path rules again, so a prefix
+/// can't carry a key past the depth or length caps.
+fn merge(
+    into: &mut Listing,
+    part: Listing,
+    prefix: Option<&str>,
+    limits: &ArchiveLimits,
+) -> Result<(), ArchiveError> {
+    let rekey = |key: String| match prefix {
+        None => Ok(key),
+        Some(prefix) => {
+            let joined = format!("{prefix}/{key}");
+            normalise(&joined, limits)
+                .map(|n| n.key)
+                .map_err(|reason| ArchiveError::UnsafePath {
+                    name: joined,
+                    reason,
+                })
+        }
+    };
+    for folder in part.folders {
+        into.folders.push(rekey(folder)?);
+    }
+    for skipped in part.skipped {
+        into.skipped.push(Skipped {
+            key: rekey(skipped.key)?,
+            reason: skipped.reason,
+        });
+    }
+    for mut entry in part.entries {
+        entry.key = rekey(entry.key)?;
+        if into.index.contains_key(&entry.key) {
+            return Err(ArchiveError::Duplicate { name: entry.key });
+        }
+        into.index.insert(entry.key.clone(), into.entries.len());
+        into.entries.push(entry);
+    }
+    Ok(())
 }
 
 /// Check and list every entry of one zip into `listing`.
@@ -1000,6 +1152,259 @@ mod tests {
         let part = w.finish().unwrap().into_inner();
         assert!(matches!(
             open(zip_of(&[("1.zip", &part)]), &docs()).unwrap_err(),
+            ArchiveError::Ratio { .. }
+        ));
+    }
+
+    fn bundle() -> ArchiveOptions {
+        ArchiveOptions {
+            nested: NestedZips::Bundle,
+            ..docs()
+        }
+    }
+
+    #[test]
+    fn an_entry_cap_set_for_one_key_applies_to_that_key_only() {
+        let big = vec![b'j'; 3000];
+        let mut options = docs();
+        options.limits.max_entry_bytes = 2000;
+        let bytes = zip_of(&[
+            ("a/data.json", &big),
+            ("b/data.json", &big),
+            ("c.md", b"ok"),
+        ]);
+        let mut a = open(bytes, &options).unwrap();
+        a.set_entry_cap("a/data.json", 4000).unwrap();
+        assert_eq!(a.read("a/data.json", u64::MAX).unwrap().len(), 3000);
+        let mut out = Vec::new();
+        assert_eq!(a.copy_to("a/data.json", u64::MAX, &mut out).unwrap(), 3000);
+        // A read may still ask for less than the key's cap.
+        assert_eq!(
+            a.read("a/data.json", 100),
+            Err(ArchiveError::EntryTooLarge {
+                name: "a/data.json".into(),
+                max: 100
+            })
+        );
+        // The same name elsewhere keeps the archive's cap.
+        assert_eq!(
+            a.read("b/data.json", u64::MAX),
+            Err(ArchiveError::EntryTooLarge {
+                name: "b/data.json".into(),
+                max: 2000
+            })
+        );
+        // A key's cap can be lower, too.
+        a.set_entry_cap("c.md", 1).unwrap();
+        assert_eq!(
+            a.read("c.md", u64::MAX),
+            Err(ArchiveError::EntryTooLarge {
+                name: "c.md".into(),
+                max: 1
+            })
+        );
+        assert_eq!(
+            a.set_entry_cap("nope.json", 4000),
+            Err(ArchiveError::NotFound {
+                name: "nope.json".into()
+            })
+        );
+    }
+
+    #[test]
+    fn an_entry_cap_set_for_a_key_still_answers_to_the_total() {
+        let mut options = docs();
+        options.limits.max_entry_bytes = 1000;
+        options.limits.max_total_bytes = 3000;
+        let mut a = open(zip_of(&[("data.json", &vec![b'j'; 4000])]), &options).unwrap();
+        a.set_entry_cap("data.json", u64::MAX).unwrap();
+        assert_eq!(
+            a.read("data.json", u64::MAX),
+            Err(ArchiveError::TotalTooLarge { max: 3000 })
+        );
+        assert_eq!(a.bytes_read(), 0, "refused on its header before inflating");
+    }
+
+    #[test]
+    fn a_bundle_whose_parts_share_keys_puts_each_under_its_name() {
+        let mut w = ZipWriter::new(Cursor::new(Vec::new()));
+        w.start_file("data.json", stored()).unwrap();
+        w.write_all(b"{\"book\":\"A\"}").unwrap();
+        w.start_file("files/a.png", stored()).unwrap();
+        w.write_all(b"png").unwrap();
+        w.add_directory("empty/", stored()).unwrap();
+        w.start_file(".DS_Store", stored()).unwrap();
+        w.write_all(b"x").unwrap();
+        let book_a = w.finish().unwrap().into_inner();
+        let book_b = zip_of(&[("data.json", b"{\"book\":\"B\"}")]);
+        let outer = zip_of(&[
+            ("book-a.zip", &book_a),
+            ("Exports/Book B.ZIP", &book_b),
+            ("__MACOSX/._book-a.zip", b"fork"),
+        ]);
+        let mut a = open(outer, &bundle()).unwrap();
+        assert_eq!(
+            keys(&a),
+            [
+                "book-a/data.json",
+                "book-a/files/a.png",
+                "Exports/Book B/data.json"
+            ]
+        );
+        assert_eq!(a.split_parts(), ["book-a.zip", "Exports/Book B.ZIP"]);
+        assert_eq!(
+            a.bundle_parts(),
+            [
+                BundlePart {
+                    name: "book-a.zip".into(),
+                    prefix: "book-a".into()
+                },
+                BundlePart {
+                    name: "Exports/Book B.ZIP".into(),
+                    prefix: "Exports/Book B".into()
+                }
+            ]
+        );
+        assert_eq!(a.folders(), ["book-a/empty"]);
+        assert!(a.skipped().iter().any(|s| s.key == "book-a/.DS_Store"));
+        assert_eq!(
+            a.entry("Exports/Book B/data.json").unwrap().part.as_deref(),
+            Some("Exports/Book B.ZIP")
+        );
+        assert_eq!(
+            a.read("book-a/data.json", 100).unwrap(),
+            b"{\"book\":\"A\"}"
+        );
+        assert_eq!(
+            a.read("Exports/Book B/data.json", 100).unwrap(),
+            b"{\"book\":\"B\"}"
+        );
+        assert!(a.read("data.json", 100).is_err(), "no unprefixed key");
+    }
+
+    #[test]
+    fn a_bundle_entry_cap_is_set_on_the_prefixed_key_only() {
+        let big = vec![b'j'; 3000];
+        let part = zip_of(&[("data.json", &big)]);
+        let mut options = bundle();
+        options.limits.max_entry_bytes = 2000;
+        let mut a = open(zip_of(&[("a.zip", &part), ("b.zip", &part)]), &options).unwrap();
+        a.set_entry_cap("a/data.json", 4000).unwrap();
+        assert_eq!(a.read("a/data.json", u64::MAX).unwrap().len(), 3000);
+        assert_eq!(
+            a.read("b/data.json", u64::MAX),
+            Err(ArchiveError::EntryTooLarge {
+                name: "b/data.json".into(),
+                max: 2000
+            })
+        );
+    }
+
+    #[test]
+    fn a_bundle_whose_parts_are_disjoint_opens_as_a_split_export() {
+        let part1 = zip_of(&[("Export/A.md", b"# A"), ("Export/img/a.png", b"png")]);
+        let part2 = zip_of(&[("Export/B.md", b"# B")]);
+        let outer = zip_of(&[
+            ("Export-Part-1.zip", &part1),
+            ("Export-Part-2.ZIP", &part2),
+            ("__MACOSX/._Export-Part-1.zip", b"fork"),
+        ]);
+        let split = open(outer.clone(), &docs()).unwrap();
+        let mut a = open(outer, &bundle()).unwrap();
+        assert_eq!(a.entries(), split.entries());
+        assert_eq!(a.folders(), split.folders());
+        assert_eq!(a.skipped(), split.skipped());
+        assert_eq!(a.split_parts(), split.split_parts());
+        assert!(a.bundle_parts().is_empty());
+        assert_eq!(a.read("Export/B.md", 100).unwrap(), b"# B");
+    }
+
+    #[test]
+    fn a_bundle_keeps_zips_beside_other_files_as_entries() {
+        let inner = zip_of(&[("data.json", b"{}")]);
+        let outer = zip_of(&[("book.zip", &inner), ("readme.md", b"# Hi")]);
+        let a = open(outer, &bundle()).unwrap();
+        assert_eq!(keys(&a), ["book.zip", "readme.md"]);
+        assert!(a.split_parts().is_empty());
+
+        let deepest = zip_of(&[("deep.md", b"x")]);
+        let part = zip_of(&[("inner.zip", &deepest)]);
+        let a = open(zip_of(&[("1.zip", &part), ("2.zip", &part)]), &bundle()).unwrap();
+        assert_eq!(keys(&a), ["1/inner.zip", "2/inner.zip"], "one level only");
+    }
+
+    #[test]
+    fn a_bundle_is_refused_for_what_any_part_holds() {
+        let ok = zip_of(&[("a.md", b"x")]);
+        let not_zip = b"PK? no".to_vec();
+        assert_eq!(
+            open(zip_of(&[("1.zip", &ok), ("2.zip", &not_zip)]), &bundle()).unwrap_err(),
+            ArchiveError::NotAZip {
+                part: Some("2.zip".into())
+            }
+        );
+
+        let evil = zip_of(&[("../a.md", b"x")]);
+        assert!(matches!(
+            open(zip_of(&[("1.zip", &ok), ("2.zip", &evil)]), &bundle()).unwrap_err(),
+            ArchiveError::UnsafePath {
+                reason: "parent folder segment",
+                ..
+            }
+        ));
+
+        // Names that collide inside one part are refused as before.
+        let twice = zip_of(&[("a/b.md", b"1"), ("a\\b.md", b"2")]);
+        assert_eq!(
+            open(zip_of(&[("1.zip", &ok), ("2.zip", &twice)]), &bundle()).unwrap_err(),
+            ArchiveError::Duplicate {
+                name: "a/b.md".into()
+            }
+        );
+
+        // Parts whose prefixes match still share the key.
+        assert_eq!(
+            open(zip_of(&[("a.zip", &ok), ("a.ZIP", &ok)]), &bundle()).unwrap_err(),
+            ArchiveError::Duplicate {
+                name: "a/a.md".into()
+            }
+        );
+
+        // A prefix can't carry a key past the depth cap.
+        let mut shallow = bundle();
+        shallow.limits.max_depth = 2;
+        assert_eq!(
+            open(zip_of(&[("x/1.zip", &ok), ("x/2.zip", &ok)]), &shallow).unwrap_err(),
+            ArchiveError::UnsafePath {
+                name: "x/1/a.md".into(),
+                reason: "folders nested too deep"
+            }
+        );
+
+        // The entry cap counts every part's entries.
+        let mut tight = bundle();
+        tight.limits.max_entries = 3;
+        let two = zip_of(&[("b.md", b"x"), ("c.md", b"x")]);
+        assert_eq!(
+            open(zip_of(&[("1.zip", &ok), ("2.zip", &two)]), &tight).unwrap_err(),
+            ArchiveError::TooManyEntries { max: 3 }
+        );
+
+        // Spooling the parts spends the total budget.
+        let block = zip_of(&[("a.md", &vec![b'z'; 2000])]);
+        let mut small = bundle();
+        small.limits.max_total_bytes = 3000;
+        assert_eq!(
+            open(zip_of(&[("1.zip", &block), ("2.zip", &block)]), &small).unwrap_err(),
+            ArchiveError::TotalTooLarge { max: 3000 }
+        );
+
+        let mut w = ZipWriter::new(Cursor::new(Vec::new()));
+        w.start_file("bomb.md", deflated()).unwrap();
+        w.write_all(&vec![0u8; 8 * 1024 * 1024]).unwrap();
+        let bomb = w.finish().unwrap().into_inner();
+        assert!(matches!(
+            open(zip_of(&[("1.zip", &ok), ("2.zip", &bomb)]), &bundle()).unwrap_err(),
             ArchiveError::Ratio { .. }
         ));
     }
