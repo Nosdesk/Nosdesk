@@ -8,6 +8,7 @@ import { useFluent } from 'fluent-vue'
 import NavRowActions from './NavRowActions.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useLongPress } from '@/composables/useLongPress'
+import { warmPage } from '@/utils/docBodyPrefetch'
 
 useFluent()
 
@@ -177,6 +178,7 @@ const handleDrop = (event: DragEvent) => {
       ]"
       draggable="true"
       @click.stop="handlePageClick"
+      @mouseenter="warmPage(page)"
       @contextmenu.prevent="handleContextMenu"
       @dragstart="handleDragStart"
       @dragend="handleDragEnd"

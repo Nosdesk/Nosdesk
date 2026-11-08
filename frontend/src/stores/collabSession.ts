@@ -394,6 +394,10 @@ interface SessionEntry {
   /** Who this client is in the room, withdrawn from its awareness while no
    *  view holds the session and put back when one acquires it again. */
   parkedPresence: { user: unknown } | null
+  /** A documentation page's saved copy (`utils/collabSeed`): on its way, or
+   *  merged since the session last lost its room. `none` once the room
+   *  stops serving the document, as its content may have moved on since. */
+  savedCopy: 'none' | 'pending' | 'merged'
 }
 
 /**
@@ -844,6 +848,9 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
         // Deliberate: reopening the note later is a first connect again,
         // not a reconnect.
         linkState(entry.provider).everConnected = false
+        // Its copy is old now. `onSync` marks one in a session that synced;
+        // this covers a session that never did.
+        if (entry.savedCopy === 'merged') entry.savedCopy = 'none'
         stopConnecting(entry.provider)
         try {
           entry.provider.disconnect()
@@ -943,6 +950,11 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       }
       existing.refCount++
       restorePresence(existing)
+      // A session whose room isn't serving it (its connection lapsed after
+      // the grace period, or dropped) holds the document as it was then.
+      // Take the saved copy, so the editor paints the page as it is now
+      // rather than waiting on the reconnect.
+      if (needsCopy(existing)) void mergeSavedCopy(existing)
       // Clear `lastReleasedAt` while at least one consumer holds a
       // reference. Without this, an actively-bounced session (idle
       // → reacquire → idle → reacquire) keeps the stamp from its
@@ -1043,7 +1055,12 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     // problem, worth one fresh token again. Not on `connected`: a refused
     // connection is upgraded (and so reports connected) before it is closed.
     const onSync = (synced: boolean) => {
-      if (!synced) return
+      if (!synced) {
+        // The document stops following the room here; a later open takes a
+        // fresh saved copy rather than painting what it held then.
+        if (entry.savedCopy === 'merged') entry.savedCopy = 'none'
+        return
+      }
       const link = linkState(provider)
       link.retriedToken = false
       link.tokenFailures = 0
@@ -1064,6 +1081,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       lastReleasedAt: null,
       graceTimer: null,
       parkedPresence: null,
+      savedCopy: 'none',
     }
     linkState(provider).changed = onStatus
     provider.on('status', onStatus)
@@ -1095,16 +1113,45 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
   async function mergeSavedCopy(entry: SessionEntry): Promise<void> {
     const parsed = parseCollabDocId(entry.docId)
     if (parsed?.kind !== 'doc') return
-    const copy = await takeSavedCopy(parsed.id)
+    entry.savedCopy = 'pending'
+    let copy: Uint8Array | null = null
+    try {
+      copy = await takeSavedCopy(parsed.id)
+    } finally {
+      if (entry.savedCopy === 'pending') entry.savedCopy = 'none'
+    }
     if (!copy || sessions.get(entry.docId) !== entry) return
     try {
       Y.applyUpdate(entry.ydoc, copy, entry.provider)
+      entry.savedCopy = 'merged'
     } catch (err) {
       logger.warn('Collab session: the saved copy did not apply; the room will sync', {
         docId: entry.docId,
         err,
       })
     }
+  }
+
+  /** A documentation page's session holds the page as it may no longer be:
+   *  its room isn't serving it, and no saved copy is on its way or merged
+   *  since the room last did. */
+  function needsCopy(entry: SessionEntry): boolean {
+    return (
+      parseCollabDocId(entry.docId)?.kind === 'doc' &&
+      !entry.provider.synced &&
+      entry.savedCopy === 'none'
+    )
+  }
+
+  /**
+   * Whether opening `docId` would take a saved copy: no session holds it, or
+   * the one that does has lost its room since its last copy. For starting
+   * the copy early (`utils/docBodyPrefetch`), so one isn't fetched to go
+   * unused.
+   */
+  function needsSavedCopy(docId: string): boolean {
+    const entry = sessions.get(docId)
+    return entry ? needsCopy(entry) : true
   }
 
   /**
@@ -1153,7 +1200,12 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
    * `@mouseenter`) don't need to know connection details.
    */
   function warm(docId: string, options?: CollabSessionAcquireOptions): void {
-    if (sessions.has(docId)) return
+    // A session that is held, or idle inside its grace period, is connected
+    // or on its way. One whose grace period ran out is disconnected and
+    // holds the document as it was then: warming it reconnects it (and, for
+    // a page, takes a fresh saved copy) as a new one would.
+    const existing = sessions.get(docId)
+    if (existing && (existing.refCount > 0 || existing.graceTimer !== null)) return
     const opts: CollabSessionAcquireOptions = options ?? {
       baseWsUrl: collabWsBaseUrl(),
       providerParams: { resyncInterval: 20000, disableBc: true },
@@ -1218,6 +1270,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     closeAll,
     acquire,
     peek,
+    needsSavedCopy,
     release,
     destroy,
     warm,

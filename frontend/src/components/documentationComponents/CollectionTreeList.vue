@@ -21,6 +21,7 @@ import { useFluent } from 'fluent-vue'
 import { TreeItem, TreeRoot, type TreeItemSelectEvent, type TreeItemToggleEvent } from 'reka-ui'
 import type { CollectionPage, CollectionPageTreeNode } from '@nosdesk/core/services/collectionService'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
+import { warmPage } from '@/utils/docBodyPrefetch'
 import { buildCollectionTree } from '@/utils/treeUtils'
 import Icon from '@/components/common/Icon.vue'
 
@@ -117,6 +118,8 @@ const hasOverride = (node: TreeNode) => props.overridePageIds?.has(node.id) ?? f
                 : 'text-secondary hover:text-primary hover:bg-surface-hover',
             ]"
             :style="{ '--indent': `${16 + (item.level - 1) * 20}px` }"
+            @mouseenter="warmPage(item.value)"
+            @focus="warmPage(item.value)"
             @click="navigate"
           >
             <!-- The title comes first in the DOM so Reka's typeahead (which

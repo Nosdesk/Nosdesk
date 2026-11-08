@@ -12,6 +12,8 @@ const fake = vi.hoisted(() => {
     wsconnected = false
     wsconnecting = false
     shouldConnect = false
+    /** Whether the room has served its document over this connection. */
+    synced = false
     params: Record<string, string> = {}
     /** y-websocket's backoff counter and last-message clock. */
     wsUnsuccessfulReconnects = 0
@@ -82,6 +84,7 @@ const fake = vi.hoisted(() => {
       // As y-websocket: closing the socket reports `connection-close` (and
       // would reconnect if `shouldConnect` were set again meanwhile).
       if (this.wsconnected || this.wsconnecting) {
+        this.unsync()
         this.wsconnecting = false
         this.wsconnected = false
         this.closing = true
@@ -110,8 +113,20 @@ const fake = vi.hoisted(() => {
       this.wsconnecting = true
       this.emit('status', [{ status: 'connecting' }])
     }
+    /** The room served its document, as y-websocket reports it. */
+    sync() {
+      this.synced = true
+      this.emit('sync', [true])
+    }
+    /** As y-websocket: a closed socket is no longer synced. */
+    private unsync() {
+      if (!this.synced) return
+      this.synced = false
+      this.emit('sync', [false])
+    }
     /** The socket dropped; y-websocket retries on its own. */
     drop() {
+      this.unsync()
       this.wsconnected = false
       this.wsconnecting = false
       this.closing = true
@@ -122,6 +137,7 @@ const fake = vi.hoisted(() => {
     /** The server closed the socket with `code`. As y-websocket 3.1 does: a
      *  44xx close turns reconnecting off and is then reported as `closed`. */
     serverClose(code: number) {
+      this.unsync()
       const wasConnected = this.wsconnected
       this.wsconnected = false
       this.wsconnecting = false
@@ -1407,6 +1423,78 @@ describe("a documentation page's saved copy", () => {
     expect(ydoc.getXmlFragment('prosemirror').toString()).toContain('From the server')
     // As the provider's own origin, so y-websocket doesn't send it back.
     expect(origins).toEqual([providers[0]])
+  })
+
+  it("is taken again when a page's session is reopened after its connection lapsed", async () => {
+    token.cached = 't'
+    // Hovering the row opened the page's session, which took the copy as it
+    // was then and synced, and disconnected once the grace period ran out.
+    store.warm(PAGE_DOC, OPTS)
+    saved.answer!(savedDoc('As it was'))
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    providers[0].sync()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(providers[0].synced).toBe(false)
+
+    // Opening the page reuses that session: the copy is taken again, so the
+    // page paints as it is now rather than waiting on the room.
+    const { ydoc } = store.acquire(PAGE_DOC, OPTS)
+    expect(saved.asked).toEqual([PAGE, PAGE])
+    saved.answer!(savedDoc('As it is now'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ydoc.getXmlFragment('prosemirror').toString()).toContain('As it is now')
+  })
+
+  it('is not taken again while one is on its way or the room has synced', async () => {
+    token.cached = 't'
+    store.warm(PAGE_DOC, OPTS)
+    // Clicked straight after the hover: the copy the hover asked for serves.
+    store.acquire(PAGE_DOC, OPTS)
+    expect(saved.asked).toEqual([PAGE])
+    expect(store.needsSavedCopy(PAGE_DOC)).toBe(false)
+
+    saved.answer!(savedDoc('From the server'))
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    providers[0].sync()
+    store.release(PAGE_DOC)
+    // Reopened within the grace period, still synced.
+    store.acquire(PAGE_DOC, OPTS)
+    expect(saved.asked).toEqual([PAGE])
+    expect(store.needsSavedCopy(PAGE_DOC)).toBe(false)
+  })
+
+  it('is needed for a page with no session, or one whose connection lapsed', async () => {
+    token.cached = 't'
+    expect(store.needsSavedCopy(PAGE_DOC)).toBe(true)
+    store.warm(PAGE_DOC, OPTS)
+    saved.answer!(savedDoc('From the server'))
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    providers[0].sync()
+    expect(store.needsSavedCopy(PAGE_DOC)).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(store.needsSavedCopy(PAGE_DOC)).toBe(true)
+  })
+
+  it("reconnects a lapsed page's session when its row is hovered again", async () => {
+    token.cached = 't'
+    store.warm(PAGE_DOC, OPTS)
+    saved.answer!(savedDoc('As it was'))
+    await vi.advanceTimersByTimeAsync(0)
+    providers[0].open()
+    providers[0].sync()
+    await vi.advanceTimersByTimeAsync(30_000)
+    const dials = providers[0].connectedWith.length
+
+    store.warm(PAGE_DOC, OPTS)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(providers[0].connectedWith.length).toBeGreaterThan(dials)
+    expect(saved.asked).toEqual([PAGE, PAGE])
+    // And lets go again if the page isn't opened.
+    expect(store.sessionSnapshot).toEqual([{ docId: PAGE_DOC, refCount: 0 }])
   })
 
   it('is not asked for a ticket note, or applied once the session is gone', async () => {

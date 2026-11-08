@@ -18,6 +18,7 @@ import {
   type DocPageRow,
 } from '@nosdesk/core/sync/stores/documentation'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
+import { warmPage } from '@/utils/docBodyPrefetch'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { useAuthStore } from '@/stores/auth'
 import Icon from '@/components/common/Icon.vue'
@@ -234,6 +235,8 @@ const onDragEnd = () => {
               <RouterLink
                 :to="docUrl(page)"
                 class="text-secondary hover:text-accent transition-colors truncate max-w-[16rem]"
+                @mouseenter="warmPage(page)"
+                @focus="warmPage(page)"
               >
                 {{ page.title }}
               </RouterLink>

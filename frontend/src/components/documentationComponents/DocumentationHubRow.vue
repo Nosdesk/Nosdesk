@@ -11,10 +11,7 @@ import { formatCompactRelativeTime, formatRelativeTime } from '@nosdesk/core/uti
 import type { Page } from '@nosdesk/core/services/documentationService'
 import type { UserInfo } from '@nosdesk/core/types/user'
 import UserAvatar from '@/components/UserAvatar.vue'
-import { useCollabSessionStore } from '@/stores/collabSession'
-import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
-import { useSyncDocsStore } from '@nosdesk/core/sync/stores/documentation'
-import { buildCollabDocId } from '@nosdesk/core/utils/collabDocId'
+import { warmPage } from '@/utils/docBodyPrefetch'
 
 const props = defineProps<{
   page?: Page
@@ -41,25 +38,9 @@ const destination = computed(() => {
   return '/documentation'
 })
 
-const collab = useCollabSessionStore()
-const workspaces = useMyWorkspacesStore()
-const docs = useSyncDocsStore()
-
-/**
- * Hover-prefetch the page's collaborative session, as ticket rows do: the
- * WebSocket, the local cache and the saved copy are on their way before the
- * click. The session disconnects on its own after the grace window if the
- * page isn't opened. Skipped while the workspace or the page's uuid is
- * unknown.
- */
+/** Warm the page's session on hover and focus (`utils/docBodyPrefetch`). */
 function prewarmPage() {
-  const workspaceUuid = workspaces.activeWorkspace?.workspace_uuid
-  if (!workspaceUuid) return
-  const pageUuid =
-    props.page?.uuid ??
-    (props.pageId != null ? docs.allPages.find((p) => p.id === props.pageId)?.uuid : undefined)
-  if (!pageUuid) return
-  collab.warm(buildCollabDocId(workspaceUuid, 'doc', pageUuid))
+  warmPage({ uuid: props.page?.uuid, id: props.page?.id ?? props.pageId })
 }
 
 const label = computed(() => props.title ?? props.page?.title ?? '')

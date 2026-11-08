@@ -28,23 +28,49 @@ export function pageUuidForPath(path: string): string | null {
 }
 
 /**
- * Start fetching a page's saved copy for its editor. Not when this tab
- * already holds a session for the page: the editor reopens that session with
- * its document and takes no copy, so one fetched now would go unused.
+ * Start fetching a page's saved copy for its editor. Not when this tab holds a
+ * session for the page that is following its room, or has a copy on its way:
+ * the editor reopens that session and takes no copy, so one fetched now would
+ * go unused. A session whose connection lapsed takes one, as it holds the page
+ * as it was when it lapsed.
  */
 export function prefetchPageBody(pageUuid: string): void {
-  if (!hasSession(pageUuid)) prefetchSavedCopy(pageUuid)
+  if (needsCopy(pageUuid)) prefetchSavedCopy(pageUuid)
 }
 
-function hasSession(pageUuid: string): boolean {
+function needsCopy(pageUuid: string): boolean {
   const workspaceUuid = useMyWorkspacesStore().activeWorkspace?.workspace_uuid
-  if (!workspaceUuid) return false
+  if (!workspaceUuid) return true
   let docId: string
   try {
     docId = buildCollabDocId(workspaceUuid, 'doc', pageUuid)
   } catch {
     // Not a page the editor could open a session for.
-    return false
+    return true
   }
-  return useCollabSessionStore().peek(docId) !== null
+  return useCollabSessionStore().needsSavedCopy(docId)
+}
+
+/**
+ * Hover-prefetch a page's collaborative session, as ticket rows do: the
+ * WebSocket, the local cache and the saved copy are on their way before the
+ * click. The session disconnects on its own after the grace window if the
+ * page isn't opened. For any link to a page: pass its uuid, or its id for
+ * the docs pool to name it. Skipped while the workspace or the page's uuid is
+ * unknown.
+ */
+export function warmPage(page: { uuid?: string | null; id?: number | string | null }): void {
+  const workspaceUuid = useMyWorkspacesStore().activeWorkspace?.workspace_uuid
+  if (!workspaceUuid) return
+  const id = page.id == null ? NaN : Number(page.id)
+  const pageUuid =
+    page.uuid ?? (Number.isFinite(id) ? useSyncDocsStore().allPages.find((p) => p.id === id)?.uuid : undefined)
+  if (!pageUuid) return
+  let docId: string
+  try {
+    docId = buildCollabDocId(workspaceUuid, 'doc', pageUuid)
+  } catch {
+    return
+  }
+  useCollabSessionStore().warm(docId)
 }
