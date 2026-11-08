@@ -199,6 +199,24 @@ fn detected_mime(bytes: &[u8]) -> Option<&'static str> {
     infer::get(bytes).map(|kind| kind.mime_type())
 }
 
+/// What `infer` reports for an OLE compound file when the bytes it reads end
+/// before the directory naming the application, as an upload's head buffer
+/// does for a legacy Office file.
+const OLE_STORAGE_MIME: &str = "application/x-ole-storage";
+
+/// The legacy Office type a compound file's extension names, so a `.doc`
+/// sniffed from its head stores as `application/msword`, as it did when the
+/// whole file was sniffed.
+fn legacy_office_mime(filename: &str) -> Option<&'static str> {
+    match file_extension(filename)?.as_str() {
+        "doc" => Some("application/msword"),
+        "xls" => Some("application/vnd.ms-excel"),
+        "ppt" => Some("application/vnd.ms-powerpoint"),
+        "msg" => Some("application/vnd.ms-outlook"),
+        _ => None,
+    }
+}
+
 /// Defensive SVG sniffer for content whose magic bytes `infer` either
 /// missed (leading whitespace, BOM, HTML comments before the root
 /// element) or that was renamed to a non-`.svg` extension. A browser
@@ -286,6 +304,11 @@ impl FileValidator {
                 return Err(FileValidationError::BlockedMimeType {
                     detected: mime.to_string(),
                 });
+            }
+            if mime == OLE_STORAGE_MIME {
+                if let Some(office) = filename.and_then(legacy_office_mime) {
+                    return Ok(office.to_string());
+                }
             }
             return Ok(mime.to_string());
         }
@@ -690,6 +713,26 @@ mod tests {
         assert!(FileValidator::validate_file(b"anything", Some("document.pdf")).is_ok());
         assert!(FileValidator::validate_file(b"anything", Some("image.png")).is_ok());
         assert!(FileValidator::validate_file(b"anything", Some("notes.txt")).is_ok());
+    }
+
+    #[test]
+    fn a_compound_file_head_takes_its_office_type_from_the_extension() {
+        // The OLE compound file signature with nothing after it: what an
+        // upload's head buffer holds when the directory sits further in.
+        let mut head = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        head.resize(512, 0);
+        assert_eq!(
+            FileValidator::validate_file(&head, Some("Quote.DOC")).unwrap(),
+            "application/msword"
+        );
+        assert_eq!(
+            FileValidator::validate_file(&head, Some("budget.xls")).unwrap(),
+            "application/vnd.ms-excel"
+        );
+        assert_eq!(
+            FileValidator::validate_file(&head, Some("archive.bin")).unwrap(),
+            "application/x-ole-storage"
+        );
     }
 
     #[test]
