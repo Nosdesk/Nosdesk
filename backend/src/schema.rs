@@ -252,6 +252,37 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_locations (asset_id) {
+        asset_id -> Int4,
+        #[max_length = 100]
+        label -> Nullable<Varchar>,
+        #[max_length = 255]
+        street -> Nullable<Varchar>,
+        #[max_length = 128]
+        city -> Nullable<Varchar>,
+        #[max_length = 128]
+        region -> Nullable<Varchar>,
+        #[max_length = 32]
+        postal_code -> Nullable<Varchar>,
+        #[max_length = 128]
+        country -> Nullable<Varchar>,
+        latitude -> Nullable<Float8>,
+        longitude -> Nullable<Float8>,
+        #[max_length = 16]
+        geocode_precision -> Nullable<Varchar>,
+        #[max_length = 64]
+        geocode_source -> Nullable<Varchar>,
+        geocode_place_confirmed -> Nullable<Bool>,
+        #[max_length = 16]
+        origin_type -> Nullable<Varchar>,
+        created_by -> Nullable<Uuid>,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     asset_media (id) {
         id -> Int4,
         asset_id -> Int4,
@@ -1827,6 +1858,37 @@ diesel::table! {
 }
 
 diesel::table! {
+    ticket_locations (ticket_id) {
+        ticket_id -> Int4,
+        #[max_length = 100]
+        label -> Nullable<Varchar>,
+        #[max_length = 255]
+        street -> Nullable<Varchar>,
+        #[max_length = 128]
+        city -> Nullable<Varchar>,
+        #[max_length = 128]
+        region -> Nullable<Varchar>,
+        #[max_length = 32]
+        postal_code -> Nullable<Varchar>,
+        #[max_length = 128]
+        country -> Nullable<Varchar>,
+        latitude -> Nullable<Float8>,
+        longitude -> Nullable<Float8>,
+        #[max_length = 16]
+        geocode_precision -> Nullable<Varchar>,
+        #[max_length = 64]
+        geocode_source -> Nullable<Varchar>,
+        geocode_place_confirmed -> Nullable<Bool>,
+        #[max_length = 16]
+        origin_type -> Nullable<Varchar>,
+        created_by -> Nullable<Uuid>,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     ticket_merges (ticket_id) {
         ticket_id -> Int4,
         merged_into_ticket_id -> Int4,
@@ -1954,6 +2016,16 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+        latitude -> Nullable<Float8>,
+        longitude -> Nullable<Float8>,
+        #[max_length = 16]
+        geocode_precision -> Nullable<Varchar>,
+        #[max_length = 64]
+        geocode_source -> Nullable<Varchar>,
+        geocode_place_confirmed -> Nullable<Bool>,
+        geocoded_at -> Nullable<Timestamptz>,
+        #[max_length = 64]
+        geocoded_hash -> Nullable<Varchar>,
     }
 }
 
@@ -2511,6 +2583,8 @@ diesel::joinable!(asset_kinds -> workspaces (workspace_id));
 diesel::joinable!(asset_lifecycle_events -> users (actor_uuid));
 diesel::joinable!(asset_lifecycle_events -> workspaces (workspace_id));
 diesel::joinable!(asset_loans -> workspaces (workspace_id));
+diesel::joinable!(asset_locations -> users (created_by));
+diesel::joinable!(asset_locations -> workspaces (workspace_id));
 diesel::joinable!(asset_media -> users (uploaded_by));
 diesel::joinable!(asset_media -> workspaces (workspace_id));
 diesel::joinable!(asset_models -> users (created_by));
@@ -2632,6 +2706,8 @@ diesel::joinable!(ticket_assets -> users (created_by));
 diesel::joinable!(ticket_assets -> workspaces (workspace_id));
 diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_categories -> workspaces (workspace_id));
+diesel::joinable!(ticket_locations -> users (created_by));
+diesel::joinable!(ticket_locations -> workspaces (workspace_id));
 diesel::joinable!(ticket_merges -> workspaces (workspace_id));
 diesel::joinable!(ticket_ratings -> users (rater_uuid));
 diesel::joinable!(ticket_ratings -> workspaces (workspace_id));
@@ -2689,6 +2765,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     asset_kinds,
     asset_lifecycle_events,
     asset_loans,
+    asset_locations,
     asset_media,
     asset_models,
     asset_usage_log,
@@ -2776,6 +2853,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     ticket_approvals,
     ticket_assets,
     ticket_categories,
+    ticket_locations,
     ticket_merges,
     ticket_ratings,
     ticket_rule_runs,

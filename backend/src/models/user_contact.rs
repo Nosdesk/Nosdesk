@@ -68,6 +68,17 @@ pub struct UserAddress {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub created_by: Option<Uuid>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    /// `house`, `street` or `locality`; `None` for a pin placed by hand.
+    pub geocode_precision: Option<String>,
+    /// The dataset the coordinates came from, or `manual`.
+    pub geocode_source: Option<String>,
+    pub geocode_place_confirmed: Option<bool>,
+    pub geocoded_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Hash of the address text when it was last geocoded. Server-side only.
+    #[serde(skip)]
+    pub geocoded_hash: Option<String>,
 }
 
 #[derive(Debug, Insertable)]

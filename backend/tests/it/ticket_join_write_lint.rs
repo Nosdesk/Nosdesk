@@ -23,6 +23,7 @@ const OWNERS: &[(&str, &str)] = &[
     ("project_tickets", "repository/projects.rs"),
     ("cycle_tickets", "repository/cycles.rs"),
     ("ticket_assets", "repository/tickets.rs"),
+    ("ticket_locations", "repository/locations.rs"),
     ("ticket_tags", "repository/tags.rs"),
     ("ticket_watchers", "repository/ticket_watchers.rs"),
     ("linked_tickets", "repository/linked_tickets.rs"),
@@ -45,6 +46,7 @@ const ALLOWLIST: &[(&str, &str)] = &[
     // Account deletion clears `created_by`, which no sync event carries.
     ("repository/users.rs", "project_tickets"),
     ("repository/users.rs", "ticket_assets"),
+    ("repository/users.rs", "ticket_locations"),
     ("repository/users.rs", "linked_tickets"),
     // Workspace import writes every exported table's rows back as they were.
     ("services/workspace_import.rs", "*"),

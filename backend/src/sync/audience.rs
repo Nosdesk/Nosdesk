@@ -73,6 +73,9 @@ pub fn audience(aggregate: SyncAggregate) -> Audience {
         // Staff, less a gap naming a page the viewer can't open.
         SyncAggregate::KnowledgeGap => Audience::Staff,
         SyncAggregate::TicketReference => Audience::Staff,
+        // Agent-only: never in the portal or a requester's view.
+        SyncAggregate::TicketLocation => Audience::Staff,
+        SyncAggregate::AssetLocation => Audience::Staff,
 
         SyncAggregate::Channel => Audience::Admin,
         SyncAggregate::Data => Audience::Admin,

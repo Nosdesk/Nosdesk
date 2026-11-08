@@ -89,6 +89,8 @@ fn all_aggregates() -> Vec<SyncAggregate> {
         AssetUsage,
         AssetAudit,
         AssetLoan,
+        TicketLocation,
+        AssetLocation,
     ]
 }
 

@@ -44,5 +44,7 @@ pub fn schema_version_for(aggregate: SyncAggregate) -> i16 {
         SyncAggregate::AssetUsage => 1,
         SyncAggregate::AssetAudit => 1,
         SyncAggregate::AssetLoan => 1,
+        SyncAggregate::TicketLocation => 1,
+        SyncAggregate::AssetLocation => 1,
     }
 }

@@ -160,6 +160,15 @@ pub enum SyncAggregate {
     /// return or due-date edit.
     #[serde(rename = "asset_loan")]
     AssetLoan,
+    /// A ticket's location (`ticket_locations`), keyed by `ticket_id`.
+    /// Staff only. The payload names the ticket and nothing else, so the
+    /// sync stream holds no address; the client fetches the row.
+    #[serde(rename = "ticket_location")]
+    TicketLocation,
+    /// An asset's structured location (`asset_locations`), keyed by
+    /// `asset_id`. Staff only, and id-only like `ticket_location`.
+    #[serde(rename = "asset_location")]
+    AssetLocation,
 }
 
 impl SyncAggregate {
@@ -193,6 +202,8 @@ impl SyncAggregate {
             Self::AssetUsage => "asset_usage",
             Self::AssetAudit => "asset_audit",
             Self::AssetLoan => "asset_loan",
+            Self::TicketLocation => "ticket_location",
+            Self::AssetLocation => "asset_location",
         }
     }
 }
@@ -235,6 +246,8 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"asset_usage" => Ok(Self::AssetUsage),
             b"asset_audit" => Ok(Self::AssetAudit),
             b"asset_loan" => Ok(Self::AssetLoan),
+            b"ticket_location" => Ok(Self::TicketLocation),
+            b"asset_location" => Ok(Self::AssetLocation),
             other => {
                 Err(format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into())
             }

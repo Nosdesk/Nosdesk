@@ -1,0 +1,19 @@
+{
+  "name": "asset_location",
+  "schema_version": 1,
+  "audience": "staff",
+  "fields": {
+    "asset_id": { "rust": "i32", "ts": "number", "primary": true, "note": "the only field, as with ticket_location. The client fetches the row" }
+  },
+  "events": [
+    { "type": "asset_location.added", "op": "I" },
+    { "type": "asset_location.updated", "op": "U" },
+    { "type": "asset_location.removed", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ],
+  "references": [
+    { "field": "asset_id", "aggregate": "asset" }
+  ]
+}

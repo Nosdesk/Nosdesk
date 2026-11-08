@@ -269,7 +269,9 @@ fn apply_transaction(
         | SyncAggregate::TicketReference
         | SyncAggregate::AssetUsage
         | SyncAggregate::AssetAudit
-        | SyncAggregate::AssetLoan => Err(TxReject(
+        | SyncAggregate::AssetLoan
+        | SyncAggregate::TicketLocation
+        | SyncAggregate::AssetLocation => Err(TxReject(
             "unsupported_aggregate",
             format!(
                 "push for aggregate `{}` is not yet wired",

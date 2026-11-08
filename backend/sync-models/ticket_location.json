@@ -1,0 +1,20 @@
+{
+  "name": "ticket_location",
+  "schema_version": 1,
+  "audience": "staff",
+  "fields": {
+    "ticket_id": { "rust": "i32", "ts": "number", "primary": true, "note": "the only field: no address or coordinates reach the sync stream, so it holds no location to erase. The client fetches the row" }
+  },
+  "events": [
+    { "type": "ticket_location.added", "op": "I" },
+    { "type": "ticket_location.updated", "op": "U" },
+    { "type": "ticket_location.removed", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1",
+    "ticket:<ticket_id>"
+  ],
+  "references": [
+    { "field": "ticket_id", "aggregate": "ticket" }
+  ]
+}

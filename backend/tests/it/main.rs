@@ -122,6 +122,7 @@ mod knowledge_gap_lifecycle;
 mod ldap_groups_in_workspace;
 mod listen_tls;
 mod loans_survive_user_purge;
+mod locations;
 mod logging_pii_guardrail;
 mod logout_ends_session;
 mod merged_ticket_writes;

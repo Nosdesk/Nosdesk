@@ -711,9 +711,9 @@ pub fn purge_user(
     observer: Option<&dyn UserDeletedObserver>,
 ) -> Result<usize, Error> {
     use crate::schema::{
-        article_contents, assets, attachments, comments, documentation_pages,
+        article_contents, asset_locations, assets, attachments, comments, documentation_pages,
         documentation_revisions, import_value_answers, linked_tickets, project_tickets, projects,
-        sync_history, ticket_assets, tickets, user_auth_identities, user_emails,
+        sync_history, ticket_assets, ticket_locations, tickets, user_auth_identities, user_emails,
     };
 
     // Start a transaction to ensure all-or-nothing deletion
@@ -811,6 +811,12 @@ pub fn purge_user(
         // 2g. Ticket devices
         diesel::update(ticket_assets::table.filter(ticket_assets::created_by.eq(user_uuid)))
             .set(ticket_assets::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+        diesel::update(ticket_locations::table.filter(ticket_locations::created_by.eq(user_uuid)))
+            .set(ticket_locations::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+        diesel::update(asset_locations::table.filter(asset_locations::created_by.eq(user_uuid)))
+            .set(asset_locations::created_by.eq::<Option<Uuid>>(None))
             .execute(conn)?;
 
         // 2h. Article contents
