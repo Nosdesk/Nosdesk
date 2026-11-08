@@ -568,6 +568,65 @@ pub fn own_draft_uploads(
         .load(conn)
 }
 
+/// How long an upload by a signed-in user stays claimable by a staff reply.
+/// After it (and [`UNATTACHED_SWEEP_MARGIN_HOURS`]), the daily sweep deletes
+/// the upload if nothing claimed it.
+pub const UPLOAD_CLAIM_HOURS: i64 = 24;
+
+/// How long past the claim window the sweep waits, so a claim that passed its
+/// age check just before the window closed finishes before its file goes.
+pub const UNATTACHED_SWEEP_MARGIN_HOURS: i64 = 1;
+
+/// `(workspace_id, attachment_id, url)` of uploads a signed-in user staged
+/// (staff or portal) that no comment claimed, created before `cutoff`. Only
+/// rows still pointing into `temp/`, where every staged upload lands, so the
+/// sweep never deletes a file anywhere else. Guest uploads (no uploader) are
+/// `guest_residue`'s. Run cross-workspace (under the bypass context).
+pub fn unattached_uploads(
+    conn: &mut DbConnection,
+    cutoff: chrono::NaiveDateTime,
+    limit: i64,
+) -> QueryResult<Vec<(i32, i32, String)>> {
+    attachments::table
+        .filter(attachments::comment_id.is_null())
+        .filter(attachments::uploaded_by.is_not_null())
+        .filter(attachments::created_at.lt(cutoff))
+        .filter(attachments::url.like("/uploads/temp/%"))
+        .order(attachments::id)
+        .limit(limit)
+        .select((attachments::workspace_id, attachments::id, attachments::url))
+        .load(conn)
+}
+
+/// Delete `attachment_id` if it is still an upload no comment claimed, created
+/// before `cutoff`. The row is checked again under a lock, so one a claim
+/// reached after the scan is left alone. Returns how many rows went.
+pub fn delete_unattached_upload(
+    conn: &mut DbConnection,
+    attachment_id: i32,
+    cutoff: chrono::NaiveDateTime,
+) -> QueryResult<usize> {
+    conn.transaction(|conn| {
+        let Some(attachment) = attachments::table
+            .find(attachment_id)
+            .filter(attachments::comment_id.is_null())
+            .filter(attachments::uploaded_by.is_not_null())
+            .filter(attachments::created_at.lt(cutoff))
+            .for_update()
+            .first::<Attachment>(conn)
+            .optional()?
+        else {
+            return Ok(0);
+        };
+        let result = diesel::delete(attachments::table.find(attachment.id)).execute(conn)?;
+        if result > 0 {
+            let event = attachment_event(conn, &attachment, SyncOp::Delete, "attachment.deleted")?;
+            emit::record(conn, event)?;
+        }
+        Ok(result)
+    })
+}
+
 /// Temp uploads `owner` made that are still unattached and newer than
 /// `since`: the ones a signed-in requester may attach to their comment.
 pub fn claimable_uploads(

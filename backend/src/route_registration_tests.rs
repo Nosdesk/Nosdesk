@@ -442,7 +442,6 @@ async fn users_config_routes_registered() {
             ("POST", "/users/bulk"),
             ("POST", "/users/cleanup-images"),
             ("POST", "/users/regenerate-thumbnails"),
-            ("POST", "/files/cleanup-temp"),
             ("GET", "/users/auth-identities"),
             ("DELETE", "/users/auth-identities/1"),
             ("POST", "/users"),

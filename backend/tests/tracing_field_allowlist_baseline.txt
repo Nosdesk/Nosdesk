@@ -125,15 +125,9 @@ src/handlers/feature_flags.rs cleared
 src/handlers/feature_flags.rs flag
 src/handlers/feature_flags.rs target
 src/handlers/feature_flags.rs user
-src/handlers/files.rs age_hours
 src/handlers/files.rs attachment
-src/handlers/files.rs bytes_freed_mb
 src/handlers/files.rs file_path
 src/handlers/files.rs filename
-src/handlers/files.rs files_checked
-src/handlers/files.rs files_removed
-src/handlers/files.rs path
-src/handlers/files.rs temp_dir
 src/handlers/files.rs thumbnail_url
 src/handlers/files.rs url
 src/handlers/guest.rs domain

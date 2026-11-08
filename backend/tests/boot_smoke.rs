@@ -202,6 +202,14 @@ async fn boot_wires_state_and_routes() {
             StatusCode::NOT_FOUND,
             "RESOURCE_NOT_FOUND",
         ),
+        // Retired: the unattached upload sweep replaced it.
+        (
+            test::TestRequest::post()
+                .uri("/api/files/cleanup-temp")
+                .insert_header(("Authorization", bearer.clone())),
+            StatusCode::NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+        ),
         (
             test::TestRequest::get().uri("/api/collaboration/no-such-route"),
             StatusCode::UNAUTHORIZED,

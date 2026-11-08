@@ -213,6 +213,7 @@ mod ticket_url_lint;
 mod ticket_write_lint;
 mod tracing_field_allowlist_lint;
 mod two_workspace_fixture;
+mod unattached_upload_sweep;
 mod upgrade_from_1_0_12;
 mod upload_intake;
 mod user_contact_gate;

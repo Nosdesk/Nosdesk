@@ -1,6 +1,5 @@
-use actix_web::{web, HttpMessage, HttpResponse};
+use actix_web::{web, HttpResponse};
 
-use crate::errors::ApiError;
 use actix_multipart::Multipart;
 use serde_json::json;
 use std::sync::Arc;
@@ -472,76 +471,4 @@ pub async fn serve_ticket_note_image(
     // Serve from tickets/{ticket_id}/notes/ folder
     let file_path = format!("tickets/{ticket_id}/notes/{filename}");
     serve_or_not_found(storage, &file_path, &req, Caching::Private).await
-}
-
-/// Clean up temp files older than 24 hours (admin endpoint)
-/// Should be called via cron job or scheduled task
-pub async fn cleanup_temp_files(req: actix_web::HttpRequest) -> Result<HttpResponse, ApiError> {
-    // Verify admin access
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return Err(ApiError::Unauthorized("Authentication required".into())),
-    };
-
-    if !crate::utils::rbac::is_platform_admin(&claims) {
-        return Err(ApiError::Forbidden(
-            "Only administrators can cleanup temp files".into(),
-        ));
-    }
-
-    let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "uploads".to_string());
-    let temp_dir = format!("{storage_path}/temp");
-    let max_age = std::time::Duration::from_secs(24 * 60 * 60); // 24 hours
-
-    let mut files_removed = 0;
-    let mut files_checked = 0;
-    let mut bytes_freed: u64 = 0;
-    let mut errors: Vec<String> = Vec::new();
-
-    if let Ok(entries) = std::fs::read_dir(&temp_dir) {
-        for entry in entries.flatten() {
-            files_checked += 1;
-            let path = entry.path();
-
-            if path.is_file() {
-                if let Ok(metadata) = entry.metadata() {
-                    if let Ok(modified) = metadata.modified() {
-                        if let Ok(age) = std::time::SystemTime::now().duration_since(modified) {
-                            if age > max_age {
-                                let size = metadata.len();
-                                if let Err(e) = std::fs::remove_file(&path) {
-                                    errors.push(format!("Failed to delete {path:?}: {e}"));
-                                } else {
-                                    files_removed += 1;
-                                    bytes_freed += size;
-                                    debug!(path = ?path, age_hours = age.as_secs() / 3600, "Removed stale temp file");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        info!(temp_dir = %temp_dir, "Temp directory does not exist or is not accessible");
-    }
-
-    info!(
-        files_checked,
-        files_removed,
-        bytes_freed_mb = bytes_freed / (1024 * 1024),
-        "Temp file cleanup completed"
-    );
-
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "status": "success",
-        "message": "Temp file cleanup completed",
-        "stats": {
-            "files_checked": files_checked,
-            "files_removed": files_removed,
-            "bytes_freed": bytes_freed,
-            "bytes_freed_mb": bytes_freed / (1024 * 1024),
-            "errors": errors
-        }
-    })))
 }

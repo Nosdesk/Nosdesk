@@ -362,6 +362,15 @@ pub fn scheduled_jobs(
         jobs::sweep_upload_spool,
     ));
 
+    // Daily: delete uploads staged for a reply that nothing claimed within
+    // the claim window, file first, then row.
+    let p = pool.clone();
+    registry.push(ScheduledJob::new(
+        "attachments.sweep_unattached",
+        Duration::from_secs(24 * 60 * 60),
+        move || jobs::unattached_upload_cleanup(p.clone()),
+    ));
+
     // Hourly: approve requests nobody answered within their workspace's
     // automatic-approval period (a no-op unless one is set).
     let p = pool.clone();
