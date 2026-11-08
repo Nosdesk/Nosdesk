@@ -138,6 +138,33 @@ fn emit_user_event_in_each(
     crate::sync::session::restore_workspace_pin(conn, previous)
 }
 
+/// Send `user.updated` for `user_uuid` in `workspace_id` alone, for a change
+/// that holds only there: a membership granted, given a new role or removed.
+/// The event carries the person's role in that workspace, or none once they
+/// have left. Pins `workspace_id` inside a savepoint and puts the caller's pin
+/// back, so it works from an unpinned admin or internal route too.
+pub fn emit_user_updated_in(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<()> {
+    conn.transaction(|conn| {
+        let user: User = users::table.find(user_uuid).first(conn)?;
+        emit_user_event_in_each(conn, &[workspace_id], &user, SyncOp::Update, "user.updated")
+    })
+}
+
+/// Send `user.updated` for `user_uuid` to every workspace holding the
+/// person's row ([`workspaces_holding_user`]), for a change that holds
+/// everywhere, such as their primary email. Restores the caller's pin.
+pub fn emit_user_updated_everywhere(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<()> {
+    conn.transaction(|conn| {
+        let user: User = users::table.find(user_uuid).first(conn)?;
+        let workspaces = workspaces_holding_user(conn, user_uuid)?;
+        emit_user_event_in_each(conn, &workspaces, &user, SyncOp::Update, "user.updated")
+    })
+}
+
 /// Observer fired after a user's row is updated. Mirrors
 /// `UserCreatedObserver` so the search service can keep its index
 /// in sync with name / email / role changes regardless of which
@@ -570,7 +597,9 @@ pub fn create_user(user: NewUser, conn: &mut DbConnection) -> Result<User, Error
         .get_result(conn)
 }
 
-// sync-audit-only: vestigial low-level helper; handlers use sync-wired user_helpers
+/// Apply a profile edit (name, pronouns, avatar, banner) and send
+/// `user.updated` to every workspace holding the person's row, since the row
+/// is the same in each. Restores the caller's pin.
 pub fn update_user(
     user_uuid: &Uuid,
     user: UserUpdate,
@@ -584,7 +613,9 @@ pub fn update_user(
         let updated: User = diesel::update(users::table.find(user_uuid))
             .set(user)
             .get_result(conn)?;
-        emit_user_event(conn, &updated, SyncOp::Update, "user.updated")?;
+        // emit::record fires inside emit_user_event, once per workspace.
+        let workspaces = workspaces_holding_user(conn, updated.uuid)?;
+        emit_user_event_in_each(conn, &workspaces, &updated, SyncOp::Update, "user.updated")?;
         Ok(updated)
     })?;
 
@@ -1041,7 +1072,6 @@ pub enum SetUserRolesOutcome {
     ExternallyManaged,
 }
 
-// sync-audit-only: platform_role + workspace_members role changes are recorded by tr_audit_users and tr_audit_workspace_members; no sync aggregate subscribes to a role change
 /// Rewrite a user's two-axis W2 role: `platform_role` on the audited
 /// `users` row and their `workspace_members.role` for `workspace_id`.
 /// Both writes must run inside actor + workspace context (the audit
@@ -1050,6 +1080,10 @@ pub enum SetUserRolesOutcome {
 /// SQL in `handlers::users`, same two updates, but scoped by an
 /// explicit `workspace_id` argument instead of the `app.workspace_id`
 /// GUC read.
+///
+/// Ends with `user.updated`: in `workspace_id` when only the workspace role
+/// changed, and in every workspace holding the person when the platform role,
+/// which holds in all of them, changed too.
 pub fn set_user_roles(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -1070,12 +1104,16 @@ pub fn set_user_roles(
     // The platform role holds in every workspace they belong to; the
     // workspace role in this one.
     let access = crate::repository::documentation::doc_access_everywhere(conn, user_uuid)?;
-    diesel::update(users::table.find(user_uuid))
+    let previous_platform_role: String = users::table
+        .find(user_uuid)
+        .select(users::platform_role)
+        .first(conn)?;
+    let updated: User = diesel::update(users::table.find(user_uuid))
         .set((
             users::platform_role.eq(platform_role),
             users::updated_at.eq(chrono::Utc::now().naive_utc()),
         ))
-        .execute(conn)?;
+        .get_result(conn)?;
     diesel::update(
         workspace_members::table
             .filter(workspace_members::workspace_id.eq(workspace_id))
@@ -1086,6 +1124,24 @@ pub fn set_user_roles(
     .execute(conn)?;
     // What this person may open can change with either role.
     crate::repository::documentation::emit_if_access_changed_everywhere(conn, user_uuid, &access)?;
+    // Both roles ride on the user row the pools hold. emit::record fires
+    // inside emit_user_event, once per workspace.
+    let workspaces = if previous_platform_role != platform_role {
+        let mut workspaces = workspaces_holding_user(conn, user_uuid)?;
+        if !workspaces.contains(&workspace_id) {
+            workspaces.push(workspace_id);
+        }
+        workspaces
+    } else if current != workspace_role {
+        vec![workspace_id]
+    } else {
+        Vec::new()
+    };
+    if !workspaces.is_empty() {
+        conn.transaction(|conn| {
+            emit_user_event_in_each(conn, &workspaces, &updated, SyncOp::Update, "user.updated")
+        })?;
+    }
     Ok(SetUserRolesOutcome::Applied)
 }
 

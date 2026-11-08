@@ -470,6 +470,11 @@ fn an_avatar_change_reaches_every_workspace_that_holds_the_person() {
     let (a, b) = (f.ws.a.workspace_id, f.ws.b.workspace_id);
     let who = f.requester_from_b;
     let thumb = "/uploads/users/thumbs/requester_thumb.webp";
+    // Joining B in the seed already sent B one.
+    let (seen_a, seen_b) = (
+        updates_about_in(&f, a, who).len(),
+        updates_about_in(&f, b, who).len(),
+    );
 
     let mut conn = f.pool.get().expect("conn");
     let pin_after = with_actor_context::<_, diesel::result::Error>(
@@ -483,7 +488,7 @@ fn an_avatar_change_reaches_every_workspace_that_holds_the_person() {
     .expect("set the thumb from B");
     assert_eq!(pin_after, Some(b), "the writer puts the caller's pin back");
 
-    let in_b = updates_about_in(&f, b, who);
+    let in_b = updates_about_in(&f, b, who).split_off(seen_b);
     assert_eq!(in_b.len(), 1, "B, where they are a member, hears it once");
     assert_eq!(in_b[0].3["avatar_thumb"], thumb);
     assert_eq!(
@@ -491,7 +496,7 @@ fn an_avatar_change_reaches_every_workspace_that_holds_the_person() {
         "B's event has B's role"
     );
 
-    let in_a = updates_about_in(&f, a, who);
+    let in_a = updates_about_in(&f, a, who).split_off(seen_a);
     assert_eq!(
         in_a.len(),
         1,
@@ -506,12 +511,344 @@ fn an_avatar_change_reaches_every_workspace_that_holds_the_person() {
     assert_eq!(delivered.len(), 1, "A's sessions receive it");
 
     // Someone only in B is not one of A's people: A's feed never hears of them.
+    let seen_b_member = updates_about_in(&f, b, f.ws.b.member_uuid).len();
     with_actor_context::<_, diesel::result::Error>(
         &mut conn,
         &ActorContext::system(REF).with_workspace(b),
         |c| backend::repository::users::set_avatar_url(c, &f.ws.b.member_uuid, Some("/b.png")),
     )
     .expect("set B's member's avatar from B");
-    assert_eq!(updates_about_in(&f, b, f.ws.b.member_uuid).len(), 1);
+    assert_eq!(
+        updates_about_in(&f, b, f.ws.b.member_uuid).len(),
+        seen_b_member + 1
+    );
     assert!(updates_about_in(&f, a, f.ws.b.member_uuid).is_empty());
+}
+
+/// Runs `write` as B's admin, pinned to B, and returns the `user.updated` rows
+/// about `who` that it added to A's and B's feeds.
+fn new_updates_from_b(
+    f: &Fixture,
+    who: Uuid,
+    write: impl FnOnce(&mut backend::db::DbConnection) -> diesel::QueryResult<()>,
+) -> (Vec<UserRow>, Vec<UserRow>) {
+    let (a, b) = (f.ws.a.workspace_id, f.ws.b.workspace_id);
+    let (seen_a, seen_b) = (
+        updates_about_in(f, a, who).len(),
+        updates_about_in(f, b, who).len(),
+    );
+    let mut conn = f.pool.get().expect("conn");
+    let pin_after = with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &ActorContext::user(f.ws.b.admin_uuid, None).with_workspace(b),
+        |c| {
+            write(c)?;
+            backend::sync::session::current_workspace_id(c)
+        },
+    )
+    .expect("write from B");
+    assert_eq!(pin_after, Some(b), "the writer puts the caller's pin back");
+    (
+        updates_about_in(f, a, who).split_off(seen_a),
+        updates_about_in(f, b, who).split_off(seen_b),
+    )
+}
+
+/// A workspace role holds in one workspace, so a change to it reaches that
+/// workspace's pool with the new role and no other.
+#[test]
+fn a_workspace_role_change_reaches_that_workspace_with_the_new_role() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let b = f.ws.b.workspace_id;
+    let who = f.requester_from_b;
+
+    let (in_a, in_b) = new_updates_from_b(&f, who, |c| {
+        backend::repository::workspaces::update_membership_role(
+            c,
+            b,
+            who,
+            "agent",
+            SeatWriteAuthority::Product,
+        )
+        .map(|_| ())
+    });
+    assert_eq!(in_b.len(), 1, "B hears the role change once");
+    assert_eq!(in_b[0].3["workspace_role"], "agent");
+    assert!(in_a.is_empty(), "A, where they hold no role, hears nothing");
+
+    // The admin edit path rewrites both roles; only the workspace role moves.
+    let (in_a, in_b) = new_updates_from_b(&f, who, |c| {
+        backend::repository::users::set_user_roles(
+            c,
+            b,
+            who,
+            "user",
+            "admin",
+            SeatWriteAuthority::Product,
+        )
+        .map(|_| ())
+    });
+    assert_eq!(in_b.len(), 1, "B hears the edit once");
+    assert_eq!(in_b[0].3["workspace_role"], "admin");
+    assert!(in_a.is_empty(), "a workspace role stays in its workspace");
+
+    // Setting the role it already has sends nothing.
+    let (_, in_b) = new_updates_from_b(&f, who, |c| {
+        backend::repository::users::set_user_roles(
+            c,
+            b,
+            who,
+            "user",
+            "admin",
+            SeatWriteAuthority::Product,
+        )
+        .map(|_| ())
+    });
+    assert!(in_b.is_empty(), "a no-op edit sends nothing");
+}
+
+/// The bulk role action runs `set_user_roles` once per person in the request's
+/// workspace: each person's pooled row there gets the new role.
+#[test]
+fn a_bulk_role_change_reaches_the_workspace_for_each_person() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let b = f.ws.b.workspace_id;
+    let people = [f.requester_from_b, f.commenter_from_b];
+    let seen: Vec<usize> = people
+        .iter()
+        .map(|who| updates_about_in(&f, b, *who).len())
+        .collect();
+
+    let mut conn = f.pool.get().expect("conn");
+    let actor = ActorContext::user(f.ws.b.admin_uuid, None).with_workspace(b);
+    for who in people {
+        with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+            backend::repository::users::set_user_roles(
+                c,
+                b,
+                who,
+                "user",
+                "agent",
+                SeatWriteAuthority::Product,
+            )
+        })
+        .expect("bulk set-role");
+    }
+
+    for (who, seen) in people.iter().zip(seen) {
+        let in_b = updates_about_in(&f, b, *who).split_off(seen);
+        assert_eq!(in_b.len(), 1, "B hears each person's change once");
+        assert_eq!(in_b[0].3["workspace_role"], "agent");
+    }
+}
+
+/// A platform role holds in every workspace, so a change to it reaches each
+/// workspace holding the person, each with the person's own role there.
+#[test]
+fn a_platform_role_change_reaches_every_workspace_that_holds_the_person() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let b = f.ws.b.workspace_id;
+    let who = f.requester_from_b;
+
+    let (in_a, in_b) = new_updates_from_b(&f, who, |c| {
+        backend::repository::users::set_user_roles(
+            c,
+            b,
+            who,
+            "audit_reviewer",
+            "member",
+            SeatWriteAuthority::Product,
+        )
+        .map(|_| ())
+    });
+    assert_eq!(in_b.len(), 1, "B hears it once");
+    assert_eq!(in_b[0].3["platform_role"], "audit_reviewer");
+    assert_eq!(in_b[0].3["workspace_role"], "member");
+    assert_eq!(in_a.len(), 1, "A, whose ticket names them, hears it once");
+    assert_eq!(in_a[0].3["platform_role"], "audit_reviewer");
+    assert!(in_a[0].3["workspace_role"].is_null(), "no role in A");
+}
+
+/// An existing account joining a workspace has no `user.created` to carry it:
+/// the join sends the row, with the new role, to the workspace it joined, and
+/// the person is now one of its people, so its sessions receive it.
+#[test]
+fn a_join_reaches_the_workspace_joined() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let a = f.ws.a.workspace_id;
+    let who = f.ws.b.member_uuid;
+    assert!(updates_about_in(&f, a, who).is_empty());
+
+    let mut conn = f.pool.get().expect("conn");
+    with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &ActorContext::user(f.ws.a.admin_uuid, None).with_workspace(a),
+        |c| add_membership(c, a, who, "agent", SeatWriteAuthority::Product).map(|_| ()),
+    )
+    .expect("join A");
+
+    let in_a = updates_about_in(&f, a, who);
+    assert_eq!(in_a.len(), 1, "A hears the join once");
+    assert_eq!(in_a[0].3["workspace_role"], "agent");
+    assert_eq!(in_a[0].3["email"], email_of(who));
+    let delivered = delivered_in_a(&f, f.ws.a.admin_uuid, &in_a);
+    assert_eq!(delivered.len(), 1, "A's sessions receive the new member");
+
+    // Granting what they already hold sends nothing.
+    with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &ActorContext::user(f.ws.a.admin_uuid, None).with_workspace(a),
+        |c| {
+            add_membership(c, a, who, "agent", SeatWriteAuthority::Product)?;
+            backend::repository::workspaces::ensure_membership(c, a, who, "member").map(|_| ())
+        },
+    )
+    .expect("grant again");
+    assert_eq!(
+        updates_about_in(&f, a, who).len(),
+        1,
+        "no event for a no-op"
+    );
+}
+
+/// A removal is an update carrying no role, not a delete: it takes the person
+/// out of the member lists while their row stays in the pool, so the byline
+/// on the reply they left still renders.
+#[actix_web::test]
+async fn a_removal_drops_the_role_and_keeps_the_byline() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let a = f.ws.a.workspace_id;
+    let who = f.commenter_from_b;
+
+    let mut conn = f.pool.get().expect("conn");
+    let actor = ActorContext::user(f.ws.a.admin_uuid, None).with_workspace(a);
+    with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+        add_membership(c, a, who, "agent", SeatWriteAuthority::Product).map(|_| ())
+    })
+    .expect("join A as an agent");
+    let assignable = "/api/users/paginated?pageSize=100&assignable=true";
+    let body = get_as(&f.pool, &f.ws.a, f.ws.a.admin_uuid, assignable).await;
+    let page: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert!(uuids_in(page["data"].as_array().expect("data")).contains(&who));
+
+    let seen = updates_about_in(&f, a, who).len();
+    with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+        backend::repository::workspaces::remove_membership(c, a, who, SeatWriteAuthority::Product)
+            .map(|_| ())
+    })
+    .expect("remove from A");
+
+    let in_a = updates_about_in(&f, a, who).split_off(seen);
+    assert_eq!(in_a.len(), 1, "A hears the removal once");
+    assert_eq!(in_a[0].1, SyncOp::Update, "an update, not a delete");
+    assert!(in_a[0].3["workspace_role"].is_null(), "the role is gone");
+    assert_eq!(in_a[0].3["name"], "Commenter From B", "the row stays whole");
+    let delivered = delivered_in_a(&f, f.ws.a.admin_uuid, &in_a);
+    assert_eq!(delivered.len(), 1, "A's sessions receive the removal");
+
+    let body = get_as(&f.pool, &f.ws.a, f.ws.a.admin_uuid, assignable).await;
+    let page: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert!(
+        !uuids_in(page["data"].as_array().expect("data")).contains(&who),
+        "a removed member is no longer offered"
+    );
+
+    // A fresh session still gets their row, for the reply's byline.
+    let body = get_as(
+        &f.pool,
+        &f.ws.a,
+        f.ws.a.member_uuid,
+        &format!("/api/sync/bootstrap?groups=workspace:{a}&schema=test"),
+    )
+    .await;
+    let row = body
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).expect("NDJSON line"))
+        .find(|l| {
+            l.get("__model__").and_then(|m| m.as_str()) == Some("user")
+                && l.get("uuid").and_then(|u| u.as_str()) == Some(who.to_string().as_str())
+        })
+        .expect("the bootstrap still carries the removed member's row");
+    assert!(row["workspace_role"].is_null());
+}
+
+/// A profile edit changes the one user row every workspace's pool holds, so it
+/// reaches each of them, whichever workspace the editor is pinned to.
+#[test]
+fn a_profile_edit_reaches_every_workspace_that_holds_the_person() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let who = f.requester_from_b;
+
+    let (in_a, in_b) = new_updates_from_b(&f, who, |c| {
+        backend::repository::users::update_user(
+            &who,
+            UserUpdate {
+                name: Some("Requester Renamed".to_string()),
+                pronouns: None,
+                avatar_url: None,
+                banner_url: None,
+                avatar_thumb: None,
+                microsoft_uuid: None,
+                updated_at: None,
+            },
+            c,
+            None,
+        )
+        .map(|_| ())
+    });
+    assert_eq!(in_b.len(), 1, "B hears the edit once");
+    assert_eq!(in_b[0].3["name"], "Requester Renamed");
+    assert_eq!(in_a.len(), 1, "A, whose ticket names them, hears it once");
+    assert_eq!(in_a[0].3["name"], "Requester Renamed");
+    let delivered = delivered_in_a(&f, f.ws.a.admin_uuid, &in_a);
+    assert_eq!(delivered.len(), 1, "A's sessions receive it");
+}
+
+/// The primary address is part of the pooled row, so a swap reaches every
+/// workspace holding the person.
+#[test]
+fn a_primary_email_swap_reaches_every_workspace_that_holds_the_person() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let who = f.requester_from_b;
+    let next = format!("next-{}@people.test", who.simple());
+
+    let mut conn = f.pool.get().expect("conn");
+    let added: backend::models::UserEmail =
+        diesel::insert_into(backend::schema::user_emails::table)
+            .values(&NewUserEmail {
+                user_uuid: who,
+                email: next.clone(),
+                email_type: "personal".to_string(),
+                is_primary: false,
+                is_verified: true,
+                source: None,
+            })
+            .get_result(&mut conn)
+            .expect("insert a second address");
+    drop(conn);
+
+    let (in_a, in_b) = new_updates_from_b(&f, who, |c| {
+        backend::repository::user_emails::set_primary(
+            c,
+            &who,
+            added.id,
+            &backend::models::UserEmailUpdate {
+                is_primary: Some(true),
+                updated_at: None,
+            },
+        )
+        .map(|_| ())
+    });
+    assert_eq!(in_b.len(), 1, "B hears the swap once");
+    assert_eq!(in_b[0].3["email"], next);
+    assert_eq!(in_a.len(), 1, "A hears the swap once");
+    assert_eq!(in_a[0].3["email"], next);
 }

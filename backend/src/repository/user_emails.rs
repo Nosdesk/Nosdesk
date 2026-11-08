@@ -151,6 +151,27 @@ pub fn update_email(
         .get_result::<UserEmail>(conn)
 }
 
+/// Make `email_id` the user's primary address: clear the flag on their other
+/// addresses, set it on this one, and send `user.updated` to every workspace
+/// holding the person, whose pooled row carries the primary address. One
+/// transaction, so a failure can't leave the user with none.
+pub fn set_primary(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    email_id: i32,
+    changes: &UserEmailUpdate,
+) -> Result<UserEmail, diesel::result::Error> {
+    conn.transaction(|conn| {
+        clear_primary(conn, user_uuid)?;
+        let updated = diesel::update(user_emails::table.find(email_id))
+            .set(changes)
+            .get_result::<UserEmail>(conn)?;
+        // emit::record fires inside the user writer's emit_user_event.
+        crate::repository::users::emit_user_updated_everywhere(conn, *user_uuid)?;
+        Ok(updated)
+    })
+}
+
 // sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
 /// Mark a user's primary email as verified. Used on invitation accept,
 /// where receiving the invite proves ownership of that address.
