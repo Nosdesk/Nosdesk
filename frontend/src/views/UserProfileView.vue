@@ -3,7 +3,7 @@ import LinkButton from '@/components/common/LinkButton.vue'
 import Button from '@/components/common/Button.vue'
 import { effectiveRole, type UserRole } from '@nosdesk/core/types/user';
 import { canAssignWorkspaceRole } from '@nosdesk/core/types/workspace';
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useUserProfileBundle } from '@/composables/useUserProfileBundle';
 import { useDelayedFlag } from '@/composables/useDelayedFlag';
@@ -187,6 +187,11 @@ const navigateToGroup = (group: Group) => {
     router.push(`/groups/${group.uuid}`);
 };
 
+// A view left within the name field's focus delay must not reach for a
+// field that is gone.
+let focusTimer: ReturnType<typeof setTimeout> | undefined;
+onBeforeUnmount(() => clearTimeout(focusTimer));
+
 // Creation mode is a form, not cached data: seed defaults, enable the
 // editable fields, and probe SMTP so we can offer invitation vs manual
 // password. Driven by the isCreationMode watcher below.
@@ -217,7 +222,7 @@ const setupCreationMode = async () => {
     }
 
     // Focus on name field after DOM update
-    setTimeout(() => {
+    focusTimer = setTimeout(() => {
         (document.getElementById("name-input") as HTMLInputElement | null)?.focus();
     }, 100);
 };
