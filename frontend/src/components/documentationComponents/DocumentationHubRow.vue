@@ -11,11 +11,17 @@ import { formatCompactRelativeTime, formatRelativeTime } from '@nosdesk/core/uti
 import type { Page } from '@nosdesk/core/services/documentationService'
 import type { UserInfo } from '@nosdesk/core/types/user'
 import UserAvatar from '@/components/UserAvatar.vue'
+import { useCollabSessionStore } from '@/stores/collabSession'
+import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
+import { useSyncDocsStore } from '@nosdesk/core/sync/stores/documentation'
+import { buildCollabDocId } from '@nosdesk/core/utils/collabDocId'
 
 const props = defineProps<{
   page?: Page
   /** Override when the row is not backed by a full Page (e.g. starred). */
   href?: string | RouteLocationRaw
+  /** The page an `href` row opens, for the hover prefetch. */
+  pageId?: number
   title?: string
   icon?: string | null
   /** Page author — shown as avatar in trailing meta. */
@@ -34,6 +40,27 @@ const destination = computed(() => {
   if (props.page) return docUrl(props.page)
   return '/documentation'
 })
+
+const collab = useCollabSessionStore()
+const workspaces = useMyWorkspacesStore()
+const docs = useSyncDocsStore()
+
+/**
+ * Hover-prefetch the page's collaborative session, as ticket rows do: the
+ * WebSocket, the local cache and the saved copy are on their way before the
+ * click. The session disconnects on its own after the grace window if the
+ * page isn't opened. Skipped while the workspace or the page's uuid is
+ * unknown.
+ */
+function prewarmPage() {
+  const workspaceUuid = workspaces.activeWorkspace?.workspace_uuid
+  if (!workspaceUuid) return
+  const pageUuid =
+    props.page?.uuid ??
+    (props.pageId != null ? docs.allPages.find((p) => p.id === props.pageId)?.uuid : undefined)
+  if (!pageUuid) return
+  collab.warm(buildCollabDocId(workspaceUuid, 'doc', pageUuid))
+}
 
 const label = computed(() => props.title ?? props.page?.title ?? '')
 const glyph = computed(() => props.icon ?? props.page?.icon ?? '📄')
@@ -55,6 +82,8 @@ const fullTime = computed(() =>
   <RouterLink
     :to="destination"
     class="group flex items-center gap-2 py-1.5 min-h-7 px-2 -mx-2 rounded hover:bg-surface-hover transition-colors"
+    @mouseenter="prewarmPage"
+    @focus="prewarmPage"
   >
     <span
       class="shrink-0 w-4 text-center text-sm leading-none opacity-80"

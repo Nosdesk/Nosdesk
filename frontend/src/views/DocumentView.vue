@@ -13,6 +13,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { useDocumentPanelState } from '@/composables/useDocumentPanelState'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { buildCollabDocId } from '@nosdesk/core/utils/collabDocId'
+import { pageUuidForPath, prefetchPageBody } from '@/utils/docBodyPrefetch'
 import documentationService from '@nosdesk/core/services/documentationService'
 import type { Page, Article } from '@nosdesk/core/services/documentationService'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
@@ -483,8 +484,17 @@ const fetchContent = async () => {
     return
   }
 
+  // A page opened from another page doesn't pass the route's preload, so the
+  // editor's body starts here, alongside the page request (see
+  // utils/collabSeed).
+  const known = pageUuidForPath(path)
+  if (known) prefetchPageBody(known)
+
   try {
     const result = await documentationService.getPageByPath(path)
+    if (result && 'uuid' in result && typeof result.uuid === 'string') {
+      prefetchPageBody(result.uuid)
+    }
 
     if (result) {
       if ('children' in result && Array.isArray(result.children)) {

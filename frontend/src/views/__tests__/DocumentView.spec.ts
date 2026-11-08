@@ -21,8 +21,15 @@ const collections = vi.hoisted(() => ({
 }))
 vi.mock('@nosdesk/core/services/collectionService', () => collections)
 vi.mock('@/stores/collabSession', () => ({
-  useCollabSessionStore: () => ({ connectionStatus: {}, connectionBadge: {}, connectionRefusal: {} }),
+  useCollabSessionStore: () => ({
+    connectionStatus: {},
+    connectionBadge: {},
+    connectionRefusal: {},
+    peek: () => null,
+  }),
 }))
+const seed = vi.hoisted(() => ({ prefetchSavedCopy: vi.fn() }))
+vi.mock('@/utils/collabSeed', () => seed)
 vi.mock('@/stores/myWorkspaces', () => ({
   useMyWorkspacesStore: () => ({ activeWorkspace: { workspace_uuid: WS_UUID } }),
 }))
@@ -272,5 +279,38 @@ describe('DocumentView address', () => {
 
     expect(router.currentRoute.value.path).toBe('/documentation/5')
     expect(docs.getArticleById).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('DocumentView body prefetch', () => {
+  it('starts the body of a page opened from another page before its page request answers', async () => {
+    pool.upsert('documentation_page', ROW.id, { ...ROW })
+    const next = { ...ROW, id: 6, uuid: '1d2c3b4a-5e6f-4a7b-8c9d-0e1f2a3b4c5d', slug: 'leave-policy' }
+    pool.upsert('documentation_page', next.id, next)
+    await openPage()
+    seed.prefetchSavedCopy.mockClear()
+
+    let answer!: (page: { id: number; title: string; slug: string }) => void
+    docs.getPageByPath.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    await router.push('/documentation/leave-policy')
+    expect(docs.getPageByPath).toHaveBeenLastCalledWith('leave-policy')
+    expect(seed.prefetchSavedCopy).toHaveBeenCalledWith(next.uuid)
+
+    answer({ id: next.id, title: 'Leave policy', slug: next.slug })
+    await flushPromises()
+  })
+
+  it("starts it from the page request when the pool doesn't know the page", async () => {
+    docs.getPageByPath.mockResolvedValue({ ...PAGE })
+    docs.getArticleById.mockResolvedValue({ ...PAGE })
+    router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/documentation/:path', component: DocumentView }],
+    })
+    await router.push('/documentation/payroll-runbook')
+    wrapper = mountWithProviders(RouterView, {}, {}, [[PiniaColada, {}] as never, router])
+    await flushPromises()
+
+    expect(seed.prefetchSavedCopy).toHaveBeenCalledWith(PAGE.uuid)
   })
 })
