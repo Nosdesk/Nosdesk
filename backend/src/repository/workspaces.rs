@@ -388,7 +388,6 @@ pub enum AddMembershipOutcome {
     ExternallyManaged,
 }
 
-// sync-audit-only: membership changes are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate, since workspace_members isn't on the tenant live-sync stream
 /// Add a user to the given workspace. Called from every user-
 /// creation flow (admin invite, guest portal, channels ingest,
 /// OAuth provisioning, setup_initial_admin bootstrap) so newly-
@@ -406,6 +405,10 @@ pub enum AddMembershipOutcome {
 /// `workspace_id` is passed explicitly rather than read from the
 /// GUC because some callers (bootstrap admin setup) run before
 /// any workspace context has been threaded through.
+///
+/// A grant that wrote a row ends with `user.updated` in `workspace_id`, so
+/// open clients there gain the person (an existing account joining has no
+/// `user.created` to carry them).
 pub fn add_membership(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -448,6 +451,10 @@ pub fn add_membership(
         user_uuid,
         &access,
     )?;
+    if rows > 0 {
+        // emit::record fires inside the user writer's emit_user_event.
+        crate::repository::users::emit_user_updated_in(conn, workspace_id, user_uuid)?;
+    }
     Ok(AddMembershipOutcome::Added(rows))
 }
 
@@ -493,6 +500,8 @@ fn upsert_membership_returning(
 /// Grant membership if absent, KEEPING the existing role on conflict
 /// (first-write-wins — re-projection never escalates/downgrades). Returns
 /// the persisted role; errors if the row isn't present after the write.
+/// Ends with `user.updated` in `workspace_id` when the person's active role
+/// there changed (see [`emit_if_role_changed`]).
 pub fn ensure_membership(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -500,6 +509,7 @@ pub fn ensure_membership(
     role: &str,
 ) -> QueryResult<String> {
     let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
+    let before = get_membership_role(conn, workspace_id, user_uuid)?;
     let role = upsert_membership_returning(
         conn,
         workspace_id,
@@ -513,13 +523,32 @@ pub fn ensure_membership(
         user_uuid,
         &access,
     )?;
+    // emit::record fires inside the user writer's emit_user_event.
+    emit_if_role_changed(conn, workspace_id, user_uuid, before)?;
     Ok(role)
+}
+
+/// Send `user.updated` in `workspace_id` when the person's active role there
+/// is no longer `before`. The upserts always return a row, so a no-op can't be
+/// told from a grant by the write alone; `ensure_membership` runs on every
+/// hosted sign-in and must not send an event each time.
+fn emit_if_role_changed(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+    before: Option<String>,
+) -> QueryResult<()> {
+    if get_membership_role(conn, workspace_id, user_uuid)? != before {
+        crate::repository::users::emit_user_updated_in(conn, workspace_id, user_uuid)?;
+    }
+    Ok(())
 }
 
 /// Create-or-set a membership's role (the control-plane role-change path).
 /// On conflict SETS the new role. Returns the persisted role; errors if
 /// the row isn't present after the write. The last-owner-demotion guard is
-/// the caller's responsibility (see `set_member_role`).
+/// the caller's responsibility (see `set_member_role`). Ends with
+/// `user.updated` in `workspace_id` when the active role changed.
 pub fn upsert_membership_role(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -527,6 +556,7 @@ pub fn upsert_membership_role(
     role: &str,
 ) -> QueryResult<String> {
     let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
+    let before = get_membership_role(conn, workspace_id, user_uuid)?;
     let role = upsert_membership_returning(conn, workspace_id, user_uuid, role, "EXCLUDED.role")?;
     crate::repository::documentation::emit_if_access_changed(
         conn,
@@ -534,6 +564,8 @@ pub fn upsert_membership_role(
         user_uuid,
         &access,
     )?;
+    // emit::record fires inside the user writer's emit_user_event.
+    emit_if_role_changed(conn, workspace_id, user_uuid, before)?;
     Ok(role)
 }
 
@@ -1150,10 +1182,10 @@ pub enum RemoveMembershipOutcome {
     ExternallyManaged,
 }
 
-// sync-audit-only: removals are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate
 /// Remove a user's membership in a workspace. Refuses to remove the last `owner`
 /// row (returns `NotRemoved`, no delete), and refuses a product-initiated
 /// removal of a control-plane-owned staff seat in hosted (`ExternallyManaged`).
+/// Ends with `user.updated` in `workspace_id`, carrying no workspace role.
 pub fn remove_membership(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -1202,6 +1234,11 @@ pub fn remove_membership(
         user_uuid,
         &access,
     )?;
+    // An update, not a delete, for the same reason: the pools keep the row
+    // for those bylines, and a role of none takes the person out of the
+    // member lists. emit::record fires inside the user writer's
+    // emit_user_event.
+    crate::repository::users::emit_user_updated_in(conn, workspace_id, user_uuid)?;
     Ok(RemoveMembershipOutcome::Removed)
 }
 
@@ -1252,13 +1289,16 @@ pub fn mark_memberships_accepted(conn: &mut DbConnection, user_uuid: Uuid) -> Qu
     .execute(conn)
 }
 
-// sync-audit-only: role changes are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate. This is the sanctioned path to CORRECT a wrong role (projection grants are first-write-wins / immutable, see oauth_provisioning::add_membership)
 /// Change a member's role. Refuses to demote the last `owner` for
 /// the same reason [`remove_membership`] refuses to delete it.
 /// `new_role` is the validated string form
 /// (`"owner"` / `"admin"` / `"agent"` / `"member"`) — callers
 /// should round-trip through [`WorkspaceRole::as_str`] to avoid
 /// typo classes of bugs.
+///
+/// This is the sanctioned path to CORRECT a wrong role (projection grants
+/// are first-write-wins / immutable, see oauth_provisioning::add_membership).
+/// A change ends with `user.updated` in `workspace_id`.
 pub fn update_membership_role(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -1305,6 +1345,10 @@ pub fn update_membership_role(
         user_uuid,
         &access,
     )?;
+    if row.role != new_role {
+        // emit::record fires inside the user writer's emit_user_event.
+        crate::repository::users::emit_user_updated_in(conn, workspace_id, user_uuid)?;
+    }
     Ok(UpdateMembershipRoleResult::Updated(updated))
 }
 

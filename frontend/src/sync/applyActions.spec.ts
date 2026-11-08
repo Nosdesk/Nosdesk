@@ -96,3 +96,33 @@ describe('applyActions on a plugin event', () => {
     expect(pool.has('plugin', 'other')).toBe(false)
   })
 })
+
+// Removing someone from the workspace sends `user.updated` with no role
+// rather than a delete: the row stays for the bylines on what they wrote,
+// and the null role keeps them out of the assignee picker.
+describe('applyActions on a removed member', () => {
+  beforeEach(() => pool.reset())
+
+  it('keeps the row and clears the role', async () => {
+    const { isEligibleForType } = await import('@/services/eligibleUsers')
+    const uuid = '01a118ca-3968-72b8-8acb-67e7a10c190b'
+    pool.upsert('user', uuid, { uuid, name: 'Former Agent', platform_role: 'user', workspace_role: 'agent' })
+    applySseFrame(
+      [
+        {
+          ...update(0, { uuid, name: 'Former Agent', platform_role: 'user', workspace_role: null }),
+          aggregate: 'user' as const,
+          aggregate_id: uuid,
+          event_type: 'user.updated',
+        },
+      ],
+      1,
+      1,
+    )
+    const row = pool.get<{ name: string; platform_role: 'user'; workspace_role: null }>('user', uuid)!
+    expect(row.name).toBe('Former Agent')
+    expect(row.workspace_role).toBeNull()
+    expect(isEligibleForType('assignee', row)).toBe(false)
+    expect(isEligibleForType('requester', row)).toBe(true)
+  })
+})

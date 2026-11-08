@@ -2860,14 +2860,19 @@ pub async fn update_user_email(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    // Swap the primary in one transaction so a failure can't leave the user
-    // with none.
-    let result = conn.transaction(|conn| {
-        if make_primary {
-            user_emails_repo::clear_primary(conn, &user.uuid)?;
-        }
-        user_emails_repo::update_email(conn, email_id, &email_update)
-    });
+    // A swap goes through `set_primary`, which tells open clients.
+    let actor = helpers::actor_for(&req, "users_email");
+    let result = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &actor,
+        |c| {
+            if make_primary {
+                user_emails_repo::set_primary(c, &user.uuid, email_id, &email_update)
+            } else {
+                user_emails_repo::update_email(c, email_id, &email_update)
+            }
+        },
+    );
     match result {
         Ok(updated_email) => Ok(HttpResponse::Ok().json(json!({
             "status": "success",
