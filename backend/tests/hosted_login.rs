@@ -6,6 +6,10 @@
 //! stale session cookie redirects without deleting anything, and a refused
 //! refresh still sets no cookies.
 //!
+//! The PKCE verifier and nonce ride in the `oauth_state` cookie, not the
+//! state, and the callback exchanges the code with the cookie's verifier; a
+//! state minted before 1.1.6 still works with the verifier it carries.
+//!
 //! Its own binary: the deployment mode, the OIDC settings and the cached OIDC
 //! client are process-wide, and `tests/hosted` sets a different issuer. One
 //! test drives every case in turn for the same reason.
@@ -24,11 +28,33 @@ use backend::middleware::{RequestLimiter, WorkspaceContextConfig, WorkspaceConte
 use backend::models::OAuthState;
 use backend::utils::cookies::{cookie_name, OAUTH_STATE_COOKIE, REFRESH_TOKEN_COOKIE};
 
+/// The `code_verifier` of each token request the fake identity provider got.
+type TokenRequests = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
 /// An identity provider that serves discovery for `issuer` and an empty key
-/// set. The issuer is the server's own address, which discovery requires.
-fn fake_idp() -> (actix_test::TestServer, String) {
-    let srv = actix_test::start(|| {
+/// set. The issuer is the server's own address, which discovery requires. Its
+/// token endpoint records the `code_verifier` it is sent and refuses the code.
+fn fake_idp() -> (actix_test::TestServer, String, TokenRequests) {
+    let token_requests = TokenRequests::default();
+    let recorded = token_requests.clone();
+    let srv = actix_test::start(move || {
+        let recorded = recorded.clone();
         App::new()
+            .route(
+                "/oauth2/token",
+                web::post().to(move |form: web::Form<Vec<(String, String)>>| {
+                    let recorded = recorded.clone();
+                    async move {
+                        let verifier = form
+                            .iter()
+                            .find(|(k, _)| k == "code_verifier")
+                            .map(|(_, v)| v.clone())
+                            .unwrap_or_default();
+                        recorded.lock().expect("lock").push(verifier);
+                        HttpResponse::BadRequest().json(json!({ "error": "invalid_grant" }))
+                    }
+                }),
+            )
             .route(
                 "/.well-known/openid-configuration",
                 web::get().to(|req: actix_web::HttpRequest| async move {
@@ -51,7 +77,7 @@ fn fake_idp() -> (actix_test::TestServer, String) {
             )
     });
     let issuer = format!("http://{}", srv.addr());
-    (srv, issuer)
+    (srv, issuer, token_requests)
 }
 
 /// A limiter that never reaches Redis, so every request passes.
@@ -125,12 +151,7 @@ impl Answer {
 
 /// The signed state in an authorize URL's `state` parameter.
 fn state_in(location: &str) -> OAuthState {
-    let url = url::Url::parse(location).expect("absolute authorize URL");
-    let state = url
-        .query_pairs()
-        .find(|(k, _)| k == "state")
-        .map(|(_, v)| v.into_owned())
-        .expect("state parameter");
+    let state = query_param(location, "state");
     let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET");
     jsonwebtoken::decode::<OAuthState>(
         &state,
@@ -139,6 +160,23 @@ fn state_in(location: &str) -> OAuthState {
     )
     .expect("state verifies")
     .claims
+}
+
+/// The value of `name` in an absolute URL's query.
+fn query_param(location: &str, name: &str) -> String {
+    url::Url::parse(location)
+        .expect("absolute URL")
+        .query_pairs()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.into_owned())
+        .unwrap_or_else(|| panic!("{name} parameter in {location}"))
+}
+
+/// The PKCE S256 challenge for `verifier` (RFC 7636 §4.2).
+fn s256(verifier: &str) -> String {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier))
 }
 
 /// Sign `user` in as the agent app does: an active session and its tokens.
@@ -198,6 +236,10 @@ async fn hosted_login_starts_sign_in_on_the_server() {
                 "/api/auth/refresh",
                 web::post().to(backend::handlers::refresh_token),
             )
+            .route(
+                "/api/auth/oauth/callback",
+                web::get().to(backend::handlers::oauth_callback),
+            )
             .configure(backend::startup::hosted_login_config),
     )
     .await;
@@ -214,7 +256,7 @@ async fn hosted_login_starts_sign_in_on_the_server() {
     // The identity provider can't be reached: the page, never a 500.
     call(get("/login")).await.assert_page("unreachable issuer");
 
-    let (_idp, issuer) = fake_idp();
+    let (_idp, issuer, token_requests) = fake_idp();
     std::env::set_var("OIDC_ISSUER_URL", &issuer);
 
     // The redirect, with the binding cookie, no-store and the timing.
@@ -246,16 +288,151 @@ async fn hosted_login_starts_sign_in_on_the_server() {
         "Server-Timing: {:?}",
         started.server_timing
     );
-    let binding = started
+    let state_cookie = started
+        .cookie(OAUTH_STATE_COOKIE)
+        .expect("oauth_state cookie");
+    assert!(state_cookie.http_only().unwrap_or(false));
+    assert_eq!(
+        state_cookie.same_site(),
+        Some(actix_web::cookie::SameSite::Lax)
+    );
+    assert_eq!(state_cookie.path(), Some("/"));
+    let state_cookie = state_cookie.value().to_string();
+    let state = state_in(&location);
+    assert_eq!(state.redirect_uri, "/acme/tickets/5");
+    assert_eq!(state.user_connection, None);
+
+    // The cookie holds the binding, then the PKCE verifier and nonce; the
+    // state holds the binding only.
+    let parts: Vec<&str> = state_cookie.split('.').collect();
+    let [binding, verifier, nonce] = parts.as_slice() else {
+        panic!("binding.verifier.nonce, got {} parts", parts.len());
+    };
+    assert_eq!(state.binding.as_deref(), Some(*binding));
+    assert_eq!(state.pkce_verifier, None);
+    assert_eq!(state.nonce, None);
+    let raw_state = query_param(&location, "state");
+    assert!(!raw_state.contains(verifier) && !location.contains(verifier));
+    assert!(location.contains(&format!("nonce={nonce}")), "{location}");
+    assert_eq!(
+        query_param(&location, "code_challenge"),
+        s256(verifier),
+        "the cookie's verifier is the one the challenge commits to"
+    );
+
+    // The callback: the browser's cookie supplies the verifier for the code
+    // exchange. The fake provider refuses the code, so it ends there.
+    let callback = |state: &str, cookie: Option<&str>| {
+        let req = get(&format!(
+            "/api/auth/oauth/callback?code=abc&state={}",
+            urlencoding::encode(state)
+        ));
+        match cookie {
+            Some(value) => req.cookie(Cookie::new(
+                cookie_name(OAUTH_STATE_COOKIE).into_owned(),
+                value.to_string(),
+            )),
+            None => req,
+        }
+    };
+    let token_calls = || std::mem::take(&mut *token_requests.lock().expect("lock"));
+    let lands_on = |answer: &Answer, code: &str, case: &str| {
+        assert_eq!(answer.status, StatusCode::FOUND, "{case}");
+        assert_eq!(
+            answer.location.as_deref(),
+            Some(format!("/login?auth_error={code}").as_str()),
+            "{case}"
+        );
+    };
+    let round_trip = call(callback(&raw_state, Some(&state_cookie))).await;
+    lands_on(&round_trip, "signin_failed", "fresh flow");
+    assert_eq!(token_calls(), [verifier.to_string()], "fresh flow");
+
+    // A missing cookie, or one whose binding or shape was changed, is the
+    // expired state it always was, and never reaches the provider.
+    let unbound = format!("{}{}", &binding[1..], &state_cookie[..1]);
+    let other_binding = state_cookie.replacen(binding, &unbound, 1);
+    let bare_binding = binding.to_string();
+    let malformed = format!("{binding}.{verifier}");
+    for (case, cookie) in [
+        ("no cookie", None),
+        ("another binding", Some(other_binding.as_str())),
+        (
+            "the binding without its secrets",
+            Some(bare_binding.as_str()),
+        ),
+        ("two parts", Some(malformed.as_str())),
+    ] {
+        let answer = call(callback(&raw_state, cookie)).await;
+        lands_on(&answer, "state_expired", case);
+        assert!(token_calls().is_empty(), "{case}: no token request");
+    }
+
+    // Two sign-ins in a row in one browser (#698): one cookie slot, so the
+    // second overwrites the first. The first flow's callback is then an
+    // expired state and the second completes.
+    let first = call(get("/login")).await;
+    let second = call(get("/login")).await;
+    let first_state = query_param(first.location.as_deref().expect("Location"), "state");
+    let second_state = query_param(second.location.as_deref().expect("Location"), "state");
+    let latest = second
         .cookie(OAUTH_STATE_COOKIE)
         .expect("oauth_state cookie")
         .value()
         .to_string();
-    let state = state_in(&location);
-    assert_eq!(state.binding.as_deref(), Some(binding.as_str()));
-    assert_eq!(state.redirect_uri, "/acme/tickets/5");
-    assert!(state.pkce_verifier.is_some() && state.nonce.is_some());
-    assert_eq!(state.user_connection, None);
+    lands_on(
+        &call(callback(&first_state, Some(&latest))).await,
+        "state_expired",
+        "the overwritten flow",
+    );
+    assert!(token_calls().is_empty(), "the overwritten flow");
+    lands_on(
+        &call(callback(&second_state, Some(&latest))).await,
+        "signin_failed",
+        "the latest flow",
+    );
+    assert_eq!(
+        token_calls(),
+        [latest.split('.').nth(1).expect("verifier").to_string()],
+        "the latest flow"
+    );
+
+    // Fallback until 1.1.8: a state minted before 1.1.6 carries the verifier
+    // and nonce itself, beside a cookie holding the bare binding.
+    let old_shape = OAuthState {
+        state: "0ldb1nd1ng".into(),
+        redirect_uri: "/".into(),
+        provider_type: "oidc".into(),
+        exp: state.exp,
+        user_connection: None,
+        pkce_verifier: Some("verifier-from-an-old-state".into()),
+        nonce: Some("nonce-from-an-old-state".into()),
+        callback_redirect_uri: state.callback_redirect_uri.clone(),
+        binding: Some("0ldb1nd1ng".into()),
+        step_up: None,
+    };
+    let old_state = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &old_shape,
+        &jsonwebtoken::EncodingKey::from_secret(backend::utils::jwt::JWT_SECRET.as_bytes()),
+    )
+    .expect("sign old-shape state");
+    lands_on(
+        &call(callback(&old_state, Some("0ldb1nd1ng"))).await,
+        "signin_failed",
+        "old-shape state",
+    );
+    assert_eq!(
+        token_calls(),
+        ["verifier-from-an-old-state".to_string()],
+        "old-shape state"
+    );
+    lands_on(
+        &call(callback(&old_state, Some("another"))).await,
+        "state_expired",
+        "old-shape state, another binding",
+    );
+    assert!(token_calls().is_empty());
 
     // A return path off the app is dropped, and the sign-in lands on the root.
     for uri in [

@@ -361,8 +361,8 @@ pub async fn oauth_authorize(
             }
         };
 
-        // Generate PKCE (RFC 9700) + a nonce for the ID token, and bind both
-        // into the signed state so the callback can complete the code exchange
+        // Generate PKCE (RFC 9700) + a nonce for the ID token. Both go in the
+        // `oauth_state` cookie so the callback can complete the code exchange
         // and verify the returned ID token against the configured tenant.
         let (pkce_challenge, pkce_verifier) = oidc::generate_pkce();
         let nonce = oidc::generate_nonce();
@@ -412,7 +412,7 @@ pub async fn oauth_authorize(
         // Bind the flow to this user-agent (RFC 9700 §2.1).
         let mut response = HttpResponse::Ok();
         response.cookie(crate::utils::cookies::create_oauth_state_cookie(
-            &started.binding,
+            &started.state_cookie,
         ));
         if crate::middleware::workspace_context::is_hosted() {
             response.insert_header(oidc_server_timing(started.elapsed));
@@ -431,18 +431,19 @@ pub async fn oauth_authorize(
 
 /// A started OIDC sign-in: the identity provider's authorize URL carrying the
 /// signed state, and the value this browser's `oauth_state` cookie must hold
-/// for the callback to accept it.
+/// for the callback to accept it ([`OAuthStateCookie`]).
 struct OidcLoginStart {
     auth_url: String,
     state: String,
-    binding: String,
+    state_cookie: String,
     /// Time spent on the client and the authorize URL, for `Server-Timing`.
     elapsed: std::time::Duration,
 }
 
-/// Start an OIDC sign-in for the browser behind `req`. PKCE verifier and
-/// nonce ride in the signed state, beside `redirect_uri` (where the callback
-/// lands once signed in) and this host's callback address. Shared by
+/// Start an OIDC sign-in for the browser behind `req`. The signed state
+/// carries `redirect_uri` (where the callback lands once signed in) and this
+/// host's callback address; the PKCE verifier and nonce go in the
+/// `oauth_state` cookie value, `state_cookie`. Shared by
 /// `POST /api/auth/oauth/authorize` and hosted `GET /login`.
 ///
 /// On hosted it logs one `hosted_login` line: `outcome` is `started_outcome`
@@ -499,7 +500,7 @@ async fn start_oidc_login(
         ApiError::Internal(format!("Failed to initiate OIDC authentication: {e}"))
     })?;
 
-    let (state, binding) = create_oauth_state_with_oidc(
+    let (state, state_cookie) = create_oauth_state_with_oidc(
         "oidc",
         redirect_uri,
         user_connection,
@@ -518,7 +519,7 @@ async fn start_oidc_login(
     Ok(OidcLoginStart {
         auth_url: replace_state_in_url(&auth_url, &state),
         state,
-        binding,
+        state_cookie,
         elapsed,
     })
 }
@@ -708,7 +709,7 @@ pub async fn hosted_login_entry(db_pool: web::Data<Pool>, req: HttpRequest) -> H
                         .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
                         .insert_header(oidc_server_timing(started.elapsed))
                         .cookie(crate::utils::cookies::create_oauth_state_cookie(
-                            &started.binding,
+                            &started.state_cookie,
                         ))
                         .finish();
                 }
@@ -854,7 +855,8 @@ pub async fn oauth_callback(
 }
 
 /// The signed state from the callback, once it verifies and this browser holds
-/// the cookie binding it.
+/// the cookie binding it, with the flow's PKCE verifier and nonce taken from
+/// that cookie ([`OAuthStateCookie`]).
 fn verify_callback_state(
     query: &OAuthExchangeRequest,
     request: &HttpRequest,
@@ -862,7 +864,7 @@ fn verify_callback_state(
     let Some(state) = query.state.as_deref() else {
         return Err(CallbackFailure::Failed("missing state parameter".into()));
     };
-    let state_data = verify_oauth_state(state).map_err(CallbackFailure::StateExpired)?;
+    let mut state_data = verify_oauth_state(state).map_err(CallbackFailure::StateExpired)?;
 
     // RFC 9700 §2.1: confirm this callback completes in the SAME user-agent that
     // started the flow. The signed state has integrity but is not session-bound,
@@ -875,16 +877,25 @@ fn verify_callback_state(
             .cookie(&crate::utils::cookies::cookie_name(
                 crate::utils::cookies::OAUTH_STATE_COOKIE,
             ))
-            .map(|c| c.value().to_string());
-        let matches = presented
-            .as_deref()
-            .map(|p| constant_time_eq::constant_time_eq(p.as_bytes(), expected.as_bytes()))
-            .unwrap_or(false);
+            .and_then(|c| OAuthStateCookie::parse(c.value()));
+        let matches = presented.as_ref().is_some_and(|p| {
+            constant_time_eq::constant_time_eq(p.binding.as_bytes(), expected.as_bytes())
+        });
         if !matches {
             return Err(CallbackFailure::StateExpired(
                 "state-binding cookie missing or mismatched".into(),
             ));
         }
+        if let Some(secrets) = presented.and_then(|p| p.secrets) {
+            state_data.pkce_verifier = Some(secrets.pkce_verifier);
+            state_data.nonce = Some(secrets.nonce);
+        }
+        // Fallback, remove in 1.1.8: with a bare-binding cookie, the verifier
+        // and nonce the state itself carries stand. Only a state minted
+        // before 1.1.6 carries them: a flow started before the deploy, or on
+        // a machine the rolling deploy had not replaced yet. States live
+        // `OAUTH_STATE_LIFETIME`, so the last one expires that long after the
+        // deploy.
     }
     // `binding == None` is a legacy in-flight state minted before this field
     // existed; allowed transitionally, and such states expire within the
@@ -1018,25 +1029,24 @@ async fn complete_oauth_callback(
             }
         };
 
-        // The PKCE verifier + nonce were bound into the signed state at
-        // authorize time; both are required to complete the exchange and verify
-        // the ID token. Their absence means a tampered or pre-PKCE state, so
-        // reject rather than fall back to an unverified flow.
+        // The PKCE verifier + nonce came from the `oauth_state` cookie set at
+        // authorize time (`verify_callback_state`); both are required to
+        // complete the exchange and verify the ID token. Their absence means
+        // the cookie lost them, so reject rather than fall back to an
+        // unverified flow. Signing in again sets a whole cookie.
         let pkce_verifier = match &state_data.pkce_verifier {
             Some(v) => v.clone(),
             None => {
-                warn!("Microsoft callback missing PKCE verifier in state");
-                return Err(CallbackFailure::Failed(
-                    "Invalid authentication state (missing PKCE verifier)".into(),
+                return Err(CallbackFailure::StateExpired(
+                    "Microsoft callback without a PKCE verifier".into(),
                 ));
             }
         };
         let nonce = match &state_data.nonce {
             Some(n) => n.clone(),
             None => {
-                warn!("Microsoft callback missing nonce in state");
-                return Err(CallbackFailure::Failed(
-                    "Invalid authentication state (missing nonce)".into(),
+                return Err(CallbackFailure::StateExpired(
+                    "Microsoft callback without a nonce".into(),
                 ));
             }
         };
@@ -1235,13 +1245,14 @@ async fn complete_oauth_callback(
             }
         }
     } else if provider.provider_type == "oidc" {
-        // OIDC callback handling with PKCE
+        // OIDC callback handling with PKCE. The verifier and nonce came from
+        // the `oauth_state` cookie (`verify_callback_state`); without them the
+        // cookie lost them, and signing in again sets a whole one.
         let pkce_verifier = match &state_data.pkce_verifier {
             Some(v) => v.clone(),
             None => {
-                warn!("OIDC callback missing PKCE verifier in state");
-                return Err(CallbackFailure::Failed(
-                    "Invalid authentication state (missing PKCE verifier)".into(),
+                return Err(CallbackFailure::StateExpired(
+                    "OIDC callback without a PKCE verifier".into(),
                 ));
             }
         };
@@ -1249,9 +1260,8 @@ async fn complete_oauth_callback(
         let nonce = match &state_data.nonce {
             Some(n) => n.clone(),
             None => {
-                warn!("OIDC callback missing nonce in state");
-                return Err(CallbackFailure::Failed(
-                    "Invalid authentication state (missing nonce)".into(),
+                return Err(CallbackFailure::StateExpired(
+                    "OIDC callback without a nonce".into(),
                 ));
             }
         };
@@ -1521,9 +1531,9 @@ pub async fn oauth_logout(
 // JWT State Management
 
 // Create a signed state JWT for OAuth flow
-/// Returns `(state_jwt, binding)`. The caller MUST set the `binding` in the
-/// `oauth_state` cookie (RFC 9700 §2.1) so the callback can confirm the flow
-/// completes in the same user-agent that started it.
+/// Returns `(state_jwt, cookie_value)`. The caller MUST set `cookie_value` in
+/// the `oauth_state` cookie (RFC 9700 §2.1) so the callback can confirm the
+/// flow completes in the same user-agent that started it.
 fn create_oauth_state(
     provider_type: &str,
     redirect_uri: Option<String>,
@@ -1540,8 +1550,11 @@ fn create_oauth_state(
     )
 }
 
-// Create a signed state JWT for OAuth/OIDC flow with optional PKCE and nonce.
-// Returns `(state_jwt, binding)` — see `create_oauth_state`.
+/// Create a signed state JWT for an OAuth/OIDC flow, with optional PKCE and
+/// nonce. Returns `(state_jwt, cookie_value)`, as [`create_oauth_state`]. The
+/// PKCE verifier and nonce go in the cookie value ([`OAuthStateCookie`]), never
+/// in the state: the state travels through the identity provider and the
+/// browser's history.
 #[allow(clippy::too_many_arguments)]
 fn create_oauth_state_with_oidc(
     provider_type: &str,
@@ -1567,16 +1580,29 @@ fn create_oauth_state_with_oidc(
     // set in the `oauth_state` cookie by the caller; the callback requires the
     // two to match.
     let state = format!("{:x}", rand::random::<u128>());
+    let secrets = match (pkce_verifier, nonce) {
+        (Some(pkce_verifier), Some(nonce)) => Some(FlowSecrets {
+            pkce_verifier,
+            nonce,
+        }),
+        (None, None) => None,
+        _ => return Err("PKCE verifier and nonce come as a pair".into()),
+    };
+    let cookie = OAuthStateCookie {
+        binding: state.clone(),
+        secrets,
+    }
+    .encode()?;
     let claims = OAuthState {
         state: state.clone(),
         redirect_uri: redirect_uri.unwrap_or_else(|| "/".to_string()),
         provider_type: provider_type.to_string(),
         exp,
         user_connection,
-        pkce_verifier,
-        nonce,
+        pkce_verifier: None,
+        nonce: None,
         callback_redirect_uri,
-        binding: Some(state.clone()),
+        binding: Some(state),
         step_up,
     };
 
@@ -1586,8 +1612,72 @@ fn create_oauth_state_with_oidc(
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
     ) {
-        Ok(token) => Ok((token, state)),
+        Ok(token) => Ok((token, cookie)),
         Err(e) => Err(format!("Failed to create state JWT: {e}")),
+    }
+}
+
+/// A flow's PKCE verifier and ID token nonce, kept in the browser that started
+/// it until the callback needs them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FlowSecrets {
+    pkce_verifier: String,
+    nonce: String,
+}
+
+/// What the `oauth_state` cookie holds: the flow's binding (the value its
+/// signed state also carries), then its PKCE verifier and nonce when it has
+/// them, joined by `.` as `<binding>.<verifier>.<nonce>`. A flow without PKCE
+/// (the Microsoft connect flow) holds the binding alone. The binding is hex
+/// and the verifier and nonce are base64url, so none contains a `.`.
+///
+/// One cookie, one slot, as before: a second sign-in started in the same
+/// browser overwrites it, and the first flow's callback then fails the
+/// binding check (`state_expired`), while the latest one completes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OAuthStateCookie {
+    binding: String,
+    secrets: Option<FlowSecrets>,
+}
+
+impl OAuthStateCookie {
+    const SEPARATOR: char = '.';
+
+    fn encode(&self) -> Result<String, String> {
+        let mut parts = vec![self.binding.as_str()];
+        if let Some(secrets) = &self.secrets {
+            parts.push(&secrets.pkce_verifier);
+            parts.push(&secrets.nonce);
+        }
+        if parts
+            .iter()
+            .any(|p| p.is_empty() || p.contains(Self::SEPARATOR))
+        {
+            return Err("OAuth state cookie part is empty or holds the separator".into());
+        }
+        Ok(parts.join(&Self::SEPARATOR.to_string()))
+    }
+
+    /// `None` for a value of any other shape: one part, or three, none empty.
+    fn parse(value: &str) -> Option<Self> {
+        let parts: Vec<&str> = value.split(Self::SEPARATOR).collect();
+        if parts.iter().any(|p| p.is_empty()) {
+            return None;
+        }
+        match parts.as_slice() {
+            [binding] => Some(Self {
+                binding: (*binding).to_string(),
+                secrets: None,
+            }),
+            [binding, pkce_verifier, nonce] => Some(Self {
+                binding: (*binding).to_string(),
+                secrets: Some(FlowSecrets {
+                    pkce_verifier: (*pkce_verifier).to_string(),
+                    nonce: (*nonce).to_string(),
+                }),
+            }),
+            _ => None,
+        }
     }
 }
 
@@ -1907,21 +1997,6 @@ fn connect_result_redirect(redirect_uri: &str, result_query: &str) -> HttpRespon
 /// Connect-flow failure code (`?auth_error=`); details stay in server logs.
 const AUTH_ERROR_CONNECT_FAILED: &str = "connect_failed";
 
-/// Identity key (`user_auth_identities.provider_type`) for an OIDC login.
-///
-/// In hosted mode this must be the platform issuer (`OIDC_ISSUER_URL`,
-/// e.g. `https://api.nosdesk.dev`), because the control plane projects
-/// each seat under `(iss, sub)`. Resolving a login by the literal
-/// `"oidc"` would miss that seat entirely. In discovery mode the token's
-/// `iss` is verified to equal `OIDC_ISSUER_URL`, so the configured value
-/// is the authoritative issuer.
-///
-/// In self-hosted mode we keep the legacy `"oidc"` key so identities
-/// written before this change (which all used `"oidc"`) still resolve.
-///
-/// The issuer is used verbatim (no normalisation): it must byte-match the
-/// `iss` the control plane stored at projection time, which is the same
-/// string operators set as `OIDC_ISSUER_URL`.
 // ===== Native (mobile app) OIDC login =====
 
 /// Public OIDC config the native app needs to run its OWN Authorization-Code +
@@ -2026,6 +2101,21 @@ pub async fn native_oidc_login(
     ))
 }
 
+/// Identity key (`user_auth_identities.provider_type`) for an OIDC login.
+///
+/// In hosted mode this must be the platform issuer (`OIDC_ISSUER_URL`,
+/// e.g. `https://api.nosdesk.dev`), because the control plane projects
+/// each seat under `(iss, sub)`. Resolving a login by the literal
+/// `"oidc"` would miss that seat entirely. In discovery mode the token's
+/// `iss` is verified to equal `OIDC_ISSUER_URL`, so the configured value
+/// is the authoritative issuer.
+///
+/// In self-hosted mode we keep the legacy `"oidc"` key so identities
+/// written before this change (which all used `"oidc"`) still resolve.
+///
+/// The issuer is used verbatim (no normalisation): it must byte-match the
+/// `iss` the control plane stored at projection time, which is the same
+/// string operators set as `OIDC_ISSUER_URL`.
 pub(crate) fn oidc_identity_issuer() -> String {
     issuer_for_identity(
         crate::middleware::DeploymentMode::current(),
@@ -2613,8 +2703,8 @@ pub async fn start_step_up_provider(db_pool: web::Data<Pool>, req: HttpRequest) 
     }
 }
 
-/// The configured OIDC provider's authorize URL for a step-up, and the state
-/// binding for the cookie.
+/// The configured OIDC provider's authorize URL for a step-up, and the
+/// `oauth_state` cookie value.
 async fn step_up_oidc_url(
     req: &HttpRequest,
     flow: StepUpFlow,
@@ -2640,8 +2730,8 @@ async fn step_up_oidc_url(
     Ok((replace_state_in_url(&auth_url, &state), binding))
 }
 
-/// Microsoft's authorize URL for a step-up, and the state binding for the
-/// cookie. As at sign-in, plus `prompt=login` and `max_age`
+/// Microsoft's authorize URL for a step-up, and the `oauth_state` cookie
+/// value. As at sign-in, plus `prompt=login` and `max_age`
 /// ([`crate::services::step_up::PROVIDER_MAX_AGE_SECS`]).
 fn step_up_microsoft_url(
     flow: StepUpFlow,
@@ -2688,7 +2778,7 @@ async fn confirm_step_up(
 ) -> Result<(), &'static str> {
     let (Some(pkce_verifier), Some(nonce)) = (state.pkce_verifier.clone(), state.nonce.clone())
     else {
-        warn!("step-up: state without PKCE verifier or nonce");
+        warn!("step-up: callback without a PKCE verifier or nonce");
         return Err(STEP_UP_FAILED);
     };
     let (identity_type, subject, id_token, auth_time) = match state.provider_type.as_str() {
@@ -2884,7 +2974,10 @@ mod step_up_tests {
 
 #[cfg(test)]
 mod oauth_state_binding_tests {
-    use super::{create_oauth_state, verify_oauth_state};
+    use super::{
+        create_oauth_state, create_oauth_state_with_oidc, verify_oauth_state, FlowSecrets,
+        OAuthStateCookie,
+    };
 
     /// The state JWT helpers read the process-global `JWT_SECRET` lazy-static,
     /// which panics if unset. Ensure it's present before first access so these
@@ -2939,6 +3032,81 @@ mod oauth_state_binding_tests {
         let (_, b1) = create_oauth_state("oidc", None, None).unwrap();
         let (_, b2) = create_oauth_state("oidc", None, None).unwrap();
         assert_ne!(b1, b2, "each flow must bind to a fresh random value");
+    }
+
+    /// The PKCE verifier and nonce go in the cookie value, after the binding,
+    /// and nowhere in the state, not even as a key.
+    #[test]
+    fn pkce_secrets_ride_in_the_cookie_not_the_state() {
+        ensure_jwt_secret();
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        let nonce = "n-0S6_WzA2Mj";
+        let (token, cookie) = create_oauth_state_with_oidc(
+            "oidc",
+            None,
+            None,
+            Some(verifier.into()),
+            Some(nonce.into()),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let state = verify_oauth_state(&token).unwrap();
+        assert_eq!(state.pkce_verifier, None);
+        assert_eq!(state.nonce, None);
+        let binding = state.binding.expect("binding");
+        assert_eq!(cookie, format!("{binding}.{verifier}.{nonce}"));
+        assert_eq!(
+            OAuthStateCookie::parse(&cookie),
+            Some(OAuthStateCookie {
+                binding,
+                secrets: Some(FlowSecrets {
+                    pkce_verifier: verifier.into(),
+                    nonce: nonce.into(),
+                }),
+            })
+        );
+
+        use base64::Engine as _;
+        let payload = token.split('.').nth(1).expect("JWT payload");
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload)
+            .expect("base64url payload");
+        let payload = String::from_utf8(payload).expect("JSON payload");
+        for absent in [verifier, nonce, "pkce_verifier", "nonce"] {
+            assert!(!payload.contains(absent), "{absent} in {payload}");
+        }
+    }
+
+    #[test]
+    fn a_flow_needs_both_secrets_or_neither() {
+        ensure_jwt_secret();
+        let only_verifier =
+            create_oauth_state_with_oidc("oidc", None, None, Some("v".into()), None, None, None);
+        assert!(only_verifier.is_err());
+    }
+
+    #[test]
+    fn the_cookie_parses_one_part_or_three() {
+        assert_eq!(
+            OAuthStateCookie::parse("abc"),
+            Some(OAuthStateCookie {
+                binding: "abc".into(),
+                secrets: None,
+            })
+        );
+        for malformed in ["", "a.b", "a.b.c.d", "a..c", ".b.c", "a.b.", "."] {
+            assert_eq!(OAuthStateCookie::parse(malformed), None, "{malformed:?}");
+        }
+        let with_separator = OAuthStateCookie {
+            binding: "a".into(),
+            secrets: Some(FlowSecrets {
+                pkce_verifier: "b.c".into(),
+                nonce: "d".into(),
+            }),
+        };
+        assert!(with_separator.encode().is_err());
     }
 }
 
