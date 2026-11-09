@@ -4,9 +4,11 @@
 //! page by its index in the plan; the commit swaps it for the page's id
 //! (`/documentation/{id}`) or uuid once the page exists. Images in the
 //! archive resolve to a placeholder naming their archive key, stored by the
-//! commit. Placeholders are only ever produced here, from a resolved
-//! target: a placeholder written in a source file is an unknown scheme and
-//! is dropped like any other.
+//! commit. A link to a source's collection names a page in it, and the
+//! commit fills in the route of the collection that page went in.
+//! Placeholders are only ever produced here, from a resolved target: a
+//! placeholder written in a source file is an unknown scheme and is dropped
+//! like any other.
 //!
 //! Resolution, per [`PageResolver`]:
 //!
@@ -41,6 +43,11 @@ pub enum Placeholder {
     Page(usize),
     /// A file in the archive, by key.
     Asset(String),
+    /// The collection a page in the plan goes in, by the page's index. The
+    /// planner decides collections after the source is read (one per
+    /// export, one per folder, an existing one), so a link to a source's
+    /// collection names a page inside it.
+    Collection(usize),
 }
 
 impl Placeholder {
@@ -48,6 +55,7 @@ impl Placeholder {
         match self {
             Placeholder::Page(index) => format!("{PLACEHOLDER_SCHEME}page/{index}"),
             Placeholder::Asset(key) => format!("{PLACEHOLDER_SCHEME}asset/{key}"),
+            Placeholder::Collection(page) => format!("{PLACEHOLDER_SCHEME}collection/{page}"),
         }
     }
 
@@ -55,6 +63,9 @@ impl Placeholder {
         let rest = href.strip_prefix(PLACEHOLDER_SCHEME)?;
         if let Some(index) = rest.strip_prefix("page/") {
             return index.parse().ok().map(Placeholder::Page);
+        }
+        if let Some(page) = rest.strip_prefix("collection/") {
+            return page.parse().ok().map(Placeholder::Collection);
         }
         rest.strip_prefix("asset/")
             .filter(|key| !key.is_empty())
@@ -765,8 +776,8 @@ pub fn strip_notion_id(name: &str) -> &str {
     }
 }
 
-/// Where a placeholder sits: a link takes a page's route, an image a stored
-/// file's source, an embedded page the page's uuid.
+/// Where a placeholder sits: a link takes a page's or a collection's route,
+/// an image a stored file's source, an embedded page the page's uuid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
     Link,
@@ -892,11 +903,62 @@ mod tests {
 
     #[test]
     fn placeholders_round_trip_and_fill() {
-        for p in [Placeholder::Page(7), Placeholder::Asset("a b/c.png".into())] {
+        for p in [
+            Placeholder::Page(7),
+            Placeholder::Asset("a b/c.png".into()),
+            Placeholder::Collection(4),
+        ] {
             assert_eq!(Placeholder::parse(&p.to_href()), Some(p));
         }
+        assert_eq!(
+            Placeholder::Collection(4).to_href(),
+            "nosdesk-import:collection/4"
+        );
         assert_eq!(Placeholder::parse("nosdesk-import:page/x"), None);
+        assert_eq!(Placeholder::parse("nosdesk-import:collection/"), None);
+        assert_eq!(Placeholder::parse("nosdesk-import:collection/-1"), None);
         assert_eq!(Placeholder::parse("https://x"), None);
+    }
+
+    #[test]
+    fn a_collection_fills_as_a_link_only() {
+        use super::super::ir::{Link, Marks};
+        let link = |href: String| {
+            Inline::marked(
+                "Handbook",
+                Marks {
+                    link: Some(Link { href, title: None }),
+                    ..Marks::default()
+                },
+            )
+        };
+        let collection = Placeholder::Collection(2).to_href();
+        let mut document = Document {
+            blocks: vec![
+                Block::Paragraph(vec![link(collection.clone())]),
+                Block::Paragraph(vec![Inline::Image(super::super::ir::Image {
+                    src: collection.clone(),
+                    alt: Some("cover".into()),
+                    ..Default::default()
+                })]),
+                Block::Paragraph(vec![link(Placeholder::Collection(9).to_href())]),
+            ],
+        };
+        fill_placeholders(&mut document, &|p, slot| match (p, slot) {
+            (Placeholder::Collection(2), Slot::Link) => {
+                Some("/documentation/collections/handbook".into())
+            }
+            _ => None,
+        });
+        assert_eq!(
+            document.blocks,
+            vec![
+                Block::Paragraph(vec![link("/documentation/collections/handbook".into())]),
+                Block::Paragraph(vec![Inline::text("cover")]),
+                // A collection the commit can't place keeps its text.
+                Block::Paragraph(vec![Inline::text("Handbook")]),
+            ]
+        );
     }
 
     #[test]

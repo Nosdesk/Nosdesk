@@ -10389,6 +10389,51 @@ docs-import-note-web-images-not-fetched = { $count ->
    *[other] { $count } afbeeldingen van het web konden niet worden gedownload. De alt-tekst blijft behouden.
 }
 # MT: pending native review (nl-NL)
+docs-import-note-expands-shown-open = { $count ->
+    [one] 1 inklapbare sectie wordt opengeklapt getoond
+   *[other] { $count } inklapbare secties worden opengeklapt getoond
+}
+# MT: pending native review (nl-NL)
+docs-import-note-status-as-text = { $count ->
+    [one] 1 statuslabel werd vetgedrukte tekst
+   *[other] { $count } statuslabels werden vetgedrukte tekst
+}
+# MT: pending native review (nl-NL)
+docs-import-note-jira-as-links = { $count ->
+    [one] 1 Jira-issue werd een link
+   *[other] { $count } Jira-issues werden links
+}
+# MT: pending native review (nl-NL)
+docs-import-note-macros-removed = { $count ->
+    [one] 1 macro zonder equivalent is verwijderd
+   *[other] { $count } macro's zonder equivalent zijn verwijderd
+}
+# MT: pending native review (nl-NL)
+docs-import-note-layout-flattened = { $count ->
+    [one] 1 pagina-indeling werd de inhoud in leesvolgorde
+   *[other] { $count } pagina-indelingen werden de inhoud in leesvolgorde
+}
+# MT: pending native review (nl-NL)
+docs-import-note-includes-as-links = { $count ->
+    [one] 1 ingevoegde pagina werd een link naar die pagina
+   *[other] { $count } ingevoegde pagina's werden links naar die pagina's
+}
+# MT: pending native review (nl-NL)
+docs-import-note-diagrams-as-images = { $count ->
+    [one] 1 diagram werd de voorbeeldafbeelding
+   *[other] { $count } diagrammen werden hun voorbeeldafbeeldingen
+}
+# MT: pending native review (nl-NL)
+docs-import-note-diagrams-left-out = { $count ->
+    [one] 1 diagram zonder voorbeeldafbeelding werd de naam
+   *[other] { $count } diagrammen zonder voorbeeldafbeelding werden hun namen
+}
+# MT: pending native review (nl-NL)
+docs-import-note-emoji-as-text = { $count ->
+    [one] 1 emoticon werd een emoji of de naam
+   *[other] { $count } emoticons werden emoji of hun namen
+}
+# MT: pending native review (nl-NL)
 docs-import-image-unreadable = kon niet worden gelezen
 # MT: pending native review (nl-NL)
 docs-import-image-too-large = is groter dan 10 MB

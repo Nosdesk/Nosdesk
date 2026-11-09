@@ -30,7 +30,7 @@ use html5ever::tokenizer::{
 use html5ever::{local_name, ns, ExpandedName, QualName};
 
 use super::ir::{
-    Alignment, Block, Image, ImageAlign, Inline, Link, ListItem, Marks, Table, TableCell,
+    Alignment, Block, Document, Image, ImageAlign, Inline, Link, ListItem, Marks, Table, TableCell,
 };
 use super::normalise::{merge_adjacent_text, Resolver};
 use super::{NoteCode, Notes};
@@ -457,26 +457,19 @@ pub struct ReadBlock {
     pub left_open: Option<Container>,
 }
 
-/// Read one HTML block.
+/// Read one HTML block. Markdown's HTML has no dialect: every element gets
+/// the default reading.
 pub fn read_block(raw: &str, resolver: &dyn Resolver, notes: &mut Notes) -> ReadBlock {
     let tags = tags(raw);
     if nesting(&tags) > MAX_NESTING {
-        // Too deep to walk (or to drop) as a tree: its text, flat.
-        notes.add(NoteCode::HtmlAsText);
-        let text = flat_text(raw);
-        let blocks = text
-            .split("\n\n")
-            .map(|p| p.split_whitespace().collect::<Vec<_>>().join(" "))
-            .filter(|p| !p.is_empty())
-            .map(|p| Block::Paragraph(vec![Inline::text(p)]))
-            .collect();
         return ReadBlock {
-            blocks,
+            blocks: flat_blocks(raw, notes),
             left_open: None,
         };
     }
     let mut reader = Reader {
         resolver,
+        dialect: &DefaultDialect,
         notes,
         as_text: false,
     };
@@ -489,6 +482,247 @@ pub fn read_block(raw: &str, resolver: &dyn Resolver, notes: &mut Notes) -> Read
     ReadBlock {
         blocks,
         left_open: left_open(&tags),
+    }
+}
+
+/// Text too deep to walk (or to drop) as a tree, as flat paragraphs.
+fn flat_blocks(raw: &str, notes: &mut Notes) -> Vec<Block> {
+    notes.add(NoteCode::HtmlAsText);
+    flat_text(raw)
+        .split("\n\n")
+        .map(|p| p.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|p| !p.is_empty())
+        .map(|p| Block::Paragraph(vec![Inline::text(p)]))
+        .collect()
+}
+
+/// Read a whole HTML page (or a fragment, which parses as one) into a
+/// document, not yet normalised.
+///
+/// Only the content root is read: the first element the first matching
+/// selector in `content` finds, in document order, else `<body>`. Inside
+/// it, `dialect` classifies each element before the default reading.
+pub fn read_document(
+    raw: &str,
+    content: &[Selector],
+    dialect: &dyn Dialect,
+    resolver: &dyn Resolver,
+    notes: &mut Notes,
+) -> Document {
+    if nesting(&tags(raw)) > MAX_NESTING {
+        // The page's text, chrome and all: a tree this deep isn't walked.
+        return Document {
+            blocks: flat_blocks(raw, notes),
+        };
+    }
+    let dom = html5ever::parse_document(Dom::default(), Default::default()).one(raw);
+    let root = content
+        .iter()
+        .find_map(|selector| first_match(&dom.document, selector))
+        .or_else(|| first_match(&dom.document, &Selector::Tag("body")))
+        .unwrap_or_else(|| dom.document.clone());
+    let mut reader = Reader {
+        resolver,
+        dialect,
+        notes,
+        as_text: false,
+    };
+    let children = root.children.borrow().clone();
+    let mut blocks = Vec::new();
+    reader.blocks_of(&children, &mut blocks);
+    if reader.as_text {
+        reader.notes.add(NoteCode::HtmlAsText);
+    }
+    Document { blocks }
+}
+
+// Dialects.
+
+/// What a source's HTML means beyond plain HTML: its macros, callouts,
+/// layouts and chrome. The reader asks the dialect about each element
+/// before reading it the default way.
+///
+/// Classes, ids and `data-*` attributes are read here to classify and
+/// never reach the page: what a rewrite carries (a label, a language, a
+/// link) is plain text or a destination the [`Resolver`] still decides.
+/// Scripts, styles, frames, form controls and elements outside HTML (SVG,
+/// MathML) are removed whatever the dialect says; for those it can only
+/// say how the removal is counted, with [`Rewrite::Remove`].
+pub trait Dialect {
+    /// How to read `element`, or `None` for the default reading.
+    fn classify(&self, element: &ElementView) -> Option<Rewrite>;
+}
+
+/// The default reading for every element: Markdown's HTML.
+pub struct DefaultDialect;
+
+impl Dialect for DefaultDialect {
+    fn classify(&self, _element: &ElementView) -> Option<Rewrite> {
+        None
+    }
+}
+
+/// How a dialect reads one element instead of the default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Rewrite {
+    /// A quote whose first line is `label` in bold ("Note" when empty),
+    /// then the element's content.
+    Callout { label: String },
+    /// A code block: the text of the first `<pre>` in the element (or of
+    /// the element), with `title` as a bold paragraph before it.
+    Code {
+        language: Option<String>,
+        title: Option<String>,
+    },
+    /// A collapsible section shown open: `title` in bold, then the
+    /// content. The dialect removes the element holding the title.
+    Expand { title: Option<String> },
+    /// A status label: the element's text in bold.
+    Status,
+    /// A Jira issue: "KEY-12: summary" (or "KEY-12") linking to `url`
+    /// when it is https, else text.
+    Jira {
+        key: String,
+        summary: Option<String>,
+        url: String,
+    },
+    /// Removed with its content, counted under `note` when there is one
+    /// (page chrome, or a title another rewrite carries, has none).
+    Remove(Option<NoteCode>),
+    /// The element's content in its place, counted under `note` when
+    /// there is one.
+    Unwrap(Option<NoteCode>),
+    /// An emoji (or a name) in place of the element.
+    Emoji(String),
+    /// A checklist item: its content with "☐ " or "☑ " before it. The
+    /// dialect removes the checkbox itself.
+    Task { checked: bool },
+    /// A link "Included from {title}" to `target`, which the resolver
+    /// decides like any link.
+    Include { target: String, title: String },
+    /// Text in place of the element, counted under `note` when there is
+    /// one.
+    Text {
+        text: String,
+        note: Option<NoteCode>,
+    },
+    /// An image from `src`, which the resolver decides like any image,
+    /// counted under `note` when there is one.
+    Image {
+        src: String,
+        alt: Option<String>,
+        width: Option<u32>,
+        note: Option<NoteCode>,
+    },
+}
+
+/// An element by id, by class or by tag name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Selector {
+    Id(&'static str),
+    Class(&'static str),
+    Tag(&'static str),
+}
+
+impl Selector {
+    fn matches(&self, node: &Handle) -> bool {
+        match self {
+            Selector::Id(id) => attr(node, "id").as_deref() == Some(*id),
+            Selector::Class(class) => has_class(node, class),
+            Selector::Tag(tag) => tag_name(node).is_some_and(|name| name == *tag),
+        }
+    }
+}
+
+/// The first element under `root`, in document order, that `selector`
+/// matches. Iterative, so depth costs no stack.
+fn first_match(root: &Handle, selector: &Selector) -> Option<Handle> {
+    let mut stack: Vec<Handle> = root.children.borrow().iter().rev().cloned().collect();
+    while let Some(node) = stack.pop() {
+        if selector.matches(&node) {
+            return Some(node);
+        }
+        stack.extend(node.children.borrow().iter().rev().cloned());
+    }
+    None
+}
+
+fn has_class(node: &Handle, class: &str) -> bool {
+    attr(node, "class").is_some_and(|c| c.split_ascii_whitespace().any(|c| c == class))
+}
+
+/// One element as a [`Dialect`] sees it, read only.
+#[derive(Clone)]
+pub struct ElementView(Handle);
+
+impl ElementView {
+    fn of(node: &Handle) -> Option<Self> {
+        matches!(node.data, Data::Element { .. }).then(|| ElementView(node.clone()))
+    }
+
+    /// The tag name, lowercase; empty outside the HTML namespace.
+    pub fn tag(&self) -> &str {
+        tag_name(&self.0).unwrap_or("")
+    }
+
+    pub fn attr(&self, name: &str) -> Option<String> {
+        attr(&self.0, name)
+    }
+
+    pub fn id(&self) -> Option<String> {
+        self.attr("id")
+    }
+
+    /// Whether the `class` attribute lists `class`.
+    pub fn has_class(&self, class: &str) -> bool {
+        has_class(&self.0, class)
+    }
+
+    /// The text inside, each whitespace run as one space, trimmed.
+    pub fn text(&self) -> String {
+        text_content(&self.0)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    pub fn matches(&self, selector: &Selector) -> bool {
+        selector.matches(&self.0)
+    }
+
+    pub fn parent(&self) -> Option<ElementView> {
+        let parent = self.0.parent.take();
+        let up = parent.as_ref().and_then(Weak::upgrade);
+        self.0.parent.set(parent);
+        up.and_then(|p| ElementView::of(&p))
+    }
+
+    /// The child elements in order; text between them is skipped.
+    pub fn children(&self) -> Vec<ElementView> {
+        self.0
+            .children
+            .borrow()
+            .iter()
+            .filter_map(ElementView::of)
+            .collect()
+    }
+
+    /// The first element inside this one, in document order, that
+    /// `selector` matches.
+    pub fn find(&self, selector: &Selector) -> Option<ElementView> {
+        first_match(&self.0, selector).map(ElementView)
+    }
+
+    /// The nearest element around this one that `selector` matches.
+    pub fn closest(&self, selector: &Selector) -> Option<ElementView> {
+        let mut at = self.parent();
+        while let Some(element) = at {
+            if element.matches(selector) {
+                return Some(element);
+            }
+            at = element.parent();
+        }
+        None
     }
 }
 
@@ -601,6 +835,7 @@ pub fn after_close(raw: &str, container: Container) -> Option<&str> {
 
 struct Reader<'a> {
     resolver: &'a dyn Resolver,
+    dialect: &'a dyn Dialect,
     notes: &'a mut Notes,
     /// A tag was reduced to its content.
     as_text: bool,
@@ -701,6 +936,13 @@ impl Reader<'_> {
     /// Nodes as blocks. Inline content between blocks becomes a paragraph.
     fn blocks_of(&mut self, nodes: &[Handle], out: &mut Vec<Block>) {
         let mut run = Run::default();
+        self.blocks_into(nodes, &mut run, out);
+        run.flush_into(out);
+    }
+
+    /// [`Reader::blocks_of`], adding inline content to `run`, which the
+    /// caller flushes.
+    fn blocks_into(&mut self, nodes: &[Handle], run: &mut Run, out: &mut Vec<Block>) {
         for node in nodes {
             match &node.data {
                 Data::Text(text) => run.text(&text.borrow(), &Marks::default()),
@@ -708,18 +950,232 @@ impl Reader<'_> {
                 Data::Element { .. } => {
                     let name = tag_name(node).unwrap_or("");
                     if is_removed_with_content(name) || name.is_empty() {
-                        self.notes.add(NoteCode::HtmlRemoved);
+                        self.removed(node);
+                    } else if let Some(rewrite) = self.classify(node) {
+                        self.rewrite_block(node, name, rewrite, run, out);
                     } else if is_block_element(name) {
                         run.flush_into(out);
                         self.block(node, name, out);
                     } else {
-                        self.inline(node, &mut run, &Marks::default());
+                        self.inline(node, run, &Marks::default());
                     }
                 }
                 _ => {}
             }
         }
-        run.flush_into(out);
+    }
+
+    /// The dialect's reading of an element the reader would keep.
+    fn classify(&self, node: &Handle) -> Option<Rewrite> {
+        ElementView::of(node).and_then(|element| self.dialect.classify(&element))
+    }
+
+    /// An element removed with its content (a script, a form control, SVG).
+    /// The dialect may say how it is counted (a checklist's checkbox is
+    /// not removed HTML), never bring its content back.
+    fn removed(&mut self, node: &Handle) {
+        match self.classify(node) {
+            Some(Rewrite::Remove(note)) => {
+                if let Some(note) = note {
+                    self.notes.add(note);
+                }
+            }
+            _ => self.notes.add(NoteCode::HtmlRemoved),
+        }
+    }
+
+    /// A rewrite where blocks may stand. A block rewrite ends the paragraph
+    /// `run` was collecting; an inline one adds to it.
+    fn rewrite_block(
+        &mut self,
+        node: &Handle,
+        name: &str,
+        rewrite: Rewrite,
+        run: &mut Run,
+        out: &mut Vec<Block>,
+    ) {
+        match rewrite {
+            Rewrite::Callout { label } => {
+                run.flush_into(out);
+                self.notes.add(NoteCode::CalloutsAsQuotes);
+                let mut blocks = self.children_blocks(node);
+                let label = label.split_whitespace().collect::<Vec<_>>().join(" ");
+                let label = if label.is_empty() {
+                    "Note".to_string()
+                } else {
+                    label
+                };
+                blocks.insert(0, bold_paragraph(label));
+                out.push(Block::Blockquote(blocks));
+            }
+            Rewrite::Code { language, title } => {
+                run.flush_into(out);
+                if let Some(title) = non_empty(title) {
+                    out.push(bold_paragraph(title));
+                }
+                out.push(Block::CodeBlock {
+                    language,
+                    text: code_text(node),
+                });
+            }
+            Rewrite::Expand { title } => {
+                run.flush_into(out);
+                self.notes.add(NoteCode::ExpandsShownOpen);
+                if let Some(title) = non_empty(title) {
+                    out.push(bold_paragraph(title));
+                }
+                out.extend(self.children_blocks(node));
+            }
+            Rewrite::Task { checked } => {
+                run.flush_into(out);
+                self.notes.add(NoteCode::ChecklistsAsBullets);
+                out.extend(self.task_blocks(node, checked));
+            }
+            Rewrite::Unwrap(note) => {
+                if let Some(note) = note {
+                    self.notes.add(note);
+                }
+                let children = node.children.borrow().clone();
+                if is_block_element(name) {
+                    run.flush_into(out);
+                    self.blocks_of(&children, out);
+                } else {
+                    self.blocks_into(&children, run, out);
+                }
+            }
+            Rewrite::Remove(note) => {
+                if let Some(note) = note {
+                    self.notes.add(note);
+                }
+            }
+            inline => self.rewrite_inline(node, inline, run, &Marks::default()),
+        }
+    }
+
+    /// A rewrite inside a paragraph. A block rewrite there keeps its
+    /// content as text.
+    fn rewrite_inline(&mut self, node: &Handle, rewrite: Rewrite, run: &mut Run, marks: &Marks) {
+        match rewrite {
+            Rewrite::Status => {
+                self.notes.add(NoteCode::StatusAsText);
+                let text = text_content(node)
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let mut bold = marks.clone();
+                bold.strong = true;
+                push_text(run, text, bold);
+            }
+            Rewrite::Jira { key, summary, url } => {
+                let text = match non_empty(summary) {
+                    Some(summary) => format!("{key}: {summary}"),
+                    None => key,
+                };
+                let mut linked = marks.clone();
+                if is_https(&url) {
+                    self.notes.add(NoteCode::JiraAsLinks);
+                    linked.link = Some(Link {
+                        href: url.trim().to_string(),
+                        title: None,
+                    });
+                } else {
+                    self.notes.add(NoteCode::LinksDropped);
+                }
+                push_text(run, text, linked);
+            }
+            Rewrite::Emoji(emoji) => {
+                self.notes.add(NoteCode::EmojiAsText);
+                push_text(run, emoji, marks.clone());
+            }
+            Rewrite::Text { text, note } => {
+                if let Some(note) = note {
+                    self.notes.add(note);
+                }
+                push_text(run, text, marks.clone());
+            }
+            Rewrite::Include { target, title } => {
+                // Counted when the target resolves; otherwise the
+                // normaliser counts the link it drops.
+                if self.resolver.link(&target).is_some() {
+                    self.notes.add(NoteCode::IncludesAsLinks);
+                }
+                let mut linked = marks.clone();
+                linked.link = Some(Link {
+                    href: target,
+                    title: None,
+                });
+                push_text(run, format!("Included from {}", title.trim()), linked);
+            }
+            Rewrite::Image {
+                src,
+                alt,
+                width,
+                note,
+            } => {
+                if let Some(note) = note {
+                    self.notes.add(note);
+                }
+                run.inlines.push(Inline::Image(Image {
+                    src,
+                    alt: non_empty(alt),
+                    title: None,
+                    width: width.filter(|w| *w > 0 && *w <= 10_000),
+                    align: None,
+                }));
+            }
+            Rewrite::Code { .. } => {
+                let mut code = marks.clone();
+                code.code = true;
+                push_text(run, code_text(node), code);
+            }
+            Rewrite::Task { checked } => {
+                self.notes.add(NoteCode::ChecklistsAsBullets);
+                run.inlines
+                    .push(Inline::marked(task_box(checked), plain(marks)));
+                self.inline_children(node, run, marks);
+            }
+            Rewrite::Unwrap(note) => {
+                if let Some(note) = note {
+                    self.notes.add(note);
+                }
+                self.inline_children(node, run, marks);
+            }
+            Rewrite::Remove(note) => {
+                if let Some(note) = note {
+                    self.notes.add(note);
+                }
+            }
+            Rewrite::Callout { .. } | Rewrite::Expand { .. } => {
+                self.as_text = true;
+                self.inline_children(node, run, marks);
+            }
+        }
+    }
+
+    /// A checklist item's blocks, its box before the first paragraph.
+    fn task_blocks(&mut self, node: &Handle, checked: bool) -> Vec<Block> {
+        let mut blocks = self.children_blocks(node);
+        let mark = task_box(checked);
+        match blocks.first_mut() {
+            Some(Block::Paragraph(inlines)) => {
+                // The space the checkbox left before the text.
+                if let Some(Inline::Text(first)) = inlines.first_mut() {
+                    first.text = first.text.trim_start().to_string();
+                    if first.text.is_empty() {
+                        inlines.remove(0);
+                    }
+                }
+                let mark = if inlines.is_empty() {
+                    mark.trim_end()
+                } else {
+                    mark
+                };
+                inlines.insert(0, Inline::text(mark));
+                merge_adjacent_text(inlines);
+            }
+            _ => blocks.insert(0, Block::Paragraph(vec![Inline::text(mark.trim_end())])),
+        }
+        blocks
     }
 
     fn children_blocks(&mut self, node: &Handle) -> Vec<Block> {
@@ -797,6 +1253,8 @@ impl Reader<'_> {
     fn list_items(&mut self, list: &Handle) -> Vec<ListItem> {
         let mut items: Vec<ListItem> = Vec::new();
         let mut stray: Vec<Handle> = Vec::new();
+        // Counted once per list, as for a Markdown task list.
+        let mut tasks = false;
         let children = list.children.borrow().clone();
         for child in &children {
             if tag_name(child) == Some("li") {
@@ -807,9 +1265,26 @@ impl Reader<'_> {
                         items.push(ListItem { blocks });
                     }
                 }
-                items.push(ListItem {
-                    blocks: self.children_blocks(child),
-                });
+                match self.classify(child) {
+                    None => items.push(ListItem {
+                        blocks: self.children_blocks(child),
+                    }),
+                    Some(Rewrite::Task { checked }) => {
+                        tasks = true;
+                        items.push(ListItem {
+                            blocks: self.task_blocks(child, checked),
+                        });
+                    }
+                    Some(rewrite) => {
+                        let mut blocks = Vec::new();
+                        let mut run = Run::default();
+                        self.rewrite_block(child, "li", rewrite, &mut run, &mut blocks);
+                        run.flush_into(&mut blocks);
+                        if !blocks.is_empty() {
+                            items.push(ListItem { blocks });
+                        }
+                    }
+                }
             } else {
                 stray.push(child.clone());
             }
@@ -820,6 +1295,9 @@ impl Reader<'_> {
             if !blocks.is_empty() {
                 items.push(ListItem { blocks });
             }
+        }
+        if tasks {
+            self.notes.add(NoteCode::ChecklistsAsBullets);
         }
         items
     }
@@ -938,7 +1416,13 @@ impl Reader<'_> {
             Data::Comment => self.notes.add(NoteCode::HtmlRemoved),
             Data::Element { .. } => {
                 let name = tag_name(node).unwrap_or("");
-                self.inline_element(node, name, run, marks);
+                if name.is_empty() || is_removed_with_content(name) {
+                    self.removed(node);
+                } else if let Some(rewrite) = self.classify(node) {
+                    self.rewrite_inline(node, rewrite, run, marks);
+                } else {
+                    self.inline_element(node, name, run, marks);
+                }
             }
             _ => {}
         }
@@ -1053,6 +1537,59 @@ fn plain(marks: &Marks) -> Marks {
         link: marks.link.clone(),
         ..Marks::default()
     }
+}
+
+/// `text` in `run` with `marks`, each whitespace run as one space; nothing
+/// when that leaves it empty.
+fn push_text(run: &mut Run, text: String, marks: Marks) {
+    let text = if text.contains(char::is_whitespace) {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    } else {
+        text
+    };
+    if !text.is_empty() {
+        run.inlines.push(Inline::marked(text, marks));
+    }
+}
+
+fn bold_paragraph(text: String) -> Block {
+    Block::Paragraph(vec![Inline::marked(text, Marks::strong())])
+}
+
+/// `text` trimmed, when anything is left.
+fn non_empty(text: Option<String>) -> Option<String> {
+    text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+}
+
+/// A checklist item's box, with the space after it.
+fn task_box(checked: bool) -> &'static str {
+    if checked {
+        "\u{2611} "
+    } else {
+        "\u{2610} "
+    }
+}
+
+/// The text of the first `<pre>` in `node` (or `node` itself), exactly.
+fn code_text(node: &Handle) -> String {
+    if tag_name(node) == Some("pre") {
+        return text_content(node);
+    }
+    match first_match(node, &Selector::Tag("pre")) {
+        Some(pre) => text_content(&pre),
+        None => text_content(node),
+    }
+}
+
+/// An absolute https URL with a host.
+fn is_https(url: &str) -> bool {
+    let url = url.trim();
+    url.get(..8)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+        && url[8..]
+            .chars()
+            .next()
+            .is_some_and(|c| !matches!(c, '/' | '\\' | '?' | '#'))
 }
 
 /// A path on this server: one slash, not two.
@@ -1365,6 +1902,449 @@ mod tests {
             5_000,
             "siblings that close each other are not deep"
         );
+    }
+
+    /// A dialect with one rule per rewrite, by class.
+    struct TestDialect;
+
+    impl Dialect for TestDialect {
+        fn classify(&self, el: &ElementView) -> Option<Rewrite> {
+            let class = |c: &str| el.has_class(c);
+            if el.tag() == "input" && el.closest(&Selector::Class("task")).is_some() {
+                return Some(Rewrite::Remove(None));
+            }
+            if class("title") && el.closest(&Selector::Class("callout")).is_some() {
+                return Some(Rewrite::Remove(None));
+            }
+            if class("callout") {
+                let label = el
+                    .find(&Selector::Class("title"))
+                    .map(|t| t.text())
+                    .unwrap_or_default();
+                return Some(Rewrite::Callout { label });
+            }
+            if class("code-title") || class("expand-title") {
+                return Some(Rewrite::Remove(None));
+            }
+            if class("code") {
+                return Some(Rewrite::Code {
+                    language: el.attr("data-lang"),
+                    title: el.find(&Selector::Class("code-title")).map(|t| t.text()),
+                });
+            }
+            if class("expand") {
+                return Some(Rewrite::Expand {
+                    title: el.find(&Selector::Class("expand-title")).map(|t| t.text()),
+                });
+            }
+            if class("status") {
+                return Some(Rewrite::Status);
+            }
+            if class("jira") {
+                return Some(Rewrite::Jira {
+                    key: el.attr("data-key").unwrap_or_default(),
+                    summary: el.find(&Selector::Class("summary")).map(|s| s.text()),
+                    url: el.attr("data-url").unwrap_or_default(),
+                });
+            }
+            if class("toc") {
+                return Some(Rewrite::Remove(Some(NoteCode::MacrosRemoved)));
+            }
+            if class("layout") {
+                return Some(Rewrite::Unwrap(Some(NoteCode::LayoutFlattened)));
+            }
+            if class("wrap") {
+                return Some(Rewrite::Unwrap(None));
+            }
+            if class("emoticon") {
+                return Some(match el.attr("data-name").as_deref() {
+                    Some("tick") => Rewrite::Emoji("\u{2705}".into()),
+                    _ => Rewrite::Text {
+                        text: el.attr("alt").unwrap_or_default(),
+                        note: Some(NoteCode::EmojiAsText),
+                    },
+                });
+            }
+            if class("task") {
+                return Some(Rewrite::Task {
+                    checked: class("checked"),
+                });
+            }
+            if class("drawio") {
+                return Some(Rewrite::Unwrap(Some(NoteCode::DiagramsAsImages)));
+            }
+            if class("gliffy") {
+                return Some(Rewrite::Text {
+                    text: el.attr("data-name").unwrap_or_default(),
+                    note: Some(NoteCode::DiagramsLeftOut),
+                });
+            }
+            if class("include") {
+                return Some(Rewrite::Include {
+                    target: el.attr("data-href").unwrap_or_default(),
+                    title: el.text(),
+                });
+            }
+            if class("attached") {
+                return Some(Rewrite::Image {
+                    src: el.attr("data-original").unwrap_or_default(),
+                    alt: el.attr("data-alias"),
+                    width: el.attr("width").and_then(|w| parse_width(&w)),
+                    note: None,
+                });
+            }
+            None
+        }
+    }
+
+    fn page(raw: &str) -> (Vec<Block>, Notes) {
+        let mut notes = Notes::default();
+        let document = read_document(raw, &[], &TestDialect, &DefaultResolver, &mut notes);
+        (document.blocks, notes)
+    }
+
+    fn para(inlines: Vec<Inline>) -> Block {
+        Block::Paragraph(inlines)
+    }
+
+    fn bold(text: &str) -> Inline {
+        Inline::marked(text, Marks::strong())
+    }
+
+    fn linked(text: &str, href: &str) -> Inline {
+        Inline::marked(
+            text,
+            Marks {
+                link: Some(Link {
+                    href: href.into(),
+                    title: None,
+                }),
+                ..Marks::default()
+            },
+        )
+    }
+
+    #[test]
+    fn a_callout_is_a_quote_led_by_its_label() {
+        let (blocks, notes) = page(
+            "<div class=\"callout\"><p class=\"title\">Heads up</p><p>Restart first.</p></div>\
+             <div class=\"callout\"><p>No title.</p></div>",
+        );
+        assert_eq!(
+            blocks,
+            vec![
+                Block::Blockquote(vec![
+                    para(vec![bold("Heads up")]),
+                    para(vec![Inline::text("Restart first.")]),
+                ]),
+                Block::Blockquote(vec![
+                    para(vec![bold("Note")]),
+                    para(vec![Inline::text("No title.")]),
+                ]),
+            ]
+        );
+        assert_eq!(notes.count(NoteCode::CalloutsAsQuotes), 2);
+        assert_eq!(notes.count(NoteCode::HtmlAsText), 0);
+    }
+
+    #[test]
+    fn a_code_macro_is_a_code_block_with_its_title() {
+        let (blocks, _) = page(
+            "<div class=\"code\" data-lang=\"java\"><div class=\"code-title\">Main.java</div>\
+             <div><pre>class A {}\n</pre></div></div>",
+        );
+        assert_eq!(
+            blocks,
+            vec![
+                para(vec![bold("Main.java")]),
+                Block::CodeBlock {
+                    language: Some("java".into()),
+                    text: "class A {}\n".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_expand_is_shown_open_with_its_title() {
+        let (blocks, notes) = page(
+            "<div class=\"expand\"><span class=\"expand-title\">More</span>\
+             <div class=\"wrap\"><p>Hidden text.</p></div></div>",
+        );
+        assert_eq!(
+            blocks,
+            vec![
+                para(vec![bold("More")]),
+                para(vec![Inline::text("Hidden text.")]),
+            ]
+        );
+        assert_eq!(notes.count(NoteCode::ExpandsShownOpen), 1);
+        assert_eq!(notes.count(NoteCode::HtmlAsText), 0);
+    }
+
+    #[test]
+    fn a_status_is_bold_text() {
+        let (blocks, notes) = page("<p>State: <span class=\"status\"> In\n progress </span></p>");
+        assert_eq!(
+            blocks,
+            vec![para(vec![Inline::text("State: "), bold("In progress")])]
+        );
+        assert_eq!(notes.count(NoteCode::StatusAsText), 1);
+    }
+
+    #[test]
+    fn a_jira_issue_links_only_over_https() {
+        let (blocks, notes) = page(
+            "<p><span class=\"jira\" data-key=\"IT-12\" data-url=\"https://acme.atlassian.net/browse/IT-12\">\
+             IT-12 <span class=\"summary\">VPN drops</span></span> and \
+             <span class=\"jira\" data-key=\"IT-13\" data-url=\"javascript:alert(1)\">IT-13</span></p>",
+        );
+        assert_eq!(
+            blocks,
+            vec![para(vec![
+                linked(
+                    "IT-12: VPN drops",
+                    "https://acme.atlassian.net/browse/IT-12"
+                ),
+                Inline::text(" and IT-13"),
+            ])]
+        );
+        assert_eq!(notes.count(NoteCode::JiraAsLinks), 1);
+        assert_eq!(notes.count(NoteCode::LinksDropped), 1);
+    }
+
+    #[test]
+    fn removed_macros_and_flattened_layouts_are_counted() {
+        let (blocks, notes) = page(
+            "<div class=\"toc\"><ul><li>Intro</li></ul></div>\
+             <div class=\"layout\"><div class=\"wrap\"><p>Left</p></div><div class=\"wrap\"><p>Right</p></div></div>\
+             <p>a<span class=\"wrap\">b</span>c</p>",
+        );
+        assert_eq!(
+            blocks,
+            vec![
+                para(vec![Inline::text("Left")]),
+                para(vec![Inline::text("Right")]),
+                para(vec![Inline::text("abc")]),
+            ]
+        );
+        assert_eq!(notes.count(NoteCode::MacrosRemoved), 1);
+        assert_eq!(notes.count(NoteCode::LayoutFlattened), 1);
+        assert_eq!(notes.count(NoteCode::HtmlAsText), 0);
+    }
+
+    #[test]
+    fn emoticons_become_emoji_or_their_name() {
+        let (blocks, notes) = page(
+            "<p>Done <img class=\"emoticon\" data-name=\"tick\" src=\"/images/icons/tick.svg\"> \
+             and <img class=\"emoticon\" data-name=\"odd\" alt=\"(odd)\" src=\"x.png\"></p>",
+        );
+        assert_eq!(
+            blocks,
+            vec![para(vec![Inline::text("Done \u{2705} and (odd)")])]
+        );
+        assert_eq!(notes.count(NoteCode::EmojiAsText), 2);
+    }
+
+    #[test]
+    fn tasks_are_boxed_bullets_counted_once_per_list() {
+        let (blocks, notes) = page(
+            "<ul><li class=\"task\"><input type=\"checkbox\"> Open</li>\
+             <li class=\"task checked\"><input type=\"checkbox\" checked> Done</li>\
+             <li>Plain</li></ul>",
+        );
+        assert_eq!(
+            blocks,
+            vec![Block::BulletList(vec![
+                ListItem {
+                    blocks: vec![para(vec![Inline::text("\u{2610} Open")])]
+                },
+                ListItem {
+                    blocks: vec![para(vec![Inline::text("\u{2611} Done")])]
+                },
+                ListItem {
+                    blocks: vec![para(vec![Inline::text("Plain")])]
+                },
+            ])]
+        );
+        assert_eq!(notes.count(NoteCode::ChecklistsAsBullets), 1);
+        assert_eq!(notes.count(NoteCode::HtmlRemoved), 0);
+    }
+
+    #[test]
+    fn diagrams_are_their_image_or_their_name() {
+        let (blocks, notes) = page(
+            "<div class=\"drawio\"><img src=\"files/net.png\" alt=\"Network\"></div>\
+             <p><span class=\"gliffy\" data-name=\"Rack layout\"></span></p>",
+        );
+        assert_eq!(
+            blocks,
+            vec![
+                para(vec![Inline::Image(Image {
+                    src: "files/net.png".into(),
+                    alt: Some("Network".into()),
+                    ..Image::default()
+                })]),
+                para(vec![Inline::text("Rack layout")]),
+            ]
+        );
+        assert_eq!(notes.count(NoteCode::DiagramsAsImages), 1);
+        assert_eq!(notes.count(NoteCode::DiagramsLeftOut), 1);
+    }
+
+    #[test]
+    fn includes_link_and_count_when_their_target_resolves() {
+        let (blocks, notes) = page(
+            "<p><span class=\"include\" data-href=\"https://wiki.example.com/x\">Setup</span></p>\
+             <p><span class=\"include\" data-href=\"missing.html\">Gone</span></p>",
+        );
+        assert_eq!(
+            blocks,
+            vec![
+                para(vec![linked(
+                    "Included from Setup",
+                    "https://wiki.example.com/x"
+                )]),
+                // The normaliser drops the destination the resolver refuses.
+                para(vec![linked("Included from Gone", "missing.html")]),
+            ]
+        );
+        assert_eq!(notes.count(NoteCode::IncludesAsLinks), 1);
+    }
+
+    #[test]
+    fn an_image_rewrite_takes_the_dialects_source() {
+        let (blocks, _) = page(
+            "<p><img class=\"attached\" src=\"thumbnails/1/a.png\" data-original=\"attachments/1/a.png\" \
+             data-alias=\"Rack\" width=\"300\"></p>",
+        );
+        assert_eq!(
+            blocks,
+            vec![para(vec![Inline::Image(Image {
+                src: "attachments/1/a.png".into(),
+                alt: Some("Rack".into()),
+                width: Some(300),
+                ..Image::default()
+            })])]
+        );
+    }
+
+    #[test]
+    fn a_dialect_cannot_bring_back_a_script() {
+        struct Unwrapping;
+        impl Dialect for Unwrapping {
+            fn classify(&self, _el: &ElementView) -> Option<Rewrite> {
+                Some(Rewrite::Unwrap(None))
+            }
+        }
+        let mut notes = Notes::default();
+        let document = read_document(
+            "<p>Hi<script>alert(1)</script><svg><text>x</text></svg></p>",
+            &[],
+            &Unwrapping,
+            &DefaultResolver,
+            &mut notes,
+        );
+        assert_eq!(document.blocks, vec![para(vec![Inline::text("Hi")])]);
+        assert_eq!(notes.count(NoteCode::HtmlRemoved), 2);
+    }
+
+    #[test]
+    fn markdowns_html_has_no_dialect() {
+        let (blocks, notes) = read("<details><summary>More</summary><p>x</p></details>");
+        assert_eq!(
+            blocks,
+            vec![para(vec![bold("More")]), para(vec![Inline::text("x")])]
+        );
+        assert_eq!(notes.count(NoteCode::ExpandsShownOpen), 0);
+    }
+
+    const PAGE: &str = "<!DOCTYPE html><html><head><title>IT : VPN</title>\
+        <script>bad()</script></head><body>\
+        <div id=\"breadcrumbs\">Home / IT</div>\
+        <div class=\"wiki\"><div id=\"main-content\"><p>Main</p></div></div>\
+        <div id=\"content\"><p>Content</p></div>\
+        <div id=\"footer\">Powered by</div></body></html>";
+
+    fn content_text(raw: &str, content: &[Selector]) -> Vec<Block> {
+        let mut notes = Notes::default();
+        read_document(raw, content, &DefaultDialect, &DefaultResolver, &mut notes).blocks
+    }
+
+    #[test]
+    fn the_content_root_is_the_first_selector_that_matches() {
+        let main = vec![para(vec![Inline::text("Main")])];
+        let selectors = [Selector::Id("main-content"), Selector::Id("content")];
+        assert_eq!(content_text(PAGE, &selectors), main);
+        // Earlier selectors win over earlier elements.
+        assert_eq!(
+            content_text(
+                PAGE,
+                &[Selector::Id("content"), Selector::Id("main-content")]
+            ),
+            vec![para(vec![Inline::text("Content")])]
+        );
+        // A missing selector falls through to the next.
+        let no_main = PAGE.replace("main-content", "other");
+        assert_eq!(
+            content_text(&no_main, &selectors),
+            vec![para(vec![Inline::text("Content")])]
+        );
+        assert_eq!(content_text(PAGE, &[Selector::Class("wiki")]), main);
+        assert_eq!(content_text(PAGE, &[Selector::Tag("p")]), main);
+    }
+
+    #[test]
+    fn with_no_match_the_body_is_read_and_the_head_never() {
+        let blocks = content_text(PAGE, &[Selector::Id("nowhere")]);
+        assert_eq!(
+            blocks,
+            vec![
+                para(vec![Inline::text("Home / IT")]),
+                para(vec![Inline::text("Main")]),
+                para(vec![Inline::text("Content")]),
+                para(vec![Inline::text("Powered by")]),
+            ]
+        );
+        // A fragment parses as a page's body.
+        assert_eq!(
+            content_text("<p>One</p>two", &[]),
+            vec![
+                para(vec![Inline::text("One")]),
+                para(vec![Inline::text("two")])
+            ]
+        );
+    }
+
+    #[test]
+    fn a_very_deep_page_is_read_as_flat_text() {
+        let raw = format!(
+            "<html><body>{}deep{}</body></html>",
+            "<div>".repeat(5_000),
+            "</div>".repeat(5_000)
+        );
+        let mut notes = Notes::default();
+        let document = read_document(&raw, &[], &TestDialect, &DefaultResolver, &mut notes);
+        assert_eq!(document.blocks, vec![para(vec![Inline::text("deep")])]);
+        assert_eq!(notes.count(NoteCode::HtmlAsText), 1);
+    }
+
+    #[test]
+    fn an_element_view_reads_its_neighbours() {
+        let nodes =
+            fragment("<div id=\"a\" class=\"x y\"><p>one <b>two</b></p><span>three</span></div>");
+        let div = ElementView::of(&nodes[0]).unwrap();
+        assert_eq!(div.tag(), "div");
+        assert_eq!(div.id().as_deref(), Some("a"));
+        assert!(div.has_class("y") && !div.has_class("x y"));
+        assert_eq!(div.text(), "one twothree");
+        let children: Vec<String> = div.children().iter().map(|c| c.tag().to_string()).collect();
+        assert_eq!(children, vec!["p", "span"]);
+        let b = div.find(&Selector::Tag("b")).unwrap();
+        assert_eq!(b.text(), "two");
+        assert_eq!(b.parent().unwrap().tag(), "p");
+        assert_eq!(b.closest(&Selector::Id("a")).unwrap().tag(), "div");
+        assert!(b.closest(&Selector::Class("nowhere")).is_none());
     }
 
     #[test]

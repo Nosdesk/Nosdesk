@@ -37,6 +37,15 @@ pub fn note_text(code: NoteCode, count: u32) -> String {
         NoteCode::ImagesUnreadable => "images couldn't be read",
         NoteCode::SvgImagesRefused => "SVG images left out",
         NoteCode::WebImagesNotFetched => "web images couldn't be downloaded",
+        NoteCode::ExpandsShownOpen => "collapsible sections shown open",
+        NoteCode::StatusAsText => "status labels became bold text",
+        NoteCode::JiraAsLinks => "Jira issues became links",
+        NoteCode::MacrosRemoved => "macros removed",
+        NoteCode::LayoutFlattened => "layouts flattened into reading order",
+        NoteCode::IncludesAsLinks => "included pages became links",
+        NoteCode::DiagramsAsImages => "diagrams became images",
+        NoteCode::DiagramsLeftOut => "diagrams left out, name kept",
+        NoteCode::EmojiAsText => "emoticons became emoji or text",
     };
     format!("{what} ({count})")
 }

@@ -21,6 +21,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use super::front_matter::{self, Fields};
+use super::html;
 use super::ir::{Block, Document, Inline, Table, TableCell};
 use super::links::{file_stem, join_normalised, parent, percent_decode, strip_notion_id};
 use super::parse::{self, ParseOptions};
@@ -421,6 +422,11 @@ impl DocsSource for MarkdownFamily {
                     remove_title_heading(&mut document, &page.title);
                 }
                 document
+            }
+            // A Markdown family reads no HTML pages; one would read as plain
+            // HTML.
+            Body::Html(html) => {
+                html::read_document(html, &[], &html::DefaultDialect, resolver, notes)
             }
             Body::Csv(Some(text)) => database(text, notes),
             Body::Csv(None) | Body::Empty => Document::default(),

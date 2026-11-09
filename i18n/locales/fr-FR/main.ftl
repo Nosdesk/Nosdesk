@@ -10398,6 +10398,51 @@ docs-import-note-web-images-not-fetched = { $count ->
    *[other] { $count } images du web n'ont pas pu être téléchargées. Le texte alternatif est conservé.
 }
 # MT: pending native review (fr-FR)
+docs-import-note-expands-shown-open = { $count ->
+    [one] 1 section repliable est affichée ouverte
+   *[other] { $count } sections repliables sont affichées ouvertes
+}
+# MT: pending native review (fr-FR)
+docs-import-note-status-as-text = { $count ->
+    [one] 1 étiquette de statut est devenue du texte en gras
+   *[other] { $count } étiquettes de statut sont devenues du texte en gras
+}
+# MT: pending native review (fr-FR)
+docs-import-note-jira-as-links = { $count ->
+    [one] 1 ticket Jira est devenu un lien
+   *[other] { $count } tickets Jira sont devenus des liens
+}
+# MT: pending native review (fr-FR)
+docs-import-note-macros-removed = { $count ->
+    [one] 1 macro sans équivalent a été supprimée
+   *[other] { $count } macros sans équivalent ont été supprimées
+}
+# MT: pending native review (fr-FR)
+docs-import-note-layout-flattened = { $count ->
+    [one] 1 mise en page est devenue son contenu dans l'ordre de lecture
+   *[other] { $count } mises en page sont devenues leur contenu dans l'ordre de lecture
+}
+# MT: pending native review (fr-FR)
+docs-import-note-includes-as-links = { $count ->
+    [one] 1 page incluse est devenue un lien vers cette page
+   *[other] { $count } pages incluses sont devenues des liens vers ces pages
+}
+# MT: pending native review (fr-FR)
+docs-import-note-diagrams-as-images = { $count ->
+    [one] 1 diagramme est devenu son image d'aperçu
+   *[other] { $count } diagrammes sont devenus leurs images d'aperçu
+}
+# MT: pending native review (fr-FR)
+docs-import-note-diagrams-left-out = { $count ->
+    [one] 1 diagramme sans image d'aperçu est devenu son nom
+   *[other] { $count } diagrammes sans image d'aperçu sont devenus leurs noms
+}
+# MT: pending native review (fr-FR)
+docs-import-note-emoji-as-text = { $count ->
+    [one] 1 émoticône est devenue un emoji ou son nom
+   *[other] { $count } émoticônes sont devenues des emoji ou leurs noms
+}
+# MT: pending native review (fr-FR)
 docs-import-image-unreadable = n'a pas pu être lue
 # MT: pending native review (fr-FR)
 docs-import-image-too-large = dépasse 10 Mo

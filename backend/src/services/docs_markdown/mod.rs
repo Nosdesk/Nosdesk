@@ -119,6 +119,26 @@ pub enum NoteCode {
     /// An image linked from the web couldn't be downloaded; its alt text is
     /// kept.
     WebImagesNotFetched,
+    /// A collapsible section became its title in bold with its content
+    /// shown.
+    ExpandsShownOpen,
+    /// A status label became its text in bold.
+    StatusAsText,
+    /// A Jira issue became a link to the issue.
+    JiraAsLinks,
+    /// A macro with no equivalent (a table of contents, a page tree) was
+    /// removed.
+    MacrosRemoved,
+    /// A column or section layout became its content in reading order.
+    LayoutFlattened,
+    /// An included page became a link to that page.
+    IncludesAsLinks,
+    /// A diagram became its preview image.
+    DiagramsAsImages,
+    /// A diagram with no preview image became its name.
+    DiagramsLeftOut,
+    /// An emoticon became an emoji or its name.
+    EmojiAsText,
 }
 
 /// Degrade counts by code. Ordered, so reports and tests are stable.
