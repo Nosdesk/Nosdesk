@@ -4447,6 +4447,11 @@ import-review-notice-no-key = { $count ->
    *[other] { $count } rijen hebben geen activalabel of serienummer. Als u dit bestand opnieuw importeert, worden ze opnieuw aangemaakt.
    }
 # MT: pending native review (nl-NL)
+import-review-notice-restore-changed-since = { $count ->
+    [one] 1 waarde is sinds deze import gewijzigd. Die blijft zoals hij is.
+   *[other] { $count } waarden zijn sinds deze import gewijzigd. Die blijven zoals ze zijn.
+   }
+# MT: pending native review (nl-NL)
 import-review-notice-location-snapped = { $count ->
     [one] 1 locatie komt overeen met een bestaande spelling.
    *[other] { $count } locaties komen overeen met een bestaande spelling.
@@ -4863,6 +4868,10 @@ import-detail-mapping = Koppeling
 # MT: pending native review (nl-NL)
 import-detail-kept-30-days = Details worden 30 dagen bewaard. Aantallen, opties en de koppeling blijven.
 # MT: pending native review (nl-NL)
+import-detail-restores = Herstelt
+# MT: pending native review (nl-NL)
+import-detail-restored-by = Hersteld door
+# MT: pending native review (nl-NL)
 import-detail-expired = Dit concept is niet geïmporteerd en kan niet worden hervat.
 # MT: pending native review (nl-NL)
 import-detail-load-failed = Deze import is niet geladen.
@@ -5041,6 +5050,18 @@ import-previous-help-blank = { $count ->
 import-previous-none = Geen updates in deze import
 # MT: pending native review (nl-NL)
 import-previous-failed = De vorige waarden konden niet worden gedownload.
+# MT: pending native review (nl-NL)
+import-restore = Vorige waarden herstellen
+# MT: pending native review (nl-NL)
+import-restore-failed = Het herstel kon niet worden gestart.
+# MT: pending native review (nl-NL)
+import-restore-nothing = Niets te herstellen. Elke waarde die deze import schreef, is sindsdien gewijzigd of was eerder leeg.
+# MT: pending native review (nl-NL)
+import-restore-assets-only = Vorige waarden worden alleen bewaard voor imports van activa.
+# MT: pending native review (nl-NL)
+import-restore-not-committed = Deze import is niet doorgevoerd en heeft dus niets gewijzigd.
+# MT: pending native review (nl-NL)
+import-restore-busy = Deze import wordt gewijzigd. Probeer het zo opnieuw.
 # MT: pending native review (nl-NL)
 import-field-assets-name = Naam
 # MT: pending native review (nl-NL)

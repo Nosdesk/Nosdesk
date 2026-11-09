@@ -107,6 +107,7 @@ fn committed_users_job(conn: &mut common::TestPooledConn, ws: &common::Workspace
                 file_path: "imports/none".to_string(),
                 created_by: Some(ws.admin_uuid),
                 upload_of: None,
+                restore_of: None,
             },
         )?;
         let ctx = ImportContext {

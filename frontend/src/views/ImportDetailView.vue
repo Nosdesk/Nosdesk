@@ -8,6 +8,9 @@
  * the page then shows the counts, options and mapping, and says so. A
  * draft opens in the import wizard instead; one past its 30 days can't be
  * resumed and shows its state only.
+ *
+ * An asset import's updates can be put back: Restore previous values makes
+ * a draft that opens on Review, and each page links to the other.
  */
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -33,13 +36,14 @@ import webhookService from '@nosdesk/core/services/webhookService'
 
 import {
   STATE_KEY,
+  detailPath,
   detailsKept,
   fileLabel,
   optionsLine,
   reportOffered,
   resumeTarget,
 } from '@/components/import/historyModel'
-import { errorBody, refusalText } from '@/components/import/refusals'
+import { errorBody, refusalText, restoreRefusalText } from '@/components/import/refusals'
 import { previousValuesHelp, removalState } from '@/components/import/removeModel'
 import { webhookHearsAssets } from '@/components/import/reviewModel'
 
@@ -225,6 +229,30 @@ async function downloadPrevious() {
   }
 }
 
+/** Restore previous values: a draft putting back the values this import
+ *  replaced, opened on Review in the wizard. A restore still open is
+ *  answered instead of a second one. */
+const restoring = ref(false)
+async function restorePrevious() {
+  if (!job.value || restoring.value) return
+  restoring.value = true
+  errorMessage.value = ''
+  try {
+    const draft = await importService.restore(job.value.id)
+    queryCache.invalidateQueries({ key: ['import-jobs'] })
+    router.push(resumeTarget(draft.id))
+  } catch (e) {
+    errorMessage.value = restoreRefusalText(t, errorBody(e)) ?? t('import-restore-failed')
+  } finally {
+    restoring.value = false
+  }
+}
+
+/** "Import on 7 Nov" for a linked import. */
+function importOn(at: string): string {
+  return t('import-detail-title', { date: formatCompactDate(at) })
+}
+
 /** "Imported", or "Imported · 398 of 407 assets removed". */
 const stateLabel = computed(() => {
   const j = job.value
@@ -269,6 +297,22 @@ const linkClass =
           <dd class="text-primary" data-test="import-detail-state">
             {{ stateLabel }}
           </dd>
+          <template v-if="job.restores">
+            <dt class="text-tertiary">{{ $t('import-detail-restores') }}</dt>
+            <dd class="text-primary">
+              <RouterLink :class="linkClass" :to="detailPath(job.restores.id)" data-test="import-detail-restores">
+                {{ importOn(job.restores.at) }}
+              </RouterLink>
+            </dd>
+          </template>
+          <template v-if="job.restored_by">
+            <dt class="text-tertiary">{{ $t('import-detail-restored-by') }}</dt>
+            <dd class="text-primary">
+              <RouterLink :class="linkClass" :to="detailPath(job.restored_by.id)" data-test="import-detail-restored-by">
+                {{ importOn(job.restored_by.at) }}
+              </RouterLink>
+            </dd>
+          </template>
           <template v-if="options">
             <dt class="text-tertiary">{{ $t('import-detail-options') }}</dt>
             <dd class="text-primary break-words">{{ options }}</dd>
@@ -341,6 +385,17 @@ const linkClass =
                 @click="downloadPrevious"
               >
                 {{ $t('import-previous-download') }}
+              </Button>
+              <Button
+                v-if="previous"
+                variant="secondary"
+                icon="restore"
+                :disabled="previous.rows === 0"
+                :loading="restoring"
+                data-test="import-detail-restore"
+                @click="restorePrevious"
+              >
+                {{ $t('import-restore') }}
               </Button>
               <span v-if="previous && previous.rows === 0" class="text-xs text-tertiary" data-test="import-detail-previous-none">
                 {{ $t('import-previous-none') }}

@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   errorReport: vi.fn(),
   previousValues: vi.fn(),
   nextSheet: vi.fn(),
+  restore: vi.fn(),
 }))
 vi.mock('@nosdesk/core/services/importService', () => ({
   importJobQueryKey: (id: string) => ['import-job', id],
@@ -23,6 +24,7 @@ vi.mock('@nosdesk/core/services/importService', () => ({
     errorReport: (...a: unknown[]) => api.errorReport(...a),
     previousValues: (...a: unknown[]) => api.previousValues(...a),
     nextSheet: (...a: unknown[]) => api.nextSheet(...a),
+    restore: (...a: unknown[]) => api.restore(...a),
   },
 }))
 const hooks = vi.hoisted(() => ({ list: vi.fn() }))
@@ -196,6 +198,63 @@ describe('ImportDetailView', () => {
     expect(wrapper!.find('[data-test="import-detail-previous"]').attributes('disabled')).toBeDefined()
     expect(wrapper!.find('[data-test="import-detail-previous-none"]').text()).toBe('import-previous-none')
     expect(wrapper!.find('[data-test="import-detail-previous-help"]').exists()).toBe(false)
+  })
+
+  it('restores the previous values in a draft opened in the wizard', async () => {
+    api.restore.mockResolvedValue(job({ id: 'job-2', status: 'dry_run_done', state: 'draft', restore_of: 'job-1' }))
+    await open(job({ previous_values: { rows: 2, blank_before: 0 } }))
+    const restore = wrapper!.find('[data-test="import-detail-restore"]')
+    expect(restore.text()).toBe('import-restore')
+    expect(restore.attributes('disabled')).toBeUndefined()
+    await restore.trigger('click')
+    await flushPromises()
+    expect(api.restore).toHaveBeenCalledWith('job-1')
+    expect(router.currentRoute.value.path).toBe('/admin/data-import/csv')
+    expect(router.currentRoute.value.query.job).toBe('job-2')
+  })
+
+  it('has nothing to restore without updates, and none for a pruned or users import', async () => {
+    await open(job({ previous_values: { rows: 0, blank_before: 0 } }))
+    expect(wrapper!.find('[data-test="import-detail-restore"]').attributes('disabled')).toBeDefined()
+
+    wrapper!.unmount()
+    await open(job({ id: 'job-2', pruned_at: '2026-11-15T00:00:00Z' }))
+    expect(wrapper!.find('[data-test="import-detail-restore"]').exists()).toBe(false)
+
+    wrapper!.unmount()
+    await open(job({ id: 'job-3', job_type: 'users', previous_values: { rows: 2, blank_before: 0 } }))
+    expect(wrapper!.find('[data-test="import-detail-restore"]').exists()).toBe(false)
+  })
+
+  it('words a refused restore and stays on the page', async () => {
+    api.restore.mockRejectedValue({
+      response: { status: 409, data: { code: 'import_nothing_to_restore', error: 'nothing' } },
+    })
+    await open(job({ previous_values: { rows: 2, blank_before: 0 } }))
+    await wrapper!.find('[data-test="import-detail-restore"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('import-restore-nothing')
+    expect(router.currentRoute.value.path).toBe('/admin/data-import/imports/job-1')
+  })
+
+  it('links a restore and the import it restores to each other', async () => {
+    await open(
+      job({
+        restore_of: 'job-0',
+        restores: { id: 'job-0', at: '2026-11-07T00:00:00Z' },
+        restored_by: { id: 'job-9', at: '2026-11-09T00:00:00Z' },
+      }),
+    )
+    const restores = wrapper!.find('[data-test="import-detail-restores"]')
+    expect(restores.text()).toBe('import-detail-title')
+    expect(restores.attributes('href')).toBe('/admin/data-import/imports/job-0')
+    const restoredBy = wrapper!.find('[data-test="import-detail-restored-by"]')
+    expect(restoredBy.attributes('href')).toBe('/admin/data-import/imports/job-9')
+
+    wrapper!.unmount()
+    await open(job({ id: 'job-2' }))
+    expect(wrapper!.find('[data-test="import-detail-restores"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-test="import-detail-restored-by"]').exists()).toBe(false)
   })
 
   it('shows the removal result in the state and in place of the button', async () => {

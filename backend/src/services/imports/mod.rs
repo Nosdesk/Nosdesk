@@ -24,6 +24,7 @@ pub mod previous;
 pub mod refusal;
 pub mod remove;
 pub mod report;
+pub mod restore;
 pub mod safe_cells;
 pub mod saved;
 pub mod sign_in;

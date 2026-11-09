@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { FluentBundle, FluentResource } from '@fluent/bundle'
 
 import enUS from '../../../../../i18n/locales/en-US/main.ftl?raw'
-import { errorBody, refusalText, removalRefusalText } from '../refusals'
+import { errorBody, refusalText, removalRefusalText, restoreRefusalText } from '../refusals'
 import { choiceLabel, localisesChoices } from '../choiceLabels'
 
 const t = (key: string, args?: Record<string, string | number>) =>
@@ -36,6 +36,18 @@ describe('refusals', () => {
     )
     expect(removalRefusalText(t, { error: 'English', code: 'import_busy' })).toBeNull()
     expect(removalRefusalText(t, undefined)).toBeNull()
+  })
+
+  it('words a refused restore, and any other refusal as refusals are', () => {
+    const code = (c: string) => ({ error: 'English', code: c })
+    expect(restoreRefusalText(t, code('import_nothing_to_restore'))).toBe('import-restore-nothing')
+    expect(restoreRefusalText(t, code('import_previous_values_assets_only'))).toBe('import-restore-assets-only')
+    expect(restoreRefusalText(t, code('import_not_committed'))).toBe('import-restore-not-committed')
+    expect(restoreRefusalText(t, code('import_details_pruned'))).toBe('import-detail-kept-30-days')
+    expect(restoreRefusalText(t, code('import_busy'))).toBe('import-restore-busy')
+    expect(restoreRefusalText(t, code('import_file_missing'))).toBe('import-file-missing')
+    expect(restoreRefusalText(t, code('later'))).toBe('English')
+    expect(restoreRefusalText(t, undefined)).toBeNull()
   })
 
   it('reads the body of a failed request', () => {
@@ -105,6 +117,15 @@ describe('the en-US wording', () => {
     expect(refusalText(real, { code: 'import_expired', args: {} })).toBe("This import can't be resumed. Start a new one.")
     expect(refusalText(real, { code: 'docs_import_collection_missing', args: {} })).toBe(
       "The collection to import into no longer exists. Choose another.",
+    )
+  })
+
+  it('words the values a restore leaves as they are', () => {
+    expect(real('import-review-notice-restore-changed-since', { count: 1 })).toBe(
+      "1 value changed since this import. It's left as it is.",
+    )
+    expect(real('import-review-notice-restore-changed-since', { count: 3 })).toBe(
+      "3 values changed since this import. They're left as they are.",
     )
   })
 

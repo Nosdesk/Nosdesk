@@ -939,6 +939,7 @@ diesel::table! {
         removed_by -> Nullable<Uuid>,
         remove_result -> Nullable<Jsonb>,
         upload_of -> Nullable<Uuid>,
+        restore_of -> Nullable<Uuid>,
     }
 }
 

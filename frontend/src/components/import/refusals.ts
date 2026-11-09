@@ -156,3 +156,23 @@ export function docsActionRefusalText(t: Translate, body: ErrorBody | undefined,
       return null
   }
 }
+
+/** Why Restore previous values was refused, in the viewer's language; any
+ *  other refusal as refusalText words it. `null` for a failure that isn't
+ *  a refusal. */
+export function restoreRefusalText(t: Translate, body: ErrorBody | undefined): string | null {
+  switch (body?.code) {
+    case 'import_nothing_to_restore':
+      return t('import-restore-nothing')
+    case 'import_previous_values_assets_only':
+      return t('import-restore-assets-only')
+    case 'import_not_committed':
+      return t('import-restore-not-committed')
+    case 'import_details_pruned':
+      return t('import-detail-kept-30-days')
+    case 'import_busy':
+      return t('import-restore-busy')
+    default:
+      return refusalText(t, body)
+  }
+}

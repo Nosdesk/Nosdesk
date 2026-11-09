@@ -270,6 +270,35 @@ impl ImportSummary {
         summary.finish()
     }
 
+    /// The counts as the commit came out. A row the check planned as an
+    /// update that the commit recorded as unchanged (its write left every
+    /// field reading as it did, as a link to another model of the same name
+    /// does) moves from the updated count to the unchanged one, and its
+    /// planned changes leave What changes. Whether anything moved.
+    pub fn settle_committed(&mut self, planned: &[RowResult], committed: &[RowResult]) -> bool {
+        let unchanged: std::collections::HashSet<usize> = committed
+            .iter()
+            .filter(|r| r.outcome == RowOutcome::Unchanged)
+            .map(|r| r.row)
+            .collect();
+        let mut moved = false;
+        for row in planned
+            .iter()
+            .filter(|r| r.outcome == RowOutcome::Update && unchanged.contains(&r.row))
+        {
+            moved = true;
+            self.would_update = self.would_update.saturating_sub(1);
+            self.unchanged += 1;
+            for field in row.fields_written.keys() {
+                if let Some(change) = self.changes.iter_mut().find(|c| &c.field == field) {
+                    change.count = change.count.saturating_sub(1);
+                }
+            }
+        }
+        self.changes.retain(|c| c.count > 0);
+        moved
+    }
+
     /// Count the errors, group them, and cap the stored list.
     pub fn finish(mut self) -> Self {
         self.errors_total = self.errors.len();
