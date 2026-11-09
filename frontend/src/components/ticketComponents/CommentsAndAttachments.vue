@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { formatDate, formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import { htmlHasText, htmlText } from '@nosdesk/core/utils/inertHtml';
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useFluent } from 'fluent-vue';
 import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import Icon from "@/components/common/Icon.vue";
+import Button from "@/components/common/Button.vue";
+import Spinner from "@/components/common/Spinner.vue";
 import SimpleEditor from "@/components/common/SimpleEditor.vue";
 import { referencedTicketIds } from "@/components/editor/ticketLinkPlugin";
 import * as pool from "@nosdesk/core/sync/pool";
@@ -21,7 +23,7 @@ import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePi
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 import { resendClientId, useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
-import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
+import { useTicketUiStore, type StagedAttachment } from "@nosdesk/core/stores/ticketUi";
 import { useToastStore } from "@nosdesk/core/stores/toast";
 import {
     disallowedFiles,
@@ -82,7 +84,6 @@ const draftsStore = useTicketDraftsStore();
 const uiStore = useTicketUiStore();
 
 const localContent = ref<string>("");
-const localAttachments = ref<File[]>([]);
 const localIsInternal = ref<boolean>(false);
 
 const newCommentContent = computed<string>({
@@ -118,19 +119,62 @@ const isInternal = computed<boolean>({
     },
 });
 
-const newAttachments = computed<File[]>({
-    get: () =>
-        props.ticketId !== undefined
-            ? uiStore.getAttachments(props.ticketId)
-            : localAttachments.value,
-    set: (value) => {
-        if (props.ticketId !== undefined) {
-            uiStore.setAttachments(props.ticketId, value);
-        } else {
-            localAttachments.value = value;
-        }
-    },
+// Staged files live in `useTicketUiStore`, which uploads each one as it is
+// staged. Without a ticket they go under a key of this composer's own (ticket
+// ids are positive) and are dropped with it.
+const localStageKey = -Math.floor(Math.random() * 1e9) - 1;
+const stageKey = computed<number>(() => props.ticketId ?? localStageKey);
+const newAttachments = computed<StagedAttachment[]>(() =>
+    uiStore.getAttachments(stageKey.value),
+);
+onBeforeUnmount(() => {
+    if (props.ticketId === undefined) uiStore.clearAttachments(localStageKey);
 });
+
+// Every staged file has uploaded. Send waits for this: the reply goes out
+// with the uploaded ids, so a file still uploading or one that failed holds
+// it until the upload finishes, is retried or the file is removed.
+const uploadsPending = computed(() =>
+    newAttachments.value.some((a) => a.status === "queued" || a.status === "uploading"),
+);
+const uploadsFailed = computed(() =>
+    newAttachments.value.some((a) => a.status === "failed"),
+);
+
+const removeStaged = (entry: StagedAttachment) =>
+    uiStore.removeAttachment(stageKey.value, entry.key);
+const retryStaged = (entry: StagedAttachment) =>
+    uiStore.retryAttachment(stageKey.value, entry.key);
+
+/** How far an upload has got, as a whole percentage, or null when unknown. */
+const uploadPercent = (entry: StagedAttachment): number | null =>
+    entry.total ? Math.min(100, Math.floor((entry.loaded / entry.total) * 100)) : null;
+
+/** Why a file didn't upload, for the line under its tile. */
+const uploadFailureText = (entry: StagedAttachment): string => {
+    const name = entry.file.name;
+    switch (entry.failure) {
+        case "type-not-allowed":
+            return t("ticket-comments-attachment-type-not-allowed", { name });
+        case "too-large": {
+            const limit = uploadLimitBytes();
+            return limit == null
+                ? t("ticket-comments-upload-too-large", { name })
+                : t("ticket-comments-attachment-too-large", {
+                      name,
+                      limit: formatUploadLimitMb(limit),
+                  });
+        }
+        case "invalid-name":
+            return t("ticket-comments-upload-invalid-name", { name });
+        case "busy":
+            return t("ticket-comments-upload-busy");
+        case "offline":
+            return t("ticket-comments-upload-offline", { name });
+        default:
+            return t("ticket-comments-upload-failed", { name });
+    }
+};
 
 const emit = defineEmits<{
     (
@@ -138,7 +182,8 @@ const emit = defineEmits<{
         value: {
             content: string;
             user_uuid: string;
-            files: File[];
+            /** Each already uploaded; the reply claims them by id. */
+            attachments: StagedAttachment[];
             is_internal: boolean;
             /** Set when this is a reply that failed to send, put back. */
             client_id?: string;
@@ -193,11 +238,24 @@ function insertCannedResponse(html: string) {
         : html;
 }
 
-// There is something to send: real text or at least one staged attachment.
-// Greys out + disables the send button otherwise (mirrors the addComment guard).
+// There is something to send (real text or at least one staged attachment)
+// and every staged file has uploaded. Greys out + disables the send button
+// otherwise; addComment checks it too, since Enter and the video tile's
+// Submit don't go through the button.
 const canSubmit = computed<boolean>(
-    () => htmlHasText(newCommentContent.value) || newAttachments.value.length > 0,
+    () =>
+        (htmlHasText(newCommentContent.value) || newAttachments.value.length > 0) &&
+        !uploadsPending.value &&
+        !uploadsFailed.value,
 );
+
+const submitTitle = computed<string>(() => {
+    if (uploadsPending.value) return t("ticket-comments-submit-waiting-uploads");
+    if (uploadsFailed.value) return t("ticket-comments-submit-failed-uploads");
+    return isInternal.value
+        ? t("ticket-comments-submit-note")
+        : t("ticket-comments-submit-reply");
+});
 
 // Link suggestions: tickets the last posted comment mentioned that are
 // not yet linked to this one. A mention is often "see #123 for context",
@@ -231,18 +289,21 @@ watch(
 );
 
 const addComment = () => {
-    if (!htmlHasText(newCommentContent.value) && newAttachments.value.length === 0)
-        return;
+    if (!canSubmit.value) return;
 
+    const clientId =
+        props.ticketId !== undefined
+            ? resendClientId(
+                  draftsStore.getDraft(props.ticketId),
+                  newAttachments.value.map((a) => a.file),
+              )
+            : undefined;
     emit("addComment", {
         content: newCommentContent.value,
         user_uuid: props.currentUser,
-        files: newAttachments.value,
+        attachments: uiStore.takeAttachments(stageKey.value),
         is_internal: isInternal.value,
-        client_id:
-            props.ticketId !== undefined
-                ? resendClientId(draftsStore.getDraft(props.ticketId), newAttachments.value)
-                : undefined,
+        client_id: clientId,
     });
 
     if (props.ticketId !== undefined) {
@@ -256,7 +317,6 @@ const addComment = () => {
     // defaults back to public and a tech has to opt in each time. A reply
     // that fails to send comes back whole (see restoreUnsentReply).
     newCommentContent.value = "";
-    newAttachments.value = [];
     isInternal.value = false;
 };
 
@@ -314,13 +374,14 @@ const withinUploadLimit = (files: File[]): File[] => {
 
 /**
  * Keep the files that fit, with those already on the reply, under the
- * transport's cap on one request (the mobile app's), saying which don't. All
- * of a reply's attachments go up in one request.
+ * transport's cap (the mobile app's), saying which don't. Each file uploads on
+ * its own request, one at a time in the app; the reply's total stays under
+ * the cap until the app's uploads stop going through its bridge.
  */
 const withinTransportCap = (files: File[]): File[] => {
     const cap = getTransportUploadCap();
     if (cap == null) return files;
-    let total = newAttachments.value.reduce((sum, file) => sum + file.size, 0);
+    let total = newAttachments.value.reduce((sum, a) => sum + a.file.size, 0);
     const kept: File[] = [];
     for (const file of files) {
         if (total + file.size > cap) {
@@ -339,9 +400,10 @@ const withinTransportCap = (files: File[]): File[] => {
 };
 
 /**
- * Stage picked, dropped or pasted files on the reply: HEIC images are
- * converted, audio goes as is, and anything over the upload limit is refused,
- * before conversion and again after it (a converted image can grow).
+ * Stage picked, dropped or pasted files on the reply, each uploading at once:
+ * HEIC images are converted, audio goes as is, and anything over the upload
+ * limit is refused, before conversion and again after it (a converted image
+ * can grow).
  */
 const stageFiles = async (files: File[]) => {
     const allowed = withinUploadLimit(files);
@@ -350,13 +412,10 @@ const stageFiles = async (files: File[]) => {
     );
     const audioFiles = allowed.filter((file) => file.type.startsWith("audio/"));
 
-    // Reassign rather than mutate-in-place: `newAttachments` is a writable
-    // computed backed by `useTicketUiStore`, and a `.push()` would skip the
-    // setter that writes to the store.
-    newAttachments.value = [
-        ...newAttachments.value,
-        ...withinTransportCap([...withinUploadLimit(processedFiles), ...audioFiles]),
-    ];
+    uiStore.stageFiles(
+        stageKey.value,
+        withinTransportCap([...withinUploadLimit(processedFiles), ...audioFiles]),
+    );
 };
 
 const handleFileUpload = async (event: Event) => {
@@ -401,7 +460,7 @@ const handleRecordingComplete = (recording: {
         (audioFile as any)._transcription = recording.transcription;
     }
 
-    newAttachments.value = [...newAttachments.value, audioFile];
+    uiStore.stageFiles(stageKey.value, [audioFile]);
     showRecordingInterface.value = false;
 };
 
@@ -642,12 +701,12 @@ const handlePastedFiles = async (files: File[]) => {
                             class="flex flex-wrap gap-2"
                         >
                             <AttachmentPreview
-                                v-for="(file, index) in newAttachments"
-                                :key="index"
+                                v-for="entry in newAttachments"
+                                :key="entry.key"
                                 :attachment="{
-                                    url: uploadService.createPreviewUrl(file),
-                                    name: file.name,
-                                    transcription: (file as any)._transcription,
+                                    url: entry.previewUrl,
+                                    name: entry.file.name,
+                                    transcription: (entry.file as any)._transcription,
                                 }"
                                 :author="props.currentUser"
                                 :timestamp="
@@ -655,9 +714,83 @@ const handlePastedFiles = async (files: File[]) => {
                                 "
                                 :is-new="true"
                                 :show-delete="true"
-                                @delete="newAttachments = newAttachments.filter((_, i) => i !== index)"
+                                @delete="removeStaged(entry)"
                                 @submit="addComment"
-                            />
+                            >
+                                <!-- The file's upload: progress and a cancel
+                                     while it goes, the reason and a retry if
+                                     it failed. Nothing once it has uploaded.
+                                     `w-0 min-w-full` keeps the row to the
+                                     card's width rather than widening it. -->
+                                <template #status>
+                                    <div
+                                        v-if="entry.status === 'queued' || entry.status === 'uploading'"
+                                        class="w-0 min-w-full flex flex-col gap-1"
+                                        data-testid="upload-progress"
+                                    >
+                                        <div
+                                            v-if="uploadPercent(entry) != null"
+                                            class="w-full h-1.5 rounded-full bg-surface-hover overflow-hidden"
+                                            role="progressbar"
+                                            :aria-valuenow="uploadPercent(entry) ?? 0"
+                                            aria-valuemin="0"
+                                            aria-valuemax="100"
+                                            :aria-label="$t('ticket-comments-upload-progress-label', { name: entry.file.name })"
+                                        >
+                                            <span
+                                                class="block h-full bg-accent rounded-full transition-[width] duration-200"
+                                                :style="{ width: `${uploadPercent(entry)}%` }"
+                                            />
+                                        </div>
+                                        <div class="flex items-center gap-2 text-xs text-tertiary">
+                                            <Spinner v-if="uploadPercent(entry) == null" size="xs" />
+                                            <span class="flex-1 min-w-0 truncate">
+                                                {{
+                                                    entry.status === 'queued'
+                                                        ? $t('ticket-comments-upload-waiting')
+                                                        : uploadPercent(entry) == null
+                                                          ? $t('ticket-comments-upload-uploading')
+                                                          : $t('ticket-comments-upload-percent', { percent: uploadPercent(entry) ?? 0 })
+                                                }}
+                                            </span>
+                                            <Button
+                                                variant="ghost"
+                                                size="xs"
+                                                :aria-label="$t('ticket-comments-upload-cancel-label', { name: entry.file.name })"
+                                                @click.stop="removeStaged(entry)"
+                                            >
+                                                {{ $t('common-cancel') }}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <div
+                                        v-else-if="entry.status === 'failed'"
+                                        class="w-0 min-w-full flex flex-col gap-1 text-xs"
+                                        data-testid="upload-failed"
+                                    >
+                                        <span class="text-status-error" role="alert">
+                                            {{ uploadFailureText(entry) }}
+                                        </span>
+                                        <div class="flex items-center gap-2">
+                                            <Button
+                                                variant="secondary"
+                                                size="xs"
+                                                icon="refresh"
+                                                @click.stop="retryStaged(entry)"
+                                            >
+                                                {{ $t('ticket-comments-upload-retry') }}
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="xs"
+                                                @click.stop="removeStaged(entry)"
+                                            >
+                                                {{ $t('common-remove') }}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </AttachmentPreview>
                         </div>
 
                         <!-- Voice Recorder -->
@@ -807,7 +940,7 @@ const handlePastedFiles = async (files: File[]) => {
                                             : 'bg-accent text-on-accent hover:opacity-90'
                                 ]"
                                 :aria-label="isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply')"
-                                :title="isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply')"
+                                :title="submitTitle"
                             >
                                 <Icon name="arrowUp" size="md" />
                             </button>

@@ -6322,6 +6322,32 @@ ticket-comments-attachment-too-large = { $name } is te groot om toe te voegen. B
 ticket-comments-attachments-total-too-large = { $name } is niet toegevoegd: de bijlagen van een antwoord mogen samen maximaal { $limit } MB zijn.
 # MACHINE TRANSLATION, pending native review
 ticket-comments-attachment-type-not-allowed = { $name } kan niet worden toegevoegd: dit type bestand is niet toegestaan.
+# MT: pending native review (nl-NL)
+ticket-comments-upload-waiting = Wacht op uploaden
+# MT: pending native review (nl-NL)
+ticket-comments-upload-uploading = Bezig met uploaden
+# MT: pending native review (nl-NL)
+ticket-comments-upload-percent = Uploaden { $percent }%
+# MT: pending native review (nl-NL)
+ticket-comments-upload-progress-label = { $name } uploaden
+# MT: pending native review (nl-NL)
+ticket-comments-upload-cancel-label = Uploaden van { $name } annuleren
+# MT: pending native review (nl-NL)
+ticket-comments-upload-retry = Opnieuw proberen
+# MT: pending native review (nl-NL)
+ticket-comments-upload-too-large = { $name } is te groot om toe te voegen.
+# MT: pending native review (nl-NL)
+ticket-comments-upload-invalid-name = De naam van { $name } kan niet worden gebruikt. Wijzig de naam en probeer het opnieuw.
+# MT: pending native review (nl-NL)
+ticket-comments-upload-busy = De server is bezig met andere uploads. Probeer het zo opnieuw.
+# MT: pending native review (nl-NL)
+ticket-comments-upload-offline = { $name } is niet geüpload: de server is niet bereikbaar. Controleer je verbinding en probeer het opnieuw.
+# MT: pending native review (nl-NL)
+ticket-comments-upload-failed = { $name } is niet geüpload. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+ticket-comments-submit-waiting-uploads = Wachten tot de bestanden zijn geüpload
+# MT: pending native review (nl-NL)
+ticket-comments-submit-failed-uploads = Probeer de bestanden die niet zijn geüpload opnieuw of verwijder ze
 # MACHINE TRANSLATION, pending native review
 ticket-comments-send-failed-file-type =
     { $kind ->

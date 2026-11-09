@@ -6332,6 +6332,32 @@ ticket-comments-attachment-too-large = { $name } est trop volumineux pour être 
 ticket-comments-attachments-total-too-large = { $name } n'a pas été joint : les pièces jointes d'une réponse peuvent faire jusqu'à { $limit } Mo au total.
 # MACHINE TRANSLATION, pending native review
 ticket-comments-attachment-type-not-allowed = { $name } ne peut pas être joint : ce type de fichier n'est pas autorisé.
+# MT: pending native review (fr-FR)
+ticket-comments-upload-waiting = En attente d'envoi
+# MT: pending native review (fr-FR)
+ticket-comments-upload-uploading = Envoi en cours
+# MT: pending native review (fr-FR)
+ticket-comments-upload-percent = Envoi : { $percent } %
+# MT: pending native review (fr-FR)
+ticket-comments-upload-progress-label = Envoi de { $name }
+# MT: pending native review (fr-FR)
+ticket-comments-upload-cancel-label = Annuler l'envoi de { $name }
+# MT: pending native review (fr-FR)
+ticket-comments-upload-retry = Réessayer
+# MT: pending native review (fr-FR)
+ticket-comments-upload-too-large = { $name } est trop volumineux pour être joint.
+# MT: pending native review (fr-FR)
+ticket-comments-upload-invalid-name = Le nom de { $name } ne peut pas être utilisé. Renommez-le et réessayez.
+# MT: pending native review (fr-FR)
+ticket-comments-upload-busy = Le serveur est occupé par d'autres envois. Réessayez dans un instant.
+# MT: pending native review (fr-FR)
+ticket-comments-upload-offline = { $name } n'a pas été envoyé : le serveur est injoignable. Vérifiez votre connexion et réessayez.
+# MT: pending native review (fr-FR)
+ticket-comments-upload-failed = { $name } n'a pas été envoyé. Réessayez.
+# MT: pending native review (fr-FR)
+ticket-comments-submit-waiting-uploads = En attente de la fin de l'envoi des fichiers
+# MT: pending native review (fr-FR)
+ticket-comments-submit-failed-uploads = Réessayez ou retirez les fichiers qui n'ont pas été envoyés
 # MACHINE TRANSLATION, pending native review
 ticket-comments-send-failed-file-type =
     { $kind ->
