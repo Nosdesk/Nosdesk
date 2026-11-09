@@ -3687,7 +3687,6 @@ pub async fn restore(
         )?;
         info!(
             job_id = %updated.id,
-            restore_of = %source.id,
             rows = summary.row_count,
             "import restore started"
         );
