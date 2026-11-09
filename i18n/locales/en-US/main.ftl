@@ -4113,6 +4113,10 @@ import-review-notice-no-key = { $count ->
     [one] 1 row has no asset tag or serial number. Importing this file again would create it again.
    *[other] { $count } rows have no asset tag or serial number. Importing this file again would create them again.
    }
+import-review-notice-restore-changed-since = { $count ->
+    [one] 1 value changed since this import. It's left as it is.
+   *[other] { $count } values changed since this import. They're left as they are.
+   }
 import-review-notice-location-snapped = { $count ->
     [one] 1 location matched an existing spelling.
    *[other] { $count } locations matched an existing spelling.
@@ -4399,6 +4403,8 @@ import-detail-state = State
 import-detail-options = Options
 import-detail-mapping = Mapping
 import-detail-kept-30-days = Details kept for 30 days. Counts, options and the mapping stay.
+import-detail-restores = Restores
+import-detail-restored-by = Restored by
 import-detail-expired = This draft wasn't imported and can't be resumed.
 import-detail-load-failed = This import didn't load.
 import-review-changes-blank-before = { $count ->
@@ -4514,6 +4520,12 @@ import-previous-help-blank = { $count ->
    }
 import-previous-none = No updates in this import
 import-previous-failed = Couldn't download the previous values.
+import-restore = Restore previous values
+import-restore-failed = Couldn't start the restore.
+import-restore-nothing = Nothing to restore. Every value this import wrote has changed since, or was blank before.
+import-restore-assets-only = Previous values are kept for asset imports only.
+import-restore-not-committed = This import wasn't committed, so it changed nothing.
+import-restore-busy = This import is being changed. Try again in a moment.
 import-field-assets-name = Name
 import-field-assets-kind = Kind
 import-field-assets-asset-tag = Asset tag

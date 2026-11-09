@@ -192,6 +192,34 @@ pub fn jobs_of_upload(conn: &mut DbConnection, root: Uuid) -> QueryResult<Vec<Up
         .load(conn)
 }
 
+/// A job made by Restore previous values, as the source's page and the
+/// restore route read it.
+#[derive(Debug, Clone, Queryable)]
+pub struct RestoreJobRow {
+    pub id: Uuid,
+    pub status: String,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub pruned_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Every job that restores job `source`'s previous values, oldest first.
+// sync-audit-only: read-only
+pub fn restores_of(conn: &mut DbConnection, source: Uuid) -> QueryResult<Vec<RestoreJobRow>> {
+    use crate::schema::import_jobs::dsl as j;
+    j::import_jobs
+        .filter(j::restore_of.eq(source))
+        .order((j::created_at.asc(), j::id.asc()))
+        .select((
+            j::id,
+            j::status,
+            j::updated_at,
+            j::completed_at,
+            j::pruned_at,
+        ))
+        .load(conn)
+}
+
 /// The records a committed job created and updated
 /// (`services::imports::RecordIds`), without the rest of the job; `None`
 /// when there is no such job here or it wrote nothing.

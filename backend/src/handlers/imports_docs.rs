@@ -338,6 +338,7 @@ pub async fn upload(
                 file_path: key,
                 created_by: Some(user),
                 upload_of: None,
+                restore_of: None,
             },
         )?;
         let job = repo::update(

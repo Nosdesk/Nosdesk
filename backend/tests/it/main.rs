@@ -105,6 +105,7 @@ mod imports_mapping;
 mod imports_next_sheet;
 mod imports_people;
 mod imports_remove;
+mod imports_restore;
 mod imports_review;
 mod imports_rows;
 mod imports_saved_matches;

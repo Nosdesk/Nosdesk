@@ -914,6 +914,17 @@ impl Importer for AssetImporter {
                     },
                 );
             }
+            // An update that left every field reading as it did, added no
+            // group and moved no status (a link to another model of the
+            // same name, the manufacturer's text as it was) changed nothing
+            // the import records: the row is Unchanged.
+            if outcome == RowOutcome::Update
+                && result.fields_written.is_empty()
+                && result.groups_added.is_empty()
+                && result.transition_id.is_none()
+            {
+                result.outcome = RowOutcome::Unchanged;
+            }
             // Read back from the row's last write to the asset.
             result.observed_updated_at = Some(observed_timestamp(asset.updated_at));
             rows.push(identify(result, row, &lookups, options));
@@ -1062,6 +1073,26 @@ fn field_values(asset: &Asset, lookups: &Lookups) -> BTreeMap<String, Option<Str
         }
     }
     out
+}
+
+/// Each asset of `ids` that has a tag or a serial, with its importable
+/// fields as text by field id as [`fields_written`] records them: what
+/// Restore previous values compares an import's `after` against. An asset
+/// that is gone, or has neither key now, is left out.
+pub fn current_field_values(
+    conn: &mut DbConnection,
+    ids: &[i32],
+) -> Result<HashMap<i32, BTreeMap<String, Option<String>>>, diesel::result::Error> {
+    let lookups = Lookups::load(conn)?;
+    Ok(ids
+        .iter()
+        .filter_map(|id| {
+            lookups
+                .existing
+                .get(id)
+                .map(|asset| (*id, field_values(asset, &lookups)))
+        })
+        .collect())
 }
 
 /// What a write changed on an asset, field by field: every field it holds

@@ -4457,6 +4457,11 @@ import-review-notice-no-key = { $count ->
    *[other] { $count } lignes n'ont ni étiquette d'actif ni numéro de série. Importer ce fichier à nouveau les créerait une seconde fois.
    }
 # MT: pending native review (fr-FR)
+import-review-notice-restore-changed-since = { $count ->
+    [one] 1 valeur a changé depuis cette importation. Elle reste telle quelle.
+   *[other] { $count } valeurs ont changé depuis cette importation. Elles restent telles quelles.
+   }
+# MT: pending native review (fr-FR)
 import-review-notice-location-snapped = { $count ->
     [one] 1 emplacement correspond à une orthographe existante.
    *[other] { $count } emplacements correspondent à une orthographe existante.
@@ -4873,6 +4878,10 @@ import-detail-mapping = Correspondance
 # MT: pending native review (fr-FR)
 import-detail-kept-30-days = Détails conservés pendant 30 jours. Les chiffres, les options et la correspondance restent.
 # MT: pending native review (fr-FR)
+import-detail-restores = Rétablit
+# MT: pending native review (fr-FR)
+import-detail-restored-by = Rétablie par
+# MT: pending native review (fr-FR)
 import-detail-expired = Ce brouillon n'a pas été importé et ne peut pas être repris.
 # MT: pending native review (fr-FR)
 import-detail-load-failed = Cet import ne s'est pas chargé.
@@ -5051,6 +5060,18 @@ import-previous-help-blank = { $count ->
 import-previous-none = Aucune mise à jour dans cet import
 # MT: pending native review (fr-FR)
 import-previous-failed = Impossible de télécharger les valeurs précédentes.
+# MT: pending native review (fr-FR)
+import-restore = Rétablir les valeurs précédentes
+# MT: pending native review (fr-FR)
+import-restore-failed = Impossible de lancer le rétablissement.
+# MT: pending native review (fr-FR)
+import-restore-nothing = Rien à rétablir. Chaque valeur écrite par cette importation a changé depuis, ou était vide auparavant.
+# MT: pending native review (fr-FR)
+import-restore-assets-only = Les valeurs précédentes ne sont conservées que pour les importations d'actifs.
+# MT: pending native review (fr-FR)
+import-restore-not-committed = Cette importation n'a pas été validée, elle n'a donc rien modifié.
+# MT: pending native review (fr-FR)
+import-restore-busy = Cette importation est en cours de modification. Réessayez dans un instant.
 # MT: pending native review (fr-FR)
 import-field-assets-name = Nom
 # MT: pending native review (fr-FR)

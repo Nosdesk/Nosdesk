@@ -54,6 +54,9 @@ pub struct ImportJob {
     /// For a job made by Import the next sheet, the job its workbook was
     /// first uploaded to; `None` for that first job.
     pub upload_of: Option<Uuid>,
+    /// For a job made by Restore previous values, the import whose values
+    /// it puts back.
+    pub restore_of: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -67,6 +70,8 @@ pub struct NewImportJob {
     pub created_by: Option<Uuid>,
     /// See [`ImportJob::upload_of`].
     pub upload_of: Option<Uuid>,
+    /// See [`ImportJob::restore_of`].
+    pub restore_of: Option<Uuid>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -190,6 +195,24 @@ pub struct ImportJobResponse {
     /// detail can link to them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pages_written: Option<Vec<WrittenPage>>,
+    /// For a restore, the import whose values it puts back.
+    pub restore_of: Option<Uuid>,
+    /// For a restore, when the import it puts back was committed; filled
+    /// where a page shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restores: Option<JobLink>,
+    /// For a committed asset import, the newest committed restore of its
+    /// previous values; filled where a page shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restored_by: Option<JobLink>,
+}
+
+/// Another import a detail page links to: its id and when it was
+/// committed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct JobLink {
+    pub id: Uuid,
+    pub at: chrono::DateTime<chrono::Utc>,
 }
 
 /// A page a documentation import wrote: its page in the import's tree (by
@@ -276,6 +299,9 @@ impl From<ImportJob> for ImportJobResponse {
             next_sheet: None,
             sign_in: None,
             pages_written,
+            restore_of: job.restore_of,
+            restores: None,
+            restored_by: None,
         }
     }
 }

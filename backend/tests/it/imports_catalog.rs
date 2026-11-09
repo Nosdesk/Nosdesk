@@ -974,11 +974,37 @@ async fn a_same_name_model_relink_names_both_manufacturers() {
     assert!(r2.get("manufacturer").is_none(), "{r2}");
 
     // The commit makes the same plan and links both to Canon's FX6.
-    commit(&pool, &ws, &id).await;
+    let done = commit(&pool, &ws, &id).await;
     let canon_fx6 = stored(&pool, "R-1").expect("R-1").model_id;
     assert_ne!(canon_fx6, Some(cat.fx6));
     assert!(canon_fx6.is_some());
     let r2 = stored(&pool, "R-2").expect("R-2");
     assert_eq!(r2.model_id, canon_fx6);
     assert_eq!(r2.manufacturer.as_deref(), Some("Canon"));
+
+    // R-2 reads as it did, so the commit records it unchanged, and Done's
+    // counts and What changes say so.
+    let committed = crate::imports_attributes::rows(&pool, &ws, &id).await;
+    let row = |tag: &str| {
+        committed
+            .iter()
+            .find(|r| r["key"] == tag)
+            .unwrap_or_else(|| panic!("no row {tag} in {committed:?}"))
+            .clone()
+    };
+    assert_eq!(row("R-1")["outcome"], "update");
+    assert_eq!(row("R-2")["outcome"], "unchanged");
+    assert!(row("R-2")["fields_written"]
+        .as_object()
+        .is_none_or(|o| o.is_empty()));
+    assert_eq!(done["summary"]["would_update"], 1, "{done}");
+    assert_eq!(done["summary"]["unchanged"], 1, "{done}");
+    let model = done["summary"]["changes"]
+        .as_array()
+        .expect("changes")
+        .iter()
+        .find(|c| c["field"] == "model")
+        .cloned()
+        .expect("model change");
+    assert_eq!(model["count"], 1, "{done}");
 }

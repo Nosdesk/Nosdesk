@@ -123,3 +123,16 @@ describe('ImportReviewStep What changes', () => {
     expect(line('Location').find('[data-test="import-change-example"]').exists()).toBe(false)
   })
 })
+
+describe('ImportReviewStep notices', () => {
+  it('words the values a restore leaves as they are', () => {
+    const j = job([{ field: 'location', source_column: 'location', count: 2, constant: false }])
+    j.status = 'dry_run_done'
+    j.summary!.notices = [{ code: 'restore_changed_since', count: 3, message: '3 values changed since this import.' }]
+    wrapper = mountWithProviders(ImportReviewStep, { job: j, fields: FIELDS, mode: 'review' }, {}, [
+      [PiniaColada, {}] as never,
+    ])
+    expect(wrapper.text()).toContain('import-review-notice-restore-changed-since')
+    expect(wrapper.text()).not.toContain('3 values changed since this import.')
+  })
+})

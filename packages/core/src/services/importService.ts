@@ -308,6 +308,21 @@ export interface ImportJob {
    *  yet and how they will (the job's own read and the commit's answer);
    *  absent when nobody is waiting. */
   sign_in?: SignInStatus | null
+  /** For a restore, the import whose previous values it puts back. */
+  restore_of?: string | null
+  /** For a restore, that import and when it was committed (the job's own
+   *  read). */
+  restores?: ImportJobLink | null
+  /** For a committed asset import, its newest committed restore (the
+   *  job's own read). */
+  restored_by?: ImportJobLink | null
+}
+
+/** Another import a detail page links to. */
+export interface ImportJobLink {
+  id: string
+  /** When it was committed. */
+  at: string
 }
 
 /** Done's sign-in line for a users import. */
@@ -693,6 +708,15 @@ export const importService = {
     const { data } = await apiClient.post<ImportJob>(`/admin/import/${jobId}/next-sheet`, {
       sheet,
     })
+    return data
+  },
+
+  /** Restore previous values: a new asset draft that puts back the values
+   *  a committed import's updates replaced, where the assets still hold
+   *  what it wrote, already checked so it opens on Review. Answers the
+   *  restore still open instead of a second one. */
+  async restore(jobId: string): Promise<ImportJob> {
+    const { data } = await apiClient.post<ImportJob>(`/admin/import/${jobId}/restore`)
     return data
   },
 

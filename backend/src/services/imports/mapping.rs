@@ -151,6 +151,10 @@ pub struct StoredSource {
     /// for a job whose grid was never stored: it reads as missing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid: Option<Uuid>,
+    /// For a restore, the values its file leaves out because they changed
+    /// since the import it restores; every check notes them on Review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore_changed_since: Option<usize>,
 }
 
 /// Lowercase letters and digits only, with `#` read as "no" so `Asset #`

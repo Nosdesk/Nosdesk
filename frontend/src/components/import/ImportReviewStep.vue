@@ -171,6 +171,7 @@ function runFix(p: Problem) {
  *  location snap is What changes' footer. */
 const NOTICE_KEYS: Record<string, string> = {
   no_key: 'import-review-notice-no-key',
+  restore_changed_since: 'import-review-notice-restore-changed-since',
 }
 const notices = computed(() =>
   (summary.value.notices ?? [])

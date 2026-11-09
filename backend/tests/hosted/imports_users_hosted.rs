@@ -162,6 +162,7 @@ fn the_sign_in_line_names_the_requester_provider_on_hosted() {
                 file_path: "imports/none".to_string(),
                 created_by: Some(a.admin_uuid),
                 upload_of: None,
+                restore_of: None,
             },
         )?;
         let ctx = ImportContext {

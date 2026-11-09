@@ -40,6 +40,9 @@
 //! - `GET  /admin/import/{id}/previous-values` downloads, for an asset
 //!   import, the values its updates replaced as a file to import back
 //!   (`services::imports::previous`); 410 once the details are pruned.
+//! - `POST /admin/import/{id}/restore` makes a new asset draft from those
+//!   values, only the ones the assets still hold as the import left them,
+//!   checked and ready on Review (`services::imports::restore`).
 //! - `POST /admin/import/{id}/next-sheet` starts a new draft on another
 //!   sheet of a committed import's workbook, with nothing carried but the
 //!   file (`services::imports::next_sheet`).
@@ -80,8 +83,8 @@ use std::sync::Arc;
 use crate::errors;
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::models::{
-    ImportCounts, ImportJob, ImportJobListItem, ImportJobResponse, ImportJobUpdate, NewImportJob,
-    RemovedCounts,
+    ImportCounts, ImportJob, ImportJobListItem, ImportJobResponse, ImportJobUpdate, JobLink,
+    NewImportJob, RemovedCounts,
 };
 use crate::repository::assets::AssetDeletedObserver;
 use crate::repository::imports as repo;
@@ -93,6 +96,7 @@ use crate::services::imports::next_sheet;
 use crate::services::imports::previous;
 use crate::services::imports::refusal::Refused;
 use crate::services::imports::remove;
+use crate::services::imports::restore;
 use crate::services::imports::saved;
 use crate::services::imports::sign_in;
 use crate::services::imports::values;
@@ -169,6 +173,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/admin/import/{id}/previous-values",
         web::get().to(crate::handlers::imports::previous_values),
+    )
+    .route(
+        "/admin/import/{id}/restore",
+        web::post().to(crate::handlers::imports::restore),
     )
     .route(
         "/admin/import/{id}/next-sheet",
@@ -348,6 +356,7 @@ pub async fn upload(
                 file_path: stored_key,
                 created_by: Some(user_uuid),
                 upload_of: None,
+                restore_of: None,
             },
         )?;
 
@@ -433,6 +442,7 @@ fn suggest_for(
         suggested_mapping,
         ignored: Vec::new(),
         grid,
+        restore_changed_since: None,
     })
 }
 
@@ -1144,6 +1154,9 @@ fn plan(
         }
     }
     summary.unmapped = mapping::unmapped_columns(column_mapping, &stored.source.headers, grid);
+    if let Some(count) = stored.restore_changed_since.filter(|n| *n > 0) {
+        summary.notices.push(restore::changed_since_notice(count));
+    }
     Ok((summary, rows))
 }
 
@@ -1406,7 +1419,7 @@ pub async fn commit(
         // The catalog entries it creates are part of the plan too, and so
         // are the values rows import without (a group left off, a person
         // left unassigned), which an answer that no longer fits changes.
-        let reviewed_summary = current
+        let mut reviewed_summary = current
             .summary
             .as_ref()
             .and_then(|s| serde_json::from_value::<imports::ImportSummary>(s.clone()).ok())
@@ -1432,9 +1445,17 @@ pub async fn commit(
         let mut rows = committed.rows;
         mapping::complete_rows(&mut rows, &column_mapping, &stored.source.headers, &grid);
         let record_ids = imports::RecordIds::from_rows(&rows);
-        // What the admin answered becomes the next import's saved match.
-        let answers = saved::answers_to_save(&resolution, &committed.created);
-        saved::save(conn, job_type, answers, ctx.actor, current.id)?;
+        // What the admin answered becomes the next import's saved match. A
+        // restore's answers keep the assets' own text and teach the next
+        // import nothing.
+        if current.restore_of.is_none() {
+            let answers = saved::answers_to_save(&resolution, &committed.created);
+            saved::save(conn, job_type, answers, ctx.actor, current.id)?;
+        }
+        // Done's counts say what the commit did.
+        let committed_summary = reviewed_summary
+            .settle_committed(&fresh, &rows)
+            .then(|| serde_json::to_value(&reviewed_summary).ok());
 
         let updated = repo::update(
             conn,
@@ -1445,6 +1466,7 @@ pub async fn commit(
                 completed_at: Some(Some(chrono::Utc::now())),
                 row_results: Some(stored_rows(RowPhase::Committed, rows)),
                 record_ids: Some(serde_json::to_value(&record_ids).ok()),
+                summary: committed_summary,
                 ..Default::default()
             },
         )?;
@@ -2721,6 +2743,7 @@ pub async fn next_sheet(
                 file_path: stored_key.clone(),
                 created_by: Some(auth.user_uuid),
                 upload_of: Some(root),
+                restore_of: None,
             },
         )?;
         let stored = suggest_for(conn, job_type, source, Some(grid))?;
@@ -3223,10 +3246,13 @@ fn page_response(
     let previous = previous_values_of(conn, &job)?;
     let next = next_sheet_of(conn, &job)?;
     let sign_in = sign_in::status(conn, &job)?;
+    let (restores, restored_by) = restore_links(conn, &job)?;
     let mut response = job_response(conn, job)?;
     response.previous_values = previous;
     response.next_sheet = next;
     response.sign_in = sign_in;
+    response.restores = restores;
+    response.restored_by = restored_by;
     Ok(response)
 }
 
@@ -3352,6 +3378,335 @@ fn previous_values_of(
         .map(|(_, options)| options.key())
         .unwrap_or_default();
     Ok(Some(previous::counts(&stored.rows, key)))
+}
+
+/// For a restore, the import it puts back; for a committed asset import,
+/// the newest committed restore of it. Each with when it was committed.
+fn restore_links(
+    conn: &mut crate::db::DbConnection,
+    job: &ImportJob,
+) -> Result<(Option<JobLink>, Option<JobLink>), diesel::result::Error> {
+    let restores = match job.restore_of {
+        Some(source) => match repo::get(conn, source) {
+            Ok(source) => source.completed_at.map(|at| JobLink { id: source.id, at }),
+            Err(diesel::result::Error::NotFound) => None,
+            Err(e) => return Err(e),
+        },
+        None => None,
+    };
+    let restored_by = if job.job_type == ImportType::Assets.as_str() && job.status == "done" {
+        restore::restored_by(&repo::restores_of(conn, job.id)?)
+    } else {
+        None
+    };
+    Ok((restores, restored_by))
+}
+
+// ---- restore previous values ----
+
+/// Why a restore can't be made from a job.
+enum RestoreRefusal {
+    NotFound,
+    AssetsOnly,
+    NotCommitted,
+    Pruned,
+    NothingToRestore,
+    Busy,
+}
+
+fn restore_refused(refusal: RestoreRefusal, id: Uuid) -> HttpResponse {
+    match refusal {
+        RestoreRefusal::NotFound => errors::not_found_msg(format!("import job {id} not found")),
+        RestoreRefusal::AssetsOnly => errors::bad_request_with_code(
+            "Previous values are kept for asset imports only.",
+            "import_previous_values_assets_only",
+        ),
+        RestoreRefusal::NotCommitted => errors::conflict_with_code(
+            "This import wasn't committed, so it changed nothing.",
+            "import_not_committed",
+        ),
+        RestoreRefusal::Pruned => details_pruned(),
+        RestoreRefusal::NothingToRestore => errors::conflict_with_code(
+            "Nothing to restore: every value this import wrote has changed since, or was blank before.",
+            "import_nothing_to_restore",
+        ),
+        RestoreRefusal::Busy => errors::conflict_with_code(
+            "This import is being changed. Try again in a moment.",
+            "import_busy",
+        ),
+    }
+}
+
+/// What reading the source for a restore came to.
+enum RestoreCheck {
+    /// Make a new draft from this file.
+    Create {
+        source: ImportJob,
+        key: imports::MatchBy,
+        file: Vec<u8>,
+        changed_since: usize,
+    },
+    /// A restore of the source is open: go on with it.
+    Existing(ImportJob),
+    Refused(RestoreRefusal),
+}
+
+/// Read the source's committed rows and build the restore's file, unless a
+/// restore of it is open.
+fn restore_check(
+    conn: &mut crate::db::DbConnection,
+    id: Uuid,
+) -> Result<RestoreCheck, diesel::result::Error> {
+    let (job, stored) = match read_row_results(conn, id)? {
+        RowResultsRead::Ok(job, stored) => (job, stored),
+        RowResultsRead::NotFound => return Ok(RestoreCheck::Refused(RestoreRefusal::NotFound)),
+        RowResultsRead::NotChecked => {
+            return Ok(RestoreCheck::Refused(RestoreRefusal::NotCommitted))
+        }
+        RowResultsRead::Pruned => return Ok(RestoreCheck::Refused(RestoreRefusal::Pruned)),
+    };
+    if job.job_type != ImportType::Assets.as_str() {
+        return Ok(RestoreCheck::Refused(RestoreRefusal::AssetsOnly));
+    }
+    if job.status != "done" || stored.phase != RowPhase::Committed {
+        return Ok(RestoreCheck::Refused(RestoreRefusal::NotCommitted));
+    }
+    if let Some(draft) = restore::open_draft(&repo::restores_of(conn, job.id)?) {
+        return Ok(RestoreCheck::Existing(repo::get(conn, draft)?));
+    }
+    let key = stored_choices(&job)
+        .map(|(_, options)| options.key())
+        .unwrap_or_default();
+    let ids: Vec<i32> = stored
+        .rows
+        .iter()
+        .filter(|r| r.outcome == RowOutcome::Update)
+        .filter_map(|r| match r.record_id {
+            Some(imports::RecordId::Int(id)) => Some(id),
+            _ => None,
+        })
+        .collect();
+    let current = imports::assets::current_field_values(conn, &ids)?;
+    let fields = imports::importer_for(ImportType::Assets).fields(conn)?;
+    let importable: std::collections::HashSet<&str> =
+        fields.iter().map(|f| f.id.as_str()).collect();
+    let restorable = previous::restorable(&stored.rows, key, &current, |f| importable.contains(f));
+    if restorable.rows.is_empty() {
+        return Ok(RestoreCheck::Refused(RestoreRefusal::NothingToRestore));
+    }
+    let file = previous::csv(&restorable.rows, key).map_err(|e| {
+        diesel::result::Error::QueryBuilderError(format!("previous values file: {e}").into())
+    })?;
+    Ok(RestoreCheck::Create {
+        source: job,
+        key,
+        file,
+        changed_since: restorable.changed_since,
+    })
+}
+
+/// Restore previous values: a new asset draft that puts back the values a
+/// committed import's updates replaced, where the asset still holds what
+/// the import wrote (`services::imports::restore`). The draft gets the file
+/// as its own upload, is mapped column for column, only updates on the
+/// source's key, keeps a manufacturer or model the catalog doesn't hold as
+/// text, and is checked here, so it answers in `dry_run_done` and opens on
+/// Review. A restore of the source that is still open is answered instead
+/// of a new one.
+pub async fn restore(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    storage: ScopedStorage,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
+    let id = path.into_inner();
+
+    let (source, key, file, changed_since) = match tc.run(|conn| restore_check(conn, id)) {
+        Ok(RestoreCheck::Create {
+            source,
+            key,
+            file,
+            changed_since,
+        }) => (source, key, file, changed_since),
+        Ok(RestoreCheck::Existing(draft)) => {
+            return HttpResponse::Ok().json(ImportJobResponse::from(draft))
+        }
+        Ok(RestoreCheck::Refused(refusal)) => return restore_refused(refusal, id),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to read an import for its restore");
+            return errors::internal("failed to start the restore");
+        }
+    };
+
+    // The draft's own upload and grid, before any transaction.
+    let new_id = Uuid::now_v7();
+    let extension = FileFormat::Csv.as_str();
+    let stored_key = match files::put_upload(storage.0.as_ref(), new_id, extension, &file).await {
+        Ok(key) => key,
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to store a restore's file");
+            return errors::internal("failed to start the restore");
+        }
+    };
+    let parsed = csv_parser::parse_bytes(&file)
+        .map_err(|e| e.refusal().message)
+        .and_then(|parsed| {
+            files::grid_bytes(&parsed)
+                .map(|bytes| (bytes, parsed))
+                .map_err(|e| e.to_string())
+        });
+    let (grid_bytes, grid) = match parsed {
+        Ok(read) => read,
+        Err(message) => {
+            error!(job_id = %id, error = %message, "failed to read a restore's file");
+            remove_files(&storage, new_id).await;
+            return errors::internal("failed to start the restore");
+        }
+    };
+    let version = match files::put_grid(storage.0.as_ref(), new_id, &grid_bytes).await {
+        Ok(version) => version,
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to store a restore's grid");
+            remove_files(&storage, new_id).await;
+            return errors::internal("failed to start the restore");
+        }
+    };
+    drop(grid_bytes);
+    let filename = stored_filename(&format!(
+        "{}-previous-values.csv",
+        download_stem(&source.filename)
+    ));
+
+    enum Made {
+        Created(ImportJob),
+        Existing(ImportJob),
+        Refused(RestoreRefusal),
+    }
+    let result = tc.run(|conn| {
+        // Under the source's lock, so two presses make one draft.
+        if !repo::try_lock_job(conn, source.id)? {
+            return Ok(Made::Refused(RestoreRefusal::Busy));
+        }
+        if let Some(draft) = restore::open_draft(&repo::restores_of(conn, source.id)?) {
+            return Ok(Made::Existing(repo::get(conn, draft)?));
+        }
+        let job = repo::create(
+            conn,
+            NewImportJob {
+                id: new_id,
+                job_type: ImportType::Assets.as_str().to_string(),
+                filename: filename.clone(),
+                file_path: stored_key.clone(),
+                created_by: Some(auth.user_uuid),
+                upload_of: None,
+                restore_of: Some(source.id),
+            },
+        )?;
+        let fields = imports::importer_for(ImportType::Assets).fields(conn)?;
+        let source_read = mapping::csv_source(&grid);
+        let column_mapping = restore::mapping(&grid.headers, &fields);
+        let mut options = restore::options(key);
+        // Both hold by construction; a failure is a bug, not the admin's.
+        resolve_options(conn, ImportType::Assets, &mut options, &source_read)
+            .map_err(|message| diesel::result::Error::QueryBuilderError(message.into()))?;
+        mapping::validate(
+            ImportType::Assets,
+            &column_mapping,
+            &options,
+            &fields,
+            &source_read.headers,
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(e.0.into()))?;
+        let stored = StoredSource {
+            source: source_read,
+            suggested_mapping: Vec::new(),
+            ignored: Vec::new(),
+            grid: Some(version),
+            restore_changed_since: Some(changed_since),
+        };
+        let mut mapped = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
+        // Keep as text where the catalog doesn't hold the value as written;
+        // a manufacturer answer changes the models' contexts, so resolve
+        // again until nothing is added.
+        let mut answers = ValueAnswers::new();
+        for _ in 0..3 {
+            let resolution = values::prepare(
+                conn,
+                ImportType::Assets,
+                &fields,
+                &column_mapping,
+                &options,
+                &mapped.grid,
+                &answers,
+            )?;
+            if !restore::keep_text(&resolution, &mut answers) {
+                break;
+            }
+        }
+        let options_json = serde_json::to_value(&options).ok();
+        let mut ctx = ImportContext {
+            actor: Some(auth.user_uuid),
+            job_id: new_id,
+            options,
+        };
+        let resolution = values::settle(
+            conn,
+            ImportType::Assets,
+            &fields,
+            &column_mapping,
+            &mut ctx.options,
+            &answers,
+            &mut mapped,
+        )?;
+        let (summary, rows) = plan(
+            conn,
+            ImportType::Assets,
+            &mapped,
+            &resolution,
+            &ctx,
+            &column_mapping,
+            &stored,
+            &grid,
+        )?;
+        let updated = repo::update(
+            conn,
+            job.id,
+            ImportJobUpdate {
+                status: Some("dry_run_done".to_string()),
+                summary: Some(serde_json::to_value(&summary).ok()),
+                mapping: Some(serde_json::to_value(&column_mapping).ok()),
+                source: Some(serde_json::to_value(&stored).ok()),
+                options: Some(options_json),
+                answers: Some(serde_json::to_value(&answers).ok()),
+                row_results: Some(stored_rows(RowPhase::Checked, rows)),
+                ..Default::default()
+            },
+        )?;
+        info!(
+            job_id = %updated.id,
+            restore_of = %source.id,
+            rows = summary.row_count,
+            "import restore started"
+        );
+        Ok(Made::Created(updated))
+    });
+
+    if !matches!(result, Ok(Made::Created(_))) {
+        // No job names these files.
+        remove_files(&storage, new_id).await;
+    }
+    match result {
+        Ok(Made::Created(job)) => HttpResponse::Created().json(ImportJobResponse::from(job)),
+        Ok(Made::Existing(job)) => HttpResponse::Ok().json(ImportJobResponse::from(job)),
+        Ok(Made::Refused(refusal)) => restore_refused(refusal, id),
+        Err(e) => {
+            error!(job_id = %id, error = ?e, "failed to start the restore");
+            errors::internal("failed to start the restore")
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

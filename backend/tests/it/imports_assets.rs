@@ -1377,6 +1377,7 @@ fn purging_an_importer_clears_them_from_the_job_and_its_assets() {
                 file_path: "/dev/null".to_string(),
                 created_by: Some(importer),
                 upload_of: None,
+                restore_of: None,
             },
         )?;
         let ctx = imports::ImportContext {
