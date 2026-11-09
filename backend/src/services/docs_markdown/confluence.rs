@@ -86,9 +86,11 @@ pub fn detect(
     if !roots.is_empty() {
         return Some(Ok(common_folder(&roots)));
     }
+    // Pages, not an index: an exported space with no pages is no space,
+    // not one whose index is missing.
     let samples: Vec<&String> = files
         .iter()
-        .filter(|k| is_html(k))
+        .filter(|k| is_html(k) && !is_index(k))
         .take(MAX_PAGE_SAMPLES)
         .collect();
     if samples
@@ -1968,6 +1970,23 @@ mod tests {
     fn markdown_with_an_index_html_is_not_confluence() {
         let mut read = |_: &str| Some("<html><body><h1>Docs</h1></body></html>".to_string());
         let files = vec!["site/index.html".to_string(), "site/about.html".to_string()];
+        assert!(detect(&files, &mut read).is_none());
+
+        // A space exported with no pages: its index alone isn't a missing
+        // index.
+        let index = String::from_utf8(
+            fixture("confluence-dc")
+                .into_iter()
+                .find(|(k, _)| k == "QA/index.html")
+                .unwrap()
+                .1,
+        )
+        .unwrap();
+        let mut read = |_: &str| Some(index.clone());
+        let files = vec![
+            "QA/index.html".to_string(),
+            "QA/styles/site.css".to_string(),
+        ];
         assert!(detect(&files, &mut read).is_none());
     }
 
