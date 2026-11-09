@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use super::bookstack::{self, BookstackSource, Exports};
+use super::confluence::{self, Confluence};
 use super::ir::Document;
 use super::links::RefTarget;
 use super::links::{file_stem, parent, LinkIndex, LinkReport, PageResolver, Workspace};
@@ -278,7 +279,8 @@ pub fn fit_title(title: &str) -> (String, bool) {
 }
 
 /// Read `archive` into a plan and documents. Reads a BookStack export's
-/// `data.json`, or every Markdown file, once; nothing is written anywhere.
+/// `data.json`, a Confluence export's pages, or every Markdown file, once;
+/// nothing is written anywhere.
 pub fn build(
     archive: &mut SafeArchive,
     options: &ImportOptions,
@@ -335,6 +337,37 @@ pub fn build(
         (Some(_), Err(_) | Ok(None)) | (None, Ok(None)) => {}
     }
 
+    // So is a Confluence HTML export, by its index.html: one of its
+    // attachments can be a Markdown file.
+    let mut detected_confluence = false;
+    let found = confluence::detect(&files, &mut |key| {
+        archive
+            .read_text(key, MAX_CONFIG_BYTES)
+            .ok()
+            .map(|t| t.text)
+    });
+    match (options.profile, found) {
+        (None | Some(ProfileKind::Confluence), Some(Ok(base))) => {
+            let mut source = Confluence::new(base);
+            let tree = source.read(&mut SourceInput::Archive {
+                archive,
+                files: &files,
+            })?;
+            return Planner {
+                source: &source,
+                detected: None,
+                options,
+                workspace,
+                left_out,
+            }
+            .plan(tree);
+        }
+        (None | Some(ProfileKind::Confluence), Some(Err(refused))) => return Err(refused),
+        (Some(ProfileKind::Confluence), None) => return Err(confluence::refused_no_index()),
+        (Some(_), Some(Ok(_))) => detected_confluence = true,
+        (Some(_), Some(Err(_))) | (None, None) | (Some(_), None) => {}
+    }
+
     let markdown = MarkdownFiles::read(archive, &files)?;
     let mut read_small = |key: &str| {
         archive
@@ -358,6 +391,8 @@ pub fn build(
                 .unwrap_or_else(|_| profiles::wrapper_folder(&files));
             let detected = if detected_bookstack {
                 Some(ProfileKind::Bookstack)
+            } else if detected_confluence {
+                Some(ProfileKind::Confluence)
             } else {
                 detection.ok().map(|d| d.kind).filter(|d| *d != kind)
             };

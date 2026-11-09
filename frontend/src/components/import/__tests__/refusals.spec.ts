@@ -107,9 +107,6 @@ describe('the en-US wording', () => {
       'The import has 2,431 pages. The limit is 2,000. Export one part at a time.',
     )
     expect(refusalText(real, { code: 'docs_import_no_markdown', args: {} })).toBe('There are no Markdown files in this zip.')
-    expect(refusalText(real, { code: 'docs_import_source_later', args: { source: 'Confluence' } })).toBe(
-      'This is a Confluence export. Confluence exports are coming in a later update.',
-    )
     expect(refusalText(real, { code: 'docs_import_mixed_files', args: {} })).toBe('Choose one .zip, or only .md files.')
     expect(
       refusalText(real, { code: 'upload_too_large', args: { max: 200 * 1024 * 1024 } }, { name: 'IT-Handbook.zip', size: '312 MB' }),

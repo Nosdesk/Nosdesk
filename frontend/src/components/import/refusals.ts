@@ -57,7 +57,6 @@ const REFUSAL_KEYS: Record<string, string> = {
   docs_import_timed_out: 'docs-import-refused-timed-out',
   docs_import_no_markdown: 'docs-import-refused-no-markdown',
   docs_import_too_many_pages: 'docs-import-refused-too-many-pages',
-  docs_import_source_later: 'docs-import-refused-source-later',
   docs_import_collection_missing: 'docs-import-refused-collection-missing',
   import_job_busy: 'docs-import-refused-busy',
   import_check_running: 'docs-import-refused-check-running',

@@ -214,7 +214,6 @@ describe('DocsImportView: Start', () => {
     ['docs_import_no_markdown', 'docs-import-refused-no-markdown'],
     ['archive_encrypted', 'docs-import-refused-encrypted'],
     ['docs_import_too_many_pages', 'docs-import-refused-too-many-pages'],
-    ['docs_import_source_later', 'docs-import-refused-source-later'],
     ['archive_unreadable', 'docs-import-refused-not-a-zip'],
     ['upload_too_large', 'docs-import-refused-too-large'],
   ])('words the refusal %s', async (code, key) => {

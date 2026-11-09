@@ -891,21 +891,6 @@ fn a_forced_profile_and_collection_mode_apply() {
 // Refusals.
 
 #[test]
-fn confluence_exports_are_refused_for_now() {
-    let confluence = text(&[
-        ("SPACE/index.html", "<html>Confluence</html>"),
-        ("SPACE/Page_1.html", "<html></html>"),
-        ("SPACE/attachments/1/a.png", "png"),
-    ]);
-    let err = tree::build(&mut archive(&confluence), &options(), &nothing()).unwrap_err();
-    assert_eq!(err.code, "docs_import_source_later");
-    assert_eq!(
-        err.message,
-        "This is a Confluence export. Confluence exports are coming in a later update."
-    );
-}
-
-#[test]
 fn an_archive_with_no_markdown_or_too_many_pages_is_refused() {
     let err = tree::build(
         &mut archive(&text(&[("a.png", "png")])),
