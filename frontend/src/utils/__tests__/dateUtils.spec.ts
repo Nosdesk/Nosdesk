@@ -78,7 +78,8 @@ describe('formatDateRange', () => {
     const to = '2026-08-13T00:00:00Z'
     expect(squash(formatDateRange(from, to))).toBe('Aug 7 – 13')
     setDateConfig({ defaultLocale: 'en-AU' })
-    expect(squash(formatDateRange(from, to))).toBe('7–13 Aug')
+    // ICU 79 spaces the en-AU range dash; older builds don't.
+    expect(squash(formatDateRange(from, to))).toMatch(/^7(\u2013| \u2013 )13 Aug$/)
   })
 
   it('spells out both months when they differ', () => {
