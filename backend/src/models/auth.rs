@@ -265,9 +265,9 @@ pub struct OAuthState {
     pub provider_type: String,
     pub exp: usize,
     pub user_connection: Option<bool>,
-    /// PKCE code verifier. States minted since 1.1.6 leave it out: it lives
+    /// PKCE code verifier. States minted since 1.1.7 leave it out: it lives
     /// in the `oauth_state` cookie, and the callback fills it in from there.
-    /// Read from a state only as the fallback for states minted before 1.1.6
+    /// Read from a state only as the fallback for states minted before 1.1.7
     /// (remove in 1.1.8).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pkce_verifier: Option<String>,

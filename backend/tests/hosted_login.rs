@@ -8,7 +8,7 @@
 //!
 //! The PKCE verifier and nonce ride in the `oauth_state` cookie, not the
 //! state, and the callback exchanges the code with the cookie's verifier; a
-//! state minted before 1.1.6 still works with the verifier it carries.
+//! state minted before 1.1.7 still works with the verifier it carries.
 //!
 //! Its own binary: the deployment mode, the OIDC settings and the cached OIDC
 //! client are process-wide, and `tests/hosted` sets a different issuer. One
@@ -397,7 +397,7 @@ async fn hosted_login_starts_sign_in_on_the_server() {
         "the latest flow"
     );
 
-    // Fallback until 1.1.8: a state minted before 1.1.6 carries the verifier
+    // Fallback until 1.1.8: a state minted before 1.1.7 carries the verifier
     // and nonce itself, beside a cookie holding the bare binding.
     let old_shape = OAuthState {
         state: "0ldb1nd1ng".into(),

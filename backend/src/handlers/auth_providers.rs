@@ -892,7 +892,7 @@ fn verify_callback_state(
         }
         // Fallback, remove in 1.1.8: with a bare-binding cookie, the verifier
         // and nonce the state itself carries stand. Only a state minted
-        // before 1.1.6 carries them: a flow started before the deploy, or on
+        // before 1.1.7 carries them: a flow started before the deploy, or on
         // a machine the rolling deploy had not replaced yet. States live
         // `OAUTH_STATE_LIFETIME`, so the last one expires that long after the
         // deploy.
