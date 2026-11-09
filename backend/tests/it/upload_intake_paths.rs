@@ -128,9 +128,9 @@ impl Fixture {
                 .app_data(web::Data::new(storage.clone()))
                 .app_data(web::Data::new(search))
                 .app_data(spool.clone())
-                .app_data(web::Data::new(backend::handlers::backup::RestoreUploadCap(
-                    RESTORE_CAP,
-                )))
+                .app_data(web::Data::new(
+                    backend::services::workspace_import_jobs::ImportUploadCap(RESTORE_CAP),
+                ))
                 .wrap_fn(move |req, srv| {
                     req.extensions_mut().insert(ws.clone());
                     req.extensions_mut().insert(claims.clone());
@@ -170,6 +170,10 @@ impl Fixture {
                 .route(
                     "/admin/backup/restore/upload",
                     web::post().to(backend::handlers::backup::upload_restore),
+                )
+                .route(
+                    "/admin/workspaces/import",
+                    web::post().to(backend::handlers::workspace_export::import_workspace),
                 )
         })
     }
@@ -678,7 +682,7 @@ fn restore_files(dir: &Path) -> Vec<String> {
 async fn a_restore_upload_is_capped_and_leaves_nothing_when_refused_or_cut_off() {
     let fx = Fixture::new();
     common::with_upload_dir();
-    let dir = backend::handlers::backup::restore_uploads_dir();
+    let dir = backend::services::backup::restore_uploads_dir();
     let srv = fx.spawn(fx.storage.clone());
     let route = "/admin/backup/restore/upload";
     let before = restore_files(&dir);
@@ -693,6 +697,11 @@ async fn a_restore_upload_is_capped_and_leaves_nothing_when_refused_or_cut_off()
     let kept = dir.join(&name);
     assert_eq!(json["file_path"], kept.to_string_lossy().as_ref());
     assert_eq!(std::fs::read(&kept).expect("kept"), backup);
+    // The partial sweep never takes a kept upload, which the pending job
+    // names by path, however old.
+    backend::services::backup::sweep_restore_partials(&dir, std::time::Duration::ZERO)
+        .expect("sweep");
+    assert!(kept.exists(), "the pending restore's file stays");
     std::fs::remove_file(&kept).expect("remove");
 
     // One past the cap is refused, and its partial file goes.
@@ -741,5 +750,30 @@ async fn a_restore_upload_is_capped_and_leaves_nothing_when_refused_or_cut_off()
         restore_files(&dir),
         before,
         "the cut-off upload left a file"
+    );
+}
+
+/// The platform-admin import reads `NOSDESK_MAX_IMPORT_BYTES` as the import
+/// jobs and backup restore do, so the server's cap applies to it too.
+#[actix_web::test]
+async fn the_platform_admin_import_takes_the_shared_import_cap() {
+    let fx = Fixture::new();
+    let srv = fx.spawn(fx.storage.clone());
+    let archive = vec![b'a'; RESTORE_CAP as usize + 1];
+    let (status, json) = post(
+        &srv,
+        "/admin/workspaces/import",
+        body(
+            "archive",
+            "ws.nosdesk",
+            "application/octet-stream",
+            &archive,
+        ),
+    )
+    .await;
+    assert_eq!(status, 400, "{json}");
+    assert_eq!(
+        json["error"],
+        format!("archive exceeds the {RESTORE_CAP}-byte limit (raise NOSDESK_MAX_IMPORT_BYTES)")
     );
 }

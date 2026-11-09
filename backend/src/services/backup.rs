@@ -532,6 +532,87 @@ fn get_backups_dir() -> PathBuf {
     base.join("backups")
 }
 
+/// Where an uploaded backup waits for its restore: `UPLOAD_DIR/backups/uploads`.
+/// A restore job names its file there by full path (`backup_jobs.file_path`),
+/// under the name the upload was kept as.
+pub fn restore_uploads_dir() -> PathBuf {
+    get_backups_dir().join("uploads")
+}
+
+/// The prefix of a restore upload still being written. A kept upload is
+/// renamed out of it, and [`restore_upload_name`] never gives a kept file a
+/// name with it, so [`sweep_restore_partials`] can't reach a job's file.
+pub const RESTORE_PARTIAL_PREFIX: &str = ".nosdesk-restore-partial-";
+
+/// How old a partial restore upload is when the sweep removes it: one still
+/// being written has a fresh modification time.
+pub const RESTORE_PARTIAL_MAX_AGE: std::time::Duration =
+    std::time::Duration::from_secs(24 * 60 * 60);
+
+/// A temp file in `dir` for a restore upload being written, removed when it
+/// drops.
+pub fn restore_partial_file(dir: &Path) -> std::io::Result<tempfile::NamedTempFile> {
+    tempfile::Builder::new()
+        .prefix(RESTORE_PARTIAL_PREFIX)
+        .tempfile_in(dir)
+}
+
+/// The name a restore upload is kept under: the client's, made safe, or a
+/// fresh `restore-{uuid}.zip`; never one the partial sweep would take.
+pub fn restore_upload_name(client_name: Option<&str>) -> String {
+    let name = client_name
+        .map(sanitize_filename::sanitize)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("restore-{}.zip", uuid::Uuid::new_v4()));
+    if name.starts_with(RESTORE_PARTIAL_PREFIX) {
+        format!("restore-{name}")
+    } else {
+        name
+    }
+}
+
+/// Remove partial restore uploads in `dir` last written more than `max_age`
+/// ago: what a killed process left. Kept uploads, and so every restore job's
+/// file, are left alone. Returns how many were removed.
+pub fn sweep_restore_partials(dir: &Path, max_age: std::time::Duration) -> std::io::Result<usize> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    };
+    let now = std::time::SystemTime::now();
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        if !entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(RESTORE_PARTIAL_PREFIX)
+        {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let old = meta
+            .modified()
+            .ok()
+            .and_then(|m| now.duration_since(m).ok())
+            .is_some_and(|age| age > max_age);
+        if meta.is_file() && old && std::fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+/// [`sweep_restore_partials`] in this instance's restore folder, a day old.
+/// Logged, never fatal: run at boot and with the hourly spool sweep.
+pub fn sweep_restore_partials_global() {
+    match sweep_restore_partials(&restore_uploads_dir(), RESTORE_PARTIAL_MAX_AGE) {
+        Ok(0) => {}
+        Ok(count) => tracing::info!(count, "Removed partial restore uploads"),
+        Err(e) => tracing::warn!(error = %e, "Restore upload sweep failed"),
+    }
+}
+
 /// SHA-256 of arbitrary bytes, returned as lowercase hex. Used
 /// for per-table integrity hashes in the backup manifest.
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
@@ -1662,6 +1743,48 @@ fn restore_rows(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_restore_sweep_takes_only_old_partials() {
+        let dir = tempfile::tempdir().unwrap();
+        let day_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(25 * 60 * 60);
+        let old_partial = restore_partial_file(dir.path()).unwrap().keep().unwrap().1;
+        File::options()
+            .write(true)
+            .open(&old_partial)
+            .unwrap()
+            .set_modified(day_ago)
+            .unwrap();
+        let fresh_partial = restore_partial_file(dir.path()).unwrap().keep().unwrap().1;
+        // A kept upload a job names, older than a day, and one whose client
+        // name looked like a partial.
+        let kept = dir.path().join(restore_upload_name(Some("nightly.zip")));
+        fs::write(&kept, b"PK").unwrap();
+        File::options()
+            .write(true)
+            .open(&kept)
+            .unwrap()
+            .set_modified(day_ago)
+            .unwrap();
+        let disguised = restore_upload_name(Some(&format!("{RESTORE_PARTIAL_PREFIX}x.zip")));
+        assert!(
+            !disguised.starts_with(RESTORE_PARTIAL_PREFIX),
+            "{disguised}"
+        );
+
+        assert_eq!(
+            sweep_restore_partials(dir.path(), RESTORE_PARTIAL_MAX_AGE).unwrap(),
+            1
+        );
+        assert!(!old_partial.exists());
+        assert!(fresh_partial.exists(), "one still being written stays");
+        assert!(kept.exists(), "a kept upload stays");
+        assert_eq!(
+            sweep_restore_partials(&dir.path().join("missing"), RESTORE_PARTIAL_MAX_AGE).unwrap(),
+            0
+        );
+        assert!(restore_upload_name(None).starts_with("restore-"));
+    }
 
     #[test]
     fn a_counter_goes_back_to_its_last_number_or_its_highest_ticket() {

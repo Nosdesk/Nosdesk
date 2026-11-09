@@ -2049,9 +2049,14 @@ pub async fn guest_residue_cleanup(pool: Pool, search: Arc<SearchService>) -> Re
 }
 
 /// Remove upload spool files over an hour old from this machine's spool
-/// directory (`services::upload_intake`).
+/// directory (`services::upload_intake`), and partial backup restore uploads
+/// over a day old from its restore folder (`services::backup`).
 pub async fn sweep_upload_spool() -> Result<()> {
-    tokio::task::spawn_blocking(crate::services::upload_intake::sweep_global).await?;
+    tokio::task::spawn_blocking(|| {
+        crate::services::upload_intake::sweep_global();
+        crate::services::backup::sweep_restore_partials_global();
+    })
+    .await?;
     Ok(())
 }
 

@@ -109,7 +109,7 @@ fn temp_file(temp_dir: Option<&Path>) -> io::Result<NamedTempFile> {
 /// Write `stream` to a temp file, refusing it at the first chunk that takes
 /// it past `max_bytes`.
 pub async fn spool<S, E>(
-    mut stream: S,
+    stream: S,
     max_bytes: u64,
     temp_dir: Option<&Path>,
 ) -> Result<Spooled, SpoolError>
@@ -117,7 +117,20 @@ where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
     E: std::fmt::Display,
 {
-    let file = temp_file(temp_dir)?;
+    spool_into(stream, max_bytes, temp_file(temp_dir)?).await
+}
+
+/// [`spool`] into a temp file the caller made, for one that names its temp
+/// files so a sweep can find what a killed process left.
+pub async fn spool_into<S, E>(
+    mut stream: S,
+    max_bytes: u64,
+    file: NamedTempFile,
+) -> Result<Spooled, SpoolError>
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: std::fmt::Display,
+{
     let mut out = tokio::fs::File::from_std(file.as_file().try_clone()?);
     let mut size: u64 = 0;
     while let Some(chunk) = stream.next().await {

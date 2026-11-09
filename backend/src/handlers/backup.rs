@@ -327,10 +327,7 @@ pub async fn upload_restore(
 
     // The cap the workspace import takes (`NOSDESK_MAX_IMPORT_BYTES`, else
     // 1 GiB). A body plainly over it is refused before any of it is read.
-    let max_bytes = req.app_data::<web::Data<RestoreUploadCap>>().map_or_else(
-        crate::services::workspace_import_jobs::max_upload_bytes,
-        |c| c.0,
-    );
+    let max_bytes = crate::services::workspace_import_jobs::max_upload_bytes_for(&req);
     let too_large = || {
         errors::payload_too_large(format!(
             "The backup is larger than the {max_bytes}-byte limit (NOSDESK_MAX_IMPORT_BYTES)."
@@ -343,7 +340,7 @@ pub async fn upload_restore(
     }
 
     // Get upload directory
-    let backups_dir = restore_uploads_dir();
+    let backups_dir = backup_service::restore_uploads_dir();
     if let Err(e) = tokio::fs::create_dir_all(&backups_dir).await {
         return errors::internal(format!("Failed to create upload directory: {}", e));
     }
@@ -351,7 +348,8 @@ pub async fn upload_restore(
     // Each file is written to a temp file beside its final name, without
     // blocking, and stops at the first chunk past the cap. A temp file is
     // removed when it drops: on a refusal, a broken upload, or a later part
-    // replacing it. Only the last file is kept, as before.
+    // replacing it. One a killed process left is swept a day later (its
+    // name carries the partial prefix). Only the last file is kept, as before.
     let mut upload: Option<(String, Spooled)> = None;
 
     while let Some(item) = payload.next().await {
@@ -360,13 +358,14 @@ pub async fn upload_restore(
             Err(e) => return errors::bad_request(format!("Upload error: {}", e)),
         };
 
-        let filename = field
-            .content_disposition()
-            .get_filename()
-            .map(sanitize_filename::sanitize)
-            .unwrap_or_else(|| format!("restore-{}.zip", Uuid::new_v4()));
+        let filename =
+            backup_service::restore_upload_name(field.content_disposition().get_filename());
+        let partial = match backup_service::restore_partial_file(&backups_dir) {
+            Ok(partial) => partial,
+            Err(e) => return errors::internal(format!("Failed to create file: {}", e)),
+        };
 
-        match spool::spool(&mut field, max_bytes, Some(&backups_dir)).await {
+        match spool::spool_into(&mut field, max_bytes, partial).await {
             Ok(spooled) => upload = Some((filename, spooled)),
             Err(SpoolError::TooLarge { .. }) => return too_large(),
             Err(SpoolError::Stream(e)) => {
@@ -432,21 +431,9 @@ pub async fn upload_restore(
     HttpResponse::Created().json(BackupJobResponse::from(job))
 }
 
-/// The restore upload cap, when an app sets one other than
-/// `NOSDESK_MAX_IMPORT_BYTES` (the tests, to send a file past it).
-#[derive(Debug, Clone, Copy)]
-pub struct RestoreUploadCap(pub u64);
-
 /// Room over a restore upload's cap for the multipart framing, in the
 /// `Content-Length` check.
 const RESTORE_ENVELOPE_BYTES: u64 = 1024 * 1024;
-
-/// Where an uploaded backup waits for its restore: `UPLOAD_DIR/backups/uploads`.
-pub fn restore_uploads_dir() -> std::path::PathBuf {
-    std::env::var("UPLOAD_DIR")
-        .map(|d| std::path::PathBuf::from(d).join("backups").join("uploads"))
-        .unwrap_or_else(|_| std::path::PathBuf::from("/app/uploads/backups/uploads"))
-}
 
 /// Preview restore contents
 /// GET /api/admin/backup/restore/{id}/preview

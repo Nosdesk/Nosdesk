@@ -161,10 +161,9 @@ pub async fn import_workspace(
     // backup); deferred until a tenant's archive approaches the instance RAM
     // budget. This cap bounds that memory (configurable to raise it) and defends
     // against accidental-huge / zip-bomb uploads on top of the platform-admin gate.
-    let max_archive_bytes: u64 = std::env::var("NOSDESK_MAX_IMPORT_BYTES")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(2 * 1024 * 1024 * 1024);
+    // The same reading of NOSDESK_MAX_IMPORT_BYTES as the import jobs and backup
+    // restore: 1 GiB unless set, the cap the data export builds to.
+    let max_archive_bytes = crate::services::workspace_import_jobs::max_upload_bytes_for(&req);
 
     while let Some(item) = payload.next().await {
         let mut field = match item {
