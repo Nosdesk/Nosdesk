@@ -223,6 +223,7 @@ mod two_workspace_fixture;
 mod unattached_upload_sweep;
 mod upgrade_from_1_0_12;
 mod upload_intake;
+mod upload_intake_paths;
 mod user_contact_gate;
 mod user_delete_reauth;
 mod user_delete_workspace_admin;

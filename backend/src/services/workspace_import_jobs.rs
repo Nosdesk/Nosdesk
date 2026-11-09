@@ -98,13 +98,29 @@ pub const DEFAULT_MAX_UPLOAD_BYTES: u64 = 1024 * 1024 * 1024;
 /// memory, about three times its size while it unseals and parses.
 static RUNNING: Semaphore = Semaphore::const_new(1);
 
-/// The upload cap (`NOSDESK_MAX_IMPORT_BYTES`, else 1 GiB).
+/// The upload cap (`NOSDESK_MAX_IMPORT_BYTES`, else 1 GiB). One reading for
+/// every path the setting caps: these import jobs, the platform-admin
+/// import and a backup restore upload.
 pub fn max_upload_bytes() -> u64 {
-    std::env::var("NOSDESK_MAX_IMPORT_BYTES")
-        .ok()
-        .and_then(|v| v.trim().parse().ok())
+    max_upload_bytes_from(std::env::var("NOSDESK_MAX_IMPORT_BYTES").ok().as_deref())
+}
+
+/// Parse `NOSDESK_MAX_IMPORT_BYTES`: a positive byte count, else 1 GiB.
+pub fn max_upload_bytes_from(raw: Option<&str>) -> u64 {
+    raw.and_then(|v| v.trim().parse().ok())
         .filter(|v| *v > 0)
         .unwrap_or(DEFAULT_MAX_UPLOAD_BYTES)
+}
+
+/// The upload cap, when an app sets one other than
+/// `NOSDESK_MAX_IMPORT_BYTES` (the tests, to send a file past it).
+#[derive(Debug, Clone, Copy)]
+pub struct ImportUploadCap(pub u64);
+
+/// [`max_upload_bytes`], or the request's app's [`ImportUploadCap`].
+pub fn max_upload_bytes_for(req: &actix_web::HttpRequest) -> u64 {
+    req.app_data::<actix_web::web::Data<ImportUploadCap>>()
+        .map_or_else(max_upload_bytes, |c| c.0)
 }
 
 /// The storage key (workspace-relative) of job `id`'s archive.
@@ -1450,6 +1466,14 @@ mod tests {
             reset_at: None,
             pruned_at: None,
         }
+    }
+
+    #[test]
+    fn the_import_cap_defaults_to_1_gib_and_takes_a_positive_count() {
+        assert_eq!(max_upload_bytes_from(None), 1024 * 1024 * 1024);
+        assert_eq!(max_upload_bytes_from(Some(" 2048 ")), 2048);
+        assert_eq!(max_upload_bytes_from(Some("0")), DEFAULT_MAX_UPLOAD_BYTES);
+        assert_eq!(max_upload_bytes_from(Some("2GB")), DEFAULT_MAX_UPLOAD_BYTES);
     }
 
     #[test]

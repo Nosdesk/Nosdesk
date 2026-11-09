@@ -269,6 +269,89 @@ async fn the_guest_and_zip_types_check_the_head() {
 }
 
 #[tokio::test]
+async fn an_image_list_takes_only_its_types_and_any_takes_anything() {
+    let dir = tempfile::tempdir().unwrap();
+    let area = area(dir.path(), MIB);
+    let favicon = policy(
+        MIB,
+        UploadTypes::ImageOf(&["image/x-icon", "image/vnd.microsoft.icon", "image/png"]),
+    );
+    // An ICO's header sniffs as an icon type the favicon slot lists.
+    let mut ico = vec![0, 0, 1, 0, 1, 0, 16, 16];
+    ico.resize(64, 0);
+    let file = area
+        .stream(chunks(vec![ico]), "favicon.ico", &favicon)
+        .await
+        .unwrap();
+    assert!(
+        favicon_types().contains(&file.mime.as_str()),
+        "{}",
+        file.mime
+    );
+
+    let gif = b"GIF89a\x01\0\x01\0".to_vec();
+    match area
+        .stream(chunks(vec![gif]), "favicon.gif", &favicon)
+        .await
+    {
+        Err(IntakeError::Refused {
+            reason: Refusal::UnsupportedImage { detected },
+            ..
+        }) => assert_eq!(detected, "image/gif"),
+        other => panic!("expected an unsupported image, got {other:?}"),
+    }
+    match area
+        .stream(chunks(vec![b"%PDF-1.7".to_vec()]), "favicon.pdf", &favicon)
+        .await
+    {
+        Err(IntakeError::Refused {
+            reason: Refusal::NotAnImage,
+            ..
+        }) => {}
+        other => panic!("expected not an image, got {other:?}"),
+    }
+
+    // Any keeps blocked names and types: the path decides.
+    let any = policy(MIB, UploadTypes::Any);
+    let file = area
+        .stream(chunks(vec![b"MZ\x90\0".to_vec()]), "setup.exe", &any)
+        .await
+        .unwrap();
+    assert_eq!(file.mime, "application/vnd.microsoft.portable-executable");
+    let file = area
+        .stream(chunks(vec![plain(10)]), "rows.csv", &any)
+        .await
+        .unwrap();
+    assert_eq!(file.mime, "application/octet-stream");
+}
+
+fn favicon_types() -> [&'static str; 3] {
+    ["image/x-icon", "image/vnd.microsoft.icon", "image/png"]
+}
+
+#[test]
+fn each_path_keeps_its_own_cap() {
+    assert_eq!(
+        UploadPolicy::document_images("collab/doc/x".into()).max_bytes,
+        10 * MIB
+    );
+    assert_eq!(UploadPolicy::profile_image().max_bytes, 10 * MIB);
+    assert_eq!(UploadPolicy::branding_image(&[]).max_bytes, 2 * MIB);
+    assert_eq!(UploadPolicy::guest().max_bytes, 10 * MIB);
+    assert_eq!(UploadPolicy::spreadsheet_import().max_bytes, 10 * MIB);
+    assert_eq!(UploadPolicy::inbound_attachment(1).max_bytes, 25 * MIB);
+    assert_eq!(
+        UploadPolicy::asset_media(1).max_bytes,
+        (25 * MIB).min(get_max_file_size() as u64)
+    );
+    // One file a request: a Content-Length past one at the cap is refused.
+    assert_eq!(
+        UploadPolicy::guest().max_request_bytes(),
+        Some(10 * MIB + ENVELOPE_BYTES)
+    );
+}
+
+#[tokio::test]
 async fn a_broken_stream_is_reported_and_leaves_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let broken = stream::iter(vec![Ok(Bytes::from(plain(10))), Err("reset by peer")]);

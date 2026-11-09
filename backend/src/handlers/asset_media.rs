@@ -10,11 +10,9 @@ use std::sync::Arc;
 use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::OptionalExtension;
-use futures::{StreamExt, TryStreamExt};
-use ring::digest;
 use serde::Deserialize;
 use serde_json::json;
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 
 use crate::db::Pool;
 use crate::errors::{self, ApiError};
@@ -22,13 +20,12 @@ use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::handlers::files::{authorize_at_owning_workspace, serve_named_or_not_found};
 use crate::models::{AssetMediaUpdate, NewAssetMedia};
 use crate::repository::{asset_media as repo, assets as assets_repo};
-use crate::utils::file_validation::{get_max_file_size, FileValidator};
+use crate::services::upload_intake::{self as intake, Part, UploadPolicy};
 use crate::utils::image::generate_asset_media_thumbnail;
 use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
 
 const ASSET_MEDIA_THUMB_SIZE: u32 = 320;
 const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
-const MAX_DOCUMENT_SIZE: usize = 25 * 1024 * 1024;
 
 const DOCX: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const XLSX: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -85,18 +82,20 @@ impl MediaKind {
     }
 }
 
-/// Classify an upload that already passed `FileValidator::validate_file`.
-/// Images are photos whatever their name; anything else must carry a listed
-/// document extension and sniff as that type. Returns the kind and the MIME
-/// to store, or the refusal message.
+/// Classify an upload that already passed `FileValidator::validate_file`,
+/// from its first 8 KiB (`head`) and its size. Images are photos whatever
+/// their name; anything else must carry a listed document extension and
+/// sniff as that type. Returns the kind and the MIME to store, or the
+/// refusal message.
 pub(crate) fn classify_upload(
-    bytes: &[u8],
+    head: &[u8],
+    size: u64,
     detected_mime: &str,
     filename: &str,
 ) -> Result<(MediaKind, String), &'static str> {
     const REFUSED: &str = "Only images, PDFs, office documents, and text files are allowed";
     if detected_mime.starts_with("image/") {
-        if bytes.len() > MAX_IMAGE_SIZE {
+        if size > MAX_IMAGE_SIZE as u64 {
             return Err("Image too large (max 10MB)");
         }
         return Ok((MediaKind::Photo, detected_mime.to_string()));
@@ -114,7 +113,7 @@ pub(crate) fn classify_upload(
         return Err(REFUSED);
     }
     // No signature to check for text: refuse binary content wearing a .txt.
-    if detected_mime == UNKNOWN && bytes.iter().take(8192).any(|b| *b == 0) {
+    if detected_mime == UNKNOWN && head.iter().take(8192).any(|b| *b == 0) {
         return Err(REFUSED);
     }
     Ok((MediaKind::Document, (*stored_mime).to_string()))
@@ -152,7 +151,8 @@ pub async fn upload_for_asset(
     mut tc: TenantConn,
     auth: AuthContext,
     path: web::Path<i32>,
-    mut payload: Multipart,
+    req: HttpRequest,
+    payload: Multipart,
     storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     if !auth.can_handle_tickets() {
@@ -172,71 +172,24 @@ pub async fn upload_for_asset(
             }
         })?;
 
+    let policy = UploadPolicy::asset_media(asset_id);
+    let mut upload =
+        intake::area(&req).multipart(intake::content_length(&req), payload, &policy)?;
     let mut uploaded = Vec::new();
 
-    while let Some(mut field) = payload.try_next().await? {
-        let field_name = field.name();
-        if field_name != "files" {
-            debug!(field_name = %field_name, "skipping non-file asset media field");
-            continue;
-        }
+    while let Some(part) = upload.next().await? {
+        let Part::File(file) = part else { continue };
 
-        let original_filename = field
-            .content_disposition()
-            .get_filename()
-            .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?;
-        let sanitized_filename =
-            FileValidator::sanitize_filename(original_filename).map_err(|e| {
-                warn!(error = ?e, original_filename = %original_filename, "asset media filename sanitization failed");
-                crate::errors::bad_request_error(format!("Invalid filename: {e}"))
-            })?;
-        // The storage key is the sanitized name; the row keeps the name as
-        // uploaded for display and download.
-        let display_name = FileValidator::display_filename(original_filename)
-            .unwrap_or_else(|| sanitized_filename.clone());
+        let (kind, stored_mime) =
+            classify_upload(file.head(), file.size, &file.mime, &file.sanitized_name)
+                .map_err(crate::errors::bad_request_error)?;
 
-        let mut file_data = Vec::new();
-        let mut total_size = 0usize;
-        while let Some(chunk) = field.next().await {
-            let data = chunk.map_err(|e| {
-                error!(error = ?e, "error reading asset media chunk");
-                crate::errors::internal_error("Error reading chunk")
-            })?;
-            // Documents up to 25MB, within the instance's MAX_FILE_SIZE_MB;
-            // `classify_upload` holds images to 10MB.
-            let max_size = MAX_DOCUMENT_SIZE.min(get_max_file_size());
-            if total_size + data.len() > max_size {
-                return Err(crate::errors::bad_request_error(format!(
-                    "File too large (max {}MB)",
-                    max_size / (1024 * 1024)
-                )));
-            }
-            total_size += data.len();
-            file_data.extend_from_slice(&data);
-        }
-
-        let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
-            .map_err(|e| {
-                warn!(error = ?e, filename = %sanitized_filename, "asset media validation failed");
-                crate::errors::bad_request_error(format!("Invalid file: {e}"))
-            })?;
-        let (kind, stored_mime) = classify_upload(&file_data, &detected_mime, &sanitized_filename)
-            .map_err(crate::errors::bad_request_error)?;
-
-        let checksum_bytes = digest::digest(&digest::SHA256, &file_data);
-        let checksum = checksum_bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
-
-        let folder = format!("assets/{asset_id}/media");
         let stored_file = storage
             .0
-            .store_file(&file_data, &sanitized_filename, &stored_mime, &folder)
+            .store_file_from_path(file.path(), &file.sanitized_name, &stored_mime, &policy.folder)
             .await
             .map_err(|e| {
-                error!(asset_id, error = ?e, filename = %sanitized_filename, "failed to store asset media");
+                error!(asset_id, error = ?e, filename = %file.sanitized_name, "failed to store asset media");
                 crate::errors::internal_error("Failed to store file")
             })?;
 
@@ -246,10 +199,15 @@ pub async fn upload_for_asset(
             .split_once('_')
             .map(|(stem, _)| stem)
             .unwrap_or(stored_file.id.as_str());
+        // A photo is at most 10 MB: it decodes in memory.
         let thumbnail = match kind {
-            MediaKind::Photo => {
-                generate_asset_media_thumbnail(&file_data, ASSET_MEDIA_THUMB_SIZE).await
-            }
+            MediaKind::Photo => match tokio::fs::read(file.path()).await {
+                Ok(bytes) => generate_asset_media_thumbnail(&bytes, ASSET_MEDIA_THUMB_SIZE).await,
+                Err(e) => {
+                    warn!(asset_id, error = %e, "failed to read a spooled asset photo for its thumbnail");
+                    None
+                }
+            },
             MediaKind::Document => None,
         };
         let thumbnail_url = if let Some(webp) = thumbnail {
@@ -270,10 +228,10 @@ pub async fn upload_for_asset(
             asset_id,
             url,
             thumbnail_url,
-            name: display_name,
-            file_size: Some(total_size as i64),
+            name: file.display_name.clone(),
+            file_size: Some(file.size as i64),
             mime_type: Some(stored_mime),
-            checksum: Some(checksum),
+            checksum: Some(file.sha256.clone()),
             kind: kind.as_str().to_string(),
             sort_order: 0,
             caption: None,
@@ -425,47 +383,71 @@ mod tests {
 
     #[test]
     fn images_are_photos_whatever_their_name() {
-        let (kind, mime) = classify_upload(b"png", "image/png", "scan.pdf").unwrap();
+        let (kind, mime) =
+            classify_upload(b"png", b"png".len() as u64, "image/png", "scan.pdf").unwrap();
         assert_eq!(kind, MediaKind::Photo);
         assert_eq!(mime, "image/png");
     }
 
     #[test]
     fn oversized_images_are_refused() {
-        let big = vec![0u8; MAX_IMAGE_SIZE + 1];
-        assert!(classify_upload(&big, "image/jpeg", "photo.jpg").is_err());
+        let size = MAX_IMAGE_SIZE as u64 + 1;
+        assert!(classify_upload(b"\xff\xd8\xff", size, "image/jpeg", "photo.jpg").is_err());
     }
 
     #[test]
     fn documents_must_sniff_as_their_extension() {
-        let (kind, mime) =
-            classify_upload(b"%PDF-1.7", "application/pdf", "Service-Report.PDF").unwrap();
+        let (kind, mime) = classify_upload(
+            b"%PDF-1.7",
+            b"%PDF-1.7".len() as u64,
+            "application/pdf",
+            "Service-Report.PDF",
+        )
+        .unwrap();
         assert_eq!(kind, MediaKind::Document);
         assert_eq!(mime, "application/pdf");
 
         // A generic ZIP sniff is fine for OOXML, which is a ZIP container.
-        let (kind, mime) = classify_upload(b"PK", ZIP, "invoice.docx").unwrap();
+        let (kind, mime) = classify_upload(b"PK", b"PK".len() as u64, ZIP, "invoice.docx").unwrap();
         assert_eq!(kind, MediaKind::Document);
         assert_eq!(mime, DOCX);
 
         // A PDF renamed .docx, or a ZIP named .pdf, is refused.
-        assert!(classify_upload(b"%PDF", "application/pdf", "invoice.docx").is_err());
-        assert!(classify_upload(b"PK", ZIP, "invoice.pdf").is_err());
+        assert!(classify_upload(
+            b"%PDF",
+            b"%PDF".len() as u64,
+            "application/pdf",
+            "invoice.docx"
+        )
+        .is_err());
+        assert!(classify_upload(b"PK", b"PK".len() as u64, ZIP, "invoice.pdf").is_err());
     }
 
     #[test]
     fn text_files_need_text_content() {
-        let (kind, mime) = classify_upload(b"serial,date\n1,2", UNKNOWN, "log.csv").unwrap();
+        let (kind, mime) = classify_upload(
+            b"serial,date\n1,2",
+            b"serial,date\n1,2".len() as u64,
+            UNKNOWN,
+            "log.csv",
+        )
+        .unwrap();
         assert_eq!(kind, MediaKind::Document);
         assert_eq!(mime, "text/csv");
-        assert!(classify_upload(b"\x7fELF\0\0", UNKNOWN, "notes.txt").is_err());
+        assert!(classify_upload(
+            b"\x7fELF\0\0",
+            b"\x7fELF\0\0".len() as u64,
+            UNKNOWN,
+            "notes.txt"
+        )
+        .is_err());
     }
 
     #[test]
     fn unlisted_types_are_refused() {
-        assert!(classify_upload(b"PK", ZIP, "bundle.zip").is_err());
-        assert!(classify_upload(b"<html>", UNKNOWN, "page.html").is_err());
-        assert!(classify_upload(b"data", UNKNOWN, "no-extension").is_err());
-        assert!(classify_upload(b"ID3", "audio/mpeg", "song.mp3").is_err());
+        assert!(classify_upload(b"PK", b"PK".len() as u64, ZIP, "bundle.zip").is_err());
+        assert!(classify_upload(b"<html>", b"<html>".len() as u64, UNKNOWN, "page.html").is_err());
+        assert!(classify_upload(b"data", b"data".len() as u64, UNKNOWN, "no-extension").is_err());
+        assert!(classify_upload(b"ID3", b"ID3".len() as u64, "audio/mpeg", "song.mp3").is_err());
     }
 }

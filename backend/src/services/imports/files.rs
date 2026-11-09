@@ -85,6 +85,20 @@ pub async fn put_upload(
     Ok(key)
 }
 
+/// [`put_upload`] from the spooled upload on local disk, streamed.
+pub async fn put_upload_from_path(
+    storage: &dyn Storage,
+    job_id: Uuid,
+    extension: &str,
+    local: &std::path::Path,
+) -> Result<String, StorageError> {
+    let key = upload_key(job_id, extension);
+    storage
+        .put_file_from_path(local, &key, content_type(extension))
+        .await?;
+    Ok(key)
+}
+
 pub async fn read_upload(
     storage: &dyn Storage,
     job_id: Uuid,

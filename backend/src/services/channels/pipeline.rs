@@ -26,7 +26,7 @@
 //! event — it only reads `channel.provider` and `InboundMessage` fields
 //! defined in [`super`]. Adapters that need custom threading override
 //! `resolve_thread`; adapters that need custom attachment handling
-//! override [`materialize_attachment`]'s External branch by populating
+//! override [`intake_attachment`]'s External branch by populating
 //! Inline before handing to the pipeline.
 
 use std::sync::Arc;
@@ -47,6 +47,7 @@ use crate::repository::{
     channels as channels_repo, comments as comments_repo, tickets as tickets_repo,
 };
 use crate::services::channels::{ChannelAdapter, InboundAttachment, InboundEvent, InboundMessage};
+use crate::services::upload_intake::{IntakeError, Intaken, SpoolArea, UploadPolicy};
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
 use crate::utils::file_validation::FileValidator;
@@ -998,29 +999,27 @@ async fn persist_attachments(
     // attached upload is. The folder only groups a ticket's files: the serve
     // route authorizes each one through its attachment row's reply.
     let storage = WorkspaceScopedStorage::arc(base_storage.clone(), workspace_id);
-    let folder = format!("tickets/{ticket_id}");
+    let policy = UploadPolicy::inbound_attachment(ticket_id);
 
     for att in attachments {
-        let materialized = match materialize_attachment(att, ctx.http.as_ref()).await {
-            Ok(m) => m,
-            Err(e) => {
-                warn!(error = %e, "failed to materialize inbound attachment; skipping");
-                continue;
-            }
-        };
+        let (file, declared_mime) =
+            match intake_attachment(SpoolArea::global(), &policy, att, ctx.http.as_ref()).await {
+                Ok(m) => m,
+                Err(e) => {
+                    warn!(error = %e, "failed to take in inbound attachment; skipping");
+                    continue;
+                }
+            };
 
-        // The sender picks the name. Store it in the form an upload gets, one
-        // plain path segment; the row keeps it as sent, cleaned for display.
-        let stored_name = FileValidator::sanitize_filename(&materialized.filename)
-            .unwrap_or_else(|_| "attachment".to_string());
-        let display_name = FileValidator::display_filename(&materialized.filename)
-            .unwrap_or_else(|| stored_name.clone());
+        // Stored in the form an upload gets, one plain path segment, from
+        // the spooled file; the row keeps the name as sent, cleaned for
+        // display, and the type the sender declared.
         let stored = match storage
-            .store_file(
-                &materialized.bytes,
-                &stored_name,
-                &materialized.mime_type,
-                &folder,
+            .store_file_from_path(
+                file.path(),
+                &file.sanitized_name,
+                &declared_mime,
+                &policy.folder,
             )
             .await
         {
@@ -1031,12 +1030,18 @@ async fn persist_attachments(
             }
         };
 
+        let sent_name = match att {
+            InboundAttachment::Inline { filename, .. }
+            | InboundAttachment::External { filename, .. } => filename,
+        };
+        let display_name = FileValidator::display_filename(sent_name)
+            .unwrap_or_else(|| file.sanitized_name.clone());
         let new_att = NewAttachment {
             url: stored.url,
             name: display_name,
-            file_size: Some(stored.size as i64),
-            mime_type: Some(materialized.mime_type),
-            checksum: None,
+            file_size: Some(file.size as i64),
+            mime_type: Some(declared_mime),
+            checksum: Some(file.sha256.clone()),
             comment_id: Some(comment_id),
             uploaded_by: Some(uploader),
             transcription: None,
@@ -1047,43 +1052,33 @@ async fn persist_attachments(
     }
 }
 
-struct MaterializedAttachment {
-    filename: String,
-    mime_type: String,
-    bytes: Vec<u8>,
-}
-
-/// Hard cap on individual inbound attachment size. 25 MiB is what Gmail
-/// / Google Workspace caps outgoing at and what most corporate MTAs
-/// accept inbound; legitimate tickets rarely exceed it. Enforced for
-/// both [`InboundAttachment::Inline`] (already-in-memory bytes from
-/// IMAP fetch) and [`InboundAttachment::External`] (URL-fetched blobs
-/// from future chat adapters). Oversized attachments are dropped with
-/// a warn log so the ticket still opens without them.
-const MAX_ATTACHMENT_BYTES: usize = 25 * 1024 * 1024;
-
-async fn materialize_attachment(
+/// Take one inbound attachment in through the upload intake: spooled to
+/// disk under the inbound cap ([`UploadPolicy::inbound_attachment`], 25 MiB,
+/// what Gmail and most corporate MTAs accept) and hashed as it arrives.
+/// Returns it with the type the sender declared. An attachment over the cap
+/// or one that can't be fetched is an error, and the caller skips it so the
+/// ticket still opens without it.
+async fn intake_attachment(
+    area: &SpoolArea,
+    policy: &UploadPolicy,
     att: &InboundAttachment,
     http: Option<&reqwest::Client>,
-) -> Result<MaterializedAttachment, PipelineError> {
+) -> Result<(Intaken, String), PipelineError> {
+    let refused = |e: IntakeError| PipelineError::Attachment(format!("intake: {e}"));
     match att {
         InboundAttachment::Inline {
             filename,
             mime_type,
             bytes,
         } => {
-            if bytes.len() > MAX_ATTACHMENT_BYTES {
-                return Err(PipelineError::Attachment(format!(
-                    "inline attachment exceeds {} MiB cap ({} bytes)",
-                    MAX_ATTACHMENT_BYTES / 1024 / 1024,
-                    bytes.len()
-                )));
-            }
-            Ok(MaterializedAttachment {
-                filename: filename.clone(),
-                mime_type: mime_type.clone(),
-                bytes: bytes.clone(),
-            })
+            let chunk = futures::stream::iter([Ok::<_, std::convert::Infallible>(
+                bytes::Bytes::copy_from_slice(bytes),
+            )]);
+            let file = area
+                .stream(chunk, &inbound_name(filename), policy)
+                .await
+                .map_err(refused)?;
+            Ok((file, mime_type.clone()))
         }
         InboundAttachment::External {
             filename,
@@ -1115,10 +1110,10 @@ async fn materialize_attachment(
                 return Err(PipelineError::Attachment("url has no host".into()));
             }
             // Pre-flight size check when the adapter told us how big.
-            // The stream-level cap below is the authoritative gate;
+            // The intake's cap on the stream is the authoritative gate;
             // this just saves a round-trip on obvious offenders.
             if let Some(claimed) = size_bytes {
-                if *claimed as usize > MAX_ATTACHMENT_BYTES {
+                if *claimed > policy.max_bytes {
                     return Err(PipelineError::Attachment(format!(
                         "external attachment claims {} bytes; over cap",
                         claimed
@@ -1141,24 +1136,31 @@ async fn materialize_attachment(
                 .map_err(|e| PipelineError::Attachment(format!("fetch failed: {e}")))?
                 .error_for_status()
                 .map_err(|e| PipelineError::Attachment(format!("upstream: {e}")))?;
-            let bytes = resp
-                .bytes()
+            // The body streams into the spool chunk by chunk, so an
+            // oversized one stops at the cap instead of landing in memory.
+            let body = Box::pin(futures::stream::unfold(Some(resp), |resp| async move {
+                let mut resp = resp?;
+                match resp.chunk().await {
+                    Ok(Some(chunk)) => Some((Ok(chunk), Some(resp))),
+                    Ok(None) => None,
+                    Err(e) => Some((Err(e), None)),
+                }
+            }));
+            let file = area
+                .stream(body, &inbound_name(filename), policy)
                 .await
-                .map_err(|e| PipelineError::Attachment(format!("body: {e}")))?
-                .to_vec();
-            if bytes.len() > MAX_ATTACHMENT_BYTES {
-                return Err(PipelineError::Attachment(format!(
-                    "external attachment exceeds {} MiB cap ({} bytes)",
-                    MAX_ATTACHMENT_BYTES / 1024 / 1024,
-                    bytes.len()
-                )));
-            }
-            Ok(MaterializedAttachment {
-                filename: filename.clone(),
-                mime_type: mime_type.clone(),
-                bytes,
-            })
+                .map_err(refused)?;
+            Ok((file, mime_type.clone()))
         }
+    }
+}
+
+/// The sender picks the name: the intake takes it when it can be made safe,
+/// else the attachment is called `attachment`.
+fn inbound_name(filename: &str) -> String {
+    match FileValidator::sanitize_filename(filename) {
+        Ok(_) => filename.to_string(),
+        Err(_) => "attachment".to_string(),
     }
 }
 
@@ -1595,6 +1597,13 @@ mod tests {
             .await
             .expect("stored in the workspace's ticket folder");
         assert_eq!(bytes, b"%PDF-1.4");
+        assert_eq!(attachment.file_size, Some(8));
+        assert_eq!(attachment.mime_type.as_deref(), Some("application/pdf"));
+        assert_eq!(
+            attachment.checksum.as_deref(),
+            Some(hex::encode(ring::digest::digest(&ring::digest::SHA256, b"%PDF-1.4")).as_str()),
+            "hashed as it was taken in"
+        );
     }
 
     #[tokio::test]
@@ -2571,8 +2580,9 @@ My printer is literally on fire.
             size_bytes: None,
         };
         let client = reqwest::Client::new();
-        let err = match materialize_attachment(&att, Some(&client)).await {
-            Ok(_) => panic!("expected materialize_attachment to fail"),
+        let (_dir, area, policy) = inbound_spool();
+        let err = match intake_attachment(&area, &policy, &att, Some(&client)).await {
+            Ok(_) => panic!("expected intake_attachment to fail"),
             Err(e) => e,
         };
         assert!(
@@ -2588,11 +2598,12 @@ My printer is literally on fire.
             mime_type: "application/octet-stream".into(),
             url: "https://example.com/big.bin".into(),
             auth_header: None,
-            size_bytes: Some((MAX_ATTACHMENT_BYTES as u64) + 1),
+            size_bytes: Some(25 * 1024 * 1024 + 1),
         };
         let client = reqwest::Client::new();
-        let err = match materialize_attachment(&att, Some(&client)).await {
-            Ok(_) => panic!("expected materialize_attachment to fail"),
+        let (_dir, area, policy) = inbound_spool();
+        let err = match intake_attachment(&area, &policy, &att, Some(&client)).await {
+            Ok(_) => panic!("expected intake_attachment to fail"),
             Err(e) => e,
         };
         assert!(
@@ -2601,21 +2612,74 @@ My printer is literally on fire.
         );
     }
 
+    /// A spool area of the test's own, and the inbound policy.
+    fn inbound_spool() -> (tempfile::TempDir, SpoolArea, UploadPolicy) {
+        let dir = tempfile::tempdir().expect("spool dir");
+        let area = SpoolArea::new(dir.path().to_path_buf(), 64 * 1024 * 1024);
+        (dir, area, UploadPolicy::inbound_attachment(1))
+    }
+
+    fn spool_files(dir: &tempfile::TempDir) -> usize {
+        std::fs::read_dir(dir.path())
+            .map(|d| d.count())
+            .unwrap_or(0)
+    }
+
     #[tokio::test]
     async fn oversized_inline_attachment_is_rejected() {
+        let (dir, area, policy) = inbound_spool();
         let att = InboundAttachment::Inline {
             filename: "big.bin".into(),
             mime_type: "application/octet-stream".into(),
-            bytes: vec![0u8; MAX_ATTACHMENT_BYTES + 1],
+            bytes: vec![0u8; 25 * 1024 * 1024 + 1],
         };
-        let err = match materialize_attachment(&att, None).await {
-            Ok(_) => panic!("expected materialize_attachment to fail"),
+        let err = match intake_attachment(&area, &policy, &att, None).await {
+            Ok(_) => panic!("expected intake_attachment to fail"),
             Err(e) => e,
         };
         assert!(
-            format!("{err}").contains("cap"),
+            format!("{err}").contains("too large"),
             "expected cap rejection, got: {err}"
         );
+        assert_eq!(spool_files(&dir), 0, "nothing left in the spool");
+    }
+
+    /// An inline attachment is spooled whole and hashed, keeps the type its
+    /// sender declared and a name that can't be made safe becomes
+    /// `attachment`; its spool file goes when it drops.
+    #[tokio::test]
+    async fn an_inline_attachment_is_spooled_hashed_and_cleaned_up() {
+        let (dir, area, policy) = inbound_spool();
+        let bytes = b"quarterly numbers\n".repeat(1000);
+        let att = InboundAttachment::Inline {
+            filename: "Q3 (final).txt".into(),
+            mime_type: "text/plain".into(),
+            bytes: bytes.clone(),
+        };
+        let (file, declared) = intake_attachment(&area, &policy, &att, None)
+            .await
+            .expect("taken in");
+        assert_eq!(declared, "text/plain");
+        assert_eq!(file.size, bytes.len() as u64);
+        assert_eq!(
+            file.sha256,
+            hex::encode(ring::digest::digest(&ring::digest::SHA256, &bytes))
+        );
+        assert_eq!(file.sanitized_name, "Q3final.txt");
+        assert_eq!(std::fs::read(file.path()).expect("spooled"), bytes);
+        assert_eq!(spool_files(&dir), 1);
+        drop(file);
+        assert_eq!(spool_files(&dir), 0, "the spool file goes on drop");
+
+        let att = InboundAttachment::Inline {
+            filename: "...".into(),
+            mime_type: "application/octet-stream".into(),
+            bytes: b"x".to_vec(),
+        };
+        let (file, _) = intake_attachment(&area, &policy, &att, None)
+            .await
+            .expect("taken in");
+        assert_eq!(file.sanitized_name, "attachment");
     }
 
     #[tokio::test]
@@ -2628,8 +2692,9 @@ My printer is literally on fire.
             size_bytes: None,
         };
         let client = reqwest::Client::new();
-        let err = match materialize_attachment(&att, Some(&client)).await {
-            Ok(_) => panic!("expected materialize_attachment to fail"),
+        let (_dir, area, policy) = inbound_spool();
+        let err = match intake_attachment(&area, &policy, &att, Some(&client)).await {
+            Ok(_) => panic!("expected intake_attachment to fail"),
             Err(e) => e,
         };
         assert!(

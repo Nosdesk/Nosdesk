@@ -504,6 +504,8 @@ pub fn build_state(
         error!(error = %e, "Upload spool directory can't be created; uploads will fail");
     }
     crate::services::upload_intake::sweep_global();
+    // A backup restore upload a killed process left half written.
+    crate::services::backup::sweep_restore_partials_global();
 
     // Inbound-email S3 reader (hosted forwarding path). `None` on self-host or
     // when `NOSDESK_INBOUND_S3_BUCKET` is unset; a bucket configured without
