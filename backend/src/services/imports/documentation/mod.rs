@@ -191,8 +191,13 @@ impl DocsOptions {
 pub struct TreePage {
     pub index: usize,
     pub title: String,
-    /// The Markdown file, or the folder a section page stands for.
+    /// The Markdown file, or the folder a section page stands for; else
+    /// the page's source key (a BookStack page). Unique in the tree, as the
+    /// check's rows name the page.
     pub path: String,
+    /// What a later import finds the page by; empty for a nav heading.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub key: String,
     pub file: Option<String>,
     pub folder: Option<String>,
     pub parent: Option<usize>,
@@ -257,7 +262,8 @@ impl TreeView {
                         .source
                         .clone()
                         .or_else(|| p.folder.clone())
-                        .unwrap_or_default(),
+                        .unwrap_or_else(|| p.key.clone()),
+                    key: p.key.clone(),
                     file: p.source.clone(),
                     folder: p.folder.clone(),
                     parent: p.parent,
@@ -302,7 +308,12 @@ impl TreeView {
                 at = parent.parent;
             }
             trail.reverse();
-            out.add(page.file.as_deref(), page.folder.as_deref(), &trail);
+            out.add(
+                page.file.as_deref(),
+                page.folder.as_deref(),
+                &page.key,
+                &trail,
+            );
         }
         out
     }

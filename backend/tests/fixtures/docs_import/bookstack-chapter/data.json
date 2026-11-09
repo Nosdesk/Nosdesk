@@ -1,0 +1,86 @@
+{
+  "chapter": {
+    "id": 16,
+    "name": "Onboarding",
+    "description_html": "<p>Steps for a <strong>new starter</strong>.</p>",
+    "priority": 2,
+    "pages": [
+      {
+        "id": 19,
+        "name": "VPN setup",
+        "html": "<h1 id=\"bkmrk-vpn-setup\">VPN setup</h1>\n<p id=\"bkmrk-install-the-client%2C-\">Install the client, then sign in. See <a href=\"https://docs.example.com/books/help-desk-handbook/page/welcome\">Welcome</a> and the <a href=\"[[bsexport:chapter:16]]\">chapter</a> or the <a href=\"https://docs.example.com/books/help-desk-handbook\">book</a>.</p>\n<h2 id=\"bkmrk-steps\">Steps</h2>\n<ol id=\"bkmrk-download-install-pic\">\n<li>Download</li>\n<li>Install\n<ul>\n<li>Pick <strong>Full</strong></li>\n</ul>\n</li>\n<li>Sign in</li>\n</ol>\n<ul id=\"bkmrk-client-installed-sig\">\n<li class=\"task-list-item\"><input checked disabled type=\"checkbox\"> Client installed</li>\n<li class=\"task-list-item\"><input disabled type=\"checkbox\"> Signed in</li>\n</ul>\n<table id=\"bkmrk-setting-value-server\">\n<thead>\n<tr>\n<th>Setting</th>\n<th align=\"center\">Value</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Server</td>\n<td align=\"center\">vpn.example.com</td>\n</tr>\n<tr>\n<td>Port</td>\n<td align=\"center\">443</td>\n</tr>\n</tbody>\n</table>\n<pre id=\"bkmrk-get-vpnconnection\"><code class=\"language-powershell\">Get-VpnConnection\n</code></pre>\n<p class=\"callout warning\" id=\"bkmrk-don%27t-share-your-tok\">Don't share your token.</p>\n<p id=\"bkmrk-\"><img src=\"[[bsexport:image:7]]\" alt=\"VPN client\"></p>\n<p id=\"bkmrk-download-the-vpn-pro\">Download the <a href=\"[[bsexport:attachment:4]]\">VPN profile guide</a> or visit the <a href=\"[[bsexport:attachment:5]]\">vendor</a>.</p>\n<p id=\"bkmrk-%7B%7B%4015%23bkmrk-getting-\">Getting started</p>\n<p id=\"bkmrk-permalink-to-faq.\">Permalink to <a href=\"https://docs.example.com/link/17\">FAQ</a>.</p>\n",
+        "markdown": "# VPN setup\n\nInstall the client, then sign in. See [Welcome](https://docs.example.com/books/help-desk-handbook/page/welcome) and the [chapter]([[bsexport:chapter:16]]) or the [book](https://docs.example.com/books/help-desk-handbook).\n\n## Steps\n\n1. Download\n2. Install\n   - Pick **Full**\n3. Sign in\n\n- [x] Client installed\n- [ ] Signed in\n\n| Setting | Value |\n|---|:---:|\n| Server | vpn.example.com |\n| Port | 443 |\n\n```powershell\nGet-VpnConnection\n```\n\n<p class=\"callout warning\">Don't share your token.</p>\n\n![VPN client]([[bsexport:image:7]])\n\nDownload the [VPN profile guide]([[bsexport:attachment:4]]) or visit the [vendor]([[bsexport:attachment:5]]).\n\n{{@15#bkmrk-getting-started}}\n\nPermalink to [FAQ](https://docs.example.com/link/17).",
+        "priority": 1,
+        "attachments": [
+          {
+            "id": 4,
+            "name": "VPN profile guide",
+            "file": "kgHKscrX2Pl9SM5tRVtJ.pdf"
+          },
+          {
+            "id": 5,
+            "name": "Vendor portal",
+            "link": "https://example.com/vendor"
+          }
+        ],
+        "images": [
+          {
+            "id": 7,
+            "name": "vpn-client.png",
+            "file": "crXORnKKguHjNSP1QCTW.png",
+            "type": "gallery"
+          }
+        ],
+        "tags": [
+          {
+            "name": "os",
+            "value": "windows"
+          },
+          {
+            "name": "vpn",
+            "value": ""
+          }
+        ]
+      },
+      {
+        "id": 20,
+        "name": "Printer troubleshooting",
+        "html": "<p id=\"bkmrk-when-the-printer-jam\">When the printer jams, follow the diagram.</p>\n<div drawio-diagram=\"8\" contenteditable=\"false\" id=\"bkmrk-\"><img src=\"[[bsexport:image:8]]\" alt=\"3DRdrawing-1.png\"></div>\n<p id=\"bkmrk-drivers%3A-printer-dri\">Drivers: <a href=\"[[bsexport:attachment:6]]\">Printer drivers</a>.</p>\n<p id=\"bkmrk-%7B%7B%4019%23bkmrk-vpn-setu\">VPN setup</p>\n<p id=\"bkmrk--1\"><img src=\"[[bsexport:image:6]]\" alt=\"Router again\" width=\"300\"></p>",
+        "priority": 2,
+        "attachments": [
+          {
+            "id": 6,
+            "name": "Printer drivers",
+            "file": "Jan24xgddFG22m8lEnaS.txt"
+          }
+        ],
+        "images": [
+          {
+            "id": 8,
+            "name": "drawing-1.png",
+            "file": "rdXZc11AzvC31lVOEWZw.png",
+            "type": "drawio"
+          },
+          {
+            "id": 6,
+            "name": "router.png",
+            "file": "txd0WzarRnTEzBh3i0jG.png",
+            "type": "gallery"
+          }
+        ],
+        "tags": []
+      }
+    ],
+    "tags": [
+      {
+        "name": "audience",
+        "value": "staff"
+      }
+    ]
+  },
+  "exported_at": "2026-11-09T00:00:00+00:00",
+  "instance": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "version": "v26.09.2"
+  }
+}

@@ -460,6 +460,17 @@ pub struct ReadBlock {
 /// Read one HTML block. Markdown's HTML has no dialect: every element gets
 /// the default reading.
 pub fn read_block(raw: &str, resolver: &dyn Resolver, notes: &mut Notes) -> ReadBlock {
+    read_block_with(raw, &DefaultDialect, resolver, notes)
+}
+
+/// [`read_block`] with a source's dialect: the HTML blocks of a source's
+/// own Markdown (a BookStack callout written as `<p class="callout">`).
+pub fn read_block_with(
+    raw: &str,
+    dialect: &dyn Dialect,
+    resolver: &dyn Resolver,
+    notes: &mut Notes,
+) -> ReadBlock {
     let tags = tags(raw);
     if nesting(&tags) > MAX_NESTING {
         return ReadBlock {
@@ -469,7 +480,7 @@ pub fn read_block(raw: &str, resolver: &dyn Resolver, notes: &mut Notes) -> Read
     }
     let mut reader = Reader {
         resolver,
-        dialect: &DefaultDialect,
+        dialect,
         notes,
         as_text: false,
     };

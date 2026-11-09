@@ -59,7 +59,7 @@ pub fn running_summary(run: Uuid) -> serde_json::Value {
 /// The collection mode the tree uses for these options and profile.
 pub fn effective_mode(options: &DocsOptions, profile: ProfileKind) -> CollectionMode {
     options.collections.unwrap_or(match profile {
-        ProfileKind::NosdeskV2 => CollectionMode::AsSource,
+        ProfileKind::NosdeskV2 | ProfileKind::Bookstack => CollectionMode::AsSource,
         ProfileKind::Outline => CollectionMode::PerTopLevelFolder,
         _ => CollectionMode::New,
     })

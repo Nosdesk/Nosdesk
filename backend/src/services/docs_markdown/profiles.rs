@@ -7,8 +7,10 @@
 //! file, a tool folder) and reads text only to tell Nosdesk v1, Obsidian and
 //! Notion apart from a plain folder.
 //!
-//! BookStack and Confluence exports are recognised and refused: they are
-//! HTML with their own trees and macros, and arrive in a later release.
+//! BookStack's Portable ZIP is its own source ([`super::bookstack`]), found
+//! by its `data.json` before any of this runs. Confluence exports are
+//! recognised and refused: they are HTML with their own tree and macros,
+//! and arrive in a later release.
 
 use std::collections::HashMap;
 
@@ -35,10 +37,12 @@ pub enum ProfileKind {
     Outline,
     /// A folder of Markdown files, or loose files.
     Plain,
+    /// A BookStack Portable ZIP: `data.json` and its files.
+    Bookstack,
 }
 
 impl ProfileKind {
-    pub const ALL: [ProfileKind; 9] = [
+    pub const ALL: [ProfileKind; 10] = [
         ProfileKind::NosdeskV2,
         ProfileKind::NosdeskV1,
         ProfileKind::Notion,
@@ -48,6 +52,7 @@ impl ProfileKind {
         ProfileKind::Docusaurus,
         ProfileKind::Outline,
         ProfileKind::Plain,
+        ProfileKind::Bookstack,
     ];
 
     /// The rules this profile switches on.
@@ -76,7 +81,7 @@ impl ProfileKind {
                 rules.mdx = true;
                 rules.folder_note_inside = true;
             }
-            ProfileKind::Outline | ProfileKind::Plain => {}
+            ProfileKind::Outline | ProfileKind::Plain | ProfileKind::Bookstack => {}
         }
         rules
     }
@@ -177,9 +182,7 @@ fn join(base: &str, name: &str) -> String {
 fn later(source: &str) -> Refused {
     Refused::new(
         "docs_import_source_later",
-        format!(
-            "This is a {source} export. BookStack and Confluence exports are coming in a later update."
-        ),
+        format!("This is a {source} export. {source} exports are coming in a later update."),
     )
     .arg("source", source)
 }
@@ -218,13 +221,6 @@ pub fn detect(listing: &mut Listing<'_>) -> Result<Detection, Refused> {
         let manifest = (listing.read)(&join(&base, MANIFEST)).and_then(|t| read_manifest(&t));
         if manifest.is_some() {
             return found(ProfileKind::NosdeskV2);
-        }
-    }
-    if has("data.json") {
-        if let Some(text) = (listing.read)(&join(&base, "data.json")) {
-            if is_bookstack(&text) {
-                return Err(later("BookStack"));
-            }
         }
     }
     if markdown.is_empty() {
@@ -275,20 +271,6 @@ pub fn detect(listing: &mut Listing<'_>) -> Result<Detection, Refused> {
 pub fn read_manifest(text: &str) -> Option<Manifest> {
     let manifest: Manifest = serde_json::from_str(text).ok()?;
     (manifest.format == "nosdesk-docs" && manifest.format_version >= 2).then_some(manifest)
-}
-
-/// BookStack's portable zip: `data.json` holding a book, chapter or page
-/// beside the instance it came from.
-fn is_bookstack(text: &str) -> bool {
-    match serde_json::from_str::<serde_json::Value>(text) {
-        Ok(value) => {
-            value.get("instance").is_some()
-                && ["book", "chapter", "page"]
-                    .iter()
-                    .any(|k| value.get(k).is_some())
-        }
-        Err(_) => false,
-    }
 }
 
 /// Confluence's HTML export: `index.html` and pages as HTML, with an

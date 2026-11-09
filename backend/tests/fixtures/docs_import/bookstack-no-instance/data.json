@@ -1,0 +1,23 @@
+{
+  "page": {
+    "id": 15,
+    "name": "Welcome",
+    "html": "<h2 id=\"bkmrk-getting-started\">Getting started</h2>\n<p id=\"bkmrk-welcome-to-the-help-\">Welcome to the <strong>help desk</strong>. Read <em>this</em> first, then <s>ignore</s> <u>nothing</u>. Run <code>ipconfig /all</code> when asked.</p>\n<h3 id=\"bkmrk-lists\">Lists</h3>\n<ul id=\"bkmrk-first-pointnested-po\"><li>First point<ul><li>Nested point</li></ul></li><li>Second point</li></ul>\n<ol id=\"bkmrk-step-onestep-two\"><li>Step one</li><li>Step two</li></ol>\n<ul id=\"bkmrk-laptop-issuedbadge-i\"><li class=\"task-list-item\"><input type=\"checkbox\" disabled checked>Laptop issued</li><li class=\"task-list-item\"><input type=\"checkbox\" disabled>Badge issued</li></ul>\n<h3 id=\"bkmrk-table\">Table</h3>\n<table id=\"bkmrk-systemowneremailitev\"><thead><tr><th>System</th><th>Owner</th></tr></thead><tbody><tr><td>Email</td><td>IT</td></tr><tr><td colspan=\"2\">Everything else: ask</td></tr></tbody></table>\n<h3 id=\"bkmrk-code\">Code</h3>\n<pre id=\"bkmrk-sudo-systemctl-resta\"><code class=\"language-bash\">sudo systemctl restart cups\necho done</code></pre>\n<h3 id=\"bkmrk-callouts\">Callouts</h3>\n<p class=\"callout info\" id=\"bkmrk-info-callout-text.\">Info callout text.</p>\n<p class=\"callout success\" id=\"bkmrk-success-callout-text\">Success callout text.</p>\n<p class=\"callout warning\" id=\"bkmrk-warning-callout-bold\">Warning callout <strong>bold</strong>.</p>\n<p class=\"callout danger\" id=\"bkmrk-danger-callout-text.\">Danger callout text.</p>\n<details id=\"bkmrk-show-morehidden-cont\"><summary>Show more</summary><p>Hidden content.</p></details>\n<blockquote id=\"bkmrk-a-quote.\"><p>A quote.</p></blockquote>\n<hr id=\"bkmrk-\">\n<h3 id=\"bkmrk-links\">Links</h3>\n<p id=\"bkmrk-see-vpn-setup-sectio\">See <a href=\"https://docs.example.com/books/help-desk-handbook/page/vpn-setup#bkmrk-vpn-setup\">VPN setup section</a>, the <a href=\"https://docs.example.com/books/help-desk-handbook/chapter/onboarding\">Onboarding chapter</a>, the <a href=\"https://docs.example.com/books/help-desk-handbook\">whole book</a>, <a href=\"https://docs.example.com/books/other-book/page/elsewhere\">a page elsewhere</a>, <a href=\"https://www.bookstackapp.com/docs/\">the docs</a> and <a href=\"mailto:help@example.com\">mail us</a>.</p>\n<p id=\"bkmrk--1\"><a href=\"[[bsexport:image:6]]\" target=\"_blank\"><img src=\"[[bsexport:image:6]]\" alt=\"Router photo\"></a></p>",
+    "priority": 1,
+    "attachments": [],
+    "images": [
+      {
+        "id": 6,
+        "name": "router.png",
+        "file": "w5qzk4Lnls5VXa7wL9yT.png",
+        "type": "gallery"
+      }
+    ],
+    "tags": [
+      {
+        "name": "topic",
+        "value": "welcome"
+      }
+    ]
+  }
+}

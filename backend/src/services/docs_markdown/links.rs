@@ -133,6 +133,25 @@ pub struct LinkIndex {
     /// Each page's title and the folder its file sits in.
     titles: Vec<String>,
     dirs: Vec<String>,
+    /// Destinations in a source's own scheme, without their fragment.
+    refs: HashMap<String, RefTarget>,
+    /// The schemes those are written in.
+    ref_schemes: Vec<String>,
+}
+
+/// What a destination in a source's own scheme names in the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RefTarget {
+    /// A page, by its index in the plan.
+    Page(usize),
+    /// The collection a page in the plan goes in, by the page's index.
+    Collection(usize),
+    /// An archive file shown as an image, by key.
+    Image(String),
+    /// A file the import leaves out, by the name Review lists it under.
+    Attachment(String),
+    /// A web address, kept as any web link is.
+    Web(String),
 }
 
 impl LinkIndex {
@@ -209,6 +228,31 @@ impl LinkIndex {
 
     pub fn add_uuid(&mut self, uuid: &str, index: usize) {
         self.uuids.entry(uuid.to_lowercase()).or_insert(index);
+    }
+
+    /// A source's own scheme (`bsexport`): its destinations resolve only
+    /// through [`LinkIndex::add_ref`].
+    pub fn add_ref_scheme(&mut self, scheme: &str) {
+        let scheme = scheme.to_ascii_lowercase();
+        if !self.ref_schemes.contains(&scheme) {
+            self.ref_schemes.push(scheme);
+        }
+    }
+
+    /// What the destination `href` (without a fragment) in a source's own
+    /// scheme names.
+    pub fn add_ref(&mut self, href: &str, target: RefTarget) {
+        self.refs.insert(href.to_string(), target);
+    }
+
+    /// What a destination in a source's own scheme names, or `None` when it
+    /// isn't in one. `Some(None)`: it is, and names nothing in the plan.
+    fn source_ref(&self, href: &str) -> Option<Option<&RefTarget>> {
+        let scheme = scheme(href)?;
+        if !self.ref_schemes.contains(&scheme) {
+            return None;
+        }
+        Some(self.refs.get(strip_fragment(href)))
     }
 
     pub fn title(&self, index: usize) -> &str {
@@ -371,6 +415,16 @@ impl<'a> PageResolver<'a> {
         Placeholder::Page(page).to_href()
     }
 
+    /// A destination as Review lists it: an attachment a source names by
+    /// its own reference under the attachment's name, anything else as
+    /// written.
+    fn label(&self, href: &str) -> String {
+        match self.index.source_ref(href.trim()) {
+            Some(Some(RefTarget::Attachment(name))) => name.clone(),
+            _ => href_label(href),
+        }
+    }
+
     fn link_outcome(&self, href: &str) -> Outcome {
         if let Some(outcome) = self.links.borrow().get(href) {
             return outcome.clone();
@@ -381,13 +435,12 @@ impl<'a> PageResolver<'a> {
                 self.report.borrow_mut().rewritten += 1;
             }
             Outcome::Unresolved => {
-                self.report.borrow_mut().unresolved.insert(href_label(href));
+                let label = self.label(href);
+                self.report.borrow_mut().unresolved.insert(label);
             }
             Outcome::Attachment => {
-                self.report
-                    .borrow_mut()
-                    .attachments
-                    .insert(href_label(href));
+                let label = self.label(href);
+                self.report.borrow_mut().attachments.insert(label);
             }
             _ => {}
         }
@@ -399,6 +452,21 @@ impl<'a> PageResolver<'a> {
 
     fn classify_link(&self, href: &str) -> Outcome {
         let href = href.trim();
+        if let Some(target) = self.index.source_ref(href) {
+            return match target {
+                Some(RefTarget::Page(page)) => Outcome::Kept(self.page_href(*page)),
+                Some(RefTarget::Collection(page)) => {
+                    Outcome::Kept(Placeholder::Collection(*page).to_href())
+                }
+                Some(RefTarget::Attachment(_)) => Outcome::Attachment,
+                Some(RefTarget::Web(url)) => match DefaultResolver.link(url) {
+                    Some(kept) => Outcome::Kept(kept),
+                    None => Outcome::Dropped,
+                },
+                // A link to an image: the image isn't a page to open.
+                Some(RefTarget::Image(_)) | None => Outcome::Unresolved,
+            };
+        }
         if let Some(target) = href.strip_prefix(WIKILINK_PREFIX) {
             return self.wikilink(target);
         }
@@ -541,6 +609,21 @@ impl<'a> PageResolver<'a> {
 
     fn classify_image(&self, src: &str) -> Outcome {
         let src = src.trim();
+        if let Some(target) = self.index.source_ref(src) {
+            return match target {
+                // Whatever its name says: the check sniffs it, and refuses
+                // an SVG or a file that isn't an image there.
+                Some(RefTarget::Image(key)) => {
+                    Outcome::Kept(Placeholder::Asset(key.clone()).to_href())
+                }
+                Some(RefTarget::Attachment(_)) => Outcome::Attachment,
+                Some(RefTarget::Web(url)) => match DefaultResolver.image(url) {
+                    Some(kept) => Outcome::Kept(kept),
+                    None => Outcome::Dropped,
+                },
+                Some(RefTarget::Page(_) | RefTarget::Collection(_)) | None => Outcome::Unresolved,
+            };
+        }
         let target = if let Some(target) = src.strip_prefix(WIKILINK_PREFIX) {
             self.wiki_target(wikilink_name(target))
         } else if let Some(scheme) = scheme(src) {

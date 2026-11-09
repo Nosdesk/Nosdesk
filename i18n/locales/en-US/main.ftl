@@ -9045,7 +9045,7 @@ docs-import-refused-encrypted = This zip is password-protected. Export it again 
 docs-import-refused-too-many-pages = The import has { $count } pages. The limit is { $max }. Export one part at a time.
 docs-import-refused-too-many-files = The zip holds more than { $max } files. Export one part at a time.
 docs-import-refused-no-markdown = There are no Markdown files in this zip.
-docs-import-refused-source-later = This is a { $source } export. BookStack and Confluence exports are coming in a later update.
+docs-import-refused-source-later = This is a { $source } export. { $source } exports are coming in a later update.
 docs-import-refused-mixed-files = Choose one .zip, or only .md files.
 docs-import-refused-too-large = { $name } is { $size }. The limit is { $max }. Export one part at a time.
 docs-import-refused-unsafe-path = The zip has a file name we can't accept: { $name }
@@ -9095,6 +9095,7 @@ docs-import-profile-mkdocs = an MkDocs site
 docs-import-profile-docusaurus = a Docusaurus site
 docs-import-profile-outline = an Outline export
 docs-import-profile-plain = a plain folder
+docs-import-profile-bookstack = a BookStack export
 docs-import-profile-option-notion = Notion export
 docs-import-profile-option-nosdesk-v2 = Nosdesk export
 docs-import-profile-option-nosdesk-v1 = Older Nosdesk export
@@ -9104,6 +9105,7 @@ docs-import-profile-option-mkdocs = MkDocs
 docs-import-profile-option-docusaurus = Docusaurus
 docs-import-profile-option-outline = Outline export
 docs-import-profile-option-plain = Plain folder
+docs-import-profile-option-bookstack = BookStack Portable ZIP
 
 # Pages: the tree
 docs-import-tree-title = Pages as they'll appear in Nosdesk
@@ -9169,6 +9171,10 @@ docs-import-where-as-source = As the export says
 docs-import-where-as-source-desc = { $count ->
     [one] 1 collection, as it was in Nosdesk.
    *[other] { $count } collections, as they were in Nosdesk.
+}
+docs-import-where-as-source-bookstack-desc = { $count ->
+    [one] 1 collection, named after the book, chapter or page.
+   *[other] { $count } collections, one for each export.
 }
 docs-import-status-label = Status
 docs-import-status-drafts = Drafts

@@ -69,6 +69,16 @@ pub fn parse(markdown: &str) -> Parsed {
 /// Parse one Markdown page, asking `resolver` about mentions, ticket links,
 /// embedded pages and wikilink embeds.
 pub fn parse_with(markdown: &str, options: ParseOptions, resolver: &dyn Resolver) -> Parsed {
+    parse_with_dialect(markdown, options, resolver, &html::DefaultDialect)
+}
+
+/// [`parse_with`], reading the page's HTML blocks with a source's dialect.
+pub fn parse_with_dialect(
+    markdown: &str,
+    options: ParseOptions,
+    resolver: &dyn Resolver,
+    dialect: &dyn html::Dialect,
+) -> Parsed {
     let mut extensions = self::options();
     if options.wikilinks {
         extensions |= Options::ENABLE_WIKILINKS;
@@ -80,6 +90,7 @@ pub fn parse_with(markdown: &str, options: ParseOptions, resolver: &dyn Resolver
             range: 0..0,
         },
         resolver,
+        dialect,
         notes: Notes::default(),
         footnotes: Footnotes::default(),
         front_matter: None,
@@ -123,6 +134,8 @@ struct Builder<'a> {
     source: &'a str,
     events: Events<'a>,
     resolver: &'a dyn Resolver,
+    /// How the page's HTML blocks are read.
+    dialect: &'a dyn html::Dialect,
     notes: Notes,
     footnotes: Footnotes,
     front_matter: Option<FrontMatter>,
@@ -205,13 +218,13 @@ impl Builder<'_> {
 
     /// An HTML block's content.
     fn html_blocks(&mut self, raw: &str, out: &mut Vec<Block>) {
-        out.extend(html::read_block(raw, self.resolver, &mut self.notes).blocks);
+        out.extend(html::read_block_with(raw, self.dialect, self.resolver, &mut self.notes).blocks);
     }
 
     /// An HTML block at the top level. When it leaves an `<aside>` or
     /// `<details>` open, the blocks up to its closing tag go inside.
     fn top_html(&mut self, raw: &str, out: &mut Vec<Block>) {
-        let read = html::read_block(raw, self.resolver, &mut self.notes);
+        let read = html::read_block_with(raw, self.dialect, self.resolver, &mut self.notes);
         out.extend(read.blocks);
         // Each open container is a level of recursion: bound it.
         let left_open = read

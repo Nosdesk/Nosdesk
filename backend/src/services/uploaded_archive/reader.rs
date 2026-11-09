@@ -1120,13 +1120,21 @@ mod tests {
             }
         );
 
+        // A split export's parts share one key space; the documentation
+        // import bundles them instead, each part under its own name.
         let same = zip_of(&[("a.md", b"y")]);
+        let split = ArchiveOptions {
+            nested: NestedZips::SplitExport,
+            ..docs()
+        };
         assert_eq!(
-            open(zip_of(&[("1.zip", &ok), ("2.zip", &same)]), &docs()).unwrap_err(),
+            open(zip_of(&[("1.zip", &ok), ("2.zip", &same)]), &split).unwrap_err(),
             ArchiveError::Duplicate {
                 name: "a.md".into()
             }
         );
+        let bundled = open(zip_of(&[("1.zip", &ok), ("2.zip", &same)]), &docs()).unwrap();
+        assert_eq!(keys(&bundled), ["1/a.md", "2/a.md"]);
 
         let evil = zip_of(&[("../a.md", b"x")]);
         assert!(matches!(

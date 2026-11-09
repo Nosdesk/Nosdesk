@@ -1,0 +1,34 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Read "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/3",
+                "title": null
+              }
+            }
+          ],
+          "text": "Hostile"
+        },
+        {
+          "type": "text",
+          "text": " first."
+        }
+      ]
+    }
+  ]
+}

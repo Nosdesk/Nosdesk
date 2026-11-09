@@ -1,0 +1,79 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "When the printer jams, follow the diagram."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "image",
+          "attrs": {
+            "ychange": null,
+            "src": "/api/files/collab/doc/00000000-0000-4000-8000-000000000000/1dlVnrGIZcVOlGjNe8iq.png",
+            "alt": "3DRdrawing-1.png",
+            "title": null,
+            "width": null,
+            "align": null
+          }
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Drivers: Printer drivers."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "VPN setup"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "image",
+          "attrs": {
+            "ychange": null,
+            "src": "/api/files/collab/doc/00000000-0000-4000-8000-000000000000/4alZS5oUZLNyYuXvzVVK.png",
+            "alt": "Router again",
+            "title": null,
+            "width": 300,
+            "align": null
+          }
+        }
+      ]
+    }
+  ]
+}
