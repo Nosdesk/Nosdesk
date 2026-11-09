@@ -480,8 +480,8 @@ fn a_purge_reaches_each_workspace_with_its_own_changes() {
     let (a, b) = (f.ws.a.workspace_id, f.ws.b.workspace_id);
     let gone = f.requester_from_b;
     let mut conn = f.pool.get().expect("conn");
-    // The pages the person wrote pass to an administrator.
-    let successor = common::insert_user(&mut conn, "Docs Successor").uuid;
+    // The pages the person wrote pass to A's admin, A having no owner.
+    let successor = f.ws.a.admin_uuid;
 
     let a_ticket: i32 = run_in_workspace(&f.pool, REF, a, |c| {
         use backend::schema::tickets::dsl as t;
@@ -491,30 +491,7 @@ fn a_purge_reaches_each_workspace_with_its_own_changes() {
             .first(c)
     })
     .expect("A's ticket");
-    let a_page: i32 = run_in_workspace(&f.pool, REF, a, |c| {
-        diesel::insert_into(backend::schema::documentation_pages::table)
-            .values(&backend::models::NewDocumentationPage {
-                uuid: Uuid::new_v4(),
-                title: "Printer setup".to_string(),
-                slug: "printer-setup".to_string(),
-                icon: None,
-                cover_image: None,
-                status: backend::models::DocumentationStatus::Published,
-                created_by: gone,
-                last_edited_by: gone,
-                parent_id: None,
-                display_order: None,
-                is_public: false,
-                is_template: false,
-                yjs_state_vector: None,
-                yjs_document: None,
-                yjs_client_id: None,
-                has_unsaved_changes: false,
-            })
-            .returning(backend::schema::documentation_pages::id)
-            .get_result(c)
-    })
-    .expect("A's page");
+    let a_page = page_in(&f.pool, a, "Printer setup", gone);
     let (b_ticket, b_comment, b_file, b_asset) = run_in_workspace(&f.pool, REF, b, |c| {
         let state = backend::repository::workflow_states::default_state(c)?;
         let ticket: backend::models::Ticket = diesel::insert_into(backend::schema::tickets::table)
@@ -681,6 +658,180 @@ fn a_purge_reaches_each_workspace_with_its_own_changes() {
     assert!(
         !about_record(&in_b, "documentation_page.", a_page),
         "A's page in B"
+    );
+}
+
+/// A published page in `workspace` written and last edited by `author`.
+fn page_in(pool: &TestPool, workspace: i32, title: &str, author: Uuid) -> i32 {
+    run_in_workspace(pool, REF, workspace, |c| {
+        diesel::insert_into(backend::schema::documentation_pages::table)
+            .values(&backend::models::NewDocumentationPage {
+                uuid: Uuid::new_v4(),
+                title: title.to_string(),
+                slug: format!("page-{}", Uuid::new_v4().simple()),
+                icon: None,
+                cover_image: None,
+                status: backend::models::DocumentationStatus::Published,
+                created_by: author,
+                last_edited_by: author,
+                parent_id: None,
+                display_order: None,
+                is_public: false,
+                is_template: false,
+                yjs_state_vector: None,
+                yjs_document: None,
+                yjs_client_id: None,
+                has_unsaved_changes: false,
+            })
+            .returning(backend::schema::documentation_pages::id)
+            .get_result(c)
+    })
+    .expect("insert page")
+}
+
+/// No platform admin anywhere, as on a hosted deployment.
+fn without_platform_admins(pool: &TestPool) {
+    let mut conn = pool.get().expect("conn");
+    diesel::update(
+        backend::schema::users::table
+            .filter(backend::schema::users::platform_role.eq("platform_admin")),
+    )
+    .set(backend::schema::users::platform_role.eq("user"))
+    .execute(&mut conn)
+    .expect("drop platform admins");
+}
+
+/// Purge `who` as the retention job does: elevated, pinned to `home`.
+fn purge_from(pool: &TestPool, home: i32, who: Uuid) -> Result<usize, diesel::result::Error> {
+    let mut conn = pool.get().expect("conn");
+    backend::sync::session::with_actor_bypass_context(&mut conn, &ActorContext::system(REF), |c| {
+        backend::sync::session::pin_workspace(c, home)?;
+        backend::repository::users::purge_user(&who, c, None)
+    })
+}
+
+/// Who a page names as its author and last editor now.
+fn page_people(pool: &TestPool, workspace: i32, page: i32) -> (Uuid, Uuid) {
+    run_in_workspace(pool, REF, workspace, |c| {
+        use backend::schema::documentation_pages::dsl as d;
+        d::documentation_pages
+            .find(page)
+            .select((d::created_by, d::last_edited_by))
+            .first(c)
+    })
+    .expect("page people")
+}
+
+/// With no platform admin anywhere, a person's pages in each workspace pass to
+/// that workspace's own owner, ahead of its admins, and each workspace hears
+/// of its own page.
+#[test]
+fn a_purge_hands_each_workspaces_pages_to_its_own_owner() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let (a, b) = (f.ws.a.workspace_id, f.ws.b.workspace_id);
+    let gone = f.requester_from_b;
+    without_platform_admins(&f.pool);
+
+    let mut conn = f.pool.get().expect("conn");
+    let owner_a = common::insert_plain_user(&mut conn, "Owner Of A");
+    let owner_b = common::insert_plain_user(&mut conn, "Owner Of B");
+    drop(conn);
+    for (ws, owner, admin) in [
+        (a, owner_a, f.ws.a.admin_uuid),
+        (b, owner_b, f.ws.b.admin_uuid),
+    ] {
+        let mut conn = f.pool.get().expect("conn");
+        with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &ActorContext::user(admin, None).with_workspace(ws),
+            |c| add_membership(c, ws, owner, "owner", SeatWriteAuthority::ControlPlane).map(|_| ()),
+        )
+        .expect("add the owner");
+    }
+    let a_page = page_in(&f.pool, a, "Printer setup", gone);
+    let b_page = page_in(&f.pool, b, "Scanner setup", gone);
+    let baseline: i64 = [a, b]
+        .into_iter()
+        .map(|ws| {
+            run_in_workspace(&f.pool, REF, ws, |c| {
+                use backend::schema::sync_actions::dsl as s;
+                s::sync_actions
+                    .filter(s::workspace_id.eq(ws))
+                    .select(diesel::dsl::max(s::sync_id))
+                    .first::<Option<i64>>(c)
+            })
+            .expect("baseline")
+            .unwrap_or(0)
+        })
+        .max()
+        .unwrap_or(0);
+
+    purge_from(&f.pool, b, gone).expect("the purge succeeds with no platform admin");
+
+    assert_eq!(
+        page_people(&f.pool, a, a_page),
+        (owner_a, owner_a),
+        "A's page goes to A's owner"
+    );
+    assert_eq!(
+        page_people(&f.pool, b, b_page),
+        (owner_b, owner_b),
+        "B's page goes to B's owner"
+    );
+    for (name, ws, own, other, owner) in [
+        ("A", a, a_page, b_page, owner_a),
+        ("B", b, b_page, a_page, owner_b),
+    ] {
+        let rows = feed_after(&f, ws, baseline);
+        let own_rows = of_type(
+            &rows,
+            "documentation_page.metadata_changed",
+            &own.to_string(),
+        );
+        assert_eq!(own_rows.len(), 1, "{name} hears of its page once");
+        assert_eq!(own_rows[0].2["created_by"], owner.to_string());
+        assert_eq!(own_rows[0].2["last_edited_by"], owner.to_string());
+        assert!(
+            of_type(
+                &rows,
+                "documentation_page.metadata_changed",
+                &other.to_string()
+            )
+            .is_empty(),
+            "{name} hears nothing of the other workspace's page"
+        );
+    }
+}
+
+/// A workspace with no one to take over the person's pages (no other owner or
+/// admin, and no platform admin) refuses the purge with a named error, and
+/// nothing is changed.
+#[test]
+fn a_purge_with_no_one_to_take_the_pages_is_refused_by_name() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let a = f.ws.a.workspace_id;
+    // A's only admin wrote the page; A has no owner and no platform admin exists.
+    let gone = f.ws.a.admin_uuid;
+    without_platform_admins(&f.pool);
+    let page = page_in(&f.pool, a, "Runbook", gone);
+
+    let err = purge_from(&f.pool, a, gone).expect_err("the purge is refused");
+    assert_eq!(
+        backend::repository::users::no_page_successor(&err),
+        Some(backend::repository::users::NoPageSuccessor { workspace_id: a }),
+        "the error names the workspace: {err}"
+    );
+    assert_eq!(
+        page_people(&f.pool, a, page),
+        (gone, gone),
+        "the page is untouched"
+    );
+    let mut conn = f.pool.get().expect("conn");
+    assert!(
+        backend::repository::users::get_user_by_uuid(&gone, &mut conn).is_ok(),
+        "the account is still there"
     );
 }
 

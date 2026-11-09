@@ -697,6 +697,74 @@ pub fn home_workspace_id(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<Op
         .first::<Option<i32>>(conn)
 }
 
+/// A purge refused because a workspace has no one to take over the person's
+/// documentation: no owner, admin or platform admin other than the person.
+/// Pages and revisions keep their author, so the account can't go until
+/// someone can take them. [`purge_user`] returns it inside
+/// [`Error::QueryBuilderError`]; [`no_page_successor`] reads it back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoPageSuccessor {
+    pub workspace_id: i32,
+}
+
+impl std::fmt::Display for NoPageSuccessor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "workspace {} has no owner, admin or platform admin to take over the purged person's documentation",
+            self.workspace_id
+        )
+    }
+}
+
+impl std::error::Error for NoPageSuccessor {}
+
+/// The [`NoPageSuccessor`] a [`purge_user`] error carries, if it is one.
+pub fn no_page_successor(error: &Error) -> Option<NoPageSuccessor> {
+    match error {
+        Error::QueryBuilderError(inner) => inner.downcast_ref::<NoPageSuccessor>().copied(),
+        _ => None,
+    }
+}
+
+/// Who takes over `leaving`'s pages and revisions in `workspace_id`: the
+/// workspace's owner, else one of its admins (the longest-standing first),
+/// else a platform admin. Never `leaving`, nor a removed member or a deleted
+/// account. `None` when there is no one.
+fn page_successor(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    leaving: &Uuid,
+) -> QueryResult<Option<Uuid>> {
+    for role in [WorkspaceRole::Owner, WorkspaceRole::Admin] {
+        let found = workspace_members::table
+            .inner_join(users::table)
+            .filter(workspace_members::workspace_id.eq(workspace_id))
+            .filter(workspace_members::role.eq(role.as_str()))
+            .filter(workspace_members::removed_at.is_null())
+            .filter(workspace_members::user_uuid.ne(leaving))
+            .filter(users::deleted_at.is_null())
+            .order((
+                workspace_members::invited_at.asc(),
+                workspace_members::user_uuid.asc(),
+            ))
+            .select(workspace_members::user_uuid)
+            .first::<Uuid>(conn)
+            .optional()?;
+        if found.is_some() {
+            return Ok(found);
+        }
+    }
+    users::table
+        .filter(users::platform_role.eq(PlatformRole::PlatformAdmin.as_str()))
+        .filter(users::uuid.ne(leaving))
+        .filter(users::deleted_at.is_null())
+        .order(users::uuid.asc())
+        .select(users::uuid)
+        .first::<Uuid>(conn)
+        .optional()
+}
+
 /// Hard-delete a user and every row that FK-references them. Only
 /// the retention worker (after the grace window), an admin's permanent
 /// delete and a workspace import's reset call this. Admin "Delete"
@@ -736,20 +804,29 @@ pub fn purge_user(
         // the asset links the person made.
         crate::repository::tickets::clear_purged_person_from_tickets(conn, user_uuid)?;
 
-        // 1c. Documentation pages' created_by/last_edited_by (RESTRICT) go
-        // to the first available admin; a verification is cleared.
-        let first_admin: Option<User> = users::table
-            .into_boxed()
-            .filter(users::platform_role.eq("platform_admin"))
-            .filter(users::uuid.ne(user_uuid))
-            .first(conn)
-            .optional()?;
-        // Note: If no other admin exists, delete fails due to FK constraint
-        // Intentional - at least one admin must own documentation
+        // 1c. Documentation pages' and revisions' authors (RESTRICT) go to
+        // someone who stays in each page's workspace; a verification is
+        // cleared.
+        let mut successors = std::collections::BTreeMap::new();
+        for workspace_id in
+            crate::repository::documentation::workspaces_authored_by(conn, user_uuid)?
+        {
+            let Some(successor) = page_successor(conn, workspace_id, user_uuid)? else {
+                tracing::warn!(
+                    %user_uuid,
+                    workspace_id,
+                    "purge refused: no owner, admin or platform admin to take over the person's documentation"
+                );
+                return Err(Error::QueryBuilderError(Box::new(NoPageSuccessor {
+                    workspace_id,
+                })));
+            };
+            successors.insert(workspace_id, successor);
+        }
         crate::repository::documentation::clear_purged_person_from_pages(
             conn,
             user_uuid,
-            first_admin.map(|admin| admin.uuid),
+            &successors,
         )?;
 
         // === Phase 2: Handle SET NULL constraints ===
