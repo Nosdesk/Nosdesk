@@ -117,6 +117,23 @@ describe('the en-US wording', () => {
     )
   })
 
+  it('words the BookStack and Confluence refusals as the server does', () => {
+    const server: Record<string, string> = {
+      docs_import_bookstack_unreadable: "This BookStack export's data.json can't be read.",
+      docs_import_bookstack_too_large:
+        'This BookStack export is larger than we can read at once. Export one chapter at a time.',
+      docs_import_bookstack_unsupported:
+        'This BookStack export holds more than this version can read. Export one book at a time.',
+      docs_import_confluence_xml: 'This is a Confluence XML export. Export the space as HTML instead.',
+      docs_import_confluence_no_index:
+        'This looks like a Confluence export, but its index.html is missing. Export the space again with the HTML option.',
+    }
+    for (const [code, error] of Object.entries(server)) {
+      const args = code === 'docs_import_bookstack_too_large' ? { max: 64 * 1024 * 1024 } : {}
+      expect(refusalText(real, { code, error: 'server English', args })).toBe(error)
+    }
+  })
+
   it('words the values a restore leaves as they are', () => {
     expect(real('import-review-notice-restore-changed-since', { count: 1 })).toBe(
       "1 value changed since this import. It's left as it is.",

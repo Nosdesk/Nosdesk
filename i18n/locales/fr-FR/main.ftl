@@ -1707,7 +1707,7 @@ admin-data-import-status-new = Nouveau
 # MT: pending native review (fr-FR)
 admin-data-import-docs-title = Documentation
 # MT: pending native review (fr-FR)
-admin-data-import-docs-description = Des fichiers Markdown, un export Notion, Obsidian ou GitBook, ou un export Nosdesk.
+admin-data-import-docs-description = Des fichiers Markdown, ou un export de BookStack, Confluence, Notion, Obsidian, GitBook ou Nosdesk.
 # MT: pending native review (fr-FR)
 admin-data-import-microsoft-title = Microsoft Entra ID
 # MT: pending native review (fr-FR)
@@ -9857,11 +9857,11 @@ docs-import-uploading-progress = { $loaded } sur { $total } · vous pouvez laiss
 # MT: pending native review (fr-FR)
 docs-import-reading = Lecture des pages
 # MT: pending native review (fr-FR)
-docs-import-start-sources = Des fichiers Markdown, ou un export de Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline ou Nosdesk. La source est détectée ; vous pourrez la changer à l'étape suivante.
+docs-import-start-sources = Des fichiers Markdown, un Portable ZIP BookStack, un export HTML d'espace Confluence, ou un export de Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline ou Nosdesk. La source est détectée ; vous pourrez la changer à l'étape suivante.
 # MT: pending native review (fr-FR)
 docs-import-start-images = Les images de l'archive sont importées. Les images liées depuis le web sont téléchargées, sauf indication contraire.
 # MT: pending native review (fr-FR)
-docs-import-start-attachments = Les pièces jointes PDF et Office ne sont pas encore importées ; chaque page qui en contient une est signalée.
+docs-import-start-attachments = Les pièces jointes PDF et Office ne sont pas encore importées ; chaque page qui en contient une est signalée, avec le nom du fichier.
 # MT: pending native review (fr-FR)
 docs-import-comes-across-heading = Ce qui est importé
 # MT: pending native review (fr-FR)
@@ -9882,6 +9882,10 @@ docs-import-refused-too-many-files = Le zip contient plus de { $max } fichiers. 
 docs-import-refused-no-markdown = Ce zip ne contient aucun fichier Markdown.
 # MT: pending native review (fr-FR)
 docs-import-refused-mixed-files = Choisissez un seul .zip, ou uniquement des fichiers .md.
+# MT: pending native review (fr-FR)
+docs-import-html-bookstack = Ceci est une page BookStack enregistrée en HTML. Exportez plutôt le livre ou la page en Portable ZIP.
+# MT: pending native review (fr-FR)
+docs-import-html-other = Un fichier HTML seul ne peut pas être importé. Pour importer depuis BookStack, exportez le livre en Portable ZIP. Pour importer depuis Confluence, exportez l'espace en HTML.
 # MT: pending native review (fr-FR)
 docs-import-refused-too-large = { $name } fait { $size }. La limite est de { $max }. Exportez une partie à la fois.
 # MT: pending native review (fr-FR)
@@ -9906,6 +9910,16 @@ docs-import-refused-unreadable = Ce fichier n'a pas pu être lu comme de la docu
 docs-import-refused-timed-out = La lecture des pages a pris trop de temps. Importez une partie plus petite à la fois.
 # MT: pending native review (fr-FR)
 docs-import-refused-collection-missing = La collection de destination n'existe plus. Choisissez-en une autre.
+# MT: pending native review (fr-FR)
+docs-import-refused-bookstack-unreadable = Le fichier data.json de cet export BookStack est illisible.
+# MT: pending native review (fr-FR)
+docs-import-refused-bookstack-too-large = Cet export BookStack est trop volumineux pour être lu en une fois. Exportez un chapitre à la fois.
+# MT: pending native review (fr-FR)
+docs-import-refused-bookstack-unsupported = Cet export BookStack contient plus que ce que cette version peut lire. Exportez un livre à la fois.
+# MT: pending native review (fr-FR)
+docs-import-refused-confluence-xml = Ceci est un export XML Confluence. Exportez plutôt l'espace en HTML.
+# MT: pending native review (fr-FR)
+docs-import-refused-confluence-no-index = Cela ressemble à un export Confluence, mais son fichier index.html est absent. Exportez à nouveau l'espace avec l'option HTML.
 # MT: pending native review (fr-FR)
 docs-import-refused-busy = Cet import est en cours de vérification ou d'enregistrement. Réessayez dans un instant.
 # MT: pending native review (fr-FR)
@@ -9965,6 +9979,8 @@ docs-import-profile-plain = un simple dossier
 # MT: pending native review (fr-FR)
 docs-import-profile-bookstack = un export BookStack
 # MT: pending native review (fr-FR)
+docs-import-profile-confluence = un export Confluence
+# MT: pending native review (fr-FR)
 docs-import-profile-option-notion = Export Notion
 # MT: pending native review (fr-FR)
 docs-import-profile-option-nosdesk-v2 = Export Nosdesk
@@ -9984,6 +10000,8 @@ docs-import-profile-option-outline = Export Outline
 docs-import-profile-option-plain = Simple dossier
 # MT: pending native review (fr-FR)
 docs-import-profile-option-bookstack = Portable ZIP BookStack
+# MT: pending native review (fr-FR)
+docs-import-profile-option-confluence = Export HTML Confluence
 # MT: pending native review (fr-FR)
 docs-import-tree-title = Les pages telles qu'elles apparaîtront dans Nosdesk
 # MT: pending native review (fr-FR)
@@ -10007,6 +10025,8 @@ docs-import-tree-left-out = Exclue
 docs-import-tree-no-content = Sans contenu
 # MT: pending native review (fr-FR)
 docs-import-tree-database = Base de données
+# MT: pending native review (fr-FR)
+docs-import-tree-chapter = Chapitre
 # MT: pending native review (fr-FR)
 docs-import-tree-image-count = { $count ->
     [one] 1 image
@@ -10088,6 +10108,11 @@ docs-import-where-as-source-desc = { $count ->
 docs-import-where-as-source-bookstack-desc = { $count ->
     [one] 1 collection, nommée d'après le livre, le chapitre ou la page.
    *[other] { $count } collections, une par export.
+}
+# MT: pending native review (fr-FR)
+docs-import-where-as-source-confluence-desc = { $count ->
+    [one] 1 collection, nommée d'après l'espace.
+   *[other] { $count } collections, une par espace.
 }
 # MT: pending native review (fr-FR)
 docs-import-status-label = Statut
@@ -10290,6 +10315,11 @@ docs-import-line-sections = { $count ->
 }
 # MT: pending native review (fr-FR)
 docs-import-line-front-matter = Champs d'en-tête non importés : { $fields }.
+# MT: pending native review (fr-FR)
+docs-import-line-tags = { $count ->
+    [one] 1 page a des étiquettes, qui ne sont pas importées.
+   *[other] { $count } pages ont des étiquettes, qui ne sont pas importées.
+}
 # MT: pending native review (fr-FR)
 docs-import-note-tables-hoisted = { $count ->
     [one] 1 tableau dans une liste ou une citation a été déplacé après celle-ci

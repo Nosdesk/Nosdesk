@@ -77,6 +77,17 @@ describe('the page list', () => {
     expect(paginate([], 1)).toMatchObject({ from: 0, to: 0, pages: 1 })
   })
 
+  it('counts a section by what the server says, not by its key', () => {
+    const source = [
+      row(0, { path: 'confluence:QA:294922', display: 'QA/Install-Guide_294922.html', no_content: false }),
+      row(1, { path: 'bookstack:-:chapter:16', display: 'Onboarding', no_content: false }),
+      row(2, { path: 'bookstack:-:chapter:17', display: 'Empty chapter', no_content: true }),
+    ]
+    expect(filterRows(source, 'all', 'sections', 'skip').map((r) => r.index)).toEqual([2])
+    expect(rowNotes(t, source[0], 'skip')).toEqual([])
+    expect(rowNotes(t, source[2], 'skip').map((n) => n.text)).toEqual(['docs-import-row-section'])
+  })
+
   it('names where a page sits', () => {
     const byIndex = new Map(ROWS.map((r) => [r.index, r]))
     expect(crumbs(ROWS[3], byIndex)).toBe('Docs / Page 1')

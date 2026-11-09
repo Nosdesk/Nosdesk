@@ -1703,7 +1703,7 @@ admin-data-import-status-new = Nieuw
 # MT: pending native review (nl-NL)
 admin-data-import-docs-title = Documentatie
 # MT: pending native review (nl-NL)
-admin-data-import-docs-description = Markdown-bestanden, een export uit Notion, Obsidian of GitBook, of een Nosdesk-export.
+admin-data-import-docs-description = Markdown-bestanden, of een export uit BookStack, Confluence, Notion, Obsidian, GitBook of Nosdesk.
 # MT: pending native review (nl-NL)
 admin-data-import-microsoft-title = Microsoft Entra ID
 # MT: pending native review (nl-NL)
@@ -9848,11 +9848,11 @@ docs-import-uploading-progress = { $loaded } van { $total } · u kunt dit tabbla
 # MT: pending native review (nl-NL)
 docs-import-reading = Pagina's lezen
 # MT: pending native review (nl-NL)
-docs-import-start-sources = Markdown-bestanden, of een export uit Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline of Nosdesk. De bron wordt herkend; u kunt deze in de volgende stap wijzigen.
+docs-import-start-sources = Markdown-bestanden, een BookStack Portable ZIP, een HTML-export van een Confluence-ruimte, of een export uit Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline of Nosdesk. De bron wordt herkend; u kunt deze in de volgende stap wijzigen.
 # MT: pending native review (nl-NL)
 docs-import-start-images = Afbeeldingen in het archief komen mee. Afbeeldingen die naar het web linken worden gedownload, tenzij u anders aangeeft.
 # MT: pending native review (nl-NL)
-docs-import-start-attachments = PDF- en Office-bijlagen blijven voorlopig buiten; elke pagina die er een linkt wordt vermeld.
+docs-import-start-attachments = PDF- en Office-bijlagen blijven voorlopig buiten; elke pagina die er een linkt wordt vermeld, met de bestandsnaam.
 # MT: pending native review (nl-NL)
 docs-import-comes-across-heading = Wat er meekomt
 # MT: pending native review (nl-NL)
@@ -9873,6 +9873,10 @@ docs-import-refused-too-many-files = De zip bevat meer dan { $max } bestanden. E
 docs-import-refused-no-markdown = Deze zip bevat geen Markdown-bestanden.
 # MT: pending native review (nl-NL)
 docs-import-refused-mixed-files = Kies één .zip, of alleen .md-bestanden.
+# MT: pending native review (nl-NL)
+docs-import-html-bookstack = Dit is één BookStack-pagina, opgeslagen als HTML. Exporteer het boek of de pagina in plaats daarvan als Portable ZIP.
+# MT: pending native review (nl-NL)
+docs-import-html-other = Eén HTML-bestand kan niet worden geïmporteerd. Exporteer het boek als Portable ZIP om uit BookStack te importeren. Exporteer de ruimte als HTML om uit Confluence te importeren.
 # MT: pending native review (nl-NL)
 docs-import-refused-too-large = { $name } is { $size }. De limiet is { $max }. Exporteer één deel tegelijk.
 # MT: pending native review (nl-NL)
@@ -9897,6 +9901,16 @@ docs-import-refused-unreadable = Dit bestand kon niet als documentatie worden ge
 docs-import-refused-timed-out = Het lezen van de pagina's duurde te lang. Importeer een kleiner deel tegelijk.
 # MT: pending native review (nl-NL)
 docs-import-refused-collection-missing = De collectie om in te importeren bestaat niet meer. Kies een andere.
+# MT: pending native review (nl-NL)
+docs-import-refused-bookstack-unreadable = Het data.json-bestand van deze BookStack-export kan niet worden gelezen.
+# MT: pending native review (nl-NL)
+docs-import-refused-bookstack-too-large = Deze BookStack-export is te groot om in één keer te lezen. Exporteer één hoofdstuk tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-bookstack-unsupported = Deze BookStack-export bevat meer dan deze versie kan lezen. Exporteer één boek tegelijk.
+# MT: pending native review (nl-NL)
+docs-import-refused-confluence-xml = Dit is een XML-export van Confluence. Exporteer de ruimte in plaats daarvan als HTML.
+# MT: pending native review (nl-NL)
+docs-import-refused-confluence-no-index = Dit lijkt een Confluence-export, maar het bestand index.html ontbreekt. Exporteer de ruimte opnieuw met de HTML-optie.
 # MT: pending native review (nl-NL)
 docs-import-refused-busy = Deze import wordt gecontroleerd of vastgelegd. Probeer het zo opnieuw.
 # MT: pending native review (nl-NL)
@@ -9956,6 +9970,8 @@ docs-import-profile-plain = een gewone map
 # MT: pending native review (nl-NL)
 docs-import-profile-bookstack = een BookStack-export
 # MT: pending native review (nl-NL)
+docs-import-profile-confluence = een Confluence-export
+# MT: pending native review (nl-NL)
 docs-import-profile-option-notion = Notion-export
 # MT: pending native review (nl-NL)
 docs-import-profile-option-nosdesk-v2 = Nosdesk-export
@@ -9975,6 +9991,8 @@ docs-import-profile-option-outline = Outline-export
 docs-import-profile-option-plain = Gewone map
 # MT: pending native review (nl-NL)
 docs-import-profile-option-bookstack = BookStack Portable ZIP
+# MT: pending native review (nl-NL)
+docs-import-profile-option-confluence = Confluence HTML-export
 # MT: pending native review (nl-NL)
 docs-import-tree-title = Pagina's zoals ze in Nosdesk verschijnen
 # MT: pending native review (nl-NL)
@@ -9998,6 +10016,8 @@ docs-import-tree-left-out = Uitgesloten
 docs-import-tree-no-content = Geen inhoud
 # MT: pending native review (nl-NL)
 docs-import-tree-database = Database
+# MT: pending native review (nl-NL)
+docs-import-tree-chapter = Hoofdstuk
 # MT: pending native review (nl-NL)
 docs-import-tree-image-count = { $count ->
     [one] 1 afbeelding
@@ -10079,6 +10099,11 @@ docs-import-where-as-source-desc = { $count ->
 docs-import-where-as-source-bookstack-desc = { $count ->
     [one] 1 collectie, genoemd naar het boek, het hoofdstuk of de pagina.
    *[other] { $count } collecties, een per export.
+}
+# MT: pending native review (nl-NL)
+docs-import-where-as-source-confluence-desc = { $count ->
+    [one] 1 collectie, genoemd naar de ruimte.
+   *[other] { $count } collecties, een per ruimte.
 }
 # MT: pending native review (nl-NL)
 docs-import-status-label = Status
@@ -10281,6 +10306,11 @@ docs-import-line-sections = { $count ->
 }
 # MT: pending native review (nl-NL)
 docs-import-line-front-matter = Front matter-velden die niet worden geïmporteerd: { $fields }.
+# MT: pending native review (nl-NL)
+docs-import-line-tags = { $count ->
+    [one] 1 pagina heeft tags, die niet worden geïmporteerd.
+   *[other] { $count } pagina's hebben tags, die niet worden geïmporteerd.
+}
 # MT: pending native review (nl-NL)
 docs-import-note-tables-hoisted = { $count ->
     [one] 1 tabel in een lijst of citaat is erna geplaatst

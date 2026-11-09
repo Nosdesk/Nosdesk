@@ -24,7 +24,7 @@ import {
 } from '@nosdesk/core/services/docsImportService'
 
 import { IMAGE_PROBLEM_KEY, type NoteLine, type RowOutcome } from './docsReviewModel'
-import { previewPath } from './docsTreeModel'
+import { displayOf, previewPath } from './docsTreeModel'
 import { mountPreview, type PreviewHandle, type PreviewLabels } from './docsPreviewView'
 
 const props = withDefaults(
@@ -141,14 +141,14 @@ const OUTCOME: Record<RowOutcome, { key: string; tone: StatusPillTone }> = {
     <div v-if="!headless" class="flex items-center gap-2 px-3 py-2 border-b border-default bg-surface-alt min-w-0">
       <div class="flex-1 min-w-0 flex flex-col">
         <b class="text-sm font-semibold text-primary truncate">{{ row ? row.title : $t('docs-import-preview-title') }}</b>
-        <span class="text-2xs text-tertiary truncate" :class="row ? 'font-mono' : ''" :title="row?.path" data-test="docs-preview-path">
-          {{ row ? previewPath(row.path, root) : $t('docs-import-preview-select') }}
+        <span class="text-2xs text-tertiary truncate" :class="row ? 'font-mono' : ''" :title="row ? displayOf(row) : undefined" data-test="docs-preview-path">
+          {{ row ? previewPath(displayOf(row), root) : $t('docs-import-preview-select') }}
         </span>
       </div>
       <StatusPill v-if="row && outcome" :label="$t(OUTCOME[outcome].key)" :tone="OUTCOME[outcome].tone" />
     </div>
     <div v-else-if="row" class="flex items-center gap-2 px-3 py-2 border-b border-default min-w-0">
-      <span class="flex-1 min-w-0 text-2xs font-mono text-tertiary truncate" :title="row.path" data-test="docs-preview-path">{{ previewPath(row.path, root) }}</span>
+      <span class="flex-1 min-w-0 text-2xs font-mono text-tertiary truncate" :title="displayOf(row)" data-test="docs-preview-path">{{ previewPath(displayOf(row), root) }}</span>
       <StatusPill v-if="outcome" :label="$t(OUTCOME[outcome].key)" :tone="OUTCOME[outcome].tone" />
     </div>
 

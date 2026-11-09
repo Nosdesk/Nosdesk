@@ -1,8 +1,9 @@
 /**
- * Documentation imports: a zip of Markdown (or loose `.md` files) becomes
- * linked pages, through the importer's jobs. The routes sit beside the
- * spreadsheet importer's (`importService`) and share its job list, detail
- * read and history; every route is workspace-admin only.
+ * Documentation imports: a zip of Markdown (or loose `.md` files), a
+ * BookStack Portable ZIP or a Confluence HTML export becomes linked pages,
+ * through the importer's jobs. The routes sit beside the spreadsheet
+ * importer's (`importService`) and share its job list, detail read and
+ * history; every route is workspace-admin only.
  *
  *  - `upload` answers with the job in `parsed`, its `source.tree` the pages
  *    as Nosdesk will show them under the default options.
@@ -39,6 +40,7 @@ export type DocsProfile =
   | 'outline'
   | 'plain'
   | 'bookstack'
+  | 'confluence'
 
 export const DOCS_PROFILES: DocsProfile[] = [
   'notion',
@@ -51,6 +53,7 @@ export const DOCS_PROFILES: DocsProfile[] = [
   'outline',
   'plain',
   'bookstack',
+  'confluence',
 ]
 
 /** Where the pages go. */
@@ -85,8 +88,13 @@ export type DocsPageKind = 'page' | 'section' | 'database' | 'database_row'
 export interface DocsTreePage {
   index: number
   title: string
-  /** The Markdown file, or the folder a section page stands for. */
+  /** The page's source key: the Markdown file, the folder a section page
+   *  stands for, or a BookStack or Confluence id. Rows and written pages
+   *  name the page by it. */
   path: string
+  /** Where the page sits, as people read it; missing on a tree read
+   *  before it was kept. */
+  display?: string
   file: string | null
   folder: string | null
   parent: number | null
@@ -237,7 +245,16 @@ export interface DocsLinkReport {
 /** One page's result at the check. */
 export interface DocsPageRow {
   index: number
+  /** The page's source key, as the tree names it. */
   path: string
+  /** Where the page sits, as people read it; missing on a row checked
+   *  before it was kept. */
+  display?: string
+  /** The page's id in the tool it came from. */
+  source_id?: string
+  /** A section page with no content of its own; missing on a row checked
+   *  before it was kept. */
+  no_content?: boolean
   title: string
   parent: number | null
   outcome: DocsPageOutcome

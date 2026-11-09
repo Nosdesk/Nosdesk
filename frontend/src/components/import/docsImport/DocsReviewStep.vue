@@ -27,6 +27,7 @@ import type {
   DocsImportJob,
   DocsNoteCode,
   DocsPageRow,
+  DocsProfile,
   DocsSummary,
 } from '@nosdesk/core/services/docsImportService'
 
@@ -49,6 +50,7 @@ import {
   type ListFilter,
   type RowOutcome,
 } from './docsReviewModel'
+import { displayOf } from './docsTreeModel'
 
 const props = defineProps<{
   job: DocsImportJob
@@ -256,6 +258,9 @@ const noteTotals = computed(() => {
   return out
 })
 
+/** Sources whose tags are their own, not front matter fields. */
+const TAGGED_SOURCES: ReadonlySet<DocsProfile> = new Set(['bookstack', 'confluence'])
+
 interface ConversionLine {
   key: string
   text: string
@@ -285,7 +290,12 @@ const conversionLines = computed<ConversionLine[]>(() => {
       chip: 'sections',
     })
   }
-  const fm = Object.entries(props.summary.front_matter_not_imported ?? {})
+  // A BookStack page's tags are the tool's own, not front matter.
+  const notImported = props.summary.front_matter_not_imported ?? {}
+  const ownTags = TAGGED_SOURCES.has(props.summary.profile)
+  const tags = ownTags ? (notImported.tags ?? 0) : 0
+  if (tags > 0) lines.push({ key: 'tags', text: t('docs-import-line-tags', { count: tags }) })
+  const fm = Object.entries(notImported).filter(([k]) => !(ownTags && k === 'tags'))
   if (fm.length > 0) {
     lines.push({
       key: 'front-matter',
@@ -539,7 +549,7 @@ function confirm() {
                 >
                   <td class="px-3 py-2 min-w-0">
                     <div class="font-medium text-primary break-words">{{ row.title }}</div>
-                    <div class="text-xs text-tertiary truncate" :title="row.path">
+                    <div class="text-xs text-tertiary truncate" :title="displayOf(row)">
                       {{ crumbs(row, byIndex) || $t('docs-import-top-level') }}
                     </div>
                   </td>
