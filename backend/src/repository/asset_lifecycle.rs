@@ -17,7 +17,7 @@ use crate::models::{
     NewAssetLifecycleEvent, SyncAggregate, SyncOp, SANITIZATION_METHODS,
 };
 use crate::repository::asset_loans as asset_loans_repo;
-use crate::repository::assets::emit_asset_event;
+use crate::repository::assets as assets_repo;
 use crate::schema::{asset_disposals, asset_lifecycle_events, assets};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
@@ -199,10 +199,7 @@ pub fn transition(
             return Err(TransitionError::OnLoanNeedsActiveLoan);
         }
 
-        let updated: Asset = diesel::update(assets::table.find(input.asset_id))
-            .set(assets::status.eq(&input.to_status))
-            .get_result(conn)?;
-        emit_asset_event(conn, &updated, SyncOp::Update, "asset.updated")?;
+        let updated = assets_repo::set_status(conn, input.asset_id, &input.to_status)?;
 
         let event: AssetLifecycleEvent = diesel::insert_into(asset_lifecycle_events::table)
             .values(&NewAssetLifecycleEvent {

@@ -391,8 +391,8 @@ pub fn find_or_create_projected_user(
     };
 
     // --- 3.5. O4: sync the CP-owned global handle onto the user (created or
-    // existing). The control plane validates + owns the handle, so it's written
-    // directly here rather than through the general-purpose `UserUpdate` profile
+    // existing). The control plane validates + owns the handle, so it goes
+    // through its own writer rather than the general-purpose `UserUpdate` profile
     // surface (which is for product-side self-edits). Additive: an absent/empty
     // handle never clears a stored one; a differing handle updates. The change
     // is reflected on the returned user without a re-query.
@@ -403,11 +403,7 @@ pub fn find_or_create_projected_user(
         };
         if let Some(new_username) = username.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             if user.username.as_deref() != Some(new_username) {
-                use crate::schema::users::dsl as u;
-                use diesel::prelude::*;
-                diesel::update(u::users.filter(u::uuid.eq(user.uuid)))
-                    .set(u::username.eq(new_username))
-                    .execute(conn)
+                users_repo::set_username(conn, &user.uuid, new_username)
                     .map_err(|e| format!("reproject username: {e:?}"))?;
                 user.username = Some(new_username.to_string());
             }

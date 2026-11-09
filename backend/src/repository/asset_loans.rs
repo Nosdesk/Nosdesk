@@ -18,7 +18,7 @@ use crate::models::{
     Asset, AssetLifecycleEvent, AssetLoan, AssetLoanChange, NewAssetLifecycleEvent, NewAssetLoan,
     SyncAggregate, SyncOp,
 };
-use crate::repository::assets::emit_asset_event;
+use crate::repository::assets as assets_repo;
 use crate::schema::{asset_lifecycle_events, asset_loans, assets};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
@@ -397,10 +397,7 @@ pub fn issue(conn: &mut DbConnection, input: IssueLoan) -> Result<AssetLoan, Loa
             Err(e) => return Err(LoanError::Db(e)),
         };
 
-        let updated: Asset = diesel::update(assets::table.find(input.asset_id))
-            .set(assets::status.eq("on_loan"))
-            .get_result(conn)?;
-        emit_asset_event(conn, &updated, SyncOp::Update, "asset.updated")?;
+        assets_repo::set_status(conn, input.asset_id, "on_loan")?;
 
         log_lifecycle(
             conn,
@@ -468,10 +465,7 @@ fn return_loan_logged(
             })
             .get_result(conn)?;
 
-        let updated_asset: Asset = diesel::update(assets::table.find(asset_id))
-            .set(assets::status.eq(&loan.status_before))
-            .get_result(conn)?;
-        emit_asset_event(conn, &updated_asset, SyncOp::Update, "asset.updated")?;
+        assets_repo::set_status(conn, asset_id, &loan.status_before)?;
 
         log_lifecycle(
             conn,
