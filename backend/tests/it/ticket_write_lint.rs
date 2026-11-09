@@ -67,10 +67,6 @@ const WRITE_ALLOWLIST: &[(&str, &str)] = &[
         "repository/ticket_merge.rs",
         "known debt: a merge moves its sources with a raw update",
     ),
-    (
-        "repository/users.rs",
-        "known debt: account purge clears a user's references without an event",
-    ),
     ("bin/seed_demo.rs", "demo data, backdated by hand"),
 ];
 

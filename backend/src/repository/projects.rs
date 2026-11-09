@@ -438,6 +438,18 @@ pub fn update_project_ticket_orders(
     })
 }
 
+// sync-audit-only: `created_by` isn't in the project_ticket sync row
+/// Clear `user_uuid`, an account being purged, as the creator of the project
+/// memberships it made, in every workspace (on a bypass connection).
+pub fn clear_purged_person_from_project_tickets(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> QueryResult<usize> {
+    diesel::update(project_tickets::table.filter(project_tickets::created_by.eq(user_uuid)))
+        .set(project_tickets::created_by.eq::<Option<Uuid>>(None))
+        .execute(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

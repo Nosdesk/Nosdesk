@@ -697,11 +697,16 @@ pub fn home_workspace_id(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<Op
         .first::<Option<i32>>(conn)
 }
 
-// sync-audit-only: vestigial low-level helper; handlers use sync-wired user_helpers
 /// Hard-delete a user and every row that FK-references them. Only
-/// the retention worker (after the grace window) and the
-/// registration-rollback path in auth.rs should call this. Admin
-/// "Delete" buttons route through [`soft_delete_user`] instead.
+/// the retention worker (after the grace window), an admin's permanent
+/// delete and a workspace import's reset call this. Admin "Delete"
+/// buttons route through [`soft_delete_user`] instead.
+///
+/// Every workspace whose sync pool holds the person hears of it: the
+/// replies deleted, the tickets, assets and pages that named them, and
+/// `user.deleted`, each in its own workspace. Run it on a bypass
+/// connection, which sees every workspace's rows; the caller's pin is
+/// put back.
 ///
 /// Renamed from `delete_user` in the soft-delete rollout so it's
 /// obvious at call sites which semantics are being requested.
@@ -711,79 +716,47 @@ pub fn purge_user(
     observer: Option<&dyn UserDeletedObserver>,
 ) -> Result<usize, Error> {
     use crate::schema::{
-        article_contents, assets, attachments, comments, documentation_pages,
-        documentation_revisions, import_value_answers, linked_tickets, project_tickets, projects,
-        sync_history, ticket_assets, tickets, user_auth_identities, user_emails,
+        article_contents, attachments, import_value_answers, projects, sync_history,
+        user_auth_identities, user_emails,
     };
 
     // Start a transaction to ensure all-or-nothing deletion
     conn.transaction::<_, Error, _>(|conn| {
+        // Read before anything below clears the records that make the
+        // person one of a workspace's people.
+        let workspaces = workspaces_holding_user(conn, *user_uuid)?;
+
         // === Phase 1: Handle RESTRICT constraints ===
         // Tables with ON DELETE RESTRICT require explicit deletion/reassignment first
 
-        // 1a. Delete all comments by this user
-        diesel::delete(comments::table.filter(comments::user_uuid.eq(user_uuid))).execute(conn)?;
+        // 1a. Delete all comments by this user, with their files.
+        crate::repository::comments::delete_all_by_purged_author(conn, user_uuid)?;
 
-        // 1b. Update tickets where user is requester (RESTRICT) - set to NULL
-        diesel::update(tickets::table.filter(tickets::requester_uuid.eq(user_uuid)))
-            .set(tickets::requester_uuid.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
+        // 1b. Tickets: requester (RESTRICT), assignee, creator, closer, and
+        // the asset links the person made.
+        crate::repository::tickets::clear_purged_person_from_tickets(conn, user_uuid)?;
 
-        // 1c. Update documentation_pages created_by/last_edited_by (RESTRICT)
-        // Reassign to first available admin
+        // 1c. Documentation pages' created_by/last_edited_by (RESTRICT) go
+        // to the first available admin; a verification is cleared.
         let first_admin: Option<User> = users::table
             .into_boxed()
             .filter(users::platform_role.eq("platform_admin"))
             .filter(users::uuid.ne(user_uuid))
             .first(conn)
             .optional()?;
-
-        if let Some(admin) = first_admin {
-            // Reassign documentation to another admin
-            diesel::update(
-                documentation_pages::table.filter(documentation_pages::created_by.eq(user_uuid)),
-            )
-            .set(documentation_pages::created_by.eq(admin.uuid))
-            .execute(conn)?;
-
-            diesel::update(
-                documentation_pages::table
-                    .filter(documentation_pages::last_edited_by.eq(user_uuid)),
-            )
-            .set(documentation_pages::last_edited_by.eq(admin.uuid))
-            .execute(conn)?;
-
-            diesel::update(
-                documentation_revisions::table
-                    .filter(documentation_revisions::created_by.eq(user_uuid)),
-            )
-            .set(documentation_revisions::created_by.eq(admin.uuid))
-            .execute(conn)?;
-        }
         // Note: If no other admin exists, delete fails due to FK constraint
         // Intentional - at least one admin must own documentation
+        crate::repository::documentation::clear_purged_person_from_pages(
+            conn,
+            user_uuid,
+            first_admin.map(|admin| admin.uuid),
+        )?;
 
         // === Phase 2: Handle SET NULL constraints ===
         // These tables have ON DELETE SET NULL but handled explicitly for clarity
 
-        // 2a. Devices
-        diesel::update(assets::table.filter(assets::primary_user_uuid.eq(user_uuid)))
-            .set(assets::primary_user_uuid.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
-        diesel::update(assets::table.filter(assets::created_by.eq(user_uuid)))
-            .set(assets::created_by.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
-
-        // 2b. Tickets (assignee, created_by, closed_by)
-        diesel::update(tickets::table.filter(tickets::assignee_uuid.eq(user_uuid)))
-            .set(tickets::assignee_uuid.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
-        diesel::update(tickets::table.filter(tickets::created_by.eq(user_uuid)))
-            .set(tickets::created_by.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
-        diesel::update(tickets::table.filter(tickets::closed_by.eq(user_uuid)))
-            .set(tickets::closed_by.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
+        // 2a. Devices: user, manager and creator.
+        crate::repository::assets::clear_purged_person_from_assets(conn, user_uuid)?;
 
         // 2c. Projects
         diesel::update(projects::table.filter(projects::created_by.eq(user_uuid)))
@@ -799,19 +772,10 @@ pub fn purge_user(
             .execute(conn)?;
 
         // 2e. Linked tickets
-        diesel::update(linked_tickets::table.filter(linked_tickets::created_by.eq(user_uuid)))
-            .set(linked_tickets::created_by.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
+        crate::repository::linked_tickets::clear_purged_person_from_links(conn, user_uuid)?;
 
         // 2f. Project tickets
-        diesel::update(project_tickets::table.filter(project_tickets::created_by.eq(user_uuid)))
-            .set(project_tickets::created_by.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
-
-        // 2g. Ticket devices
-        diesel::update(ticket_assets::table.filter(ticket_assets::created_by.eq(user_uuid)))
-            .set(ticket_assets::created_by.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
+        crate::repository::projects::clear_purged_person_from_project_tickets(conn, user_uuid)?;
 
         // 2h. Article contents
         diesel::update(article_contents::table.filter(article_contents::created_by.eq(user_uuid)))
@@ -898,7 +862,8 @@ pub fn purge_user(
         let deleted_count = diesel::delete(users::table.find(user_uuid)).execute(conn)?;
 
         if deleted_count > 0 {
-            emit_user_event(conn, &user_row, SyncOp::Delete, "user.deleted")?;
+            // emit::record fires inside emit_user_event, once per workspace.
+            emit_user_event_in_each(conn, &workspaces, &user_row, SyncOp::Delete, "user.deleted")?;
         }
 
         Ok(deleted_count)

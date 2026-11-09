@@ -404,9 +404,11 @@ pub async fn get_ticket_activity(
             ))
             // The feed says what happened to the ticket. A file shows with its
             // reply and a merge has its own row, so attachment events and the
-            // per-reply moves of a merge stay out of it.
+            // per-reply moves of a merge stay out of it, as does a purge
+            // clearing an erased person from the ticket.
             .filter(sync_actions::aggregate.ne(crate::models::SyncAggregate::Attachment))
             .filter(sync_actions::event_type.ne("comment.moved"))
+            .filter(sync_actions::event_type.ne("ticket.people_cleared"))
             .order((
                 sync_actions::occurred_at.desc(),
                 sync_actions::sync_id.desc(),

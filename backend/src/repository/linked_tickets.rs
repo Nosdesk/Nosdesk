@@ -326,6 +326,19 @@ pub fn unlink_tickets(
     })
 }
 
+// sync-audit-only: `created_by` isn't in the linked_ticket sync row
+/// Clear `user_uuid`, an account being purged, as the creator of the ticket
+/// links it made, in every workspace (on a bypass connection).
+pub fn clear_purged_person_from_links(
+    conn: &mut DbConnection,
+    user_uuid: &uuid::Uuid,
+) -> QueryResult<usize> {
+    use crate::schema::linked_tickets;
+    diesel::update(linked_tickets::table.filter(linked_tickets::created_by.eq(user_uuid)))
+        .set(linked_tickets::created_by.eq::<Option<uuid::Uuid>>(None))
+        .execute(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -148,6 +148,25 @@ pub fn restore_workspace_pin(conn: &mut DbConnection, previous: Option<i32>) -> 
     }
 }
 
+/// Run `f` with `workspace_id` pinned, then put the caller's pin back. For an
+/// elevated writer that changes rows in several workspaces in one
+/// transaction: each sync event's `workspace` group resolves from the pin, so
+/// the event about a row lands in that row's workspace.
+pub fn with_workspace_pinned<T, E>(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<diesel::result::Error>,
+{
+    let previous = current_workspace_id(conn)?;
+    pin_workspace(conn, workspace_id)?;
+    let out = f(conn)?;
+    restore_workspace_pin(conn, previous)?;
+    Ok(out)
+}
+
 /// Run a closure inside a transaction with the actor GUCs primed, so
 /// any `audit_log` triggers fired by the contained writes attribute
 /// the change to `actor`. The GUCs are scoped to the transaction

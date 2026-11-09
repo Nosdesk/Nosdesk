@@ -733,6 +733,58 @@ pub fn set_quantity(
     })
 }
 
+/// Clear `user_uuid`, an account being purged, from every asset that names
+/// it: its user, its manager and its creator. Each asset whose synced row
+/// changed (user or manager) gets `asset.updated` in its own workspace.
+/// Called by [`purge_user`](crate::repository::users::purge_user) on a bypass
+/// connection, which sees every workspace's assets. Puts the caller's pin
+/// back. Returns the number of assets whose synced row changed.
+pub fn clear_purged_person_from_assets(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> QueryResult<usize> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // emit::record fires inside emit_asset_event, once per changed asset.
+    conn.transaction::<usize, Error, _>(|conn| {
+        let as_user: Vec<(i32, i32)> =
+            diesel::update(assets::table.filter(assets::primary_user_uuid.eq(user_uuid)))
+                .set(assets::primary_user_uuid.eq::<Option<Uuid>>(None))
+                .returning((assets::workspace_id, assets::id))
+                .get_results(conn)?;
+        // The key sets it NULL on its own when the user row goes, unseen by
+        // clients; clearing it here lets the event below carry it.
+        let as_manager: Vec<(i32, i32)> =
+            diesel::update(assets::table.filter(assets::managed_by_user_uuid.eq(user_uuid)))
+                .set(assets::managed_by_user_uuid.eq::<Option<Uuid>>(None))
+                .returning((assets::workspace_id, assets::id))
+                .get_results(conn)?;
+        // Not in the asset's sync row.
+        diesel::update(assets::table.filter(assets::created_by.eq(user_uuid)))
+            .set(assets::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        let mut changed: BTreeMap<i32, BTreeSet<i32>> = BTreeMap::new();
+        for (workspace_id, asset_id) in as_user.into_iter().chain(as_manager) {
+            changed.entry(workspace_id).or_default().insert(asset_id);
+        }
+        let mut count = 0;
+        for (workspace_id, ids) in changed {
+            crate::sync::session::with_workspace_pinned(conn, workspace_id, |conn| {
+                let rows: Vec<Asset> = assets::table
+                    .filter(assets::id.eq_any(ids.iter().copied().collect::<Vec<_>>()))
+                    .load(conn)?;
+                for device in &rows {
+                    emit_asset_event(conn, device, SyncOp::Update, "asset.updated")?;
+                }
+                count += rows.len();
+                Ok::<_, Error>(())
+            })?;
+        }
+        Ok(count)
+    })
+}
+
 pub fn delete_device(
     conn: &mut DbConnection,
     device_id: i32,

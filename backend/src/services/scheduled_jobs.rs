@@ -1198,8 +1198,9 @@ pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) ->
 /// account is in no workspace; it is left in place (see
 /// [`warn_homeless_accounts`]).
 ///
-/// For an account in several workspaces, rows the purge touches in the
-/// others are recorded in the home workspace too.
+/// For an account in several workspaces, the audit rows for what the purge
+/// touches in the others are recorded in the home workspace too; the sync
+/// events go to each row's own workspace.
 fn purge_account_in_home_workspace(
     conn: &mut DbConnection,
     actor: &crate::sync::actor::ActorContext,
