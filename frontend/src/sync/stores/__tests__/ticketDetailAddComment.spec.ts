@@ -36,7 +36,7 @@ vi.mock('@/i18n', () => ({
 import { useTicketDetail } from '../ticketDetail'
 import { isEchoSuppressed, noteServerEcho } from '@/sync/optimisticCreates'
 import { resendClientId, useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
-import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
+import { useTicketUiStore, type StagedAttachment } from '@nosdesk/core/stores/ticketUi'
 
 beforeAll(() => {
   // jsdom has no object URLs; the optimistic rows ask for one per file.
@@ -63,17 +63,34 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+/** A file staged on the composer and already uploaded as `id`. */
+function staged(name: string, id: number): StagedAttachment {
+  return {
+    key: `staged-${name}-${id}`,
+    file: new File(['x'], name, { type: 'text/plain' }),
+    previewUrl: `blob:${name}`,
+    status: 'uploaded',
+    loaded: 1,
+    total: 1,
+    uploaded: { id, url: `/uploads/temp/${name}`, name },
+    failure: null,
+  }
+}
+
 const reply = () => ({
   content: '<p>Here is the log</p>',
   user_uuid: 'agent-uuid',
-  files: [new File(['x'], 'attach.txt', { type: 'text/plain' })],
+  attachments: [staged('attach.txt', 7)],
 })
 
 describe('a reply with a file', () => {
-  it('asks before the page unloads until the reply is created', async () => {
-    const upload = deferred<{ data: { id: number; url: string; name: string }[] }>()
-    post.mockReturnValueOnce(upload.promise)
-    addCommentToTicket.mockResolvedValueOnce({
+  it('posts the uploaded ids, uploading nothing more', async () => {
+    const created = deferred<unknown>()
+    addCommentToTicket.mockReturnValueOnce(created.promise)
+    const detail = useTicketDetail(101)
+
+    const sending = detail.addComment({ ...reply(), attachments: [staged('a.txt', 7), staged('b.png', 8)] })
+    created.resolve({
       id: 126,
       ticket_id: 101,
       user_uuid: 'agent-uuid',
@@ -81,34 +98,68 @@ describe('a reply with a file', () => {
       created_at: '2026-10-06T01:53:25Z',
       attachments: [],
     })
+    await sending
+
+    expect(post).not.toHaveBeenCalled()
+    expect(addCommentToTicket).toHaveBeenCalledWith(
+      101,
+      '<p>Here is the log</p>',
+      [
+        { id: 7, url: '/uploads/temp/a.txt', name: 'a.txt' },
+        { id: 8, url: '/uploads/temp/b.png', name: 'b.png' },
+      ],
+      false,
+      expect.any(String),
+    )
+  })
+
+  it('shows the files from their composer previews while it sends', async () => {
+    const pool = await import('@nosdesk/core/sync/pool')
+    const created = deferred<unknown>()
+    addCommentToTicket.mockReturnValueOnce(created.promise)
+    const detail = useTicketDetail(101)
+
+    const sending = detail.addComment(reply())
+
+    expect(pool.upsert).toHaveBeenCalledWith(
+      'attachment',
+      expect.any(Number),
+      expect.objectContaining({ name: 'attach.txt', url: 'blob:attach.txt' }),
+    )
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    created.resolve(undefined)
+    await sending
+  })
+
+  it('asks before the page unloads until the reply is created', async () => {
+    const created = deferred<unknown>()
+    addCommentToTicket.mockReturnValueOnce(created.promise)
     const detail = useTicketDetail(101)
 
     expect(leavingAsks()).toBe(false)
     const sending = detail.addComment(reply())
-    // The upload is still running, and the reply isn't created yet.
     expect(leavingAsks()).toBe(true)
 
-    upload.resolve({ data: [{ id: 7, url: '/uploads/temp/attach.txt', name: 'attach.txt' }] })
+    created.resolve({
+      id: 126,
+      ticket_id: 101,
+      user_uuid: 'agent-uuid',
+      content: '<p>Here is the log</p>',
+      created_at: '2026-10-06T01:53:25Z',
+      attachments: [],
+    })
     await sending
-    expect(addCommentToTicket).toHaveBeenCalledWith(
-      101,
-      '<p>Here is the log</p>',
-      [expect.objectContaining({ id: 7 })],
-      false,
-      expect.any(String),
-    )
     expect(leavingAsks()).toBe(false)
   })
 
   it('stops asking and says so when the reply fails', async () => {
-    post.mockRejectedValueOnce(new Error('network down'))
+    addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
     const detail = useTicketDetail(101)
 
     await detail.addComment(reply())
 
     expect(leavingAsks()).toBe(false)
     expect(toast.error).toHaveBeenCalledWith('ticket-comments-send-failed')
-    expect(addCommentToTicket).not.toHaveBeenCalled()
   })
 })
 
@@ -126,7 +177,7 @@ describe('a resend answered with the saved reply', () => {
     })
     const detail = useTicketDetail(101)
 
-    await detail.addComment({ ...reply(), files: [], is_internal: true, client_id: 'sent-before' })
+    await detail.addComment({ ...reply(), attachments: [], is_internal: true, client_id: 'sent-before' })
 
     expect(pool.upsert).toHaveBeenCalledWith(
       'comment',
@@ -140,21 +191,25 @@ describe('a resend answered with the saved reply', () => {
 // comes back to the composer whole: its text, its files and whether it was
 // an internal note, since restoring only the text would retry a note in public.
 describe('a reply that fails to send', () => {
-  const file = new File(['x'], 'attach.txt', { type: 'text/plain' })
-  const upload = { data: [{ id: 7, url: '/uploads/temp/attach.txt', name: 'attach.txt' }] }
-
-  it('goes back to the composer with its files', async () => {
-    post.mockResolvedValueOnce(upload)
+  it('goes back to the composer with its files, still uploaded', async () => {
+    const entry = staged('attach.txt', 7)
     addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
     const detail = useTicketDetail(101)
 
-    await detail.addComment({ content: '<p>Here is the log</p>', user_uuid: 'agent-uuid', files: [file] })
+    await detail.addComment({ content: '<p>Here is the log</p>', user_uuid: 'agent-uuid', attachments: [entry] })
 
     expect(useTicketDraftsStore().getDraft(101)).toMatchObject({
       content: '<p>Here is the log</p>',
       isInternal: false,
     })
-    expect(useTicketUiStore().getAttachments(101)).toEqual([file])
+    const back = useTicketUiStore().getAttachments(101)
+    expect(back).toHaveLength(1)
+    expect(back[0]).toMatchObject({ status: 'uploaded', uploaded: { id: 7 }, previewUrl: 'blob:attach.txt' })
+    // Its preview goes back with it, so it isn't revoked.
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+    expect(resendClientId(useTicketDraftsStore().getDraft(101), [entry.file])).toBe(
+      addCommentToTicket.mock.calls[0][4],
+    )
     expect(toast.error).toHaveBeenCalledWith('ticket-comments-send-failed')
   })
 
@@ -165,7 +220,7 @@ describe('a reply that fails to send', () => {
     await detail.addComment({
       content: '<p>Vendor says Tuesday</p>',
       user_uuid: 'agent-uuid',
-      files: [],
+      attachments: [],
       is_internal: true,
     })
 
@@ -185,7 +240,7 @@ describe('a reply that fails to send', () => {
     await detail.addComment({
       content: draft.content,
       user_uuid: 'agent-uuid',
-      files: [],
+      attachments: [],
       is_internal: draft.isInternal,
       client_id: resendClientId(draft, []),
     })
@@ -198,7 +253,7 @@ describe('a reply that fails to send', () => {
     const detail = useTicketDetail(101)
     const drafts = useTicketDraftsStore()
 
-    const sending = detail.addComment({ content: '<p>First</p>', user_uuid: 'agent-uuid', files: [] })
+    const sending = detail.addComment({ content: '<p>First</p>', user_uuid: 'agent-uuid', attachments: [] })
     drafts.setDraft(101, { content: '<p>Second</p>', isInternal: false })
     fail(new Error('network down'))
     await sending
@@ -214,7 +269,7 @@ describe('a reply that fails to send', () => {
     const detail = useTicketDetail(101)
     const drafts = useTicketDraftsStore()
 
-    const sending = detail.addComment({ content: '<p>Public answer</p>', user_uuid: 'agent-uuid', files: [] })
+    const sending = detail.addComment({ content: '<p>Public answer</p>', user_uuid: 'agent-uuid', attachments: [] })
     drafts.setDraft(101, { content: '', isInternal: true })
     fail(new Error('network down'))
     await sending
@@ -225,7 +280,7 @@ describe('a reply that fails to send', () => {
   it('is a new reply once it is edited or gains a file', async () => {
     addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
     const detail = useTicketDetail(101)
-    await detail.addComment({ content: '<p>Here is the log</p>', user_uuid: 'agent-uuid', files: [] })
+    await detail.addComment({ content: '<p>Here is the log</p>', user_uuid: 'agent-uuid', attachments: [] })
     const draft = useTicketDraftsStore().getDraft(101)
     const sentAs = addCommentToTicket.mock.calls[0][4]
 
@@ -242,7 +297,7 @@ describe('a reply that fails to send', () => {
     addCommentToTicket.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
     const detail = useTicketDetail(101)
 
-    const sending = detail.addComment({ content: '<p>Acme reply</p>', user_uuid: 'agent-uuid', files: [] })
+    const sending = detail.addComment({ content: '<p>Acme reply</p>', user_uuid: 'agent-uuid', attachments: [] })
     // The switch parks this workspace's drafts before the request is refused.
     drafts.setScope(null)
     fail(new Error('workspace changed'))
@@ -256,7 +311,6 @@ describe('a reply that fails to send', () => {
   })
 
   it('is not restored once the server has it', async () => {
-    post.mockResolvedValueOnce(upload)
     addCommentToTicket.mockImplementationOnce((...args: unknown[]) => {
       // The comment was created: its sync echo arrived, then the response was lost.
       noteServerEcho(args[4] as string, 555)
@@ -264,17 +318,17 @@ describe('a reply that fails to send', () => {
     })
     const detail = useTicketDetail(101)
 
-    await detail.addComment({ content: '<p>Here is the log</p>', user_uuid: 'agent-uuid', files: [file] })
+    await detail.addComment(reply())
 
     expect(useTicketDraftsStore().getDraft(101).content).toBe('')
     expect(useTicketUiStore().getAttachments(101)).toEqual([])
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:attach.txt')
     expect(toast.error).not.toHaveBeenCalled()
   })
 })
 
 describe('a reply that lost files on the way', () => {
   it('says so', async () => {
-    post.mockResolvedValueOnce({ data: [{ id: 7, url: '/uploads/temp/a.txt', name: 'a.txt' }] })
     addCommentToTicket.mockResolvedValueOnce({
       id: 128,
       ticket_id: 101,
@@ -288,7 +342,7 @@ describe('a reply that lost files on the way', () => {
     await detail.addComment({
       content: '<p>Two files</p>',
       user_uuid: 'agent-uuid',
-      files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')],
+      attachments: [staged('a.txt', 7), staged('b.txt', 8)],
     })
 
     expect(toast.warning).toHaveBeenCalledWith('ticket-comments-attachments-missing')
@@ -301,7 +355,7 @@ describe('the failure toast', () => {
   it('closes when the reply is sent again', async () => {
     addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
     const detail = useTicketDetail(101)
-    await detail.addComment({ content: '<p>Here is the log</p>', user_uuid: 'agent-uuid', files: [] })
+    await detail.addComment({ content: '<p>Here is the log</p>', user_uuid: 'agent-uuid', attachments: [] })
     expect(toast.error).toHaveBeenCalledTimes(1)
     const draft = useTicketDraftsStore().getDraft(101)
 
@@ -316,31 +370,31 @@ describe('the failure toast', () => {
     await detail.addComment({
       content: draft.content,
       user_uuid: 'agent-uuid',
-      files: [],
+      attachments: [],
       client_id: resendClientId(draft, []),
     })
     expect(toast.removeToast).toHaveBeenCalledWith('failure-toast')
   })
 
   it('names a file the server refused, and why', async () => {
-    post.mockRejectedValueOnce({
+    addCommentToTicket.mockRejectedValueOnce({
       response: {
         status: 400,
         data: { code: 'FILE_TYPE_NOT_ALLOWED', file: 'setup.bin', error: "File extension '.bin' is not allowed" },
       },
     })
     const detail = useTicketDetail(101)
-    await detail.addComment({ ...reply(), files: [new File(['x'], 'setup.bin')] })
+    await detail.addComment(reply())
     expect(translate).toHaveBeenCalledWith(
       'ticket-comments-send-failed-file-type',
       { kind: 'reply', name: 'setup.bin' },
       expect.any(String),
     )
 
-    post.mockRejectedValueOnce({
+    addCommentToTicket.mockRejectedValueOnce({
       response: { status: 400, data: { code: 'INVALID_FILENAME', file: '..', error: 'Invalid filename' } },
     })
-    await detail.addComment({ ...reply(), files: [new File(['x'], '..')] })
+    await detail.addComment(reply())
     expect(translate).toHaveBeenCalledWith(
       'ticket-comments-send-failed-file-name',
       { kind: 'reply', name: '..' },
@@ -356,7 +410,7 @@ describe('the failure toast', () => {
       { code: 'ERR_UPLOAD_TOO_LARGE' },
     ]) {
       translate.mockClear()
-      post.mockRejectedValueOnce(err)
+      addCommentToTicket.mockRejectedValueOnce(err)
       await detail.addComment(reply())
       expect(translate).toHaveBeenCalledWith(
         'ticket-comments-send-failed-too-large',
@@ -367,7 +421,7 @@ describe('the failure toast', () => {
   })
 
   it('says the server could not be reached only when the connection failed', async () => {
-    post.mockRejectedValueOnce({ code: 'ERR_NETWORK', message: 'Network Error' })
+    addCommentToTicket.mockRejectedValueOnce({ code: 'ERR_NETWORK', message: 'Network Error' })
     const detail = useTicketDetail(101)
     await detail.addComment(reply())
     expect(translate).toHaveBeenCalledWith(
@@ -379,7 +433,7 @@ describe('the failure toast', () => {
     // A server error, or anything else, is just a failure to try again.
     for (const err of [{ response: { status: 500, data: { code: 'INTERNAL_ERROR' } } }, new Error('boom')]) {
       translate.mockClear()
-      post.mockRejectedValueOnce(err)
+      addCommentToTicket.mockRejectedValueOnce(err)
       await detail.addComment(reply())
       expect(translate).toHaveBeenCalledWith('ticket-comments-send-failed', { kind: 'reply' }, expect.any(String))
     }
@@ -391,7 +445,7 @@ describe('the failure toast', () => {
     await detail.addComment({
       content: '<p>Vendor says Tuesday</p>',
       user_uuid: 'agent-uuid',
-      files: [],
+      attachments: [],
       is_internal: true,
     })
     expect(translate).toHaveBeenCalledWith(
@@ -416,7 +470,6 @@ describe('a sent reply', () => {
 
   it('leaves no Sending row and is not offered again when showing it fails', async () => {
     const pool = await import('@nosdesk/core/sync/pool')
-    post.mockResolvedValueOnce({ data: [{ id: 7, url: '/uploads/temp/attach.txt', name: 'attach.txt' }] })
     addCommentToTicket.mockResolvedValueOnce(sent)
     stashPreview.mockImplementationOnce(() => {
       throw new Error('preview cache full')
@@ -440,7 +493,7 @@ describe('a sent reply', () => {
     addCommentToTicket.mockRejectedValueOnce(new Error('network down'))
     const detail = useTicketDetail(101)
 
-    await detail.addComment({ ...reply(), files: [] })
+    await detail.addComment({ ...reply(), attachments: [] })
 
     const tempId = (pool.upsert as ReturnType<typeof vi.fn>).mock.calls.find(
       ([kind, id]) => kind === 'comment' && (id as number) < 0,
@@ -459,7 +512,7 @@ describe('a reply saved with an empty response', () => {
     })
     const detail = useTicketDetail(101)
 
-    await detail.addComment({ ...reply(), files: [] })
+    await detail.addComment({ ...reply(), attachments: [] })
 
     expect(isEchoSuppressed(556)).toBe(false)
     const tempId = (pool.upsert as ReturnType<typeof vi.fn>).mock.calls.find(

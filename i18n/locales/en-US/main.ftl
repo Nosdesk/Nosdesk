@@ -5722,6 +5722,19 @@ ticket-comments-send-failed-too-large =
 ticket-comments-attachment-too-large = { $name } is too large to attach. Files can be up to { $limit } MB.
 ticket-comments-attachments-total-too-large = { $name } wasn't attached: a reply's attachments can be up to { $limit } MB together.
 ticket-comments-attachment-type-not-allowed = { $name } can't be attached: files of this type aren't allowed.
+ticket-comments-upload-waiting = Waiting to upload
+ticket-comments-upload-uploading = Uploading
+ticket-comments-upload-percent = Uploading { $percent }%
+ticket-comments-upload-progress-label = Uploading { $name }
+ticket-comments-upload-cancel-label = Cancel uploading { $name }
+ticket-comments-upload-retry = Retry
+ticket-comments-upload-too-large = { $name } is too large to attach.
+ticket-comments-upload-invalid-name = { $name } has a name that can't be used. Rename it and try again.
+ticket-comments-upload-busy = The server is busy with other uploads. Try again shortly.
+ticket-comments-upload-offline = { $name } wasn't uploaded: the server couldn't be reached. Check your connection and try again.
+ticket-comments-upload-failed = { $name } wasn't uploaded. Try again.
+ticket-comments-submit-waiting-uploads = Waiting for files to finish uploading
+ticket-comments-submit-failed-uploads = Retry or remove the files that didn't upload
 ticket-comments-send-failed-file-type =
     { $kind ->
         [note] Your note wasn't sent: { $name } can't be attached, as files of this type aren't allowed. Remove it and try again.

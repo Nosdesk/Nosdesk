@@ -698,6 +698,9 @@ const generatePdfThumbnail = async () => {
       />
     </template>
 
+    <!-- The composer's upload status for a staged file. -->
+    <slot name="status" />
+
     <!-- Submit controls for new attachments -->
     <div v-if="isNew && attachmentType === 'video'" class="flex justify-end gap-2 mt-2">
       <button

@@ -34,7 +34,6 @@ import { useRecentTicketsStore } from '@/stores/recentTickets'
 import { logger } from '@nosdesk/core/utils/logger'
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import ticketService, { getCommentsByTicketId } from '@nosdesk/core/services/ticketService'
-import apiClient from '@nosdesk/core/apiClient'
 import { projectService } from '@nosdesk/core/services/projectService'
 import { stashPreview } from '@/services/attachmentPreviewCache'
 import { registerOptimisticCreate, clearOptimisticCreate, isEchoSuppressed } from '@/sync/optimisticCreates'
@@ -43,7 +42,7 @@ import { useToastStore } from '@nosdesk/core/stores/toast'
 import { UPLOAD_TOO_LARGE } from '@nosdesk/core/services/uploadLimits'
 import { isCancellation } from '@nosdesk/core/utils/cancellation'
 import { resendMark, useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
-import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
+import { useTicketUiStore, type StagedAttachment } from '@nosdesk/core/stores/ticketUi'
 import { htmlHasText } from '@nosdesk/core/utils/inertHtml'
 import { activeWorkspaceSlug } from '@/services/activeWorkspace'
 import { translate } from '@/i18n'
@@ -148,17 +147,6 @@ interface PoolUser {
   avatar_thumb?: string | null
 }
 
-interface UploadedFile {
-  id: number
-  url: string
-  name: string
-  transcription?: string
-}
-
-interface FileWithTranscription extends File {
-  _transcription?: string
-}
-
 /**
  * Why a reply (or note) wasn't sent, in words for the person who wrote it: a
  * file the server refused (named, and why), attachments too large, no
@@ -211,14 +199,15 @@ function sendFailureMessage(err: unknown, kind: 'reply' | 'note'): string {
 /**
  * Put a reply that failed to send back in the ticket's composer, which
  * cleared as it went out: its text, files and internal flag together, since
- * restoring only the text would send an internal note again in public. It is
- * marked with the id it went out with, so sending it again unchanged is the
+ * restoring only the text would send an internal note again in public. Its
+ * files come back uploaded, so sending it again doesn't upload them again. It
+ * is marked with the id it went out with, so sending it again unchanged is the
  * same reply (see `resendClientId`). A draft written since goes after it, and
  * then the whole is a new reply that stays internal if either part was.
  */
 function restoreUnsentReply(
   ticketId: number,
-  reply: { content: string; files: File[]; isInternal: boolean; clientId: string },
+  reply: { content: string; attachments: StagedAttachment[]; isInternal: boolean; clientId: string },
 ): void {
   const drafts = useTicketDraftsStore()
   const ui = useTicketUiStore()
@@ -237,10 +226,14 @@ function restoreUnsentReply(
           // belongs to the next reply, not to this one.
           content: reply.content,
           isInternal: reply.isInternal,
-          resend: resendMark(reply.clientId, reply.content, reply.files),
+          resend: resendMark(
+            reply.clientId,
+            reply.content,
+            reply.attachments.map((a) => a.file),
+          ),
         },
   )
-  ui.setAttachments(ticketId, [...reply.files, ...stagedSince])
+  ui.restoreAttachments(ticketId, reply.attachments)
 }
 
 /** The failure toast of the last reply on each ticket that wasn't sent, so the
@@ -590,13 +583,15 @@ export function useTicketDetail(
   async function addComment(data: {
     content: string
     user_uuid: string
-    files: File[]
+    /** The reply's files, uploaded when they were staged (see useTicketUiStore). */
+    attachments: StagedAttachment[]
     is_internal?: boolean
     /** The id a failed send went out with, when this is that reply again. */
     client_id?: string
   }): Promise<void> {
     if (id.value == null) return
-    if (!data.content.trim() && (!data.files || data.files.length === 0)) return
+    const staged = data.attachments ?? []
+    if (!data.content.trim() && staged.length === 0) return
 
     const ticketId = id.value
     // Ticket ids repeat across workspaces, so a failed reply only goes back
@@ -627,20 +622,20 @@ export function useTicketDetail(
       created_at: nowIso,
     })
 
-    // Optimistic attachment rows carrying local blob previews so any type
-    // renders instantly (negative id = pending). After upload each blob is
-    // handed to its reconciled server URL via the preview cache; the renderer
-    // takes it via useAttachmentSource (localBlob ?? server URL).
-    const files = data.files ?? []
-    const previews = files.map((f) => URL.createObjectURL(f))
-    previews.forEach((url, i) => {
+    // Optimistic attachment rows carrying the composer's local blob previews
+    // so any type renders instantly (negative id = pending). Once the reply is
+    // created each blob is handed to its reconciled server URL via the preview
+    // cache; the renderer takes it via useAttachmentSource (localBlob ?? server
+    // URL). A reply that fails takes its previews back to the composer.
+    const previews = staged.map((a) => a.previewUrl)
+    staged.forEach(({ file }, i) => {
       pool.upsert<PoolAttachment>('attachment', tempId - i - 1, {
         id: tempId - i - 1,
         comment_id: tempId,
-        name: files[i].name,
-        url,
-        mime_type: files[i].type || null,
-        file_size: files[i].size ?? null,
+        name: file.name,
+        url: previews[i],
+        mime_type: file.type || null,
+        file_size: file.size ?? null,
       })
     })
 
@@ -665,27 +660,10 @@ export function useTicketDetail(
     // The request succeeded, whatever its body held.
     let sent = false
     try {
-      let attachments: UploadedFile[] = []
-      if (data.files?.length > 0) {
-        const formData = new FormData()
-        const audioFile = data.files.find((f) => f.type.startsWith('audio/')) as
-          | FileWithTranscription
-          | undefined
-        if (audioFile?._transcription) {
-          formData.append('transcription', audioFile._transcription)
-        }
-        data.files.forEach((file) => formData.append('files', file, file.name))
-        const response = await apiClient.post<UploadedFile[]>('/upload', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        })
-        attachments = response.data.map((f) => ({
-          id: f.id,
-          url: f.url,
-          name: f.name,
-          transcription: f.transcription,
-        }))
-      }
-
+      // The server claims each upload by its id.
+      const attachments = staged.flatMap(({ uploaded }) =>
+        uploaded ? [{ id: uploaded.id, url: uploaded.url, name: uploaded.name }] : [],
+      )
       newComment = await ticketService.addCommentToTicket(
         ticketId,
         data.content,
@@ -699,17 +677,19 @@ export function useTicketDetail(
       // The server's echo arrived, so the reply was created and its row now
       // shows: it wasn't lost, and sending it again would post it twice.
       const created = clearOptimisticCreate(clientId) != null
-      previews.forEach((url) => URL.revokeObjectURL(url))
+      const restore =
+        !created &&
+        activeWorkspaceSlug() === workspace &&
+        useTicketDraftsStore().getScope() === draftScope
+      // The previews go back to the composer with the reply, or go.
+      if (!restore) previews.forEach((url) => URL.revokeObjectURL(url))
       if (!created) {
         const toast = useToastStore()
         // The bubble goes, so say why rather than letting the reply vanish.
-        if (
-          activeWorkspaceSlug() === workspace &&
-          useTicketDraftsStore().getScope() === draftScope
-        ) {
+        if (restore) {
           restoreUnsentReply(ticketId, {
             content: data.content,
-            files,
+            attachments: staged,
             isInternal: data.is_internal === true,
             clientId,
           })
@@ -780,7 +760,7 @@ export function useTicketDetail(
       })
       // Revoke any previews without a reconciled row (count mismatch).
       for (let i = finals.length; i < previews.length; i++) URL.revokeObjectURL(previews[i])
-      if (finals.length < files.length) {
+      if (finals.length < staged.length) {
         useToastStore().warning(
           translate(
             'ticket-comments-attachments-missing',
