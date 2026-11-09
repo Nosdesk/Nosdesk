@@ -156,6 +156,11 @@ async fn a_bookstack_book_imports_its_tree_links_and_images() {
         vpn_row["links"]["attachments"],
         serde_json::json!(["VPN profile guide.pdf"])
     );
+    // Where it sits reads as its titles, and its BookStack id goes to the
+    // report.
+    assert_eq!(vpn_row["display"], "Onboarding / VPN setup");
+    assert_eq!(vpn_row["source_id"], "page:19");
+    assert_eq!(vpn_row["no_content"], false);
 
     let job = committed(&pool, ws, &id, serde_json::json!({})).await;
     assert_eq!(job["status"], "done", "{job}");

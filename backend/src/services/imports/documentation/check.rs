@@ -444,6 +444,9 @@ async fn check(run: &CheckRun) -> Result<Checked, Failure> {
         rows.push(PageRow {
             index: page.index,
             path: page.key.clone(),
+            display: page.display.clone(),
+            source_id: page.source_id.clone(),
+            no_content: Some(page.no_content),
             title: page.title.clone(),
             parent: page.parent,
             outcome: outcome_of(

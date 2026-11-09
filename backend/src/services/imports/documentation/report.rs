@@ -1,11 +1,19 @@
 //! The conversion report: one row per page with its path, title, outcome
-//! and every note, for the admin to read or keep.
+//! and every note, its id in the source tool and the attachments it left
+//! out, for the admin to read or keep.
 
 use super::{DocsRows, ImageProblem, PageOutcome, PageRow};
 use crate::services::docs_markdown::NoteCode;
 use crate::services::imports::safe_cells::csv_formula_safe;
 
-const COLUMNS: [&str; 4] = ["Path", "Title", "Outcome", "Notes"];
+const COLUMNS: [&str; 6] = [
+    "Path",
+    "Title",
+    "Outcome",
+    "Notes",
+    "Source ID",
+    "Attachments left out",
+];
 
 /// A note as the report words it, with its count.
 pub fn note_text(code: NoteCode, count: u32) -> String {
@@ -92,10 +100,21 @@ pub fn report_csv(rows: &DocsRows) -> Result<Vec<u8>, csv::Error> {
         for row in &rows.pages {
             wtr.write_record(
                 [
-                    row.path.clone(),
+                    if row.display.is_empty() {
+                        row.path.clone()
+                    } else {
+                        row.display.clone()
+                    },
                     row.title.clone(),
                     outcome_text(row.outcome).to_string(),
                     notes_cell(row),
+                    row.source_id.clone().unwrap_or_default(),
+                    row.links
+                        .attachments
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("; "),
                 ]
                 .into_iter()
                 .map(csv_formula_safe),
@@ -125,6 +144,9 @@ mod tests {
             pages: vec![PageRow {
                 index: 0,
                 path: "guide/vpn.md".into(),
+                display: String::new(),
+                source_id: None,
+                no_content: None,
                 title: "=HYPERLINK(\"x\")".into(),
                 parent: None,
                 outcome: PageOutcome::New,
@@ -145,7 +167,7 @@ mod tests {
         };
         let csv = String::from_utf8(report_csv(&rows).unwrap()).unwrap();
         assert!(
-            csv.starts_with("\u{FEFF}Path,Title,Outcome,Notes\n"),
+            csv.starts_with("\u{FEFF}Path,Title,Outcome,Notes,Source ID,Attachments left out\n"),
             "{csv}"
         );
         assert!(csv.contains("guide/vpn.md"), "{csv}");
@@ -160,6 +182,38 @@ mod tests {
         );
         assert!(
             csv.contains("Link to old/setup.md isn't in the import"),
+            "{csv}"
+        );
+    }
+    #[test]
+    fn a_source_page_shows_where_it_sits_its_id_and_its_attachments() {
+        let mut links = LinkReport::default();
+        links.attachments.insert("budget.xlsx".into());
+        links.attachments.insert("policy.pdf".into());
+        let rows = DocsRows {
+            kind: "documentation".into(),
+            pages: vec![PageRow {
+                index: 0,
+                path: "bookstack:abc:page:40".into(),
+                display: "Networking / VPN".into(),
+                source_id: Some("page:40".into()),
+                no_content: Some(false),
+                title: "VPN".into(),
+                parent: None,
+                outcome: PageOutcome::New,
+                duplicate: None,
+                source_uuid: None,
+                notes: Notes::default(),
+                links,
+                images: Vec::new(),
+                error: None,
+            }],
+            web_images: Default::default(),
+        };
+        let csv = String::from_utf8(report_csv(&rows).unwrap()).unwrap();
+        assert!(!csv.contains("bookstack:"), "{csv}");
+        assert!(
+            csv.contains("Networking / VPN,VPN,New,Attachment budget.xlsx left out; Attachment policy.pdf left out,page:40,budget.xlsx; policy.pdf\n"),
             "{csv}"
         );
     }

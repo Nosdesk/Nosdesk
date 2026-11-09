@@ -482,6 +482,7 @@ impl Reading<'_> {
         self.layout.extras.insert(key.clone(), extra);
         self.layout.pages.push(SourcePage {
             key,
+            source_id: page.id.map(|id| format!("page:{id}")),
             title,
             kind: PageKind::Page,
             body,
@@ -520,6 +521,7 @@ impl Reading<'_> {
         );
         self.layout.pages.push(SourcePage {
             key,
+            source_id: chapter.id.map(|id| format!("chapter:{id}")),
             title: title_of(chapter.name.as_deref()),
             group: true,
             kind: PageKind::Section,

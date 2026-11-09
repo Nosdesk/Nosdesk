@@ -151,6 +151,14 @@ fn a_book_is_a_collection_in_bookstacks_order() {
     );
     // An empty description is no content.
     assert_eq!(text(&built, "Empty chapter"), "");
+    assert!(plan.pages[index_of(&built, "Empty chapter")].no_content);
+    assert!(!onboarding.no_content);
+    // Where a page sits reads as its titles; its id is the source's.
+    let vpn = &plan.pages[index_of(&built, "VPN setup")];
+    assert_eq!(vpn.display, "Onboarding / VPN setup");
+    assert_eq!(vpn.source_id.as_deref(), Some("page:19"));
+    assert_eq!(onboarding.display, "Onboarding");
+    assert_eq!(onboarding.source_id.as_deref(), Some("chapter:16"));
     // Welcome, VPN setup and Onboarding carry tags.
     assert_eq!(plan.front_matter_not_imported.get("tags"), Some(&3));
 }

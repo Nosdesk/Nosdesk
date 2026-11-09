@@ -795,6 +795,7 @@ impl Confluence {
                 space.key,
                 id.clone().unwrap_or_else(|| relative.to_string())
             ),
+            source_id: id.clone(),
             file: Some(key.to_string()),
             entries,
             title,
@@ -1557,6 +1558,17 @@ mod tests {
             install.source.as_deref(),
             Some("QA/Install-Guide_294922.html")
         );
+        assert_eq!(install.display, "QA/Install-Guide_294922.html");
+        assert_eq!(install.source_id.as_deref(), Some("294922"));
+        assert!(built.plan.pages.iter().all(|p| !p.no_content));
+        // Pages names each page by its key, as the check's rows and the
+        // written pages do, and shows the file.
+        let view =
+            crate::services::imports::documentation::TreeView::of(&built.plan, &built.documents);
+        for (tree_page, page) in view.pages.iter().zip(&built.plan.pages) {
+            assert_eq!(tree_page.path, page.key);
+            assert_eq!(tree_page.display, page.source.clone().unwrap());
+        }
         let special =
             &built.plan.pages[index_of(&built, "Q&A: What's new? / \u{dc}n\u{ef}code \u{2713}")];
         assert_eq!(special.key, "confluence:QA:294933");

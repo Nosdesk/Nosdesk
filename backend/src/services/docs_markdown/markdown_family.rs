@@ -354,6 +354,7 @@ impl DocsSource for MarkdownFamily {
                     .clone()
                     .or_else(|| node.folder.clone())
                     .unwrap_or_default(),
+                source_id: None,
                 file: node.file.clone(),
                 folder: node.folder.clone(),
                 entries: [&node.file, &node.csv]
