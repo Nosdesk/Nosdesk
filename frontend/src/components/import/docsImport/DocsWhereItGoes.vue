@@ -90,11 +90,14 @@ const modes = computed(() => {
       }),
     },
   ]
-  if (props.profile === 'nosdesk_v2') {
+  if (props.profile === 'nosdesk_v2' || props.profile === 'bookstack') {
     out.push({
       value: 'as_source',
       label: t('docs-import-where-as-source'),
-      desc: t('docs-import-where-as-source-desc', { count: props.sourceCollections }),
+      desc: t(
+        props.profile === 'bookstack' ? 'docs-import-where-as-source-bookstack-desc' : 'docs-import-where-as-source-desc',
+        { count: props.sourceCollections },
+      ),
     })
   }
   return out

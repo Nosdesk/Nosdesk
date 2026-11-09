@@ -26,7 +26,7 @@ use super::ir::{Block, Document, Inline, Table, TableCell};
 use super::links::{file_stem, join_normalised, parent, percent_decode, strip_notion_id};
 use super::parse::{self, ParseOptions};
 use super::profiles::{self, is_markdown, Manifest, ManifestPage, NavItem, ProfileKind, Rules};
-use super::source::{Body, DocsSource, LinkNames, SourceInput, SourcePage, SourceTree};
+use super::source::{Body, DocsSource, LinkNames, SourceInput, SourcePage, SourceRefs, SourceTree};
 use super::tree::{
     fit_title, humanise, natural_cmp, number_prefix, refused_too_many, CollectionMode, LeftOut,
     PageKind, PageStatus, PlannedCollection, DATABASE_ROWS, MAX_CONFIG_BYTES, MAX_MARKDOWN_BYTES,
@@ -402,6 +402,7 @@ impl DocsSource for MarkdownFamily {
             files: files.to_vec(),
             left_out,
             workspace_uuid: manifest.and_then(|m| m.workspace_uuid),
+            refs: SourceRefs::default(),
         })
     }
 
@@ -655,10 +656,13 @@ impl Layout<'_> {
                 self.folder_layout(&root, &keys, 0);
                 self.apply_categories();
             }
+            // A BookStack export never reaches the Markdown family; read as
+            // a plain folder if it did.
             ProfileKind::Notion
             | ProfileKind::Obsidian
             | ProfileKind::Outline
-            | ProfileKind::Plain => {
+            | ProfileKind::Plain
+            | ProfileKind::Bookstack => {
                 let root = self.base.clone();
                 let keys = self.markdown_under(&root);
                 self.folder_layout(&root, &keys, 0);

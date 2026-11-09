@@ -9872,7 +9872,7 @@ docs-import-refused-too-many-files = De zip bevat meer dan { $max } bestanden. E
 # MT: pending native review (nl-NL)
 docs-import-refused-no-markdown = Deze zip bevat geen Markdown-bestanden.
 # MT: pending native review (nl-NL)
-docs-import-refused-source-later = Dit is een { $source }-export. Exports uit BookStack en Confluence komen in een latere update.
+docs-import-refused-source-later = Dit is een { $source }-export. Exports uit { $source } komen in een latere update.
 # MT: pending native review (nl-NL)
 docs-import-refused-mixed-files = Kies één .zip, of alleen .md-bestanden.
 # MT: pending native review (nl-NL)
@@ -9956,6 +9956,8 @@ docs-import-profile-outline = een Outline-export
 # MT: pending native review (nl-NL)
 docs-import-profile-plain = een gewone map
 # MT: pending native review (nl-NL)
+docs-import-profile-bookstack = een BookStack-export
+# MT: pending native review (nl-NL)
 docs-import-profile-option-notion = Notion-export
 # MT: pending native review (nl-NL)
 docs-import-profile-option-nosdesk-v2 = Nosdesk-export
@@ -9973,6 +9975,8 @@ docs-import-profile-option-docusaurus = Docusaurus
 docs-import-profile-option-outline = Outline-export
 # MT: pending native review (nl-NL)
 docs-import-profile-option-plain = Gewone map
+# MT: pending native review (nl-NL)
+docs-import-profile-option-bookstack = BookStack Portable ZIP
 # MT: pending native review (nl-NL)
 docs-import-tree-title = Pagina's zoals ze in Nosdesk verschijnen
 # MT: pending native review (nl-NL)
@@ -10072,6 +10076,11 @@ docs-import-where-as-source = Zoals in de export
 docs-import-where-as-source-desc = { $count ->
     [one] 1 collectie, zoals die in Nosdesk was.
    *[other] { $count } collecties, zoals ze in Nosdesk waren.
+}
+# MT: pending native review (nl-NL)
+docs-import-where-as-source-bookstack-desc = { $count ->
+    [one] 1 collectie, genoemd naar het boek, het hoofdstuk of de pagina.
+   *[other] { $count } collecties, een per export.
 }
 # MT: pending native review (nl-NL)
 docs-import-status-label = Status

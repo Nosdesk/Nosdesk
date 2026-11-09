@@ -1297,40 +1297,18 @@ fn fixture_inputs() -> Vec<(String, String)> {
 
 #[test]
 fn golden_fixtures_are_current() {
-    use base64::Engine as _;
-    let engine = base64::engine::general_purpose::STANDARD;
     let regenerate = std::env::var_os("UPDATE_DOCS_MARKDOWN_FIXTURES").is_some();
     let mut stale = Vec::new();
     for (name, markdown) in fixture_inputs() {
         let converted = convert(&markdown);
-        let fresh = encode_with_client_id(&converted.document, 1);
-        let path = format!("{FIXTURE_DIR}/{name}.yjs.json");
-        let stored = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok());
-        let current = stored
-            .as_ref()
-            .and_then(|v| v["update"].as_str())
-            .and_then(|b| engine.decode(b).ok());
-        let notes_match = stored
-            .as_ref()
-            .is_some_and(|v| v["notes"] == json!(converted.notes));
-        let matches = notes_match
-            && current
-                .as_deref()
-                .is_some_and(|c| decode::to_json(c) == decode::to_json(&fresh));
-        if matches {
-            continue;
-        }
-        if regenerate {
-            let body = json!({
-                "source": format!("{name}.md"),
-                "notes": converted.notes,
-                "update": engine.encode(&fresh),
-            });
-            let text = serde_json::to_string_pretty(&body).expect("serialises") + "\n";
-            std::fs::write(&path, text).expect("fixture writes");
-        } else {
+        let source = format!("{name}.md");
+        if !golden_is_current(
+            &name,
+            &source,
+            &converted.document,
+            &converted.notes,
+            regenerate,
+        ) {
             stale.push(name);
         }
     }
@@ -1338,4 +1316,46 @@ fn golden_fixtures_are_current() {
         stale.is_empty(),
         "stale docs_markdown fixtures {stale:?}; run UPDATE_DOCS_MARKDOWN_FIXTURES=1 cargo test docs_markdown"
     );
+}
+
+/// Whether `{name}.yjs.json` holds `document` and `notes`; with
+/// `regenerate`, writes it when it doesn't. `source` names what the
+/// frontend spec calls it (its snapshot's file name).
+pub(crate) fn golden_is_current(
+    name: &str,
+    source: &str,
+    document: &Document,
+    notes: &Notes,
+    regenerate: bool,
+) -> bool {
+    use base64::Engine as _;
+    let engine = base64::engine::general_purpose::STANDARD;
+    let fresh = encode_with_client_id(document, 1);
+    let path = format!("{FIXTURE_DIR}/{name}.yjs.json");
+    let stored = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    let current = stored
+        .as_ref()
+        .and_then(|v| v["update"].as_str())
+        .and_then(|b| engine.decode(b).ok());
+    let notes_match = stored.as_ref().is_some_and(|v| v["notes"] == json!(notes));
+    let matches = notes_match
+        && current
+            .as_deref()
+            .is_some_and(|c| decode::to_json(c) == decode::to_json(&fresh));
+    if matches {
+        return true;
+    }
+    if regenerate {
+        let body = json!({
+            "source": source,
+            "notes": notes,
+            "update": engine.encode(&fresh),
+        });
+        let text = serde_json::to_string_pretty(&body).expect("serialises") + "\n";
+        std::fs::write(&path, text).expect("fixture writes");
+        return true;
+    }
+    false
 }

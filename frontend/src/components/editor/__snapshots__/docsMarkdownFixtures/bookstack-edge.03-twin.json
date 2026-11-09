@@ -1,0 +1,173 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Same title as its sibling."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Included: "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/3",
+                "title": null
+              }
+            }
+          ],
+          "text": "Included from Hostile"
+        },
+        {
+          "type": "text",
+          "text": " and missing: {{@999}}"
+        }
+      ]
+    },
+    {
+      "type": "blockquote",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "strong"
+                }
+              ],
+              "text": "Note"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "A callout with no type."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "strong"
+            }
+          ],
+          "text": "Open me"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hidden "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "strong"
+            }
+          ],
+          "text": "text"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "image",
+          "attrs": {
+            "ychange": null,
+            "src": "/api/files/collab/doc/00000000-0000-4000-8000-000000000000/Tn3QeA8bW2xYp5LcK9dR.png",
+            "alt": null,
+            "title": null,
+            "width": null,
+            "align": null
+          }
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Link to "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/collections/imported",
+                "title": null
+              }
+            }
+          ],
+          "text": "the book"
+        },
+        {
+          "type": "text",
+          "text": " and an image link here."
+        }
+      ]
+    }
+  ]
+}

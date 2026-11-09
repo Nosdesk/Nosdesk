@@ -279,7 +279,7 @@ export function informativeFile(page: DocsTreePage): string | null {
 
 /** The collection mode the server uses when none is chosen. */
 export function defaultMode(profile: DocsProfile): DocsCollectionMode {
-  if (profile === 'nosdesk_v2') return 'as_source'
+  if (profile === 'nosdesk_v2' || profile === 'bookstack') return 'as_source'
   if (profile === 'outline') return 'per_top_level_folder'
   return 'new'
 }

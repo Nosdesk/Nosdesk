@@ -9881,7 +9881,7 @@ docs-import-refused-too-many-files = Le zip contient plus de { $max } fichiers. 
 # MT: pending native review (fr-FR)
 docs-import-refused-no-markdown = Ce zip ne contient aucun fichier Markdown.
 # MT: pending native review (fr-FR)
-docs-import-refused-source-later = Il s'agit d'un export { $source }. Les exports BookStack et Confluence arriveront dans une prochaine mise à jour.
+docs-import-refused-source-later = Il s'agit d'un export { $source }. Les exports { $source } arriveront dans une prochaine mise à jour.
 # MT: pending native review (fr-FR)
 docs-import-refused-mixed-files = Choisissez un seul .zip, ou uniquement des fichiers .md.
 # MT: pending native review (fr-FR)
@@ -9965,6 +9965,8 @@ docs-import-profile-outline = un export Outline
 # MT: pending native review (fr-FR)
 docs-import-profile-plain = un simple dossier
 # MT: pending native review (fr-FR)
+docs-import-profile-bookstack = un export BookStack
+# MT: pending native review (fr-FR)
 docs-import-profile-option-notion = Export Notion
 # MT: pending native review (fr-FR)
 docs-import-profile-option-nosdesk-v2 = Export Nosdesk
@@ -9982,6 +9984,8 @@ docs-import-profile-option-docusaurus = Docusaurus
 docs-import-profile-option-outline = Export Outline
 # MT: pending native review (fr-FR)
 docs-import-profile-option-plain = Simple dossier
+# MT: pending native review (fr-FR)
+docs-import-profile-option-bookstack = Portable ZIP BookStack
 # MT: pending native review (fr-FR)
 docs-import-tree-title = Les pages telles qu'elles apparaîtront dans Nosdesk
 # MT: pending native review (fr-FR)
@@ -10081,6 +10085,11 @@ docs-import-where-as-source = Comme dans l'export
 docs-import-where-as-source-desc = { $count ->
     [one] 1 collection, telle qu'elle était dans Nosdesk.
    *[other] { $count } collections, telles qu'elles étaient dans Nosdesk.
+}
+# MT: pending native review (fr-FR)
+docs-import-where-as-source-bookstack-desc = { $count ->
+    [one] 1 collection, nommée d'après le livre, le chapitre ou la page.
+   *[other] { $count } collections, une par export.
 }
 # MT: pending native review (fr-FR)
 docs-import-status-label = Statut

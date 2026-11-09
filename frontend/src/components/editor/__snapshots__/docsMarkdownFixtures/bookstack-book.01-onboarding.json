@@ -1,0 +1,30 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Steps for a "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "strong"
+            }
+          ],
+          "text": "new starter"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    }
+  ]
+}

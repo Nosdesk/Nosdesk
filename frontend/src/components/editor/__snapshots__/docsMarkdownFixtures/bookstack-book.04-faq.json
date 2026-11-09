@@ -1,0 +1,64 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "FAQ"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Back to "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/1",
+                "title": null
+              }
+            }
+          ],
+          "text": "Welcome"
+        },
+        {
+          "type": "text",
+          "text": " or "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/4",
+                "title": null
+              }
+            }
+          ],
+          "text": "printers"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    }
+  ]
+}

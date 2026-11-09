@@ -71,6 +71,37 @@ pub struct SourceTree {
     /// The workspace a Nosdesk export came from, for keeping its mentions,
     /// ticket links and embeds when it is this one.
     pub workspace_uuid: Option<String>,
+    /// Destinations in the source's own scheme (BookStack's `bsexport://`).
+    pub refs: SourceRefs,
+}
+
+/// The destinations a source writes in a scheme of its own, and what each
+/// names. Only a source fills these: the scheme means nothing to any other
+/// source's links, which drop it as unknown.
+#[derive(Debug, Clone, Default)]
+pub struct SourceRefs {
+    /// The schemes the source writes (`bsexport`). A destination in one of
+    /// them that names nothing is reported as unresolved.
+    pub schemes: Vec<&'static str>,
+    /// Each destination, without its fragment, as the source wrote it into
+    /// the page bodies.
+    pub targets: std::collections::HashMap<String, SourceRef>,
+}
+
+/// What one of a source's own destinations names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceRef {
+    /// A page, by its index in [`SourceTree::pages`].
+    Page(usize),
+    /// One of the source's collections, by its index in
+    /// [`SourceTree::collections`].
+    Collection(usize),
+    /// An archive file shown as an image, by key.
+    Image(String),
+    /// A file the import leaves out, by the name Review lists it under.
+    Attachment(String),
+    /// A web address.
+    Web(String),
 }
 
 /// One page as the source describes it.

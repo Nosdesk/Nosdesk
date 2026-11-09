@@ -94,6 +94,7 @@ mod imports_assets;
 mod imports_attributes;
 mod imports_catalog;
 mod imports_data_shape;
+mod imports_docs_bookstack;
 mod imports_docs_commit;
 mod imports_docs_flow;
 mod imports_docs_remove;

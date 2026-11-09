@@ -1,0 +1,171 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Click me, a forged link, a relative host, a missing page and the run book."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "image",
+          "attrs": {
+            "ychange": null,
+            "src": "/api/files/collab/doc/00000000-0000-4000-8000-000000000000/Vb7sK2mQ9wLx4ZcR1hTa.svg",
+            "alt": "Vector",
+            "title": null,
+            "width": null,
+            "align": null
+          }
+        },
+        {
+          "type": "text",
+          "text": " No file"
+        }
+      ]
+    },
+    {
+      "type": "blockquote",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "strong"
+                }
+              ],
+              "text": "Note"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "An unknown callout type."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Text include {{@40}} stays text."
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "☑ Checked by its item"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "strong"
+            }
+          ],
+          "text": "Attachments"
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "link",
+                      "attrs": {
+                        "href": "https://example.com/spec.pdf",
+                        "title": null
+                      }
+                    }
+                  ],
+                  "text": "Spec"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

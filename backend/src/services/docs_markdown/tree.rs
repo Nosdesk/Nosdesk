@@ -20,11 +20,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use super::bookstack::{self, BookstackSource, Exports};
 use super::ir::Document;
+use super::links::RefTarget;
 use super::links::{file_stem, parent, LinkIndex, LinkReport, PageResolver, Workspace};
 use super::markdown_family::{MarkdownFamily, MarkdownFiles};
 use super::profiles::{self, Detection, Listing, ProfileKind};
-use super::source::{DocsSource, SourceInput, SourcePage, SourceTree};
+use super::source::{DocsSource, SourceInput, SourcePage, SourceRef, SourceTree};
 use super::{normalise, NoteCode, Notes};
 use crate::services::imports::refusal::Refused;
 use crate::services::uploaded_archive::{SafeArchive, SkipReason};
@@ -98,22 +100,30 @@ pub struct ImportOptions {
 
 /// Pages left out by what they are rather than where they sit in the
 /// tree, so a tree read under other leave-out patterns finds them still: a
-/// page goes when its file or its folder is listed, or, for a page with
-/// neither (a nav heading), its titles from the top down.
+/// page goes when its file or its folder is listed; for a page with
+/// neither, when its source key is (a BookStack page), else its titles from
+/// the top down (a nav heading).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExcludedPages {
     pub files: BTreeSet<String>,
     pub folders: BTreeSet<String>,
     pub trails: BTreeSet<Vec<String>>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub keys: BTreeSet<String>,
 }
 
 impl ExcludedPages {
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.folders.is_empty() && self.trails.is_empty()
+        self.files.is_empty()
+            && self.folders.is_empty()
+            && self.trails.is_empty()
+            && self.keys.is_empty()
     }
 
-    /// Leave out the page with this file, folder and trail of titles.
-    pub fn add(&mut self, file: Option<&str>, folder: Option<&str>, trail: &[String]) {
+    /// Leave out the page with this file, folder, source key and trail of
+    /// titles. A page with no file or folder goes by its key when it has
+    /// one, so same-titled siblings stay apart.
+    pub fn add(&mut self, file: Option<&str>, folder: Option<&str>, key: &str, trail: &[String]) {
         if let Some(file) = file {
             self.files.insert(file.to_string());
         }
@@ -121,13 +131,25 @@ impl ExcludedPages {
             self.folders.insert(folder.to_string());
         }
         if file.is_none() && folder.is_none() {
-            self.trails.insert(trail.to_vec());
+            if key.is_empty() {
+                self.trails.insert(trail.to_vec());
+            } else {
+                self.keys.insert(key.to_string());
+            }
         }
     }
 
-    pub fn matches(&self, file: Option<&str>, folder: Option<&str>, trail: &[String]) -> bool {
+    pub fn matches(
+        &self,
+        file: Option<&str>,
+        folder: Option<&str>,
+        key: &str,
+        trail: &[String],
+    ) -> bool {
         match (file, folder) {
-            (None, None) => self.trails.contains(trail),
+            (None, None) => {
+                (!key.is_empty() && self.keys.contains(key)) || self.trails.contains(trail)
+            }
             _ => {
                 file.is_some_and(|f| self.files.contains(f))
                     || folder.is_some_and(|f| self.folders.contains(f))
@@ -255,8 +277,8 @@ pub fn fit_title(title: &str) -> (String, bool) {
     }
 }
 
-/// Read `archive` into a plan and documents. Reads every Markdown file once;
-/// nothing is written anywhere.
+/// Read `archive` into a plan and documents. Reads a BookStack export's
+/// `data.json`, or every Markdown file, once; nothing is written anywhere.
 pub fn build(
     archive: &mut SafeArchive,
     options: &ImportOptions,
@@ -279,14 +301,41 @@ pub fn build(
             keep
         })
         .collect();
+    let mut detected_bookstack = false;
     let ignored: Vec<String> = archive
         .skipped()
         .iter()
         .filter(|s| s.reason == SkipReason::Ignored)
         .map(|s| s.key.clone())
         .collect();
-    let markdown = MarkdownFiles::read(archive, &files)?;
 
+    // A BookStack export is found by its data.json, read once under its own
+    // cap, before any Markdown is read. A forced profile reads what
+    // detection would refuse.
+    let bookstack = Exports::find(archive, &files);
+    match (options.profile, bookstack) {
+        (None | Some(ProfileKind::Bookstack), Ok(Some(exports))) => {
+            let mut source = BookstackSource::new(exports);
+            let tree = source.read(&mut SourceInput::Archive {
+                archive,
+                files: &files,
+            })?;
+            return Planner {
+                source: &source,
+                detected: None,
+                options,
+                workspace,
+                left_out,
+            }
+            .plan(tree);
+        }
+        (Some(ProfileKind::Bookstack), Ok(None)) => return Err(bookstack::refused_unreadable()),
+        (None | Some(ProfileKind::Bookstack), Err(refused)) => return Err(refused),
+        (Some(_), Ok(Some(_))) => detected_bookstack = true,
+        (Some(_), Err(_) | Ok(None)) | (None, Ok(None)) => {}
+    }
+
+    let markdown = MarkdownFiles::read(archive, &files)?;
     let mut read_small = |key: &str| {
         archive
             .read_text(key, MAX_CONFIG_BYTES)
@@ -307,7 +356,11 @@ pub fn build(
                 .as_ref()
                 .map(|d| d.base.clone())
                 .unwrap_or_else(|_| profiles::wrapper_folder(&files));
-            let detected = detection.ok().map(|d| d.kind).filter(|d| *d != kind);
+            let detected = if detected_bookstack {
+                Some(ProfileKind::Bookstack)
+            } else {
+                detection.ok().map(|d| d.kind).filter(|d| *d != kind)
+            };
             (kind, detected, base)
         }
         None => {
@@ -316,7 +369,6 @@ pub fn build(
         }
     };
 
-    // Every profile today is a Markdown family.
     let mut source = MarkdownFamily::new(kind, base, markdown);
     let tree = source.read(&mut SourceInput::Archive {
         archive,
@@ -357,6 +409,7 @@ impl Planner<'_> {
             files,
             left_out,
             workspace_uuid,
+            refs,
         } = tree;
         self.left_out.extend(left_out);
 
@@ -415,6 +468,39 @@ impl Planner<'_> {
             }
             for uuid in &page.names.uuids {
                 index.add_uuid(uuid, i);
+            }
+        }
+        // The source's own destinations, by where they ended up in the plan.
+        // A link to a source collection goes to the collection its first
+        // top-level page went in.
+        for scheme in &refs.schemes {
+            index.add_ref_scheme(scheme);
+        }
+        let mut collection_pages: HashMap<usize, usize> = HashMap::new();
+        for (i, (page, parent_page, ..)) in order.iter().enumerate() {
+            if let (None, Some(c)) = (parent_page, pages[*page].collection) {
+                collection_pages.entry(c).or_insert(i);
+            }
+        }
+        let readable: HashSet<&str> = files
+            .iter()
+            .filter(|key| !excluded_files.contains(*key))
+            .map(String::as_str)
+            .collect();
+        for (href, target) in refs.targets {
+            let target = match target {
+                SourceRef::Page(page) => index_of.get(&page).copied().map(RefTarget::Page),
+                SourceRef::Collection(c) => {
+                    collection_pages.get(&c).copied().map(RefTarget::Collection)
+                }
+                SourceRef::Image(key) => readable
+                    .contains(key.as_str())
+                    .then_some(RefTarget::Image(key)),
+                SourceRef::Attachment(name) => Some(RefTarget::Attachment(name)),
+                SourceRef::Web(url) => Some(RefTarget::Web(url)),
+            };
+            if let Some(target) = target {
+                index.add_ref(&href, target);
             }
         }
         let same_workspace = workspace_uuid
@@ -654,6 +740,7 @@ fn drop_if_excluded(
     let hit = excluded.matches(
         pages[page].file.as_deref(),
         pages[page].folder.as_deref(),
+        &pages[page].key,
         trail,
     );
     if hit {

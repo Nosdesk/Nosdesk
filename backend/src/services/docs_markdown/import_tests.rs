@@ -53,7 +53,7 @@ impl Workspace for Here {
     }
 }
 
-fn nothing() -> Here {
+pub(crate) fn nothing() -> Here {
     Here {
         users: vec![],
         tickets: vec![],
@@ -78,7 +78,7 @@ fn options() -> ImportOptions {
 }
 
 /// The tree as indented titles, in plan order.
-fn outline(built: &Built) -> Vec<String> {
+pub(crate) fn outline(built: &Built) -> Vec<String> {
     built
         .plan
         .pages
@@ -95,7 +95,7 @@ fn outline(built: &Built) -> Vec<String> {
         .collect()
 }
 
-fn index_of(built: &Built, title: &str) -> usize {
+pub(crate) fn index_of(built: &Built, title: &str) -> usize {
     built
         .plan
         .pages
@@ -104,7 +104,7 @@ fn index_of(built: &Built, title: &str) -> usize {
         .unwrap_or_else(|| panic!("no page {title}: {:?}", outline(built)))
 }
 
-fn doc<'a>(built: &'a Built, title: &str) -> &'a Document {
+pub(crate) fn doc<'a>(built: &'a Built, title: &str) -> &'a Document {
     &built.documents[index_of(built, title)]
 }
 
@@ -159,7 +159,7 @@ pub(crate) fn destinations(document: &Document) -> Vec<String> {
     out
 }
 
-fn lines(document: &Document) -> Vec<String> {
+pub(crate) fn lines(document: &Document) -> Vec<String> {
     blocks_text(&document.blocks)
 }
 
@@ -459,8 +459,8 @@ fn unticked_pages_leave_their_collections_out() {
     assert_eq!(names(&all), vec!["One", "Two", "Three", "Empty"]);
 
     let mut exclude = tree::ExcludedPages::default();
-    exclude.add(Some("one/first.md"), None, &[]);
-    exclude.add(Some("three/third.md"), None, &[]);
+    exclude.add(Some("one/first.md"), None, "", &[]);
+    exclude.add(Some("three/third.md"), None, "", &[]);
     let one = build(
         &files,
         &ImportOptions {
@@ -475,7 +475,7 @@ fn unticked_pages_leave_their_collections_out() {
 
     let mut exclude = tree::ExcludedPages::default();
     for file in ["one/first.md", "two/second.md", "three/third.md"] {
-        exclude.add(Some(file), None, &[]);
+        exclude.add(Some(file), None, "", &[]);
     }
     let none = tree::build(
         &mut archive(&files),
@@ -891,28 +891,18 @@ fn a_forced_profile_and_collection_mode_apply() {
 // Refusals.
 
 #[test]
-fn bookstack_and_confluence_exports_are_refused_for_now() {
-    let bookstack = text(&[
-        (
-            "data.json",
-            "{\"instance\": {\"id\": \"x\"}, \"exported_at\": \"2026\", \"book\": {\"name\": \"B\"}}",
-        ),
-        ("files/a.png", "png"),
-    ]);
-    let err = tree::build(&mut archive(&bookstack), &options(), &nothing()).unwrap_err();
-    assert_eq!(err.code, "docs_import_source_later");
-    assert_eq!(
-        err.message,
-        "This is a BookStack export. BookStack and Confluence exports are coming in a later update."
-    );
-
+fn confluence_exports_are_refused_for_now() {
     let confluence = text(&[
         ("SPACE/index.html", "<html>Confluence</html>"),
         ("SPACE/Page_1.html", "<html></html>"),
         ("SPACE/attachments/1/a.png", "png"),
     ]);
     let err = tree::build(&mut archive(&confluence), &options(), &nothing()).unwrap_err();
-    assert!(err.message.starts_with("This is a Confluence export."));
+    assert_eq!(err.code, "docs_import_source_later");
+    assert_eq!(
+        err.message,
+        "This is a Confluence export. Confluence exports are coming in a later update."
+    );
 }
 
 #[test]

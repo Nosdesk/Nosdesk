@@ -1,0 +1,17 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "A direct page at the chapter's priority comes first."
+        }
+      ]
+    }
+  ]
+}

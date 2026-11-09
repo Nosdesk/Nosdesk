@@ -16,13 +16,14 @@
 //! written.
 //!
 //! A documentation import reads an archive through [`tree::build`]: a
-//! [`source::DocsSource`] reads it into a tree of pages (every profile in
-//! [`profiles`] is a [`markdown_family`] today, [`front_matter`] reading each
-//! page's metadata), the planner in [`tree`] applies the admin's options,
+//! [`source::DocsSource`] reads it into a tree of pages ([`bookstack`] for a
+//! BookStack Portable ZIP; every profile in [`profiles`] is a
+//! [`markdown_family`], [`front_matter`] reading each page's metadata), the planner in [`tree`] applies the admin's options,
 //! [`links`] resolves links, images and embeds to placeholders the commit
 //! fills in, and [`html`] reads raw HTML (including what export v2 writes as
 //! HTML) into the same tree.
 
+pub mod bookstack;
 pub mod encode;
 pub mod front_matter;
 pub mod html;
@@ -36,7 +37,7 @@ pub mod parse;
 pub mod profiles;
 pub mod source;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod tree;
 
 use std::collections::BTreeMap;

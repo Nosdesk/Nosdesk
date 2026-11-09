@@ -1,0 +1,626 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 1,
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "VPN setup"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Install the client, then sign in. See "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/1",
+                "title": null
+              }
+            }
+          ],
+          "text": "Welcome"
+        },
+        {
+          "type": "text",
+          "text": " and the "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/2",
+                "title": null
+              }
+            }
+          ],
+          "text": "chapter"
+        },
+        {
+          "type": "text",
+          "text": " or the "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/collections/imported",
+                "title": null
+              }
+            }
+          ],
+          "text": "book"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Steps"
+        }
+      ]
+    },
+    {
+      "type": "ordered_list",
+      "attrs": {
+        "ychange": null,
+        "order": 1
+      },
+      "content": [
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Download"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Install"
+                }
+              ]
+            },
+            {
+              "type": "bullet_list",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "list_item",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "ychange": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "Pick "
+                        },
+                        {
+                          "type": "text",
+                          "marks": [
+                            {
+                              "type": "strong"
+                            }
+                          ],
+                          "text": "Full"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Sign in"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "☑ Client installed"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "☐ Signed in"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_header",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": null,
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Setting"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_header",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "center",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Value"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": null,
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Server"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "center",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "vpn.example.com"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table_row",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": null,
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Port"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "table_cell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null,
+                "align": "center",
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "ychange": null
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "443"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "code_block",
+      "attrs": {
+        "ychange": null,
+        "language": "powershell"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Get-VpnConnection"
+        }
+      ]
+    },
+    {
+      "type": "blockquote",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "strong"
+                }
+              ],
+              "text": "Warning"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Don't share your token."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "image",
+          "attrs": {
+            "ychange": null,
+            "src": "/api/files/collab/doc/00000000-0000-4000-8000-000000000000/jOcdIz4KixevJNgoR30h.png",
+            "alt": "VPN client",
+            "title": null,
+            "width": null,
+            "align": null
+          }
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Download the VPN profile guide or visit the "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://example.com/vendor",
+                "title": null
+              }
+            }
+          ],
+          "text": "vendor"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/1",
+                "title": null
+              }
+            }
+          ],
+          "text": "Included from Welcome"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Permalink to "
+        },
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/documentation/5",
+                "title": null
+              }
+            }
+          ],
+          "text": "FAQ"
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "text",
+          "marks": [
+            {
+              "type": "strong"
+            }
+          ],
+          "text": "Attachments"
+        }
+      ]
+    },
+    {
+      "type": "bullet_list",
+      "attrs": {
+        "ychange": null
+      },
+      "content": [
+        {
+          "type": "list_item",
+          "attrs": {
+            "ychange": null
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "ychange": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "link",
+                      "attrs": {
+                        "href": "https://example.com/vendor",
+                        "title": null
+                      }
+                    }
+                  ],
+                  "text": "Vendor portal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

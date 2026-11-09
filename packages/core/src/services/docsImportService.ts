@@ -38,6 +38,7 @@ export type DocsProfile =
   | 'docusaurus'
   | 'outline'
   | 'plain'
+  | 'bookstack'
 
 export const DOCS_PROFILES: DocsProfile[] = [
   'notion',
@@ -49,6 +50,7 @@ export const DOCS_PROFILES: DocsProfile[] = [
   'docusaurus',
   'outline',
   'plain',
+  'bookstack',
 ]
 
 /** Where the pages go. */

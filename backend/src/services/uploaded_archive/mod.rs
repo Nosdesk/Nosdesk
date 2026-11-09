@@ -107,12 +107,13 @@ pub struct ArchiveOptions {
 
 impl ArchiveOptions {
     /// The documentation import: its limits, the source tools' clutter
-    /// ignored, split exports opened as one.
+    /// ignored, split exports opened as one and a zip of exports (several
+    /// BookStack books) as a bundle.
     pub fn documentation() -> Self {
         Self {
             limits: ArchiveLimits::default(),
             ignore: IgnoreRules::documentation_sources(),
-            nested: NestedZips::SplitExport,
+            nested: NestedZips::Bundle,
             temp_dir: None,
         }
     }
