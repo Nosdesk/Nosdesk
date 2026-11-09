@@ -547,6 +547,17 @@ pub fn read_document(
     Document { blocks }
 }
 
+/// A whole HTML page as elements a source can look through (an export's
+/// index, a page's title and breadcrumbs): its `<html>` element. `None`
+/// when the page nests deeper than [`read_document`] walks.
+pub fn parse_page(raw: &str) -> Option<ElementView> {
+    if nesting(&tags(raw)) > MAX_NESTING {
+        return None;
+    }
+    let dom = html5ever::parse_document(Dom::default(), Default::default()).one(raw);
+    first_match(&dom.document, &Selector::Tag("html")).map(ElementView)
+}
+
 // Dialects.
 
 /// What a source's HTML means beyond plain HTML: its macros, callouts,
@@ -1899,6 +1910,35 @@ mod tests {
             after_close("</aside>\nrest", Container::Aside),
             Some("\nrest")
         );
+    }
+
+    #[test]
+    fn a_page_parses_into_elements_unless_too_deep() {
+        let page = parse_page(
+            "<html><head><title>QA (Space)</title></head><body><h1>QA (Space)</h1><ol id=\"crumbs\">\
+             <li><a href=\"a.html\">A &amp; B</a></li><li><a href=\"b.html\">B</a></li></ol></body></html>",
+        )
+        .expect("parses");
+        assert_eq!(page.tag(), "html");
+        assert_eq!(
+            page.find(&Selector::Tag("h1")).unwrap().text(),
+            "QA (Space)"
+        );
+        let crumbs = page.find(&Selector::Id("crumbs")).unwrap();
+        let links: Vec<(String, Option<String>)> = crumbs
+            .children()
+            .iter()
+            .filter_map(|li| li.find(&Selector::Tag("a")))
+            .map(|a| (a.text(), a.attr("href")))
+            .collect();
+        assert_eq!(
+            links,
+            [
+                ("A & B".to_string(), Some("a.html".to_string())),
+                ("B".to_string(), Some("b.html".to_string()))
+            ]
+        );
+        assert!(parse_page(&"<div>".repeat(500)).is_none());
     }
 
     #[test]

@@ -9881,8 +9881,6 @@ docs-import-refused-too-many-files = Le zip contient plus de { $max } fichiers. 
 # MT: pending native review (fr-FR)
 docs-import-refused-no-markdown = Ce zip ne contient aucun fichier Markdown.
 # MT: pending native review (fr-FR)
-docs-import-refused-source-later = Il s'agit d'un export { $source }. Les exports { $source } arriveront dans une prochaine mise à jour.
-# MT: pending native review (fr-FR)
 docs-import-refused-mixed-files = Choisissez un seul .zip, ou uniquement des fichiers .md.
 # MT: pending native review (fr-FR)
 docs-import-refused-too-large = { $name } fait { $size }. La limite est de { $max }. Exportez une partie à la fois.

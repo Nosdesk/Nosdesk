@@ -24,6 +24,7 @@
 //! HTML) into the same tree.
 
 pub mod bookstack;
+pub mod confluence;
 pub mod encode;
 pub mod front_matter;
 pub mod html;

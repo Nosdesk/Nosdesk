@@ -542,6 +542,13 @@ fn declared_entries(src: &mut Box<dyn Source>) -> io::Result<Option<u64>> {
     Ok(None)
 }
 
+/// Whether a folder entry names the archive's root and nothing under it:
+/// `/`, `./`, `\`. Any other name goes through the path rules.
+fn names_only_the_root(name: &str, is_dir: bool) -> bool {
+    let folder = is_dir || name.ends_with(['/', '\\']);
+    folder && name.split(['/', '\\']).all(|s| s.is_empty() || s == ".")
+}
+
 /// The folder a bundle part's keys go under: its key without `.zip`, or
 /// the whole key when that would leave an empty name. Two parts share a
 /// prefix only when their names differ in the case of `.zip`; a key both
@@ -631,6 +638,11 @@ fn list_part(
         };
         if raw.contains(&0) {
             return Err(unsafe_path("NUL in name"));
+        }
+        if names_only_the_root(&name, data.is_dir()) {
+            // A folder entry for the root itself (Confluence writes `/`):
+            // it names nothing to read or to refuse.
+            continue;
         }
         let normalised = normalise(&name, limits).map_err(unsafe_path)?;
         let key = normalised.key;
@@ -861,6 +873,42 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn a_folder_entry_for_the_root_is_passed_over() {
+        // Confluence's HTML export starts with a `/` folder entry.
+        let mut w = ZipWriter::new(Cursor::new(Vec::new()));
+        w.add_directory("/", stored()).unwrap();
+        w.add_directory("QA/", stored()).unwrap();
+        w.start_file("QA/index.html", stored()).unwrap();
+        w.write_all(b"<html></html>").unwrap();
+        let bytes = w.finish().unwrap().into_inner();
+        let names: Vec<String> = zip::ZipArchive::new(Cursor::new(bytes.clone()))
+            .unwrap()
+            .file_names()
+            .map(|n| n.expect("a name").into_owned())
+            .collect();
+        assert!(names.iter().any(|n| n == "/"), "{names:?}");
+        let a = open(bytes, &docs()).unwrap();
+        assert_eq!(keys(&a), ["QA/index.html"]);
+        assert_eq!(a.folders(), ["QA"]);
+
+        assert!(names_only_the_root("./", true));
+        assert!(names_only_the_root("\\", false));
+        assert!(
+            names_only_the_root("/", false),
+            "a trailing / names a folder"
+        );
+        assert!(!names_only_the_root("/etc/", true));
+        assert!(!names_only_the_root("a/", true));
+        assert!(
+            !names_only_the_root(".", false),
+            "a file named . is refused"
+        );
+        // An absolute file name still refuses the archive.
+        let err = open(zip_of(&[("/etc/passwd", b"x")]), &docs()).unwrap_err();
+        assert!(matches!(err, ArchiveError::UnsafePath { .. }), "{err:?}");
     }
 
     #[test]

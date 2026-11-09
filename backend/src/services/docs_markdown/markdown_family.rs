@@ -662,7 +662,9 @@ impl Layout<'_> {
             | ProfileKind::Obsidian
             | ProfileKind::Outline
             | ProfileKind::Plain
-            | ProfileKind::Bookstack => {
+            // BookStack and Confluence are sources of their own.
+            | ProfileKind::Bookstack
+            | ProfileKind::Confluence => {
                 let root = self.base.clone();
                 let keys = self.markdown_under(&root);
                 self.folder_layout(&root, &keys, 0);

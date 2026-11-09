@@ -8,9 +8,8 @@
 //! Notion apart from a plain folder.
 //!
 //! BookStack's Portable ZIP is its own source ([`super::bookstack`]), found
-//! by its `data.json` before any of this runs. Confluence exports are
-//! recognised and refused: they are HTML with their own tree and macros,
-//! and arrive in a later release.
+//! by its `data.json` before any of this runs, and so is a Confluence HTML
+//! export ([`super::confluence`]), by its `index.html`.
 
 use std::collections::HashMap;
 
@@ -39,10 +38,12 @@ pub enum ProfileKind {
     Plain,
     /// A BookStack Portable ZIP: `data.json` and its files.
     Bookstack,
+    /// Confluence's HTML space export.
+    Confluence,
 }
 
 impl ProfileKind {
-    pub const ALL: [ProfileKind; 10] = [
+    pub const ALL: [ProfileKind; 11] = [
         ProfileKind::NosdeskV2,
         ProfileKind::NosdeskV1,
         ProfileKind::Notion,
@@ -53,6 +54,7 @@ impl ProfileKind {
         ProfileKind::Outline,
         ProfileKind::Plain,
         ProfileKind::Bookstack,
+        ProfileKind::Confluence,
     ];
 
     /// The rules this profile switches on.
@@ -81,7 +83,10 @@ impl ProfileKind {
                 rules.mdx = true;
                 rules.folder_note_inside = true;
             }
-            ProfileKind::Outline | ProfileKind::Plain | ProfileKind::Bookstack => {}
+            ProfileKind::Outline
+            | ProfileKind::Plain
+            | ProfileKind::Bookstack
+            | ProfileKind::Confluence => {}
         }
         rules
     }
@@ -178,15 +183,6 @@ fn join(base: &str, name: &str) -> String {
     }
 }
 
-/// The refusal for an export this release can't read.
-fn later(source: &str) -> Refused {
-    Refused::new(
-        "docs_import_source_later",
-        format!("This is a {source} export. {source} exports are coming in a later update."),
-    )
-    .arg("source", source)
-}
-
 /// Which tool wrote the archive.
 pub fn detect(listing: &mut Listing<'_>) -> Result<Detection, Refused> {
     let wrapper = wrapper_folder(listing.files);
@@ -224,9 +220,6 @@ pub fn detect(listing: &mut Listing<'_>) -> Result<Detection, Refused> {
         }
     }
     if markdown.is_empty() {
-        if is_confluence(&relative, listing, &base) {
-            return Err(later("Confluence"));
-        }
         return found(ProfileKind::Plain);
     }
     if is_nosdesk_v1(&markdown, &base, listing.markdown) {
@@ -271,19 +264,6 @@ pub fn detect(listing: &mut Listing<'_>) -> Result<Detection, Refused> {
 pub fn read_manifest(text: &str) -> Option<Manifest> {
     let manifest: Manifest = serde_json::from_str(text).ok()?;
     (manifest.format == "nosdesk-docs" && manifest.format_version >= 2).then_some(manifest)
-}
-
-/// Confluence's HTML export: `index.html` and pages as HTML, with an
-/// `attachments/` folder or Atlassian's markup in the index.
-fn is_confluence(relative: &[&str], listing: &mut Listing<'_>, base: &str) -> bool {
-    if !relative.contains(&"index.html") {
-        return false;
-    }
-    if relative.iter().any(|k| k.starts_with("attachments/")) {
-        return true;
-    }
-    (listing.read)(&join(base, "index.html"))
-        .is_some_and(|t| t.contains("Confluence") || t.contains("atlassian"))
 }
 
 /// The 1.1.2 browser export: a `documentation/` folder whose files open

@@ -1,0 +1,16 @@
+<hibernate-generic datetime="2026-11-9 02:22:34">
+<object class="Space" package="com.atlassian.confluence.spaces">
+    <id name="id">622594</id>
+    <property name="name">QA Knowledge Base</property>
+    <property name="key">QA</property>
+    <property name="lowerKey">qa</property>
+    <property name="creationDate">2026-11-09 02:09:52.584</property>
+    <property name="lastModificationDate">2026-11-09 02:09:52.584</property>
+    <property name="spaceType">global</property>
+    <property name="spaceStatus" enum-class="SpaceStatus" package="com.atlassian.confluence.spaces">CURRENT</property>
+    <property name="description" class="SpaceDescription" package="com.atlassian.confluence.spaces"><id name="id">294919</id></property>
+    <property name="homePage" class="Page" package="com.atlassian.confluence.pages"><id name="id">294920</id></property>
+    <property name="creator" class="ConfluenceUserImpl" package="com.atlassian.confluence.user"><id name="key">40282483a1be0ab501a1be0c8b360000</id></property>
+    <property name="lastModifier" class="ConfluenceUserImpl" package="com.atlassian.confluence.user"><id name="key">40282483a1be0ab501a1be0c8b360000</id></property>
+</object>
+</hibernate-generic>

@@ -9045,7 +9045,6 @@ docs-import-refused-encrypted = This zip is password-protected. Export it again 
 docs-import-refused-too-many-pages = The import has { $count } pages. The limit is { $max }. Export one part at a time.
 docs-import-refused-too-many-files = The zip holds more than { $max } files. Export one part at a time.
 docs-import-refused-no-markdown = There are no Markdown files in this zip.
-docs-import-refused-source-later = This is a { $source } export. { $source } exports are coming in a later update.
 docs-import-refused-mixed-files = Choose one .zip, or only .md files.
 docs-import-refused-too-large = { $name } is { $size }. The limit is { $max }. Export one part at a time.
 docs-import-refused-unsafe-path = The zip has a file name we can't accept: { $name }
