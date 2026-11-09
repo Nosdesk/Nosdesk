@@ -4,7 +4,6 @@ use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpResponse, Responder};
 use futures::StreamExt;
 use serde_json::json;
-use std::io::Write;
 use uuid::Uuid;
 
 use crate::db::Pool;
@@ -16,6 +15,7 @@ use crate::models::{
 use crate::repository::backup as backup_repo;
 use crate::services::avatar_thumbnails::{backfill_thumbnails, BackfillMode};
 use crate::services::backup as backup_service;
+use crate::services::upload_intake::spool::{self, SpoolError, Spooled};
 use crate::utils::rbac::is_platform_admin;
 
 /// Why a restore is refused on hosted: it replaces every workspace on the
@@ -325,17 +325,34 @@ pub async fn upload_restore(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
-    // Get upload directory
-    let backups_dir = std::env::var("UPLOAD_DIR")
-        .map(|d| std::path::PathBuf::from(d).join("backups").join("uploads"))
-        .unwrap_or_else(|_| std::path::PathBuf::from("/app/uploads/backups/uploads"));
+    // The cap the workspace import takes (`NOSDESK_MAX_IMPORT_BYTES`, else
+    // 1 GiB). A body plainly over it is refused before any of it is read.
+    let max_bytes = req.app_data::<web::Data<RestoreUploadCap>>().map_or_else(
+        crate::services::workspace_import_jobs::max_upload_bytes,
+        |c| c.0,
+    );
+    let too_large = || {
+        errors::payload_too_large(format!(
+            "The backup is larger than the {max_bytes}-byte limit (NOSDESK_MAX_IMPORT_BYTES)."
+        ))
+    };
+    if crate::services::upload_intake::content_length(&req)
+        .is_some_and(|length| length > max_bytes.saturating_add(RESTORE_ENVELOPE_BYTES))
+    {
+        return too_large();
+    }
 
-    if let Err(e) = std::fs::create_dir_all(&backups_dir) {
+    // Get upload directory
+    let backups_dir = restore_uploads_dir();
+    if let Err(e) = tokio::fs::create_dir_all(&backups_dir).await {
         return errors::internal(format!("Failed to create upload directory: {}", e));
     }
 
-    // Process the multipart upload
-    let mut file_path: Option<std::path::PathBuf> = None;
+    // Each file is written to a temp file beside its final name, without
+    // blocking, and stops at the first chunk past the cap. A temp file is
+    // removed when it drops: on a refusal, a broken upload, or a later part
+    // replacing it. Only the last file is kept, as before.
+    let mut upload: Option<(String, Spooled)> = None;
 
     while let Some(item) = payload.next().await {
         let mut field = match item {
@@ -349,30 +366,28 @@ pub async fn upload_restore(
             .map(sanitize_filename::sanitize)
             .unwrap_or_else(|| format!("restore-{}.zip", Uuid::new_v4()));
 
-        let filepath = backups_dir.join(&filename);
-
-        let mut file = match std::fs::File::create(&filepath) {
-            Ok(f) => f,
-            Err(e) => return errors::internal(format!("Failed to create file: {}", e)),
-        };
-
-        while let Some(chunk) = field.next().await {
-            let data = match chunk {
-                Ok(data) => data,
-                Err(e) => return errors::bad_request(format!("Upload error: {}", e)),
-            };
-            if let Err(e) = file.write_all(&data) {
-                return errors::internal(format!("Failed to write file: {}", e));
+        match spool::spool(&mut field, max_bytes, Some(&backups_dir)).await {
+            Ok(spooled) => upload = Some((filename, spooled)),
+            Err(SpoolError::TooLarge { .. }) => return too_large(),
+            Err(SpoolError::Stream(e)) => {
+                return errors::bad_request(format!("Upload error: {}", e))
+            }
+            Err(SpoolError::Io(e)) => {
+                return errors::internal(format!("Failed to write file: {}", e))
             }
         }
-
-        file_path = Some(filepath);
     }
 
-    let filepath = match file_path {
-        Some(p) => p,
+    let (filename, spooled) = match upload {
+        Some(upload) => upload,
         None => return errors::bad_request("No file uploaded"),
     };
+    let filepath = backups_dir.join(&filename);
+    let file_size = spooled.size as i64;
+    if let Err(e) = spooled.into_temp().persist(&filepath) {
+        // The temp file goes with the error.
+        return errors::internal(format!("Failed to write file: {}", e.error));
+    }
 
     // Upload-time validation removed: the manifest now lives
     // inside the encryption envelope, so an encrypted backup
@@ -389,9 +404,6 @@ pub async fn upload_restore(
         created_by: Some(user_uuid),
     };
     let filepath_string = filepath.to_string_lossy().to_string();
-    let file_size = std::fs::metadata(&filepath)
-        .map(|m| m.len() as i64)
-        .unwrap_or(0);
 
     let job = match tc.run(|conn| {
         let job = backup_repo::create_backup_job(conn, new_job)?;
@@ -408,10 +420,32 @@ pub async fn upload_restore(
         )
     }) {
         Ok(job) => job,
-        Err(e) => return errors::internal(format!("Failed to create job: {}", e)),
+        Err(e) => {
+            // No job names the file.
+            if let Err(rm) = tokio::fs::remove_file(&filepath).await {
+                tracing::warn!(error = %rm, "Failed to remove a restore upload no job names");
+            }
+            return errors::internal(format!("Failed to create job: {}", e));
+        }
     };
 
     HttpResponse::Created().json(BackupJobResponse::from(job))
+}
+
+/// The restore upload cap, when an app sets one other than
+/// `NOSDESK_MAX_IMPORT_BYTES` (the tests, to send a file past it).
+#[derive(Debug, Clone, Copy)]
+pub struct RestoreUploadCap(pub u64);
+
+/// Room over a restore upload's cap for the multipart framing, in the
+/// `Content-Length` check.
+const RESTORE_ENVELOPE_BYTES: u64 = 1024 * 1024;
+
+/// Where an uploaded backup waits for its restore: `UPLOAD_DIR/backups/uploads`.
+pub fn restore_uploads_dir() -> std::path::PathBuf {
+    std::env::var("UPLOAD_DIR")
+        .map(|d| std::path::PathBuf::from(d).join("backups").join("uploads"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("/app/uploads/backups/uploads"))
 }
 
 /// Preview restore contents
