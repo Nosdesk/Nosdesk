@@ -107,6 +107,41 @@ pub fn get_microsoft_redirect_uri() -> Result<String, ConfigError> {
     get_env_var("MICROSOFT_REDIRECT_URI")
 }
 
+/// Where Microsoft sign-in (authorize, token, logout and the tenant's
+/// discovery) lives.
+const MICROSOFT_LOGIN_BASE: &str = "https://login.microsoftonline.com";
+/// Where Microsoft Graph lives, for the signed-in person's profile.
+const MICROSOFT_GRAPH_BASE: &str = "https://graph.microsoft.com";
+
+/// Both bases, when a test binary has pointed them at a fake Microsoft. Only
+/// [`override_microsoft_hosts_for_tests`] sets it; no setting or variable does.
+static MICROSOFT_HOSTS_OVERRIDE: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+
+/// The base of Microsoft sign-in URLs, without a trailing slash.
+pub fn microsoft_login_base() -> &'static str {
+    MICROSOFT_HOSTS_OVERRIDE
+        .get()
+        .map_or(MICROSOFT_LOGIN_BASE, |(login, _)| login.as_str())
+}
+
+/// The base of Microsoft Graph URLs, without a trailing slash.
+pub fn microsoft_graph_base() -> &'static str {
+    MICROSOFT_HOSTS_OVERRIDE
+        .get()
+        .map_or(MICROSOFT_GRAPH_BASE, |(_, graph)| graph.as_str())
+}
+
+/// Point Microsoft sign-in and Graph at a fake for the rest of the process.
+/// For integration tests only; once per process, and a second call is
+/// ignored.
+#[doc(hidden)]
+pub fn override_microsoft_hosts_for_tests(login_base: &str, graph_base: &str) {
+    let _ = MICROSOFT_HOSTS_OVERRIDE.set((
+        login_base.trim_end_matches('/').to_string(),
+        graph_base.trim_end_matches('/').to_string(),
+    ));
+}
+
 /// Microsoft sign-in is configured: the client ID, secret and a single tenant
 /// are all set. An empty value counts as unset, as `.env.example` leaves them.
 pub fn is_microsoft_auth_enabled() -> bool {

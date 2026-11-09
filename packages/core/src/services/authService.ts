@@ -473,10 +473,16 @@ class AuthService {
   /**
    * Connect OAuth provider
    */
-  async connectOAuthProvider(providerType: string): Promise<{ auth_url?: string }> {
+  async connectOAuthProvider(
+    providerType: string,
+    redirectUri?: string,
+  ): Promise<{ auth_url?: string }> {
     try {
+      // `redirectUri` is the in-app page to come back to with the result;
+      // the server keeps only its path and adds the account itself.
       const response = await apiClient.post('/auth/oauth/connect', {
-        provider_type: providerType
+        provider_type: providerType,
+        redirect_uri: redirectUri,
       });
       return response.data;
     } catch (error) {

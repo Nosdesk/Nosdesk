@@ -126,8 +126,11 @@ pub fn delete_agent_cookies() -> [Cookie<'static>; 3] {
 
 /// Binds an in-progress OAuth/OIDC login to the browser that started it
 /// (RFC 9700 §2.1). Set at initiation carrying the flow's random binding value;
-/// the callback rejects unless this cookie matches the value in the signed
-/// state, so an attacker can't CSRF their own `(code, state)` onto a victim.
+/// the callback rejects unless this cookie's binding matches the value in the
+/// signed state, so an attacker can't CSRF their own `(code, state)` onto a
+/// victim. After the binding it holds the flow's PKCE verifier and nonce
+/// (`<binding>.<verifier>.<nonce>`), which therefore never travel in the
+/// state through the identity provider and browser history.
 pub const OAUTH_STATE_COOKIE: &str = "oauth_state";
 
 /// How long a started OAuth/OIDC sign-in may take to come back to the
@@ -144,21 +147,21 @@ pub const OAUTH_STATE_COOKIE: &str = "oauth_state";
 /// The trade-off is replay: the state is a signed token, not a one-time
 /// record, so it stays acceptable for the whole window. That buys an attacker
 /// little: the state only works in the browser holding the binding cookie,
-/// and the authorization code it pairs with is single use. PKCE adds nothing
-/// against someone holding the callback URL, since the verifier rides inside
-/// the signed (not encrypted) state; the binding cookie is what protects a
-/// leaked code and state. What the longer window does allow is a stale
-/// callback in that same browser (a back button, a reopened tab) to finish
-/// the sign-in the person started.
+/// and the authorization code it pairs with is single use. The PKCE verifier
+/// sits in that cookie too, not in the state, so someone holding the callback
+/// URL has neither. What the longer window does allow is a stale callback in
+/// that same browser (a back button, a reopened tab) to finish the sign-in
+/// the person started.
 pub const OAUTH_STATE_LIFETIME: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-/// Cookie binding an OAuth flow to its initiating user-agent. `SameSite=Lax`
+/// Cookie binding an OAuth flow to its initiating user-agent, `value` being
+/// the binding and, for a PKCE flow, its verifier and nonce. `SameSite=Lax`
 /// (NOT Strict): the IdP redirects the browser back to the callback as a
 /// cross-site top-level navigation, and a Strict cookie would not be sent. Lives
 /// as long as the state JWT ([`OAUTH_STATE_LIFETIME`]). `Path=/` for the
 /// `__Host-` prefix.
-pub fn create_oauth_state_cookie(binding: &str) -> Cookie<'static> {
-    Cookie::build(cookie_name(OAUTH_STATE_COOKIE), binding.to_string())
+pub fn create_oauth_state_cookie(value: &str) -> Cookie<'static> {
+    Cookie::build(cookie_name(OAUTH_STATE_COOKIE), value.to_string())
         .path("/")
         .http_only(true)
         .secure(auth_cookies_use_secure_flag())

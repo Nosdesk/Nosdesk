@@ -265,9 +265,14 @@ pub struct OAuthState {
     pub provider_type: String,
     pub exp: usize,
     pub user_connection: Option<bool>,
-    /// PKCE code verifier (for OIDC providers)
+    /// PKCE code verifier. States minted since 1.1.7 leave it out: it lives
+    /// in the `oauth_state` cookie, and the callback fills it in from there.
+    /// Read from a state only as the fallback for states minted before 1.1.7
+    /// (remove in 1.1.8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pkce_verifier: Option<String>,
-    /// Nonce for ID token validation (for OIDC providers)
+    /// Nonce for ID token validation. Kept as `pkce_verifier` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
     /// OAuth `redirect_uri` (the IdP callback) used for THIS flow, bound
     /// at initiation so the token exchange presents the identical value.

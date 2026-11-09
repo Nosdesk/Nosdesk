@@ -272,24 +272,15 @@ pub async fn oauth_authorize(
     // Get database connection
     let _conn = helpers::db_conn(&db_pool)?;
 
-    // Check if this is a user connection request
-    let is_user_connection = oauth_request.user_connection.unwrap_or(false);
-
-    let _user_uuid = if is_user_connection {
-        // Extract claims from cookie auth middleware for user connection
-        let claims = match req.extensions().get::<crate::models::Claims>() {
-            Some(claims) => claims.clone(),
-            None => {
-                return Err(ApiError::Unauthorized(
-                    "Authentication required for user connection".into(),
-                ))
-            }
-        };
-
-        Some(claims.sub)
-    } else {
-        None
-    };
+    // Sign-in only. Connecting an identity to a signed-in account goes
+    // through `POST /api/auth/oauth/connect`, which takes the account from the
+    // session; here the return path, and so the `user_uuid` a connect
+    // callback links to, would be the caller's to choose.
+    if oauth_request.user_connection.unwrap_or(false) {
+        return Err(ApiError::BadRequest(
+            "Connect an account with /api/auth/oauth/connect".into(),
+        ));
+    }
 
     let provider_type = &oauth_request.provider_type;
 
@@ -327,92 +318,25 @@ pub async fn oauth_authorize(
 
     // For Microsoft Entra, generate the authorization URL
     if provider.provider_type == "microsoft" {
-        // Get the provider configuration from environment variables
-        let client_id = match config_utils::get_microsoft_client_id() {
-            Ok(val) => val,
-            Err(e) => {
-                error!(error = ?e, "Failed to get client_id for Microsoft provider");
-                return Err(ApiError::Internal(format!(
-                    "Microsoft authentication is not properly configured: {}",
-                    e
-                )));
-            }
-        };
-
-        let tenant_id = match config_utils::get_microsoft_tenant_id() {
-            Ok(val) => val,
-            Err(e) => {
-                error!(error = ?e, "Failed to get tenant_id for Microsoft provider");
-                return Err(ApiError::Internal(format!(
-                    "Microsoft authentication is not properly configured: {}",
-                    e
-                )));
-            }
-        };
-
-        let redirect_uri_config = match config_utils::get_microsoft_redirect_uri() {
-            Ok(val) => val,
-            Err(e) => {
-                error!(error = ?e, "Failed to get redirect_uri for Microsoft provider");
-                return Err(ApiError::Internal(format!(
-                    "Microsoft authentication is not properly configured: {}",
-                    e
-                )));
-            }
-        };
-
-        // Generate PKCE (RFC 9700) + a nonce for the ID token, and bind both
-        // into the signed state so the callback can complete the code exchange
-        // and verify the returned ID token against the configured tenant.
-        let (pkce_challenge, pkce_verifier) = oidc::generate_pkce();
-        let nonce = oidc::generate_nonce();
-        let (state, binding) = match create_oauth_state_with_oidc(
-            "microsoft",
-            oauth_request.redirect_uri.clone(),
-            oauth_request.user_connection,
-            Some(pkce_verifier.secret().clone()),
-            Some(nonce.secret().clone()),
-            None,
-            None,
-        ) {
-            Ok(pair) => pair,
-            Err(e) => {
-                error!(error = %e, "Failed to create OAuth state token");
-                return Err(ApiError::Internal(
-                    "Failed to initiate authentication flow".into(),
-                ));
-            }
-        };
-
-        // Create the authorization URL. `openid` yields an ID token the callback
-        // verifies (tenant binding, §callback); `User.Read` keeps Graph /me for
-        // the profile. The PKCE challenge and nonce ride along.
-        let auth_url = format!(
-            "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=openid%20profile%20email%20User.Read&nonce={nonce}&code_challenge={code_challenge}&code_challenge_method=S256&state={state}",
-            nonce = nonce.secret(),
-            code_challenge = pkce_challenge.as_str(),
-        );
+        let started = start_microsoft_login(oauth_request.redirect_uri.clone(), None)?;
 
         // Bind the flow to this user-agent (RFC 9700 §2.1).
         Ok(HttpResponse::Ok()
-            .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
+            .cookie(crate::utils::cookies::create_oauth_state_cookie(
+                &started.state_cookie,
+            ))
             .json(json!({
-                "auth_url": auth_url,
-                "state": state
+                "auth_url": started.auth_url,
+                "state": started.state
             })))
     } else if provider.provider_type == "oidc" {
-        let started = start_oidc_login(
-            &req,
-            oauth_request.redirect_uri.clone(),
-            oauth_request.user_connection,
-            "auth_url",
-        )
-        .await?;
+        let started =
+            start_oidc_login(&req, oauth_request.redirect_uri.clone(), "auth_url").await?;
 
         // Bind the flow to this user-agent (RFC 9700 §2.1).
         let mut response = HttpResponse::Ok();
         response.cookie(crate::utils::cookies::create_oauth_state_cookie(
-            &started.binding,
+            &started.state_cookie,
         ));
         if crate::middleware::workspace_context::is_hosted() {
             response.insert_header(oidc_server_timing(started.elapsed));
@@ -429,20 +353,112 @@ pub async fn oauth_authorize(
     }
 }
 
+/// A started Microsoft sign-in or connect: the authorize URL carrying the
+/// signed state, and the `oauth_state` cookie value holding its binding, PKCE
+/// verifier and nonce.
+struct MicrosoftLoginStart {
+    auth_url: String,
+    state: String,
+    state_cookie: String,
+}
+
+/// Start a Microsoft sign-in (or, with `user_connection`, a connect to the
+/// signed-in account) for the configured tenant. PKCE (RFC 9700) and a nonce
+/// for the ID token go in the `oauth_state` cookie, so the callback can
+/// complete the code exchange and verify the returned ID token against the
+/// configured tenant. Shared by `POST /api/auth/oauth/authorize` and
+/// `POST /api/auth/oauth/connect`.
+fn start_microsoft_login(
+    redirect_uri: Option<String>,
+    user_connection: Option<bool>,
+) -> Result<MicrosoftLoginStart, ApiError> {
+    let not_configured = |e: config_utils::ConfigError| {
+        error!(error = ?e, "Microsoft authentication is not properly configured");
+        ApiError::Internal(format!(
+            "Microsoft authentication is not properly configured: {e}"
+        ))
+    };
+    let client_id = config_utils::get_microsoft_client_id().map_err(not_configured)?;
+    let tenant_id = config_utils::get_microsoft_tenant_id().map_err(not_configured)?;
+    let callback = config_utils::get_microsoft_redirect_uri().map_err(not_configured)?;
+
+    let (pkce_challenge, pkce_verifier) = oidc::generate_pkce();
+    let nonce = oidc::generate_nonce();
+    let (state, state_cookie) = create_oauth_state_with_oidc(
+        "microsoft",
+        redirect_uri,
+        user_connection,
+        Some(pkce_verifier.secret().clone()),
+        Some(nonce.secret().clone()),
+        None,
+        None,
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to create OAuth state token");
+        ApiError::Internal("Failed to initiate authentication flow".into())
+    })?;
+    let auth_url = microsoft_authorize_url(&MicrosoftAuthorize {
+        tenant_id: &tenant_id,
+        client_id: &client_id,
+        callback: &callback,
+        nonce: nonce.secret(),
+        code_challenge: pkce_challenge.as_str(),
+        state: &state,
+        extra: "",
+    });
+    Ok(MicrosoftLoginStart {
+        auth_url,
+        state,
+        state_cookie,
+    })
+}
+
+/// What a Microsoft authorize URL is built from.
+struct MicrosoftAuthorize<'a> {
+    tenant_id: &'a str,
+    client_id: &'a str,
+    /// The configured callback, `MICROSOFT_REDIRECT_URI`.
+    callback: &'a str,
+    nonce: &'a str,
+    code_challenge: &'a str,
+    state: &'a str,
+    /// Further query parameters, already encoded, each led by `&` (a
+    /// step-up's `prompt`, `max_age` and `login_hint`).
+    extra: &'a str,
+}
+
+/// Microsoft's authorize URL for a PKCE sign-in, connect or step-up. `openid`
+/// yields an ID token the callback verifies (tenant binding); `User.Read`
+/// keeps Graph /me for the profile.
+fn microsoft_authorize_url(a: &MicrosoftAuthorize<'_>) -> String {
+    format!(
+        "{base}/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={callback}&response_mode=query&scope=openid%20profile%20email%20User.Read&nonce={nonce}&code_challenge={code_challenge}&code_challenge_method=S256{extra}&state={state}",
+        base = config_utils::microsoft_login_base(),
+        tenant_id = a.tenant_id,
+        client_id = a.client_id,
+        callback = a.callback,
+        nonce = a.nonce,
+        code_challenge = a.code_challenge,
+        extra = a.extra,
+        state = urlencoding::encode(a.state),
+    )
+}
+
 /// A started OIDC sign-in: the identity provider's authorize URL carrying the
 /// signed state, and the value this browser's `oauth_state` cookie must hold
-/// for the callback to accept it.
+/// for the callback to accept it ([`OAuthStateCookie`]).
 struct OidcLoginStart {
     auth_url: String,
     state: String,
-    binding: String,
+    state_cookie: String,
     /// Time spent on the client and the authorize URL, for `Server-Timing`.
     elapsed: std::time::Duration,
 }
 
-/// Start an OIDC sign-in for the browser behind `req`. PKCE verifier and
-/// nonce ride in the signed state, beside `redirect_uri` (where the callback
-/// lands once signed in) and this host's callback address. Shared by
+/// Start an OIDC sign-in for the browser behind `req`. The signed state
+/// carries `redirect_uri` (where the callback lands once signed in) and this
+/// host's callback address; the PKCE verifier and nonce go in the
+/// `oauth_state` cookie value, `state_cookie`. Shared by
 /// `POST /api/auth/oauth/authorize` and hosted `GET /login`.
 ///
 /// On hosted it logs one `hosted_login` line: `outcome` is `started_outcome`
@@ -451,7 +467,6 @@ struct OidcLoginStart {
 async fn start_oidc_login(
     req: &HttpRequest,
     redirect_uri: Option<String>,
-    user_connection: Option<bool>,
     started_outcome: &'static str,
 ) -> Result<OidcLoginStart, ApiError> {
     // Per-tenant OAuth callback (hosted mode): each tenant authenticates
@@ -470,14 +485,10 @@ async fn start_oidc_login(
     let client_cold = !oidc::is_client_warm();
     let started = std::time::Instant::now();
 
-    let generated = oidc::generate_auth_url(
-        redirect_uri.clone(),
-        user_connection,
-        callback_redirect.clone(),
-        None,
-    )
-    .instrument(span.clone())
-    .await;
+    let generated =
+        oidc::generate_auth_url(redirect_uri.clone(), None, callback_redirect.clone(), None)
+            .instrument(span.clone())
+            .await;
     let elapsed = started.elapsed();
     if hosted {
         span.in_scope(|| {
@@ -499,10 +510,10 @@ async fn start_oidc_login(
         ApiError::Internal(format!("Failed to initiate OIDC authentication: {e}"))
     })?;
 
-    let (state, binding) = create_oauth_state_with_oidc(
+    let (state, state_cookie) = create_oauth_state_with_oidc(
         "oidc",
         redirect_uri,
-        user_connection,
+        None,
         Some(auth_data.pkce_verifier),
         Some(auth_data.nonce),
         callback_redirect,
@@ -518,7 +529,7 @@ async fn start_oidc_login(
     Ok(OidcLoginStart {
         auth_url: replace_state_in_url(&auth_url, &state),
         state,
-        binding,
+        state_cookie,
         elapsed,
     })
 }
@@ -701,14 +712,14 @@ pub async fn hosted_login_entry(db_pool: web::Data<Pool>, req: HttpRequest) -> H
         LoginEntry::CheckSessionCookie => "session_cookie",
         LoginEntry::Redirect(outcome) => {
             let return_to = login_return_path(&query);
-            match start_oidc_login(&req, return_to, None, outcome).await {
+            match start_oidc_login(&req, return_to, outcome).await {
                 Ok(started) => {
                     return HttpResponse::Found()
                         .insert_header((actix_web::http::header::LOCATION, started.auth_url))
                         .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
                         .insert_header(oidc_server_timing(started.elapsed))
                         .cookie(crate::utils::cookies::create_oauth_state_cookie(
-                            &started.binding,
+                            &started.state_cookie,
                         ))
                         .finish();
                 }
@@ -854,7 +865,8 @@ pub async fn oauth_callback(
 }
 
 /// The signed state from the callback, once it verifies and this browser holds
-/// the cookie binding it.
+/// the cookie binding it, with the flow's PKCE verifier and nonce taken from
+/// that cookie ([`OAuthStateCookie`]).
 fn verify_callback_state(
     query: &OAuthExchangeRequest,
     request: &HttpRequest,
@@ -862,7 +874,7 @@ fn verify_callback_state(
     let Some(state) = query.state.as_deref() else {
         return Err(CallbackFailure::Failed("missing state parameter".into()));
     };
-    let state_data = verify_oauth_state(state).map_err(CallbackFailure::StateExpired)?;
+    let mut state_data = verify_oauth_state(state).map_err(CallbackFailure::StateExpired)?;
 
     // RFC 9700 §2.1: confirm this callback completes in the SAME user-agent that
     // started the flow. The signed state has integrity but is not session-bound,
@@ -875,16 +887,25 @@ fn verify_callback_state(
             .cookie(&crate::utils::cookies::cookie_name(
                 crate::utils::cookies::OAUTH_STATE_COOKIE,
             ))
-            .map(|c| c.value().to_string());
-        let matches = presented
-            .as_deref()
-            .map(|p| constant_time_eq::constant_time_eq(p.as_bytes(), expected.as_bytes()))
-            .unwrap_or(false);
+            .and_then(|c| OAuthStateCookie::parse(c.value()));
+        let matches = presented.as_ref().is_some_and(|p| {
+            constant_time_eq::constant_time_eq(p.binding.as_bytes(), expected.as_bytes())
+        });
         if !matches {
             return Err(CallbackFailure::StateExpired(
                 "state-binding cookie missing or mismatched".into(),
             ));
         }
+        if let Some(secrets) = presented.and_then(|p| p.secrets) {
+            state_data.pkce_verifier = Some(secrets.pkce_verifier);
+            state_data.nonce = Some(secrets.nonce);
+        }
+        // Fallback, remove in 1.1.8: with a bare-binding cookie, the verifier
+        // and nonce the state itself carries stand. Only a state minted
+        // before 1.1.7 carries them: a flow started before the deploy, or on
+        // a machine the rolling deploy had not replaced yet. States live
+        // `OAUTH_STATE_LIFETIME`, so the last one expires that long after the
+        // deploy.
     }
     // `binding == None` is a legacy in-flight state minted before this field
     // existed; allowed transitionally, and such states expire within the
@@ -1018,25 +1039,24 @@ async fn complete_oauth_callback(
             }
         };
 
-        // The PKCE verifier + nonce were bound into the signed state at
-        // authorize time; both are required to complete the exchange and verify
-        // the ID token. Their absence means a tampered or pre-PKCE state, so
-        // reject rather than fall back to an unverified flow.
+        // The PKCE verifier + nonce came from the `oauth_state` cookie set at
+        // authorize time (`verify_callback_state`); both are required to
+        // complete the exchange and verify the ID token. Their absence means
+        // the cookie lost them, so reject rather than fall back to an
+        // unverified flow. Signing in again sets a whole cookie.
         let pkce_verifier = match &state_data.pkce_verifier {
             Some(v) => v.clone(),
             None => {
-                warn!("Microsoft callback missing PKCE verifier in state");
-                return Err(CallbackFailure::Failed(
-                    "Invalid authentication state (missing PKCE verifier)".into(),
+                return Err(CallbackFailure::StateExpired(
+                    "Microsoft callback without a PKCE verifier".into(),
                 ));
             }
         };
         let nonce = match &state_data.nonce {
             Some(n) => n.clone(),
             None => {
-                warn!("Microsoft callback missing nonce in state");
-                return Err(CallbackFailure::Failed(
-                    "Invalid authentication state (missing nonce)".into(),
+                return Err(CallbackFailure::StateExpired(
+                    "Microsoft callback without a nonce".into(),
                 ));
             }
         };
@@ -1086,10 +1106,8 @@ async fn complete_oauth_callback(
                         ));
                     }
                 };
-                let user_info = OAuthLoginClaims::from(&ms_user);
-
                 // The Microsoft object ID is the stable per-identity subject.
-                let provider_user_id = user_info.subject.clone();
+                let user_info = OAuthLoginClaims::from(&ms_user);
 
                 // Microsoft always yields an email (mail or UPN); guard anyway.
                 if user_info.email.is_none() {
@@ -1101,97 +1119,7 @@ async fn complete_oauth_callback(
 
                 // Handle account connection vs normal login
                 if is_connection {
-                    // This is a connection request - check if this identity is already linked to another account
-                    match user_auth_identities::find_user_by_identity(
-                        &provider.provider_type,
-                        &provider_user_id,
-                        &mut conn,
-                    ) {
-                        Ok(Some(existing_user_uuid)) => {
-                            // Found an existing identity - verify the user still exists
-                            match crate::repository::users::find_active_by_uuid(
-                                &existing_user_uuid,
-                                &mut conn,
-                            ) {
-                                Ok(_user) => {
-                                    // User exists, can't reconnect
-                                    return Err(CallbackFailure::Failed("This Microsoft account is already connected to another user account".into()));
-                                }
-                                Err(_) => {
-                                    // User doesn't exist (orphaned record) - clean it up and proceed
-                                    warn!(
-                                        user_uuid = %existing_user_uuid,
-                                        provider = %provider.provider_type,
-                                        external_id = %provider_user_id,
-                                        "Found orphaned auth identity, cleaning up"
-                                    );
-                                    // Delete the orphaned identity
-                                    if let Err(e) = crate::repository::user_auth_identities::delete_identities_by_provider_external(
-                                        &mut conn,
-                                        &provider.provider_type,
-                                        &provider_user_id,
-                                    )
-                                    {
-                                        error!(error = ?e, "Failed to clean up orphaned auth identity");
-                                    }
-                                    // Allow connection to proceed
-                                }
-                            }
-                        }
-                        Ok(None) => {
-                            // Identity not yet linked - proceed
-                        }
-                        Err(e) => {
-                            error!(error = ?e, "Failed to check existing identity");
-                            return Err(CallbackFailure::Failed(
-                                "Failed to verify Microsoft account status".into(),
-                            ));
-                        }
-                    }
-
-                    // The connecting user's UUID is carried in the
-                    // signed state's redirect_uri. oauth_connect sets it
-                    // authoritatively from the authenticated session and
-                    // strips any caller-supplied value, and the state JWT
-                    // is integrity-protected, so this value is trusted.
-                    let user_uuid_param = if state_data.redirect_uri.contains('?') {
-                        let query_params = state_data.redirect_uri.split('?').nth(1).unwrap_or("");
-                        let params = querystring::querify(query_params);
-                        params
-                            .iter()
-                            .find(|(k, _)| *k == "user_uuid")
-                            .map(|(_, v)| v.to_string())
-                    } else {
-                        None
-                    };
-
-                    let user_uuid = match user_uuid_param {
-                        Some(uuid) => uuid,
-                        None => {
-                            error!("Microsoft connect: no user_uuid in the signed state");
-                            return Ok(connect_result_redirect(
-                                &state_data.redirect_uri,
-                                &format!("auth_error={AUTH_ERROR_CONNECT_FAILED}"),
-                            ));
-                        }
-                    };
-
-                    // Add the identity to the user account
-                    match add_oauth_identity_to_user(&user_uuid, &user_info, &provider, &mut conn)
-                        .await
-                    {
-                        Ok(_) => Ok(connect_result_redirect(
-                            &state_data.redirect_uri,
-                            "auth_success=true",
-                        )),
-                        Err(e) => {
-                            error!(error = %e, "Failed to connect account");
-                            Ok(connect_result_redirect(
-                                &state_data.redirect_uri,
-                                &format!("auth_error={AUTH_ERROR_CONNECT_FAILED}"),
-                            ))
-                        }
-                    }
+                    link_connected_identity(&mut conn, &state_data, &provider, &user_info).await
                 } else {
                     // Regular login/signup flow
                     let user =
@@ -1235,13 +1163,14 @@ async fn complete_oauth_callback(
             }
         }
     } else if provider.provider_type == "oidc" {
-        // OIDC callback handling with PKCE
+        // OIDC callback handling with PKCE. The verifier and nonce came from
+        // the `oauth_state` cookie (`verify_callback_state`); without them the
+        // cookie lost them, and signing in again sets a whole one.
         let pkce_verifier = match &state_data.pkce_verifier {
             Some(v) => v.clone(),
             None => {
-                warn!("OIDC callback missing PKCE verifier in state");
-                return Err(CallbackFailure::Failed(
-                    "Invalid authentication state (missing PKCE verifier)".into(),
+                return Err(CallbackFailure::StateExpired(
+                    "OIDC callback without a PKCE verifier".into(),
                 ));
             }
         };
@@ -1249,9 +1178,8 @@ async fn complete_oauth_callback(
         let nonce = match &state_data.nonce {
             Some(n) => n.clone(),
             None => {
-                warn!("OIDC callback missing nonce in state");
-                return Err(CallbackFailure::Failed(
-                    "Invalid authentication state (missing nonce)".into(),
+                return Err(CallbackFailure::StateExpired(
+                    "OIDC callback without a nonce".into(),
                 ));
             }
         };
@@ -1270,106 +1198,14 @@ async fn complete_oauth_callback(
             Ok((user_info, id_token)) => {
                 // Check if this is a user connection request (vs. a standard login)
                 if is_connection {
-                    // Connection request - check if this identity is already linked
-                    match user_auth_identities::find_user_by_identity(
-                        "oidc",
-                        &user_info.sub,
-                        &mut conn,
-                    ) {
-                        Ok(Some(existing_user_uuid)) => {
-                            // Found an existing identity - verify the user still exists
-                            match crate::repository::users::find_active_by_uuid(
-                                &existing_user_uuid,
-                                &mut conn,
-                            ) {
-                                Ok(_user) => {
-                                    return Err(CallbackFailure::Failed("This OIDC account is already connected to another user account".into()));
-                                }
-                                Err(_) => {
-                                    // User doesn't exist (orphaned record) - clean it up
-                                    warn!(
-                                        user_uuid = %existing_user_uuid,
-                                        provider = "oidc",
-                                        external_id = %user_info.sub,
-                                        "Found orphaned auth identity, cleaning up"
-                                    );
-                                    if let Err(e) = crate::repository::user_auth_identities::delete_identities_by_provider_external(
-                                        &mut conn,
-                                        "oidc",
-                                        &user_info.sub,
-                                    )
-                                    {
-                                        error!(error = ?e, "Failed to clean up orphaned auth identity");
-                                    }
-                                }
-                            }
-                        }
-                        Ok(None) => {
-                            // Identity not yet linked - proceed
-                        }
-                        Err(e) => {
-                            error!(error = ?e, "Failed to check existing OIDC identity");
-                            return Err(CallbackFailure::Failed(
-                                "Failed to verify OIDC account status".into(),
-                            ));
-                        }
-                    }
-
-                    // Extract user UUID from the redirect URL params
-                    let user_uuid_param = if state_data.redirect_uri.contains('?') {
-                        let query_params = state_data.redirect_uri.split('?').nth(1).unwrap_or("");
-                        let params = querystring::querify(query_params);
-                        params
-                            .iter()
-                            .find(|(key, _)| *key == "user_uuid")
-                            .map(|(_, value)| value.to_string())
-                    } else {
-                        None
-                    };
-
-                    let user_uuid = match user_uuid_param {
-                        Some(uuid_str) => match uuid::Uuid::parse_str(&uuid_str) {
-                            Ok(uuid) => uuid,
-                            Err(_) => {
-                                return Err(CallbackFailure::Failed(
-                                    "Invalid user UUID in redirect URI".into(),
-                                ));
-                            }
-                        },
-                        None => {
-                            return Err(CallbackFailure::Failed(
-                                "Missing user UUID for account connection".into(),
-                            ));
-                        }
-                    };
-
-                    // Link the OIDC identity to the authenticated user via the
-                    // same typed-claims path the Microsoft connect flow uses. The
-                    // claims carry the full raw claim set into identity metadata.
+                    // Link via the same typed-claims path the Microsoft connect
+                    // flow uses. The claims carry the full raw claim set into
+                    // identity metadata.
                     let claims = OAuthLoginClaims::from_oidc(
                         &user_info,
                         &config_utils::get_oidc_username_claim(),
                     );
-                    match add_oauth_identity_to_user(
-                        &user_uuid.to_string(),
-                        &claims,
-                        &provider,
-                        &mut conn,
-                    )
-                    .await
-                    {
-                        Ok(_) => Ok(connect_result_redirect(
-                            &state_data.redirect_uri,
-                            "auth_success=true",
-                        )),
-                        Err(e) => {
-                            error!(error = %e, "Failed to connect OIDC account");
-                            Ok(connect_result_redirect(
-                                &state_data.redirect_uri,
-                                &format!("auth_error={AUTH_ERROR_CONNECT_FAILED}"),
-                            ))
-                        }
-                    }
+                    link_connected_identity(&mut conn, &state_data, &provider, &claims).await
                 } else {
                     // Regular login/signup flow. `email_verified` is load-bearing:
                     // `resolve_login_user` reads it to decide whether an
@@ -1482,7 +1318,8 @@ pub async fn oauth_logout(
 
             // Create the logout URL
             let logout_url = format!(
-                "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/logout?post_logout_redirect_uri={encoded_redirect}"
+                "{}/{tenant_id}/oauth2/v2.0/logout?post_logout_redirect_uri={encoded_redirect}",
+                config_utils::microsoft_login_base()
             );
 
             Ok(HttpResponse::Ok().json(json!({
@@ -1521,9 +1358,10 @@ pub async fn oauth_logout(
 // JWT State Management
 
 // Create a signed state JWT for OAuth flow
-/// Returns `(state_jwt, binding)`. The caller MUST set the `binding` in the
-/// `oauth_state` cookie (RFC 9700 §2.1) so the callback can confirm the flow
-/// completes in the same user-agent that started it.
+/// Returns `(state_jwt, cookie_value)`. The caller MUST set `cookie_value` in
+/// the `oauth_state` cookie (RFC 9700 §2.1) so the callback can confirm the
+/// flow completes in the same user-agent that started it.
+#[cfg(test)]
 fn create_oauth_state(
     provider_type: &str,
     redirect_uri: Option<String>,
@@ -1540,8 +1378,11 @@ fn create_oauth_state(
     )
 }
 
-// Create a signed state JWT for OAuth/OIDC flow with optional PKCE and nonce.
-// Returns `(state_jwt, binding)` — see `create_oauth_state`.
+/// Create a signed state JWT for an OAuth/OIDC flow, with optional PKCE and
+/// nonce. Returns `(state_jwt, cookie_value)`, as [`create_oauth_state`]. The
+/// PKCE verifier and nonce go in the cookie value ([`OAuthStateCookie`]), never
+/// in the state: the state travels through the identity provider and the
+/// browser's history.
 #[allow(clippy::too_many_arguments)]
 fn create_oauth_state_with_oidc(
     provider_type: &str,
@@ -1567,16 +1408,29 @@ fn create_oauth_state_with_oidc(
     // set in the `oauth_state` cookie by the caller; the callback requires the
     // two to match.
     let state = format!("{:x}", rand::random::<u128>());
+    let secrets = match (pkce_verifier, nonce) {
+        (Some(pkce_verifier), Some(nonce)) => Some(FlowSecrets {
+            pkce_verifier,
+            nonce,
+        }),
+        (None, None) => None,
+        _ => return Err("PKCE verifier and nonce come as a pair".into()),
+    };
+    let cookie = OAuthStateCookie {
+        binding: state.clone(),
+        secrets,
+    }
+    .encode()?;
     let claims = OAuthState {
         state: state.clone(),
         redirect_uri: redirect_uri.unwrap_or_else(|| "/".to_string()),
         provider_type: provider_type.to_string(),
         exp,
         user_connection,
-        pkce_verifier,
-        nonce,
+        pkce_verifier: None,
+        nonce: None,
         callback_redirect_uri,
-        binding: Some(state.clone()),
+        binding: Some(state),
         step_up,
     };
 
@@ -1586,8 +1440,72 @@ fn create_oauth_state_with_oidc(
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
     ) {
-        Ok(token) => Ok((token, state)),
+        Ok(token) => Ok((token, cookie)),
         Err(e) => Err(format!("Failed to create state JWT: {e}")),
+    }
+}
+
+/// A flow's PKCE verifier and ID token nonce, kept in the browser that started
+/// it until the callback needs them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FlowSecrets {
+    pkce_verifier: String,
+    nonce: String,
+}
+
+/// What the `oauth_state` cookie holds: the flow's binding (the value its
+/// signed state also carries), then its PKCE verifier and nonce when it has
+/// them, joined by `.` as `<binding>.<verifier>.<nonce>`. A flow without PKCE
+/// (the Microsoft connect flow) holds the binding alone. The binding is hex
+/// and the verifier and nonce are base64url, so none contains a `.`.
+///
+/// One cookie, one slot, as before: a second sign-in started in the same
+/// browser overwrites it, and the first flow's callback then fails the
+/// binding check (`state_expired`), while the latest one completes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OAuthStateCookie {
+    binding: String,
+    secrets: Option<FlowSecrets>,
+}
+
+impl OAuthStateCookie {
+    const SEPARATOR: char = '.';
+
+    fn encode(&self) -> Result<String, String> {
+        let mut parts = vec![self.binding.as_str()];
+        if let Some(secrets) = &self.secrets {
+            parts.push(&secrets.pkce_verifier);
+            parts.push(&secrets.nonce);
+        }
+        if parts
+            .iter()
+            .any(|p| p.is_empty() || p.contains(Self::SEPARATOR))
+        {
+            return Err("OAuth state cookie part is empty or holds the separator".into());
+        }
+        Ok(parts.join(&Self::SEPARATOR.to_string()))
+    }
+
+    /// `None` for a value of any other shape: one part, or three, none empty.
+    fn parse(value: &str) -> Option<Self> {
+        let parts: Vec<&str> = value.split(Self::SEPARATOR).collect();
+        if parts.iter().any(|p| p.is_empty()) {
+            return None;
+        }
+        match parts.as_slice() {
+            [binding] => Some(Self {
+                binding: (*binding).to_string(),
+                secrets: None,
+            }),
+            [binding, pkce_verifier, nonce] => Some(Self {
+                binding: (*binding).to_string(),
+                secrets: Some(FlowSecrets {
+                    pkce_verifier: (*pkce_verifier).to_string(),
+                    nonce: (*nonce).to_string(),
+                }),
+            }),
+            _ => None,
+        }
     }
 }
 
@@ -1703,7 +1621,10 @@ async fn exchange_microsoft_code_for_token(
     // anyway. Safer to bail and let the user re-trigger the flow
     // than to silently consume a code twice.
     let client = reqwest::Client::new();
-    let token_url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
+    let token_url = format!(
+        "{}/{tenant_id}/oauth2/v2.0/token",
+        config_utils::microsoft_login_base()
+    );
     let res = retry_transport(&client, 3, || client.post(&token_url).form(&params))
         .await
         .map_err(|e| format!("Failed to send token request: {e}"))?;
@@ -1747,9 +1668,10 @@ async fn get_microsoft_user_info(
     access_token: &str,
 ) -> Result<crate::handlers::msgraph_integration::MicrosoftGraphUser, String> {
     let client = reqwest::Client::new();
+    let me_url = format!("{}/v1.0/me", config_utils::microsoft_graph_base());
     let res = retry_transport(&client, 3, || {
         client
-            .get("https://graph.microsoft.com/v1.0/me")
+            .get(&me_url)
             .header("Authorization", format!("Bearer {access_token}"))
     })
     .await
@@ -1907,21 +1829,6 @@ fn connect_result_redirect(redirect_uri: &str, result_query: &str) -> HttpRespon
 /// Connect-flow failure code (`?auth_error=`); details stay in server logs.
 const AUTH_ERROR_CONNECT_FAILED: &str = "connect_failed";
 
-/// Identity key (`user_auth_identities.provider_type`) for an OIDC login.
-///
-/// In hosted mode this must be the platform issuer (`OIDC_ISSUER_URL`,
-/// e.g. `https://api.nosdesk.dev`), because the control plane projects
-/// each seat under `(iss, sub)`. Resolving a login by the literal
-/// `"oidc"` would miss that seat entirely. In discovery mode the token's
-/// `iss` is verified to equal `OIDC_ISSUER_URL`, so the configured value
-/// is the authoritative issuer.
-///
-/// In self-hosted mode we keep the legacy `"oidc"` key so identities
-/// written before this change (which all used `"oidc"`) still resolve.
-///
-/// The issuer is used verbatim (no normalisation): it must byte-match the
-/// `iss` the control plane stored at projection time, which is the same
-/// string operators set as `OIDC_ISSUER_URL`.
 // ===== Native (mobile app) OIDC login =====
 
 /// Public OIDC config the native app needs to run its OWN Authorization-Code +
@@ -2026,6 +1933,21 @@ pub async fn native_oidc_login(
     ))
 }
 
+/// Identity key (`user_auth_identities.provider_type`) for an OIDC login.
+///
+/// In hosted mode this must be the platform issuer (`OIDC_ISSUER_URL`,
+/// e.g. `https://api.nosdesk.dev`), because the control plane projects
+/// each seat under `(iss, sub)`. Resolving a login by the literal
+/// `"oidc"` would miss that seat entirely. In discovery mode the token's
+/// `iss` is verified to equal `OIDC_ISSUER_URL`, so the configured value
+/// is the authoritative issuer.
+///
+/// In self-hosted mode we keep the legacy `"oidc"` key so identities
+/// written before this change (which all used `"oidc"`) still resolve.
+///
+/// The issuer is used verbatim (no normalisation): it must byte-match the
+/// `iss` the control plane stored at projection time, which is the same
+/// string operators set as `OIDC_ISSUER_URL`.
 pub(crate) fn oidc_identity_issuer() -> String {
     issuer_for_identity(
         crate::middleware::DeploymentMode::current(),
@@ -2226,6 +2148,87 @@ async fn find_or_create_oauth_user(
     })
 }
 
+/// The end of a connect flow: link the identity the provider came back with
+/// to the account that started it, and send the browser back to the page
+/// that started it with `auth_success=true` or `auth_error=connect_failed`.
+///
+/// The account is the `user_uuid` in the signed state's return path, which
+/// the connect start sets from the authenticated session (never from the
+/// caller). An identity already linked to another active account is refused;
+/// one left behind by a deleted account is cleared first.
+async fn link_connected_identity(
+    conn: &mut DbConnection,
+    state_data: &OAuthState,
+    provider: &AuthProvider,
+    claims: &OAuthLoginClaims,
+) -> Result<HttpResponse, CallbackFailure> {
+    match user_auth_identities::find_user_by_identity(
+        &provider.provider_type,
+        &claims.subject,
+        conn,
+    ) {
+        Ok(Some(existing_user_uuid)) => {
+            if crate::repository::users::find_active_by_uuid(&existing_user_uuid, conn).is_ok() {
+                return Err(CallbackFailure::Failed(format!(
+                    "This {} account is already connected to another user account",
+                    provider.name
+                )));
+            }
+            // The account it belonged to is gone: clear the orphan, then link.
+            warn!(
+                user_uuid = %existing_user_uuid,
+                provider = %provider.provider_type,
+                external_id = %claims.subject,
+                "Found orphaned auth identity, cleaning up"
+            );
+            if let Err(e) = user_auth_identities::delete_identities_by_provider_external(
+                conn,
+                &provider.provider_type,
+                &claims.subject,
+            ) {
+                error!(error = ?e, "Failed to clean up orphaned auth identity");
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            error!(error = ?e, "Failed to check existing identity");
+            return Err(CallbackFailure::Failed(format!(
+                "Failed to verify {} account status",
+                provider.name
+            )));
+        }
+    }
+
+    let user_uuid = state_data
+        .redirect_uri
+        .split_once('?')
+        .and_then(|(_, query)| {
+            querystring::querify(query)
+                .into_iter()
+                .find(|(key, _)| *key == "user_uuid")
+                .map(|(_, value)| value.to_string())
+        })
+        .ok_or_else(|| {
+            CallbackFailure::Failed("Missing user UUID for account connection".into())
+        })?;
+    let user_uuid = uuid::Uuid::parse_str(&user_uuid)
+        .map_err(|_| CallbackFailure::Failed("Invalid user UUID in redirect URI".into()))?;
+
+    match add_oauth_identity_to_user(&user_uuid.to_string(), claims, provider, conn).await {
+        Ok(()) => Ok(connect_result_redirect(
+            &state_data.redirect_uri,
+            "auth_success=true",
+        )),
+        Err(e) => {
+            error!(error = %e, "Failed to connect account");
+            Ok(connect_result_redirect(
+                &state_data.redirect_uri,
+                &format!("auth_error={AUTH_ERROR_CONNECT_FAILED}"),
+            ))
+        }
+    }
+}
+
 // Helper function to add an OAuth identity to an existing user
 async fn add_oauth_identity_to_user(
     user_uuid: &str,
@@ -2387,40 +2390,6 @@ pub async fn oauth_connect(
 
     // For Microsoft Entra, generate the authorization URL
     if provider.provider_type == "microsoft" {
-        // Get the provider configuration from environment variables
-        let client_id = match config_utils::get_microsoft_client_id() {
-            Ok(val) => val,
-            Err(e) => {
-                error!(error = ?e, "Failed to get client_id for Microsoft provider connect");
-                return Err(ApiError::Internal(format!(
-                    "Microsoft authentication is not properly configured: {}",
-                    e
-                )));
-            }
-        };
-
-        let tenant_id = match config_utils::get_microsoft_tenant_id() {
-            Ok(val) => val,
-            Err(e) => {
-                error!(error = ?e, "Failed to get tenant_id for Microsoft provider connect");
-                return Err(ApiError::Internal(format!(
-                    "Microsoft authentication is not properly configured: {}",
-                    e
-                )));
-            }
-        };
-
-        let redirect_uri_config = match config_utils::get_microsoft_redirect_uri() {
-            Ok(val) => val,
-            Err(e) => {
-                error!(error = ?e, "Failed to get redirect_uri for Microsoft provider connect");
-                return Err(ApiError::Internal(format!(
-                    "Microsoft authentication is not properly configured: {}",
-                    e
-                )));
-            }
-        };
-
         // Prepare the redirect URI. The connecting user's UUID is set
         // authoritatively from the authenticated session; any caller-
         // supplied user_uuid is stripped first. The callback links the
@@ -2444,34 +2413,21 @@ pub async fn oauth_connect(
         };
         let actual_redirect_uri = format!("{base_redirect_uri}{separator}user_uuid={}", user.uuid);
 
-        // Generate a JWT state token with user_connection=true. Connecting
-        // an identity to an already-authenticated account doesn't
+        // The same flow as Microsoft sign-in, PKCE verifier and nonce in the
+        // `oauth_state` cookie, with user_connection=true: the callback then
+        // links the identity to this account instead of signing anyone in.
+        // Connecting an identity to an already-authenticated account doesn't
         // provision workspace membership, so no workspace is bound.
-        let (state, binding) = match create_oauth_state(
-            &provider.provider_type,
-            Some(actual_redirect_uri),
-            Some(true),
-        ) {
-            Ok(pair) => pair,
-            Err(e) => {
-                error!(error = %e, "Failed to create OAuth state token for connect");
-                return Err(ApiError::Internal(
-                    "Failed to initiate authentication flow".into(),
-                ));
-            }
-        };
-
-        // Create the authorization URL
-        let auth_url = format!(
-            "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
-        );
+        let started = start_microsoft_login(Some(actual_redirect_uri), Some(true))?;
 
         // Bind the flow to this user-agent (RFC 9700 §2.1).
         Ok(HttpResponse::Ok()
-            .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
+            .cookie(crate::utils::cookies::create_oauth_state_cookie(
+                &started.state_cookie,
+            ))
             .json(json!({
-                "auth_url": auth_url,
-                "state": state
+                "auth_url": started.auth_url,
+                "state": started.state
             })))
     } else {
         Err(ApiError::BadRequest(format!(
@@ -2613,8 +2569,8 @@ pub async fn start_step_up_provider(db_pool: web::Data<Pool>, req: HttpRequest) 
     }
 }
 
-/// The configured OIDC provider's authorize URL for a step-up, and the state
-/// binding for the cookie.
+/// The configured OIDC provider's authorize URL for a step-up, and the
+/// `oauth_state` cookie value.
 async fn step_up_oidc_url(
     req: &HttpRequest,
     flow: StepUpFlow,
@@ -2640,8 +2596,8 @@ async fn step_up_oidc_url(
     Ok((replace_state_in_url(&auth_url, &state), binding))
 }
 
-/// Microsoft's authorize URL for a step-up, and the state binding for the
-/// cookie. As at sign-in, plus `prompt=login` and `max_age`
+/// Microsoft's authorize URL for a step-up, and the `oauth_state` cookie
+/// value. As at sign-in, plus `prompt=login` and `max_age`
 /// ([`crate::services::step_up::PROVIDER_MAX_AGE_SECS`]).
 fn step_up_microsoft_url(
     flow: StepUpFlow,
@@ -2664,13 +2620,19 @@ fn step_up_microsoft_url(
     let hint = login_hint
         .map(|h| format!("&login_hint={}", urlencoding::encode(h)))
         .unwrap_or_default();
-    let url = format!(
-        "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri}&response_mode=query&scope=openid%20profile%20email%20User.Read&nonce={nonce}&code_challenge={code_challenge}&code_challenge_method=S256&prompt=login&max_age={max_age}{hint}&state={state}",
-        nonce = nonce.secret(),
-        code_challenge = pkce_challenge.as_str(),
+    let extra = format!(
+        "&prompt=login&max_age={max_age}{hint}",
         max_age = crate::services::step_up::PROVIDER_MAX_AGE_SECS,
-        state = urlencoding::encode(&state),
     );
+    let url = microsoft_authorize_url(&MicrosoftAuthorize {
+        tenant_id: &tenant_id,
+        client_id: &client_id,
+        callback: &redirect_uri,
+        nonce: nonce.secret(),
+        code_challenge: pkce_challenge.as_str(),
+        state: &state,
+        extra: &extra,
+    });
     Ok((url, binding))
 }
 
@@ -2688,7 +2650,7 @@ async fn confirm_step_up(
 ) -> Result<(), &'static str> {
     let (Some(pkce_verifier), Some(nonce)) = (state.pkce_verifier.clone(), state.nonce.clone())
     else {
-        warn!("step-up: state without PKCE verifier or nonce");
+        warn!("step-up: callback without a PKCE verifier or nonce");
         return Err(STEP_UP_FAILED);
     };
     let (identity_type, subject, id_token, auth_time) = match state.provider_type.as_str() {
@@ -2884,7 +2846,10 @@ mod step_up_tests {
 
 #[cfg(test)]
 mod oauth_state_binding_tests {
-    use super::{create_oauth_state, verify_oauth_state};
+    use super::{
+        create_oauth_state, create_oauth_state_with_oidc, verify_oauth_state, FlowSecrets,
+        OAuthStateCookie,
+    };
 
     /// The state JWT helpers read the process-global `JWT_SECRET` lazy-static,
     /// which panics if unset. Ensure it's present before first access so these
@@ -2939,6 +2904,81 @@ mod oauth_state_binding_tests {
         let (_, b1) = create_oauth_state("oidc", None, None).unwrap();
         let (_, b2) = create_oauth_state("oidc", None, None).unwrap();
         assert_ne!(b1, b2, "each flow must bind to a fresh random value");
+    }
+
+    /// The PKCE verifier and nonce go in the cookie value, after the binding,
+    /// and nowhere in the state, not even as a key.
+    #[test]
+    fn pkce_secrets_ride_in_the_cookie_not_the_state() {
+        ensure_jwt_secret();
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        let nonce = "n-0S6_WzA2Mj";
+        let (token, cookie) = create_oauth_state_with_oidc(
+            "oidc",
+            None,
+            None,
+            Some(verifier.into()),
+            Some(nonce.into()),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let state = verify_oauth_state(&token).unwrap();
+        assert_eq!(state.pkce_verifier, None);
+        assert_eq!(state.nonce, None);
+        let binding = state.binding.expect("binding");
+        assert_eq!(cookie, format!("{binding}.{verifier}.{nonce}"));
+        assert_eq!(
+            OAuthStateCookie::parse(&cookie),
+            Some(OAuthStateCookie {
+                binding,
+                secrets: Some(FlowSecrets {
+                    pkce_verifier: verifier.into(),
+                    nonce: nonce.into(),
+                }),
+            })
+        );
+
+        use base64::Engine as _;
+        let payload = token.split('.').nth(1).expect("JWT payload");
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload)
+            .expect("base64url payload");
+        let payload = String::from_utf8(payload).expect("JSON payload");
+        for absent in [verifier, nonce, "pkce_verifier", "nonce"] {
+            assert!(!payload.contains(absent), "{absent} in {payload}");
+        }
+    }
+
+    #[test]
+    fn a_flow_needs_both_secrets_or_neither() {
+        ensure_jwt_secret();
+        let only_verifier =
+            create_oauth_state_with_oidc("oidc", None, None, Some("v".into()), None, None, None);
+        assert!(only_verifier.is_err());
+    }
+
+    #[test]
+    fn the_cookie_parses_one_part_or_three() {
+        assert_eq!(
+            OAuthStateCookie::parse("abc"),
+            Some(OAuthStateCookie {
+                binding: "abc".into(),
+                secrets: None,
+            })
+        );
+        for malformed in ["", "a.b", "a.b.c.d", "a..c", ".b.c", "a.b.", "."] {
+            assert_eq!(OAuthStateCookie::parse(malformed), None, "{malformed:?}");
+        }
+        let with_separator = OAuthStateCookie {
+            binding: "a".into(),
+            secrets: Some(FlowSecrets {
+                pkce_verifier: "b.c".into(),
+                nonce: "d".into(),
+            }),
+        };
+        assert!(with_separator.encode().is_err());
     }
 }
 
