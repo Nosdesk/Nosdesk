@@ -141,6 +141,10 @@ pub struct LinkNames {
 pub enum Body {
     /// Markdown, its links relative to the page's file.
     Markdown(String),
+    /// HTML the source reads with its dialect
+    /// ([`read_document`](super::html::read_document)); links resolve as
+    /// Markdown's do.
+    Html(String),
     /// A CSV shown as a table (a Notion database); `None` when it couldn't
     /// be read.
     Csv(Option<String>),
@@ -152,6 +156,6 @@ pub enum Body {
 impl Body {
     /// Whether the body holds links and images the import resolves.
     pub fn has_links(&self) -> bool {
-        matches!(self, Body::Markdown(_))
+        matches!(self, Body::Markdown(_) | Body::Html(_))
     }
 }

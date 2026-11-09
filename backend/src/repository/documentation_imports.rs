@@ -126,6 +126,19 @@ pub fn ticket_exists(conn: &mut DbConnection, id: i32) -> QueryResult<bool> {
     diesel::select(diesel::dsl::exists(t::tickets.filter(t::id.eq(id)))).get_result(conn)
 }
 
+/// The slugs of the collections in `ids` that exist.
+// sync-audit-only: read-only
+pub fn collection_slugs(conn: &mut DbConnection, ids: &[i32]) -> QueryResult<Vec<(i32, String)>> {
+    use crate::schema::documentation_collections::dsl as c;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    c::documentation_collections
+        .filter(c::id.eq_any(ids))
+        .select((c::id, c::slug))
+        .load(conn)
+}
+
 /// Whether the collection exists.
 // sync-audit-only: read-only
 pub fn collection_exists(conn: &mut DbConnection, id: i32) -> QueryResult<bool> {

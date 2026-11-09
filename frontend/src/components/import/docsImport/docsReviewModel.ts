@@ -203,6 +203,15 @@ export const NOTE_KEY: Record<DocsNoteCode, string> = {
   images_unreadable: 'docs-import-note-images-unreadable',
   svg_images_refused: 'docs-import-note-svg-images-refused',
   web_images_not_fetched: 'docs-import-note-web-images-not-fetched',
+  expands_shown_open: 'docs-import-note-expands-shown-open',
+  status_as_text: 'docs-import-note-status-as-text',
+  jira_as_links: 'docs-import-note-jira-as-links',
+  macros_removed: 'docs-import-note-macros-removed',
+  layout_flattened: 'docs-import-note-layout-flattened',
+  includes_as_links: 'docs-import-note-includes-as-links',
+  diagrams_as_images: 'docs-import-note-diagrams-as-images',
+  diagrams_left_out: 'docs-import-note-diagrams-left-out',
+  emoji_as_text: 'docs-import-note-emoji-as-text',
 }
 
 export const IMAGE_PROBLEM_KEY: Record<DocsImageProblem, string> = {

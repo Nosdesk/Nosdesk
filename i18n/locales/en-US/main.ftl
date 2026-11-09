@@ -9402,6 +9402,42 @@ docs-import-note-web-images-not-fetched = { $count ->
     [one] 1 image from the web couldn't be downloaded. The alt text is kept.
    *[other] { $count } images from the web couldn't be downloaded. The alt text is kept.
 }
+docs-import-note-expands-shown-open = { $count ->
+    [one] 1 collapsible section is shown open
+   *[other] { $count } collapsible sections are shown open
+}
+docs-import-note-status-as-text = { $count ->
+    [one] 1 status label became bold text
+   *[other] { $count } status labels became bold text
+}
+docs-import-note-jira-as-links = { $count ->
+    [one] 1 Jira issue became a link
+   *[other] { $count } Jira issues became links
+}
+docs-import-note-macros-removed = { $count ->
+    [one] 1 macro with no equivalent was removed
+   *[other] { $count } macros with no equivalent were removed
+}
+docs-import-note-layout-flattened = { $count ->
+    [one] 1 page layout became its content in reading order
+   *[other] { $count } page layouts became their content in reading order
+}
+docs-import-note-includes-as-links = { $count ->
+    [one] 1 included page became a link to that page
+   *[other] { $count } included pages became links to those pages
+}
+docs-import-note-diagrams-as-images = { $count ->
+    [one] 1 diagram became its preview image
+   *[other] { $count } diagrams became their preview images
+}
+docs-import-note-diagrams-left-out = { $count ->
+    [one] 1 diagram had no preview image and became its name
+   *[other] { $count } diagrams had no preview image and became their names
+}
+docs-import-note-emoji-as-text = { $count ->
+    [one] 1 emoticon became an emoji or its name
+   *[other] { $count } emoticons became emoji or their names
+}
 
 # Why one image won't come across
 docs-import-image-unreadable = couldn't be read

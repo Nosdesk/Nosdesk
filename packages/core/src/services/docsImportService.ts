@@ -149,6 +149,15 @@ export type DocsNoteCode =
   | 'images_unreadable'
   | 'svg_images_refused'
   | 'web_images_not_fetched'
+  | 'expands_shown_open'
+  | 'status_as_text'
+  | 'jira_as_links'
+  | 'macros_removed'
+  | 'layout_flattened'
+  | 'includes_as_links'
+  | 'diagrams_as_images'
+  | 'diagrams_left_out'
+  | 'emoji_as_text'
 
 export interface DocsNoteLine {
   code: DocsNoteCode

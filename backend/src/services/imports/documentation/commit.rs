@@ -700,6 +700,7 @@ impl Write {
 
         // Collections.
         let mut created_collections: Vec<i32> = Vec::new();
+        let mut collection_slugs: HashMap<i32, String> = HashMap::new();
         let target = if mode == CollectionMode::Existing {
             options.collection_id
         } else {
@@ -737,6 +738,7 @@ impl Write {
                     },
                 )?;
                 created_collections.push(collection.id);
+                collection_slugs.insert(collection.id, collection.slug);
             }
         }
 
@@ -867,6 +869,21 @@ impl Write {
                 .and_then(|r| r.duplicate.as_ref())
                 .map(|d| (d.page_id, d.page_uuid))
         };
+        // The collection a page in the import is in now: the one it was
+        // written to, or the one holding the page a skipped one matched.
+        let collection_of = |j: usize| -> Option<i32> {
+            if let Some(w) = written.get(j).and_then(|w| w.as_ref()) {
+                return w.collection_id;
+            }
+            let matched = rows.pages.get(j)?.duplicate.as_ref()?.page_id;
+            skipped_at.get(&matched).copied().flatten()
+        };
+        let elsewhere: Vec<i32> = target
+            .into_iter()
+            .chain(skipped_at.values().flatten().copied())
+            .filter(|id| !collection_slugs.contains_key(id))
+            .collect();
+        collection_slugs.extend(docs_repo::collection_slugs(conn, &elsewhere)?);
         let fill = |p: &Placeholder, slot: Slot| -> Option<String> {
             match (p, slot) {
                 (Placeholder::Page(j), Slot::Link) => {
@@ -874,6 +891,13 @@ impl Write {
                 }
                 (Placeholder::Page(j), Slot::Embed) => {
                     target_of(*j).map(|(_, uuid)| uuid.to_string())
+                }
+                // A page outside any collection stands in for it.
+                (Placeholder::Collection(j), Slot::Link) => {
+                    match collection_of(*j).and_then(|c| collection_slugs.get(&c)) {
+                        Some(slug) => Some(format!("/documentation/collections/{slug}")),
+                        None => target_of(*j).map(|(id, _)| format!("/documentation/{id}")),
+                    }
                 }
                 _ => None,
             }
