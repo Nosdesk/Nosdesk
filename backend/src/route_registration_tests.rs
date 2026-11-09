@@ -1203,3 +1203,12 @@ async fn auth_config_routes_registered() {
     )
     .await;
 }
+
+#[actix_web::test]
+async fn hosted_login_config_routes_registered() {
+    assert_config_registers(
+        crate::startup::hosted_login_config,
+        &[("GET", "/login"), ("GET", "/login/"), ("HEAD", "/login")],
+    )
+    .await;
+}
