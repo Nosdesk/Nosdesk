@@ -3,7 +3,8 @@
 //! whose verifier and nonce ride in the `oauth_state` cookie, and the shared
 //! callback exchanges the code with that verifier, verifies the ID token's
 //! nonce and tenant, and links the identity to the account that started the
-//! connect. An identity already linked to another account is refused.
+//! connect. An identity already linked to another account is refused, and
+//! sign-in's authorize refuses to start a connect at all.
 //!
 //! Its own binary: the Microsoft settings and the Microsoft hosts are
 //! process-wide. One test drives every case in turn for the same reason.
@@ -218,6 +219,10 @@ async fn a_microsoft_connect_links_the_identity_to_the_signed_in_account() {
                 srv.call(req)
             })
             .route(
+                "/api/auth/oauth/authorize",
+                web::post().to(backend::handlers::oauth_authorize),
+            )
+            .route(
                 "/api/auth/oauth/connect",
                 web::post().to(backend::handlers::oauth_connect),
             )
@@ -315,6 +320,41 @@ async fn a_microsoft_connect_links_the_identity_to_the_signed_in_account() {
                 .to_string()
         }
     };
+
+    // Sign-in's authorize starts no connect, signed in or not: the return
+    // path, and the account a connect links to, would be the caller's.
+    for (provider, user) in [
+        ("microsoft", None),
+        ("microsoft", Some(sam.uuid)),
+        ("oidc", Some(sam.uuid)),
+    ] {
+        *signed_in.lock().expect("lock") = user;
+        let refused = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/auth/oauth/authorize")
+                .set_json(json!({
+                    "provider_type": provider,
+                    "user_connection": true,
+                    "redirect_uri": format!("/profile/settings?user_uuid={}", other.uuid),
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(refused.status(), StatusCode::BAD_REQUEST, "{provider}");
+        assert_eq!(
+            refused.response().cookies().count(),
+            0,
+            "{provider}: no state cookie"
+        );
+        let body = String::from_utf8(test::read_body(refused).await.to_vec()).expect("utf8");
+        assert!(
+            !body.contains("auth_url") && !body.contains("state"),
+            "{provider}: no flow started: {body}"
+        );
+    }
+    *signed_in.lock().expect("lock") = None;
+    assert!(tenant.lock().expect("lock").verifiers.is_empty());
 
     // Sam connects from the settings page: the identity is linked to Sam and
     // the browser goes back there.

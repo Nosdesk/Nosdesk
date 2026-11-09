@@ -272,24 +272,15 @@ pub async fn oauth_authorize(
     // Get database connection
     let _conn = helpers::db_conn(&db_pool)?;
 
-    // Check if this is a user connection request
-    let is_user_connection = oauth_request.user_connection.unwrap_or(false);
-
-    let _user_uuid = if is_user_connection {
-        // Extract claims from cookie auth middleware for user connection
-        let claims = match req.extensions().get::<crate::models::Claims>() {
-            Some(claims) => claims.clone(),
-            None => {
-                return Err(ApiError::Unauthorized(
-                    "Authentication required for user connection".into(),
-                ))
-            }
-        };
-
-        Some(claims.sub)
-    } else {
-        None
-    };
+    // Sign-in only. Connecting an identity to a signed-in account goes
+    // through `POST /api/auth/oauth/connect`, which takes the account from the
+    // session; here the return path, and so the `user_uuid` a connect
+    // callback links to, would be the caller's to choose.
+    if oauth_request.user_connection.unwrap_or(false) {
+        return Err(ApiError::BadRequest(
+            "Connect an account with /api/auth/oauth/connect".into(),
+        ));
+    }
 
     let provider_type = &oauth_request.provider_type;
 
@@ -327,10 +318,7 @@ pub async fn oauth_authorize(
 
     // For Microsoft Entra, generate the authorization URL
     if provider.provider_type == "microsoft" {
-        let started = start_microsoft_login(
-            oauth_request.redirect_uri.clone(),
-            oauth_request.user_connection,
-        )?;
+        let started = start_microsoft_login(oauth_request.redirect_uri.clone(), None)?;
 
         // Bind the flow to this user-agent (RFC 9700 §2.1).
         Ok(HttpResponse::Ok()
@@ -342,13 +330,8 @@ pub async fn oauth_authorize(
                 "state": started.state
             })))
     } else if provider.provider_type == "oidc" {
-        let started = start_oidc_login(
-            &req,
-            oauth_request.redirect_uri.clone(),
-            oauth_request.user_connection,
-            "auth_url",
-        )
-        .await?;
+        let started =
+            start_oidc_login(&req, oauth_request.redirect_uri.clone(), "auth_url").await?;
 
         // Bind the flow to this user-agent (RFC 9700 §2.1).
         let mut response = HttpResponse::Ok();
@@ -484,7 +467,6 @@ struct OidcLoginStart {
 async fn start_oidc_login(
     req: &HttpRequest,
     redirect_uri: Option<String>,
-    user_connection: Option<bool>,
     started_outcome: &'static str,
 ) -> Result<OidcLoginStart, ApiError> {
     // Per-tenant OAuth callback (hosted mode): each tenant authenticates
@@ -503,14 +485,10 @@ async fn start_oidc_login(
     let client_cold = !oidc::is_client_warm();
     let started = std::time::Instant::now();
 
-    let generated = oidc::generate_auth_url(
-        redirect_uri.clone(),
-        user_connection,
-        callback_redirect.clone(),
-        None,
-    )
-    .instrument(span.clone())
-    .await;
+    let generated =
+        oidc::generate_auth_url(redirect_uri.clone(), None, callback_redirect.clone(), None)
+            .instrument(span.clone())
+            .await;
     let elapsed = started.elapsed();
     if hosted {
         span.in_scope(|| {
@@ -535,7 +513,7 @@ async fn start_oidc_login(
     let (state, state_cookie) = create_oauth_state_with_oidc(
         "oidc",
         redirect_uri,
-        user_connection,
+        None,
         Some(auth_data.pkce_verifier),
         Some(auth_data.nonce),
         callback_redirect,
@@ -734,7 +712,7 @@ pub async fn hosted_login_entry(db_pool: web::Data<Pool>, req: HttpRequest) -> H
         LoginEntry::CheckSessionCookie => "session_cookie",
         LoginEntry::Redirect(outcome) => {
             let return_to = login_return_path(&query);
-            match start_oidc_login(&req, return_to, None, outcome).await {
+            match start_oidc_login(&req, return_to, outcome).await {
                 Ok(started) => {
                     return HttpResponse::Found()
                         .insert_header((actix_web::http::header::LOCATION, started.auth_url))
