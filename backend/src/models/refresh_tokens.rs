@@ -23,6 +23,20 @@ pub struct RefreshToken {
     pub audience: String,
 }
 
+/// A refresh token's standing, read without using it: the token's own state
+/// and, when it names a session, whether that session is still there and when
+/// it began. What hosted `GET /login` checks a presented refresh cookie by.
+#[derive(Debug, Clone, Queryable)]
+pub struct RefreshTokenStanding {
+    pub audience: String,
+    pub revoked_at: Option<chrono::NaiveDateTime>,
+    pub is_used: bool,
+    pub grace_expires_at: Option<chrono::NaiveDateTime>,
+    pub session_id: Option<Uuid>,
+    /// `None` when the token names no session, or names one that is gone.
+    pub session_created_at: Option<chrono::NaiveDateTime>,
+}
+
 /// New refresh token for creation
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::refresh_tokens)]

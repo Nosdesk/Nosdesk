@@ -401,98 +401,327 @@ pub async fn oauth_authorize(
                 "state": state
             })))
     } else if provider.provider_type == "oidc" {
-        // Per-tenant OAuth callback (hosted mode): each tenant authenticates
-        // on its own subdomain. Bind it into the signed state so the token
-        // exchange in the callback presents the identical redirect_uri.
-        let callback_redirect = oauth_callback_redirect_uri(&req);
-
-        // Hosted sign-in starts here. Time the authorize URL, which includes
-        // discovery while the client is cold, for the `hosted_login` line and
-        // the response's `Server-Timing`.
-        let hosted = crate::middleware::workspace_context::is_hosted();
-        let span = if hosted {
-            tracing::info_span!("hosted_login")
-        } else {
-            tracing::Span::none()
-        };
-        let client_cold = !oidc::is_client_warm();
-        let started = std::time::Instant::now();
-
-        // Generate OIDC authorization URL with PKCE
-        let generated = oidc::generate_auth_url(
+        let started = start_oidc_login(
+            &req,
             oauth_request.redirect_uri.clone(),
             oauth_request.user_connection,
-            callback_redirect.clone(),
-            None,
+            "auth_url",
         )
-        .instrument(span.clone())
-        .await;
-        let elapsed = started.elapsed();
-        if hosted {
-            span.in_scope(|| {
-                info!(
-                    outcome = if generated.is_ok() {
-                        "auth_url"
-                    } else {
-                        "oidc_error"
-                    },
-                    client_cold,
-                    elapsed_ms = elapsed.as_millis() as u64,
-                    "Hosted sign-in started"
-                )
-            });
+        .await?;
+
+        // Bind the flow to this user-agent (RFC 9700 §2.1).
+        let mut response = HttpResponse::Ok();
+        response.cookie(crate::utils::cookies::create_oauth_state_cookie(
+            &started.binding,
+        ));
+        if crate::middleware::workspace_context::is_hosted() {
+            response.insert_header(oidc_server_timing(started.elapsed));
         }
-
-        match generated {
-            Ok((auth_url, auth_data)) => {
-                // Create state JWT with PKCE verifier and nonce
-                let (state, binding) = match create_oauth_state_with_oidc(
-                    "oidc",
-                    oauth_request.redirect_uri.clone(),
-                    oauth_request.user_connection,
-                    Some(auth_data.pkce_verifier),
-                    Some(auth_data.nonce),
-                    callback_redirect,
-                    None,
-                ) {
-                    Ok(pair) => pair,
-                    Err(e) => {
-                        error!(error = %e, "Failed to create OAuth state token for OIDC");
-                        return Err(ApiError::Internal(
-                            "Failed to initiate authentication flow".into(),
-                        ));
-                    }
-                };
-
-                // The auth_url from openidconnect library already includes a state
-                // Replace with JWT state
-                let auth_url_with_state = replace_state_in_url(&auth_url, &state);
-
-                // Bind the flow to this user-agent (RFC 9700 §2.1).
-                let mut response = HttpResponse::Ok();
-                response.cookie(crate::utils::cookies::create_oauth_state_cookie(&binding));
-                if hosted {
-                    response.insert_header(oidc_server_timing(elapsed));
-                }
-                Ok(response.json(json!({
-                    "auth_url": auth_url_with_state,
-                    "state": state
-                })))
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to generate OIDC authorization URL");
-                Err(ApiError::Internal(format!(
-                    "Failed to initiate OIDC authentication: {}",
-                    e
-                )))
-            }
-        }
+        Ok(response.json(json!({
+            "auth_url": started.auth_url,
+            "state": started.state
+        })))
     } else {
         Err(ApiError::BadRequest(format!(
             "{} authentication is not implemented",
             provider.name
         )))
     }
+}
+
+/// A started OIDC sign-in: the identity provider's authorize URL carrying the
+/// signed state, and the value this browser's `oauth_state` cookie must hold
+/// for the callback to accept it.
+struct OidcLoginStart {
+    auth_url: String,
+    state: String,
+    binding: String,
+    /// Time spent on the client and the authorize URL, for `Server-Timing`.
+    elapsed: std::time::Duration,
+}
+
+/// Start an OIDC sign-in for the browser behind `req`. PKCE verifier and
+/// nonce ride in the signed state, beside `redirect_uri` (where the callback
+/// lands once signed in) and this host's callback address. Shared by
+/// `POST /api/auth/oauth/authorize` and hosted `GET /login`.
+///
+/// On hosted it logs one `hosted_login` line: `outcome` is `started_outcome`
+/// once the URL is built, else `oidc_error`, with `client_cold` and
+/// `elapsed_ms`.
+async fn start_oidc_login(
+    req: &HttpRequest,
+    redirect_uri: Option<String>,
+    user_connection: Option<bool>,
+    started_outcome: &'static str,
+) -> Result<OidcLoginStart, ApiError> {
+    // Per-tenant OAuth callback (hosted mode): each tenant authenticates
+    // on its own subdomain. Bind it into the signed state so the token
+    // exchange in the callback presents the identical redirect_uri.
+    let callback_redirect = oauth_callback_redirect_uri(req);
+
+    // Time the authorize URL, which includes discovery while the client is
+    // cold, for the `hosted_login` line and the response's `Server-Timing`.
+    let hosted = crate::middleware::workspace_context::is_hosted();
+    let span = if hosted {
+        tracing::info_span!("hosted_login")
+    } else {
+        tracing::Span::none()
+    };
+    let client_cold = !oidc::is_client_warm();
+    let started = std::time::Instant::now();
+
+    let generated = oidc::generate_auth_url(
+        redirect_uri.clone(),
+        user_connection,
+        callback_redirect.clone(),
+        None,
+    )
+    .instrument(span.clone())
+    .await;
+    let elapsed = started.elapsed();
+    if hosted {
+        span.in_scope(|| {
+            info!(
+                outcome = if generated.is_ok() {
+                    started_outcome
+                } else {
+                    "oidc_error"
+                },
+                client_cold,
+                elapsed_ms = elapsed.as_millis() as u64,
+                "Hosted sign-in started"
+            )
+        });
+    }
+
+    let (auth_url, auth_data) = generated.map_err(|e| {
+        error!(error = %e, "Failed to generate OIDC authorization URL");
+        ApiError::Internal(format!("Failed to initiate OIDC authentication: {e}"))
+    })?;
+
+    let (state, binding) = create_oauth_state_with_oidc(
+        "oidc",
+        redirect_uri,
+        user_connection,
+        Some(auth_data.pkce_verifier),
+        Some(auth_data.nonce),
+        callback_redirect,
+        None,
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to create OAuth state token for OIDC");
+        ApiError::Internal("Failed to initiate authentication flow".into())
+    })?;
+
+    // The URL from the openidconnect library carries its own state; the
+    // signed state replaces it.
+    Ok(OidcLoginStart {
+        auth_url: replace_state_in_url(&auth_url, &state),
+        state,
+        binding,
+        elapsed,
+    })
+}
+
+/// What hosted `GET /login` does with a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoginEntry {
+    /// Answer with a 302 into the identity provider's sign-in. The value is
+    /// the `hosted_login` outcome it logs.
+    Redirect(&'static str),
+    /// Serve the SPA shell, as for any other page. The reason is logged as
+    /// the `hosted_login` outcome.
+    Spa(&'static str),
+    /// Everything else says redirect, but the browser holds a refresh cookie:
+    /// look it up first ([`login_entry_after_session_check`]).
+    CheckSessionCookie,
+}
+
+/// What [`login_entry_for`] decides on.
+#[derive(Debug, Clone, Copy)]
+struct LoginEntryInputs {
+    mode: crate::middleware::DeploymentMode,
+    /// The workspace middleware resolved a workspace from the Host: a tenant
+    /// origin, whose `/login` is the portal's sign-in.
+    host_resolved_workspace: bool,
+    /// `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` are set.
+    oidc_enabled: bool,
+    /// Password and passkey sign-in are off (hosted).
+    local_auth_disabled: bool,
+    /// The query carries something for the sign-in page to show
+    /// ([`LOGIN_PAGE_PARAMS`]), such as a callback's denial.
+    has_page_param: bool,
+    /// The browser holds a non-empty refresh cookie.
+    holds_session_cookie: bool,
+}
+
+/// Query parameters the sign-in page shows: a callback's `auth_error`, and the
+/// `message` and `email` other pages send. With one present `/login` serves
+/// the page, so a denial never loops straight back into the flow that denied
+/// it. The page holds its own automatic start for `auth_error` the same way.
+const LOGIN_PAGE_PARAMS: [&str; 3] = ["auth_error", "message", "email"];
+
+/// Whether hosted `GET /login` goes straight to the identity provider. Only
+/// when the page would start single sign-on by itself anyway: hosted, on the
+/// agent origin, single sign-on the only way in, and nothing on the page to
+/// show. A refresh cookie is looked up before redirecting, since only a live
+/// session should keep the page (whose guard sends the person home).
+fn login_entry_for(inputs: LoginEntryInputs) -> LoginEntry {
+    if inputs.mode != crate::middleware::DeploymentMode::Hosted {
+        LoginEntry::Spa("self_hosted")
+    } else if inputs.host_resolved_workspace {
+        LoginEntry::Spa("tenant_origin")
+    } else if !inputs.oidc_enabled {
+        LoginEntry::Spa("oidc_off")
+    } else if !inputs.local_auth_disabled {
+        LoginEntry::Spa("local_auth_on")
+    } else if inputs.has_page_param {
+        LoginEntry::Spa("page_param")
+    } else if inputs.holds_session_cookie {
+        LoginEntry::CheckSessionCookie
+    } else {
+        LoginEntry::Redirect("redirect")
+    }
+}
+
+/// The entry once the refresh cookie is looked up: a live session keeps the
+/// page; a stale one redirects as if there were no cookie, leaving the cookies
+/// alone (the callback sets fresh ones, and deleting them could hit a session
+/// another tab has signed in with since); a failed lookup keeps the page.
+fn login_entry_after_session_check<E>(live: Result<bool, E>) -> LoginEntry {
+    match live {
+        Ok(true) => LoginEntry::Spa("session_cookie"),
+        Ok(false) => LoginEntry::Redirect("stale_session_cookie"),
+        Err(_) => LoginEntry::Spa("session_check_failed"),
+    }
+}
+
+/// Whether a refresh would accept the token `standing` describes, read
+/// without using it. Mirrors the refusals in `auth::rotate_refresh_family`:
+/// no unexpired token, another realm, revoked, spent past its grace period,
+/// its session gone, or the session past its absolute lifetime.
+fn refresh_standing_is_live(
+    standing: Option<&crate::models::RefreshTokenStanding>,
+    now: chrono::NaiveDateTime,
+) -> bool {
+    let Some(token) = standing else {
+        return false;
+    };
+    if token.audience != crate::models::REFRESH_AUDIENCE_AGENT || token.revoked_at.is_some() {
+        return false;
+    }
+    if token.is_used && token.grace_expires_at.is_none_or(|grace| grace <= now) {
+        return false;
+    }
+    match (token.session_id, token.session_created_at) {
+        // A token from before sessions were recorded; a refresh makes one.
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(_), Some(created_at)) => {
+            crate::utils::session_policy::absolute_deadline(created_at) > now
+        }
+    }
+}
+
+/// Whether `query` names any of [`LOGIN_PAGE_PARAMS`], whatever its value.
+fn has_login_page_param(query: &[(String, String)]) -> bool {
+    query
+        .iter()
+        .any(|(key, _)| LOGIN_PAGE_PARAMS.contains(&key.as_str()))
+}
+
+/// The first `redirect` in `query`, if sign-in may return there
+/// ([`is_in_app_path`]). Anything else lands on the app root.
+fn login_return_path(query: &[(String, String)]) -> Option<String> {
+    query
+        .iter()
+        .find(|(key, _)| key == "redirect")
+        .map(|(_, path)| path.clone())
+        .filter(|path| is_in_app_path(path))
+}
+
+/// The value of the non-empty cookie named `name` on `req`, if any.
+fn cookie_value(req: &HttpRequest, name: &str) -> Option<String> {
+    req.cookie(name)
+        .map(|c| c.value().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// `GET /login` on hosted. Where [`login_entry_for`] says so, starts single
+/// sign-on here and answers 302 to the identity provider, with the
+/// `oauth_state` cookie and `Cache-Control: no-store`, instead of loading the
+/// app only for it to start the same flow. A valid `?redirect=` path rides in
+/// the signed state, so the callback lands there. Otherwise, or when starting
+/// fails, it serves the SPA shell exactly as any other page.
+pub async fn hosted_login_entry(db_pool: web::Data<Pool>, req: HttpRequest) -> HttpResponse {
+    let query: Vec<(String, String)> = url::form_urlencoded::parse(req.query_string().as_bytes())
+        .into_owned()
+        .collect();
+    let mode = crate::middleware::DeploymentMode::current();
+    // Its own statement: the extensions borrow must end before the cookie
+    // read below, which caches the parsed cookies in them.
+    let host_resolved_workspace = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .is_some();
+    let refresh_cookie = cookie_value(
+        &req,
+        &crate::utils::cookies::cookie_name(crate::utils::cookies::REFRESH_TOKEN_COOKIE),
+    );
+    let mut decision = login_entry_for(LoginEntryInputs {
+        mode,
+        host_resolved_workspace,
+        oidc_enabled: config_utils::is_oidc_enabled(),
+        local_auth_disabled: crate::handlers::auth::hosted_local_auth_disabled(),
+        has_page_param: has_login_page_param(&query),
+        holds_session_cookie: refresh_cookie.is_some(),
+    });
+    if decision == LoginEntry::CheckSessionCookie {
+        let hash = crate::utils::jwt::JwtUtils::hash_refresh_token(
+            refresh_cookie.as_deref().unwrap_or_default(),
+        );
+        let live = helpers::db_conn(&db_pool)
+            .map_err(|e| e.to_string())
+            .and_then(|mut conn| {
+                crate::repository::refresh_tokens::standing_by_hash(&mut conn, &hash)
+                    .map_err(|e| e.to_string())
+            })
+            .map(|standing| {
+                refresh_standing_is_live(standing.as_ref(), chrono::Utc::now().naive_utc())
+            });
+        if let Err(e) = &live {
+            warn!(error = %e, "Hosted sign-in page: the session cookie couldn't be looked up");
+        }
+        decision = login_entry_after_session_check(live);
+    }
+
+    let reason = match decision {
+        LoginEntry::Spa(reason) => reason,
+        // Resolved above; kept total for the compiler.
+        LoginEntry::CheckSessionCookie => "session_cookie",
+        LoginEntry::Redirect(outcome) => {
+            let return_to = login_return_path(&query);
+            match start_oidc_login(&req, return_to, None, outcome).await {
+                Ok(started) => {
+                    return HttpResponse::Found()
+                        .insert_header((actix_web::http::header::LOCATION, started.auth_url))
+                        .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
+                        .insert_header(oidc_server_timing(started.elapsed))
+                        .cookie(crate::utils::cookies::create_oauth_state_cookie(
+                            &started.binding,
+                        ))
+                        .finish();
+                }
+                // Logged by `start_oidc_login`; the page starts sign-in itself.
+                Err(_) => return crate::startup::serve_spa(req).await,
+            }
+        }
+    };
+    if mode == crate::middleware::DeploymentMode::Hosted {
+        tracing::info_span!("hosted_login")
+            .in_scope(|| info!(outcome = reason, "Hosted sign-in page served"));
+    }
+    crate::startup::serve_spa(req).await
 }
 
 // Helper function to replace the state parameter in an OAuth URL
@@ -3123,5 +3352,294 @@ mod hosted_auth_tests {
             callback_redirect_for(Some(""), DeploymentMode::Hosted),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod login_entry_tests {
+    use super::{
+        cookie_value, has_login_page_param, login_entry_after_session_check, login_entry_for,
+        login_return_path, refresh_standing_is_live, LoginEntry, LoginEntryInputs,
+    };
+    use crate::middleware::DeploymentMode;
+    use actix_web::cookie::Cookie;
+    use actix_web::test::TestRequest;
+
+    /// A hosted visit to the agent origin's `/login` with nothing to show and
+    /// no session: the one case that redirects.
+    fn redirecting() -> LoginEntryInputs {
+        LoginEntryInputs {
+            mode: DeploymentMode::Hosted,
+            host_resolved_workspace: false,
+            oidc_enabled: true,
+            local_auth_disabled: true,
+            has_page_param: false,
+            holds_session_cookie: false,
+        }
+    }
+
+    #[test]
+    fn redirects_only_when_every_condition_holds() {
+        let base = redirecting();
+        assert_eq!(login_entry_for(base), LoginEntry::Redirect("redirect"));
+
+        let cases = [
+            (
+                LoginEntryInputs {
+                    mode: DeploymentMode::SelfHosted,
+                    ..base
+                },
+                "self_hosted",
+            ),
+            (
+                LoginEntryInputs {
+                    host_resolved_workspace: true,
+                    ..base
+                },
+                "tenant_origin",
+            ),
+            (
+                LoginEntryInputs {
+                    oidc_enabled: false,
+                    ..base
+                },
+                "oidc_off",
+            ),
+            (
+                LoginEntryInputs {
+                    local_auth_disabled: false,
+                    ..base
+                },
+                "local_auth_on",
+            ),
+            (
+                LoginEntryInputs {
+                    has_page_param: true,
+                    ..base
+                },
+                "page_param",
+            ),
+        ];
+        for (inputs, reason) in cases {
+            assert_eq!(
+                login_entry_for(inputs),
+                LoginEntry::Spa(reason),
+                "{inputs:?}"
+            );
+        }
+        // A session cookie is looked up before redirecting.
+        assert_eq!(
+            login_entry_for(LoginEntryInputs {
+                holds_session_cookie: true,
+                ..base
+            }),
+            LoginEntry::CheckSessionCookie
+        );
+        // Anything that serves the page outranks the lookup.
+        assert_eq!(
+            login_entry_for(LoginEntryInputs {
+                holds_session_cookie: true,
+                has_page_param: true,
+                ..base
+            }),
+            LoginEntry::Spa("page_param")
+        );
+    }
+
+    #[test]
+    fn a_looked_up_session_cookie_decides_the_entry() {
+        assert_eq!(
+            login_entry_after_session_check::<()>(Ok(true)),
+            LoginEntry::Spa("session_cookie")
+        );
+        assert_eq!(
+            login_entry_after_session_check::<()>(Ok(false)),
+            LoginEntry::Redirect("stale_session_cookie")
+        );
+        assert_eq!(
+            login_entry_after_session_check(Err("pool timed out")),
+            LoginEntry::Spa("session_check_failed")
+        );
+    }
+
+    #[test]
+    fn a_session_cookie_is_live_only_while_a_refresh_would_take_it() {
+        use crate::models::RefreshTokenStanding;
+        use chrono::Duration;
+        let now = chrono::Utc::now().naive_utc();
+        let live = RefreshTokenStanding {
+            audience: crate::models::REFRESH_AUDIENCE_AGENT.to_string(),
+            revoked_at: None,
+            is_used: false,
+            grace_expires_at: None,
+            session_id: Some(uuid::Uuid::new_v4()),
+            session_created_at: Some(now - Duration::hours(1)),
+        };
+        assert!(refresh_standing_is_live(Some(&live), now));
+        // Rotated a moment ago by another tab: still within its grace.
+        assert!(refresh_standing_is_live(
+            Some(&RefreshTokenStanding {
+                is_used: true,
+                grace_expires_at: Some(now + Duration::seconds(30)),
+                ..live.clone()
+            }),
+            now
+        ));
+        // A token from before sessions were recorded.
+        assert!(refresh_standing_is_live(
+            Some(&RefreshTokenStanding {
+                session_id: None,
+                session_created_at: None,
+                ..live.clone()
+            }),
+            now
+        ));
+
+        let stale = [
+            ("unknown or expired", None),
+            (
+                "portal realm",
+                Some(RefreshTokenStanding {
+                    audience: crate::models::REFRESH_AUDIENCE_PORTAL.to_string(),
+                    ..live.clone()
+                }),
+            ),
+            (
+                "revoked",
+                Some(RefreshTokenStanding {
+                    revoked_at: Some(now),
+                    ..live.clone()
+                }),
+            ),
+            (
+                "spent past its grace",
+                Some(RefreshTokenStanding {
+                    is_used: true,
+                    grace_expires_at: Some(now - Duration::seconds(1)),
+                    ..live.clone()
+                }),
+            ),
+            (
+                "spent with no grace",
+                Some(RefreshTokenStanding {
+                    is_used: true,
+                    ..live.clone()
+                }),
+            ),
+            (
+                "session gone",
+                Some(RefreshTokenStanding {
+                    session_created_at: None,
+                    ..live.clone()
+                }),
+            ),
+            (
+                "session past its lifetime",
+                Some(RefreshTokenStanding {
+                    session_created_at: Some(now - Duration::days(4000)),
+                    ..live.clone()
+                }),
+            ),
+        ];
+        for (case, standing) in stale {
+            assert!(!refresh_standing_is_live(standing.as_ref(), now), "{case}");
+        }
+    }
+
+    #[test]
+    fn self_hosted_never_redirects() {
+        for host_resolved_workspace in [false, true] {
+            for oidc_enabled in [false, true] {
+                for local_auth_disabled in [false, true] {
+                    let inputs = LoginEntryInputs {
+                        mode: DeploymentMode::SelfHosted,
+                        host_resolved_workspace,
+                        oidc_enabled,
+                        local_auth_disabled,
+                        has_page_param: false,
+                        holds_session_cookie: false,
+                    };
+                    assert_eq!(login_entry_for(inputs), LoginEntry::Spa("self_hosted"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_tenant_origin_serves_its_portal_whatever_else_holds() {
+        let inputs = LoginEntryInputs {
+            host_resolved_workspace: true,
+            ..redirecting()
+        };
+        assert_eq!(login_entry_for(inputs), LoginEntry::Spa("tenant_origin"));
+    }
+
+    fn query(raw: &str) -> Vec<(String, String)> {
+        url::form_urlencoded::parse(raw.as_bytes())
+            .into_owned()
+            .collect()
+    }
+
+    #[test]
+    fn each_page_param_holds_the_page() {
+        for raw in [
+            "auth_error=no_seat",
+            "auth_error=",
+            "message=Password%20changed",
+            "email=a%40example.com",
+            "redirect=%2Ftickets&auth_error=state_expired",
+        ] {
+            assert!(has_login_page_param(&query(raw)), "{raw}");
+        }
+        for raw in ["", "redirect=%2Ftickets", "error=x", "auth_errors=x"] {
+            assert!(!has_login_page_param(&query(raw)), "{raw}");
+        }
+    }
+
+    #[test]
+    fn only_an_in_app_path_is_carried_back() {
+        assert_eq!(
+            login_return_path(&query("redirect=%2Facme%2Ftickets%2F5")).as_deref(),
+            Some("/acme/tickets/5")
+        );
+        assert_eq!(
+            login_return_path(&query("redirect=%2Ftickets%3Fview%3Dmine")).as_deref(),
+            Some("/tickets?view=mine")
+        );
+        for raw in [
+            "redirect=%2F%2Fevil.example",
+            "redirect=https%3A%2F%2Fevil.example",
+            "redirect=%2F%5Cevil.example",
+            "redirect=javascript%3Aalert(1)",
+            "redirect=",
+            "",
+        ] {
+            assert_eq!(login_return_path(&query(raw)), None, "{raw}");
+        }
+    }
+
+    /// The cookie is read under its wire name, `__Host-` prefixed or bare by
+    /// posture; the other spelling, or an emptied cookie, isn't a session.
+    #[test]
+    fn the_session_cookie_counts_under_its_wire_name_only() {
+        for (wire, other) in [
+            ("__Host-refresh_token", "refresh_token"),
+            ("refresh_token", "__Host-refresh_token"),
+        ] {
+            let req = TestRequest::get()
+                .uri("/login")
+                .cookie(Cookie::new(wire, "token"))
+                .to_http_request();
+            assert_eq!(cookie_value(&req, wire).as_deref(), Some("token"));
+            assert_eq!(cookie_value(&req, other), None);
+
+            let emptied = TestRequest::get()
+                .uri("/login")
+                .cookie(Cookie::new(wire, ""))
+                .to_http_request();
+            assert_eq!(cookie_value(&emptied, wire), None);
+        }
+        let bare = TestRequest::get().uri("/login").to_http_request();
+        assert_eq!(cookie_value(&bare, "refresh_token"), None);
     }
 }

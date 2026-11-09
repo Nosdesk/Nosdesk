@@ -3,7 +3,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{NewRefreshToken, RefreshToken};
+use crate::models::{NewRefreshToken, RefreshToken, RefreshTokenStanding};
 use crate::schema::refresh_tokens;
 
 // sync-audit-only: Sessions / auth tokens (covered by security_events)
@@ -26,6 +26,34 @@ pub fn get_refresh_token_by_hash(
         .filter(refresh_tokens::token_hash.eq(token_hash))
         .filter(refresh_tokens::expires_at.gt(Utc::now().naive_utc()))
         .first::<RefreshToken>(conn)
+}
+
+/// The standing of the unexpired refresh token with this hash, and of the
+/// session it names, in one read. `None` when no unexpired token has the hash.
+/// Reads only: unlike a refresh, it rotates and revokes nothing.
+pub fn standing_by_hash(
+    conn: &mut DbConnection,
+    token_hash: &str,
+) -> Result<Option<RefreshTokenStanding>, diesel::result::Error> {
+    use crate::schema::active_sessions;
+    refresh_tokens::table
+        .left_join(
+            active_sessions::table.on(active_sessions::session_id
+                .nullable()
+                .eq(refresh_tokens::session_id)),
+        )
+        .filter(refresh_tokens::token_hash.eq(token_hash))
+        .filter(refresh_tokens::expires_at.gt(Utc::now().naive_utc()))
+        .select((
+            refresh_tokens::audience,
+            refresh_tokens::revoked_at,
+            refresh_tokens::is_used,
+            refresh_tokens::grace_expires_at,
+            refresh_tokens::session_id,
+            active_sessions::created_at.nullable(),
+        ))
+        .first::<RefreshTokenStanding>(conn)
+        .optional()
 }
 
 // sync-audit-only: Sessions / auth tokens (covered by security_events)

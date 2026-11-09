@@ -166,6 +166,24 @@ async fn boot_wires_state_and_routes() {
         "narrowed token on /api/files/* must be scope-denied => {status}"
     );
 
+    // Self-hosted `/login` is the SPA fallback, as any other page: the server
+    // starts no sign-in there (hosted's is `tests/hosted_login.rs`).
+    for path in ["/login", "/login/", "/login?redirect=%2Ftickets"] {
+        let resp = test::call_service(&app, test::TestRequest::get().uri(path).to_request()).await;
+        assert!(
+            resp.headers().get("location").is_none(),
+            "GET {path} => {} with a Location",
+            resp.status()
+        );
+        assert!(
+            resp.headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|t| t.starts_with("text/html")),
+            "GET {path} serves the shell"
+        );
+    }
+
     // A request actix can't extract, and a path no API route matches, answer
     // with the `{error, code}` envelope. An unknown path stays behind its
     // scope's auth: without a credential it is still a 401.

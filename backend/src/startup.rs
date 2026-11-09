@@ -690,9 +690,22 @@ async fn read_spa_shell(req: &HttpRequest) -> Option<Vec<u8>> {
     tokio::fs::read(shell).await.ok()
 }
 
+/// Hosted `GET /login` and `/login/`. Each redirect starts a flow at the
+/// identity provider, so the route counts against the `RequestLimiter` in app
+/// data: the app-level auth limiter in `configure_app`. `HEAD` gets the
+/// shell, so a link checker starts no sign-in.
+pub fn hosted_login_config(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::resource(["/login", "/login/"])
+            .route(web::get().to(crate::handlers::hosted_login_entry))
+            .route(web::head().to(serve_spa))
+            .wrap(crate::middleware::RateLimit),
+    );
+}
+
 /// Serve the SPA shell for all non-API routes (SPA routing)
 /// This follows Actix best practices for SPA applications
-async fn serve_spa(req: HttpRequest) -> HttpResponse {
+pub(crate) async fn serve_spa(req: HttpRequest) -> HttpResponse {
     // Check if this is a static asset request (has file extension and not HTML)
     let path = req.path();
 
@@ -1340,6 +1353,14 @@ pub fn configure_app(
             // The Microsoft Teams personal tab's page.
             .route("/teams", web::get().to(crate::handlers::teams::serve_shell))
             .route("/portal/teams", web::get().to(crate::handlers::teams::serve_shell))
+            // Hosted `/login` starts single sign-on on the server where it can
+            // (`handlers::hosted_login_entry`), else serves the shell as below.
+            // Self-hosted doesn't mount it: its `/login` is the SPA fallback.
+            .configure(|cfg| {
+                if workspace_config.mode == crate::middleware::DeploymentMode::Hosted {
+                    hosted_login_config(cfg);
+                }
+            })
             // Root path handler - serves index.html or rebuilding message
             .route("/", web::get().to(serve_spa))
             .service(
