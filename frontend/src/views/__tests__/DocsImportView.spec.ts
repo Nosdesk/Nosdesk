@@ -210,7 +210,31 @@ describe('DocsImportView: Start', () => {
     expect(api.upload).not.toHaveBeenCalled()
   })
 
+  it('says what to export instead of one HTML file, without uploading it', async () => {
+    await mountAt('/admin/data-import/documentation')
+    const bookstack = new File(
+      ['<!doctype html><html><head><title>VPN</title></head><body class="export export-format-html export-engine-none"><h1>VPN</h1></body></html>'],
+      'vpn-setup.html',
+      { type: 'text/html' },
+    )
+    await find('docs-drop').trigger('drop', { dataTransfer: { files: [bookstack] } })
+    await flushPromises()
+    expect(find('docs-upload-error').text()).toContain('docs-import-html-bookstack')
+    await find('docs-drop').trigger('drop', {
+      dataTransfer: { files: [new File(['<html><body><p>Hi</p></body></html>'], 'page.htm')] },
+    })
+    await flushPromises()
+    expect(find('docs-upload-error').text()).toContain('docs-import-html-other')
+    expect(api.upload).not.toHaveBeenCalled()
+    expect(find('docs-file').attributes('accept')).toContain('.html')
+  })
+
   it.each([
+    ['docs_import_bookstack_unreadable', 'docs-import-refused-bookstack-unreadable'],
+    ['docs_import_bookstack_too_large', 'docs-import-refused-bookstack-too-large'],
+    ['docs_import_bookstack_unsupported', 'docs-import-refused-bookstack-unsupported'],
+    ['docs_import_confluence_xml', 'docs-import-refused-confluence-xml'],
+    ['docs_import_confluence_no_index', 'docs-import-refused-confluence-no-index'],
     ['docs_import_no_markdown', 'docs-import-refused-no-markdown'],
     ['archive_encrypted', 'docs-import-refused-encrypted'],
     ['docs_import_too_many_pages', 'docs-import-refused-too-many-pages'],
@@ -319,6 +343,25 @@ describe('DocsImportView: Review', () => {
     ])
     await find('docs-list-chip-clear').trigger('click')
     expect(wrapper!.findAll('[data-test="docs-list-row"]')).toHaveLength(4)
+  })
+
+  it('heads the preview with where a source page sits, not its key, and words its tags', async () => {
+    const book = job('dry_run_done', { summary: { ...SUMMARY, profile: 'bookstack', front_matter_not_imported: { tags: 3 } } })
+    api.get.mockResolvedValue(book)
+    api.allPages.mockResolvedValue(
+      ROWS.map((r) =>
+        r.index === 0 ? { ...r, path: 'bookstack:-:page:19', display: 'Onboarding / VPN setup', no_content: false } : r,
+      ),
+    )
+    await mountAt('/admin/data-import/documentation?job=job-1')
+    await wrapper!.findAll('[data-test="docs-list-row"]')[0].trigger('click')
+    await flushPromises()
+    const paths = wrapper!.findAll('[data-test="docs-preview-path"]').map((p) => p.text())
+    expect(paths).toContain('Onboarding / VPN setup')
+    expect(paths.join(' ')).not.toContain('bookstack:')
+    const lines = wrapper!.findAll('[data-test="docs-conversion-line"]').map((l) => l.text())
+    expect(lines.some((l) => l.includes('docs-import-line-tags'))).toBe(true)
+    expect(lines.some((l) => l.includes('docs-import-line-front-matter'))).toBe(false)
   })
 
   it('heads the preview with the path below the archive root, ids shortened', async () => {

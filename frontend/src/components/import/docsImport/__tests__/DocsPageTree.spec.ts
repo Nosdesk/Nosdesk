@@ -140,6 +140,27 @@ describe('DocsPageTree', () => {
     expect(items()[3].find('[data-test="docs-tree-no-content"]').exists()).toBe(true)
   })
 
+  it('calls a BookStack section a chapter, with or without content', () => {
+    const book = buildTree([
+      { ...page(0, 'Onboarding', null, null), path: 'bookstack:-:chapter:16', kind: 'section' },
+      { ...page(1, 'VPN setup', 0, null), path: 'bookstack:-:page:19', kind: 'page' },
+    ])
+    const props = {
+      tree: book,
+      groups: [{ key: 'c0', name: 'Help Desk Handbook', kind: 'new' as const, nodes: book.roots }],
+      expanded: new Set(['bookstack:-:chapter:16']),
+    }
+    mount({ ...props, profile: 'bookstack' })
+    expect(items()[0].find('[data-test="docs-tree-chapter"]').text()).toBe('docs-import-tree-chapter')
+    expect(items()[0].find('[data-test="docs-tree-no-content"]').exists()).toBe(false)
+    expect(items()[1].find('[data-test="docs-tree-chapter"]').exists()).toBe(false)
+    // Another source's section is a folder with no content.
+    wrapper!.unmount()
+    mount({ ...props, profile: 'plain' })
+    expect(items()[0].find('[data-test="docs-tree-chapter"]').exists()).toBe(false)
+    expect(items()[0].find('[data-test="docs-tree-no-content"]').exists()).toBe(true)
+  })
+
   it('links each page the import wrote on the detail page, and shows Trash and Kept after removal', async () => {
     const view = { template: '<div />' }
     const router = createRouter({

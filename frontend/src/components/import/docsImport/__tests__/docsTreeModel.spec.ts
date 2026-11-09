@@ -4,6 +4,8 @@ import type { DocsTreePage, DocsTreeView } from '@nosdesk/core/services/docsImpo
 import {
   buildTree,
   collectionGroups,
+  defaultMode,
+  displayOf,
   excludedIndices,
   globMatch,
   informativeFile,
@@ -195,6 +197,9 @@ describe('file names', () => {
       'Wifi 1a2b3c4d.md',
     )
     expect(informativeFile(page(0, 'Network', null, null, 'Network'))).toBeNull()
+    // A Confluence page's file is its title or its id.
+    expect(informativeFile(page(0, 'Install Guide', null, 'QA/Install-Guide_294922.html'))).toBeNull()
+    expect(informativeFile(page(0, 'Q&A', null, 'QA/294933.html'))).toBeNull()
     expect(shortPath('IT 9f3c1e2d4b5a6c7d8e9f0a1b2c3d4e5f/VPN 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d.md')).toBe('IT 9f3c1e2d/VPN 1a2b3c4d.md')
   })
 
@@ -207,6 +212,21 @@ describe('file names', () => {
     expect(previewPath('Export-0a1b2c3d-2/VPN.md', root)).toBe('Export-0a1b2c3d-2/VPN.md')
     expect(previewPath('docs/VPN.md', '')).toBe('docs/VPN.md')
     expect(previewPath('docs/VPN.md', undefined)).toBe('docs/VPN.md')
+  })
+})
+
+describe('sources with their own collections', () => {
+  it('default to As the export says: a Nosdesk export, BookStack books, Confluence spaces', () => {
+    expect(defaultMode('nosdesk_v2')).toBe('as_source')
+    expect(defaultMode('bookstack')).toBe('as_source')
+    expect(defaultMode('confluence')).toBe('as_source')
+    expect(defaultMode('outline')).toBe('per_top_level_folder')
+    expect(defaultMode('notion')).toBe('new')
+  })
+
+  it('show where a page sits, or its key on a tree read before the server said', () => {
+    expect(displayOf({ path: 'bookstack:-:page:19', display: 'Onboarding / VPN setup' })).toBe('Onboarding / VPN setup')
+    expect(displayOf({ path: 'docs/VPN.md' })).toBe('docs/VPN.md')
   })
 })
 

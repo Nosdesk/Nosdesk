@@ -196,6 +196,13 @@ pub struct PlannedPage {
     pub source: Option<String>,
     /// The folder the page stands for, by archive key.
     pub folder: Option<String>,
+    /// Where the page sits, as people read it: its file or folder in the
+    /// archive, else its titles from the top (a BookStack page).
+    pub display: String,
+    /// The page's id in the tool it came from (a BookStack page or chapter,
+    /// a Confluence page), for the conversion report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
     pub title: String,
     pub parent: Option<usize>,
     /// Position among its siblings, from 0.
@@ -203,6 +210,9 @@ pub struct PlannedPage {
     /// The collection a top-level page goes in, by index.
     pub collection: Option<usize>,
     pub kind: PageKind,
+    /// A section with no content of its own: it gets an empty body.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub no_content: bool,
     pub status: PageStatus,
     pub icon: Option<String>,
     /// A slug to keep when it is free.
@@ -548,6 +558,7 @@ impl Planner<'_> {
         let mut not_imported: BTreeMap<String, u32> = BTreeMap::new();
         let mut section_pages = 0;
         let mut totals = Notes::default();
+        let mut trails: Vec<String> = Vec::with_capacity(order.len());
         for (i, (p, parent_page, position, collection)) in order.iter().enumerate() {
             let page = &pages[*p];
             let mut notes = page.notes.clone();
@@ -557,9 +568,22 @@ impl Planner<'_> {
             for key in &page.metadata_not_imported {
                 *not_imported.entry(key.clone()).or_insert(0) += 1;
             }
+            let sections_before = section_pages;
             let (document, links) =
                 self.convert(page, &index, same_workspace, &mut notes, &mut section_pages);
             totals.merge(&notes);
+            let parent = parent_page.and_then(|q| index_of.get(&q).copied());
+            // Parents come first, so a parent's trail is already there.
+            let trail = match parent.and_then(|q| trails.get(q)) {
+                Some(above) => format!("{above} / {}", page.title),
+                None => page.title.clone(),
+            };
+            let display = page
+                .file
+                .clone()
+                .or_else(|| page.folder.clone())
+                .unwrap_or_else(|| trail.clone());
+            trails.push(trail);
             // A row whose database isn't its parent any more is a page.
             let kind = match page.kind {
                 PageKind::DatabaseRow
@@ -574,11 +598,14 @@ impl Planner<'_> {
                 key: page.key.clone(),
                 source: page.file.clone(),
                 folder: page.folder.clone(),
+                display,
+                source_id: page.source_id.clone(),
                 title: page.title.clone(),
-                parent: parent_page.and_then(|q| index_of.get(&q).copied()),
+                parent,
                 order: *position,
                 collection: *collection,
                 kind,
+                no_content: section_pages > sections_before,
                 status: match self.options.status {
                     StatusMode::Drafts => PageStatus::Draft,
                     StatusMode::Published => PageStatus::Published,

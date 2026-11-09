@@ -17,7 +17,7 @@ import type {
   DocsWebImages,
 } from '@nosdesk/core/services/docsImportService'
 
-import type { PagesChoices } from './docsTreeModel'
+import { hasSourceCollections, type PagesChoices } from './docsTreeModel'
 
 export interface CollectionChoice {
   id: number
@@ -44,6 +44,12 @@ const props = defineProps<{
 }>()
 
 const choices = defineModel<PagesChoices>({ required: true })
+
+/** "As the export says", worded for what the source's collections are. */
+const AS_SOURCE_DESC: Partial<Record<DocsProfile, string>> = {
+  bookstack: 'docs-import-where-as-source-bookstack-desc',
+  confluence: 'docs-import-where-as-source-confluence-desc',
+}
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -90,14 +96,13 @@ const modes = computed(() => {
       }),
     },
   ]
-  if (props.profile === 'nosdesk_v2' || props.profile === 'bookstack') {
+  if (hasSourceCollections(props.profile)) {
     out.push({
       value: 'as_source',
       label: t('docs-import-where-as-source'),
-      desc: t(
-        props.profile === 'bookstack' ? 'docs-import-where-as-source-bookstack-desc' : 'docs-import-where-as-source-desc',
-        { count: props.sourceCollections },
-      ),
+      desc: t(AS_SOURCE_DESC[props.profile] ?? 'docs-import-where-as-source-desc', {
+        count: props.sourceCollections,
+      }),
     })
   }
   return out

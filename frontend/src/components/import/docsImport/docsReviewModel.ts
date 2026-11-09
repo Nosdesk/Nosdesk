@@ -72,9 +72,11 @@ export function summaryCounts(summary: DocsSummary): PlanCounts {
   }
 }
 
-/** A section page: it stands for a folder and has no file of its own. */
+/** A section page: it stands for a folder (or a BookStack chapter) and has
+ *  no content of its own. A row checked before the server said so falls
+ *  back on whether it has a Markdown file. */
 export function isSection(row: DocsPageRow): boolean {
-  return !/\.(md|markdown|mdx|csv)$/i.test(row.path)
+  return row.no_content ?? !/\.(md|markdown|mdx|csv)$/i.test(row.path)
 }
 
 export function imageProblems(row: DocsPageRow) {

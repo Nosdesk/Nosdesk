@@ -259,6 +259,7 @@ async function downloadReport() {
         :outcomes="outcomes"
         :note-counts="noteCounts"
         :links="links"
+        :profile="view.profile"
         :label="$t('docs-import-detail-tree-title')"
       />
       <p class="px-3 py-2 border-t border-default bg-surface-alt text-xs text-tertiary">

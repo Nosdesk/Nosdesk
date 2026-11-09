@@ -191,10 +191,14 @@ impl DocsOptions {
 pub struct TreePage {
     pub index: usize,
     pub title: String,
-    /// The Markdown file, or the folder a section page stands for; else
-    /// the page's source key (a BookStack page). Unique in the tree, as the
-    /// check's rows name the page.
+    /// The page's source key: its Markdown file, or the folder a section
+    /// page stands for, or a BookStack or Confluence id. Unique in the
+    /// tree, and the same as the check's row and the written page for it.
     pub path: String,
+    /// Where the page sits, as people read it; empty on a tree read before
+    /// it was kept.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub display: String,
     /// What a later import finds the page by; empty for a nav heading.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub key: String,
@@ -258,11 +262,8 @@ impl TreeView {
                 .map(|p| TreePage {
                     index: p.index,
                     title: p.title.clone(),
-                    path: p
-                        .source
-                        .clone()
-                        .or_else(|| p.folder.clone())
-                        .unwrap_or_else(|| p.key.clone()),
+                    path: p.key.clone(),
+                    display: p.display.clone(),
                     key: p.key.clone(),
                     file: p.source.clone(),
                     folder: p.folder.clone(),
@@ -452,6 +453,17 @@ pub struct PageRow {
     /// section page stands for), recorded for later imports' duplicate
     /// check.
     pub path: String,
+    /// Where the page sits, as people read it; empty on a row checked
+    /// before it was kept.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub display: String,
+    /// The page's id in the tool it came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    /// A section with no content of its own; `None` on a row checked
+    /// before it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_content: Option<bool>,
     pub title: String,
     pub parent: Option<usize>,
     pub outcome: PageOutcome,

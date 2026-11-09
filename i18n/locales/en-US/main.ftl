@@ -1753,7 +1753,7 @@ admin-data-import-status-coming-soon = Coming Soon
 admin-data-import-status-beta = Beta
 admin-data-import-status-new = New
 admin-data-import-docs-title = Documentation
-admin-data-import-docs-description = Markdown files, a Notion, Obsidian or GitBook export, or a Nosdesk export.
+admin-data-import-docs-description = Markdown files, or an export from BookStack, Confluence, Notion, Obsidian, GitBook or Nosdesk.
 admin-data-import-microsoft-title = Microsoft Entra ID
 admin-data-import-microsoft-description = Users, groups and devices from Microsoft Entra ID and Intune.
 admin-data-import-csv-title = Spreadsheet
@@ -9031,9 +9031,9 @@ docs-import-files-count = { $count ->
 docs-import-uploading = Uploading { $name }
 docs-import-uploading-progress = { $loaded } of { $total } · you can keep this tab in the background
 docs-import-reading = Reading the pages
-docs-import-start-sources = Markdown files, or an export from Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline or Nosdesk. The source is detected; you can change it on the next step.
+docs-import-start-sources = Markdown files, a BookStack Portable ZIP, a Confluence HTML space export, or an export from Notion, Obsidian, GitBook, MkDocs, Docusaurus, Outline or Nosdesk. The source is detected; you can change it on the next step.
 docs-import-start-images = Images in the archive come across. Images linked from the web are downloaded unless you say otherwise.
-docs-import-start-attachments = PDF and Office attachments stay out for now; each page that links one is listed.
+docs-import-start-attachments = PDF and Office attachments stay out for now; each page that links one is listed, with the file name.
 docs-import-comes-across-heading = What comes across
 docs-import-comes-across-1 = Headings, text formatting, links, lists, quotes, code, tables and images, as the editor supports them. Pages keep their tree and order. Links between pages are rewritten to the new pages.
 docs-import-comes-across-2 = Callouts become quotes with a bold label, checklists become bullet lists with ☐ and ☑, and anything that changes is listed at Review, page by page, before you import.
@@ -9046,6 +9046,8 @@ docs-import-refused-too-many-pages = The import has { $count } pages. The limit 
 docs-import-refused-too-many-files = The zip holds more than { $max } files. Export one part at a time.
 docs-import-refused-no-markdown = There are no Markdown files in this zip.
 docs-import-refused-mixed-files = Choose one .zip, or only .md files.
+docs-import-html-bookstack = This is one BookStack page saved as HTML. Export the book or the page as a Portable ZIP instead.
+docs-import-html-other = One HTML file can't be imported. To import from BookStack, export the book as a Portable ZIP. To import from Confluence, export the space as HTML.
 docs-import-refused-too-large = { $name } is { $size }. The limit is { $max }. Export one part at a time.
 docs-import-refused-unsafe-path = The zip has a file name we can't accept: { $name }
 docs-import-refused-duplicate-entry = The zip holds { $name } more than once.
@@ -9058,6 +9060,11 @@ docs-import-refused-no-file = Choose a file to import.
 docs-import-refused-unreadable = This file couldn't be read as documentation.
 docs-import-refused-timed-out = Reading the pages took too long. Import a smaller part at a time.
 docs-import-refused-collection-missing = The collection to import into no longer exists. Choose another.
+docs-import-refused-bookstack-unreadable = This BookStack export's data.json can't be read.
+docs-import-refused-bookstack-too-large = This BookStack export is larger than we can read at once. Export one chapter at a time.
+docs-import-refused-bookstack-unsupported = This BookStack export holds more than this version can read. Export one book at a time.
+docs-import-refused-confluence-xml = This is a Confluence XML export. Export the space as HTML instead.
+docs-import-refused-confluence-no-index = This looks like a Confluence export, but its index.html is missing. Export the space again with the HTML option.
 docs-import-refused-busy = This import is being checked or committed. Try again in a moment.
 docs-import-refused-check-running = This import is being checked.
 docs-import-refused-commit-running = This import is being committed.
@@ -9095,6 +9102,7 @@ docs-import-profile-docusaurus = a Docusaurus site
 docs-import-profile-outline = an Outline export
 docs-import-profile-plain = a plain folder
 docs-import-profile-bookstack = a BookStack export
+docs-import-profile-confluence = a Confluence export
 docs-import-profile-option-notion = Notion export
 docs-import-profile-option-nosdesk-v2 = Nosdesk export
 docs-import-profile-option-nosdesk-v1 = Older Nosdesk export
@@ -9105,6 +9113,7 @@ docs-import-profile-option-docusaurus = Docusaurus
 docs-import-profile-option-outline = Outline export
 docs-import-profile-option-plain = Plain folder
 docs-import-profile-option-bookstack = BookStack Portable ZIP
+docs-import-profile-option-confluence = Confluence HTML export
 
 # Pages: the tree
 docs-import-tree-title = Pages as they'll appear in Nosdesk
@@ -9120,6 +9129,7 @@ docs-import-tree-tick-with-children = { $count ->
 docs-import-tree-left-out = Left out
 docs-import-tree-no-content = No content
 docs-import-tree-database = Database
+docs-import-tree-chapter = Chapter
 docs-import-tree-image-count = { $count ->
     [one] 1 image
    *[other] { $count } images
@@ -9174,6 +9184,10 @@ docs-import-where-as-source-desc = { $count ->
 docs-import-where-as-source-bookstack-desc = { $count ->
     [one] 1 collection, named after the book, chapter or page.
    *[other] { $count } collections, one for each export.
+}
+docs-import-where-as-source-confluence-desc = { $count ->
+    [one] 1 collection, named after the space.
+   *[other] { $count } collections, one for each space.
 }
 docs-import-status-label = Status
 docs-import-status-drafts = Drafts
@@ -9309,6 +9323,10 @@ docs-import-line-sections = { $count ->
    *[other] { $count } section pages have no content: { $names }. They get an empty body you can fill in.
 }
 docs-import-line-front-matter = Front matter fields that aren't imported: { $fields }.
+docs-import-line-tags = { $count ->
+    [one] 1 page has tags, which aren't imported.
+   *[other] { $count } pages have tags, which aren't imported.
+}
 
 # Conversion notes, one per kind of change
 docs-import-note-tables-hoisted = { $count ->

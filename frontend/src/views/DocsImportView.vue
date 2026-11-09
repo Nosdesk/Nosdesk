@@ -5,7 +5,7 @@
  *  - Start  : drop one .zip or some .md files; the upload streams with its
  *             progress, the server reads the archive and answers with the
  *             job in `parsed` and the tree. A refused file stays on Start
- *             with the reason.
+ *             with the reason; one .html file says what to export instead.
  *  - Pages  : the tree as Nosdesk will show it, ticks, "Where it goes".
  *             Another profile or a collection layout reads the tree again
  *             (`check: false`); Check stores the options and runs the dry
@@ -370,6 +370,22 @@ function pickFiles(event: Event) {
 
 const isZip = (f: File) => /\.zip$/i.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed'
 const isMarkdown = (f: File) => /\.(md|markdown|mdx)$/i.test(f.name)
+const isHtml = (f: File) => /\.html?$/i.test(f.name) || f.type === 'text/html'
+
+/** What to export instead of one HTML file. BookStack marks the body of
+ *  its single-page HTML export, so that file gets the Portable ZIP advice;
+ *  any other gets both sources' advice. */
+async function htmlAdvice(file: File): Promise<string> {
+  let head = ''
+  try {
+    head = await file.slice(0, 64 * 1024).text()
+  } catch {
+    // Unreadable here: the general advice.
+  }
+  return /<body[^>]*\bexport-format-html\b/i.test(head)
+    ? t('docs-import-html-bookstack')
+    : t('docs-import-html-other')
+}
 
 async function acceptFiles(files: File[]) {
   if (busy.value) return
@@ -377,6 +393,10 @@ async function acceptFiles(files: File[]) {
   const size = files.reduce((n, f) => n + f.size, 0)
   const name = files.length === 1 ? files[0].name : t('docs-import-files-count', { count: files.length })
   const detail = `${name} · ${formatFileSize(size)}`
+  if (files.length === 1 && isHtml(files[0])) {
+    uploadError.value = { message: await htmlAdvice(files[0]), detail }
+    return
+  }
   const oneZip = files.length === 1 && isZip(files[0])
   if (!oneZip && !files.every(isMarkdown)) {
     uploadError.value = { message: t('docs-import-refused-mixed-files'), detail }
@@ -820,7 +840,7 @@ function goTo(target: Step) {
               ref="fileInput"
               type="file"
               multiple
-              accept=".zip,application/zip,.md,.markdown,.mdx,text/markdown"
+              accept=".zip,application/zip,.md,.markdown,.mdx,text/markdown,.html,.htm,text/html"
               class="hidden"
               tabindex="-1"
               aria-hidden="true"

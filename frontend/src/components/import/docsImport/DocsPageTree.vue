@@ -20,8 +20,10 @@ import { RouterLink } from 'vue-router'
 import Icon from '@/components/common/Icon.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import type { StatusPillTone } from '@/components/common/statusPillTone'
+import type { DocsProfile } from '@nosdesk/core/services/docsImportService'
 
 import {
+  displayOf,
   informativeFile,
   isMixed,
   isOff,
@@ -56,6 +58,8 @@ const props = withDefaults(
     /** Paths of the expanded pages. */
     expanded: ReadonlySet<string>
     label: string
+    /** The profile the tree was read as: a BookStack section is a chapter. */
+    profile?: DocsProfile | null
   }>(),
   {
     mode: 'pages',
@@ -64,6 +68,7 @@ const props = withDefaults(
     outcomes: () => new Map(),
     noteCounts: () => new Map(),
     links: () => new Map(),
+    profile: null,
   },
 )
 
@@ -229,6 +234,12 @@ function icon(node: TreeNode) {
   return node.children.length > 0 ? 'book' : 'document'
 }
 
+/** A BookStack chapter: it may have a description of its own, so it says
+ *  what it is rather than "No content". */
+function isChapter(node: TreeNode): boolean {
+  return props.profile === 'bookstack' && pageKind(node.page) === 'section'
+}
+
 /** The written page a title opens, if any. */
 function linkOf(node: TreeNode): number | null {
   return props.mode === 'detail' ? (props.links.get(node.page.path) ?? null) : null
@@ -355,7 +366,7 @@ watch(items, (list) => {
             <span
               v-if="informativeFile(row.node!.page)"
               class="hidden sm:inline text-xs font-mono text-tertiary truncate max-w-full"
-              :title="row.node!.page.path"
+              :title="displayOf(row.node!.page)"
             >{{ informativeFile(row.node!.page) }}</span>
           </span>
 
@@ -365,6 +376,13 @@ watch(items, (list) => {
                 <StatusPill :label="$t('docs-import-tree-left-out')" tone="neutral" :dot="false" data-test="docs-tree-left-out" />
                 <span class="hidden sm:inline text-2xs font-mono text-tertiary">{{ leftOut(row.node!) }}</span>
               </template>
+              <StatusPill
+                v-else-if="isChapter(row.node!)"
+                :label="$t('docs-import-tree-chapter')"
+                tone="neutral"
+                :dot="false"
+                data-test="docs-tree-chapter"
+              />
               <StatusPill
                 v-else-if="pageKind(row.node!.page) === 'section'"
                 :label="$t('docs-import-tree-no-content')"

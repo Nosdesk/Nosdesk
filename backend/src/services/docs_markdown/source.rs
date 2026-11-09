@@ -112,6 +112,9 @@ pub struct SourcePage {
     /// archive path of the page's file, or of the folder a page without one
     /// stands for, as every import before this seam recorded it.
     pub key: String,
+    /// The page's id in the tool it came from, when it has one, for the
+    /// conversion report.
+    pub source_id: Option<String>,
     /// The archive file the page is read from.
     pub file: Option<String>,
     /// The archive folder the page stands for.

@@ -259,9 +259,10 @@ const NUMBER_PREFIX = /^\d+[\s._-]+/
 /** The file's name when it says something the title doesn't (the title
  *  came from the page's heading or front matter); null when it is only the
  *  title with an id suffix, a number prefix or an extension. A Notion id is
- *  shortened to its first eight characters. */
+ *  shortened to its first eight characters. A Confluence page's file is
+ *  named after its title or its id, so it never says more. */
 export function informativeFile(page: DocsTreePage): string | null {
-  if (!page.file) return null
+  if (!page.file || /\.html?$/i.test(page.file)) return null
   const base = page.file.split('/').pop() ?? page.file
   const stem = base.replace(/\.(md|markdown|mdx|csv)$/i, '')
   if (/^(index|readme|_index)$/i.test(stem)) return null
@@ -277,9 +278,16 @@ export function informativeFile(page: DocsTreePage): string | null {
 
 // ---- destination ----
 
+/** Whether the source names its own collections (a Nosdesk export's,
+ *  BookStack's books, Confluence's spaces), so "As the export says" is a
+ *  choice. */
+export function hasSourceCollections(profile: DocsProfile | null | undefined): boolean {
+  return profile === 'nosdesk_v2' || profile === 'bookstack' || profile === 'confluence'
+}
+
 /** The collection mode the server uses when none is chosen. */
 export function defaultMode(profile: DocsProfile): DocsCollectionMode {
-  if (profile === 'nosdesk_v2' || profile === 'bookstack') return 'as_source'
+  if (hasSourceCollections(profile)) return 'as_source'
   if (profile === 'outline') return 'per_top_level_folder'
   return 'new'
 }
@@ -375,6 +383,12 @@ export function collectionGroups(
  *  their first eight. */
 export function shortPath(path: string): string {
   return path.replace(/\s([0-9a-f]{8})[0-9a-f]{24}(?=\/|\.|$)/gi, ' $1')
+}
+
+/** Where a page sits as people read it: the server's display path, or
+ *  the key on a tree or row read before the server sent one. */
+export function displayOf(page: { path: string; display?: string }): string {
+  return page.display || page.path
 }
 
 /** A page's path as the preview shows it: below the folder the source sits

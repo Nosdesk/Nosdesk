@@ -160,6 +160,7 @@ const showChangeFile = ref(false)
         :groups="groups"
         :off="off"
         :patterns="choices.typed"
+        :profile="view.profile"
         :label="$t('docs-import-tree-title')"
         @toggle="onToggle"
       />

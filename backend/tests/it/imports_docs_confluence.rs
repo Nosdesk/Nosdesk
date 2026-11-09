@@ -158,6 +158,26 @@ async fn a_confluence_export_imports_with_its_tree_links_and_images() {
 
     let written = pages(&pool, ws);
     assert_eq!(written.len(), 17);
+    // Pages, the written pages and the import's detail name each page by
+    // the same key, and show its file.
+    let tree_paths: Vec<&str> = tree["pages"]
+        .as_array()
+        .expect("tree pages")
+        .iter()
+        .map(|p| p["path"].as_str().expect("path"))
+        .collect();
+    let named = job["pages_written"].as_array().expect("pages_written");
+    assert_eq!(named.len(), 17, "{job}");
+    for page in named {
+        let path = page["path"].as_str().expect("path");
+        assert!(path.starts_with("confluence:QA:"), "{path}");
+        assert!(tree_paths.contains(&path), "{path} not in {tree_paths:?}");
+    }
+    assert!(tree["pages"]
+        .as_array()
+        .expect("tree pages")
+        .iter()
+        .all(|p| p["display"].as_str().is_some_and(|d| d.ends_with(".html"))));
     let home = by_title(&written, "QA Knowledge Base Home");
     let links = by_title(&written, "Links");
     let getting = by_title(&written, "Getting Started");
