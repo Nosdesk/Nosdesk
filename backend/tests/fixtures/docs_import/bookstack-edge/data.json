@@ -1,0 +1,55 @@
+{
+  "book": {
+    "id": 30,
+    "name": "Edge cases",
+    "description_html": "<p>Edge <script>alert(1)</script>cases for the <strong>importer</strong>.</p>",
+    "chapters": [
+      {
+        "id": 31,
+        "name": "Twins",
+        "description_html": "<p>Read <a href=\"[[bsexport:page:41]]\">Hostile</a> first.</p>",
+        "priority": 1,
+        "pages": [
+          {
+            "id": 42,
+            "name": "Twin",
+            "markdown": "Same title as its sibling.\n\nIncluded: {{@41#bkmrk-x}} and missing: {{@999}}\n\n<p class=\"callout\">A callout with no type.</p>\n\n<details><summary>Open me</summary>\n\nHidden **text**.\n\n</details>\n\n<div drawio-diagram=\"61\"><img src=\"[[bsexport:image:61]]\"></div>\n\nLink to [the book]([[bsexport:book:30]]) and an image link [here]([[bsexport:image:61]]).",
+            "html": "<p>Rendered copy, not read.</p>",
+            "priority": 1,
+            "tags": [{ "name": "twin", "value": "a" }]
+          },
+          {
+            "id": 44,
+            "name": "Twin",
+            "html": "<p>The other twin.</p>",
+            "priority": 1
+          },
+          {
+            "id": 41,
+            "name": "Hostile",
+            "html": "<script>alert(1)</script><p onclick=\"x()\" style=\"color:red\">Click <a href=\"javascript:alert(1)\">me</a>, a <a href=\"nosdesk-import:page/0\">forged link</a>, a <a href=\"//evil.example/x\">relative host</a>, <a href=\"[[bsexport:page:999]]\">a missing page</a> and <a href=\"[[bsexport:attachment:52]]\">the run book</a>.</p><p><img src=\"[[bsexport:image:60]]\" onerror=\"alert(1)\" alt=\"Vector\"> <img src=\"[[bsexport:image:62]]\" alt=\"No file\"></p><p class=\"callout tip\">An unknown callout type.</p><iframe src=\"https://evil.example/\"></iframe><p>Text include {{@40}} stays text.</p><ul><li class=\"task-list-item\" checked=\"checked\">Checked by its item</li></ul>",
+            "priority": 0,
+            "attachments": [
+              { "id": 50, "name": "Bad link", "link": "javascript:alert(1)" },
+              { "id": 51, "name": "Spec", "link": "https://example.com/spec.pdf" },
+              { "id": 52, "name": "Run book", "file": "Hq4mN8pW3xKd7YbL2sVe.docx" },
+              { "id": 53, "name": "Unlinked notes", "file": "missing-file.txt" }
+            ],
+            "images": [
+              { "id": 60, "name": "vector.svg", "file": "Vb7sK2mQ9wLx4ZcR1hTa.svg", "type": "gallery" },
+              { "id": 61, "name": "drawing.png", "file": "Tn3QeA8bW2xYp5LcK9dR.png", "type": "drawio" }
+            ]
+          }
+        ]
+      }
+    ],
+    "pages": [
+      { "id": 40, "name": "Tie first", "html": "<p>A direct page at the chapter's priority comes first.</p>", "priority": 1 },
+      { "name": "No id", "html": "<p>A page without an id.</p>", "priority": 2 },
+      { "id": 43, "name": "  Empty \u0007page  ", "priority": 3 }
+    ],
+    "tags": [{ "name": "edge", "value": "" }]
+  },
+  "exported_at": "2026-11-09T00:00:00+00:00",
+  "instance": { "id": "00000000-0000-4000-8000-000000000002", "version": "v26.09.2" }
+}
