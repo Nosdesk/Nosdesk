@@ -641,7 +641,8 @@ pub async fn verify_microsoft_id_token(
     use std::str::FromStr;
 
     let issuer = IssuerUrl::new(format!(
-        "https://login.microsoftonline.com/{tenant_id}/v2.0"
+        "{}/{tenant_id}/v2.0",
+        crate::config_utils::microsoft_login_base()
     ))
     .map_err(|e| format!("Invalid Microsoft issuer URL: {e}"))?;
 
