@@ -590,7 +590,7 @@ pub fn get_user_by_name(name: &str, conn: &mut DbConnection) -> Result<User, Err
         .first::<User>(conn)
 }
 
-// sync-audit-only: Vestigial low-level helper: handlers all use `user_helpers::create_user_with_email` (which IS sync-wired). Kept here so a future stray caller still passes the lint, but new code should reach for the wired helper
+// sync-audit-only: inserts the bare account with no membership, so no workspace pool holds it yet; the membership writers in `workspaces.rs` send the row when they grant one. `user_helpers::create_user_with_email` grants the membership and sends `user.created` in one step. Callers: first-run admin setup and the demo seeder (both add a membership next) and the Microsoft directory sync (adds none)
 pub fn create_user(user: NewUser, conn: &mut DbConnection) -> Result<User, Error> {
     diesel::insert_into(users::table)
         .values(user)
@@ -1102,6 +1102,20 @@ pub fn set_avatar_url(
         emit_user_event_in_each(conn, &workspaces, &updated, SyncOp::Update, "user.updated")?;
         Ok(updated)
     })
+}
+
+// sync-audit-only: `username` is not in the synced user row (see `emit_user_event`), so no pool holds it
+/// Set `username`, the handle the control plane owns, from its projection.
+/// Runs in the caller's actor and workspace context (the audit trigger on
+/// `users` reads `app.workspace_id`).
+pub fn set_username(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    username: &str,
+) -> Result<usize, Error> {
+    diesel::update(users::table.find(user_uuid))
+        .set(users::username.eq(username))
+        .execute(conn)
 }
 
 /// Outcome of [`set_user_roles`].

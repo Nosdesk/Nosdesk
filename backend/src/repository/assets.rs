@@ -733,6 +733,20 @@ pub fn set_quantity(
     })
 }
 
+/// Set an asset's lifecycle `status` and send `asset.updated`. A lifecycle
+/// transition and the loan ledger call it inside the transaction that writes
+/// their own row.
+pub fn set_status(conn: &mut DbConnection, asset_id: i32, status: &str) -> QueryResult<Asset> {
+    // emit::record fires inside emit_asset_event.
+    conn.transaction::<Asset, Error, _>(|conn| {
+        let device: Asset = diesel::update(assets::table.find(asset_id))
+            .set(assets::status.eq(status))
+            .get_result(conn)?;
+        emit_asset_event(conn, &device, SyncOp::Update, "asset.updated")?;
+        Ok(device)
+    })
+}
+
 /// Clear `user_uuid`, an account being purged, from every asset that names
 /// it: its user, its manager and its creator. Each asset whose synced row
 /// changed (user or manager) gets `asset.updated` in its own workspace.

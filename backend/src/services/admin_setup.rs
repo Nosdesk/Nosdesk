@@ -106,9 +106,7 @@ pub fn create_initial_admin(
             return Err(AdminSetupError::AlreadyComplete);
         }
 
-        let user: User = diesel::insert_into(crate::schema::users::table)
-            .values(&new_user)
-            .get_result(c)?;
+        let user: User = crate::repository::users::create_user(new_user, c)?;
 
         // Item U: add bootstrap admin to the bootstrap workspace so
         // the 403 gate in cookie_auth_middleware finds a membership
