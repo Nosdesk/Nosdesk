@@ -950,6 +950,7 @@ function viewImported() {
           :job="job"
           :fields="fields"
           :kinds="kindOptions"
+          :default-kind="templateKind"
           :checking="busy === 'check'"
           :switching="busy === 'type'"
           :discarding="busy === 'discard'"

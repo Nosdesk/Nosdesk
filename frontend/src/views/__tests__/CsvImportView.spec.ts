@@ -782,6 +782,46 @@ describe('CsvImportView Map step', () => {
     expect(wrapper!.find('[data-test="import-create-needs"]').exists()).toBe(false)
   })
 
+  it("gives blank Kind cells the template's kind when the Kind column is mapped", async () => {
+    api.upload.mockResolvedValue(parsedJob())
+    api.putMapping.mockResolvedValue(checkedJob())
+    await mountAt()
+    await wrapper!.find('[data-test="import-template-kind"] [data-value="camera"]').trigger('click')
+    await pick(csvFile())
+    await flushPromises()
+    expect(currentStep()).toBe('map')
+    expect((targets()[1].element as HTMLSelectElement).value).toBe('kind')
+
+    await checkButton().trigger('click')
+    await flushPromises()
+    expect(api.putMapping).toHaveBeenLastCalledWith(
+      'job-1',
+      { name: 0, kind: 1, asset_tag: 2, serial_number: 3 },
+      expect.objectContaining({ default_kind: 'camera', constants: [] }),
+      [],
+    )
+  })
+
+  it('carries a stored default kind forward, and drops it once Kind is unmapped', async () => {
+    api.putMapping.mockResolvedValue(checkedJob())
+    const stored = parsedJob({
+      mapping: { name: 0, kind: 1, asset_tag: 2, serial_number: 3 },
+      options: { match_by: 'asset_tag', mode: 'create_update', default_kind: 'camera', constants: [] },
+    })
+    await openMap(stored)
+    await checkButton().trigger('click')
+    await flushPromises()
+    expect(api.putMapping.mock.calls[0][2]).toMatchObject({ default_kind: 'camera' })
+
+    // With no Kind column there is no blank cell to fill: no default is sent.
+    wrapper!.unmount()
+    await openMap(stored)
+    await targets()[1].setValue('__ignore__')
+    await checkButton().trigger('click')
+    await flushPromises()
+    expect(api.putMapping.mock.calls[1][2]).not.toHaveProperty('default_kind')
+  })
+
   it('sets the kind for every row when no column gives it', async () => {
     api.putMapping.mockResolvedValue(checkedJob())
     await openMap()

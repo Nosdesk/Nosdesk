@@ -89,6 +89,9 @@ const props = defineProps<{
   /** A field the step opens on, its picker focused: Review's "Fix at Map
    *  columns". */
   focusField?: string | null
+  /** Assets: the kind chosen in the Start step's template picker, which
+   *  blank cells of a mapped Kind column take on new rows. */
+  defaultKind?: string
 }>()
 
 const emit = defineEmits<{
@@ -122,6 +125,9 @@ const stored: ImportOptions = props.job.options ?? {}
 const legacyNone = (stored.match_by as string | undefined) === 'none'
 const matchBy = ref<MatchBy>(legacyNone ? 'asset_tag' : (stored.match_by ?? 'asset_tag'))
 const mode = ref<ImportMode>(legacyNone ? 'create_only' : (stored.mode ?? 'create_update'))
+/** The kind new rows take when the Kind column is mapped and blank: the
+ *  job's own, else the template's. */
+const defaultKind = stored.default_kind || props.defaultKind || ''
 
 // ---- dates and decimals, as the samples show them ----
 
@@ -633,6 +639,9 @@ function check() {
   if (isAssets.value) {
     options.match_by = matchBy.value
     options.mode = mode.value
+    if (defaultKind && mappedFields.value.has('kind')) {
+      options.default_kind = defaultKind
+    }
   }
   emit('check', buildMapping(rows.value), options, buildIgnored(rows.value))
 }

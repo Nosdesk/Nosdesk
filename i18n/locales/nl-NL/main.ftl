@@ -3745,7 +3745,7 @@ import-template-kind-label = Soort
 # MT: pending native review (nl-NL)
 import-template-kind-none = Elke soort (alleen basiskolommen)
 # MT: pending native review (nl-NL)
-import-template-kind-help = Kies een soort om de kolommen voor de kenmerken ervan toe te voegen.
+import-template-kind-help = Kies een soort om de kolommen voor de kenmerken ervan toe te voegen. Nieuwe rijen zonder soort krijgen deze soort.
 # MT: pending native review (nl-NL)
 import-template-format-label = Indeling
 # MT: pending native review (nl-NL)
