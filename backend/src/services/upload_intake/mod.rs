@@ -28,7 +28,8 @@
 //! The spool directory is `NOSDESK_SPOOL_DIR`, default
 //! `<OS temp>/nosdesk-spool`. The archive imports use [`spool`] directly,
 //! under their own caps, outside the budget and in the OS temp dir: a 1 GB
-//! workspace import is not an attachment.
+//! workspace import is not an attachment. Backup restore does too, beside
+//! the file's final name under `NOSDESK_MAX_IMPORT_BYTES`.
 
 pub mod spool;
 
@@ -45,7 +46,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{error, info, warn};
 
-use crate::utils::file_validation::{get_max_file_size, FileValidationError, FileValidator};
+use crate::utils::file_validation::{
+    get_max_file_size, FileValidationError, FileValidator, GUEST_MAX_FILE_SIZE_MB,
+};
 use crate::utils::storage::{Storage, StorageError, StoredFile};
 
 use spool::Spooled;
@@ -81,8 +84,14 @@ pub enum UploadTypes {
     GuestAllowlist,
     /// Images only, after the blocklist.
     Images,
+    /// Images of the listed types only, after the blocklist: a path that
+    /// decodes the image and takes only what its decoder reads.
+    ImageOf(&'static [&'static str]),
     /// A zip archive.
     Zip,
+    /// Any type: the path checks the content itself, or keeps what the
+    /// sender declared. The type is sniffed, else `application/octet-stream`.
+    Any,
 }
 
 /// What one upload path accepts.
@@ -131,6 +140,99 @@ impl UploadPolicy {
         }
     }
 
+    /// Images pasted or dropped into a collaborative document: 10 MB each,
+    /// up to 10 a request, stored in the document's folder.
+    pub fn document_images(folder: String) -> Self {
+        Self {
+            max_bytes: 10 * MIB,
+            max_files: Some(10),
+            types: UploadTypes::Images,
+            folder,
+            file_field: "files",
+            text_fields: &[],
+        }
+    }
+
+    /// An asset's photos and documents: up to 25 MB each, within
+    /// `MAX_FILE_SIZE_MB` (the handler holds images to 10 MB and checks the
+    /// document list), any number a request.
+    pub fn asset_media(asset_id: i32) -> Self {
+        Self {
+            max_bytes: (25 * MIB).min(get_max_file_size() as u64),
+            max_files: None,
+            types: UploadTypes::Blocklist,
+            folder: format!("assets/{asset_id}/media"),
+            file_field: "files",
+            text_fields: &[],
+        }
+    }
+
+    /// A profile photo or banner: one image of a type the decoder reads, up
+    /// to 10 MB. It is decoded and re-encoded, so it never stores as sent.
+    pub fn profile_image() -> Self {
+        Self {
+            max_bytes: 10 * MIB,
+            max_files: Some(1),
+            types: UploadTypes::ImageOf(&["image/jpeg", "image/png", "image/gif", "image/webp"]),
+            folder: String::new(),
+            file_field: "file",
+            text_fields: &[],
+        }
+    }
+
+    /// A workspace logo or favicon: one image, up to 2 MB, stored under a
+    /// fixed key by the handler.
+    pub fn branding_image(types: &'static [&'static str]) -> Self {
+        Self {
+            max_bytes: 2 * MIB,
+            max_files: Some(1),
+            types: UploadTypes::ImageOf(types),
+            folder: String::new(),
+            file_field: "file",
+            text_fields: &[],
+        }
+    }
+
+    /// The public request form and the customer portal: one file a request,
+    /// from the guest allowlist, up to `GUEST_MAX_FILE_SIZE_MB`, staged in
+    /// `temp/` until a submission claims it.
+    pub fn guest() -> Self {
+        Self {
+            max_bytes: (GUEST_MAX_FILE_SIZE_MB as u64) * MIB,
+            max_files: Some(1),
+            types: UploadTypes::GuestAllowlist,
+            folder: "temp".to_string(),
+            file_field: "file",
+            text_fields: &[],
+        }
+    }
+
+    /// A spreadsheet import: one file up to 10 MB, read whole by its parser,
+    /// which decides whether it is a workbook or CSV.
+    pub fn spreadsheet_import() -> Self {
+        Self {
+            max_bytes: 10 * MIB,
+            max_files: Some(1),
+            types: UploadTypes::Any,
+            folder: String::new(),
+            file_field: "file",
+            text_fields: &[],
+        }
+    }
+
+    /// An attachment that arrived on an inbound channel (email now, chat
+    /// connectors later): up to 25 MiB, any type, filed under its ticket.
+    pub fn inbound_attachment(ticket_id: i32) -> Self {
+        Self {
+            max_bytes: 25 * MIB,
+            max_files: None,
+            types: UploadTypes::Any,
+            folder: format!("tickets/{ticket_id}"),
+            file_field: "files",
+            text_fields: &[],
+        }
+    }
+
     /// The largest request body the policy can need, when it has a file
     /// count.
     pub fn max_request_bytes(&self) -> Option<u64> {
@@ -154,6 +256,20 @@ impl UploadPolicy {
                     Err(Refusal::NotAnImage)
                 }
             }
+            UploadTypes::ImageOf(allowed) => {
+                let mime = FileValidator::validate_file(head, Some(sanitized))?;
+                if allowed.contains(&mime.as_str()) {
+                    Ok(mime)
+                } else if mime.starts_with("image/") {
+                    Err(Refusal::UnsupportedImage { detected: mime })
+                } else {
+                    Err(Refusal::NotAnImage)
+                }
+            }
+            UploadTypes::Any => Ok(infer::get(head)
+                .map(|kind| kind.mime_type())
+                .unwrap_or("application/octet-stream")
+                .to_string()),
             UploadTypes::Zip => {
                 let mime = FileValidator::validate_file(head, Some(sanitized))?;
                 if head.starts_with(b"PK\x03\x04") {
@@ -175,6 +291,8 @@ pub enum Refusal {
     Validation(FileValidationError),
     /// Not an image, on an images-only path.
     NotAnImage,
+    /// An image of a type the path doesn't take.
+    UnsupportedImage { detected: String },
 }
 
 impl From<FileValidationError> for Refusal {
@@ -218,6 +336,9 @@ impl std::fmt::Display for IntakeError {
             Self::Refused { reason, .. } => match reason {
                 Refusal::Validation(e) => write!(f, "{e}"),
                 Refusal::NotAnImage => write!(f, "not an image"),
+                Refusal::UnsupportedImage { detected } => {
+                    write!(f, "image type {detected} not taken")
+                }
             },
             Self::TextTooLarge { field } => write!(f, "{field} is over its cap"),
             Self::Busy => write!(f, "spool budget spent"),
@@ -263,7 +384,7 @@ impl From<IntakeError> for actix_web::Error {
             }
             IntakeError::Refused { file, reason } => match reason {
                 Refusal::Validation(e) => e.refusal(&file),
-                Refusal::NotAnImage => {
+                Refusal::NotAnImage | Refusal::UnsupportedImage { .. } => {
                     crate::errors::bad_request_error("Only image files are allowed")
                 }
             },
@@ -294,6 +415,14 @@ impl From<IntakeError> for actix_web::Error {
                 crate::errors::internal_error("Failed to store file")
             }
         }
+    }
+}
+
+impl IntakeError {
+    /// The refusal's response, for a handler that answers with an
+    /// `HttpResponse` rather than an error.
+    pub fn into_response(self) -> actix_web::HttpResponse {
+        actix_web::Error::from(self).error_response()
     }
 }
 
@@ -450,11 +579,7 @@ impl SpoolArea {
         payload: Multipart,
         policy: &'a UploadPolicy,
     ) -> Result<MultipartIntake<'a>, IntakeError> {
-        if let (Some(length), Some(max)) = (content_length, policy.max_request_bytes()) {
-            if length > max {
-                return Err(IntakeError::RequestTooLarge { length, max });
-            }
-        }
+        check_length(content_length, policy)?;
         Ok(MultipartIntake {
             area: self,
             payload,
@@ -657,6 +782,26 @@ where
     E: std::fmt::Display,
 {
     SpoolArea::global().stream(stream, name, policy).await
+}
+
+/// Refuse a `Content-Length` over a counted policy's request cap, for a
+/// path that reads its multipart fields itself and hands one to
+/// [`SpoolArea::stream`].
+pub fn check_length(content_length: Option<u64>, policy: &UploadPolicy) -> Result<(), IntakeError> {
+    if let (Some(length), Some(max)) = (content_length, policy.max_request_bytes()) {
+        if length > max {
+            return Err(IntakeError::RequestTooLarge { length, max });
+        }
+    }
+    Ok(())
+}
+
+/// The spool area a request's upload goes to: the app's own when it set
+/// one (a test does, to watch its directory), else the process's.
+pub fn area(req: &actix_web::HttpRequest) -> &SpoolArea {
+    req.app_data::<actix_web::web::Data<SpoolArea>>()
+        .map(|area| area.get_ref())
+        .unwrap_or_else(|| SpoolArea::global())
 }
 
 /// A request's `Content-Length`, when it sent a readable one.

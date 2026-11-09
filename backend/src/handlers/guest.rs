@@ -9,7 +9,7 @@ use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse};
 use chrono::Utc;
 use diesel::prelude::*;
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use ipnetwork::IpNetwork;
 use serde::Deserialize;
 use serde_json::json;
@@ -29,10 +29,12 @@ use crate::repository::user_helpers::GuestUserResult;
 use crate::repository::{self, site_settings, user_helpers};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
+use crate::services::upload_intake::{self as intake, IntakeError, Intaken, Refusal, UploadPolicy};
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
 use crate::utils::file_validation::{
-    FileValidator, GUEST_ATTACHMENT_TTL_MINUTES, GUEST_MAX_FILES_PER_TICKET, GUEST_MAX_FILE_SIZE_MB,
+    FileValidationError, GUEST_ATTACHMENT_TTL_MINUTES, GUEST_MAX_FILES_PER_TICKET,
+    GUEST_MAX_FILE_SIZE_MB,
 };
 use crate::utils::rate_limit::{self, RateLimiter};
 use crate::utils::storage::{Storage, WorkspaceScopedStorage};
@@ -1179,30 +1181,43 @@ pub async fn search_public_docs(
 
 // ---------- Guest attachment upload ----------
 
-/// A single uploaded file that passed the guest rules (size cap, safe types).
-pub(crate) struct ValidatedUpload {
-    /// The storage key's name: safe as one path segment.
-    pub filename: String,
-    /// The name as uploaded, for display and download. Never part of a path.
-    pub display_name: String,
-    pub data: Vec<u8>,
-    pub mime: String,
-    /// SHA-256, hex.
-    pub checksum: String,
-}
-
 pub(crate) enum UploadRejected {
     Invalid(String),
     TooLarge(String),
+    /// The intake couldn't take it (the spool budget is spent, or the spool
+    /// file couldn't be written): its own response.
+    Intake(IntakeError),
 }
 
-/// Read the one `file` field of a multipart upload and validate it with the
-/// guest rules. Shared by the guest form and the customer portal, which accept
-/// the same kinds of file from people outside the team.
+impl UploadRejected {
+    /// The response both callers give: 400 with the reason, 413 over the
+    /// cap, the intake's own otherwise (503 with Retry-After when busy).
+    pub(crate) fn response(self) -> Result<HttpResponse, ApiError> {
+        match self {
+            Self::Invalid(msg) => Err(ApiError::BadRequest(msg)),
+            Self::TooLarge(msg) => Ok(errors::payload_too_large(msg)),
+            Self::Intake(e) => Ok(e.into_response()),
+        }
+    }
+}
+
+/// Read the one `file` field of a multipart upload through the intake with
+/// the guest rules: spooled to disk under the guest cap, its type checked
+/// from its first bytes against the guest allowlist, hashed as it arrives.
+/// Shared by the guest form and the customer portal, which accept the same
+/// kinds of file from people outside the team.
 pub(crate) async fn read_validated_upload(
+    req: &HttpRequest,
     payload: &mut Multipart,
-) -> Result<ValidatedUpload, UploadRejected> {
+) -> Result<Intaken, UploadRejected> {
     let invalid = |m: &str| UploadRejected::Invalid(m.to_string());
+    let too_large =
+        || UploadRejected::TooLarge(format!("File exceeds {GUEST_MAX_FILE_SIZE_MB}MB limit"));
+    let policy = UploadPolicy::guest();
+    // A body too big to hold one file at the cap is refused unread.
+    if intake::check_length(intake::content_length(req), &policy).is_err() {
+        return Err(too_large());
+    }
     let mut field = match payload.try_next().await {
         Ok(Some(f)) => f,
         Ok(None) => return Err(invalid("No file in request")),
@@ -1211,7 +1226,7 @@ pub(crate) async fn read_validated_upload(
             return Err(invalid("Could not read upload"));
         }
     };
-    if field.name() != "file" {
+    if field.name() != policy.file_field {
         return Err(invalid("Expected field 'file'"));
     }
     let original_filename = match field
@@ -1222,49 +1237,28 @@ pub(crate) async fn read_validated_upload(
         Some(n) if !n.is_empty() => n,
         _ => return Err(invalid("Filename is required")),
     };
-    let filename = FileValidator::sanitize_filename(&original_filename)
-        .map_err(|e| UploadRejected::Invalid(e.to_string()))?;
-    let display_name =
-        FileValidator::display_filename(&original_filename).unwrap_or_else(|| filename.clone());
 
-    // Read with an incremental size check against the guest cap.
-    let max_bytes = GUEST_MAX_FILE_SIZE_MB * 1024 * 1024;
-    let mut data = Vec::new();
-    while let Some(chunk) = field.next().await {
-        let chunk = match chunk {
-            Ok(d) => d,
-            Err(e) => {
-                debug!(error = %e, "Read chunk error");
-                return Err(invalid("Upload interrupted"));
+    match intake::area(req)
+        .stream(&mut field, &original_filename, &policy)
+        .await
+    {
+        Ok(file) => Ok(file),
+        Err(IntakeError::Refused { reason, .. }) => match reason {
+            Refusal::Validation(FileValidationError::FileTooLarge { .. }) => Err(too_large()),
+            Refusal::Validation(e) => {
+                debug!(error = ?e, "Upload rejected");
+                Err(UploadRejected::Invalid(e.to_string()))
             }
-        };
-        if data.len() + chunk.len() > max_bytes {
-            return Err(UploadRejected::TooLarge(format!(
-                "File exceeds {GUEST_MAX_FILE_SIZE_MB}MB limit"
-            )));
+            Refusal::NotAnImage | Refusal::UnsupportedImage { .. } => {
+                Err(invalid("File type is not allowed"))
+            }
+        },
+        Err(IntakeError::Unreadable(e)) => {
+            debug!(error = %e, "Read chunk error");
+            Err(invalid("Upload interrupted"))
         }
-        data.extend_from_slice(&chunk);
+        Err(e) => Err(UploadRejected::Intake(e)),
     }
-
-    let mime = FileValidator::validate_guest_upload(&data, &filename).map_err(|e| {
-        debug!(error = ?e, filename = %filename, "Upload rejected");
-        UploadRejected::Invalid(e.to_string())
-    })?;
-
-    use ring::digest;
-    let checksum = digest::digest(&digest::SHA256, &data)
-        .as_ref()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-
-    Ok(ValidatedUpload {
-        filename,
-        display_name,
-        data,
-        mime,
-        checksum,
-    })
 }
 
 /// POST /api/public/files/temp
@@ -1337,25 +1331,14 @@ pub async fn upload_guest_attachment(
 
     // One file per request; the client loops if they pick several. This keeps
     // the per-request surface small and maps 1:1 with the rate limiter.
-    let upload = match read_validated_upload(&mut payload).await {
-        Ok(u) => u,
-        Err(UploadRejected::Invalid(msg)) => return Err(ApiError::BadRequest(msg)),
-        Err(UploadRejected::TooLarge(msg)) => return Ok(errors::payload_too_large(msg)),
+    let file = match read_validated_upload(&req, &mut payload).await {
+        Ok(file) => file,
+        Err(rejected) => return rejected.response(),
     };
-    let ValidatedUpload {
-        filename: sanitized_filename,
-        display_name,
-        data: file_data,
-        mime: detected_mime,
-        checksum,
-    } = upload;
 
-    let total_size = file_data.len();
-    let stored_file = match storage
-        .0
-        .store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
-        .await
-    {
+    let total_size = file.size;
+    let detected_mime = file.mime.clone();
+    let stored_file = match file.store(storage.0.as_ref(), "temp").await {
         Ok(sf) => sf,
         Err(e) => {
             error!(error = ?e, "Failed to store guest upload");
@@ -1365,10 +1348,10 @@ pub async fn upload_guest_attachment(
 
     let new_attachment = NewAttachment {
         url: stored_file.url.clone(),
-        name: display_name,
+        name: file.display_name.clone(),
         file_size: Some(total_size as i64),
         mime_type: Some(detected_mime.clone()),
-        checksum: Some(checksum),
+        checksum: Some(file.sha256.clone()),
         // Claimed by submit_guest_ticket when the submission arrives.
         comment_id: None,
         uploaded_by: None,

@@ -27,10 +27,8 @@ src/handlers/admin_workspaces.rs name
 src/handlers/admin_workspaces.rs slug
 src/handlers/admin_workspaces.rs workspace_uuid
 src/handlers/asset_audits.rs recipient
-src/handlers/asset_media.rs field_name
 src/handlers/asset_media.rs filename
 src/handlers/asset_media.rs media_id
-src/handlers/asset_media.rs original_filename
 src/handlers/asset_media.rs path
 src/handlers/asset_media.rs thumb_path
 src/handlers/asset_usage.rs recipient
@@ -64,9 +62,7 @@ src/handlers/canned_responses.rs canned_response_id
 src/handlers/categories.rs category_id
 src/handlers/channels.rs provider
 src/handlers/collab_images.rs doc_id
-src/handlers/collab_images.rs field_name
 src/handlers/collab_images.rs filename
-src/handlers/collab_images.rs original_filename
 src/handlers/collab_images.rs url
 src/handlers/collaboration.rs bytes
 src/handlers/collaboration.rs child_count
@@ -132,7 +128,6 @@ src/handlers/files.rs thumbnail_url
 src/handlers/files.rs url
 src/handlers/guest.rs domain
 src/handlers/guest.rs email_sent
-src/handlers/guest.rs filename
 src/handlers/guest.rs ip
 src/handlers/guest.rs mime
 src/handlers/guest.rs q

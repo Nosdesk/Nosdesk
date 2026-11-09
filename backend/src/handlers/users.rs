@@ -2,7 +2,7 @@ use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use bcrypt::DEFAULT_COST;
 use diesel::prelude::*;
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
@@ -19,6 +19,7 @@ use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
+use crate::services::upload_intake::{self as intake, IntakeError, Refusal, UploadPolicy};
 use crate::utils;
 use crate::utils::email_branding::{get_email_branding, SentFrom};
 use crate::utils::rbac::is_platform_admin;
@@ -1838,6 +1839,11 @@ pub async fn upload_user_image(
 
     debug!(image_type = %image_type, user_uuid = %user_uuid, "Processing image upload");
 
+    let policy = UploadPolicy::profile_image();
+    if let Err(e) = intake::check_length(intake::content_length(&req), &policy) {
+        return e.into_response();
+    }
+
     // Process the uploaded image (we only handle the first field)
     if let Ok(Some(mut field)) = payload.try_next().await {
         debug!(field_name = ?field.name(), "Received multipart field");
@@ -1882,18 +1888,32 @@ pub async fn upload_user_image(
         let filename = format!("{user_uuid}_{image_type}.{file_ext}");
         let _file_path = format!("{storage_path}/{filename}");
 
-        // Read file data
-        let mut file_data = Vec::new();
-        while let Some(chunk) = field.next().await {
-            let data = match chunk {
-                Ok(data) => data,
-                Err(e) => {
-                    error!(error = ?e, "Error reading chunk");
-                    return errors::internal("Error reading uploaded file");
-                }
-            };
-            file_data.extend_from_slice(&data);
-        }
+        // The intake holds it to the profile image cap and checks what it
+        // is from its first bytes; the decoder reads it back from disk. The
+        // name is ours: the client's never reaches a path.
+        let file = match intake::area(&req)
+            .stream(&mut field, &filename, &policy)
+            .await
+        {
+            Ok(file) => file,
+            Err(IntakeError::Refused {
+                reason: Refusal::UnsupportedImage { .. },
+                ..
+            }) => {
+                return errors::bad_request(
+                    "Unsupported image format. Allowed: JPEG, PNG, GIF, WEBP",
+                );
+            }
+            Err(e) => return e.into_response(),
+        };
+        let file_data = match tokio::fs::read(file.path()).await {
+            Ok(data) => data,
+            Err(e) => {
+                error!(error = ?e, "Error reading spooled image");
+                return errors::internal("Error reading uploaded file");
+            }
+        };
+        drop(file);
 
         // Process the image based on type
         let (final_url, thumbnail_url) = if image_type == "avatar" {

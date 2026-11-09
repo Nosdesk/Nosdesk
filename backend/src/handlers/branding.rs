@@ -1,6 +1,6 @@
 use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, info, warn};
@@ -16,8 +16,10 @@ use crate::handlers::helpers;
 use crate::models::{PublicBranding, SiteSettingsResponse, UpdateSiteSettings, WorkspaceRole};
 use crate::repository::site_settings::{self, Logo};
 use crate::services::email_logos;
+use crate::services::upload_intake::{self as intake, IntakeError, Refusal, UploadPolicy};
 use crate::utils;
 use crate::utils::email::{preview_test_letter, EmailBranding, Paper};
+use crate::utils::file_validation::FileValidationError;
 use crate::utils::rbac::require_workspace_role;
 use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
 
@@ -336,6 +338,9 @@ pub async fn update_branding_config(
     }
 }
 
+/// The refusal for a branding image over its 2 MB cap.
+const TOO_LARGE: &str = "File too large. Maximum size is 2MB";
+
 // POST /api/admin/branding/image - Upload branding image (logo or favicon)
 pub async fn upload_branding_image(
     mut payload: Multipart,
@@ -372,6 +377,16 @@ pub async fn upload_branding_image(
 
     info!(image_type = %image_type, user_id = %user_uuid, "Processing branding image upload");
 
+    // A body too big to hold one image at the cap is refused unread.
+    if intake::check_length(
+        intake::content_length(&req),
+        &UploadPolicy::branding_image(&[]),
+    )
+    .is_err()
+    {
+        return Err(ApiError::BadRequest(TOO_LARGE.into()));
+    }
+
     // Process the uploaded file (we only handle the first field)
     if let Ok(Some(mut field)) = payload.try_next().await {
         let content_type = field
@@ -388,18 +403,20 @@ pub async fn upload_branding_image(
         // login screen. The global CSP + nosniff already blunt this, but
         // not accepting SVG at all removes the vector outright. See
         // security-audit-2026-06.
-        let valid_types: &[&str] = if image_type == "favicon" {
+        // The declared type must be one of these, and so must the type the
+        // content sniffs as.
+        let valid_types: &'static [&'static str] = if image_type == "favicon" {
             &["image/x-icon", "image/vnd.microsoft.icon", "image/png"]
         } else {
             &["image/png", "image/jpeg", "image/webp"]
         };
+        let allowed = if image_type == "favicon" {
+            "ICO or PNG"
+        } else {
+            "PNG, JPEG, or WebP"
+        };
 
         if !valid_types.iter().any(|t| content_type.starts_with(t)) {
-            let allowed = if image_type == "favicon" {
-                "ICO or PNG"
-            } else {
-                "PNG, JPEG, or WebP"
-            };
             return Err(ApiError::BadRequest(format!(
                 "Invalid file type for {}. Allowed: {}",
                 image_type, allowed
@@ -416,25 +433,36 @@ pub async fn upload_branding_image(
             _ => "png",
         };
 
-        // Read file data
-        let mut file_data = Vec::new();
-        while let Some(chunk) = field.next().await {
-            let data = match chunk {
-                Ok(data) => data,
-                Err(e) => {
-                    error!(error = ?e, "Error reading chunk");
-                    return Err(ApiError::Internal("Error reading uploaded file".into()));
-                }
-            };
-            file_data.extend_from_slice(&data);
-        }
-
-        // Check file size (max 2MB for branding images)
-        if file_data.len() > 2 * 1024 * 1024 {
-            return Err(ApiError::BadRequest(
-                "File too large. Maximum size is 2MB".into(),
-            ));
-        }
+        // The intake holds it to the branding cap and checks its first
+        // bytes are an image of a type this slot takes. The name is ours.
+        let policy = UploadPolicy::branding_image(valid_types);
+        let file = match intake::area(&req)
+            .stream(&mut field, &format!("{image_type}.{file_ext}"), &policy)
+            .await
+        {
+            Ok(file) => file,
+            Err(IntakeError::Refused {
+                reason: Refusal::Validation(FileValidationError::FileTooLarge { .. }),
+                ..
+            }) => {
+                return Err(ApiError::BadRequest(TOO_LARGE.into()));
+            }
+            Err(IntakeError::Refused { .. }) => {
+                return Err(ApiError::BadRequest(format!(
+                    "Invalid file type for {}. Allowed: {}",
+                    image_type, allowed
+                )));
+            }
+            Err(e) => return Ok(e.into_response()),
+        };
+        let file_data = match tokio::fs::read(file.path()).await {
+            Ok(data) => data,
+            Err(e) => {
+                error!(error = ?e, "Error reading spooled branding image");
+                return Err(ApiError::Internal("Error reading uploaded file".into()));
+            }
+        };
+        drop(file);
 
         // A logo also gets its email copy (`utils::email_logo`), rendered
         // before anything is stored so an image that can't be decoded is

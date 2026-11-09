@@ -38,7 +38,8 @@ pub async fn upload_files(
     // and the table FORCEs RLS. A plain pooled connection leaves the GUC
     // unset, so the default resolves to NULL and the insert fails.
     let policy = UploadPolicy::attachments();
-    let mut upload = intake::multipart(intake::content_length(&req), payload, &policy)?;
+    let mut upload =
+        intake::area(&req).multipart(intake::content_length(&req), payload, &policy)?;
     let mut uploaded_attachments = Vec::new();
     // Applies to the files after it; the composer sends it first.
     let mut transcription_text: Option<String> = None;
@@ -419,7 +420,8 @@ pub async fn upload_ticket_note_image(
     authorize_ticket_access(&mut tc, &auth, ticket_id)?;
 
     let policy = UploadPolicy::ticket_note_images(ticket_id);
-    let mut upload = intake::multipart(intake::content_length(&req), payload, &policy)?;
+    let mut upload =
+        intake::area(&req).multipart(intake::content_length(&req), payload, &policy)?;
     let mut uploaded_files = Vec::new();
 
     while let Some(part) = upload.next().await? {

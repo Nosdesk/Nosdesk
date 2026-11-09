@@ -73,7 +73,7 @@
 
 use actix_multipart::Multipart;
 use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder};
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -106,6 +106,8 @@ use crate::services::imports::{
     ImportedRecords, RowOutcome, RowPhase, RowResult, StoredRowResults, ValueAnswers,
 };
 use crate::services::search::{indexing_tasks, SearchService};
+use crate::services::upload_intake::{self as intake, IntakeError, Intaken, Refusal, UploadPolicy};
+use crate::utils::file_validation::{FileValidationError, FileValidator};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -256,9 +258,17 @@ pub async fn upload(
     // Pull the first file field. Like the branding upload we
     // only consume the first multipart field; extra fields are
     // ignored.
-    let (filename, file_bytes) = match read_first_file_field(&mut payload).await {
+    let (filename, file) = match read_first_file_field(&req, &mut payload).await {
         Ok(v) => v,
-        Err(refused) => return refused_response(refused),
+        Err(refused) => return refused,
+    };
+    // At most 10 MB: the parsers read it whole.
+    let file_bytes = match tokio::fs::read(file.path()).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!(error = ?e, "failed to read spooled import upload");
+            return errors::internal("failed to save uploaded file");
+        }
     };
     if file_bytes.is_empty() {
         return refused_response(Refused::new("import_file_empty", "uploaded file is empty"));
@@ -273,13 +283,15 @@ pub async fn upload(
     let job_id = Uuid::now_v7();
     let extension = format.as_ref().map_or("bin", |f| f.as_str());
     let stored_key =
-        match files::put_upload(storage.0.as_ref(), job_id, extension, &file_bytes).await {
+        match files::put_upload_from_path(storage.0.as_ref(), job_id, extension, file.path()).await
+        {
             Ok(key) => key,
             Err(e) => {
                 error!(error = ?e, "failed to store import upload");
                 return errors::internal("failed to save uploaded file");
             }
         };
+    drop(file);
 
     // Parse off the async worker and before any transaction opens.
     let read = parse_off_worker(move || -> std::io::Result<(ReadOutcome, Vec<u8>)> {
@@ -3819,16 +3831,34 @@ fn template_response(content_type: &str, name: &str, body: Vec<u8>) -> HttpRespo
 
 // ---- helpers ----
 
-async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u8>), Refused> {
+/// The first file field, spooled through the intake under the spreadsheet
+/// cap, with the name it was sent under. A refusal comes back as its
+/// response: 400 with the refusal's code, or the intake's own (503 when its
+/// budget is spent).
+async fn read_first_file_field(
+    req: &HttpRequest,
+    payload: &mut Multipart,
+) -> Result<(String, Intaken), HttpResponse> {
+    let policy = UploadPolicy::spreadsheet_import();
+    let too_large = || {
+        refused_response(
+            Refused::new("import_file_too_large", "file exceeds the 10 MB upload cap")
+                .arg("max", 10),
+        )
+    };
+    // A body too big to hold one file at the cap is refused unread.
+    if intake::check_length(intake::content_length(req), &policy).is_err() {
+        return Err(too_large());
+    }
     // The wizard ships exactly one file field; extra parts are
     // ignored. Take the first one and return.
     let mut field = match payload.try_next().await {
         Ok(Some(field)) => field,
         _ => {
-            return Err(Refused::new(
+            return Err(refused_response(Refused::new(
                 "import_no_file",
                 "missing file field in upload",
-            ))
+            )))
         }
     };
 
@@ -3838,22 +3868,26 @@ async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u
         .map(|s| s.to_string())
         .unwrap_or_else(|| "upload.csv".to_string());
 
-    let mut bytes: Vec<u8> = Vec::new();
-    while let Some(chunk) = field.next().await {
-        let chunk = chunk
-            .map_err(|e| Refused::new("import_upload_unreadable", format!("read error: {e}")))?;
-        bytes.extend_from_slice(&chunk);
-        // 10 MB cap, well above typical single-tenant import
-        // volumes, well below our memory budget. Larger files
-        // belong in the Phase 2 background-worker path.
-        if bytes.len() > 10 * 1024 * 1024 {
-            return Err(
-                Refused::new("import_file_too_large", "file exceeds the 10 MB upload cap")
-                    .arg("max", 10),
-            );
-        }
+    // The intake names the spool file; a name it can't make safe still
+    // reads, as before: the parser decides what the file is.
+    let spool_name = FileValidator::sanitize_filename(&filename)
+        .map(|_| filename.clone())
+        .unwrap_or_else(|_| "upload.csv".to_string());
+    match intake::area(req)
+        .stream(&mut field, &spool_name, &policy)
+        .await
+    {
+        Ok(file) => Ok((filename, file)),
+        Err(IntakeError::Refused {
+            reason: Refusal::Validation(FileValidationError::FileTooLarge { .. }),
+            ..
+        }) => Err(too_large()),
+        Err(IntakeError::Unreadable(e)) => Err(refused_response(Refused::new(
+            "import_upload_unreadable",
+            format!("read error: {e}"),
+        ))),
+        Err(e) => Err(e.into_response()),
     }
-    Ok((filename, bytes))
 }
 
 /// The upload's name as stored: `import_jobs.filename` holds 255

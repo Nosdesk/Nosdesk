@@ -17,10 +17,9 @@
 use actix_web::{web, HttpResponse};
 
 use actix_multipart::Multipart;
-use futures::{StreamExt, TryStreamExt};
 use serde_json::json;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::db::Pool;
@@ -30,12 +29,8 @@ use crate::handlers::collaboration::{
     can_access_document, DocAccessor, DocKind, DocumentType, ParsedDocId,
 };
 use crate::handlers::files::{authorize_at_owning_workspace, serve_or_not_found};
-use crate::utils::file_validation::FileValidator;
+use crate::services::upload_intake::{self as intake, Part, UploadPolicy};
 use crate::utils::storage::{Caching, Storage, WorkspaceScopedStorage};
-
-/// Editor images are capped well below the generic attachment limit: they are
-/// inline document content, not file attachments.
-const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route(
@@ -60,8 +55,9 @@ fn image_folder(kind: DocKind, resource_uuid: Uuid) -> String {
 /// the logical `/uploads/...` form that `reject_legacy_upload_path` 404s.
 /// Handing the editor an unreachable src is the exact bug this route fixes.
 pub async fn upload_collab_document_image(
+    req: actix_web::HttpRequest,
     path: web::Path<String>,
-    mut payload: Multipart,
+    payload: Multipart,
     mut tc: TenantConn,
     auth: AuthContext,
     storage: ScopedStorage,
@@ -80,7 +76,7 @@ pub async fn upload_collab_document_image(
     };
 
     // Gate BEFORE reading the body so an unauthorized caller cannot make us
-    // buffer 10MB. `resolve` runs RLS-scoped, so a doc_id naming another
+    // spool 10MB. `resolve` runs RLS-scoped, so a doc_id naming another
     // workspace's resource simply does not resolve: that is the cross-workspace
     // guard, and it lands on 404 rather than the 403 an explicit uuid
     // comparison would give.
@@ -108,63 +104,19 @@ pub async fn upload_collab_document_image(
         }
     }
 
-    let folder = image_folder(parsed.kind, parsed.resource_uuid);
+    let policy = UploadPolicy::document_images(image_folder(parsed.kind, parsed.resource_uuid));
+    let mut upload =
+        intake::area(&req).multipart(intake::content_length(&req), payload, &policy)?;
     let mut uploaded_files = Vec::new();
 
-    while let Some(mut field) = payload.try_next().await? {
-        if field.name() != "files" {
-            debug!(field_name = %field.name(), "Skipping non-file field");
-            continue;
-        }
+    while let Some(part) = upload.next().await? {
+        let Part::File(file) = part else { continue };
 
-        let original_filename = field
-            .content_disposition()
-            .get_filename()
-            .ok_or_else(|| crate::errors::bad_request_error("Filename is required"))?
-            .to_string();
-
-        let sanitized_filename = FileValidator::sanitize_filename(&original_filename)
-            .map_err(|e| {
-                warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                crate::errors::bad_request_error(format!("Invalid filename: {e}"))
-            })?;
-        let display_name = FileValidator::display_filename(&original_filename)
-            .unwrap_or_else(|| sanitized_filename.clone());
-
-        let mut file_data = Vec::new();
-        let mut total_size = 0usize;
-        while let Some(chunk) = field.next().await {
-            let data = chunk.map_err(|e| {
-                error!(error = ?e, "Error reading chunk");
-                crate::errors::internal_error("Error reading chunk")
-            })?;
-            if total_size + data.len() > MAX_IMAGE_SIZE {
-                return Err(crate::errors::bad_request_error(
-                    "File too large (max 10MB)",
-                ));
-            }
-            total_size += data.len();
-            file_data.extend_from_slice(&data);
-        }
-
-        let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
-            .map_err(|e| {
-                warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                crate::errors::bad_request_error(format!("Invalid file: {e}"))
-            })?;
-
-        if !detected_mime.starts_with("image/") {
-            return Err(crate::errors::bad_request_error(
-                "Only image files are allowed",
-            ));
-        }
-
-        let stored = storage
-            .0
-            .store_file(&file_data, &sanitized_filename, &detected_mime, &folder)
+        let stored = file
+            .store(storage.0.as_ref(), &policy.folder)
             .await
             .map_err(|e| {
-                error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
+                error!(error = ?e, filename = %file.sanitized_name, "Failed to store file");
                 crate::errors::internal_error("Failed to store file")
             })?;
 
@@ -176,12 +128,12 @@ pub async fn upload_collab_document_image(
             parsed.resource_uuid,
             stored.id
         );
-        info!(url = %url, filename = %sanitized_filename, "Stored collab document image");
+        info!(url = %url, filename = %file.sanitized_name, "Stored collab document image");
 
         uploaded_files.push(json!({
             "url": url,
-            "name": display_name,
-            "size": total_size,
+            "name": file.display_name,
+            "size": file.size,
         }));
     }
 

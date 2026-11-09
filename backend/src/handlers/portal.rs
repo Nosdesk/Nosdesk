@@ -1560,20 +1560,19 @@ pub async fn upload_file(
     mut tc: TenantConn,
     portal: PortalContext,
     storage: crate::extractors::ScopedStorage,
+    req: actix_web::HttpRequest,
     mut payload: actix_multipart::Multipart,
 ) -> Result<HttpResponse, ApiError> {
-    use crate::handlers::guest::{read_validated_upload, UploadRejected};
+    use crate::handlers::guest::read_validated_upload;
     if let Some(limited) = over_write_limit("upload", portal.user_uuid, UPLOADS_PER_HOUR).await {
         return Ok(limited);
     }
-    let upload = match read_validated_upload(&mut payload).await {
-        Ok(u) => u,
-        Err(UploadRejected::Invalid(msg)) => return Err(ApiError::BadRequest(msg)),
-        Err(UploadRejected::TooLarge(msg)) => return Ok(errors::payload_too_large(msg)),
+    let upload = match read_validated_upload(&req, &mut payload).await {
+        Ok(file) => file,
+        Err(rejected) => return rejected.response(),
     };
-    let stored = storage
-        .0
-        .store_file(&upload.data, &upload.filename, &upload.mime, "temp")
+    let stored = upload
+        .store(storage.0.as_ref(), "temp")
         .await
         .map_err(|e| {
             tracing::error!(error = ?e, "portal: failed to store upload");
@@ -1581,10 +1580,10 @@ pub async fn upload_file(
         })?;
     let new_attachment = crate::models::NewAttachment {
         url: stored.url.clone(),
-        name: upload.display_name,
-        file_size: Some(upload.data.len() as i64),
+        name: upload.display_name.clone(),
+        file_size: Some(upload.size as i64),
         mime_type: Some(upload.mime.clone()),
-        checksum: Some(upload.checksum),
+        checksum: Some(upload.sha256.clone()),
         comment_id: None,
         uploaded_by: Some(portal.user_uuid),
         transcription: None,
