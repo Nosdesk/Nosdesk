@@ -590,7 +590,7 @@ pub fn get_user_by_name(name: &str, conn: &mut DbConnection) -> Result<User, Err
         .first::<User>(conn)
 }
 
-// sync-audit-only: inserts the bare account with no membership, so no workspace pool holds it yet; the membership writers in `workspaces.rs` send the row when they grant one. `user_helpers::create_user_with_email` grants the membership and sends `user.created` in one step. Callers: first-run admin setup and the demo seeder (both add a membership next) and the Microsoft directory sync (adds none)
+// sync-audit-only: inserts the bare account with no membership, so no workspace pool holds it yet; the membership writers in `workspaces.rs` send the row when they grant one. `user_helpers::create_user_with_email` grants the membership and sends `user.created` in one step. Callers: first-run admin setup and the demo seeder, which both add a membership next
 pub fn create_user(user: NewUser, conn: &mut DbConnection) -> Result<User, Error> {
     diesel::insert_into(users::table)
         .values(user)

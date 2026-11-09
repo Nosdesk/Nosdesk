@@ -1717,6 +1717,33 @@ async fn sync_users(
         failures: Vec::new(),
     };
 
+    // The workspace this run is pinned to. The people it brings in become
+    // members there: a new account through `create_user_with_email`, which
+    // grants the membership from this same pin, and an existing one through
+    // `ensure_directory_membership`.
+    let workspace_id = match crate::sync::session::current_workspace_id(conn) {
+        Ok(Some(workspace_id)) => workspace_id,
+        Ok(None) | Err(_) => {
+            let message = "The users pass runs pinned to a workspace, and none is pinned";
+            update_sync_progress_with_offset(
+                session_id,
+                "users",
+                0,
+                0,
+                "error",
+                message,
+                completed_items,
+            );
+            return SyncProgress {
+                entity: "users".to_string(),
+                processed: 0,
+                total: 0,
+                status: "error".to_string(),
+                errors: vec![message.to_string()],
+            };
+        }
+    };
+
     let sync_mode_msg = if use_delta { "delta" } else { "full" };
     update_sync_progress_with_offset(
         session_id,
@@ -2021,6 +2048,7 @@ async fn sync_users(
                 match process_microsoft_user_no_photos(
                     conn,
                     provider_id,
+                    workspace_id,
                     ms_user,
                     identity_map.get(&ms_user.id).cloned(),
                     &mut stats,
@@ -2047,6 +2075,7 @@ async fn sync_users(
                 match process_microsoft_user_optimized_v2(
                     conn,
                     provider_id,
+                    workspace_id,
                     ms_user,
                     identity_map.get(&ms_user.id).cloned(),
                     &mut stats,
@@ -2521,6 +2550,7 @@ async fn fetch_microsoft_graph_users_delta(
 async fn process_microsoft_user_optimized_v2(
     conn: &mut DbConnection,
     provider_id: i32,
+    workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_identity: Option<UserAuthIdentity>,
     stats: &mut UserSyncStats,
@@ -2532,6 +2562,7 @@ async fn process_microsoft_user_optimized_v2(
         // User already has Microsoft identity - update existing user and identity
         return update_existing_microsoft_user_optimized(
             conn,
+            workspace_id,
             ms_user,
             existing_identity,
             stats,
@@ -2553,6 +2584,7 @@ async fn process_microsoft_user_optimized_v2(
         return link_existing_user_to_microsoft_optimized(
             conn,
             provider_id,
+            workspace_id,
             ms_user,
             existing_user,
             stats,
@@ -2673,6 +2705,7 @@ fn surface_contact(
 #[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(user_uuid = %existing_identity.user_uuid))]
 async fn update_existing_microsoft_user_optimized(
     conn: &mut DbConnection,
+    workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_identity: UserAuthIdentity,
     stats: &mut UserSyncStats,
@@ -2688,6 +2721,7 @@ async fn update_existing_microsoft_user_optimized(
     // DbConflict and infra errors through DbInfra; `?` does the
     // right classification without an intermediate format!.
     let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)?;
+    ensure_directory_membership(conn, workspace_id, &user)?;
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -2826,6 +2860,7 @@ async fn update_existing_microsoft_user_optimized(
 async fn link_existing_user_to_microsoft_optimized(
     conn: &mut DbConnection,
     provider_id: i32,
+    workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_user: User,
     stats: &mut UserSyncStats,
@@ -2851,6 +2886,7 @@ async fn link_existing_user_to_microsoft_optimized(
     };
 
     identity_repo::create_identity(new_identity, conn)?;
+    ensure_directory_membership(conn, workspace_id, &existing_user)?;
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -2957,19 +2993,62 @@ async fn create_new_user_from_microsoft_optimized(
     access_token: &str,
     client: &reqwest::Client,
 ) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
+    let (created_user, email_count) = create_directory_user(conn, ms_user, stats)?;
+
+    // Sync profile photo using optimized client
+    if let Ok(photo_urls) = sync_user_profile_photo(
+        client,
+        access_token,
+        ms_user,
+        &utils::uuid_to_string(&created_user.uuid),
+    )
+    .await
+    {
+        if let Err(e) = update_user_avatar_by_id(
+            conn,
+            &created_user.uuid,
+            photo_urls.avatar_url,
+            photo_urls.avatar_thumb,
+        ) {
+            warn!(user_name = %created_user.name, error = %e, "Failed to update avatar for user");
+        }
+    }
+
+    info!(
+        "Created new user: {} with {} email addresses",
+        created_user.name, email_count
+    );
+    stats.new_users_created += 1;
+    Ok(())
+}
+
+/// The workspace role a directory sync gives the people it brings in, as the
+/// LDAP sync does. An admin raises it per person afterwards.
+const DIRECTORY_MEMBER_ROLE: crate::models::WorkspaceRole = crate::models::WorkspaceRole::Member;
+
+/// Create the account for a directory person new to Nosdesk, with their
+/// Microsoft identity, addresses and contact fields. `create_user_with_email`
+/// makes them a member of the workspace the connection is pinned to and sends
+/// `user.created` there, so the people list, the pickers and every open
+/// client gain them. Returns the account and how many addresses the directory
+/// lists for it.
+fn create_directory_user(
+    conn: &mut DbConnection,
+    ms_user: &MicrosoftGraphUser,
+    stats: &mut UserSyncStats,
+) -> Result<(User, usize), crate::services::msgraph::MsGraphSyncError> {
     use crate::services::msgraph::MsGraphSyncError;
 
-    // Generate UUID for new user (this is our local UUID, different from Microsoft's)
-    let _user_uuid = Uuid::now_v7().to_string();
-
-    // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
+    // The first address is the primary one, as `add_multiple_emails` below
+    // marks it, so the row `create_user_with_email` writes is the same row.
     let primary_email = emails
         .first()
         .map(|(email, _, _)| email.clone())
         .unwrap_or_else(|| ms_user.user_principal_name.clone());
+    let primary_verified = emails.first().is_none_or(|(_, _, verified)| *verified);
 
-    // Determine name (prefer displayName, fallback to givenName + surname, fallback to userPrincipalName)
+    // Prefer displayName, then givenName + surname, then userPrincipalName.
     let name = ms_user
         .display_name
         .clone()
@@ -2981,8 +3060,6 @@ async fn create_new_user_from_microsoft_optimized(
         })
         .unwrap_or_else(|| ms_user.user_principal_name.clone());
 
-    // Create new user with default role 'user' and store Microsoft UUID
-    let user_uuid = Uuid::now_v7();
     let microsoft_uuid =
         Some(
             utils::parse_uuid(&ms_user.id).map_err(|_| MsGraphSyncError::Mapping {
@@ -2996,33 +3073,35 @@ async fn create_new_user_from_microsoft_optimized(
         crate::models::PlatformRole::User,
         microsoft_uuid,
     )
-    .with_uuid(user_uuid)
+    .with_uuid(Uuid::now_v7())
     .build();
 
-    // diesel::result::Error has a typed From impl on
-    // MsGraphSyncError that routes unique-violation / FK to
-    // DbConflict and infrastructural failures to DbInfra; `?`
-    // classifies at the source.
-    let created_user = user_repo::create_user(new_user, conn)?;
+    // A member seat is never the control plane's to grant, so this is never
+    // refused and `into_created` can't collapse a refusal.
+    let (created_user, _primary) = crate::repository::user_helpers::create_user_with_email(
+        new_user,
+        DIRECTORY_MEMBER_ROLE,
+        primary_email,
+        primary_verified,
+        Some("microsoft".to_string()),
+        conn,
+        None,
+        crate::repository::workspaces::SeatWriteAuthority::Product,
+    )
+    .and_then(|outcome| outcome.into_created())?;
 
     // Surface directory contact fields onto the new user.
     surface_contact(conn, created_user.uuid, ms_user)?;
 
-    // Store all email addresses
+    // Store every address the directory lists. The primary one is already
+    // there, so its row is updated in place.
     let email_data: Vec<(String, String, bool, String)> = emails
         .into_iter()
         .map(|(email, email_type, verified)| (email, email_type, verified, "microsoft".to_string()))
         .collect();
-
+    let email_count = email_data.len();
     if !email_data.is_empty() {
-        debug!(
-            "Storing {} email addresses for new user: {}",
-            email_data.len(),
-            name
-        );
-
-        if let Err(e) =
-            user_emails_repo::add_multiple_emails(conn, &created_user.uuid, email_data.clone())
+        if let Err(e) = user_emails_repo::add_multiple_emails(conn, &created_user.uuid, email_data)
         {
             stats.record_failure(
                 crate::services::msgraph::EntityKind::Users,
@@ -3031,50 +3110,45 @@ async fn create_new_user_from_microsoft_optimized(
                 1,
             );
         }
-    } else {
-        trace!("No email addresses to store for new user: {}", name);
     }
 
-    // Create Microsoft identity for the new user
     let identity_data = serde_json::to_value(ms_user)?;
+    identity_repo::create_identity(
+        NewUserAuthIdentity {
+            user_uuid: created_user.uuid,
+            provider_type: "microsoft".to_string(),
+            external_id: ms_user.id.clone(),
+            email: ms_user.mail.clone(),
+            metadata: Some(identity_data),
+            password_hash: None,
+            workspace_id: None,
+        },
+        conn,
+    )?;
 
-    let new_identity = NewUserAuthIdentity {
-        user_uuid: created_user.uuid,
-        provider_type: "microsoft".to_string(),
-        external_id: ms_user.id.clone(),
-        email: ms_user.mail.clone(),
-        metadata: Some(identity_data),
-        password_hash: None,
-        workspace_id: None,
-    };
+    Ok((created_user, email_count))
+}
 
-    identity_repo::create_identity(new_identity, conn)?;
-
-    // Sync profile photo using optimized client
-    if let Ok(photo_urls) = sync_user_profile_photo(
-        client,
-        access_token,
-        ms_user,
-        &utils::uuid_to_string(&user_uuid),
-    )
-    .await
-    {
-        if let Err(e) = update_user_avatar_by_id(
-            conn,
-            &created_user.uuid,
-            photo_urls.avatar_url,
-            photo_urls.avatar_thumb,
-        ) {
-            warn!(user_name = %name, error = %e, "Failed to update avatar for user");
-        }
+/// Make a directory person the sync already knows a member of the workspace
+/// it runs for, so someone an earlier run created without a membership, or
+/// who joined from another workspace, reaches this one's pool and pickers.
+/// An existing membership keeps its role, a person an admin removed stays
+/// removed, and `ensure_membership` sends `user.updated` only when it granted
+/// one. A deleted account is left alone.
+fn ensure_directory_membership(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user: &User,
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
+    if user.deleted_at.is_some() {
+        return Ok(());
     }
-
-    info!(
-        "Created new user: {} with {} email addresses",
-        name,
-        email_data.len()
-    );
-    stats.new_users_created += 1;
+    crate::repository::workspaces::ensure_membership(
+        conn,
+        workspace_id,
+        user.uuid,
+        DIRECTORY_MEMBER_ROLE.as_str(),
+    )?;
     Ok(())
 }
 
@@ -5327,14 +5401,17 @@ fn parse_microsoft_datetime(datetime_str: &Option<String>) -> Option<chrono::Nai
     })
 }
 
-/// Process a Microsoft user without fetching profile photos (for fast sync)
+/// Process a Microsoft user without fetching profile photos (for fast sync).
+/// Makes no Graph request, so the integration tests drive a person through
+/// the users pass with it.
 // UPN is email-shaped PII — deliberately NOT a span field (it would only be
 // dropped by the prod allowlist anyway, and is cleartext in dev). Correlate by
 // provider_id instead.
 #[instrument(level = "debug", skip(conn, stats), fields(provider_id))]
-async fn process_microsoft_user_no_photos(
+pub async fn process_microsoft_user_no_photos(
     conn: &mut DbConnection,
     provider_id: i32,
+    workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_identity: Option<UserAuthIdentity>,
     stats: &mut UserSyncStats,
@@ -5343,15 +5420,28 @@ async fn process_microsoft_user_no_photos(
     // resolve it is handled once, at batch-prefetch time (an infra error there
     // aborts the pass rather than being misread as "no identity").
     if let Some(existing_identity) = existing_identity {
-        return update_existing_microsoft_user_no_photos(conn, ms_user, existing_identity, stats)
-            .await;
+        return update_existing_microsoft_user_no_photos(
+            conn,
+            workspace_id,
+            ms_user,
+            existing_identity,
+            stats,
+        )
+        .await;
     }
 
     // No identity: link to an existing user by email, else create.
     let emails = extract_user_emails(ms_user);
     if let Some(existing_user) = find_existing_user_by_emails(conn, &emails) {
-        link_existing_user_to_microsoft_no_photos(conn, provider_id, ms_user, existing_user, stats)
-            .await
+        link_existing_user_to_microsoft_no_photos(
+            conn,
+            provider_id,
+            workspace_id,
+            ms_user,
+            existing_user,
+            stats,
+        )
+        .await
     } else {
         create_new_user_from_microsoft_no_photos(conn, provider_id, ms_user, stats).await
     }
@@ -5485,6 +5575,7 @@ async fn background_photo_sync_task(
 /// Update existing Microsoft user without photos (simplified)
 async fn update_existing_microsoft_user_no_photos(
     conn: &mut DbConnection,
+    workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_identity: UserAuthIdentity,
     stats: &mut UserSyncStats,
@@ -5492,6 +5583,7 @@ async fn update_existing_microsoft_user_no_photos(
     use crate::services::msgraph::MsGraphSyncError;
 
     let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)?;
+    ensure_directory_membership(conn, workspace_id, &user)?;
 
     let emails = extract_user_emails(ms_user);
     let _primary_email = emails
@@ -5550,6 +5642,7 @@ async fn update_existing_microsoft_user_no_photos(
 async fn link_existing_user_to_microsoft_no_photos(
     conn: &mut DbConnection,
     _provider_id: i32,
+    workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_user: User,
     stats: &mut UserSyncStats,
@@ -5569,6 +5662,7 @@ async fn link_existing_user_to_microsoft_no_photos(
     };
 
     identity_repo::create_identity(new_identity, conn)?;
+    ensure_directory_membership(conn, workspace_id, &existing_user)?;
 
     let user_update = crate::models::UserUpdate {
         name: None,
@@ -5599,75 +5693,8 @@ async fn create_new_user_from_microsoft_no_photos(
     ms_user: &MicrosoftGraphUser,
     stats: &mut UserSyncStats,
 ) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
-    use crate::services::msgraph::MsGraphSyncError;
-
-    let user_uuid = Uuid::now_v7();
-
-    let name = ms_user
-        .display_name
-        .clone()
-        .or_else(|| match (&ms_user.given_name, &ms_user.surname) {
-            (Some(first), Some(last)) => Some(format!("{first} {last}")),
-            (Some(first), None) => Some(first.clone()),
-            (None, Some(last)) => Some(last.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| ms_user.user_principal_name.clone());
-
-    let primary_email = ms_user
-        .mail
-        .as_ref()
-        .unwrap_or(&ms_user.user_principal_name)
-        .clone();
-
-    let microsoft_uuid =
-        Some(
-            utils::parse_uuid(&ms_user.id).map_err(|_| MsGraphSyncError::Mapping {
-                hint: "invalid Microsoft UUID format",
-                source: None,
-            })?,
-        );
-    let new_user = utils::NewUserBuilder::microsoft_user(
-        name.clone(),
-        primary_email,
-        crate::models::PlatformRole::User,
-        microsoft_uuid,
-    )
-    .with_uuid(user_uuid)
-    .build();
-
-    let created_user = user_repo::create_user(new_user, conn)?;
-
-    // Surface directory contact fields onto the new user.
-    surface_contact(conn, created_user.uuid, ms_user)?;
-
-    let identity_data = serde_json::to_value(ms_user)?;
-
-    let new_identity = NewUserAuthIdentity {
-        user_uuid: created_user.uuid,
-        provider_type: "microsoft".to_string(),
-        external_id: ms_user.id.clone(),
-        email: ms_user.mail.clone(),
-        metadata: Some(identity_data),
-        password_hash: None,
-        workspace_id: None,
-    };
-
-    identity_repo::create_identity(new_identity, conn)?;
-
-    let emails = extract_user_emails(ms_user);
-    if !emails.is_empty() {
-        let email_data: Vec<(String, String, bool, String)> = emails
-            .into_iter()
-            .map(|(email, email_type, verified)| {
-                (email, email_type, verified, "microsoft".to_string())
-            })
-            .collect();
-
-        let _ = user_emails_repo::add_multiple_emails(conn, &created_user.uuid, email_data);
-    }
-
-    info!(user_name = %name, "Created new user");
+    let (created_user, _) = create_directory_user(conn, ms_user, stats)?;
+    info!(user_name = %created_user.name, "Created new user");
     stats.new_users_created += 1;
     Ok(())
 }
