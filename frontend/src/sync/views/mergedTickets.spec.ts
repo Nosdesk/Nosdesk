@@ -5,6 +5,7 @@ import {
   MY_ACTIVE_VIEW,
   OVERDUE_VIEW,
   UNASSIGNED_VIEW,
+  resolveDashboardViewFilter,
 } from '@nosdesk/core/sync/views/builtinViews'
 import { buildPredicate } from '@nosdesk/core/sync/views/filter'
 import type { CardData } from '@nosdesk/core/sync/views/types'
@@ -83,5 +84,30 @@ describe('a merged ticket', () => {
     expect(shows(UNASSIGNED_VIEW, card(open))).toBe(true)
     expect(shows(OVERDUE_VIEW, card(open))).toBe(true)
     expect(shows(MY_ACTIVE_VIEW, { ...card(open), assignee_uuid: me })).toBe(true)
+  })
+
+  it("is out of the dashboard's Resolved list, as it is out of the count", () => {
+    const card = (s: WorkflowState): CardData => ({
+      id: 9,
+      number: 9,
+      title: 'Duplicate printer report',
+      workflow_state: { id: s.id, name: s.name, category: s.category, color: s.color },
+      priority: 'none',
+      assignee_uuid: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+      last_activity_at: '2026-01-02T00:00:00Z',
+      closed_at: '2026-01-02T00:00:00Z',
+    })
+    const filter = resolveDashboardViewFilter(
+      'dashboard-resolved',
+      '2026-01-01T00:00:00Z',
+      '2026-01-08T00:00:00Z',
+    )
+    const shows = buildPredicate(filter, { currentUserUuid: null })
+    expect(shows(card(merged))).toBe(false)
+    expect(shows(card(done))).toBe(true)
+    // Closed outside the range: out either way.
+    expect(shows({ ...card(done), closed_at: '2026-02-01T00:00:00Z' })).toBe(false)
   })
 })

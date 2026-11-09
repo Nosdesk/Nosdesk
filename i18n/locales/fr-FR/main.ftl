@@ -3755,7 +3755,7 @@ import-template-kind-label = Type
 # MT: pending native review (fr-FR)
 import-template-kind-none = Tous les types (colonnes de base uniquement)
 # MT: pending native review (fr-FR)
-import-template-kind-help = Choisissez un type pour ajouter ses colonnes d'attributs.
+import-template-kind-help = Choisissez un type pour ajouter ses colonnes d'attributs. Les nouvelles lignes dont le type est vide prennent ce type.
 # MT: pending native review (fr-FR)
 import-template-format-label = Format
 # MT: pending native review (fr-FR)

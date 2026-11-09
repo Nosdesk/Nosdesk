@@ -20,6 +20,7 @@ import Icon from '@/components/common/Icon.vue'
 import Button from '@/components/common/Button.vue'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
+import { prefetchPageLink } from '@/utils/docBodyPrefetch'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import {
   pageNeedsVerificationAttention,
@@ -268,7 +269,10 @@ usePageCreateAction(handleCreatePage)
                   <li v-for="page in verificationAttention" :key="page.id">
                     <RouterLink
                       :to="docUrl(page)"
+                      data-testid="docs-index-attention-page"
                       class="group flex items-center gap-2 py-1.5 px-1.5 rounded hover:bg-surface-hover transition-colors"
+                      @mouseenter="prefetchPageLink(page)"
+                      @focus="prefetchPageLink(page)"
                     >
                       <span class="shrink-0 w-4 text-center text-sm leading-none opacity-80" aria-hidden="true">
                         {{ page.icon || '📄' }}

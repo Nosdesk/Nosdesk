@@ -3,7 +3,7 @@ import { defineComponent } from 'vue'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import * as pool from '@nosdesk/core/sync/pool'
-import type { DocCollectionRow } from '@nosdesk/core/sync/stores/documentation'
+import type { DocCollectionRow, DocPageRow } from '@nosdesk/core/sync/stores/documentation'
 import { mountWithProviders } from '@/test/mountWithProviders'
 
 // The index view's empty state: with no collection and no page, it stands
@@ -28,6 +28,9 @@ vi.mock('@/stores/auth', async () => {
   const { ref } = await import('vue')
   return { useAuthStore: () => ({ isTechnician: ref(false), isAdmin: ref(auth.admin) }) }
 })
+
+const prefetch = vi.hoisted(() => ({ prefetchPageLink: vi.fn(), warmPage: vi.fn() }))
+vi.mock('@/utils/docBodyPrefetch', () => prefetch)
 
 const openCreateCollection = vi.hoisted(() => vi.fn())
 vi.mock('@/components/documentationComponents/DocumentationIndexToolbar.vue', () => ({
@@ -122,5 +125,44 @@ describe('DocumentationIndexView empty state', () => {
     const library = wrapper!.find('section')
     expect(library.text()).toContain('docs-index-library-heading')
     expect(library.find('header button').exists()).toBe(false)
+  })
+})
+
+describe('DocumentationIndexView attention rail', () => {
+  it('prefetches a page needing verification on hover and on focus', async () => {
+    const stale: DocPageRow = {
+      id: 7,
+      uuid: 'p-7',
+      collection_id: null,
+      title: 'VPN setup',
+      slug: 'vpn-setup',
+      icon: null,
+      cover_image: null,
+      status: 'published',
+      parent_id: null,
+      display_order: 1,
+      is_public: false,
+      is_template: false,
+      archived_at: null,
+      deleted_at: null,
+      created_by: 'u-1',
+      last_edited_by: 'u-1',
+      verified_by: 'u-1',
+      verified_at: '2025-01-01T00:00:00Z',
+      verify_interval_days: 30,
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+    }
+    pool.upsert('documentation_page', stale.id, stale)
+    await mountView()
+
+    const link = wrapper!.find('[data-testid="docs-index-attention-page"]')
+    expect(link.text()).toContain('VPN setup')
+    await link.trigger('mouseenter')
+    expect(prefetch.prefetchPageLink).toHaveBeenCalledTimes(1)
+    expect(prefetch.prefetchPageLink).toHaveBeenLastCalledWith(expect.objectContaining({ uuid: 'p-7' }))
+    await link.trigger('focus')
+    expect(prefetch.prefetchPageLink).toHaveBeenCalledTimes(2)
+    expect(prefetch.warmPage).not.toHaveBeenCalled()
   })
 })
