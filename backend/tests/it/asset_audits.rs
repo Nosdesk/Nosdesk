@@ -224,3 +224,56 @@ fn usage_and_restock_send_the_new_quantity_to_open_clients() {
         vec![BigDecimal::from(7), BigDecimal::from(12)]
     );
 }
+
+/// Two usage events on one asset at once each take their share off the count.
+/// The second waits for the first to commit and counts from its result; read
+/// unlocked, both would count from the same starting quantity and one event
+/// would be lost.
+#[test]
+fn concurrent_usage_events_each_take_their_share() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(2);
+    let asset_id = seed_stock_asset(&mut pool.get().expect("conn"), "10.000", None);
+    let usage = move || backend::models::NewAssetUsage {
+        asset_id,
+        ticket_id: None,
+        quantity_used: BigDecimal::from(1),
+        unit: "pcs".to_string(),
+        recorded_by: None,
+        notes: None,
+        event_kind: "usage".to_string(),
+    };
+
+    let (holding, held) = std::sync::mpsc::channel();
+    let second = {
+        let pool = pool.clone();
+        std::thread::spawn(move || {
+            let mut conn = pool.get().expect("second conn");
+            held.recv().expect("the first event holds the row");
+            backend::repository::asset_usage::record_event(&mut conn, usage())
+                .expect("second usage")
+        })
+    };
+    let mut first = pool.get().expect("first conn");
+    first
+        .transaction::<_, diesel::result::Error, _>(|c| {
+            backend::repository::asset_usage::record_event(c, usage())?;
+            holding.send(()).expect("signal the second event");
+            // Long enough for the second event to reach its read of the count.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            Ok(())
+        })
+        .expect("first usage");
+    drop(first);
+
+    let second = second.join().expect("second thread");
+    assert_eq!(
+        second.new_quantity,
+        BigDecimal::from(8),
+        "the second event counts from the first's result"
+    );
+    assert_eq!(
+        read_quantity(&mut pool.get().expect("conn"), asset_id).to_string(),
+        "8.000"
+    );
+}
