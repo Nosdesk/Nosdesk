@@ -64,6 +64,10 @@ pub fn record_audit(
                 assets::quantity,
                 assets::low_stock_threshold,
             ))
+            // Locked until commit, as `asset_usage::record_event` locks it,
+            // so the recorded delta is against the count a concurrent usage
+            // event left, not the one it replaced.
+            .for_no_key_update()
             .first(conn)?;
 
         let previous = previous_qty.unwrap_or_else(|| BigDecimal::from(0));

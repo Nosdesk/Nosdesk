@@ -1492,6 +1492,99 @@ pub fn remove_device_from_ticket(
     })
 }
 
+/// Clear `user_uuid`, an account being purged, from every ticket that names
+/// it (requester, assignee, creator, closer) and from the asset links it made.
+/// Each ticket whose synced row changed gets `ticket.people_cleared` in its
+/// own workspace, carrying its id and only the columns cleared on it, since
+/// pools merge an update into the row they hold. The event has no
+/// `previous_*` fields, so it raises no notification, and no webhook maps to
+/// it: a requester with thousands of tickets would otherwise send thousands.
+///
+/// Called by [`purge_user`](crate::repository::users::purge_user) on a bypass
+/// connection, which sees every workspace's tickets. Puts the caller's pin
+/// back. Returns the number of tickets whose synced row changed.
+pub fn clear_purged_person_from_tickets(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> QueryResult<usize> {
+    use std::collections::BTreeMap;
+
+    conn.transaction(|conn| {
+        let as_requester: Vec<(i32, i32)> =
+            diesel::update(tickets::table.filter(tickets::requester_uuid.eq(user_uuid)))
+                .set(tickets::requester_uuid.eq::<Option<Uuid>>(None))
+                .returning((tickets::workspace_id, tickets::id))
+                .get_results(conn)?;
+        let as_assignee: Vec<(i32, i32)> =
+            diesel::update(tickets::table.filter(tickets::assignee_uuid.eq(user_uuid)))
+                .set(tickets::assignee_uuid.eq::<Option<Uuid>>(None))
+                .returning((tickets::workspace_id, tickets::id))
+                .get_results(conn)?;
+        // Neither column is in the ticket's sync row.
+        diesel::update(tickets::table.filter(tickets::created_by.eq(user_uuid)))
+            .set(tickets::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+        diesel::update(tickets::table.filter(tickets::closed_by.eq(user_uuid)))
+            .set(tickets::closed_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+        // Nor is a link's creator in the ticket_asset sync row.
+        diesel::update(ticket_assets::table.filter(ticket_assets::created_by.eq(user_uuid)))
+            .set(ticket_assets::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // workspace -> ticket id -> the columns cleared on that ticket.
+        let mut cleared: BTreeMap<i32, BTreeMap<i32, serde_json::Map<String, serde_json::Value>>> =
+            BTreeMap::new();
+        for (column, rows) in [
+            ("requester_uuid", &as_requester),
+            ("assignee_uuid", &as_assignee),
+        ] {
+            for &(workspace_id, ticket_id) in rows {
+                cleared
+                    .entry(workspace_id)
+                    .or_default()
+                    .entry(ticket_id)
+                    .or_insert_with(|| {
+                        let mut data = serde_json::Map::new();
+                        data.insert("id".to_string(), json!(ticket_id));
+                        data
+                    })
+                    .insert(column.to_string(), serde_json::Value::Null);
+            }
+        }
+
+        let mut changed = 0;
+        for (workspace_id, in_workspace) in cleared {
+            crate::sync::session::with_workspace_pinned(conn, workspace_id, |conn| {
+                let ids: Vec<i32> = in_workspace.keys().copied().collect();
+                let rows: Vec<Ticket> =
+                    tickets::table.filter(tickets::id.eq_any(&ids)).load(conn)?;
+                for ticket in &rows {
+                    let Some(data) = in_workspace.get(&ticket.id) else {
+                        continue;
+                    };
+                    let groups = groups::for_ticket(conn, ticket)?;
+                    emit::record(
+                        conn,
+                        SyncEmit {
+                            aggregate: SyncAggregate::Ticket,
+                            aggregate_id: ticket.id.to_string(),
+                            op: SyncOp::Update,
+                            event_type: "ticket.people_cleared",
+                            data: serde_json::Value::Object(data.clone()),
+                            groups,
+                            causation_id: None,
+                        },
+                    )?;
+                }
+                changed += rows.len();
+                Ok::<_, Error>(())
+            })?;
+        }
+        Ok(changed)
+    })
+}
+
 pub fn get_devices_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Asset>> {
     ticket_assets::table
         .inner_join(assets::table)

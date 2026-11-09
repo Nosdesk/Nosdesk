@@ -443,6 +443,398 @@ fn a_purge_reaches_colleagues_sessions_as_a_bare_prune() {
     );
 }
 
+/// A feed row after a baseline: event type, aggregate id, data, groups.
+type FeedRow = (String, String, serde_json::Value, Vec<Option<String>>);
+
+/// The rows `workspace`'s feed holds after `after`, oldest first.
+fn feed_after(f: &Fixture, workspace: i32, after: i64) -> Vec<FeedRow> {
+    run_in_workspace(&f.pool, REF, workspace, |c| {
+        use backend::schema::sync_actions::dsl as s;
+        s::sync_actions
+            .filter(s::workspace_id.eq(workspace))
+            .filter(s::sync_id.gt(after))
+            .order(s::sync_id.asc())
+            .select((s::event_type, s::aggregate_id, s::data, s::groups))
+            .load(c)
+    })
+    .expect("feed rows")
+}
+
+fn of_type<'a>(rows: &'a [FeedRow], event_type: &str, id: &str) -> Vec<&'a FeedRow> {
+    rows.iter()
+        .filter(|r| r.0 == event_type && r.1 == id)
+        .collect()
+}
+
+/// A purge reaches every workspace that holds the person, each with the
+/// changes to its own records: the person is B's member, A's requester, and
+/// in B an assignee, a reply's author and an asset's user and manager. Run
+/// as the retention job runs it, elevated and pinned to the home workspace.
+/// Each workspace gets `user.deleted`, `comment.deleted` for the replies it
+/// held and a `ticket.people_cleared` carrying only what was cleared on each
+/// ticket; nothing about one workspace lands in the other's feed.
+#[test]
+fn a_purge_reaches_each_workspace_with_its_own_changes() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let (a, b) = (f.ws.a.workspace_id, f.ws.b.workspace_id);
+    let gone = f.requester_from_b;
+    let mut conn = f.pool.get().expect("conn");
+    // The pages the person wrote pass to A's admin, A having no owner.
+    let successor = f.ws.a.admin_uuid;
+
+    let a_ticket: i32 = run_in_workspace(&f.pool, REF, a, |c| {
+        use backend::schema::tickets::dsl as t;
+        t::tickets
+            .filter(t::requester_uuid.eq(gone))
+            .select(t::id)
+            .first(c)
+    })
+    .expect("A's ticket");
+    let a_page = page_in(&f.pool, a, "Printer setup", gone);
+    let (b_ticket, b_comment, b_file, b_asset) = run_in_workspace(&f.pool, REF, b, |c| {
+        let state = backend::repository::workflow_states::default_state(c)?;
+        let ticket: backend::models::Ticket = diesel::insert_into(backend::schema::tickets::table)
+            .values(&NewTicket {
+                title: "Scanner jam".to_string(),
+                workflow_state_id: state.id,
+                requester_uuid: Some(f.ws.b.member_uuid),
+                assignee_uuid: Some(gone),
+                ..Default::default()
+            })
+            .get_result(c)?;
+        let comment: i32 = diesel::insert_into(backend::schema::comments::table)
+            .values(&NewComment {
+                content: "On it".to_string(),
+                ticket_id: ticket.id,
+                user_uuid: gone,
+                is_internal: false,
+                ..Default::default()
+            })
+            .returning(backend::schema::comments::id)
+            .get_result(c)?;
+        let file: i32 = diesel::insert_into(backend::schema::attachments::table)
+            .values(&backend::models::NewAttachment {
+                url: "/uploads/tickets/scan.png".to_string(),
+                name: "scan.png".to_string(),
+                file_size: Some(10),
+                mime_type: Some("image/png".to_string()),
+                checksum: None,
+                comment_id: Some(comment),
+                uploaded_by: Some(gone),
+                transcription: None,
+            })
+            .returning(backend::schema::attachments::id)
+            .get_result(c)?;
+        let asset: i32 = diesel::insert_into(backend::schema::assets::table)
+            .values(&backend::models::NewAsset {
+                name: "Scanner".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: Some(gone),
+                purchase_date: None,
+                asset_tag: None,
+                kind: "device".to_string(),
+                attributes: serde_json::json!({}),
+                quantity: None,
+                unit: None,
+                external_sync_source: None,
+                low_stock_threshold: None,
+                created_by: None,
+            })
+            .returning(backend::schema::assets::id)
+            .get_result(c)?;
+        diesel::update(backend::schema::assets::table.find(asset))
+            .set(backend::schema::assets::managed_by_user_uuid.eq(gone))
+            .execute(c)?;
+        Ok((ticket.id, comment, file, asset))
+    })
+    .expect("seed B's records");
+
+    let baseline: i64 = [a, b]
+        .into_iter()
+        .map(|ws| {
+            run_in_workspace(&f.pool, REF, ws, |c| {
+                use backend::schema::sync_actions::dsl as s;
+                s::sync_actions
+                    .filter(s::workspace_id.eq(ws))
+                    .select(diesel::dsl::max(s::sync_id))
+                    .first::<Option<i64>>(c)
+            })
+            .expect("baseline")
+            .unwrap_or(0)
+        })
+        .max()
+        .unwrap_or(0);
+
+    let pin_after = backend::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
+        &mut conn,
+        &ActorContext::system(REF),
+        |c| {
+            backend::sync::session::pin_workspace(c, b)?;
+            backend::repository::users::purge_user(&gone, c, None)?;
+            backend::sync::session::current_workspace_id(c)
+        },
+    )
+    .expect("purge");
+    assert_eq!(pin_after, Some(b), "the purge puts the caller's pin back");
+
+    let in_a = feed_after(&f, a, baseline);
+    let in_b = feed_after(&f, b, baseline);
+    for (rows, own, other) in [(&in_a, a, b), (&in_b, b, a)] {
+        for row in rows {
+            let groups: Vec<&str> = row.3.iter().flatten().map(String::as_str).collect();
+            assert!(
+                !groups.contains(&format!("workspace:{other}").as_str()),
+                "a row in {own}'s feed names {other}: {row:?}"
+            );
+        }
+    }
+
+    let gone_id = gone.to_string();
+    let (a_ticket_id, b_ticket_id) = (a_ticket.to_string(), b_ticket.to_string());
+    for (name, rows) in [("A", &in_a), ("B", &in_b)] {
+        let deletes = of_type(rows, "user.deleted", &gone_id);
+        assert_eq!(deletes.len(), 1, "{name} hears the delete once");
+        assert_eq!(deletes[0].2, serde_json::json!({ "uuid": gone }));
+    }
+
+    let cleared_a = of_type(&in_a, "ticket.people_cleared", &a_ticket_id);
+    assert_eq!(cleared_a.len(), 1, "A's ticket loses its requester");
+    assert_eq!(
+        cleared_a[0].2,
+        serde_json::json!({ "id": a_ticket, "requester_uuid": null }),
+        "only the requester, which is all that changed on it"
+    );
+    let cleared_b = of_type(&in_b, "ticket.people_cleared", &b_ticket_id);
+    assert_eq!(cleared_b.len(), 1, "B's ticket loses its assignee");
+    assert_eq!(
+        cleared_b[0].2,
+        serde_json::json!({ "id": b_ticket, "assignee_uuid": null })
+    );
+
+    let replies = of_type(&in_b, "comment.deleted", &b_comment.to_string());
+    assert_eq!(replies.len(), 1, "B hears the reply go");
+    assert_eq!(
+        replies[0].2,
+        serde_json::json!({ "id": b_comment, "ticket_id": b_ticket })
+    );
+    assert_eq!(
+        of_type(&in_b, "attachment.deleted", &b_file.to_string()).len(),
+        1,
+        "and the reply's file with it"
+    );
+
+    let asset = of_type(&in_b, "asset.updated", &b_asset.to_string());
+    assert_eq!(asset.len(), 1, "B's asset loses its user and manager");
+    assert!(asset[0].2["primary_user_uuid"].is_null());
+    assert!(asset[0].2["managed_by_user_uuid"].is_null());
+
+    let page = of_type(
+        &in_a,
+        "documentation_page.metadata_changed",
+        &a_page.to_string(),
+    );
+    assert_eq!(page.len(), 1, "A's page passes to the successor");
+    assert_eq!(page[0].2["created_by"], successor.to_string());
+    assert_eq!(page[0].2["last_edited_by"], successor.to_string());
+
+    // Each workspace's feed holds nothing about the other's records.
+    let about_record = |rows: &[FeedRow], prefix: &str, id: i32| {
+        rows.iter()
+            .any(|r| r.0.starts_with(prefix) && r.1 == id.to_string())
+    };
+    assert!(!about_record(&in_a, "ticket.", b_ticket), "B's ticket in A");
+    assert!(
+        !about_record(&in_a, "comment.", b_comment),
+        "B's reply in A"
+    );
+    assert!(!about_record(&in_a, "attachment.", b_file), "B's file in A");
+    assert!(!about_record(&in_a, "asset.", b_asset), "B's asset in A");
+    assert!(!about_record(&in_b, "ticket.", a_ticket), "A's ticket in B");
+    assert!(
+        !about_record(&in_b, "documentation_page.", a_page),
+        "A's page in B"
+    );
+}
+
+/// A published page in `workspace` written and last edited by `author`.
+fn page_in(pool: &TestPool, workspace: i32, title: &str, author: Uuid) -> i32 {
+    run_in_workspace(pool, REF, workspace, |c| {
+        diesel::insert_into(backend::schema::documentation_pages::table)
+            .values(&backend::models::NewDocumentationPage {
+                uuid: Uuid::new_v4(),
+                title: title.to_string(),
+                slug: format!("page-{}", Uuid::new_v4().simple()),
+                icon: None,
+                cover_image: None,
+                status: backend::models::DocumentationStatus::Published,
+                created_by: author,
+                last_edited_by: author,
+                parent_id: None,
+                display_order: None,
+                is_public: false,
+                is_template: false,
+                yjs_state_vector: None,
+                yjs_document: None,
+                yjs_client_id: None,
+                has_unsaved_changes: false,
+            })
+            .returning(backend::schema::documentation_pages::id)
+            .get_result(c)
+    })
+    .expect("insert page")
+}
+
+/// No platform admin anywhere, as on a hosted deployment.
+fn without_platform_admins(pool: &TestPool) {
+    let mut conn = pool.get().expect("conn");
+    diesel::update(
+        backend::schema::users::table
+            .filter(backend::schema::users::platform_role.eq("platform_admin")),
+    )
+    .set(backend::schema::users::platform_role.eq("user"))
+    .execute(&mut conn)
+    .expect("drop platform admins");
+}
+
+/// Purge `who` as the retention job does: elevated, pinned to `home`.
+fn purge_from(pool: &TestPool, home: i32, who: Uuid) -> Result<usize, diesel::result::Error> {
+    let mut conn = pool.get().expect("conn");
+    backend::sync::session::with_actor_bypass_context(&mut conn, &ActorContext::system(REF), |c| {
+        backend::sync::session::pin_workspace(c, home)?;
+        backend::repository::users::purge_user(&who, c, None)
+    })
+}
+
+/// Who a page names as its author and last editor now.
+fn page_people(pool: &TestPool, workspace: i32, page: i32) -> (Uuid, Uuid) {
+    run_in_workspace(pool, REF, workspace, |c| {
+        use backend::schema::documentation_pages::dsl as d;
+        d::documentation_pages
+            .find(page)
+            .select((d::created_by, d::last_edited_by))
+            .first(c)
+    })
+    .expect("page people")
+}
+
+/// With no platform admin anywhere, a person's pages in each workspace pass to
+/// that workspace's own owner, ahead of its admins, and each workspace hears
+/// of its own page.
+#[test]
+fn a_purge_hands_each_workspaces_pages_to_its_own_owner() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let (a, b) = (f.ws.a.workspace_id, f.ws.b.workspace_id);
+    let gone = f.requester_from_b;
+    without_platform_admins(&f.pool);
+
+    let mut conn = f.pool.get().expect("conn");
+    let owner_a = common::insert_plain_user(&mut conn, "Owner Of A");
+    let owner_b = common::insert_plain_user(&mut conn, "Owner Of B");
+    drop(conn);
+    for (ws, owner, admin) in [
+        (a, owner_a, f.ws.a.admin_uuid),
+        (b, owner_b, f.ws.b.admin_uuid),
+    ] {
+        let mut conn = f.pool.get().expect("conn");
+        with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &ActorContext::user(admin, None).with_workspace(ws),
+            |c| add_membership(c, ws, owner, "owner", SeatWriteAuthority::ControlPlane).map(|_| ()),
+        )
+        .expect("add the owner");
+    }
+    let a_page = page_in(&f.pool, a, "Printer setup", gone);
+    let b_page = page_in(&f.pool, b, "Scanner setup", gone);
+    let baseline: i64 = [a, b]
+        .into_iter()
+        .map(|ws| {
+            run_in_workspace(&f.pool, REF, ws, |c| {
+                use backend::schema::sync_actions::dsl as s;
+                s::sync_actions
+                    .filter(s::workspace_id.eq(ws))
+                    .select(diesel::dsl::max(s::sync_id))
+                    .first::<Option<i64>>(c)
+            })
+            .expect("baseline")
+            .unwrap_or(0)
+        })
+        .max()
+        .unwrap_or(0);
+
+    purge_from(&f.pool, b, gone).expect("the purge succeeds with no platform admin");
+
+    assert_eq!(
+        page_people(&f.pool, a, a_page),
+        (owner_a, owner_a),
+        "A's page goes to A's owner"
+    );
+    assert_eq!(
+        page_people(&f.pool, b, b_page),
+        (owner_b, owner_b),
+        "B's page goes to B's owner"
+    );
+    for (name, ws, own, other, owner) in [
+        ("A", a, a_page, b_page, owner_a),
+        ("B", b, b_page, a_page, owner_b),
+    ] {
+        let rows = feed_after(&f, ws, baseline);
+        let own_rows = of_type(
+            &rows,
+            "documentation_page.metadata_changed",
+            &own.to_string(),
+        );
+        assert_eq!(own_rows.len(), 1, "{name} hears of its page once");
+        assert_eq!(own_rows[0].2["created_by"], owner.to_string());
+        assert_eq!(own_rows[0].2["last_edited_by"], owner.to_string());
+        assert!(
+            of_type(
+                &rows,
+                "documentation_page.metadata_changed",
+                &other.to_string()
+            )
+            .is_empty(),
+            "{name} hears nothing of the other workspace's page"
+        );
+    }
+}
+
+/// A workspace with no one to take over the person's pages (no other owner or
+/// admin, and no platform admin) refuses the purge with a named error, and
+/// nothing is changed.
+#[test]
+fn a_purge_with_no_one_to_take_the_pages_is_refused_by_name() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let a = f.ws.a.workspace_id;
+    // A's only admin wrote the page; A has no owner and no platform admin exists.
+    let gone = f.ws.a.admin_uuid;
+    without_platform_admins(&f.pool);
+    let page = page_in(&f.pool, a, "Runbook", gone);
+
+    let err = purge_from(&f.pool, a, gone).expect_err("the purge is refused");
+    assert_eq!(
+        backend::repository::users::no_page_successor(&err),
+        Some(backend::repository::users::NoPageSuccessor { workspace_id: a }),
+        "the error names the workspace: {err}"
+    );
+    assert_eq!(
+        page_people(&f.pool, a, page),
+        (gone, gone),
+        "the page is untouched"
+    );
+    let mut conn = f.pool.get().expect("conn");
+    assert!(
+        backend::repository::users::get_user_by_uuid(&gone, &mut conn).is_ok(),
+        "the account is still there"
+    );
+}
+
 /// The `user.updated` rows about `who` that `workspace`'s feed holds.
 fn updates_about_in(f: &Fixture, workspace: i32, who: Uuid) -> Vec<UserRow> {
     run_in_workspace(&f.pool, REF, workspace, |c| {

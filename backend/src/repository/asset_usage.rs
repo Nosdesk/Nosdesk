@@ -55,15 +55,18 @@ pub fn record_event(
     let asset_id = new_usage.asset_id;
     let is_usage = new_usage.event_kind == "usage";
     conn.transaction::<RecordUsageOutcome, Error, _>(|conn| {
-        // Snapshot the pre-write quantity + name + threshold
-        // inside the transaction so the crossing check sees a
-        // consistent view of the row. Locking unnecessary at
-        // READ COMMITTED here because Postgres serialises the
-        // subsequent UPDATE through row-level locks anyway.
+        // Read the pre-write quantity, name and threshold with the
+        // row locked until commit, so two events on one asset take
+        // turns: each computes its new quantity from the other's
+        // committed count rather than both from the same one, which
+        // would lose an update. NO KEY UPDATE, not UPDATE: a comment
+        // or link insert holds KEY SHARE on the asset, which UPDATE
+        // would wait on and deadlock with.
         let (name, pre_qty, threshold): (String, Option<BigDecimal>, Option<BigDecimal>) =
             assets::table
                 .find(asset_id)
                 .select((assets::name, assets::quantity, assets::low_stock_threshold))
+                .for_no_key_update()
                 .first(conn)?;
         // Caller contract: only stock-tracked assets. We still
         // tolerate the NULL case as a defensive default of zero

@@ -42,10 +42,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
     ("repository/tickets.rs", "linked_tickets"),
     // The demo seeder backdates memberships it made through the owner.
     ("bin/seed_demo.rs", "cycle_tickets"),
-    // Account deletion clears `created_by`, which no sync event carries.
-    ("repository/users.rs", "project_tickets"),
-    ("repository/users.rs", "ticket_assets"),
-    ("repository/users.rs", "linked_tickets"),
     // Workspace import writes every exported table's rows back as they were.
     ("services/workspace_import.rs", "*"),
 ];

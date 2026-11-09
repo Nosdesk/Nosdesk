@@ -860,6 +860,42 @@ pub fn delete_comment(
     Ok(count)
 }
 
+/// Delete every comment `user_uuid`, an account being purged, wrote, in every
+/// workspace, each through [`delete_comment`] pinned to its own workspace: its
+/// files and the reply go with their `attachment.deleted` and
+/// `comment.deleted` events in that workspace. Called by
+/// [`purge_user`](crate::repository::users::purge_user) on a bypass
+/// connection, which sees every workspace's comments. Puts the caller's pin
+/// back. Returns the number of comments deleted.
+pub fn delete_all_by_purged_author(
+    conn: &mut DbConnection,
+    user_uuid: &uuid::Uuid,
+) -> QueryResult<usize> {
+    let written: Vec<(i32, i32)> = comments::table
+        .filter(comments::user_uuid.eq(user_uuid))
+        .select((comments::workspace_id, comments::id))
+        .order((comments::workspace_id.asc(), comments::id.asc()))
+        .load(conn)?;
+    let mut by_workspace: std::collections::BTreeMap<i32, Vec<i32>> =
+        std::collections::BTreeMap::new();
+    for (workspace_id, comment_id) in written {
+        by_workspace
+            .entry(workspace_id)
+            .or_default()
+            .push(comment_id);
+    }
+    let mut deleted = 0;
+    for (workspace_id, ids) in by_workspace {
+        crate::sync::session::with_workspace_pinned(conn, workspace_id, |conn| {
+            for comment_id in ids {
+                deleted += delete_comment(conn, comment_id, None)?;
+            }
+            Ok::<_, diesel::result::Error>(())
+        })?;
+    }
+    Ok(deleted)
+}
+
 /// The first of the workspaces `caller` is an active member of that holds an
 /// attachment stored at any of `urls`, with those attachments' ids. The file
 /// routes derive the workspace from the resource, since a direct

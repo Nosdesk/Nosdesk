@@ -555,6 +555,118 @@ pub fn emit_page_row_to(
     Ok(())
 }
 
+/// The workspaces in which `user_uuid` is a page's author or last editor, or a
+/// revision's author: each needs someone to take those over before the
+/// account can be purged, since those keys refuse the delete. On a bypass
+/// connection, every workspace's.
+pub fn workspaces_authored_by(
+    conn: &mut DbConnection,
+    user_uuid: &uuid::Uuid,
+) -> Result<Vec<i32>, Error> {
+    use crate::schema::documentation_revisions;
+
+    let mut workspaces: Vec<i32> = documentation_pages::table
+        .filter(
+            documentation_pages::created_by
+                .eq(user_uuid)
+                .or(documentation_pages::last_edited_by.eq(user_uuid)),
+        )
+        .select(documentation_pages::workspace_id)
+        .distinct()
+        .load(conn)?;
+    workspaces.extend(
+        documentation_revisions::table
+            .filter(documentation_revisions::created_by.eq(user_uuid))
+            .select(documentation_revisions::workspace_id)
+            .distinct()
+            .load::<i32>(conn)?,
+    );
+    workspaces.sort_unstable();
+    workspaces.dedup();
+    Ok(workspaces)
+}
+
+/// Take `user_uuid`, an account being purged, off every documentation page and
+/// revision that names it. In each workspace, `successors` names who becomes
+/// the author and last editor where the person was one; a workspace missing
+/// from it keeps the person there, and the key then refuses the account's
+/// delete. A verification the person made is cleared. Each changed page gets
+/// `documentation_page.metadata_changed` in its own workspace.
+///
+/// Called by [`purge_user`](crate::repository::users::purge_user) on a bypass
+/// connection, which sees every workspace's pages, with a successor for each
+/// of [`workspaces_authored_by`]. Puts the caller's pin back. Returns the
+/// number of pages changed.
+pub fn clear_purged_person_from_pages(
+    conn: &mut DbConnection,
+    user_uuid: &uuid::Uuid,
+    successors: &std::collections::BTreeMap<i32, uuid::Uuid>,
+) -> Result<usize, Error> {
+    use crate::schema::documentation_revisions;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // emit::record fires inside emit_page_row, once per changed page.
+    conn.transaction(|conn| {
+        let mut touched: Vec<(i32, i32)> = Vec::new();
+        for (&workspace_id, &successor) in successors {
+            touched.extend(
+                diesel::update(
+                    documentation_pages::table
+                        .filter(documentation_pages::workspace_id.eq(workspace_id))
+                        .filter(documentation_pages::created_by.eq(user_uuid)),
+                )
+                .set(documentation_pages::created_by.eq(successor))
+                .returning((documentation_pages::workspace_id, documentation_pages::id))
+                .get_results::<(i32, i32)>(conn)?,
+            );
+            touched.extend(
+                diesel::update(
+                    documentation_pages::table
+                        .filter(documentation_pages::workspace_id.eq(workspace_id))
+                        .filter(documentation_pages::last_edited_by.eq(user_uuid)),
+                )
+                .set(documentation_pages::last_edited_by.eq(successor))
+                .returning((documentation_pages::workspace_id, documentation_pages::id))
+                .get_results::<(i32, i32)>(conn)?,
+            );
+            // Revisions aren't sync rows.
+            diesel::update(
+                documentation_revisions::table
+                    .filter(documentation_revisions::workspace_id.eq(workspace_id))
+                    .filter(documentation_revisions::created_by.eq(user_uuid)),
+            )
+            .set(documentation_revisions::created_by.eq(successor))
+            .execute(conn)?;
+        }
+        // The key sets it NULL on its own when the user row goes, unseen by
+        // clients; clearing it here lets the event below carry it.
+        touched.extend(
+            diesel::update(
+                documentation_pages::table.filter(documentation_pages::verified_by.eq(user_uuid)),
+            )
+            .set(documentation_pages::verified_by.eq::<Option<uuid::Uuid>>(None))
+            .returning((documentation_pages::workspace_id, documentation_pages::id))
+            .get_results::<(i32, i32)>(conn)?,
+        );
+
+        let mut changed: BTreeMap<i32, BTreeSet<i32>> = BTreeMap::new();
+        for (workspace_id, page_id) in touched {
+            changed.entry(workspace_id).or_default().insert(page_id);
+        }
+        let mut count = 0;
+        for (workspace_id, pages) in changed {
+            crate::sync::session::with_workspace_pinned(conn, workspace_id, |conn| {
+                for &page_id in &pages {
+                    emit_page_row(conn, page_id, "documentation_page.metadata_changed")?;
+                }
+                count += pages.len();
+                Ok::<_, Error>(())
+            })?;
+        }
+        Ok(count)
+    })
+}
+
 /// The records whose rules name one of `group_ids`: collections and pages.
 /// Read before a change that drops those grants (deleting a group), and
 /// passed to [`emit_records`] after it.

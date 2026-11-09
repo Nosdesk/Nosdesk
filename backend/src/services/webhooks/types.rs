@@ -256,6 +256,9 @@ mod tests {
             ("ticket.resolution_notes_changed", Some(TicketUpdated)),
             ("ticket.merged_into", Some(TicketUpdated)),
             ("ticket.merged", None),
+            // A purge clearing a person from each of their tickets raises
+            // nothing: a requester can have thousands.
+            ("ticket.people_cleared", None),
             ("ticket.deleted", Some(TicketDeleted)),
             ("comment.created", Some(CommentAdded)),
             ("attachment.created", Some(AttachmentAdded)),
