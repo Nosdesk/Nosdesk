@@ -44,8 +44,39 @@ const emit = defineEmits<{
   (e: 'error', message: string): void;
 }>();
 
-// Load data on mount
-onMounted(() => loadAuthData());
+// The connect callback sends the browser back to this page with its result,
+// `auth_success=true` or `auth_error=connect_failed`. Read it once and drop
+// it from the address, so a reload or a copied link doesn't repeat it. Read
+// during setup, before the settings view rewrites the address.
+const CONNECT_RESULT_PARAMS = ['auth_success', 'auth_error'];
+const takeConnectResult = (): 'success' | 'error' | null => {
+  const url = new URL(window.location.href);
+  const result = url.searchParams.get('auth_success') === 'true'
+    ? 'success'
+    : url.searchParams.get('auth_error') === 'connect_failed'
+      ? 'error'
+      : null;
+  if (!result) return null;
+  CONNECT_RESULT_PARAMS.forEach((param) => url.searchParams.delete(param));
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  return result;
+};
+const connectResult = isManagingOtherUser.value ? null : takeConnectResult();
+
+// Load data on mount, then report a connect that just came back: the list
+// already shows the newly connected account.
+onMounted(async () => {
+  await loadAuthData();
+  if (connectResult) {
+    // Microsoft is the only provider the page connects.
+    const provider = t('settings-auth-methods-type-microsoft');
+    if (connectResult === 'success') {
+      emit('success', t('settings-auth-methods-link-success', { provider }));
+    } else {
+      emit('error', t('settings-auth-methods-link-error', { provider }));
+    }
+  }
+});
 
 const getAuthMethodLabel = (type: string) => {
   switch (type) {
@@ -88,8 +119,8 @@ const addAuthMethod = async (type: 'microsoft') => {
   loading.value = true;
   const providerName = type.charAt(0).toUpperCase() + type.slice(1);
   try {
-    // Use authService to connect OAuth provider
-    const data = await authService.connectOAuthProvider(type);
+    // Come back to this page, where the result is read on return.
+    const data = await authService.connectOAuthProvider(type, window.location.pathname);
 
     if (data.auth_url) {
       // Redirect to OAuth provider - when user returns, the page will reload
