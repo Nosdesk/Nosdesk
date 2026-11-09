@@ -397,6 +397,9 @@ export function resolveDashboardViewFilter(
               { field: 'closed_at', op: 'is_not_empty', value: null },
               { field: 'closed_at', op: 'gte', value: from },
               { field: 'closed_at', op: 'lt', value: to },
+              // A merged ticket closes without being resolved; the
+              // Resolved count leaves it out, so the list does too.
+              { field: 'workflow_state.category', op: 'not_in', value: ['merged'] },
             ],
           },
           quick_filters: [],
