@@ -35,9 +35,7 @@
 
 use std::collections::HashSet;
 
-use regex::Regex;
-
-use crate::lint_source::{mask, rust_sources, test_only_files, test_regions};
+use crate::lint_source::{rust_sources, table_writes, test_only_files};
 
 /// Each table and the files that own its writes.
 const OWNERS: &[(&str, &[&str])] = &[
@@ -222,64 +220,4 @@ fn the_lint_sees_every_spelling_and_skips_test_code() {
             "should ignore: {code}"
         );
     }
-}
-
-/// The writes to `table` in `src` outside test code, as (line, text).
-fn table_writes(src: &str, table: &str) -> Vec<(usize, String)> {
-    let code = mask(src, true);
-    let sql = mask(src, false);
-    let skipped = test_regions(&code);
-    let t = regex::escape(table);
-    // A write whose target is a path ending in the table.
-    let diesel = Regex::new(&format!(
-        r"\b(?:insert_into|update|delete)\s*\(\s*(?:\w+\s*::\s*)*{t}\b"
-    ))
-    .expect("diesel write pattern");
-    // A query bound from the table (`table::table...` or a dsl's `t::table.`),
-    // written through later.
-    let bound = Regex::new(&format!(
-        r"\blet\s+(?:mut\s+)?(\w+)\s*(?::[^=;]*)?=\s*(?:\w+\s*::\s*)*{t}\s*(?:::\s*table\b|\.)"
-    ))
-    .expect("binding pattern");
-    // A module alias (`use crate::schema::T as a;`, `T::dsl as a`) names the
-    // table only at its `use`.
-    let alias =
-        Regex::new(&format!(r"\b{t}(?:\s*::\s*dsl)?\s+as\s+(\w+)\b")).expect("alias pattern");
-    let through: Vec<Regex> = bound
-        .captures_iter(&code)
-        .map(|caps| {
-            format!(
-                r"\b(?:update|delete)\s*\(\s*&?\s*{}\b",
-                regex::escape(&caps[1])
-            )
-        })
-        .chain(alias.captures_iter(&code).map(|caps| {
-            format!(
-                r"\b(?:insert_into|update|delete)\s*\(\s*{}\s*::\s*(?:table|{t})\b",
-                regex::escape(&caps[1])
-            )
-        }))
-        .map(|pattern| Regex::new(&pattern).expect("write-through pattern"))
-        .collect();
-    let raw = Regex::new(&format!(
-        r#"(?i)\b(?:update\s+(?:only\s+)?(?:public\.)?"?{t}"?(?:\s+(?:as\s+)?\w+)?\s+set|insert\s+into\s+(?:public\.)?"?{t}"?\b|delete\s+from\s+(?:only\s+)?(?:public\.)?"?{t}"?\b)"#
-    ))
-    .expect("sql write pattern");
-    let mut found: Vec<(usize, String)> = diesel
-        .find_iter(&code)
-        .chain(through.iter().flat_map(|re| re.find_iter(&code)))
-        .chain(raw.find_iter(&sql))
-        .filter(|m| !skipped.iter().any(|r| r.contains(&m.start())))
-        .map(|m| {
-            let line = src[..m.start()].matches('\n').count() + 1;
-            let text = src[m.range()]
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
-            (line, text)
-        })
-        .collect();
-    found.sort();
-    found.dedup();
-    found
 }
