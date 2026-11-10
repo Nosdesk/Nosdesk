@@ -164,8 +164,9 @@ onMounted(async () => {
     router.replace({ name: "login" });
   }
 
-  // Arm passkey autofill on the login form (no-op if unsupported).
-  void startConditionalPasskeyLogin();
+  // Arm passkey autofill on the login form (no-op if unsupported). An SSO
+  // only page has no local form, and the server refuses passkey sign-in.
+  if (!ssoOnly.value) void startConditionalPasskeyLogin();
 });
 
 // SSO-only, web: when one session ends, every open tab lands here at once, and

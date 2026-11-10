@@ -812,7 +812,8 @@ impl CallbackFailure {
 /// browser back (Microsoft and OIDC alike). It is a top-level page load, so it
 /// always answers with a redirect: into the app once signed in, otherwise to
 /// the sign-in page with an `auth_error` code, never a JSON error body. A
-/// failure also clears the flow's `oauth_state` cookie.
+/// failure also clears the flow's `oauth_state` cookie, once the callback's
+/// state has verified against it; a cookie binding another flow stays.
 pub async fn oauth_callback(
     db_pool: web::Data<Pool>,
     query: web::Query<OAuthExchangeRequest>,
@@ -824,23 +825,33 @@ pub async fn oauth_callback(
     // The provider reports a cancelled or refused sign-in with `error=` and
     // no code. Read it first, so it isn't mistaken for a broken callback.
     if let Some(error) = &query.error {
-        let state = verify_callback_state(&query, &request).ok();
-        if state.as_ref().is_some_and(|s| s.step_up.is_some()) {
-            info!(error = %error, "step-up: the identity provider returned an error");
-            return step_up_result(STEP_UP_CANCELLED);
-        }
-        let connect_return = state.and_then(|state| connect_return_path(&state));
-        return callback_failure_response(
-            CallbackFailure::ProviderDenied(format!(
-                "{error:?} {:?}",
-                query.error_description.as_deref().unwrap_or_default()
-            )),
-            connect_return.as_deref(),
-        );
+        let denied = CallbackFailure::ProviderDenied(format!(
+            "{error:?} {:?}",
+            query.error_description.as_deref().unwrap_or_default()
+        ));
+        return match verify_callback_state(&query, &request) {
+            Ok(state) if state.step_up.is_some() => {
+                info!(error = %error, "step-up: the identity provider returned an error");
+                step_up_result(STEP_UP_CANCELLED)
+            }
+            Ok(state) => callback_failure_response(
+                denied,
+                connect_return_path(&state).as_deref(),
+                StateCookie::Clear,
+            ),
+            // The state isn't this browser's current flow: another sign-in
+            // started since (a second tab) and its own callback is still to
+            // come, or the state is past its lifetime. Either way the person
+            // signs in again, and the other flow's cookie stays.
+            Err(failure @ CallbackFailure::StateExpired(_)) => {
+                callback_failure_response(failure, None, StateCookie::Keep)
+            }
+            Err(_) => callback_failure_response(denied, None, StateCookie::Keep),
+        };
     }
     let state_data = match verify_callback_state(&query, &request) {
         Ok(state) => state,
-        Err(failure) => return callback_failure_response(failure, None),
+        Err(failure) => return callback_failure_response(failure, None, StateCookie::Keep),
     };
     if let Some(flow) = state_data.step_up.clone() {
         let Some(code) = query.code.as_deref() else {
@@ -856,11 +867,14 @@ pub async fn oauth_callback(
         return callback_failure_response(
             CallbackFailure::Failed("missing authorization code".into()),
             connect_return.as_deref(),
+            StateCookie::Clear,
         );
     };
     match complete_oauth_callback(&db_pool, state_data, code, search_service, &request).await {
         Ok(response) => response,
-        Err(failure) => callback_failure_response(failure, connect_return.as_deref()),
+        Err(failure) => {
+            callback_failure_response(failure, connect_return.as_deref(), StateCookie::Clear)
+        }
     }
 }
 
@@ -923,13 +937,27 @@ fn connect_return_path(state: &OAuthState) -> Option<String> {
         .then(|| state.redirect_uri.clone())
 }
 
+/// What a failed callback does with the browser's `oauth_state` cookie.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StateCookie {
+    /// The callback's state verified against the cookie: the flow it bound
+    /// is over, so the cookie goes.
+    Clear,
+    /// The state didn't verify against the cookie, so the cookie, if there
+    /// is one, binds another flow: a sign-in started later in another tab of
+    /// this browser, whose callback still needs it. It stays, and expires
+    /// on its own.
+    Keep,
+}
+
 /// The redirect for a callback that couldn't sign the person in: back to the
 /// connect flow's page for a connect (`connect_return`), else the sign-in page
-/// with the failure's code. Clears the `oauth_state` cookie either way, since
-/// the flow it bound is over.
+/// with the failure's code. Clears the `oauth_state` cookie when `cookie` says
+/// it bound this flow.
 fn callback_failure_response(
     failure: CallbackFailure,
     connect_return: Option<&str>,
+    cookie: StateCookie,
 ) -> HttpResponse {
     match &failure {
         CallbackFailure::StateExpired(detail) => {
@@ -951,8 +979,10 @@ fn callback_failure_response(
         ),
         None => auth_error_redirect(failure.code()),
     };
-    if let Err(e) = response.add_cookie(&crate::utils::cookies::delete_oauth_state_cookie()) {
-        error!(error = %e, "OAuth callback: could not clear the state cookie");
+    if cookie == StateCookie::Clear {
+        if let Err(e) = response.add_cookie(&crate::utils::cookies::delete_oauth_state_cookie()) {
+            error!(error = %e, "OAuth callback: could not clear the state cookie");
+        }
     }
     response
 }
