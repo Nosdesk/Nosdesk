@@ -395,6 +395,47 @@ describe('DocsImportView: Review', () => {
   })
 })
 
+describe('DocsImportView: Discard', () => {
+  async function discard() {
+    await find('import-discard').trigger('click')
+    expect(find('confirm-message').text()).toBe('import-discard-message')
+    await find('confirm-ok').trigger('click')
+    await flushPromises()
+  }
+
+  it('deletes the draft from Pages once confirmed and returns to Data import', async () => {
+    api.get.mockResolvedValue(job('parsed'))
+    api.remove.mockResolvedValue(undefined)
+    await mountAt('/admin/data-import/documentation?job=job-1')
+    expect(find('docs-pages').exists()).toBe(true)
+    await discard()
+    expect(api.remove).toHaveBeenCalledWith('job-1')
+    expect(router.currentRoute.value.name).toBe('admin-data-import')
+    expect(router.currentRoute.value.query.job).toBeUndefined()
+  })
+
+  it('deletes the draft from Review without importing it', async () => {
+    api.get.mockResolvedValue(job('dry_run_done'))
+    api.remove.mockResolvedValue(undefined)
+    await mountAt('/admin/data-import/documentation?job=job-1')
+    expect(find('docs-review').exists()).toBe(true)
+    await discard()
+    expect(api.remove).toHaveBeenCalledWith('job-1')
+    expect(api.commit).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.name).toBe('admin-data-import')
+  })
+
+  it('stays on Review with the reason when the draft cannot be deleted', async () => {
+    api.get.mockResolvedValue(job('dry_run_done'))
+    api.remove.mockRejectedValue({ response: { status: 409, data: { error: 'this import has been committed' } } })
+    await mountAt('/admin/data-import/documentation?job=job-1')
+    await discard()
+    expect(find('docs-review').exists()).toBe(true)
+    expect(router.currentRoute.value.query.job).toBe('job-1')
+    expect(wrapper!.text()).toContain('this import has been committed')
+  })
+})
+
 describe('DocsImportView: Done', () => {
   it('follows a commit still running, with the pages written so far, to the end', async () => {
     vi.useFakeTimers()

@@ -302,7 +302,10 @@ beforeEach(() => {
   localStorage.clear()
   router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/:any(.*)*', component: { template: '<div />' } }],
+    routes: [
+      { path: '/admin/data-import', name: 'admin-data-import', component: { template: '<div />' } },
+      { path: '/:any(.*)*', component: { template: '<div />' } },
+    ],
   })
 })
 afterEach(() => {
@@ -410,6 +413,57 @@ describe('CsvImportView step machine', () => {
       '',
       'serial_number',
     ])
+  })
+})
+
+describe('CsvImportView Discard', () => {
+  async function discard() {
+    await wrapper!.find('[data-test="import-discard"]').trigger('click')
+    expect(wrapper!.find('[data-test="confirm-title"]').text()).toBe('import-discard-title')
+    await wrapper!.find('[data-test="confirm-ok"]').trigger('click')
+    await flushPromises()
+  }
+
+  it('deletes the draft from Map once confirmed and returns to Data import', async () => {
+    api.get.mockResolvedValue(parsedJob())
+    api.remove.mockResolvedValue(undefined)
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('map')
+    await discard()
+    expect(api.remove).toHaveBeenCalledWith('job-1')
+    expect(router.currentRoute.value.name).toBe('admin-data-import')
+    expect(router.currentRoute.value.query.job).toBeUndefined()
+  })
+
+  it('deletes the draft from Review', async () => {
+    api.get.mockResolvedValue(checkedJob())
+    api.remove.mockResolvedValue(undefined)
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('review')
+    await discard()
+    expect(api.remove).toHaveBeenCalledWith('job-1')
+    expect(api.commit).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.name).toBe('admin-data-import')
+  })
+
+  it('takes a draft already gone as discarded', async () => {
+    api.get.mockResolvedValue(checkedJob())
+    api.remove.mockRejectedValue({ response: { status: 404, data: {} } })
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await discard()
+    expect(router.currentRoute.value.name).toBe('admin-data-import')
+  })
+
+  it('stays on the step with the reason when the draft cannot be deleted', async () => {
+    api.get.mockResolvedValue(checkedJob())
+    api.remove.mockRejectedValue({
+      response: { status: 409, data: { error: 'this import has been committed' } },
+    })
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await discard()
+    expect(currentStep()).toBe('review')
+    expect(router.currentRoute.value.query.job).toBe('job-1')
+    expect(wrapper!.text()).toContain('this import has been committed')
   })
 })
 

@@ -89,7 +89,9 @@ const MAX_BYTES = 200 * 1024 * 1024
 
 const step = ref<Step>('start')
 const job = ref<DocsImportJob | null>(null)
-const busy = ref<'upload' | 'reread' | 'check' | 'commit' | 'resume' | 'discard' | null>(null)
+const busy = ref<
+  'upload' | 'reread' | 'check' | 'commit' | 'resume' | 'discard' | 'discard-draft' | null
+>(null)
 const errorMessage = ref('')
 /** The plan changed under a commit: what changed. */
 const notice = ref('')
@@ -462,19 +464,37 @@ const uploadPct = computed(() =>
 /** "Change file" keeps where the pages go for the next file. */
 const keptChoices = ref<Partial<PagesChoices> | null>(null)
 
-async function changeFile() {
-  if (!job.value || busy.value) return
-  busy.value = 'discard'
+/** Delete the draft and its file; `false`, with the reason shown, when
+ *  it couldn't be. */
+async function removeDraft(kind: 'discard' | 'discard-draft'): Promise<boolean> {
+  if (!job.value || busy.value) return false
+  busy.value = kind
   errorMessage.value = ''
   try {
     await importService.remove(job.value.id)
   } catch (e) {
+    // Already gone is as good as deleted.
     if ((e as { response?: { status?: number } })?.response?.status !== 404) {
       errorMessage.value = apiError(e, 'docs-import-error-generic')
       busy.value = null
-      return
+      return false
     }
   }
+  return true
+}
+
+/** Discard on Pages or Review: delete the draft and its file, then Data
+ *  import. Replaced, so Back doesn't reopen the deleted draft. */
+async function discardDraft() {
+  if (!(await removeDraft('discard-draft'))) return
+  busy.value = null
+  job.value = null
+  queryCache.invalidateQueries({ key: ['import-jobs'] })
+  await router.replace({ name: 'admin-data-import' })
+}
+
+async function changeFile() {
+  if (!(await removeDraft('discard'))) return
   const c = choices.value
   keptChoices.value = {
     status: c.status,
@@ -888,8 +908,10 @@ function goTo(target: Step) {
         :checking="busy === 'check'"
         :rereading="busy === 'reread'"
         :discarding="busy === 'discard'"
+        :discarding-draft="busy === 'discard-draft'"
         @check="check"
         @change-file="changeFile"
+        @discard="discardDraft"
       />
 
       <!-- Review --------------------------------------------------------- -->
@@ -904,8 +926,10 @@ function goTo(target: Step) {
         :changed="changed"
         :dest="dest"
         :committing="busy === 'commit'"
+        :discarding="busy === 'discard-draft'"
         :downloading="downloading"
         @back="goBackToPages"
+        @discard="discardDraft"
         @commit="commit"
         @report="downloadReport"
       />

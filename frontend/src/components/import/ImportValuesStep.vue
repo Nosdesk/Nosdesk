@@ -19,6 +19,7 @@ import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 
 import Button from '@/components/common/Button.vue'
+import ImportDiscardButton from './ImportDiscardButton.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import SearchableDropdown from '@/components/common/SearchableDropdown.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
@@ -101,11 +102,15 @@ const props = defineProps<{
   focusField?: string | null
   /** The import's type, for the footer's noun. */
   jobType?: ImportJobType
+  /** Discard is deleting the job. */
+  discarding?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'check', answers: ValueAnswers): void
   (e: 'back'): void
+  /** Discard the draft, after its confirmation. */
+  (e: 'discard'): void
 }>()
 
 const fluent = useFluent()
@@ -995,16 +1000,21 @@ const domId = (col: ImportValueColumn, v: ImportValue) =>
 
     <!-- Action bar. -->
     <div class="sticky bottom-0 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3">
-      <Button variant="ghost" :disabled="checking" data-test="import-values-back" @click="emit('back')">
+      <Button variant="ghost" :disabled="checking || discarding" data-test="import-values-back" @click="emit('back')">
         {{ $t('import-values-back') }}
       </Button>
+      <ImportDiscardButton
+        :loading="discarding"
+        :disabled="checking || discarding"
+        @discard="emit('discard')"
+      />
       <span v-if="tried && unfinished.length > 0" class="ml-auto text-xs text-status-error">
         {{ $t('import-values-replace-missing', { count: unfinished.length }) }}
       </span>
       <Button
         :class="tried && unfinished.length > 0 ? '' : 'ml-auto'"
         :loading="checking"
-        :disabled="checking"
+        :disabled="checking || discarding"
         data-test="import-values-check"
         @click="checkAgain"
       >

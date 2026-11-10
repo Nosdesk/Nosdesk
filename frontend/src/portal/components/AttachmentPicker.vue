@@ -8,6 +8,8 @@ import Icon from '@/components/common/Icon.vue'
 import { uploadFile, type PortalAttachment } from '../service'
 
 const MAX_FILES = 5
+/** The server's cap for a requester's file (GUEST_MAX_FILE_SIZE_MB). */
+const MAX_FILE_MB = 10
 
 // Staged uploads; the parent sends their ids with the reply or request.
 const files = defineModel<PortalAttachment[]>({ required: true })
@@ -20,7 +22,17 @@ const props = defineProps<{
 const { $t: t } = useFluent()
 const input = ref<HTMLInputElement | null>(null)
 const uploading = ref(0)
-const failed = ref<string[]>([])
+/** Files that weren't attached, each with why. */
+const failed = ref<{ name: string; message: string }[]>([])
+
+/** Why `name` wasn't attached: over the cap, or a plain failure. */
+function failureText(name: string, e: unknown): string {
+  const response = (e as { response?: { status?: number; data?: { code?: string } } })?.response
+  if (response?.status === 413 || response?.data?.code === 'FILE_TOO_LARGE') {
+    return t('portal-attach-too-large', { name, limit: MAX_FILE_MB })
+  }
+  return t('portal-attach-failed', { name })
+}
 
 const full = computed(() => files.value.length + uploading.value >= MAX_FILES)
 
@@ -31,11 +43,19 @@ async function onPick(event: Event): Promise<void> {
   const room = MAX_FILES - files.value.length - uploading.value
   await Promise.all(
     picked.slice(0, Math.max(room, 0)).map(async (file) => {
+      // Over the cap: said here, without sending it.
+      if (file.size > MAX_FILE_MB * 1024 * 1024) {
+        failed.value = [
+          ...failed.value,
+          { name: file.name, message: t('portal-attach-too-large', { name: file.name, limit: MAX_FILE_MB }) },
+        ]
+        return
+      }
       uploading.value++
       try {
         files.value = [...files.value, await uploadFile(file)]
-      } catch {
-        failed.value = [...failed.value, file.name]
+      } catch (e) {
+        failed.value = [...failed.value, { name: file.name, message: failureText(file.name, e) }]
       } finally {
         uploading.value--
       }
@@ -84,8 +104,14 @@ function remove(id: number): void {
         </button>
       </li>
     </ul>
-    <p v-for="name in failed" :key="name" role="alert" class="text-xs text-status-error">
-      {{ t('portal-attach-failed', { name }) }}
+    <p
+      v-for="(f, i) in failed"
+      :key="`${i}:${f.name}`"
+      role="alert"
+      class="text-xs text-status-error"
+      data-test="portal-attach-failed"
+    >
+      {{ f.message }}
     </p>
   </div>
 </template>

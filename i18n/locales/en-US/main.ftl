@@ -3798,6 +3798,10 @@ import-map-change-file = Change file
 import-map-change-file-title = Discard this file?
 import-map-change-file-message = Columns with the same headers are matched again automatically.
 import-map-change-file-confirm = Discard file
+import-discard = Discard import
+import-discard-title = Discard this import?
+import-discard-message = The uploaded file and the choices made so far are deleted. Nothing has been imported.
+import-discard-confirm = Discard import
 import-map-detect-users = This file has { $headers } columns and no tag or serial. Importing users?
 import-map-detect-assets = This file has { $headers } columns. Importing assets?
 import-map-switch-users = Switch to users
@@ -5044,6 +5048,8 @@ settings-profile-avatar-upload-error = Failed to upload avatar
 settings-profile-banner-upload-error = Failed to upload banner
 settings-profile-avatar-update-error = Failed to update avatar
 settings-profile-banner-update-error = Failed to update banner
+settings-profile-image-too-large = That image is over { $limit } MB. Choose a smaller one.
+settings-profile-image-type-not-allowed = Use a JPEG, PNG, GIF or WebP image.
 settings-profile-name-update-success = Name updated successfully
 settings-profile-name-update-error = Failed to update name
 settings-profile-pronouns-update-success = Pronouns updated successfully
@@ -8681,6 +8687,7 @@ portal-attach-files = Attach files
 portal-attach-hint = Images, PDF or text, up to 10 MB each, 5 files at most.
 portal-attach-remove = Remove { $name }
 portal-attach-failed = { $name } couldn't be attached.
+portal-attach-too-large = { $name } is over the { $limit } MB limit.
 
 # Identity owned by the Nosdesk account (hosted staff)
 nosdesk-account-title = Nosdesk account

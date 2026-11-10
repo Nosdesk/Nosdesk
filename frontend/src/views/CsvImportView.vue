@@ -120,7 +120,16 @@ const uploadError = ref<{ message: string; detail: string } | null>(null)
 
 const job = ref<ImportJob | null>(null)
 const busy = ref<
-  'upload' | 'source' | 'type' | 'discard' | 'check' | 'commit' | 'resume' | 'next' | null
+  | 'upload'
+  | 'source'
+  | 'type'
+  | 'discard'
+  | 'discard-draft'
+  | 'check'
+  | 'commit'
+  | 'resume'
+  | 'next'
+  | null
 >(null)
 const downloadingReport = ref(false)
 const errorMessage = ref('')
@@ -623,10 +632,11 @@ function resetToStart() {
   step.value = 'start'
 }
 
-/** "Change file" on Map: delete the draft and its file, then Start. */
-async function changeFile() {
-  if (!job.value || busy.value) return
-  busy.value = 'discard'
+/** Delete the draft and its file; `false`, with the reason shown, when
+ *  it couldn't be. */
+async function removeDraft(kind: 'discard' | 'discard-draft'): Promise<boolean> {
+  if (!job.value || busy.value) return false
+  busy.value = kind
   errorMessage.value = ''
   try {
     await importService.remove(job.value.id)
@@ -634,12 +644,26 @@ async function changeFile() {
     // Already gone is as good as deleted.
     if ((e as { response?: { status?: number } })?.response?.status !== 404) {
       errorMessage.value = apiError(e, 'import-error-generic')
-      return
+      return false
     }
   } finally {
     busy.value = null
   }
-  resetToStart()
+  return true
+}
+
+/** "Change file" on Map: delete the draft and its file, then Start. */
+async function changeFile() {
+  if (await removeDraft('discard')) resetToStart()
+}
+
+/** Discard on Map, Match values or Review: delete the draft and its file,
+ *  then Data import. Replaced, so Back doesn't reopen the deleted draft. */
+async function discardDraft() {
+  if (!(await removeDraft('discard-draft'))) return
+  job.value = null
+  queryCache.invalidateQueries({ key: ['import-jobs'] })
+  await router.replace({ name: 'admin-data-import' })
 }
 
 /** Done's "Import another file like this": Start on the same type with
@@ -959,10 +983,12 @@ function viewImported() {
           :checking="busy === 'check'"
           :switching="busy === 'type'"
           :discarding="busy === 'discard'"
+          :discarding-draft="busy === 'discard-draft'"
           :focus-field="mapFocus"
           @check="check"
           @switch-type="switchType"
           @change-file="changeFile"
+          @discard="discardDraft"
         />
         <p v-else class="flex items-center gap-2 text-sm text-secondary">
           <Spinner size="sm" />
@@ -982,8 +1008,10 @@ function viewImported() {
           :version="job.updated_at"
           :focus-field="valuesFocus"
           :job-type="job.job_type"
+          :discarding="busy === 'discard-draft'"
           @check="checkValues"
           @back="goTo('map')"
+          @discard="discardDraft"
         />
         <ErrorBanner v-else-if="valuesQuery.error.value" :message="$t('import-values-load-failed')" />
         <p v-else class="flex items-center gap-2 text-sm text-secondary">
@@ -999,10 +1027,12 @@ function viewImported() {
         :fields="fields"
         :kinds="kindOptions"
         :committing="busy === 'commit'"
+        :discarding="busy === 'discard-draft'"
         :downloading="downloadingReport"
         :values-all-matched="valuesAllMatched"
         :webhooks="webhooksHearAssets"
         @back="goTo('map')"
+        @discard="discardDraft"
         @see-values="seeValues"
         @fix-values="fixValues"
         @fix-map="fixMap"
