@@ -25,11 +25,12 @@ vi.mock('@/stores/theme', () => ({ useThemeStore: () => ({ isDarkMode: false }) 
 vi.mock('@/composables/useMicrosoftAuth', () => ({
   useMicrosoftAuth: () => ({ handleMicrosoftLogin: vi.fn(), handleMicrosoftLogout: vi.fn(), error: { value: null } }),
 }))
+const passkeyAutofill = vi.hoisted(() => vi.fn(async () => null))
 vi.mock('@/composables/usePasskeys', () => ({
   usePasskeys: () => ({
     isSupported: { value: false },
     loginWithPasskey: vi.fn(),
-    loginWithPasskeyConditional: vi.fn(async () => null),
+    loginWithPasskeyConditional: passkeyAutofill,
     error: { value: null },
     checkSupport: vi.fn(async () => false),
   }),
@@ -161,6 +162,22 @@ describe('LoginView after a sign-in the callback could not finish', () => {
     await flushPromises()
     expect(wrapper.text()).toContain(message)
     expect(authorizeCalls()).toHaveLength(0)
+  })
+})
+
+describe('LoginView passkey autofill', () => {
+  it('is not armed on an SSO only page, which has no form for it', async () => {
+    route.query = { auth_error: 'state_expired' }
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(passkeyAutofill).not.toHaveBeenCalled()
+  })
+
+  it('is armed on a page with the local sign-in form', async () => {
+    checkSetupStatus.mockResolvedValue({ ...ssoOnlyStatus, oidc_enabled: false, local_auth_disabled: false })
+    wrapper = mountWithProviders(LoginView)
+    await flushPromises()
+    expect(passkeyAutofill).toHaveBeenCalledOnce()
   })
 })
 

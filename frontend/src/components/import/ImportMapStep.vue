@@ -127,7 +127,7 @@ const matchBy = ref<MatchBy>(legacyNone ? 'asset_tag' : (stored.match_by ?? 'ass
 const mode = ref<ImportMode>(legacyNone ? 'create_only' : (stored.mode ?? 'create_update'))
 /** The kind new rows take when the Kind column is mapped and blank: the
  *  job's own, else the template's. */
-const defaultKind = stored.default_kind || props.defaultKind || ''
+const defaultKind = computed(() => stored.default_kind || props.defaultKind || '')
 
 // ---- dates and decimals, as the samples show them ----
 
@@ -639,8 +639,8 @@ function check() {
   if (isAssets.value) {
     options.match_by = matchBy.value
     options.mode = mode.value
-    if (defaultKind && mappedFields.value.has('kind')) {
-      options.default_kind = defaultKind
+    if (defaultKind.value && mappedFields.value.has('kind')) {
+      options.default_kind = defaultKind.value
     }
   }
   emit('check', buildMapping(rows.value), options, buildIgnored(rows.value))

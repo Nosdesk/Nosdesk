@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PiniaColada } from '@pinia/colada'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
-import { createMemoryHistory, createRouter, type Router } from 'vue-router'
+import { defineComponent, h, type VNode } from 'vue'
+import {
+  createMemoryHistory,
+  createRouter,
+  RouterView,
+  type RouteLocationNormalizedLoaded,
+  type Router,
+} from 'vue-router'
 import { mountWithProviders } from '@/test/mountWithProviders'
 import type {
   ImportField,
@@ -800,6 +807,40 @@ describe('CsvImportView Map step', () => {
       expect.objectContaining({ default_kind: 'camera', constants: [] }),
       [],
     )
+  })
+
+  it("keeps the template's kind when the admin layout mounts the view again for ?job=", async () => {
+    // AdminLayout keys its page by the full path, so the upload's ?job=
+    // mounts the view afresh, which then resumes the job from the server.
+    api.upload.mockResolvedValue(parsedJob())
+    api.get.mockResolvedValue(parsedJob())
+    api.putMapping.mockResolvedValue(checkedJob())
+    const keyed = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/admin/data-import/csv', component: CsvImportView }],
+    })
+    await keyed.push('/admin/data-import/csv')
+    await keyed.isReady()
+    const Layout = defineComponent({
+      render: () =>
+        h(RouterView, null, {
+          default: ({ Component, route }: { Component: VNode; route: RouteLocationNormalizedLoaded }) =>
+            h(Component, { key: route.fullPath }),
+        }),
+    })
+    wrapper = mountWithProviders(Layout, {}, {}, [[PiniaColada, {}] as never, keyed])
+    await flushPromises()
+
+    await wrapper.find('[data-test="import-template-kind"] [data-value="camera"]').trigger('click')
+    await pick(csvFile())
+    await flushPromises()
+    expect(api.get).toHaveBeenCalledWith('job-1')
+    expect(keyed.currentRoute.value.query).toMatchObject({ job: 'job-1', kind: 'camera' })
+    expect(currentStep()).toBe('map')
+
+    await checkButton().trigger('click')
+    await flushPromises()
+    expect(api.putMapping.mock.calls[0][2]).toMatchObject({ default_kind: 'camera' })
   })
 
   it('carries a stored default kind forward, and drops it once Kind is unmapped', async () => {

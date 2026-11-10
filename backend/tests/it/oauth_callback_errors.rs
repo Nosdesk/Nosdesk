@@ -1,7 +1,9 @@
 //! `GET /api/auth/oauth/callback` is a top-level browser load. A sign-in that
 //! can't finish lands on the sign-in page with a code it can explain, never on
 //! a JSON error body, always on the fixed `/login` target whatever return path
-//! the state carries, and clears the flow's `oauth_state` cookie. A step-up
+//! the state carries. It clears the flow's `oauth_state` cookie once the
+//! state has verified against it, and leaves a cookie that binds another
+//! flow (a sign-in started later in another tab) for that flow. A step-up
 //! confirmation (in a popup) instead lands on `/auth/confirmed` with a result
 //! code, and never signs anyone in.
 
@@ -105,6 +107,11 @@ fn assert_lands_on_login(landing: &Landing, code: &str) {
         landing.location.as_deref(),
         Some(format!("/login?auth_error={code}").as_str())
     );
+}
+
+/// Lands on the sign-in page with `code` and clears the flow's cookie.
+fn assert_ends_the_flow(landing: &Landing, code: &str) {
+    assert_lands_on_login(landing, code);
     let cookie = landing
         .state_cookie
         .as_ref()
@@ -113,24 +120,66 @@ fn assert_lands_on_login(landing: &Landing, code: &str) {
     assert_eq!(cookie.max_age(), Some(Duration::ZERO));
 }
 
+/// Lands on the sign-in page with `code` and leaves the browser's cookie,
+/// which binds some other flow, as it is.
+fn assert_keeps_the_cookie(landing: &Landing, code: &str) {
+    assert_lands_on_login(landing, code);
+    assert!(
+        landing.state_cookie.is_none(),
+        "the response leaves the oauth_state cookie alone, got {:?}",
+        landing.state_cookie
+    );
+}
+
 #[actix_web::test]
 async fn a_state_that_does_not_verify_lands_on_login_as_expired() {
     let landing = callback("code=abc&state=not-a-jwt", "binding").await;
-    assert_lands_on_login(&landing, "state_expired");
+    assert_keeps_the_cookie(&landing, "state_expired");
 }
 
 #[actix_web::test]
 async fn an_expired_state_lands_on_login_as_expired() {
     let state = signed_state("binding", -3600);
     let landing = callback(&format!("code=abc&state={state}"), "binding").await;
-    assert_lands_on_login(&landing, "state_expired");
+    assert_keeps_the_cookie(&landing, "state_expired");
 }
 
 #[actix_web::test]
 async fn a_state_from_another_browser_lands_on_login_as_expired() {
     let state = signed_state("binding", 600);
     let landing = callback(&format!("code=abc&state={state}"), "some-other-flow").await;
-    assert_lands_on_login(&landing, "state_expired");
+    assert_keeps_the_cookie(&landing, "state_expired");
+}
+
+/// Two tabs of one browser start signing in, so the cookie binds the second
+/// tab's flow. The identity provider sends the first tab back with an error
+/// (Hydra refuses a login whose CSRF cookie the second tab replaced): that
+/// tab's sign-in took too long, not "cancelled", and the second tab's
+/// cookie stays for its own callback.
+#[actix_web::test]
+async fn a_provider_error_for_a_replaced_flow_lands_as_expired_and_keeps_the_newer_cookie() {
+    let first = signed_state("first-tab", 600);
+    let landing = callback(
+        &format!("error=request_forbidden&state={first}"),
+        "second-tab",
+    )
+    .await;
+    assert_keeps_the_cookie(&landing, "state_expired");
+}
+
+/// The first tab's callback, coming back with a code after the second tab
+/// started, fails without clearing the cookie, so the second tab's callback
+/// still gets past the state check. Here it then fails at the code exchange,
+/// as no provider is set up, which is `signin_failed`, not `state_expired`.
+#[actix_web::test]
+async fn the_first_tab_failing_leaves_the_second_tab_able_to_finish() {
+    let first = signed_state("first-tab", 600);
+    let landing = callback(&format!("code=abc&state={first}"), "second-tab").await;
+    assert_keeps_the_cookie(&landing, "state_expired");
+
+    let second = signed_state("second-tab", 600);
+    let landing = callback(&format!("code=abc&state={second}"), "second-tab").await;
+    assert_ends_the_flow(&landing, "signin_failed");
 }
 
 #[actix_web::test]
@@ -141,14 +190,14 @@ async fn a_cancelled_sign_in_lands_on_login_as_denied_by_the_provider() {
         "binding",
     )
     .await;
-    assert_lands_on_login(&landing, "provider_denied");
+    assert_ends_the_flow(&landing, "provider_denied");
 }
 
 #[actix_web::test]
 async fn a_callback_with_no_code_lands_on_login_as_failed() {
     let state = signed_state("binding", 600);
     let landing = callback(&format!("state={state}"), "binding").await;
-    assert_lands_on_login(&landing, "signin_failed");
+    assert_ends_the_flow(&landing, "signin_failed");
 }
 
 fn assert_step_up_lands_on(landing: &Landing, result: &str) {

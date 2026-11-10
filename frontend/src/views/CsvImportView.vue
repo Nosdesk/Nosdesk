@@ -26,7 +26,9 @@
  *             or the sign-in provider's line.
  *
  * The job id rides in `?job=` so a reload or a link resumes at the step
- * the job's status implies.
+ * the job's status implies. AdminLayout keys its page by the full path, so
+ * changing the query mounts this view afresh; the kind picked for the
+ * template rides along in `?kind=`, as nothing else carries it to Map.
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -209,6 +211,8 @@ function setJobQuery(id: string | null) {
   const query = { ...route.query }
   if (id) query.job = id
   else delete query.job
+  if (selectedType.value === 'assets' && templateKind.value) query.kind = templateKind.value
+  else delete query.kind
   router.replace({ query })
 }
 
@@ -308,8 +312,9 @@ function stepFailed(e: unknown, fallbackKey: string) {
 // ---- start ----
 
 /** The kind whose attribute columns the asset template carries; empty for
- *  the core columns only. */
-const templateKind = ref('')
+ *  the core columns only. Blank Kind cells of the uploaded file take it on
+ *  new rows. */
+const templateKind = ref(typeof route.query.kind === 'string' ? route.query.kind : '')
 const templateKindOptions = computed(() => [
   { value: '', label: t('import-template-kind-none') },
   ...kindOptions.value,
