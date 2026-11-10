@@ -3920,6 +3920,14 @@ import-map-change-file-message = Kolommen met dezelfde kopteksten worden opnieuw
 # MT: pending native review (nl-NL)
 import-map-change-file-confirm = Bestand verwerpen
 # MT: pending native review (nl-NL)
+import-discard = Import verwerpen
+# MT: pending native review (nl-NL)
+import-discard-title = Deze import verwerpen?
+# MT: pending native review (nl-NL)
+import-discard-message = Het geüploade bestand en de keuzes die u tot nu toe hebt gemaakt worden verwijderd. Er is niets geïmporteerd.
+# MT: pending native review (nl-NL)
+import-discard-confirm = Import verwerpen
+# MT: pending native review (nl-NL)
 import-map-detect-users = Dit bestand heeft de kolommen { $headers } en geen tag of serienummer. Importeert u gebruikers?
 # MT: pending native review (nl-NL)
 import-map-detect-assets = Dit bestand heeft de kolommen { $headers }. Importeert u assets?
@@ -5621,6 +5629,10 @@ settings-profile-avatar-upload-error = Kan avatar niet uploaden
 settings-profile-banner-upload-error = Kan banner niet uploaden
 settings-profile-avatar-update-error = Kan avatar niet bijwerken
 settings-profile-banner-update-error = Kan banner niet bijwerken
+# MT: pending native review (nl-NL)
+settings-profile-image-too-large = Deze afbeelding is groter dan { $limit } MB. Kies een kleinere.
+# MT: pending native review (nl-NL)
+settings-profile-image-type-not-allowed = Gebruik een JPEG-, PNG-, GIF- of WebP-afbeelding.
 settings-profile-name-update-success = Naam bijgewerkt
 settings-profile-name-update-error = Kan naam niet bijwerken
 settings-profile-pronouns-update-success = Voornaamwoorden bijgewerkt
@@ -9489,6 +9501,8 @@ portal-attach-files = Bestanden bijvoegen
 portal-attach-hint = Afbeeldingen, pdf of tekst, max. 10 MB per bestand, hooguit 5 bestanden.
 portal-attach-remove = { $name } verwijderen
 portal-attach-failed = { $name } kon niet worden bijgevoegd.
+# MT: pending native review (nl-NL)
+portal-attach-too-large = { $name } is groter dan de limiet van { $limit } MB.
 
 # Identity owned by the Nosdesk account (hosted staff) (machine, pending native review)
 nosdesk-account-title = Nosdesk-account

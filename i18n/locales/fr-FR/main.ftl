@@ -3930,6 +3930,14 @@ import-map-change-file-message = Les colonnes aux mêmes en-têtes seront de nou
 # MT: pending native review (fr-FR)
 import-map-change-file-confirm = Abandonner le fichier
 # MT: pending native review (fr-FR)
+import-discard = Abandonner l'import
+# MT: pending native review (fr-FR)
+import-discard-title = Abandonner cet import ?
+# MT: pending native review (fr-FR)
+import-discard-message = Le fichier envoyé et les choix faits jusqu'ici sont supprimés. Rien n'a été importé.
+# MT: pending native review (fr-FR)
+import-discard-confirm = Abandonner l'import
+# MT: pending native review (fr-FR)
 import-map-detect-users = Ce fichier contient les colonnes { $headers } et aucune étiquette ni numéro de série. Vous importez des utilisateurs ?
 # MT: pending native review (fr-FR)
 import-map-detect-assets = Ce fichier contient les colonnes { $headers }. Vous importez des actifs ?
@@ -5631,6 +5639,10 @@ settings-profile-avatar-upload-error = Échec du téléversement de l'avatar
 settings-profile-banner-upload-error = Échec du téléversement de la bannière
 settings-profile-avatar-update-error = Échec de la mise à jour de l'avatar
 settings-profile-banner-update-error = Échec de la mise à jour de la bannière
+# MT: pending native review (fr-FR)
+settings-profile-image-too-large = Cette image dépasse { $limit } Mo. Choisissez-en une plus petite.
+# MT: pending native review (fr-FR)
+settings-profile-image-type-not-allowed = Utilisez une image JPEG, PNG, GIF ou WebP.
 settings-profile-name-update-success = Nom mis à jour avec succès
 settings-profile-name-update-error = Échec de la mise à jour du nom
 settings-profile-pronouns-update-success = Pronoms mis à jour avec succès
@@ -9498,6 +9510,8 @@ portal-attach-files = Joindre des fichiers
 portal-attach-hint = Images, PDF ou texte, jusqu'à 10 Mo chacun, 5 fichiers maximum.
 portal-attach-remove = Retirer { $name }
 portal-attach-failed = { $name } n'a pas pu être joint.
+# MT: pending native review (fr-FR)
+portal-attach-too-large = { $name } dépasse la limite de { $limit } Mo.
 
 # Identity owned by the Nosdesk account (hosted staff) (machine, pending native review)
 nosdesk-account-title = Compte Nosdesk

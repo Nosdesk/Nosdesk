@@ -441,8 +441,9 @@ const userService = {
       logger.warn('Upload response did not contain a URL', { type, data: response.data });
       return null;
     } catch (error) {
+      // Thrown on, so the caller can say why (too large, wrong type).
       logger.error('Failed to upload image', { error, type });
-      return null;
+      throw error;
     }
   },
 

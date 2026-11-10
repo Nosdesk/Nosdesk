@@ -12,6 +12,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
+import ImportDiscardButton from '../ImportDiscardButton.vue'
 import Callout from '@/components/common/Callout.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Icon from '@/components/common/Icon.vue'
@@ -61,6 +62,8 @@ const props = defineProps<{
   changed: ReadonlySet<number>
   dest: string
   committing?: boolean
+  /** Discard is deleting the job. */
+  discarding?: boolean
   downloading?: boolean
 }>()
 
@@ -70,6 +73,8 @@ const emit = defineEmits<{
   back: []
   commit: []
   report: []
+  /** Discard the draft, after its confirmation. */
+  discard: []
 }>()
 
 const fluent = useFluent()
@@ -669,9 +674,15 @@ function confirm() {
     </Modal>
 
     <div class="sticky bottom-0 z-10 bg-app border-t border-default py-3 flex flex-wrap items-center gap-3" data-test="docs-review-bar">
-      <Button variant="ghost" class="order-2 sm:order-none w-full sm:w-auto" :disabled="committing" data-test="docs-review-back" @click="emit('back')">
+      <Button variant="ghost" class="order-2 sm:order-none w-full sm:w-auto" :disabled="committing || discarding" data-test="docs-review-back" @click="emit('back')">
         {{ $t('docs-import-review-back') }}
       </Button>
+      <ImportDiscardButton
+        class="order-3 sm:order-none w-full sm:w-auto"
+        :loading="discarding"
+        :disabled="committing || discarding"
+        @discard="emit('discard')"
+      />
       <Button
         variant="secondary"
         icon="download"
@@ -686,7 +697,7 @@ function confirm() {
       <Button
         class="order-first sm:order-none w-full sm:w-auto"
         :class="skipReason ? '' : 'sm:ml-auto'"
-        :disabled="counts.imported === 0 || committing || !rows"
+        :disabled="counts.imported === 0 || committing || discarding || !rows"
         :loading="committing"
         data-test="docs-review-import"
         @click="showConfirm = true"

@@ -16,6 +16,7 @@ import { useFluent } from 'fluent-vue'
 
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import Button from '@/components/common/Button.vue'
+import ImportDiscardButton from './ImportDiscardButton.vue'
 import Callout from '@/components/common/Callout.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -86,6 +87,8 @@ const props = defineProps<{
   switching?: boolean
   /** "Change file" is deleting the job. */
   discarding?: boolean
+  /** Discard is deleting the job. */
+  discardingDraft?: boolean
   /** A field the step opens on, its picker focused: Review's "Fix at Map
    *  columns". */
   focusField?: string | null
@@ -98,6 +101,8 @@ const emit = defineEmits<{
   (e: 'check', mapping: ColumnMapping, options: ImportOptions, ignored: number[]): void
   (e: 'switch-type', type: ImportJobType): void
   (e: 'change-file'): void
+  /** Discard the draft, after its confirmation. */
+  (e: 'discard'): void
 }>()
 
 const fluent = useFluent()
@@ -274,7 +279,9 @@ const typeHintText = computed(() => {
   if (!hint) return ''
   return t(`import-map-detect-${hint.type}`, { headers: listHeaders(hint.headers, lang) })
 })
-const busyElsewhere = computed(() => props.checking || !!props.switching || !!props.discarding)
+const busyElsewhere = computed(
+  () => props.checking || !!props.switching || !!props.discarding || !!props.discardingDraft,
+)
 const lang = typeof document === 'undefined' ? undefined : document.documentElement.lang || undefined
 
 function fieldLabel(id: string): string {
@@ -1131,6 +1138,11 @@ const linkClass =
       >
         {{ $t('import-map-change-file') }}
       </Button>
+      <ImportDiscardButton
+        :loading="discardingDraft"
+        :disabled="busyElsewhere"
+        @discard="emit('discard')"
+      />
       <span v-if="blocked" class="ml-auto text-xs text-tertiary">
         {{ $t('import-map-blocked', { count: found.length }) }}
       </span>

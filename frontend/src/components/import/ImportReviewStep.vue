@@ -21,6 +21,7 @@ import { useQuery } from '@pinia/colada'
 
 import Button from '@/components/common/Button.vue'
 import Callout from '@/components/common/Callout.vue'
+import ImportDiscardButton from './ImportDiscardButton.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Icon from '@/components/common/Icon.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
@@ -61,6 +62,8 @@ const props = defineProps<{
    *  `counts` the tiles alone. */
   mode?: 'review' | 'done' | 'detail' | 'counts'
   committing?: boolean
+  /** The draft is being discarded. */
+  discarding?: boolean
   downloading?: boolean
   /** Every value in the mapped columns matched without a question, so
    *  Match values wasn't needed. */
@@ -76,6 +79,8 @@ const emit = defineEmits<{
   (e: 'back'): void
   (e: 'see-values'): void
   (e: 'commit'): void
+  /** Discard the draft, after its confirmation. */
+  (e: 'discard'): void
   (e: 'download-report', only?: { group?: number; dropped?: number[] }): void
   /** Match values, at the card of this field (none: the first). */
   (e: 'fix-values', field: string | null): void
@@ -777,11 +782,13 @@ const linkClass =
       </div>
     </SectionCard>
 
-    <!-- Phone: the report sits above the bar, which keeps to one row. -->
-    <div v-if="isReview && hasReport" class="sm:hidden flex flex-col gap-2">
-      <p v-if="o.imported > 0 && o.skipped > 0" class="text-xs text-tertiary">{{ $t('import-review-skip-reason', { count: o.skipped }) }}</p>
-      <div>
+    <!-- Phone: the report and Discard sit above the bar, which keeps to
+         one row. -->
+    <div v-if="isReview" class="sm:hidden flex flex-col gap-2">
+      <p v-if="hasReport && o.imported > 0 && o.skipped > 0" class="text-xs text-tertiary">{{ $t('import-review-skip-reason', { count: o.skipped }) }}</p>
+      <div class="flex flex-wrap items-center gap-3">
         <Button
+          v-if="hasReport"
           variant="secondary"
           icon="download"
           :loading="downloading"
@@ -790,14 +797,27 @@ const linkClass =
         >
           {{ $t('import-review-download-report') }}
         </Button>
+        <ImportDiscardButton
+          :loading="discarding"
+          :disabled="committing || discarding"
+          data-test="import-discard-phone"
+          @discard="emit('discard')"
+        />
       </div>
     </div>
 
     <!-- Action bar: sticky, so Import is in reach from any row. -->
     <div v-if="isReview" class="sticky bottom-0 z-10 bg-app border-t border-default py-3 flex items-center gap-3">
-      <Button variant="ghost" :disabled="committing" @click="emit('back')">
+      <Button variant="ghost" :disabled="committing || discarding" @click="emit('back')">
         {{ $t('import-review-back') }}
       </Button>
+      <div class="hidden sm:flex shrink-0">
+        <ImportDiscardButton
+          :loading="discarding"
+          :disabled="committing || discarding"
+          @discard="emit('discard')"
+        />
+      </div>
       <div class="hidden sm:flex flex-1 min-w-0 items-center justify-end gap-3">
         <span v-if="o.imported > 0 && o.skipped > 0" class="min-w-0 text-right text-xs text-tertiary">
           {{ $t('import-review-skip-reason', { count: o.skipped }) }}
@@ -816,7 +836,7 @@ const linkClass =
       </div>
       <Button
         class="ml-auto sm:ml-0 shrink-0"
-        :disabled="o.imported === 0 || committing"
+        :disabled="o.imported === 0 || committing || discarding"
         :loading="committing"
         data-test="import-commit"
         @click="showConfirm = true"

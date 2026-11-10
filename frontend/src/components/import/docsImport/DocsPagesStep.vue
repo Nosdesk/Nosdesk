@@ -10,6 +10,7 @@ import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 
 import Button from '@/components/common/Button.vue'
+import ImportDiscardButton from '../ImportDiscardButton.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Icon from '@/components/common/Icon.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
@@ -43,6 +44,8 @@ const props = defineProps<{
   checking?: boolean
   rereading?: boolean
   discarding?: boolean
+  /** Discard is deleting the job. */
+  discardingDraft?: boolean
 }>()
 
 const choices = defineModel<PagesChoices>('choices', { required: true })
@@ -52,6 +55,8 @@ const expanded = defineModel<Set<string>>('expanded', { required: true })
 const emit = defineEmits<{
   check: []
   'change-file': []
+  /** Discard the draft, after its confirmation. */
+  discard: []
 }>()
 
 const fluent = useFluent()
@@ -60,7 +65,9 @@ const fmt = (n: number) => n.toLocaleString()
 
 const view = computed(() => props.source.tree)
 const counts = computed(() => treeCounts(props.tree, off.value, choices.value.typed))
-const busy = computed(() => !!props.checking || !!props.rereading || !!props.discarding)
+const busy = computed(
+  () => !!props.checking || !!props.rereading || !!props.discarding || !!props.discardingDraft,
+)
 
 /** The profile the tree was read as, and whether detection chose it. */
 const detectedProfile = computed<DocsProfile>(() => view.value.detected ?? view.value.profile)
@@ -212,6 +219,12 @@ const showChangeFile = ref(false)
       >
         {{ $t('docs-import-change-file') }}
       </Button>
+      <ImportDiscardButton
+        class="order-3 sm:order-none w-full sm:w-auto"
+        :loading="discardingDraft"
+        :disabled="busy"
+        @discard="emit('discard')"
+      />
       <span v-if="counts.ticked === 0" class="order-1 sm:order-none w-full sm:w-auto sm:ml-auto text-xs text-tertiary">
         {{ $t('docs-import-tick-one') }}
       </span>

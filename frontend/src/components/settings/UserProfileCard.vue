@@ -15,6 +15,7 @@ import FormInput from "@/components/common/FormInput.vue";
 import FormTextarea from "@/components/common/FormTextarea.vue";
 import userService from "@/services/userService";
 import uploadService from "@/services/uploadService";
+import { uploadFailure } from "@nosdesk/core/services/attachmentUploadService";
 import { displayRole, effectiveRole, type User } from "@nosdesk/core/types/user";
 
 const fluent = useFluent();
@@ -22,6 +23,10 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 const authStore = useAuthStore();
 const loading = ref(false);
+
+/** The server's cap for a profile picture or cover image
+ *  (UploadPolicy::profile_image). */
+const PROFILE_IMAGE_MAX_MB = 10;
 
 // File inputs
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -171,6 +176,7 @@ const handleFileChange = async (event: Event) => {
     if (!input.files?.length) return;
 
     let file = input.files[0];
+    if (refuseIfTooLarge(file)) return;
 
     const validation = uploadService.validateFile(file, {
         allowedTypes: ["image/*"],
@@ -196,6 +202,7 @@ const handleBannerChange = async (event: Event) => {
     if (!input.files?.length) return;
 
     let file = input.files[0];
+    if (refuseIfTooLarge(file)) return;
 
     const validation = uploadService.validateFile(file, {
         allowedTypes: ["image/*"],
@@ -216,7 +223,30 @@ const handleBannerChange = async (event: Event) => {
     }
 };
 
+/** Why an image upload was refused, when it is worth saying; null for
+ *  the generic message. */
+const imageRefusal = (err: unknown): string | null => {
+    switch (uploadFailure(err)) {
+        case "too-large":
+            return t("settings-profile-image-too-large", { limit: PROFILE_IMAGE_MAX_MB });
+        case "type-not-allowed":
+            return t("settings-profile-image-type-not-allowed");
+        default:
+            return null;
+    }
+};
+
+/** Over the cap: said here, without sending it. True when refused. */
+const refuseIfTooLarge = (file: File): boolean => {
+    if (file.size <= PROFILE_IMAGE_MAX_MB * 1024 * 1024) return false;
+    emit("error", t("settings-profile-image-too-large", { limit: PROFILE_IMAGE_MAX_MB }));
+    return true;
+};
+
 const uploadImage = async (file: File, type: "avatar" | "banner") => {
+    // Again after a HEIC conversion, which can change the size.
+    if (refuseIfTooLarge(file)) return;
+
     loading.value = true;
 
     // Reset and set uploading state
@@ -295,9 +325,10 @@ const uploadImage = async (file: File, type: "avatar" | "banner") => {
     } catch (err) {
         emit(
             "error",
-            type === "avatar"
-                ? t("settings-profile-avatar-update-error")
-                : t("settings-profile-banner-update-error"),
+            imageRefusal(err) ??
+                (type === "avatar"
+                    ? t("settings-profile-avatar-update-error")
+                    : t("settings-profile-banner-update-error")),
         );
         console.error(`Error updating ${type}:`, err);
     } finally {
@@ -648,6 +679,7 @@ const getRoleDisplayName = (role: string) => {
                     type="file"
                     accept="image/*"
                     class="hidden"
+                    data-test="avatar-file"
                     @change="handleFileChange"
                 />
             </div>

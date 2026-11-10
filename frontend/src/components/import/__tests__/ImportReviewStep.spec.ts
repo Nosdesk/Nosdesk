@@ -8,6 +8,14 @@ vi.mock('@nosdesk/core/services/importService', () => ({
   importService: { rows: vi.fn() },
 }))
 
+vi.mock('@/components/common/ConfirmModal.vue', () => ({
+  default: {
+    props: ['show', 'title', 'message', 'confirmLabel'],
+    emits: ['confirm', 'close'],
+    template: `<div v-if="show" data-test="confirm"><p data-test="confirm-title">{{ title }}</p><button type="button" data-test="confirm-ok" @click="$emit('confirm')">{{ confirmLabel }}</button></div>`,
+  },
+}))
+
 import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 
 const FIELDS: ImportField[] = [
@@ -134,5 +142,48 @@ describe('ImportReviewStep notices', () => {
     ])
     expect(wrapper.text()).toContain('import-review-notice-restore-changed-since')
     expect(wrapper.text()).not.toContain('3 values changed since this import.')
+  })
+})
+
+describe('ImportReviewStep Discard', () => {
+  function review(props: Record<string, unknown> = {}) {
+    const j = job([{ field: 'location', source_column: 'location', count: 2, constant: false }])
+    j.status = 'dry_run_done'
+    j.records_committed = null
+    wrapper = mountWithProviders(ImportReviewStep, { job: j, fields: FIELDS, mode: 'review', ...props }, {}, [
+      [PiniaColada, {}] as never,
+    ])
+    return wrapper.findComponent(ImportReviewStep)
+  }
+
+  it('sits in the action bar and discards only once confirmed', async () => {
+    const step = review()
+    const discard = wrapper!.find('[data-test="import-discard"]')
+    expect(discard.text()).toBe('import-discard')
+    // The phone copy sits above the bar.
+    expect(wrapper!.find('[data-test="import-discard-phone"]').exists()).toBe(true)
+
+    await discard.trigger('click')
+    expect(wrapper!.find('[data-test="confirm-title"]').text()).toBe('import-discard-title')
+    expect(step.emitted('discard')).toBeUndefined()
+
+    await wrapper!.find('[data-test="confirm-ok"]').trigger('click')
+    expect(step.emitted('discard')).toHaveLength(1)
+    expect(wrapper!.find('[data-test="confirm"]').exists()).toBe(false)
+  })
+
+  it('is disabled while the import commits or the draft is discarded', () => {
+    review({ committing: true })
+    expect(wrapper!.find('[data-test="import-discard"]').attributes('disabled')).toBeDefined()
+    wrapper!.unmount()
+    review({ discarding: true })
+    expect(wrapper!.find('[data-test="import-discard"]').attributes('disabled')).toBeDefined()
+    expect(wrapper!.find('[data-test="import-commit"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('is left out of a finished import', () => {
+    mount(job([{ field: 'location', count: 2, others: 0 }]))
+    expect(wrapper!.find('[data-test="import-discard"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-test="import-discard-phone"]').exists()).toBe(false)
   })
 })
