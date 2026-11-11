@@ -1,3 +1,4 @@
+import type { useQueryCache } from '@pinia/colada'
 import apiClient from '../apiClient'
 
 export type ImportJobType = 'assets' | 'users' | 'tickets'
@@ -642,6 +643,17 @@ export interface ImportJobListItem {
 
 export const importJobsQueryKey = (limit: number) => ['import-jobs', limit] as const
 export const importJobQueryKey = (jobId: string) => ['import-job', jobId] as const
+
+/** Removes a deleted draft from every cached Recent imports list, so the
+ *  Data Import page doesn't list it while the refetch is in flight. */
+export function forgetImportJob(queryCache: ReturnType<typeof useQueryCache>, id?: string) {
+  if (id) {
+    queryCache.setQueriesData<ImportJobListItem[]>({ key: ['import-jobs'] }, (rows) =>
+      (rows ?? []).filter((row) => row.id !== id),
+    )
+  }
+  queryCache.invalidateQueries({ key: ['import-jobs'] })
+}
 export const importFieldsQueryKey = (jobType: ImportJobType) => ['import-fields', jobType] as const
 export const importAnswersQueryKey = (jobType: ImportJobType) =>
   ['import-answers', jobType] as const

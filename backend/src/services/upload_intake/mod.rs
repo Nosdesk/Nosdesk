@@ -385,7 +385,13 @@ impl From<IntakeError> for actix_web::Error {
             IntakeError::Refused { file, reason } => match reason {
                 Refusal::Validation(e) => e.refusal(&file),
                 Refusal::NotAnImage | Refusal::UnsupportedImage { .. } => {
-                    crate::errors::bad_request_error("Only image files are allowed")
+                    crate::errors::from_response(
+                        "not an image",
+                        crate::errors::bad_request_with_code(
+                            "Only image files are allowed",
+                            "FILE_TYPE_NOT_ALLOWED",
+                        ),
+                    )
                 }
             },
             IntakeError::TextTooLarge { field } => {

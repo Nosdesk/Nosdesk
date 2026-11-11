@@ -54,7 +54,7 @@ import {
 } from '@/components/import/docsImport/docsTreeModel'
 import { detailPath, resumeTarget } from '@/components/import/historyModel'
 import { errorBody, refusalText } from '@/components/import/refusals'
-import { importService } from '@nosdesk/core/services/importService'
+import { forgetImportJob, importService } from '@nosdesk/core/services/importService'
 import {
   docsImportService,
   docsPagesQueryKey,
@@ -486,10 +486,11 @@ async function removeDraft(kind: 'discard' | 'discard-draft'): Promise<boolean> 
 /** Discard on Pages or Review: delete the draft and its file, then Data
  *  import. Replaced, so Back doesn't reopen the deleted draft. */
 async function discardDraft() {
+  const id = job.value?.id
   if (!(await removeDraft('discard-draft'))) return
   busy.value = null
   job.value = null
-  queryCache.invalidateQueries({ key: ['import-jobs'] })
+  forgetImportJob(queryCache, id)
   await router.replace({ name: 'admin-data-import' })
 }
 

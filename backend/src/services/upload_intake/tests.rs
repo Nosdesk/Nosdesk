@@ -225,6 +225,7 @@ async fn a_small_file_is_checked_when_it_ends() {
     let (status, _, body) = response(err).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "Only image files are allowed");
+    assert_eq!(body["code"], "FILE_TYPE_NOT_ALLOWED");
     assert_eq!(spool_files(dir.path()), 1, "only the accepted png is left");
 }
 

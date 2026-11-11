@@ -5633,6 +5633,10 @@ settings-profile-banner-update-error = Kan banner niet bijwerken
 settings-profile-image-too-large = Deze afbeelding is groter dan { $limit } MB. Kies een kleinere.
 # MT: pending native review (nl-NL)
 settings-profile-image-type-not-allowed = Gebruik een JPEG-, PNG-, GIF- of WebP-afbeelding.
+# MT: pending native review (nl-NL)
+upload-file-too-large = Dit bestand is groter dan { $limit } MB. Kies een kleiner bestand.
+# MT: pending native review (nl-NL)
+upload-file-type-not-allowed = Dit bestandstype wordt hier niet geaccepteerd.
 settings-profile-name-update-success = Naam bijgewerkt
 settings-profile-name-update-error = Kan naam niet bijwerken
 settings-profile-pronouns-update-success = Voornaamwoorden bijgewerkt
@@ -9515,7 +9519,7 @@ nosdesk-account-email = E-mail
 nosdesk-account-open-self = Bewerken in je Nosdesk-account
 nosdesk-account-open-other = Beheren in Nosdesk-account
 nosdesk-account-chip = Nosdesk-account
-nosdesk-account-chip-tooltip = Naam, foto, e-mail en inloggen worden beheerd in hun Nosdesk-account.
+nosdesk-account-chip-tooltip = Naam, foto, e-mail en inloggen worden beheerd in het Nosdesk-account.
 workspace-name-title = Naam in deze werkruimte
 workspace-name-description = Wordt in deze werkruimte getoond in plaats van je accountnaam. Laat leeg om je accountnaam te gebruiken.
 workspace-name-label = Naam
