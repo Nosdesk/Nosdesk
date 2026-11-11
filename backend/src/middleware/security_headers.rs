@@ -182,6 +182,19 @@ impl Csp {
         self
     }
 
+    /// Add sources to a directive's list (or add the directive).
+    pub fn extend(mut self, d: Directive, sources: Vec<Source>) -> Self {
+        match self
+            .directives
+            .iter_mut()
+            .find(|(existing, _)| *existing == d)
+        {
+            Some(slot) => slot.1.extend(sources),
+            None => self.directives.push((d, sources)),
+        }
+        self
+    }
+
     /// Add a flag-style directive that takes no sources. Used for
     /// `upgrade-insecure-requests` and `block-all-mixed-content`.
     pub fn flag(mut self, name: &'static str) -> Self {
@@ -343,6 +356,15 @@ fn development_policy(plugin_sandbox_origin: Option<&str>) -> Csp {
     csp
 }
 
+/// `policy` with `origin` added to img-src: profile pictures a hosted
+/// workspace shows from the control plane's avatar bucket.
+fn with_avatar_origin(policy: Csp, origin: Option<&str>) -> Csp {
+    match origin {
+        Some(origin) => policy.extend(Directive::ImgSrc, vec![Source::Host(origin.to_string())]),
+        None => policy,
+    }
+}
+
 // ---------------------------------------------------------------
 // actix-web middleware
 // ---------------------------------------------------------------
@@ -358,11 +380,7 @@ pub struct SecurityHeaders;
 /// hosts may frame. Everything else (script, connect, style sources) stays
 /// exactly the app's.
 pub fn embed_csp(origins: &[String]) -> String {
-    let base = if crate::config_utils::assume_production() {
-        production_policy(SecurityHeaders::sandbox_origin().as_deref())
-    } else {
-        development_policy(SecurityHeaders::sandbox_origin().as_deref())
-    };
+    let base = SecurityHeaders::app_policy();
     let sources = if origins.is_empty() {
         vec![Source::None_]
     } else {
@@ -400,14 +418,22 @@ impl SecurityHeaders {
             .filter(|s| !s.is_empty())
     }
 
-    fn build_csp_value() -> (String, bool) {
+    /// Where Nosdesk Cloud serves profile pictures from (the control plane's
+    /// public avatar bucket). Unset on self-hosted, where pictures are
+    /// same-origin uploads.
+    fn avatar_origin() -> Option<String> {
+        std::env::var("NOSDESK_AVATAR_ORIGIN")
+            .ok()
+            .map(|s| s.trim().trim_end_matches('/').to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    /// The app-wide policy for this environment.
+    fn app_policy() -> Csp {
         // Same var the sandbox handler (handlers/plugin_sandbox.rs) and config.rs
         // read. The CSP's frame-src has to allow exactly the origin the runtime is
         // served from, so the name must match across all three sites.
-        let plugin_sandbox_origin = std::env::var("NOSDESK_SANDBOX_ORIGIN")
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
+        let plugin_sandbox_origin = Self::sandbox_origin();
 
         // Fail-closed: an unset/unknown ENVIRONMENT gets the strict production
         // CSP, so a prod deploy that forgets the var is not left on the
@@ -417,6 +443,11 @@ impl SecurityHeaders {
         } else {
             development_policy(plugin_sandbox_origin.as_deref())
         };
+        with_avatar_origin(csp, Self::avatar_origin().as_deref())
+    }
+
+    fn build_csp_value() -> (String, bool) {
+        let csp = Self::app_policy();
 
         let report_only = std::env::var("CSP_REPORT_ONLY")
             .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
@@ -892,6 +923,31 @@ mod tests {
             .get("frame-src")
             .unwrap()
             .contains(&"https://sandbox.example.com".to_string()),);
+    }
+
+    #[test]
+    fn img_src_adds_the_avatar_origin_only_when_configured() {
+        let base = parse_directives(&production_policy(None).render());
+        let unset = parse_directives(&with_avatar_origin(production_policy(None), None).render());
+        assert_eq!(unset, base, "no origin leaves the policy unchanged");
+
+        let origin = "https://avatars.example.t3.tigrisfiles.io";
+        let set =
+            parse_directives(&with_avatar_origin(production_policy(None), Some(origin)).render());
+        assert_eq!(
+            set.get("img-src"),
+            Some(&vec![
+                "'self'".to_string(),
+                "data:".to_string(),
+                "blob:".to_string(),
+                origin.to_string(),
+            ])
+        );
+        for (name, sources) in &base {
+            if name != "img-src" {
+                assert_eq!(set.get(name), Some(sources), "{name} unchanged");
+            }
+        }
     }
 
     // ── Development policy ──────────────────────────────────────
