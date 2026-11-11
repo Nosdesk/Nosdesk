@@ -35,9 +35,11 @@ const api = vi.hoisted(() => ({
   nextSheet: vi.fn(),
   sendInvites: vi.fn(),
   template: vi.fn(),
+  forget: vi.fn(),
 }))
 
 vi.mock('@nosdesk/core/services/importService', () => ({
+  forgetImportJob: (...a: unknown[]) => api.forget(...a),
   importFieldsQueryKey: (type: string) => ['import-fields', type],
   importValuesQueryKey: (id: string, at: string) => ['import-values', id, at],
   importValuesPreviewQueryKey: (id: string, at: string, key: string) => ['import-values-preview', id, at, key],
@@ -431,6 +433,7 @@ describe('CsvImportView Discard', () => {
     expect(currentStep()).toBe('map')
     await discard()
     expect(api.remove).toHaveBeenCalledWith('job-1')
+    expect(api.forget).toHaveBeenCalledWith(expect.anything(), 'job-1')
     expect(router.currentRoute.value.name).toBe('admin-data-import')
     expect(router.currentRoute.value.query.job).toBeUndefined()
   })

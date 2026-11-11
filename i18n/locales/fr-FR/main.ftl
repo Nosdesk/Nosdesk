@@ -5643,6 +5643,10 @@ settings-profile-banner-update-error = Échec de la mise à jour de la bannière
 settings-profile-image-too-large = Cette image dépasse { $limit } Mo. Choisissez-en une plus petite.
 # MT: pending native review (fr-FR)
 settings-profile-image-type-not-allowed = Utilisez une image JPEG, PNG, GIF ou WebP.
+# MT: pending native review (fr-FR)
+upload-file-too-large = Ce fichier dépasse { $limit } Mo. Choisissez-en un plus petit.
+# MT: pending native review (fr-FR)
+upload-file-type-not-allowed = Ce type de fichier n'est pas accepté ici.
 settings-profile-name-update-success = Nom mis à jour avec succès
 settings-profile-name-update-error = Échec de la mise à jour du nom
 settings-profile-pronouns-update-success = Pronoms mis à jour avec succès
@@ -9524,7 +9528,7 @@ nosdesk-account-email = E-mail
 nosdesk-account-open-self = Modifier dans votre compte Nosdesk
 nosdesk-account-open-other = Gérer dans le compte Nosdesk
 nosdesk-account-chip = Compte Nosdesk
-nosdesk-account-chip-tooltip = Le nom, la photo, l'e-mail et la connexion sont gérés dans son compte Nosdesk.
+nosdesk-account-chip-tooltip = Le nom, la photo, l'e-mail et la connexion sont gérés dans le compte Nosdesk.
 workspace-name-title = Nom dans cet espace de travail
 workspace-name-description = Affiché aux membres de cet espace de travail à la place du nom de votre compte. Laissez vide pour utiliser le nom de votre compte.
 workspace-name-label = Nom

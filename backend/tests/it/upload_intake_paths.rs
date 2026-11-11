@@ -458,6 +458,18 @@ async fn a_profile_image_is_held_to_its_own_cap_and_types() {
         json["error"],
         "Unsupported image format. Allowed: JPEG, PNG, GIF, WEBP"
     );
+    assert_eq!(json["code"], "FILE_TYPE_NOT_ALLOWED");
+
+    // Text renamed to .png carries the same code, so the client can say which
+    // types it takes.
+    let (status, json) = post(
+        &srv,
+        &route,
+        body("file", "fake.png", "image/png", b"not an image at all\n"),
+    )
+    .await;
+    assert_eq!(status, 400, "{json}");
+    assert_eq!(json["code"], "FILE_TYPE_NOT_ALLOWED", "{json}");
 
     // 10 MB, well under the attachment limit.
     let (status, json) = post(

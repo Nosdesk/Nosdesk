@@ -1857,7 +1857,10 @@ pub async fn upload_user_image(
 
         // Validate content type (only allow images)
         if !content_type.starts_with("image/") {
-            return errors::bad_request("Only image files are allowed");
+            return errors::bad_request_with_code(
+                "Only image files are allowed",
+                "FILE_TYPE_NOT_ALLOWED",
+            );
         }
 
         // Check for HEIC/HEIF - these should be converted on the client side
@@ -1874,8 +1877,9 @@ pub async fn upload_user_image(
             "image/gif" => "gif",
             "image/webp" => "webp",
             _ => {
-                return errors::bad_request(
+                return errors::bad_request_with_code(
                     "Unsupported image format. Allowed: JPEG, PNG, GIF, WEBP",
+                    "FILE_TYPE_NOT_ALLOWED",
                 );
             }
         };
@@ -1900,8 +1904,9 @@ pub async fn upload_user_image(
                 reason: Refusal::UnsupportedImage { .. },
                 ..
             }) => {
-                return errors::bad_request(
+                return errors::bad_request_with_code(
                     "Unsupported image format. Allowed: JPEG, PNG, GIF, WEBP",
+                    "FILE_TYPE_NOT_ALLOWED",
                 );
             }
             Err(e) => return e.into_response(),

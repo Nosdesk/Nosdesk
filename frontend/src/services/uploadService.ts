@@ -1,3 +1,4 @@
+import { translate } from '@nosdesk/core/i18n';
 import { logger } from '@nosdesk/core/utils/logger';
 
 /**
@@ -91,14 +92,24 @@ class UploadService {
       });
 
       if (!isAllowed) {
-        return { valid: false, error: `File type not allowed. Allowed types: ${allowedTypes.join(', ')}` };
+        return {
+          valid: false,
+          error: translate('upload-file-type-not-allowed', undefined, 'That file type is not accepted here.'),
+        };
       }
     }
 
     // Check file size
     const maxSize = maxSizeMB * 1024 * 1024;
     if (file.size > maxSize) {
-      return { valid: false, error: `File must be less than ${maxSizeMB}MB` };
+      return {
+        valid: false,
+        error: translate(
+          'upload-file-too-large',
+          { limit: maxSizeMB },
+          `That file is over ${maxSizeMB} MB. Choose a smaller one.`,
+        ),
+      };
     }
 
     return { valid: true };

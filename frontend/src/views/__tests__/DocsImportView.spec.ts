@@ -13,6 +13,7 @@ import { mountWithProviders } from '@/test/mountWithProviders'
 
 const api = vi.hoisted(() => ({
   get: vi.fn(),
+  forget: vi.fn(),
   upload: vi.fn(),
   putOptions: vi.fn(),
   allPages: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock('@nosdesk/core/services/docsImportService', async (importOriginal) => {
   }
 })
 vi.mock('@nosdesk/core/services/importService', () => ({
+  forgetImportJob: (...a: unknown[]) => api.forget(...a),
   importService: { remove: (...a: unknown[]) => api.remove(...a) },
 }))
 
@@ -410,6 +412,7 @@ describe('DocsImportView: Discard', () => {
     expect(find('docs-pages').exists()).toBe(true)
     await discard()
     expect(api.remove).toHaveBeenCalledWith('job-1')
+    expect(api.forget).toHaveBeenCalledWith(expect.anything(), 'job-1')
     expect(router.currentRoute.value.name).toBe('admin-data-import')
     expect(router.currentRoute.value.query.job).toBeUndefined()
   })
