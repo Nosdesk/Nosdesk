@@ -636,7 +636,8 @@ pub struct UpsertProjectedUserRequest {
     /// serde: absent/`None` → no change; `Some(Some(url))` → set;
     /// `Some(None)` (explicit JSON `null`) → clear. Only the authoritative
     /// reproject sends the outer-`Some` form, so a cleared avatar propagates.
-    #[serde(default)]
+    /// Plain `#[serde(default)]` would read `null` as "no change".
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
     pub avatar_url: Option<Option<String>>,
     /// The user's full VERIFIED email set (orchestration O6). When present, it
     /// is AUTHORITATIVE: the product reconciles its `user_emails` cache to it
@@ -1337,4 +1338,30 @@ pub async fn workspace_activation(
         slug: workspace.slug,
         state,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UpsertProjectedUserRequest;
+
+    fn avatar(extra: &str) -> Option<Option<String>> {
+        let json = format!(
+            r#"{{"iss":"https://id.example","sub":"s","email":"a@example.com","role":"agent"{extra}}}"#
+        );
+        serde_json::from_str::<UpsertProjectedUserRequest>(&json)
+            .unwrap()
+            .avatar_url
+    }
+
+    /// The control plane clears a removed picture with an explicit `null`;
+    /// an absent key leaves the stored one alone.
+    #[test]
+    fn avatar_url_tells_absent_from_cleared() {
+        assert_eq!(avatar(""), None);
+        assert_eq!(avatar(r#","avatar_url":null"#), Some(None));
+        assert_eq!(
+            avatar(r#","avatar_url":"https://cdn.example/a.webp""#),
+            Some(Some("https://cdn.example/a.webp".to_string()))
+        );
+    }
 }
