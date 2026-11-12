@@ -122,6 +122,11 @@ const RELEASED_SCHEMA_POINTS: &[ReleasedSchemaPoint] = &[
         migration: "20261105013625",
         prefix_sha256: "a87da12b567d4b82c6529da6c6101582df41481e62f2a1da73b81be4c53f8e51",
     },
+    ReleasedSchemaPoint {
+        release: "1.1.7",
+        migration: "20261109092241",
+        prefix_sha256: "10bd026138f698294ecc862ca759361148a1c4e54180c8d9b8a4b2d2bb675c6e",
+    },
 ];
 
 /// Where a backup's schema sits relative to this build's.
