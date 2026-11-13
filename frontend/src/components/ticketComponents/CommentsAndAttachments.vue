@@ -712,10 +712,8 @@ const handlePastedFiles = async (files: File[]) => {
                                 :timestamp="
                                     formattedDate(new Date().toISOString())
                                 "
-                                :is-new="true"
                                 :show-delete="true"
                                 @delete="removeStaged(entry)"
-                                @submit="addComment"
                             >
                                 <!-- The file's upload: progress and a cancel
                                      while it goes, the reason and a retry if

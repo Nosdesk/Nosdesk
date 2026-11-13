@@ -5431,8 +5431,6 @@ ticket-media-attachment-delete-file = Bestand verwijderen
 ticket-media-attachment-format-unsupported = Dit afbeeldingsformaat wordt niet ondersteund door je browser
 ticket-media-attachment-loading-pdf = PDF laden
 ticket-media-attachment-animated-badge = GEANIMEERD
-ticket-media-attachment-cancel = Annuleren
-ticket-media-attachment-submit-video = Video versturen
 ticket-media-attachment-preview-title-animated = Voorvertoning geanimeerde afbeelding
 ticket-media-attachment-preview-title-image = Voorvertoning afbeelding
 # MT: pending native review (nl-NL)

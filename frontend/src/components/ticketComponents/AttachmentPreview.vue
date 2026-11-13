@@ -2,7 +2,6 @@
 import AssetImg from '@/components/common/AssetImg.vue'
 import LinkButton from '@/components/common/LinkButton.vue'
 import IconButton from '@/components/common/IconButton.vue'
-import Button from '@/components/common/Button.vue'
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -25,7 +24,6 @@ interface Props {
   attachment: { id?: number; url: string; name: string; comment_id?: number; transcription?: string; thumbnail_url?: string };
   author: string;
   timestamp: string;
-  isNew?: boolean;
   showDelete?: boolean;
   hideHeader?: boolean; // Hide the header (title + buttons) - parent handles it
   /** Render as a small square thumbnail tile for the comment attachment grid. */
@@ -33,7 +31,6 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  isNew: false,
   showDelete: false,
   hideHeader: false,
   compact: false
@@ -41,7 +38,6 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (e: 'delete'): void;
-  (e: 'submit'): void;
   (e: 'preview', src: string): void;
 }>();
 
@@ -700,24 +696,6 @@ const generatePdfThumbnail = async () => {
 
     <!-- The composer's upload status for a staged file. -->
     <slot name="status" />
-
-    <!-- Submit controls for new attachments -->
-    <div v-if="isNew && attachmentType === 'video'" class="flex justify-end gap-2 mt-2">
-      <button
-        type="button"
-        @click.stop="emit('delete')"
-        class="px-3 py-1.5 text-secondary hover:text-primary transition-colors"
-      >
-        {{ $t('ticket-media-attachment-cancel') }}
-      </button>
-      <Button
-        @click.stop="emit('submit')"
-        size="sm"
-      >
-        {{ $t('ticket-media-attachment-submit-video') }}
-      </Button>
-    </div>
-    
   </div>
 
     <!-- Image and video preview modal (PDFs open in full page view) -->
