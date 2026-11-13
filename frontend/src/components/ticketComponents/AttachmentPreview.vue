@@ -3,7 +3,7 @@ import AssetImg from '@/components/common/AssetImg.vue'
 import LinkButton from '@/components/common/LinkButton.vue'
 import IconButton from '@/components/common/IconButton.vue'
 import Button from '@/components/common/Button.vue'
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, onMounted, onBeforeUnmount, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import AudioPlayer from "@/components/ticketComponents/AudioPlayer.vue";
@@ -16,6 +16,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import { useAttachmentSource } from '@/composables/useAttachmentSource';
 import { fetchPdfBytes, loadPdfjs, openPdfDocument } from '@/utils/pdfjs';
 import { usePdfOverlay } from '@/composables/usePdfOverlay';
+import { primeFirstFrame, useVideoSource, withFirstFrame } from '@/composables/useVideoSource';
 
 const router = useRouter();
 const pdfOverlay = usePdfOverlay(router, useRoute());
@@ -192,6 +193,59 @@ const closeImagePreview = () => {
   showPreviewModal.value = false;
 };
 
+// A video tile shows the video's first frame, from a muted `<video>` mounted
+// once the tile nears the viewport. The server makes no video thumbnails.
+// Resolved like the player resolves it (useVideoSource), but only where that
+// is cheap: never through the app's proxy, which would fetch a range per tile,
+// so in the app without a direct URL the tile keeps its icon, as it does when
+// the frame fails to load.
+const tileRef = ref<HTMLElement | null>(null);
+const frameWanted = ref(false);
+const frameSource = useVideoSource(() => (frameWanted.value ? mediaSrc.value : null));
+const frameFailed = ref(false);
+// Hidden until a frame is decoded, so a frame that never paints leaves the icon.
+const frameReady = ref(false);
+const frameSrc = computed(() => {
+  const url = frameSource.url.value;
+  if (!url || frameSource.viaProxy.value || frameFailed.value) return null;
+  return withFirstFrame(url);
+});
+watch(frameSrc, () => {
+  frameReady.value = false;
+});
+// In the app the frame's `<video>` loads nothing until it plays (see
+// primeFirstFrame), so it plays muted to its first frame as it mounts. Vue
+// calls a function ref on every re-render, so only a new element primes;
+// cancelling on a re-render would leave the tile playing the whole video.
+let primedFrame: HTMLVideoElement | null = null;
+let cancelFramePrime: () => void = () => {};
+const primeFrame = (el: Element | ComponentPublicInstance | null) => {
+  const video = el instanceof HTMLVideoElement ? el : null;
+  if (video === primedFrame) return;
+  cancelFramePrime();
+  primedFrame = video;
+  cancelFramePrime = video ? primeFirstFrame(video) : () => {};
+};
+let frameObserver: IntersectionObserver | null = null;
+
+onMounted(() => {
+  if (!props.compact || attachmentType.value !== 'video') return;
+  if (tileRef.value && 'IntersectionObserver' in window) {
+    frameObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          frameWanted.value = true;
+          frameObserver?.disconnect();
+        }
+      },
+      { rootMargin: '100px', threshold: 0 }
+    );
+    frameObserver.observe(tileRef.value);
+  } else {
+    frameWanted.value = true;
+  }
+});
+
 // Derive server thumbnail URL from attachment URL (convention: .pdf -> _thumb.webp)
 const getServerThumbnailUrl = () => {
   const url = props.attachment.url;
@@ -272,6 +326,9 @@ onBeforeUnmount(() => {
     pdfIntersectionObserver.disconnect();
     pdfIntersectionObserver = null;
   }
+  frameObserver?.disconnect();
+  frameObserver = null;
+  cancelFramePrime();
 });
 
 // Add a function to check if the browser supports a specific image format
@@ -403,6 +460,7 @@ const generatePdfThumbnail = async () => {
        so a delete never also follows the link). -->
   <div
     v-if="compact"
+    ref="tileRef"
     class="relative group w-20 h-20 rounded-md overflow-hidden bg-surface-alt flex-shrink-0"
   >
     <AssetImg
@@ -423,6 +481,34 @@ const generatePdfThumbnail = async () => {
       <Icon :name="attachmentType === 'pdf' ? 'book' : attachmentType === 'video' ? 'eye' : 'paperclip'" class="w-5 h-5 text-tertiary" />
       <span class="text-3xs text-tertiary leading-tight line-clamp-2 break-all">{{ getDisplayName(attachment.name) }}</span>
     </div>
+    <!-- A video's first frame over its icon, shown once decoded (see
+         frameSrc). frameSrc is resolved through assetUrl by useVideoSource. -->
+    <template v-if="attachmentType === 'video' && frameSrc">
+      <!-- eslint-disable vue/no-restricted-v-bind -->
+      <video
+        :ref="primeFrame"
+        :src="frameSrc"
+        muted
+        playsinline
+        preload="metadata"
+        tabindex="-1"
+        aria-hidden="true"
+        class="absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity"
+        :class="frameReady ? 'opacity-100' : 'opacity-0'"
+        @loadeddata="frameReady = true"
+        @seeked="frameReady = true"
+        @error="frameFailed = true"
+      ></video>
+      <!-- eslint-enable vue/no-restricted-v-bind -->
+      <span
+        v-if="frameReady"
+        class="absolute inset-0 flex items-center justify-center pointer-events-none"
+      >
+        <span class="flex items-center justify-center w-6 h-6 rounded-full bg-surface/70 text-primary">
+          <Icon name="play" size="xs" />
+        </span>
+      </span>
+    </template>
     <button
       v-if="opensInViewer"
       type="button"

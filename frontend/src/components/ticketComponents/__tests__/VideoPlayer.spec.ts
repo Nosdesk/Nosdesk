@@ -7,6 +7,8 @@ import enUS from '../../../../../i18n/locales/en-US/main.ftl?raw'
 const PROXIED = 'nosdesk-asset://localhost/api/files/tickets/7/clip.mp4'
 const PATH = '/api/files/tickets/7/clip.mp4'
 const DIRECT = `https://help.example.com${PATH}`
+// The media fragment a first load carries, for its first frame.
+const FIRST_FRAME = '#t=0.001'
 // `MediaError` codes; jsdom has no `MediaError`.
 const MEDIA_ERR_NETWORK = 2
 const MEDIA_ERR_DECODE = 3
@@ -44,17 +46,24 @@ beforeEach(() => {
 })
 
 describe('VideoPlayer source', () => {
-  it('plays the given source where there is no direct URL', async () => {
+  it('plays the given source where there is no direct URL, from its first frame', async () => {
     const video = player('/api/files/tickets/7/clip.mp4').find('video')
     await flushPromises()
-    expect(video.attributes('src')).toBe('/api/files/tickets/7/clip.mp4')
+    expect(video.attributes('src')).toBe(`/api/files/tickets/7/clip.mp4${FIRST_FRAME}`)
+    expect(video.attributes('preload')).toBe('metadata')
+  })
+
+  it('shows the first frame of a file staged in the composer', async () => {
+    const video = player('blob:http://localhost/0b6c').find('video')
+    await flushPromises()
+    expect(video.attributes('src')).toBe(`blob:http://localhost/0b6c${FIRST_FRAME}`)
   })
 
   it('streams straight from the server with a token for its file in the app', async () => {
     files.direct = { url: DIRECT, path: PATH }
     const video = player(PROXIED).find('video')
     await flushPromises()
-    expect(video.attributes('src')).toBe(`${DIRECT}?token=t1`)
+    expect(video.attributes('src')).toBe(`${DIRECT}?token=t1${FIRST_FRAME}`)
     expect(files.getFileToken).toHaveBeenCalledWith(PATH)
   })
 
@@ -70,7 +79,8 @@ describe('VideoPlayer source', () => {
     const video = player(PROXIED).find('video')
     await flushPromises()
 
-    // A refused range (an expired token): a fresh token, same video.
+    // A refused range (an expired token): a fresh token, same video. It
+    // resumes where it stopped, so it has no first-frame fragment.
     await fail(video, MEDIA_ERR_NETWORK)
     expect(files.discardFileToken).toHaveBeenCalledTimes(1)
     expect(files.discardFileToken).toHaveBeenCalledWith(PATH)
@@ -105,6 +115,63 @@ describe('VideoPlayer source', () => {
     files.getFileToken.mockRejectedValue(new Error('refused'))
     const video = player(PROXIED).find('video')
     await flushPromises()
+    // Still a first load, so from its first frame (the proxy reads only the
+    // path and query).
+    expect(video.attributes('src')).toBe(`${PROXIED}${FIRST_FRAME}`)
+  })
+
+  it('resumes a re-minted load where the failed one stopped', async () => {
+    files.direct = { url: DIRECT, path: PATH }
+    const video = player(PROXIED).find('video')
+    await flushPromises()
+
+    // jsdom doesn't play media: stand in for the element's clock.
+    let time = 42
+    const seeks: number[] = []
+    Object.defineProperty(video.element, 'currentTime', {
+      configurable: true,
+      get: () => time,
+      set: (next: number) => {
+        time = next
+        seeks.push(next)
+      },
+    })
+    await fail(video, MEDIA_ERR_NETWORK)
+    expect(video.attributes('src')).toBe(`${DIRECT}?token=t2`)
+
+    time = 0
+    await video.trigger('loadedmetadata')
+    expect(seeks).toEqual([42])
+
+    // Resumed once only.
+    await video.trigger('loadedmetadata')
+    expect(seeks).toEqual([42])
+  })
+
+  it('swaps a re-minted URL in without a fragment, and gives up when the token is the same', async () => {
+    files.direct = { url: DIRECT, path: PATH }
+    files.getFileToken.mockImplementation(async () => 'same')
+    const video = player(PROXIED).find('video')
+    await flushPromises()
+    expect(video.attributes('src')).toBe(`${DIRECT}?token=same${FIRST_FRAME}`)
+
+    // The fragment lives only on the element, so the re-mint still sees the
+    // same URL and goes back through the app, resuming there.
+    await fail(video, MEDIA_ERR_NETWORK)
+    expect(files.getFileToken).toHaveBeenCalledTimes(2)
     expect(video.attributes('src')).toBe(PROXIED)
+  })
+
+  it('starts a new video from its first frame even mid-recovery', async () => {
+    files.direct = { url: DIRECT, path: PATH }
+    const wrapper = player(PROXIED)
+    const video = wrapper.find('video')
+    await flushPromises()
+    await fail(video, MEDIA_ERR_NETWORK)
+
+    files.direct = null
+    await wrapper.setProps({ src: '/api/files/tickets/7/other.mp4' })
+    await flushPromises()
+    expect(video.attributes('src')).toBe(`/api/files/tickets/7/other.mp4${FIRST_FRAME}`)
   })
 })

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { FluentBundle, FluentResource } from '@fluent/bundle'
 import { createFluentVue } from 'fluent-vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -12,6 +12,28 @@ const pdfjsUtils = vi.hoisted(() => ({
   openPdfDocument: vi.fn(),
 }))
 vi.mock('@/utils/pdfjs', () => pdfjsUtils)
+
+// Outside the app there is never a direct URL; `files.direct` stands in for one.
+const files = vi.hoisted(() => ({
+  direct: null as { url: string; path: string } | null,
+  getFileToken: vi.fn(async () => 't1'),
+}))
+vi.mock('@/services/fileToken', () => ({
+  directVideoUrl: () => files.direct,
+  getFileToken: files.getFileToken,
+  discardFileToken: vi.fn(),
+  withFileToken: (url: string, token: string) => `${url}?token=${token}`,
+}))
+
+// The real priming plays the element, which jsdom can't; count calls instead.
+const priming = vi.hoisted(() => {
+  const cancel = vi.fn()
+  return { cancel, prime: vi.fn((_video: HTMLVideoElement) => cancel) }
+})
+vi.mock('@/composables/useVideoSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/composables/useVideoSource')>()),
+  primeFirstFrame: priming.prime,
+}))
 
 import AttachmentPreview from '../AttachmentPreview.vue'
 
@@ -27,6 +49,7 @@ class ProbeImage {
 }
 beforeEach(() => {
   serverThumbnail = false
+  files.direct = null
   vi.stubGlobal('Image', ProbeImage)
 })
 
@@ -155,6 +178,108 @@ describe('AttachmentPreview (compact)', () => {
     const thumb = pdf.findAllComponents({ name: 'AssetImg' })
     expect(thumb).toHaveLength(1)
     expect(thumb[0]!.attributes('src')).toBe(served('invoice_thumb.webp'))
+  })
+})
+
+describe('AttachmentPreview (compact video)', () => {
+  const ASSET = 'nosdesk-asset://localhost'
+
+  it("shows the video's first frame, muted and out of the way, under the open button", async () => {
+    const clip = tile('clip.mp4')
+    await flushPromises()
+    const frame = clip.find('video')
+    expect(frame.attributes('src')).toBe(`${served('clip.mp4')}#t=0.001`)
+    expect(frame.attributes('preload')).toBe('metadata')
+    expect(frame.attributes('playsinline')).toBeDefined()
+    expect((frame.element as HTMLVideoElement).muted).toBe(true)
+    expect(frame.attributes('aria-hidden')).toBe('true')
+    expect(frame.attributes('tabindex')).toBe('-1')
+    expect(frame.classes()).toContain('pointer-events-none')
+
+    // Hidden, with no play glyph, until a frame is decoded.
+    expect(frame.classes()).toContain('opacity-0')
+    expect(clip.find('icon-stub[name="play"]').exists()).toBe(false)
+    await frame.trigger('loadeddata')
+    expect(frame.classes()).toContain('opacity-100')
+    expect(clip.find('icon-stub[name="play"]').exists()).toBe(true)
+
+    await clip.find('button[aria-label="Open clip.mp4"]').trigger('click')
+    expect(clip.findComponent({ name: 'Modal' }).props('show')).toBe(true)
+  })
+
+  it('streams the frame straight from the server in the app when there is a direct URL', async () => {
+    configureAssetUrl(proxiedAssetResolver(ASSET), (u) => u.replace(ASSET, ''))
+    files.direct = { url: `https://help.example.com${served('clip.mp4')}`, path: served('clip.mp4') }
+    const clip = tile('clip.mp4')
+    await flushPromises()
+    expect(files.getFileToken).toHaveBeenCalledWith(served('clip.mp4'))
+    expect(clip.find('video').attributes('src')).toBe(`https://help.example.com${served('clip.mp4')}?token=t1#t=0.001`)
+  })
+
+  it('keeps the icon in the app when the video would load through its proxy', async () => {
+    configureAssetUrl(proxiedAssetResolver(ASSET), (u) => u.replace(ASSET, ''))
+    const clip = tile('clip.mp4')
+    await flushPromises()
+    expect(clip.find('video').exists()).toBe(false)
+    expect(clip.find('icon-stub[name="eye"]').exists()).toBe(true)
+  })
+
+  it("keeps the icon when the frame's file token can't be minted", async () => {
+    configureAssetUrl(proxiedAssetResolver(ASSET), (u) => u.replace(ASSET, ''))
+    files.direct = { url: `https://help.example.com${served('clip.mp4')}`, path: served('clip.mp4') }
+    files.getFileToken.mockRejectedValueOnce(new Error('refused'))
+    const clip = tile('clip.mp4')
+    await flushPromises()
+    expect(clip.find('video').exists()).toBe(false)
+  })
+
+  it('falls back to the icon when the frame fails to load', async () => {
+    const clip = tile('clip.mp4')
+    await flushPromises()
+    await clip.find('video').trigger('error')
+    expect(clip.find('video').exists()).toBe(false)
+    expect(clip.find('icon-stub[name="eye"]').exists()).toBe(true)
+    expect(clip.find('button[aria-label="Open clip.mp4"]').exists()).toBe(true)
+  })
+
+  it('primes the frame once per element, not on every re-render', async () => {
+    priming.prime.mockClear()
+    priming.cancel.mockClear()
+    const clip = tile('clip.mp4')
+    await flushPromises()
+    expect(priming.prime).toHaveBeenCalledOnce()
+    expect(priming.prime.mock.calls[0]![0]).toBe(clip.find('video').element)
+
+    // Decoding the frame re-renders the tile; that must not cancel the pause.
+    await clip.find('video').trigger('loadeddata')
+    expect(priming.prime).toHaveBeenCalledOnce()
+    expect(priming.cancel).not.toHaveBeenCalled()
+
+    clip.unmount()
+    expect(priming.cancel).toHaveBeenCalled()
+  })
+
+  it('loads the frame only once the tile nears the viewport', async () => {
+    let seen: ((entries: Array<{ isIntersecting: boolean }>) => void) | null = null
+    const disconnect = vi.fn()
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) {
+          seen = callback
+        }
+        observe() {}
+        disconnect = disconnect
+      },
+    )
+    const clip = tile('clip.mp4')
+    await flushPromises()
+    expect(clip.find('video').exists()).toBe(false)
+
+    seen!([{ isIntersecting: true }])
+    await flushPromises()
+    expect(clip.find('video').exists()).toBe(true)
+    expect(disconnect).toHaveBeenCalled()
   })
 })
 
