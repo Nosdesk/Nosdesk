@@ -78,6 +78,7 @@ fn spawn(pool: &crate::common::TestPool, user: &User) -> actix_test::TestServer 
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     };
     let user_uuid = user.uuid;
     actix_test::start(move || {

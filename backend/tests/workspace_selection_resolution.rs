@@ -40,6 +40,7 @@ fn claims_scoped(user_uuid: uuid::Uuid, scope: &str) -> Claims {
         workspace_uuid: None,
         exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     }
 }
 

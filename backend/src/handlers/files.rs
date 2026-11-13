@@ -131,6 +131,86 @@ pub async fn upload_files(
     Ok(HttpResponse::Ok().json(uploaded_attachments))
 }
 
+/// Mint a file token (`POST /api/files/token`, body `{ "path": "/api/files/..." }`):
+/// read-only access to that one file, for a media element that loads it
+/// straight from the server and can't send a header. The app's `<video>` uses
+/// it so the system player streams and seeks itself. Like the SSE and collab
+/// tokens, the auth middleware has already authenticated the caller and
+/// resolved and gated the workspace, which the token is bound to. A file token
+/// needs one: it opens files in that workspace only.
+///
+/// The path is checked for shape only. Whether the caller may read the file is
+/// decided where it is served, on every request, by the same per-file checks a
+/// session gets; minting a token for a file the caller can't see gets a token
+/// that opens nothing.
+pub async fn mint_file_token(req: actix_web::HttpRequest, body: web::Bytes) -> HttpResponse {
+    use actix_web::HttpMessage;
+
+    let Some(claims) = req.extensions().get::<crate::models::Claims>().cloned() else {
+        return crate::errors::unauthorized("Authentication required");
+    };
+    let Some(workspace_uuid) = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|w| w.workspace_uuid)
+    else {
+        return crate::errors::bad_request_with_code(
+            "No workspace selected",
+            "NO_WORKSPACE_SELECTED",
+        );
+    };
+    let path = serde_json::from_slice::<FileTokenRequest>(&body)
+        .ok()
+        .and_then(|b| b.path)
+        .filter(|p| is_file_token_path(p));
+    let Some(path) = path else {
+        return crate::errors::bad_request_with_code(
+            "path must be a file path under /api/files",
+            "INVALID_FILE_PATH",
+        );
+    };
+
+    match crate::utils::jwt::JwtUtils::create_file_token(
+        &claims.sub,
+        &claims.platform_role,
+        workspace_uuid,
+        claims.sid.as_deref(),
+        &path,
+    ) {
+        Ok(token) => HttpResponse::Ok().json(json!({
+            "token": token,
+            "expires_in": crate::utils::jwt::FILE_TOKEN_TTL_SECS,
+            "refresh_buffer": crate::utils::jwt::FILE_TOKEN_REFRESH_BUFFER_SECS,
+        })),
+        Err(_) => crate::errors::internal("Failed to create file token"),
+    }
+}
+
+/// The body of `POST /api/files/token`.
+#[derive(serde::Deserialize)]
+struct FileTokenRequest {
+    #[serde(default)]
+    path: Option<String>,
+}
+
+/// Longest path a file token is minted for. The token rides in every range
+/// request's URL; a stored file's path is well under this.
+const MAX_FILE_TOKEN_PATH_LEN: usize = 2048;
+
+/// Whether `path` is one a file token may name: a file read (see
+/// [`crate::middleware::token_scope::is_file_read`]) and nothing more, so no
+/// query, fragment, `..` or backslash, percent-encoded or not.
+fn is_file_token_path(path: &str) -> bool {
+    if path.len() > MAX_FILE_TOKEN_PATH_LEN
+        || !crate::middleware::token_scope::is_file_read(&actix_web::http::Method::GET, path)
+        || path.contains(['?', '#', '\\'])
+    {
+        return false;
+    }
+    let decoded = urlencoding::decode_binary(path.as_bytes());
+    !decoded.windows(2).any(|w| w == b"..") && !decoded.contains(&b'\\')
+}
+
 // Serve ticket attachment files.
 //
 // Auth: the route is wrapped with `dual_auth_middleware`. The browser loads
@@ -473,4 +553,36 @@ pub async fn serve_ticket_note_image(
     // Serve from tickets/{ticket_id}/notes/ folder
     let file_path = format!("tickets/{ticket_id}/notes/{filename}");
     serve_or_not_found(storage, &file_path, &req, Caching::Private).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_file_token_path;
+
+    #[test]
+    fn a_file_token_names_a_file_and_nothing_else() {
+        for ok in [
+            "/api/files/tickets/5/x.mp4",
+            "/api/files/temp/0190_clip café.mov",
+            "/api/files/temp/0190_clip%20caf%C3%A9.mov",
+            "/api/files/assets/1/media/y.webm",
+        ] {
+            assert!(is_file_token_path(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "/api/files/token",
+            "/api/tickets",
+            "/api/files/temp/../tickets/5/x.mp4",
+            "/api/files/temp/%2e%2E/x.mp4",
+            "/api/files/temp/x.mp4?v=2",
+            "/api/files/temp/x.mp4#t=10",
+            "/api/files/temp/a\\b.mp4",
+            "/api/files/temp/a%5Cb.mp4",
+        ] {
+            assert!(!is_file_token_path(bad), "{bad}");
+        }
+        let long = format!("/api/files/temp/{}.mp4", "a".repeat(2048));
+        assert!(!is_file_token_path(&long));
+    }
 }

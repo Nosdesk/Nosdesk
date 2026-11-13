@@ -41,6 +41,7 @@ async fn create_as(pool: &TestPool, ws: &WorkspaceSeed, user: Uuid, body: &Value
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let workspace = WorkspaceContext {
         workspace_id: ws.workspace_id,

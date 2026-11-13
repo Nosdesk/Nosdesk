@@ -73,6 +73,7 @@ async fn a_workspace_admin_manages_requesters_but_not_staff_on_hosted() {
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     };
     let (ws_id, ws_uuid, slug, admin) = (
         ws.workspace_id,

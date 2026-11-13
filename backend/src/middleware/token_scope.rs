@@ -38,6 +38,22 @@ pub enum ScopeRequirement {
     Full,
 }
 
+/// The `/api/files` routes that serve a stored file, one per kind of owner.
+/// Everything else under `/api/files` (minting a file token) is not a read.
+const FILE_SERVE_PREFIXES: &[&str] = &[
+    "/api/files/tickets/",
+    "/api/files/collab/",
+    "/api/files/assets/",
+    "/api/files/temp/",
+];
+
+/// Whether a request reads a stored file: GET or HEAD on a file serve route.
+/// The only requests a file token may make.
+pub fn is_file_read(method: &Method, path: &str) -> bool {
+    matches!(*method, Method::GET | Method::HEAD)
+        && FILE_SERVE_PREFIXES.iter().any(|p| path.starts_with(p))
+}
+
 /// Resolve the scope a request requires from its method and path.
 ///
 /// `path` is the concrete request path (e.g. `/api/tickets/5`), matched
@@ -173,6 +189,10 @@ pub fn claims_may_call(claims: &Claims, method: &Method, path: &str) -> bool {
     if claims.scope == "full" {
         return true;
     }
+    // A file token reads file bytes and does nothing else.
+    if claims.scope == crate::utils::jwt::FILES_SCOPE {
+        return is_file_read(method, path);
+    }
     match required_scope(method, path) {
         ScopeRequirement::Any => true,
         ScopeRequirement::Full => false,
@@ -202,6 +222,7 @@ mod tests {
             workspace_uuid: None,
             exp: 0,
             iat: 0,
+            file_path: None,
         }
     }
 
@@ -223,6 +244,39 @@ mod tests {
             !claims_may_call(&narrow, &Method::GET, "/api/collaboration/article/abc"),
             "nor read a document body through the same unmapped tree"
         );
+    }
+
+    /// A file token reads file bytes on the serve routes and nothing else: not
+    /// a write there, not the mint beside them, not any other API.
+    #[test]
+    fn a_file_token_only_reads_files() {
+        let files = claims_scoped(crate::utils::jwt::FILES_SCOPE);
+        for path in [
+            "/api/files/tickets/5/x.mp4",
+            "/api/files/tickets/5/notes/x.png",
+            "/api/files/temp/x.mov",
+            "/api/files/assets/1/media/y.webp",
+            "/api/files/collab/doc/019eb4e2-dbaa-75e5-9eb2-aa3dc7d8a7cb/x.png",
+        ] {
+            assert!(claims_may_call(&files, &Method::GET, path), "GET {path}");
+            assert!(claims_may_call(&files, &Method::HEAD, path), "HEAD {path}");
+            assert!(!claims_may_call(&files, &Method::POST, path), "POST {path}");
+            assert!(
+                !claims_may_call(&files, &Method::DELETE, path),
+                "DELETE {path}"
+            );
+        }
+        for path in [
+            "/api/files/token",
+            "/api/collaboration/token",
+            "/api/events/token",
+            "/api/tickets/5",
+            "/api/me",
+            "/api/sync/bootstrap",
+        ] {
+            assert!(!claims_may_call(&files, &Method::GET, path), "GET {path}");
+            assert!(!claims_may_call(&files, &Method::POST, path), "POST {path}");
+        }
     }
 
     #[test]
@@ -481,6 +535,7 @@ mod enforcement_tests {
             workspace_uuid: None,
             exp: 0,
             iat: 0,
+            file_path: None,
         }
     }
 

@@ -40,6 +40,7 @@ fn claims(user: Uuid) -> Claims {
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     }
 }
 

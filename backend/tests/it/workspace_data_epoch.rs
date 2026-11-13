@@ -38,6 +38,7 @@ async fn get(pool: &TestPool, ws: &WorkspaceSeed, uri: &str) -> String {
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     };
     let workspace = WorkspaceContext {
         workspace_id: ws.workspace_id,

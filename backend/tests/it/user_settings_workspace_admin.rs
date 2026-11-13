@@ -86,6 +86,7 @@ fn spawn(pool: &crate::common::TestPool, caller: &User) -> actix_test::TestServe
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     };
     let caller_uuid = caller.uuid;
     let search_dir = Arc::new(tempfile::tempdir().expect("search dir"));

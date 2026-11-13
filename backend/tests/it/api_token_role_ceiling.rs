@@ -52,6 +52,7 @@ async fn mint(
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let corr = Uuid::now_v7();
     let actor = ActorContext::user(minter, Some(corr)).with_workspace(seed.workspace_id);

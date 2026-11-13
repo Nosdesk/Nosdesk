@@ -189,6 +189,7 @@ async fn a_ticket_cannot_move_to_another_workspaces_state() {
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     };
     let workspace = WorkspaceContext {
         workspace_id: a,

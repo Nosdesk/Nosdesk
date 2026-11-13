@@ -38,6 +38,7 @@ async fn as_operator(pool: &TestPool, req: http_test::TestRequest) -> ServiceRes
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let corr = Uuid::now_v7();
     let actor = ActorContext::user(operator, Some(corr)).with_workspace(1);

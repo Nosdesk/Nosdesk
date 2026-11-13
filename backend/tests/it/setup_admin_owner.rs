@@ -51,6 +51,7 @@ async fn the_setup_administrator_owns_the_workspace_and_may_import_into_it() {
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let workspace = WorkspaceContext {
         workspace_id: BOOTSTRAP_WORKSPACE_ID,

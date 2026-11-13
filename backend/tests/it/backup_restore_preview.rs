@@ -60,6 +60,7 @@ async fn an_encrypted_backup_previews_once_its_password_is_given() {
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     };
     let corr = Uuid::now_v7();
     let actor = ActorContext::user(admin, Some(corr)).with_workspace(workspace_id);

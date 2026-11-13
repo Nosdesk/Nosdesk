@@ -227,9 +227,12 @@ export function ensureSyncRuntime(
       const { detachSseBridge } = await import('@/sync/sseBridge')
       detachSseBridge()
       await tearDown() // clears runtimePromise; restore it so callers share this run
-      // A collab token is bound to the workspace it was minted in.
+      // A collab token is bound to the workspace it was minted in, and so is
+      // a file token.
       const { resetCollabToken } = await import('@/services/collabToken')
       resetCollabToken()
+      const { resetFileToken } = await import('@/services/fileToken')
+      resetFileToken()
       runtimePromise = rebootstrap
       await bootstrapRuntime(userUuid, workspaceSlug)
     })().catch((e) => {

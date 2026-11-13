@@ -46,6 +46,27 @@ pub const CONNECTION_TOKEN_REFRESH_BUFFER_SECS: usize = 30;
 /// How long a session access token (and the cookie that carries it) lasts.
 pub const ACCESS_TOKEN_TTL_SECS: usize = 15 * 60;
 
+/// Scope of a file token: read-only access to one file on the `/api/files`
+/// serve routes (the path in its `file_path` claim), for a media element that
+/// loads a file straight from the server and can't send a header (the app's
+/// `<video>`). Refused everywhere else.
+pub const FILES_SCOPE: &str = "files";
+
+/// Lifetime of a file token. Longer than [`CONNECTION_TOKEN_TTL_SECS`] on
+/// purpose: a stream presents its token once, at connect, but a media element
+/// presents the file token on every range request for as long as it plays,
+/// buffers or seeks, so a two-minute token would cut a video off mid-play.
+///
+/// Capped at the session access token's lifetime, which already authorises the
+/// same bytes. The token is narrower than that session: GET and HEAD on the
+/// one file it was minted for, bound to one workspace, and checked against its
+/// session on every request, so signing out ends it at once.
+pub const FILE_TOKEN_TTL_SECS: usize = ACCESS_TOKEN_TTL_SECS;
+
+/// How far before expiry the client re-mints a file token. Large, so a video
+/// starts with most of a token's life ahead of it rather than its last minute.
+pub const FILE_TOKEN_REFRESH_BUFFER_SECS: usize = 10 * 60;
+
 /// Response header telling the client how many seconds its access token has
 /// left, so it can refresh before expiry rather than after a 401. Set on every
 /// response to a request authenticated with a session token, and on a refresh.
@@ -84,6 +105,7 @@ impl JwtUtils {
             workspace_uuid: None,
             exp: now + ACCESS_TOKEN_TTL_SECS,
             iat: now,
+            file_path: None,
         };
 
         encode(
@@ -94,7 +116,7 @@ impl JwtUtils {
         .map_err(JwtError::EncodingError)
     }
 
-    /// Mint a short-lived (`CONNECTION_TOKEN_TTL_SECS`) "connection token"
+    /// Mint a short-lived (`ttl_secs`) "connection token"
     /// for a URL-only
     /// channel that can't send an `Authorization` header (EventSource SSE,
     /// WebSocket collab), so the token rides in the query string instead.
@@ -114,13 +136,35 @@ impl JwtUtils {
         sid: Option<&str>,
         scope: &str,
         name: &str,
+        ttl_secs: usize,
     ) -> Result<String, JwtError> {
+        Self::sign(&Self::connection_claims(
+            user_id,
+            platform_role,
+            workspace_uuid,
+            sid,
+            scope,
+            name,
+            ttl_secs,
+        )?)
+    }
+
+    /// The claims of a connection token (see [`Self::create_connection_token`]).
+    fn connection_claims(
+        user_id: &str,
+        platform_role: &str,
+        workspace_uuid: Option<uuid::Uuid>,
+        sid: Option<&str>,
+        scope: &str,
+        name: &str,
+        ttl_secs: usize,
+    ) -> Result<Claims, JwtError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| JwtError::SystemTime)?
             .as_secs() as usize;
 
-        let claims = Claims {
+        Ok(Claims {
             sub: user_id.to_string(),
             name: name.to_string(),
             email: String::new(),
@@ -128,13 +172,16 @@ impl JwtUtils {
             scope: scope.to_string(),
             sid: sid.map(str::to_string),
             workspace_uuid,
-            exp: now + CONNECTION_TOKEN_TTL_SECS,
+            exp: now + ttl_secs,
             iat: now,
-        };
+            file_path: None,
+        })
+    }
 
+    fn sign(claims: &Claims) -> Result<String, JwtError> {
         encode(
             &Header::default(),
-            &claims,
+            claims,
             &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
         )
         .map_err(JwtError::EncodingError)
@@ -154,6 +201,7 @@ impl JwtUtils {
             sid,
             "sse",
             "SSE_TOKEN",
+            CONNECTION_TOKEN_TTL_SECS,
         )
     }
 
@@ -173,7 +221,32 @@ impl JwtUtils {
             sid,
             "collab",
             "COLLAB_TOKEN",
+            CONNECTION_TOKEN_TTL_SECS,
         )
+    }
+
+    /// Read-only file token for a media element that loads a file straight
+    /// from the server (see [`FILES_SCOPE`]). It opens one file: `file_path`,
+    /// the `/api/files` path the element loads, and only in the workspace it
+    /// names (the file routes take the workspace from the file).
+    pub fn create_file_token(
+        user_id: &str,
+        platform_role: &str,
+        workspace_uuid: uuid::Uuid,
+        sid: Option<&str>,
+        file_path: &str,
+    ) -> Result<String, JwtError> {
+        let mut claims = Self::connection_claims(
+            user_id,
+            platform_role,
+            Some(workspace_uuid),
+            sid,
+            FILES_SCOPE,
+            "FILE_TOKEN",
+            FILE_TOKEN_TTL_SECS,
+        )?;
+        claims.file_path = Some(file_path.to_string());
+        Self::sign(&claims)
     }
 
     /// Create a customer-portal session access token (15 minutes).
@@ -205,6 +278,7 @@ impl JwtUtils {
             workspace_uuid: Some(workspace_uuid),
             exp: now + ACCESS_TOKEN_TTL_SECS,
             iat: now,
+            file_path: None,
         };
 
         encode(
@@ -282,10 +356,10 @@ impl JwtUtils {
             });
         }
 
-        // A connection token (sse / collab stream) minted by an API token
-        // has no session to check; one minted by a session is checked like
-        // any other token, so it stops opening streams once that session ends.
-        let is_connection_token = matches!(claims.scope.as_str(), "sse" | "collab");
+        // A connection token (sse / collab stream, file token) minted by an
+        // API token has no session to check; one minted by a session is checked
+        // like any other token, so it stops working once that session ends.
+        let is_connection_token = matches!(claims.scope.as_str(), "sse" | "collab" | FILES_SCOPE);
 
         if !is_connection_token || claims.sid.is_some() {
             let sid_str = claims.sid.as_deref().ok_or(JwtError::SessionRevoked)?;
@@ -858,6 +932,90 @@ mod tests {
             CONNECTION_TOKEN_TTL_SECS > CONNECTION_TOKEN_REFRESH_BUFFER_SECS * 2,
             "TTL must leave useful room above the refresh buffer, else every connect re-mints"
         );
+    }
+
+    /// A file token is presented on every range request while a video plays,
+    /// so it outlives a connection token, but never the session access token
+    /// that already authorises the same bytes.
+    #[test]
+    fn file_token_ttl_stays_within_a_session_token() {
+        const {
+            assert!(
+                FILE_TOKEN_TTL_SECS <= ACCESS_TOKEN_TTL_SECS,
+                "file tokens travel in the URL; keep them within the session token's life"
+            );
+            assert!(
+                FILE_TOKEN_TTL_SECS > FILE_TOKEN_REFRESH_BUFFER_SECS,
+                "TTL must leave room above the refresh buffer, else every video re-mints"
+            );
+        }
+    }
+
+    #[test]
+    fn file_token_is_workspace_and_path_bound_with_files_scope() {
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");
+        }
+        let _ = &*JWT_SECRET;
+
+        let ws = uuid::Uuid::new_v4();
+        let user = uuid::Uuid::new_v4().to_string();
+        let path = "/api/files/tickets/5/clip café.mov";
+        let token =
+            JwtUtils::create_file_token(&user, "user", ws, None, path).expect("mint file token");
+        let claims = JwtUtils::validate_token(&token).expect("validate");
+        assert_eq!(claims.scope, FILES_SCOPE);
+        assert_eq!(claims.workspace_uuid, Some(ws));
+        assert_eq!(claims.file_path.as_deref(), Some(path));
+        assert_eq!(claims.exp - claims.iat, FILE_TOKEN_TTL_SECS);
+
+        // Only a file token names a file.
+        for token in [
+            JwtUtils::create_sse_token(&user, "user", Some(ws), None).expect("sse"),
+            JwtUtils::create_collab_token(&user, "user", Some(ws), None).expect("collab"),
+        ] {
+            let claims = JwtUtils::validate_token(&token).expect("validate");
+            assert_eq!(claims.file_path, None);
+        }
+    }
+
+    /// Tokens minted before the `file_path` claim existed (every session, sse
+    /// and collab token in the wild at deploy) still validate, and a token that
+    /// names no file doesn't grow the claim.
+    #[test]
+    fn a_token_without_the_file_path_claim_still_validates() {
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");
+        }
+        let _ = &*JWT_SECRET;
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_secs() as usize;
+        let legacy = serde_json::json!({
+            "sub": uuid::Uuid::new_v4().to_string(),
+            "name": "Legacy",
+            "email": "",
+            "platform_role": "user",
+            "scope": "full",
+            "sid": uuid::Uuid::new_v4().to_string(),
+            "exp": now + 600,
+            "iat": now,
+        });
+        let claims: Claims = serde_json::from_value(legacy.clone()).expect("deserialize");
+        assert_eq!(claims.file_path, None);
+        let token = encode(
+            &Header::default(),
+            &legacy,
+            &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
+        )
+        .expect("encode");
+        let claims = JwtUtils::validate_token(&token).expect("a legacy token validates");
+        assert_eq!(claims.file_path, None);
+
+        let json = serde_json::to_value(&claims).expect("serialize");
+        assert!(json.get("file_path").is_none(), "{json}");
     }
 
     #[test]

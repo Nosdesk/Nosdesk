@@ -37,6 +37,7 @@ async fn a_plugin_event_is_recorded_as_an_event_of_the_emitting_plugin() {
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let workspace = WorkspaceContext {
         workspace_id: a.workspace_id,

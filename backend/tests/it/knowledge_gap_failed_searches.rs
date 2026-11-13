@@ -535,6 +535,7 @@ mod search_route {
             workspace_uuid: None,
             exp: (chrono::Utc::now().timestamp() + 3600) as usize,
             iat: chrono::Utc::now().timestamp() as usize,
+            file_path: None,
         }
     }
 

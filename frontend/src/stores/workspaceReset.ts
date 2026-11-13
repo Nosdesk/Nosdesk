@@ -135,6 +135,14 @@ export async function resetWorkspaceScopedState(reason: WorkspaceResetReason): P
   } catch (e) {
     logger.error('Failed to clear the collab token', e);
   }
+
+  // The same for the file tokens videos stream with.
+  try {
+    const { resetFileToken } = await import('@/services/fileToken');
+    resetFileToken();
+  } catch (e) {
+    logger.error('Failed to clear the file tokens', e);
+  }
 }
 
 // The workspace whose state is loaded, so it loads once per session and

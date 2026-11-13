@@ -35,6 +35,12 @@ pub struct Claims {
     /// falls back to the Host-derived context).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_uuid: Option<Uuid>,
+    /// The one file a file token opens: the `/api/files` path it was minted
+    /// for (see `JwtUtils::create_file_token`). `None` on every other token.
+    /// Defaulted on deserialize so tokens minted before the claim existed
+    /// still parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
     pub exp: usize, // Expiration time
     pub iat: usize, // Issued at
 }

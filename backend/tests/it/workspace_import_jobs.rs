@@ -115,6 +115,7 @@ impl Env {
             workspace_uuid: None,
             exp: (now + 3600) as usize,
             iat: now as usize,
+            file_path: None,
         };
         let workspace = WorkspaceContext {
             workspace_id,

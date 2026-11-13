@@ -35,6 +35,8 @@ interface InstanceConfig {
   max_file_size_mb?: number;
   /** Extensions `/upload` refuses, lowercase, no dot. Absent before 1.1.5. */
   blocked_file_extensions?: string[];
+  /** `POST /files/token` mints a file token the file routes take in `?token=`. */
+  file_tokens?: boolean;
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
@@ -76,6 +78,11 @@ let maxUploadBytes: number | null = null;
 // The extensions the server refuses to store, whatever the file holds; empty
 // until the config resolves, or from a server older than 1.1.5.
 let blockedExtensions: ReadonlySet<string> = new Set();
+
+// Whether the server mints file tokens, so a media element can load a file
+// straight from it. False until the config says so: an older server doesn't,
+// and the app keeps loading through its own proxy there.
+let fileTokens = false;
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -166,6 +173,7 @@ export function fetchInstanceConfig(): Promise<void> {
             data.blocked_file_extensions.filter((e): e is string => typeof e === 'string').map((e) => e.toLowerCase()),
           );
         }
+        fileTokens = data?.file_tokens === true;
         configResolved.value = true;
       } catch (e) {
         logger.error('Failed to fetch instance config; will retry on next call', e);
@@ -201,6 +209,7 @@ export function resetInstanceConfig(): void {
   maxUploadBytes = null;
   blockedExtensions = new Set();
   portalDomain = '';
+  fileTokens = false;
 }
 
 /** Reactive: `true` once {@link fetchInstanceConfig} has settled (success or
@@ -237,6 +246,12 @@ export function getServerMaxUploadBytes(): number | null {
 /** The extensions the server refuses (lowercase, no dot); empty when not known. */
 export function getServerBlockedExtensions(): ReadonlySet<string> {
   return blockedExtensions;
+}
+
+/** Whether the server mints file tokens (`POST /files/token`); false until
+ *  the config resolves, and from a server that predates them. */
+export function serverMintsFileTokens(): boolean {
+  return fileTokens;
 }
 
 /** The instance's deployment mode. 'self_hosted' until the config resolves. */

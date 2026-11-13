@@ -82,6 +82,10 @@ pub async fn get_public_config() -> impl Responder {
         // Extensions `/upload` refuses whatever the file holds, for the same
         // check before sending.
         "blocked_file_extensions": crate::utils::file_validation::blocked_extensions(),
+        // `POST /api/files/token` mints a file token the file routes accept in
+        // `?token=`, so the app can play a video straight from the server.
+        // An app on an older server keeps loading through its own proxy.
+        "file_tokens": true,
     }))
 }
 
@@ -102,6 +106,7 @@ mod tests {
         .await;
         assert_eq!(body["server_version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(body["min_app_version"], "1.1.5");
+        assert_eq!(body["file_tokens"], true);
         assert_eq!(
             body["max_file_size_mb"],
             crate::utils::file_validation::get_max_file_size() / (1024 * 1024)

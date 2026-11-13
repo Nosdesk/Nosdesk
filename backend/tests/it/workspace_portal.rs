@@ -69,6 +69,7 @@ async fn portal_info_reports_the_portal_and_its_public_surfaces() {
             workspace_uuid: None,
             exp: (chrono::Utc::now().timestamp() + 3600) as usize,
             iat: chrono::Utc::now().timestamp() as usize,
+            file_path: None,
         };
         let corr = Uuid::now_v7();
         let actor = ActorContext::user(user_uuid, Some(corr)).with_workspace(WS);

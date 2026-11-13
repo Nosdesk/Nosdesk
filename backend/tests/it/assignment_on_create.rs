@@ -154,6 +154,7 @@ async fn a_ticket_added_from_a_board_is_assigned_by_the_rules() {
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let workspace = WorkspaceContext {
         workspace_id: a.workspace_id,

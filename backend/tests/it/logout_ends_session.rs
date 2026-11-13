@@ -66,6 +66,7 @@ fn expired_access(user: &backend::models::User, sid: uuid::Uuid) -> String {
         workspace_uuid: None,
         exp: now - 3600,
         iat: now - 3600 - 15 * 60,
+        file_path: None,
     };
     encode(
         &Header::default(),

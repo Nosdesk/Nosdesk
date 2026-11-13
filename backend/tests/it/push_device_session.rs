@@ -191,6 +191,7 @@ async fn register_over_http(
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let corr = Uuid::now_v7();
     let actor = ActorContext::user(user, Some(corr)).with_workspace(workspace);

@@ -268,6 +268,7 @@ mod tests {
             workspace_uuid: None,
             exp: 0,
             iat: 0,
+            file_path: None,
         }
     }
 
