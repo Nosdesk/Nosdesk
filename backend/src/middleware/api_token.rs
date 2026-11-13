@@ -212,6 +212,7 @@ pub fn try_bearer_auth(
         workspace_uuid: Some(bound_workspace),
         exp: (now + chrono::Duration::hours(24)).timestamp() as usize,
         iat: now.timestamp() as usize,
+        file_path: None,
     };
 
     info!(
@@ -470,4 +471,137 @@ pub async fn dual_auth_middleware(
     next: Next<impl MessageBody>,
 ) -> Result<ServiceResponse<impl MessageBody>, Error> {
     authenticate(req, next, true).await
+}
+
+/// The file serve routes: [`dual_auth_middleware`], plus a file token in the
+/// query string for a media element that loads a file straight from the server
+/// and can't send a header (the app's `<video>`, which has no cookie for the
+/// server's origin either).
+///
+/// The token is taken only for a GET or HEAD on a serve route (see
+/// [`crate::middleware::token_scope::is_file_read`]) that carries no bearer and
+/// no access cookie; anything else authenticates exactly as `dual_auth` does.
+/// It must be a `files` token: an `sse` or `collab` token is refused here, and a
+/// file token is refused on every other route because only `full` claims pass
+/// the bearer and cookie paths. The token names one file and its workspace: a
+/// request for any other path is refused, and the handler holds the file to the
+/// workspace and runs the same per-file checks a session gets.
+pub async fn file_auth_middleware(
+    req: ServiceRequest,
+    next: Next<impl MessageBody>,
+) -> Result<ServiceResponse<impl MessageBody>, Error> {
+    let file_token = if crate::middleware::token_scope::is_file_read(req.method(), req.path())
+        && extract_bearer_token(&req).is_none()
+        && req
+            .cookie(&crate::utils::cookies::cookie_name(
+                crate::utils::cookies::ACCESS_TOKEN_COOKIE,
+            ))
+            .is_none()
+    {
+        web::Query::<FileTokenQuery>::from_query(req.query_string())
+            .ok()
+            .and_then(|q| q.into_inner().token)
+            .filter(|t| !t.is_empty())
+    } else {
+        None
+    };
+    let Some(token) = file_token else {
+        return authenticate(req, next, true).await;
+    };
+
+    use crate::utils::jwt::{JwtUtils, FILES_SCOPE};
+    let pool = req
+        .app_data::<web::Data<Pool>>()
+        .ok_or_else(|| crate::errors::internal_error("Database pool not found"))?
+        .clone();
+    let mut conn = pool
+        .get()
+        .map_err(|_| crate::errors::internal_error("Database connection failed"))?;
+    let (claims, _user) = JwtUtils::authenticate_with_token(&token, &mut conn)
+        .await
+        .map_err(|err| {
+            warn!(error = ?err, "File token auth: token validation failed");
+            bearer_unauthorized(true, "Invalid or expired token")
+        })?;
+    if claims.scope != FILES_SCOPE {
+        warn!(path = %req.path(), scope = %claims.scope, "Rejected non-file token on a file route");
+        return Err(bearer_unauthorized(true, "Token not valid for this API"));
+    }
+    let Some(token_workspace) = claims.workspace_uuid else {
+        return Err(bearer_unauthorized(true, "Token not valid for this API"));
+    };
+    if !claims
+        .file_path
+        .as_deref()
+        .is_some_and(|file| same_file_path(file, req.path()))
+    {
+        warn!(path = %req.path(), "Rejected a file token minted for another file");
+        return Err(bearer_unauthorized(true, "Token not valid for this API"));
+    }
+
+    // Membership in the token's workspace, as the SSE and collab connections
+    // check theirs. The handler then holds the file to this workspace through
+    // the token's binding (`authorize_located`).
+    use crate::middleware::cookie_auth::{GateOutcome, UnresolvedPolicy, WorkspaceCarrier};
+    if let GateOutcome::Scoped(ctx) = crate::middleware::cookie_auth::resolve_pin_and_gate(
+        &mut conn,
+        &claims,
+        WorkspaceCarrier::ConnectionToken {
+            token_workspace: Some(token_workspace),
+            req: req.request(),
+        },
+        UnresolvedPolicy::Deny,
+    )? {
+        req.extensions_mut().insert(ctx);
+    }
+    drop(conn);
+
+    let mut res = finalize(req, next, claims, false).await?;
+    // The page that asked for this file is on another origin (the app's), and
+    // the app-wide `same-origin` policy would stop the media element reading
+    // it. Safe to relax here: the response was authorised by the token in the
+    // URL, not by anything the browser attaches on its own.
+    res.headers_mut().insert(
+        actix_web::http::header::HeaderName::from_static("cross-origin-resource-policy"),
+        actix_web::http::header::HeaderValue::from_static("cross-origin"),
+    );
+    Ok(res)
+}
+
+/// Whether a file token minted for `claimed` opens `requested`, compared
+/// percent-decoded: the page that minted it and the player that loads it may
+/// encode a space or a non-ASCII name differently (`clip café.mov`,
+/// `clip%20caf%C3%A9.mov`), and both name the same file. Decoded to bytes, so a
+/// sequence that isn't UTF-8 is compared as it is rather than refused.
+fn same_file_path(claimed: &str, requested: &str) -> bool {
+    urlencoding::decode_binary(claimed.as_bytes())
+        == urlencoding::decode_binary(requested.as_bytes())
+}
+
+/// The query string of a file route loaded with a file token.
+#[derive(serde::Deserialize)]
+struct FileTokenQuery {
+    token: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_file_path;
+
+    #[test]
+    fn a_file_path_matches_however_it_is_encoded() {
+        let raw = "/api/files/temp/0190_clip café.mov";
+        for requested in [
+            raw,
+            "/api/files/temp/0190_clip%20caf%C3%A9.mov",
+            "/api/files/temp/0190_clip%20caf%c3%a9.mov",
+            "/api/files/temp/0190%5Fclip%20caf%C3%A9.mov",
+        ] {
+            assert!(same_file_path(raw, requested), "{requested}");
+            assert!(same_file_path(requested, raw), "{requested}");
+        }
+        assert!(!same_file_path(raw, "/api/files/temp/0190_clip+café.mov"));
+        assert!(!same_file_path(raw, "/api/files/temp/0190_other.mov"));
+        assert!(!same_file_path(raw, "/api/files/temp/0190_clip café.mov/"));
+    }
 }

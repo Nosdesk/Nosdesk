@@ -74,6 +74,7 @@ fn portal_claims(
         workspace_uuid,
         exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     }
 }
 

@@ -707,6 +707,21 @@ async fn a_refused_connection_is_closed_with_why() {
             "a token that doesn't validate",
         ),
         (srv.url(&format!("/ws/{ticket_doc}")), 4401, "no token"),
+        (
+            srv.url(&format!(
+                "/ws/{ticket_doc}?token={}",
+                JwtUtils::create_file_token(
+                    &admin.uuid.to_string(),
+                    &admin.platform_role,
+                    ws1_uuid,
+                    None,
+                    &format!("/ws/{ticket_doc}"),
+                )
+                .expect("mint file token")
+            )),
+            4401,
+            "a file token",
+        ),
     ] {
         assert_eq!(refusal_code(&client, &url).await, code, "{what}");
     }
@@ -1904,6 +1919,7 @@ async fn converting_a_note_copies_its_live_content() {
                         workspace_uuid: None,
                         exp: (now + 3600) as usize,
                         iat: now as usize,
+                        file_path: None,
                     });
                     let actor = backend::sync::actor::ActorContext::user(caller.uuid, None)
                         .with_workspace(ws.workspace_id);
@@ -2417,6 +2433,7 @@ async fn a_new_pages_content_is_read_from_its_open_room() {
                         workspace_uuid: None,
                         exp: (now + 3600) as usize,
                         iat: now as usize,
+                        file_path: None,
                     });
                     let actor = backend::sync::actor::ActorContext::user(caller.uuid, None)
                         .with_workspace(ws.workspace_id);

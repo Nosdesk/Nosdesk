@@ -73,6 +73,7 @@ macro_rules! bulk_app {
             workspace_uuid: None,
             exp: (chrono::Utc::now().timestamp() + 3600) as usize,
             iat: chrono::Utc::now().timestamp() as usize,
+            file_path: None,
         };
         http_test::init_service(
             App::new()

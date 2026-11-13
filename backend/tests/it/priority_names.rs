@@ -93,6 +93,7 @@ async fn the_guest_default_priority_can_be_any_priority() {
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let workspace = WorkspaceContext {
         workspace_id: ws.workspace_id,

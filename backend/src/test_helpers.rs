@@ -715,6 +715,7 @@ pub fn create_test_claims(user: &User) -> crate::models::Claims {
         workspace_uuid: None,
         exp: (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp() as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     }
 }
 

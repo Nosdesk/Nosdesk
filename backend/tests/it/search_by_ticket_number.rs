@@ -59,6 +59,7 @@ async fn ticket_hits(
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let context = WorkspaceContext {
         workspace_id: ws.workspace_id,

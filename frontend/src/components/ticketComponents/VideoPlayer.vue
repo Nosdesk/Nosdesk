@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { logger } from '@nosdesk/core/utils/logger'
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import ProgressBar from '@/components/ticketComponents/ProgressBar.vue';
+import {
+  directVideoUrl,
+  discardFileToken,
+  getFileToken,
+  withFileToken,
+  type DirectVideo,
+} from '@/services/fileToken';
 
 const { $t } = useFluent();
 
@@ -46,6 +53,81 @@ const log = (event: string, details?: any) => {
   // Only log critical events, not mouse movements
   if (!event.includes('mousemove') && !event.includes('showControls')) {
     logger.debug(`[VideoPlayer] ${event}`, { details });
+  }
+};
+
+// In the app a server video streams straight from the server with a token for
+// its file, not through the app's proxy, which can't stream (see
+// services/fileToken). Unset until that URL is ready; everywhere else, and if
+// the direct load fails, it is the caller's `src`.
+const videoSrc = ref<string | undefined>(undefined);
+let direct: DirectVideo | null = null;
+let resolving = 0;
+// Tokens re-minted for this video's file. Each lasts 15 minutes, so a few
+// cover a long watch; past that, or for a failure that isn't the network, the
+// video goes back through the app's proxy.
+let recoveries = 0;
+const MAX_RECOVERIES = 3;
+// `MediaError.MEDIA_ERR_NETWORK`, spelled out for environments without it.
+const MEDIA_ERR_NETWORK = 2;
+// Where to pick up once a replaced source has loaded.
+let resumeAt: { time: number; play: boolean } | null = null;
+
+const resolveSrc = async (fresh = false) => {
+  const mine = ++resolving;
+  const target = directVideoUrl(props.src);
+  direct = target;
+  if (!target) {
+    videoSrc.value = props.src;
+    return;
+  }
+  if (fresh) discardFileToken(target.path);
+  try {
+    const token = await getFileToken(target.path);
+    if (mine !== resolving || direct !== target) return;
+    const next = withFileToken(target.url, token);
+    // A token minted in the same second is the same token; that load already
+    // failed, so it wasn't the token.
+    if (fresh && next === videoSrc.value) {
+      direct = null;
+      videoSrc.value = props.src;
+    } else {
+      videoSrc.value = next;
+    }
+  } catch (error) {
+    log('file token unavailable, loading through the app', { error });
+    if (mine === resolving) {
+      direct = null;
+      videoSrc.value = props.src;
+    }
+  }
+};
+
+watch(
+  () => props.src,
+  () => {
+    recoveries = 0;
+    resumeAt = null;
+    void resolveSrc();
+  },
+  { immediate: true },
+);
+
+// A direct load fails as a network error once its token runs out (the server
+// refuses the next range). Then re-mint and carry on from the same spot; any
+// other failure, or one too many, goes back to the app's proxy.
+const recoverDirectLoad = () => {
+  const video = videoRef.value;
+  if (!video || !direct) return;
+  log('video:error', { code: video.error?.code });
+  resumeAt = { time: video.currentTime, play: isPlaying.value };
+  if (video.error?.code === MEDIA_ERR_NETWORK && recoveries < MAX_RECOVERIES) {
+    recoveries++;
+    void resolveSrc(true);
+  } else {
+    resolving++;
+    direct = null;
+    videoSrc.value = props.src;
   }
 };
 
@@ -212,7 +294,14 @@ onMounted(() => {
   videoRef.value.addEventListener('loadedmetadata', () => {
     log('video:loadedmetadata', { duration: videoRef.value?.duration });
     duration.value = videoRef.value?.duration || 0;
+    const video = videoRef.value;
+    if (resumeAt && video) {
+      video.currentTime = resumeAt.time;
+      if (resumeAt.play) video.play().catch(() => {});
+      resumeAt = null;
+    }
   });
+  videoRef.value.addEventListener('error', recoverDirectLoad);
   videoRef.value.addEventListener('click', (e) => {
     togglePlay(e);
   });
@@ -236,12 +325,13 @@ onUnmounted(() => {
     @mouseleave="showControls = false"
   >
     <!-- Video element. Its caller resolves the src through
-         convertToAuthenticatedPath (assetUrl); the element itself is needed
+         convertToAuthenticatedPath (assetUrl), and `videoSrc` swaps a proxied
+         one for a direct server URL in the app; the element itself is needed
          for the ref. -->
     <!-- eslint-disable vue/no-restricted-v-bind -->
     <video
       ref="videoRef"
-      :src="props.src"
+      :src="videoSrc"
       class="relative w-full h-full object-contain rounded-lg"
       preload="metadata"
       controlsList="nodownload"

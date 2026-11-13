@@ -59,6 +59,7 @@ async fn a_rebuild_indexes_every_workspaces_tickets() {
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let app = http_test::init_service(
         App::new()
