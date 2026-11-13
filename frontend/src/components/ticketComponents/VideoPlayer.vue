@@ -4,12 +4,25 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import ProgressBar from '@/components/ticketComponents/ProgressBar.vue';
 import { primeFirstFrame, useVideoSource, withFirstFrame } from '@/composables/useVideoSource';
+import { useCoarsePointer } from '@/composables/useCoarsePointer';
 
 const { $t } = useFluent();
 
-const props = defineProps<{
-  src: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    src: string;
+    /** The tallest the player gets, a CSS length. Its width follows from the
+     *  video's shape, up to the container's. */
+    maxHeight?: string;
+  }>(),
+  { maxHeight: '16rem' },
+);
+
+// On a touch device the browser's own controls: sized for a finger, with the
+// system player behind fullscreen, and no volume slider where only the
+// hardware buttons set the volume (iOS). The custom controls below are for
+// a mouse, which can hover.
+const nativeControls = useCoarsePointer();
 
 const videoRef = ref<HTMLVideoElement | null>(null);
 const isPlaying = ref(false);
@@ -22,6 +35,21 @@ const isFullscreen = ref(false);
 const showControls = ref(false);
 const controlsTimeout = ref<number | null>(null);
 const wasPlaying = ref(false);
+
+// The video's shape, known once its metadata loads. The player box takes it
+// (see frameStyle), so the controls, native or custom, never hang over black
+// bars beside a portrait video. Until then a 16:9 placeholder.
+const videoShape = ref<{ width: number; height: number } | null>(null);
+const frameStyle = computed(() => {
+  const { width, height } = videoShape.value ?? { width: 16, height: 9 };
+  return {
+    aspectRatio: `${width} / ${height}`,
+    maxHeight: props.maxHeight,
+    // Caps the width through the ratio too, so the box ends where the
+    // picture does instead of spreading to the container's width.
+    maxWidth: `calc(${props.maxHeight} * ${width} / ${height})`,
+  };
+});
 
 // Computed property to determine which volume icon to show
 const volumeIcon = computed(() => {
@@ -82,17 +110,30 @@ watch(
 
 // In the app a first load plays muted to its first frame and pauses, so the
 // player shows a picture before play (see primeFirstFrame). The play and
-// pause that causes aren't the viewer's, so the controls ignore them.
-let priming = false;
+// pause that causes aren't the viewer's, so the custom controls ignore them,
+// and the native ones stay off until it settles: they would show that play,
+// and a tap on them mid-prime would be paused by it.
+const priming = ref(false);
 let cancelPrime: () => void = () => {};
+// A load that stalls without an error would keep the native controls off for
+// good, so after this long the frame is given up and the player handed over.
+const PRIME_TIMEOUT_MS = 4000;
+let primeTimer: ReturnType<typeof setTimeout> | undefined;
 const primeElement = () => {
   cancelPrime();
+  clearTimeout(primeTimer);
   const video = videoRef.value;
   if (!video || !elementSrc.value || !firstLoad) return;
-  priming = true;
+  priming.value = true;
   cancelPrime = primeFirstFrame(video, () => {
-    priming = false;
+    priming.value = false;
+    clearTimeout(primeTimer);
   });
+  if (!priming.value) return;
+  primeTimer = setTimeout(() => {
+    cancelPrime();
+    video.pause();
+  }, PRIME_TIMEOUT_MS);
 };
 watch(elementSrc, primeElement, { flush: 'post' });
 
@@ -255,12 +296,12 @@ onMounted(() => {
   videoRef.value.volume = volume.value;
   
   videoRef.value.addEventListener('play', () => {
-    if (priming) return;
+    if (priming.value) return;
     log('video:play');
     isPlaying.value = true;
   });
   videoRef.value.addEventListener('pause', () => {
-    if (priming) return;
+    if (priming.value) return;
     log('video:pause');
     isPlaying.value = false;
   });
@@ -271,14 +312,21 @@ onMounted(() => {
     log('video:loadedmetadata', { duration: videoRef.value?.duration });
     duration.value = videoRef.value?.duration || 0;
     const video = videoRef.value;
-    if (resumeAt && video) {
+    if (!video) return;
+    // Zero for a file with no picture, which keeps the placeholder.
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      videoShape.value = { width: video.videoWidth, height: video.videoHeight };
+    }
+    if (resumeAt) {
       video.currentTime = resumeAt.time;
       if (resumeAt.play) video.play().catch(() => {});
       resumeAt = null;
     }
   });
   videoRef.value.addEventListener('error', recoverDirectLoad);
+  // Native controls take the tap themselves.
   videoRef.value.addEventListener('click', (e) => {
+    if (nativeControls.value) return;
     togglePlay(e);
   });
   document.addEventListener('fullscreenchange', () => {
@@ -290,6 +338,7 @@ onMounted(() => {
 // Cleanup
 onUnmounted(() => {
   cancelPrime();
+  clearTimeout(primeTimer);
   if (controlsTimeout.value) {
     clearTimeout(controlsTimeout.value);
   }
@@ -298,10 +347,13 @@ onUnmounted(() => {
 
 <template>
   <div
-    class="relative bg-surface rounded-lg overflow-hidden group min-w-[300px]"
+    class="relative bg-surface rounded-lg overflow-hidden group w-full @container"
+    :style="frameStyle"
     @mousemove.passive="showControlsTemporarily"
     @mouseleave="showControls = false"
   >
+    <!-- The box takes the video's shape (see frameStyle); the caller's
+         width is its ceiling, and the caller places it. -->
     <!-- Video element. Its caller resolves the src through
          convertToAuthenticatedPath (assetUrl), and `elementSrc` swaps a
          proxied one for a direct server URL in the app; the element itself is
@@ -312,12 +364,18 @@ onUnmounted(() => {
       :src="elementSrc"
       class="relative w-full h-full object-contain rounded-lg"
       preload="metadata"
+      playsinline
+      x-webkit-airplay="allow"
       controlsList="nodownload"
+      :controls="nativeControls && !priming"
     ></video>
     <!-- eslint-enable vue/no-restricted-v-bind -->
 
-    <!-- Video Controls -->
+    <!-- Video Controls. The bar is as wide as the picture, so in a narrow
+         box (a portrait video) it drops the volume slider, then the time,
+         and keeps play, mute and fullscreen. -->
     <div
+      v-if="!nativeControls"
       class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-surface/80 to-transparent p-4 transition-opacity duration-300 flex flex-col gap-1"
       :class="[showControls || !isPlaying ? 'opacity-100' : 'opacity-0']"
     >
@@ -379,12 +437,12 @@ onUnmounted(() => {
               step="0.1"
               :value="volume"
               @input="updateVolume"
-              class="w-20 h-1 accent-accent"
+              class="hidden @min-[20rem]:block w-20 h-1 accent-accent"
             />
           </div>
 
           <!-- Time Display -->
-          <div class="text-primary text-sm">
+          <div class="hidden @min-[14rem]:block text-primary text-sm">
             {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
           </div>
         </div>

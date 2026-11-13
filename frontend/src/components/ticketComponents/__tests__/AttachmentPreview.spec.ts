@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent, h } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { FluentBundle, FluentResource } from '@fluent/bundle'
 import { createFluentVue } from 'fluent-vue'
@@ -36,6 +37,16 @@ vi.mock('@/composables/useVideoSource', async (importOriginal) => ({
 }))
 
 import AttachmentPreview from '../AttachmentPreview.vue'
+
+// A Modal that renders its body and footer in place, for the preview tests;
+// the default stub renders the default slot alone.
+const ModalStub = defineComponent({
+  name: 'Modal',
+  props: { show: Boolean, title: String, size: String, removePadding: Boolean },
+  setup(_, { slots }) {
+    return () => h('div', [slots.default?.(), slots.footer?.()])
+  },
+})
 
 // jsdom never loads images, so the server-thumbnail probe would wait forever.
 // `serverThumbnail` decides whether the probe finds one.
@@ -81,7 +92,14 @@ function tile(name: string, compact = true, renderModal = false) {
     },
     global: {
       plugins: [createFluentVue({ bundles: [bundle] }), router],
-      stubs: { Modal: true, Icon: true, Spinner: true, AssetImg: true, VideoPlayer: true },
+      stubs: {
+        Modal: renderModal ? ModalStub : true,
+        Tooltip: true,
+        Icon: true,
+        Spinner: true,
+        AssetImg: true,
+        VideoPlayer: true,
+      },
       renderStubDefaultSlot: renderModal,
     },
   })
@@ -114,13 +132,49 @@ describe('AttachmentPreview (compact)', () => {
     const modal = video.findComponent({ name: 'Modal' })
     expect(modal.props('show')).toBe(true)
     expect(modal.props('title')).toBe('Video preview')
-    expect(video.findComponent({ name: 'VideoPlayer' }).props('src')).toBe(served('clip.mov'))
+    // The media runs to the panel's edges; the player takes the video's
+    // shape within most of the viewport.
+    expect(modal.props('removePadding')).toBe(true)
+    const playerStub = video.findComponent({ name: 'VideoPlayer' })
+    expect(playerStub.props('src')).toBe(served('clip.mov'))
+    expect(playerStub.props('maxHeight')).toBe('min(70dvh, 85dvh - 8rem)')
 
+    // One row under the video: the name, then icon buttons for Download and
+    // Delete, named for assistive tech.
+    expect(modal.text()).toContain('clip.mov')
     const download = modal.find('a[download]')
     expect(download.attributes('href')).toBe(served('clip.mov'))
     expect(download.attributes('download')).toBe('clip.mov')
-    expect(download.text()).toBe('Download attachment')
-    expect(modal.text()).toContain('Delete video')
+    expect(download.attributes('aria-label')).toBe('Download attachment')
+    expect(download.text()).toBe('')
+    expect(download.find('icon-stub[name="download"]').exists()).toBe(true)
+    expect(download.attributes('data-variant')).toBeUndefined()
+    expect(download.classes()).toContain('pointer-coarse:min-h-11')
+
+    const remove = modal.find('button[aria-label="Delete video"]')
+    expect(remove.attributes('data-variant')).toBe('ghost-danger')
+    expect(remove.attributes('data-icon-only')).toBeDefined()
+    expect(remove.classes()).toContain('pointer-coarse:min-h-11')
+    expect(modal.text()).not.toContain('Delete video')
+
+    // Delete closes the preview and tells the thread, as the old button did.
+    await remove.trigger('click')
+    expect(video.emitted('delete')).toHaveLength(1)
+    expect(modal.props('show')).toBe(false)
+  })
+
+  it('gives an image the same row, with its own download label', async () => {
+    const image = tile('photo.png', true, true)
+    await image.find('button[aria-label="Open photo.png"]').trigger('click')
+    const modal = image.findComponent({ name: 'Modal' })
+    expect(modal.props('title')).toBe('Image preview')
+    expect(modal.text()).toContain('photo.png')
+    expect(modal.find('a[download]').attributes('aria-label')).toBe('Download image')
+    expect(modal.find('button[aria-label="Delete image"]').exists()).toBe(true)
+
+    const animated = tile('loop.gif', true, true)
+    await animated.find('button[aria-label="Open loop.gif"]').trigger('click')
+    expect(animated.find('a[download]').attributes('aria-label')).toBe('Download animated image')
   })
 
   it('names the kind of file it deletes', () => {

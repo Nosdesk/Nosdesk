@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { FluentBundle, FluentResource } from '@fluent/bundle'
 import { createFluentVue } from 'fluent-vue'
 import enUS from '../../../../../i18n/locales/en-US/main.ftl?raw'
+import { COARSE_POINTER_QUERY } from '@/composables/useCoarsePointer'
 
 const PROXIED = 'nosdesk-asset://localhost/api/files/tickets/7/clip.mp4'
 const PATH = '/api/files/tickets/7/clip.mp4'
@@ -26,15 +28,42 @@ vi.mock('@/services/fileToken', () => ({
   withFileToken: (url: string, token: string) => `${url}?token=${token}`,
 }))
 
+// The real priming does nothing outside the app; a test that needs one in
+// flight installs its own here.
+type Prime = (video: HTMLVideoElement, onSettled?: () => void) => () => void
+const priming = vi.hoisted(() => ({ prime: null as Prime | null }))
+vi.mock('@/composables/useVideoSource', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/composables/useVideoSource')>()
+  return {
+    ...actual,
+    primeFirstFrame: (video: HTMLVideoElement, onSettled?: () => void) =>
+      (priming.prime ?? actual.primeFirstFrame)(video, onSettled),
+  }
+})
+
 import VideoPlayer from '../VideoPlayer.vue'
 
-function player(src: string) {
+function player(src: string, props: { maxHeight?: string } = {}) {
   const bundle = new FluentBundle('en-US', { useIsolating: false })
   bundle.addResource(new FluentResource(enUS))
   return mount(VideoPlayer, {
-    props: { src },
+    props: { src, ...props },
     global: { plugins: [createFluentVue({ bundles: [bundle] })] },
   })
+}
+
+/** Stand in for the device's primary input: a finger (`coarse`) or a mouse. */
+function pointer(coarse: boolean) {
+  vi.stubGlobal('matchMedia', (query: string): MediaQueryList => ({
+    matches: coarse && query === COARSE_POINTER_QUERY,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }))
 }
 
 beforeEach(() => {
@@ -43,6 +72,11 @@ beforeEach(() => {
   files.getFileToken.mockReset()
   files.getFileToken.mockImplementation(async () => `t${++files.minted}`)
   files.discardFileToken.mockClear()
+  priming.prime = null
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('VideoPlayer source', () => {
@@ -173,5 +207,123 @@ describe('VideoPlayer source', () => {
     await wrapper.setProps({ src: '/api/files/tickets/7/other.mp4' })
     await flushPromises()
     expect(video.attributes('src')).toBe(`/api/files/tickets/7/other.mp4${FIRST_FRAME}`)
+  })
+})
+
+describe('VideoPlayer controls', () => {
+  it("uses the browser's own controls on a touch device, and nothing of its own", async () => {
+    pointer(true)
+    const wrapper = player('/api/files/tickets/7/clip.mp4')
+    await flushPromises()
+    const video = wrapper.find('video')
+    expect(video.attributes('controls')).toBeDefined()
+    expect(video.attributes('playsinline')).toBeDefined()
+    expect(video.attributes('x-webkit-airplay')).toBe('allow')
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.find('input[type="range"]').exists()).toBe(false)
+
+    // A tap on the picture is the native controls' to handle.
+    const play = vi.fn(async () => {})
+    Object.defineProperty(video.element, 'play', { value: play, configurable: true })
+    await video.trigger('click')
+    expect(play).not.toHaveBeenCalled()
+  })
+
+  it('keeps its own controls for a mouse', async () => {
+    pointer(false)
+    const wrapper = player('/api/files/tickets/7/clip.mp4')
+    await flushPromises()
+    const video = wrapper.find('video')
+    expect(video.attributes('controls')).toBeUndefined()
+    expect(video.attributes('playsinline')).toBeDefined()
+    expect(wrapper.find('button[aria-label="Play"]').exists()).toBe(true)
+    expect(wrapper.find('input[type="range"]').exists()).toBe(true)
+    expect(wrapper.find('button[aria-label="Enter fullscreen"]').exists()).toBe(true)
+    // The bar is as wide as the picture: a portrait box sheds the slider.
+    expect(wrapper.classes()).toContain('@container')
+    expect(wrapper.find('input[type="range"]').classes()).toContain('@min-[20rem]:block')
+  })
+
+  it('holds the native controls back while the first frame primes', async () => {
+    pointer(true)
+    let settle: (() => void) | undefined
+    priming.prime = (_video, onSettled) => {
+      settle = onSettled
+      return () => {}
+    }
+    const wrapper = player('/api/files/tickets/7/clip.mp4')
+    await flushPromises()
+    expect(settle).toBeDefined()
+    expect(wrapper.find('video').attributes('controls')).toBeUndefined()
+
+    settle!()
+    await nextTick()
+    expect(wrapper.find('video').attributes('controls')).toBeDefined()
+  })
+
+  it('hands the native controls over when the first frame stalls', async () => {
+    vi.useFakeTimers()
+    try {
+      pointer(true)
+      let settle: (() => void) | undefined
+      const cancel = vi.fn(() => settle?.())
+      priming.prime = (_video, onSettled) => {
+        settle = onSettled
+        return cancel
+      }
+      const wrapper = player('/api/files/tickets/7/clip.mp4')
+      await flushPromises()
+      const pause = vi.fn()
+      Object.defineProperty(wrapper.find('video').element, 'pause', { value: pause, configurable: true })
+      expect(wrapper.find('video').attributes('controls')).toBeUndefined()
+
+      vi.advanceTimersByTime(4000)
+      await nextTick()
+      expect(cancel).toHaveBeenCalled()
+      expect(pause).toHaveBeenCalled()
+      expect(wrapper.find('video').attributes('controls')).toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('VideoPlayer shape', () => {
+  /** Give the element a picture of `width` by `height`; jsdom decodes none. */
+  function sized(video: HTMLVideoElement, width: number, height: number) {
+    Object.defineProperty(video, 'videoWidth', { value: width, configurable: true })
+    Object.defineProperty(video, 'videoHeight', { value: height, configurable: true })
+  }
+
+  it('holds a 16:9 placeholder, then takes the shape of the video', async () => {
+    const wrapper = player('/api/files/tickets/7/clip.mp4')
+    await flushPromises()
+    expect(wrapper.attributes('style')).toContain('aspect-ratio: 16 / 9')
+    expect(wrapper.attributes('style')).toContain('max-height: 16rem')
+    expect(wrapper.classes()).not.toContain('min-w-[300px]')
+
+    const video = wrapper.find('video')
+    sized(video.element as HTMLVideoElement, 1080, 1920)
+    await video.trigger('loadedmetadata')
+    const style = wrapper.attributes('style') ?? ''
+    expect(style).toContain('aspect-ratio: 1080 / 1920')
+    // The width is capped through the ratio as well, so a portrait video
+    // gets a portrait box, not a wide one with bars.
+    expect(style).toMatch(/max-width: calc\(/)
+  })
+
+  it('keeps the placeholder for a file with no picture', async () => {
+    const wrapper = player('/api/files/tickets/7/clip.mp4')
+    await flushPromises()
+    const video = wrapper.find('video')
+    sized(video.element as HTMLVideoElement, 0, 0)
+    await video.trigger('loadedmetadata')
+    expect(wrapper.attributes('style')).toContain('aspect-ratio: 16 / 9')
+  })
+
+  it('takes the height its caller allows', async () => {
+    const wrapper = player('/api/files/tickets/7/clip.mp4', { maxHeight: '70dvh' })
+    await flushPromises()
+    expect(wrapper.attributes('style')).toContain('max-height: 70dvh')
   })
 })
