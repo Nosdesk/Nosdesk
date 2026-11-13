@@ -57,9 +57,9 @@ export interface StagedAttachment {
 type FileWithTranscription = File & { _transcription?: string }
 
 /**
- * How many files upload at once. The mobile app's bridge copies each request
- * body through memory, so there they go one at a time; elsewhere two, which
- * keeps the server's spool from filling with one person's many partial files.
+ * How many files upload at once: two, which keeps the server's spool from
+ * filling with one person's many partial files, or one on a transport that
+ * copies each body through memory (one with a cap).
  */
 function uploadConcurrency(): number {
   return getTransportUploadCap() != null ? 1 : 2

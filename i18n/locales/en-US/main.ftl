@@ -5728,7 +5728,6 @@ ticket-comments-send-failed-too-large =
        *[reply] Your reply wasn't sent: its attachments are too large. Remove some and try again.
     }
 ticket-comments-attachment-too-large = { $name } is too large to attach. Files can be up to { $limit } MB.
-ticket-comments-attachments-total-too-large = { $name } wasn't attached: a reply's attachments can be up to { $limit } MB together.
 ticket-comments-attachment-type-not-allowed = { $name } can't be attached: files of this type aren't allowed.
 ticket-comments-upload-waiting = Waiting to upload
 ticket-comments-upload-uploading = Uploading

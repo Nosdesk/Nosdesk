@@ -1,13 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // A file too big to upload is refused from its size alone, before any byte of
-// it is read: at the pickers, against the server's limit and the mobile app's
-// transport cap, and again in the app's HTTP adapter for every other path. A
-// phone video sent through the adapter's native bridge got the app killed.
-const http = vi.hoisted(() => ({ fetch: vi.fn() }))
+// it is read: at the pickers, against the server's limit and any transport cap.
+// The mobile app's HTTP adapter sends file bodies through the webview's XHR,
+// which streams them from disk, rather than its native bridge, which copied a
+// phone video through memory until iOS killed the app.
+const http = vi.hoisted(() => ({ fetch: vi.fn(), xhr: vi.fn() }))
 vi.mock('../../../mobile/node_modules/@tauri-apps/plugin-http/dist-js/index.js', () => ({
   fetch: http.fetch,
 }))
+vi.mock('axios', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('axios')>()
+  const getAdapter = (name: unknown) => (name === 'xhr' ? http.xhr : actual.default.getAdapter(name as never))
+  return { ...actual, default: Object.assign(actual.default, { getAdapter }) }
+})
 const api = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('@nosdesk/core/apiClient', () => ({ default: api }))
 
@@ -18,9 +24,8 @@ const fileOf = (size: number, name = 'clip.mov') =>
 
 const limits = await import('@nosdesk/core/services/uploadLimits')
 const config = await import('@nosdesk/core/services/instanceConfig')
-const { tauriHttpAdapter, BRIDGE_UPLOAD_CAP_BYTES } = await import(
-  '@nosdesk/mobile/tauriHttpAdapter'
-)
+const { AxiosHeaders } = await import('axios')
+const { tauriHttpAdapter } = await import('@nosdesk/mobile/tauriHttpAdapter')
 
 async function serverLimit(mb: number | undefined, blocked?: string[]) {
   config.resetInstanceConfig()
@@ -39,6 +44,7 @@ afterEach(() => {
   limits.setTransportUploadCap(null)
   config.resetInstanceConfig()
   http.fetch.mockReset()
+  http.xhr.mockReset()
   api.get.mockReset()
 })
 
@@ -84,32 +90,43 @@ describe('upload limits', () => {
 })
 
 describe('the mobile HTTP adapter', () => {
-  const post = (data: unknown) =>
+  const send = (data: unknown) =>
     tauriHttpAdapter({
       url: '/upload',
       baseURL: 'https://help.example.com/api',
       method: 'post',
       data,
-      headers: { toJSON: () => ({}) },
+      headers: new AxiosHeaders({
+        Authorization: 'Bearer t',
+        'X-Auth-Mode': 'bearer',
+        'X-Nosdesk-Workspace': 'acme',
+        'X-Correlation-ID': 'c',
+        'X-Nosdesk-Trace-Id': 't',
+        'X-SSE-Client-Id': 's',
+      }),
     } as never)
 
-  it('refuses a body over its cap without sending it', async () => {
+  it('sends a file body through the XHR, whatever its size, with only the headers the API allows cross-origin', async () => {
+    http.xhr.mockResolvedValue({ status: 200, data: [] })
+    const video = fileOf(1)
+    Object.defineProperty(video, 'size', { value: 500 * MB })
     const form = new FormData()
-    form.append('files', fileOf(BRIDGE_UPLOAD_CAP_BYTES / 2, 'a.mov'))
-    form.append('files', fileOf(BRIDGE_UPLOAD_CAP_BYTES / 2 + 1, 'b.mov'))
-    await expect(post(form)).rejects.toMatchObject({ code: limits.UPLOAD_TOO_LARGE })
-    await expect(post(fileOf(BRIDGE_UPLOAD_CAP_BYTES + 1))).rejects.toMatchObject({
-      code: limits.UPLOAD_TOO_LARGE,
-    })
+    form.append('files', video)
+
+    for (const body of [form, video]) await send(body)
+
     expect(http.fetch).not.toHaveBeenCalled()
+    expect(http.xhr).toHaveBeenCalledTimes(2)
+    const sent = http.xhr.mock.calls[0][0].headers.toJSON()
+    expect(Object.keys(sent).sort()).toEqual(['Authorization', 'X-Auth-Mode', 'X-Nosdesk-Workspace'])
   })
 
-  it('sends a body within it', async () => {
-    http.fetch.mockResolvedValue(new Response('[]', { status: 200 }))
-    const form = new FormData()
-    form.append('files', fileOf(MB))
-    const res = await post(form)
+  it('sends any other body through the native client, headers and all', async () => {
+    http.fetch.mockResolvedValue(new Response('{}', { status: 200 }))
+    const res = await send('{"a":1}')
     expect(res.status).toBe(200)
-    expect(http.fetch).toHaveBeenCalledOnce()
+    expect(http.xhr).not.toHaveBeenCalled()
+    const init = http.fetch.mock.calls[0][1] as RequestInit
+    expect(init.headers).toMatchObject({ 'X-Correlation-ID': 'c', 'X-Nosdesk-Workspace': 'acme' })
   })
 })
