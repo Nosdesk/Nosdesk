@@ -12,7 +12,9 @@ import FilePreview from "@/components/ticketComponents/FilePreview.vue";
 import Modal from "@/components/Modal.vue";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 import Icon from '@/components/common/Icon.vue';
+import Tooltip from '@/components/common/Tooltip.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import { button } from '@/recipes/button';
 import { useAttachmentSource } from '@/composables/useAttachmentSource';
 import { fetchPdfBytes, loadPdfjs, openPdfDocument } from '@/utils/pdfjs';
 import { usePdfOverlay } from '@/composables/usePdfOverlay';
@@ -162,6 +164,13 @@ const previewTitle = computed(() => {
   return isAnimatedImage(props.attachment.name)
     ? $t('ticket-media-attachment-preview-title-animated')
     : $t('ticket-media-attachment-preview-title-image');
+});
+
+const downloadLabel = computed(() => {
+  if (attachmentType.value === 'video') return $t('ticket-media-attachment-download');
+  return isAnimatedImage(props.attachment.name)
+    ? $t('ticket-media-attachment-download-animated')
+    : $t('ticket-media-attachment-download-image');
 });
 
 const deleteLabel = computed(() => {
@@ -594,7 +603,7 @@ const generatePdfThumbnail = async () => {
     <template v-else-if="attachmentType === 'video'">
       <VideoPlayer
         :src="authenticatedUrl"
-        class="w-full h-64"
+        class="w-full"
         :show-delete="showDelete"
         @delete="emit('delete')"
       />
@@ -806,25 +815,33 @@ const generatePdfThumbnail = async () => {
     
   </div>
 
-    <!-- Image and video preview modal (PDFs open in full page view) -->
+    <!-- Image and video preview modal (PDFs open in full page view). The
+         media runs near the panel's edges, closest on a phone, where the
+         sheet is the screen; the file's name and its actions share the
+         footer row. -->
     <Modal
       :show="showPreviewModal"
       :title="previewTitle"
       size="lg"
+      remove-padding
       @close="closeImagePreview"
     >
-      <div class="flex flex-col items-center gap-1">
+      <div class="flex justify-center p-2 md:p-5">
+        <!-- The player box follows the video's shape within this height.
+             Most of the viewport, but short of what the panel can show over
+             its header, this inset and the footer, so it never scrolls. -->
         <VideoPlayer
           v-if="attachmentType === 'video'"
           :src="previewImageSrc"
-          class="w-full h-[60vh]"
+          class="w-full"
+          max-height="min(70dvh, 85dvh - 8rem)"
         />
         <!-- Image Preview -->
         <div v-else class="relative">
           <AssetImg
             :src="previewImageSrc"
             :alt="attachment.name"
-            class="max-w-full max-h-[70vh] object-contain bg-transparent attachment-image"
+            class="max-w-full max-h-[70dvh] object-contain bg-transparent attachment-image"
             :class="{
               'animated-preview-modal': isAnimatedImage(attachment.name)
             }"
@@ -838,39 +855,40 @@ const generatePdfThumbnail = async () => {
             {{ $t('ticket-media-attachment-animated-badge') }}
           </div>
         </div>
+      </div>
 
-        <div class="mt-4 text-center text-sm text-secondary">
-          {{ getDisplayName(attachment.name) }}
-        </div>
-
-        <!-- Download button -->
-        <div class="mt-4 flex gap-3">
-          <a
-            :href="previewImageSrc"
-            target="_blank"
-            :download="attachment.name"
-            :class="isAnimatedImage(attachment.name)
-              ? 'px-4 py-2 bg-accent text-on-accent text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2'
-              : 'px-4 py-2 bg-surface-alt text-primary text-sm rounded hover:bg-surface-hover transition-colors flex items-center gap-2'"
+      <template #footer>
+        <div class="flex items-center gap-1 min-w-0">
+          <span
+            class="flex-1 min-w-0 truncate text-sm text-secondary"
+            :title="getDisplayName(attachment.name)"
           >
-            <Icon name="download" />
-            {{ attachmentType === 'video'
-              ? $t('ticket-media-attachment-download')
-              : isAnimatedImage(attachment.name) ? $t('ticket-media-attachment-download-animated') : $t('ticket-media-attachment-download-image') }}
-          </a>
+            {{ getDisplayName(attachment.name) }}
+          </span>
+          <!-- A link, so the browser saves the file under its name; dressed
+               as the icon button beside it. -->
+          <Tooltip :text="downloadLabel">
+            <a
+              :href="previewImageSrc"
+              target="_blank"
+              :download="attachment.name"
+              :class="button({ variant: 'ghost', iconOnly: true })"
+              :aria-label="downloadLabel"
+            >
+              <Icon name="download" />
+            </a>
+          </Tooltip>
           <!-- Delete lives in the preview (not on the thumbnail on mobile, where
                the hover-only thumbnail button is invisible yet tappable). -->
-          <button
+          <IconButton
             v-if="showDelete"
-            type="button"
+            variant="ghost-danger"
+            icon="trash"
+            :label="deleteLabel"
             @click="closeImagePreview(); emit('delete')"
-            class="px-4 py-2 bg-surface-alt text-status-error text-sm rounded hover:bg-status-error/10 transition-colors flex items-center gap-2"
-          >
-            <Icon name="trash" />
-            {{ deleteLabel }}
-          </button>
+          />
         </div>
-      </div>
+      </template>
     </Modal>
 </template>
 
