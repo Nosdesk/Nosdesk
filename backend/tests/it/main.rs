@@ -199,6 +199,7 @@ mod sync_audiences;
 mod sync_bootstrap_workspace_scope;
 mod sync_emit_lint;
 mod sync_model_registry;
+mod sync_snapshot_contract;
 mod sync_ticket_group_auth;
 mod sync_visibility;
 mod sync_workspace_people;
