@@ -1,6 +1,7 @@
-//! The rule event outbox: which sync actions the trigger enqueues, that the
-//! outbox and the recursion budget (`ticket_rule_runs`) keep each workspace's
-//! rows to itself, and that both go with a deleted workspace.
+//! The rule event outbox: which sync actions the trigger enqueues (and only
+//! in a workspace with a live or dry-run automated rule), that the outbox and
+//! the recursion budget (`ticket_rule_runs`) keep each workspace's rows to
+//! itself, and that both go with a deleted workspace.
 //!
 //! The dispatcher that drains the outbox is not built yet; these tests drive
 //! the trigger through `sync::emit::record` and the repository writes that
@@ -15,8 +16,11 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use backend::db::DbConnection;
-use backend::models::{NewTicket, SyncAggregate, SyncOp, TicketPriority, TicketUpdate};
-use backend::repository::{ticket_watchers, tickets, workflow_states, workspaces};
+use backend::models::{
+    NewRule, NewTicket, RuleState, RuleTriggerKind, SyncAggregate, SyncOp, TicketPriority,
+    TicketUpdate,
+};
+use backend::repository::{rules, ticket_watchers, tickets, workflow_states, workspaces};
 use backend::schema::{rule_event_outbox, sync_actions, ticket_rule_runs};
 use backend::sync::actor::ActorContext;
 use backend::sync::emit::{record, SyncEmit};
@@ -66,6 +70,61 @@ fn actor(ws: &WorkspaceSeed) -> ActorContext {
     ActorContext::user(ws.admin_uuid, None).with_workspace(ws.workspace_id)
 }
 
+/// Save a rule in `ws` as its admin, through the repository the API uses.
+fn rule(pool: &TestPool, ws: &WorkspaceSeed, kind: RuleTriggerKind, state: RuleState) -> i32 {
+    let mut conn = pool.get().expect("conn");
+    with_actor_context(&mut conn, &actor(ws), |c| {
+        rules::create(
+            c,
+            NewRule {
+                workspace_id: ws.workspace_id,
+                name: format!("{kind:?} {state:?}"),
+                description: None,
+                trigger_kind: kind,
+                trigger_config: serde_json::json!({}),
+                conditions: serde_json::json!([]),
+                actions: serde_json::json!([
+                    { "kind": "set_priority", "config": { "priority": "high" } }
+                ]),
+                reads_set: Vec::new(),
+                writes_set: Vec::new(),
+                state,
+                priority: 100,
+                created_by: Some(ws.admin_uuid),
+            },
+        )
+    })
+    .expect("save a rule")
+    .id
+}
+
+fn set_state(pool: &TestPool, ws: &WorkspaceSeed, id: i32, state: RuleState) {
+    use backend::schema::rules::dsl;
+    let mut conn = pool.get().expect("conn");
+    with_actor_context(&mut conn, &actor(ws), |c| {
+        diesel::update(dsl::rules.find(id))
+            .set(dsl::state.eq(state))
+            .execute(c)
+    })
+    .expect("change the rule's state");
+}
+
+/// Whether a `ticket.updated` recorded in `ws`, as the app, is enqueued.
+fn an_update_enqueues(pool: &TestPool, ws: &WorkspaceSeed) -> bool {
+    let mut conn = pool.get().expect("conn");
+    with_actor_context(&mut conn, &actor(ws), |c| {
+        let id = emit(
+            c,
+            SyncAggregate::Ticket,
+            "ticket.updated",
+            serde_json::json!({"id": 1}),
+        )?;
+        enqueued_in(c, id)
+    })
+    .expect("emit as the app")
+    .is_some()
+}
+
 fn emit(
     c: &mut DbConnection,
     aggregate: SyncAggregate,
@@ -102,6 +161,7 @@ fn the_trigger_enqueues_only_what_a_rule_trigger_reads() {
     let pool = db.pool_with_size(2);
     let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
     let a = &seeded.a;
+    rule(&pool, a, RuleTriggerKind::TicketUpdated, RuleState::Live);
     let mut conn = pool.get().expect("conn");
 
     with_actor_context(&mut conn, &actor(a), |c| {
@@ -177,6 +237,7 @@ fn a_ticket_edit_enqueues_and_a_watcher_does_not() {
     let pool = db.pool_with_size(2);
     let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
     let a = &seeded.a;
+    rule(&pool, a, RuleTriggerKind::TicketUpdated, RuleState::Live);
     let mut conn = pool.get().expect("conn");
 
     with_actor_context(&mut conn, &actor(a), |c| {
@@ -226,6 +287,46 @@ fn a_ticket_edit_enqueues_and_a_watcher_does_not() {
     .expect("edit as the app");
 }
 
+/// Nothing would claim a row in a workspace with no rule an event can run,
+/// so none is written there: manual rules, and automated ones that are
+/// paused, draft or archived, don't count. A live or dry-run automated rule
+/// does, time-elapsed included (its clocks follow the same events), and only
+/// in its own workspace.
+#[test]
+fn only_a_workspace_with_a_rule_events_can_run_enqueues() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let (a, b) = (&seeded.a, &seeded.b);
+
+    assert!(!an_update_enqueues(&pool, a), "no rules at all");
+    rule(&pool, a, RuleTriggerKind::Manual, RuleState::Live);
+    rule(&pool, a, RuleTriggerKind::Manual, RuleState::Paused);
+    rule(&pool, a, RuleTriggerKind::TicketUpdated, RuleState::Paused);
+    rule(&pool, a, RuleTriggerKind::TicketCreated, RuleState::Draft);
+    rule(
+        &pool,
+        a,
+        RuleTriggerKind::TicketReplied,
+        RuleState::Archived,
+    );
+    assert!(
+        !an_update_enqueues(&pool, a),
+        "manual, paused, draft and archived rules"
+    );
+
+    rule(&pool, b, RuleTriggerKind::TimeElapsed, RuleState::Live);
+    assert!(an_update_enqueues(&pool, b), "a live time-elapsed rule");
+    assert!(!an_update_enqueues(&pool, a), "B's rule is B's");
+
+    let shadow = rule(&pool, a, RuleTriggerKind::TicketUpdated, RuleState::DryRun);
+    assert!(an_update_enqueues(&pool, a), "a dry-run event rule");
+    set_state(&pool, a, shadow, RuleState::Paused);
+    assert!(!an_update_enqueues(&pool, a), "paused again");
+    set_state(&pool, a, shadow, RuleState::Live);
+    assert!(an_update_enqueues(&pool, a), "a live event rule");
+}
+
 /// Every `ticket.*_changed` event the backend names is a decision: enqueued
 /// or skipped above. A new one fails here until it is placed in one list and
 /// the trigger agrees.
@@ -265,6 +366,7 @@ fn every_changed_event_is_enqueued_or_skipped_on_purpose() {
 
 /// One outbox row and one budget row in `ws`, written as the app.
 fn seed_rows(pool: &TestPool, ws: &WorkspaceSeed) -> (i64, Uuid) {
+    rule(pool, ws, RuleTriggerKind::TicketCreated, RuleState::Live);
     let mut conn = pool.get().expect("conn");
     with_actor_context(&mut conn, &actor(ws), |c| {
         let sync_id = emit(

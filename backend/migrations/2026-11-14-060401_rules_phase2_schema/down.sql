@@ -6,6 +6,7 @@ ALTER TABLE public.ticket_rule_runs RENAME COLUMN root_id TO event_id;
 
 DROP TRIGGER IF EXISTS tr_sync_actions_rule_event_outbox ON public.sync_actions;
 DROP FUNCTION IF EXISTS public.rule_event_outbox_enqueue();
+DROP INDEX IF EXISTS public.rules_event_fireable_idx;
 DROP TABLE IF EXISTS public.rule_event_outbox;
 
 -- Shadow runs have no phase 1 state; they go back to draft. Paused goes back

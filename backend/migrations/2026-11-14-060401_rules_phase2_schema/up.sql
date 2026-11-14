@@ -51,6 +51,11 @@ CREATE POLICY rule_event_outbox_workspace_isolation ON public.rule_event_outbox
 -- (ticket_replied). Rule bookkeeping (ticket.rule_applied), SLA stamps,
 -- watchers, cycles, links, merges and plugin rows stay out.
 --
+-- Then only in a workspace with a rule an event can run: an automated trigger
+-- (time-elapsed included, whose clocks the same events keep) that is live or
+-- in dry run. Elsewhere nothing would ever claim the row. A rule that goes
+-- live sees the events from then on.
+--
 -- ON CONFLICT DO NOTHING for the same reason webhook_outbox_enqueue has it: an
 -- occurred_at change across a month boundary re-fires the trigger.
 CREATE OR REPLACE FUNCTION public.rule_event_outbox_enqueue() RETURNS trigger
@@ -71,15 +76,29 @@ BEGIN
            'ticket.tags_changed')
        OR (NEW.event_type = 'comment.created' AND NEW.data->>'is_internal' = 'false')
     THEN
-        INSERT INTO public.rule_event_outbox (sync_id, workspace_id)
-        VALUES (NEW.sync_id, NEW.workspace_id)
-        ON CONFLICT (sync_id) DO NOTHING;
-        PERFORM pg_notify('rule_event_outbox_new', '');
+        IF EXISTS (
+            SELECT 1 FROM public.rules
+            WHERE workspace_id = NEW.workspace_id
+              AND archived_at IS NULL
+              AND state IN ('live', 'dry_run')
+              AND trigger_kind <> 'manual'
+        ) THEN
+            INSERT INTO public.rule_event_outbox (sync_id, workspace_id)
+            VALUES (NEW.sync_id, NEW.workspace_id)
+            ON CONFLICT (sync_id) DO NOTHING;
+            PERFORM pg_notify('rule_event_outbox_new', '');
+        END IF;
     END IF;
     RETURN NEW;
 END;
 $$;
 ALTER FUNCTION public.rule_event_outbox_enqueue() OWNER TO nosdesk_admin;
+
+-- The trigger's lookup, one probe per qualifying event.
+CREATE INDEX rules_event_fireable_idx ON public.rules (workspace_id)
+    WHERE archived_at IS NULL
+      AND state IN ('live', 'dry_run')
+      AND trigger_kind <> 'manual';
 
 CREATE TRIGGER tr_sync_actions_rule_event_outbox
     AFTER INSERT ON public.sync_actions
