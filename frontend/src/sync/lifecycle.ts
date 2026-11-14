@@ -26,7 +26,7 @@ import { canFetchWorkspace, isHydrated, setCaughtUp, state } from './runtimeStat
 import { MODEL_VERSIONS_TAG, SCHEMA_VERSIONS } from './schemaVersions'
 import { partitionWarmGroups, pruneTornWatermarks, resetWatermarkPrune } from './warm'
 import { followAssetVisibility, reconcileWithSnapshot } from './reconcile'
-import { applyActions, rowKey } from './apply'
+import { applyActions, cachedOwners, rowKey } from './apply'
 import { referenceFetcher } from './referenceFetchers'
 import type {
   BootstrapLine,
@@ -253,10 +253,14 @@ export async function hydrate(
   state.workspaceEpoch = workspaceEpoch !== '' ? workspaceEpoch : (persistedEpoch ?? '')
 
   // Rehydrate the in-memory pool from cached rows. Rows whose
-  // schema_version is stale are filtered out by `loadModels`.
+  // schema_version is stale are filtered out by `loadModels`. A row cached
+  // without owners (an older build wrote it) is owned `legacy`; `local`
+  // belonged to the session that cached it.
   const rows = await idb.loadModels(state.handle, SCHEMA_VERSIONS)
+  const legacy = new Set([pool.LEGACY_OWNER])
   for (const r of rows) {
-    pool.upsert(r.aggregate, r.id, r.data)
+    const owners = r.owners ? r.owners.filter((o) => o !== pool.LOCAL_OWNER) : legacy
+    pool.upsert(r.aggregate, r.id, r.data, owners)
   }
 
   // Seed the composite cursor from the cache. A cache written before
@@ -536,6 +540,9 @@ export async function runBootstrap(groups: string[]): Promise<void> {
   // Ids this snapshot carried, per aggregate, for the reconciliation on
   // `__end__` (see SNAPSHOT_COMPLETE_AGGREGATES).
   const seen = new Map<SyncAggregate, Set<string>>()
+  // What this snapshot's rows are owned by: the groups the server granted,
+  // set when `__meta__` arrives. One set shared by every row it creates.
+  let snapshotOwners: ReadonlySet<string> = new Set(groups)
   const persistBatch: idb.ModelRow[] = []
   const flushPersistBatch = async () => {
     if (state.handle && persistBatch.length > 0) {
@@ -567,6 +574,7 @@ export async function runBootstrap(groups: string[]): Promise<void> {
       if ('__meta__' in line) {
         const meta = line.__meta__ as BootstrapMeta
         bootstrapMeta = meta
+        snapshotOwners = new Set(meta.groups_granted ?? [])
         if (meta.server_schema !== state.schemaHash) {
           logger.warn('bootstrap meta carries a different schema_hash than client', {
             server: meta.server_schema,
@@ -587,7 +595,7 @@ export async function runBootstrap(groups: string[]): Promise<void> {
           logger.warn('bootstrap row missing key; dropping', { aggregate, payload })
           continue
         }
-        pool.upsert(aggregate, id, payload as Record<string, unknown>)
+        pool.upsert(aggregate, id, payload as Record<string, unknown>, snapshotOwners)
         let ids = seen.get(aggregate)
         if (!ids) seen.set(aggregate, (ids = new Set()))
         ids.add(String(id))
@@ -597,6 +605,7 @@ export async function runBootstrap(groups: string[]): Promise<void> {
             id: String(id),
             schema_version: SCHEMA_VERSIONS[aggregate]!,
             data: payload as Record<string, unknown>,
+            owners: cachedOwners(aggregate, id),
           })
           if (persistBatch.length >= 200) await flushPersistBatch()
         }

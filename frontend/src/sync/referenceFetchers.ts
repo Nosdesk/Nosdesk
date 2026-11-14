@@ -6,7 +6,17 @@ import { logger } from '@nosdesk/core/utils/logger'
 import * as pool from '@nosdesk/core/sync/pool'
 import type { SyncAggregate } from '@nosdesk/core/sync/types'
 
-export async function referenceFetcher(aggregate: SyncAggregate, ids: string[]): Promise<void> {
+/**
+ * `owners`: stamped onto the fetched rows. A live action that named a row the
+ * pool lacks passes its groups; a view's lookup passes none and the rows are
+ * owned `local`. Cycles have no snapshot and always stay `local`: the fetch
+ * loads every cycle, not just the one the action named.
+ */
+export async function referenceFetcher(
+  aggregate: SyncAggregate,
+  ids: string[],
+  owners?: ReadonlySet<string>,
+): Promise<void> {
   // Reference fetch lives outside the bootstrap protocol — it
   // queries the existing per-aggregate REST endpoints (the ones
   // the legacy UI also reads from). Keeping the bootstrap minimal
@@ -19,11 +29,11 @@ export async function referenceFetcher(aggregate: SyncAggregate, ids: string[]):
   // for entities created strictly between bootstrap and the first
   // SSE frame — vanishingly rare.
   if (aggregate === 'user') {
-    await fetchMissingUsers(ids)
+    await fetchMissingUsers(ids, owners)
     return
   }
   if (aggregate === 'asset') {
-    await fetchMissingAssets(ids)
+    await fetchMissingAssets(ids, owners)
     return
   }
   if (aggregate === 'cycle') {
@@ -31,7 +41,7 @@ export async function referenceFetcher(aggregate: SyncAggregate, ids: string[]):
     return
   }
   if (aggregate === 'ticket') {
-    await fetchMissingTickets(ids)
+    await fetchMissingTickets(ids, owners)
     return
   }
   logger.debug('useReference fetch (stub)', { aggregate, ids })
@@ -50,7 +60,7 @@ export const FETCHABLE: ReadonlySet<SyncAggregate> = new Set(['user', 'asset', '
  */
 const ticketFetchesInFlight = new Set<number>()
 
-async function fetchMissingTickets(ids: string[]): Promise<void> {
+async function fetchMissingTickets(ids: string[], owners?: ReadonlySet<string>): Promise<void> {
   // A burst of updates for one missed row asks once.
   const wanted = ids
     .map(Number)
@@ -65,7 +75,7 @@ async function fetchMissingTickets(ids: string[]): Promise<void> {
     for (const id of wanted) {
       try {
         const ticket = await ticketService.getTicketById(id)
-        pool.upsert('ticket', ticket.id, apiTicketToSync(ticket))
+        pool.upsert('ticket', ticket.id, apiTicketToSync(ticket), owners)
       } catch (err) {
         logger.warn('Lazy ticket fetch failed', { id, error: err })
       }
@@ -84,7 +94,7 @@ async function fetchMissingTickets(ids: string[]): Promise<void> {
  * Lives in the sync engine (rather than the directory composable) so
  * it's installed once at hydrate-time, before any UserCell mounts.
  */
-async function fetchMissingUsers(uuids: string[]): Promise<void> {
+async function fetchMissingUsers(uuids: string[], owners?: ReadonlySet<string>): Promise<void> {
   if (uuids.length === 0) return
   // Lazy import: keeps the userService bundle out of the sync
   // engine's hot path until the lazy fetcher actually fires.
@@ -101,7 +111,7 @@ async function fetchMissingUsers(uuids: string[]): Promise<void> {
         pronouns: user.pronouns ?? null,
         avatar_url: user.avatar_url ?? null,
         avatar_thumb: user.avatar_thumb ?? null,
-      })
+      }, owners)
     }
   } catch (err) {
     logger.warn('Lazy user fetch failed', { ids: uuids, error: err })
@@ -145,7 +155,7 @@ function toAssetCacheRow(asset: import('@nosdesk/core/types/asset').Asset): Reco
   }
 }
 
-async function fetchMissingAssets(ids: string[]): Promise<void> {
+async function fetchMissingAssets(ids: string[], owners?: ReadonlySet<string>): Promise<void> {
   if (ids.length === 0) return
   const { getAssetById } = await import('@/services/assetService')
   for (const idStr of ids) {
@@ -153,7 +163,7 @@ async function fetchMissingAssets(ids: string[]): Promise<void> {
     if (!Number.isFinite(id)) continue
     try {
       const asset = await getAssetById(id)
-      pool.upsert('asset', asset.id, toAssetCacheRow(asset))
+      pool.upsert('asset', asset.id, toAssetCacheRow(asset), owners)
     } catch (err) {
       logger.warn('Lazy asset fetch failed', { id, error: err })
     }

@@ -52,10 +52,14 @@ describe('applyActions on a missed create', () => {
       created: '2026-09-14T09:19:54Z',
       modified: '2026-09-14T09:20:39Z',
     })
+    pool.subscribe('workspace:1')
     applySseFrame([update(36, { id: 36, assignee_uuid: 'a' })], 1, 1)
     expect(pool.has('ticket', 36)).toBe(false)
     await vi.waitFor(() => expect(pool.has('ticket', 36)).toBe(true))
     expect(getTicketById).toHaveBeenCalledWith(36)
+    // Owned and touched like the action that named it.
+    expect([...pool.ownersOf('ticket', 36)]).toEqual(['workspace:1'])
+    expect(pool.lastTouch('ticket', 36)).toBeGreaterThan(0)
     const row = pool.get<{ created_at: string; updated_at: string }>('ticket', 36)!
     expect(row.created_at).toBe('2026-09-14T09:19:54Z')
     expect(row.updated_at).toBe('2026-09-14T09:20:39Z')
