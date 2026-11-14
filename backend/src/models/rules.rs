@@ -366,3 +366,353 @@ pub struct NewRuleApplication {
     pub actions_skipped: Option<serde_json::Value>,
     pub failure_reason: Option<String>,
 }
+
+// =====================================================================
+// Typed condition tree (plan §5.2). The `conditions` column holds `[]`
+// (no conditions, the only value a manual rule takes) or one node in
+// the canonical shape below; `services::rules::conditions` validates a
+// tree at save time and evaluates it against a ticket.
+// =====================================================================
+
+/// One node of a rule's condition tree, in its persisted JSON shape:
+/// `{"kind": "leaf", "field": .., "op": .., "value": ..}`,
+/// `{"kind": "and" | "or", "children": [..]}` or
+/// `{"kind": "not", "child": {..}}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Condition {
+    And {
+        children: Vec<Condition>,
+    },
+    Or {
+        children: Vec<Condition>,
+    },
+    Not {
+        child: Box<Condition>,
+    },
+    Leaf {
+        field: ConditionField,
+        op: ConditionOp,
+        /// Absent for `is_null` / `is_not_null`.
+        #[serde(default)]
+        value: serde_json::Value,
+    },
+}
+
+/// What a condition leaf reads. `event.*` and `reply.*` describe the
+/// event that fired the rule and `clock.*` the elapsed time a
+/// time-elapsed rule waited for; every other field reads the ticket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ConditionField {
+    #[serde(rename = "ticket.status")]
+    Status,
+    #[serde(rename = "ticket.priority")]
+    Priority,
+    #[serde(rename = "ticket.category_id")]
+    CategoryId,
+    #[serde(rename = "ticket.requester_uuid")]
+    RequesterUuid,
+    #[serde(rename = "ticket.assignee_uuid")]
+    AssigneeUuid,
+    #[serde(rename = "ticket.tag_ids")]
+    TagIds,
+    #[serde(rename = "ticket.title")]
+    Title,
+    #[serde(rename = "ticket.body")]
+    Body,
+    #[serde(rename = "ticket.source_channel_id")]
+    SourceChannelId,
+    #[serde(rename = "ticket.organization_id")]
+    OrganizationId,
+    #[serde(rename = "ticket.workflow_state_id")]
+    WorkflowStateId,
+    #[serde(rename = "ticket.workflow_state.category")]
+    WorkflowStateCategory,
+    #[serde(rename = "ticket.created_at")]
+    CreatedAt,
+    #[serde(rename = "ticket.updated_at")]
+    UpdatedAt,
+    #[serde(rename = "ticket.first_response_at")]
+    FirstResponseAt,
+    #[serde(rename = "ticket.resolved_at")]
+    ResolvedAt,
+    #[serde(rename = "ticket.requester.email")]
+    RequesterEmail,
+    /// The requester's organization as their profile in this
+    /// workspace names it.
+    #[serde(rename = "ticket.requester.organization")]
+    RequesterOrganization,
+    #[serde(rename = "ticket.requester.organization_id")]
+    RequesterOrganizationId,
+    #[serde(rename = "event.changed_fields")]
+    EventChangedFields,
+    #[serde(rename = "reply.kind")]
+    ReplyKind,
+    #[serde(rename = "reply.author_role")]
+    ReplyAuthorRole,
+    #[serde(rename = "clock.minutes_since")]
+    ClockMinutesSince,
+}
+
+/// A field's value type, which decides the operators it takes (plan
+/// §5.2's compatibility matrix).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConditionFieldKind {
+    String,
+    Enum,
+    IntId,
+    Uuid,
+    IntArray,
+    StringArray,
+    Timestamp,
+    Number,
+}
+
+impl ConditionFieldKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::String => "string",
+            Self::Enum => "enum",
+            Self::IntId => "int_id",
+            Self::Uuid => "uuid",
+            Self::IntArray => "int_array",
+            Self::StringArray => "string_array",
+            Self::Timestamp => "timestamp",
+            Self::Number => "number",
+        }
+    }
+
+    /// The operators a field of this kind takes.
+    pub fn allowed_ops(self) -> &'static [ConditionOp] {
+        use ConditionOp::*;
+        match self {
+            Self::String => &[
+                Eq,
+                Neq,
+                In,
+                NotIn,
+                Contains,
+                NotContains,
+                StartsWith,
+                EndsWith,
+                MatchesRegex,
+                IsNull,
+                IsNotNull,
+            ],
+            Self::Enum | Self::IntId | Self::Uuid => &[Eq, Neq, In, NotIn, IsNull, IsNotNull],
+            Self::IntArray | Self::StringArray => &[HasAny, HasAll, IsNull, IsNotNull],
+            Self::Timestamp => &[Gt, Lt, Gte, Lte, IsNull, IsNotNull],
+            Self::Number => &[Gt, Lt, Gte, Lte],
+        }
+    }
+}
+
+impl ConditionField {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Status => "ticket.status",
+            Self::Priority => "ticket.priority",
+            Self::CategoryId => "ticket.category_id",
+            Self::RequesterUuid => "ticket.requester_uuid",
+            Self::AssigneeUuid => "ticket.assignee_uuid",
+            Self::TagIds => "ticket.tag_ids",
+            Self::Title => "ticket.title",
+            Self::Body => "ticket.body",
+            Self::SourceChannelId => "ticket.source_channel_id",
+            Self::OrganizationId => "ticket.organization_id",
+            Self::WorkflowStateId => "ticket.workflow_state_id",
+            Self::WorkflowStateCategory => "ticket.workflow_state.category",
+            Self::CreatedAt => "ticket.created_at",
+            Self::UpdatedAt => "ticket.updated_at",
+            Self::FirstResponseAt => "ticket.first_response_at",
+            Self::ResolvedAt => "ticket.resolved_at",
+            Self::RequesterEmail => "ticket.requester.email",
+            Self::RequesterOrganization => "ticket.requester.organization",
+            Self::RequesterOrganizationId => "ticket.requester.organization_id",
+            Self::EventChangedFields => "event.changed_fields",
+            Self::ReplyKind => "reply.kind",
+            Self::ReplyAuthorRole => "reply.author_role",
+            Self::ClockMinutesSince => "clock.minutes_since",
+        }
+    }
+
+    /// The field named `name`, if there is one.
+    pub fn parse(name: &str) -> Option<Self> {
+        serde_json::from_value(serde_json::Value::String(name.to_string())).ok()
+    }
+
+    pub fn kind(self) -> ConditionFieldKind {
+        match self {
+            Self::Title
+            | Self::Body
+            | Self::RequesterEmail
+            | Self::RequesterOrganization
+            | Self::ReplyAuthorRole => ConditionFieldKind::String,
+            Self::Status | Self::Priority | Self::WorkflowStateCategory | Self::ReplyKind => {
+                ConditionFieldKind::Enum
+            }
+            Self::CategoryId
+            | Self::SourceChannelId
+            | Self::OrganizationId
+            | Self::WorkflowStateId
+            | Self::RequesterOrganizationId => ConditionFieldKind::IntId,
+            Self::RequesterUuid | Self::AssigneeUuid => ConditionFieldKind::Uuid,
+            Self::TagIds => ConditionFieldKind::IntArray,
+            Self::EventChangedFields => ConditionFieldKind::StringArray,
+            Self::CreatedAt | Self::UpdatedAt | Self::FirstResponseAt | Self::ResolvedAt => {
+                ConditionFieldKind::Timestamp
+            }
+            Self::ClockMinutesSince => ConditionFieldKind::Number,
+        }
+    }
+
+    /// Whether the field can be empty. A ticket always has a title,
+    /// priority, status and timestamps of its own, so `is_null` on one of
+    /// those never matches and `is_not_null` always does. An array field
+    /// counts as empty when it has no entries.
+    pub fn nullable(self) -> bool {
+        !matches!(
+            self,
+            Self::Title
+                | Self::Priority
+                | Self::Status
+                | Self::WorkflowStateId
+                | Self::WorkflowStateCategory
+                | Self::CreatedAt
+                | Self::UpdatedAt
+                | Self::ReplyKind
+                | Self::ClockMinutesSince
+        )
+    }
+
+    /// The values an enum field takes.
+    pub fn enum_values(self) -> &'static [&'static str] {
+        match self {
+            Self::Priority => &["none", "low", "medium", "high", "urgent"],
+            Self::WorkflowStateCategory => &[
+                "triage",
+                "backlog",
+                "active",
+                "in_review",
+                "done",
+                "cancelled",
+                "merged",
+            ],
+            Self::ReplyKind => &["customer", "agent"],
+            _ => &[],
+        }
+    }
+
+    /// The only trigger a field means anything under: the event that fired
+    /// the rule carries it. `None` for ticket fields, which every trigger
+    /// reads.
+    pub fn trigger_only(self) -> Option<RuleTriggerKind> {
+        match self {
+            Self::EventChangedFields => Some(RuleTriggerKind::TicketUpdated),
+            Self::ReplyKind | Self::ReplyAuthorRole => Some(RuleTriggerKind::TicketReplied),
+            Self::ClockMinutesSince => Some(RuleTriggerKind::TimeElapsed),
+            _ => None,
+        }
+    }
+
+    /// Why a rule can't condition on this field yet, for fields with no
+    /// data behind them.
+    pub fn unavailable(self) -> Option<&'static str> {
+        match self {
+            Self::Status => Some("ticket.status is gone; use ticket.workflow_state.category"),
+            Self::Body => Some("conditions can't read the ticket body yet"),
+            Self::SourceChannelId => Some("conditions can't read the ticket's channel yet"),
+            Self::OrganizationId => {
+                Some("tickets have no organization; use ticket.requester.organization")
+            }
+            Self::RequesterOrganizationId => {
+                Some("organizations have no id; use ticket.requester.organization")
+            }
+            _ => None,
+        }
+    }
+
+    /// The `reads_set` keys a leaf on this field adds (plan §11.2). Status
+    /// and the workflow state read the same column; requester details read
+    /// the requester too, since changing the requester changes them. Event
+    /// and clock fields aren't ticket state and add nothing.
+    pub fn reads(self) -> &'static [&'static str] {
+        match self {
+            Self::Status => &["ticket.workflow_state.category"],
+            Self::WorkflowStateId | Self::WorkflowStateCategory => {
+                &["ticket.workflow_state_id", "ticket.workflow_state.category"]
+            }
+            Self::RequesterEmail => &["ticket.requester.email", "ticket.requester_uuid"],
+            Self::RequesterOrganization => {
+                &["ticket.requester.organization", "ticket.requester_uuid"]
+            }
+            Self::RequesterOrganizationId => {
+                &["ticket.requester.organization_id", "ticket.requester_uuid"]
+            }
+            Self::EventChangedFields
+            | Self::ReplyKind
+            | Self::ReplyAuthorRole
+            | Self::ClockMinutesSince => &[],
+            Self::Priority => &["ticket.priority"],
+            Self::CategoryId => &["ticket.category_id"],
+            Self::RequesterUuid => &["ticket.requester_uuid"],
+            Self::AssigneeUuid => &["ticket.assignee_uuid"],
+            Self::TagIds => &["ticket.tag_ids"],
+            Self::Title => &["ticket.title"],
+            Self::Body => &["ticket.body"],
+            Self::SourceChannelId => &["ticket.source_channel_id"],
+            Self::OrganizationId => &["ticket.organization_id"],
+            Self::CreatedAt => &["ticket.created_at"],
+            Self::UpdatedAt => &["ticket.updated_at"],
+            Self::FirstResponseAt => &["ticket.first_response_at"],
+            Self::ResolvedAt => &["ticket.resolved_at"],
+        }
+    }
+}
+
+/// A condition leaf's comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConditionOp {
+    Eq,
+    Neq,
+    In,
+    NotIn,
+    Contains,
+    NotContains,
+    StartsWith,
+    EndsWith,
+    Gt,
+    Lt,
+    Gte,
+    Lte,
+    MatchesRegex,
+    IsNull,
+    IsNotNull,
+    HasAny,
+    HasAll,
+}
+
+impl ConditionOp {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Eq => "eq",
+            Self::Neq => "neq",
+            Self::In => "in",
+            Self::NotIn => "not_in",
+            Self::Contains => "contains",
+            Self::NotContains => "not_contains",
+            Self::StartsWith => "starts_with",
+            Self::EndsWith => "ends_with",
+            Self::Gt => "gt",
+            Self::Lt => "lt",
+            Self::Gte => "gte",
+            Self::Lte => "lte",
+            Self::MatchesRegex => "matches_regex",
+            Self::IsNull => "is_null",
+            Self::IsNotNull => "is_not_null",
+            Self::HasAny => "has_any",
+            Self::HasAll => "has_all",
+        }
+    }
+}

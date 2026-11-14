@@ -34,6 +34,7 @@ use crate::models::{
 };
 use crate::repository::rules;
 use crate::repository::tickets::TicketUpdatedObserver;
+use crate::services::rules::conditions::{self, ConditionError, Predicate};
 use crate::services::search::SearchService;
 use crate::services::ticket_updates::{ActorConn, InWorkspace};
 use crate::utils::rbac::require_workspace_role;
@@ -51,6 +52,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .route(
         "/rules",
         web::post().to(crate::handlers::rules::create_rule),
+    )
+    // Literal, so before `/rules/{id}`, which would take it and answer 405.
+    .route(
+        "/rules/preview",
+        web::post().to(crate::handlers::rules::preview_rule),
     )
     .route(
         "/rules/{id}/apply",
@@ -165,6 +171,15 @@ pub struct StateTransitionRequest {
     pub state: RuleState,
 }
 
+/// Body of `POST /api/rules/preview`: the conditions a rule being
+/// edited would have, checked as a save checks them.
+#[derive(Debug, Deserialize)]
+pub struct PreviewRuleRequest {
+    pub trigger_kind: RuleTriggerKind,
+    #[serde(default = "empty_array")]
+    pub conditions: Value,
+}
+
 /// Filters for `GET /api/rules`. Pulled from query string.
 #[derive(Debug, Default, Deserialize)]
 pub struct ListRulesQuery {
@@ -254,6 +269,24 @@ impl From<Rule> for RuleDto {
     }
 }
 
+/// A rule as create and update return it: the rule, plus how many recent
+/// tickets its conditions match (the plan's save-time check).
+#[derive(Debug, Serialize)]
+pub struct SavedRuleDto {
+    #[serde(flatten)]
+    pub rule: RuleDto,
+    pub preview: rules::PreviewMatch,
+}
+
+impl SavedRuleDto {
+    fn new(rule: Rule, preview: rules::PreviewMatch) -> Self {
+        Self {
+            rule: RuleDto::from(rule),
+            preview,
+        }
+    }
+}
+
 /// `RuleVersion` as it appears in API responses. Same flat shape as
 /// `RuleDto` for the columns it shares; `reads_set` / `writes_set`
 /// aren't on `rule_versions` because the migration's trigger only
@@ -337,6 +370,66 @@ fn check_self_referential(
 }
 
 // =====================================================================
+// Condition checks (plan §5.2). Compiling is pure; whether the ids a
+// tree names exist is a read in the request's workspace.
+// =====================================================================
+
+/// The conditions compiled for evaluation, or the 400 saying why they
+/// can't be saved.
+fn compile_conditions(
+    trigger_kind: RuleTriggerKind,
+    conditions: &Value,
+) -> Result<Predicate, Box<HttpResponse>> {
+    conditions::compile(conditions, trigger_kind).map_err(|e| Box::new(condition_refused(&e)))
+}
+
+/// 400 `RULE_CONDITION_INVALID`, with the node's path and the leaf's
+/// field, operator and field kind in `details`.
+fn condition_refused(e: &ConditionError) -> HttpResponse {
+    errors::bad_request_with_details(
+        e.to_string(),
+        "RULE_CONDITION_INVALID",
+        serde_json::json!({
+            "path": e.path,
+            "field": e.field.map(|f| f.as_str()),
+            "op": e.op.map(|o| o.as_str()),
+            "field_kind": e.field_kind().map(|k| k.as_str()),
+        }),
+    )
+}
+
+/// The 400 for a category, status or tag id the conditions name that the
+/// workspace doesn't have, if there is one.
+fn unknown_reference(
+    conn: &mut crate::db::DbConnection,
+    predicate: &Predicate,
+) -> diesel::QueryResult<Option<HttpResponse>> {
+    let refs = predicate.references();
+    Ok(
+        rules::unknown_condition_reference(conn, &refs)?.map(|(field, id)| {
+            errors::bad_request_with_details(
+                format!("{}: {id} isn't in this workspace", field.as_str()),
+                "RULE_CONDITION_INVALID",
+                serde_json::json!({
+                    "path": null,
+                    "field": field.as_str(),
+                    "op": null,
+                    "field_kind": field.kind().as_str(),
+                    "id": id,
+                }),
+            )
+        }),
+    )
+}
+
+fn manual_conditions_refused() -> HttpResponse {
+    errors::bad_request_with_code(
+        "manual rules must have an empty conditions list",
+        "RULE_VALIDATION",
+    )
+}
+
+// =====================================================================
 // Helpers.
 // =====================================================================
 
@@ -417,16 +510,16 @@ impl From<diesel::result::Error> for InsertRuleError {
     }
 }
 
-/// Validate and save a new draft rule. Shared by `create_rule` and
-/// `add_starter`, so a starter is held to the same checks as a rule
-/// written in the editor. A refusal is an `Err`, so the caller's
-/// transaction rolls back anything it wrote first.
+/// Validate and save a new draft rule, and preview its conditions. Shared
+/// by `create_rule` and `add_starter`, so a starter is held to the same
+/// checks as a rule written in the editor. A refusal is an `Err`, so the
+/// caller's transaction rolls back anything it wrote first.
 fn insert_rule(
     conn: &mut crate::db::DbConnection,
     workspace_id: i32,
     created_by: Option<Uuid>,
     body: CreateRuleRequest,
-) -> Result<Rule, InsertRuleError> {
+) -> Result<(Rule, rules::PreviewMatch), InsertRuleError> {
     let CreateRuleRequest {
         name,
         description,
@@ -451,10 +544,12 @@ fn insert_rule(
         )));
     }
     if trigger_kind == RuleTriggerKind::Manual && !is_empty_conditions(&conditions) {
-        return Err(refused(errors::bad_request_with_code(
-            "manual rules must have an empty conditions list",
-            "RULE_VALIDATION",
-        )));
+        return Err(refused(manual_conditions_refused()));
+    }
+    let predicate =
+        compile_conditions(trigger_kind, &conditions).map_err(InsertRuleError::Refused)?;
+    if let Some(resp) = unknown_reference(conn, &predicate)? {
+        return Err(refused(resp));
     }
 
     let reads = rules::derive_reads_set(&conditions);
@@ -487,13 +582,17 @@ fn insert_rule(
         priority,
         created_by,
     };
-    Ok(rules::create(conn, new)?)
+    let rule = rules::create(conn, new)?;
+    let preview = rules::preview_match(conn, &predicate, rules::PREVIEW_SCAN)?;
+    Ok((rule, preview))
 }
 
 /// 201 with the new rule, or the reason it wasn't saved.
-fn created_response(result: Result<Rule, InsertRuleError>) -> Result<HttpResponse, ApiError> {
+fn created_response(
+    result: Result<(Rule, rules::PreviewMatch), InsertRuleError>,
+) -> Result<HttpResponse, ApiError> {
     match result {
-        Ok(rule) => Ok(HttpResponse::Created().json(RuleDto::from(rule))),
+        Ok((rule, preview)) => Ok(HttpResponse::Created().json(SavedRuleDto::new(rule, preview))),
         Err(InsertRuleError::Refused(resp)) => Ok(*resp),
         Err(InsertRuleError::Db(e)) => {
             tracing::error!(error = ?e, "create_rule: repo error");
@@ -594,11 +693,12 @@ pub async fn update_rule(
     if effective_trigger_kind == RuleTriggerKind::Manual
         && !is_empty_conditions(&effective_conditions)
     {
-        return Ok(errors::bad_request_with_code(
-            "manual rules must have an empty conditions list",
-            "RULE_VALIDATION",
-        ));
+        return Ok(manual_conditions_refused());
     }
+    let predicate = match compile_conditions(effective_trigger_kind, &effective_conditions) {
+        Ok(predicate) => predicate,
+        Err(resp) => return Ok(*resp),
+    };
     let reads = rules::derive_reads_set(&effective_conditions);
     let writes = rules::derive_writes_set(&effective_actions);
     if let Err(e) = check_self_referential(&reads, &writes, override_self_reference) {
@@ -627,19 +727,74 @@ pub async fn update_rule(
         archived_at: None,
     };
 
-    match tc.run_result(|conn| rules::update(conn, id, change)) {
-        Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
-        Err(rules::WriteError::NotFound(_)) => {
+    let saved = tc.run_result(|conn| {
+        if let Some(resp) = unknown_reference(conn, &predicate)? {
+            return Err(UpdateRuleError::Refused(Box::new(resp)));
+        }
+        let rule = rules::update(conn, id, change).map_err(UpdateRuleError::Write)?;
+        let preview = rules::preview_match(conn, &predicate, rules::PREVIEW_SCAN)?;
+        Ok((rule, preview))
+    });
+    match saved {
+        Ok((rule, preview)) => Ok(HttpResponse::Ok().json(SavedRuleDto::new(rule, preview))),
+        Err(UpdateRuleError::Refused(resp)) => Ok(*resp),
+        Err(UpdateRuleError::Write(rules::WriteError::NotFound(_))) => {
             Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
         }
-        Err(rules::WriteError::Db(e)) => Err(ApiError::Database(e)),
-        Err(rules::WriteError::NotArchived(_)) => {
+        Err(UpdateRuleError::Write(rules::WriteError::Db(e))) => Err(ApiError::Database(e)),
+        Err(UpdateRuleError::Write(rules::WriteError::NotArchived(_))) => {
             // Not reachable from update(); only hard_delete returns
             // NotArchived. Defensive 500 if it ever leaks.
             Err(ApiError::Internal(
                 "unexpected NotArchived from update".into(),
             ))
         }
+    }
+}
+
+/// Why `update_rule` didn't save the change.
+enum UpdateRuleError {
+    /// The change is invalid; the response says why.
+    Refused(Box<HttpResponse>),
+    Write(rules::WriteError),
+}
+
+impl From<diesel::result::Error> for UpdateRuleError {
+    fn from(e: diesel::result::Error) -> Self {
+        Self::Write(rules::WriteError::Db(e))
+    }
+}
+
+/// `POST /api/rules/preview` (admin). Checks the conditions of a rule
+/// being edited as saving would, and returns how many recent tickets they
+/// match, for the editor's live count.
+pub async fn preview_rule(
+    req: HttpRequest,
+    body: web::Json<PreviewRuleRequest>,
+    mut tc: TenantConn,
+) -> Result<HttpResponse, ApiError> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let PreviewRuleRequest {
+        trigger_kind,
+        conditions,
+    } = body.into_inner();
+    if trigger_kind == RuleTriggerKind::Manual && !is_empty_conditions(&conditions) {
+        return Ok(manual_conditions_refused());
+    }
+    let predicate = match compile_conditions(trigger_kind, &conditions) {
+        Ok(predicate) => predicate,
+        Err(resp) => return Ok(*resp),
+    };
+    let previewed = tc.run_result(|conn| {
+        if let Some(resp) = unknown_reference(conn, &predicate)? {
+            return Err(refused(resp));
+        }
+        Ok(rules::preview_match(conn, &predicate, rules::PREVIEW_SCAN)?)
+    });
+    match previewed {
+        Ok(preview) => Ok(HttpResponse::Ok().json(preview)),
+        Err(InsertRuleError::Refused(resp)) => Ok(*resp),
+        Err(InsertRuleError::Db(e)) => Err(ApiError::Database(e)),
     }
 }
 
