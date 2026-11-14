@@ -328,7 +328,7 @@ export function replaceGroupWatermarks(
 }
 
 /** Client-side aggregate schema-version tag (see `SCHEMA_VERSIONS` in
- * lifecycle.ts). Cached rows written under a different tag may have been
+ * schemaVersions.ts). Cached rows written under a different tag may have been
  * filtered out on rehydrate, so a matching tag is part of the warm-launch
  * gate: without it a version bump would leave those aggregates empty, since
  * a delta only replays recent events, not the snapshot. */

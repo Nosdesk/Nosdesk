@@ -11,95 +11,33 @@
  * - `tearDown()` releases the IndexedDB handle and resets the pool;
  *   called on sign-out.
  */
-import { readonly, ref, watch } from 'vue'
+import { watch } from 'vue'
 import { logger } from '@nosdesk/core/utils/logger'
 import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import * as queue from './queue'
-import { noteServerEcho } from './optimisticCreates'
 import { setReferenceFetcher } from '@nosdesk/core/sync/composables'
 import { notifySyncActions } from '@nosdesk/core/sync/observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
 import { authFetch } from '@/services/authFetch'
-import { sessionGone } from '@nosdesk/core/services/session'
-import { workspaceReady, workspaceReadyRef } from '@/services/activeWorkspace'
+import { workspaceReadyRef } from '@/services/activeWorkspace'
+import { canFetchWorkspace, isHydrated, setCaughtUp, state } from './runtimeState'
+import { MODEL_VERSIONS_TAG, SCHEMA_VERSIONS } from './schemaVersions'
+import { partitionWarmGroups, pruneTornWatermarks, resetWatermarkPrune } from './warm'
+import { followAssetVisibility, reconcileWithSnapshot } from './reconcile'
+import { applyActions, rowKey } from './apply'
+import { referenceFetcher } from './referenceFetchers'
 import type {
   BootstrapLine,
   BootstrapMeta,
   DeltaResponse,
-  SyncAction,
   SyncAggregate,
 } from '@nosdesk/core/sync/types'
 
-interface LifecycleState {
-  handle: idb.IdbHandle | null
-  schemaHash: string
-  /** Periodic delta-poll timer, only running when SSE is wedged or
-   * unavailable. Cleared on tearDown(). */
-  pollTimer: ReturnType<typeof setInterval> | null
-  /** True when the user's IndexedDB couldn't be opened (private
-   * browsing, quota, blocked). The runtime degrades to memory-only
-   * — no persistence, no warm-start, but reads/writes still work. */
-  memoryOnly: boolean
-  /** Set while a retention resync is wiping and re-bootstrapping. Both the
-   * 10s poll and the workspace-ready watch call pullDelta(), and a resync
-   * re-bootstraps (which can itself trigger a poll), so without this a single
-   * aged-out cursor could start several overlapping wipes. */
-  resyncing: boolean
-  /** The arguments hydrate() opened the database with. A retention resync
-   * wipes and reopens, and `IdbHandle` carries only the derived name, so the
-   * inputs have to be kept rather than reverse-engineered from it. */
-  openArgs: { userUuid: string; workspaceSlug: string | null } | null
-  /** False until this session's first successful catch-up (a delta apply or
-   * a bootstrap end). Until then an SSE frame may apply its rows but must
-   * NOT advance the cursor: the SSE bridge attaches while the launch
-   * catch-up is still in flight, and a frame that jumped the cursor to
-   * "now" would make the catch-up delta skip the whole offline span. The
-   * frame's events are also in `sync_actions`, so the catch-up re-delivers
-   * them; holding the cursor back loses nothing. */
-  caughtUp: boolean
-  /** The workspace data epoch the local caches hold rows from ('' when none
-   * is known). The server moves it when the workspace's data is replaced (an
-   * archive import gives every row a new id); `/sync/schema` and every delta
-   * carry the current one, and a different one wipes every local cache of the
-   * workspace. Not `pool.currentEpoch()`, which counts tear-downs. */
-  workspaceEpoch: string
-  /** The database instance id hydrate() fenced on ('' when the server
-   * reported none), kept so a resync can write it into the reopened cache. */
-  instanceId: string
-}
-
-const state: LifecycleState = {
-  handle: null,
-  schemaHash: '',
-  pollTimer: null,
-  memoryOnly: false,
-  resyncing: false,
-  openArgs: null,
-  caughtUp: false,
-  workspaceEpoch: '',
-  instanceId: '',
-}
-
-/** Memory-only counts as hydrated (it still bootstraps and serves; only
- *  warm-start persistence is lost). Gating subscribe/runBootstrap/pullDelta on
- *  `state.handle` alone stranded memory-only groups empty until a force-quit. */
-function isHydrated(): boolean {
-  return state.handle !== null || state.memoryOnly
-}
-
-/** A workspace-scoped fetch (bootstrap/delta) may only fire once the runtime is
- *  hydrated AND a workspace is selected. `workspaceReady()` is the same gate the
- *  Colada queries use (true in host mode, or once the path-mode slug is set);
- *  without it the sync engine sends header-less requests that fail 400
- *  NoWorkspaceSelected, the 10s delta poll spamming them all session.
- *  And only while there is a session: once a refresh is refused, each poll
- *  would otherwise 401 and ask the server for a refresh again, every 10s,
- *  until something tore the runtime down. A sign-in resumes it. */
-function canFetchWorkspace(): boolean {
-  return isHydrated() && workspaceReady() && !sessionGone()
-}
+export { caughtUp } from './runtimeState'
+export { followAssetVisibility, reconcileWithSnapshot } from './reconcile'
+export { applySseFrame } from './apply'
 
 /**
  * Bring every subscribed group current. Called after hydrate() and whenever
@@ -112,42 +50,6 @@ function canFetchWorkspace(): boolean {
 function bootstrapDeferredGroups(): void {
   const groups = Array.from(pool.getSubscribedGroups())
   if (groups.length > 0) void bringGroupsCurrent(groups)
-}
-
-/**
- * Split groups into warm (cached snapshot a delta can bring current) and cold
- * (needs the full bootstrap stream). A group is warm only when ALL of:
- *
- *  - persistence is live and the rehydrated pool actually holds rows;
- *  - the cached cursor is a real xid8 (a 0 cursor means no commit-safe
- *    baseline to delta from);
- *  - the cached rows were written under the current client aggregate
- *    versions (a SCHEMA_VERSIONS bump filters old rows out on rehydrate,
- *    and only a bootstrap re-fetches them — a delta never re-streams the
- *    snapshot);
- *  - the group holds a bootstrap watermark. Watermarks are written when a
- *    group's snapshot stream completes and pruned when a session advances
- *    the cursor while the group is unsubscribed (see pruneTornWatermarks),
- *    so presence means "these cached rows have tracked the cursor
- *    continuously since their snapshot".
- */
-async function partitionWarmGroups(
-  groups: string[],
-): Promise<{ warm: string[]; cold: string[] }> {
-  if (!state.handle || pool.getLastXid8() <= 0 || pool.size() === 0) {
-    return { warm: [], cold: groups }
-  }
-  const versionsTag = await idb.getModelVersionsTag(state.handle)
-  if (versionsTag !== MODEL_VERSIONS_TAG) {
-    return { warm: [], cold: groups }
-  }
-  const watermarks = (await idb.getGroupWatermarks(state.handle)) ?? {}
-  const warm: string[] = []
-  const cold: string[] = []
-  for (const g of groups) {
-    ;(watermarks[g] != null ? warm : cold).push(g)
-  }
-  return { warm, cold }
 }
 
 /**
@@ -263,114 +165,6 @@ async function bootstrapRuntime(
 }
 
 const POLL_INTERVAL_MS = 10_000
-
-/**
- * Schema versions per aggregate, mirroring `sync::registry` on the
- * server. Rows in IndexedDB whose recorded schema_version doesn't
- * match the entry here get filtered on rehydrate and re-fetched on
- * the next bootstrap.
- *
- * When the server's manifest schema_version bumps, bump the matching
- * entry here in the same commit.
- */
-const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
-  ticket: 1,
-  project: 1,
-  project_ticket: 1,
-  ticket_asset: 1,
-  linked_ticket: 1,
-  workflow_state: 1,
-  comment: 1,
-  attachment: 2,
-  assignment: 1,
-  group_membership: 1,
-  plugin: 1,
-  user: 2,
-  asset: 1,
-  asset_media: 2,
-  asset_lifecycle_event: 1,
-  cycle: 1,
-  documentation_page: 1,
-  documentation_collection: 2,
-}
-
-/**
- * Tag identifying the client aggregate versions the cache was written under.
- * Compared in partitionWarmGroups: rows persisted under a different map may
- * have been filtered out on rehydrate, and only a full bootstrap re-fetches
- * them, so any mismatch disqualifies the warm path wholesale.
- */
-const MODEL_VERSIONS_TAG = JSON.stringify(SCHEMA_VERSIONS)
-
-/**
- * Drop bootstrap watermarks for groups that are NOT subscribed at the moment
- * this session first advances the cursor. From that advance on, the cursor
- * moves past events those groups never apply, so their cached rows stop
- * tracking it: a later launch must snapshot them again, not delta from a
- * cursor they don't match. Runs once per session, and must complete BEFORE
- * the first advanced cursor is persisted — a crash that persisted the moved
- * cursor but kept the stale watermark would revive the torn cache as warm.
- */
-let watermarksPruned = false
-
-async function pruneTornWatermarks(): Promise<void> {
-  if (watermarksPruned) return
-  watermarksPruned = true
-  if (!state.handle) return
-  const marks = (await idb.getGroupWatermarks(state.handle)) ?? {}
-  const subscribed = pool.getSubscribedGroups()
-  const kept: Record<string, number> = {}
-  for (const [g, xid8] of Object.entries(marks)) {
-    if (subscribed.has(g)) kept[g] = xid8
-  }
-  if (Object.keys(kept).length !== Object.keys(marks).length) {
-    logger.info('sync: pruning watermarks for unsubscribed groups', {
-      dropped: Object.keys(marks).filter((g) => !subscribed.has(g)),
-    })
-    await idb.replaceGroupWatermarks(state.handle, kept)
-  }
-}
-
-/**
- * Junction aggregates whose pool key is a composite of their fields
- * rather than a standalone `id`/`uuid`. Their sync rows ARE full rows
- * (the payload carries every field); they just key on the composite.
- * `project_ticket` is the canonical example — a project<->ticket
- * association with no surrogate key.
- */
-const COMPOSITE_KEY: Partial<
-  Record<SyncAggregate, (d: Record<string, unknown>) => string | null>
-> = {
-  project_ticket: (d) =>
-    d.project_id != null && d.ticket_id != null ? `${d.project_id}:${d.ticket_id}` : null,
-  ticket_asset: (d) =>
-    d.ticket_id != null && d.asset_id != null ? `${d.ticket_id}:${d.asset_id}` : null,
-  linked_ticket: (d) =>
-    d.ticket_id != null && d.linked_ticket_id != null
-      ? `${d.ticket_id}:${d.linked_ticket_id}`
-      : null,
-  cycle_ticket: (d) =>
-    d.cycle_id != null && d.ticket_id != null ? `${d.cycle_id}:${d.ticket_id}` : null,
-  // One assignment per ticket — keyed by ticket_id, not a surrogate id.
-  assignment: (d) => (d.ticket_id != null ? String(d.ticket_id) : null),
-}
-
-/**
- * The pool key for a sync row. Junction aggregates derive it from
- * their fields (see COMPOSITE_KEY). Every other aggregate keys on its
- * own primary key carried in the payload — and for those, a payload
- * lacking both `id` and `uuid` is a *side event* (e.g. knowledge_gap
- * signals, the synthetic `data` audit events): it references a row by aggregate_id without carrying
- * the row, so it returns null and the caller skips the pool write
- * rather than minting a partial/phantom row. Used by both the
- * bootstrap snapshot loader and the live delta/SSE applier so the two
- * paths key rows identically.
- */
-function rowKey(aggregate: SyncAggregate, data: Record<string, unknown>): string | number | null {
-  const composite = COMPOSITE_KEY[aggregate]
-  if (composite) return composite(data)
-  return ((data.id ?? data.uuid) as string | number | undefined) ?? null
-}
 
 /** Warm the engine for an authenticated user. Idempotent —
  * subsequent calls are no-ops while the handle is live (or while
@@ -535,20 +329,6 @@ export async function fetchServerIdentity(): Promise<{
  * session, else a full per-group bootstrap. Idempotent — calling twice with
  * the same group runs no extra work.
  */
-/**
- * Whether the pool reflects the server: a bootstrap or delta catch-up has
- * completed since the runtime opened. False after a network failure, when
- * an empty pool means "unknown", not "nothing there". Reactive, because a
- * `subscribe` before the runtime is hydrated returns at once and the
- * bootstrap it queued completes later.
- */
-const caughtUpRef = ref(false)
-export const caughtUp = readonly(caughtUpRef)
-function setCaughtUp(v: boolean): void {
-  state.caughtUp = v
-  caughtUpRef.value = v
-}
-
 export async function subscribe(group: string): Promise<void> {
   if (pool.getSubscribedGroups().has(group)) return
   pool.subscribe(group)
@@ -721,137 +501,11 @@ export async function pullDelta(): Promise<boolean> {
 }
 
 /**
- * Aggregates a workspace-wide bootstrap streams in full (see the server's
- * `handlers/sync/bootstrap.rs`: every ticket, project, page, collection,
- * workflow state, user and asset the caller can see). A snapshot of these
- * is authoritative, so a local row the snapshot did not carry is stale: a
- * delete missed while the stream was down, or a row that never belonged
- * to this workspace. Comments and attachments are streamed per ticket
- * group only, so they are never pruned here.
- */
-const SNAPSHOT_COMPLETE_AGGREGATES: SyncAggregate[] = [
-  'ticket',
-  'project',
-  'documentation_collection',
-  'documentation_page',
-  'workflow_state',
-  'user',
-  'asset',
-]
-
-/**
- * After a bootstrap that carried the workspace group, drop local rows of
- * the fully-streamed aggregates that the snapshot did not include. The
- * stream otherwise only upserts, so this is the one place a stale row is
- * reconciled against the server's whole picture.
- */
-export async function reconcileWithSnapshot(
-  granted: string[],
-  seen: Map<SyncAggregate, Set<string>>,
-): Promise<void> {
-  if (!granted.some((g) => g.startsWith('workspace:'))) return
-  let pruned = 0
-  for (const aggregate of SNAPSHOT_COMPLETE_AGGREGATES) {
-    const ids = seen.get(aggregate) ?? new Set<string>()
-    const stale: string[] = []
-    for (const [id] of pool.entries(aggregate)) {
-      if (!ids.has(id)) stale.push(id)
-    }
-    for (const id of stale) {
-      pool.remove(aggregate, id)
-      if (state.handle) await idb.deleteModel(state.handle, aggregate, id)
-      pruned += 1
-    }
-  }
-  if (pruned > 0) logger.info('sync bootstrap: pruned rows absent from the snapshot', { pruned })
-}
-
-/** Records about assets the pool holds for the viewer. */
-const ASSET_AGGREGATES: SyncAggregate[] = ['asset', 'ticket_asset']
-
-/** Set while followAssetVisibility re-reads the snapshot, so a poll that
- * lands meanwhile doesn't start a second one. */
-let assetResync = false
-
-/** Where this browser remembers that it dropped the workspace's assets. */
-function assetsHiddenKey(): string | null {
-  if (!state.openArgs) return null
-  return `nosdesk:sync:assets-hidden:${state.openArgs.userUuid}:${state.openArgs.workspaceSlug ?? ''}`
-}
-
-function readAssetsHidden(key: string): boolean {
-  try {
-    return localStorage.getItem(key) === '1'
-  } catch {
-    return false
-  }
-}
-
-function writeAssetsHidden(key: string, hidden: boolean): void {
-  try {
-    if (hidden) localStorage.setItem(key, '1')
-    else localStorage.removeItem(key)
-  } catch {
-    // Storage blocked: a later bootstrap still brings the assets back.
-  }
-}
-
-/**
- * Keep the pool in step with whether the viewer sees the workspace's assets
- * (`assets_visible`; a workspace can show requesters none). Hidden: drop
- * every asset and ticket link the pool holds, and remember having done so.
- * Shown again after that: re-read the workspace snapshot, which brings them
- * back (a delta never re-sends rows it sent before). The memory outlives a
- * reload because a warm launch catches up with a delta. `source`: where the
- * flag came from; a workspace snapshot carries the assets itself, and one for
- * other groups leaves bringing them back to the next delta.
- */
-export async function followAssetVisibility(
-  visible: boolean | undefined,
-  source: 'delta' | 'workspace-snapshot' | 'other-snapshot',
-): Promise<void> {
-  if (visible === undefined) return
-  const key = assetsHiddenKey()
-  if (!visible) {
-    let dropped = 0
-    for (const aggregate of ASSET_AGGREGATES) {
-      const ids = Array.from(pool.entries(aggregate), ([id]) => id)
-      for (const id of ids) {
-        pool.remove(aggregate, id)
-        if (state.handle) await idb.deleteModel(state.handle, aggregate, id)
-        dropped += 1
-      }
-    }
-    if (key) writeAssetsHidden(key, true)
-    if (dropped > 0) logger.info('sync: assets hidden from this viewer; dropped them', { dropped })
-    return
-  }
-  if (!key || !readAssetsHidden(key)) return
-  if (source === 'workspace-snapshot') {
-    writeAssetsHidden(key, false)
-    return
-  }
-  if (source === 'other-snapshot') return
-  if (assetResync || state.resyncing) return
-  const workspaceGroups = Array.from(pool.getSubscribedGroups()).filter((g) =>
-    g.startsWith('workspace:'),
-  )
-  if (workspaceGroups.length === 0) return
-  assetResync = true
-  try {
-    logger.info('sync: assets shown to this viewer again; re-reading the snapshot')
-    await runBootstrap(workspaceGroups)
-  } finally {
-    assetResync = false
-  }
-}
-
-/**
  * Fetch and stream a bootstrap for the given groups, applying each
  * row to the pool as it arrives. Used both on cold start (with the
  * full subscription list) and for incremental group expansion.
  */
-async function runBootstrap(groups: string[]): Promise<void> {
+export async function runBootstrap(groups: string[]): Promise<void> {
   // Needs a hydrated runtime AND a selected workspace (not an IDB handle). In
   // memory-only mode the persistence writes below are individually skipped, but
   // the fetch + pool.upsert still run so views populate.
@@ -993,279 +647,6 @@ async function runBootstrap(groups: string[]): Promise<void> {
   }
 }
 
-function applyActions(actions: SyncAction[]): void {
-  for (const action of actions) {
-    if (action.op === 'D') {
-      // Deletes may carry only the key; fall back to aggregate_id for
-      // own-pk aggregates whose delete payload is otherwise empty.
-      const id = rowKey(action.aggregate, action.data) ?? action.aggregate_id
-      if (id == null) continue
-      // Observers run after the row is gone; keep it on the action for them.
-      const prior = pool.get<Record<string, unknown>>(action.aggregate, id)
-      if (prior) action.prior = { ...prior }
-      pool.remove(action.aggregate, id)
-      if (state.handle) {
-        void idb.deleteModel(state.handle, action.aggregate, String(id))
-      }
-      continue
-    }
-    // `rowKey` returns null for side events (an own-pk aggregate whose
-    // payload carries no primary key, e.g. a knowledge_gap signal).
-    // Skipping those avoids writing a partial row over the cached one;
-    // observers still receive them via notifySyncActions for consumers
-    // that care.
-    const id = rowKey(action.aggregate, action.data)
-    if (id == null) continue
-    // An update for a row this pool never received: its create was
-    // missed (a frame lost across a reconnect) or it only just became
-    // visible. Merging the partial payload into nothing would mint a
-    // half row (no timestamps, no immutable fields); fetch the whole row
-    // instead where a fetcher exists.
-    if (action.op === 'U' && FETCHABLE.has(action.aggregate) && !pool.has(action.aggregate, id)) {
-      void referenceFetcher(action.aggregate, [String(id)])
-      continue
-    }
-    // A comment's server echo carrying a correlation_id is a pending optimistic
-    // create: suppress it from the view (it arrives without its attachments)
-    // until the REST reply swaps the temp for the complete row. Structural, by
-    // id, no dedup heuristic.
-    if (action.aggregate === 'comment' && action.correlation_id) {
-      noteServerEcho(action.correlation_id, Number(id))
-    }
-    const merged = pool.upsert(action.aggregate, id, action.data)
-    if (state.handle && SCHEMA_VERSIONS[action.aggregate] != null) {
-      // Persist the merged row, not the event payload: an update event
-      // carries only the fields it changed, and `put` replaces, so
-      // caching the payload would degrade the row to that subset and the
-      // next warm launch would rehydrate it without its other fields.
-      void idb.putModels(state.handle, [
-        {
-          aggregate: action.aggregate,
-          id: String(id),
-          schema_version: SCHEMA_VERSIONS[action.aggregate]!,
-          data: { ...merged },
-        },
-      ])
-    }
-  }
-}
-
-async function referenceFetcher(aggregate: SyncAggregate, ids: string[]): Promise<void> {
-  // Reference fetch lives outside the bootstrap protocol — it
-  // queries the existing per-aggregate REST endpoints (the ones
-  // the legacy UI also reads from). Keeping the bootstrap minimal
-  // and the lazy-fetch pluggable lets aggregates ship sync support
-  // before they ship a typed bootstrap loader.
-  //
-  // Per-aggregate dispatch. For aggregates without a dedicated
-  // fetcher we log and bail; the bootstrap covered the snapshot
-  // and SSE keeps it current, so a missed lazy fetch only matters
-  // for entities created strictly between bootstrap and the first
-  // SSE frame — vanishingly rare.
-  if (aggregate === 'user') {
-    await fetchMissingUsers(ids)
-    return
-  }
-  if (aggregate === 'asset') {
-    await fetchMissingAssets(ids)
-    return
-  }
-  if (aggregate === 'cycle') {
-    await fetchMissingCycles(ids)
-    return
-  }
-  if (aggregate === 'ticket') {
-    await fetchMissingTickets(ids)
-    return
-  }
-  logger.debug('useReference fetch (stub)', { aggregate, ids })
-}
-
-/** Aggregates the reference fetcher can fill from REST. */
-const FETCHABLE: ReadonlySet<SyncAggregate> = new Set(['user', 'asset', 'cycle', 'ticket'])
-
-/**
- * Lazy fetcher for the `ticket` aggregate. The workspace bootstrap ships
- * every ticket, so this fires only when a live update arrives for a row
- * this pool never received (its create frame was missed across a
- * reconnect, or the ticket became visible to a restricted viewer).
- * Merging the update into nothing would mint a half row with no
- * timestamps; the REST row is complete.
- */
-const ticketFetchesInFlight = new Set<number>()
-
-async function fetchMissingTickets(ids: string[]): Promise<void> {
-  // A burst of updates for one missed row asks once.
-  const wanted = ids
-    .map(Number)
-    .filter((id) => Number.isFinite(id) && !ticketFetchesInFlight.has(id))
-  if (wanted.length === 0) return
-  wanted.forEach((id) => ticketFetchesInFlight.add(id))
-  try {
-    const [{ default: ticketService }, { apiTicketToSync }] = await Promise.all([
-      import('@nosdesk/core/services/ticketService'),
-      import('@/sync/stores/tickets'),
-    ])
-    for (const id of wanted) {
-      try {
-        const ticket = await ticketService.getTicketById(id)
-        pool.upsert('ticket', ticket.id, apiTicketToSync(ticket))
-      } catch (err) {
-        logger.warn('Lazy ticket fetch failed', { id, error: err })
-      }
-    }
-  } finally {
-    wanted.forEach((id) => ticketFetchesInFlight.delete(id))
-  }
-}
-
-/**
- * Lazy reference fetcher for the `user` aggregate. Bootstrap loads
- * the full workspace user set up-front, so this only fires when an
- * unknown uuid is referenced (e.g. a comment whose author was
- * created mid-session before that user.created SSE arrived).
- *
- * Lives in lifecycle.ts (rather than the directory composable) so
- * it's installed once at hydrate-time, before any UserCell mounts.
- */
-async function fetchMissingUsers(uuids: string[]): Promise<void> {
-  if (uuids.length === 0) return
-  // Lazy import: keeps the userService bundle out of the sync
-  // engine's hot path until the lazy fetcher actually fires.
-  const { default: userService } = await import('@/services/userService')
-  try {
-    const users = await userService.getUsersBatch(uuids)
-    for (const user of users) {
-      pool.upsert('user', user.uuid, {
-        uuid: user.uuid,
-        name: user.name,
-        email: user.email,
-        platform_role: user.platform_role,
-        workspace_role: user.workspace_role ?? null,
-        pronouns: user.pronouns ?? null,
-        avatar_url: user.avatar_url ?? null,
-        avatar_thumb: user.avatar_thumb ?? null,
-      })
-    }
-  } catch (err) {
-    logger.warn('Lazy user fetch failed', { ids: uuids, error: err })
-  }
-}
-
-/**
- * Lazy reference fetcher for the `asset` aggregate. Bootstrap
- * ships every workspace asset, so this only fires for entries
- * created in the gap between bootstrap and the first SSE frame.
- * Falls back to per-id `getAssetById` because the REST surface
- * doesn't expose a batch endpoint today; the rarity of the
- * missing-lookup path makes the round-trip cost acceptable.
- *
- * Cache row shape must stay in lockstep with
- * `backend/sync-models/asset.json` and the SSE / bootstrap
- * payload produced by `repository::assets::asset_sync_payload`.
- * The full REST `Asset` DTO carries more fields (warranty,
- * Microsoft Graph IDs, etc.) that the sync pool deliberately
- * drops; `toAssetCacheRow` is the single projection point so
- * the lazy path can't drift from the live event stream.
- */
-function toAssetCacheRow(asset: import('@nosdesk/core/types/asset').Asset): Record<string, unknown> {
-  return {
-    id: asset.id,
-    name: asset.name,
-    kind: asset.kind ?? 'generic',
-    serial_number: asset.serial_number ?? null,
-    manufacturer: asset.manufacturer ?? null,
-    model: asset.model ?? null,
-    asset_tag: asset.asset_tag ?? null,
-    location: asset.location ?? null,
-    status: asset.status,
-    primary_user_uuid: asset.primary_user_uuid ?? null,
-    managed_by_user_uuid: asset.managed_by_user_uuid ?? null,
-    attributes: asset.attributes ?? {},
-    quantity: asset.quantity ?? null,
-    unit: asset.unit ?? null,
-    external_sync_source: asset.external_sync_source ?? null,
-    low_stock_threshold: asset.low_stock_threshold ?? null,
-  }
-}
-
-async function fetchMissingAssets(ids: string[]): Promise<void> {
-  if (ids.length === 0) return
-  const { getAssetById } = await import('@/services/assetService')
-  for (const idStr of ids) {
-    const id = Number(idStr)
-    if (!Number.isFinite(id)) continue
-    try {
-      const asset = await getAssetById(id)
-      pool.upsert('asset', asset.id, toAssetCacheRow(asset))
-    } catch (err) {
-      logger.warn('Lazy asset fetch failed', { id, error: err })
-    }
-  }
-}
-
-/**
- * Lazy reference fetcher for the `cycle` aggregate. Bootstrap does
- * not ship cycle rows (only `cycle_id` denormalised onto tickets),
- * so the pool-native ticket detail view resolves the cycle chip
- * through this. The workspace cycle set is small and bounded, so
- * one `listWorkspace` call covers every missing id at once; we ask
- * for all states explicitly because the default list elides
- * completed/planned cycles, and a ticket can sit in any of them.
- *
- * The full REST row goes in: the pool is now the single read home
- * for cycles (useProjectCycles / useCycleStats), so dates, the
- * frozen completion_snapshot, and archived_at must all survive
- * here — a thin row would starve those consumers, and shallow-merge
- * means a later thin write can't erase a previously seeded field.
- */
-function toCycleCacheRow(
-  c: import('@nosdesk/core/services/cyclesService').Cycle,
-): Record<string, unknown> {
-  return { ...c }
-}
-
-async function fetchMissingCycles(ids: string[]): Promise<void> {
-  if (ids.length === 0) return
-  const { cyclesService } = await import('@nosdesk/core/services/cyclesService')
-  try {
-    const cycles = await cyclesService.listWorkspace(['planned', 'active', 'completed'])
-    for (const c of cycles) {
-      pool.upsert('cycle', c.id, toCycleCacheRow(c))
-    }
-  } catch (err) {
-    logger.warn('Lazy cycle fetch failed', { ids, error: err })
-  }
-}
-
-/** SSE handler: applies actions, advances the cursor, persists. */
-export function applySseFrame(actions: SyncAction[], lastXid8: number, lastSyncId: number): void {
-  applyActions(actions)
-  // Until the session's first catch-up completes, a frame's rows apply but
-  // the cursor holds at its cached value: jumping it to the frame's "now"
-  // would make the in-flight catch-up delta skip the whole offline span
-  // (see LifecycleState.caughtUp). The catch-up re-delivers these events.
-  if (!state.caughtUp) {
-    notifySyncActions(actions)
-    return
-  }
-  pool.setCursor(lastXid8, lastSyncId)
-  if (state.handle) {
-    const handle = state.handle
-    // Prune-then-persist, sequenced: the advanced cursor must never be
-    // persisted ahead of the torn-watermark prune (see pruneTornWatermarks).
-    void (async () => {
-      await pruneTornWatermarks()
-      await idb.setLastSyncId(handle, lastSyncId)
-      await idb.setLastXid8(handle, lastXid8)
-    })()
-  }
-  // Notify imperative observers (useSyncActions) after the pool is
-  // updated. This is the live SSE path, so observers fire on the
-  // cross-machine sync stream; initial hydrate deliberately does not.
-  notifySyncActions(actions)
-}
-
 /** Tear-down: release the IDB handle, reset the pool, drop subs. */
 export async function tearDown(): Promise<void> {
   stopDeltaPollFallback()
@@ -1283,7 +664,7 @@ export async function tearDown(): Promise<void> {
   state.instanceId = ''
   state.workspaceEpoch = ''
   setCaughtUp(false)
-  watermarksPruned = false
+  resetWatermarkPrune()
   // Re-arm the single-flight bootstrap so the next navigation rebuilds the
   // runtime for the new session / workspace.
   runtimePromise = null
