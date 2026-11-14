@@ -24,6 +24,11 @@ interface ModelRow {
   schema_version: number
   /** Serialised row payload as it came off the wire. */
   data: Record<string, unknown>
+  /** The row's owners (see the pool's `ownersOf`), never `local`. Absent
+   * on rows a build before owners existed wrote; those rehydrate as
+   * `legacy`. Adding the field needs no database version: the store keys on
+   * `[aggregate, id]` and holds whatever object is put. */
+  owners?: string[]
 }
 
 interface MetaRow {
@@ -182,11 +187,25 @@ export function deleteModel(
   aggregate: SyncAggregate,
   id: string,
 ): Promise<void> {
+  return deleteModels(handle, [[aggregate, id]])
+}
+
+/** Delete many rows in one transaction. A reconcile can drop thousands of
+ * rows at once, and a transaction per row makes that take seconds. */
+export function deleteModels(
+  handle: IdbHandle,
+  keys: ReadonlyArray<readonly [SyncAggregate, string]>,
+): Promise<void> {
+  if (keys.length === 0) return Promise.resolve()
   return new Promise((resolve, reject) => {
     const tx = handle.db.transaction(STORE_MODELS, 'readwrite')
-    tx.objectStore(STORE_MODELS).delete([aggregate, id])
+    const store = tx.objectStore(STORE_MODELS)
+    for (const [aggregate, id] of keys) {
+      store.delete([aggregate, id])
+    }
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error ?? new DOMException('Transaction aborted', 'AbortError'))
   })
 }
 

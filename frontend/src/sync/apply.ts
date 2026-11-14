@@ -54,6 +54,29 @@ export function rowKey(aggregate: SyncAggregate, data: Record<string, unknown>):
   return ((data.id ?? data.uuid) as string | number | undefined) ?? null
 }
 
+/**
+ * The owners to cache with a row: its pool owners less `local`, which is
+ * session scoped (see the pool's LOCAL_OWNER).
+ */
+export function cachedOwners(aggregate: SyncAggregate, id: string | number): string[] {
+  const owners: string[] = []
+  for (const owner of pool.ownersOf(aggregate, id)) {
+    if (owner !== pool.LOCAL_OWNER) owners.push(owner)
+  }
+  return owners
+}
+
+/** The groups a live action reaches that this pool subscribes to: the owners
+ * it stamps onto its row. */
+function actionOwners(action: SyncAction): Set<string> {
+  const subscribed = pool.getSubscribedGroups()
+  const owners = new Set<string>()
+  for (const group of action.groups ?? []) {
+    if (group != null && subscribed.has(group)) owners.add(group)
+  }
+  return owners
+}
+
 export function applyActions(actions: SyncAction[]): void {
   for (const action of actions) {
     if (action.op === 'D') {
@@ -82,8 +105,11 @@ export function applyActions(actions: SyncAction[]): void {
     // visible. Merging the partial payload into nothing would mint a
     // half row (no timestamps, no immutable fields); fetch the whole row
     // instead where a fetcher exists.
+    const owners = actionOwners(action)
+    pool.touch(action.aggregate, id)
     if (action.op === 'U' && FETCHABLE.has(action.aggregate) && !pool.has(action.aggregate, id)) {
-      void referenceFetcher(action.aggregate, [String(id)])
+      // The fetched row is owned like the action that named it, not `local`.
+      void referenceFetcher(action.aggregate, [String(id)], owners)
       continue
     }
     // A comment's server echo carrying a correlation_id is a pending optimistic
@@ -93,7 +119,7 @@ export function applyActions(actions: SyncAction[]): void {
     if (action.aggregate === 'comment' && action.correlation_id) {
       noteServerEcho(action.correlation_id, Number(id))
     }
-    const merged = pool.upsert(action.aggregate, id, action.data)
+    const merged = pool.upsert(action.aggregate, id, action.data, owners)
     if (state.handle && SCHEMA_VERSIONS[action.aggregate] != null) {
       // Persist the merged row, not the event payload: an update event
       // carries only the fields it changed, and `put` replaces, so
@@ -105,6 +131,7 @@ export function applyActions(actions: SyncAction[]): void {
           id: String(id),
           schema_version: SCHEMA_VERSIONS[action.aggregate]!,
           data: { ...merged },
+          owners: cachedOwners(action.aggregate, id),
         },
       ])
     }

@@ -82,14 +82,76 @@ let schemaHash = ''
  */
 const subscribedGroups = reactive(new Set<string>())
 
+/**
+ * Owner of a row a REST read or an optimistic write created, with no stream
+ * behind it. Session scoped: a snapshot never strips it and it is never
+ * cached. The first stream owner to reach the row replaces it.
+ */
+export const LOCAL_OWNER = 'local'
+
+/**
+ * Owner of a cached row written by a build that did not record owners. The
+ * first workspace snapshot strips it.
+ */
+export const LEGACY_OWNER = 'legacy'
+
+/**
+ * Row owners: the groups whose snapshot or live events put each row in the
+ * pool, plus `local` and `legacy`. Kept beside the rows, not on them, so rows
+ * stay flat and an owner change triggers no effects. Sets are never mutated
+ * once stored (a change stores a new one), so a bootstrap can share one set
+ * across every row it creates.
+ */
+const owners = new Map<Key, ReadonlySet<string>>()
+
+/**
+ * When each row was last written by a live action (delta or SSE), as a tick
+ * of `touchClock`. A snapshot reconcile reads the clock when its stream
+ * starts and leaves alone rows touched after that.
+ */
+const touchedAt = new Map<Key, number>()
+let touchClock = 0
+
+const NO_OWNERS: ReadonlySet<string> = new Set()
+
 function key(aggregate: SyncAggregate, id: string | number): Key {
   return `${aggregate}:${id}` as Key
 }
 
+/** `current` with `added` merged in; `current` itself when nothing is new. */
+function mergeOwners(
+  current: ReadonlySet<string> | undefined,
+  added: ReadonlySet<string>,
+): ReadonlySet<string> {
+  if (!current || current.size === 0) return added
+  if (added.size === 0) return current
+  let merged: Set<string> | null = null
+  for (const owner of added) {
+    if (current.has(owner)) continue
+    merged ??= new Set(current)
+    merged.add(owner)
+  }
+  if (!merged) return current
+  // A stream now carries the row, so it is no longer only local.
+  if (!added.has(LOCAL_OWNER)) merged.delete(LOCAL_OWNER)
+  return merged
+}
+
+function asOwnerSet(list: Iterable<string>): ReadonlySet<string> {
+  return list instanceof Set ? list : new Set(list)
+}
+
+/**
+ * Write a row. With `rowOwners`, they join the row's owners (pass the same
+ * set for many rows and it is shared, not copied). Without, a new row is
+ * owned `local` and an existing row keeps the owners it has. An empty
+ * `rowOwners` is not the same as none: it creates a row with no owners.
+ */
 export function upsert<T extends object>(
   aggregate: SyncAggregate,
   id: string | number,
   data: T,
+  rowOwners?: Iterable<string>,
 ): ShallowReactive<T> {
   const k = key(aggregate, id)
   const existing = rows.get(k)
@@ -100,12 +162,56 @@ export function upsert<T extends object>(
     // already holding.
     Object.assign(existing, data)
     if (aggregate === 'ticket') indexTicket(id, before, existing)
+    if (rowOwners) owners.set(k, mergeOwners(owners.get(k), asOwnerSet(rowOwners)))
     return existing as ShallowReactive<T>
   }
   const created = shallowReactive({ ...data }) as ShallowReactive<T>
   rows.set(k, created as ShallowReactive<Record<string, unknown>>)
   if (aggregate === 'ticket') indexTicket(id, undefined, created as Record<string, unknown>)
+  owners.set(k, rowOwners ? asOwnerSet(rowOwners) : new Set([LOCAL_OWNER]))
   return created
+}
+
+/** Add owners to a pooled row. No-op for a row the pool doesn't hold. */
+export function addOwners(aggregate: SyncAggregate, id: string | number, added: Iterable<string>): void {
+  const k = key(aggregate, id)
+  if (!rows.has(k)) return
+  owners.set(k, mergeOwners(owners.get(k), asOwnerSet(added)))
+}
+
+/**
+ * Take `owner` off a pooled row and return how many owners it has left (the
+ * caller removes a row left with none). A row the pool doesn't hold has 0.
+ */
+export function stripOwner(aggregate: SyncAggregate, id: string | number, owner: string): number {
+  const k = key(aggregate, id)
+  const current = owners.get(k)
+  if (!current) return 0
+  if (!current.has(owner)) return current.size
+  const next = new Set(current)
+  next.delete(owner)
+  owners.set(k, next)
+  return next.size
+}
+
+/** The row's owners; empty for a row the pool doesn't hold. */
+export function ownersOf(aggregate: SyncAggregate, id: string | number): ReadonlySet<string> {
+  return owners.get(key(aggregate, id)) ?? NO_OWNERS
+}
+
+/** Record a live action's write to a row (see `touchedAt`). */
+export function touch(aggregate: SyncAggregate, id: string | number): void {
+  touchedAt.set(key(aggregate, id), ++touchClock)
+}
+
+/** The tick of the row's last live write; 0 when none this session. */
+export function lastTouch(aggregate: SyncAggregate, id: string | number): number {
+  return touchedAt.get(key(aggregate, id)) ?? 0
+}
+
+/** The current tick: a row with `lastTouch` above it was touched afterwards. */
+export function currentTouch(): number {
+  return touchClock
 }
 
 export function patch<T extends object>(
@@ -129,6 +235,8 @@ export function remove(aggregate: SyncAggregate, id: string | number): boolean {
       ticketIdsByNumber.delete(number)
     }
   }
+  owners.delete(k)
+  touchedAt.delete(k)
   return rows.delete(k)
 }
 
@@ -242,6 +350,9 @@ export function reset(): void {
   epoch++
   rows.clear()
   ticketIdsByNumber.clear()
+  owners.clear()
+  touchedAt.clear()
+  touchClock = 0
   subscribedGroups.clear()
   lastSyncId = 0
   lastXid8 = 0
