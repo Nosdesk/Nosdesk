@@ -6531,9 +6531,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.15.1"
+version = "1.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
 
 [[package]]
 name = "socket2"
@@ -8227,9 +8227,9 @@ dependencies = [
 
 [[package]]
 name = "yrs"
-version = "0.26.0"
+version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89512f2d869f9947e1c58d57ef86c8f4ca1b1e8ccf24d6e1ff8c7cdbd67d54df"
+checksum = "9f7716b4846f9fab489af2ed7ab31c4554f5fe6965ede2392b9cdfed0e5087ff"
 dependencies = [
  "arc-swap",
  "async-lock",
