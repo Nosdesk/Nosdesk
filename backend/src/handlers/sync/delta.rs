@@ -124,6 +124,11 @@ pub struct DeltaResponse {
     /// every other response reads as before.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub resnapshot: bool,
+    /// How old a snapshot may grow before the client takes a fresh one
+    /// (see [`super::snapshot_max_age_secs`]). On every delta as well as the
+    /// bootstrap `__meta__`, so a client that warm-launches by delta reads it
+    /// without a bootstrap, and a change reaches running clients within a poll.
+    pub snapshot_max_age_secs: u64,
 }
 
 /// Smallest `sync_id` still present in `sync_actions`, or `None` when the
@@ -249,6 +254,7 @@ pub async fn delta(
             workspace_epoch,
             capabilities,
             resnapshot: false,
+            snapshot_max_age_secs: super::snapshot_max_age_secs(),
         });
     }
 
@@ -405,6 +411,7 @@ pub async fn delta(
         workspace_epoch,
         capabilities,
         resnapshot,
+        snapshot_max_age_secs: super::snapshot_max_age_secs(),
     })
 }
 
