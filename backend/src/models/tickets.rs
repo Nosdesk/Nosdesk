@@ -568,6 +568,13 @@ impl NewTicket {
     }
 }
 
+/// The `changed_fields` entry for a move to a state in another category: a rule
+/// on the ticket's status reads the state's category.
+pub const WORKFLOW_STATE_CATEGORY_FIELD: &str = "ticket.workflow_state.category";
+
+/// The `changed_fields` entry for a change to a ticket's tags.
+pub const TAG_IDS_FIELD: &str = "ticket.tag_ids";
+
 // Add a new struct for partial ticket updates
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::tickets)]
@@ -712,6 +719,118 @@ impl TicketUpdate {
         ]
         .into_iter()
         .filter_map(|(column, set)| set.then_some(column))
+    }
+
+    /// The `changed_fields` of the update's sync action: each column it set
+    /// whose value differs between `before` and `after`, named as a rule's
+    /// `reads_set` names it (`ticket.<column>`), sorted. A column set to the
+    /// value it already had is left out. `category_changed` (the workflow
+    /// state moved to another category) adds `ticket.workflow_state.category`,
+    /// which a rule on the ticket's status reads.
+    pub fn changed_fields(
+        &self,
+        before: &Ticket,
+        after: &Ticket,
+        category_changed: bool,
+    ) -> Vec<String> {
+        let Self {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            updated_at: _,
+            closed_at,
+            verification_state,
+            origin_channel_id,
+            category_id,
+            triage_state,
+            due_date,
+            start_date,
+            recurrence_rule,
+            recurrence_template_id,
+            resolution_notes,
+            spam_suspected,
+            sla_override,
+        } = self;
+        let mut fields: Vec<String> = [
+            ("title", title.is_some() && before.title != after.title),
+            (
+                "workflow_state_id",
+                workflow_state_id.is_some() && before.workflow_state_id != after.workflow_state_id,
+            ),
+            (
+                "priority",
+                priority.is_some() && before.priority != after.priority,
+            ),
+            (
+                "requester_uuid",
+                requester_uuid.is_some() && before.requester_uuid != after.requester_uuid,
+            ),
+            (
+                "assignee_uuid",
+                assignee_uuid.is_some() && before.assignee_uuid != after.assignee_uuid,
+            ),
+            (
+                "closed_at",
+                closed_at.is_some() && before.closed_at != after.closed_at,
+            ),
+            (
+                "verification_state",
+                verification_state.is_some()
+                    && before.verification_state != after.verification_state,
+            ),
+            (
+                "origin_channel_id",
+                origin_channel_id.is_some() && before.origin_channel_id != after.origin_channel_id,
+            ),
+            (
+                "category_id",
+                category_id.is_some() && before.category_id != after.category_id,
+            ),
+            (
+                "triage_state",
+                triage_state.is_some() && before.triage_state != after.triage_state,
+            ),
+            (
+                "due_date",
+                due_date.is_some() && before.due_date != after.due_date,
+            ),
+            (
+                "start_date",
+                start_date.is_some() && before.start_date != after.start_date,
+            ),
+            (
+                "recurrence_rule",
+                recurrence_rule.is_some() && before.recurrence_rule != after.recurrence_rule,
+            ),
+            (
+                "recurrence_template_id",
+                recurrence_template_id.is_some()
+                    && before.recurrence_template_id != after.recurrence_template_id,
+            ),
+            (
+                "resolution_notes",
+                resolution_notes.is_some() && before.resolution_notes != after.resolution_notes,
+            ),
+            (
+                "spam_suspected",
+                spam_suspected.is_some() && before.spam_suspected != after.spam_suspected,
+            ),
+            (
+                "sla_override",
+                sla_override.is_some() && before.sla_override != after.sla_override,
+            ),
+        ]
+        .into_iter()
+        .filter(|(_, changed)| *changed)
+        .map(|(column, _)| format!("ticket.{column}"))
+        .collect();
+        if category_changed {
+            fields.push(WORKFLOW_STATE_CATEGORY_FIELD.to_string());
+        }
+        fields.sort_unstable();
+        fields
     }
 
     /// Whether the update changes nothing but the title: all that someone who
@@ -961,7 +1080,7 @@ mod new_ticket_write_tests {
     /// A ticket with every staff-controlled column set to a recognisable
     /// value, so a column a body changes shows up as the body's value rather
     /// than this one.
-    fn existing_ticket() -> Ticket {
+    pub(super) fn existing_ticket() -> Ticket {
         let now = chrono::DateTime::UNIX_EPOCH.naive_utc();
         Ticket {
             id: 1,
@@ -1215,5 +1334,87 @@ mod new_ticket_write_tests {
     fn a_ticket_is_sent_without_its_guest_lookup_token() {
         let wire = serde_json::to_value(existing_ticket()).expect("serialize ticket");
         assert!(wire.get("guest_lookup_token").is_none(), "{wire}");
+    }
+}
+
+#[cfg(test)]
+mod changed_fields_tests {
+    use super::*;
+
+    fn stored() -> Ticket {
+        super::new_ticket_write_tests::existing_ticket()
+    }
+
+    #[test]
+    fn names_each_column_whose_value_changed() {
+        let before = stored();
+        let after = Ticket {
+            priority: TicketPriority::High,
+            assignee_uuid: None,
+            ..stored()
+        };
+        let update = TicketUpdate {
+            priority: Some(TicketPriority::High),
+            assignee_uuid: Some(None),
+            updated_at: Some(chrono::DateTime::UNIX_EPOCH.naive_utc()),
+            ..TicketUpdate::default()
+        };
+        assert_eq!(
+            update.changed_fields(&before, &after, false),
+            ["ticket.assignee_uuid", "ticket.priority"]
+        );
+    }
+
+    #[test]
+    fn leaves_out_a_column_set_to_its_value() {
+        let before = stored();
+        let after = Ticket {
+            title: "Renamed".into(),
+            ..stored()
+        };
+        let update = TicketUpdate {
+            title: Some("Renamed".into()),
+            priority: Some(before.priority),
+            category_id: Some(before.category_id),
+            ..TicketUpdate::default()
+        };
+        assert_eq!(
+            update.changed_fields(&before, &after, false),
+            ["ticket.title"]
+        );
+        let echo = TicketUpdate {
+            priority: Some(before.priority),
+            ..TicketUpdate::default()
+        };
+        assert!(echo.changed_fields(&before, &before, false).is_empty());
+    }
+
+    #[test]
+    fn a_move_names_the_category_only_when_it_changed() {
+        let before = stored();
+        let after = Ticket {
+            workflow_state_id: before.workflow_state_id + 1,
+            ..stored()
+        };
+        let update = TicketUpdate {
+            workflow_state_id: Some(after.workflow_state_id),
+            ..TicketUpdate::default()
+        };
+        assert_eq!(
+            update.changed_fields(&before, &after, false),
+            ["ticket.workflow_state_id"]
+        );
+        assert_eq!(
+            update.changed_fields(&before, &after, true),
+            [WORKFLOW_STATE_CATEGORY_FIELD, "ticket.workflow_state_id"]
+        );
+    }
+
+    #[test]
+    fn an_empty_update_names_nothing() {
+        let before = stored();
+        assert!(TicketUpdate::default()
+            .changed_fields(&before, &before, false)
+            .is_empty());
     }
 }

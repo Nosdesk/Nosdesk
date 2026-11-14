@@ -26,12 +26,13 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
+use crate::models::{ConditionField, SyncAggregate, SyncOp};
 use crate::models::{
     NewComment, NewRule, NewRuleApplication, Rule, RuleApplication, RuleApplicationStatus,
     RuleState, RuleTriggerKind, RuleUpdate, RuleVersion, TicketPriority, TicketUpdate,
 };
-use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::comments;
+use crate::services::rules::conditions::{ConditionRefs, Predicate, TicketFacts};
 use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
@@ -91,38 +92,13 @@ fn collect_condition_fields(node: &Value, out: &mut std::collections::BTreeSet<S
     }
 }
 
-/// Plan §11.2 reads_set derivation table. Each entry returns the
-/// concrete `reads_set` keys for one `ConditionField`. Status and
-/// workflow_state_id alias the same underlying column so a rule
-/// conditioning on either reads both. Nested requester fields also
-/// add `ticket.requester_uuid` because mutating the requester (FK)
-/// implicitly changes those values.
+/// Plan §11.2 reads_set derivation table, from
+/// [`ConditionField::reads`](crate::models::ConditionField::reads). A
+/// field name the model doesn't know maps to itself.
 fn expand_condition_field(field: &str) -> Vec<String> {
-    match field {
-        "ticket.status" => vec!["ticket.workflow_state.category".into()],
-        "ticket.workflow_state_id" => vec![
-            "ticket.workflow_state_id".into(),
-            "ticket.workflow_state.category".into(),
-        ],
-        "ticket.workflow_state.category" => vec![
-            "ticket.workflow_state.category".into(),
-            "ticket.workflow_state_id".into(),
-        ],
-        "ticket.requester.email" => vec![
-            "ticket.requester.email".into(),
-            "ticket.requester_uuid".into(),
-        ],
-        "ticket.requester.organization_id" => vec![
-            "ticket.requester.organization_id".into(),
-            "ticket.requester_uuid".into(),
-        ],
-        // Event / clock metadata is not ticket state, so no
-        // reads_set contribution.
-        "event.changed_fields" | "reply.kind" | "reply.author_role" | "clock.minutes_since" => {
-            vec![]
-        }
-        // Everything else maps to itself.
-        other => vec![other.to_string()],
+    match ConditionField::parse(field) {
+        Some(known) => known.reads().iter().map(|r| r.to_string()).collect(),
+        None => vec![field.to_string()],
     }
 }
 
@@ -1185,49 +1161,196 @@ fn execute_set_priority(
 }
 
 // =====================================================================
-// Preview-match save-time check (Wave 5 / unit-12). Phase 1
-// scaffolding: manual rules carry conditions = [] so the match is
-// trivially every ticket. The endpoint returns the count + sample
-// IDs of recent tickets so the editor can render the "matches N of
-// N tickets" banner uniformly with future event-rule previews.
-// Phase 2 plugs the typed condition evaluator in here.
+// Save-time preview (plan, "Save-time mandatory check"): how many recent tickets a rule's
+// conditions match, and the ids a condition tree names.
 // =====================================================================
 
+/// How many recent tickets a save previews a rule against.
+pub const PREVIEW_SCAN: i64 = 200;
+
 /// Result of a preview-match against recent tickets.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PreviewMatch {
     pub matched: i64,
     pub scanned: i64,
+    /// Up to five matching tickets, newest first.
     pub sample_ticket_ids: Vec<i32>,
 }
 
-/// Run `conditions` against the last `scan_limit` tickets in the
-/// workspace (capped at 1000) and return how many matched. Phase 1
-/// always returns matched = scanned because manual rules have no
-/// conditions; the shape is in place so Phase 2 can drop in the
-/// condition evaluator without changing the caller surface.
+/// Run `predicate` against the workspace's `scan_limit` newest tickets
+/// (at most 1000) and count the matches. Merged tickets and blank ones
+/// nobody has touched since "New ticket" made them are left out: neither
+/// is a request a rule would act on. Leaves on event fields count as met (see
+/// [`Predicate::matches`]).
 pub fn preview_match(
     conn: &mut DbConnection,
-    _conditions: &Value,
+    predicate: &Predicate,
     scan_limit: i64,
 ) -> QueryResult<PreviewMatch> {
+    use crate::models::WorkflowStateCategory;
     use crate::schema::tickets::dsl;
-    let limit = scan_limit.clamp(50, 1000);
-    let rows: Vec<i32> = dsl::tickets
-        .order(dsl::created_at.desc())
-        .limit(limit)
+    use diesel::PgExpressionMethods;
+
+    let categories = crate::repository::workflow_states::categories(conn)?;
+    let merged: Vec<i32> = categories
+        .iter()
+        .filter(|(_, c)| **c == WorkflowStateCategory::Merged)
+        .map(|(id, _)| *id)
+        .collect();
+    let ids: Vec<i32> = dsl::tickets
+        .filter(dsl::workflow_state_id.ne_all(merged))
+        .filter(dsl::blank_at.is_distinct_from(dsl::updated_at.nullable()))
+        .order((dsl::created_at.desc(), dsl::id.desc()))
+        .limit(scan_limit.clamp(1, 1000))
         .select(dsl::id)
         .load(conn)?;
-    let scanned = rows.len() as i64;
-    let sample_ticket_ids = rows.into_iter().take(5).collect();
+    let facts = load_ticket_facts_with(conn, &ids, &categories)?;
+    let matching: Vec<i32> = facts
+        .iter()
+        .filter(|t| predicate.matches(t, None))
+        .map(|t| t.id)
+        .collect();
     Ok(PreviewMatch {
-        // Phase 1: every recent ticket matches a manual rule
-        // (manual rules carry conditions = [] and the picker
-        // returns them unfiltered, see plan §13.4).
-        matched: scanned,
-        scanned,
-        sample_ticket_ids,
+        matched: matching.len() as i64,
+        scanned: facts.len() as i64,
+        sample_ticket_ids: matching.into_iter().take(5).collect(),
     })
+}
+
+/// What rule conditions read from each of `ticket_ids`, in the order
+/// given. Ids the workspace can't see are skipped.
+pub fn load_ticket_facts(
+    conn: &mut DbConnection,
+    ticket_ids: &[i32],
+) -> QueryResult<Vec<TicketFacts>> {
+    let categories = crate::repository::workflow_states::categories(conn)?;
+    load_ticket_facts_with(conn, ticket_ids, &categories)
+}
+
+fn load_ticket_facts_with(
+    conn: &mut DbConnection,
+    ticket_ids: &[i32],
+    categories: &std::collections::HashMap<i32, crate::models::WorkflowStateCategory>,
+) -> QueryResult<Vec<TicketFacts>> {
+    use crate::schema::{tickets, user_profiles};
+    use chrono::{DateTime, Utc};
+
+    type Row = (
+        i32,
+        String,
+        TicketPriority,
+        Option<i32>,
+        Option<Uuid>,
+        Option<Uuid>,
+        i32,
+        DateTime<Utc>,
+        DateTime<Utc>,
+        Option<DateTime<Utc>>,
+        Option<DateTime<Utc>>,
+    );
+    let rows: Vec<Row> = tickets::table
+        .filter(tickets::id.eq_any(ticket_ids))
+        .select((
+            tickets::id,
+            tickets::title,
+            tickets::priority,
+            tickets::category_id,
+            tickets::requester_uuid,
+            tickets::assignee_uuid,
+            tickets::workflow_state_id,
+            tickets::created_at,
+            tickets::updated_at,
+            tickets::first_response_at,
+            tickets::closed_at,
+        ))
+        .load(conn)?;
+    let mut tags = crate::repository::tags::tag_ids_for_tickets(conn, ticket_ids)?;
+    let requesters: Vec<Uuid> = rows.iter().filter_map(|r| r.4).collect();
+    let emails = crate::repository::user_helpers::primary_emails(conn, &requesters)?;
+    let organizations: std::collections::HashMap<Uuid, String> = user_profiles::table
+        .filter(user_profiles::user_uuid.eq_any(&requesters))
+        .filter(user_profiles::organization.is_not_null())
+        .select((
+            user_profiles::user_uuid,
+            user_profiles::organization.assume_not_null(),
+        ))
+        .load::<(Uuid, String)>(conn)?
+        .into_iter()
+        .collect();
+    let present = |s: Option<&String>| {
+        s.map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+
+    let mut by_id: std::collections::HashMap<i32, TicketFacts> = rows
+        .into_iter()
+        .map(|r| {
+            let facts = TicketFacts {
+                id: r.0,
+                title: r.1,
+                priority: r.2,
+                category_id: r.3,
+                requester_uuid: r.4,
+                assignee_uuid: r.5,
+                workflow_state_id: r.6,
+                workflow_category: categories.get(&r.6).copied(),
+                tag_ids: tags.remove(&r.0).unwrap_or_default(),
+                created_at: r.7,
+                updated_at: r.8,
+                first_response_at: r.9,
+                resolved_at: r.10,
+                requester_email: present(r.4.and_then(|u| emails.get(&u))),
+                requester_organization: present(r.4.and_then(|u| organizations.get(&u))),
+            };
+            (facts.id, facts)
+        })
+        .collect();
+    Ok(ticket_ids
+        .iter()
+        .filter_map(|id| by_id.remove(id))
+        .collect())
+}
+
+/// The first id `refs` names that isn't in the workspace, as the
+/// condition field naming it and the id.
+pub fn unknown_condition_reference(
+    conn: &mut DbConnection,
+    refs: &ConditionRefs,
+) -> QueryResult<Option<(ConditionField, i32)>> {
+    use crate::schema::{tags, ticket_categories, workflow_states};
+
+    let missing = |wanted: &std::collections::BTreeSet<i32>, found: Vec<i32>| {
+        wanted.iter().copied().find(|id| !found.contains(id))
+    };
+    if !refs.category_ids.is_empty() {
+        let found = ticket_categories::table
+            .filter(ticket_categories::id.eq_any(&refs.category_ids))
+            .select(ticket_categories::id)
+            .load(conn)?;
+        if let Some(id) = missing(&refs.category_ids, found) {
+            return Ok(Some((ConditionField::CategoryId, id)));
+        }
+    }
+    if !refs.workflow_state_ids.is_empty() {
+        let found = workflow_states::table
+            .filter(workflow_states::id.eq_any(&refs.workflow_state_ids))
+            .select(workflow_states::id)
+            .load(conn)?;
+        if let Some(id) = missing(&refs.workflow_state_ids, found) {
+            return Ok(Some((ConditionField::WorkflowStateId, id)));
+        }
+    }
+    if !refs.tag_ids.is_empty() {
+        let found = tags::table
+            .filter(tags::id.eq_any(&refs.tag_ids))
+            .select(tags::id)
+            .load(conn)?;
+        if let Some(id) = missing(&refs.tag_ids, found) {
+            return Ok(Some((ConditionField::TagIds, id)));
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]

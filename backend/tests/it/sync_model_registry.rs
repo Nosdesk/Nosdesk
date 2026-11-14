@@ -360,8 +360,9 @@ fn asset_payload_fields_match_the_manifest() {
 /// same as bootstrap and the live stream.
 #[test]
 fn lazy_asset_rows_match_the_manifest() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/src/sync/lifecycle.ts");
-    let ts = fs::read_to_string(&path).expect("read lifecycle.ts");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend/src/sync/referenceFetchers.ts");
+    let ts = fs::read_to_string(&path).expect("read referenceFetchers.ts");
     let start = ts
         .find("function toAssetCacheRow(")
         .expect("toAssetCacheRow");

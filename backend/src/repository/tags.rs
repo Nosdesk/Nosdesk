@@ -175,6 +175,7 @@ pub fn set_tags_for_ticket(
                     "tag_ids": sorted,
                     "added": to_add,
                     "removed": to_remove,
+                    "changed_fields": [crate::models::TAG_IDS_FIELD],
                 }),
                 groups,
                 causation_id: None,

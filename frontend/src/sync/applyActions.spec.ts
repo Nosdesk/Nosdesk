@@ -69,6 +69,21 @@ describe('applyActions on a missed create', () => {
     expect(row.assignee_uuid).toBe('a')
     expect(row.created_at).toBe('c')
   })
+
+  // A 1.2 server adds `changed_fields` to ticket update events; the pool
+  // merges the row's own fields as it always has.
+  it('merges an update that names its changed fields', () => {
+    pool.upsert('ticket', 36, { id: 36, title: 'T', priority: 'low', created_at: 'c' })
+    applySseFrame(
+      [update(36, { id: 36, priority: 'high', changed_fields: ['ticket.priority'] })],
+      1,
+      1,
+    )
+    const row = pool.get<{ title: string; priority: string; created_at: string }>('ticket', 36)!
+    expect(row.priority).toBe('high')
+    expect(row.title).toBe('T')
+    expect(row.created_at).toBe('c')
+  })
 })
 
 // A plugin's emitted event is recorded as an update of the emitting plugin
