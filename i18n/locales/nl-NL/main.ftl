@@ -11637,3 +11637,33 @@ onboarding-complete-import-note = Brengt de tickets, personen en instellingen ui
 
 # Regels: gepauzeerd is een eigen status (MACHINE TRANSLATION, pending native review).
 admin-rules-state-paused = Gepauzeerd
+
+# Regels: de conflictencontrole (MACHINE TRANSLATION, pending native review).
+route-title-admin-rules-conflicts = Regelconflicten
+admin-rules-conflicts-cta = Conflicten
+admin-rules-conflicts-title = Regelconflicten
+admin-rules-conflicts-help = Regels die vanzelf draaien kunnen elkaar in gang zetten wanneer de ene een veld wijzigt dat de andere controleert. Alleen actieve regels en regels in testrun worden hier gecontroleerd. Handmatige, concept- en gepauzeerde regels blijven buiten beschouwing.
+admin-rules-conflicts-back = Terug naar regels
+admin-rules-conflicts-error-load = Kan de regelconflicten niet laden.
+admin-rules-conflicts-none-checked-title = Er draaien geen automatische regels
+admin-rules-conflicts-none-checked-hint = Regels die vanzelf draaien verschijnen hier zodra ze actief zijn of in testrun staan.
+admin-rules-conflicts-overlaps-title = Regels die andere regels in gang kunnen zetten
+admin-rules-conflicts-overlaps-empty = Geen actieve regel wijzigt een veld dat een andere regel controleert.
+admin-rules-conflicts-overlap-detail = { $writer } wijzigt: { $fields }, wat { $reader } controleert.
+admin-rules-conflicts-co-fires-title = Regels die op dezelfde tickets draaiden
+admin-rules-conflicts-co-fires-empty = Geen twee actieve regels draaiden in deze periode op hetzelfde ticket.
+admin-rules-conflicts-co-fire-detail =
+    { $count ->
+        [one] Beide draaiden op één ticket, het laatst { $when }.
+       *[other] Beide draaiden op { $count } tickets, het laatst { $when }.
+    }
+admin-rules-conflicts-and = en
+admin-rules-conflicts-window = Laatste { $days } dagen
+admin-rules-conflicts-field-status = status
+admin-rules-conflicts-field-priority = prioriteit
+admin-rules-conflicts-field-assignee = toegewezen persoon
+admin-rules-conflicts-field-tags = tags
+admin-rules-conflicts-field-updated = laatst bijgewerkt
+admin-rules-conflicts-field-resolved = opgelost op
+admin-rules-conflicts-field-first-response = eerste reactie
+admin-rules-conflicts-field-replies = reacties

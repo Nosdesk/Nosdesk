@@ -10447,3 +10447,33 @@ onboarding-complete-import-note = Moves the tickets, people and settings from an
 
 # Rules: paused is its own state; dry run now means a shadow run.
 admin-rules-state-paused = Paused
+
+# Rules: the conflicts inspector.
+route-title-admin-rules-conflicts = Rule conflicts
+admin-rules-conflicts-cta = Conflicts
+admin-rules-conflicts-title = Rule conflicts
+admin-rules-conflicts-help = Rules that run on their own can set each other off when one changes a field another checks. Only live and dry run rules are checked here. Manual, draft and paused rules are left out.
+admin-rules-conflicts-back = Back to rules
+admin-rules-conflicts-error-load = Couldn't load rule conflicts.
+admin-rules-conflicts-none-checked-title = No automated rules are running
+admin-rules-conflicts-none-checked-hint = Rules that run on their own show up here once they're live or in a dry run.
+admin-rules-conflicts-overlaps-title = Rules that can set off other rules
+admin-rules-conflicts-overlaps-empty = No running rule changes a field that another one checks.
+admin-rules-conflicts-overlap-detail = { $writer } changes the { $fields }, which { $reader } checks.
+admin-rules-conflicts-co-fires-title = Rules that ran on the same tickets
+admin-rules-conflicts-co-fires-empty = No two running rules ran on the same ticket in this period.
+admin-rules-conflicts-co-fire-detail =
+    { $count ->
+        [one] Both ran on one ticket, most recently { $when }.
+       *[other] Both ran on { $count } tickets, most recently { $when }.
+    }
+admin-rules-conflicts-and = and
+admin-rules-conflicts-window = Last { $days } days
+admin-rules-conflicts-field-status = status
+admin-rules-conflicts-field-priority = priority
+admin-rules-conflicts-field-assignee = assignee
+admin-rules-conflicts-field-tags = tags
+admin-rules-conflicts-field-updated = last updated time
+admin-rules-conflicts-field-resolved = resolved time
+admin-rules-conflicts-field-first-response = first response time
+admin-rules-conflicts-field-replies = replies
