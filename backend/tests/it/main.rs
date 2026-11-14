@@ -182,6 +182,7 @@ mod retention_jobs_audit_context;
 mod route_auth_funnel_lint;
 mod rule_starters;
 mod rules_in_workspace;
+mod rules_preview_match;
 mod scheduler_status;
 mod search_by_ticket_number;
 mod session_csrf_lifetime;

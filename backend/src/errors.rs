@@ -117,6 +117,23 @@ pub fn bad_request_with_code(message: impl Into<String>, code: &str) -> HttpResp
     )
 }
 
+/// [`bad_request_with_code`] plus a `details` object saying where the
+/// problem is, for a client that marks the offending input.
+pub fn bad_request_with_details(
+    message: impl Into<String>,
+    code: &str,
+    details: serde_json::Value,
+) -> HttpResponse {
+    stamp(
+        HttpResponse::BadRequest().json(json!({
+            "error": message.into(),
+            "code": code,
+            "details": details,
+        })),
+        "bad_request",
+    )
+}
+
 /// 401 Unauthorized — caller is unauthenticated.
 pub fn unauthorized(message: impl Into<String>) -> HttpResponse {
     unauthorized_with_code(message, "AUTH_REQUIRED")
