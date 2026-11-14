@@ -636,11 +636,10 @@ impl From<TicketWriteError> for diesel::result::Error {
 }
 
 /// Save a change to a ticket: the one write path for ticket edits. Records
-/// the matching `ticket.*` sync action (with the fields it set as
-/// `changed_fields`, and the previous assignee and state when they can
-/// change), recomputes the SLA pill, starts an approval round on
-/// a move into a request type that needs one, and reindexes through
-/// `observer`. A new assignee must be able to work tickets in the ticket's
+/// the matching `ticket.*` sync action (with the fields whose value it
+/// changed as `changed_fields`, and the previous assignee and state when they
+/// can change), recomputes the SLA pill, starts an approval round on a move
+/// into a request type that needs one, and reindexes through `observer`. A new assignee must be able to work tickets in the ticket's
 /// workspace; keeping the current one is never refused.
 pub fn update_ticket_partial(
     conn: &mut DbConnection,
@@ -700,7 +699,7 @@ pub fn update_ticket_partial(
         // saves that close the ticket at once see one close between them.
         let previous = (ticket_update.assignee_uuid.is_some()
             || ticket_update.workflow_state_id.is_some())
-        .then_some(locked);
+        .then_some(&locked);
         if let (Some(Some(assignee)), Some(previous)) = (ticket_update.assignee_uuid, &previous) {
             if previous.assignee_uuid != Some(assignee) {
                 crate::repository::assignees::ensure_assignable(
@@ -760,11 +759,18 @@ pub fn update_ticket_partial(
                     json!(previous.workflow_state_id),
                 );
             }
-            // What the update set, for consumers that filter on it (event
-            // rules); the event type names only the most specific of them.
+            // What the update changed, for consumers that filter on it (event
+            // rules); the event type names only the most specific of them. A
+            // field set to the value it had is left out.
+            let category_changed = locked.workflow_state_id != result.workflow_state_id
+                && crate::repository::workflow_states::category_of(conn, locked.workflow_state_id)?
+                    != crate::repository::workflow_states::category_of(
+                        conn,
+                        result.workflow_state_id,
+                    )?;
             obj.insert(
                 "changed_fields".into(),
-                json!(ticket_update.changed_fields()),
+                json!(ticket_update.changed_fields(&locked, &result, category_changed)),
             );
         }
         emit::record(

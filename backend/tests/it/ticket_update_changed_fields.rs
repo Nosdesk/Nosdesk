@@ -1,9 +1,11 @@
-//! A ticket update's sync action names what the update set in
-//! `data.changed_fields` (`ticket.<column>`, sorted; a state change also names
-//! `ticket.workflow_state.category`; a tag change names `ticket.tag_ids`), so an
-//! event rule can filter on it. One update is still one event, an update that
-//! sets nothing records none, and the consumers that read the rest of `data`
-//! (the notification outbox trigger and deriver) work as before.
+//! A ticket update's sync action names what the update changed in
+//! `data.changed_fields` (`ticket.<column>`, sorted; a move to another state
+//! category also names `ticket.workflow_state.category`; a tag change names
+//! `ticket.tag_ids`), so an event rule can filter on it. A field set to the
+//! value it had is left out. One update is still one event, an update that
+//! sets nothing records none, one whose fields all echo records its event with
+//! an empty list, and the consumers that read the rest of `data` (the
+//! notification outbox trigger and deriver) work as before.
 
 use std::sync::Arc;
 
@@ -40,6 +42,8 @@ struct Fixture {
     ticket: i32,
     /// A state in another category than the ticket's default one.
     active_state: i32,
+    /// Another state in the same category as `active_state`.
+    other_active_state: i32,
     tags: [i32; 2],
     search: Arc<SearchService>,
     storage: Arc<dyn Storage>,
@@ -52,43 +56,56 @@ fn seed(db: &common::TestDb) -> Fixture {
     let ws = common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
     let admin = ws.admin_uuid;
     let agent = common::insert_plain_user(&mut pool.get().expect("conn"), "Agent");
-    let (ticket, active_state, tags) = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
-        add_membership(
-            c,
-            ws.workspace_id,
-            agent,
-            "agent",
-            SeatWriteAuthority::ControlPlane,
-        )?;
-        let default = backend::repository::workflow_states::default_state(c)?;
-        assert_ne!(default.category, WorkflowStateCategory::Active);
-        let active = backend::repository::workflow_states::first_in_category(
-            c,
-            WorkflowStateCategory::Active,
-        )?;
-        let ticket: i32 = diesel::insert_into(backend::schema::tickets::table)
-            .values(&NewTicket {
-                title: "Printer offline".to_string(),
-                workflow_state_id: default.id,
-                ..Default::default()
-            })
-            .returning(backend::schema::tickets::id)
-            .get_result(c)?;
-        let tag = |c: &mut backend::db::DbConnection, name: &str| {
-            backend::repository::tags::create_tag(
+    let (ticket, active_state, other_active_state, tags) =
+        run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+            add_membership(
                 c,
-                NewTag {
-                    name: name.to_string(),
-                    color: None,
-                    description: None,
+                ws.workspace_id,
+                agent,
+                "agent",
+                SeatWriteAuthority::ControlPlane,
+            )?;
+            let default = backend::repository::workflow_states::default_state(c)?;
+            assert_ne!(default.category, WorkflowStateCategory::Active);
+            let active = backend::repository::workflow_states::first_in_category(
+                c,
+                WorkflowStateCategory::Active,
+            )?;
+            let ticket: i32 = diesel::insert_into(backend::schema::tickets::table)
+                .values(&NewTicket {
+                    title: "Printer offline".to_string(),
+                    workflow_state_id: default.id,
+                    ..Default::default()
+                })
+                .returning(backend::schema::tickets::id)
+                .get_result(c)?;
+            let tag = |c: &mut backend::db::DbConnection, name: &str| {
+                backend::repository::tags::create_tag(
+                    c,
+                    NewTag {
+                        name: name.to_string(),
+                        color: None,
+                        description: None,
+                    },
+                )
+                .map(|t| t.id)
+            };
+            let tags = [tag(c, "hardware")?, tag(c, "network")?];
+            let other_active = backend::repository::workflow_states::create(
+                c,
+                backend::models::NewWorkflowState {
+                    name: "Waiting on vendor".to_string(),
+                    category: WorkflowStateCategory::Active,
+                    color: "#888888".to_string(),
+                    position: 99,
+                    is_default: false,
+                    created_by: None,
+                    pauses_sla: false,
                 },
-            )
-            .map(|t| t.id)
-        };
-        let tags = [tag(c, "hardware")?, tag(c, "network")?];
-        Ok::<_, diesel::result::Error>((ticket, active.id, tags))
-    })
-    .expect("seed ticket");
+            )?;
+            Ok::<_, diesel::result::Error>((ticket, active.id, other_active.id, tags))
+        })
+        .expect("seed ticket");
     let storage_dir = tempfile::tempdir().expect("storage dir");
     let storage = create_storage(StorageConfig::Local {
         base_path: storage_dir.path().to_string_lossy().into_owned(),
@@ -102,6 +119,7 @@ fn seed(db: &common::TestDb) -> Fixture {
         agent,
         ticket,
         active_state,
+        other_active_state,
         tags,
         search,
         storage,
@@ -409,4 +427,48 @@ async fn a_sync_push_update_lists_what_it_set() {
         ]
     );
     assert_eq!(changed_fields(&events[1]), ["ticket.tag_ids"]);
+}
+
+#[actix_web::test]
+async fn a_field_set_to_its_value_is_left_out() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    patch(&f, json!({ "priority": "high" })).await;
+
+    // REST: the current priority resent with a real title change.
+    let before = newest(&f);
+    patch(&f, json!({ "priority": "high", "title": "Printer jammed" })).await;
+    let events = events_after(&f, before);
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].event_type, "ticket.priority_changed");
+    assert_eq!(changed_fields(&events[0]), ["ticket.title"]);
+
+    // Sync push: the same.
+    let before = newest(&f);
+    push(&f, json!({ "priority": "high", "title": "Printer fixed" })).await;
+    let events = events_after(&f, before);
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(changed_fields(&events[0]), ["ticket.title"]);
+
+    // Every field an echo: the event is recorded as before, changing nothing.
+    let before = newest(&f);
+    patch(&f, json!({ "priority": "high" })).await;
+    let events = events_after(&f, before);
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].event_type, "ticket.priority_changed");
+    assert!(changed_fields(&events[0]).is_empty(), "{}", events[0].data);
+}
+
+#[actix_web::test]
+async fn a_move_within_a_category_leaves_the_category_out() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    patch(&f, json!({ "workflow_state_id": f.active_state })).await;
+
+    let before = newest(&f);
+    patch(&f, json!({ "workflow_state_id": f.other_active_state })).await;
+    let events = events_after(&f, before);
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].event_type, "ticket.workflow_state_changed");
+    assert_eq!(changed_fields(&events[0]), ["ticket.workflow_state_id"]);
 }
