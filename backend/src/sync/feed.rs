@@ -61,3 +61,51 @@ pub fn current_horizon(conn: &mut DbConnection) -> QueryResult<i64> {
     ))
     .get_result(conn)
 }
+
+/// Whether the feed holds the row that marks a change in what `user_uuid`
+/// may see (`repository::documentation::ACCESS_CHANGED`) in the span one
+/// delta page moved the cursor over, from `from` to `to`. Read apart from the
+/// page's own query because the row is addressed to that person alone
+/// (`user:<uuid>`), a group clients don't ask the delta for.
+///
+/// The span is whole transactions: those with `from.xid8 < xid8 <= to.xid8`.
+/// The marker shares a transaction with the write that changed the access,
+/// and may come after that write's last row on the page (a group join records
+/// the membership first), so a span cut at `to.sync_id` would miss it until
+/// some later write moved the cursor on. A page that ends inside a transaction
+/// claims all of it, and the next page, starting at that xid8, claims none of
+/// it, so each marker is reported once. Every transaction up to `to.xid8` has
+/// settled, since a row of it is on the page. With `legacy` (a cursor without an
+/// xid8, from clients that predate this flag) the span is by `sync_id`, as
+/// that delta reads.
+pub fn access_changed_between(
+    conn: &mut DbConnection,
+    user_uuid: uuid::Uuid,
+    from: FeedCursor,
+    to: FeedCursor,
+    legacy: bool,
+) -> QueryResult<bool> {
+    use crate::schema::sync_actions::dsl as sa;
+    let marker = sa::sync_actions
+        .filter(sa::aggregate.eq(crate::models::SyncAggregate::User))
+        .filter(sa::aggregate_id.eq(user_uuid.to_string()))
+        .filter(sa::event_type.eq(crate::repository::documentation::ACCESS_CHANGED))
+        .filter(below_horizon())
+        .into_boxed();
+    let in_span = if legacy {
+        if to.sync_id <= from.sync_id {
+            return Ok(false);
+        }
+        marker
+            .filter(sa::sync_id.gt(from.sync_id))
+            .filter(sa::sync_id.le(to.sync_id))
+    } else {
+        if to.xid8 <= from.xid8 {
+            return Ok(false);
+        }
+        marker
+            .filter(sa::xid8.gt(from.xid8))
+            .filter(sa::xid8.le(to.xid8))
+    };
+    diesel::select(diesel::dsl::exists(in_span)).get_result(conn)
+}

@@ -389,3 +389,205 @@ fn a_doc_row_whose_lookup_fails_is_not_passed_over() {
         Err(diesel::result::Error::RollbackTransaction)
     });
 }
+
+/// GET `uri` as `viewer` through the sync handlers, with `seed`'s workspace
+/// resolved for the request, as JSON.
+async fn sync_get_as(
+    pool: &crate::common::TestPool,
+    seed: &crate::common::WorkspaceSeed,
+    viewer: Uuid,
+    uri: &str,
+) -> String {
+    use actix_web::dev::Service;
+    use actix_web::{test as http_test, web, App, HttpMessage};
+    let claims = backend::models::Claims {
+        sub: viewer.to_string(),
+        name: "Viewer".to_string(),
+        email: format!("{}@visibility.test", viewer.simple()),
+        platform_role: "user".to_string(),
+        scope: "full".to_string(),
+        sid: None,
+        workspace_uuid: None,
+        exp: (chrono::Utc::now().timestamp() + 3600) as usize,
+        iat: chrono::Utc::now().timestamp() as usize,
+    };
+    let workspace = backend::extractors::WorkspaceContext {
+        workspace_id: seed.workspace_id,
+        workspace_uuid: seed.workspace_uuid,
+        slug: seed.slug.clone(),
+        name: seed.slug.clone(),
+        organisation_id: None,
+        custom_domain: None,
+    };
+    let corr = Uuid::now_v7();
+    let actor = backend::sync::actor::ActorContext::user(viewer, Some(corr))
+        .with_workspace(seed.workspace_id);
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(workspace.clone());
+                req.extensions_mut().insert(claims.clone());
+                req.extensions_mut()
+                    .insert(backend::middleware::RequestContext::new(
+                        corr,
+                        actor.clone(),
+                    ));
+                srv.call(req)
+            })
+            .service(web::scope("/api").configure(backend::handlers::sync::config)),
+    )
+    .await;
+    let resp =
+        http_test::call_service(&app, http_test::TestRequest::get().uri(uri).to_request()).await;
+    let status = resp.status();
+    let body = String::from_utf8(http_test::read_body(resp).await.to_vec()).expect("utf8 body");
+    assert_eq!(status, 200, "GET {uri}: {body}");
+    body
+}
+
+/// A delta whose span holds the change in what its viewer may see asks that
+/// viewer for a fresh snapshot, whichever groups it named: the marker is
+/// addressed to them alone, in a group clients don't ask the delta for.
+/// Anyone else reading the same span, and the viewer's next page, gets no flag.
+#[actix_web::test]
+async fn a_delta_over_the_viewers_access_change_asks_for_a_fresh_snapshot() {
+    use backend::repository::workspaces::{add_membership, upsert_membership_role};
+    use backend::schema::sync_actions;
+    use backend::sync::actor::ActorContext;
+    use backend::sync::session::{run_in_workspace, with_actor_context};
+
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let a = &ws.a;
+    let workspace_group = format!("workspace:{}", a.workspace_id);
+    let admin_in_a = ActorContext::user(a.admin_uuid, None).with_workspace(a.workspace_id);
+
+    let agent = {
+        let mut conn = pool.get().expect("conn");
+        let agent = crate::common::insert_plain_user(&mut conn, "Demoted Agent");
+        with_actor_context::<_, diesel::result::Error>(&mut conn, &admin_in_a, |c| {
+            add_membership(
+                c,
+                a.workspace_id,
+                agent,
+                "agent",
+                backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+            )?;
+            Ok(())
+        })
+        .expect("add the agent");
+        agent
+    };
+
+    // The newest action A's workspace group holds.
+    let newest_in_a = || -> i64 {
+        run_in_workspace(&pool, "test:sync_visibility", a.workspace_id, |c| {
+            sync_actions::table
+                .filter(sync_actions::groups.overlaps_with(vec![Some(workspace_group.clone())]))
+                .select(diesel::dsl::max(sync_actions::sync_id))
+                .first::<Option<i64>>(c)
+        })
+        .expect("newest action")
+        .expect("the workspace has actions")
+    };
+    // `viewer`'s delta from `from` once it covers `newest`.
+    let delta_after = |viewer: Uuid, from: (i64, i64), legacy: bool, newest: i64| {
+        let pool = pool.clone();
+        let workspace_group = workspace_group.clone();
+        async move {
+            let mut uri = format!(
+                "/api/sync/delta?from={}&limit=5000&groups={workspace_group}",
+                from.0
+            );
+            if !legacy {
+                uri.push_str(&format!("&from_xid8={}", from.1));
+            }
+            let wait = crate::common::FeedWait::new(newest);
+            loop {
+                let body: serde_json::Value =
+                    serde_json::from_str(&sync_get_as(&pool, a, viewer, &uri).await)
+                        .expect("delta json");
+                if body["last_sync_id"].as_i64().expect("last_sync_id") >= newest {
+                    break body;
+                }
+                wait.pause().await;
+            }
+        }
+    };
+    let cursor_of = |page: &serde_json::Value| {
+        (
+            page["last_sync_id"].as_i64().expect("last_sync_id"),
+            page["last_xid8"].as_i64().expect("last_xid8"),
+        )
+    };
+
+    // A cursor past everything so far, the joins that seeded A included
+    // (each of those changed what its person may see, too).
+    let caught_up = delta_after(agent, (0, 0), false, newest_in_a()).await;
+    let cursor = cursor_of(&caught_up);
+
+    with_actor_context::<_, diesel::result::Error>(
+        &mut pool.get().expect("conn"),
+        &admin_in_a,
+        |c| upsert_membership_role(c, a.workspace_id, agent, "member").map(|_| ()),
+    )
+    .expect("demote the agent");
+    let newest = newest_in_a();
+
+    let page = delta_after(agent, cursor, false, newest).await;
+    assert_eq!(page["resnapshot"], true, "the demoted viewer: {page}");
+    let legacy = delta_after(agent, cursor, true, newest).await;
+    assert_eq!(
+        legacy["resnapshot"], true,
+        "a cursor without an xid8: {legacy}"
+    );
+
+    let colleague = delta_after(a.admin_uuid, cursor, false, newest).await;
+    assert!(
+        colleague.get("resnapshot").is_none(),
+        "someone else over the same span: {colleague}"
+    );
+
+    let next = cursor_of(&page);
+    let after = sync_get_as(
+        &pool,
+        a,
+        agent,
+        &format!(
+            "/api/sync/delta?from={}&from_xid8={}&groups={workspace_group}",
+            next.0, next.1
+        ),
+    )
+    .await;
+    let after: serde_json::Value = serde_json::from_str(&after).expect("delta json");
+    assert!(
+        after.get("resnapshot").is_none(),
+        "the page after the change: {after}"
+    );
+
+    // A group join records the membership before the marker, so the page
+    // can end on the membership row with the marker after it in the same
+    // transaction; the flag still rides that page.
+    with_actor_context::<_, diesel::result::Error>(
+        &mut pool.get().expect("conn"),
+        &admin_in_a,
+        |c| {
+            let group: i32 = diesel::insert_into(backend::schema::groups::table)
+                .values(backend::schema::groups::name.eq("Night shift"))
+                .returning(backend::schema::groups::id)
+                .get_result(c)?;
+            backend::repository::groups::add_user_to_group(c, agent, group, None).map(|_| ())
+        },
+    )
+    .expect("add the agent to a group");
+    let joined = delta_after(agent, next, false, newest_in_a()).await;
+    assert_eq!(joined["resnapshot"], true, "a group join: {joined}");
+    let then = delta_after(agent, cursor_of(&joined), false, newest_in_a()).await;
+    assert!(
+        then.get("resnapshot").is_none(),
+        "the join is reported once: {then}"
+    );
+}
