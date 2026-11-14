@@ -6,6 +6,7 @@ import { useToastStore } from '@nosdesk/core/stores/toast';
 import Icon from '@/components/common/Icon.vue';
 import { MediaRecorder as WavMediaRecorder, type IMediaRecorder } from 'extendable-media-recorder';
 import { ensureWavEncoder } from '@/utils/wavEncoder';
+import { claimRecordingSession } from '@/utils/audioSession';
 
 const toast = useToastStore();
 
@@ -304,6 +305,9 @@ const getSupportedMimeType = (): string => 'audio/wav';
 // Track the MIME type used for recording
 const recordingMimeType = ref<string>('');
 
+// Puts the audio session back once the recording ends; see utils/audioSession.
+let releaseAudioSession = () => {};
+
 // Start recording
 const startRecording = async () => {
   try {
@@ -311,6 +315,7 @@ const startRecording = async () => {
     // recorder is constructed.
     await ensureWavEncoder();
 
+    releaseAudioSession = claimRecordingSession();
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -365,6 +370,7 @@ const startRecording = async () => {
     }
   } catch (error) {
     console.error("Error accessing microphone:", error);
+    releaseAudioSession();
     toast.error($t('ticket-media-voice-mic-error'));
     emit('cancel');
   }
@@ -410,6 +416,7 @@ const cancelRecording = () => {
 
 const cleanup = () => {
   isRecording.value = false;
+  releaseAudioSession();
   stopSpeech();
   if (recordingTimer.value) {
     clearInterval(recordingTimer.value);
