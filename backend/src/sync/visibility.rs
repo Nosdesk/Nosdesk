@@ -208,6 +208,14 @@ pub fn names_only_the_row(data: &serde_json::Value) -> bool {
         .is_some_and(|o| !o.is_empty() && o.keys().all(|k| k == "id" || k == "uuid"))
 }
 
+/// Whether a feed row with this `event_type` and `aggregate_id` records a
+/// change in what the person `user_uuid` may see in the workspace (see
+/// `repository::documentation::emit_if_access_changed`). The live stream ends
+/// on one; the delta asks the client for a fresh snapshot.
+pub fn marks_access_change_for(event_type: &str, aggregate_id: &str, user_uuid: Uuid) -> bool {
+    event_type == documentation::ACCESS_CHANGED && aggregate_id == user_uuid.to_string()
+}
+
 /// Records about an asset that reach requesters: the asset, its link to a
 /// ticket, usage on a ticket, and a loan to them. None of them reaches a
 /// requester when the workspace shows requesters no assets.

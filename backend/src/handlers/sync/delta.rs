@@ -117,6 +117,13 @@ pub struct DeltaResponse {
     /// rather than flickering chrome off over a transient error.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<super::CapabilityFlags>,
+    /// What the viewer may see changed (a role, a membership, a group)
+    /// within the span this page moved the cursor over, so rows they held may
+    /// no longer be theirs and rows they now may see never reached them. The
+    /// client takes a fresh snapshot of its groups. Sent only when set, so
+    /// every other response reads as before.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub resnapshot: bool,
 }
 
 /// Smallest `sync_id` still present in `sync_actions`, or `None` when the
@@ -241,6 +248,7 @@ pub async fn delta(
             resync_required,
             workspace_epoch,
             capabilities,
+            resnapshot: false,
         });
     }
 
@@ -317,6 +325,30 @@ pub async fn delta(
         .map(|a| a.xid8)
         .unwrap_or(query.from_xid8.unwrap_or(0));
 
+    // The viewer's own access-change marker anywhere in the span this page
+    // covers, whichever groups it asked for: the marker is addressed to them
+    // alone, and the live stream that would have ended on it may not have
+    // been connected. A failed read sends no flag, as before it existed.
+    let resnapshot = {
+        let user_uuid = viewer.ctx.user_uuid;
+        let from = crate::sync::feed::FeedCursor {
+            xid8: query.from_xid8.unwrap_or(0),
+            sync_id: query.from,
+        };
+        let to = crate::sync::feed::FeedCursor {
+            xid8: last_xid8,
+            sync_id: last_sync_id,
+        };
+        let legacy = query.from_xid8.is_none();
+        tc.run(move |conn| {
+            crate::sync::feed::access_changed_between(conn, user_uuid, from, to, legacy)
+        })
+        .unwrap_or_else(|e| {
+            error!(error = %e, "delta: access-change probe failed; sending no resnapshot");
+            false
+        })
+    };
+
     // Read-side visibility, via the shared sync-visibility layer: each
     // kind of record reaches only its audience (`sync::audience`), a
     // documentation record the viewer can't open arrives as a delete, and
@@ -372,6 +404,7 @@ pub async fn delta(
         resync_required,
         workspace_epoch,
         capabilities,
+        resnapshot,
     })
 }
 

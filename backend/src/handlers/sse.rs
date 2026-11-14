@@ -646,10 +646,15 @@ fn marks_access_change_for(
     row: &serde_json::Value,
     viewer: &crate::sync::visibility::SyncViewer,
 ) -> bool {
-    row.get("event_type").and_then(|v| v.as_str())
-        == Some(crate::repository::documentation::ACCESS_CHANGED)
-        && row.get("aggregate_id").and_then(|v| v.as_str())
-            == Some(viewer.ctx.user_uuid.to_string().as_str())
+    let field = |name: &str| row.get(name).and_then(|v| v.as_str());
+    match (field("event_type"), field("aggregate_id")) {
+        (Some(event_type), Some(aggregate_id)) => crate::sync::visibility::marks_access_change_for(
+            event_type,
+            aggregate_id,
+            viewer.ctx.user_uuid,
+        ),
+        _ => false,
+    }
 }
 
 /// Frame a `SyncActions` envelope with each row as `decided` says: as
