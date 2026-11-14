@@ -17,7 +17,8 @@
 //! comments, and attachments stay lazy-loaded through `useReference`
 //! so the bootstrap stays bounded even on enterprise-scale workspaces.
 
-use std::collections::HashSet;
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, HashSet};
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use bytes::Bytes;
@@ -27,7 +28,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::db::Pool;
 use crate::extractors::SyncContext;
@@ -96,23 +97,35 @@ pub async fn bootstrap(
     // bytes back through the channel so the Actix response future
     // can stay async-friendly.
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = stream_bootstrap(
+        let started = std::time::Instant::now();
+        let sink = Sink::new(tx);
+        let result = stream_bootstrap(
             &pool_clone,
             &actor,
             &user,
             &granted_clone,
             &requested_groups,
-            &tx,
-        ) {
+            &sink,
+        );
+        let outcome = match &result {
+            Ok(()) => "complete",
+            Err(_) if sink.tx.is_closed() => "disconnected",
+            Err(_) => "failed",
+        };
+        if let Err(e) = result {
             error!(error = %e, "bootstrap streaming failed");
             // Best-effort: ship an `__error__` line so the client
             // can surface a useful message instead of just seeing
             // the stream close mid-snapshot.
-            let _ = tx.blocking_send(Ok(line(json!({
-                "__error__": "stream_failed",
-                "detail": e.to_string(),
-            }))));
+            let _ = send(
+                &sink,
+                json!({
+                    "__error__": "stream_failed",
+                    "detail": e.to_string(),
+                }),
+            );
         }
+        sink.log(actor.workspace_id, outcome, started.elapsed());
     });
 
     let body =
@@ -128,7 +141,7 @@ fn stream_bootstrap(
     user: &User,
     granted: &[String],
     requested_groups: &str,
-    tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+    tx: &Sink,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut conn = pool.get()?;
 
@@ -150,7 +163,7 @@ fn stream_bootstrap_inner(
     user: &User,
     granted_static: &[String],
     requested_groups: &str,
-    tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+    tx: &Sink,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Admit `ticket:<id>` groups the caller can read on top of the
     // statically-granted set. They aren't in `allowed_for_user`
@@ -165,6 +178,7 @@ fn stream_bootstrap_inner(
     let viewer = crate::sync::visibility::SyncViewer::resolve(conn, user);
     let mut granted: Vec<String> = granted_static.to_vec();
     crate::sync::groups::admit_ticket_groups(conn, requested_groups, &viewer.ctx, &mut granted);
+    tx.note_groups(&granted);
     let granted: &[String] = &granted;
 
     // The workspace-wide grant for THIS snapshot's workspace — derived
@@ -712,7 +726,7 @@ fn stream_ticket_detail_extras(
     ticket_ids: &[i32],
     sees_all: bool,
     assets_visible: bool,
-    tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+    tx: &Sink,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Restricted viewers see only public comments on their visible
     // tickets (mirrors `get_public_comments_by_ticket_id`); their
@@ -850,7 +864,7 @@ fn stream_ticket_detail_extras(
 }
 
 fn finish(
-    tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+    tx: &Sink,
     last_xid8: i64,
     last_sync_id: i64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -862,16 +876,88 @@ fn finish(
 }
 
 fn send(
-    tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+    tx: &Sink,
     value: serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if tx.blocking_send(Ok(line(value))).is_err() {
+    let model = value
+        .get("__model__")
+        .and_then(|m| m.as_str())
+        .map(str::to_string);
+    let bytes = line(value);
+    let len = bytes.len() as u64;
+    if tx.tx.blocking_send(Ok(bytes)).is_err() {
         // Receiver dropped — client disconnected. Bail out of the
         // loop without surfacing as an error; the spawn_blocking
         // task ends, the connection releases, no rows leaked.
         return Err("client disconnected".into());
     }
+    tx.sent(model, len);
     Ok(())
+}
+
+/// The response channel, and a tally of what this bootstrap sent down it for
+/// its log line: the kinds of group granted, rows per aggregate, and bytes.
+struct Sink {
+    tx: mpsc::Sender<Result<Bytes, std::io::Error>>,
+    groups: RefCell<BTreeMap<String, u64>>,
+    rows: RefCell<BTreeMap<String, u64>>,
+    bytes: Cell<u64>,
+}
+
+impl Sink {
+    fn new(tx: mpsc::Sender<Result<Bytes, std::io::Error>>) -> Self {
+        Self {
+            tx,
+            groups: RefCell::default(),
+            rows: RefCell::default(),
+            bytes: Cell::new(0),
+        }
+    }
+
+    /// Record the granted groups by kind (`workspace`, `project`, `ticket`),
+    /// never by id.
+    fn note_groups(&self, granted: &[String]) {
+        let mut groups = self.groups.borrow_mut();
+        for g in granted {
+            let kind = g.split_once(':').map_or(g.as_str(), |(kind, _)| kind);
+            *groups.entry(kind.to_string()).or_default() += 1;
+        }
+    }
+
+    /// Count one line the response took: `len` bytes, and a row of `model`
+    /// unless it was the header, the end or an error.
+    fn sent(&self, model: Option<String>, len: u64) {
+        self.bytes.set(self.bytes.get() + len);
+        if let Some(model) = model {
+            *self.rows.borrow_mut().entry(model).or_default() += 1;
+        }
+    }
+
+    /// One line per bootstrap, whatever its outcome, so what a snapshot
+    /// costs (rows, bytes, time) can be read per workspace. Counts and
+    /// aggregate names only: `bootstrap_groups` reads like
+    /// `project=1 workspace=1`, `bootstrap_rows` like `ticket=120 user=14`.
+    /// The time runs from the first query to the last line handed to the
+    /// response, so a slow reader counts too.
+    fn log(&self, workspace_id: Option<i32>, outcome: &str, elapsed: std::time::Duration) {
+        let tally = |m: &BTreeMap<String, u64>| {
+            m.iter()
+                .map(|(k, n)| format!("{k}={n}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let rows = self.rows.borrow();
+        info!(
+            workspace_id,
+            outcome,
+            bootstrap_groups = %tally(&self.groups.borrow()),
+            bootstrap_rows = %tally(&rows),
+            count = rows.values().sum::<u64>(),
+            byte_count = self.bytes.get(),
+            elapsed_ms = elapsed.as_millis() as u64,
+            "sync: bootstrap streamed"
+        );
+    }
 }
 
 fn line(value: serde_json::Value) -> Bytes {
@@ -920,5 +1006,39 @@ mod tests {
         // every client would treat their cached state as out of
         // sync on every cold start.
         assert!(!SERVER_SCHEMA_HASH.is_empty());
+    }
+
+    /// The log line's tally: groups by kind, rows by aggregate (the header
+    /// and end lines are not rows), and every byte handed to the response.
+    #[test]
+    fn the_sink_tallies_what_the_bootstrap_sent() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let sink = Sink::new(tx);
+        sink.note_groups(&[
+            "workspace:3".to_string(),
+            "ticket:7".to_string(),
+            "ticket:9".to_string(),
+        ]);
+        send(&sink, json!({ "__meta__": {} })).expect("send");
+        send(&sink, json!({ "__model__": "ticket", "id": 7 })).expect("send");
+        send(&sink, json!({ "__model__": "ticket", "id": 9 })).expect("send");
+        send(&sink, json!({ "__model__": "comment", "id": 1 })).expect("send");
+        finish(&sink, 0, 0).expect("finish");
+
+        let mut sent = 0;
+        while let Ok(Ok(bytes)) = rx.try_recv() {
+            sent += bytes.len() as u64;
+        }
+        assert_eq!(sink.bytes.get(), sent);
+        let groups: Vec<(String, u64)> = sink.groups.borrow().clone().into_iter().collect();
+        assert_eq!(
+            groups,
+            vec![("ticket".to_string(), 2), ("workspace".to_string(), 1)]
+        );
+        let rows: Vec<(String, u64)> = sink.rows.borrow().clone().into_iter().collect();
+        assert_eq!(
+            rows,
+            vec![("comment".to_string(), 1), ("ticket".to_string(), 2)]
+        );
     }
 }
