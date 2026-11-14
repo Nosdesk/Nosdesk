@@ -307,6 +307,12 @@ const ALLOWED_FIELDS: &[&str] = &[
     // Hosted sign-in start (`hosted_login`): whether that sign-in had to build
     // the OIDC client first (discovery). A bool.
     "client_cold",
+    // Sync bootstrap cost (`handlers::sync::bootstrap`): the granted groups
+    // by kind and the rows sent per aggregate, each a `name=count` list such
+    // as `project=1 workspace=1` or `ticket=120 user=14`. Group kinds and
+    // aggregate names are closed sets from the code; no id, name or content.
+    "bootstrap_groups",
+    "bootstrap_rows",
 ];
 
 // ALLOWED_FIELDS naming convention.
