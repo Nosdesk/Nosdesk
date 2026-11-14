@@ -45,9 +45,28 @@ export async function openAppStore(): Promise<void> {
   await openInBrowser(appStoreUrl())
 }
 
+/**
+ * Connect to a validated server and dismiss the gate. The gate can come back
+ * over a running app, when the stored server stops working with it; that
+ * app's session, stores and cached queries belong to the old server (a
+ * workspace slug can exist on both), so it reloads onto the new one, as
+ * `returnToConnect` does.
+ */
+async function switchToServer(origin: string): Promise<void> {
+  const { getStoredServer, setServer } = await import('@nosdesk/mobile')
+  const replacing = getStoredServer() !== null
+  await setServer(origin)
+  // Before the gate drops, or the old app would render again until the reload.
+  if (replacing) {
+    window.location.reload()
+    return
+  }
+  needsServerSelection.value = false
+}
+
 /** Connect to the official cloud and dismiss the gate. */
 export async function selectCloud(): Promise<{ ok: boolean; error?: string }> {
-  const { validateServer, setServer, DEFAULT_SERVER } = await import('@nosdesk/mobile')
+  const { validateServer, DEFAULT_SERVER } = await import('@nosdesk/mobile')
   // Validate before committing, exactly as `connectTo` does. This used to set
   // the server unconditionally, so if the cloud host was unreachable or not yet
   // a configured Nosdesk instance the gate still dismissed and the user landed
@@ -56,8 +75,7 @@ export async function selectCloud(): Promise<{ ok: boolean; error?: string }> {
   const result = await validateServer(DEFAULT_SERVER)
   appUpdateNeeded.value = result.appOutdated === true
   if (!result.ok || !result.origin) return { ok: false, error: result.error }
-  await setServer(result.origin)
-  needsServerSelection.value = false
+  await switchToServer(result.origin)
   return { ok: true }
 }
 
@@ -66,12 +84,11 @@ export async function selectCloud(): Promise<{ ok: boolean; error?: string }> {
  * the gate. Returns the validation error otherwise (the screen displays it).
  */
 export async function connectTo(input: string): Promise<{ ok: boolean; error?: string }> {
-  const { validateServer, setServer } = await import('@nosdesk/mobile')
+  const { validateServer } = await import('@nosdesk/mobile')
   const result = await validateServer(input)
   appUpdateNeeded.value = result.appOutdated === true
   if (!result.ok || !result.origin) return { ok: false, error: result.error }
-  await setServer(result.origin)
-  needsServerSelection.value = false
+  await switchToServer(result.origin)
   return { ok: true }
 }
 

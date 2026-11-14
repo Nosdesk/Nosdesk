@@ -130,6 +130,53 @@ describe('launching with a stored server', () => {
     tauri.appVersion = '1.1.0'
   })
 
+  it('reloads onto the next server, so nothing from the old one carries over', async () => {
+    const reload = vi.fn()
+    const location = window.location
+    Object.defineProperty(window, 'location', {
+      value: { ...location, reload },
+      configurable: true,
+      writable: true,
+    })
+    try {
+      http.fetch.mockResolvedValue(json({ code: 'AUTH_REQUIRED' }, 401))
+      const gate = await launch('https://old.example.com')
+      await vi.waitFor(() => expect(gate.needsServerSelection.value).toBe(true))
+
+      serverWith(json({ server_version: '1.1.0', min_app_version: '1.1.0' }))
+      expect(await gate.connectTo('new.example.com')).toEqual({ ok: true })
+      const { getStoredServer } = await import('@nosdesk/mobile')
+      expect(getStoredServer()).toBe('https://new.example.com')
+      expect(reload).toHaveBeenCalledOnce()
+    } finally {
+      Object.defineProperty(window, 'location', { value: location, configurable: true, writable: true })
+    }
+  })
+
+  it('connects without a reload on first run', async () => {
+    const reload = vi.fn()
+    const location = window.location
+    Object.defineProperty(window, 'location', {
+      value: { ...location, reload },
+      configurable: true,
+      writable: true,
+    })
+    try {
+      const { storage } = await import('@nosdesk/core/storage')
+      storage().removeItem('nosdesk:server-origin')
+      const gate = await import('./serverGate')
+      await gate.initServerGate()
+      expect(gate.needsServerSelection.value).toBe(true)
+
+      serverWith(json({ server_version: '1.1.0', min_app_version: '1.1.0' }))
+      expect(await gate.connectTo('new.example.com')).toEqual({ ok: true })
+      expect(gate.needsServerSelection.value).toBe(false)
+      expect(reload).not.toHaveBeenCalled()
+    } finally {
+      Object.defineProperty(window, 'location', { value: location, configurable: true, writable: true })
+    }
+  })
+
   it('stays put when the server is current or out of reach', async () => {
     http.fetch.mockResolvedValue(json({ server_version: '1.1.0', min_app_version: '1.1.0' }))
     let gate = await launch('https://help.example.com')
