@@ -75,6 +75,40 @@ pub fn capability_flags(
     }
 }
 
+/// `SYNC_SNAPSHOT_MAX_AGE_SECS` when unset: a day.
+const DEFAULT_SNAPSHOT_MAX_AGE_SECS: u64 = 86_400;
+
+/// How old a client's snapshot of a group may grow, in seconds, before the
+/// client takes a fresh snapshot instead of catching up by delta. A fresh
+/// snapshot drops whatever the client holds that the group no longer has, so
+/// this bounds how long a missed removal can linger. `0` turns it off.
+///
+/// Set by `SYNC_SNAPSHOT_MAX_AGE_SECS` (default a day) and sent in the
+/// bootstrap `__meta__` and on every delta, so the server owns the number.
+/// The client times the age on its own clock from when it took the snapshot,
+/// so clock skew between the two doesn't matter.
+pub fn snapshot_max_age_secs() -> u64 {
+    static SECS: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *SECS.get_or_init(|| {
+        parse_snapshot_max_age(std::env::var("SYNC_SNAPSHOT_MAX_AGE_SECS").ok().as_deref())
+    })
+}
+
+/// `SYNC_SNAPSHOT_MAX_AGE_SECS` as seconds. Unset or blank is the default; a
+/// value that isn't a whole number of seconds is ignored with a warning,
+/// rather than read as `0`, which would turn the fresh snapshots off.
+fn parse_snapshot_max_age(raw: Option<&str>) -> u64 {
+    let Some(raw) = raw.map(str::trim).filter(|r| !r.is_empty()) else {
+        return DEFAULT_SNAPSHOT_MAX_AGE_SECS;
+    };
+    raw.parse::<u64>().unwrap_or_else(|_| {
+        tracing::warn!(
+            "sync: SYNC_SNAPSHOT_MAX_AGE_SECS isn't a whole number of seconds; using {DEFAULT_SNAPSHOT_MAX_AGE_SECS}"
+        );
+        DEFAULT_SNAPSHOT_MAX_AGE_SECS
+    })
+}
+
 /// Sync-engine routes, mounted inside the authenticated `/api` scope in main.rs.
 pub fn config(cfg: &mut actix_web::web::ServiceConfig) {
     use actix_web::web;

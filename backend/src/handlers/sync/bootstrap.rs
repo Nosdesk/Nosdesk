@@ -221,9 +221,10 @@ fn stream_bootstrap_inner(
     // one policy.
     let capabilities = super::capability_flags(conn, &viewer);
 
-    // Header: schema hash, cursor, granted groups, and capability
-    // flags. Clients read this once at the start of every
-    // bootstrap and cache the values for the session.
+    // Header: schema hash, cursor, granted groups, capability flags and
+    // how old a snapshot may grow before the client takes a fresh one.
+    // Clients read this once at the start of every bootstrap and cache
+    // the values for the session.
     send(
         tx,
         json!({
@@ -236,6 +237,7 @@ fn stream_bootstrap_inner(
                 "approvals_enabled": capabilities.approvals_enabled,
                 "approvals_held": capabilities.approvals_held,
                 "assets_visible": capabilities.assets_visible,
+                "snapshot_max_age_secs": super::snapshot_max_age_secs(),
             }
         }),
     )?;

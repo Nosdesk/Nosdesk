@@ -103,6 +103,10 @@ export interface DeltaResponse {
     approvals_held?: boolean
     assets_visible?: boolean
   }
+  /** How old, in seconds, a group's snapshot may grow before the client
+   * takes a fresh one instead of catching up by delta; 0 means never.
+   * Absent from an older backend. */
+  snapshot_max_age_secs?: number
 }
 
 export interface BootstrapMeta {
@@ -127,6 +131,10 @@ export interface BootstrapMeta {
   /** The viewer sees the workspace's assets: staff always, a requester
    * unless the workspace shows requesters none. */
   assets_visible?: boolean
+  /** How old, in seconds, a group's snapshot may grow before the client
+   * takes a fresh one instead of catching up by delta; 0 means never.
+   * Absent from an older backend. */
+  snapshot_max_age_secs?: number
 }
 
 /**

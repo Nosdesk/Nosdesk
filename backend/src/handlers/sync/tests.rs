@@ -838,3 +838,17 @@ fn push_setting_the_requester_decides_whether_staff_raised_it() {
         "handed back to a requester: shared again"
     );
 }
+
+/// `SYNC_SNAPSHOT_MAX_AGE_SECS`: a day when unset, `0` turns the fresh
+/// snapshots off, and a value that doesn't parse keeps the default rather
+/// than turning them off.
+#[test]
+fn snapshot_max_age_reads_seconds_with_a_day_by_default() {
+    use super::parse_snapshot_max_age as parse;
+    assert_eq!(parse(None), 86_400);
+    assert_eq!(parse(Some("")), 86_400);
+    assert_eq!(parse(Some(" 3600 ")), 3_600);
+    assert_eq!(parse(Some("0")), 0);
+    assert_eq!(parse(Some("-1")), 86_400);
+    assert_eq!(parse(Some("1d")), 86_400);
+}
