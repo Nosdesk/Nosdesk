@@ -185,6 +185,7 @@ mod rule_starters;
 mod rules_in_workspace;
 mod rules_paused_state;
 mod rules_preview_match;
+mod rules_run_on_ticket;
 mod scheduler_status;
 mod search_by_ticket_number;
 mod session_csrf_lifetime;

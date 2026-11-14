@@ -549,7 +549,9 @@ fn insert_rule(
             "RULE_VALIDATION",
         )));
     }
-    if let Err(msg) = validate_actions(&actions) {
+    if let Err(msg) = validate_actions(&actions)
+        .and_then(|()| validate_actions_for_trigger(trigger_kind, &actions))
+    {
         return Err(refused(errors::bad_request_with_code(
             msg,
             "RULE_VALIDATION",
@@ -702,6 +704,9 @@ pub async fn update_rule(
     let effective_conditions = conditions.clone().unwrap_or(existing.conditions);
     let effective_actions = actions.clone().unwrap_or(existing.actions);
     let effective_trigger_kind = trigger_kind.unwrap_or(existing.trigger_kind);
+    if let Err(msg) = validate_actions_for_trigger(effective_trigger_kind, &effective_actions) {
+        return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION"));
+    }
     // A dry run shadows an automated trigger (`rules_manual_no_dry_run`).
     if effective_trigger_kind == RuleTriggerKind::Manual && existing.state == RuleState::DryRun {
         return Ok(errors::conflict_with_code(
@@ -856,6 +861,13 @@ pub async fn transition_state(
             ),
             "RULE_STATE_TRANSITION",
         ));
+    }
+    // A rule saved before replies were refused on automated triggers can be
+    // parked and edited, but not run.
+    if matches!(target, RuleState::Live | RuleState::DryRun) {
+        if let Err(msg) = validate_actions_for_trigger(existing.trigger_kind, &existing.actions) {
+            return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION"));
+        }
     }
     // Archive transitions stamp archived_at so the
     // archived-vs-live filter in list_pickable_manual stays
@@ -1247,6 +1259,8 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
         NotFound(_) | TicketNotFound(_) => errors::not_found_msg(message),
         NotLive(..) => errors::conflict_with_code(message, "RULE_NOT_LIVE"),
         NotManual(_) => errors::bad_request_with_code(message, "RULE_NOT_MANUAL"),
+        // Only an automated run meets this; an agent's apply gets NotManual.
+        WrongTrigger(..) => errors::bad_request_with_code(message, "RULE_WRONG_TRIGGER"),
         TicketMerged(_) => errors::bad_request_with_code(message, "RULE_TICKET_MERGED"),
         InvalidOverrideIndex(..) => {
             errors::bad_request_with_code(message, "MANUAL_APPLY_VALIDATION")
@@ -1487,6 +1501,26 @@ fn validate_actions(actions: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// Steps only a manual rule can take. A reply from a rule that runs on its
+/// own waits for the send-as agent and the email loop guard, so until then
+/// it is refused.
+fn validate_actions_for_trigger(kind: RuleTriggerKind, actions: &Value) -> Result<(), String> {
+    if kind == RuleTriggerKind::Manual {
+        return Ok(());
+    }
+    let steps = actions.as_array().map(Vec::as_slice).unwrap_or_default();
+    match steps
+        .iter()
+        .position(|a| a.get("kind").and_then(Value::as_str) == Some("reply"))
+    {
+        Some(i) => Err(format!(
+            "Step {}: only a manual rule can reply for now, so remove the step or use the manual trigger",
+            i + 1
+        )),
+        None => Ok(()),
+    }
+}
+
 /// A step's settings must be complete when the rule is saved, so an agent
 /// never applies a rule that fails on a missing value.
 fn validate_step_config(kind: &str, config: &Value) -> Result<(), &'static str> {
@@ -1669,6 +1703,27 @@ mod tests {
             { "kind": "stop_processing" }
         ]);
         assert!(validate_actions(&actions).is_ok());
+    }
+
+    /// A reply step waits for the send-as agent on any trigger but manual.
+    #[test]
+    fn only_a_manual_rule_can_reply() {
+        let actions = serde_json::json!([
+            { "kind": "set_priority", "config": { "priority": "high" } },
+            { "kind": "reply", "config": { "visibility": "public", "body": "hi" } }
+        ]);
+        assert!(validate_actions_for_trigger(RuleTriggerKind::Manual, &actions).is_ok());
+        for kind in [
+            RuleTriggerKind::TicketCreated,
+            RuleTriggerKind::TicketUpdated,
+            RuleTriggerKind::TicketReplied,
+            RuleTriggerKind::TimeElapsed,
+        ] {
+            let err = validate_actions_for_trigger(kind, &actions).expect_err("refused");
+            assert!(err.starts_with("Step 2: "), "{kind:?}: {err}");
+        }
+        let no_reply = serde_json::json!([{ "kind": "unassign" }]);
+        assert!(validate_actions_for_trigger(RuleTriggerKind::TicketCreated, &no_reply).is_ok());
     }
 
     #[test]
