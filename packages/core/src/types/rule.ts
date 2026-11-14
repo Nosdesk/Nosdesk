@@ -12,7 +12,11 @@ export type RuleTriggerKind =
   | 'ticket_replied'
   | 'time_elapsed';
 
-export type RuleState = 'draft' | 'dry_run' | 'live' | 'archived';
+/**
+ * `paused` is a rule an admin stopped. `dry_run` shadow-runs a rule with an
+ * automated trigger; a manual rule never takes it.
+ */
+export type RuleState = 'draft' | 'dry_run' | 'live' | 'paused' | 'archived';
 
 export type RuleApplicationStatus =
   | 'succeeded'

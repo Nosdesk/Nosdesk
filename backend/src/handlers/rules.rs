@@ -452,23 +452,35 @@ fn actor_uuid(req: &HttpRequest) -> Option<Uuid> {
 }
 
 /// Cheap "this transition is one of the legal ones" check. The
-/// state machine: draft ↔ dry_run ↔ live → archived. From archived
-/// the row stays put; restore-to-draft would be a separate
-/// endpoint when we add it (out of scope for Phase 1 per decision
-/// 32).
-fn legal_state_transition(from: RuleState, to: RuleState) -> bool {
+/// state machine: draft ↔ paused ↔ live → archived, plus dry_run
+/// (shadow runs) between them for a rule with an automated trigger;
+/// a manual rule has nothing to shadow. From archived the row stays
+/// put; restore-to-draft is its own endpoint.
+fn legal_state_transition(kind: RuleTriggerKind, from: RuleState, to: RuleState) -> bool {
     use RuleState::*;
-    matches!(
+    let common = matches!(
         (from, to),
-        (Draft, DryRun)
+        (Draft, Paused)
             | (Draft, Live)
             | (Draft, Archived)
-            | (DryRun, Live)
-            | (DryRun, Draft)
-            | (DryRun, Archived)
-            | (Live, DryRun)
+            | (Paused, Live)
+            | (Paused, Draft)
+            | (Paused, Archived)
+            | (Live, Paused)
             | (Live, Archived)
-    )
+    );
+    let shadow = kind != RuleTriggerKind::Manual
+        && matches!(
+            (from, to),
+            (Draft, DryRun)
+                | (Paused, DryRun)
+                | (Live, DryRun)
+                | (DryRun, Live)
+                | (DryRun, Paused)
+                | (DryRun, Draft)
+                | (DryRun, Archived)
+        );
+    common || shadow
 }
 
 // =====================================================================
@@ -690,6 +702,13 @@ pub async fn update_rule(
     let effective_conditions = conditions.clone().unwrap_or(existing.conditions);
     let effective_actions = actions.clone().unwrap_or(existing.actions);
     let effective_trigger_kind = trigger_kind.unwrap_or(existing.trigger_kind);
+    // A dry run shadows an automated trigger (`rules_manual_no_dry_run`).
+    if effective_trigger_kind == RuleTriggerKind::Manual && existing.state == RuleState::DryRun {
+        return Ok(errors::conflict_with_code(
+            "a rule in dry run can't switch to the manual trigger; pause it first",
+            "RULE_STATE_TRANSITION",
+        ));
+    }
     if effective_trigger_kind == RuleTriggerKind::Manual
         && !is_empty_conditions(&effective_conditions)
     {
@@ -828,7 +847,7 @@ pub async fn transition_state(
     if existing.state == target {
         return Ok(HttpResponse::Ok().json(RuleDto::from(existing)));
     }
-    if !legal_state_transition(existing.state, target) {
+    if !legal_state_transition(existing.trigger_kind, existing.state, target) {
         return Ok(errors::conflict_with_code(
             format!(
                 "cannot transition rule from {} to {}",
@@ -1533,18 +1552,28 @@ mod tests {
     #[test]
     fn legal_transitions_match_state_machine() {
         use RuleState::*;
-        assert!(legal_state_transition(Draft, DryRun));
-        assert!(legal_state_transition(DryRun, Live));
-        assert!(legal_state_transition(Live, DryRun));
-        assert!(legal_state_transition(Live, Archived));
-        // Skip-to-Live ladder for the "I verified manually" admin
-        // path is the same legal_state_transition, with the
-        // editor-side checkbox being the gate.
-        assert!(legal_state_transition(Draft, Live));
-        // Unarchive isn't a Phase 1 transition.
-        assert!(!legal_state_transition(Archived, Draft));
-        assert!(!legal_state_transition(Archived, Live));
-        assert!(!legal_state_transition(Archived, DryRun));
+        for kind in [RuleTriggerKind::Manual, RuleTriggerKind::TicketCreated] {
+            assert!(legal_state_transition(kind, Draft, Live));
+            assert!(legal_state_transition(kind, Live, Paused));
+            assert!(legal_state_transition(kind, Paused, Live));
+            assert!(legal_state_transition(kind, Paused, Draft));
+            assert!(legal_state_transition(kind, Live, Archived));
+            // Unarchive isn't a transition; restore is its own endpoint.
+            assert!(!legal_state_transition(kind, Archived, Draft));
+            assert!(!legal_state_transition(kind, Archived, Live));
+            assert!(!legal_state_transition(kind, Archived, Paused));
+            assert!(!legal_state_transition(kind, Archived, DryRun));
+        }
+        // Shadow runs are for automated triggers only.
+        let manual = RuleTriggerKind::Manual;
+        assert!(!legal_state_transition(manual, Draft, DryRun));
+        assert!(!legal_state_transition(manual, Live, DryRun));
+        assert!(!legal_state_transition(manual, Paused, DryRun));
+        let event = RuleTriggerKind::TicketUpdated;
+        assert!(legal_state_transition(event, Draft, DryRun));
+        assert!(legal_state_transition(event, DryRun, Live));
+        assert!(legal_state_transition(event, Live, DryRun));
+        assert!(legal_state_transition(event, DryRun, Paused));
     }
 
     #[test]

@@ -16,10 +16,12 @@ use uuid::Uuid;
 
 /// Workflow state of a rule. `draft` is the editor's initial state,
 /// `dry_run` writes shadow rule_applications rows the admin reviews
-/// before flipping to `live`, `live` is in-flight, `archived` is a
-/// soft-deleted row that the picker / engine ignore. See decisions
-/// 12 + 32 in the plan: archived is the only state hard-delete is
-/// permitted from.
+/// before flipping to `live` (automated triggers only; a manual rule
+/// has nothing to shadow), `live` is in-flight, `paused` is a live
+/// rule an admin stopped (agents can't apply it, nothing fires it),
+/// `archived` is a soft-deleted row that the picker / engine ignore.
+/// See decisions 12 + 32 in the plan: archived is the only state
+/// hard-delete is permitted from.
 #[derive(
     Debug,
     Serialize,
@@ -40,6 +42,8 @@ pub enum RuleState {
     DryRun,
     #[serde(rename = "live")]
     Live,
+    #[serde(rename = "paused")]
+    Paused,
     #[serde(rename = "archived")]
     Archived,
 }
@@ -50,6 +54,7 @@ impl RuleState {
             Self::Draft => "draft",
             Self::DryRun => "dry_run",
             Self::Live => "live",
+            Self::Paused => "paused",
             Self::Archived => "archived",
         }
     }
@@ -68,6 +73,7 @@ impl FromSql<crate::schema::sql_types::RuleState, Pg> for RuleState {
             b"draft" => Ok(Self::Draft),
             b"dry_run" => Ok(Self::DryRun),
             b"live" => Ok(Self::Live),
+            b"paused" => Ok(Self::Paused),
             b"archived" => Ok(Self::Archived),
             other => Err(format!("unknown rule_state: {}", String::from_utf8_lossy(other)).into()),
         }

@@ -8170,7 +8170,7 @@ admin-rules-trigger-ticket-updated = On ticket updated
 admin-rules-trigger-ticket-replied = On reply
 admin-rules-trigger-time-elapsed = Time elapsed
 admin-rules-state-draft = Draft
-admin-rules-state-dry-run = Paused
+admin-rules-state-dry-run = Dry run
 admin-rules-state-live = Live
 admin-rules-state-archived = Archived
 admin-rules-col-name = Name
@@ -10444,3 +10444,6 @@ settings-export-password-self = A self-hosted Nosdesk accepts it.
 onboarding-complete-open = Go to your workspace
 onboarding-complete-import = Bring a workspace from another Nosdesk
 onboarding-complete-import-note = Moves the tickets, people and settings from an export into this workspace. It only works while the workspace is still empty.
+
+# Rules: paused is its own state; dry run now means a shadow run.
+admin-rules-state-paused = Paused

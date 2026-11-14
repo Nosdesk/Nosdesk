@@ -549,8 +549,8 @@ pub enum ApplyError {
 /// or merge can't slip past. On any executor error the whole apply
 /// rolls back and the `rule_applications` row is never written
 /// (which is the audit-correct behaviour: the failed apply didn't
-/// happen). Only a live rule applies: a draft, a paused (`dry_run`) or an
-/// archived one is refused before anything runs, whoever calls.
+/// happen). Only a live rule applies: a draft, a paused or an archived
+/// one is refused before anything runs, whoever calls.
 pub fn apply_manual(
     conn: &mut DbConnection,
     input: ApplyInput,
