@@ -8897,7 +8897,8 @@ admin-rules-trigger-ticket-updated = Bij wijzigen ticket
 admin-rules-trigger-ticket-replied = Bij antwoord
 admin-rules-trigger-time-elapsed = Tijd verstreken
 admin-rules-state-draft = Concept
-admin-rules-state-dry-run = Gepauzeerd
+# MACHINE TRANSLATION, pending native review
+admin-rules-state-dry-run = Testrun
 admin-rules-state-live = Actief
 admin-rules-state-archived = Gearchiveerd
 admin-rules-col-name = Naam
@@ -11633,3 +11634,6 @@ onboarding-complete-open = Naar uw werkruimte
 onboarding-complete-import = Een werkruimte uit een andere Nosdesk overbrengen
 # MACHINE TRANSLATION, pending native review
 onboarding-complete-import-note = Brengt de tickets, personen en instellingen uit een export over naar deze werkruimte. Dit werkt alleen zolang de werkruimte nog leeg is.
+
+# Regels: gepauzeerd is een eigen status (MACHINE TRANSLATION, pending native review).
+admin-rules-state-paused = Gepauzeerd

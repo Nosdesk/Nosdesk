@@ -173,7 +173,7 @@ pub enum Schema {
 pub enum Missing {
     /// Nothing more.
     Clear,
-    /// The rule turns draft (a live or dry-run rule).
+    /// The rule turns draft (a live, dry-run or paused rule).
     DraftRule,
     /// The row stays out.
     DropRow,
@@ -883,7 +883,7 @@ pub fn rewrite_row(
     }
     if draft {
         let state = row.get("state").and_then(Value::as_str);
-        if matches!(state, Some("live" | "dry_run")) {
+        if matches!(state, Some("live" | "dry_run" | "paused")) {
             row.insert("state".into(), Value::String("draft".into()));
             if let Some(tally) = tally {
                 tally.add(table, "state", Effect::RuleDrafted, 1);

@@ -1470,6 +1470,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    rule_event_outbox (sync_id) {
+        sync_id -> Int8,
+        workspace_id -> Int4,
+        enqueued_at -> Timestamptz,
+        attempts -> Int2,
+        claimed_at -> Nullable<Timestamptz>,
+        next_attempt_at -> Timestamptz,
+        last_error -> Nullable<Text>,
+        dead_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::RuleTriggerKind;
     use super::sql_types::RuleState;
@@ -1851,11 +1864,12 @@ diesel::table! {
 }
 
 diesel::table! {
-    ticket_rule_runs (event_id, ticket_id, rule_id) {
-        event_id -> Uuid,
+    ticket_rule_runs (root_id, ticket_id, rule_id) {
+        root_id -> Uuid,
         ticket_id -> Int4,
         rule_id -> Int4,
         fired_at -> Timestamptz,
+        workspace_id -> Int4,
     }
 }
 
@@ -2609,6 +2623,7 @@ diesel::joinable!(refresh_tokens -> users (user_uuid));
 diesel::joinable!(reset_tokens -> users (user_uuid));
 diesel::joinable!(rule_applications -> users (actor_uuid));
 diesel::joinable!(rule_applications -> workspaces (workspace_id));
+diesel::joinable!(rule_event_outbox -> workspaces (workspace_id));
 diesel::joinable!(rule_versions -> users (saved_by));
 diesel::joinable!(rule_versions -> workspaces (workspace_id));
 diesel::joinable!(rules -> users (created_by));
@@ -2636,6 +2651,7 @@ diesel::joinable!(ticket_categories -> workspaces (workspace_id));
 diesel::joinable!(ticket_merges -> workspaces (workspace_id));
 diesel::joinable!(ticket_ratings -> users (rater_uuid));
 diesel::joinable!(ticket_ratings -> workspaces (workspace_id));
+diesel::joinable!(ticket_rule_runs -> workspaces (workspace_id));
 diesel::joinable!(ticket_tags -> users (created_by));
 diesel::joinable!(ticket_tags -> workspaces (workspace_id));
 diesel::joinable!(ticket_watchers -> users (user_uuid));
@@ -2760,6 +2776,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     reset_tokens,
     retired_slugs,
     rule_applications,
+    rule_event_outbox,
     rule_versions,
     rules,
     saved_views,

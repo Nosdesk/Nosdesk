@@ -119,6 +119,20 @@ describe('RuleEditView', () => {
     expect(button('admin-rules-pause')).toBeDefined()
   })
 
+  it('pauses a live rule as paused and says so', async () => {
+    rules.get.mockResolvedValue(rule({ state: 'live' }))
+    rules.transitionState.mockResolvedValue(rule({ state: 'paused' }))
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+
+    button('admin-rules-pause')!.click()
+    await flushPromises()
+
+    expect(rules.transitionState).toHaveBeenCalledWith(4, { state: 'paused' })
+    expect(toastSuccess.mock.calls.map((c) => c[0])).toEqual(['admin-rules-toast-paused'])
+    expect(w.text()).toContain('admin-rule-editor-state-paused')
+    expect(button('admin-rules-go-live')).toBeDefined()
+  })
+
   it("warns that an older event rule won't run and doesn't offer Go live", async () => {
     rules.get.mockResolvedValue(rule({ trigger_kind: 'ticket_created' }))
     const w = await mountAt('admin-rules-edit', { id: '4' })
