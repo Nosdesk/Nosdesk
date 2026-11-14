@@ -442,16 +442,17 @@ pub fn record_application(
 }
 
 // =====================================================================
-// Manual apply lifecycle (Wave 5). Mirrors execute_merge's shape: one
-// `with_actor_context` transaction, advisory lock on the ticket, pre-
-// flight under the lock, then run the action executors in order. Any
-// preflight failure or executor error rolls the whole apply back; the
-// rule_applications row records what happened.
+// Apply lifecycle. Mirrors execute_merge's shape: one
+// `with_actor_context` transaction per rule and ticket, advisory lock on
+// the ticket, preflight under the lock, then the action executors in
+// order. Any preflight failure or executor error rolls the whole run
+// back; the rule_applications row records what happened.
 //
-// Phase 1 only supports manual rules so the "evaluate conditions"
-// step is skipped (manual rules carry conditions = [] by the
-// rules_manual_no_conditions CHECK). Phase 2 plugs in condition
-// evaluation at the same pre-flight point.
+// An agent applies a manual rule ([`apply_manual`]); the rules engine
+// runs an automated one as a system actor once its conditions match
+// ([`run_rule_on_ticket`]). A rule in dry run runs in shadow: it records
+// what it would do and writes nothing else. An automated run that fails
+// past its preflight leaves a `failed` row, written after the rollback.
 // =====================================================================
 
 /// Pack `(workspace_id, ticket_id)` into a collision-free int64
@@ -486,10 +487,89 @@ pub struct ApplyInput {
     pub overrides: ApplyOverrides,
 }
 
+/// What started a rule run. Each source runs only the trigger kinds it
+/// serves: an agent applies manual rules, ticket events run the event
+/// triggers, and the clock runs time-elapsed rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplySource {
+    Manual,
+    Event,
+    Time,
+}
+
+impl ApplySource {
+    /// Whether a rule with this trigger runs from this source.
+    pub fn runs(self, kind: RuleTriggerKind) -> bool {
+        match self {
+            Self::Manual => kind == RuleTriggerKind::Manual,
+            Self::Event => matches!(
+                kind,
+                RuleTriggerKind::TicketCreated
+                    | RuleTriggerKind::TicketUpdated
+                    | RuleTriggerKind::TicketReplied
+            ),
+            Self::Time => kind == RuleTriggerKind::TimeElapsed,
+        }
+    }
+}
+
+/// The event an automated run reacts to, recorded on its application row.
+#[derive(Debug, Clone)]
+pub struct OriginatingEvent {
+    pub id: Uuid,
+    pub kind: String,
+}
+
+/// One rule run on one ticket: an agent's apply ([`apply_manual`]) or an
+/// automated fire. Start from [`ApplyContext::new`] and set what the run
+/// needs.
+pub struct ApplyContext<'a> {
+    /// Who the writes are credited to: the agent applying the rule, or the
+    /// engine's system actor. Its correlation id goes on every row the run
+    /// writes.
+    pub actor: &'a ActorContext,
+    pub rule_id: i32,
+    pub ticket_id: i32,
+    pub source: ApplySource,
+    /// Record what the rule would do without doing it. A rule in dry run
+    /// runs only in shadow, and only a rule in dry run does.
+    pub shadow: bool,
+    /// The agent's edits in the apply dialog.
+    pub overrides: ApplyOverrides,
+    /// Recorded on the application row.
+    pub originating_event: Option<OriginatingEvent>,
+    /// How the rule's conditions evaluated, recorded on the application row.
+    pub condition_evaluation: Option<Value>,
+    /// Causation of the `ticket.rule_applied` sync action.
+    pub causation_id: Option<Uuid>,
+    /// Indexes the ticket and, when a step closes a recurring one, its
+    /// next occurrence.
+    pub observer: Option<&'a dyn crate::repository::tickets::TicketUpdatedObserver>,
+}
+
+impl<'a> ApplyContext<'a> {
+    /// A run that writes, with nothing else recorded.
+    pub fn new(actor: &'a ActorContext, rule_id: i32, ticket_id: i32, source: ApplySource) -> Self {
+        Self {
+            actor,
+            rule_id,
+            ticket_id,
+            source,
+            shadow: false,
+            overrides: ApplyOverrides::default(),
+            originating_event: None,
+            condition_evaluation: None,
+            causation_id: None,
+            observer: None,
+        }
+    }
+}
+
 /// Counts the apply endpoint returns to the agent dialog.
 #[derive(Debug, Clone)]
 pub struct ApplyOutcome {
-    /// Updated rule row (with the bumped `fire_count`).
+    /// Updated rule row (with the bumped `fire_count`; unchanged after a
+    /// shadow run).
     pub rule: Rule,
     /// The application audit row inserted at the end of the txn.
     pub application: RuleApplication,
@@ -497,10 +577,25 @@ pub struct ApplyOutcome {
     /// had a reply action and it wasn't suppressed. `None`
     /// otherwise.
     pub comment_id: Option<i32>,
-    /// How many actions ran (skip / failure subtracts).
+    /// How many actions ran (skip / failure subtracts). None run in
+    /// shadow; `application.actions_taken` lists what would have.
     pub actions_executed: usize,
     /// How many actions were skipped via `overrides.suppress_actions`.
     pub actions_suppressed: usize,
+    /// The rule has a `stop_processing` step that wasn't suppressed, so
+    /// no lower-priority rule runs for the same event.
+    pub stop_processing: bool,
+}
+
+/// Why a run didn't apply.
+#[derive(Debug)]
+pub struct RunFailed {
+    pub error: ApplyError,
+    /// The `failed` application row. Only an automated run that passed its
+    /// preflight leaves one: an agent sees the error instead, and a rule or
+    /// ticket the preflight turned away (gone, no longer live, merged) has
+    /// nothing to record. `None` too if writing the row failed (logged).
+    pub recorded: Option<Box<RuleApplication>>,
 }
 
 /// Errors specific to the apply lifecycle. Distinct from
@@ -514,6 +609,9 @@ pub enum ApplyError {
     NotLive(i32, &'static str),
     #[error("rule {0} is not a manual-trigger rule")]
     NotManual(i32),
+    /// An automated run of a rule whose trigger its source doesn't serve.
+    #[error("rule {0} has the {1} trigger, which this run doesn't serve")]
+    WrongTrigger(i32, &'static str),
     #[error("ticket {0} not found")]
     TicketNotFound(i32),
     /// Carries the ticket's number.
@@ -543,6 +641,18 @@ pub enum ApplyError {
     Db(#[from] diesel::result::Error),
 }
 
+impl ApplyError {
+    /// Whether the message already names the step it failed at.
+    fn names_step(&self) -> bool {
+        matches!(
+            self,
+            Self::ActionFailed { .. }
+                | Self::UnsupportedActionPhase1 { .. }
+                | Self::NoAssignableTeamMember { .. }
+        )
+    }
+}
+
 /// Apply one manual rule to one ticket. Atomic: every action runs
 /// inside one `with_actor_context` transaction. Pre-flight checks
 /// the rule + ticket under the advisory lock so a racing archive
@@ -557,216 +667,357 @@ pub fn apply_manual(
     actor: &ActorContext,
     observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
 ) -> Result<ApplyOutcome, ApplyError> {
+    let ctx = ApplyContext {
+        overrides: input.overrides,
+        observer,
+        ..ApplyContext::new(actor, input.rule_id, input.ticket_id, ApplySource::Manual)
+    };
+    run_rule_on_ticket(conn, ctx).map_err(|failed| failed.error)
+}
+
+/// How far a run got before it failed.
+#[derive(Default)]
+struct RunProgress {
+    /// The rule's version, once the preflight passed.
+    rule_version: Option<i32>,
+    /// The step running, one-indexed.
+    step: Option<usize>,
+}
+
+/// Run one rule on one ticket, the way [`apply_manual`] does for an agent.
+/// The rule must be live, or in dry run for a shadow run, and have a
+/// trigger `ctx.source` serves. A shadow run checks each step as the real
+/// run would and writes only its `dry_run` application row: no ticket
+/// change, no fire count, no sync action. A failed automated run is rolled
+/// back, then recorded as a `failed` row in a transaction of its own.
+pub fn run_rule_on_ticket(
+    conn: &mut DbConnection,
+    ctx: ApplyContext,
+) -> Result<ApplyOutcome, RunFailed> {
+    let Some(workspace_id) = ctx.actor.workspace_id else {
+        return Err(RunFailed {
+            error: ApplyError::MissingWorkspace,
+            recorded: None,
+        });
+    };
+    let mut progress = RunProgress::default();
+    let error = match with_actor_context(conn, ctx.actor, |conn| {
+        run_locked(conn, &ctx, workspace_id, &mut progress)
+    }) {
+        Ok(outcome) => return Ok(outcome),
+        Err(error) => error,
+    };
+    let recorded = match progress.rule_version {
+        Some(rule_version) if ctx.source != ApplySource::Manual => record_failure(
+            conn,
+            &ctx,
+            workspace_id,
+            rule_version,
+            &error,
+            progress.step,
+        ),
+        _ => None,
+    };
+    Err(RunFailed { error, recorded })
+}
+
+/// `rule_applications.actor_kind` for `actor`: a person, or the system
+/// (the engine, a plugin).
+fn application_actor_kind(actor: &ActorContext) -> String {
+    match actor.kind {
+        crate::sync::actor::ActorKind::User => "user",
+        _ => "system",
+    }
+    .to_string()
+}
+
+/// The `failed` row for a run that rolled back. Its own transaction, as
+/// the run's actor, so it carries the run's correlation id.
+fn record_failure(
+    conn: &mut DbConnection,
+    ctx: &ApplyContext,
+    workspace_id: i32,
+    rule_version: i32,
+    error: &ApplyError,
+    step: Option<usize>,
+) -> Option<Box<RuleApplication>> {
+    let failure_reason = match step {
+        Some(n) if !error.names_step() => format!("Step {n}: {error}"),
+        _ => error.to_string(),
+    };
+    let new = NewRuleApplication {
+        workspace_id,
+        rule_id: ctx.rule_id,
+        rule_version,
+        ticket_id: ctx.ticket_id,
+        status: RuleApplicationStatus::Failed,
+        correlation_id: ctx.actor.correlation_id,
+        actor_uuid: ctx.actor.uuid,
+        actor_kind: application_actor_kind(ctx.actor),
+        originating_event_id: ctx.originating_event.as_ref().map(|e| e.id),
+        originating_event_kind: ctx.originating_event.as_ref().map(|e| e.kind.clone()),
+        condition_evaluation: ctx.condition_evaluation.clone(),
+        actions_taken: None,
+        actions_skipped: None,
+        failure_reason: Some(failure_reason),
+    };
+    match with_actor_context(conn, ctx.actor, |conn| record_application(conn, new)) {
+        Ok(row) => Some(Box::new(row)),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                ticket_id = ctx.ticket_id,
+                "rule {} failed and its failed row could not be written",
+                ctx.rule_id
+            );
+            None
+        }
+    }
+}
+
+/// The body of [`run_rule_on_ticket`], inside its transaction.
+fn run_locked(
+    conn: &mut DbConnection,
+    ctx: &ApplyContext,
+    workspace_id: i32,
+    progress: &mut RunProgress,
+) -> Result<ApplyOutcome, ApplyError> {
     use crate::schema::rules::dsl as r;
     use crate::schema::tickets::dsl as t;
 
-    let workspace_id = actor.workspace_id.ok_or(ApplyError::MissingWorkspace)?;
+    let shadow = ctx.shadow;
+    diesel::sql_query("SELECT pg_advisory_xact_lock($1)")
+        .bind::<BigInt, _>(advisory_key(workspace_id, ctx.ticket_id))
+        .execute(conn)?;
 
-    with_actor_context(conn, actor, |conn| -> Result<ApplyOutcome, ApplyError> {
-        diesel::sql_query("SELECT pg_advisory_xact_lock($1)")
-            .bind::<BigInt, _>(advisory_key(workspace_id, input.ticket_id))
-            .execute(conn)?;
+    // Re-read rule + ticket under the lock so racing edits
+    // (archive, state change, merge) are caught.
+    let rule: Rule = r::rules
+        .find(ctx.rule_id)
+        .first(conn)
+        .optional()?
+        .ok_or(ApplyError::NotFound(ctx.rule_id))?;
+    if rule.archived_at.is_some() {
+        return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
+    }
+    let runnable_state = if shadow {
+        RuleState::DryRun
+    } else {
+        RuleState::Live
+    };
+    if rule.state != runnable_state {
+        return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
+    }
+    if !ctx.source.runs(rule.trigger_kind) {
+        return Err(match ctx.source {
+            ApplySource::Manual => ApplyError::NotManual(rule.id),
+            _ => ApplyError::WrongTrigger(rule.id, rule.trigger_kind.as_str()),
+        });
+    }
 
-        // Re-read rule + ticket under the lock so racing edits
-        // (archive, state change, merge) are caught.
-        let rule: Rule = r::rules
-            .find(input.rule_id)
-            .first(conn)
-            .optional()?
-            .ok_or(ApplyError::NotFound(input.rule_id))?;
-        if rule.archived_at.is_some() {
-            return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
-        }
-        if rule.state != RuleState::Live {
-            return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
-        }
-        if rule.trigger_kind != RuleTriggerKind::Manual {
-            return Err(ApplyError::NotManual(rule.id));
-        }
+    let ticket: crate::models::Ticket = t::tickets
+        .find(ctx.ticket_id)
+        .first(conn)
+        .optional()?
+        .ok_or(ApplyError::TicketNotFound(ctx.ticket_id))?;
+    // Merge metadata now lives in the `ticket_merges` satellite; a row
+    // there means the ticket is a merge source (terminal, read-only).
+    let is_merged: bool = diesel::select(diesel::dsl::exists(
+        crate::schema::ticket_merges::table.find(ticket.id),
+    ))
+    .get_result(conn)?;
+    if is_merged {
+        return Err(ApplyError::TicketMerged(ticket.number));
+    }
 
-        let ticket: crate::models::Ticket = t::tickets
-            .find(input.ticket_id)
-            .first(conn)
-            .optional()?
-            .ok_or(ApplyError::TicketNotFound(input.ticket_id))?;
-        // Merge metadata now lives in the `ticket_merges` satellite; a row
-        // there means the ticket is a merge source (terminal, read-only).
-        let is_merged: bool = diesel::select(diesel::dsl::exists(
-            crate::schema::ticket_merges::table.find(ticket.id),
-        ))
-        .get_result(conn)?;
-        if is_merged {
-            return Err(ApplyError::TicketMerged(ticket.number));
-        }
+    // rule_version is the current version after the last save;
+    // pull from rule_versions max(version) for this rule. The
+    // migration trigger guarantees a v1 row at minimum.
+    let rule_version: i32 = {
+        use crate::schema::rule_versions::dsl;
+        dsl::rule_versions
+            .filter(dsl::rule_id.eq(rule.id))
+            .select(diesel::dsl::max(dsl::version))
+            .first::<Option<i32>>(conn)?
+            .unwrap_or(1)
+    };
+    progress.rule_version = Some(rule_version);
 
-        let Some(actions) = rule.actions.as_array() else {
-            return Err(ApplyError::ActionFailed {
-                index: 0,
-                message: "rule.actions is not a JSON array (DB CHECK should have caught this)"
-                    .into(),
-            });
-        };
-        // Validate override indices up front so we don't run half
-        // the action list before bailing.
-        for idx in &input.overrides.suppress_actions {
-            if *idx == 0 || *idx > actions.len() {
-                return Err(ApplyError::InvalidOverrideIndex(*idx, actions.len()));
+    let Some(actions) = rule.actions.as_array() else {
+        return Err(ApplyError::ActionFailed {
+            index: 0,
+            message: "rule.actions is not a JSON array (DB CHECK should have caught this)".into(),
+        });
+    };
+    // Validate override indices up front so we don't run half
+    // the action list before bailing.
+    for idx in &ctx.overrides.suppress_actions {
+        if *idx == 0 || *idx > actions.len() {
+            return Err(ApplyError::InvalidOverrideIndex(*idx, actions.len()));
+        }
+    }
+    let suppress: std::collections::HashSet<usize> =
+        ctx.overrides.suppress_actions.iter().copied().collect();
+
+    let mut comment_id: Option<i32> = None;
+    let mut actions_executed = 0usize;
+    let mut stop_processing = false;
+    let mut actions_taken: Vec<Value> = Vec::with_capacity(actions.len());
+    let mut actions_skipped: Vec<Value> = Vec::with_capacity(suppress.len());
+    let mut applied_reply_body_override = false;
+
+    for (i, action) in actions.iter().enumerate() {
+        // Executors receive `one_based` so any ActionFailed they
+        // raise carries the index of the failing action rather
+        // than a placeholder. The error envelope downstream
+        // shows the admin which position in the rule's action
+        // list to investigate.
+        let one_based = i + 1;
+        if suppress.contains(&one_based) {
+            actions_skipped.push(json!({
+                "index": one_based,
+                "reason": "suppressed_by_override"
+            }));
+            continue;
+        }
+        progress.step = Some(one_based);
+        let kind = action.get("kind").and_then(|k| k.as_str()).ok_or_else(|| {
+            ApplyError::ActionFailed {
+                index: one_based,
+                message: "missing kind".to_string(),
             }
-        }
-        let suppress: std::collections::HashSet<usize> =
-            input.overrides.suppress_actions.iter().copied().collect();
+        })?;
+        let config = action.get("config").cloned().unwrap_or(Value::Null);
 
-        let mut comment_id: Option<i32> = None;
-        let mut actions_executed = 0usize;
-        let mut actions_taken: Vec<Value> = Vec::with_capacity(actions.len());
-        let mut actions_skipped: Vec<Value> = Vec::with_capacity(suppress.len());
-        let mut applied_reply_body_override = false;
-
-        for (i, action) in actions.iter().enumerate() {
-            // Executors receive `one_based` so any ActionFailed they
-            // raise carries the index of the failing action rather
-            // than a placeholder. The error envelope downstream
-            // shows the admin which position in the rule's action
-            // list to investigate.
-            let one_based = i + 1;
-            if suppress.contains(&one_based) {
-                actions_skipped.push(json!({
-                    "index": one_based,
-                    "reason": "suppressed_by_override"
-                }));
-                continue;
-            }
-            let kind = action.get("kind").and_then(|k| k.as_str()).ok_or_else(|| {
-                ApplyError::ActionFailed {
-                    index: one_based,
-                    message: "missing kind".to_string(),
-                }
-            })?;
-            let config = action.get("config").cloned().unwrap_or(Value::Null);
-
-            let outcome = match kind {
-                "reply" => {
-                    let override_body = if !applied_reply_body_override {
-                        let b = input.overrides.body.clone();
-                        if b.is_some() {
-                            applied_reply_body_override = true;
+        let outcome = match kind {
+            "reply" => {
+                let override_body = if !applied_reply_body_override {
+                    let b = ctx.overrides.body.clone();
+                    if b.is_some() {
+                        applied_reply_body_override = true;
+                    }
+                    b
+                } else {
+                    None
+                };
+                execute_reply(conn, one_based, &ticket, ctx, &rule, &config, override_body)?
+                    .map(|c| {
+                        if comment_id.is_none() {
+                            comment_id = Some(c);
                         }
-                        b
-                    } else {
-                        None
-                    };
-                    execute_reply(conn, one_based, &ticket, actor, &config, override_body)?
-                        .map(|c| {
-                            if comment_id.is_none() {
-                                comment_id = Some(c);
-                            }
-                            json!({ "index": one_based, "kind": kind, "comment_id": c })
-                        })
-                        .unwrap_or_else(|| json!({ "index": one_based, "kind": kind }))
-                }
-                "set_status" => execute_set_status(conn, one_based, ticket.id, &config, observer)
+                        json!({ "index": one_based, "kind": kind, "comment_id": c })
+                    })
+                    .unwrap_or_else(|| json!({ "index": one_based, "kind": kind }))
+            }
+            "set_status" => {
+                execute_set_status(conn, one_based, ticket.id, &config, ctx.observer, shadow)
                     .map(|state_id| {
                         json!({ "index": one_based, "kind": kind, "workflow_state_id": state_id })
-                    })?,
-                "assign" => execute_assign(conn, one_based, ticket.id, &config)
-                    .map(|uuid| {
-                        json!({ "index": one_based, "kind": kind, "assigned_to_uuid": uuid })
-                    })?,
-                "unassign" => execute_unassign(conn, ticket.id)
-                    .map(|_| json!({ "index": one_based, "kind": kind }))?,
-                "add_tags" => execute_add_tags(conn, ticket.id, &config, actor)
-                    .map(|added| {
-                        json!({ "index": one_based, "kind": kind, "tag_ids_added": added })
-                    })?,
-                "remove_tags" => execute_remove_tags(conn, ticket.id, &config, actor).map(|removed| {
+                    })?
+            }
+            "assign" => execute_assign(conn, one_based, ticket.id, &config, shadow).map(|uuid| {
+                json!({ "index": one_based, "kind": kind, "assigned_to_uuid": uuid })
+            })?,
+            "unassign" => execute_unassign(conn, ticket.id, shadow)
+                .map(|_| json!({ "index": one_based, "kind": kind }))?,
+            "add_tags" => execute_add_tags(conn, ticket.id, &config, ctx.actor, shadow)
+                .map(|added| json!({ "index": one_based, "kind": kind, "tag_ids_added": added }))?,
+            "remove_tags" => execute_remove_tags(conn, ticket.id, &config, ctx.actor, shadow)
+                .map(|removed| {
                     json!({ "index": one_based, "kind": kind, "tag_ids_removed": removed })
                 })?,
-                "set_priority" => execute_set_priority(conn, one_based, ticket.id, &config)
-                    .map(|p| json!({ "index": one_based, "kind": kind, "priority": p }))?,
-                "stop_processing" => {
+            "set_priority" => execute_set_priority(conn, one_based, ticket.id, &config, shadow)
+                .map(|p| json!({ "index": one_based, "kind": kind, "priority": p }))?,
+            "stop_processing" => {
+                stop_processing = true;
+                if ctx.source == ApplySource::Manual {
                     // No-op for manual apply; only meaningful inside
-                    // an event-chain run loop in Phase 2.
+                    // an event-chain run loop.
                     json!({ "index": one_based, "kind": kind, "note": "no-op for manual apply" })
+                } else {
+                    json!({ "index": one_based, "kind": kind })
                 }
-                "notify" | "apply_macro_template" | "webhook" => {
-                    return Err(ApplyError::UnsupportedActionPhase1 {
-                        index: one_based,
-                        message: format!(
-                            "{kind} action is scheduled for a later phase; admin should archive this rule or remove the action"
-                        ),
-                    });
-                }
-                other => {
-                    return Err(ApplyError::ActionFailed {
-                        index: one_based,
-                        message: format!("unknown action kind: {other}"),
-                    });
-                }
-            };
-            actions_taken.push(outcome);
+            }
+            "notify" | "apply_macro_template" | "webhook" => {
+                return Err(ApplyError::UnsupportedActionPhase1 {
+                    index: one_based,
+                    message: format!(
+                        "{kind} action is scheduled for a later phase; admin should archive this rule or remove the action"
+                    ),
+                });
+            }
+            other => {
+                return Err(ApplyError::ActionFailed {
+                    index: one_based,
+                    message: format!("unknown action kind: {other}"),
+                });
+            }
+        };
+        actions_taken.push(outcome);
+        if !shadow {
             actions_executed += 1;
         }
+    }
+    progress.step = None;
 
+    // A shadow run changes nothing on the rule: it didn't fire.
+    let updated_rule: Rule = if shadow {
+        rule.clone()
+    } else {
         // Bump fire_count + last_fired_at on the rule. Use sql::now
         // so the timestamp comes from the same transaction's clock
         // as the rule_applications.applied_at row below.
-        let updated_rule: Rule = diesel::update(r::rules.find(rule.id))
+        diesel::update(r::rules.find(rule.id))
             .set((
                 r::fire_count.eq(r::fire_count + 1),
                 r::last_fired_at.eq(Some(chrono::Utc::now())),
             ))
-            .get_result(conn)?;
+            .get_result(conn)?
+    };
 
-        // Only a live rule gets here, so the application succeeded.
-        let status = RuleApplicationStatus::Succeeded;
+    let status = if shadow {
+        RuleApplicationStatus::DryRun
+    } else {
+        RuleApplicationStatus::Succeeded
+    };
 
-        let actions_taken_value = if actions_taken.is_empty() {
-            None
-        } else {
-            Some(Value::Array(actions_taken))
-        };
-        let actions_skipped_value = if actions_skipped.is_empty() {
-            None
-        } else {
-            Some(Value::Array(actions_skipped))
-        };
+    let actions_taken_value = if actions_taken.is_empty() {
+        None
+    } else {
+        Some(Value::Array(actions_taken))
+    };
+    let actions_skipped_value = if actions_skipped.is_empty() {
+        None
+    } else {
+        Some(Value::Array(actions_skipped))
+    };
 
-        // rule_version is the current version after the last save;
-        // pull from rule_versions max(version) for this rule. The
-        // migration trigger guarantees a v1 row at minimum.
-        let rule_version: i32 = {
-            use crate::schema::rule_versions::dsl;
-            dsl::rule_versions
-                .filter(dsl::rule_id.eq(rule.id))
-                .select(diesel::dsl::max(dsl::version))
-                .first::<Option<i32>>(conn)?
-                .unwrap_or(1)
-        };
+    let application = record_application(
+        conn,
+        NewRuleApplication {
+            workspace_id,
+            rule_id: rule.id,
+            rule_version,
+            ticket_id: ticket.id,
+            status,
+            correlation_id: ctx.actor.correlation_id,
+            actor_uuid: ctx.actor.uuid,
+            actor_kind: application_actor_kind(ctx.actor),
+            originating_event_id: ctx.originating_event.as_ref().map(|e| e.id),
+            originating_event_kind: ctx.originating_event.as_ref().map(|e| e.kind.clone()),
+            condition_evaluation: ctx.condition_evaluation.clone(),
+            actions_taken: actions_taken_value.clone(),
+            actions_skipped: actions_skipped_value,
+            failure_reason: None,
+        },
+    )?;
 
-        let application = record_application(
-            conn,
-            NewRuleApplication {
-                workspace_id,
-                rule_id: rule.id,
-                rule_version,
-                ticket_id: ticket.id,
-                status,
-                correlation_id: actor.correlation_id,
-                actor_uuid: actor.uuid,
-                actor_kind: "user".to_string(),
-                originating_event_id: None,
-                originating_event_kind: None,
-                condition_evaluation: None,
-                actions_taken: actions_taken_value.clone(),
-                actions_skipped: actions_skipped_value,
-                failure_reason: None,
-            },
-        )?;
-
-        // Emit ticket.rule_applied so the activity feed surfaces the
-        // fire alongside ticket.merged + manual events. correlation_id
-        // is set via the actor session GUC; the audit_log + sync_actions
-        // rows for this transaction all share it.
+    // Emit ticket.rule_applied so the activity feed surfaces the
+    // fire alongside ticket.merged + manual events. correlation_id
+    // is set via the actor session GUC; the audit_log + sync_actions
+    // rows for this transaction all share it. A shadow run did nothing
+    // a client would show.
+    if !shadow {
         let sync_groups = groups::for_ticket(conn, &ticket)?;
         emit::record(
             conn,
@@ -779,24 +1030,25 @@ pub fn apply_manual(
                     "rule_id": rule.id,
                     "rule_version": rule_version,
                     "rule_name": updated_rule.name,
-                    "actor_uuid": actor.uuid,
+                    "actor_uuid": ctx.actor.uuid,
                     "comment_id": comment_id,
                     "actions_taken": actions_taken_value,
                     // Always false now; kept for readers of older events.
                     "was_dry_run": false,
                 }),
                 groups: sync_groups,
-                causation_id: None,
+                causation_id: ctx.causation_id,
             },
         )?;
+    }
 
-        Ok(ApplyOutcome {
-            rule: updated_rule,
-            application,
-            comment_id,
-            actions_executed,
-            actions_suppressed: suppress.len(),
-        })
+    Ok(ApplyOutcome {
+        rule: updated_rule,
+        application,
+        comment_id,
+        actions_executed,
+        actions_suppressed: suppress.len(),
+        stop_processing,
     })
 }
 
@@ -821,11 +1073,17 @@ pub fn apply_manual(
 /// inject markup into the rendered HTML comment body. The body
 /// template itself (admin-authored, vetted at save) is not
 /// escaped — admins routinely write <br> / <b> deliberately.
+///
+/// An agent's apply replies as the agent. An automated run replies as
+/// the step's `send_as_uuid`, else the rule's author, who must still
+/// be able to work tickets here. A shadow run checks the body and the
+/// author and posts nothing.
 fn execute_reply(
     conn: &mut DbConnection,
     action_index: usize,
     ticket: &crate::models::Ticket,
-    actor: &ActorContext,
+    ctx: &ApplyContext,
+    rule: &Rule,
     config: &Value,
     override_body: Option<String>,
 ) -> Result<Option<i32>, ApplyError> {
@@ -845,18 +1103,10 @@ fn execute_reply(
             message: "reply action missing body".to_string(),
         })?;
 
-    let actor_uuid = actor.uuid.ok_or_else(|| ApplyError::ActionFailed {
-        index: action_index,
-        message: "manual reply requires an authenticated actor".to_string(),
-    })?;
-    // The agent's row is required (we need their display name for
-    // template rendering); NotFound (revoked / soft-deleted)
-    // surfaces as AgentRevoked → 401 rather than Db → 500.
-    let agent =
-        crate::repository::users::find_active_by_uuid(&actor_uuid, conn).map_err(|e| match e {
-            diesel::result::Error::NotFound => ApplyError::AgentRevoked(actor_uuid),
-            other => ApplyError::Db(other),
-        })?;
+    let agent = reply_author(conn, action_index, ticket, ctx, rule, config)?;
+    if ctx.shadow {
+        return Ok(None);
+    }
     // Requester is optional — anonymous tickets and revoked
     // requesters both surface as None and the renderer falls back
     // to empty bindings. Same .ok() shape as the lazy OIDC path.
@@ -893,7 +1143,7 @@ fn execute_reply(
     let new_comment = NewComment {
         content: rendered,
         ticket_id: ticket.id,
-        user_uuid: actor_uuid,
+        user_uuid: agent.uuid,
         channel_metadata: Some(json!({
             "kind": "rule_reply",
             "visibility": visibility,
@@ -904,6 +1154,55 @@ fn execute_reply(
     };
     let comment = comments::create_comment(conn, new_comment, None)?;
     Ok(Some(comment.id))
+}
+
+/// Who a `reply` step posts as (decision D5): the agent applying a
+/// manual rule, or for an automated run the step's `send_as_uuid`, else
+/// the rule's author.
+fn reply_author(
+    conn: &mut DbConnection,
+    action_index: usize,
+    ticket: &crate::models::Ticket,
+    ctx: &ApplyContext,
+    rule: &Rule,
+    config: &Value,
+) -> Result<crate::models::User, ApplyError> {
+    if ctx.source == ApplySource::Manual {
+        let actor_uuid = ctx.actor.uuid.ok_or_else(|| ApplyError::ActionFailed {
+            index: action_index,
+            message: "manual reply requires an authenticated actor".to_string(),
+        })?;
+        // The agent's row is required (we need their display name for
+        // template rendering); NotFound (revoked / soft-deleted)
+        // surfaces as AgentRevoked → 401 rather than Db → 500.
+        return crate::repository::users::find_active_by_uuid(&actor_uuid, conn).map_err(
+            |e| match e {
+                diesel::result::Error::NotFound => ApplyError::AgentRevoked(actor_uuid),
+                other => ApplyError::Db(other),
+            },
+        );
+    }
+    let failed = |message: &str| ApplyError::ActionFailed {
+        index: action_index,
+        message: message.to_string(),
+    };
+    let send_as = config
+        .get("send_as_uuid")
+        .and_then(Value::as_str)
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .or(rule.created_by)
+        .ok_or_else(|| failed("the reply has no agent to send as"))?;
+    let agent = crate::repository::users::find_active_by_uuid(&send_as, conn).optional()?;
+    match agent {
+        Some(agent)
+            if crate::repository::assignees::is_assignable(conn, ticket.workspace_id, send_as)? =>
+        {
+            Ok(agent)
+        }
+        _ => Err(failed(
+            "the agent the reply sends as can no longer work tickets here",
+        )),
+    }
 }
 
 /// The team member with the fewest open tickets assigned, among those who can
@@ -939,15 +1238,27 @@ fn least_loaded_member(conn: &mut DbConnection, group_id: i32) -> QueryResult<Op
 /// A rule step's change to the ticket row, made the way a manual edit makes
 /// it: through `update_ticket_partial`, which records the previous assignee
 /// and status, recomputes the SLA and emits the `ticket.*` sync action that
-/// clients, notifications and webhooks read.
+/// clients, notifications and webhooks read. In `shadow` nothing is written;
+/// a new assignee is still refused if they can't work tickets, as the write
+/// would refuse them.
 fn update_ticket_fields(
     conn: &mut DbConnection,
     ticket_id: i32,
     update: TicketUpdate,
     observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
+    shadow: bool,
 ) -> Result<(), ApplyError> {
     use crate::repository::tickets::TicketWriteError;
-    match crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, observer) {
+    let written = if shadow {
+        match update.assignee_uuid {
+            Some(Some(user)) => crate::repository::assignees::ensure_assignable_here(conn, user),
+            _ => Ok(()),
+        }
+    } else {
+        crate::repository::tickets::update_ticket_partial(conn, ticket_id, update, observer)
+            .map(|_| ())
+    };
+    match written {
         Ok(_) => Ok(()),
         Err(TicketWriteError::IneligibleAssignee(user)) => {
             Err(ApplyError::IneligibleAssignee(user))
@@ -969,6 +1280,7 @@ fn execute_set_status(
     ticket_id: i32,
     config: &Value,
     observer: Option<&dyn crate::repository::tickets::TicketUpdatedObserver>,
+    shadow: bool,
 ) -> Result<i32, ApplyError> {
     let state_id = config
         .get("workflow_state_id")
@@ -991,6 +1303,7 @@ fn execute_set_status(
             ..Default::default()
         },
         observer,
+        shadow,
     )?;
     Ok(state_id)
 }
@@ -1002,6 +1315,7 @@ fn execute_assign(
     action_index: usize,
     ticket_id: i32,
     config: &Value,
+    shadow: bool,
 ) -> Result<Uuid, ApplyError> {
     let method = config
         .get("method")
@@ -1045,11 +1359,16 @@ fn execute_assign(
             ..Default::default()
         },
         None,
+        shadow,
     )?;
     Ok(assignee)
 }
 
-fn execute_unassign(conn: &mut DbConnection, ticket_id: i32) -> Result<(), ApplyError> {
+fn execute_unassign(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    shadow: bool,
+) -> Result<(), ApplyError> {
     update_ticket_fields(
         conn,
         ticket_id,
@@ -1058,6 +1377,7 @@ fn execute_unassign(conn: &mut DbConnection, ticket_id: i32) -> Result<(), Apply
             ..Default::default()
         },
         None,
+        shadow,
     )
 }
 
@@ -1076,31 +1396,34 @@ fn tag_ids_in(config: &Value) -> Vec<i32> {
 
 /// `add_tags` action, through `set_tags_for_ticket` so the ticket's
 /// `ticket.tags_changed` sync action goes out like a manual edit's.
-/// Returns the tags it actually added.
+/// Returns the tags it actually added (would add, in `shadow`).
 fn execute_add_tags(
     conn: &mut DbConnection,
     ticket_id: i32,
     config: &Value,
     actor: &ActorContext,
+    shadow: bool,
 ) -> Result<Vec<i32>, ApplyError> {
     let current = crate::repository::tags::tag_ids_for_ticket(conn, ticket_id)?;
     let added: Vec<i32> = tag_ids_in(config)
         .into_iter()
         .filter(|t| !current.contains(t))
         .collect();
-    if !added.is_empty() {
+    if !added.is_empty() && !shadow {
         let desired: Vec<i32> = current.iter().chain(&added).copied().collect();
         crate::repository::tags::set_tags_for_ticket(conn, ticket_id, &desired, actor.uuid)?;
     }
     Ok(added)
 }
 
-/// `remove_tags` action. Returns the tags it actually removed.
+/// `remove_tags` action. Returns the tags it actually removed (would
+/// remove, in `shadow`).
 fn execute_remove_tags(
     conn: &mut DbConnection,
     ticket_id: i32,
     config: &Value,
     actor: &ActorContext,
+    shadow: bool,
 ) -> Result<Vec<i32>, ApplyError> {
     let current = crate::repository::tags::tag_ids_for_ticket(conn, ticket_id)?;
     let to_remove = tag_ids_in(config);
@@ -1109,7 +1432,7 @@ fn execute_remove_tags(
         .filter(|t| to_remove.contains(t))
         .copied()
         .collect();
-    if !removed.is_empty() {
+    if !removed.is_empty() && !shadow {
         let desired: Vec<i32> = current
             .iter()
             .filter(|t| !removed.contains(t))
@@ -1125,6 +1448,7 @@ fn execute_set_priority(
     action_index: usize,
     ticket_id: i32,
     config: &Value,
+    shadow: bool,
 ) -> Result<String, ApplyError> {
     let priority_str = config
         .get("priority")
@@ -1156,6 +1480,7 @@ fn execute_set_priority(
             ..Default::default()
         },
         None,
+        shadow,
     )?;
     Ok(priority.as_str().to_string())
 }
