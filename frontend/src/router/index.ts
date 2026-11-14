@@ -753,6 +753,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-rules-activity' }
         },
         {
+          path: 'rules/conflicts',
+          name: 'admin-rules-conflicts',
+          component: () => import('../views/RuleConflictsView.vue'),
+          meta: { titleKey: 'route-title-admin-rules-conflicts' }
+        },
+        {
           path: 'rules/new',
           name: 'admin-rules-new',
           component: () => import('../views/RuleEditView.vue'),

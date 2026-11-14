@@ -835,6 +835,7 @@ async fn rules_config_routes_registered() {
             ("GET", "/rules"),
             ("POST", "/rules"),
             ("POST", "/rules/preview"),
+            ("GET", "/rules/conflicts"),
             ("POST", "/rules/1/apply"),
             ("PATCH", "/rules/1/state"),
             ("POST", "/rules/1/restore"),

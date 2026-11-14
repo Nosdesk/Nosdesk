@@ -11646,3 +11646,33 @@ onboarding-complete-import-note = Transfère les tickets, les personnes et les p
 
 # Règles : en pause est un état à part (machine, à relire par un locuteur natif).
 admin-rules-state-paused = En pause
+
+# Règles : l'inspecteur de conflits (machine, à relire par un locuteur natif).
+route-title-admin-rules-conflicts = Conflits entre règles
+admin-rules-conflicts-cta = Conflits
+admin-rules-conflicts-title = Conflits entre règles
+admin-rules-conflicts-help = Les règles qui s'exécutent d'elles-mêmes peuvent se déclencher entre elles quand l'une modifie un champ qu'une autre vérifie. Seules les règles actives et en test à vide sont vérifiées ici. Les règles manuelles, en brouillon et en pause sont exclues.
+admin-rules-conflicts-back = Retour aux règles
+admin-rules-conflicts-error-load = Impossible de charger les conflits entre règles.
+admin-rules-conflicts-none-checked-title = Aucune règle automatique n'est en cours d'exécution
+admin-rules-conflicts-none-checked-hint = Les règles qui s'exécutent d'elles-mêmes apparaissent ici une fois actives ou en test à vide.
+admin-rules-conflicts-overlaps-title = Règles pouvant en déclencher d'autres
+admin-rules-conflicts-overlaps-empty = Aucune règle en cours ne modifie un champ qu'une autre vérifie.
+admin-rules-conflicts-overlap-detail = { $writer } modifie : { $fields }, que { $reader } vérifie.
+admin-rules-conflicts-co-fires-title = Règles exécutées sur les mêmes tickets
+admin-rules-conflicts-co-fires-empty = Aucune paire de règles en cours ne s'est exécutée sur le même ticket pendant cette période.
+admin-rules-conflicts-co-fire-detail =
+    { $count ->
+        [one] Les deux se sont exécutées sur un ticket, la dernière fois { $when }.
+       *[other] Les deux se sont exécutées sur { $count } tickets, la dernière fois { $when }.
+    }
+admin-rules-conflicts-and = et
+admin-rules-conflicts-window = { $days } derniers jours
+admin-rules-conflicts-field-status = statut
+admin-rules-conflicts-field-priority = priorité
+admin-rules-conflicts-field-assignee = responsable
+admin-rules-conflicts-field-tags = étiquettes
+admin-rules-conflicts-field-updated = date de dernière mise à jour
+admin-rules-conflicts-field-resolved = date de résolution
+admin-rules-conflicts-field-first-response = date de première réponse
+admin-rules-conflicts-field-replies = réponses

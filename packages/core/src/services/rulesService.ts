@@ -18,6 +18,7 @@ import type {
   ListRulesQuery,
   Rule,
   RuleApplication,
+  RuleConflicts,
   RuleVersion,
   StarterRule,
   StateTransitionRequest,
@@ -154,6 +155,18 @@ export const rulesService = {
       `/admin/rule-starters/${encodeURIComponent(id)}`,
       undefined,
       locale ? { headers: { 'Accept-Language': locale } } : undefined,
+    );
+    return data;
+  },
+
+  /**
+   * GET /api/rules/conflicts. Admin. Live and dry run automated rules where
+   * one changes a field another checks, and pairs that ran on the same
+   * ticket in the last `days` days (7 by default, at most 90).
+   */
+  async conflicts(days?: number): Promise<RuleConflicts> {
+    const { data } = await apiClient.get<RuleConflicts>(
+      `/rules/conflicts${toQueryString({ days })}`,
     );
     return data;
   },

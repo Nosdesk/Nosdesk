@@ -58,6 +58,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/rules/preview",
         web::post().to(crate::handlers::rules::preview_rule),
     )
+    // Literal too: `GET /rules/{id}` would take it and answer 404.
+    .route(
+        "/rules/conflicts",
+        web::get().to(crate::handlers::rules::list_rule_conflicts),
+    )
     .route(
         "/rules/{id}/apply",
         web::post().to(crate::handlers::rules::apply_rule),
@@ -819,6 +824,30 @@ pub async fn preview_rule(
         Ok(preview) => Ok(HttpResponse::Ok().json(preview)),
         Err(InsertRuleError::Refused(resp)) => Ok(*resp),
         Err(InsertRuleError::Db(e)) => Err(ApiError::Database(e)),
+    }
+}
+
+/// Query string of `GET /api/rules/conflicts`: how many days back to look
+/// for rules that ran on the same ticket. 7 by default, 1 to 90.
+#[derive(Debug, Default, Deserialize)]
+pub struct RuleConflictsQuery {
+    pub days: Option<i64>,
+}
+
+/// `GET /api/rules/conflicts` (admin). Live and dry run automated rules
+/// where one rule's steps change a field another rule's conditions check,
+/// and pairs of them that ran on the same ticket in the last `days` days.
+pub async fn list_rule_conflicts(
+    req: HttpRequest,
+    query: web::Query<RuleConflictsQuery>,
+    mut tc: TenantConn,
+) -> Result<HttpResponse, ApiError> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let days = query.days.unwrap_or(7).clamp(1, 90);
+    let since = Utc::now() - chrono::Duration::days(days);
+    match tc.run(|conn| crate::repository::rule_conflicts::find(conn, since)) {
+        Ok(conflicts) => Ok(HttpResponse::Ok().json(conflicts)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 

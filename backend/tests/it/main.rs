@@ -182,6 +182,7 @@ mod retention_jobs_audit_context;
 mod route_auth_funnel_lint;
 mod rule_event_outbox;
 mod rule_starters;
+mod rules_conflicts;
 mod rules_in_workspace;
 mod rules_paused_state;
 mod rules_preview_match;

@@ -189,3 +189,37 @@ export interface ApplyRuleResponse {
   actions_executed: number;
   actions_suppressed: number;
 }
+
+/** A rule the conflicts inspector checked: live or dry run, not manual. */
+export interface RuleConflictRule {
+  id: number;
+  name: string;
+  trigger_kind: RuleTriggerKind;
+  state: RuleState;
+  priority: number;
+}
+
+/** The writer's steps change `fields`, which the reader's conditions check. */
+export interface RuleOverlap {
+  writer_rule_id: number;
+  reader_rule_id: number;
+  /** `ticket.*` keys, as in `reads_set` / `writes_set`. */
+  fields: string[];
+}
+
+/** Two checked rules that both ran on `ticket_count` tickets since `since`. */
+export interface RuleCoFire {
+  first_rule_id: number;
+  second_rule_id: number;
+  ticket_count: number;
+  last_co_fired_at: string;
+  /** Up to five, most recent first. */
+  sample_ticket_ids: number[];
+}
+
+export interface RuleConflicts {
+  since: string;
+  rules: RuleConflictRule[];
+  overlaps: RuleOverlap[];
+  co_fires: RuleCoFire[];
+}

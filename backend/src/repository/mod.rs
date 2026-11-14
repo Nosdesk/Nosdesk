@@ -47,6 +47,7 @@ pub mod passkey_credentials;
 pub mod projects;
 pub mod push_devices;
 pub mod requester_identities;
+pub mod rule_conflicts;
 pub mod rules;
 pub mod saved_views;
 pub mod search_query_log;

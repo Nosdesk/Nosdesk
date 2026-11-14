@@ -138,6 +138,10 @@ function openActivity(): void {
   router.push({ name: 'admin-rules-activity' });
 }
 
+function openConflicts(): void {
+  router.push({ name: 'admin-rules-conflicts' });
+}
+
 async function archive(rule: Rule): Promise<void> {
   errorMessage.value = '';
   try {
@@ -194,6 +198,9 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
         <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           <Button variant="secondary" size="sm" @click="openActivity" icon="history">
             <span>{{ t('admin-rules-activity-cta') }}</span>
+          </Button>
+          <Button variant="secondary" size="sm" @click="openConflicts" icon="warning">
+            <span>{{ t('admin-rules-conflicts-cta') }}</span>
           </Button>
           <Button variant="secondary" size="sm" @click="startersOpen = true" icon="book">
             <span>{{ t('admin-rules-starters-cta') }}</span>
