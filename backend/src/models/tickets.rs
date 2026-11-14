@@ -568,6 +568,13 @@ impl NewTicket {
     }
 }
 
+/// The `changed_fields` entry that goes with a workflow state change: a rule on
+/// the ticket's status reads the state's category.
+pub const WORKFLOW_STATE_CATEGORY_FIELD: &str = "ticket.workflow_state.category";
+
+/// The `changed_fields` entry for a change to a ticket's tags.
+pub const TAG_IDS_FIELD: &str = "ticket.tag_ids";
+
 // Add a new struct for partial ticket updates
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::tickets)]
@@ -712,6 +719,23 @@ impl TicketUpdate {
         ]
         .into_iter()
         .filter_map(|(column, set)| set.then_some(column))
+    }
+
+    /// The `changed_fields` of the update's sync action: each column it sets,
+    /// named as a rule's `reads_set` names it (`ticket.<column>`), sorted. A
+    /// workflow state change also names `ticket.workflow_state.category`, which
+    /// a rule on the ticket's status reads. A column set to the value it
+    /// already had is still listed, as the event type counts it.
+    pub fn changed_fields(&self) -> Vec<String> {
+        let mut fields: Vec<String> = self
+            .changed_columns()
+            .map(|column| format!("ticket.{column}"))
+            .collect();
+        if self.workflow_state_id.is_some() {
+            fields.push(WORKFLOW_STATE_CATEGORY_FIELD.to_string());
+        }
+        fields.sort_unstable();
+        fields
     }
 
     /// Whether the update changes nothing but the title: all that someone who
@@ -1215,5 +1239,41 @@ mod new_ticket_write_tests {
     fn a_ticket_is_sent_without_its_guest_lookup_token() {
         let wire = serde_json::to_value(existing_ticket()).expect("serialize ticket");
         assert!(wire.get("guest_lookup_token").is_none(), "{wire}");
+    }
+}
+
+#[cfg(test)]
+mod changed_fields_tests {
+    use super::*;
+
+    #[test]
+    fn names_each_set_column_as_rules_read_it() {
+        let update = TicketUpdate {
+            priority: Some(TicketPriority::High),
+            assignee_uuid: Some(None),
+            updated_at: Some(chrono::DateTime::UNIX_EPOCH.naive_utc()),
+            ..TicketUpdate::default()
+        };
+        assert_eq!(
+            update.changed_fields(),
+            ["ticket.assignee_uuid", "ticket.priority"]
+        );
+    }
+
+    #[test]
+    fn a_state_change_names_its_category_too() {
+        let update = TicketUpdate {
+            workflow_state_id: Some(3),
+            ..TicketUpdate::default()
+        };
+        assert_eq!(
+            update.changed_fields(),
+            [WORKFLOW_STATE_CATEGORY_FIELD, "ticket.workflow_state_id"]
+        );
+    }
+
+    #[test]
+    fn an_empty_update_names_nothing() {
+        assert!(TicketUpdate::default().changed_fields().is_empty());
     }
 }

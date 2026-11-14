@@ -636,8 +636,9 @@ impl From<TicketWriteError> for diesel::result::Error {
 }
 
 /// Save a change to a ticket: the one write path for ticket edits. Records
-/// the matching `ticket.*` sync action (with the previous assignee and state
-/// when they can change), recomputes the SLA pill, starts an approval round on
+/// the matching `ticket.*` sync action (with the fields it set as
+/// `changed_fields`, and the previous assignee and state when they can
+/// change), recomputes the SLA pill, starts an approval round on
 /// a move into a request type that needs one, and reindexes through
 /// `observer`. A new assignee must be able to work tickets in the ticket's
 /// workspace; keeping the current one is never refused.
@@ -748,14 +749,22 @@ pub fn update_ticket_partial(
             crate::services::sla::pill_json_for_ticket(conn, &result)
         };
         let mut data = ticket_sync_row_with_sla(conn, &result, sla)?;
-        if let (Some(previous), Some(obj)) = (&previous, data.as_object_mut()) {
+        if let Some(obj) = data.as_object_mut() {
+            if let Some(previous) = &previous {
+                obj.insert(
+                    "previous_assignee_uuid".into(),
+                    json!(previous.assignee_uuid),
+                );
+                obj.insert(
+                    "previous_workflow_state_id".into(),
+                    json!(previous.workflow_state_id),
+                );
+            }
+            // What the update set, for consumers that filter on it (event
+            // rules); the event type names only the most specific of them.
             obj.insert(
-                "previous_assignee_uuid".into(),
-                json!(previous.assignee_uuid),
-            );
-            obj.insert(
-                "previous_workflow_state_id".into(),
-                json!(previous.workflow_state_id),
+                "changed_fields".into(),
+                json!(ticket_update.changed_fields()),
             );
         }
         emit::record(
