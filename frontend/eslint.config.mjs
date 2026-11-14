@@ -26,6 +26,7 @@
 import pluginVue from 'eslint-plugin-vue'
 import unusedImports from 'eslint-plugin-unused-imports'
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
+import workspaceQueryKey from './scripts/eslint-rules/workspace-query-key.mjs'
 
 export default defineConfigWithVueTs(
   {
@@ -130,6 +131,29 @@ export default defineConfigWithVueTs(
           message: 'Resolve the URL with assetUrl (or use <AssetImg>) so it loads in the mobile app, then disable this line with the reason.',
         },
       ],
+    },
+  },
+
+  // Query keys carry the workspace (src/queries/workspaceQuery.ts). A local
+  // rule rather than a no-restricted-syntax selector: that rule takes one
+  // severity for all its selectors and a later block replaces the one above,
+  // and the assetUrl check stays an error while this one warns until every
+  // key has moved. The requester portal keeps its own keys.
+  {
+    files: ['src/**/*.vue', 'src/**/*.ts'],
+    ignores: [
+      'src/portal/**',
+      'src/queries/workspaceQuery.ts',
+      // The teardown, which walks every entry and the account's keys.
+      'src/stores/workspaceReset.ts',
+      '**/__tests__/**',
+      '**/*.spec.ts',
+    ],
+    plugins: {
+      nosdesk: { rules: { 'workspace-query-key': workspaceQueryKey } },
+    },
+    rules: {
+      'nosdesk/workspace-query-key': 'warn',
     },
   },
 )
