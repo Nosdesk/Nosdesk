@@ -269,16 +269,16 @@ async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
   }
 }
 
-// Agents can apply a rule only while it's live; pausing (the dry_run
-// state) takes it out of their Actions list. Going live saves pending
-// edits first so agents get the rule as shown here.
+// Agents can apply a rule only while it's live; pausing takes it out of
+// their Actions list. Going live saves pending edits first so agents get the
+// rule as shown here.
 async function setLive(live: boolean): Promise<void> {
   if (isDirty.value && !(await save({ quiet: true }))) return;
   const rule = original.value;
   if (!rule) return;
   transitioning.value = true;
   try {
-    fill(await rulesService.transitionState(rule.id, { state: live ? 'live' : 'dry_run' }));
+    fill(await rulesService.transitionState(rule.id, { state: live ? 'live' : 'paused' }));
     await queryCache.invalidateQueries({ key: ['rules'] });
     toast.success(t(live ? 'admin-rules-toast-live' : 'admin-rules-toast-paused', { name: rule.name }));
   } catch (err) {
@@ -314,7 +314,7 @@ const stateNote = computed(() => {
       return t('admin-rule-editor-state-new');
     case 'live':
       return t('admin-rule-editor-state-live');
-    case 'dry_run':
+    case 'paused':
       return t('admin-rule-editor-state-paused');
     default:
       return t('admin-rule-editor-state-draft');

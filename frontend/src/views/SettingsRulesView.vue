@@ -101,7 +101,8 @@ function stateLabel(state: RuleState): string {
 
 function stateTone(state: RuleState): StatusPillTone {
   if (state === 'live') return 'positive';
-  if (state === 'dry_run') return 'caution';
+  if (state === 'paused') return 'caution';
+  if (state === 'dry_run') return 'info';
   return 'neutral';
 }
 
@@ -117,6 +118,7 @@ const stateFilterOptions = computed(() => [
   { value: 'draft', label: stateLabel('draft') },
   { value: 'dry_run', label: stateLabel('dry_run') },
   { value: 'live', label: stateLabel('live') },
+  { value: 'paused', label: stateLabel('paused') },
   { value: 'archived', label: stateLabel('archived') },
 ]);
 
@@ -148,9 +150,9 @@ async function archive(rule: Rule): Promise<void> {
   archiveTarget.value = null;
 }
 
-// Agents can apply a rule only while it's live; pausing (the dry_run
-// state) takes it out of their Actions list. Only manual rules can go
-// live: no other trigger runs yet.
+// Agents can apply a rule only while it's live; pausing takes it out of
+// their Actions list. Only manual rules can go live: no other trigger runs
+// yet.
 const canGoLive = (rule: Rule) => rule.trigger_kind === 'manual' && rule.state !== 'live';
 
 // A restored rule comes back as a draft.
@@ -168,7 +170,7 @@ async function restore(rule: Rule): Promise<void> {
 async function setLive(rule: Rule, live: boolean): Promise<void> {
   errorMessage.value = '';
   try {
-    await rulesService.transitionState(rule.id, { state: live ? 'live' : 'dry_run' });
+    await rulesService.transitionState(rule.id, { state: live ? 'live' : 'paused' });
     await queryCache.invalidateQueries({ key: RULES_KEY });
     toast.success(t(live ? 'admin-rules-toast-live' : 'admin-rules-toast-paused', { name: rule.name }));
   } catch (err) {

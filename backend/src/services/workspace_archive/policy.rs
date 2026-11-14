@@ -263,6 +263,8 @@ pub const WORKSPACE_TABLES: &[Table] = &[
     t("user_push_devices", Never),
     t("webhook_deliveries", Never),
     t("notification_deliveries", Never),
+    t("rule_event_outbox", Never),
+    t("ticket_rule_runs", Never),
     t("sync_delta_tokens", Never),
     t("sync_history", Never),
     t("workspace_ldap_sync_state", Never),

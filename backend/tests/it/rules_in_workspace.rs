@@ -19,7 +19,7 @@ use backend::sync::actor::ActorContext;
 use crate::common::{self, TestPool, WorkspaceSeed};
 
 /// Call the rules routes as `ws`'s admin.
-async fn as_admin(
+pub(crate) async fn as_admin(
     pool: &TestPool,
     ws: &WorkspaceSeed,
     req: http_test::TestRequest,
@@ -448,7 +448,7 @@ async fn an_archived_rule_cannot_go_live() {
     assert_eq!(archived.status(), StatusCode::OK);
 
     for id in [deleted, moved] {
-        for state in ["live", "dry_run", "draft"] {
+        for state in ["live", "paused", "draft"] {
             let resp = as_admin(
                 &pool,
                 a,
@@ -506,9 +506,9 @@ async fn an_archived_rule_cannot_go_live() {
     }
 }
 
-/// A paused rule (`dry_run`, "Paused" in the app) doesn't apply: nothing is
-/// written, no reply is posted or mailed, and no application is recorded.
-/// Making it live again lets it apply.
+/// A paused rule doesn't apply: nothing is written, no reply is posted or
+/// mailed, and no application is recorded. Making it live again lets it
+/// apply.
 #[actix_web::test]
 async fn a_paused_rule_does_not_apply() {
     use backend::schema::{comments, outbound_emails, rule_applications};
@@ -573,7 +573,7 @@ async fn a_paused_rule_does_not_apply() {
         (comments, applications, outbound)
     };
 
-    for state in ["live", "dry_run"] {
+    for state in ["live", "paused"] {
         let resp = as_admin(&pool, a, set_state(state)).await;
         assert_eq!(resp.status(), StatusCode::OK, "to {state}");
     }

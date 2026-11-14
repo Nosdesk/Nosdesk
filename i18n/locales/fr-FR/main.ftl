@@ -8906,7 +8906,8 @@ admin-rules-trigger-ticket-updated = À la mise à jour d'un ticket
 admin-rules-trigger-ticket-replied = À la réponse
 admin-rules-trigger-time-elapsed = Temps écoulé
 admin-rules-state-draft = Brouillon
-admin-rules-state-dry-run = En pause
+# MACHINE TRANSLATION, pending native review
+admin-rules-state-dry-run = Test à vide
 admin-rules-state-live = Active
 admin-rules-state-archived = Archivée
 admin-rules-col-name = Nom
@@ -11642,3 +11643,6 @@ onboarding-complete-open = Aller à votre espace de travail
 onboarding-complete-import = Importer un espace de travail depuis un autre Nosdesk
 # MACHINE TRANSLATION, pending native review
 onboarding-complete-import-note = Transfère les tickets, les personnes et les paramètres d'un export vers cet espace de travail. Cela ne fonctionne que tant que l'espace de travail est encore vide.
+
+# Règles : en pause est un état à part (machine, à relire par un locuteur natif).
+admin-rules-state-paused = En pause
