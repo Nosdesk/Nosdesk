@@ -394,6 +394,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import backupService from '@/services/backupService';
+import { useFileSave } from '@/composables/useFileSave';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import { downloadDocumentationExport } from '@/services/markdownExportService';
@@ -404,6 +405,7 @@ import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig';
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const toast = useToastStore();
+const { save: saveFile } = useFileSave();
 
 // Export state
 const includeSensitive = ref(false);
@@ -475,7 +477,7 @@ const startExport = async () => {
 
     if (completedJob.status === 'completed') {
       // Download automatically
-      backupService.downloadBackup(completedJob.id);
+      void saveFile(backupService.downloadPath(completedJob.id));
     }
 
     // Refresh job list
@@ -493,7 +495,7 @@ const startExport = async () => {
 };
 
 const downloadBackup = (id: string) => {
-  backupService.downloadBackup(id);
+  void saveFile(backupService.downloadPath(id));
 };
 
 const pendingDeleteJobId = ref<string | null>(null);

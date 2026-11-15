@@ -2,7 +2,9 @@
 <script setup lang="ts">
 import AssetImg from '@/components/common/AssetImg.vue'
 import { assetUrl } from '@nosdesk/core/transport'
-import LinkButton from '@/components/common/LinkButton.vue'
+import DownloadLink from '@/components/common/DownloadLink.vue'
+import Icon from '@/components/common/Icon.vue'
+import { button, buttonIconSize } from '@/recipes/button'
 import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref, onMounted } from 'vue';
 import { useFluent } from 'fluent-vue';
@@ -260,15 +262,10 @@ onMounted(async () => {
 
         <!-- Download button -->
         <div class="flex items-center gap-2 justify-end mt-2">
-          <LinkButton
-            :href="src"
-            target="_blank"
-            :download="filename"
-            size="sm"
-            icon="download"
-          >
-            {{ $t('ticket-media-file-download') }}
-          </LinkButton>
+          <DownloadLink :href="src" :filename="filename" :class="button({ size: 'sm' })" spinner-size="xs">
+            <Icon name="download" :size="buttonIconSize('sm')" />
+            <span>{{ $t('ticket-media-file-download') }}</span>
+          </DownloadLink>
         </div>
       </div>
     </div>

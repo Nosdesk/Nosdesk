@@ -11,6 +11,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { EventBus, PDFFindController, PDFLinkService, PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue'
+import DownloadLink from '@/components/common/DownloadLink.vue'
 import IconButton from '@/components/common/IconButton.vue'
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
@@ -597,17 +598,16 @@ const pageStatus = computed(() =>
             data-testid="pdf-share"
             @click="share"
           />
-          <a
+          <DownloadLink
             v-else
             :href="src"
-            target="_blank"
-            :download="filename"
+            :filename="filename"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover"
             :title="$t('ticket-media-pdf-download')"
             :aria-label="$t('ticket-media-pdf-download')"
           >
             <Icon name="download" />
-          </a>
+          </DownloadLink>
         </div>
       </div>
     </div>

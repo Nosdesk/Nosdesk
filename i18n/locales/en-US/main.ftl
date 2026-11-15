@@ -4660,7 +4660,6 @@ settings-mfa-backup-codes-description = Save these backup codes in a secure loca
 settings-mfa-backup-codes-download = Download
 settings-mfa-backup-codes-download-tooltip = Download backup codes as text file
 settings-mfa-backup-codes-download-success = Backup codes downloaded successfully
-settings-mfa-backup-codes-download-error = Failed to download backup codes
 # Recovery-codes .txt export, shared by MFA and passkey setup (see useRecoveryCodesFile).
 recovery-codes-file-title = Nosdesk Recovery Codes
 recovery-codes-file-warning = IMPORTANT: Save these recovery codes in a secure location.

@@ -15,6 +15,7 @@ import { formatDate, formatDateTime, formatRelativeTime } from '@nosdesk/core/ut
 import { auditService, type AuditEntry, type AuditPage, type AuditQuery } from '@nosdesk/core/services/auditService';
 import { auditKeys } from '@nosdesk/core/queries/audit';
 import { extractErrorMessage } from '@/utils/errors';
+import { saveFile } from '@/platform';
 import { useAuthStore } from '@/stores/auth';
 
 const fluent = useFluent();
@@ -185,15 +186,10 @@ async function exportJson() {
   errorMessage.value = '';
   try {
     const data = await auditService.export(buildQuery());
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `audit-export-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    await saveFile(
+      new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      `audit-export-${new Date().toISOString().slice(0, 10)}.json`,
+    );
   } catch (err) {
     errorMessage.value = readError(err, 'admin-audit-error-load');
   } finally {

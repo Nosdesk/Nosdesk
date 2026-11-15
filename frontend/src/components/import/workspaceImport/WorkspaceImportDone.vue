@@ -22,6 +22,7 @@ import Modal from '@/components/Modal.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import ImportSignInLine from '@/components/import/ImportSignInLine.vue'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
+import { useFileSave } from '@/composables/useFileSave'
 import {
   workspaceImportService,
   type WorkspaceImportJob,
@@ -50,6 +51,7 @@ const emit = defineEmits<{
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const router = useRouter()
+const { save: saveFile } = useFileSave()
 
 const name = computed(() => archiveName(props.job))
 const plan = computed(() => props.job.report?.plan)
@@ -125,14 +127,10 @@ const doneCount = computed(() => items.value.filter((i) => ticked.value.has(i.id
 const showReport = ref(false)
 const reportJson = computed(() => JSON.stringify(props.job.report ?? {}, null, 2))
 function downloadReport() {
-  const blob = new Blob([reportJson.value], { type: 'application/json' })
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = `workspace-import-${props.job.id}.json`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(link.href)
+  void saveFile(
+    new Blob([reportJson.value], { type: 'application/json' }),
+    `workspace-import-${props.job.id}.json`,
+  )
 }
 
 // ---- reset ----

@@ -11,7 +11,6 @@ import { saveFile, type FileSource } from '@/platform/files'
  */
 export function useFileSave() {
   const { $t } = useFluent()
-  const toast = useToastStore()
   const saving = ref(false)
 
   /**
@@ -24,7 +23,8 @@ export function useFileSave() {
       return (await saveFile(source, filename)).completed
     } catch (error) {
       console.error('Saving the file failed:', error)
-      toast.error($t('common-file-save-failed'))
+      // The store is only needed on failure, so a page of links sets up none.
+      useToastStore().error($t('common-file-save-failed'))
       return false
     } finally {
       saving.value = false

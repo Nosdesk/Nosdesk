@@ -5232,7 +5232,6 @@ settings-mfa-backup-codes-description = Bewaar deze back-upcodes op een veilige 
 settings-mfa-backup-codes-download = Downloaden
 settings-mfa-backup-codes-download-tooltip = Back-upcodes als tekstbestand downloaden
 settings-mfa-backup-codes-download-success = Back-upcodes gedownload
-settings-mfa-backup-codes-download-error = Kan back-upcodes niet downloaden
 # .txt-export van herstelcodes, gedeeld door MFA- en passkey-installatie (machine, nagekeken door moedertaalspreker vereist).
 recovery-codes-file-title = Nosdesk herstelcodes
 recovery-codes-file-warning = BELANGRIJK: bewaar deze herstelcodes op een veilige plek.

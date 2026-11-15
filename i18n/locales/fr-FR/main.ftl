@@ -5242,7 +5242,6 @@ settings-mfa-backup-codes-description = Conservez ces codes de secours en lieu s
 settings-mfa-backup-codes-download = Télécharger
 settings-mfa-backup-codes-download-tooltip = Télécharger les codes de secours au format texte
 settings-mfa-backup-codes-download-success = Codes de secours téléchargés avec succès
-settings-mfa-backup-codes-download-error = Échec du téléchargement des codes de secours
 # Export .txt des codes de récupération, partagé par la configuration MFA et passkey (machine, à relire par un locuteur natif).
 recovery-codes-file-title = Codes de récupération Nosdesk
 recovery-codes-file-warning = IMPORTANT : conservez ces codes de récupération en lieu sûr.

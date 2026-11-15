@@ -1,4 +1,5 @@
 import { useFluent } from 'fluent-vue';
+import { useFileSave } from '@/composables/useFileSave';
 
 /**
  * Shared recovery-codes `.txt` export. TOTP (MFA) and passkey setup both
@@ -10,6 +11,7 @@ import { useFluent } from 'fluent-vue';
 export function useRecoveryCodesFile() {
   const fluent = useFluent();
   const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+  const { save } = useFileSave();
 
   /** The file body. Exposed so a caller (or a test) can preview it. */
   const buildRecoveryCodesContent = (codes: string[]): string =>
@@ -23,18 +25,15 @@ ${codes.map((code, index) => `${index + 1}. ${code}`).join('\n')}
 
 ${t('recovery-codes-file-generated', { date: new Date().toISOString() })}`;
 
-  /** Trigger a browser download of the codes as a date-stamped `.txt`. */
-  const downloadRecoveryCodes = (codes: string[]): void => {
-    const blob = new Blob([buildRecoveryCodesContent(codes)], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `nosdesk-recovery-codes-${new Date().toISOString().split('T')[0]}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
+  /**
+   * Save the codes as a date-stamped `.txt`. Resolves true once saved; a
+   * failure has already shown a toast (`useFileSave`).
+   */
+  const downloadRecoveryCodes = (codes: string[]): Promise<boolean> =>
+    save(
+      new Blob([buildRecoveryCodesContent(codes)], { type: 'text/plain' }),
+      `nosdesk-recovery-codes-${new Date().toISOString().split('T')[0]}.txt`,
+    );
 
   return { buildRecoveryCodesContent, downloadRecoveryCodes };
 }

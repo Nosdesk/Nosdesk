@@ -66,6 +66,7 @@ import {
 } from '@nosdesk/core/services/docsImportService'
 import { useSyncDocsStore, isActivePage } from '@nosdesk/core/sync/stores/documentation'
 import { formatFileSize } from '@nosdesk/core/utils/formatFileSize'
+import { saveFile } from '@/platform'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -684,13 +685,7 @@ async function downloadReport() {
   errorMessage.value = ''
   try {
     const { blob, filename } = await docsImportService.report(job.value.id)
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(link.href)
+    await saveFile(blob, filename)
   } catch (e) {
     errorMessage.value = apiError(e, 'docs-import-report-failed')
   } finally {
