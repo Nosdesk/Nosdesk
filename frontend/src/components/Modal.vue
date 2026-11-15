@@ -11,9 +11,15 @@
  * sheet below `md` (the breakpoint every other sheet in the app uses), a
  * centred card above it.
  *
- * `alert` switches to Reka's AlertDialog: no backdrop dismiss, and focus
- * lands on the Cancel action (wrap it in `AlertDialogCancel`), for
- * confirmations where a stray click must not decide anything.
+ * The sheet dismisses on a swipe down (`useSheetDismissGesture`): from
+ * the header always, from the body when its scroller is at the top. The
+ * grabber at the top is the affordance; it sits in the header's top
+ * padding rather than on a row of its own.
+ *
+ * `alert` switches to Reka's AlertDialog: no backdrop dismiss, no swipe
+ * dismiss, and focus lands on the Cancel action (wrap it in
+ * `AlertDialogCancel`), for confirmations where a stray click must not
+ * decide anything.
  *
  * Footer actions: wrap buttons in `.modal-actions` for touch-sized
  * mobile targets and stacked full-width layout.
@@ -39,6 +45,7 @@ import {
   DialogTitle,
 } from 'reka-ui'
 import Icon from '@/components/common/Icon.vue'
+import { useSheetDismissGesture } from '@/composables/useSheetDismissGesture'
 
 const props = withDefaults(defineProps<{
   show: boolean
@@ -51,8 +58,8 @@ const props = withDefaults(defineProps<{
   scrollContent?: boolean
   size?: 'sm' | 'md' | 'lg' | 'xl'
   closeAriaLabel?: string
-  /** AlertDialog semantics: backdrop click does not dismiss, focus opens
-   *  on the Cancel action. */
+  /** AlertDialog semantics: neither backdrop click nor swipe dismisses,
+   *  focus opens on the Cancel action. */
   alert?: boolean
 }>(), {
   scrollContent: true,
@@ -99,12 +106,23 @@ function onOpenChange(open: boolean) {
   if (!open) emit('close')
 }
 
-const contentRef = ref<{ $el?: HTMLElement } | null>(null)
+// The Overlay and Content parts render as-child onto these elements, so
+// the gesture has the real nodes to move and dim (and Reka's `data-state`
+// keyframes land on the same nodes).
+const panelEl = ref<HTMLElement | null>(null)
+const backdropEl = ref<HTMLElement | null>(null)
+
+useSheetDismissGesture({
+  panel: panelEl,
+  backdrop: backdropEl,
+  enabled: () => !props.alert,
+  onDismiss: () => emit('close'),
+})
 
 // Honour an explicit `autofocus` inside the body over Reka's
 // first-tabbable default, so forms open on the field they mean to.
 function onOpenAutoFocus(event: Event) {
-  const preferred = contentRef.value?.$el?.querySelector<HTMLElement>('[autofocus]')
+  const preferred = panelEl.value?.querySelector<HTMLElement>('[autofocus]')
   if (preferred) {
     event.preventDefault()
     preferred.focus()
@@ -115,61 +133,69 @@ function onOpenAutoFocus(event: Event) {
 <template>
   <component :is="parts.Root" :open="show" @update:open="onOpenChange">
     <component :is="parts.Portal">
-      <component
-        :is="parts.Overlay"
-        class="modal-backdrop bg-black/40 dark:bg-black/60 backdrop-blur-sm"
-      />
+      <component :is="parts.Overlay" as-child>
+        <div ref="backdropEl" class="modal-backdrop bg-black/40 dark:bg-black/60 backdrop-blur-sm" />
+      </component>
       <!-- Without a Description part, Reka would still point
            aria-describedby at an id that renders nothing; unset it. -->
       <component
         :is="parts.Content"
-        ref="contentRef"
-        class="modal-panel"
-        :class="[sizeClass, contentClass]"
-        aria-modal="true"
+        as-child
         v-bind="description ? {} : { 'aria-describedby': undefined }"
         @open-auto-focus="onOpenAutoFocus"
       >
-        <header
-          class="modal-header"
-          :class="[description && 'modal-header--described', headerClass]"
+        <div
+          ref="panelEl"
+          class="modal-panel"
+          :class="[sizeClass, contentClass]"
+          aria-modal="true"
         >
-          <div class="modal-header__main">
-            <component :is="parts.Title" as="h2" class="modal-header__title">{{ title }}</component>
-            <component
-              :is="parts.Description"
-              v-if="description"
-              as="p"
-              class="modal-header__description"
-            >
-              {{ description }}
-            </component>
+          <!-- Decorative: the close button is the accessible way out. -->
+          <div class="modal-grabber" aria-hidden="true" />
+          <!-- The header is the drag handle: a drag may start here however
+               the body is scrolled. -->
+          <header
+            class="modal-header"
+            :class="[description && 'modal-header--described', headerClass]"
+            data-sheet-handle
+          >
+            <div class="modal-header__main">
+              <component :is="parts.Title" as="h2" class="modal-header__title">{{ title }}</component>
+              <component
+                :is="parts.Description"
+                v-if="description"
+                as="p"
+                class="modal-header__description"
+              >
+                {{ description }}
+              </component>
+            </div>
+
+            <DialogClose class="modal-header__close" :aria-label="closeLabel">
+              <Icon name="close" size="sm" />
+            </DialogClose>
+          </header>
+
+          <div
+            class="modal-body"
+            :class="[
+              scrollContent === false
+                ? 'modal-body--fixed'
+                : 'modal-body--scroll',
+              removePadding && 'modal-body--flush',
+            ]"
+          >
+            <slot />
           </div>
 
-          <DialogClose class="modal-header__close" :aria-label="closeLabel">
-            <Icon name="close" size="sm" />
-          </DialogClose>
-        </header>
-
-        <div
-          class="modal-body"
-          :class="[
-            scrollContent === false
-              ? 'modal-body--fixed'
-              : 'modal-body--scroll',
-            removePadding && 'modal-body--flush',
-          ]"
-        >
-          <slot />
+          <footer
+            v-if="$slots.footer"
+            class="modal-footer"
+            :class="footerClass"
+          >
+            <slot name="footer" />
+          </footer>
         </div>
-
-        <footer
-          v-if="$slots.footer"
-          class="modal-footer"
-          :class="footerClass"
-        >
-          <slot name="footer" />
-        </footer>
       </component>
     </component>
   </component>
@@ -192,15 +218,21 @@ function onOpenAutoFocus(event: Event) {
 /* Fixed and self-positioned (no centring wrapper): below `md` it is a
    bottom sheet pinned to the viewport's bottom edge; from `md` up
    `inset: 0; margin: auto` centres the content-sized panel without a
-   transform, which leaves transform free for the motion below. */
+   transform, which leaves transform free for the motion below.
+
+   The sheet extends 2.5rem below the viewport (and pads the same amount,
+   so nothing visible moves): the swipe gesture lets it stretch up to
+   40px past rest, and without the extension the page would show under
+   its bottom edge. */
 .modal-panel {
   --modal-pad-x: 1rem;
   --modal-pad-body: 1rem;
   --modal-footer-pad-y: 0.75rem;
   --modal-header-close: 2.75rem;
+  --modal-sheet-stretch: 2.5rem;
 
   position: fixed;
-  inset: auto 0 0 0;
+  inset: auto 0 calc(-1 * var(--modal-sheet-stretch)) 0;
   z-index: var(--z-overlay);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -210,7 +242,7 @@ function onOpenAutoFocus(event: Event) {
     'footer';
   width: 100%;
   max-width: none;
-  max-height: min(92dvh, 920px);
+  max-height: calc(min(92dvh, 920px) + var(--modal-sheet-stretch));
   overflow: hidden;
   background: var(--color-surface);
   border-radius: 1rem 1rem 0 0;
@@ -218,7 +250,7 @@ function onOpenAutoFocus(event: Event) {
     0 -8px 32px -8px rgb(0 0 0 / 0.2),
     0 0 0 1px var(--color-border-default);
   border-bottom: 0;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: calc(env(safe-area-inset-bottom) + var(--modal-sheet-stretch));
   outline: none;
 }
 
@@ -256,8 +288,38 @@ function onOpenAutoFocus(event: Event) {
   .modal-panel--xl { max-width: 72rem; }
 }
 
+/* --- Grabber ---------------------------------------------------- */
+
+/* The sheet's swipe affordance, iOS-sized. Absolutely positioned over the
+   header's top padding so it costs no row; the header grows by 4px to
+   clear it (8px with a description, whose tighter padding would otherwise
+   run into the pill). Hidden on the desktop card, which has no gesture. */
+.modal-grabber {
+  position: absolute;
+  top: 0.375rem;
+  left: 50%;
+  width: 2.25rem;
+  height: 0.25rem;
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  background: var(--color-border-strong);
+  pointer-events: none;
+  /* Above a header a consumer has made `relative`. */
+  z-index: 1;
+}
+
+@media (min-width: 768px) {
+  .modal-grabber {
+    display: none;
+  }
+}
+
 /* --- Header grid ----------------------------------------------- */
 
+/* Below `md` the header is the sheet's drag handle: `touch-action: none`
+   keeps WebKit from starting a pan of its own (there is nothing here to
+   scroll), and the title is not selectable, so a long press cannot turn
+   a drag into a text selection. */
 .modal-header {
   grid-area: header;
   display: grid;
@@ -269,6 +331,14 @@ function onOpenAutoFocus(event: Event) {
   border-bottom: 1px solid var(--color-border-default);
   background: var(--color-surface-alt);
   padding-inline: var(--modal-pad-x);
+  padding-top: 0.25rem;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.modal-header--described {
+  padding-top: 0.5rem;
 }
 
 .modal-header__main {
@@ -329,6 +399,10 @@ function onOpenAutoFocus(event: Event) {
 @media (min-width: 768px) {
   .modal-header {
     min-height: 2.25rem;
+    padding-top: 0;
+    touch-action: auto;
+    -webkit-user-select: auto;
+    user-select: auto;
   }
 
   .modal-header__main {
@@ -444,7 +518,9 @@ function onOpenAutoFocus(event: Event) {
 
 /* Driven by Reka's `data-state`; Presence keeps the element mounted
    until the closed animation ends. The sheet slides up, the card scales
-   in; the backdrop fades. */
+   in; the backdrop fades. A swipe dismiss has already taken the sheet
+   off-screen and sets an inline `animation: none` on both elements, so
+   the closed keyframes do not replay it. */
 .modal-backdrop[data-state='open'] { animation: modal-fade-in 0.15s ease; }
 .modal-backdrop[data-state='closed'] { animation: modal-fade-out 0.15s ease; }
 .modal-panel[data-state='open'] { animation: modal-sheet-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
