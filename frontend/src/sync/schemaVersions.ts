@@ -6,6 +6,12 @@ import type { SyncAggregate } from '@nosdesk/core/sync/types'
  * match the entry here get filtered on rehydrate and re-fetched on
  * the next bootstrap.
  *
+ * Only aggregates listed here are cached. The live-only ones
+ * (`assignment`, `group_membership`, `plugin`, `asset_media`,
+ * `asset_lifecycle_event`) are left out on purpose: no snapshot carries
+ * them and no view reads them from the pool, so caching them only grew
+ * the database.
+ *
  * When the server's manifest schema_version bumps, bump the matching
  * entry here in the same commit.
  */
@@ -18,13 +24,8 @@ export const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   workflow_state: 1,
   comment: 1,
   attachment: 2,
-  assignment: 1,
-  group_membership: 1,
-  plugin: 1,
   user: 2,
   asset: 1,
-  asset_media: 2,
-  asset_lifecycle_event: 1,
   cycle: 1,
   documentation_page: 1,
   documentation_collection: 2,
