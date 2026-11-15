@@ -2592,8 +2592,6 @@ ticket-media-attachment-delete-file = Delete file
 ticket-media-attachment-format-unsupported = Your browser can't show this image format
 ticket-media-attachment-loading-pdf = Loading PDF
 ticket-media-attachment-animated-badge = ANIMATED
-ticket-media-attachment-cancel = Cancel
-ticket-media-attachment-submit-video = Submit video
 ticket-media-attachment-preview-title-animated = Animated image preview
 ticket-media-attachment-preview-title-image = Image preview
 

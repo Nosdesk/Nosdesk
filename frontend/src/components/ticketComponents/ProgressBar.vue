@@ -145,9 +145,13 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <!-- The seek bar owns any drag that starts on it, so a bottom sheet's
+       swipe-down-to-dismiss leaves it alone (the .stop below never reaches
+       the sheet's pointer listener). -->
   <div
     ref="progressBarRef"
     class="w-full h-1.5 bg-surface-hover rounded-full cursor-pointer relative group"
+    data-sheet-no-drag
     @mousedown.stop="handleMouseDown"
     @touchstart.stop="handleTouchStart"
   >

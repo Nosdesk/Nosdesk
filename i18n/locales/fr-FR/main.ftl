@@ -5441,8 +5441,6 @@ ticket-media-attachment-delete-file = Supprimer le fichier
 ticket-media-attachment-format-unsupported = Ce format d'image n'est pas pris en charge par votre navigateur
 ticket-media-attachment-loading-pdf = Chargement du PDF
 ticket-media-attachment-animated-badge = ANIMÉ
-ticket-media-attachment-cancel = Annuler
-ticket-media-attachment-submit-video = Envoyer la vidéo
 ticket-media-attachment-preview-title-animated = Aperçu de l'image animée
 ticket-media-attachment-preview-title-image = Aperçu de l'image
 # MT: pending native review (fr-FR)
