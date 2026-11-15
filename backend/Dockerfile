@@ -12,8 +12,8 @@
 # `release` path runs the identical `--release` command as before.
 ARG CARGO_PROFILE=release
 
-# Prebuilt cargo-chef on rust 1.95 slim-bookworm (matches the prior base image).
-FROM lukemathwalker/cargo-chef:0.1.77-rust-1.95.0-slim-bookworm AS chef
+# Prebuilt cargo-chef on rust 1.100 slim-bookworm (matches the prior base image).
+FROM lukemathwalker/cargo-chef:0.1.78-rust-1.100.0-slim-bookworm AS chef
 WORKDIR /app
 
 # Stage 1: compute the dependency recipe.
