@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { h, nextTick } from 'vue'
 import type { VueWrapper } from '@vue/test-utils'
 import { mountWithProviders } from '@/test/mountWithProviders'
@@ -84,6 +84,103 @@ describe('Modal', () => {
     mountModal({ show: false })
     await settle()
     expect(dialog()).toBeNull()
+  })
+})
+
+// The sheet presentation: below `md` with a coarse pointer. Specs that
+// drive the swipe install this mock; everything else keeps the harness
+// default, under which the gesture is off.
+function presentAs(mode: 'phone' | 'desktop') {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: query.includes('min-width') ? mode === 'desktop' : query.includes('pointer') && mode === 'phone',
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    onchange: null,
+    dispatchEvent: () => false,
+  }))
+}
+
+const SHEET_HEIGHT = 600
+
+function pointer(type: string, target: Element, y: number) {
+  target.dispatchEvent(
+    new PointerEvent(type, {
+      pointerId: 7,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      clientX: 180,
+      clientY: y,
+      bubbles: true,
+    }),
+  )
+}
+
+/** A slow drag down from the header: press, one move past the slop, one
+ *  to `distance`, a hold, release. The hold outlasts the velocity window
+ *  so distance alone decides, as for a finger that stops before letting
+ *  go. jsdom lays nothing out, so the panel reports a phone sheet's
+ *  height, and the glide is a CSS transition it never runs, so the spec
+ *  ends it by hand. */
+async function swipeDown(el: HTMLElement, distance: number) {
+  el.getBoundingClientRect = () => ({ height: SHEET_HEIGHT }) as DOMRect
+  const handle = el.querySelector<HTMLElement>('.modal-header__title')!
+  pointer('pointerdown', handle, 40)
+  await settle()
+  pointer('pointermove', handle, 60)
+  await settle()
+  pointer('pointermove', handle, 40 + distance)
+  await new Promise((r) => setTimeout(r, 120))
+  pointer('pointermove', handle, 40 + distance)
+  pointer('pointerup', handle, 40 + distance)
+  el.dispatchEvent(new TransitionEvent('transitionend', { propertyName: 'transform' }))
+  await settle()
+}
+
+describe('Modal as a sheet on a phone', () => {
+  const originalMatchMedia = window.matchMedia
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+  })
+
+  it('shows a decorative grabber and closes on a swipe down from the header', async () => {
+    presentAs('phone')
+    const { closes } = mountModal({ show: true })
+    await settle()
+    const grabber = dialog()!.querySelector('.modal-grabber')
+    expect(grabber?.getAttribute('aria-hidden')).toBe('true')
+    await swipeDown(dialog()!, SHEET_HEIGHT / 2)
+    expect(closes).toHaveLength(1)
+  })
+
+  it('springs back from a short swipe without closing', async () => {
+    presentAs('phone')
+    const { closes } = mountModal({ show: true })
+    await settle()
+    await swipeDown(dialog()!, 50)
+    expect(closes).toHaveLength(0)
+    expect(dialog()).not.toBeNull()
+  })
+
+  it('ignores the swipe in alert mode, as it ignores the backdrop', async () => {
+    presentAs('phone')
+    const { closes } = mountModal({ show: true, alert: true })
+    await settle()
+    const el = document.body.querySelector<HTMLElement>('[role="alertdialog"]')
+    expect(el).not.toBeNull()
+    await swipeDown(el!, SHEET_HEIGHT / 2)
+    expect(closes).toHaveLength(0)
+  })
+
+  it('ignores the swipe on the desktop card', async () => {
+    presentAs('desktop')
+    const { closes } = mountModal({ show: true })
+    await settle()
+    await swipeDown(dialog()!, SHEET_HEIGHT / 2)
+    expect(closes).toHaveLength(0)
   })
 })
 
