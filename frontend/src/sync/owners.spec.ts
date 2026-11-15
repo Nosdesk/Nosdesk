@@ -246,6 +246,9 @@ describe('local rows', () => {
 
 describe('cached rows', () => {
   it('are owned `legacy` when cached without owners, and drop a cached `local`', async () => {
+    // Watermarks keep the rows (see ownerHydrate.spec.ts); comment 41, cached
+    // with no owners, has none to keep it.
+    fake.dbs.get('test:u1:h:acme')!.set('group_watermarks', { [WORKSPACE]: 5, 'ticket:9': 5 })
     fake.store.cached = [
       { aggregate: 'ticket', id: '9', schema_version: 1, data: { id: 9, title: 'From 1.1' } },
       {
@@ -261,7 +264,7 @@ describe('cached rows', () => {
 
     expect(owners('ticket', 9)).toEqual([pool.LEGACY_OWNER])
     expect(owners('comment', 40)).toEqual(['ticket:9'])
-    expect(owners('comment', 41)).toEqual([])
+    expect(pool.has('comment', 41)).toBe(false)
   })
 })
 

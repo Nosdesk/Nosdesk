@@ -33,6 +33,7 @@ const fake = vi.hoisted(() => {
       putModels: async () => {},
       loadModels: async () => [],
       deleteModel: async () => {},
+      deleteModels: async () => {},
       putTransaction: async () => {},
       deleteTransaction: async () => {},
       loadTransactions: async () => [],
@@ -62,6 +63,8 @@ const server = vi.hoisted(() => ({
   horizon: 10,
   events: [] as Array<{ xid8: number; sync_id: number; group: string; id: number; title: string }>,
   deltaFrom: [] as number[],
+  /** Runs once the next bootstrap request is in flight. */
+  duringBootstrap: null as null | (() => void),
 }))
 
 vi.mock('./idb', () => fake.idb)
@@ -78,6 +81,9 @@ vi.mock('@/services/authFetch', () => ({
   authFetch: vi.fn(async (url: string) => {
     const params = new URL(url, 'http://x').searchParams
     if (url.startsWith('/sync/bootstrap')) {
+      const during = server.duringBootstrap
+      server.duringBootstrap = null
+      during?.()
       const groups = (params.get('groups') ?? '').split(',')
       const end = { last_xid8: server.horizon, last_sync_id: server.horizon * 10 }
       const lines = [
@@ -116,7 +122,7 @@ vi.mock('@/services/authFetch', () => ({
   }),
 }))
 
-const { hydrate, subscribe, pullDelta, tearDown } = await import('./lifecycle')
+const { hydrate, subscribe, pullDelta, applySseFrame, tearDown } = await import('./lifecycle')
 
 const WORKSPACE = 'workspace:6'
 
@@ -126,6 +132,7 @@ beforeEach(() => {
   server.horizon = 10
   server.events = []
   server.deltaFrom = []
+  server.duringBootstrap = null
 })
 
 afterEach(async () => {
@@ -161,5 +168,39 @@ describe('bootstrapping a newly subscribed group', () => {
 
     await pullDelta()
     expect(pool.has('ticket', 253)).toBe(true)
+  })
+})
+
+describe('a live event racing the snapshot', () => {
+  it('keeps a row an SSE frame created while the snapshot streamed', async () => {
+    await hydrate('u1', 'h', '', 'acme', '')
+    // Ticket 253 commits after the snapshot's transaction began, so the
+    // snapshot (horizon 10) can't carry it; SSE delivers it mid-stream.
+    server.events.push({ xid8: 15, sync_id: 150, group: WORKSPACE, id: 253, title: 'New Ticket' })
+    server.duringBootstrap = () =>
+      applySseFrame(
+        [
+          {
+            sync_id: 150,
+            aggregate: 'ticket',
+            aggregate_id: '253',
+            op: 'I',
+            event_type: 'ticket.created',
+            schema_version: 1,
+            data: { id: 253, title: 'New Ticket' },
+            groups: [WORKSPACE],
+          },
+        ],
+        15,
+        150,
+      )
+    await subscribe(WORKSPACE)
+    expect(pool.has('ticket', 253), 'the strip at the end left it').toBe(true)
+    expect(pool.getLastXid8()).toBe(10)
+
+    server.horizon = 20
+    await pullDelta()
+    expect(pool.has('ticket', 253)).toBe(true)
+    expect(pool.getLastXid8()).toBe(20)
   })
 })

@@ -1,58 +1,74 @@
 /**
- * Reconciling the pool against the server's picture: the workspace snapshot
- * prune, and following whether the viewer sees the workspace's assets.
+ * Reconciling the pool against the server's picture: the snapshot strip by
+ * owner, and following whether the viewer sees the workspace's assets.
  */
 import { logger } from '@nosdesk/core/utils/logger'
 import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import { state } from './runtimeState'
 import { runBootstrap } from './lifecycle'
+import { cachedOwners } from './apply'
+import { SCHEMA_VERSIONS } from './schemaVersions'
+import { isWorkspaceGroup, SNAPSHOT_BACKED } from './ownership'
 import type { SyncAggregate } from '@nosdesk/core/sync/types'
 
 /**
- * Aggregates a workspace-wide bootstrap streams in full (see the server's
- * `handlers/sync/bootstrap.rs`: every ticket, project, page, collection,
- * workflow state, user and asset the caller can see). A snapshot of these
- * is authoritative, so a local row the snapshot did not carry is stale: a
- * delete missed while the stream was down, or a row that never belonged
- * to this workspace. Comments and attachments are streamed per ticket
- * group only, so they are never pruned here.
+ * At a snapshot's end, take each granted group off every row of a
+ * snapshot-backed aggregate the stream did not carry, and `legacy` too when
+ * the workspace group was granted; a row left with no owners is gone from
+ * the server's picture (deleted while the stream was down, moved out of the
+ * group, or never this workspace's) and is removed from the pool and the
+ * cache. A row a live action wrote after `startedAt` (the touch clock when
+ * the bootstrap began) is left alone: it may postdate the snapshot, which
+ * then could not have carried it. `local` rows keep `local`, so they stay.
+ *
+ * `granted` must be the groups the server granted, not the request: a
+ * denied group's snapshot carried nothing and must strip nothing.
  */
-const SNAPSHOT_COMPLETE_AGGREGATES: SyncAggregate[] = [
-  'ticket',
-  'project',
-  'documentation_collection',
-  'documentation_page',
-  'workflow_state',
-  'user',
-  'asset',
-]
-
-/**
- * After a bootstrap that carried the workspace group, drop local rows of
- * the fully-streamed aggregates that the snapshot did not include. The
- * stream otherwise only upserts, so this is the one place a stale row is
- * reconciled against the server's whole picture.
- */
-export async function reconcileWithSnapshot(
-  granted: string[],
-  seen: Map<SyncAggregate, Set<string>>,
+export async function reconcileByOwner(
+  granted: readonly string[],
+  seen: ReadonlyMap<SyncAggregate, ReadonlySet<string>>,
+  startedAt: number,
 ): Promise<void> {
-  if (!granted.some((g) => g.startsWith('workspace:'))) return
-  let pruned = 0
-  for (const aggregate of SNAPSHOT_COMPLETE_AGGREGATES) {
-    const ids = seen.get(aggregate) ?? new Set<string>()
-    const stale: string[] = []
+  if (granted.length === 0) return
+  const stripped = new Set(granted)
+  if (granted.some(isWorkspaceGroup)) stripped.add(pool.LEGACY_OWNER)
+  const removed: Array<[SyncAggregate, string]> = []
+  const changed: idb.ModelRow[] = []
+  for (const aggregate of SNAPSHOT_BACKED) {
+    const carried = seen.get(aggregate)
+    // Collected first: the loop below deletes from the map entries() walks.
+    const ids: string[] = []
     for (const [id] of pool.entries(aggregate)) {
-      if (!ids.has(id)) stale.push(id)
+      if (!carried?.has(id) && pool.lastTouch(aggregate, id) <= startedAt) ids.push(id)
     }
-    for (const id of stale) {
-      pool.remove(aggregate, id)
-      if (state.handle) await idb.deleteModel(state.handle, aggregate, id)
-      pruned += 1
+    for (const id of ids) {
+      const before = pool.ownersOf(aggregate, id)
+      let left = before.size
+      for (const g of stripped) left = pool.stripOwner(aggregate, id, g)
+      if (left === 0) {
+        pool.remove(aggregate, id)
+        removed.push([aggregate, id])
+      } else if (left !== before.size && SCHEMA_VERSIONS[aggregate] != null) {
+        // Still owned, by fewer groups: cache that, or the next launch would
+        // count the stripped group as an owner again.
+        changed.push({
+          aggregate,
+          id,
+          schema_version: SCHEMA_VERSIONS[aggregate]!,
+          data: { ...pool.get<Record<string, unknown>>(aggregate, id) },
+          owners: cachedOwners(aggregate, id),
+        })
+      }
     }
   }
-  if (pruned > 0) logger.info('sync bootstrap: pruned rows absent from the snapshot', { pruned })
+  if (state.handle) {
+    if (removed.length > 0) await idb.deleteModels(state.handle, removed)
+    if (changed.length > 0) await idb.putModels(state.handle, changed)
+  }
+  if (removed.length > 0) {
+    logger.info('sync bootstrap: removed rows no snapshot owns', { removed: removed.length })
+  }
 }
 
 /** Records about assets the pool holds for the viewer. */
@@ -102,17 +118,19 @@ export async function followAssetVisibility(
   if (visible === undefined) return
   const key = assetsHiddenKey()
   if (!visible) {
-    let dropped = 0
+    const dropped: Array<[SyncAggregate, string]> = []
     for (const aggregate of ASSET_AGGREGATES) {
       const ids = Array.from(pool.entries(aggregate), ([id]) => id)
       for (const id of ids) {
         pool.remove(aggregate, id)
-        if (state.handle) await idb.deleteModel(state.handle, aggregate, id)
-        dropped += 1
+        dropped.push([aggregate, id])
       }
     }
+    if (state.handle && dropped.length > 0) await idb.deleteModels(state.handle, dropped)
     if (key) writeAssetsHidden(key, true)
-    if (dropped > 0) logger.info('sync: assets hidden from this viewer; dropped them', { dropped })
+    if (dropped.length > 0) {
+      logger.info('sync: assets hidden from this viewer; dropped them', { dropped: dropped.length })
+    }
     return
   }
   if (!key || !readAssetsHidden(key)) return

@@ -156,29 +156,30 @@ export function putModels(
   })
 }
 
-/** Read every persisted row of an aggregate. Filters out rows
- * whose `schema_version` doesn't match the supplied current value
- * — those become refetches at next bootstrap rather than
- * potentially-incompatible cached state. */
+/** Read every persisted row. Rows whose `schema_version` doesn't match the
+ * supplied current value, or whose aggregate is no longer cached at all, are
+ * deleted rather than returned: they become refetches at the next bootstrap
+ * rather than potentially-incompatible cached state, and a row of an
+ * aggregate that stopped being cached would otherwise sit here forever. */
 export function loadModels(
   handle: IdbHandle,
   schemaVersionByAggregate: Partial<Record<SyncAggregate, number>>,
 ): Promise<ModelRow[]> {
   return new Promise((resolve, reject) => {
-    const tx = handle.db.transaction(STORE_MODELS, 'readonly')
+    const tx = handle.db.transaction(STORE_MODELS, 'readwrite')
     const store = tx.objectStore(STORE_MODELS)
     const req = store.getAll()
+    const kept: ModelRow[] = []
     req.onsuccess = () => {
-      const all = req.result as ModelRow[]
-      resolve(
-        all.filter(
-          (r) =>
-            schemaVersionByAggregate[r.aggregate] != null &&
-            schemaVersionByAggregate[r.aggregate] === r.schema_version,
-        ),
-      )
+      for (const r of req.result as ModelRow[]) {
+        const current = schemaVersionByAggregate[r.aggregate]
+        if (current != null && current === r.schema_version) kept.push(r)
+        else store.delete([r.aggregate, r.id])
+      }
     }
-    req.onerror = () => reject(req.error)
+    tx.oncomplete = () => resolve(kept)
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error ?? new DOMException('Transaction aborted', 'AbortError'))
   })
 }
 

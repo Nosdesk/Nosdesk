@@ -7,6 +7,7 @@ import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import { state } from './runtimeState'
 import { MODEL_VERSIONS_TAG } from './schemaVersions'
+import { stripGroups } from './ownership'
 
 /**
  * Split groups into warm (cached snapshot a delta can bring current) and cold
@@ -45,6 +46,47 @@ export async function partitionWarmGroups(
 }
 
 /**
+ * Every read-modify-write of the watermark map runs on this chain, one after
+ * another. Two interleaved ones would each write back the map they read, so a
+ * set landing after a drop could bring the dropped group back.
+ */
+let watermarkChain: Promise<unknown> = Promise.resolve()
+
+function serialized<T>(write: () => Promise<T>): Promise<T> {
+  const run = watermarkChain.then(write, write)
+  watermarkChain = run.catch(() => {})
+  return run
+}
+
+/** Record that each group's snapshot completed at `xid8` (see
+ * idb.setGroupWatermarks), in turn with every other watermark write. */
+export function recordGroupWatermarks(
+  handle: idb.IdbHandle,
+  groups: readonly string[],
+  xid8: number,
+): Promise<void> {
+  if (groups.length === 0) return Promise.resolve()
+  return serialized(() => idb.setGroupWatermarks(handle, [...groups], xid8))
+}
+
+/** Drop the watermarks of `groups`, in turn with every other watermark write.
+ * Their cached rows then count as cold on the next launch. */
+export function dropGroupWatermarks(handle: idb.IdbHandle, groups: Iterable<string>): Promise<void> {
+  const dropped = new Set(groups)
+  if (dropped.size === 0) return Promise.resolve()
+  return serialized(async () => {
+    const marks = (await idb.getGroupWatermarks(handle)) ?? {}
+    const kept: Record<string, number> = {}
+    for (const [g, xid8] of Object.entries(marks)) {
+      if (!dropped.has(g)) kept[g] = xid8
+    }
+    if (Object.keys(kept).length !== Object.keys(marks).length) {
+      await idb.replaceGroupWatermarks(handle, kept)
+    }
+  })
+}
+
+/**
  * Drop bootstrap watermarks for groups that are NOT subscribed at the moment
  * this session first advances the cursor. From that advance on, the cursor
  * moves past events those groups never apply, so their cached rows stop
@@ -52,6 +94,13 @@ export async function partitionWarmGroups(
  * cursor they don't match. Runs once per session, and must complete BEFORE
  * the first advanced cursor is persisted — a crash that persisted the moved
  * cursor but kept the stale watermark would revive the torn cache as warm.
+ *
+ * A group that loses its watermark loses its rows at the same moment: it is
+ * stripped from every pooled row's owners, and a row it owned alone goes.
+ * Their cached copies are left for the next hydrate, which drops rows no
+ * watermarked group owns (another tab may still be using them). A bootstrap
+ * runs this before its strip, so a row owned by a torn group and by a group
+ * whose snapshot no longer carries it goes in the same pass.
  */
 let watermarksPruned = false
 
@@ -61,15 +110,14 @@ export async function pruneTornWatermarks(): Promise<void> {
   if (!state.handle) return
   const marks = (await idb.getGroupWatermarks(state.handle)) ?? {}
   const subscribed = pool.getSubscribedGroups()
-  const kept: Record<string, number> = {}
-  for (const [g, xid8] of Object.entries(marks)) {
-    if (subscribed.has(g)) kept[g] = xid8
-  }
-  if (Object.keys(kept).length !== Object.keys(marks).length) {
-    logger.info('sync: pruning watermarks for unsubscribed groups', {
-      dropped: Object.keys(marks).filter((g) => !subscribed.has(g)),
-    })
-    await idb.replaceGroupWatermarks(state.handle, kept)
+  const dropped = Object.keys(marks).filter((g) => !subscribed.has(g))
+  if (dropped.length > 0) {
+    logger.info('sync: pruning watermarks for unsubscribed groups', { dropped })
+    await dropGroupWatermarks(state.handle, dropped)
+    const removed = stripGroups(new Set(dropped))
+    if (removed.length > 0) {
+      logger.info('sync: dropped rows owned only by pruned groups', { removed: removed.length })
+    }
   }
 }
 

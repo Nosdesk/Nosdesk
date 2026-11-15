@@ -24,8 +24,14 @@ import { authFetch } from '@/services/authFetch'
 import { workspaceReadyRef } from '@/services/activeWorkspace'
 import { canFetchWorkspace, isHydrated, setCaughtUp, state } from './runtimeState'
 import { MODEL_VERSIONS_TAG, SCHEMA_VERSIONS } from './schemaVersions'
-import { partitionWarmGroups, pruneTornWatermarks, resetWatermarkPrune } from './warm'
-import { followAssetVisibility, reconcileWithSnapshot } from './reconcile'
+import {
+  partitionWarmGroups,
+  pruneTornWatermarks,
+  recordGroupWatermarks,
+  resetWatermarkPrune,
+} from './warm'
+import { followAssetVisibility, reconcileByOwner } from './reconcile'
+import { isWorkspaceGroup, ownersOnHydrate, SNAPSHOT_BACKED } from './ownership'
 import { applyActions, cachedOwners, rowKey } from './apply'
 import { referenceFetcher } from './referenceFetchers'
 import type {
@@ -36,7 +42,7 @@ import type {
 } from '@nosdesk/core/sync/types'
 
 export { caughtUp } from './runtimeState'
-export { followAssetVisibility, reconcileWithSnapshot } from './reconcile'
+export { followAssetVisibility, reconcileByOwner } from './reconcile'
 export { applySseFrame } from './apply'
 
 /**
@@ -259,11 +265,31 @@ export async function hydrate(
   // schema_version is stale are filtered out by `loadModels`. A row cached
   // without owners (an older build wrote it) is owned `legacy`; `local`
   // belonged to the session that cached it.
+  //
+  // A snapshot-backed row keeps only the owners whose snapshot the cursor
+  // still tracks (see ownersOnHydrate), and goes when none is left: its
+  // groups' watermarks were pruned, so a delta would never bring it current.
+  // Other aggregates (`cycle`) keep their rows as they are.
   const rows = await idb.loadModels(state.handle, SCHEMA_VERSIONS)
-  const legacy = new Set([pool.LEGACY_OWNER])
+  const watermarks = (await idb.getGroupWatermarks(state.handle)) ?? {}
+  const legacy = [pool.LEGACY_OWNER]
+  const dropped: Array<[SyncAggregate, string]> = []
   for (const r of rows) {
-    const owners = r.owners ? r.owners.filter((o) => o !== pool.LOCAL_OWNER) : legacy
+    let owners = r.owners ? r.owners.filter((o) => o !== pool.LOCAL_OWNER) : legacy
+    if (SNAPSHOT_BACKED.has(r.aggregate)) {
+      owners = ownersOnHydrate(owners, watermarks)
+      if (owners.length === 0) {
+        dropped.push([r.aggregate, r.id])
+        continue
+      }
+    }
     pool.upsert(r.aggregate, r.id, r.data, owners)
+  }
+  if (dropped.length > 0) {
+    logger.info('sync hydrate: dropped cached rows no watermarked group owns', {
+      dropped: dropped.length,
+    })
+    await idb.deleteModels(state.handle, dropped)
   }
 
   // Seed the composite cursor from the cache. A cache written before
@@ -522,6 +548,9 @@ export async function runBootstrap(groups: string[]): Promise<void> {
   // can be past events for the other groups that nothing has delivered yet;
   // the delta after it replays that span for every group instead.
   const keepCursor = state.caughtUp && pool.getLastXid8() > 0
+  // Rows a live action writes from here on are newer than the snapshot may
+  // be, so the strip at `__end__` leaves them alone.
+  const startedAt = pool.currentTouch()
   const url = `/sync/bootstrap?groups=${encodeURIComponent(groups.join(','))}&schema=${encodeURIComponent(state.schemaHash)}`
   const epoch = pool.currentEpoch()
   let res: Response
@@ -540,12 +569,14 @@ export async function runBootstrap(groups: string[]): Promise<void> {
   const decoder = new TextDecoder()
   let buffer = ''
   let bootstrapMeta: BootstrapMeta | null = null
-  // Ids this snapshot carried, per aggregate, for the reconciliation on
-  // `__end__` (see SNAPSHOT_COMPLETE_AGGREGATES).
+  // Ids this snapshot carried, per aggregate, for the strip on `__end__`
+  // (see reconcileByOwner).
   const seen = new Map<SyncAggregate, Set<string>>()
   // What this snapshot's rows are owned by: the groups the server granted,
   // set when `__meta__` arrives. One set shared by every row it creates.
   let snapshotOwners: ReadonlySet<string> = new Set(groups)
+  // A workspace snapshot replaces `legacy` on the rows it carries.
+  let stripsLegacy = false
   const persistBatch: idb.ModelRow[] = []
   const flushPersistBatch = async () => {
     if (state.handle && persistBatch.length > 0) {
@@ -578,6 +609,7 @@ export async function runBootstrap(groups: string[]): Promise<void> {
         const meta = line.__meta__ as BootstrapMeta
         bootstrapMeta = meta
         snapshotOwners = new Set(meta.groups_granted ?? [])
+        stripsLegacy = [...snapshotOwners].some(isWorkspaceGroup)
         if (meta.server_schema !== state.schemaHash) {
           logger.warn('bootstrap meta carries a different schema_hash than client', {
             server: meta.server_schema,
@@ -599,6 +631,7 @@ export async function runBootstrap(groups: string[]): Promise<void> {
           continue
         }
         pool.upsert(aggregate, id, payload as Record<string, unknown>, snapshotOwners)
+        if (stripsLegacy) pool.stripOwner(aggregate, id, pool.LEGACY_OWNER)
         let ids = seen.get(aggregate)
         if (!ids) seen.set(aggregate, (ids = new Set()))
         ids.add(String(id))
@@ -617,11 +650,15 @@ export async function runBootstrap(groups: string[]): Promise<void> {
         // advance the cursor.
         await flushPersistBatch()
         if (bootstrapMeta) {
-          await reconcileWithSnapshot(bootstrapMeta.groups_granted ?? [], seen)
+          // The end line advances the cursor to now, which tears any cached
+          // group not currently subscribed; prune before persisting. The prune
+          // also strips those groups from owners, and runs before the strip
+          // below so a row they shared with a granted group goes in this pass.
+          // A `keepCursor` run comes after a delta that already pruned, so this
+          // is a no-op there.
+          await pruneTornWatermarks()
+          await reconcileByOwner(bootstrapMeta.groups_granted ?? [], seen, startedAt)
           if (!keepCursor) {
-            // The end line advances the cursor to now, which tears any cached
-            // group not currently subscribed; prune before persisting.
-            await pruneTornWatermarks()
             setCaughtUp(true)
             // Advance the in-memory cursor always; persist it only when IDB is
             // available (memory-only keeps the cursor in the pool for delta polls).
@@ -640,9 +677,7 @@ export async function runBootstrap(groups: string[]): Promise<void> {
             // with a delta instead of re-streaming the snapshot.
             const granted = bootstrapMeta.groups_granted ?? []
             const completed = groups.filter((g) => granted.includes(g))
-            if (completed.length > 0) {
-              await idb.setGroupWatermarks(state.handle, completed, bootstrapMeta.last_xid8)
-            }
+            await recordGroupWatermarks(state.handle, completed, bootstrapMeta.last_xid8)
             await idb.setModelVersionsTag(state.handle, MODEL_VERSIONS_TAG)
           }
         }
