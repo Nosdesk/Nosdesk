@@ -8338,6 +8338,8 @@ tickets-row-new-activity-tooltip = Nieuwe activiteit sinds je laatste bezoek
 tickets-row-new-activity-aria = Nieuwe activiteit
 common-confirm-delete-title = Verwijderen bevestigen
 common-toast-dismiss = Sluiten
+# Een bestand bewaren (machine, nog na te kijken door moedertaalspreker)
+common-file-save-failed = Kan het bestand niet opslaan
 common-error-banner-dismiss = Foutmelding sluiten
 common-route-progress-aria = Laden
 common-bulk-actions-aria = Bulkacties

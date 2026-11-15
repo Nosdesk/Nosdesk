@@ -7669,6 +7669,8 @@ tickets-row-new-activity-tooltip = New activity since you last viewed this
 tickets-row-new-activity-aria = New activity
 common-confirm-delete-title = Confirm Delete
 common-toast-dismiss = Dismiss
+# Saving a file: the browser's download, or the app's share sheet
+common-file-save-failed = Couldn't save the file
 common-error-banner-dismiss = Dismiss error
 common-route-progress-aria = Loading
 common-bulk-actions-aria = Bulk actions

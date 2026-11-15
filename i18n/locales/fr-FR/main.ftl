@@ -8348,6 +8348,8 @@ tickets-row-new-activity-tooltip = Nouvelle activité depuis votre dernière con
 tickets-row-new-activity-aria = Nouvelle activité
 common-confirm-delete-title = Confirmer la suppression
 common-toast-dismiss = Fermer
+# Enregistrement d'un fichier (machine, à relire par un locuteur natif)
+common-file-save-failed = Impossible d'enregistrer le fichier
 common-error-banner-dismiss = Fermer l'erreur
 common-route-progress-aria = Chargement
 common-bulk-actions-aria = Actions groupées
