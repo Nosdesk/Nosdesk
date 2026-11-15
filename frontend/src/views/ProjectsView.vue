@@ -327,7 +327,7 @@ function handleProjectContextMenuSelect(actionId: string): void {
     <EmptyState
       v-else-if="isEmpty"
       class="flex-1"
-      icon="folder"
+      icon="project"
       :title="$t('projects-empty-title')"
       :description="$t('projects-empty-subtitle')"
       :action-label="$t('projects-empty-cta')"

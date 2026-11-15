@@ -96,6 +96,7 @@ import {
 } from './widgets'
 import type { MoveDirection, ResizeAxis, ResizePreviewIntent } from './widgetContext'
 import WidgetFrame from './WidgetFrame.vue'
+import Icon from '@/components/common/Icon.vue'
 
 type LayoutEntry = {
   id: string
@@ -840,14 +841,7 @@ const underlayCellCount = computed(() => {
       class="fixed left-0 top-0 z-[100] pointer-events-none select-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-default shadow-lg text-xs font-medium text-primary opacity-90 will-change-transform"
       style="transform: translate3d(-9999px, -9999px, 0)"
     >
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" class="text-tertiary">
-        <path
-          d="M3 2h.01M7 2h.01M3 5h.01M7 5h.01M3 8h.01M7 8h.01"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linecap="round"
-        />
-      </svg>
+      <Icon name="grip" size="xs" class="text-tertiary" />
       <span>{{ ghostTitle }}</span>
     </div>
 

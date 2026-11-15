@@ -23,6 +23,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import Button from '@/components/common/Button.vue'
+import Icon from '@/components/common/Icon.vue'
 import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
 import ListViewModals from '@/components/views/ListViewModals.vue'
 import { useListView } from '@/composables/useListView'
@@ -572,7 +573,7 @@ function formatPurgeAt(deletedAt: string): string {
         />
         <EmptyState
           v-else
-          icon="users"
+          icon="team"
           :title="listView.controls.searchQuery.value ? $t('empty-users-search-title') : $t('empty-users-default-title')"
           :description="listView.controls.searchQuery.value ? $t('empty-users-search-description') : $t('empty-users-default-description')"
           :action-label="!listView.controls.searchQuery.value ? $t('user-mgmt-invite-action') : undefined"
@@ -627,9 +628,7 @@ function formatPurgeAt(deletedAt: string): string {
                   :aria-label="$t('user-mgmt-restore')"
                   @click.stop="restoreUser(item)"
                 >
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 010 16v-3M3 10l4-4M3 10l4 4" />
-                  </svg>
+                  <Icon name="restore" />
                 </button>
                 <button
                   v-if="isPlatformAdmin"
@@ -639,9 +638,7 @@ function formatPurgeAt(deletedAt: string): string {
                   :aria-label="$t('user-mgmt-purge-now')"
                   @click.stop="purgeTarget = item"
                 >
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
+                  <Icon name="trash" />
                 </button>
               </template>
             </div>
@@ -711,9 +708,7 @@ function formatPurgeAt(deletedAt: string): string {
               </span>
             </div>
           </div>
-          <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
+          <Icon name="chevronRight" class="text-tertiary flex-shrink-0" />
         </div>
       </template>
 
@@ -729,9 +724,7 @@ function formatPurgeAt(deletedAt: string): string {
             :disabled="bulkActionMutation.asyncStatus.value === 'loading'"
             @click="showRoleModal = true"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
+            <Icon name="user" />
             {{ $t('user-mgmt-bulk-role') }}
           </button>
         </ToolbarButton>
@@ -742,9 +735,7 @@ function formatPurgeAt(deletedAt: string): string {
             :disabled="bulkActionMutation.asyncStatus.value === 'loading'"
             @click="openDeleteConfirm"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+            <Icon name="trash" />
             {{ selectedCount > 0 ? $t('user-mgmt-bulk-delete-count', { count: selectedCount }) : $t('user-mgmt-bulk-delete') }}
           </button>
         </ToolbarButton>

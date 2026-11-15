@@ -12,9 +12,7 @@
           <!-- Header row with icon -->
           <div class="flex flex-row items-start gap-3">
             <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
+              <Icon name="upload" size="md" />
             </div>
             <div class="flex-1 min-w-0">
               <span class="font-medium text-primary text-sm sm:text-base block">{{ $t('admin-backup-create-heading') }}</span>
@@ -216,9 +214,7 @@
               class="hidden"
             />
             <div class="flex flex-col items-center justify-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 sm:h-10 sm:w-10 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
+              <Icon name="upload" size="xl" class="text-tertiary" />
               <div class="text-center">
                 <p class="text-xs sm:text-sm text-secondary">
                   {{ $t('admin-backup-restore-dnd') }}

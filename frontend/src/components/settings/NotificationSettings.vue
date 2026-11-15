@@ -3,10 +3,12 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import Icon from '@/components/common/Icon.vue';
+import type { IconName } from '@/components/common/icons';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Button from '@/components/common/Button.vue';
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
+import { NOTIFICATION_CATEGORY_ICON } from '@/components/settings/notificationCategoryIcons';
 import {
   getNotificationPreferences,
   updateNotificationPreference,
@@ -90,24 +92,10 @@ const channels = computed(() =>
   }))
 );
 
-// Per-category icon (raw SVG path); label/description come from i18n.
-const CATEGORY_ICON: Record<string, string> = {
-  ticket:
-    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />',
-  comment:
-    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />',
-  mention:
-    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9" />',
-  documentation:
-    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />',
-  asset:
-    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />',
-};
-
 // Group the API preference rows by category, preserving first-seen order so
 // the layout is stable across locales. Labels react to locale via `tr`.
 const groupedPreferences = computed(() => {
-  const groups: { category: string; label: string; icon: string; rows: NotificationPreference[] }[] =
+  const groups: { category: string; label: string; icon: IconName; rows: NotificationPreference[] }[] =
     [];
   for (const row of preferences.value) {
     let group = groups.find((g) => g.category === row.category);
@@ -115,7 +103,7 @@ const groupedPreferences = computed(() => {
       group = {
         category: row.category,
         label: tr(`settings-notifications-category-${keyFragment(row.category)}-label`, row.category),
-        icon: CATEGORY_ICON[row.category] ?? CATEGORY_ICON.ticket,
+        icon: NOTIFICATION_CATEGORY_ICON[row.category] ?? NOTIFICATION_CATEGORY_ICON.ticket,
         rows: [],
       };
       groups.push(group);
@@ -462,7 +450,7 @@ const gridColumns = computed(
         content-padding="p-4 sm:p-6"
       >
         <template #leading>
-          <svg class="w-4 h-4 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="group.icon"></svg>
+          <Icon :name="group.icon" class="text-accent flex-shrink-0" />
         </template>
         <template #title>{{ group.label }}</template>
 

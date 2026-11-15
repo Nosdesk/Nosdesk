@@ -16,6 +16,7 @@ import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import Icon from '@/components/common/Icon.vue';
 import pluginService from '@nosdesk/core/services/pluginService';
 import { usePluginAdminConfig } from '@/composables/usePluginAdminConfig';
 import { logger } from '@nosdesk/core/utils/logger';
@@ -108,17 +109,7 @@ const installButtonLabel = computed(() =>
       to="/admin/plugins"
       class="inline-flex items-center gap-1.5 text-sm text-secondary transition-colors hover:text-primary"
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="h-4 w-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        stroke-width="2"
-        aria-hidden="true"
-      >
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-      </svg>
+      <Icon name="chevronLeft" />
       {{ t('plugin-sideload-back') }}
     </RouterLink>
 
@@ -164,14 +155,7 @@ const installButtonLabel = computed(() =>
         @change="handleFileSelect"
       />
       <div v-if="file" class="flex flex-col items-center gap-2">
-        <svg class="h-10 w-10 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
+        <Icon name="checkCircle" size="xl" class="text-status-success" />
         <p class="font-medium text-primary">{{ file.name }}</p>
         <p class="text-xs text-tertiary">{{ formatFileSize(file.size) }}</p>
         <button
@@ -183,14 +167,7 @@ const installButtonLabel = computed(() =>
         </button>
       </div>
       <div v-else class="flex flex-col items-center gap-2">
-        <svg class="h-10 w-10 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-          />
-        </svg>
+        <Icon name="upload" size="xl" class="text-tertiary" />
         <p class="font-medium text-secondary">{{ t('plugin-sideload-drop-here') }}</p>
         <p class="text-xs text-tertiary">{{ t('plugin-sideload-or-browse') }}</p>
       </div>
@@ -200,21 +177,7 @@ const installButtonLabel = computed(() =>
       role="note"
       class="flex items-start gap-3 rounded-xl border border-status-warning/30 bg-status-warning/10 p-4 text-sm text-status-warning"
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="mt-0.5 h-5 w-5 flex-shrink-0"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        stroke-width="2"
-        aria-hidden="true"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
-        />
-      </svg>
+      <Icon name="warning" size="md" class="mt-0.5 flex-shrink-0" />
       <div class="flex flex-col gap-1">
         <p class="font-medium">{{ t('plugin-sideload-warning-title') }}</p>
         <p class="text-status-warning/90">

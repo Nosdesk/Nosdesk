@@ -3,9 +3,7 @@
     <!-- Success State -->
     <div v-if="emailSent" class="flex flex-col items-center gap-4 text-center">
       <div class="bg-status-success/20 rounded-full p-3">
-        <svg class="w-8 h-8 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-        </svg>
+        <Icon name="email" size="xl" class="text-status-success" />
       </div>
       <div>
         <h3 class="text-lg font-medium text-primary mb-2">{{ $t('forgot-password-success-title') }}</h3>
@@ -65,6 +63,7 @@ import Modal from '@/components/Modal.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import Icon from '@/components/common/Icon.vue';
 
 const fluent = useFluent();
 

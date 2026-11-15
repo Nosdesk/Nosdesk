@@ -19,11 +19,10 @@
 export interface MenuItem {
   id: string
   label: string
-  /** Raw SVG `path d=` string. Source from the central icon
-   * registry (`ICON_REGISTRY.x.d`) so the same action carries
-   * the same glyph app-wide. Mutually exclusive with `iconUrl`;
-   * `icon` wins if both are set. */
-  icon?: string
+  /** Registry icon name, rendered through `<Icon>` so the same
+   * action carries the same glyph app-wide. Mutually exclusive
+   * with `iconUrl`; `icon` wins if both are set. */
+  icon?: IconName
   /** Image URL or data URI rendered into the icon gutter as an
    * `<img>`. Use for runtime-supplied glyphs (e.g. plugin icons)
    * where the source isn't part of the central registry. */
@@ -62,6 +61,8 @@ defineProps<{ items: MenuItem[] }>()
  * an enabled item, so callers can live-preview an option before it
  * is selected (dashboard widget sizing). Optional to consume. */
 import AssetImg from '@/components/common/AssetImg.vue'
+import Icon from '@/components/common/Icon.vue'
+import type { IconName } from '@/components/common/icons'
 import MenuItem from '@/components/common/MenuItem.vue'
 
 const emit = defineEmits<{
@@ -117,26 +118,8 @@ const emit = defineEmits<{
         class="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center"
         :class="item.description ? 'mt-0.5 md:mt-px' : undefined"
       >
-        <svg
-          v-if="item.checked"
-          class="w-full h-full text-accent"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="2.5"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-        </svg>
-        <svg
-          v-else-if="item.icon"
-          class="w-full h-full"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" :d="item.icon" />
-        </svg>
+        <Icon v-if="item.checked" name="check" class="w-full h-full text-accent" />
+        <Icon v-else-if="item.icon" :name="item.icon" class="w-full h-full" />
         <AssetImg
           v-else-if="item.iconUrl"
           :src="item.iconUrl"

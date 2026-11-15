@@ -186,7 +186,7 @@ async function executeUninstall() {
       <!-- No plugins installed at all -->
       <EmptyState
         v-else-if="plugins.length === 0"
-        icon="plugin"
+        icon="puzzle"
         :title="t('empty-plugins-installed-title')"
         :description="t('empty-plugins-installed-description', { app: brandingStore.appName })"
         action-label="Browse registry"

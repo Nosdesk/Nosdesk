@@ -20,6 +20,7 @@ import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import { SUPPORTED_LOCALES } from '@/i18n'
 import userService, { type User } from '@/services/userService'
 import SectionCard from '@/components/common/SectionCard.vue'
+import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Button from '@/components/common/Button.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
@@ -181,20 +182,7 @@ const dirty = computed(
 <template>
   <SectionCard content-padding="p-4 sm:p-6">
     <template #leading>
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="h-4 w-4 text-accent flex-shrink-0"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"
-        />
-      </svg>
+      <Icon name="language" class="text-accent flex-shrink-0" />
     </template>
     <template #title>{{ $t('settings-localization-title') }}</template>
     <template #headerActions>

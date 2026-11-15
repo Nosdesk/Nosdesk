@@ -340,7 +340,7 @@ function confirmRemove() {
 
         <EmptyState
           v-if="members.length === 0"
-          icon="users"
+          icon="team"
           :title="$t('empty-workspace-members-title')"
           :description="$t('empty-workspace-members-description')"
           variant="card"

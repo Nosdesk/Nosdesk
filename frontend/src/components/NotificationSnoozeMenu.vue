@@ -17,7 +17,6 @@ import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
-import { ICON_REGISTRY } from '@/components/common/icons'
 
 // `title` is consumed directly in the template (trigger aria-label).
 defineProps<{ title: string }>()
@@ -44,9 +43,9 @@ function closeMenu() {
 }
 
 const menuItems = computed<MenuItem[]>(() => [
-  { id: 'later-today', label: t('inbox-snooze-later-today'), icon: ICON_REGISTRY.clock.d },
-  { id: 'tomorrow', label: t('inbox-snooze-tomorrow'), icon: ICON_REGISTRY.clock.d },
-  { id: 'next-week', label: t('inbox-snooze-next-week'), icon: ICON_REGISTRY.clock.d },
+  { id: 'later-today', label: t('inbox-snooze-later-today'), icon: 'clock' },
+  { id: 'tomorrow', label: t('inbox-snooze-tomorrow'), icon: 'clock' },
+  { id: 'next-week', label: t('inbox-snooze-next-week'), icon: 'clock' },
 ])
 
 /**

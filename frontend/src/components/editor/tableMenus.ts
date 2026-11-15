@@ -13,7 +13,6 @@ import type { Command, EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import { CellSelection, TableMap, cellAround, moveTableColumn, moveTableRow, selectedRect } from 'prosemirror-tables'
 import type { MenuItem } from '@/components/common/MenuList.vue'
-import { ICON_REGISTRY } from '@/components/common/icons'
 import {
   alignSelection,
   anchorCellIsMerged,
@@ -98,8 +97,6 @@ export interface TableMenuContext {
   copyMarkdown: (view: EditorView) => void
 }
 
-const icon = (name: keyof typeof ICON_REGISTRY) => ICON_REGISTRY[name].d
-
 /** `view`'s table position, or null when the selection has left the table. */
 function tablePosIn(state: EditorState): number | null {
   const rect = tableOfSelection(state)
@@ -131,18 +128,18 @@ export function rowMenu(state: EditorState, row: number, { t, modKey }: TableMen
   const last = rect.map.height - 1
   const header = rowIsAllHeader(rect.table, 0, rect.map)
   return [
-    { id: 'row-above', label: t('editor-table-insert-row-above'), icon: icon('rowAbove'), run: onRow(row, insertRowAt(row)) },
+    { id: 'row-above', label: t('editor-table-insert-row-above'), icon: 'rowAbove', run: onRow(row, insertRowAt(row)) },
     {
       id: 'row-below',
       label: t('editor-table-insert-row-below'),
-      icon: icon('rowBelow'),
+      icon: 'rowBelow',
       trailing: `${modKey}↩`,
       run: onRow(row, insertRowAt(row + 1)),
     },
     {
       id: 'row-up',
       label: t('editor-table-move-up'),
-      icon: icon('arrowUp'),
+      icon: 'arrowUp',
       divider: true,
       disabled: row === 0 || (row === 1 && header),
       run: onRow(row, moveTableRow({ from: row, to: row - 1 })),
@@ -150,27 +147,27 @@ export function rowMenu(state: EditorState, row: number, { t, modKey }: TableMen
     {
       id: 'row-down',
       label: t('editor-table-move-down'),
-      icon: icon('arrowDown'),
+      icon: 'arrowDown',
       disabled: row === last || (row === 0 && header),
       run: onRow(row, moveTableRow({ from: row, to: row + 1 })),
     },
     ...(row === 0
-      ? [
+      ? ([
           {
             id: 'row-header',
             label: t('editor-table-header-row'),
-            icon: icon('headerRow'),
+            icon: 'headerRow',
             checked: header,
             divider: true,
             run: onRow(row, toggleHeaderRow),
           },
-        ]
+        ] satisfies TableMenuItem[])
       : []),
-    { id: 'row-clear', label: t('editor-table-clear'), icon: icon('eraser'), divider: row !== 0, run: onRow(row, clearCells) },
+    { id: 'row-clear', label: t('editor-table-clear'), icon: 'eraser', divider: row !== 0, run: onRow(row, clearCells) },
     {
       id: 'row-delete',
       label: t('editor-table-delete-row'),
-      icon: icon('trash'),
+      icon: 'trash',
       danger: true,
       divider: true,
       run: onRow(row, deleteRow),
@@ -180,7 +177,7 @@ export function rowMenu(state: EditorState, row: number, { t, modKey }: TableMen
 
 function alignItem(id: string, align: CellAlign, current: CellAlign, t: TableMenuContext['t'], run: TableMenuItem['run']): TableMenuItem {
   const icons = { left: 'alignLeft', center: 'alignCenter', right: 'alignRight' } as const
-  return { id, label: t(`editor-table-align-${align}`), icon: icon(icons[align]), checked: current === align, run }
+  return { id, label: t(`editor-table-align-${align}`), icon: icons[align], checked: current === align, run }
 }
 
 /** The column menu for column `col` of the table holding the selection. */
@@ -192,17 +189,17 @@ export function columnMenu(state: EditorState, col: number, { t }: TableMenuCont
   const align = columnAlignment(rect.table, col, rect.map)
   const sized = columnHasWidth(rect.table, col, rect.map)
   return [
-    { id: 'col-left', label: t('editor-table-insert-column-left'), icon: icon('columnLeft'), run: onColumn(col, insertColumnAt(col)) },
+    { id: 'col-left', label: t('editor-table-insert-column-left'), icon: 'columnLeft', run: onColumn(col, insertColumnAt(col)) },
     {
       id: 'col-right',
       label: t('editor-table-insert-column-right'),
-      icon: icon('columnRight'),
+      icon: 'columnRight',
       run: onColumn(col, insertColumnAt(col + 1)),
     },
     {
       id: 'col-move-left',
       label: t('editor-table-move-left'),
-      icon: icon('arrowLeft'),
+      icon: 'arrowLeft',
       divider: true,
       disabled: col === 0 || (col === 1 && header),
       run: onColumn(col, moveTableColumn({ from: col, to: col - 1 })),
@@ -210,7 +207,7 @@ export function columnMenu(state: EditorState, col: number, { t }: TableMenuCont
     {
       id: 'col-move-right',
       label: t('editor-table-move-right'),
-      icon: icon('arrowRight'),
+      icon: 'arrowRight',
       disabled: col === last || (col === 0 && header),
       run: onColumn(col, moveTableColumn({ from: col, to: col + 1 })),
     },
@@ -218,39 +215,39 @@ export function columnMenu(state: EditorState, col: number, { t }: TableMenuCont
     alignItem('col-align-center', 'center', align, t, onColumn(col, alignSelection('center'))),
     alignItem('col-align-right', 'right', align, t, onColumn(col, alignSelection('right'))),
     ...(col === 0
-      ? [
+      ? ([
           {
             id: 'col-header',
             label: t('editor-table-header-column'),
-            icon: icon('headerColumn'),
+            icon: 'headerColumn',
             checked: header,
             divider: true,
             run: onColumn(col, toggleHeaderColumn),
           },
-        ]
+        ] satisfies TableMenuItem[])
       : []),
     ...(sized
-      ? [
+      ? ([
           {
             id: 'col-reset',
             label: t('editor-table-reset-width'),
-            icon: icon('reset'),
+            icon: 'reset',
             divider: col !== 0,
             run: onColumn(col, resetColumnWidth),
           },
-        ]
+        ] satisfies TableMenuItem[])
       : []),
     {
       id: 'col-clear',
       label: t('editor-table-clear'),
-      icon: icon('eraser'),
+      icon: 'eraser',
       divider: col !== 0 && !sized,
       run: onColumn(col, clearCells),
     },
     {
       id: 'col-delete',
       label: t('editor-table-delete-column'),
-      icon: icon('trash'),
+      icon: 'trash',
       danger: true,
       divider: true,
       run: onColumn(col, deleteColumn),
@@ -266,30 +263,30 @@ export function tableMenu(state: EditorState, { t, deleteTable, copyMarkdown }: 
     {
       id: 'table-header-row',
       label: t('editor-table-header-row'),
-      icon: icon('headerRow'),
+      icon: 'headerRow',
       checked: rowIsAllHeader(rect.table, 0, rect.map),
       run: (view) => toggleHeaderRow(view.state, view.dispatch),
     },
     {
       id: 'table-header-column',
       label: t('editor-table-header-column'),
-      icon: icon('headerColumn'),
+      icon: 'headerColumn',
       checked: columnIsAllHeader(rect.table, 0, rect.map),
       run: (view) => toggleHeaderColumn(view.state, view.dispatch),
     },
     {
       id: 'table-reset-widths',
       label: t('editor-table-reset-widths'),
-      icon: icon('reset'),
+      icon: 'reset',
       divider: true,
       disabled: !tableHasWidths(state),
       run: (view) => resetColumnWidths(view.state, view.dispatch),
     },
-    { id: 'table-copy-markdown', label: t('editor-table-copy-markdown'), icon: icon('copyMd'), run: copyMarkdown },
+    { id: 'table-copy-markdown', label: t('editor-table-copy-markdown'), icon: 'copyMd', run: copyMarkdown },
     {
       id: 'table-delete',
       label: t('editor-table-delete-table'),
-      icon: icon('trash'),
+      icon: 'trash',
       danger: true,
       divider: true,
       trailing: isWholeTableSelected(state) ? '⌫' : undefined,
@@ -310,12 +307,12 @@ export function selectionMenu(state: EditorState, { t }: TableMenuContext): Tabl
   const align = selectionAlignment(state)
   const command = (c: Command) => (view: EditorView) => c(view.state, view.dispatch, view)
   return [
-    ...(multi ? [{ id: 'cells-merge', label: t('editor-table-merge'), icon: icon('merge'), run: command(mergeCells) }] : []),
-    ...(merged ? [{ id: 'cells-split', label: t('editor-table-split'), icon: icon('split'), run: command(splitCell) }] : []),
+    ...(multi ? [{ id: 'cells-merge', label: t('editor-table-merge'), icon: 'merge', run: command(mergeCells) } satisfies TableMenuItem] : []),
+    ...(merged ? [{ id: 'cells-split', label: t('editor-table-split'), icon: 'split', run: command(splitCell) } satisfies TableMenuItem] : []),
     alignItem('cells-align-left', 'left', align, t, command(alignSelection('left'))),
     alignItem('cells-align-center', 'center', align, t, command(alignSelection('center'))),
     alignItem('cells-align-right', 'right', align, t, command(alignSelection('right'))),
-    { id: 'cells-clear', label: t('editor-table-clear'), icon: icon('eraser'), trailing: '⌫', run: command(clearCells) },
+    { id: 'cells-clear', label: t('editor-table-clear'), icon: 'eraser', trailing: '⌫', run: command(clearCells) },
   ]
 }
 

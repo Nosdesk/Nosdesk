@@ -4,6 +4,7 @@ import { ref, computed, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Modal from '@/components/Modal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import Icon from '@/components/common/Icon.vue'
 import type { Project, ProjectStatus } from '@nosdesk/core/types/project'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
 import { useAggregate } from '@nosdesk/core/sync/composables'
@@ -102,9 +103,7 @@ const selectProject = (project: Project) => {
       <!-- Search -->
       <div class="relative">
         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <svg class="h-5 w-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+          <Icon name="search" size="md" class="text-tertiary" />
         </div>
         <input
           v-model="searchQuery"
@@ -126,7 +125,7 @@ const selectProject = (project: Project) => {
       <!-- No projects at all -->
       <EmptyState
         v-else-if="filteredProjects.length === 0"
-        icon="folder"
+        icon="project"
         :title="$t('empty-project-available-title')"
         :description="$t('empty-project-available-description')"
         variant="compact"

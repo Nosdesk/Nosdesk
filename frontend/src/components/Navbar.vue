@@ -19,6 +19,7 @@ import {
 import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
 import Icon from "@/components/common/Icon.vue";
+import type { IconName } from "@/components/common/icons";
 import UnreadBadge from "@/components/common/UnreadBadge.vue";
 import NavLinkIcon from "@/components/NavLinkIcon.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
@@ -108,7 +109,8 @@ onBeforeUnmount(() => {
 // below preserves that path.
 interface NavLink {
     to: string;
-    icon: string;
+    /** Registry icon name. Absent on plugin links, which carry `iconUrl`. */
+    icon?: IconName;
     text: string;
     /** True for paths whose exact match should be the
      *  only "active" trigger. Without this, e.g. `/` would
@@ -118,7 +120,7 @@ interface NavLink {
      *  instead of `$t(text)` — plugin labels aren't FTL keys. */
     rawLabel?: string;
     /** Icon URL (plugin nav items). When set, rendered as an `<img>` instead of
-     *  the `icon` SVG path. */
+     *  the `icon` registry glyph. */
     iconUrl?: string;
     /** Links nested under this one in the expanded sidebar (plugin
      *  `nav.assets.item` contributions under Assets). */
@@ -137,18 +139,18 @@ const staticNavGroups: NavGroup[] = [
         links: [
             {
                 to: "/",
-                icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
+                icon: "home",
                 text: "nav-dashboard",
                 exact: true,
             },
             {
                 to: "/tickets",
-                icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
+                icon: "ticket",
                 text: "nav-tickets",
             },
             {
                 to: "/projects",
-                icon: "M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z",
+                icon: "project",
                 text: "nav-projects",
             },
         ],
@@ -158,17 +160,17 @@ const staticNavGroups: NavGroup[] = [
         links: [
             {
                 to: "/assets",
-                icon: "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
+                icon: "device",
                 text: "nav-assets",
             },
             {
                 to: "/users",
-                icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z",
+                icon: "team",
                 text: "nav-users",
             },
             {
                 to: "/documentation",
-                icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
+                icon: "book",
                 text: "nav-documentation",
             },
         ],
@@ -177,7 +179,7 @@ const staticNavGroups: NavGroup[] = [
 
 // Plugin `nav.item` contributions become a trailing "Plugins" group linking to
 // each plugin's full-page surface. Labels are pre-resolved at load time; icons
-// are plugin icon URLs (rendered as <img>, not an SVG path). The group appears
+// are plugin icon URLs (rendered as <img>, not a registry glyph). The group appears
 // only when a plugin contributes one.
 const pluginNavGroup = computed<NavGroup | null>(() => {
     const regs = getSlotRegistrations('nav.item');
@@ -186,7 +188,6 @@ const pluginNavGroup = computed<NavGroup | null>(() => {
         label: "nav-group-plugins",
         links: regs.map((r) => ({
             to: pluginPagePath(r.pluginUuid, r.componentName),
-            icon: "",
             iconUrl: r.icon,
             text: "",
             rawLabel: r.label ?? r.pluginName,
@@ -211,7 +212,6 @@ const coreNavGroups = computed<NavGroup[]>(() =>
 const pluginAssetLinks = computed<NavLink[]>(() =>
     getSlotRegistrations('nav.assets.item').map((r) => ({
         to: pluginPagePath(r.pluginUuid, r.componentName),
-        icon: "",
         iconUrl: r.icon,
         text: "",
         rawLabel: r.label ?? r.pluginName,
@@ -244,7 +244,7 @@ const navLinks = computed<NavLink[]>(() =>
  *  it surfaces from this file. */
 const INBOX_MOBILE_LINK: NavLink = {
     to: '/inbox',
-    icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4',
+    icon: 'inbox',
     text: 'nav-inbox',
 };
 
@@ -629,29 +629,10 @@ const isOverflowRouteActive = computed(() =>
                     :aria-label="isCollapsed ? $t('nav-expand-sidebar') : $t('nav-collapse-sidebar')"
                     :aria-expanded="!isCollapsed"
                 >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class="h-3.5 w-3.5 group-hover:text-accent transition-colors"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        aria-hidden="true"
-                    >
-                        <path
-                            v-if="isCollapsed"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M13 5l7 7-7 7M5 5l7 7-7 7"
-                        />
-                        <path
-                            v-else
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
-                        />
-                    </svg>
+                    <Icon
+                        :name="isCollapsed ? 'chevronDoubleRight' : 'chevronDoubleLeft'"
+                        class="group-hover:text-accent transition-colors"
+                    />
                     <span
                         v-if="!isCollapsed"
                         class="ml-1.5 text-xs whitespace-nowrap"
@@ -686,19 +667,7 @@ const isOverflowRouteActive = computed(() =>
                     : $t(link.text)"
                 :title="$t(link.text)"
             >
-                <svg
-                    class="w-6 h-6"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                >
-                    <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        :d="link.icon"
-                    />
-                </svg>
+                <Icon v-if="link.icon" :name="link.icon" size="lg" />
                 <!-- Unread badge: only the Inbox tile is wired to
                      the notification feed. Positioned over the
                      top-right of the icon (Twitter / GitHub Mobile
@@ -735,15 +704,7 @@ const isOverflowRouteActive = computed(() =>
                 :aria-label="$t('nav-more')"
                 :title="$t('nav-more')"
             >
-                <svg
-                    class="w-6 h-6"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                >
-                    <circle cx="5" cy="12" r="2" />
-                    <circle cx="12" cy="12" r="2" />
-                    <circle cx="19" cy="12" r="2" />
-                </svg>
+                <Icon name="moreHorizontal" size="lg" />
             </button>
         </div>
     </nav>
@@ -809,20 +770,7 @@ const isOverflowRouteActive = computed(() =>
                             "
                             @click="onSheetRowClick($event, link)"
                         >
-                            <svg
-                                class="w-5 h-5 flex-shrink-0"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                aria-hidden="true"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    :d="link.icon"
-                                />
-                            </svg>
+                            <Icon v-if="link.icon" :name="link.icon" size="md" class="flex-shrink-0" />
                             <span class="text-sm font-medium truncate">{{ $t(link.text) }}</span>
                         </RouterLink>
                         <!-- Star toggle: only in edit mode. Disabled
@@ -848,20 +796,7 @@ const isOverflowRouteActive = computed(() =>
                             :disabled="!isPinned(link.to) && remainingSlots === 0"
                             @click="togglePin(link.to)"
                         >
-                            <svg
-                                class="w-5 h-5"
-                                viewBox="0 0 24 24"
-                                :fill="isPinned(link.to) ? 'currentColor' : 'none'"
-                                stroke="currentColor"
-                                aria-hidden="true"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-                                />
-                            </svg>
+                            <Icon :name="isPinned(link.to) ? 'starFilled' : 'star'" size="md" />
                         </button>
                     </li>
                 </ul>

@@ -12,7 +12,6 @@ import { ToolbarButton } from 'reka-ui'
 import PaginationControls from '@/components/common/PaginationControls.vue'
 import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
-import { ICON_REGISTRY } from '@/components/common/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
 import ListDensityToggle from '@/components/common/ListDensityToggle.vue'
@@ -566,14 +565,14 @@ const showContextDeleteConfirm = ref(false)
 
 const assetContextMenuItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [
-    { id: 'open', label: t('assets-list-context-open'), icon: ICON_REGISTRY.chevronRight.d },
-    { id: 'open-new-tab', label: t('assets-list-context-open-new-tab'), icon: ICON_REGISTRY.openExternal.d },
-    { id: 'copy-link', label: t('assets-list-context-copy-link'), icon: ICON_REGISTRY.link.d },
-    { id: 'copy-id', label: t('assets-list-context-copy-id'), icon: ICON_REGISTRY.copy.d },
-    { id: 'rollout', label: t('assets-list-context-rollout'), icon: ICON_REGISTRY.send.d, divider: true },
+    { id: 'open', label: t('assets-list-context-open'), icon: 'chevronRight' },
+    { id: 'open-new-tab', label: t('assets-list-context-open-new-tab'), icon: 'openExternal' },
+    { id: 'copy-link', label: t('assets-list-context-copy-link'), icon: 'link' },
+    { id: 'copy-id', label: t('assets-list-context-copy-id'), icon: 'copy' },
+    { id: 'rollout', label: t('assets-list-context-rollout'), icon: 'send', divider: true },
   ]
   if (contextAsset.value?.is_editable) {
-    items.push({ id: 'delete', label: t('assets-list-context-delete'), icon: ICON_REGISTRY.trash.d, danger: true, divider: true })
+    items.push({ id: 'delete', label: t('assets-list-context-delete'), icon: 'trash', danger: true, divider: true })
   }
   return items
 })

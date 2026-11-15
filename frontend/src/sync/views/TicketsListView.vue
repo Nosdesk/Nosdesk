@@ -74,7 +74,6 @@ import UserSelectionModal from '@/components/UserSelectionModal.vue'
 import MergeTicketsDialog, {
   type MergeDialogTicket,
 } from '@/components/ticketComponents/MergeTicketsDialog.vue'
-import { ICON_REGISTRY } from '@/components/common/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { useFlagTicketMutation } from '@/composables/useKnowledgeGaps'
 import { useToastStore } from '@nosdesk/core/stores/toast'
@@ -501,22 +500,22 @@ const ticketContextMenuItems = computed<MenuItem[]>(() => {
     {
       id: 'open',
       label: t('views-ticket-preview-open'),
-      icon: ICON_REGISTRY.chevronRight.d,
+      icon: 'chevronRight',
     },
     {
       id: 'open-new-tab',
       label: t('recent-tickets-context-open-new-tab'),
-      icon: ICON_REGISTRY.openExternal.d,
+      icon: 'openExternal',
     },
     {
       id: 'copy-link',
       label: t('recent-tickets-context-copy-link'),
-      icon: ICON_REGISTRY.link.d,
+      icon: 'link',
     },
     {
       id: 'copy-number',
       label: t('ticket-list-context-copy-number'),
-      icon: ICON_REGISTRY.copy.d,
+      icon: 'copy',
     },
   ]
 
@@ -534,20 +533,20 @@ const ticketContextMenuItems = computed<MenuItem[]>(() => {
     items.push({
       id: 'assign-to-me',
       label: t('ticket-list-context-assign-to-me'),
-      icon: ICON_REGISTRY.user.d,
+      icon: 'user',
     })
   }
 
   items.push({
     id: 'assign',
     label: t('ticket-list-bulk-assign'),
-    icon: ICON_REGISTRY.userPlus.d,
+    icon: 'userPlus',
   })
 
   items.push({
     id: 'flag-for-docs',
     label: t('tickets-menu-flag-for-docs'),
-    icon: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9',
+    icon: 'flag',
   })
 
   items.push({
@@ -570,7 +569,7 @@ const ticketContextMenuItems = computed<MenuItem[]>(() => {
     items.push({
       id: 'merge',
       label: t('ticket-list-context-merge-into', { number: String(ticketNumber(destination)) }),
-      icon: ICON_REGISTRY.link.d,
+      icon: 'link',
     })
   }
 

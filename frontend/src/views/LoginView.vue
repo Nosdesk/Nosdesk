@@ -683,19 +683,7 @@ const handleOidcLogoutClick = async () => {
               <div
                 class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"
               >
-                <svg
-                  class="w-5 h-5 text-tertiary"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
-                  ></path>
-                </svg>
+                <Icon name="phone" size="md" class="text-tertiary" />
               </div>
             </div>
             <p class="text-xs text-tertiary text-center">
@@ -930,18 +918,7 @@ const handleOidcLogoutClick = async () => {
               :aria-label="$t('login-microsoft-logout-title')"
               class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-5 w-5"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z"
-                  clip-rule="evenodd"
-                />
-              </svg>
+              <Icon name="signOut" size="md" />
             </button>
           </div>
 
@@ -954,21 +931,7 @@ const handleOidcLogoutClick = async () => {
               class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Spinner v-if="loadingAction === 'oidc'" size="md" class="mr-2" />
-              <svg
-                v-else
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-5 w-5 mr-2"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-                <polyline points="10 17 15 12 10 7" />
-                <line x1="15" y1="12" x2="3" y2="12" />
-              </svg>
+              <Icon v-else name="signIn" size="md" class="mr-2" />
               <span v-if="loadingAction === 'oidc'">{{ $t("login-oidc-connecting") }}</span>
               <span v-else>{{ $t("login-oidc-cta", { provider: oidcDisplayName }) }}</span>
             </button>
@@ -980,18 +943,7 @@ const handleOidcLogoutClick = async () => {
               :aria-label="$t('login-oidc-logout-title', { provider: oidcDisplayName })"
               class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-5 w-5"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z"
-                  clip-rule="evenodd"
-                />
-              </svg>
+              <Icon name="signOut" size="md" />
             </button>
           </div>
         </div>

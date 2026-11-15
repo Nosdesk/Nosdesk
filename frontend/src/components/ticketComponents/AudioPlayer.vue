@@ -1,6 +1,7 @@
 <!-- AudioPlayer.vue -->
 <script setup lang="ts">
 import IconButton from '@/components/common/IconButton.vue'
+import Icon from '@/components/common/Icon.vue'
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useAudioPlayer } from '@/composables/useAudioPlayer';
@@ -686,9 +687,7 @@ onUnmounted(() => {
     <div v-if="props.transcription" class="mt-2">
       <details class="group">
         <summary class="text-xs text-tertiary hover:text-secondary cursor-pointer select-none flex items-center gap-1 py-1">
-          <svg class="w-3 h-3 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
-          </svg>
+          <Icon name="chevronRight" size="xs" class="transition-transform group-open:rotate-90" />
           {{ $t('ticket-media-audio-transcription') }}
         </summary>
         <p class="mt-1 text-xs text-secondary italic p-2 bg-surface rounded-md">

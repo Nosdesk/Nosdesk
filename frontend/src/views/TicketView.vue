@@ -264,7 +264,7 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
         {
             id: 'flag-for-docs',
             label: t('tickets-menu-flag-for-docs'),
-            icon: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9',
+            icon: 'flag',
         },
     ];
     // Staff running an outage from this ticket tell requesters about it.
@@ -272,7 +272,7 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
         items.push({
             id: 'known-issue',
             label: t('tickets-menu-known-issue'),
-            icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+            icon: 'info',
         });
     }
 
@@ -294,7 +294,7 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
         items.push({
             id: 'delete',
             label: t('tickets-menu-delete'),
-            icon: 'M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z',
+            icon: 'trash',
             danger: true,
             divider: true,
         });
@@ -1003,19 +1003,7 @@ const rootEl = ref<HTMLElement | null>(null);
                     <div
                         class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-status-error/20 mb-4"
                     >
-                        <svg
-                            class="h-6 w-6 text-status-error"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                            />
-                        </svg>
+                        <Icon name="warning" size="lg" class="text-status-error" />
                     </div>
                     <h3 class="text-2xl font-medium text-primary mb-2">{{ $t('ticket-detail-delete-confirm-heading') }}</h3>
                     <p class="text-base text-secondary mb-6">

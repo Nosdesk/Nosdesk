@@ -29,7 +29,6 @@ import UserAvatar from './UserAvatar.vue'
 import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from './common/MenuList.vue'
 import MenuRow from './common/MenuItem.vue'
-import { ICON_REGISTRY } from './common/icons'
 import BugReportModal from './BugReportModal.vue'
 import ContactSupportModal from './ContactSupportModal.vue'
 import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig'
@@ -106,7 +105,7 @@ const items = computed<MenuItem[]>(() => {
   out.push({
     id: 'settings',
     label: fluent.$t('user-menu-account'),
-    icon: ICON_REGISTRY.account.d,
+    icon: 'account',
     // Only when a workspace group precedes it.
     divider: workspaceItems.value.length > 0,
   })
@@ -114,7 +113,7 @@ const items = computed<MenuItem[]>(() => {
   // Team entry. Distinct from the platform-admin console below.
   const wsRole = authStore.user?.workspace_role
   if (wsRole === 'owner' || wsRole === 'admin') {
-    out.push({ id: 'team', label: fluent.$t('user-menu-team'), icon: ICON_REGISTRY.team.d })
+    out.push({ id: 'team', label: fluent.$t('user-menu-team'), icon: 'team' })
   }
   // Cloud: the workspace owner holds the Nosdesk account that pays, so the
   // billing page is theirs. It lives on the control-plane dashboard; admins
@@ -126,21 +125,21 @@ const items = computed<MenuItem[]>(() => {
     out.push({
       id: 'billing',
       label: fluent.$t('user-menu-plan-billing'),
-      icon: ICON_REGISTRY.openExternal.d,
+      icon: 'openExternal',
       description: trial.value ? menuLine(trial.value, (k, a) => fluent.$t(k, a)) : undefined,
     })
   }
   if (authStore.isAdmin) {
-    out.push({ id: 'admin', label: fluent.$t('user-menu-administration'), icon: ICON_REGISTRY.admin.d })
+    out.push({ id: 'admin', label: fluent.$t('user-menu-administration'), icon: 'admin' })
   }
   // The one pulled link to the seeded Getting Started page (first-run
   // plan, slice 6): no tour, no checklist, just where the guide lives.
-  out.push({ id: 'help', label: fluent.$t('user-menu-help'), icon: ICON_REGISTRY.book.d, divider: true })
+  out.push({ id: 'help', label: fluent.$t('user-menu-help'), icon: 'book', divider: true })
   // Cloud: a person to write to about the account, which a bug report is not.
   if (hosted) {
-    out.push({ id: 'contact-support', label: fluent.$t('user-menu-contact-support'), icon: ICON_REGISTRY.email.d })
+    out.push({ id: 'contact-support', label: fluent.$t('user-menu-contact-support'), icon: 'email' })
   }
-  out.push({ id: 'report-problem', label: fluent.$t('user-menu-report-problem'), icon: ICON_REGISTRY.warning.d })
+  out.push({ id: 'report-problem', label: fluent.$t('user-menu-report-problem'), icon: 'warning' })
   out.push({ id: 'logout', label: fluent.$t('user-menu-sign-out'), danger: true })
   return out
 })

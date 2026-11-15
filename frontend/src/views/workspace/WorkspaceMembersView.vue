@@ -401,7 +401,7 @@ function manageTeamInControlPlane() {
 
       <template #empty-state>
         <EmptyState
-          icon="users"
+          icon="team"
           :title="
             searchQuery
               ? $t('workspace-members-empty-search-title')

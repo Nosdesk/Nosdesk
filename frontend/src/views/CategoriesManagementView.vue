@@ -559,9 +559,7 @@ onMounted(() => {
                   :title="$t('admin-categories-drag-handle')"
                   :aria-label="$t('admin-categories-drag-handle')"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M7 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
-                  </svg>
+                  <Icon name="grip" size="md" />
                 </button>
 
                 <!-- Icon -->
@@ -860,9 +858,7 @@ onMounted(() => {
         <div class="p-4 flex items-center gap-4">
           <!-- Grip icon -->
           <div class="flex-shrink-0 p-1 text-tertiary">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M7 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
-            </svg>
+            <Icon name="grip" size="md" />
           </div>
           <!-- Icon -->
           <div

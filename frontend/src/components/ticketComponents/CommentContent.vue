@@ -51,9 +51,7 @@ so a printed ticket carries the full archival record, not the summary.
     <!-- Quoted history, tucked behind a disclosure -->
     <details v-if="quoted" class="group">
       <summary :class="summaryClass">
-        <svg :class="summaryIconClass" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-        </svg>
+        <Icon name="chevronRight" size="xs" :class="summaryIconClass" />
         <span>{{ quotedLabel }}</span>
       </summary>
       <div class="mt-1">
@@ -103,6 +101,7 @@ so a printed ticket carries the full archival record, not the summary.
 import { computed, nextTick, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue';
+import Icon from '@/components/common/Icon.vue';
 import { enhanceMentions } from '@/plugins/prosemirror-mention-view';
 import { enhanceTicketLinks } from '@/components/editor/ticketLinkPlugin';
 import EmailHtmlBody from '@/components/ticketComponents/EmailHtmlBody.vue';
@@ -158,7 +157,7 @@ watch(
 
 const summaryClass =
   'cursor-pointer text-xs text-tertiary hover:text-secondary select-none inline-flex items-center gap-1 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info';
-const summaryIconClass = 'w-3 h-3 transition-transform group-open:rotate-90';
+const summaryIconClass = 'transition-transform group-open:rotate-90';
 
 type Kind = 'text' | 'simple' | 'rich' | 'legacy-html' | 'legacy-markdown';
 

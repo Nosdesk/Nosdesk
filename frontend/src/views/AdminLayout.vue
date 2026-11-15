@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { workspacePath } from '@/router/workspaceRouting';
 import { useFluent } from 'fluent-vue';
 import AdminSidebar from '@/components/admin/AdminSidebar.vue';
+import Icon from '@/components/common/Icon.vue';
 import { allAdminNavItems, isAdminRouteActive } from '@/components/admin/adminNavData';
 
 const route = useRoute();
@@ -36,15 +37,11 @@ const activeItemTitle = computed(() =>
           to="/admin"
           class="flex items-center gap-1.5 text-sm text-secondary hover:text-primary transition-colors"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
+          <Icon name="arrowLeft" />
           {{ $t('admin-heading') }}
         </RouterLink>
         <template v-if="activeItem">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
+          <Icon name="chevronRight" size="xs" class="text-tertiary flex-shrink-0" />
           <span class="text-sm text-primary font-medium truncate">{{ activeItemTitle }}</span>
         </template>
       </div>

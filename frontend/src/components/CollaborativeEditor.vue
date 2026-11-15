@@ -13,6 +13,7 @@ import { useRouter } from "vue-router";
 import { ticketPathForId } from "@/utils/ticketNumbers";
 import { useFluent } from "fluent-vue";
 import Spinner from "@/components/common/Spinner.vue";
+import Icon from "@/components/common/Icon.vue";
 import ResponsiveMenu from "@/components/common/ResponsiveMenu.vue";
 import MenuList, { type MenuItem } from "@/components/common/MenuList.vue";
 import * as Y from "yjs";
@@ -32,7 +33,6 @@ import { toggleBlockquote as toggleBlockquoteCommand } from "@/components/editor
 import { TableNodeView, createTableControlsPlugin } from "@/components/editor/tableView";
 import type { TableUiState } from "@/components/editor/tableMenus";
 import TableControls from "@/components/editor/TableControls.vue";
-import { ICON_REGISTRY } from "@/components/common/icons";
 import { respondToOutdatedEditor, type OutdatedEditorPrompt } from "@/components/editor/outdatedEditor";
 import Button from "@/components/common/Button.vue";
 import { useAuthStore } from "@/stores/auth";
@@ -2179,21 +2179,7 @@ defineExpose({
                     :title="$t('editor-toolbar-text-style')"
                     :aria-label="$t('editor-toolbar-text-style')"
                 >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path d="M4 7V4h16v3"></path>
-                        <path d="M9 20h6"></path>
-                        <path d="M12 4v16"></path>
-                    </svg>
+                    <Icon name="text" />
                 </button>
 
                 <ResponsiveMenu
@@ -2214,37 +2200,10 @@ defineExpose({
 
             <!-- Formatting Buttons -->
             <button type="button" @click="toggleBold" class="toolbar-button" :title="$t('editor-toolbar-bold')" :aria-label="$t('editor-toolbar-bold')">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
-                    <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
-                </svg>
+                <Icon name="bold" />
             </button>
             <button type="button" @click="toggleItalic" class="toolbar-button" :title="$t('editor-toolbar-italic')" :aria-label="$t('editor-toolbar-italic')">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <line x1="19" y1="4" x2="10" y2="4"></line>
-                    <line x1="14" y1="20" x2="5" y2="20"></line>
-                    <line x1="15" y1="4" x2="9" y2="20"></line>
-                </svg>
+                <Icon name="italic" />
             </button>
 
             <div class="toolbar-divider"></div>
@@ -2257,24 +2216,7 @@ defineExpose({
                 :title="$t('editor-toolbar-bullet-list')"
                 :aria-label="$t('editor-toolbar-bullet-list')"
             >
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <line x1="8" y1="6" x2="21" y2="6"></line>
-                    <line x1="8" y1="12" x2="21" y2="12"></line>
-                    <line x1="8" y1="18" x2="21" y2="18"></line>
-                    <circle cx="3" cy="6" r="1"></circle>
-                    <circle cx="3" cy="12" r="1"></circle>
-                    <circle cx="3" cy="18" r="1"></circle>
-                </svg>
+                <Icon name="list" />
             </button>
             <button
                 type="button"
@@ -2283,24 +2225,7 @@ defineExpose({
                 :title="$t('editor-toolbar-numbered-list')"
                 :aria-label="$t('editor-toolbar-numbered-list')"
             >
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <line x1="10" y1="6" x2="21" y2="6"></line>
-                    <line x1="10" y1="12" x2="21" y2="12"></line>
-                    <line x1="10" y1="18" x2="21" y2="18"></line>
-                    <path d="M4 6h1v4"></path>
-                    <path d="M4 10h2"></path>
-                    <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"></path>
-                </svg>
+                <Icon name="listOrdered" />
             </button>
 
             <div class="toolbar-divider"></div>
@@ -2317,20 +2242,7 @@ defineExpose({
                     :title="$t('editor-toolbar-insert')"
                     :aria-label="$t('editor-toolbar-insert')"
                 >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
+                    <Icon name="add" />
                 </button>
 
                 <ResponsiveMenu
@@ -2375,36 +2287,10 @@ defineExpose({
 
             <!-- Undo/Redo Buttons -->
             <button type="button" @click="undoEdit" class="toolbar-button" :title="$t('editor-toolbar-undo')" :aria-label="$t('editor-toolbar-undo')">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M3 7v6h6"></path>
-                    <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
-                </svg>
+                <Icon name="undo" />
             </button>
             <button type="button" @click="redoEdit" class="toolbar-button" :title="$t('editor-toolbar-redo')" :aria-label="$t('editor-toolbar-redo')">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M21 7v6h-6"></path>
-                    <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path>
-                </svg>
+                <Icon name="redo" />
             </button>
 
             <!-- Table: while the caret is in a table. On touch it goes first
@@ -2420,20 +2306,7 @@ defineExpose({
                     :title="$t('editor-toolbar-table')"
                     @click="openTableMenu"
                 >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path :d="ICON_REGISTRY.table.d"></path>
-                    </svg>
+                    <Icon name="table" />
                     <span class="toolbar-button-label">{{ $t('editor-toolbar-table') }}</span>
                 </button>
                 <div v-if="tableTouch" class="toolbar-divider toolbar-divider--table"></div>
@@ -2449,20 +2322,7 @@ defineExpose({
                 :title="$t('editor-toolbar-revision-history')"
                 :aria-label="$t('editor-toolbar-revision-history')"
             >
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <polyline points="12 6 12 12 16 14"></polyline>
-                </svg>
+                <Icon name="clock" />
             </button>
 
             <!-- Spacer to push connection controls to right -->
