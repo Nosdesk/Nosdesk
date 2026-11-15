@@ -4,25 +4,25 @@
  * `admin-rules-new`, edits an existing rule by id when route name
  * is `admin-rules-edit`. Agents apply manual rules from a ticket's
  * Actions dialog; manual rules have `conditions = []` enforced by the
- * backend, so the editor has no conditions section.
+ * backend, so only a rule with an event trigger (ticket created, updated
+ * or replied) shows the conditions builder and its live preview.
  *
  * The action list is the main interaction surface. Each action
  * carries a typed `kind` plus a kind-specific config object. The
  * supported kinds are reply / set_status / assign / unassign /
  * add_tags / remove_tags / set_priority / stop_processing; notify /
  * apply_macro_template / webhook don't run yet, and the backend refuses
- * to save a rule with one (RULE_VALIDATION).
+ * to save a rule with one (RULE_VALIDATION). Only a manual rule can reply.
  *
- * Only manual rules run today, so a new rule is always manual. An older
- * rule saved with another trigger keeps it, with a note that it won't
- * run and the option to switch it to manual.
+ * Whether an event rule can leave draft is one switch, EVENT_RULES_RUN.
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import Icon from '@/components/common/Icon.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import IconButton from '@/components/common/IconButton.vue';
@@ -32,6 +32,13 @@ import FormNumber from '@/components/common/FormNumber.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import SegmentedControl from '@/components/common/SegmentedControl.vue';
 import UserPicker from '@/components/ticketComponents/UserPicker.vue';
+import ConditionBuilder from '@/components/admin/rules/ConditionBuilder.vue';
+import { CHANGEABLE_FIELDS, fromWire, toWire, treeComplete, type ConditionGroup } from '@/components/admin/rules/conditionTree';
+import { EVENT_RULES_RUN, promoteControls } from '@/components/admin/rules/eventRuleGate';
+import { readTriggerConfig, triggerConfigFor, DEFAULT_REPLY_KIND } from '@/components/admin/rules/triggerConfig';
+import { useWorkspaceQuery } from '@/queries/workspaceQuery';
+import { numberForTicketId } from '@/composables/useTicketNumberLookup';
+import { ticketPathForId } from '@/utils/ticketNumbers';
 import { GROUPS_QUERY_KEY } from '@/composables/useAssignmentPickerQueries';
 import userService from '@/services/userService';
 import { groupService } from '@nosdesk/core/services/groupService';
@@ -51,6 +58,9 @@ import type {
   CreateRuleRequest,
   Rule,
   RuleAction,
+  RuleCondition,
+  RuleReplyKind,
+  RuleState,
   RuleTriggerKind,
   UpdateRuleRequest,
 } from '@nosdesk/core/types/rule';
@@ -82,6 +92,12 @@ const triggerKind = ref<RuleTriggerKind>('manual');
 const priority = ref<number>(100);
 const actions = ref<RuleAction[]>([{ kind: 'reply', config: { visibility: 'public', body: '' } }]);
 const overrideSelfRef = ref(false);
+/** Fields whose change runs an updated rule; none means any change. */
+const changedFields = ref<string[]>([]);
+const replyKind = ref<RuleReplyKind>(DEFAULT_REPLY_KIND);
+const conditionRoot = ref<ConditionGroup>(fromWire([]));
+/** Going live without a dry run first: the admin checked the rule by hand. */
+const verifiedManually = ref(false);
 
 function fill(rule: Rule): void {
   original.value = rule;
@@ -90,6 +106,13 @@ function fill(rule: Rule): void {
   triggerKind.value = rule.trigger_kind;
   priority.value = rule.priority;
   actions.value = Array.isArray(rule.actions) ? [...rule.actions] : [];
+  const settings = readTriggerConfig(rule.trigger_config);
+  changedFields.value = settings.changedFields;
+  replyKind.value = settings.replyKind;
+  conditionRoot.value = fromWire(rule.conditions);
+  verifiedManually.value = false;
+  // The loaded rule's preview needn't wait out the typing pause.
+  previewInput.value = previewRequest.value;
 }
 
 onMounted(async () => {
@@ -114,8 +137,45 @@ const headerTitle = computed(() =>
 
 const isManual = computed(() => triggerKind.value === 'manual');
 
+const triggerConfig = computed(() =>
+  triggerConfigFor(triggerKind.value, { changedFields: changedFields.value, replyKind: replyKind.value }),
+);
+/** The conditions as saved: none for a manual rule. */
+const conditionsWire = computed<RuleCondition[] | RuleCondition>(() =>
+  isManual.value ? [] : toWire(conditionRoot.value),
+);
+const conditionsComplete = computed(() => isManual.value || treeComplete(conditionRoot.value, triggerKind.value));
+/** Set by a save attempt with unfinished conditions, so their hints show. */
+const showConditionProblems = ref(false);
+
+function setTrigger(kind: RuleTriggerKind): void {
+  triggerKind.value = kind;
+  // A new rule's untouched reply step can't run on an event trigger; start
+  // it on a step that can.
+  const only = actions.value.length === 1 ? actions.value[0] : null;
+  if (kind !== 'manual' && only?.kind === 'reply' && !String((only.config as any)?.body ?? '').trim()) {
+    actions.value = [{ kind: 'set_status', config: { workflow_state_id: 0 } }];
+  }
+}
+
+/** The chips: the fields an update names, plus any other a saved rule named. */
+const changedFieldChoices = computed(() => [
+  ...CHANGEABLE_FIELDS,
+  ...changedFields.value.filter((f) => !CHANGEABLE_FIELDS.includes(f)),
+]);
+
+function toggleChangedField(field: string): void {
+  changedFields.value = changedFields.value.includes(field)
+    ? changedFields.value.filter((f) => f !== field)
+    : changedFieldChoices.value.filter((f) => f === field || changedFields.value.includes(f));
+}
+
 function addAction(): void {
-  actions.value.push({ kind: 'reply', config: { visibility: 'public', body: '' } });
+  actions.value.push(
+    isManual.value
+      ? { kind: 'reply', config: { visibility: 'public', body: '' } }
+      : { kind: 'set_status', config: { workflow_state_id: 0 } },
+  );
 }
 
 function removeAction(index: number): void {
@@ -162,6 +222,7 @@ function stepProblem(action: RuleAction): string | null {
   const c = (action.config ?? {}) as Record<string, unknown>;
   switch (action.kind) {
     case 'reply':
+      if (!isManual.value) return 'admin-rule-editor-step-reply-manual-only';
       return String(c.body ?? '').trim() ? null : 'admin-rule-editor-step-needs-reply';
     case 'set_status':
       return Number(c.workflow_state_id) > 0 ? null : 'admin-rule-editor-step-needs-status';
@@ -188,16 +249,21 @@ const canSave = computed(
 /** Set by a save attempt with unfinished steps, so their hints show. */
 const showStepProblems = ref(false);
 
-/** Unsaved edits, compared with the rule as last loaded or saved. */
+/** Unsaved edits, compared with the rule as last loaded or saved. The
+ *  trigger settings and conditions compare in the shape the editor saves. */
 const isDirty = computed(() => {
   const rule = original.value;
   if (!rule) return true;
+  const savedConditions = rule.trigger_kind === 'manual' ? [] : toWire(fromWire(rule.conditions));
   return (
     name.value.trim() !== rule.name ||
     (description.value.trim() || null) !== rule.description ||
     triggerKind.value !== rule.trigger_kind ||
     priority.value !== rule.priority ||
-    JSON.stringify(actions.value) !== JSON.stringify(rule.actions)
+    JSON.stringify(actions.value) !== JSON.stringify(rule.actions) ||
+    JSON.stringify(triggerConfig.value) !==
+      JSON.stringify(triggerConfigFor(rule.trigger_kind, readTriggerConfig(rule.trigger_config))) ||
+    JSON.stringify(conditionsWire.value) !== JSON.stringify(savedConditions)
   );
 });
 
@@ -217,10 +283,15 @@ async function reloadIfArchived(err: unknown): Promise<boolean> {
   return true;
 }
 
-/** Saves the form; `quiet` skips the toast when going live follows. */
+/** Saves the form; `quiet` skips the toast when a state change follows. */
 async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
   errorMessage.value = '';
   if (!canSave.value) return false;
+  if (!conditionsComplete.value) {
+    showConditionProblems.value = true;
+    errorMessage.value = t('admin-rule-editor-conditions-incomplete');
+    return false;
+  }
   if (actions.value.some((a) => stepProblem(a) !== null)) {
     showStepProblems.value = true;
     errorMessage.value = t('admin-rule-editor-steps-incomplete');
@@ -232,7 +303,8 @@ async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
       name: name.value.trim(),
       description: description.value.trim() || null,
       trigger_kind: triggerKind.value,
-      conditions: [],
+      trigger_config: triggerConfig.value,
+      conditions: conditionsWire.value,
       actions: actions.value,
       priority: priority.value,
       override_self_reference: overrideSelfRef.value,
@@ -250,6 +322,8 @@ async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
         name: payload.name,
         description: payload.description,
         trigger_kind: payload.trigger_kind,
+        trigger_config: payload.trigger_config,
+        conditions: payload.conditions,
         actions: payload.actions,
         priority: payload.priority,
         override_self_reference: overrideSelfRef.value,
@@ -269,18 +343,25 @@ async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
   }
 }
 
-// Agents can apply a rule only while it's live; pausing takes it out of
-// their Actions list. Going live saves pending edits first so agents get the
-// rule as shown here.
-async function setLive(live: boolean): Promise<void> {
+// Agents can apply a manual rule only while it's live; pausing takes it out
+// of their Actions list. An event rule runs on its own while live, and in a
+// dry run logs what it would do without doing it. A state change saves
+// pending edits first so the rule runs as shown here.
+const STATE_TOASTS: Partial<Record<RuleState, string>> = {
+  live: 'admin-rules-toast-live',
+  paused: 'admin-rules-toast-paused',
+  dry_run: 'admin-rules-toast-dry-run',
+};
+
+async function setState(target: RuleState): Promise<void> {
   if (isDirty.value && !(await save({ quiet: true }))) return;
   const rule = original.value;
   if (!rule) return;
   transitioning.value = true;
   try {
-    fill(await rulesService.transitionState(rule.id, { state: live ? 'live' : 'paused' }));
+    fill(await rulesService.transitionState(rule.id, { state: target }));
     await queryCache.invalidateQueries({ key: ['rules'] });
-    toast.success(t(live ? 'admin-rules-toast-live' : 'admin-rules-toast-paused', { name: rule.name }));
+    toast.success(t(STATE_TOASTS[target] ?? 'admin-rules-toast-saved', { name: rule.name }));
   } catch (err) {
     if (!(await reloadIfArchived(err))) {
       errorMessage.value = extractErrorMessage(err, t('admin-rules-error-transition'));
@@ -309,34 +390,124 @@ async function restore(): Promise<void> {
 
 const stateNote = computed(() => {
   if (isArchived.value) return t('admin-rule-editor-state-archived');
-  switch (original.value?.state) {
+  const state = original.value?.state;
+  if (isManual.value) {
+    switch (state) {
+      case undefined:
+        return t('admin-rule-editor-state-new');
+      case 'live':
+        return t('admin-rule-editor-state-live');
+      case 'paused':
+        return t('admin-rule-editor-state-paused');
+      default:
+        return t('admin-rule-editor-state-draft');
+    }
+  }
+  switch (state) {
     case undefined:
-      return t('admin-rule-editor-state-new');
+      return t('admin-rule-editor-state-new-event');
     case 'live':
-      return t('admin-rule-editor-state-live');
+      return t('admin-rule-editor-state-live-event');
+    case 'dry_run':
+      return t('admin-rule-editor-state-dry-run');
     case 'paused':
-      return t('admin-rule-editor-state-paused');
+      return t('admin-rule-editor-state-paused-event');
     default:
-      return t('admin-rule-editor-state-draft');
+      return t('admin-rule-editor-state-draft-event');
   }
 });
+
+/** The state changes on offer, for the trigger as edited: a state change
+ *  saves the edits first. */
+const controls = computed(() =>
+  original.value && !isArchived.value
+    ? promoteControls(triggerKind.value, original.value.state, EVENT_RULES_RUN)
+    : null,
+);
+/** A rule that is running keeps its trigger until it's paused. */
+const triggerLocked = computed(
+  () => original.value?.state === 'live' || original.value?.state === 'dry_run',
+);
+
+// ---------------------------------------------------------------------------
+// Live preview: how many recent tickets the conditions match, checked by
+// the server as a save would check them. Waits for a pause in typing.
+// ---------------------------------------------------------------------------
+
+const PREVIEW_DEBOUNCE_MS = 400;
+const previewRequest = computed(() =>
+  JSON.stringify({ trigger_kind: triggerKind.value, conditions: conditionsWire.value }),
+);
+const previewInput = ref(previewRequest.value);
+let previewTimer: ReturnType<typeof setTimeout> | undefined;
+watch(previewRequest, (next) => {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => {
+    previewInput.value = next;
+  }, PREVIEW_DEBOUNCE_MS);
+});
+onBeforeUnmount(() => clearTimeout(previewTimer));
+
+const previewQuery = useWorkspaceQuery({
+  key: () => ['rules', 'preview', previewInput.value],
+  query: () => rulesService.preview(JSON.parse(previewInput.value)),
+  enabled: () => !isManual.value && !isArchived.value && !loading.value && conditionsComplete.value,
+  staleTime: 30 * 1000,
+});
+const preview = computed(() => previewQuery.data.value ?? null);
+const previewError = computed(() =>
+  previewQuery.error.value ? extractErrorMessage(previewQuery.error.value, t('admin-rule-preview-error')) : '',
+);
+/** More than half of recent tickets: likely broader than meant. */
+const previewBroad = computed(() => {
+  const p = preview.value;
+  return p != null && p.scanned > 0 && p.matched / p.scanned > 0.5;
+});
+const previewText = computed(() => {
+  const p = preview.value;
+  if (!p) return '';
+  const args = { matched: p.matched, scanned: p.scanned };
+  if (p.scanned === 0) return t('admin-rule-preview-no-tickets');
+  if (p.matched === 0) return t('admin-rule-preview-none', args);
+  return t(previewBroad.value ? 'admin-rule-preview-broad' : 'admin-rule-preview-count', args);
+});
+/** Conditions on the event itself count as met in the preview: past tickets
+ *  have no update or reply to check. */
+const checksEvent = computed(() => {
+  const walk = (node: ConditionGroup['children'][number]): boolean =>
+    node.kind === 'group' ? node.children.some(walk) : !node.field.startsWith('ticket.');
+  return conditionRoot.value.children.some(walk);
+});
+const sampleLabel = (id: number) => `#${numberForTicketId(id) ?? id}`;
 
 
 function triggerLabel(kind: RuleTriggerKind): string {
   return t(`admin-rules-trigger-${kind.replace(/_/g, '-')}`);
 }
 
-// A rule saved with a trigger that doesn't run yet can switch to manual.
-// New and manual rules have nothing to choose.
+// Time elapsed rules aren't built here yet; one saved through the API keeps
+// its trigger in the list.
+const TRIGGERS: RuleTriggerKind[] = ['manual', 'ticket_created', 'ticket_updated', 'ticket_replied'];
 const triggerOptions = computed(() => {
+  const kinds = [...TRIGGERS];
   const saved = original.value?.trigger_kind;
-  if (!saved || saved === 'manual') return [];
-  return [saved, 'manual' as const].map((k) => ({ value: k, label: triggerLabel(k) }));
+  if (saved && !kinds.includes(saved)) kinds.push(saved);
+  return kinds.map((k) => ({ value: k, label: triggerLabel(k) }));
 });
+const triggerSummary = computed(() =>
+  t(`admin-rule-editor-trigger-${triggerKind.value.replace(/_/g, '-')}-summary`),
+);
+const replyKindOptions = computed(() =>
+  (['customer', 'agent', 'any'] as const).map((k) => ({ value: k, label: t(`admin-rule-editor-reply-kind-${k}`) })),
+);
+function changedFieldLabel(field: string): string {
+  return CHANGEABLE_FIELDS.includes(field) ? t(`admin-rule-conditions-field-${field.replace(/[._]/g, '-')}`) : field;
+}
 
-// stop_processing only means something to rules that run on their own.
+// stop_processing only means something to rules that run on their own, and
+// only a manual rule can reply.
 const actionKinds = computed<RuleAction['kind'][]>(() => [
-  'reply',
+  ...(isManual.value ? (['reply'] as const) : []),
   'set_status',
   'assign',
   'unassign',
@@ -363,10 +534,12 @@ function actionLabel(kind: RuleAction['kind']): string {
     : kind;
 }
 
-// BaseDropdown option lists (value/label) for the enum selects.
-const actionOptions = computed(() =>
-  actionKinds.value.map((k) => ({ value: k, label: actionLabel(k) })),
-);
+// BaseDropdown option lists (value/label) for the enum selects. A step of a
+// kind the trigger doesn't offer keeps it in its own list, so it still reads.
+function actionOptionsFor(action: RuleAction) {
+  const kinds = actionKinds.value.includes(action.kind) ? actionKinds.value : [action.kind, ...actionKinds.value];
+  return kinds.map((k) => ({ value: k, label: actionLabel(k) }));
+}
 const replyVisibilityOptions = computed(() => [
   { value: 'public', label: t('admin-rule-editor-reply-public') },
   { value: 'internal', label: t('admin-rule-editor-reply-internal') },
@@ -461,19 +634,99 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
             {{ t('admin-rule-editor-section-trigger') }}
           </h2>
           <BaseDropdown
-            v-if="triggerOptions.length > 0"
             :model-value="triggerKind"
             :options="triggerOptions"
             :label="t('admin-rule-editor-trigger-label')"
+            :disabled="triggerLocked"
             size="sm"
-            @update:model-value="triggerKind = String($event) as RuleTriggerKind"
+            data-test="trigger-picker"
+            @update:model-value="setTrigger(String($event) as RuleTriggerKind)"
           />
-          <p v-if="isManual" class="text-sm text-secondary">
-            {{ t('admin-rule-editor-trigger-manual-summary') }}
+          <p class="text-sm text-secondary">{{ triggerSummary }}</p>
+          <p v-if="triggerLocked && !isArchived" class="text-xs text-secondary">
+            {{ t('admin-rule-editor-trigger-locked') }}
           </p>
-          <p v-else class="text-sm text-status-warning">
-            {{ t('admin-rule-editor-trigger-other-phase') }}
-          </p>
+
+          <div v-if="triggerKind === 'ticket_updated'" class="flex flex-col gap-2" data-test="changed-fields">
+            <p class="text-sm font-medium text-primary">{{ t('admin-rule-editor-changed-fields-label') }}</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="field in changedFieldChoices"
+                :key="field"
+                type="button"
+                class="rounded-full border px-3 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+                :class="
+                  changedFields.includes(field)
+                    ? 'border-accent bg-accent/10 text-primary'
+                    : 'border-default text-secondary hover:text-primary hover:bg-surface-hover'
+                "
+                :aria-pressed="changedFields.includes(field)"
+                @click="toggleChangedField(field)"
+              >
+                {{ changedFieldLabel(field) }}
+              </button>
+            </div>
+            <p class="text-xs text-secondary">
+              {{ changedFields.length === 0 ? t('admin-rule-editor-changed-fields-any') : t('admin-rule-editor-changed-fields-some') }}
+            </p>
+          </div>
+
+          <div v-else-if="triggerKind === 'ticket_replied'" class="flex flex-col gap-2" data-test="reply-kind">
+            <p class="text-sm font-medium text-primary">{{ t('admin-rule-editor-reply-kind-label') }}</p>
+            <div>
+              <SegmentedControl
+                :model-value="replyKind"
+                :options="replyKindOptions"
+                :aria-label="t('admin-rule-editor-reply-kind-label')"
+                size="sm"
+                @update:model-value="replyKind = $event"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section v-if="!isManual" class="flex flex-col gap-3" data-test="conditions">
+          <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
+            {{ t('admin-rule-editor-section-conditions') }}
+          </h2>
+          <ConditionBuilder
+            v-model="conditionRoot"
+            :trigger-kind="triggerKind"
+            :disabled="isArchived"
+            :show-problems="showConditionProblems"
+          />
+          <div
+            class="flex flex-col gap-2 rounded-lg border border-default bg-surface px-4 py-3"
+            data-test="rule-preview"
+            aria-live="polite"
+          >
+            <p v-if="!conditionsComplete" class="text-sm text-secondary">
+              {{ t('admin-rule-preview-incomplete') }}
+            </p>
+            <p v-else-if="previewError" class="text-sm text-status-error">{{ previewError }}</p>
+            <p v-else-if="!preview" class="text-sm text-secondary">{{ t('admin-rule-preview-loading') }}</p>
+            <template v-else>
+              <p
+                class="flex items-start gap-1.5 text-sm"
+                :class="previewBroad || (preview.scanned > 0 && preview.matched === 0) ? 'text-status-warning' : 'text-primary'"
+              >
+                <Icon v-if="previewBroad" name="warning" size="sm" class="mt-0.5 shrink-0" />
+                <span>{{ previewText }}</span>
+              </p>
+              <div v-if="preview.sample_ticket_ids.length > 0" class="flex flex-wrap items-center gap-3 text-sm">
+                <span class="text-secondary">{{ t('admin-rule-preview-samples') }}</span>
+                <RouterLink
+                  v-for="ticketId in preview.sample_ticket_ids"
+                  :key="ticketId"
+                  :to="ticketPathForId(ticketId)"
+                  class="text-accent hover:underline"
+                >
+                  {{ sampleLabel(ticketId) }}
+                </RouterLink>
+              </div>
+              <p v-if="checksEvent" class="text-xs text-secondary">{{ t('admin-rule-preview-event-note') }}</p>
+            </template>
+          </div>
         </section>
 
         <section class="flex flex-col gap-3">
@@ -500,7 +753,7 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
                 <span class="text-xs text-secondary font-mono">#{{ i + 1 }}</span>
                 <BaseDropdown
                   :model-value="action.kind"
-                  :options="actionOptions"
+                  :options="actionOptionsFor(action)"
                   size="sm"
                   class="flex-1"
                   @update:model-value="setActionKind(i, String($event) as RuleAction['kind'])"
@@ -600,39 +853,71 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
           {{ t('admin-rule-editor-section-state') }}
         </h2>
         <div class="flex flex-col gap-3 rounded-lg border border-default bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p class="text-sm text-secondary">{{ stateNote }}</p>
-          <Button
-            v-if="isArchived"
-            variant="secondary"
-            size="sm"
-            icon="restore"
-            :loading="transitioning"
-            @click="restore"
-          >
-            {{ t('admin-rules-restore') }}
-          </Button>
-          <Button
-            v-else-if="original?.state === 'live'"
-            variant="secondary"
-            size="sm"
-            icon="pause"
-            :loading="transitioning"
-            @click="setLive(false)"
-          >
-            {{ t('admin-rules-pause') }}
-          </Button>
-          <Button
-            v-else-if="original && isManual"
-            variant="secondary"
-            size="sm"
-            icon="play"
-            :loading="transitioning"
-            :disabled="!canSave"
-            @click="setLive(true)"
-          >
-            {{ t('admin-rules-go-live') }}
-          </Button>
+          <div class="flex flex-col gap-1 min-w-0">
+            <p class="text-sm text-secondary">{{ stateNote }}</p>
+            <RouterLink
+              v-if="original?.state === 'dry_run' && !isArchived"
+              :to="{ name: 'admin-rules-activity', query: { rule: String(original.id), status: 'dry_run' } }"
+              class="text-sm text-accent hover:underline"
+            >
+              {{ t('admin-rule-editor-dry-run-results') }}
+            </RouterLink>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <Button
+              v-if="isArchived"
+              variant="secondary"
+              size="sm"
+              icon="restore"
+              :loading="transitioning"
+              @click="restore"
+            >
+              {{ t('admin-rules-restore') }}
+            </Button>
+            <template v-else-if="controls">
+              <Button
+                v-if="controls.pause"
+                variant="secondary"
+                size="sm"
+                icon="pause"
+                :loading="transitioning"
+                @click="setState('paused')"
+              >
+                {{ t('admin-rules-pause') }}
+              </Button>
+              <Button
+                v-if="controls.dryRun"
+                variant="secondary"
+                size="sm"
+                icon="eye"
+                :loading="transitioning"
+                :disabled="!canSave"
+                @click="setState('dry_run')"
+              >
+                {{ t('admin-rules-dry-run') }}
+              </Button>
+              <Button
+                v-if="controls.goLive"
+                variant="secondary"
+                size="sm"
+                icon="play"
+                :loading="transitioning"
+                :disabled="!canSave || (controls.goLiveNeedsCheck && !verifiedManually)"
+                @click="setState('live')"
+              >
+                {{ t('admin-rules-go-live') }}
+              </Button>
+            </template>
+          </div>
         </div>
+        <Checkbox
+          v-if="controls?.goLiveNeedsCheck && controls.goLive"
+          v-model="verifiedManually"
+          :label="t('admin-rule-editor-verified-manually')"
+        />
+        <p v-if="!isManual && !isArchived && !EVENT_RULES_RUN" class="text-sm text-secondary" data-test="events-waiting">
+          {{ t('admin-rule-editor-events-waiting') }}
+        </p>
         <!-- Run order and the loop override only matter to rules that run
              on their own. -->
         <fieldset v-if="!isManual" :disabled="isArchived" class="flex flex-col gap-3 min-w-0">

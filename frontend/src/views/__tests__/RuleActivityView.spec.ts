@@ -95,4 +95,30 @@ describe('RuleActivityView', () => {
     expect(wrapper.find('a[href="/tickets/1042"]').exists()).toBe(true)
     expect(wrapper.find('a[href="/rules/2"]').exists()).toBe(true)
   })
+
+  it("filters to one rule's dry runs from the link, and says what each would have done", async () => {
+    rules.listApplications.mockResolvedValue([
+      { ...RUN, id: 8, status: 'dry_run', actor_uuid: null, actor_kind: 'system', actions_skipped: null },
+    ])
+    rules.list.mockResolvedValue([RULE])
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/activity', component: { template: '<div />' } },
+        { path: '/rules/:id', name: 'admin-rules-edit', component: { template: '<div />' } },
+        { path: '/tickets/:number', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/activity?rule=2&status=dry_run')
+    wrapper = mountWithProviders(RuleActivityView, {}, {}, [[PiniaColada, {}] as never, router])
+    await flushPromises()
+
+    expect(rules.listApplications).toHaveBeenCalledWith({ status: 'dry_run', rule_id: 2, limit: 50 })
+    const row = wrapper.get('li > button[aria-expanded]')
+    expect(row.text()).toContain('admin-rules-activity-row-dry-run')
+    await row.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin-rules-activity-what-it-would-do')
+    expect(wrapper.text()).not.toContain('admin-rules-activity-what-it-did')
+  })
 })

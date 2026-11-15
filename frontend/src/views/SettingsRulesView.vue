@@ -23,6 +23,7 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import SearchInput from '@/components/common/SearchInput.vue';
 import StatusPill from '@/components/common/StatusPill.vue';
 import StarterRulesDialog from '@/components/admin/rules/StarterRulesDialog.vue';
+import { EVENT_RULES_RUN, promoteControls } from '@/components/admin/rules/eventRuleGate';
 import type { StatusPillTone } from '@/components/common/statusPillTone';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
@@ -106,8 +107,7 @@ function stateTone(state: RuleState): StatusPillTone {
   return 'neutral';
 }
 
-// Only manual rules can be created, so the trigger filter appears only
-// when older rules with another trigger are still around.
+// The trigger filter appears once rules with more than one trigger exist.
 const triggerKindsInUse = computed(() => [...new Set(rules.value.map((r) => r.trigger_kind))]);
 const triggerFilterOptions = computed(() => [
   { value: 'all', label: t('admin-rules-filter-trigger-all') },
@@ -154,10 +154,14 @@ async function archive(rule: Rule): Promise<void> {
   archiveTarget.value = null;
 }
 
-// Agents can apply a rule only while it's live; pausing takes it out of
-// their Actions list. Only manual rules can go live: no other trigger runs
-// yet.
-const canGoLive = (rule: Rule) => rule.trigger_kind === 'manual' && rule.state !== 'live';
+// Agents can apply a manual rule only while it's live; pausing takes it out
+// of their Actions list. An event rule goes live from its dry run here;
+// skipping the dry run takes the editor's confirmation.
+const canGoLive = (rule: Rule) => {
+  const controls = promoteControls(rule.trigger_kind, rule.state, EVENT_RULES_RUN);
+  return controls.goLive && !controls.goLiveNeedsCheck;
+};
+const canPause = (rule: Rule) => promoteControls(rule.trigger_kind, rule.state, EVENT_RULES_RUN).pause;
 
 // A restored rule comes back as a draft.
 async function restore(rule: Rule): Promise<void> {
@@ -305,7 +309,7 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
                 </Button>
                 <template v-else>
                   <Button
-                    v-if="rule.state === 'live'"
+                    v-if="canPause(rule)"
                     variant="secondary"
                     size="sm"
                     icon="pause"

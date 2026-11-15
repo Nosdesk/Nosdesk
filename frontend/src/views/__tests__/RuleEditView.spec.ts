@@ -12,6 +12,7 @@ const rules = vi.hoisted(() => ({
   update: vi.fn(),
   transitionState: vi.fn(),
   restore: vi.fn(),
+  preview: vi.fn(),
 }))
 const toastSuccess = vi.hoisted(() => vi.fn())
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push }) }))
@@ -29,8 +30,19 @@ vi.mock('@nosdesk/core/services/groupService', () => ({
 vi.mock('@/components/ticketComponents/UserPicker.vue', () => ({
   default: { props: ['modelValue'], template: '<input data-test="user-picker" :value="modelValue" />' },
 }))
+vi.mock('@/services/activeWorkspace', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/activeWorkspace')>()),
+  workspaceReady: () => true,
+}))
+vi.mock('@nosdesk/core/services/categoryService', () => ({
+  categoryService: { getAllCategoriesAdmin: async () => [] },
+}))
+vi.mock('@/composables/useTicketNumberLookup', () => ({ numberForTicketId: (id: number) => id + 1000 }))
+vi.mock('@/utils/ticketNumbers', () => ({ ticketPathForId: (id: number) => `/tickets/${id + 1000}` }))
 
 import RuleEditView from '@/views/RuleEditView.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
+import type { RulePreview } from '@nosdesk/core/types/rule'
 
 function rule(overrides: Partial<Rule> = {}): Rule {
   return {
@@ -79,8 +91,9 @@ describe('RuleEditView', () => {
   it('creates a manual rule, says so, and offers Go live', async () => {
     rules.create.mockResolvedValue(rule())
     const w = await mountAt('admin-rules-new')
-    // A new rule has no trigger to choose: it's always manual.
+    // A new rule starts manual, with no conditions to set.
     expect(w.text()).toContain('admin-rule-editor-trigger-manual-summary')
+    expect(w.find('[data-test="conditions"]').exists()).toBe(false)
     expect(w.text()).toContain('admin-rule-editor-state-new')
     expect(button('admin-rules-go-live')).toBeUndefined()
 
@@ -133,11 +146,130 @@ describe('RuleEditView', () => {
     expect(button('admin-rules-go-live')).toBeDefined()
   })
 
-  it("warns that an older event rule won't run and doesn't offer Go live", async () => {
+  it('keeps an event rule in draft while event rules do not run, with a note saying so', async () => {
     rules.get.mockResolvedValue(rule({ trigger_kind: 'ticket_created' }))
+    rules.preview.mockResolvedValue(PREVIEW)
     const w = await mountAt('admin-rules-edit', { id: '4' })
-    expect(w.text()).toContain('admin-rule-editor-trigger-other-phase')
+    expect(w.text()).toContain('admin-rule-editor-state-draft-event')
+    expect(w.find('[data-test="events-waiting"]').exists()).toBe(true)
     expect(button('admin-rules-go-live')).toBeUndefined()
+    expect(button('admin-rules-dry-run')).toBeUndefined()
+    expect(w.text()).not.toContain('admin-rule-editor-verified-manually')
+  })
+
+  it('keeps a manual draft rule able to go live, with no event note', async () => {
+    rules.get.mockResolvedValue(rule())
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    expect(button('admin-rules-go-live')).toBeDefined()
+    expect(button('admin-rules-dry-run')).toBeUndefined()
+    expect(w.find('[data-test="events-waiting"]').exists()).toBe(false)
+  })
+
+  it('lets a running event rule be paused, and holds its trigger until then', async () => {
+    rules.get.mockResolvedValue(rule({ trigger_kind: 'ticket_created', state: 'live' }))
+    rules.preview.mockResolvedValue(PREVIEW)
+    rules.transitionState.mockResolvedValue(rule({ trigger_kind: 'ticket_created', state: 'paused' }))
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    expect(w.text()).toContain('admin-rule-editor-trigger-locked')
+    expect(button('admin-rules-go-live')).toBeUndefined()
+    button('admin-rules-pause')!.click()
+    await flushPromises()
+    expect(rules.transitionState).toHaveBeenCalledWith(4, { state: 'paused' })
+    expect(button('admin-rules-go-live')).toBeUndefined()
+    expect(w.text()).not.toContain('admin-rule-editor-trigger-locked')
+  })
+
+  it('saves the changed fields of an updated trigger, and the conditions, as loaded plus the edit', async () => {
+    const conditions = {
+      kind: 'and' as const,
+      children: [{ kind: 'leaf' as const, field: 'ticket.priority', op: 'eq' as const, value: 'high' }],
+    }
+    const loaded = rule({
+      trigger_kind: 'ticket_updated',
+      trigger_config: { changed_fields_include: ['ticket.priority'] },
+      conditions,
+    })
+    rules.get.mockResolvedValue(loaded)
+    rules.preview.mockResolvedValue(PREVIEW)
+    rules.update.mockImplementation(async (_id: number, req: Record<string, unknown>) => ({ ...loaded, ...req, preview: PREVIEW }))
+    await mountAt('admin-rules-edit', { id: '4' })
+
+    const chip = (field: string) =>
+      Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-test="changed-fields"] button')).find(
+        (b) => b.textContent?.includes(`admin-rule-conditions-field-${field}`),
+      )!
+    expect(chip('ticket-priority').getAttribute('aria-pressed')).toBe('true')
+    expect(chip('ticket-assignee-uuid').getAttribute('aria-pressed')).toBe('false')
+    chip('ticket-assignee-uuid').click()
+    await flushPromises()
+
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({
+        trigger_kind: 'ticket_updated',
+        trigger_config: { changed_fields_include: ['ticket.priority', 'ticket.assignee_uuid'] },
+        conditions,
+      }),
+    )
+    // Saved as shown, so nothing is left to save.
+    expect(chip('ticket-assignee-uuid').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('saves whose replies run a replied rule', async () => {
+    const loaded = rule({ trigger_kind: 'ticket_replied', trigger_config: { reply_kind: 'agent' } })
+    rules.get.mockResolvedValue(loaded)
+    rules.preview.mockResolvedValue(PREVIEW)
+    rules.update.mockImplementation(async (_id: number, req: Record<string, unknown>) => ({ ...loaded, ...req, preview: PREVIEW }))
+    await mountAt('admin-rules-edit', { id: '4' })
+
+    const radio = (label: string) =>
+      Array.from(document.body.querySelectorAll<HTMLElement>('[data-test="reply-kind"] [role="radio"]')).find(
+        (b) => b.textContent?.trim() === label,
+      )!
+    expect(radio('admin-rule-editor-reply-kind-agent').getAttribute('aria-checked')).toBe('true')
+    radio('admin-rule-editor-reply-kind-any').click()
+    await flushPromises()
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).toHaveBeenCalledWith(4, expect.objectContaining({ trigger_config: { reply_kind: 'any' }, conditions: [] }))
+  })
+
+  it('creates an event rule with its trigger settings, swapping the reply step for one it can run', async () => {
+    rules.preview.mockResolvedValue(PREVIEW)
+    rules.create.mockImplementation(async (req: Record<string, unknown>) => ({ ...rule(), ...req, preview: PREVIEW }))
+    const w = await mountAt('admin-rules-new')
+    await w.find('input').setValue('Escalate replies')
+    trigger(w).vm.$emit('update:modelValue', 'ticket_replied')
+    await flushPromises()
+    expect(w.find('[data-test="conditions"]').exists()).toBe(true)
+    // The reply step became a status step, which needs a status.
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(w.text()).toContain('admin-rule-editor-step-needs-status')
+    expect(rules.create).not.toHaveBeenCalled()
+  })
+
+  it('switching an event rule to manual saves no conditions and no trigger settings', async () => {
+    const loaded = rule({
+      trigger_kind: 'ticket_updated',
+      trigger_config: { changed_fields_include: ['ticket.priority'] },
+      conditions: { kind: 'and', children: [{ kind: 'leaf', field: 'ticket.priority', op: 'eq', value: 'high' }] },
+    })
+    rules.get.mockResolvedValue(loaded)
+    rules.preview.mockResolvedValue(PREVIEW)
+    rules.update.mockImplementation(async (_id: number, req: Record<string, unknown>) => ({ ...loaded, ...req, preview: PREVIEW }))
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    trigger(w).vm.$emit('update:modelValue', 'manual')
+    await flushPromises()
+    expect(w.find('[data-test="conditions"]').exists()).toBe(false)
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({ trigger_kind: 'manual', trigger_config: {}, conditions: [] }),
+    )
   })
 
   it('shows an archived rule as archived, with no Go live and no saving', async () => {
@@ -211,5 +343,104 @@ describe('RuleEditView', () => {
     await flushPromises()
     expect(w.text()).toContain('admin-rule-editor-step-needs-team')
     expect(rules.update).not.toHaveBeenCalled()
+  })
+})
+
+const PREVIEW: RulePreview = { matched: 12, scanned: 200, sample_ticket_ids: [41, 42] }
+
+const trigger = (w: VueWrapper) =>
+  w.findAllComponents(BaseDropdown).find((d) => d.props('label') === 'admin-rule-editor-trigger-label')!
+
+describe('RuleEditView preview', () => {
+  const eventRule = () =>
+    rule({
+      trigger_kind: 'ticket_created',
+      conditions: { kind: 'and', children: [{ kind: 'leaf', field: 'ticket.priority', op: 'eq', value: 'high' }] },
+    })
+  const previewText = () => document.body.querySelector('[data-test="rule-preview"]')?.textContent ?? ''
+
+  it('counts the matches and links the samples', async () => {
+    rules.get.mockResolvedValue(eventRule())
+    rules.preview.mockResolvedValue(PREVIEW)
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    expect(rules.preview).toHaveBeenCalledWith({
+      trigger_kind: 'ticket_created',
+      conditions: { kind: 'and', children: [{ kind: 'leaf', field: 'ticket.priority', op: 'eq', value: 'high' }] },
+    })
+    expect(previewText()).toContain('admin-rule-preview-count')
+    // The samples read as ticket numbers.
+    expect(previewText()).toContain('#1041')
+    expect(previewText()).toContain('#1042')
+    expect(w.text()).not.toContain('admin-rule-preview-broad')
+  })
+
+  it('warns when nothing recent matches', async () => {
+    rules.get.mockResolvedValue(eventRule())
+    rules.preview.mockResolvedValue({ matched: 0, scanned: 200, sample_ticket_ids: [] })
+    await mountAt('admin-rules-edit', { id: '4' })
+    expect(previewText()).toContain('admin-rule-preview-none')
+  })
+
+  it('warns when more than half of recent tickets match', async () => {
+    rules.get.mockResolvedValue(eventRule())
+    rules.preview.mockResolvedValue({ matched: 101, scanned: 200, sample_ticket_ids: [1, 2, 3, 4, 5] })
+    await mountAt('admin-rules-edit', { id: '4' })
+    expect(previewText()).toContain('admin-rule-preview-broad')
+  })
+
+  it('reads exactly half as a plain count', async () => {
+    rules.get.mockResolvedValue(eventRule())
+    rules.preview.mockResolvedValue({ matched: 100, scanned: 200, sample_ticket_ids: [1] })
+    await mountAt('admin-rules-edit', { id: '4' })
+    expect(previewText()).toContain('admin-rule-preview-count')
+  })
+
+  it('says when there are no tickets to check yet', async () => {
+    rules.get.mockResolvedValue(eventRule())
+    rules.preview.mockResolvedValue({ matched: 0, scanned: 0, sample_ticket_ids: [] })
+    await mountAt('admin-rules-edit', { id: '4' })
+    expect(previewText()).toContain('admin-rule-preview-no-tickets')
+  })
+
+  it("shows the server's reason when it refuses the conditions", async () => {
+    rules.get.mockResolvedValue(eventRule())
+    rules.preview.mockRejectedValue({
+      response: {
+        status: 400,
+        data: { code: 'RULE_CONDITION_INVALID', message: 'conditions.children[0]: give some text' },
+      },
+    })
+    await mountAt('admin-rules-edit', { id: '4' })
+    expect(previewText()).toContain('conditions.children[0]: give some text')
+  })
+
+  it('waits for unfinished conditions, then checks again after a pause in typing', async () => {
+    rules.get.mockResolvedValue(eventRule())
+    rules.preview.mockResolvedValue(PREVIEW)
+    await mountAt('admin-rules-edit', { id: '4' })
+    expect(rules.preview).toHaveBeenCalledTimes(1)
+
+    Array.from(document.body.querySelectorAll<HTMLButtonElement>('button'))
+      .find((b) => b.textContent?.includes('admin-rule-conditions-add') && !b.textContent.includes('group'))!
+      .click()
+    await flushPromises()
+    // The new condition has no value yet.
+    expect(previewText()).toContain('admin-rule-preview-incomplete')
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    await flushPromises()
+    expect(rules.preview).toHaveBeenCalledTimes(1)
+
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('admin-rule-editor-conditions-incomplete')
+    expect(document.body.textContent).toContain('admin-rule-conditions-problem-value')
+  })
+
+  it('does not preview a manual rule', async () => {
+    rules.get.mockResolvedValue(rule())
+    await mountAt('admin-rules-edit', { id: '4' })
+    expect(rules.preview).not.toHaveBeenCalled()
+    expect(document.body.querySelector('[data-test="rule-preview"]')).toBeNull()
   })
 })

@@ -502,11 +502,15 @@ pub const NO_IDS: &[(&str, &str, &str)] = &[
         "step indexes and reasons",
     ),
     ("rule_applications", "condition_evaluation", "always NULL"),
-    ("rules", "trigger_config", "always {}; nothing reads a key"),
+    (
+        "rules",
+        "trigger_config",
+        "changed field names and a reply kind",
+    ),
     (
         "rule_versions",
         "trigger_config",
-        "always {}; nothing reads a key",
+        "changed field names and a reply kind",
     ),
     ("saved_views", "viz_config", "metric and grouping names"),
     (
