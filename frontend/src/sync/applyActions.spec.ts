@@ -145,3 +145,25 @@ describe('applyActions on a removed member', () => {
     expect(isEligibleForType('requester', row)).toBe(true)
   })
 })
+
+// With no cache open (memory only), a delete still takes its child rows
+// from the pool (see deleteCascade.spec.ts for the cache side).
+describe('applyActions on a ticket delete', () => {
+  beforeEach(() => pool.reset())
+
+  it('removes its comments and links without a cache', () => {
+    pool.upsert('ticket', 36, { id: 36, number: 36 }, ['workspace:1'])
+    pool.upsert('comment', 1, { id: 1, ticket_id: 36 }, ['workspace:1', 'ticket:36'])
+    pool.upsert('linked_ticket', '37:36', { ticket_id: 37, linked_ticket_id: 36 }, ['workspace:1'])
+    pool.upsert('comment', 2, { id: 2, ticket_id: 37 }, ['workspace:1'])
+    applySseFrame(
+      [{ ...update(36, { id: 36, number: 36 }), op: 'D' as const, event_type: 'ticket.deleted' }],
+      1,
+      1,
+    )
+    expect(pool.has('ticket', 36)).toBe(false)
+    expect(pool.has('comment', 1)).toBe(false)
+    expect(pool.has('linked_ticket', '37:36')).toBe(false)
+    expect(pool.has('comment', 2)).toBe(true)
+  })
+})

@@ -3,13 +3,15 @@
  * the IndexedDB cache, and the row keys both the live path and the bootstrap
  * loader use.
  */
+import { logger } from '@nosdesk/core/utils/logger'
 import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import { noteServerEcho } from './optimisticCreates'
 import { notifySyncActions } from '@nosdesk/core/sync/observers'
 import { state } from './runtimeState'
 import { SCHEMA_VERSIONS } from './schemaVersions'
-import { pruneTornWatermarks } from './warm'
+import { dropGroupWatermarks, pruneTornWatermarks } from './warm'
+import { stripGroups } from './ownership'
 import { FETCHABLE, referenceFetcher } from './referenceFetchers'
 import type { SyncAction, SyncAggregate } from '@nosdesk/core/sync/types'
 
@@ -77,20 +79,102 @@ function actionOwners(action: SyncAction): Set<string> {
   return owners
 }
 
+/**
+ * Rows a delete takes with it, by parent aggregate: each child aggregate and
+ * the field on it that holds the parent's id. The server's foreign keys
+ * cascade these rows without an event of their own (a project delete emits
+ * only `project.deleted`), so the pool and cache drop them here. Applied
+ * level by level, so a ticket's comments take their attachments and a
+ * project's cycles take their cycle tickets.
+ */
+const DELETE_CASCADES: Partial<
+  Record<SyncAggregate, ReadonlyArray<{ child: SyncAggregate; field: string }>>
+> = {
+  project: [
+    { child: 'project_ticket', field: 'project_id' },
+    { child: 'cycle', field: 'project_id' },
+  ],
+  cycle: [{ child: 'cycle_ticket', field: 'cycle_id' }],
+  ticket: [
+    { child: 'comment', field: 'ticket_id' },
+    { child: 'ticket_asset', field: 'ticket_id' },
+    // Links are stored in both directions.
+    { child: 'linked_ticket', field: 'ticket_id' },
+    { child: 'linked_ticket', field: 'linked_ticket_id' },
+    { child: 'project_ticket', field: 'ticket_id' },
+    { child: 'cycle_ticket', field: 'ticket_id' },
+  ],
+  comment: [{ child: 'attachment', field: 'comment_id' }],
+}
+
+/** Aggregates whose row stands behind a sync group named after it (`ticket:N`). */
+const GROUP_AGGREGATES: ReadonlySet<SyncAggregate> = new Set(['ticket', 'project', 'cycle'])
+
+type RowRef = readonly [SyncAggregate, string]
+
+/**
+ * Remove the pooled rows the delete of `aggregate:id` cascades to, appending
+ * each to `removed`.
+ */
+function removeCascade(aggregate: SyncAggregate, id: string, removed: RowRef[]): void {
+  let parents = new Map<SyncAggregate, Set<string>>([[aggregate, new Set([id])]])
+  while (parents.size > 0) {
+    const children = new Map<SyncAggregate, Set<string>>()
+    for (const [parent, ids] of parents) {
+      for (const { child, field } of DELETE_CASCADES[parent] ?? []) {
+        for (const [childId, row] of pool.entries<Record<string, unknown>>(child)) {
+          const parentId = row[field]
+          if (parentId == null || !ids.has(String(parentId))) continue
+          let found = children.get(child)
+          if (!found) children.set(child, (found = new Set()))
+          found.add(childId)
+        }
+      }
+    }
+    for (const [child, ids] of children) {
+      for (const childId of ids) {
+        pool.remove(child, childId)
+        removed.push([child, childId])
+      }
+    }
+    parents = children
+  }
+}
+
+/**
+ * Apply a delete: the row, the rows it cascades to, and the group it stands
+ * behind (stripped from the owners of every snapshot-backed row, its
+ * watermark dropped).
+ */
+function applyDelete(action: SyncAction): void {
+  // Deletes may carry only the key; fall back to aggregate_id for
+  // own-pk aggregates whose delete payload is otherwise empty.
+  const id = rowKey(action.aggregate, action.data) ?? action.aggregate_id
+  if (id == null) return
+  // Observers run after the row is gone; keep it on the action for them.
+  const prior = pool.get<Record<string, unknown>>(action.aggregate, id)
+  if (prior) action.prior = { ...prior }
+  pool.remove(action.aggregate, id)
+  const removed: RowRef[] = [[action.aggregate, String(id)]]
+  removeCascade(action.aggregate, String(id), removed)
+  const groups = new Set<string>()
+  for (const [aggregate, rowId] of removed) {
+    if (GROUP_AGGREGATES.has(aggregate)) groups.add(`${aggregate}:${rowId}`)
+  }
+  // A row only a deleted group owned goes with it.
+  removed.push(...stripGroups(groups))
+  if (state.handle) {
+    void idb.deleteModels(state.handle, removed)
+    void dropGroupWatermarks(state.handle, groups).catch((error: unknown) => {
+      logger.warn('sync: dropping watermarks of deleted groups failed', { error })
+    })
+  }
+}
+
 export function applyActions(actions: SyncAction[]): void {
   for (const action of actions) {
     if (action.op === 'D') {
-      // Deletes may carry only the key; fall back to aggregate_id for
-      // own-pk aggregates whose delete payload is otherwise empty.
-      const id = rowKey(action.aggregate, action.data) ?? action.aggregate_id
-      if (id == null) continue
-      // Observers run after the row is gone; keep it on the action for them.
-      const prior = pool.get<Record<string, unknown>>(action.aggregate, id)
-      if (prior) action.prior = { ...prior }
-      pool.remove(action.aggregate, id)
-      if (state.handle) {
-        void idb.deleteModel(state.handle, action.aggregate, String(id))
-      }
+      applyDelete(action)
       continue
     }
     // `rowKey` returns null for side events (an own-pk aggregate whose
