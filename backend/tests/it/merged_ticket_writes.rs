@@ -94,6 +94,7 @@ async fn a_merged_ticket_refuses_rest_writes_but_can_be_unwatched() {
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     };
     let corr = Uuid::now_v7();
     let actor = ActorContext::user(admin, Some(corr)).with_workspace(ws);

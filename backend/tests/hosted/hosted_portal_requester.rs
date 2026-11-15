@@ -72,6 +72,7 @@ fn a_requester_passes_the_portal_gate_on_hosted() {
             workspace_uuid: Some(origin.workspace_uuid),
             exp: (now + chrono::Duration::hours(1)).timestamp() as usize,
             iat: now.timestamp() as usize,
+            file_path: None,
         };
         let req = TestRequest::default().to_srv_request();
         req.extensions_mut().insert(origin.clone());

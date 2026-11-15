@@ -214,6 +214,7 @@ async fn a_microsoft_connect_links_the_identity_to_the_signed_in_account() {
                         workspace_uuid: None,
                         exp: (now + 3600) as usize,
                         iat: now as usize,
+                        file_path: None,
                     });
                 }
                 srv.call(req)

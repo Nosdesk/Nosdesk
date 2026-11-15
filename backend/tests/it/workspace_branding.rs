@@ -55,6 +55,7 @@ async fn a_member_gets_the_selected_workspaces_branding() {
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     };
     let workspace = WorkspaceContext {
         workspace_id: seeded.a.workspace_id,
@@ -166,6 +167,7 @@ async fn get(
                         workspace_uuid: None,
                         exp: (now + 3600) as usize,
                         iat: now as usize,
+                        file_path: None,
                     });
                     let corr = Uuid::now_v7();
                     let mut actor = ActorContext::user(uuid, Some(corr));

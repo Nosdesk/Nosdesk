@@ -7,7 +7,7 @@ pub mod security_headers;
 pub mod token_scope;
 pub mod workspace_context;
 
-pub use api_token::dual_auth_middleware;
+pub use api_token::{dual_auth_middleware, file_auth_middleware};
 pub use cookie_auth::cookie_auth_middleware;
 pub use idempotency::idempotency_middleware;
 pub use rate_limit::{RateLimit, RequestLimiter};

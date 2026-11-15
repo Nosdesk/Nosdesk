@@ -291,6 +291,7 @@ async fn bootstrap(pool: &TestPool, seed: &WorkspaceSeed, viewer: Uuid, groups: 
         scope: "full".to_string(),
         sid: None,
         workspace_uuid: None,
+        file_path: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
     };

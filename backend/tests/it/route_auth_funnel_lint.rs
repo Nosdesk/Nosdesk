@@ -1,4 +1,4 @@
-//! Lint: every `/api` route tree either authenticates through one of the four
+//! Lint: every `/api` route tree either authenticates through one of the
 //! known funnels, or is listed here as public with a reason.
 //!
 //! ## Why this shape
@@ -36,7 +36,7 @@ use std::path::PathBuf;
 
 use regex::Regex;
 
-/// The middlewares that establish an authenticated principal. Adding a fifth
+/// The middlewares that establish an authenticated principal. Adding another
 /// is exactly the kind of change that should be looked at deliberately, which
 /// is why this list is short and hand-maintained rather than inferred.
 const AUTH_FUNNELS: &[&str] = &[
@@ -44,6 +44,9 @@ const AUTH_FUNNELS: &[&str] = &[
     "dual_auth_middleware",
     // Cookie session only -> the same funnel with API tokens refused.
     "cookie_auth_middleware",
+    // `/api/files`: dual_auth, plus a read-only file token in the query string
+    // on GET/HEAD serve routes (the app's `<video>` loads with no header).
+    "file_auth_middleware",
     // Customer-portal session; inserts PortalContext, not Claims.
     "portal_auth_middleware",
     // Control-plane EdDSA platform token.

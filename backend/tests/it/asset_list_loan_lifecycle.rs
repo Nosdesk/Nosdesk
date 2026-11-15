@@ -192,6 +192,7 @@ fn spawn(f: &Fixture, viewer: Uuid) -> actix_test::TestServer {
         workspace_uuid: None,
         exp: (Utc::now().timestamp() + 3600) as usize,
         iat: Utc::now().timestamp() as usize,
+        file_path: None,
     };
     let ws = WorkspaceContext {
         workspace_id: f.ws.workspace_id,

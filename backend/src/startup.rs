@@ -960,10 +960,21 @@ pub fn configure_app(
             // Registered before the main /api scope so /api/files/*
             // resolves here; the notes route precedes the generic ticket route
             // so the `{filename:.*}` tail can't swallow it.
+            // `file_auth_middleware` is dual_auth plus one more credential: a
+            // read-only token for one file in `?token=`, for the app's `<video>`,
+            // which loads straight from the server with no header. The token is
+            // minted here too, by a session (`/token`); a file token can't mint
+            // one. Each video mints its own, so the mint counts against the
+            // app-level authenticated limit, not the strict public one.
             .service(
                 web::scope("/api/files")
                     .default_service(web::to(crate::errors::api_route_not_found))
-                    .wrap(actix_web::middleware::from_fn(crate::middleware::dual_auth_middleware))
+                    .wrap(actix_web::middleware::from_fn(crate::middleware::file_auth_middleware))
+                    .service(
+                        web::resource("/token")
+                            .wrap(crate::middleware::RateLimit)
+                            .route(web::post().to(crate::handlers::files::mint_file_token)),
+                    )
                     .route("/tickets/{ticket_id}/notes/{filename:.*}", web::get().to(crate::handlers::serve_ticket_note_image))
                     .route("/tickets/{filename:.*}", web::get().to(crate::handlers::serve_ticket_file))
                     // Collab-document images (documentation pages, collection

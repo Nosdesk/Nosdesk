@@ -38,6 +38,7 @@ fn token_claims(user_uuid: uuid::Uuid, bound: uuid::Uuid) -> Claims {
         workspace_uuid: Some(bound),
         exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize,
         iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
     }
 }
 

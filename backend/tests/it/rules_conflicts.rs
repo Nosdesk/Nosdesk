@@ -35,6 +35,7 @@ async fn as_admin(
         scope: "full".to_string(),
         sid: None,
         workspace_uuid: None,
+        file_path: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
     };

@@ -242,6 +242,7 @@ macro_rules! settings_as_admin {
             workspace_uuid: None,
             exp: (now + 3600) as usize,
             iat: now as usize,
+            file_path: None,
         };
         let workspace = $fx.workspace();
         let corr = Uuid::now_v7();
@@ -413,6 +414,7 @@ async fn a_request_an_agent_files_through_the_api_is_raised_by_staff() {
         workspace_uuid: None,
         exp: (now + 3600) as usize,
         iat: now as usize,
+        file_path: None,
     };
     let state = run_in_workspace(&fx.pool, REF, fx.ws.workspace_id, |c| {
         backend::repository::workflow_states::default_state(c)

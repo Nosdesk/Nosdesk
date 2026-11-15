@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { logger } from '@nosdesk/core/utils/logger'
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import ProgressBar from '@/components/ticketComponents/ProgressBar.vue';
+import { primeFirstFrame, useVideoSource, withFirstFrame } from '@/composables/useVideoSource';
 
 const { $t } = useFluent();
 
@@ -49,6 +50,60 @@ const log = (event: string, details?: any) => {
   }
 };
 
+// In the app a server video streams straight from the server with a token for
+// its file (see useVideoSource); everywhere else it is the caller's `src`.
+const source = useVideoSource(() => props.src);
+// Where to pick up once a replaced source has loaded.
+let resumeAt: { time: number; play: boolean } | null = null;
+// Synchronous, so a new `src` clears a pending resume before its URL lands.
+watch(
+  () => props.src,
+  () => {
+    resumeAt = null;
+  },
+  { flush: 'sync' },
+);
+
+// What the element loads. A first load carries a media fragment so WebKit
+// paints the first frame; a replaced source resumes where the last one
+// stopped, so it goes without one. Set as the URL changes, never on its own,
+// so the element never reloads the same URL for the fragment's sake.
+const elementSrc = ref<string | undefined>(undefined);
+// Whether `elementSrc` is a first load, which primes its first frame.
+let firstLoad = false;
+watch(
+  source.url,
+  (next) => {
+    firstLoad = !!next && !resumeAt;
+    elementSrc.value = next && !resumeAt ? withFirstFrame(next) : next;
+  },
+  { immediate: true, flush: 'sync' },
+);
+
+// In the app a first load plays muted to its first frame and pauses, so the
+// player shows a picture before play (see primeFirstFrame). The play and
+// pause that causes aren't the viewer's, so the controls ignore them.
+let priming = false;
+let cancelPrime: () => void = () => {};
+const primeElement = () => {
+  cancelPrime();
+  const video = videoRef.value;
+  if (!video || !elementSrc.value || !firstLoad) return;
+  priming = true;
+  cancelPrime = primeFirstFrame(video, () => {
+    priming = false;
+  });
+};
+watch(elementSrc, primeElement, { flush: 'post' });
+
+const recoverDirectLoad = () => {
+  const video = videoRef.value;
+  if (!video || !source.direct.value) return;
+  log('video:error', { code: video.error?.code });
+  resumeAt = { time: video.currentTime, play: isPlaying.value };
+  source.recover(video.error?.code);
+};
+
 // Toggle play/pause
 const togglePlay = (event?: Event) => {
   if (event) {
@@ -56,6 +111,7 @@ const togglePlay = (event?: Event) => {
     event.stopPropagation();
   }
   if (!videoRef.value) return;
+  cancelPrime();
   if (isPlaying.value) {
     videoRef.value.pause();
     isPlaying.value = false;
@@ -199,10 +255,12 @@ onMounted(() => {
   videoRef.value.volume = volume.value;
   
   videoRef.value.addEventListener('play', () => {
+    if (priming) return;
     log('video:play');
     isPlaying.value = true;
   });
   videoRef.value.addEventListener('pause', () => {
+    if (priming) return;
     log('video:pause');
     isPlaying.value = false;
   });
@@ -212,17 +270,26 @@ onMounted(() => {
   videoRef.value.addEventListener('loadedmetadata', () => {
     log('video:loadedmetadata', { duration: videoRef.value?.duration });
     duration.value = videoRef.value?.duration || 0;
+    const video = videoRef.value;
+    if (resumeAt && video) {
+      video.currentTime = resumeAt.time;
+      if (resumeAt.play) video.play().catch(() => {});
+      resumeAt = null;
+    }
   });
+  videoRef.value.addEventListener('error', recoverDirectLoad);
   videoRef.value.addEventListener('click', (e) => {
     togglePlay(e);
   });
   document.addEventListener('fullscreenchange', () => {
     isFullscreen.value = !!document.fullscreenElement;
   });
+  primeElement();
 });
 
 // Cleanup
 onUnmounted(() => {
+  cancelPrime();
   if (controlsTimeout.value) {
     clearTimeout(controlsTimeout.value);
   }
@@ -236,12 +303,13 @@ onUnmounted(() => {
     @mouseleave="showControls = false"
   >
     <!-- Video element. Its caller resolves the src through
-         convertToAuthenticatedPath (assetUrl); the element itself is needed
-         for the ref. -->
+         convertToAuthenticatedPath (assetUrl), and `elementSrc` swaps a
+         proxied one for a direct server URL in the app; the element itself is
+         needed for the ref. -->
     <!-- eslint-disable vue/no-restricted-v-bind -->
     <video
       ref="videoRef"
-      :src="props.src"
+      :src="elementSrc"
       class="relative w-full h-full object-contain rounded-lg"
       preload="metadata"
       controlsList="nodownload"
