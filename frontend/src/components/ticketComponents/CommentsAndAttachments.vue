@@ -28,7 +28,6 @@ import { useToastStore } from "@nosdesk/core/stores/toast";
 import {
     disallowedFiles,
     formatUploadLimitMb,
-    getTransportUploadCap,
     oversizeFiles,
     uploadLimitBytes,
 } from "@nosdesk/core/services/uploadLimits";
@@ -373,33 +372,6 @@ const withinUploadLimit = (files: File[]): File[] => {
 };
 
 /**
- * Keep the files that fit, with those already on the reply, under the
- * transport's cap (the mobile app's), saying which don't. Each file uploads on
- * its own request, one at a time in the app; the reply's total stays under
- * the cap until the app's uploads stop going through its bridge.
- */
-const withinTransportCap = (files: File[]): File[] => {
-    const cap = getTransportUploadCap();
-    if (cap == null) return files;
-    let total = newAttachments.value.reduce((sum, a) => sum + a.file.size, 0);
-    const kept: File[] = [];
-    for (const file of files) {
-        if (total + file.size > cap) {
-            useToastStore().error(
-                t("ticket-comments-attachments-total-too-large", {
-                    name: file.name,
-                    limit: formatUploadLimitMb(cap),
-                }),
-            );
-            continue;
-        }
-        total += file.size;
-        kept.push(file);
-    }
-    return kept;
-};
-
-/**
  * Stage picked, dropped or pasted files on the reply, each uploading at once:
  * HEIC images are converted, audio goes as is, and anything over the upload
  * limit is refused, before conversion and again after it (a converted image
@@ -414,7 +386,7 @@ const stageFiles = async (files: File[]) => {
 
     uiStore.stageFiles(
         stageKey.value,
-        withinTransportCap([...withinUploadLimit(processedFiles), ...audioFiles]),
+        [...withinUploadLimit(processedFiles), ...audioFiles],
     );
 };
 

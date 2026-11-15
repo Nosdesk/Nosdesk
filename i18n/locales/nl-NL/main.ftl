@@ -6333,7 +6333,6 @@ ticket-comments-send-failed-too-large =
 # MACHINE TRANSLATION, pending native review
 ticket-comments-attachment-too-large = { $name } is te groot om toe te voegen. Bestanden mogen maximaal { $limit } MB zijn.
 # MACHINE TRANSLATION, pending native review
-ticket-comments-attachments-total-too-large = { $name } is niet toegevoegd: de bijlagen van een antwoord mogen samen maximaal { $limit } MB zijn.
 # MACHINE TRANSLATION, pending native review
 ticket-comments-attachment-type-not-allowed = { $name } kan niet worden toegevoegd: dit type bestand is niet toegestaan.
 # MT: pending native review (nl-NL)

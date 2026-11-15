@@ -9,41 +9,13 @@
  * Tauri-agnostic; nothing imports the plugin outside Tauri mode.
  *
  * Covers the JSON REST surface the app uses (method, headers, query params,
- * string/FormData bodies, json/text/blob/arraybuffer responses). It preserves
- * the 401-with-response shape the transport's refresh interceptor relies on.
- * NOTE: not yet exercised on a device, verify against a simulator before
- * relying on it.
+ * string bodies, json/text/blob/arraybuffer responses). It preserves the
+ * 401-with-response shape the transport's refresh interceptor relies on. File
+ * bodies go through the webview's XHR instead (below).
  */
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
-import { AxiosError, AxiosHeaders } from 'axios'
+import axios, { AxiosError, AxiosHeaders } from 'axios'
 import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import { UPLOAD_TOO_LARGE } from '@nosdesk/core/services/uploadLimits'
-
-/**
- * The largest request body this adapter sends. The HTTP plugin reads the whole
- * body into the webview, turns it into an array of one number per byte and
- * passes that through the IPC bridge as JSON, which the app parses into a value
- * per byte: tens of times the body's size in memory, so a phone video got the
- * app killed by iOS. Provisional, not yet measured on a device; at least the
- * asset media limit (25 MB) so no in-app path's own limit is undercut. Goes
- * when uploads stream from disk (docs/plans/mobile-media-upload.md).
- */
-export const BRIDGE_UPLOAD_CAP_BYTES = 25 * 1024 * 1024
-
-/** A body's size from its parts' sizes, without reading any of their bytes. */
-function bodySize(body: unknown): number {
-  if (body instanceof Blob) return body.size
-  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return body.byteLength
-  if (typeof body === 'string') return body.length
-  if (body instanceof FormData) {
-    let total = 0
-    body.forEach((value) => {
-      total += typeof value === 'string' ? value.length : value.size
-    })
-    return total
-  }
-  return 0
-}
 
 function buildUrl(config: InternalAxiosRequestConfig): string {
   const path = config.url ?? ''
@@ -72,26 +44,52 @@ function toHeaderRecord(config: InternalAxiosRequestConfig): Record<string, stri
   return out
 }
 
+/**
+ * File bodies go through the webview's own XHR instead: WebKit streams a
+ * file-backed `File` from disk, reports upload progress and aborts through the
+ * request's signal, so a video never crosses the IPC bridge. The interceptors
+ * on `apiClient` have already added the bearer and workspace headers, and the
+ * API allows the app's origin and those headers cross-origin.
+ */
+const xhrAdapter = axios.getAdapter('xhr')
+
+function isFileBody(body: unknown): boolean {
+  return body instanceof FormData || body instanceof Blob
+}
+
+/**
+ * The request headers the API allows cross-origin (`startup.rs`, the CORS
+ * `allowed_headers`). The webview preflights the XHR, and one header outside
+ * this list fails the whole upload, so diagnostics headers the native client
+ * could send (correlation, trace and SSE client ids) are left off. Matches
+ * servers back to 1.1.5.
+ */
+const CROSS_ORIGIN_HEADERS = new Set([
+  'accept',
+  'authorization',
+  'content-type',
+  'x-auth-mode',
+  'x-csrf-token',
+  'x-nosdesk-plugin',
+  'x-nosdesk-workspace',
+  'x-requested-with',
+])
+
+function dropDisallowedHeaders(config: InternalAxiosRequestConfig): void {
+  for (const key of Object.keys(config.headers.toJSON())) {
+    if (!CROSS_ORIGIN_HEADERS.has(key.toLowerCase())) config.headers.delete(key)
+  }
+}
+
 export const tauriHttpAdapter: AxiosAdapter = async (config) => {
   const method = (config.method ?? 'get').toUpperCase()
+  if (isFileBody(config.data) && method !== 'GET' && method !== 'HEAD') {
+    dropDisallowedHeaders(config)
+    return xhrAdapter(config)
+  }
   const init: RequestInit = { method, headers: toHeaderRecord(config) }
   if (config.data != null && method !== 'GET' && method !== 'HEAD') {
-    // Refused before the plugin reads a byte of it.
-    if (bodySize(config.data) > BRIDGE_UPLOAD_CAP_BYTES) {
-      throw new AxiosError('Request body is larger than the app can send', UPLOAD_TOO_LARGE, config)
-    }
     init.body = config.data as BodyInit
-    // For a FormData body, drop any caller-set Content-Type so the native fetch
-    // generates `multipart/form-data; boundary=...` itself. Axios hard-codes
-    // `multipart/form-data` (no boundary) on uploads; the browser's XHR silently
-    // replaces it, but this native path would forward it verbatim and the server
-    // rejects the body with "Multipart boundary is not found".
-    if (config.data instanceof FormData) {
-      const headers = init.headers as Record<string, string>
-      for (const key of Object.keys(headers)) {
-        if (key.toLowerCase() === 'content-type') delete headers[key]
-      }
-    }
   }
 
   // Honour axios's `timeout` and `signal`, which the native fetch would

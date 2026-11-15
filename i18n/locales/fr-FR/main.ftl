@@ -6343,7 +6343,6 @@ ticket-comments-send-failed-too-large =
 # MACHINE TRANSLATION, pending native review
 ticket-comments-attachment-too-large = { $name } est trop volumineux pour être joint. Les fichiers peuvent faire jusqu'à { $limit } Mo.
 # MACHINE TRANSLATION, pending native review
-ticket-comments-attachments-total-too-large = { $name } n'a pas été joint : les pièces jointes d'une réponse peuvent faire jusqu'à { $limit } Mo au total.
 # MACHINE TRANSLATION, pending native review
 ticket-comments-attachment-type-not-allowed = { $name } ne peut pas être joint : ce type de fichier n'est pas autorisé.
 # MT: pending native review (fr-FR)
