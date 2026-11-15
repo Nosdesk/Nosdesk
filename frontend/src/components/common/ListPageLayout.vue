@@ -32,6 +32,7 @@ import { useFluent } from 'fluent-vue'
 
 import PageScroll from '@/components/common/PageScroll.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import type { IconName } from '@/components/common/icons'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import BulkActionBar from '@/components/common/BulkActionBar.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
@@ -81,7 +82,7 @@ const props = withDefaults(
     /** FTL plural key for the bulk bar's "All N selected" copy. */
     bulkAllSelectedCopyKey?: string
     /** Empty-state card props (used when no `#empty-state` slot). */
-    emptyIcon?: 'key' | 'inbox' | 'search' | 'link' | 'folder' | 'document' | 'users' | 'device' | 'ticket' | 'calendar' | 'trash' | 'plugin'
+    emptyIcon?: IconName
     emptyTitle?: string
     emptyDescription?: string
     /** Bulk selection bundle from `useBulkSelection`. When provided

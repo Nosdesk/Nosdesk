@@ -18,7 +18,6 @@ import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
-import { ICON_REGISTRY } from '@/components/common/icons'
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
@@ -95,51 +94,51 @@ function closeMenu() {
 const menuItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [
     ...(props.showQuickActions
-      ? [
+      ? ([
           {
             id: 'star',
             label: props.isStarred ? t('doc-detail-unstar') : t('doc-detail-star'),
-            icon: ICON_REGISTRY.star.d,
+            icon: 'star',
             active: props.isStarred,
           },
-          { id: 'copy-link', label: t('doc-detail-copy-link'), icon: ICON_REGISTRY.link.d },
-        ]
+          { id: 'copy-link', label: t('doc-detail-copy-link'), icon: 'link' },
+        ] satisfies MenuItem[])
       : []),
     {
       id: 'subscription',
       label: props.isSubscribed ? t('docs-actions-menu-unsubscribe') : t('docs-actions-menu-subscribe'),
-      icon: ICON_REGISTRY.bell.d,
+      icon: 'bell',
       active: props.isSubscribed,
       divider: props.showQuickActions,
     },
-    { id: 'insights', label: t('docs-actions-menu-insights'), icon: ICON_REGISTRY.insights.d, divider: true },
-    { id: 'history', label: t('docs-actions-menu-history'), icon: ICON_REGISTRY.history.d },
+    { id: 'insights', label: t('docs-actions-menu-insights'), icon: 'insights', divider: true },
+    { id: 'history', label: t('docs-actions-menu-history'), icon: 'history' },
     // Verification (who vouches for the page, and how often it's re-checked)
     // lives on the author badge; this makes it findable from the menu too.
-    { id: 'verify', label: t('docs-actions-menu-verify'), icon: ICON_REGISTRY.checkCircle.d },
-    { id: 'print', label: t('docs-actions-menu-print'), icon: ICON_REGISTRY.print.d, divider: true },
+    { id: 'verify', label: t('docs-actions-menu-verify'), icon: 'checkCircle' },
+    { id: 'print', label: t('docs-actions-menu-print'), icon: 'print', divider: true },
     { id: 'duplicate', label: t('docs-actions-menu-duplicate') },
-    { id: 'export', label: t('docs-actions-menu-export'), icon: ICON_REGISTRY.download.d },
-    { id: 'move', label: t('docs-actions-menu-move'), icon: ICON_REGISTRY.move.d },
+    { id: 'export', label: t('docs-actions-menu-export'), icon: 'download' },
+    { id: 'move', label: t('docs-actions-menu-move'), icon: 'move' },
     { id: 'collections', label: t('docs-actions-menu-collections'), divider: true },
     {
       id: 'archive',
       label: isArchived.value ? t('docs-actions-menu-unarchive') : t('docs-actions-menu-archive'),
-      icon: ICON_REGISTRY.archive.d,
+      icon: 'archive',
     },
   ]
   if (props.showPermissions) {
     items.push({
       id: 'permissions',
       label: t('docs-actions-menu-permissions'),
-      icon: ICON_REGISTRY.lock.d,
+      icon: 'lock',
     })
   }
   items.push({ id: 'publish', label: isPublished.value ? t('docs-actions-menu-unpublish') : t('docs-actions-menu-publish') })
   items.push({
     id: 'delete',
     label: confirmingDelete.value ? t('docs-actions-menu-trash-confirm') : t('docs-actions-menu-trash'),
-    icon: ICON_REGISTRY.trash.d,
+    icon: 'trash',
     danger: true,
     divider: true,
   })

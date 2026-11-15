@@ -34,13 +34,10 @@
       </div>
 
       <div v-if="searchEnabled" class="relative">
-        <svg
-          class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-tertiary pointer-events-none"
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
-        </svg>
+        <Icon
+          name="search"
+          class="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none"
+        />
         <input
           v-model.trim="query"
           @input="runSearch"
@@ -55,10 +52,7 @@
         class="bg-surface border border-default rounded-xl shadow-sm p-8 flex flex-col items-center gap-3 text-center"
       >
         <div class="w-12 h-12 rounded-full bg-surface-alt flex items-center justify-center">
-          <svg class="w-6 h-6 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
+          <Icon name="document" size="lg" class="text-tertiary" />
         </div>
         <p class="text-secondary text-sm">
           {{ query ? t('public-docs-no-results') : t('public-docs-empty') }}
@@ -73,18 +67,13 @@
           >
             <div class="shrink-0 w-9 h-9 rounded-lg bg-surface-alt flex items-center justify-center text-base">
               <span v-if="doc.icon">{{ doc.icon }}</span>
-              <svg v-else class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+              <Icon v-else name="document" class="text-tertiary" />
             </div>
             <div class="flex-1 min-w-0 flex flex-col gap-0.5">
               <div class="text-primary font-medium truncate">{{ doc.title }}</div>
               <div class="text-tertiary text-xs">{{ t('public-docs-updated', { date: formatDate(doc.updated_at) }) }}</div>
             </div>
-            <svg class="shrink-0 w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-            </svg>
+            <Icon name="chevronRight" class="shrink-0 text-tertiary" />
           </RouterLink>
         </li>
       </ul>
@@ -100,6 +89,7 @@ import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
+import Icon from '@/components/common/Icon.vue';
 import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
 import { publicService, type PublicDocSummary } from '@nosdesk/core/services/publicService';
 

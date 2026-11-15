@@ -19,6 +19,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { ListboxContent, ListboxGroup, ListboxGroupLabel, ListboxItem, ListboxRoot } from 'reka-ui'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
+import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
 import type { WorkflowDropdownOption } from '@nosdesk/core/types/workflow'
@@ -180,20 +181,16 @@ const glyphSize = computed(() => (props.compact ? 12 : 14))
            visible on coarse pointers (touch) since there's no hover
            state to reveal with. Matches the "display, click to edit"
            register the rest of the sidebar settled on. -->
-      <svg
+      <Icon
         v-if="!disabled"
+        name="chevronDown"
+        :size="compact ? 'xs' : 'sm'"
         class="text-tertiary transition-all duration-200 shrink-0"
         :class="[
-          compact ? 'w-3 h-3' : 'w-4 h-4',
           compact ? 'opacity-60 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100',
           { 'rotate-180 opacity-100': isOpen },
         ]"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-      </svg>
+      />
     </button>
 
     <ResponsiveMenu
@@ -263,18 +260,11 @@ const glyphSize = computed(() => (props.compact ? 12 : 14))
                   <span class="text-sm flex-1" :class="{ 'font-medium': option.value === value }">
                     {{ option.label }}
                   </span>
-                  <svg
+                  <Icon
                     v-if="option.value === value"
-                    class="w-4 h-4 text-accent flex-shrink-0"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
+                    name="check"
+                    class="text-accent flex-shrink-0"
+                  />
                 </button>
               </ListboxItem>
             </ListboxGroup>

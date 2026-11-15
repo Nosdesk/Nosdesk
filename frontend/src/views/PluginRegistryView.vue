@@ -26,6 +26,7 @@ import AsyncBoundary from '@/components/common/AsyncBoundary.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
+import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
 import PluginIcon from '@/components/plugins/PluginIcon.vue';
 import PluginTrustBadge from '@/components/plugins/PluginTrustBadge.vue';
@@ -269,17 +270,7 @@ function formatRelative(iso: string): string {
           to="/admin/plugins"
           class="mb-1.5 inline-flex items-center gap-1.5 text-sm text-secondary transition-colors hover:text-primary"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-            aria-hidden="true"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
+          <Icon name="chevronLeft" />
           {{ $t('admin-plugins-registry-back') }}
         </RouterLink>
         <h1 class="text-xl font-bold text-primary sm:text-2xl">{{ $t('admin-plugins-registry-title') }}</h1>
@@ -315,7 +306,7 @@ function formatRelative(iso: string): string {
     <!-- Sync disabled: operator opted out via NOSDESK_REGISTRY_URL=. -->
     <EmptyState
       v-if="state?.status === 'disabled'"
-      icon="plugin"
+      icon="puzzle"
       :title="$t('admin-plugins-registry-disabled-title')"
       :description="
         adminConfig?.web_sideload_enabled
@@ -330,7 +321,7 @@ function formatRelative(iso: string): string {
     <!-- First sync hasn't completed yet. -->
     <EmptyState
       v-else-if="state?.status === 'pending'"
-      icon="plugin"
+      icon="puzzle"
       :title="$t('admin-plugins-registry-pending-title')"
       :description="$t('admin-plugins-registry-pending-description')"
       :action-label="$t('admin-plugins-registry-retry-now')"
@@ -341,7 +332,7 @@ function formatRelative(iso: string): string {
     <!-- Sync attempted and errored. -->
     <EmptyState
       v-else-if="state?.status === 'failed'"
-      icon="plugin"
+      icon="puzzle"
       :title="$t('admin-plugins-registry-failed-title')"
       :description="$t('admin-plugins-registry-failed-description', { reason: state.reason })"
       :action-label="$t('admin-plugins-registry-retry-now')"
@@ -355,21 +346,10 @@ function formatRelative(iso: string): string {
         <div class="flex flex-col gap-4 rounded-xl border border-default bg-surface p-4">
           <div class="relative">
             <label for="registry-search" class="sr-only">{{ $t('admin-plugins-registry-search-label') }}</label>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-tertiary"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2"
-              aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-              />
-            </svg>
+            <Icon
+              name="search"
+              class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-tertiary"
+            />
             <input
               id="registry-search"
               v-model="searchQuery"
@@ -459,17 +439,7 @@ function formatRelative(iso: string): string {
                         v-if="installedByName.has(plugin.name)"
                         class="inline-flex items-center gap-1 rounded bg-status-success/10 px-1.5 py-0.5 text-xs font-medium text-status-success"
                       >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          class="h-3 w-3"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          stroke-width="2.5"
-                          aria-hidden="true"
-                        >
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
+                        <Icon name="check" size="xs" />
                         {{ $t('admin-plugins-registry-installed-badge') }}
                       </span>
                     </header>
@@ -505,21 +475,7 @@ function formatRelative(iso: string): string {
                             @click.stop
                           >
                             {{ $t('admin-plugins-registry-homepage-link') }}
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              class="h-3 w-3"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              stroke-width="2"
-                              aria-hidden="true"
-                            >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                              />
-                            </svg>
+                            <Icon name="openExternal" size="xs" />
                           </a>
                         </dd>
                       </template>

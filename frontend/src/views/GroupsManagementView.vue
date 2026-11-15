@@ -380,7 +380,7 @@ const onPanelClose = () => {
           <!-- Empty state -->
           <EmptyState
             v-if="groups.length === 0 && !isFirstLoad"
-            icon="users"
+            icon="team"
             :title="$t('empty-groups-title')"
             :description="$t('empty-groups-description')"
             :action-label="$t('groups-mgmt-empty-action')"

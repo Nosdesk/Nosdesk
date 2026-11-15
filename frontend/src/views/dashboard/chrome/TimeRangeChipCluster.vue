@@ -18,6 +18,7 @@ import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange, type TimeRangePreset } from '@/composables/useTimeRange'
 import DatePicker from '@/components/common/DatePicker.vue'
+import Icon from '@/components/common/Icon.vue'
 import Popover from '@/components/common/Popover.vue'
 
 const fluent = useFluent()
@@ -93,14 +94,9 @@ function applyCustom(): void {
       :aria-expanded="open"
       @click="togglePopover"
     >
-      <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 text-tertiary" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 7v5l3 2" />
-      </svg>
+      <Icon name="clock" class="text-tertiary" />
       <span class="tabular-nums">{{ triggerLabel }}</span>
-      <svg viewBox="0 0 24 24" class="w-3 h-3 text-tertiary" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M6 9l6 6 6-6" />
-      </svg>
+      <Icon name="chevronDown" size="xs" class="text-tertiary" />
     </button>
 
     <Popover

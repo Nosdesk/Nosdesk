@@ -139,14 +139,11 @@ const clearUser = () => {
           class="w-full px-4 py-2.5 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent transition-colors"
           @input="handleSearchInput"
         />
-        <svg
-          class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-tertiary pointer-events-none"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
+        <Icon
+          name="search"
+          size="md"
+          class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none"
+        />
       </div>
 
       <!-- Clear/Unassign Button -->
@@ -217,14 +214,12 @@ const clearUser = () => {
           </span>
 
           <!-- Selected Indicator -->
-          <svg
+          <Icon
             v-if="currentUserId === user.uuid"
-            class="w-5 h-5 text-accent flex-shrink-0"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-          </svg>
+            name="check"
+            size="md"
+            class="text-accent flex-shrink-0"
+          />
         </button>
         </ListboxItem>
       </div>
@@ -232,9 +227,7 @@ const clearUser = () => {
 
       <!-- Empty State -->
       <div v-else class="text-center py-8 text-secondary">
-        <svg class="w-12 h-12 mx-auto mb-3 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-        </svg>
+        <Icon name="team" size="2xl" class="mx-auto mb-3 text-tertiary" />
         <p class="text-sm">{{ searchQuery ? t('ui-user-selection-modal-empty-no-match') : t('ui-user-selection-modal-empty-no-users') }}</p>
       </div>
     </ListboxRoot>

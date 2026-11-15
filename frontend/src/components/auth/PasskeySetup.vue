@@ -199,9 +199,7 @@ onMounted(() => {
       <div v-else-if="setupStep === 'setup'" class="flex flex-col gap-5">
         <div class="flex flex-col items-center text-center gap-3">
           <div class="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center">
-            <svg class="w-8 h-8 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7.864 4.243A7.5 7.5 0 0119.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 004.5 10.5a7.464 7.464 0 01-1.15 3.993m1.989 3.559A11.209 11.209 0 008.25 10.5a3.75 3.75 0 117.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 01-3.6 9.75m6.633-4.596a18.666 18.666 0 01-2.485 5.33" />
-            </svg>
+            <Icon name="fingerprint" size="xl" class="text-accent" />
           </div>
           <div>
             <h3 class="text-base font-semibold text-primary mb-1">{{ $t('auth-passkey-setup-heading') }}</h3>
@@ -236,9 +234,7 @@ onMounted(() => {
       <div v-else-if="setupStep === 'backup-codes'" class="flex flex-col gap-5">
         <div class="flex flex-col items-center text-center gap-3">
           <div class="w-16 h-16 rounded-full bg-status-warning/10 flex items-center justify-center">
-            <svg class="w-8 h-8 text-status-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+            <Icon name="warning" size="xl" class="text-status-warning" />
           </div>
           <div>
             <h3 class="text-base font-semibold text-primary mb-1">{{ $t('auth-passkey-setup-backup-codes-title') }}</h3>
@@ -292,9 +288,7 @@ onMounted(() => {
       <div v-else-if="setupStep === 'success'" class="flex flex-col gap-5">
         <div class="flex flex-col items-center text-center gap-3">
           <div class="w-16 h-16 rounded-full bg-status-success/10 flex items-center justify-center">
-            <svg class="w-8 h-8 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
+            <Icon name="check" size="xl" class="text-status-success" />
           </div>
           <div>
             <h3 class="text-base font-semibold text-primary mb-1">{{ $t('auth-passkey-setup-success-heading') }}</h3>
@@ -306,9 +300,7 @@ onMounted(() => {
 
         <div class="bg-surface border border-default rounded-lg p-3 sm:p-4">
           <div class="flex flex-row items-start gap-3">
-            <svg class="w-5 h-5 text-status-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
+            <Icon name="shieldCheck" size="md" class="text-status-success mt-0.5 flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <h4 class="font-medium text-primary mb-1 text-sm">{{ $t('auth-passkey-setup-success-protected-title') }}</h4>
               <p class="text-xs text-tertiary">

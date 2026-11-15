@@ -1022,9 +1022,7 @@ onMounted(() => {
     <!-- Not Found -->
     <div v-else class="p-4 sm:p-6 text-center">
       <div class="w-12 h-12 bg-surface-alt rounded-full inline-flex items-center justify-center mx-auto mb-4">
-        <svg class="w-6 h-6 shrink-0 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
+        <Icon name="faceFrown" size="lg" class="shrink-0 text-tertiary" />
       </div>
       <p class="text-secondary">{{ $t('admin-groups-config-not-found') }}</p>
     </div>

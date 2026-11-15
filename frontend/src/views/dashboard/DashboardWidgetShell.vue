@@ -42,7 +42,6 @@ import {
 } from './widgetContext'
 import type { WidgetSpan } from './widgets'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
-import { ICON_REGISTRY } from '@/components/common/icons'
 import Icon from '@/components/common/Icon.vue'
 import { useOfferedLink } from '@/composables/useOfferedLink'
 
@@ -274,7 +273,7 @@ const menuItems = computed<MenuItem[]>(() => [
   {
     id: 'hide',
     label: t('dashboard-widget-context-menu-hide'),
-    icon: ICON_REGISTRY.close.d,
+    icon: 'close',
     danger: true,
     divider: true,
   },

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import type { Theme } from '@/themes'
 import { useThemeStore } from '@/stores/theme'
+import Icon from '@/components/common/Icon.vue'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -136,9 +137,7 @@ const colors = getPreviewColors()
       v-if="selected"
       class="absolute top-1 right-1 w-4 h-4 rounded-full bg-accent flex items-center justify-center"
     >
-      <svg class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-      </svg>
+      <Icon name="check" size="xs" class="text-white" />
     </div>
   </button>
 </template>

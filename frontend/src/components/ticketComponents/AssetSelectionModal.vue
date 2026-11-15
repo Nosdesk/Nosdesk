@@ -7,6 +7,7 @@ import { useFluent } from 'fluent-vue';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import Icon from '@/components/common/Icon.vue';
 import { getAssetsByUser, getPaginatedAssetsExcluding, createEmptyAsset } from '@/services/assetService';
 import type { Asset } from '@nosdesk/core/types/asset';
 
@@ -361,9 +362,7 @@ const formatLastUpdated = (dateString: string): string => {
       <!-- Search -->
       <div class="relative">
         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <svg class="h-5 w-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+          <Icon name="search" size="md" class="text-tertiary" />
         </div>
         <input
           type="text"
@@ -403,9 +402,7 @@ const formatLastUpdated = (dateString: string): string => {
       <div v-else-if="error" class="text-center py-8">
         <div class="bg-status-error-muted border border-status-error/30 rounded-lg p-4">
           <p class="text-status-error flex items-center justify-center gap-2">
-            <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-            </svg>
+            <Icon name="exclamationCircle" size="md" class="flex-shrink-0" />
             {{ error }}
           </p>
           <Button
@@ -590,9 +587,7 @@ const formatLastUpdated = (dateString: string): string => {
         class="flex items-center justify-center gap-2 px-4 py-2 text-sm text-accent hover:bg-accent/10 rounded-lg transition-colors"
         @click="createAndOpenAsset"
       >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-        </svg>
+        <Icon name="add" />
         New Asset
       </button>
 

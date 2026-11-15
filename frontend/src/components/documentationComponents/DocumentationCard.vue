@@ -6,6 +6,7 @@ import type { Page } from '@nosdesk/core/services/documentationService'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
 import UserAvatar from '@/components/UserAvatar.vue'
+import Icon from '@/components/common/Icon.vue'
 import DocumentationChildCard from './DocumentationChildCard.vue'
 
 const fluent = useFluent()
@@ -122,9 +123,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
         <template v-if="hasChildren">
           <span class="meta-separator">&middot;</span>
           <span class="meta-children">
-            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-            </svg>
+            <Icon name="folder" size="xs" />
             {{ page.children?.length }}
           </span>
         </template>

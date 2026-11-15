@@ -91,9 +91,7 @@ usePageTitle({ title: () => t('docs-archived-title') })
               @click="handleRestore(page.id)"
               class="px-3 py-1.5 text-xs rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors flex items-center gap-1.5 flex-shrink-0"
             >
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-              </svg>
+              <Icon name="restore" />
               {{ $t('docs-archived-restore') }}
             </button>
           </div>

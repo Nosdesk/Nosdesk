@@ -40,7 +40,6 @@ import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
 import CollectionModal from '@/components/documentationComponents/CollectionModal.vue'
 import DocumentationExportDialog from '@/components/documentationComponents/DocumentationExportDialog.vue'
-import { ICON_REGISTRY } from '@/components/common/icons'
 import {
   DocumentationExportError,
   downloadDocumentationExport,
@@ -142,32 +141,32 @@ const menuItems = computed((): MenuItem[] => {
   }
 
   if (isPhone.value) {
-    items.push({ id: 'new-collection', label: t('docs-index-toolbar-new-collection'), icon: ICON_REGISTRY.add.d })
+    items.push({ id: 'new-collection', label: t('docs-index-toolbar-new-collection'), icon: 'add' })
   }
 
   if (isTechnician.value) {
     group('knowledge-heading', t('docs-index-toolbar-knowledge-heading'))
-    items.push({ id: 'scan-gaps', label: t('docs-index-toolbar-scan-gaps'), icon: ICON_REGISTRY.search.d })
+    items.push({ id: 'scan-gaps', label: t('docs-index-toolbar-scan-gaps'), icon: 'search' })
   }
 
   if (publicDocsEnabled.value) {
     group('publish-heading', t('docs-index-toolbar-publish-heading'))
-    items.push({ id: 'public-site', label: t('docs-index-toolbar-public-site'), icon: ICON_REGISTRY.link.d })
+    items.push({ id: 'public-site', label: t('docs-index-toolbar-public-site'), icon: 'link' })
   }
 
   if (isAdmin.value) {
     group('admin-heading', t('docs-index-toolbar-admin-heading'))
-    items.push({ id: 'import-docs', label: t('docs-index-toolbar-import'), icon: ICON_REGISTRY.upload.d })
+    items.push({ id: 'import-docs', label: t('docs-index-toolbar-import'), icon: 'upload' })
     // Nothing to export until a page is in the Library or Drafts.
     if (canDownload && hasActivePages.value) {
       items.push({
         id: 'export-docs',
         label: exporting.value ? t('docs-export-menu-busy') : t('docs-export-menu'),
-        icon: ICON_REGISTRY.download.d,
+        icon: 'download',
         disabled: exporting.value,
       })
     }
-    items.push({ id: 'guest-settings', label: t('docs-index-toolbar-guest-settings'), icon: ICON_REGISTRY.settings.d })
+    items.push({ id: 'guest-settings', label: t('docs-index-toolbar-guest-settings'), icon: 'settings' })
   }
 
   return items

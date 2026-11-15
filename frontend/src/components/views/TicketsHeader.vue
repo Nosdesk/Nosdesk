@@ -45,6 +45,7 @@ import TicketsViewTabs, {
 } from '@/components/views/TicketsViewTabs.vue'
 import DisplayMenu from '@/components/views/DisplayMenu.vue'
 import ListDensityToggle from '@/components/common/ListDensityToggle.vue'
+import Icon from '@/components/common/Icon.vue'
 import FilterPill from '@/components/views/FilterPill.vue'
 import AddFilterMenu from '@/components/views/AddFilterMenu.vue'
 import {
@@ -380,13 +381,7 @@ defineExpose({ openAddFilter })
         :aria-label="splitViewEnabled ? 'Hide preview pane' : 'Show preview pane'"
         @click="emit('toggle-split-view')"
       >
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-          <rect x="2.5" y="3.5" width="15" height="13" rx="1.5" />
-          <line x1="11.5" y1="3.5" x2="11.5" y2="16.5" />
-          <line x1="4.5" y1="7" x2="9.5" y2="7" />
-          <line x1="4.5" y1="9.5" x2="9.5" y2="9.5" />
-          <line x1="4.5" y1="12" x2="9.5" y2="12" />
-        </svg>
+        <Icon name="splitView" />
       </button>
 
       <!-- Column / density / grouping controls. Power-user chrome, hidden below

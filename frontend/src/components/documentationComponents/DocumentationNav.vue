@@ -121,24 +121,24 @@ const permissionsModalPageId = ref(0)
 // (Open in new tab, Move, Copy as plain text, etc.) are
 // intentionally label-only — per Tonsky's "if everything has an
 // icon, nothing stands out".
-import { ICON_REGISTRY } from '@/components/common/icons'
+import type { IconName } from '@/components/common/icons'
 const icons = {
-  link: ICON_REGISTRY.link.d,
-  search: ICON_REGISTRY.search.d,
-  star: ICON_REGISTRY.star.d,
-  duplicate: ICON_REGISTRY.duplicate.d,
-  permissions: ICON_REGISTRY.lock.d,
-  archive: ICON_REGISTRY.archive.d,
-  trash: ICON_REGISTRY.trash.d,
-  rename: ICON_REGISTRY.rename.d,
-  add: ICON_REGISTRY.add.d,
-  bell: ICON_REGISTRY.bell.d,
-  history: ICON_REGISTRY.history.d,
-  insights: ICON_REGISTRY.insights.d,
-  copyMd: ICON_REGISTRY.copyMd.d,
-  download: ICON_REGISTRY.download.d,
-  print: ICON_REGISTRY.print.d,
-}
+  link: 'link',
+  search: 'search',
+  star: 'star',
+  duplicate: 'duplicate',
+  permissions: 'lock',
+  archive: 'archive',
+  trash: 'trash',
+  rename: 'rename',
+  add: 'add',
+  bell: 'bell',
+  history: 'history',
+  insights: 'insights',
+  copyMd: 'copyMd',
+  download: 'download',
+  print: 'print',
+} satisfies Record<string, IconName>
 
 // Build page context menu items dynamically (star state depends on current page)
 const pageContextMenuItems = computed((): MenuItem[] => {

@@ -13,6 +13,7 @@ import { knownTicketNumber, ticketPath } from "@/utils/ticketNumbers";
 import TicketRowSkeleton from "@/components/TicketRowSkeleton.vue";
 import BaseDropdown, { type DropdownOption } from "@/components/common/BaseDropdown.vue";
 import FilterToggle from "@/components/common/FilterToggle.vue";
+import Icon from "@/components/common/Icon.vue";
 import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
 import ticketService, { getRecentTickets, type Ticket } from "@nosdesk/core/services/ticketService";
 
@@ -299,9 +300,7 @@ useSyncActions(() => void refetch(), { aggregates: ['ticket'], debounceMs: 300 }
                         :label="$t('user-assigned-tickets-filter-high-priority')"
                         active-class="bg-priority-high/15 text-priority-high"
                     >
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                        </svg>
+                        <Icon name="arrowUp" />
                     </FilterToggle>
                     <FilterToggle
                         v-model="config.newActivity"

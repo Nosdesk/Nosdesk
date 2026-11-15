@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="T extends object">
 import { computed } from 'vue'
 import Checkbox from './Checkbox.vue'
+import Icon from './Icon.vue'
 
 export interface Column {
   field: string
@@ -382,15 +383,12 @@ const dataCellPadding = computed(() =>
             :style="{ gridColumn: '1 / -1' }"
             @click="emit('toggle-bucket', bucket.key)"
           >
-            <svg
-              class="w-3 h-3 text-tertiary transition-transform"
+            <Icon
+              name="chevronDown"
+              size="xs"
+              class="text-tertiary transition-transform"
               :class="isCollapsed?.(bucket.key) ? '-rotate-90' : ''"
-              viewBox="0 0 12 12"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path d="M2 4l4 4 4-4z" />
-            </svg>
+            />
             <span class="text-xs font-medium text-primary">{{ bucket.label }}</span>
             <span class="text-3xs text-tertiary tabular-nums">{{ bucket.items.length }}</span>
           </button>

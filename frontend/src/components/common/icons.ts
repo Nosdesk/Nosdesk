@@ -93,6 +93,14 @@ export const ICON_REGISTRY = {
   bell: {
     d: 'M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0',
   },
+  /** Two-lobed B, "bold" in the editor toolbar. A letterform, which
+   * principle 5 normally forbids; typographic controls are the one
+   * place where the letter is the established metaphor (every word
+   * processor), so `bold`, `italic`, `text` and `listOrdered` carry
+   * this exception. Path is the Lucide glyph the toolbar has always
+   * shipped; the Heroicons outline `bold` overdraws itself at
+   * stroke 2. */
+  bold: { d: 'M6 4h8a4 4 0 010 8H6zM6 12h9a4 4 0 010 8H6z' },
   /** Open book — the "documentation / knowledge base" concept,
    * app-wide. Matches the Documentation nav section so converting a
    * ticket note into a doc page reads as "send this to the docs". */
@@ -107,17 +115,29 @@ export const ICON_REGISTRY = {
   calendar: {
     d: 'M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5',
   },
+  /** Camera body with lens, "change this picture". The hover overlay
+   * on avatar and banner uploads (UserProfileCard). Distinct from
+   * `photo` (a picture placeholder, no capture implied). */
+  camera: {
+    d: 'M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316zM16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z',
+  },
   /** Checkmark, used for "mark as read" affordances and confirm
    * states. Reserved for the "this is now done / acknowledged"
    * meaning so it doesn't get confused with selection (which
    * uses `<input type="checkbox">` styling, not this icon). */
   check: { d: 'M4.5 12.75l6 6 9-13.5' },
-  /** Filled circle with checkmark, "success / completed". Distinct
+  /** Outline circle with a checkmark, "success / completed". Distinct
    * from `check` (bare checkmark, "done acknowledged") because the
    * circle reads as a status badge rather than an action result. */
   checkCircle: {
     d: 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   },
+  /** Two chevrons pointing left, "collapse the sidebar". Pairs with
+   * `chevronDoubleRight` (expand). Single chevrons stay for
+   * navigation within a page. */
+  chevronDoubleLeft: { d: 'M18.75 4.5l-7.5 7.5 7.5 7.5m-6-15L5.25 12l7.5 7.5' },
+  /** Two chevrons pointing right, "expand the sidebar". */
+  chevronDoubleRight: { d: 'M5.25 4.5l7.5 7.5-7.5 7.5m6-15l7.5 7.5-7.5 7.5' },
   chevronDown: {
     d: 'M19.5 8.25l-7.5 7.5-7.5-7.5',
   },
@@ -137,6 +157,12 @@ export const ICON_REGISTRY = {
    * opened / origin-point timestamps. */
   circleDot: {
     d: 'M21 12a9 9 0 11-18 0 9 9 0 0118 0zM14.5 12a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z',
+  },
+  /** Clipboard holding a ticked page, "insert a saved reply". The
+   * trigger on the comment composer's saved-replies picker. Not a
+   * ticket glyph: tickets are `ticket`, wherever they appear. */
+  clipboardCheck: {
+    d: 'M11.35 3.836c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m8.9-4.414c.376.023.75.05 1.124.08 1.131.094 1.976 1.057 1.976 2.192V16.5A2.25 2.25 0 0118 18.75h-2.25m-7.5-10.5H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V18.75m-7.5-10.5h6.375c.621 0 1.125.504 1.125 1.125v9.375m-8.25-3l1.5 1.5 3-3.75',
   },
   /** Plain clock face, "time / scheduled / last-synced". Distinct
    * from `history` (timeline checkmark) which means "an event log
@@ -163,6 +189,15 @@ export const ICON_REGISTRY = {
   },
   copyMd: {
     d: 'M9 12h6m-6 3.75h6M9 8.25h6M5.625 4.5h12.75c.621 0 1.125.504 1.125 1.125v12.75c0 .621-.504 1.125-1.125 1.125H5.625a1.125 1.125 0 01-1.125-1.125V5.625c0-.621.504-1.125 1.125-1.125z',
+  },
+  /** Segmented ring around a dot, "cycle / sprint": a bounded run of
+   * work that repeats. Linear's convention. Used on the ticket
+   * preview pane's cycle row and anywhere a ticket shows the cycle
+   * it belongs to. The ring is eight arc dashes so it needs no
+   * stroke-dasharray; the dot is a zero-length round-capped stroke.
+   * Distinct from `refresh` (two arrows, a value changed). */
+  cycle: {
+    d: 'M13.33 3.099A9 9 0 0117.353 4.765M19.235 6.647A9 9 0 0120.901 10.67M20.901 13.33A9 9 0 0119.235 17.353M17.353 19.235A9 9 0 0113.33 20.901M10.67 20.901A9 9 0 016.647 19.235M4.765 17.353A9 9 0 013.099 13.33M3.099 10.67A9 9 0 014.765 6.647M6.647 4.765A9 9 0 0110.67 3.099M12 12h.01',
   },
   /** Stacked-cylinder, "database / data source". Used on the
    * Data Import admin entry; reads as "store" without the
@@ -207,6 +242,13 @@ export const ICON_REGISTRY = {
   },
   /** Eraser, "clear the contents" and keep the container (table cells). */
   eraser: { d: 'M20 20H9l-5-5a2 2 0 010-2.8l8.6-8.6a2 2 0 012.8 0l4.6 4.6a2 2 0 010 2.8L13 18M6.5 12.5l5 5' },
+  /** Circled exclamation mark, "an error message": the leading glyph
+   * of inline error banners (ErrorBanner). Distinct from `warning`
+   * (triangle: caution, you may proceed) and from `xCircle` (a
+   * single item that failed, the opposite of `checkCircle`). */
+  exclamationCircle: {
+    d: 'M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z',
+  },
   /** Eye, paired with `eyeOff` for password-visibility toggles.
    * Filled-on / strike-through-off mirrors the convention used in
    * every credential field across the codebase. */
@@ -216,10 +258,58 @@ export const ICON_REGISTRY = {
   eyeOff: {
     d: 'M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88',
   },
+  /** Frowning face, "this doesn't exist / nothing to show here". The
+   * not-found state for documents, groups and public pages. Hero
+   * glyph: usually rendered at `xl` or `2xl` in tertiary color. */
+  faceFrown: {
+    d: 'M15.182 16.318A4.486 4.486 0 0012.016 15a4.486 4.486 0 00-3.198 1.318M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z',
+  },
+  /** Plain page with a folded corner and no text lines, "a file":
+   * any attachment whose type has no better glyph (attachment
+   * previews, the file-type fallback, failed-download states).
+   * Distinct from `document` (text lines = a documentation page). */
+  file: {
+    d: 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z',
+  },
+  /** Fingerprint whorl, "passkey / biometric sign-in". The passkey
+   * setup card and the MFA method chooser. Distinct from `key`
+   * (a credential object you hold) and `lock` (access is gated). */
+  fingerprint: {
+    d: 'M7.864 4.243A7.5 7.5 0 0119.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 004.5 10.5a7.464 7.464 0 01-1.15 3.993m1.989 3.559A11.209 11.209 0 008.25 10.5a3.75 3.75 0 117.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 01-3.6 9.75m6.633-4.596a18.666 18.666 0 01-2.485 5.33',
+  },
+  /** Pennant on a pole, "flag this for follow-up". Used on the ticket
+   * menu's Flag for docs. */
+  flag: {
+    d: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9',
+  },
   /** Manila folder, "container / collection". Distinct from
    *  `inbox` (mailbox) and `archive` (sealed box). */
   folder: {
     d: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z',
+  },
+  /** Four arrows pointing out from the center, "enter fullscreen".
+   * Pairs with `fullscreenExit`. Video player controls. */
+  fullscreen: {
+    d: 'M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15',
+  },
+  /** Four arrows pointing in to the center, "leave fullscreen". */
+  fullscreenExit: {
+    d: 'M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25',
+  },
+  /** Globe with meridians, "public / visible to everyone": the
+   * collection visibility badge and any "anyone can see this" cue.
+   * Not the locale icon; language and region settings use
+   * `language` so the tab and its section card match. */
+  globe: {
+    d: 'M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418',
+  },
+  /** Two columns of three dots, "drag handle". Sortable rows
+   * (categories, dashboard widgets). Filled at the same r=1.5 and
+   * row positions as `more` so the dot family matches. Not an
+   * action: it marks where to grab, so it never opens anything. */
+  grip: {
+    d: 'M9 4.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm-6 6a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm-6 6a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3z',
+    filled: true,
   },
   /** A table whose first column carries a bar, "header column". */
   headerColumn: { d: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM9 4v16M15 4v16M6 8v8' },
@@ -229,8 +319,19 @@ export const ICON_REGISTRY = {
   mapPin: {
     d: 'M15 10.5a3 3 0 11-6 0 3 3 0 016 0z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z',
   },
+  /** "Activity / revision history": every consumer opens a log of
+   * past events (document history, ticket activity, asset lifecycle,
+   * webhook deliveries, rule runs, the dashboard compare toggle).
+   * The glyph is Heroicons `check-badge`, a scalloped badge with a
+   * tick, which says "verified" rather than "past". Kept as is for
+   * now; swapping it is a visual decision, not a consumer one. */
   history: {
     d: 'M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z',
+  },
+  /** House with a door, "home / the root". The Home nav link and the
+   * documentation tree's root entry in the move dialog. */
+  home: {
+    d: 'M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25',
   },
   /** Circled "i", informational/help context. Distinct from
    * `warning` (triangle/exclamation = something is wrong) and
@@ -249,11 +350,20 @@ export const ICON_REGISTRY = {
   inbox: {
     d: 'M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.252 2.252 0 00-.1.661z',
   },
+  /** Slanted I with serifs, "italic" in the editor toolbar. See
+   * `bold` for the letterform exception. */
+  italic: { d: 'M5.248 20.246H9.05m0 0h3.696m-3.696 0l5.893-16.502m0 0h-3.697m3.697 0h3.803' },
   /** Modern key with rounded grip, "passkey / API token / signing
    * key". Reserved for credential-grade objects; for the access-
    * control concept (locked, has an ACL) use `lock`. */
   key: {
     d: 'M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z',
+  },
+  /** Two scripts side by side, "language and region": the Language
+   * tab in profile settings and its localization section card. The
+   * one icon for locale; `globe` means public, not language. */
+  language: {
+    d: 'M10.5 21l5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 016-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 01-3.827-5.802',
   },
   /** Lightning bolt, "automation / fast / rule trigger". Used on
    *  the Assignment Rules admin entry. */
@@ -273,6 +383,10 @@ export const ICON_REGISTRY = {
   list: {
     d: 'M8.25 6.75h12M8.25 12h12M8.25 17.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 17.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z',
   },
+  /** Three rules led by "1" and "2", "numbered list" in the editor
+   * toolbar. Sister of `list` (bulleted). See `bold` for the
+   * letterform exception; the digits are what tell the two apart. */
+  listOrdered: { d: 'M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1' },
   /** Closed padlock, used wherever an item is restricted, secured,
    * or its access is being managed. Single icon for "this is
    * gated" semantics across permissions panels, locked records,
@@ -291,11 +405,21 @@ export const ICON_REGISTRY = {
   },
   /** Two cells pushed into one, "merge cells". */
   merge: { d: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM3 12h7M21 12h-7M12 9l2 3-2 3M12 9l-2 3 2 3' },
-  /** 2x2 square mosaic, the Microsoft brand mark in monochrome.
-   *  Used wherever "Microsoft / Entra / Azure / Intune" needs an
-   *  identifier without pulling in the multi-color brand logo. */
+  /** Microphone on a stand, "record a voice note". The composer's
+   * voice recorder trigger. Distinct from `volume` (playback). */
+  microphone: {
+    d: 'M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z',
+  },
+  /** Four equal filled squares with a narrow gutter, the Microsoft
+   *  brand mark in monochrome. Used wherever "Microsoft / Entra /
+   *  Azure / Intune" needs an identifier without the multi-color
+   *  logo. Drawn here on the Heroicons 3.75..20.25 box: 7.5-unit
+   *  tiles and a 1.5 gutter (1px at sm, the narrowest that still
+   *  separates). Filled on purpose: the mark is solid tiles, and an
+   *  outline 2x2 would collide with `admin` (squares-2x2). */
   microsoft: {
-    d: 'M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 0h6v6h-6v-6z',
+    d: 'M3.75 3.75h7.5v7.5h-7.5zM12.75 3.75h7.5v7.5h-7.5zM3.75 12.75h7.5v7.5h-7.5zM12.75 12.75h7.5v7.5h-7.5z',
+    filled: true,
   },
   /** Three vertical dots — used for "more actions" affordances.
    * Filled circles at r=1.5 on the 24-viewbox so the visual
@@ -304,6 +428,14 @@ export const ICON_REGISTRY = {
    * surrounding glyphs. */
   more: {
     d: 'M12 4.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm0 6a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm0 6a1.5 1.5 0 110 3 1.5 1.5 0 010-3z',
+    filled: true,
+  },
+  /** Three horizontal dots, the "More" tab of the mobile bottom bar.
+   * Same action as `more` turned to suit a horizontal tab strip (the
+   * iOS tab-bar convention); the vertical `more` stays the trigger
+   * for per-row action menus. Same dot size as `more`. */
+  moreHorizontal: {
+    d: 'M4.5 12a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm6 0a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm6 0a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z',
     filled: true,
   },
   move: {
@@ -322,6 +454,12 @@ export const ICON_REGISTRY = {
    * centred triangle looks left-heavy. */
   pause: { d: 'M6 5h4v14H6zm8 0h4v14h-4z', filled: true },
   play: { d: 'M9 5v14l11-7z', filled: true },
+  /** Framed landscape with a sun, "a picture goes here": image
+   * attachment placeholders and the logo drop zones in branding
+   * settings. Hero glyph, usually `2xl` in tertiary color. */
+  photo: {
+    d: 'M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z',
+  },
   /** Paint roller, "branding / theme / appearance". Used on the
    *  Branding admin entry. */
   paint: {
@@ -330,11 +468,22 @@ export const ICON_REGISTRY = {
   print: {
     d: 'M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z',
   },
+  /** Three top-aligned bars of falling height, a kanban board seen
+   * as columns of cards: "project". The Projects nav link, the
+   * create-project action and the projects empty state. Lucide's
+   * `kanban`; three stroked rectangles merge at stroke 2 on this
+   * grid, so the columns are bars. Distinct from `insights` (bars
+   * rising from a baseline = a chart) and `folder` (a generic
+   * container, which two project views still borrow). */
+  project: { d: 'M6 4.5v11.25M12 4.5v6.75M18 4.5v15' },
   /** Interlocking puzzle piece, "plugin / extension / addon".
    *  Used on the Plugins admin entry. */
   puzzle: {
     d: 'M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-3a1 1 0 00-1-1H3a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z',
   },
+  /** Quarter arc swinging right into an arrowhead, "redo" in the
+   * editor toolbar. Mirror of `undo`. */
+  redo: { d: 'M21 7v6h-6M3 17a9 9 0 019-9 9 9 0 016 2.3L21 13' },
   /** Two arrows tracing a circle — used for "status changed" and
    * any "value transitioned from X to Y" notification. Reads as
    * cyclical change rather than one-shot action. */
@@ -386,13 +535,50 @@ export const ICON_REGISTRY = {
   settings: {
     d: 'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a6.759 6.759 0 010 .255c-.008.378.137.75.43.991l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.213-1.281zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
   },
+  /** Shield with a tick, "protected / verified": the Security tab,
+   * the passkey-enrolled confirmation and a plugin's verified badge.
+   * Distinct from `lock` (access to this thing is gated) and from
+   * `checkCircle` (an operation succeeded). */
+  shieldCheck: {
+    d: 'M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z',
+  },
+  /** Arrow entering a door-shaped frame, "sign in" (the SSO button
+   * on the login page). Pairs with `signOut`, where the arrow
+   * leaves the frame. */
+  signIn: {
+    d: 'M8.25 9V5.25A2.25 2.25 0 0110.5 3h6a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0116.5 21h-6a2.25 2.25 0 01-2.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25',
+  },
+  /** Arrow leaving a door-shaped frame, "sign out / use a different
+   * account". Login page account switcher and the user menu. */
+  signOut: {
+    d: 'M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9',
+  },
+  /** Three four-point stars, "nothing set yet, something nice will
+   * appear": the favicon placeholder in branding settings. Not an
+   * AI or magic cue; nothing in the app means that. */
+  sparkles: {
+    d: 'M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z',
+  },
   /** One cell pulled into two, "split cell". Pairs with `merge`. */
   split: { d: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM12 4v16M8 12H5M19 12h-3M7 9l-2 3 2 3M17 9l2 3-2 3' },
-  /** Star — paired with `starOff`. Filled when active so the toggle
-   * state is visible; outline is the standard "click to star". */
+  /** Window with a list on the left and an empty pane on the right,
+   * "show the preview pane" (the tickets list split-view toggle).
+   * Distinct from `split` (one table cell into two) and from
+   * `columnLeft` / `columnRight` (insert a column). */
+  splitView: { d: 'M4.75 4.25h14.5A1.75 1.75 0 0121 6v12a1.75 1.75 0 01-1.75 1.75H4.75A1.75 1.75 0 013 18V6a1.75 1.75 0 011.75-1.75zM13.75 4.25v15.5M6 8.25h5M6 12h5M6 15.75h5' },
+  /** Outline star, "star / pin this". Its active side is `starFilled`,
+   * so a toggle shows its state (principle 2). */
   star: {
     d: 'M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z',
   },
+  /** Filled star, the active side of `star`: starred, pinned. */
+  starFilled: {
+    d: 'M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z',
+    filled: true,
+  },
+  /** Rounded square, "stop recording / stop playback". Filled like
+   * `play` and `pause` so the transport set reads as one. */
+  stop: { d: 'M4.5 7.5a3 3 0 013-3h9a3 3 0 013 3v9a3 3 0 01-3 3h-9a3 3 0 01-3-3v-9z', filled: true },
   /** A grid, "table": inserting one and the table menu. */
   table: { d: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM3 10h18M3 15h18M9 4v16M15 4v16' },
   /** Tilted price-tag with hole, "label / category". Used for
@@ -407,6 +593,9 @@ export const ICON_REGISTRY = {
   team: {
     d: 'M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z',
   },
+  /** Serifed T with a baseline, "text style" (the editor's paragraph
+   * and heading menu). See `bold` for the letterform exception. */
+  text: { d: 'M4 7V4h16v3M9 20h6M12 4v16' },
   /** Stub-and-tear ticket, "ticket / linked issue". Used for ticket
    * badges, count chips, and any "this references a ticket" cue.
    * Distinct from `at` (mention) and `comment` (thread). */
@@ -416,6 +605,11 @@ export const ICON_REGISTRY = {
   trash: {
     d: 'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0',
   },
+  /** Quarter arc swinging left into an arrowhead, "undo" in the
+   * editor toolbar. Deliberately not the Heroicons u-turn arrow,
+   * which is already `restore` (undo a removal); `reset` (full
+   * circle) means "back to the default". */
+  undo: { d: 'M3 7v6h6M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13' },
   /** Arrow up out of a tray: sending files in. Import entries use it;
    * `download` is the reverse, for exports. */
   upload: {
@@ -434,6 +628,27 @@ export const ICON_REGISTRY = {
    * recognisable glyph. */
   userPlus: {
     d: 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z',
+  },
+  /** Camcorder body with a lens flare, "a video file". The video
+   * attachment row. Distinct from `camera` (change a picture). */
+  video: {
+    d: 'M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z',
+  },
+  /** Speaker with two sound waves, "volume up / loud". The video
+   * player's mute toggle shows one of `volume`, `volumeLow` and
+   * `volumeOff` for the current level; the three share the speaker
+   * so only the waves change. */
+  volume: {
+    d: 'M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z',
+  },
+  /** Speaker with one sound wave, "volume low". `volume` minus its
+   * outer wave. */
+  volumeLow: {
+    d: 'M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z',
+  },
+  /** Speaker with an X, "muted". */
+  volumeOff: {
+    d: 'M17.25 9.75L19.5 12m0 0l2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z',
   },
   /** Triangle with exclamation mark, "warning / something is
    * wrong / requires attention". Distinct from `info` (circle = a
@@ -455,21 +670,32 @@ export const ICON_REGISTRY = {
    * resolved by `kindIconName` from a kind's stored `icon`. Without
    * these, every IT kind falls back to the generic `device` glyph.
    * ------------------------------------------------------------- */
-  /** Portable computer. No Heroicon equivalent; a screen over a base. */
+  /** Open laptop: a screen with rounded top corners sitting on a
+   *  hinge line, with a shallow wedge base flaring to a wider foot.
+   *  Heroicons has no laptop, so this is drawn to its grid (screen
+   *  3.75..20.25, foot 2.25..21.75, 1.5 radii, half-unit points);
+   *  the attached wedge follows Lucide's `laptop` and is what
+   *  separates it from `device` and `monitor` at sm. */
   laptop: {
-    d: 'M3.75 7.5A1.5 1.5 0 015.25 6h13.5A1.5 1.5 0 0120.25 7.5V15H3.75V7.5zM2.25 18h19.5',
+    d: 'M5.25 4.5h13.5A1.5 1.5 0 0120.25 6v9.75H3.75V6A1.5 1.5 0 015.25 4.5zM3.75 15.75l-1.5 3h19.5l-1.5-3',
   },
-  /** Rack server with status lights (Heroicons `server`). */
+  /** Two stacked rack units with a sloped hood and a status light on
+   *  each (Heroicons `server-stack`). Replaces Heroicons `server`,
+   *  whose single trapezoid read as a bucket at sm. */
   server: {
-    d: 'M21.75 17.25v-.228a4.5 4.5 0 00-.12-1.03l-2.268-9.64a3.375 3.375 0 00-3.285-2.602H7.923a3.375 3.375 0 00-3.285 2.602l-2.268 9.64a4.5 4.5 0 00-.12 1.03v.228m19.5 0a3 3 0 01-3 3H5.25a3 3 0 01-3-3m19.5 0a3 3 0 00-3-3H5.25a3 3 0 00-3 3m16.5-9.75h.008v.008h-.008V7.5zm-3 0h.008v.008h-.008V7.5z',
+    d: 'M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z',
   },
   /** Mobile handset (Heroicons `device-phone-mobile`). */
   phone: {
     d: 'M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3',
   },
-  /** External display (Heroicons `tv`). */
+  /** External display: a wide bezel-less screen on two short legs and
+   *  a foot bar (Heroicons `tv`, verbatim). The previous path was a
+   *  hand-altered variant whose screen started at y=1.5 and sat high
+   *  in the box; the real one spans y 3.75..20.25 like its neighbors.
+   *  Two legs (not `device`'s single flared neck) keep it apart. */
   monitor: {
-    d: 'M6 20.25h12m-7.5-3v3m3-3v3M3.75 3.75v10.5A2.25 2.25 0 006 16.5h12a2.25 2.25 0 002.25-2.25V3.75m-16.5 0A2.25 2.25 0 016 1.5h12a2.25 2.25 0 012.25 2.25m-16.5 0h16.5',
+    d: 'M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z',
   },
   /** Network signal / connectivity (Heroicons `signal`). */
   network: {
@@ -483,13 +709,29 @@ export const ICON_REGISTRY = {
   equipment: {
     d: 'M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437',
   },
-  /** Consumable supply (Heroicons `beaker`). */
+  /** Droplet, "consumable": stock that is used up (Lucide 0.479.0
+   *  `droplet`). The established convention for consumables in asset
+   *  tools such as Snipe-IT. */
   consumable: {
-    d: 'M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.066 9.066 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5',
+    d: 'M12 22a7 7 0 007-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 007 7z',
   },
-  /** Bulk material (Heroicons `cube`). */
+  /** A sheet of stock with a ruler beside it: the sheet (3..12 x 3.75..20.25, 1.5 corner radii)
+   *  has both long edges bent into the same gentle S, so it reads as
+   *  a flexible sheet rather than a box: the left edge runs
+   *  (3,18.75) to (3,5.25) through controls (6,15) and (0,9), the
+   *  right edge (12,5.25) to (12,18.75) through (9,9) and (15,15).
+   *  Two dashed cut lines cross it (y 9.75 and 14.25, 1-unit dashes
+   *  3 apart, each line centered between the bent edges so the round
+   *  caps stay off them); the ruler (15..21, same height) stands
+   *  separately on the right with five graduation ticks (2.25 long,
+   *  3-unit pitch) on its inner edge. The material is the subject
+   *  and the ruler measures it. "Material" is stock tracked by length
+   *  or weight (cable by the meter, pipe lengths, sheet goods). At sm
+   *  the dashes and ticks soften into texture, which reads better
+   *  than a simplified version. Replaces `cube`, `square-3-stack-3d`,
+   *  a cable roll and a lone ruler (which read as the material). */
   material: {
-    d: 'M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9',
+    d: 'M4.5 3.75h6a1.5 1.5 0 011.5 1.5C9 9 15 15 12 18.75a1.5 1.5 0 01-1.5 1.5h-6A1.5 1.5 0 013 18.75C6 15 0 9 3 5.25a1.5 1.5 0 011.5-1.5zM4.25 9.75h1M8.25 9.75h1M5.75 14.25h1M9.75 14.25h1M16.5 3.75h3A1.5 1.5 0 0121 5.25v13.5a1.5 1.5 0 01-1.5 1.5h-3a1.5 1.5 0 01-1.5-1.5V5.25a1.5 1.5 0 011.5-1.5zM15 6.75h2.25M15 9.75h2.25M15 12.75h2.25M15 15.75h2.25M15 18.75h2.25',
   },
 
   /* ---------------------------------------------------------------

@@ -6,6 +6,7 @@ element (a Reka SelectItem on desktop, a plain option button on phones).
 -->
 <script setup lang="ts">
 import type { DropdownOption } from '@/components/common/dropdownOption';
+import Icon from '@/components/common/Icon.vue';
 
 defineProps<{
   option: DropdownOption<string | number>;
@@ -28,9 +29,7 @@ defineProps<{
   <!-- Single-select gutter: a fixed box keeps every label column
        aligned whatever the gutter shows. -->
   <span v-else class="w-4 h-4 flex items-center justify-center flex-shrink-0">
-    <svg v-if="checked" class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-    </svg>
+    <Icon v-if="checked" name="check" class="text-accent" />
     <span v-else-if="option.tones?.length" aria-hidden="true" class="flex items-center gap-0.5">
       <span
         v-for="(t, i) in option.tones"

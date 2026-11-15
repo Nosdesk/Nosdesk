@@ -5,6 +5,7 @@ import documentationService from '@nosdesk/core/services/documentationService'
 import type { Page } from '@nosdesk/core/services/documentationService'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
+import Icon from '@/components/common/Icon.vue'
 
 useFluent()
 
@@ -151,9 +152,7 @@ onMounted(async () => {
               isCurrentLocation(null) && selectedParentId !== null ? 'opacity-60' : ''
             ]"
           >
-            <svg class="w-4 h-4 flex-shrink-0 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-            </svg>
+            <Icon name="home" class="flex-shrink-0 text-tertiary" />
             <span class="flex-1">{{ $t('docs-move-root-label') }}</span>
             <span v-if="isCurrentLocation(null)" class="text-3xs px-1.5 py-0.5 rounded bg-surface-alt text-tertiary">{{ $t('docs-move-current-badge') }}</span>
           </button>

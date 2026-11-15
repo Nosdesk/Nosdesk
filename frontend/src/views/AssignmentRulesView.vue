@@ -427,9 +427,7 @@ onMounted(() => {
                   {{ rule.category.name }}
                 </span>
                 <span class="flex items-center gap-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
+                  <Icon name="lightning" />
                   <span v-if="rule.trigger_on_create && rule.trigger_on_category_change">{{ $t('admin-assignment-rules-trigger-both') }}</span>
                   <span v-else-if="rule.trigger_on_create">{{ $t('admin-assignment-rules-trigger-create') }}</span>
                   <span v-else-if="rule.trigger_on_category_change">{{ $t('admin-assignment-rules-trigger-category') }}</span>

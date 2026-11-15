@@ -17,7 +17,7 @@ import type { EditorView } from 'prosemirror-view'
 import { undo } from 'y-prosemirror'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList from '@/components/common/MenuList.vue'
-import { ICON_REGISTRY } from '@/components/common/icons'
+import Icon from '@/components/common/Icon.vue'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import { useEventListener } from '@/composables/useEventListener'
 import {
@@ -266,8 +266,6 @@ function onBar(action: 'merge' | 'split' | CellAlign | 'clear') {
 function onMore(event: MouseEvent) {
   openGrouped(event.currentTarget as HTMLElement)
 }
-
-const iconPath = (name: keyof typeof ICON_REGISTRY) => ICON_REGISTRY[name].d
 </script>
 
 <template>
@@ -297,11 +295,11 @@ const iconPath = (name: keyof typeof ICON_REGISTRY) => ICON_REGISTRY[name].d
       @mousedown.prevent
     >
       <button v-if="barState.multi" type="button" class="table-selection-bar__button" :title="t('editor-table-merge')" @click="onBar('merge')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="iconPath('merge')" /></svg>
+        <Icon name="merge" />
         <span>{{ t('editor-table-bar-merge') }}</span>
       </button>
       <button v-if="barState.merged" type="button" class="table-selection-bar__button" :title="t('editor-table-split')" @click="onBar('split')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="iconPath('split')" /></svg>
+        <Icon name="split" />
         <span>{{ t('editor-table-bar-split') }}</span>
       </button>
       <span class="table-selection-bar__sep" aria-hidden="true"></span>
@@ -316,13 +314,11 @@ const iconPath = (name: keyof typeof ICON_REGISTRY) => ICON_REGISTRY[name].d
         :title="t(`editor-table-align-${align}`)"
         @click="onBar(align)"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path :d="iconPath(align === 'left' ? 'alignLeft' : align === 'center' ? 'alignCenter' : 'alignRight')" />
-        </svg>
+        <Icon :name="align === 'left' ? 'alignLeft' : align === 'center' ? 'alignCenter' : 'alignRight'" />
       </button>
       <span class="table-selection-bar__sep" aria-hidden="true"></span>
       <button type="button" class="table-selection-bar__button" :title="t('editor-table-bar-clear-title')" @click="onBar('clear')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="iconPath('eraser')" /></svg>
+        <Icon name="eraser" />
         <span>{{ t('editor-table-bar-clear') }}</span>
       </button>
       <button
@@ -333,7 +329,7 @@ const iconPath = (name: keyof typeof ICON_REGISTRY) => ICON_REGISTRY[name].d
         :title="t('editor-table-bar-more')"
         @click="onMore"
       >
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path :d="iconPath('more')" transform="rotate(90 12 12)" /></svg>
+        <Icon name="moreHorizontal" />
       </button>
     </div>
   </Teleport>

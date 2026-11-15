@@ -28,9 +28,7 @@
         to="/docs"
         class="inline-flex items-center gap-1.5 text-sm text-accent hover:opacity-90 font-medium self-start"
       >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-        </svg>
+        <Icon name="chevronLeft" />
         {{ t('public-doc-back') }}
       </RouterLink>
 
@@ -75,10 +73,7 @@
       class="bg-surface border border-default rounded-xl shadow-sm p-8 flex flex-col items-center gap-4 text-center"
     >
       <div class="w-12 h-12 rounded-full bg-surface-alt flex items-center justify-center">
-        <svg class="w-6 h-6 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
+        <Icon name="faceFrown" size="lg" class="text-tertiary" />
       </div>
       <div class="flex flex-col gap-1">
         <h2 class="text-lg font-semibold text-primary">{{ t('public-doc-not-found-title') }}</h2>
@@ -103,6 +98,7 @@ import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
+import Icon from '@/components/common/Icon.vue';
 import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
 import { publicService, type PublicDoc } from '@nosdesk/core/services/publicService';
 

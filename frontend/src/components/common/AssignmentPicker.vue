@@ -215,9 +215,7 @@ const rowClass =
         <!-- Group icon -->
         <Icon v-if="item.type === 'group'" name="team" size="xs" class="text-tertiary flex-shrink-0" />
         <!-- User icon -->
-        <svg v-else class="w-3 h-3 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-        </svg>
+        <Icon v-else name="user" size="xs" class="text-tertiary flex-shrink-0" />
         <span class="truncate max-w-[120px]">{{ item.name }}</span>
         <button
           type="button"

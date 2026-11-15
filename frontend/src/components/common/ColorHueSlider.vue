@@ -37,6 +37,7 @@ import {
   parseColor,
 } from 'reka-ui';
 import { useThemeStore } from '@/stores/theme';
+import Icon from '@/components/common/Icon.vue';
 import { ACCENT_LIGHTNESS, ACCENT_SATURATION, accentColorFromHue, hslToHex } from '@nosdesk/core/utils/accentColor';
 
 const props = withDefaults(defineProps<{
@@ -188,9 +189,7 @@ const thumbClass =
                 :class="isExpanded ? 'rotate-180' : 'group-hover:scale-110'"
                 aria-hidden="true"
               >
-                <svg class="w-2.5 h-2.5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
+                <Icon name="chevronDown" size="xs" class="text-secondary" />
               </span>
             </button>
           </CollapsibleTrigger>

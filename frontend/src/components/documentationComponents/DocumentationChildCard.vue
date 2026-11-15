@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
+import Icon from '@/components/common/Icon.vue'
 import type { Page } from '@nosdesk/core/services/documentationService'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
 
@@ -41,19 +42,7 @@ const truncatedDescription = computed(() => {
     </div>
 
     <!-- Arrow -->
-    <svg
-      class="child-arrow"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <path d="M9 18l6-6-6-6" />
-    </svg>
+    <Icon name="chevronRight" class="child-arrow" />
   </RouterLink>
 </template>
 

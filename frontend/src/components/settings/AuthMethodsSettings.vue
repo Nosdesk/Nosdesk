@@ -208,12 +208,7 @@ const getAuthMethodIcon = (type: string) => {
                 </div>
                 <!-- Microsoft Icon (4-square grid pattern) -->
                 <div v-else-if="getAuthMethodIcon(method.type) === 'microsoft'" class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                    <rect x="4" y="4" width="7" height="7" class="fill-accent" />
-                    <rect x="13" y="4" width="7" height="7" class="fill-accent" />
-                    <rect x="4" y="13" width="7" height="7" class="fill-accent" />
-                    <rect x="13" y="13" width="7" height="7" class="fill-accent" />
-                  </svg>
+                  <Icon name="microsoft" size="md" class="text-accent" />
                 </div>
                 <div>
                   <div class="text-sm font-medium text-primary">
@@ -246,12 +241,7 @@ const getAuthMethodIcon = (type: string) => {
           class="flex items-center gap-3 p-3 bg-surface-alt hover:bg-surface-hover rounded-lg border border-dashed border-subtle hover:border-default transition-colors disabled:opacity-50 w-full"
         >
           <div class="w-8 h-8 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none">
-              <rect x="4" y="4" width="7" height="7" class="fill-accent" />
-              <rect x="13" y="4" width="7" height="7" class="fill-accent" />
-              <rect x="4" y="13" width="7" height="7" class="fill-accent" />
-              <rect x="13" y="13" width="7" height="7" class="fill-accent" />
-            </svg>
+            <Icon name="microsoft" class="text-accent" />
           </div>
           <div class="flex flex-col items-start">
             <span class="text-sm font-medium text-primary">{{ $t('settings-auth-methods-connect-microsoft') }}</span>

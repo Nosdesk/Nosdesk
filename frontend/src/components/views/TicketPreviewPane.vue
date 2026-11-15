@@ -340,12 +340,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
               </div>
               <div class="preview-row flex items-center gap-2 min-h-7">
                 <span class="preview-label flex items-center gap-1.5 w-22 shrink-0 text-tertiary">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" class="w-3 h-3">
-                    <rect x="2" y="3" width="12" height="11" rx="1.5" />
-                    <line x1="2" y1="6.5" x2="14" y2="6.5" />
-                    <line x1="5.5" y1="2" x2="5.5" y2="4" stroke-linecap="round" />
-                    <line x1="10.5" y1="2" x2="10.5" y2="4" stroke-linecap="round" />
-                  </svg>
+                  <Icon name="calendar" size="xs" />
                   {{ $t('views-ticket-preview-due-date') }}
                 </span>
                 <div class="preview-value preview-field-picker flex-1 min-w-0">
@@ -359,10 +354,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
               </div>
               <div v-if="card.cycle_id != null" class="preview-row flex items-center gap-2 min-h-7">
                 <span class="preview-label flex items-center gap-1.5 w-22 shrink-0 text-tertiary">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" class="w-3 h-3">
-                    <circle cx="8" cy="8" r="6" stroke-dasharray="3 2" />
-                    <circle cx="8" cy="8" r="1.5" fill="currentColor" />
-                  </svg>
+                  <Icon name="cycle" size="xs" />
                   {{ $t('views-ticket-preview-cycle') }}
                 </span>
                 <span class="preview-value text-accent truncate">{{ $t('views-ticket-preview-cycle-label', { id: card.cycle_id }) }}</span>
