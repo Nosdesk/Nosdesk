@@ -377,6 +377,60 @@ pub fn record_message(
 /// Look up a single `channel_messages` row by its channel-scoped
 /// external id. Used by the thread resolver to walk `In-Reply-To` /
 /// `References` chains back to the ticket.
+/// Whether the email behind a comment, or with no comment the first email
+/// on the ticket, was sent by a machine: an `Auto-Submitted` value other than
+/// `no`, `Precedence: bulk`, `list` or `junk`, a `List-Id`, or a loop marker
+/// (plan 11.3). A rule doesn't answer one, so it can't start a mail loop.
+/// The inbound pipeline already drops most of these; `List-Id` mail gets
+/// through. False when no inbound email is on record.
+pub fn automated_inbound(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    comment_id: Option<i32>,
+) -> QueryResult<bool> {
+    use crate::schema::channel_messages::dsl as cm;
+    let mut query = cm::channel_messages
+        .filter(cm::ticket_id.eq(ticket_id))
+        .filter(cm::direction.eq(crate::models::CHANNEL_DIRECTION_INBOUND))
+        .into_boxed();
+    if let Some(comment_id) = comment_id {
+        query = query.filter(cm::comment_id.eq(comment_id));
+    }
+    let metadata: Option<Option<serde_json::Value>> = query
+        .order(cm::id.asc())
+        .select(cm::raw_metadata)
+        .first(conn)
+        .optional()?;
+    Ok(metadata
+        .flatten()
+        .is_some_and(|m| headers_mark_automated(&m)))
+}
+
+/// [`automated_inbound`]'s header test, over `raw_metadata.headers` as the
+/// IMAP adapter stores them: `[[name, value], ..]`.
+fn headers_mark_automated(raw_metadata: &serde_json::Value) -> bool {
+    let headers = raw_metadata
+        .get("headers")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|pair| {
+            let pair = pair.as_array()?;
+            Some((pair.first()?.as_str()?, pair.get(1)?.as_str()?))
+        });
+    headers.into_iter().any(|(name, value)| {
+        let value = value.trim().to_ascii_lowercase();
+        match name.to_ascii_lowercase().as_str() {
+            "auto-submitted" => value != "no",
+            "precedence" => matches!(value.as_str(), "bulk" | "list" | "junk"),
+            "list-id" | "x-loop" | "x-auto-response-suppress" | "x-autoreply" | "x-autorespond" => {
+                true
+            }
+            _ => false,
+        }
+    })
+}
+
 pub fn find_by_external_id(
     conn: &mut DbConnection,
     channel_id: i32,
@@ -470,6 +524,29 @@ mod tests {
     use crate::models::{CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use serde_json::json;
+
+    #[test]
+    fn machine_sent_mail_is_told_by_its_headers() {
+        let mail = |headers: serde_json::Value| json!({ "headers": headers });
+        for automated in [
+            mail(json!([["Auto-Submitted", "auto-replied"]])),
+            mail(json!([["auto-submitted", " Auto-Generated "]])),
+            mail(json!([["Precedence", "bulk"]])),
+            mail(json!([["Precedence", "List"]])),
+            mail(json!([["List-Id", "<team.lists.example>"]])),
+            mail(json!([["X-Auto-Response-Suppress", "All"]])),
+        ] {
+            assert!(headers_mark_automated(&automated), "{automated}");
+        }
+        for human in [
+            mail(json!([["Auto-Submitted", "no"], ["Subject", "Printer"]])),
+            mail(json!([["Precedence", "first-class"]])),
+            mail(json!([])),
+            json!({ "auto_ack": true }),
+        ] {
+            assert!(!headers_mark_automated(&human), "{human}");
+        }
+    }
 
     #[test]
     fn ensure_managed_channel_is_idempotent() {

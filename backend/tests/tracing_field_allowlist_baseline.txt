@@ -218,7 +218,6 @@ src/handlers/plugins.rs resolved_tier
 src/handlers/plugins.rs target_host
 src/handlers/plugins.rs zip_name
 src/handlers/projects.rs project_id
-src/handlers/rules.rs application_id
 src/handlers/saved_views.rs dataset
 src/handlers/saved_views.rs scope
 src/handlers/saved_views.rs uuid

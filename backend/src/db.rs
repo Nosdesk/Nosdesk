@@ -491,6 +491,36 @@ pub fn is_initialized() -> bool {
     INITIALIZED.load(Ordering::Acquire)
 }
 
+/// Whether a database error may pass if the same work runs again: a lost
+/// connection, a serialization failure, a deadlock, a lock or statement
+/// timeout. Anything else (a constraint the data breaks, a missing row) fails
+/// the same way every time. Diesel names only some SQLSTATEs; a deadlock
+/// (40P01), a lock timeout (55P03) and a cancelled statement (57014) arrive as
+/// `Unknown`, so those are told by the server's message.
+pub fn is_transient_error(error: &diesel::result::Error) -> bool {
+    use diesel::result::{DatabaseErrorKind as Kind, Error};
+    match error {
+        Error::DatabaseError(
+            Kind::SerializationFailure | Kind::ClosedConnection | Kind::UnableToSendCommand,
+            _,
+        ) => true,
+        Error::DatabaseError(Kind::Unknown, info) => {
+            let message = info.message();
+            [
+                "deadlock detected",
+                "canceling statement due to lock timeout",
+                "canceling statement due to statement timeout",
+                "could not obtain lock",
+                "terminating connection",
+                "server closed the connection",
+            ]
+            .iter()
+            .any(|m| message.contains(m))
+        }
+        _ => false,
+    }
+}
+
 /// The login role's RLS posture, as seen by the app's pool.
 pub struct RoleRlsPosture {
     /// The role the connection authenticates as (`current_user`).
@@ -846,5 +876,61 @@ mod unsupported_postgres_tests {
         let stopgap = at("ghcr.io/nosdesk/nosdesk:1.0");
         assert!(at("17.6") < guide, "{message}");
         assert!(guide < untouched && untouched < stopgap, "{message}");
+    }
+}
+
+#[cfg(test)]
+mod transient_error_tests {
+    use super::is_transient_error;
+    use diesel::result::{DatabaseErrorKind as Kind, Error};
+
+    fn db(kind: Kind, message: &str) -> Error {
+        Error::DatabaseError(kind, Box::new(message.to_string()))
+    }
+
+    #[test]
+    fn lost_connections_serialization_failures_and_lock_waits_are_transient() {
+        for error in [
+            db(Kind::SerializationFailure, "could not serialize access"),
+            db(
+                Kind::ClosedConnection,
+                "server closed the connection unexpectedly",
+            ),
+            db(Kind::UnableToSendCommand, "no connection to the server"),
+            db(Kind::Unknown, "deadlock detected"),
+            db(Kind::Unknown, "canceling statement due to lock timeout"),
+            db(
+                Kind::Unknown,
+                "canceling statement due to statement timeout",
+            ),
+            db(
+                Kind::Unknown,
+                "could not obtain lock on row in relation \"tickets\"",
+            ),
+            db(
+                Kind::Unknown,
+                "terminating connection due to administrator command",
+            ),
+        ] {
+            assert!(is_transient_error(&error), "{error}");
+        }
+    }
+
+    #[test]
+    fn broken_constraints_and_missing_rows_are_not() {
+        for error in [
+            db(
+                Kind::CheckViolation,
+                "Only agents and admins can be assigned tickets",
+            ),
+            db(Kind::UniqueViolation, "duplicate key value"),
+            db(Kind::ForeignKeyViolation, "violates foreign key constraint"),
+            db(Kind::NotNullViolation, "null value in column"),
+            db(Kind::Unknown, "invalid input syntax for type integer"),
+            Error::NotFound,
+            Error::RollbackTransaction,
+        ] {
+            assert!(!is_transient_error(&error), "{error}");
+        }
     }
 }

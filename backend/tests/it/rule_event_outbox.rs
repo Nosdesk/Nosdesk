@@ -3,9 +3,9 @@
 //! the recursion budget (`ticket_rule_runs`) keep each workspace's rows to
 //! itself, and that both go with a deleted workspace.
 //!
-//! The dispatcher that drains the outbox is not built yet; these tests drive
-//! the trigger through `sync::emit::record` and the repository writes that
-//! call it, running as `nosdesk_app` in a workspace the way the app does.
+//! These tests drive the trigger through `sync::emit::record` and the
+//! repository writes that call it, running as `nosdesk_app` in a workspace
+//! the way the app does; `rules_event_triggers.rs` drains the outbox.
 #![allow(clippy::expect_used)]
 
 use std::collections::BTreeSet;
@@ -381,6 +381,7 @@ fn seed_rows(pool: &TestPool, ws: &WorkspaceSeed) -> (i64, Uuid) {
                 ticket_rule_runs::root_id.eq(root),
                 ticket_rule_runs::ticket_id.eq(1),
                 ticket_rule_runs::rule_id.eq(1),
+                ticket_rule_runs::sync_id.eq(sync_id),
             ))
             .execute(c)?;
         Ok::<_, diesel::result::Error>((sync_id, root))
@@ -453,6 +454,7 @@ fn each_workspace_sees_and_writes_only_its_own_rows() {
                 ticket_rule_runs::ticket_id.eq(1),
                 ticket_rule_runs::rule_id.eq(1),
                 ticket_rule_runs::workspace_id.eq(b.workspace_id),
+                ticket_rule_runs::sync_id.eq(b_sync),
             ))
             .execute(c)
     });

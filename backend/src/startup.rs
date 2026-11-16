@@ -398,6 +398,19 @@ pub fn build_state(
         std::env::var("DATABASE_URL").ok(),
         scheduler_shutdown.clone(),
     ));
+    // Rules with an event trigger. The trigger on sync_actions queues the
+    // events they read; this claims them (one instance per event) and runs
+    // the rules. Runs everywhere, like the notification dispatcher.
+    background_tasks.push(
+        crate::services::rules::engine::Dispatcher::new(
+            pool.clone(),
+            Some(search_service.get_ref().clone()),
+        )
+        .spawn(
+            std::env::var("DATABASE_URL").ok(),
+            scheduler_shutdown.clone(),
+        ),
+    );
     // Re-attempts channel deliveries that failed (a refused push, a rejected
     // email) until they succeed or exhaust their attempts.
     background_tasks.push(

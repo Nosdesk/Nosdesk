@@ -118,6 +118,12 @@ export interface Rule {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  /** Events turned away before any rule ran (the ticket was held for
+   *  approval, or merged). They leave no application row. */
+  skipped_preflight_count?: number;
+  /** Events a live rule skipped because the ticket didn't meet its
+   *  conditions. They leave no application row; a dry run logs them. */
+  skipped_condition_unmet_count?: number;
 }
 
 /** A ready-made rule from the starter catalogue (`GET /api/admin/rule-starters`),

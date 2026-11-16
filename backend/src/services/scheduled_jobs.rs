@@ -92,6 +92,24 @@ pub fn try_job_lock(pool: &Pool, key: i64, name: &'static str) -> Result<Option<
     Ok(acquired.then_some(JobLock { conn, key, name }))
 }
 
+/// Forget the rules engine's recursion budget for chains of events older
+/// than [`crate::services::rules::engine::BUDGET_RETENTION_HOURS`]. Every
+/// machine may run it: the delete is idempotent.
+pub async fn sweep_rule_budget(pool: Pool) -> Result<()> {
+    let horizon = chrono::Utc::now()
+        - chrono::Duration::hours(crate::services::rules::engine::BUDGET_RETENTION_HOURS);
+    // cross-tenant: the budget table holds every workspace's rows; the sweep is by age alone.
+    let removed =
+        crate::sync::session::background_run(&pool, "scheduler:rules_budget_sweep", |conn| {
+            crate::repository::rules::sweep_budget(conn, horizon)
+        })
+        .context("sweep the rules budget")?;
+    if removed > 0 {
+        info!(count = removed, "scheduler: rules budget rows swept");
+    }
+    Ok(())
+}
+
 /// Delete rows from `active_sessions` whose `expires_at` is in the
 /// past. One-liner today; kept here (rather than being a closure in
 /// main.rs) so future additions — e.g. an audit-event write when

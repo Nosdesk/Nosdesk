@@ -60,6 +60,7 @@ const SEEDED: &[&str] = &[
     "attachments.sweep_unattached",
     "import_history.prune",
     "workspace_imports.prune",
+    "rules.budget_sweep",
 ];
 
 /// Jobs that still run here, but with nothing to do, and why.
@@ -193,6 +194,15 @@ fn seed(conn: &mut Conn) -> Seeded {
         "INSERT INTO security_events (event_type, created_at) \
          VALUES ('login', now() - interval '400 days')",
     );
+
+    // A rules budget row from a chain of events past the budget's retention.
+    pinned(conn, a, |c| {
+        diesel::sql_query(
+            "INSERT INTO ticket_rule_runs (root_id, ticket_id, rule_id, sync_id, fired_at) \
+             VALUES (gen_random_uuid(), 1, 1, 1, now() - interval '3 days')",
+        )
+        .execute(c)
+    });
 
     // Workspace A: a stale export, an old CSP report, an expired send lease,
     // an old read notification, a digest-due notification, an old webhook
@@ -556,6 +566,11 @@ async fn every_scheduled_job_runs_cleanly_on_the_job_pool() {
         &mut conn,
         "old idempotency key pruned",
         "SELECT count(*) AS n FROM idempotency_keys WHERE key = 'old-key'".into(),
+    );
+    gone(
+        &mut conn,
+        "old rules budget row swept",
+        "SELECT count(*) AS n FROM ticket_rule_runs".into(),
     );
     gone(
         &mut conn,

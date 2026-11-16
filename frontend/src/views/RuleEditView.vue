@@ -936,9 +936,6 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
           v-model="verifiedManually"
           :label="t('admin-rule-editor-verified-manually')"
         />
-        <p v-if="!isManual && !isArchived && !EVENT_RULES_RUN" class="text-sm text-secondary" data-test="events-waiting">
-          {{ t('admin-rule-editor-events-waiting') }}
-        </p>
         <!-- Run order and the loop override only matter to rules that run
              on their own. -->
         <fieldset v-if="!isManual" :disabled="isArchived" class="flex flex-col gap-3 min-w-0">

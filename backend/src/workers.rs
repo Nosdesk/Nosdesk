@@ -371,6 +371,15 @@ pub fn scheduled_jobs(
         move || jobs::unattached_upload_cleanup(p.clone()),
     ));
 
+    // Hourly: forget the rules engine's recursion budget for chains of
+    // events past its retention.
+    let p = pool.clone();
+    registry.push(ScheduledJob::new(
+        "rules.budget_sweep",
+        Duration::from_secs(60 * 60),
+        move || jobs::sweep_rule_budget(p.clone()),
+    ));
+
     // Hourly: approve requests nobody answered within their workspace's
     // automatic-approval period (a no-op unless one is set).
     let p = pool.clone();

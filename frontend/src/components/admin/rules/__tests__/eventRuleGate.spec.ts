@@ -10,8 +10,11 @@ const offered = (trigger: RuleTriggerKind, state: RuleState, run: boolean) => {
 }
 
 describe('promoteControls', () => {
-  it('keeps event rules in draft until event rules run', () => {
-    expect(EVENT_RULES_RUN).toBe(false)
+  it('runs event rules', () => {
+    expect(EVENT_RULES_RUN).toBe(true)
+  })
+
+  it('keeps event rules in draft while event rules do not run', () => {
     for (const trigger of ['ticket_created', 'ticket_updated', 'ticket_replied', 'time_elapsed'] as RuleTriggerKind[]) {
       expect(offered(trigger, 'draft', false)).toBe('')
       expect(offered(trigger, 'paused', false)).toBe('')

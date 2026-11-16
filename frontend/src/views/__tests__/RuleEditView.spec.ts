@@ -146,23 +146,21 @@ describe('RuleEditView', () => {
     expect(button('admin-rules-go-live')).toBeDefined()
   })
 
-  it('keeps an event rule in draft while event rules do not run, with a note saying so', async () => {
+  it('offers an event draft rule a dry run, or going live once checked by hand', async () => {
     rules.get.mockResolvedValue(rule({ trigger_kind: 'ticket_created' }))
     rules.preview.mockResolvedValue(PREVIEW)
     const w = await mountAt('admin-rules-edit', { id: '4' })
     expect(w.text()).toContain('admin-rule-editor-state-draft-event')
-    expect(w.find('[data-test="events-waiting"]').exists()).toBe(true)
-    expect(button('admin-rules-go-live')).toBeUndefined()
-    expect(button('admin-rules-dry-run')).toBeUndefined()
-    expect(w.text()).not.toContain('admin-rule-editor-verified-manually')
+    expect(button('admin-rules-dry-run')).toBeDefined()
+    expect(button('admin-rules-go-live')).toBeDefined()
+    expect(w.text()).toContain('admin-rule-editor-verified-manually')
   })
 
-  it('keeps a manual draft rule able to go live, with no event note', async () => {
+  it('keeps a manual draft rule able to go live, with no dry run', async () => {
     rules.get.mockResolvedValue(rule())
-    const w = await mountAt('admin-rules-edit', { id: '4' })
+    await mountAt('admin-rules-edit', { id: '4' })
     expect(button('admin-rules-go-live')).toBeDefined()
     expect(button('admin-rules-dry-run')).toBeUndefined()
-    expect(w.find('[data-test="events-waiting"]').exists()).toBe(false)
   })
 
   it('lets a running event rule be paused, and holds its trigger until then', async () => {
@@ -175,7 +173,9 @@ describe('RuleEditView', () => {
     button('admin-rules-pause')!.click()
     await flushPromises()
     expect(rules.transitionState).toHaveBeenCalledWith(4, { state: 'paused' })
-    expect(button('admin-rules-go-live')).toBeUndefined()
+    // Paused, it can start again.
+    expect(button('admin-rules-go-live')).toBeDefined()
+    expect(button('admin-rules-dry-run')).toBeDefined()
     expect(w.text()).not.toContain('admin-rule-editor-trigger-locked')
   })
 
