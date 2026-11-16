@@ -2440,7 +2440,6 @@ settings-mfa-backup-codes-description = Save these backup codes in a secure loca
 settings-mfa-backup-codes-download = Download
 settings-mfa-backup-codes-download-tooltip = Download backup codes as text file
 settings-mfa-backup-codes-download-success = Backup codes downloaded successfully
-settings-mfa-backup-codes-download-error = Failed to download backup codes
 settings-mfa-success-heading = Two-Factor Authentication Enabled!
 settings-mfa-success-message = Your account is now protected with 2FA. You'll need to enter a code from your authenticator app when signing in.
 settings-mfa-success-cta = Start Using Nosdesk!

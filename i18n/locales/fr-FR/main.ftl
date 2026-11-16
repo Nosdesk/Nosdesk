@@ -5242,7 +5242,6 @@ settings-mfa-backup-codes-description = Conservez ces codes de secours en lieu s
 settings-mfa-backup-codes-download = Télécharger
 settings-mfa-backup-codes-download-tooltip = Télécharger les codes de secours au format texte
 settings-mfa-backup-codes-download-success = Codes de secours téléchargés avec succès
-settings-mfa-backup-codes-download-error = Échec du téléchargement des codes de secours
 # Export .txt des codes de récupération, partagé par la configuration MFA et passkey (machine, à relire par un locuteur natif).
 recovery-codes-file-title = Codes de récupération Nosdesk
 recovery-codes-file-warning = IMPORTANT : conservez ces codes de récupération en lieu sûr.
@@ -8348,6 +8347,8 @@ tickets-row-new-activity-tooltip = Nouvelle activité depuis votre dernière con
 tickets-row-new-activity-aria = Nouvelle activité
 common-confirm-delete-title = Confirmer la suppression
 common-toast-dismiss = Fermer
+# Enregistrement d'un fichier (machine, à relire par un locuteur natif)
+common-file-save-failed = Impossible d'enregistrer le fichier
 common-error-banner-dismiss = Fermer l'erreur
 common-route-progress-aria = Chargement
 common-bulk-actions-aria = Actions groupées

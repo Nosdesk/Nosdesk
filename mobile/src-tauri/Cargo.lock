@@ -88,6 +88,7 @@ dependencies = [
  "tauri-plugin-share",
  "tauri-plugin-system-bars",
  "tauri-plugin-web-auth",
+ "tokio",
 ]
 
 [[package]]

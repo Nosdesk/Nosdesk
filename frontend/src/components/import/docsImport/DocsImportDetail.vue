@@ -16,6 +16,7 @@ import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
 import { formatFileSize } from '@nosdesk/core/utils/formatFileSize'
+import { saveFile } from '@/platform'
 import {
   docsImportService,
   docsPagesQueryKey,
@@ -202,13 +203,7 @@ async function downloadReport() {
   errorMessage.value = ''
   try {
     const { blob, filename } = await docsImportService.report(props.job.id)
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(link.href)
+    await saveFile(blob, filename)
   } catch (e) {
     const status = (e as { response?: { status?: number } })?.response?.status
     errorMessage.value =

@@ -28,6 +28,7 @@ import { prefetchPageLink } from '@/utils/docBodyPrefetch'
 import { useWorkspaceGroupSubscription } from '@/sync/useWorkspaceGroup'
 import { useDelayedFlag } from '@/composables/useDelayedFlag'
 import { useClipboard } from '@/composables/useClipboard'
+import { useFileSave } from '@/composables/useFileSave'
 import { docsEmitter } from '@nosdesk/core/services/docsEmitter'
 import type { NavPage } from '@/stores/documentationNav'
 import {
@@ -70,6 +71,7 @@ const dropIndicatorIndent = ref<number>(8);
 
 // Context menu state
 const authStore = useAuthStore()
+const { save: saveFile } = useFileSave()
 const { copy } = useClipboard()
 const contextMenuPage = ref<Page | null>(null)
 const contextMenuPos = ref({ x: 0, y: 0 })
@@ -459,14 +461,7 @@ const handleContextMenuSelect = async (actionId: string) => {
       try {
         const blob = await documentationService.exportPageMarkdown(page.id)
         if (!blob) return
-        const url = URL.createObjectURL(blob)
-        const a = window.document.createElement('a')
-        a.href = url
-        a.download = (page.slug || String(page.id)) + '.md'
-        window.document.body.appendChild(a)
-        a.click()
-        window.document.body.removeChild(a)
-        URL.revokeObjectURL(url)
+        await saveFile(blob, (page.slug || String(page.id)) + '.md')
       } catch (error) {
         console.error('Failed to export page:', error)
       }

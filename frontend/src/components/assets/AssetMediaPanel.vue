@@ -4,12 +4,12 @@ import Button from '@/components/common/Button.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
+import DownloadLink from '@/components/common/DownloadLink.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
 import { assetMediaService, assetMediaKeys } from '@nosdesk/core/services/assetMediaService';
 import { formatFileSize } from '@nosdesk/core/utils/formatFileSize';
-import { convertToAuthenticatedPath } from '@/services/fileService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import type { AssetMedia } from '@nosdesk/core/types/asset';
 
@@ -380,11 +380,9 @@ useSyncActions(
           class="group flex items-center gap-2 px-3 py-2 min-w-0"
         >
           <Icon  name="document" size="sm" class="text-tertiary flex-shrink-0" />
-          <a
-            :href="convertToAuthenticatedPath(item.url)"
-            target="_blank"
-            rel="noopener"
-            :download="item.name"
+          <DownloadLink
+            :href="item.url"
+            :filename="item.name"
             class="flex-1 min-w-0 flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded"
             :aria-label="$t('asset-media-download-aria', { name: item.name })"
           >
@@ -392,16 +390,17 @@ useSyncActions(
             <span class="text-xs text-tertiary truncate">
               <template v-if="item.caption">{{ item.name }} · </template>{{ formatFileSize(item.file_size) }}
             </span>
-          </a>
-          <a
-            :href="convertToAuthenticatedPath(item.url)"
-            :download="item.name"
+          </DownloadLink>
+          <DownloadLink
+            :href="item.url"
+            :filename="item.name"
             class="p-1.5 rounded-md text-tertiary hover:text-primary flex-shrink-0"
             :title="$t('asset-media-download-aria', { name: item.name })"
             :aria-label="$t('asset-media-download-aria', { name: item.name })"
+            spinner-size="xs"
           >
             <Icon name="download" size="xs" />
-          </a>
+          </DownloadLink>
           <button
             v-if="canEdit"
             type="button"

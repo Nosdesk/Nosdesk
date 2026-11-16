@@ -8,6 +8,7 @@ import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import Icon from "@/components/common/Icon.vue";
+import DownloadLink from "@/components/common/DownloadLink.vue";
 import Button from "@/components/common/Button.vue";
 import Spinner from "@/components/common/Spinner.vue";
 import SimpleEditor from "@/components/common/SimpleEditor.vue";
@@ -21,7 +22,6 @@ import CommentContent from "@/components/ticketComponents/CommentContent.vue";
 import { sanitiseHtml } from "@/composables/useSanitise";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
-import { convertToAuthenticatedPath } from '@/services/fileService';
 import { resendClientId, useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
 import { useTicketUiStore, type StagedAttachment } from "@nosdesk/core/stores/ticketUi";
 import { useToastStore } from "@nosdesk/core/stores/toast";
@@ -1056,19 +1056,16 @@ const handlePastedFiles = async (files: File[]) => {
                                 </div>
                                 <!-- Mobile action buttons (hidden on print) -->
                                 <div class="print:hidden flex items-center gap-1 flex-shrink-0">
-                                    <a
+                                    <DownloadLink
                                         v-if="isAudioOnlyComment(comment)"
-                                        :href="convertToAuthenticatedPath(comment.attachments?.[0]?.url ?? '')"
-                                        :download="comment.attachments?.[0]?.name"
-                                        target="_blank"
+                                        :href="comment.attachments?.[0]?.url ?? ''"
+                                        :filename="comment.attachments?.[0]?.name"
                                         class="inline-flex items-center justify-center p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
                                         :title="$t('ticket-comments-action-download')"
                                         @click.stop
                                     >
-                                        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                        </svg>
-                                    </a>
+                                        <Icon name="download" />
+                                    </DownloadLink>
                                     <button
                                         type="button"
                                         @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
@@ -1157,19 +1154,16 @@ const handlePastedFiles = async (files: File[]) => {
                                             </span>
                                         </div>
                                         <div class="print:hidden flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
-                                            <a
+                                            <DownloadLink
                                                 v-if="isAudioOnlyComment(comment)"
-                                                :href="convertToAuthenticatedPath(comment.attachments?.[0]?.url ?? '')"
-                                                :download="comment.attachments?.[0]?.name"
-                                                target="_blank"
+                                                :href="comment.attachments?.[0]?.url ?? ''"
+                                                :filename="comment.attachments?.[0]?.name"
                                                 class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
                                                 :title="$t('ticket-comments-action-download')"
                                                 @click.stop
                                             >
-                                                <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                                </svg>
-                                            </a>
+                                                <Icon name="download" />
+                                            </DownloadLink>
                                             <button
                                                 type="button"
                                                 @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"

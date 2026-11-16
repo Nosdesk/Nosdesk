@@ -1,5 +1,6 @@
 import type { useQueryCache } from '@pinia/colada'
 import apiClient from '../apiClient'
+import { fileNameFromDisposition } from '../utils/contentDisposition'
 
 export type ImportJobType = 'assets' | 'users' | 'tickets'
 
@@ -865,9 +866,7 @@ export const importService = {
         responseType: 'blob',
       }),
     )
-    const disposition = String(response.headers['content-disposition'] ?? '')
-    const match = /filename="([^"]+)"/.exec(disposition)
-    return { blob: response.data, filename: match?.[1] ?? 'import-errors.csv' }
+    return { blob: response.data, filename: fileNameFromDisposition(response.headers['content-disposition'] as string | undefined) ?? 'import-errors.csv' }
   },
 
   /** What Remove imported assets would do now: the dialog's counts and
@@ -891,9 +890,7 @@ export const importService = {
         responseType: 'blob',
       }),
     )
-    const disposition = String(response.headers['content-disposition'] ?? '')
-    const match = /filename="([^"]+)"/.exec(disposition)
-    return { blob: response.data, filename: match?.[1] ?? 'previous-values.csv' }
+    return { blob: response.data, filename: fileNameFromDisposition(response.headers['content-disposition'] as string | undefined) ?? 'previous-values.csv' }
   },
 
   /** The template file, fetched through the API client so it carries the
@@ -915,11 +912,9 @@ export const importService = {
         responseType: 'blob',
       }),
     )
-    const disposition = String(response.headers['content-disposition'] ?? '')
-    const match = /filename="([^"]+)"/.exec(disposition)
     return {
       blob: response.data,
-      filename: match?.[1] ?? `nosdesk-${jobType}-template.${format}`,
+      filename: fileNameFromDisposition(response.headers['content-disposition'] as string | undefined) ?? `nosdesk-${jobType}-template.${format}`,
     }
   },
 }

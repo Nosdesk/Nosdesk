@@ -4660,7 +4660,6 @@ settings-mfa-backup-codes-description = Save these backup codes in a secure loca
 settings-mfa-backup-codes-download = Download
 settings-mfa-backup-codes-download-tooltip = Download backup codes as text file
 settings-mfa-backup-codes-download-success = Backup codes downloaded successfully
-settings-mfa-backup-codes-download-error = Failed to download backup codes
 # Recovery-codes .txt export, shared by MFA and passkey setup (see useRecoveryCodesFile).
 recovery-codes-file-title = Nosdesk Recovery Codes
 recovery-codes-file-warning = IMPORTANT: Save these recovery codes in a secure location.
@@ -7669,6 +7668,8 @@ tickets-row-new-activity-tooltip = New activity since you last viewed this
 tickets-row-new-activity-aria = New activity
 common-confirm-delete-title = Confirm Delete
 common-toast-dismiss = Dismiss
+# Saving a file: the browser's download, or the app's share sheet
+common-file-save-failed = Couldn't save the file
 common-error-banner-dismiss = Dismiss error
 common-route-progress-aria = Loading
 common-bulk-actions-aria = Bulk actions

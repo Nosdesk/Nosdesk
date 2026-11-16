@@ -57,6 +57,7 @@ import { errorBody, refusalText } from '@/components/import/refusals'
 import { outcomes, planDelta, webhookHearsAssets } from '@/components/import/reviewModel'
 import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
+import { saveFile } from '@/platform'
 import {
   forgetImportJob,
   importFieldsQueryKey,
@@ -337,17 +338,6 @@ const templateFormatOptions = computed(() => [
   { value: 'xlsx' as ImportTemplateFormat, label: t('import-template-format-excel') },
 ])
 
-/** Hand a downloaded file to the browser to save under its name. */
-function saveFile(blob: Blob, filename: string) {
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(link.href)
-}
-
 const downloadingTemplate = ref(false)
 
 /** Save the template through the API client, which names the workspace;
@@ -363,7 +353,7 @@ async function downloadTemplate() {
       kind || undefined,
       templateFormat.value,
     )
-    saveFile(blob, filename)
+    await saveFile(blob, filename)
   } catch (e) {
     errorMessage.value = apiError(e, 'import-template-failed')
   } finally {
@@ -611,7 +601,7 @@ async function downloadReport(only?: { group?: number; dropped?: number[] }) {
     const { blob, filename } = only
       ? await importService.errorReport(job.value.id, only)
       : await importService.errorReport(job.value.id)
-    saveFile(blob, filename)
+    await saveFile(blob, filename)
   } catch (e) {
     errorMessage.value =
       errorBody(e)?.code === 'import_file_missing'

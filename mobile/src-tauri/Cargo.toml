@@ -62,6 +62,9 @@ base64 = "0.22"
 # Rust HTTP client for the authenticated asset proxy (see src/asset_proxy.rs).
 # rustls-tls matches tauri-plugin-http, already proven on iOS + Android.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# Streams a server file to the share folder (src/share_file.rs). Already in the
+# tree through tauri; this adds the file and write features.
+tokio = { version = "1", features = ["fs", "io-util"] }
 
 # iOS-only: enable WKWebView's native back/forward swipe gesture (see lib.rs).
 [target."cfg(target_os = \"ios\")".dependencies]

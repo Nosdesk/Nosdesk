@@ -5232,7 +5232,6 @@ settings-mfa-backup-codes-description = Bewaar deze back-upcodes op een veilige 
 settings-mfa-backup-codes-download = Downloaden
 settings-mfa-backup-codes-download-tooltip = Back-upcodes als tekstbestand downloaden
 settings-mfa-backup-codes-download-success = Back-upcodes gedownload
-settings-mfa-backup-codes-download-error = Kan back-upcodes niet downloaden
 # .txt-export van herstelcodes, gedeeld door MFA- en passkey-installatie (machine, nagekeken door moedertaalspreker vereist).
 recovery-codes-file-title = Nosdesk herstelcodes
 recovery-codes-file-warning = BELANGRIJK: bewaar deze herstelcodes op een veilige plek.
@@ -8338,6 +8337,8 @@ tickets-row-new-activity-tooltip = Nieuwe activiteit sinds je laatste bezoek
 tickets-row-new-activity-aria = Nieuwe activiteit
 common-confirm-delete-title = Verwijderen bevestigen
 common-toast-dismiss = Sluiten
+# Een bestand bewaren (machine, nog na te kijken door moedertaalspreker)
+common-file-save-failed = Kan het bestand niet opslaan
 common-error-banner-dismiss = Foutmelding sluiten
 common-route-progress-aria = Laden
 common-bulk-actions-aria = Bulkacties

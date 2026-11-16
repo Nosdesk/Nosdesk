@@ -39,18 +39,9 @@ export const backupService = {
     await apiClient.delete(`/admin/backup/jobs/${id}`);
   },
 
-  /**
-   * Download a completed backup
-   */
-  downloadBackup(id: string): void {
-    // Trigger browser download
-    const url = `/api/admin/backup/download/${id}`;
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = '';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  /** Where a completed backup downloads from, for `saveFile`. */
+  downloadPath(id: string): string {
+    return `/api/admin/backup/download/${id}`;
   },
 
   /**

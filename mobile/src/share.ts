@@ -1,12 +1,14 @@
 /**
- * Native share sheet for a file the webview holds in memory.
+ * Native share sheet for a file.
  *
  * In WKWebView / Android WebView `<a download>` does nothing useful and
- * `window.print()` is a no-op, so the bytes go to the OS instead: iOS's sheet
+ * `window.print()` is a no-op, so the file goes to the OS instead: iOS's sheet
  * offers Save to Files, AirDrop, Mail and (for a PDF) Print, Android's chooser
- * lists the apps that take the type. The bytes are first written to the app's
- * cache by the `write_share_file` command (src-tauri/src/share_file.rs), then
- * the `share` plugin (mobile/tauri-plugin-share) opens the sheet on that path.
+ * lists the apps that take the type. The file is first staged in the app's
+ * cache (src-tauri/src/share_file.rs), then the `share` plugin
+ * (mobile/tauri-plugin-share) opens the sheet on that path. Bytes the webview
+ * holds are written by `write_share_file`; a file on the server is downloaded
+ * by `stage_server_file` in Rust, so its bytes never cross the webview.
  */
 import { invoke } from '@tauri-apps/api/core'
 import { platform } from '@tauri-apps/plugin-os'
@@ -37,6 +39,25 @@ export async function shareFile(
   const path = await invoke<string>('write_share_file', body, {
     headers: { 'x-share-filename': encodeURIComponent(filename) },
   })
+  return openShareSheet(path, mimeType)
+}
+
+/**
+ * Share the server file at `path` (a stored `/api/...` or `/uploads/...`
+ * path). Rust downloads it with the session and streams it to the cache, so
+ * a large file never passes through the webview. `filename` names the file;
+ * without one it is named as the server names it. Rejects when the server
+ * refuses the file or can't be reached.
+ */
+export async function shareServerFile(path: string, filename?: string): Promise<ShareResult> {
+  const staged = await invoke<{ path: string; mimeType: string }>('stage_server_file', {
+    path,
+    filename: filename ?? null,
+  })
+  return openShareSheet(staged.path, staged.mimeType)
+}
+
+function openShareSheet(path: string, mimeType: string): Promise<ShareResult> {
   return invoke<ShareResult>('plugin:share|share_file', { payload: { path, mimeType } })
 }
 

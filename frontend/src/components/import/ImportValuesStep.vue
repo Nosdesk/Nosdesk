@@ -27,6 +27,7 @@ import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import Tooltip from '@/components/common/Tooltip.vue'
 import type { DropdownOption } from '@/components/common/dropdownOption'
+import { useFileSave } from '@/composables/useFileSave'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useAuthStore } from '@/stores/auth'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
@@ -117,6 +118,7 @@ const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const { isMobile } = useMobileDetection('md')
 const authStore = useAuthStore()
+const { save: saveFile } = useFileSave()
 
 const lang = typeof document === 'undefined' ? undefined : document.documentElement.lang || undefined
 const fmt = (n: number) => new Intl.NumberFormat(lang).format(n)
@@ -518,17 +520,13 @@ function download(card: Card) {
     [t('import-values-col-value'), t('import-values-col-rows')],
     card.listed.map((e) => e.v),
   )
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
   const stem = card.column.header || card.column.field
-  link.download =
+  void saveFile(
+    new Blob([csv], { type: 'text/csv;charset=utf-8' }),
     card.column.context && !isModel(card.column)
       ? `${stem}-${card.column.context}-values.csv`
-      : `${stem}-values.csv`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(link.href)
+      : `${stem}-values.csv`,
+  )
 }
 
 function toggleMatched(id: string) {

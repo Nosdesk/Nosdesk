@@ -25,6 +25,7 @@ import ImportReviewStep from '@/components/import/ImportReviewStep.vue'
 import DocsImportDetail from '@/components/import/docsImport/DocsImportDetail.vue'
 import { DOCS_JOB_TYPE, type DocsImportJob } from '@nosdesk/core/services/docsImportService'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
+import { saveFile } from '@/platform'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
 import {
   importFieldsQueryKey,
@@ -185,13 +186,7 @@ async function downloadReport(only?: { group?: number; dropped?: number[] }) {
     const { blob, filename } = only
       ? await importService.errorReport(job.value.id, only)
       : await importService.errorReport(job.value.id)
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(link.href)
+    await saveFile(blob, filename)
   } catch (e) {
     const err = e as { response?: { status?: number } }
     if (err?.response?.status === 410) errorMessage.value = t('import-detail-kept-30-days')
@@ -213,13 +208,7 @@ async function downloadPrevious() {
   errorMessage.value = ''
   try {
     const { blob, filename } = await importService.previousValues(job.value.id)
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(link.href)
+    await saveFile(blob, filename)
   } catch (e) {
     const err = e as { response?: { status?: number } }
     errorMessage.value =
