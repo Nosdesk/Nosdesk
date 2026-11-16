@@ -14,6 +14,7 @@ import Button from '@/components/common/Button.vue'
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import { extractErrorMessage } from '@/utils/errors'
+import { saveFile } from '@/platform'
 import { teamsService } from '@nosdesk/core/services/teamsService'
 
 const { $t: t } = useFluent()
@@ -45,13 +46,7 @@ async function download(): Promise<void> {
   downloading.value = true
   error.value = ''
   try {
-    const blob = await teamsService.downloadPackage()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'teams-app.zip'
-    link.click()
-    URL.revokeObjectURL(url)
+    await saveFile(await teamsService.downloadPackage(), 'teams-app.zip')
   } catch (e) {
     error.value = extractErrorMessage(e, t('teams-admin-download-failed'))
   } finally {

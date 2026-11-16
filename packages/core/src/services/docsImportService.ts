@@ -22,6 +22,7 @@
  * `get` follows a job through both background runs.
  */
 import apiClient from '../apiClient'
+import { fileNameFromDisposition } from '../utils/contentDisposition'
 import { withJsonError, type ImportJobState } from './importService'
 
 export const DOCS_JOB_TYPE = 'documentation' as const
@@ -462,9 +463,7 @@ export const docsImportService = {
     const response = await withJsonError(() =>
       apiClient.get<Blob>(`/admin/import/${jobId}/docs/report`, { responseType: 'blob' }),
     )
-    const disposition = String(response.headers['content-disposition'] ?? '')
-    const match = /filename="([^"]+)"/.exec(disposition)
-    return { blob: response.data, filename: match?.[1] ?? 'conversion-report.csv' }
+    return { blob: response.data, filename: fileNameFromDisposition(response.headers['content-disposition'] as string | undefined) ?? 'conversion-report.csv' }
   },
 
   /** Start the commit with the duplicates choice made on Review. */

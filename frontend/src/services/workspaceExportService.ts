@@ -43,14 +43,9 @@ export const workspaceExportService = {
     throw new Error('Export polling timed out');
   },
 
-  /** Trigger the browser download of a completed export's artifact. */
-  downloadExport(id: string): void {
-    const link = document.createElement('a');
-    link.href = `/api/workspace/export/${id}/download`;
-    link.download = '';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  /** Where a completed export's archive downloads from, for `saveFile`. */
+  downloadPath(id: string): string {
+    return `/api/workspace/export/${id}/download`;
   },
 };
 

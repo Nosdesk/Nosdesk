@@ -591,15 +591,11 @@ const copyBackupCodes = async () => {
 // Download recovery codes as a date-stamped text file (shared format
 // with passkey setup, see useRecoveryCodesFile).
 const { downloadRecoveryCodes } = useRecoveryCodesFile();
-const downloadBackupCodes = () => {
+// A failed save has already shown a toast.
+const downloadBackupCodes = async () => {
     if (!mfa.backupCodes.value.length) return;
-
-    try {
-        downloadRecoveryCodes(mfa.backupCodes.value);
+    if (await downloadRecoveryCodes(mfa.backupCodes.value)) {
         emit("success", t("settings-mfa-backup-codes-download-success"));
-    } catch (err) {
-        logger.error("Failed to download backup codes:", err);
-        emit("error", t("settings-mfa-backup-codes-download-error"));
     }
 };
 

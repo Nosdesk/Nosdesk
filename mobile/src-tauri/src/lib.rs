@@ -64,6 +64,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       asset_proxy::set_asset_proxy_session,
       share_file::write_share_file,
+      share_file::stage_server_file,
       oidc_scheme
     ])
     .setup(|app| {

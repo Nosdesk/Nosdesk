@@ -66,9 +66,15 @@ impl AssetProxy {
         }
     }
 
-    fn read(&self) -> (Option<String>, Option<String>) {
+    pub(crate) fn read(&self) -> (Option<String>, Option<String>) {
         let s = self.session.read().unwrap();
         (s.token.clone(), s.base_url.clone())
+    }
+
+    /// The HTTP client the proxy fetches with, for the share sheet's
+    /// downloads (`share_file::stage_server_file`).
+    pub(crate) fn client(&self) -> &reqwest::Client {
+        &self.client
     }
 }
 
@@ -102,9 +108,9 @@ fn status_only(status: StatusCode) -> Response<Cow<'static, [u8]>> {
 
 /// The request the proxy makes for one webview load.
 #[derive(Debug, PartialEq)]
-struct Upstream {
-    url: String,
-    headers: Vec<(header::HeaderName, String)>,
+pub(crate) struct Upstream {
+    pub(crate) url: String,
+    pub(crate) headers: Vec<(header::HeaderName, String)>,
 }
 
 /// The upstream GET for `path`: the API base plus the path, with the bearer
@@ -113,7 +119,7 @@ struct Upstream {
 /// still goes, without a bearer: public files (the workspace's logo on the
 /// sign-in and invitation pages) load, and the server answers 401 for anything
 /// else.
-fn upstream(
+pub(crate) fn upstream(
     token: Option<&str>,
     base_url: Option<&str>,
     path: &str,

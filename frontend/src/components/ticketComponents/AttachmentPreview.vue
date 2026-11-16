@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AssetImg from '@/components/common/AssetImg.vue'
-import LinkButton from '@/components/common/LinkButton.vue'
+import DownloadLink from '@/components/common/DownloadLink.vue'
 import IconButton from '@/components/common/IconButton.vue'
 import { computed, ref, watch, onMounted, onBeforeUnmount, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -13,7 +13,7 @@ import { convertToAuthenticatedPath } from '@/services/fileService';
 import Icon from '@/components/common/Icon.vue';
 import Tooltip from '@/components/common/Tooltip.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import { button } from '@/recipes/button';
+import { button, buttonIconSize } from '@/recipes/button';
 import { useAttachmentSource } from '@/composables/useAttachmentSource';
 import { fetchPdfBytes, loadPdfjs, openPdfDocument } from '@/utils/pdfjs';
 import { usePdfOverlay } from '@/composables/usePdfOverlay';
@@ -522,16 +522,14 @@ const generatePdfThumbnail = async () => {
       :aria-label="$t('ticket-media-attachment-open', { name: getDisplayName(attachment.name) })"
       @click="openImagePreview(authenticatedUrl)"
     ></button>
-    <a
+    <DownloadLink
       v-else
-      :href="authenticatedUrl"
-      target="_blank"
-      rel="noopener"
-      :download="attachment.name"
-      class="absolute inset-0 z-10 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+      :href="attachment.url"
+      :filename="attachment.name"
+      class="absolute inset-0 z-10 flex items-center justify-center rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       :title="$t('ticket-media-attachment-download')"
       :aria-label="`${$t('ticket-media-file-download')} ${getDisplayName(attachment.name)}`"
-    ></a>
+    />
     <div v-if="isPending" class="absolute inset-0 z-20 flex items-center justify-center bg-surface/40 pointer-events-none">
       <Spinner />
     </div>
@@ -570,16 +568,15 @@ const generatePdfThumbnail = async () => {
         </div>
         <div class="flex items-center gap-1 flex-shrink-0">
           <!-- Download button -->
-          <a
-            :href="authenticatedUrl"
-            target="_blank"
-            :download="attachment.name"
+          <DownloadLink
+            :href="attachment.url"
+            :filename="attachment.name"
             class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
             :title="$t('ticket-media-attachment-download')"
             @click.stop
           >
             <Icon name="download" />
-          </a>
+          </DownloadLink>
           <!-- Delete button -->
           <IconButton
             :label="attachmentType === 'audio' ? $t('ticket-media-attachment-delete-audio') : $t('ticket-media-attachment-delete-video')"
@@ -678,16 +675,15 @@ const generatePdfThumbnail = async () => {
         <div
           class="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-25"
         >
-          <a
-            :href="authenticatedUrl"
-            target="_blank"
-            :download="attachment.name"
+          <DownloadLink
+            :href="attachment.url"
+            :filename="attachment.name"
             class="flex items-center gap-1 p-2 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
             :title="$t('ticket-media-attachment-download-image')"
             @click.stop
           >
             <Icon name="download" />
-          </a>
+          </DownloadLink>
         </div>
       </div>
     </template>
@@ -763,17 +759,17 @@ const generatePdfThumbnail = async () => {
         <div 
           class="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-25"
         >
-          <LinkButton
-            :href="authenticatedUrl"
-            target="_blank"
-            :download="attachment.name"
-            size="sm"
-            icon="download"
+          <DownloadLink
+            :href="attachment.url"
+            :filename="attachment.name"
+            :class="button({ size: 'sm' })"
             :title="$t('ticket-media-attachment-download-pdf')"
+            spinner-size="xs"
             @click.stop
           >
-            {{ $t('ticket-media-attachment-pdf-label') }}
-          </LinkButton>
+            <Icon name="download" :size="buttonIconSize('sm')" />
+            <span>{{ $t('ticket-media-attachment-pdf-label') }}</span>
+          </DownloadLink>
         </div>
       </div>
     </template>
@@ -846,15 +842,14 @@ const generatePdfThumbnail = async () => {
           <!-- A link, so the browser saves the file under its name; dressed
                as the icon button beside it. -->
           <Tooltip :text="downloadLabel">
-            <a
-              :href="previewImageSrc"
-              target="_blank"
-              :download="attachment.name"
+            <DownloadLink
+              :href="attachment.url"
+              :filename="attachment.name"
               :class="button({ variant: 'ghost', iconOnly: true })"
               :aria-label="downloadLabel"
             >
               <Icon name="download" />
-            </a>
+            </DownloadLink>
           </Tooltip>
           <!-- Delete lives in the preview (not on the thumbnail on mobile, where
                the hover-only thumbnail button is invisible yet tappable). -->

@@ -27,6 +27,13 @@ import pluginVue from 'eslint-plugin-vue'
 import unusedImports from 'eslint-plugin-unused-imports'
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
 import workspaceQueryKey from './scripts/eslint-rules/workspace-query-key.mjs'
+import fileDownload from './scripts/eslint-rules/file-download.mjs'
+
+// The local rules, as one plugin: flat config refuses two different objects
+// under the same plugin name for a file.
+const nosdesk = {
+  rules: { 'workspace-query-key': workspaceQueryKey, 'file-download': fileDownload },
+}
 
 export default defineConfigWithVueTs(
   {
@@ -149,11 +156,28 @@ export default defineConfigWithVueTs(
       '**/__tests__/**',
       '**/*.spec.ts',
     ],
-    plugins: {
-      nosdesk: { rules: { 'workspace-query-key': workspaceQueryKey } },
-    },
+    plugins: { nosdesk },
     rules: {
       'nosdesk/workspace-query-key': 'warn',
+    },
+  },
+
+  // Files are saved through the platform (src/platform/files.ts): the mobile
+  // app's webview ignores `<a download>`, so a raw download link saves nothing
+  // there. A local rule for the same reason as the one above: the template
+  // and script checks share one severity and don't replace the assetUrl
+  // block's `vue/no-restricted-v-bind` and `no-restricted-syntax`.
+  {
+    files: ['src/**/*.vue', 'src/**/*.ts'],
+    ignores: [
+      'src/components/common/DownloadLink.vue',
+      'src/platform/files.ts',
+      '**/__tests__/**',
+      '**/*.spec.ts',
+    ],
+    plugins: { nosdesk },
+    rules: {
+      'nosdesk/file-download': 'error',
     },
   },
 )

@@ -10,6 +10,7 @@ import { usePageTitle } from '@/composables/usePageTitle'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useSyncDocsStore, type DocPageRow } from '@nosdesk/core/sync/stores/documentation'
 import { useClipboard } from '@/composables/useClipboard'
+import { useFileSave } from '@/composables/useFileSave'
 import { useDocumentPanelState } from '@/composables/useDocumentPanelState'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { buildCollabDocId } from '@nosdesk/core/utils/collabDocId'
@@ -43,6 +44,7 @@ import { useToastStore } from '@nosdesk/core/stores/toast'
 const route = useRoute()
 const router = useRouter()
 const fluent = useFluent()
+const { save: saveFile } = useFileSave()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 // Pull-to-refresh (Tauri app) binds to the outer scroll container. The
@@ -392,15 +394,8 @@ const exportAsMarkdown = async () => {
   try {
     const blob = await documentationService.exportPageMarkdown(currentPageId.value)
     if (!blob) return
-    const url = URL.createObjectURL(blob)
-    const a = window.document.createElement('a')
-    a.href = url
     const filename = (document.value?.slug || document.value?.title?.toLowerCase().replace(/\s+/g, '-') || 'document') + '.md'
-    a.download = filename
-    window.document.body.appendChild(a)
-    a.click()
-    window.document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    await saveFile(blob, filename)
   } catch (err) {
     console.error('Failed to export markdown:', err)
   }

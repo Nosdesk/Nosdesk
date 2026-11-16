@@ -5,6 +5,8 @@ import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pa
 import { logger } from '@nosdesk/core/utils/logger';
 import { RequestManager } from '@nosdesk/core/utils/requestManager';
 import { isCancellation } from '@nosdesk/core/utils/cancellation';
+import { fileNameFromDisposition } from '@nosdesk/core/utils/contentDisposition';
+import { saveFile } from '@/platform';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();
@@ -143,16 +145,6 @@ function assetExportParams(
   return params;
 }
 
-function filenameFromContentDisposition(
-  header: string | undefined,
-  fallback: string,
-): string {
-  if (!header) return fallback;
-  const match = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(header);
-  const raw = match?.[1]?.trim();
-  return raw ? decodeURIComponent(raw.replace(/^"|"$/g, '')) : fallback;
-}
-
 async function messageFromErrorBlob(blob: Blob): Promise<string | null> {
   const text = (await blob.text()).trim();
   if (!text) return null;
@@ -175,17 +167,10 @@ async function downloadCsv(
   try {
     const response = await apiClient.get(url, { params, responseType: 'blob' });
     const blob = response.data as Blob;
-    const filename = filenameFromContentDisposition(
-      response.headers['content-disposition'] as string | undefined,
-      fallbackName,
-    );
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
+    const filename =
+      fileNameFromDisposition(response.headers['content-disposition'] as string | undefined) ??
+      fallbackName;
+    await saveFile(blob, filename);
   } catch (error) {
     const err = error as { response?: { data?: Blob } };
     if (err.response?.data instanceof Blob) {

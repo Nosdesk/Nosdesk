@@ -132,6 +132,7 @@ import Button from '@/components/common/Button.vue';
 import Icon from '@/components/common/Icon.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import { useFileSave } from '@/composables/useFileSave';
 import { getServerVersion, isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig';
 import {
   workspaceExportService,
@@ -139,6 +140,7 @@ import {
 } from '@/services/workspaceExportService';
 
 const fluent = useFluent();
+const { save: saveFile } = useFileSave();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const toast = useToastStore();
 
@@ -256,7 +258,7 @@ async function requestExport() {
 }
 
 function download() {
-  if (job.value?.id) workspaceExportService.downloadExport(job.value.id);
+  if (job.value?.id) void saveFile(workspaceExportService.downloadPath(job.value.id));
 }
 
 async function refresh() {
