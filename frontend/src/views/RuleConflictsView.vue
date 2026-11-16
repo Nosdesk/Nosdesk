@@ -45,8 +45,8 @@ const ruleOf = (id: number): RuleConflictRule | undefined => rulesById.value.get
 const ruleName = (id: number) =>
   ruleOf(id)?.name ?? t('admin-rules-activity-rule-unknown', { id });
 
-/** The `ticket.*` keys a rule writes, as the words an admin knows. Status
- *  and its category read as one field. */
+/** The keys a rule writes, as the words an admin knows. Status and its
+ *  category read as one field. */
 const FIELD_KEYS: Record<string, string> = {
   'ticket.workflow_state_id': 'admin-rules-conflicts-field-status',
   'ticket.workflow_state.category': 'admin-rules-conflicts-field-status',
@@ -57,6 +57,8 @@ const FIELD_KEYS: Record<string, string> = {
   'ticket.resolved_at': 'admin-rules-conflicts-field-resolved',
   'ticket.first_response_at': 'admin-rules-conflicts-field-first-response',
   'ticket.comments': 'admin-rules-conflicts-field-replies',
+  'asset.custody': 'admin-rules-conflicts-field-asset-custody',
+  'asset.loan': 'admin-rules-conflicts-field-asset-loan',
 };
 
 const lang = typeof document === 'undefined' ? undefined : document.documentElement.lang || undefined;

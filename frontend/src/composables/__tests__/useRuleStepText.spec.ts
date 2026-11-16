@@ -69,4 +69,38 @@ describe('useRuleStepText', () => {
   it('leaves a tag it cannot name unquoted and counted', () => {
     expect(stepText('en-US').planned(addTags({ tag_ids: [99] }))).toBe('Add a tag')
   })
+
+  it('says what an asset step will do', () => {
+    const { planned } = stepText('en-US')
+    const step = (kind: RuleAction['kind'], config: Record<string, unknown> = {}) => planned({ kind, config })
+    expect(step('assign_assets_to_requester')).toBe('Assign the linked assets to the requester')
+    expect(step('lend_assets')).toBe('Lend the linked assets to the requester')
+    expect(step('lend_assets', { due_in_days: 14 })).toBe('Lend the linked assets to the requester for 14 days')
+    expect(step('return_requester_assets')).toBe("Take back the requester's loans and assets")
+  })
+
+  it('says what an asset step did, and when it found nothing', () => {
+    const { done } = stepText('en-US')
+    expect(done({ kind: 'assign_assets_to_requester', asset_ids: [] })).toBe('Found no linked assets')
+    expect(done({ kind: 'assign_assets_to_requester', asset_ids: [1, 2], unchanged_asset_ids: [] })).toBe(
+      'Assigned 2 assets to the requester',
+    )
+    expect(done({ kind: 'assign_assets_to_requester', asset_ids: [], unchanged_asset_ids: [1] })).toBe(
+      'Left the linked assets as they were',
+    )
+    expect(done({ kind: 'lend_assets', asset_ids: [], loan_ids: [] })).toBe('Found no linked assets')
+    expect(done({ kind: 'lend_assets', asset_ids: [5], loan_ids: [9] })).toBe('Lent one asset to the requester')
+    expect(done({ kind: 'return_requester_assets', loan_ids: [], cleared_asset_ids: [] })).toBe(
+      'The requester had no loans or assets to take back',
+    )
+    expect(done({ kind: 'return_requester_assets', loan_ids: [1], cleared_asset_ids: [2, 3] })).toBe(
+      'Took back one loan and 2 assets from the requester',
+    )
+  })
+
+  it('reads the asset steps in French and Dutch', () => {
+    const entry = { kind: 'return_requester_assets', loan_ids: [1, 2], cleared_asset_ids: [3] }
+    expect(stepText('fr-FR').done(entry)).toBe('Récupéré auprès du demandeur : 2 prêts et 1 ressource')
+    expect(stepText('nl-NL').done(entry)).toBe('Van de aanvrager teruggenomen: 2 uitleningen en één activum')
+  })
 })

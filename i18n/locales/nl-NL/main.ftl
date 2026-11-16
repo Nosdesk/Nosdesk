@@ -11772,3 +11772,45 @@ admin-rules-activity-row-dry-run = Testrun op ticket #{ $ticket_id }
 admin-rules-activity-what-it-would-do = Wat de regel zou hebben gedaan
 admin-rules-activity-filter-all-rules = Alle regels
 admin-rules-activity-filter-rule = Regel
+
+# Regels: stappen op de gekoppelde activa van een ticket en die van de aanvrager (machine, nog na te kijken door moedertaalspreker).
+admin-rule-editor-action-assign-assets-to-requester = Gekoppelde activa aan de aanvrager toewijzen
+admin-rule-editor-action-lend-assets = Gekoppelde activa aan de aanvrager uitlenen
+admin-rule-editor-action-return-requester-assets = Activa van de aanvrager terugnemen
+admin-rule-editor-assets-assign-hint = Elk activum dat aan het ticket is gekoppeld krijgt de aanvrager als gebruiker, en een activum dat nog niet in gebruik is gaat in gebruik. Activa die vanuit een ander systeem worden gesynchroniseerd blijven zoals ze zijn.
+admin-rule-editor-assets-lend-hint = Elk activum dat aan het ticket is gekoppeld wordt aan de aanvrager uitgeleend, en de uitlening wordt aan het ticket gekoppeld. Een activum dat al aan deze persoon is uitgeleend blijft zoals het is.
+admin-rule-editor-assets-return-hint = Voor uitdiensttreding. Elke lopende uitlening van de aanvrager komt terug, en elk activum dat deze persoon gebruikt gaat terug naar de voorraad zonder gebruiker. Activa die vanuit een ander systeem worden gesynchroniseerd houden de gebruiker die dat systeem ze geeft.
+admin-rule-editor-assets-due-label = Terug na (dagen)
+admin-rule-editor-assets-due-hint = Laat leeg voor een uitlening zonder retourdatum.
+ticket-actions-step-assign-assets = De gekoppelde activa aan de aanvrager toewijzen
+ticket-actions-step-lend-assets = De gekoppelde activa aan de aanvrager uitlenen
+ticket-actions-step-lend-assets-days =
+    { $days ->
+        [one] De gekoppelde activa voor één dag aan de aanvrager uitlenen
+       *[other] De gekoppelde activa voor { $days } dagen aan de aanvrager uitlenen
+    }
+ticket-actions-step-return-assets = De uitleningen en activa van de aanvrager terugnemen
+admin-rules-activity-did-assets-none = Geen gekoppelde activa gevonden
+admin-rules-activity-did-assign-assets =
+    { $count ->
+        [0] De gekoppelde activa bleven zoals ze waren
+        [one] Eén activum aan de aanvrager toegewezen
+       *[other] { $count } activa aan de aanvrager toegewezen
+    }
+admin-rules-activity-did-lend-assets =
+    { $count ->
+        [0] Niets nieuws uitgeleend, want de gekoppelde activa waren al aan de aanvrager uitgeleend
+        [one] Eén activum aan de aanvrager uitgeleend
+       *[other] { $count } activa aan de aanvrager uitgeleend
+    }
+admin-rules-activity-did-return-assets-none = De aanvrager had geen uitleningen of activa om terug te nemen
+admin-rules-activity-did-return-assets =
+    Van de aanvrager teruggenomen: { $loans ->
+        [one] één uitlening
+       *[other] { $loans } uitleningen
+    } en { $cleared ->
+        [one] één activum
+       *[other] { $cleared } activa
+    }
+admin-rules-conflicts-field-asset-custody = gebruikers van activa
+admin-rules-conflicts-field-asset-loan = uitleningen van activa
