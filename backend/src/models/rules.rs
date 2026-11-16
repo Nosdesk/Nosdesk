@@ -248,6 +248,12 @@ pub struct Rule {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub archived_at: Option<DateTime<Utc>>,
+    /// Events the engine turned away before any rule ran: the ticket was
+    /// held for approval, or merged. No application row records these.
+    pub skipped_preflight_count: i64,
+    /// Events a live rule skipped because the ticket didn't meet its
+    /// conditions. A dry run records these as rows instead.
+    pub skipped_condition_unmet_count: i64,
 }
 
 impl Rule {

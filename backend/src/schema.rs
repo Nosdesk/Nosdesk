@@ -1479,6 +1479,7 @@ diesel::table! {
         next_attempt_at -> Timestamptz,
         last_error -> Nullable<Text>,
         dead_at -> Nullable<Timestamptz>,
+        rerun -> Bool,
     }
 }
 
@@ -1531,6 +1532,8 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         archived_at -> Nullable<Timestamptz>,
+        skipped_preflight_count -> Int8,
+        skipped_condition_unmet_count -> Int8,
     }
 }
 
@@ -1870,6 +1873,7 @@ diesel::table! {
         rule_id -> Int4,
         fired_at -> Timestamptz,
         workspace_id -> Int4,
+        sync_id -> Int8,
     }
 }
 

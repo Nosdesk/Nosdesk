@@ -183,6 +183,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             archived_at: None,
+            skipped_preflight_count: 0,
+            skipped_condition_unmet_count: 0,
         }
     }
 

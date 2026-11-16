@@ -102,7 +102,7 @@ pub struct CommentCreationAnnotation {
 
 /// "Staff" post-W2: workspace owner/admin/agent in `workspace_id`, or any
 /// platform admin.
-fn is_workspace_staff(conn: &mut DbConnection, user: uuid::Uuid, workspace_id: i32) -> bool {
+pub fn is_workspace_staff(conn: &mut DbConnection, user: uuid::Uuid, workspace_id: i32) -> bool {
     use crate::schema::{users, workspace_members};
     diesel::dsl::select(diesel::dsl::exists(
         users::table.filter(users::uuid.eq(user)).filter(

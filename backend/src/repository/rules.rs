@@ -550,7 +550,36 @@ pub struct ApplyContext<'a> {
     /// Indexes the ticket and, when a step closes a recurring one, its
     /// next occurrence.
     pub observer: Option<&'a dyn crate::repository::tickets::TicketUpdatedObserver>,
+    /// The engine's recursion budget (decision D4): before any step runs, the
+    /// run takes the rule's slot on the ticket for its chain of events.
+    pub budget: Option<RunBudget>,
+    /// How long the run waits for the ticket's lock. A run that gives up
+    /// fails with a transient error, which the engine retries.
+    pub lock_timeout: Option<std::time::Duration>,
+    /// The caller runs the event again after a transient database error, so
+    /// that failure leaves no `failed` row. The engine clears it on an
+    /// event's last attempt.
+    pub retries: bool,
+    /// The event came from an automated email (an auto-reply, a mailing
+    /// list), so a rule that would email the requester is suppressed rather
+    /// than answer it (plan 11.3).
+    pub automated_source: bool,
 }
+
+/// A run's place in a chain of events: the event the chain started from
+/// (`root_id`, carried as the correlation id of every write in the chain)
+/// and the event the run reacts to. A rule runs at most once per chain on a
+/// ticket, and a chain runs at most [`CHAIN_RULE_CAP`] rules on one ticket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunBudget {
+    pub root_id: Uuid,
+    pub sync_id: i64,
+}
+
+/// The most rule runs one chain of events makes on one ticket (plan 11.1).
+/// Counted per ticket so a bulk edit of many tickets in one request, which
+/// shares a correlation id, is not one chain.
+pub const CHAIN_RULE_CAP: i64 = 50;
 
 impl<'a> ApplyContext<'a> {
     /// A run that writes, with nothing else recorded.
@@ -566,6 +595,10 @@ impl<'a> ApplyContext<'a> {
             condition_evaluation: None,
             causation_id: None,
             observer: None,
+            budget: None,
+            lock_timeout: None,
+            retries: false,
+            automated_source: false,
         }
     }
 }
@@ -596,10 +629,12 @@ pub struct ApplyOutcome {
 #[derive(Debug)]
 pub struct RunFailed {
     pub error: ApplyError,
-    /// The `failed` application row. Only an automated run that passed its
-    /// preflight leaves one: an agent sees the error instead, and a rule or
-    /// ticket the preflight turned away (gone, no longer live, merged) has
-    /// nothing to record. `None` too if writing the row failed (logged).
+    /// The `failed` or `suppressed_*` application row. Only an automated run
+    /// that passed its preflight leaves one: an agent sees the error instead,
+    /// and a rule or ticket the preflight turned away (gone, no longer live,
+    /// merged) has nothing to record. Neither does a run the caller will
+    /// retry (a transient error with `retries` set) or one that already ran
+    /// for the event. `None` too if writing the row failed (logged).
     pub recorded: Option<Box<RuleApplication>>,
 }
 
@@ -648,11 +683,44 @@ pub enum ApplyError {
     /// An asset step met an asset in a state the step can't move it from.
     #[error("Step {index}: {message}")]
     AssetRefused { index: usize, message: String },
+    /// The rule already ran for this event, on an earlier attempt at it.
+    #[error("rule {0} already ran for this event")]
+    AlreadyRan(i32),
+    /// The rule already ran on the ticket earlier in this chain of events.
+    #[error("the rule already ran on this ticket in this chain of events")]
+    RanInChain,
+    /// The chain of events already ran [`CHAIN_RULE_CAP`] rules on the ticket.
+    #[error(
+        "this chain of events already ran {CHAIN_RULE_CAP} rules on the ticket, the most it may"
+    )]
+    ChainCap,
+    /// The rule would email the requester in answer to an automated email.
+    #[error("the event came from an automated email (an auto-reply or a mailing list), and answering it could start a mail loop")]
+    AutomatedSource,
     #[error("database error: {0}")]
     Db(#[from] diesel::result::Error),
 }
 
 impl ApplyError {
+    /// A database failure that may pass when the run is tried again (see
+    /// [`crate::db::is_transient_error`]).
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::Db(e) if crate::db::is_transient_error(e))
+    }
+
+    /// The application row an automated run that failed this way leaves,
+    /// if any.
+    fn recorded_status(&self) -> Option<RuleApplicationStatus> {
+        match self {
+            Self::AlreadyRan(_) => None,
+            Self::RanInChain => Some(RuleApplicationStatus::SuppressedRecursionBudget),
+            Self::ChainCap | Self::AutomatedSource => {
+                Some(RuleApplicationStatus::SuppressedLoopGuard)
+            }
+            _ => Some(RuleApplicationStatus::Failed),
+        }
+    }
+
     /// Whether the message already names the step it failed at.
     fn names_step(&self) -> bool {
         matches!(
@@ -702,7 +770,10 @@ struct RunProgress {
 /// trigger `ctx.source` serves. A shadow run checks each step as the real
 /// run would and writes only its `dry_run` application row: no ticket
 /// change, no fire count, no sync action. A failed automated run is rolled
-/// back, then recorded as a `failed` row in a transaction of its own.
+/// back, then recorded as a `failed` row in a transaction of its own,
+/// unless the error is transient and the caller retries. With a budget, the
+/// run first takes its slot for the chain of events, and a run the budget
+/// refuses is recorded as suppressed.
 pub fn run_rule_on_ticket(
     conn: &mut DbConnection,
     ctx: ApplyContext,
@@ -720,12 +791,17 @@ pub fn run_rule_on_ticket(
         Ok(outcome) => return Ok(outcome),
         Err(error) => error,
     };
-    let recorded = match progress.rule_version {
-        Some(rule_version) if ctx.source != ApplySource::Manual => record_failure(
+    let status = match error.recorded_status() {
+        Some(RuleApplicationStatus::Failed) if ctx.retries && error.is_transient() => None,
+        status => status,
+    };
+    let recorded = match (progress.rule_version, status) {
+        (Some(rule_version), Some(status)) if ctx.source != ApplySource::Manual => record_failure(
             conn,
             &ctx,
             workspace_id,
             rule_version,
+            status,
             &error,
             progress.step,
         ),
@@ -744,13 +820,16 @@ fn application_actor_kind(actor: &ActorContext) -> String {
     .to_string()
 }
 
-/// The `failed` row for a run that rolled back. Its own transaction, as
-/// the run's actor, so it carries the run's correlation id.
+/// The row for a run that rolled back: `failed`, or a suppression. Its own
+/// transaction, as the run's actor, so it carries the run's correlation id.
+/// A failed or loop-guarded run still takes its budget slot, so a retried
+/// event doesn't record it twice.
 fn record_failure(
     conn: &mut DbConnection,
     ctx: &ApplyContext,
     workspace_id: i32,
     rule_version: i32,
+    status: RuleApplicationStatus,
     error: &ApplyError,
     step: Option<usize>,
 ) -> Option<Box<RuleApplication>> {
@@ -763,7 +842,7 @@ fn record_failure(
         rule_id: ctx.rule_id,
         rule_version,
         ticket_id: ctx.ticket_id,
-        status: RuleApplicationStatus::Failed,
+        status,
         correlation_id: ctx.actor.correlation_id,
         actor_uuid: ctx.actor.uuid,
         actor_kind: application_actor_kind(ctx.actor),
@@ -774,7 +853,14 @@ fn record_failure(
         actions_skipped: None,
         failure_reason: Some(failure_reason),
     };
-    match with_actor_context(conn, ctx.actor, |conn| record_application(conn, new)) {
+    let holds_slot = matches!(error, ApplyError::AutomatedSource | ApplyError::ChainCap)
+        || status == RuleApplicationStatus::Failed;
+    match with_actor_context(conn, ctx.actor, |conn| {
+        if let (Some(budget), true) = (ctx.budget, holds_slot) {
+            hold_slot(conn, workspace_id, budget, ctx.ticket_id, ctx.rule_id)?;
+        }
+        record_application(conn, new)
+    }) {
         Ok(row) => Some(Box::new(row)),
         Err(e) => {
             tracing::warn!(
@@ -785,6 +871,228 @@ fn record_failure(
             );
             None
         }
+    }
+}
+
+/// The rule's current version: the newest `rule_versions` row, which the
+/// save triggers write (v1 at least).
+pub fn current_version(conn: &mut DbConnection, rule_id: i32) -> QueryResult<i32> {
+    use crate::schema::rule_versions::dsl;
+    Ok(dsl::rule_versions
+        .filter(dsl::rule_id.eq(rule_id))
+        .select(diesel::dsl::max(dsl::version))
+        .first::<Option<i32>>(conn)?
+        .unwrap_or(1))
+}
+
+/// Whether a rule has a step that emails the requester: a public reply.
+fn emails_requester(actions: &Value) -> bool {
+    actions.as_array().into_iter().flatten().any(|step| {
+        let config = step.get("config");
+        match step.get("kind").and_then(Value::as_str) {
+            Some("reply") => {
+                config
+                    .and_then(|c| c.get("visibility"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("public")
+                    != "internal"
+            }
+            Some("notify") => true,
+            _ => false,
+        }
+    })
+}
+
+/// What a run's claim on the recursion budget came to.
+enum Slot {
+    Taken,
+    /// This rule's slot holds this very event: it ran on an earlier attempt.
+    AlreadyRan,
+    /// Another event in the chain already ran the rule on the ticket.
+    RanInChain,
+    /// The chain ran [`CHAIN_RULE_CAP`] rules on the ticket.
+    ChainCap,
+}
+
+/// Take the rule's slot on the ticket for the budget's chain, under the
+/// cap. In the run's transaction, so a run that rolls back gives it back.
+fn take_slot(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    budget: RunBudget,
+    ticket_id: i32,
+    rule_id: i32,
+) -> QueryResult<Slot> {
+    use crate::schema::ticket_rule_runs::dsl;
+    use diesel::sql_types::{Integer, Uuid as SqlUuid};
+    let taken = diesel::sql_query(
+        "INSERT INTO ticket_rule_runs (root_id, ticket_id, rule_id, workspace_id, sync_id) \
+         SELECT $1, $2, $3, $4, $5 \
+         WHERE (SELECT count(*) FROM ticket_rule_runs WHERE root_id = $1 AND ticket_id = $2) < $6 \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind::<SqlUuid, _>(budget.root_id)
+    .bind::<Integer, _>(ticket_id)
+    .bind::<Integer, _>(rule_id)
+    .bind::<Integer, _>(workspace_id)
+    .bind::<BigInt, _>(budget.sync_id)
+    .bind::<BigInt, _>(CHAIN_RULE_CAP)
+    .execute(conn)?;
+    if taken > 0 {
+        return Ok(Slot::Taken);
+    }
+    let holder: Option<i64> = dsl::ticket_rule_runs
+        .filter(dsl::root_id.eq(budget.root_id))
+        .filter(dsl::ticket_id.eq(ticket_id))
+        .filter(dsl::rule_id.eq(rule_id))
+        .select(dsl::sync_id)
+        .first(conn)
+        .optional()?;
+    Ok(match holder {
+        Some(sync_id) if sync_id == budget.sync_id => Slot::AlreadyRan,
+        Some(_) => Slot::RanInChain,
+        None => Slot::ChainCap,
+    })
+}
+
+/// Take the rule's slot whatever the cap, for a run that ended in a row of
+/// its own (failed, loop-guarded), so a retry of the event skips it.
+fn hold_slot(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    budget: RunBudget,
+    ticket_id: i32,
+    rule_id: i32,
+) -> QueryResult<usize> {
+    use crate::schema::ticket_rule_runs::dsl;
+    diesel::insert_into(dsl::ticket_rule_runs)
+        .values((
+            dsl::root_id.eq(budget.root_id),
+            dsl::ticket_id.eq(ticket_id),
+            dsl::rule_id.eq(rule_id),
+            dsl::workspace_id.eq(workspace_id),
+            dsl::sync_id.eq(budget.sync_id),
+        ))
+        .on_conflict_do_nothing()
+        .execute(conn)
+}
+
+// sync-audit-only: recursion budget bookkeeping, no entity sync
+/// Delete budget rows taken before `older_than`. Every workspace's, so the
+/// caller runs it with row security bypassed.
+pub fn sweep_budget(
+    conn: &mut DbConnection,
+    older_than: chrono::DateTime<chrono::Utc>,
+) -> QueryResult<usize> {
+    use crate::schema::ticket_rule_runs::dsl;
+    diesel::delete(dsl::ticket_rule_runs.filter(dsl::fired_at.lt(older_than))).execute(conn)
+}
+
+/// The live and dry-run rules `kind` runs, in the order they run: priority,
+/// then age.
+pub fn event_candidates(conn: &mut DbConnection, kind: RuleTriggerKind) -> QueryResult<Vec<Rule>> {
+    use crate::schema::rules::dsl;
+    dsl::rules
+        .filter(dsl::archived_at.is_null())
+        .filter(dsl::trigger_kind.eq(kind))
+        .filter(dsl::state.eq_any([RuleState::Live, RuleState::DryRun]))
+        .order((dsl::priority.asc(), dsl::id.asc()))
+        .load(conn)
+}
+
+/// The `sync_id` of the ticket's newest `ticket.created`: the one its
+/// workspace saw (a guest ticket records another when it is confirmed).
+pub fn created_event(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Option<i64>> {
+    use crate::schema::sync_actions;
+    sync_actions::table
+        .filter(sync_actions::aggregate.eq(SyncAggregate::Ticket))
+        .filter(sync_actions::aggregate_id.eq(ticket_id.to_string()))
+        .filter(sync_actions::event_type.eq("ticket.created"))
+        .order(sync_actions::sync_id.desc())
+        .select(sync_actions::sync_id)
+        .first(conn)
+        .optional()
+}
+
+/// Whether the ticket's `ticket.created` was recorded in transaction
+/// `xid8`: a comment written in it is the message that opened the ticket,
+/// not a reply.
+pub fn written_with_ticket(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    xid8: i64,
+) -> QueryResult<bool> {
+    use crate::schema::sync_actions;
+    diesel::select(diesel::dsl::exists(
+        sync_actions::table
+            .filter(sync_actions::aggregate.eq(SyncAggregate::Ticket))
+            .filter(sync_actions::aggregate_id.eq(ticket_id.to_string()))
+            .filter(sync_actions::event_type.eq("ticket.created"))
+            .filter(sync_actions::xid8.eq(xid8)),
+    ))
+    .get_result(conn)
+}
+
+// sync-audit-only: queues an engine run of an event already recorded, no entity sync
+/// Queue event `sync_id` for the rules engine again, marked as a rerun so
+/// its age doesn't turn it away. An event still in the outbox, dead-lettered
+/// included, is made due again with fresh attempts; a rule that already ran
+/// for it is skipped by its budget slot. Wakes the dispatcher once the
+/// caller commits.
+pub fn queue_rerun(conn: &mut DbConnection, sync_id: i64, workspace_id: i32) -> QueryResult<usize> {
+    use crate::schema::rule_event_outbox::dsl;
+    let queued = diesel::insert_into(dsl::rule_event_outbox)
+        .values((
+            dsl::sync_id.eq(sync_id),
+            dsl::workspace_id.eq(workspace_id),
+            dsl::rerun.eq(true),
+        ))
+        .on_conflict(dsl::sync_id)
+        .do_update()
+        .set((
+            dsl::rerun.eq(true),
+            dsl::attempts.eq(0),
+            dsl::claimed_at.eq(None::<chrono::DateTime<chrono::Utc>>),
+            dsl::next_attempt_at.eq(diesel::dsl::now),
+            dsl::last_error.eq(None::<String>),
+            dsl::dead_at.eq(None::<chrono::DateTime<chrono::Utc>>),
+        ))
+        .execute(conn)?;
+    if queued > 0 {
+        diesel::sql_query("SELECT pg_notify('rule_event_outbox_new', '')").execute(conn)?;
+    }
+    Ok(queued)
+}
+
+/// Which of a rule's skip counters to bump.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkipCount {
+    /// The engine turned the event away before any rule ran.
+    Preflight,
+    /// A live rule's conditions weren't met.
+    ConditionUnmet,
+}
+
+// sync-audit-only: skip counters are rule statistics outside the version trigger, no entity sync
+/// Count one skipped event on each of `rule_ids`. Skips that leave no
+/// application row are counted here instead (decision D11).
+pub fn count_skips(
+    conn: &mut DbConnection,
+    rule_ids: &[i32],
+    count: SkipCount,
+) -> QueryResult<usize> {
+    use crate::schema::rules::dsl;
+    if rule_ids.is_empty() {
+        return Ok(0);
+    }
+    let target = dsl::rules.filter(dsl::id.eq_any(rule_ids));
+    match count {
+        SkipCount::Preflight => diesel::update(target)
+            .set(dsl::skipped_preflight_count.eq(dsl::skipped_preflight_count + 1))
+            .execute(conn),
+        SkipCount::ConditionUnmet => diesel::update(target)
+            .set(dsl::skipped_condition_unmet_count.eq(dsl::skipped_condition_unmet_count + 1))
+            .execute(conn),
     }
 }
 
@@ -799,6 +1107,11 @@ fn run_locked(
     use crate::schema::tickets::dsl as t;
 
     let shadow = ctx.shadow;
+    if let Some(timeout) = ctx.lock_timeout {
+        diesel::sql_query("SELECT set_config('lock_timeout', $1, true)")
+            .bind::<diesel::sql_types::Text, _>(format!("{}ms", timeout.as_millis().max(1)))
+            .execute(conn)?;
+    }
     diesel::sql_query("SELECT pg_advisory_xact_lock($1)")
         .bind::<BigInt, _>(advisory_key(workspace_id, ctx.ticket_id))
         .execute(conn)?;
@@ -843,18 +1156,20 @@ fn run_locked(
         return Err(ApplyError::TicketMerged(ticket.number));
     }
 
-    // rule_version is the current version after the last save;
-    // pull from rule_versions max(version) for this rule. The
-    // migration trigger guarantees a v1 row at minimum.
-    let rule_version: i32 = {
-        use crate::schema::rule_versions::dsl;
-        dsl::rule_versions
-            .filter(dsl::rule_id.eq(rule.id))
-            .select(diesel::dsl::max(dsl::version))
-            .first::<Option<i32>>(conn)?
-            .unwrap_or(1)
-    };
+    let rule_version = current_version(conn, rule.id)?;
     progress.rule_version = Some(rule_version);
+
+    if ctx.automated_source && emails_requester(&rule.actions) {
+        return Err(ApplyError::AutomatedSource);
+    }
+    if let Some(budget) = ctx.budget {
+        match take_slot(conn, workspace_id, budget, ticket.id, rule.id)? {
+            Slot::Taken => {}
+            Slot::AlreadyRan => return Err(ApplyError::AlreadyRan(rule.id)),
+            Slot::RanInChain => return Err(ApplyError::RanInChain),
+            Slot::ChainCap => return Err(ApplyError::ChainCap),
+        }
+    }
 
     let Some(actions) = rule.actions.as_array() else {
         return Err(ApplyError::ActionFailed {
@@ -963,6 +1278,10 @@ fn run_locked(
                     // No-op for manual apply; only meaningful inside
                     // an event-chain run loop.
                     json!({ "index": one_based, "kind": kind, "note": "no-op for manual apply" })
+                } else if shadow {
+                    // A dry run doesn't stop the rules after it; it records
+                    // that it would have.
+                    json!({ "index": one_based, "kind": kind, "would_stop_processing": true })
                 } else {
                     json!({ "index": one_based, "kind": kind })
                 }

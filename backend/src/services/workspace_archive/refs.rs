@@ -501,7 +501,11 @@ pub const NO_IDS: &[(&str, &str, &str)] = &[
         "actions_skipped",
         "step indexes and reasons",
     ),
-    ("rule_applications", "condition_evaluation", "always NULL"),
+    (
+        "rule_applications",
+        "condition_evaluation",
+        "whether the conditions matched, the trigger, event type, changed field names and reply kind",
+    ),
     (
         "rules",
         "trigger_config",

@@ -47,6 +47,20 @@ impl From<diesel::result::Error> for DecideError {
     }
 }
 
+/// Whether `ticket` waits for approval in a workspace that holds waiting
+/// requests back: neither routed nor run through event rules until approved.
+pub fn held_for_approval(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<bool> {
+    if ticket.approval_state.as_deref() != Some(PENDING) {
+        return Ok(false);
+    }
+    use crate::schema::site_settings;
+    Ok(site_settings::table
+        .select(site_settings::approval_waiting_display)
+        .first::<String>(conn)
+        .optional()?
+        .is_some_and(|display| display == "held"))
+}
+
 /// What staff are told when they try to resolve a request still waiting.
 pub const WAITING_MESSAGE: &str =
     "This request is waiting for approval. Approve it or skip the approval first.";

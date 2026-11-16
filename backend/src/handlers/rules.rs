@@ -247,6 +247,12 @@ pub struct RuleDto {
     pub created_at: chrono::DateTime<Utc>,
     pub updated_at: chrono::DateTime<Utc>,
     pub archived_at: Option<chrono::DateTime<Utc>>,
+    /// Events turned away before any rule ran (the ticket was held for
+    /// approval, or merged), which leave no application row.
+    pub skipped_preflight_count: i64,
+    /// Events a live rule skipped because the ticket didn't meet its
+    /// conditions, which leave no application row.
+    pub skipped_condition_unmet_count: i64,
 }
 
 impl From<Rule> for RuleDto {
@@ -270,6 +276,8 @@ impl From<Rule> for RuleDto {
             created_at: r.created_at,
             updated_at: r.updated_at,
             archived_at: r.archived_at,
+            skipped_preflight_count: r.skipped_preflight_count,
+            skipped_condition_unmet_count: r.skipped_condition_unmet_count,
         }
     }
 }
@@ -1178,8 +1186,7 @@ pub async fn apply_rule(
     // notes never relay.
     if let (Some(cid), Some(workspace_id)) = (outcome.comment_id, actor.workspace_id) {
         if let Err(e) =
-            dispatch_rule_reply_for_relay(&pool, workspace_id, ticket_id, cid, &outcome.application)
-                .await
+            crate::services::rules::engine::relay_reply(&pool, workspace_id, ticket_id, cid)
         {
             tracing::warn!(error = %e, comment_id = cid, "rule reply channel relay enqueue failed");
         }
@@ -1224,63 +1231,6 @@ pub async fn apply_rule(
     }))
 }
 
-/// Mirror the comment-handler's channel-relay enqueue for a rule-
-/// driven public reply. Loads the ticket + comment fresh from the
-/// pool, in the ticket's workspace, so the spawn body owns them; the
-/// apply transaction has already committed by this point, so the
-/// rows are stable.
-async fn dispatch_rule_reply_for_relay(
-    pool: &web::Data<Pool>,
-    workspace_id: i32,
-    ticket_id: i32,
-    comment_id: i32,
-    application: &crate::models::RuleApplication,
-) -> Result<(), String> {
-    // Internal notes do not relay; reply visibility lives on the
-    // action's channel_metadata blob. Re-read the comment so we
-    // see the canonical row exactly as it was stored.
-    use crate::schema::comments::dsl as c;
-    use crate::schema::tickets::dsl as t;
-    use diesel::prelude::*;
-    let (comment, ticket): (crate::models::Comment, crate::models::Ticket) =
-        crate::sync::session::run_in_workspace(pool, "rules:reply_relay", workspace_id, |conn| {
-            Ok((
-                c::comments.find(comment_id).first(conn)?,
-                t::tickets.find(ticket_id).first(conn)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?;
-    if comment.is_internal {
-        return Ok(());
-    }
-    // The action's channel_metadata kind=="rule_reply" carries the
-    // visibility we used at apply time. Public + non-internal is
-    // the relay condition; anything else skips silently.
-    let visibility_public = comment
-        .channel_metadata
-        .as_ref()
-        .and_then(|m| m.get("visibility"))
-        .and_then(|v| v.as_str())
-        .map(|v| v == "public")
-        .unwrap_or(false);
-    if !visibility_public {
-        return Ok(());
-    }
-    // Spawn — same shape as the regular comment handler. The
-    // outbound queue worker handles SMTP dispatch + retry.
-    crate::services::channels::outbound::enqueue_for_comment(
-        ticket,
-        comment,
-        pool.get_ref().clone(),
-    );
-    tracing::debug!(
-        application_id = application.id,
-        comment_id,
-        "rule reply enqueued for channel relay"
-    );
-    Ok(())
-}
-
 fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
     let message = err.to_string();
     use rules::ApplyError::*;
@@ -1309,6 +1259,10 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
         }
         NoRequester { .. } => errors::bad_request_with_code(message, "RULE_NO_REQUESTER"),
         AssetRefused { .. } => errors::conflict_with_code(message, "RULE_ASSET_REFUSED"),
+        // Only the engine's runs carry a budget or an email source.
+        AlreadyRan(_) | RanInChain | ChainCap | AutomatedSource => {
+            errors::conflict_with_code(message, "RULE_SUPPRESSED")
+        }
         Db(e) => errors::db_error(&e),
     }
 }
