@@ -11781,3 +11781,45 @@ admin-rules-activity-row-dry-run = Test à vide sur le ticket #{ $ticket_id }
 admin-rules-activity-what-it-would-do = Ce qu'elle aurait fait
 admin-rules-activity-filter-all-rules = Toutes les règles
 admin-rules-activity-filter-rule = Règle
+
+# Règles : étapes sur les ressources liées au ticket et celles du demandeur (machine, à relire par un locuteur natif).
+admin-rule-editor-action-assign-assets-to-requester = Attribuer les ressources liées au demandeur
+admin-rule-editor-action-lend-assets = Prêter les ressources liées au demandeur
+admin-rule-editor-action-return-requester-assets = Récupérer les ressources du demandeur
+admin-rule-editor-assets-assign-hint = Chaque ressource liée au ticket prend le demandeur comme utilisateur, et une ressource pas encore en service est mise en service. Les ressources synchronisées depuis un autre système restent telles quelles.
+admin-rule-editor-assets-lend-hint = Chaque ressource liée au ticket est prêtée au demandeur, et le prêt est lié au ticket. Une ressource déjà prêtée à cette personne reste telle quelle.
+admin-rule-editor-assets-return-hint = Pour un départ. Chaque prêt en cours du demandeur est rendu, et chaque ressource qu'il utilise retourne en stock sans lui comme utilisateur. Les ressources synchronisées depuis un autre système gardent l'utilisateur que ce système leur donne.
+admin-rule-editor-assets-due-label = À rendre après (jours)
+admin-rule-editor-assets-due-hint = Laissez vide pour un prêt sans date de retour.
+ticket-actions-step-assign-assets = Attribuer les ressources liées au demandeur
+ticket-actions-step-lend-assets = Prêter les ressources liées au demandeur
+ticket-actions-step-lend-assets-days =
+    { $days ->
+        [one] Prêter les ressources liées au demandeur pour { $days } jour
+       *[other] Prêter les ressources liées au demandeur pour { $days } jours
+    }
+ticket-actions-step-return-assets = Récupérer les prêts et les ressources du demandeur
+admin-rules-activity-did-assets-none = Aucune ressource liée trouvée
+admin-rules-activity-did-assign-assets =
+    { $count ->
+        [0] Ressources liées laissées telles quelles
+        [one] Une ressource attribuée au demandeur
+       *[other] { $count } ressources attribuées au demandeur
+    }
+admin-rules-activity-did-lend-assets =
+    { $count ->
+        [0] Aucun nouveau prêt, car les ressources liées étaient déjà prêtées au demandeur
+        [one] Une ressource prêtée au demandeur
+       *[other] { $count } ressources prêtées au demandeur
+    }
+admin-rules-activity-did-return-assets-none = Le demandeur n'avait aucun prêt ni aucune ressource à rendre
+admin-rules-activity-did-return-assets =
+    Récupéré auprès du demandeur : { $loans ->
+        [one] { $loans } prêt
+       *[other] { $loans } prêts
+    } et { $cleared ->
+        [one] { $cleared } ressource
+       *[other] { $cleared } ressources
+    }
+admin-rules-conflicts-field-asset-custody = utilisateurs des ressources
+admin-rules-conflicts-field-asset-loan = prêts de ressources

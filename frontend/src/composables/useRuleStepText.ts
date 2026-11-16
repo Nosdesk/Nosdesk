@@ -59,6 +59,7 @@ export function useRuleStepText(options: {
   const quotedList = (names: string[]) => names.map((name) => t('rule-step-quoted-name', { name })).join(', ')
   // A run that found every tag already in place changed nothing, so it gets
   // no line.
+  const countOf = (ids: unknown) => (Array.isArray(ids) ? ids.length : 0)
   const tagText = (key: string, ids: unknown): string | null => {
     if (Array.isArray(ids) && ids.length === 0) return null
     const names = tagNames(ids)
@@ -99,6 +100,14 @@ export function useRuleStepText(options: {
         return tagText('ticket-actions-step-remove-tags', c.tag_ids)
       case 'set_priority':
         return t('ticket-actions-step-priority', { priority: priorityLabel(c.priority) })
+      case 'assign_assets_to_requester':
+        return t('ticket-actions-step-assign-assets')
+      case 'lend_assets': {
+        const days = Number(c.due_in_days)
+        return days > 0 ? t('ticket-actions-step-lend-assets-days', { days }) : t('ticket-actions-step-lend-assets')
+      }
+      case 'return_requester_assets':
+        return t('ticket-actions-step-return-assets')
       default:
         return null
     }
@@ -130,6 +139,26 @@ export function useRuleStepText(options: {
         return tagText('admin-rules-activity-did-remove-tags', entry.tag_ids_removed)
       case 'set_priority':
         return t('admin-rules-activity-did-priority', { priority: priorityLabel(entry.priority) })
+      // A step that found no linked assets says so; one whose assets were
+      // already where it would put them gets a count of zero.
+      case 'assign_assets_to_requester': {
+        const count = countOf(entry.asset_ids)
+        if (count + countOf(entry.unchanged_asset_ids) + countOf(entry.synced_asset_ids) === 0) {
+          return t('admin-rules-activity-did-assets-none')
+        }
+        return t('admin-rules-activity-did-assign-assets', { count })
+      }
+      case 'lend_assets': {
+        const count = countOf(entry.asset_ids)
+        if (count + countOf(entry.already_lent_asset_ids) === 0) return t('admin-rules-activity-did-assets-none')
+        return t('admin-rules-activity-did-lend-assets', { count })
+      }
+      case 'return_requester_assets': {
+        const loans = countOf(entry.loan_ids)
+        const cleared = countOf(entry.cleared_asset_ids)
+        if (loans + cleared === 0) return t('admin-rules-activity-did-return-assets-none')
+        return t('admin-rules-activity-did-return-assets', { loans, cleared })
+      }
       default:
         return null
     }

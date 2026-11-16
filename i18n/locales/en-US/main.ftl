@@ -10582,3 +10582,45 @@ admin-rules-activity-row-dry-run = Dry run on ticket #{ $ticket_id }
 admin-rules-activity-what-it-would-do = What it would have done
 admin-rules-activity-filter-all-rules = All rules
 admin-rules-activity-filter-rule = Rule
+
+# Rules: steps on a ticket's linked assets and the requester's.
+admin-rule-editor-action-assign-assets-to-requester = Assign linked assets to the requester
+admin-rule-editor-action-lend-assets = Lend linked assets to the requester
+admin-rule-editor-action-return-requester-assets = Take back the requester's assets
+admin-rule-editor-assets-assign-hint = Each asset linked to the ticket gets the requester as its user, and one not in service yet goes in service. Assets synced from another system are left as they are.
+admin-rule-editor-assets-lend-hint = Each asset linked to the ticket goes on loan to the requester, and the loan links to the ticket. An asset already on loan to them stays as it is.
+admin-rule-editor-assets-return-hint = For offboarding. Every loan the requester has out comes back, and every asset they use goes back in stock without them as its user. Assets synced from another system keep the user that system gives them.
+admin-rule-editor-assets-due-label = Due back after (days)
+admin-rule-editor-assets-due-hint = Leave it empty for a loan with no due date.
+ticket-actions-step-assign-assets = Assign the linked assets to the requester
+ticket-actions-step-lend-assets = Lend the linked assets to the requester
+ticket-actions-step-lend-assets-days =
+    { $days ->
+        [one] Lend the linked assets to the requester for one day
+       *[other] Lend the linked assets to the requester for { $days } days
+    }
+ticket-actions-step-return-assets = Take back the requester's loans and assets
+admin-rules-activity-did-assets-none = Found no linked assets
+admin-rules-activity-did-assign-assets =
+    { $count ->
+        [0] Left the linked assets as they were
+        [one] Assigned one asset to the requester
+       *[other] Assigned { $count } assets to the requester
+    }
+admin-rules-activity-did-lend-assets =
+    { $count ->
+        [0] Lent nothing new, as the linked assets were already on loan to the requester
+        [one] Lent one asset to the requester
+       *[other] Lent { $count } assets to the requester
+    }
+admin-rules-activity-did-return-assets-none = The requester had no loans or assets to take back
+admin-rules-activity-did-return-assets =
+    Took back { $loans ->
+        [one] one loan
+       *[other] { $loans } loans
+    } and { $cleared ->
+        [one] one asset
+       *[other] { $cleared } assets
+    } from the requester
+admin-rules-conflicts-field-asset-custody = asset users
+admin-rules-conflicts-field-asset-loan = asset loans

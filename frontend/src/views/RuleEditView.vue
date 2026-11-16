@@ -10,7 +10,9 @@
  * The action list is the main interaction surface. Each action
  * carries a typed `kind` plus a kind-specific config object. The
  * supported kinds are reply / set_status / assign / unassign /
- * add_tags / remove_tags / set_priority / stop_processing; notify /
+ * add_tags / remove_tags / set_priority / stop_processing, and the asset
+ * steps assign_assets_to_requester / lend_assets /
+ * return_requester_assets; notify /
  * apply_macro_template / webhook don't run yet, and the backend refuses
  * to save a rule with one (RULE_VALIDATION). Only a manual rule can reply.
  *
@@ -32,6 +34,7 @@ import FormNumber from '@/components/common/FormNumber.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import SegmentedControl from '@/components/common/SegmentedControl.vue';
 import UserPicker from '@/components/ticketComponents/UserPicker.vue';
+import AssetStepForm from '@/components/admin/rules/AssetStepForm.vue';
 import ConditionBuilder from '@/components/admin/rules/ConditionBuilder.vue';
 import { CHANGEABLE_FIELDS, fromWire, toWire, treeComplete, type ConditionGroup } from '@/components/admin/rules/conditionTree';
 import { EVENT_RULES_RUN, promoteControls } from '@/components/admin/rules/eventRuleGate';
@@ -202,6 +205,10 @@ function setActionKind(index: number, kind: RuleAction['kind']): void {
         return { tag_ids: [] };
       case 'set_priority':
         return { priority: 'medium' };
+      case 'assign_assets_to_requester':
+      case 'lend_assets':
+      case 'return_requester_assets':
+        return {};
       case 'stop_processing':
         return {};
       default:
@@ -504,6 +511,11 @@ function changedFieldLabel(field: string): string {
   return CHANGEABLE_FIELDS.includes(field) ? t(`admin-rule-conditions-field-${field.replace(/[._]/g, '-')}`) : field;
 }
 
+// Steps on the ticket's linked assets, or the requester's.
+const ASSET_KINDS = ['assign_assets_to_requester', 'lend_assets', 'return_requester_assets'] as const;
+const isAssetKind = (kind: RuleAction['kind']): kind is (typeof ASSET_KINDS)[number] =>
+  (ASSET_KINDS as readonly string[]).includes(kind);
+
 // stop_processing only means something to rules that run on their own, and
 // only a manual rule can reply.
 const actionKinds = computed<RuleAction['kind'][]>(() => [
@@ -514,6 +526,7 @@ const actionKinds = computed<RuleAction['kind'][]>(() => [
   'add_tags',
   'remove_tags',
   'set_priority',
+  ...ASSET_KINDS,
   ...(isManual.value ? [] : (['stop_processing'] as const)),
 ]);
 
@@ -525,6 +538,7 @@ const SUPPORTED_KINDS: RuleAction['kind'][] = [
   'add_tags',
   'remove_tags',
   'set_priority',
+  ...ASSET_KINDS,
   'stop_processing',
 ];
 
@@ -839,6 +853,13 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
                   @update:model-value="updateConfigField(i, 'tag_ids', ($event as number[]).map(Number))"
                 />
               </template>
+
+              <AssetStepForm
+                v-else-if="isAssetKind(action.kind)"
+                :kind="action.kind"
+                :config="action.config"
+                @update="(field, value) => updateConfigField(i, field, value)"
+              />
 
               <p v-if="showStepProblems && stepProblem(action)" class="text-xs text-status-warning">
                 {{ t(stepProblem(action)!) }}

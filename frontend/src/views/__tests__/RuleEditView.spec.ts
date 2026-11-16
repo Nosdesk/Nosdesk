@@ -344,6 +344,38 @@ describe('RuleEditView', () => {
     expect(w.text()).toContain('admin-rule-editor-step-needs-team')
     expect(rules.update).not.toHaveBeenCalled()
   })
+
+  it('saves a lend step with how many days the loan runs', async () => {
+    rules.get.mockResolvedValue(rule({ actions: [{ kind: 'lend_assets', config: {} }] }))
+    rules.update.mockResolvedValue(rule())
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    expect(w.text()).toContain('admin-rule-editor-assets-lend-hint')
+
+    const input = w.find<HTMLInputElement>('input[role="spinbutton"]').element
+    input.value = '14'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('blur', { bubbles: true }))
+    await flushPromises()
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({ actions: [{ kind: 'lend_assets', config: { due_in_days: 14 } }] }),
+    )
+  })
+
+  it('offers the asset steps, which need no settings to save', async () => {
+    rules.get.mockResolvedValue(rule({ actions: [{ kind: 'return_requester_assets', config: {} }] }))
+    rules.update.mockResolvedValue(rule())
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    expect(w.text()).toContain('admin-rule-editor-assets-return-hint')
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({ actions: [{ kind: 'return_requester_assets', config: {} }] }),
+    )
+  })
 })
 
 const PREVIEW: RulePreview = { matched: 12, scanned: 200, sample_ticket_ids: [41, 42] }

@@ -436,7 +436,7 @@ pub fn return_loan(
 }
 
 /// [`return_loan`], with a reason recorded on the lifecycle event.
-fn return_loan_logged(
+pub fn return_loan_logged(
     conn: &mut DbConnection,
     asset_id: i32,
     loan_id: i32,
