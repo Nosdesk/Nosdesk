@@ -10490,7 +10490,6 @@ admin-rule-editor-reply-kind-agent = An agent
 admin-rule-editor-reply-kind-any = Anyone
 admin-rule-editor-section-conditions = Only if
 admin-rule-editor-conditions-incomplete = Finish the conditions marked below, then save again.
-admin-rule-editor-step-reply-manual-only = Only a manual rule can reply for now. Remove this step or use the Manual trigger.
 admin-rule-editor-state-new-event = New rules start as drafts.
 admin-rule-editor-state-draft-event = Draft. It doesn't run yet.
 admin-rule-editor-state-paused-event = Paused. It doesn't run.
@@ -10623,3 +10622,28 @@ admin-rules-activity-did-return-assets =
     } from the requester
 admin-rules-conflicts-field-asset-custody = asset users
 admin-rules-conflicts-field-asset-loan = asset loans
+
+# Rules: automated replies send as a chosen agent, and the notify step emails people.
+admin-rule-editor-action-notify = Email someone
+admin-rule-editor-reply-send-as-label = Send as
+admin-rule-editor-reply-send-as-placeholder = Pick an agent
+admin-rule-editor-reply-send-as-hint = The rule posts its reply as this agent, who must be able to work tickets here. Unless you pick someone, it's the rule's author.
+admin-rule-editor-notify-to = Email to
+admin-rule-editor-notify-to-requester = The requester
+admin-rule-editor-notify-to-person = A person
+admin-rule-editor-notify-person-placeholder = Pick a person
+admin-rule-editor-notify-subject-label = Subject
+admin-rule-editor-notify-body-label = Message
+admin-rule-editor-notify-hint = Sent by email only, with the ticket's number in the subject; nothing is posted on the ticket. The subject and message take the same variables as a reply.
+admin-rule-editor-step-needs-notify-person = Pick a person to email.
+admin-rule-editor-step-needs-notify-subject = Write the email's subject.
+admin-rule-editor-step-needs-notify-body = Write the email.
+ticket-actions-step-notify-requester = Email the requester
+ticket-actions-step-notify-person = Email { $name }
+ticket-actions-step-notify-person-unknown = Email a specific person
+admin-rules-activity-did-notify-requester = Emailed the requester
+admin-rules-activity-did-notify-person = Emailed { $name }
+admin-rules-activity-did-notify-person-unknown = Emailed a specific person
+admin-rules-activity-did-notify-no-requester = Sent no email, as the ticket has no requester
+admin-rules-activity-did-notify-no-email = Sent no email, as the requester has no email address
+admin-rules-activity-held-spam = Held, as the ticket may be spam: { $step }

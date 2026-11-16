@@ -11,6 +11,7 @@ import nlNL from '../../../../i18n/locales/nl-NL/main.ftl?raw'
 import type { RuleAction } from '@nosdesk/core/types/rule'
 
 vi.mock('@/services/userService', () => ({ default: { getUsersBatch: async () => [] } }))
+// Name lookups load nothing here, so a named person reads as unknown.
 vi.mock('@nosdesk/core/services/groupService', () => ({ groupService: { getGroups: async () => [] } }))
 vi.mock('@nosdesk/core/stores/workflowStates', () => ({
   useWorkflowStatesStore: () => ({ load: async () => [], findById: () => undefined }),
@@ -102,5 +103,31 @@ describe('useRuleStepText', () => {
     const entry = { kind: 'return_requester_assets', loan_ids: [1, 2], cleared_asset_ids: [3] }
     expect(stepText('fr-FR').done(entry)).toBe('Récupéré auprès du demandeur : 2 prêts et 1 ressource')
     expect(stepText('nl-NL').done(entry)).toBe('Van de aanvrager teruggenomen: 2 uitleningen en één activum')
+  })
+
+  it('says who a notify step will email', () => {
+    const { planned } = stepText('en-US')
+    const notify = (config: Record<string, unknown>) => planned({ kind: 'notify', config })
+    expect(notify({ recipient: 'requester', subject: 's', body: 'b' })).toBe('Email the requester')
+    expect(notify({ recipient: 'user', user_uuid: 'u-ana', subject: 's', body: 'b' })).toBe('Email a specific person')
+  })
+
+  it('says who a notify step emailed, or why it sent nothing', () => {
+    const { done } = stepText('en-US')
+    expect(done({ kind: 'notify', recipient: 'requester' })).toBe('Emailed the requester')
+    expect(done({ kind: 'notify', recipient: 'user', user_uuid: 'u-ana' })).toBe('Emailed a specific person')
+    expect(done({ kind: 'notify', recipient: 'requester', skipped: 'no_requester' })).toBe(
+      'Sent no email, as the ticket has no requester',
+    )
+    expect(done({ kind: 'notify', recipient: 'requester', skipped: 'no_email' })).toBe(
+      'Sent no email, as the requester has no email address',
+    )
+  })
+
+  it('reads the notify step in French and Dutch', () => {
+    const step = { kind: 'notify', config: { recipient: 'requester', subject: 's', body: 'b' } } as RuleAction
+    expect(stepText('fr-FR').planned(step)).toBe('Envoyer un e-mail au demandeur')
+    expect(stepText('nl-NL').planned(step)).toBe('De aanvrager e-mailen')
+    expect(stepText('nl-NL').done({ kind: 'notify', recipient: 'requester' })).toBe('E-mail verstuurd naar de aanvrager')
   })
 })

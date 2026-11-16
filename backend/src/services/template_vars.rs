@@ -30,7 +30,9 @@ use crate::utils::template_variables::{first_name, substitute};
 pub struct TemplateContext<'a> {
     pub ticket: &'a Ticket,
     pub requester: Option<&'a User>,
-    pub agent: &'a User,
+    /// Who the message is from. A notify step's email has no agent when
+    /// the rule's author is gone, and the agent tokens render empty.
+    pub agent: Option<&'a User>,
     pub app_name: &'a str,
     pub event: Option<EventContext<'a>>,
     pub reply: Option<ReplyContext<'a>>,
@@ -66,85 +68,48 @@ pub struct ReplyContext<'a> {
 /// [`utils::template_variables::unknown_variables`] with the
 /// `RULE_REPLY_VARIABLES` allow-list.
 pub fn render(template: &str, ctx: &TemplateContext<'_>) -> String {
-    // `{{ticket_id}}` is the number people know the ticket by.
-    let ticket_id = ctx.ticket.number.to_string();
-    let agent_first = first_name(&ctx.agent.name);
-    let customer_name = ctx.requester.map(|r| r.name.as_str()).unwrap_or("");
-    let customer_first = first_name(customer_name);
-
-    // HTML-escape every binding before substitution. The unsafe
-    // shapes (`<`, `>`, `&`, `'`, `"`) all matter for the HTML
-    // comment view; `encode_safe` is the same helper the email
-    // pipeline uses for outbound quoting.
-    let escaped: Vec<(&str, String)> = vec![
-        (
-            "ticket_id",
-            html_escape::encode_safe(&ticket_id).into_owned(),
-        ),
-        (
-            "ticket_title",
-            html_escape::encode_safe(&ctx.ticket.title).into_owned(),
-        ),
-        (
-            "customer_name",
-            html_escape::encode_safe(customer_name).into_owned(),
-        ),
-        (
-            "customer_first_name",
-            html_escape::encode_safe(&customer_first).into_owned(),
-        ),
-        (
-            "tech_name",
-            html_escape::encode_safe(&ctx.agent.name).into_owned(),
-        ),
-        (
-            "tech_first_name",
-            html_escape::encode_safe(&agent_first).into_owned(),
-        ),
-        (
-            "agent_name",
-            html_escape::encode_safe(&ctx.agent.name).into_owned(),
-        ),
-        (
-            "agent_first_name",
-            html_escape::encode_safe(&agent_first).into_owned(),
-        ),
-        (
-            "app_name",
-            html_escape::encode_safe(ctx.app_name).into_owned(),
-        ),
-    ];
-    let mut pairs: Vec<(&str, &str)> = escaped.iter().map(|(k, v)| (*k, v.as_str())).collect();
-
-    // Phase 2 hooks: event and reply bindings stay outside the
-    // Phase 1 allow-list. Pre-escape into owned strings whose
-    // lifetimes outlive the pairs vec; absent contexts produce
-    // empty placeholders that the substituter never references
-    // because the template doesn't mention those tokens.
-    let event_kind = ctx
-        .event
-        .as_ref()
-        .map(|e| html_escape::encode_safe(e.kind).into_owned())
-        .unwrap_or_default();
-    let reply_kind = ctx
-        .reply
-        .as_ref()
-        .map(|r| html_escape::encode_safe(r.kind).into_owned())
-        .unwrap_or_default();
-    let reply_author_role = ctx
-        .reply
-        .as_ref()
-        .map(|r| html_escape::encode_safe(r.author_role).into_owned())
-        .unwrap_or_default();
-    if ctx.event.is_some() {
-        pairs.push(("event_kind", event_kind.as_str()));
-    }
-    if ctx.reply.is_some() {
-        pairs.push(("reply_kind", reply_kind.as_str()));
-        pairs.push(("reply_author_role", reply_author_role.as_str()));
-    }
-
+    let escaped: Vec<(&str, String)> = bindings(ctx)
+        .into_iter()
+        .map(|(k, v)| (k, html_escape::encode_safe(&v).into_owned()))
+        .collect();
+    let pairs: Vec<(&str, &str)> = escaped.iter().map(|(k, v)| (*k, v.as_str())).collect();
     substitute(template, &pairs)
+}
+
+/// Render `template` against `ctx` as plain text, for an email's subject
+/// line: the values go in as they are, since nothing reads the result as
+/// HTML.
+pub fn render_text(template: &str, ctx: &TemplateContext<'_>) -> String {
+    let values = bindings(ctx);
+    let pairs: Vec<(&str, &str)> = values.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    substitute(template, &pairs)
+}
+
+/// Every variable `ctx` binds, unescaped. The event and reply bindings
+/// are there only for a run that has them.
+fn bindings(ctx: &TemplateContext<'_>) -> Vec<(&'static str, String)> {
+    // `{{ticket_id}}` is the number people know the ticket by.
+    let agent_name = ctx.agent.map(|a| a.name.as_str()).unwrap_or("");
+    let customer_name = ctx.requester.map(|r| r.name.as_str()).unwrap_or("");
+    let mut pairs = vec![
+        ("ticket_id", ctx.ticket.number.to_string()),
+        ("ticket_title", ctx.ticket.title.clone()),
+        ("customer_name", customer_name.to_string()),
+        ("customer_first_name", first_name(customer_name)),
+        ("tech_name", agent_name.to_string()),
+        ("tech_first_name", first_name(agent_name)),
+        ("agent_name", agent_name.to_string()),
+        ("agent_first_name", first_name(agent_name)),
+        ("app_name", ctx.app_name.to_string()),
+    ];
+    if let Some(event) = &ctx.event {
+        pairs.push(("event_kind", event.kind.to_string()));
+    }
+    if let Some(reply) = &ctx.reply {
+        pairs.push(("reply_kind", reply.kind.to_string()));
+        pairs.push(("reply_author_role", reply.author_role.to_string()));
+    }
+    pairs
 }
 
 #[cfg(test)]
@@ -228,7 +193,7 @@ mod tests {
         let ctx = TemplateContext {
             ticket: &ticket,
             requester: None,
-            agent: &agent,
+            agent: Some(&agent),
             app_name: "Nosdesk",
             event: None,
             reply: None,
@@ -258,7 +223,7 @@ mod tests {
         let ctx = TemplateContext {
             ticket: &ticket,
             requester: Some(&requester),
-            agent: &agent,
+            agent: Some(&agent),
             app_name: "Nosdesk",
             event: None,
             reply: None,
@@ -286,7 +251,7 @@ mod tests {
         let ctx = TemplateContext {
             ticket: &ticket,
             requester: Some(&requester),
-            agent: &agent,
+            agent: Some(&agent),
             app_name: "Nosdesk",
             event: None,
             reply: None,
@@ -305,7 +270,7 @@ mod tests {
         let ctx = TemplateContext {
             ticket: &ticket,
             requester: None,
-            agent: &agent,
+            agent: Some(&agent),
             app_name: "Nosdesk",
             event: None,
             reply: None,
@@ -329,12 +294,36 @@ mod tests {
         let ctx = TemplateContext {
             ticket: &ticket,
             requester: None,
-            agent: &agent,
+            agent: Some(&agent),
             app_name: "Nosdesk",
             event: None,
             reply: None,
         };
         let out = render("{{custmer_name}} should not resolve", &ctx);
         assert_eq!(out, "{{custmer_name}} should not resolve");
+    }
+
+    /// A subject line is plain text: its values go in unescaped. With no
+    /// agent, the agent tokens are empty.
+    #[test]
+    fn plain_text_keeps_values_as_they_are() {
+        let ticket = stub_ticket(3, "Q&A <draft>");
+        let requester = stub_user("Ann O'Brien");
+        let ctx = TemplateContext {
+            ticket: &ticket,
+            requester: Some(&requester),
+            agent: None,
+            app_name: "Nosdesk",
+            event: None,
+            reply: None,
+        };
+        assert_eq!(
+            render_text(
+                "{{ticket_title}} for {{customer_first_name}}{{agent_name}}",
+                &ctx
+            ),
+            "Q&A <draft> for Ann"
+        );
+        assert_eq!(render("{{ticket_title}}", &ctx), "Q&amp;A &lt;draft&gt;");
     }
 }

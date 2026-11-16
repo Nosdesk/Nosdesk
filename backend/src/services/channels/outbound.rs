@@ -422,7 +422,7 @@ pub fn enqueue_for_comment(
 /// your request" link (signed in on hosted). A reply sent with no email channel
 /// also says that email replies don't reach the team, since there is nowhere
 /// for them to land. Unchanged when there's no requester or link base.
-fn with_request_link(
+pub(crate) fn with_request_link(
     conn: &mut DbConnection,
     ticket: &crate::models::Ticket,
     recipient: Option<uuid::Uuid>,
@@ -465,7 +465,7 @@ fn with_request_link(
 
 /// The workspace's anti-phishing note, when it has one on. A reply leaves
 /// under the workspace's own identity, so the note names that domain.
-fn reply_security_note(conn: &mut DbConnection) -> Option<String> {
+pub(crate) fn reply_security_note(conn: &mut DbConnection) -> Option<String> {
     let settings = crate::repository::site_settings::get_site_settings(conn).ok()?;
     crate::utils::email_branding::security_note(
         conn,
@@ -478,7 +478,7 @@ fn reply_security_note(conn: &mut DbConnection) -> Option<String> {
 /// Close a reply with the security note: one small line after the signature
 /// and the request link. It sets no colour, so it follows the mail app's
 /// theme, dark mode included.
-fn with_security_note(
+pub(crate) fn with_security_note(
     body: super::reply_body::ReplyBody,
     note: Option<&str>,
 ) -> super::reply_body::ReplyBody {
@@ -500,7 +500,7 @@ const THREAD_DEPTH: i64 = 20;
 /// `In-Reply-To` and `References` for a reply to `recipient` about the ticket:
 /// the latest email in their thread, and up to [`THREAD_DEPTH`] of them. The
 /// thread is the mail they were sent about it and the mail it received.
-fn thread_headers_for(
+pub(crate) fn thread_headers_for(
     conn: &mut DbConnection,
     ticket_id: i32,
     recipient: &str,

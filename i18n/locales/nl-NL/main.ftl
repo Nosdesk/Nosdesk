@@ -11680,7 +11680,6 @@ admin-rule-editor-reply-kind-agent = Een agent
 admin-rule-editor-reply-kind-any = Iedereen
 admin-rule-editor-section-conditions = Alleen als
 admin-rule-editor-conditions-incomplete = Maak de hieronder gemarkeerde voorwaarden af en sla opnieuw op.
-admin-rule-editor-step-reply-manual-only = Voorlopig kan alleen een handmatige regel antwoorden. Verwijder deze stap of gebruik de trigger Handmatig.
 admin-rule-editor-state-new-event = Nieuwe regels beginnen als concept.
 admin-rule-editor-state-draft-event = Concept. De regel wordt nog niet uitgevoerd.
 admin-rule-editor-state-paused-event = Gepauzeerd. De regel wordt niet uitgevoerd.
@@ -11813,3 +11812,28 @@ admin-rules-activity-did-return-assets =
     }
 admin-rules-conflicts-field-asset-custody = gebruikers van activa
 admin-rules-conflicts-field-asset-loan = uitleningen van activa
+
+# Regels: automatische antwoorden gaan uit namens een gekozen medewerker, en de meldingsstap stuurt mensen een e-mail (machine, nog na te kijken door moedertaalspreker).
+admin-rule-editor-action-notify = Iemand e-mailen
+admin-rule-editor-reply-send-as-label = Versturen als
+admin-rule-editor-reply-send-as-placeholder = Kies een medewerker
+admin-rule-editor-reply-send-as-hint = De regel plaatst zijn antwoord namens deze medewerker, die hier tickets moet kunnen behandelen. Tenzij u iemand kiest, is dat de maker van de regel.
+admin-rule-editor-notify-to = E-mail aan
+admin-rule-editor-notify-to-requester = De aanvrager
+admin-rule-editor-notify-to-person = Een persoon
+admin-rule-editor-notify-person-placeholder = Kies een persoon
+admin-rule-editor-notify-subject-label = Onderwerp
+admin-rule-editor-notify-body-label = Bericht
+admin-rule-editor-notify-hint = Alleen per e-mail verstuurd, met het ticketnummer in het onderwerp; er wordt niets op het ticket geplaatst. Het onderwerp en het bericht kennen dezelfde variabelen als een antwoord.
+admin-rule-editor-step-needs-notify-person = Kies een persoon om te e-mailen.
+admin-rule-editor-step-needs-notify-subject = Schrijf het onderwerp van de e-mail.
+admin-rule-editor-step-needs-notify-body = Schrijf de e-mail.
+ticket-actions-step-notify-requester = De aanvrager e-mailen
+ticket-actions-step-notify-person = { $name } e-mailen
+ticket-actions-step-notify-person-unknown = Een bepaalde persoon e-mailen
+admin-rules-activity-did-notify-requester = E-mail verstuurd naar de aanvrager
+admin-rules-activity-did-notify-person = E-mail verstuurd naar { $name }
+admin-rules-activity-did-notify-person-unknown = E-mail verstuurd naar een bepaalde persoon
+admin-rules-activity-did-notify-no-requester = Geen e-mail verstuurd, want het ticket heeft geen aanvrager
+admin-rules-activity-did-notify-no-email = Geen e-mail verstuurd, want de aanvrager heeft geen e-mailadres
+admin-rules-activity-held-spam = Tegengehouden, omdat het ticket mogelijk spam is: { $step }
