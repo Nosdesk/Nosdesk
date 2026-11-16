@@ -1,12 +1,12 @@
 /**
  * Whether the server runs rules with an event trigger (ticket created,
- * updated or replied). Until it does, an event rule can be built and saved
- * as a draft but not put in a dry run or live, since it would never run.
+ * updated or replied). Without it, an event rule can be built and saved as
+ * a draft but not put in a dry run or live, since it would never run.
  * Manual rules aren't affected.
  */
 import type { RuleState, RuleTriggerKind } from '@nosdesk/core/types/rule'
 
-export const EVENT_RULES_RUN = false
+export const EVENT_RULES_RUN = true
 
 /** The state changes a rule's state controls offer. */
 export interface PromoteControls {

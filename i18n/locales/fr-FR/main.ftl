@@ -11697,7 +11697,6 @@ admin-rule-editor-state-live-event = Active. Elle s'exécute sur chaque ticket c
 admin-rule-editor-state-dry-run = Test à vide. Elle vérifie chaque ticket correspondant et consigne ce qu'elle ferait, sans rien modifier.
 admin-rule-editor-dry-run-results = Voir ce qu'elle aurait fait
 admin-rule-editor-verified-manually = J'ai vérifié cette règle à la main, elle peut donc être activée sans test à vide
-admin-rule-editor-events-waiting = Pour l'instant, les règles avec ce déclencheur peuvent être créées et enregistrées en brouillon. Elles pourront être activées dès que Nosdesk exécutera les déclencheurs d'événement.
 admin-rules-dry-run = Lancer un test à vide
 admin-rules-toast-dry-run = { $name } est en test à vide.
 admin-rule-preview-incomplete = Complétez les conditions pour voir quels tickets récents correspondent.

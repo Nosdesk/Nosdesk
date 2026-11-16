@@ -1,5 +1,5 @@
 /**
- * The editor once event rules run (EVENT_RULES_RUN switched on): an event
+ * The editor with event rules running (EVENT_RULES_RUN): an event
  * rule goes to a dry run, or live straight from draft once the admin says
  * they checked it by hand.
  */
@@ -28,10 +28,6 @@ vi.mock('@/services/activeWorkspace', async (importOriginal) => ({
 }))
 vi.mock('@/components/ticketComponents/UserPicker.vue', () => ({
   default: { props: ['modelValue'], template: '<input data-test="user-picker" />' },
-}))
-vi.mock('@/components/admin/rules/eventRuleGate', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/components/admin/rules/eventRuleGate')>()),
-  EVENT_RULES_RUN: true,
 }))
 
 import RuleEditView from '@/views/RuleEditView.vue'
@@ -85,7 +81,6 @@ describe('RuleEditView with event rules running', () => {
       .mockResolvedValueOnce(rule({ state: 'dry_run' }))
       .mockResolvedValueOnce(rule({ state: 'live' }))
     const w = await mount()
-    expect(w.find('[data-test="events-waiting"]').exists()).toBe(false)
 
     button('admin-rules-dry-run')!.click()
     await flushPromises()

@@ -10498,7 +10498,6 @@ admin-rule-editor-state-live-event = Live. It runs on every ticket that matches.
 admin-rule-editor-state-dry-run = Dry run. It checks each ticket that matches and logs what it would do, without changing anything.
 admin-rule-editor-dry-run-results = See what it would have done
 admin-rule-editor-verified-manually = I checked this rule by hand, so it can go live without a dry run
-admin-rule-editor-events-waiting = For now, rules with this trigger can be built and saved as drafts. They can go live once Nosdesk runs event triggers.
 admin-rules-dry-run = Start dry run
 admin-rules-toast-dry-run = { $name } is in a dry run.
 admin-rule-preview-incomplete = Finish the conditions to see which recent tickets match.

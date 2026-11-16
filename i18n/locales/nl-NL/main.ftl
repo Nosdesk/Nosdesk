@@ -11688,7 +11688,6 @@ admin-rule-editor-state-live-event = Actief. De regel wordt uitgevoerd op elk ti
 admin-rule-editor-state-dry-run = Testrun. De regel controleert elk ticket dat overeenkomt en legt vast wat hij zou doen, zonder iets te wijzigen.
 admin-rule-editor-dry-run-results = Bekijk wat de regel zou hebben gedaan
 admin-rule-editor-verified-manually = Ik heb deze regel zelf gecontroleerd, dus hij kan worden geactiveerd zonder testrun
-admin-rule-editor-events-waiting = Voorlopig kunnen regels met deze trigger worden gebouwd en als concept worden opgeslagen. Ze kunnen worden geactiveerd zodra Nosdesk gebeurtenistriggers uitvoert.
 admin-rules-dry-run = Testrun starten
 admin-rules-toast-dry-run = { $name } draait een testrun.
 admin-rule-preview-incomplete = Maak de voorwaarden af om te zien welke recente tickets overeenkomen.
