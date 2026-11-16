@@ -16,10 +16,13 @@ import type {
   CreateRuleRequest,
   ListApplicationsQuery,
   ListRulesQuery,
+  PreviewRuleRequest,
   Rule,
   RuleApplication,
   RuleConflicts,
+  RulePreview,
   RuleVersion,
+  SavedRule,
   StarterRule,
   StateTransitionRequest,
   UpdateRuleRequest,
@@ -49,14 +52,24 @@ export const rulesService = {
   },
 
   /** POST /api/rules. Admin. */
-  async create(req: CreateRuleRequest): Promise<Rule> {
-    const { data } = await apiClient.post<Rule>('/rules', req);
+  async create(req: CreateRuleRequest): Promise<SavedRule> {
+    const { data } = await apiClient.post<SavedRule>('/rules', req);
     return data;
   },
 
   /** PUT /api/rules/{id}. Admin. */
-  async update(id: number, req: UpdateRuleRequest): Promise<Rule> {
-    const { data } = await apiClient.put<Rule>(`/rules/${id}`, req);
+  async update(id: number, req: UpdateRuleRequest): Promise<SavedRule> {
+    const { data } = await apiClient.put<SavedRule>(`/rules/${id}`, req);
+    return data;
+  },
+
+  /**
+   * POST /api/rules/preview. Admin. Checks the conditions of a rule being
+   * edited as a save would (400 RULE_CONDITION_INVALID says why not) and
+   * counts the recent tickets they match.
+   */
+  async preview(req: PreviewRuleRequest): Promise<RulePreview> {
+    const { data } = await apiClient.post<RulePreview>('/rules/preview', req);
     return data;
   },
 

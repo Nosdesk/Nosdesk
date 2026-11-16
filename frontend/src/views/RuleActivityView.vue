@@ -3,9 +3,12 @@ import { numberForTicketId } from '@/composables/useTicketNumberLookup'
 /**
  * Admin activity log for rules: each run with the rule's name, the ticket,
  * who applied it and, opened up, what each step did in plain words (with
- * the steps the agent skipped). Filters by status and how many runs to show.
+ * the steps the agent skipped). Filters by rule, by status and how many runs
+ * to show. A dry run's row says what the rule would have done; the editor
+ * links here filtered to one rule's dry runs (`?rule=<id>&status=dry_run`).
  */
 import { computed, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery } from '@pinia/colada';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
@@ -32,19 +35,35 @@ import type { RuleAction, RuleApplication, RuleApplicationStatus } from '@nosdes
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
-const statusFilter = ref<RuleApplicationStatus | 'all'>('all');
+const route = useRoute();
+const STATUSES: RuleApplicationStatus[] = [
+  'succeeded',
+  'dry_run',
+  'failed',
+  'suppressed_recursion_budget',
+  'suppressed_loop_guard',
+  'skipped_condition_unmet',
+  'skipped_preflight',
+];
+const queryStatus = String(route.query.status ?? '');
+const statusFilter = ref<RuleApplicationStatus | 'all'>(
+  STATUSES.includes(queryStatus as RuleApplicationStatus) ? (queryStatus as RuleApplicationStatus) : 'all',
+);
+const queryRule = Number(route.query.rule);
+const ruleFilter = ref<number | 'all'>(Number.isInteger(queryRule) && queryRule > 0 ? queryRule : 'all');
 const limit = ref<number>(50);
 
-/** Query key includes the filter so changing it triggers a refetch
+/** Query key includes the filters so changing one triggers a refetch
  *  via Pinia Colada's reactivity. */
 const APPLICATIONS_KEY = computed(
-  () => ['rule-applications', statusFilter.value, limit.value] as const,
+  () => ['rule-applications', statusFilter.value, ruleFilter.value, limit.value] as const,
 );
 const applicationsQuery = useQuery({
   key: APPLICATIONS_KEY,
   query: () =>
     rulesService.listApplications({
       status: statusFilter.value === 'all' ? undefined : statusFilter.value,
+      rule_id: ruleFilter.value === 'all' ? undefined : ruleFilter.value,
       limit: limit.value,
     }),
 });
@@ -89,6 +108,7 @@ const ruleStep = (app: RuleApplication, position: unknown): RuleAction | undefin
 function summary(app: RuleApplication): string {
   // A string, so Fluent doesn't format the number as "1,042".
   const ticket_id = String(numberForTicketId(app.ticket_id) ?? '');
+  if (app.status === 'dry_run') return t('admin-rules-activity-row-dry-run', { ticket_id });
   if (app.actor_kind === 'system') return t('admin-rules-activity-row-automatic', { ticket_id });
   const name = stepText.userName(app.actor_uuid);
   return name
@@ -117,14 +137,20 @@ function statusLabel(status: RuleApplicationStatus): string {
 
 const statusFilterOptions = computed(() => [
   { value: 'all', label: t('admin-rules-activity-filter-all') },
-  { value: 'succeeded', label: statusLabel('succeeded') },
-  { value: 'dry_run', label: statusLabel('dry_run') },
-  { value: 'failed', label: statusLabel('failed') },
-  { value: 'suppressed_recursion_budget', label: statusLabel('suppressed_recursion_budget') },
-  { value: 'suppressed_loop_guard', label: statusLabel('suppressed_loop_guard') },
-  { value: 'skipped_condition_unmet', label: statusLabel('skipped_condition_unmet') },
-  { value: 'skipped_preflight', label: statusLabel('skipped_preflight') },
+  ...STATUSES.map((status) => ({ value: status, label: statusLabel(status) })),
 ]);
+const ruleFilterOptions = computed(() => {
+  const options: { value: number | 'all'; label: string }[] = [
+    { value: 'all', label: t('admin-rules-activity-filter-all-rules') },
+    ...(rulesQuery.data.value ?? []).map((r) => ({ value: r.id, label: r.name })),
+  ];
+  // A rule linked here that the list doesn't have (yet) still shows.
+  const chosen = ruleFilter.value;
+  if (chosen !== 'all' && !options.some((o) => o.value === chosen)) {
+    options.push({ value: chosen, label: t('admin-rules-activity-rule-unknown', { id: chosen }) });
+  }
+  return options;
+});
 const limitOptions = computed(() =>
   [25, 50, 100, 500].map((n) => ({ value: String(n), label: t('admin-rules-activity-limit', { n }) })),
 );
@@ -176,6 +202,13 @@ function toggleExpanded(id: number): void {
           @update:model-value="statusFilter = String($event) as RuleApplicationStatus | 'all'"
         />
         <BaseDropdown
+          :model-value="ruleFilter"
+          :options="ruleFilterOptions"
+          :aria-label="t('admin-rules-activity-filter-rule')"
+          size="sm"
+          @update:model-value="ruleFilter = $event === 'all' ? 'all' : Number($event)"
+        />
+        <BaseDropdown
           :model-value="limitModel"
           :options="limitOptions"
           size="sm"
@@ -221,7 +254,9 @@ function toggleExpanded(id: number): void {
             class="flex flex-col gap-3 border-t border-subtle bg-surface-alt px-4 py-3"
           >
             <div class="flex flex-col gap-1">
-              <p class="text-xs font-medium text-tertiary">{{ t('admin-rules-activity-what-it-did') }}</p>
+              <p class="text-xs font-medium text-tertiary">
+                {{ app.status === 'dry_run' ? t('admin-rules-activity-what-it-would-do') : t('admin-rules-activity-what-it-did') }}
+              </p>
               <ul v-if="outcomeLines(app).length > 0" class="flex flex-col gap-1 pl-4 list-disc text-sm text-primary">
                 <li v-for="(line, i) in outcomeLines(app)" :key="i">{{ line }}</li>
               </ul>

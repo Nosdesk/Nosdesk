@@ -83,4 +83,22 @@ describe('SettingsRulesView', () => {
     expect(rules.restore).toHaveBeenCalledWith(2)
     expect(toastSuccess).toHaveBeenCalledWith('admin-rules-toast-restored')
   })
+
+  it('offers Go live on manual drafts but not on event drafts while event rules do not run', async () => {
+    rules.list.mockResolvedValue([
+      rule(1, 'Manual draft'),
+      rule(2, 'Event draft', { trigger_kind: 'ticket_created' }),
+      rule(3, 'Event live', { trigger_kind: 'ticket_updated', state: 'live' }),
+    ])
+    wrapper = mountWithProviders(SettingsRulesView, {}, {}, [[PiniaColada, {}] as never])
+    await flushPromises()
+
+    const row = (name: string) =>
+      Array.from(document.body.querySelectorAll('tbody tr')).find((r) => r.textContent?.includes(name))!
+    const offers = (name: string, label: string) =>
+      Array.from(row(name).querySelectorAll('button')).some((b) => b.textContent?.includes(label))
+    expect(offers('Manual draft', 'admin-rules-go-live')).toBe(true)
+    expect(offers('Event draft', 'admin-rules-go-live')).toBe(false)
+    expect(offers('Event live', 'admin-rules-pause')).toBe(true)
+  })
 })

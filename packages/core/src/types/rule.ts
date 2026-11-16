@@ -44,17 +44,55 @@ export interface RuleAction {
   config?: Record<string, unknown>;
 }
 
+/** A condition leaf's comparison (`ConditionOp` on the server). */
+export type RuleConditionOp =
+  | 'eq'
+  | 'neq'
+  | 'in'
+  | 'not_in'
+  | 'contains'
+  | 'not_contains'
+  | 'starts_with'
+  | 'ends_with'
+  | 'gt'
+  | 'lt'
+  | 'gte'
+  | 'lte'
+  | 'matches_regex'
+  | 'is_null'
+  | 'is_not_null'
+  | 'has_any'
+  | 'has_all';
+
+/** One condition leaf: `field` is a `ticket.*`, `event.*`, `reply.*` or
+ *  `clock.*` name; `value` is null for `is_null` / `is_not_null`. */
+export interface RuleConditionLeaf {
+  kind: 'leaf';
+  field: string;
+  op: RuleConditionOp;
+  value: unknown;
+}
+
 /** Recursive AND/OR/NOT/leaf condition node. */
 export type RuleCondition =
   | { kind: 'and'; children: RuleCondition[] }
   | { kind: 'or'; children: RuleCondition[] }
   | { kind: 'not'; child: RuleCondition }
-  | {
-      kind: 'leaf';
-      field: string;
-      op: string;
-      value: unknown;
-    };
+  | RuleConditionLeaf;
+
+/** Whose public reply fires a `ticket_replied` rule. */
+export type RuleReplyKind = 'customer' | 'agent' | 'any';
+
+/**
+ * `trigger_config` by trigger. A `ticket_updated` rule runs only when the
+ * update changed one of `changed_fields_include` (`ticket.*` names, as in
+ * `reads_set`), or on any change when the list is absent. A `ticket_replied`
+ * rule runs on replies of `reply_kind`. Other triggers take `{}`.
+ */
+export interface RuleTriggerConfig {
+  changed_fields_include?: string[];
+  reply_kind?: RuleReplyKind;
+}
 
 /** Wire shape of a Rule. Manual rules have `conditions: []`. */
 export interface Rule {
@@ -63,7 +101,7 @@ export interface Rule {
   name: string;
   description: string | null;
   trigger_kind: RuleTriggerKind;
-  trigger_config: Record<string, unknown>;
+  trigger_config: RuleTriggerConfig;
   /** Empty array (`[]`) for manual rules; single condition node otherwise. */
   conditions: RuleCondition[] | RuleCondition;
   actions: RuleAction[];
@@ -90,11 +128,28 @@ export interface StarterRule {
   actions: RuleAction[];
 }
 
+/** How many of the workspace's recent tickets a rule's conditions match
+ *  (`POST /api/rules/preview`, and on every save). */
+export interface RulePreview {
+  matched: number;
+  scanned: number;
+  /** Up to five matching tickets, newest first. */
+  sample_ticket_ids: number[];
+}
+
+/** A rule as create and update return it, with its preview. */
+export type SavedRule = Rule & { preview: RulePreview };
+
+export interface PreviewRuleRequest {
+  trigger_kind: RuleTriggerKind;
+  conditions: RuleCondition[] | RuleCondition;
+}
+
 export interface CreateRuleRequest {
   name: string;
   description?: string | null;
   trigger_kind: RuleTriggerKind;
-  trigger_config?: Record<string, unknown>;
+  trigger_config?: RuleTriggerConfig;
   conditions?: RuleCondition[] | RuleCondition;
   actions: RuleAction[];
   priority?: number;
@@ -106,7 +161,7 @@ export interface UpdateRuleRequest {
   name?: string;
   description?: string | null;
   trigger_kind?: RuleTriggerKind;
-  trigger_config?: Record<string, unknown>;
+  trigger_config?: RuleTriggerConfig;
   conditions?: RuleCondition[] | RuleCondition;
   actions?: RuleAction[];
   priority?: number;
@@ -133,7 +188,7 @@ export interface RuleVersion {
   name: string;
   description: string | null;
   trigger_kind: RuleTriggerKind;
-  trigger_config: Record<string, unknown>;
+  trigger_config: RuleTriggerConfig;
   conditions: RuleCondition[] | RuleCondition;
   actions: RuleAction[];
   state: RuleState;

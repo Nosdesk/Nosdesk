@@ -122,6 +122,38 @@ fn a_rule_follows_its_states_people_groups_tags_and_categories() {
 }
 
 #[test]
+fn a_rule_trigger_config_names_fields_not_rows() {
+    // Changed field names and a reply kind: the field names match condition
+    // fields whose values are ids, but the names themselves stay as they are.
+    let trigger_config = json!({
+        "changed_fields_include": ["ticket.category_id", "ticket.tag_ids"],
+        "reply_kind": "customer"
+    });
+    let mut rule = rule("live");
+    rule.insert("trigger_config".into(), trigger_config.clone());
+    let mut tally = Tally::default();
+    let out = rewrite_row(
+        "rules",
+        &mut rule,
+        &Context::default(),
+        &everything(),
+        Some(&mut tally),
+    );
+    assert_eq!(out, None);
+    assert_eq!(rule["trigger_config"], trigger_config);
+    assert_eq!(rule["state"], "live");
+    assert!(reports(tally).is_empty());
+    for table in ["rules", "rule_versions"] {
+        assert!(
+            NO_IDS
+                .iter()
+                .any(|(t, c, _)| *t == table && *c == "trigger_config"),
+            "{table}.trigger_config is listed as holding no ids"
+        );
+    }
+}
+
+#[test]
 fn a_rule_naming_something_the_import_leaves_out_turns_draft() {
     // Tag 6 and the group aren't in the archive.
     let lookup = Keys::default()
