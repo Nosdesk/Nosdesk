@@ -147,6 +147,11 @@ fn writes_for_action_kind(kind: &str) -> &'static [&'static str] {
         "add_tags" => &["ticket.tag_ids", "ticket.updated_at"],
         "remove_tags" => &["ticket.tag_ids", "ticket.updated_at"],
         "set_priority" => &["ticket.priority", "ticket.updated_at"],
+        // The asset steps write assets and loans, never the ticket, so no
+        // condition on a ticket field reads what they change.
+        "assign_assets_to_requester" => &["asset.custody"],
+        "lend_assets" => &["asset.loan"],
+        "return_requester_assets" => &["asset.custody", "asset.loan"],
         "apply_macro_template" => &[
             "ticket.first_response_at",
             "ticket.updated_at",
@@ -637,6 +642,12 @@ pub enum ApplyError {
     /// A team assign step's team has no one who can work tickets.
     #[error("Step {index}: the team has no one who can work tickets")]
     NoAssignableTeamMember { index: usize },
+    /// An asset step needs the ticket's requester and the ticket has none.
+    #[error("Step {index}: the ticket has no requester to give assets to or take them back from")]
+    NoRequester { index: usize },
+    /// An asset step met an asset in a state the step can't move it from.
+    #[error("Step {index}: {message}")]
+    AssetRefused { index: usize, message: String },
     #[error("database error: {0}")]
     Db(#[from] diesel::result::Error),
 }
@@ -649,6 +660,8 @@ impl ApplyError {
             Self::ActionFailed { .. }
                 | Self::UnsupportedActionPhase1 { .. }
                 | Self::NoAssignableTeamMember { .. }
+                | Self::NoRequester { .. }
+                | Self::AssetRefused { .. }
         )
     }
 }
@@ -928,6 +941,22 @@ fn run_locked(
                 })?,
             "set_priority" => execute_set_priority(conn, one_based, ticket.id, &config, shadow)
                 .map(|p| json!({ "index": one_based, "kind": kind, "priority": p }))?,
+            "assign_assets_to_requester" => {
+                let mut done = execute_assign_assets(conn, one_based, &ticket, ctx, shadow)?;
+                stamp_step(&mut done, one_based, kind);
+                done
+            }
+            "lend_assets" => {
+                let mut done =
+                    execute_lend_assets(conn, one_based, &ticket, ctx, &config, shadow)?;
+                stamp_step(&mut done, one_based, kind);
+                done
+            }
+            "return_requester_assets" => {
+                let mut done = execute_return_assets(conn, one_based, &ticket, ctx, shadow)?;
+                stamp_step(&mut done, one_based, kind);
+                done
+            }
             "stop_processing" => {
                 stop_processing = true;
                 if ctx.source == ApplySource::Manual {
@@ -1486,6 +1515,361 @@ fn execute_set_priority(
 }
 
 // =====================================================================
+// Asset steps: the ticket's linked assets go to its requester, for good
+// or on loan, and an offboarding takes back what the requester has. They
+// write through the asset, loan and lifecycle repositories, so every change
+// sends its own `asset*` sync actions, none of which the rule event outbox
+// takes. Custody here is the asset's user (`primary_user_uuid`); the
+// "managed by" custodian is left alone. An asset synced from another system
+// gets its user from that system, so these steps leave it alone too.
+// =====================================================================
+
+/// Lifecycle reason on an asset a rule puts in service for the requester.
+pub const RULE_ASSIGNED_REASON: &str = "Assigned to the requester by a rule";
+/// Lifecycle reason on a loan or asset a rule takes back from the requester.
+pub const RULE_RETURNED_REASON: &str = "Taken back from the requester by a rule";
+
+/// Statuses an assign step puts in service. An asset in repair, on loan,
+/// retired, lost or disposed isn't one to hand out.
+pub const ASSIGNABLE_FROM: &[&str] = &["in_service", "in_stock", "on_order", "in_transit"];
+
+/// Longest loan a lend step sets, in days.
+pub const MAX_LOAN_DAYS: i64 = 3650;
+
+fn stamp_step(done: &mut Value, index: usize, kind: &str) {
+    if let Some(obj) = done.as_object_mut() {
+        obj.insert("index".into(), json!(index));
+        obj.insert("kind".into(), json!(kind));
+    }
+}
+
+/// The ticket's linked assets, lowest id first. A link's key is workspace
+/// scoped, so these are all the ticket's own workspace's.
+fn linked_assets(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<Vec<crate::models::Asset>> {
+    let mut assets = crate::repository::tickets::get_devices_for_ticket(conn, ticket_id)?;
+    assets.sort_by_key(|a| a.id);
+    Ok(assets)
+}
+
+fn requester_of(ticket: &crate::models::Ticket, index: usize) -> Result<Uuid, ApplyError> {
+    ticket
+        .requester_uuid
+        .ok_or(ApplyError::NoRequester { index })
+}
+
+fn asset_refused(index: usize, asset: &crate::models::Asset, why: &str) -> ApplyError {
+    ApplyError::AssetRefused {
+        index,
+        message: format!("\"{}\" {why}", asset.name),
+    }
+}
+
+/// `in_repair` as "in repair", for a refusal's message.
+fn status_words(status: &str) -> String {
+    status.replace('_', " ")
+}
+
+fn transition_failed(
+    index: usize,
+    asset: &crate::models::Asset,
+    e: crate::repository::asset_lifecycle::TransitionError,
+) -> ApplyError {
+    use crate::repository::asset_lifecycle::TransitionError;
+    match e {
+        TransitionError::Db(e) => ApplyError::Db(e),
+        other => asset_refused(index, asset, &format!("can't change status ({other:?})")),
+    }
+}
+
+fn loan_failed(
+    index: usize,
+    asset: &crate::models::Asset,
+    e: crate::repository::asset_loans::LoanError,
+) -> ApplyError {
+    use crate::repository::asset_loans::LoanError;
+    match e {
+        LoanError::Db(e) => ApplyError::Db(e),
+        LoanError::AlreadyOnLoan => asset_refused(index, asset, "is already on loan"),
+        LoanError::NotLoanable(status) => asset_refused(
+            index,
+            asset,
+            &format!("is {}, so it can't be lent", status_words(&status)),
+        ),
+        other => asset_refused(index, asset, &format!("can't change its loan ({other:?})")),
+    }
+}
+
+/// Set (or clear) an asset's user, sending `asset.updated`.
+fn set_asset_user(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    user: Option<Uuid>,
+) -> Result<(), ApplyError> {
+    crate::repository::assets::update_device(
+        conn,
+        asset_id,
+        crate::models::AssetUpdate {
+            primary_user_uuid: Some(user),
+            ..Default::default()
+        },
+    )?;
+    Ok(())
+}
+
+/// Move an asset to `to_status` through the lifecycle, linked to the ticket.
+fn move_asset(
+    conn: &mut DbConnection,
+    index: usize,
+    ctx: &ApplyContext,
+    ticket_id: i32,
+    asset: &crate::models::Asset,
+    to_status: &str,
+    reason: &str,
+) -> Result<(), ApplyError> {
+    crate::repository::asset_lifecycle::transition(
+        conn,
+        crate::repository::asset_lifecycle::TransitionInput {
+            asset_id: asset.id,
+            to_status: to_status.to_string(),
+            reason: Some(reason.to_string()),
+            ticket_id: Some(ticket_id),
+            metadata: json!({ "rule_id": ctx.rule_id }),
+            actor_uuid: ctx.actor.uuid,
+            disposal: None,
+        },
+    )
+    .map(|_| ())
+    .map_err(|e| transition_failed(index, asset, e))
+}
+
+/// `assign_assets_to_requester` action. Each linked asset gets the requester
+/// as its user and, when it isn't in service yet, goes in service. The
+/// assets are all checked before any changes, so one that can't be handed
+/// out refuses the step by name. No linked assets is a no-op. Returns what
+/// changed (would change, in `shadow`).
+fn execute_assign_assets(
+    conn: &mut DbConnection,
+    index: usize,
+    ticket: &crate::models::Ticket,
+    ctx: &ApplyContext,
+    shadow: bool,
+) -> Result<Value, ApplyError> {
+    let assets = linked_assets(conn, ticket.id)?;
+    if assets.is_empty() {
+        return Ok(json!({ "asset_ids": [] }));
+    }
+    let requester = requester_of(ticket, index)?;
+    for asset in &assets {
+        if asset.external_sync_source.is_none() && !ASSIGNABLE_FROM.contains(&asset.status.as_str())
+        {
+            return Err(asset_refused(
+                index,
+                asset,
+                &format!(
+                    "is {}, so it can't be assigned",
+                    status_words(&asset.status)
+                ),
+            ));
+        }
+    }
+    let mut assigned = Vec::new();
+    let mut unchanged = Vec::new();
+    let mut synced = Vec::new();
+    for asset in &assets {
+        if asset.external_sync_source.is_some() {
+            synced.push(asset.id);
+            continue;
+        }
+        let sets_user = asset.primary_user_uuid != Some(requester);
+        let goes_in_service = asset.status != crate::models::AssetStatus::InService.as_str();
+        if !sets_user && !goes_in_service {
+            unchanged.push(asset.id);
+            continue;
+        }
+        assigned.push(asset.id);
+        if shadow {
+            continue;
+        }
+        if sets_user {
+            set_asset_user(conn, asset.id, Some(requester))?;
+        }
+        if goes_in_service {
+            move_asset(
+                conn,
+                index,
+                ctx,
+                ticket.id,
+                asset,
+                crate::models::AssetStatus::InService.as_str(),
+                RULE_ASSIGNED_REASON,
+            )?;
+        }
+    }
+    Ok(json!({
+        "requester_uuid": requester,
+        "asset_ids": assigned,
+        "unchanged_asset_ids": unchanged,
+        "synced_asset_ids": synced,
+    }))
+}
+
+/// `lend_assets` action. Each linked asset goes out on loan to the
+/// requester, the loan linked to the ticket and due back `due_in_days` from
+/// today when the step sets it. An asset already lent to the requester stays
+/// as it is, so applying the rule again lends nothing twice. The assets are
+/// all checked first; one lent to someone else, or in a status loans don't
+/// start from, refuses the step by name. No linked assets is a no-op.
+fn execute_lend_assets(
+    conn: &mut DbConnection,
+    index: usize,
+    ticket: &crate::models::Ticket,
+    ctx: &ApplyContext,
+    config: &Value,
+    shadow: bool,
+) -> Result<Value, ApplyError> {
+    use crate::repository::asset_loans;
+
+    let assets = linked_assets(conn, ticket.id)?;
+    if assets.is_empty() {
+        return Ok(json!({ "asset_ids": [], "loan_ids": [] }));
+    }
+    let requester = requester_of(ticket, index)?;
+    let due_back = config
+        .get("due_in_days")
+        .and_then(Value::as_i64)
+        .filter(|days| (1..=MAX_LOAN_DAYS).contains(days))
+        .and_then(|days| {
+            chrono::Utc::now()
+                .date_naive()
+                .checked_add_signed(chrono::Duration::days(days))
+        });
+
+    let mut to_lend = Vec::new();
+    let mut already_lent = Vec::new();
+    for asset in &assets {
+        if let Some(loan) = asset_loans::active_for_asset(conn, asset.id)? {
+            if loan.borrower_user_uuid == Some(requester) {
+                already_lent.push(asset.id);
+                continue;
+            }
+            return Err(asset_refused(
+                index,
+                asset,
+                "is on loan to someone else, so it can't be lent",
+            ));
+        }
+        if !asset_loans::LOANABLE_FROM.contains(&asset.status.as_str()) {
+            return Err(asset_refused(
+                index,
+                asset,
+                &format!("is {}, so it can't be lent", status_words(&asset.status)),
+            ));
+        }
+        to_lend.push(asset);
+    }
+
+    let mut loan_ids = Vec::new();
+    if !shadow {
+        for asset in &to_lend {
+            let loan = asset_loans::issue(
+                conn,
+                asset_loans::IssueLoan {
+                    asset_id: asset.id,
+                    borrower_user_uuid: requester,
+                    loaned_at: None,
+                    due_back,
+                    ticket_id: Some(ticket.id),
+                    notes: None,
+                    actor_uuid: ctx.actor.uuid,
+                },
+            )
+            .map_err(|e| loan_failed(index, asset, e))?;
+            loan_ids.push(loan.id);
+        }
+    }
+    Ok(json!({
+        "requester_uuid": requester,
+        "asset_ids": to_lend.iter().map(|a| a.id).collect::<Vec<_>>(),
+        "loan_ids": loan_ids,
+        "due_back": due_back,
+        "already_lent_asset_ids": already_lent,
+    }))
+}
+
+/// `return_requester_assets` action, for offboarding. Every loan the
+/// requester has out in this workspace comes back, whichever ticket it was
+/// lent from, and every asset they're the user of loses them as its user and,
+/// if it was in service, goes back in stock, linked to this ticket. A
+/// requester with nothing out is a no-op.
+fn execute_return_assets(
+    conn: &mut DbConnection,
+    index: usize,
+    ticket: &crate::models::Ticket,
+    ctx: &ApplyContext,
+    shadow: bool,
+) -> Result<Value, ApplyError> {
+    use crate::repository::asset_loans;
+
+    let requester = requester_of(ticket, index)?;
+    let mut returned_loans = Vec::new();
+    let mut returned_assets = Vec::new();
+    for (loan, asset) in asset_loans::active_for_borrower(conn, &requester)? {
+        returned_loans.push(loan.id);
+        returned_assets.push(asset.id);
+        if !shadow {
+            asset_loans::return_loan_logged(
+                conn,
+                asset.id,
+                loan.id,
+                chrono::Utc::now(),
+                ctx.actor.uuid,
+                None,
+                Some(RULE_RETURNED_REASON),
+            )
+            .map_err(|e| loan_failed(index, &asset, e))?;
+        }
+    }
+
+    // Read after the returns, so each asset's status is the one it went back to.
+    let mut held = crate::repository::assets::get_devices_for_user(conn, &requester)?;
+    held.sort_by_key(|a| a.id);
+    let mut cleared = Vec::new();
+    let mut synced = Vec::new();
+    for asset in &held {
+        if asset.external_sync_source.is_some() {
+            synced.push(asset.id);
+            continue;
+        }
+        cleared.push(asset.id);
+        if shadow {
+            continue;
+        }
+        set_asset_user(conn, asset.id, None)?;
+        if asset.status == crate::models::AssetStatus::InService.as_str() {
+            move_asset(
+                conn,
+                index,
+                ctx,
+                ticket.id,
+                asset,
+                crate::models::AssetStatus::InStock.as_str(),
+                RULE_RETURNED_REASON,
+            )?;
+        }
+    }
+    Ok(json!({
+        "requester_uuid": requester,
+        "loan_ids": returned_loans,
+        "returned_asset_ids": returned_assets,
+        "cleared_asset_ids": cleared,
+        "synced_asset_ids": synced,
+    }))
+}
+
+// =====================================================================
 // Save-time preview (plan, "Save-time mandatory check"): how many recent tickets a rule's
 // conditions match, and the ids a condition tree names.
 // =====================================================================
@@ -1839,6 +2223,19 @@ mod tests {
             { "kind": "notify", "config": { "recipient": "requester", "subject": "x", "body": "y" } }
         ]);
         assert!(derive_writes_set(&actions).is_empty());
+    }
+
+    /// The asset steps write assets and loans and no ticket field, so a
+    /// rule that reads the ticket never sees them as writes it reads.
+    #[test]
+    fn asset_actions_write_asset_keys_only() {
+        let writes = |kind: &str| flat(derive_writes_set(&json!([{ "kind": kind }])));
+        assert_eq!(writes("assign_assets_to_requester"), vec!["asset.custody"]);
+        assert_eq!(writes("lend_assets"), vec!["asset.loan"]);
+        assert_eq!(
+            writes("return_requester_assets"),
+            vec!["asset.custody", "asset.loan"]
+        );
     }
 
     #[test]

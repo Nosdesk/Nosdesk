@@ -1307,6 +1307,8 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
         IneligibleAssignee(_) | NoAssignableTeamMember { .. } => {
             errors::bad_request_with_code(message, "INVALID_ASSIGNEE")
         }
+        NoRequester { .. } => errors::bad_request_with_code(message, "RULE_NO_REQUESTER"),
+        AssetRefused { .. } => errors::conflict_with_code(message, "RULE_ASSET_REFUSED"),
         Db(e) => errors::db_error(&e),
     }
 }
@@ -1503,6 +1505,9 @@ fn validate_actions(actions: &Value) -> Result<(), String> {
         "add_tags",
         "remove_tags",
         "set_priority",
+        "assign_assets_to_requester",
+        "lend_assets",
+        "return_requester_assets",
         "stop_processing",
     ];
     // Named in the rule model but not run yet.
@@ -1599,6 +1604,18 @@ fn validate_step_config(kind: &str, config: &Value) -> Result<(), &'static str> 
                 return Err("pick a priority");
             }
         }
+        // The loan's length is optional; without it the loan is open ended.
+        "lend_assets" => match config.get("due_in_days") {
+            None | Some(Value::Null) => {}
+            Some(days) => {
+                if !days
+                    .as_i64()
+                    .is_some_and(|d| (1..=rules::MAX_LOAN_DAYS).contains(&d))
+                {
+                    return Err("set the loan to between 1 and 3650 days, or leave it open");
+                }
+            }
+        },
         _ => {}
     }
     Ok(())
@@ -1721,6 +1738,29 @@ mod tests {
             serde_json::json!([{ "kind": "remove_tags", "config": { "tag_ids": [] } }]),
             serde_json::json!([{ "kind": "set_priority", "config": { "priority": "asap" } }]),
         ] {
+            assert!(validate_actions(&bad).is_err(), "{bad} should be refused");
+        }
+    }
+
+    /// The asset steps save with no settings; a loan's length is optional
+    /// and, when set, a whole number of days.
+    #[test]
+    fn validate_actions_takes_the_asset_steps() {
+        let ok = serde_json::json!([
+            { "kind": "assign_assets_to_requester", "config": {} },
+            { "kind": "lend_assets", "config": {} },
+            { "kind": "lend_assets", "config": { "due_in_days": 14 } },
+            { "kind": "lend_assets", "config": { "due_in_days": null } },
+            { "kind": "return_requester_assets" }
+        ]);
+        assert!(validate_actions(&ok).is_ok());
+        for days in [
+            serde_json::json!(0),
+            serde_json::json!(3651),
+            serde_json::json!("7"),
+        ] {
+            let bad =
+                serde_json::json!([{ "kind": "lend_assets", "config": { "due_in_days": days } }]);
             assert!(validate_actions(&bad).is_err(), "{bad} should be refused");
         }
     }
