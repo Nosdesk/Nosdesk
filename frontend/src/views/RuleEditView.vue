@@ -9,12 +9,13 @@
  *
  * The action list is the main interaction surface. Each action
  * carries a typed `kind` plus a kind-specific config object. The
- * supported kinds are reply / set_status / assign / unassign /
+ * supported kinds are reply / notify / set_status / assign / unassign /
  * add_tags / remove_tags / set_priority / stop_processing, and the asset
  * steps assign_assets_to_requester / lend_assets /
- * return_requester_assets; notify /
- * apply_macro_template / webhook don't run yet, and the backend refuses
- * to save a rule with one (RULE_VALIDATION). Only a manual rule can reply.
+ * return_requester_assets; apply_macro_template / webhook don't run yet,
+ * and the backend refuses to save a rule with one (RULE_VALIDATION). A
+ * reply on a rule that runs on its own sends as a chosen agent, the rule's
+ * author unless the step names someone else.
  *
  * Whether an event rule can leave draft is one switch, EVENT_RULES_RUN.
  */
@@ -35,6 +36,8 @@ import FormTextarea from '@/components/common/FormTextarea.vue';
 import SegmentedControl from '@/components/common/SegmentedControl.vue';
 import UserPicker from '@/components/ticketComponents/UserPicker.vue';
 import AssetStepForm from '@/components/admin/rules/AssetStepForm.vue';
+import NotifyStepForm from '@/components/admin/rules/NotifyStepForm.vue';
+import ReplyStepForm from '@/components/admin/rules/ReplyStepForm.vue';
 import ConditionBuilder from '@/components/admin/rules/ConditionBuilder.vue';
 import { CHANGEABLE_FIELDS, fromWire, toWire, treeComplete, type ConditionGroup } from '@/components/admin/rules/conditionTree';
 import { EVENT_RULES_RUN, promoteControls } from '@/components/admin/rules/eventRuleGate';
@@ -50,6 +53,7 @@ import { useTagsStore } from '@nosdesk/core/stores/tags';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import { errorCode, extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
+import { useAuthStore } from '@/stores/auth';
 import BackButton from '@/components/common/BackButton.vue';
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions';
 
@@ -73,6 +77,7 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const route = useRoute();
 const router = useRouter();
 const toast = useToastStore();
+const auth = useAuthStore();
 const queryCache = useQueryCache();
 const states = useWorkflowStatesStore();
 const tags = useTagsStore();
@@ -153,12 +158,6 @@ const showConditionProblems = ref(false);
 
 function setTrigger(kind: RuleTriggerKind): void {
   triggerKind.value = kind;
-  // A new rule's untouched reply step can't run on an event trigger; start
-  // it on a step that can.
-  const only = actions.value.length === 1 ? actions.value[0] : null;
-  if (kind !== 'manual' && only?.kind === 'reply' && !String((only.config as any)?.body ?? '').trim()) {
-    actions.value = [{ kind: 'set_status', config: { workflow_state_id: 0 } }];
-  }
 }
 
 /** The chips: the fields an update names, plus any other a saved rule named. */
@@ -174,11 +173,7 @@ function toggleChangedField(field: string): void {
 }
 
 function addAction(): void {
-  actions.value.push(
-    isManual.value
-      ? { kind: 'reply', config: { visibility: 'public', body: '' } }
-      : { kind: 'set_status', config: { workflow_state_id: 0 } },
-  );
+  actions.value.push({ kind: 'reply', config: { visibility: 'public', body: '' } });
 }
 
 function removeAction(index: number): void {
@@ -194,6 +189,8 @@ function setActionKind(index: number, kind: RuleAction['kind']): void {
     switch (k) {
       case 'reply':
         return { visibility: 'public', body: '' };
+      case 'notify':
+        return { recipient: 'requester', subject: '', body: '' };
       case 'set_status':
         return { workflow_state_id: 0 };
       case 'assign':
@@ -229,8 +226,11 @@ function stepProblem(action: RuleAction): string | null {
   const c = (action.config ?? {}) as Record<string, unknown>;
   switch (action.kind) {
     case 'reply':
-      if (!isManual.value) return 'admin-rule-editor-step-reply-manual-only';
       return String(c.body ?? '').trim() ? null : 'admin-rule-editor-step-needs-reply';
+    case 'notify':
+      if (c.recipient === 'user' && !c.user_uuid) return 'admin-rule-editor-step-needs-notify-person';
+      if (!String(c.subject ?? '').trim()) return 'admin-rule-editor-step-needs-notify-subject';
+      return String(c.body ?? '').trim() ? null : 'admin-rule-editor-step-needs-notify-body';
     case 'set_status':
       return Number(c.workflow_state_id) > 0 ? null : 'admin-rule-editor-step-needs-status';
     case 'assign':
@@ -516,10 +516,10 @@ const ASSET_KINDS = ['assign_assets_to_requester', 'lend_assets', 'return_reques
 const isAssetKind = (kind: RuleAction['kind']): kind is (typeof ASSET_KINDS)[number] =>
   (ASSET_KINDS as readonly string[]).includes(kind);
 
-// stop_processing only means something to rules that run on their own, and
-// only a manual rule can reply.
+// stop_processing only means something to rules that run on their own.
 const actionKinds = computed<RuleAction['kind'][]>(() => [
-  ...(isManual.value ? (['reply'] as const) : []),
+  'reply',
+  'notify',
   'set_status',
   'assign',
   'unassign',
@@ -532,6 +532,7 @@ const actionKinds = computed<RuleAction['kind'][]>(() => [
 
 const SUPPORTED_KINDS: RuleAction['kind'][] = [
   'reply',
+  'notify',
   'set_status',
   'assign',
   'unassign',
@@ -554,10 +555,6 @@ function actionOptionsFor(action: RuleAction) {
   const kinds = actionKinds.value.includes(action.kind) ? actionKinds.value : [action.kind, ...actionKinds.value];
   return kinds.map((k) => ({ value: k, label: actionLabel(k) }));
 }
-const replyVisibilityOptions = computed(() => [
-  { value: 'public', label: t('admin-rule-editor-reply-public') },
-  { value: 'internal', label: t('admin-rule-editor-reply-internal') },
-]);
 // Pickers for the steps that point at workspace records.
 const statusOptions = computed(() =>
   states.states
@@ -572,21 +569,33 @@ const assignTargetOptions = computed(() => [
   { value: 'direct', label: t('admin-rule-editor-assign-person') },
   { value: 'group', label: t('admin-rule-editor-assign-team') },
 ]);
-// Names for the people assign steps point at, so the picker shows a name
-// before it has loaded its own list.
-const assigneeUuids = computed(() =>
-  actions.value
-    .filter((a) => a.kind === 'assign' && (a.config as any)?.method !== 'group' && (a.config as any)?.user_uuid)
-    .map((a) => String((a.config as any).user_uuid)),
-);
-const assigneesQuery = useQuery({
-  key: () => ['users', 'batch', ...assigneeUuids.value],
-  query: () => userService.getUsersBatch(assigneeUuids.value),
-  enabled: () => assigneeUuids.value.length > 0,
+/** Who an automated reply sends as when its step names no one: the rule's
+ *  author, or for a new rule the admin writing it, as the server saves it. */
+const defaultSendAs = computed(() => (isNew.value ? auth.user?.uuid : original.value?.created_by) ?? null);
+// Names for the people steps point at (an assignee, a reply's agent, the
+// person a notify step emails), so a picker shows a name before it has
+// loaded its own list.
+const pickedUuids = computed(() => {
+  const uuids = new Set<string>();
+  for (const a of actions.value) {
+    const c = (a.config ?? {}) as Record<string, unknown>;
+    if (a.kind === 'assign' && c.method !== 'group' && c.user_uuid) uuids.add(String(c.user_uuid));
+    if (a.kind === 'notify' && c.recipient === 'user' && c.user_uuid) uuids.add(String(c.user_uuid));
+    if (a.kind === 'reply' && !isManual.value) {
+      const sendAs = c.send_as_uuid ? String(c.send_as_uuid) : defaultSendAs.value;
+      if (sendAs) uuids.add(sendAs);
+    }
+  }
+  return [...uuids].sort();
+});
+const pickedQuery = useQuery({
+  key: () => ['users', 'batch', ...pickedUuids.value],
+  query: () => userService.getUsersBatch(pickedUuids.value),
+  enabled: () => pickedUuids.value.length > 0,
   staleTime: 5 * 60 * 1000,
 });
-const assigneeRow = (uuid: unknown) =>
-  (assigneesQuery.data.value ?? []).find((u) => u.uuid === uuid) ?? null;
+const pickedRow = (uuid: unknown) =>
+  (pickedQuery.data.value ?? []).find((u) => u.uuid === uuid) ?? null;
 
 function setAssignTarget(index: number, method: string): void {
   actions.value[index] = {
@@ -778,20 +787,21 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
               <!-- Per-kind config form. Kept inline so the editor stays
                    a single component; if it grows past a screen each
                    kind gets its own card. -->
-              <template v-if="action.kind === 'reply'">
-                <BaseDropdown
-                  :model-value="(action.config as any)?.visibility ?? 'public'"
-                  :options="replyVisibilityOptions"
-                  size="sm"
-                  @update:model-value="updateConfigField(i, 'visibility', String($event))"
-                />
-                <FormTextarea
-                  :model-value="(action.config as any)?.body ?? ''"
-                  @update:model-value="updateConfigField(i, 'body', $event)"
-                  :rows="3"
-                  :placeholder="t('admin-rule-editor-reply-placeholder')"
-                />
-              </template>
+              <ReplyStepForm
+                v-if="action.kind === 'reply'"
+                :config="action.config"
+                :automated="!isManual"
+                :default-send-as="defaultSendAs"
+                :user-row="pickedRow"
+                @update="(field, value) => updateConfigField(i, field, value)"
+              />
+
+              <NotifyStepForm
+                v-else-if="action.kind === 'notify'"
+                :config="action.config"
+                :user-row="pickedRow"
+                @update="(field, value) => updateConfigField(i, field, value)"
+              />
 
               <template v-else-if="action.kind === 'set_status'">
                 <BaseDropdown
@@ -825,7 +835,7 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
                   v-else
                   type="assignee"
                   :model-value="(action.config as any)?.user_uuid ?? ''"
-                  :current-user="assigneeRow((action.config as any)?.user_uuid)"
+                  :current-user="pickedRow((action.config as any)?.user_uuid)"
                   :placeholder="t('admin-rule-editor-person-placeholder')"
                   @update:model-value="updateConfigField(i, 'user_uuid', $event)"
                 />

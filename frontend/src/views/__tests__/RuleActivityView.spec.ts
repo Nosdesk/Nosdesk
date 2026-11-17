@@ -121,4 +121,33 @@ describe('RuleActivityView', () => {
     expect(wrapper.text()).toContain('admin-rules-activity-what-it-would-do')
     expect(wrapper.text()).not.toContain('admin-rules-activity-what-it-did')
   })
+
+  it('says which email steps an automated run held on a ticket flagged as spam', async () => {
+    rules.listApplications.mockResolvedValue([
+      {
+        ...RUN,
+        id: 9,
+        status: 'suppressed_loop_guard',
+        actor_uuid: null,
+        actor_kind: 'system',
+        actions_taken: [{ index: 3, kind: 'add_tags', tag_ids_added: [5] }],
+        actions_skipped: [{ index: 4, reason: 'spam_suspected' }],
+      },
+    ])
+    rules.list.mockResolvedValue([RULE])
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/rules/:id', name: 'admin-rules-edit', component: { template: '<div />' } },
+        { path: '/tickets/:number', component: { template: '<div />' } },
+      ],
+    })
+    wrapper = mountWithProviders(RuleActivityView, {}, {}, [[PiniaColada, {}] as never, router])
+    await flushPromises()
+    await wrapper.get('li > button[aria-expanded]').trigger('click')
+    await flushPromises()
+    const lines = wrapper.findAll('li li').map((li) => li.text())
+    expect(lines).toEqual(['admin-rules-activity-did-add-tags', 'admin-rules-activity-held-spam'])
+  })
 })

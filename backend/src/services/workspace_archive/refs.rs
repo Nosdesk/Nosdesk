@@ -201,11 +201,14 @@ use Entity as E;
 use Kind::{File, Html, Ref};
 
 /// Rule actions (`handlers/rules.rs`, `repository/rules.rs`): `set_status`,
-/// `assign` direct or to a group, `add_tags`/`remove_tags`, and a reply's
-/// HTML body. `unassign`, `set_priority` and `stop_processing` carry none.
+/// `assign` direct or to a group, `add_tags`/`remove_tags`, a reply's
+/// agent to send as, the person a notify step emails, and a reply's or
+/// notify step's HTML body. `unassign`, `set_priority` and
+/// `stop_processing` carry none.
 const RULE_ACTIONS: Shape = Shape::Paths(&[
     ("*.config.workflow_state_id", Ref(E::WorkflowState)),
     ("*.config.user_uuid", Ref(E::User)),
+    ("*.config.send_as_uuid", Ref(E::User)),
     ("*.config.group_id", Ref(E::Group)),
     ("*.config.tag_ids.*", Ref(E::Tag)),
     ("*.config.body", Html),
@@ -261,6 +264,7 @@ pub const REFERENCES: &[Reference] = &[
             ("*.comment_id", Ref(E::Comment)),
             ("*.workflow_state_id", Ref(E::WorkflowState)),
             ("*.assigned_to_uuid", Ref(E::User)),
+            ("*.user_uuid", Ref(E::User)),
             ("*.tag_ids_added.*", Ref(E::Tag)),
             ("*.tag_ids_removed.*", Ref(E::Tag)),
         ]),

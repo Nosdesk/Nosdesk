@@ -11689,7 +11689,6 @@ admin-rule-editor-reply-kind-agent = Un agent
 admin-rule-editor-reply-kind-any = N'importe qui
 admin-rule-editor-section-conditions = Seulement si
 admin-rule-editor-conditions-incomplete = Complétez les conditions signalées ci-dessous, puis enregistrez à nouveau.
-admin-rule-editor-step-reply-manual-only = Pour l'instant, seule une règle manuelle peut répondre. Retirez cette étape ou utilisez le déclencheur manuel.
 admin-rule-editor-state-new-event = Les nouvelles règles commencent en brouillon.
 admin-rule-editor-state-draft-event = Brouillon. Elle ne s'exécute pas encore.
 admin-rule-editor-state-paused-event = En pause. Elle ne s'exécute pas.
@@ -11822,3 +11821,28 @@ admin-rules-activity-did-return-assets =
     }
 admin-rules-conflicts-field-asset-custody = utilisateurs des ressources
 admin-rules-conflicts-field-asset-loan = prêts de ressources
+
+# Règles : les réponses automatiques partent au nom d'un agent choisi, et l'étape de notification envoie un e-mail (machine, à relire par un locuteur natif).
+admin-rule-editor-action-notify = Envoyer un e-mail
+admin-rule-editor-reply-send-as-label = Envoyer en tant que
+admin-rule-editor-reply-send-as-placeholder = Choisissez un agent
+admin-rule-editor-reply-send-as-hint = La règle publie sa réponse au nom de cet agent, qui doit pouvoir traiter des tickets ici. Sauf si vous choisissez quelqu'un, c'est l'auteur de la règle.
+admin-rule-editor-notify-to = Destinataire
+admin-rule-editor-notify-to-requester = Le demandeur
+admin-rule-editor-notify-to-person = Une personne
+admin-rule-editor-notify-person-placeholder = Choisissez une personne
+admin-rule-editor-notify-subject-label = Objet
+admin-rule-editor-notify-body-label = Message
+admin-rule-editor-notify-hint = Envoyé uniquement par e-mail, avec le numéro du ticket dans l'objet ; rien n'est publié sur le ticket. L'objet et le message acceptent les mêmes variables qu'une réponse.
+admin-rule-editor-step-needs-notify-person = Choisissez une personne à qui écrire.
+admin-rule-editor-step-needs-notify-subject = Rédigez l'objet de l'e-mail.
+admin-rule-editor-step-needs-notify-body = Rédigez l'e-mail.
+ticket-actions-step-notify-requester = Envoyer un e-mail au demandeur
+ticket-actions-step-notify-person = Envoyer un e-mail à { $name }
+ticket-actions-step-notify-person-unknown = Envoyer un e-mail à une personne précise
+admin-rules-activity-did-notify-requester = E-mail envoyé au demandeur
+admin-rules-activity-did-notify-person = E-mail envoyé à { $name }
+admin-rules-activity-did-notify-person-unknown = E-mail envoyé à une personne précise
+admin-rules-activity-did-notify-no-requester = Aucun e-mail envoyé, car le ticket n'a pas de demandeur
+admin-rules-activity-did-notify-no-email = Aucun e-mail envoyé, car le demandeur n'a pas d'adresse e-mail
+admin-rules-activity-held-spam = Retenu, car le ticket est peut-être du spam : { $step }

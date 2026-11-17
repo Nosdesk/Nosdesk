@@ -17,6 +17,7 @@ const rules = vi.hoisted(() => ({
 const toastSuccess = vi.hoisted(() => vi.fn())
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push }) }))
 vi.mock('@nosdesk/core/services/rulesService', () => ({ default: rules }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { uuid: 'u-me', name: 'Me' } }) }))
 vi.mock('@nosdesk/core/stores/toast', () => ({
   useToastStore: () => ({ success: toastSuccess, error: vi.fn() }),
 }))
@@ -236,19 +237,51 @@ describe('RuleEditView', () => {
     expect(rules.update).toHaveBeenCalledWith(4, expect.objectContaining({ trigger_config: { reply_kind: 'any' }, conditions: [] }))
   })
 
-  it('creates an event rule with its trigger settings, swapping the reply step for one it can run', async () => {
+  it('keeps the reply step on an event rule, sending as the admin writing it', async () => {
     rules.preview.mockResolvedValue(PREVIEW)
     rules.create.mockImplementation(async (req: Record<string, unknown>) => ({ ...rule(), ...req, preview: PREVIEW }))
     const w = await mountAt('admin-rules-new')
     await w.find('input').setValue('Escalate replies')
+    expect(w.find('[data-test="reply-send-as"]').exists()).toBe(false)
     trigger(w).vm.$emit('update:modelValue', 'ticket_replied')
     await flushPromises()
     expect(w.find('[data-test="conditions"]').exists()).toBe(true)
-    // The reply step became a status step, which needs a status.
+    // A rule that runs on its own replies as an agent: the new rule's author
+    // unless the step picks someone.
+    const sendAs = w.find('[data-test="reply-send-as"] [data-test="user-picker"]')
+    expect((sendAs.element as HTMLInputElement).value).toBe('u-me')
+    // The reply still needs writing.
     button('admin-rule-editor-save')!.click()
     await flushPromises()
-    expect(w.text()).toContain('admin-rule-editor-step-needs-status')
+    expect(w.text()).toContain('admin-rule-editor-step-needs-reply')
+    expect(w.text()).not.toContain('manual-only')
     expect(rules.create).not.toHaveBeenCalled()
+  })
+
+  it("sends a saved rule's reply as its author until the step picks another agent", async () => {
+    const loaded = rule({
+      trigger_kind: 'ticket_created',
+      created_by: 'u-author',
+      conditions: { kind: 'and', children: [{ kind: 'leaf', field: 'ticket.priority', op: 'eq', value: 'high' }] },
+      actions: [{ kind: 'reply', config: { visibility: 'public', body: 'Hi' } }],
+    })
+    rules.get.mockResolvedValue(loaded)
+    rules.preview.mockResolvedValue(PREVIEW)
+    rules.update.mockImplementation(async (_id: number, req: Record<string, unknown>) => ({ ...loaded, ...req, preview: PREVIEW }))
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    const picker = () => w.find('[data-test="reply-send-as"] [data-test="user-picker"]')
+    expect((picker().element as HTMLInputElement).value).toBe('u-author')
+    w.findComponent('[data-test="reply-send-as"] [data-test="user-picker"]').vm.$emit('update:modelValue', 'u-sam')
+    await flushPromises()
+    expect((picker().element as HTMLInputElement).value).toBe('u-sam')
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({
+        actions: [{ kind: 'reply', config: { visibility: 'public', body: 'Hi', send_as_uuid: 'u-sam' } }],
+      }),
+    )
   })
 
   it('switching an event rule to manual saves no conditions and no trigger settings', async () => {

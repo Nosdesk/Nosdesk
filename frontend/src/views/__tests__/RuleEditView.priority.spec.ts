@@ -8,6 +8,7 @@ const route = vi.hoisted(() => ({ name: 'admin-rules-edit' as string, params: { 
 const rules = vi.hoisted(() => ({ get: vi.fn(), create: vi.fn(), update: vi.fn(), transitionState: vi.fn() }))
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('@nosdesk/core/services/rulesService', () => ({ default: rules }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { uuid: 'u-me', name: 'Me' } }) }))
 vi.mock('@nosdesk/core/stores/toast', () => ({ useToastStore: () => ({ success: vi.fn(), error: vi.fn() }) }))
 vi.mock('@nosdesk/core/stores/workflowStates', () => ({
   useWorkflowStatesStore: () => ({ load: async () => [], states: [] }),

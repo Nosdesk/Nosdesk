@@ -18,7 +18,7 @@ use backend::sync::actor::ActorContext;
 use crate::common::{self, TestPool, WorkspaceSeed};
 
 /// Call the rules routes as `ws`'s admin.
-async fn as_admin(
+pub async fn as_admin(
     pool: &TestPool,
     ws: &WorkspaceSeed,
     req: http_test::TestRequest,
@@ -62,7 +62,7 @@ async fn as_admin(
     http_test::call_service(&app, req.to_request()).await
 }
 
-async fn json_of(resp: ServiceResponse) -> (StatusCode, Value) {
+pub async fn json_of(resp: ServiceResponse) -> (StatusCode, Value) {
     let status = resp.status();
     (status, http_test::read_body_json(resp).await)
 }

@@ -87,10 +87,11 @@ watch(selectedId, () => {
 
 const config = (action: RuleAction) => (action.config ?? {}) as Record<string, unknown>;
 
-// Names for the people the selected rule assigns to.
+// Names for the people the selected rule's steps point at: assignees, and
+// the people notify steps email.
 const assigneeUuids = computed(() =>
   (selected.value?.actions ?? [])
-    .filter((a) => a.kind === 'assign' && typeof config(a).user_uuid === 'string')
+    .filter((a) => (a.kind === 'assign' || a.kind === 'notify') && typeof config(a).user_uuid === 'string')
     .map((a) => String(config(a).user_uuid)),
 );
 const stepText = useRuleStepText({ enabled: () => props.show, userUuids: () => assigneeUuids.value });

@@ -85,13 +85,15 @@ const loadError = computed(() =>
   applicationsQuery.error.value ? t('admin-rules-activity-error-load') : '',
 );
 
-// Names for who applied each run and who its assign steps chose.
+// Names for who applied each run, who its assign steps chose and who its
+// notify steps emailed.
 const peopleUuids = computed(() => {
   const uuids = new Set<string>();
   for (const app of applications.value) {
     if (app.actor_uuid) uuids.add(app.actor_uuid);
     for (const entry of app.actions_taken ?? []) {
       if (typeof entry.assigned_to_uuid === 'string') uuids.add(entry.assigned_to_uuid);
+      if (typeof entry.user_uuid === 'string') uuids.add(entry.user_uuid);
     }
   }
   return [...uuids].sort();
@@ -116,7 +118,9 @@ function summary(app: RuleApplication): string {
     : t('admin-rules-activity-row-by-agent', { ticket_id });
 }
 
-/** What the run did, then the steps the agent skipped, in plain words. */
+/** What the run did, then the steps the agent skipped or the run held, in
+ *  plain words. A rule that runs on its own holds the steps that send email
+ *  on a ticket flagged as likely spam. */
 function outcomeLines(app: RuleApplication): string[] {
   const lines: string[] = [];
   for (const entry of app.actions_taken ?? []) {
@@ -126,7 +130,12 @@ function outcomeLines(app: RuleApplication): string[] {
   for (const entry of app.actions_skipped ?? []) {
     const step = ruleStep(app, entry.index);
     const planned = step ? stepText.planned(step) : null;
-    if (planned) lines.push(t('admin-rules-activity-skipped', { step: planned }));
+    if (!planned) continue;
+    lines.push(
+      entry.reason === 'spam_suspected'
+        ? t('admin-rules-activity-held-spam', { step: planned })
+        : t('admin-rules-activity-skipped', { step: planned }),
+    );
   }
   return lines;
 }

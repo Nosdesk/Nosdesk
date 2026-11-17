@@ -395,11 +395,11 @@ fn a_live_automated_run_writes_and_replies_as_the_rules_author() {
     assert_eq!(author, a.admin_uuid);
 }
 
-/// A rule that runs on its own can't be saved with a reply step yet, on
-/// create or by switching a manual rule's trigger, and one saved before that
-/// can't go live or into dry run.
+/// A rule that runs on its own saves with a reply step, on create or by
+/// switching a manual rule's trigger: it sends as its author. One that sends
+/// as someone who can't work tickets can be parked, not run.
 #[actix_web::test]
-async fn a_rule_that_runs_on_its_own_cant_reply() {
+async fn a_rule_that_runs_on_its_own_replies_as_an_agent() {
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
@@ -407,6 +407,9 @@ async fn a_rule_that_runs_on_its_own_cant_reply() {
     let a = &seeded.a;
     let reply =
         json!([{ "kind": "reply", "config": { "visibility": "public", "body": "Thanks" } }]);
+    let high = json!({ "kind": "and", "children": [
+        { "kind": "leaf", "field": "ticket.priority", "op": "eq", "value": "high" }
+    ]});
 
     let created = as_admin(
         &pool,
@@ -416,13 +419,12 @@ async fn a_rule_that_runs_on_its_own_cant_reply() {
             .set_json(json!({
                 "name": "Acknowledge",
                 "trigger_kind": "ticket_created",
+                "conditions": high,
                 "actions": reply,
             })),
     )
     .await;
-    assert_eq!(created.status(), StatusCode::BAD_REQUEST);
-    let body: Value = http_test::read_body_json(created).await;
-    assert_eq!(body["code"], "RULE_VALIDATION", "{body}");
+    assert_eq!(created.status(), StatusCode::CREATED);
 
     let manual = as_admin(
         &pool,
@@ -445,20 +447,20 @@ async fn a_rule_that_runs_on_its_own_cant_reply() {
         a,
         http_test::TestRequest::put()
             .uri(&format!("/api/rules/{id}"))
-            .set_json(json!({ "trigger_kind": "ticket_created" })),
+            .set_json(json!({ "trigger_kind": "ticket_created", "conditions": high })),
     )
     .await;
-    assert_eq!(switched.status(), StatusCode::BAD_REQUEST);
-    let body: Value = http_test::read_body_json(switched).await;
-    assert_eq!(body["code"], "RULE_VALIDATION", "{body}");
+    assert_eq!(switched.status(), StatusCode::OK);
 
-    // One saved before the refusal can be parked, not run.
+    // Sending as a plain member, who can't work tickets: parked, not run.
     let saved = rule(
         &pool,
         a,
         RuleTriggerKind::TicketCreated,
         RuleState::Draft,
-        reply,
+        json!([{ "kind": "reply", "config": {
+            "visibility": "public", "body": "Thanks", "send_as_uuid": a.member_uuid,
+        } }]),
     );
     let set_state = |state: &str| {
         http_test::TestRequest::patch()
@@ -469,7 +471,7 @@ async fn a_rule_that_runs_on_its_own_cant_reply() {
         let refused = as_admin(&pool, a, set_state(state)).await;
         assert_eq!(refused.status(), StatusCode::BAD_REQUEST, "{state}");
         let body: Value = http_test::read_body_json(refused).await;
-        assert_eq!(body["code"], "RULE_VALIDATION", "{state}: {body}");
+        assert_eq!(body["code"], "RULE_SEND_AS_INELIGIBLE", "{state}: {body}");
     }
     let paused = as_admin(&pool, a, set_state("paused")).await;
     assert_eq!(paused.status(), StatusCode::OK);

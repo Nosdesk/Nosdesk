@@ -188,6 +188,7 @@ mod rules_conflicts;
 mod rules_elapsed_queue;
 mod rules_event_triggers;
 mod rules_in_workspace;
+mod rules_notify;
 mod rules_paused_state;
 mod rules_preview_match;
 mod rules_recursion;

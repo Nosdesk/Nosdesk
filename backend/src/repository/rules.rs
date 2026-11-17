@@ -885,23 +885,36 @@ pub fn current_version(conn: &mut DbConnection, rule_id: i32) -> QueryResult<i32
         .unwrap_or(1))
 }
 
-/// Whether a rule has a step that emails the requester: a public reply.
-fn emails_requester(actions: &Value) -> bool {
-    actions.as_array().into_iter().flatten().any(|step| {
-        let config = step.get("config");
-        match step.get("kind").and_then(Value::as_str) {
-            Some("reply") => {
-                config
-                    .and_then(|c| c.get("visibility"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("public")
-                    != "internal"
-            }
-            Some("notify") => true,
-            _ => false,
-        }
-    })
+/// Whether a rule has a step that sends email: a public reply, which goes
+/// to the requester, or a notify step. Either could answer an automated
+/// email and start a mail loop.
+fn sends_email(actions: &Value) -> bool {
+    actions
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(step_sends_email)
 }
+
+/// Whether one step sends email: a public reply or a notify step.
+fn step_sends_email(step: &Value) -> bool {
+    let config = step.get("config");
+    match step.get("kind").and_then(Value::as_str) {
+        Some("reply") => {
+            config
+                .and_then(|c| c.get("visibility"))
+                .and_then(Value::as_str)
+                .unwrap_or("public")
+                != "internal"
+        }
+        Some("notify") => true,
+        _ => false,
+    }
+}
+
+/// The reason on an automated run's row when it held its email steps on a
+/// ticket flagged as likely spam.
+pub const SPAM_HOLD_REASON: &str = "The ticket is flagged as likely spam, so the steps that send email were held: answering could confirm the address to whoever sent it";
 
 /// What a run's claim on the recursion budget came to.
 enum Slot {
@@ -1159,7 +1172,7 @@ fn run_locked(
     let rule_version = current_version(conn, rule.id)?;
     progress.rule_version = Some(rule_version);
 
-    if ctx.automated_source && emails_requester(&rule.actions) {
+    if ctx.automated_source && sends_email(&rule.actions) {
         return Err(ApplyError::AutomatedSource);
     }
     if let Some(budget) = ctx.budget {
@@ -1193,6 +1206,12 @@ fn run_locked(
     let mut actions_taken: Vec<Value> = Vec::with_capacity(actions.len());
     let mut actions_skipped: Vec<Value> = Vec::with_capacity(suppress.len());
     let mut applied_reply_body_override = false;
+    // A rule that runs on its own sends no email about a ticket flagged as
+    // likely spam, as the auto-acknowledgement sends none: a reply would
+    // confirm the address to a forged sender. Its other steps run. An agent
+    // applying a rule has looked at the ticket and decides for themselves.
+    let hold_email = ctx.source != ApplySource::Manual && ticket.spam_suspected;
+    let mut held_email = false;
 
     for (i, action) in actions.iter().enumerate() {
         // Executors receive `one_based` so any ActionFailed they
@@ -1206,6 +1225,14 @@ fn run_locked(
                 "index": one_based,
                 "reason": "suppressed_by_override"
             }));
+            continue;
+        }
+        if hold_email && step_sends_email(action) {
+            actions_skipped.push(json!({
+                "index": one_based,
+                "reason": "spam_suspected"
+            }));
+            held_email = true;
             continue;
         }
         progress.step = Some(one_based);
@@ -1286,7 +1313,12 @@ fn run_locked(
                     json!({ "index": one_based, "kind": kind })
                 }
             }
-            "notify" | "apply_macro_template" | "webhook" => {
+            "notify" => {
+                let mut done = execute_notify(conn, one_based, &ticket, ctx, &rule, &config)?;
+                stamp_step(&mut done, one_based, kind);
+                done
+            }
+            "apply_macro_template" | "webhook" => {
                 return Err(ApplyError::UnsupportedActionPhase1 {
                     index: one_based,
                     message: format!(
@@ -1323,8 +1355,12 @@ fn run_locked(
             .get_result(conn)?
     };
 
+    // A run that held its email steps is recorded as held by the loop
+    // guard, with the steps it did run.
     let status = if shadow {
         RuleApplicationStatus::DryRun
+    } else if held_email {
+        RuleApplicationStatus::SuppressedLoopGuard
     } else {
         RuleApplicationStatus::Succeeded
     };
@@ -1356,7 +1392,7 @@ fn run_locked(
             condition_evaluation: ctx.condition_evaluation.clone(),
             actions_taken: actions_taken_value.clone(),
             actions_skipped: actions_skipped_value,
-            failure_reason: None,
+            failure_reason: (held_email && !shadow).then(|| SPAM_HOLD_REASON.to_string()),
         },
     )?;
 
@@ -1480,7 +1516,7 @@ fn execute_reply(
         &crate::services::template_vars::TemplateContext {
             ticket,
             requester: requester.as_ref(),
-            agent: &agent,
+            agent: Some(&agent),
             app_name: &app_name,
             event: None,
             reply: None,
@@ -1488,14 +1524,21 @@ fn execute_reply(
     );
 
     let is_internal = visibility == "internal";
+    // A reply the rule sent on its own names the rule, so it reads as the
+    // rule's and not the agent's (an agent applying a rule writes the reply
+    // as their own).
+    let mut channel_metadata = json!({
+        "kind": "rule_reply",
+        "visibility": visibility,
+    });
+    if ctx.source != ApplySource::Manual {
+        channel_metadata["rule_id"] = json!(rule.id);
+    }
     let new_comment = NewComment {
         content: rendered,
         ticket_id: ticket.id,
         user_uuid: agent.uuid,
-        channel_metadata: Some(json!({
-            "kind": "rule_reply",
-            "visibility": visibility,
-        })),
+        channel_metadata: Some(channel_metadata),
         is_internal,
         content_format: crate::models::ContentFormat::Html,
         ..NewComment::default()
@@ -1551,6 +1594,245 @@ fn reply_author(
             "the agent the reply sends as can no longer work tickets here",
         )),
     }
+}
+
+/// Who a step names, checked when a rule is saved or goes live so that it
+/// doesn't fail when it runs: the agent an automated reply sends as, and
+/// the person a notify step emails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StepPersonProblem {
+    /// A reply step (one-indexed) on a rule that runs on its own sends as
+    /// someone who can't work tickets here, or as no one.
+    SendAs(usize),
+    /// A notify step (one-indexed) emails someone who isn't an active
+    /// member of the workspace with an email address.
+    NotifyRecipient(usize),
+}
+
+/// The first step of `actions` that names someone it can't act as or
+/// email, for a rule with `trigger` written by `created_by` in
+/// `workspace_id`. A reply on a manual rule sends as the agent applying
+/// it, so only a reply on another trigger is checked: as its
+/// `send_as_uuid`, else the rule's author.
+pub fn step_person_problem(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    trigger: RuleTriggerKind,
+    actions: &Value,
+    created_by: Option<Uuid>,
+) -> QueryResult<Option<StepPersonProblem>> {
+    let uuid_at = |config: Option<&Value>, key: &str| {
+        config
+            .and_then(|c| c.get(key))
+            .and_then(Value::as_str)
+            .and_then(|s| Uuid::parse_str(s).ok())
+    };
+    for (i, step) in actions.as_array().into_iter().flatten().enumerate() {
+        let config = step.get("config");
+        match step.get("kind").and_then(Value::as_str) {
+            Some("reply") if trigger != RuleTriggerKind::Manual => {
+                let send_as = uuid_at(config, "send_as_uuid").or(created_by);
+                let eligible = match send_as {
+                    Some(agent) => {
+                        crate::repository::assignees::is_assignable(conn, workspace_id, agent)?
+                    }
+                    None => false,
+                };
+                if !eligible {
+                    return Ok(Some(StepPersonProblem::SendAs(i + 1)));
+                }
+            }
+            Some("notify")
+                if config
+                    .and_then(|c| c.get("recipient"))
+                    .and_then(Value::as_str)
+                    == Some("user") =>
+            {
+                let reachable = match uuid_at(config, "user_uuid") {
+                    Some(user) => notify_address(conn, workspace_id, user)?.is_some(),
+                    None => false,
+                };
+                if !reachable {
+                    return Ok(Some(StepPersonProblem::NotifyRecipient(i + 1)));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+/// The address a notify step emails `user` at: their primary email, when
+/// they are an active, current member of `workspace_id`. Someone outside
+/// the workspace never gets its tickets by email.
+fn notify_address(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user: Uuid,
+) -> QueryResult<Option<String>> {
+    if crate::repository::users::find_active_by_uuid(&user, conn)
+        .optional()?
+        .is_none()
+        || crate::repository::workspaces::get_membership_role(conn, workspace_id, user)?.is_none()
+    {
+        return Ok(None);
+    }
+    Ok(crate::repository::user_helpers::get_primary_email(
+        &user, conn,
+    ))
+}
+
+/// `notify` action: an email about the ticket to its requester
+/// (`recipient: "requester"`) or to a member of the workspace
+/// (`recipient: "user"`, `user_uuid`), not a comment. The subject and body
+/// are templates like a reply's, filled in for the ticket; the agent
+/// tokens name the rule's author. The email goes on the outbound queue in
+/// the run's transaction, so a run that rolls back sends nothing, marked
+/// `Auto-Submitted: auto-generated` so an auto-responder doesn't answer it.
+/// Its subject carries the ticket's number and it follows the recipient's
+/// earlier mail about the ticket, so a reply threads back like a reply to
+/// an agent's.
+///
+/// A ticket with no requester, or a requester with no email address, has
+/// no one to tell: the step sends nothing and says why, and the rest of
+/// the rule runs. A named person who can no longer be emailed fails the
+/// step. A shadow run checks the recipient and sends nothing.
+fn execute_notify(
+    conn: &mut DbConnection,
+    action_index: usize,
+    ticket: &crate::models::Ticket,
+    ctx: &ApplyContext,
+    rule: &Rule,
+    config: &Value,
+) -> Result<Value, ApplyError> {
+    let failed = |message: &str| ApplyError::ActionFailed {
+        index: action_index,
+        message: message.to_string(),
+    };
+    let text = |key: &str| {
+        config
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_string)
+    };
+    let subject = text("subject").ok_or_else(|| failed("notify action missing subject"))?;
+    let body = text("body").ok_or_else(|| failed("notify action missing body"))?;
+    let recipient_kind = config
+        .get("recipient")
+        .and_then(Value::as_str)
+        .unwrap_or("requester");
+    let (to_uuid, to_email) = match recipient_kind {
+        "requester" => {
+            let requester = match ticket.requester_uuid {
+                Some(uuid) => crate::repository::users::find_active_by_uuid(&uuid, conn)
+                    .optional()?
+                    .map(|u| u.uuid),
+                None => None,
+            };
+            let Some(requester) = requester else {
+                return Ok(json!({ "recipient": "requester", "skipped": "no_requester" }));
+            };
+            let Some(email) = crate::repository::user_helpers::get_primary_email(&requester, conn)
+            else {
+                return Ok(json!({ "recipient": "requester", "skipped": "no_email" }));
+            };
+            (requester, email)
+        }
+        "user" => {
+            let user = config
+                .get("user_uuid")
+                .and_then(Value::as_str)
+                .and_then(|s| Uuid::parse_str(s).ok())
+                .ok_or_else(|| failed("notify action missing user_uuid"))?;
+            let email = notify_address(conn, ticket.workspace_id, user)?.ok_or_else(|| {
+                failed("the person to email is no longer an active member of this workspace with an email address")
+            })?;
+            (user, email)
+        }
+        other => return Err(failed(&format!("unknown notify recipient: {other}"))),
+    };
+    // Who it went to: the requester, or the person by id.
+    let sent_to = if recipient_kind == "user" {
+        json!({ "recipient": "user", "user_uuid": to_uuid })
+    } else {
+        json!({ "recipient": "requester" })
+    };
+    if ctx.shadow {
+        return Ok(sent_to);
+    }
+
+    let requester = match ticket.requester_uuid {
+        Some(uuid) => crate::repository::users::find_active_by_uuid(&uuid, conn).ok(),
+        None => None,
+    };
+    let author = match rule.created_by {
+        Some(uuid) => crate::repository::users::find_active_by_uuid(&uuid, conn).ok(),
+        None => None,
+    };
+    let app_name = crate::repository::site_settings::get_site_settings(conn)
+        .map(|s| s.app_name)
+        .unwrap_or_else(|_| "Nosdesk".to_string());
+    let template = crate::services::template_vars::TemplateContext {
+        ticket,
+        requester: requester.as_ref(),
+        agent: author.as_ref(),
+        app_name: &app_name,
+        event: None,
+        reply: None,
+    };
+    let subject = crate::services::channels::threading::format_outbound_subject(
+        ticket.number,
+        &crate::services::template_vars::render_text(&subject, &template),
+    );
+    let html = crate::services::template_vars::render(
+        &crate::utils::content::reply_template_html(&body),
+        &template,
+    );
+    let body = crate::services::channels::reply_body::ReplyBody {
+        text: crate::utils::content::html_to_plaintext(&html),
+        html,
+    };
+    use crate::services::channels::outbound;
+    // The requester gets the way back to their request; anyone else is
+    // staff or a member who reaches the ticket in the app.
+    let body = if recipient_kind == "requester" {
+        outbound::with_request_link(conn, ticket, Some(to_uuid), body, false)
+    } else {
+        body
+    };
+    let note = outbound::reply_security_note(conn);
+    let body = outbound::with_security_note(body, note.as_deref());
+    let (in_reply_to, references) = outbound::thread_headers_for(conn, ticket.id, &to_email)?;
+    let domain = crate::utils::email_branding::outbound_email_domain()
+        .unwrap_or_else(|| "nosdesk.local".to_string());
+    let random: u32 = rand::random();
+    crate::repository::outbound_emails::enqueue_or_suppress(
+        conn,
+        crate::models::NewOutboundEmail {
+            channel_id: None,
+            ticket_id: Some(ticket.id),
+            comment_id: None,
+            recipient: to_email,
+            subject,
+            body_text: body.text,
+            body_html: Some(body.html),
+            message_id: format!(
+                "ticket-{}.rule-{}.{random:08x}@{domain}",
+                ticket.id, rule.id
+            ),
+            in_reply_to,
+            references_list: references.into_iter().map(Some).collect(),
+            headers_json: json!({ "Auto-Submitted": "auto-generated" }),
+            correlation_id: ctx.actor.correlation_id,
+            idempotency_key: None,
+            sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE.to_string(),
+            // Mail about the recipient's own ticket, like a reply: it is
+            // sent whatever their notification settings.
+            mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
+        },
+    )?;
+    Ok(sent_to)
 }
 
 /// The team member with the fewest open tickets assigned, among those who can

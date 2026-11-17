@@ -562,9 +562,7 @@ fn insert_rule(
             "RULE_VALIDATION",
         )));
     }
-    if let Err(msg) = validate_actions(&actions)
-        .and_then(|()| validate_actions_for_trigger(trigger_kind, &actions))
-    {
+    if let Err(msg) = validate_actions(&actions) {
         return Err(refused(errors::bad_request_with_code(
             msg,
             "RULE_VALIDATION",
@@ -577,6 +575,11 @@ fn insert_rule(
         compile_conditions(trigger_kind, &conditions).map_err(InsertRuleError::Refused)?;
     if let Some(resp) = unknown_reference(conn, &predicate)? {
         return Err(refused(resp));
+    }
+    if let Some(problem) =
+        rules::step_person_problem(conn, workspace_id, trigger_kind, &actions, created_by)?
+    {
+        return Err(refused(step_person_refused(problem)));
     }
 
     let reads = rules::derive_reads_set(&conditions);
@@ -717,9 +720,6 @@ pub async fn update_rule(
     let effective_conditions = conditions.clone().unwrap_or(existing.conditions);
     let effective_actions = actions.clone().unwrap_or(existing.actions);
     let effective_trigger_kind = trigger_kind.unwrap_or(existing.trigger_kind);
-    if let Err(msg) = validate_actions_for_trigger(effective_trigger_kind, &effective_actions) {
-        return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION"));
-    }
     // A dry run shadows an automated trigger (`rules_manual_no_dry_run`).
     if effective_trigger_kind == RuleTriggerKind::Manual && existing.state == RuleState::DryRun {
         return Ok(errors::conflict_with_code(
@@ -767,6 +767,18 @@ pub async fn update_rule(
     let saved = tc.run_result(|conn| {
         if let Some(resp) = unknown_reference(conn, &predicate)? {
             return Err(UpdateRuleError::Refused(Box::new(resp)));
+        }
+        // A reply with no agent of its own sends as the rule's author.
+        if let Some(problem) = rules::step_person_problem(
+            conn,
+            existing.workspace_id,
+            effective_trigger_kind,
+            &effective_actions,
+            existing.created_by,
+        )? {
+            return Err(UpdateRuleError::Refused(Box::new(step_person_refused(
+                problem,
+            ))));
         }
         let rule = rules::update(conn, id, change).map_err(UpdateRuleError::Write)?;
         let preview = rules::preview_match(conn, &predicate, rules::PREVIEW_SCAN)?;
@@ -899,11 +911,21 @@ pub async fn transition_state(
             "RULE_STATE_TRANSITION",
         ));
     }
-    // A rule saved before replies were refused on automated triggers can be
-    // parked and edited, but not run.
+    // Someone a step names may have left since the rule was saved: it can
+    // be parked and edited, but not run.
     if matches!(target, RuleState::Live | RuleState::DryRun) {
-        if let Err(msg) = validate_actions_for_trigger(existing.trigger_kind, &existing.actions) {
-            return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION"));
+        match tc.run(|conn| {
+            rules::step_person_problem(
+                conn,
+                existing.workspace_id,
+                existing.trigger_kind,
+                &existing.actions,
+                existing.created_by,
+            )
+        }) {
+            Ok(Some(problem)) => return Ok(step_person_refused(problem)),
+            Ok(None) => {}
+            Err(e) => return Err(ApiError::Database(e)),
         }
     }
     // Archive transitions stamp archived_at so the
@@ -1462,10 +1484,11 @@ fn validate_actions(actions: &Value) -> Result<(), String> {
         "assign_assets_to_requester",
         "lend_assets",
         "return_requester_assets",
+        "notify",
         "stop_processing",
     ];
     // Named in the rule model but not run yet.
-    const NOT_YET: &[&str] = &["notify", "apply_macro_template", "webhook"];
+    const NOT_YET: &[&str] = &["apply_macro_template", "webhook"];
     for (i, action) in arr.iter().enumerate() {
         let Some(obj) = action.as_object() else {
             return Err(format!("actions[{i}] must be a JSON object"));
@@ -1489,23 +1512,22 @@ fn validate_actions(actions: &Value) -> Result<(), String> {
     Ok(())
 }
 
-/// Steps only a manual rule can take. A reply from a rule that runs on its
-/// own waits for the send-as agent and the email loop guard, so until then
-/// it is refused.
-fn validate_actions_for_trigger(kind: RuleTriggerKind, actions: &Value) -> Result<(), String> {
-    if kind == RuleTriggerKind::Manual {
-        return Ok(());
-    }
-    let steps = actions.as_array().map(Vec::as_slice).unwrap_or_default();
-    match steps
-        .iter()
-        .position(|a| a.get("kind").and_then(Value::as_str) == Some("reply"))
-    {
-        Some(i) => Err(format!(
-            "Step {}: only a manual rule can reply for now, so remove the step or use the manual trigger",
-            i + 1
-        )),
-        None => Ok(()),
+/// 400 for a step that names someone it can't send as or email, each
+/// with its own code.
+fn step_person_refused(problem: rules::StepPersonProblem) -> HttpResponse {
+    match problem {
+        rules::StepPersonProblem::SendAs(step) => errors::bad_request_with_code(
+            format!(
+                "Step {step}: the agent this reply sends as can't work tickets in this workspace, so pick another"
+            ),
+            "RULE_SEND_AS_INELIGIBLE",
+        ),
+        rules::StepPersonProblem::NotifyRecipient(step) => errors::bad_request_with_code(
+            format!(
+                "Step {step}: the person to email isn't an active member of this workspace with an email address, so pick another"
+            ),
+            "RULE_NOTIFY_RECIPIENT_INVALID",
+        ),
     }
 }
 
@@ -1518,11 +1540,36 @@ fn validate_step_config(kind: &str, config: &Value) -> Result<(), &'static str> 
             .and_then(Value::as_i64)
             .is_some_and(|n| n > 0)
     };
+    let text = |key: &str| config.get(key).and_then(Value::as_str).unwrap_or("");
+    let uuid_or_absent = |key: &str| match config.get(key) {
+        None | Some(Value::Null) => true,
+        Some(v) => v.as_str().is_some_and(|s| Uuid::parse_str(s).is_ok()),
+    };
     match kind {
         "reply" => {
-            let body = config.get("body").and_then(Value::as_str).unwrap_or("");
-            if body.trim().is_empty() {
+            if text("body").trim().is_empty() {
                 return Err("write the reply");
+            }
+            // Absent, the rule's author.
+            if !uuid_or_absent("send_as_uuid") {
+                return Err("pick an agent to send the reply as");
+            }
+        }
+        "notify" => {
+            match config.get("recipient").and_then(Value::as_str) {
+                Some("requester") => {}
+                Some("user") => {
+                    if Uuid::parse_str(text("user_uuid")).is_err() {
+                        return Err("pick a person to email");
+                    }
+                }
+                _ => return Err("email the requester or a person"),
+            }
+            if text("subject").trim().is_empty() {
+                return Err("write the email's subject");
+            }
+            if text("body").trim().is_empty() {
+                return Err("write the email");
             }
         }
         "set_status" if !positive_int("workflow_state_id") => return Err("pick a status"),
@@ -1648,12 +1695,12 @@ mod tests {
         assert!(err.contains("unknown kind"));
     }
 
-    /// A rule saves only with steps applying it can run: notify, macro
-    /// templates and webhooks don't run yet, so a rule carrying one would fail
-    /// every time an agent applied it.
+    /// A rule saves only with steps applying it can run: macro templates and
+    /// webhooks don't run yet, so a rule carrying one would fail every time
+    /// an agent applied it.
     #[test]
     fn validate_actions_refuses_steps_that_dont_run_yet() {
-        for kind in ["notify", "apply_macro_template", "webhook"] {
+        for kind in ["apply_macro_template", "webhook"] {
             let actions = serde_json::json!([
                 { "kind": "set_priority", "config": { "priority": "high" } },
                 { "kind": kind, "config": {} }
@@ -1728,25 +1775,43 @@ mod tests {
         assert!(validate_actions(&actions).is_ok());
     }
 
-    /// A reply step waits for the send-as agent on any trigger but manual.
+    /// A notify step emails the requester or a named person, with a subject
+    /// and a message. A reply's agent to send as is optional.
     #[test]
-    fn only_a_manual_rule_can_reply() {
-        let actions = serde_json::json!([
-            { "kind": "set_priority", "config": { "priority": "high" } },
-            { "kind": "reply", "config": { "visibility": "public", "body": "hi" } }
+    fn validate_actions_checks_notify_and_send_as() {
+        let person = "7b5f2c1e-3f0a-4c55-9f1d-0d1e2f3a4b5c";
+        let ok = serde_json::json!([
+            { "kind": "notify", "config": { "recipient": "requester", "subject": "Closing soon", "body": "Hi" } },
+            { "kind": "notify", "config": { "recipient": "user", "user_uuid": person, "subject": "Escalated", "body": "See #{{ticket_id}}" } },
+            { "kind": "reply", "config": { "body": "hi", "send_as_uuid": person } },
+            { "kind": "reply", "config": { "body": "hi", "send_as_uuid": null } }
         ]);
-        assert!(validate_actions_for_trigger(RuleTriggerKind::Manual, &actions).is_ok());
-        for kind in [
-            RuleTriggerKind::TicketCreated,
-            RuleTriggerKind::TicketUpdated,
-            RuleTriggerKind::TicketReplied,
-            RuleTriggerKind::TimeElapsed,
+        assert!(validate_actions(&ok).is_ok());
+        for (bad, why) in [
+            (
+                serde_json::json!({ "kind": "notify", "config": { "subject": "s", "body": "b" } }),
+                "email the requester or a person",
+            ),
+            (
+                serde_json::json!({ "kind": "notify", "config": { "recipient": "user", "subject": "s", "body": "b" } }),
+                "pick a person to email",
+            ),
+            (
+                serde_json::json!({ "kind": "notify", "config": { "recipient": "requester", "subject": " ", "body": "b" } }),
+                "write the email's subject",
+            ),
+            (
+                serde_json::json!({ "kind": "notify", "config": { "recipient": "requester", "subject": "s" } }),
+                "write the email",
+            ),
+            (
+                serde_json::json!({ "kind": "reply", "config": { "body": "hi", "send_as_uuid": "nope" } }),
+                "pick an agent to send the reply as",
+            ),
         ] {
-            let err = validate_actions_for_trigger(kind, &actions).expect_err("refused");
-            assert!(err.starts_with("Step 2: "), "{kind:?}: {err}");
+            let err = validate_actions(&serde_json::json!([bad])).expect_err(why);
+            assert_eq!(err, format!("Step 1: {why}"));
         }
-        let no_reply = serde_json::json!([{ "kind": "unassign" }]);
-        assert!(validate_actions_for_trigger(RuleTriggerKind::TicketCreated, &no_reply).is_ok());
     }
 
     #[test]

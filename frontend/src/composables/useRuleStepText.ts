@@ -19,7 +19,8 @@ type Config = Record<string, unknown>
 export function useRuleStepText(options: {
   /** Load the lookups only while the text is on screen. */
   enabled: () => boolean
-  /** People whose names the text needs: assignees and, for the log, who ran it. */
+  /** People whose names the text needs: assignees, the people notify steps
+   *  email and, for the log, who ran it. */
   userUuids: () => string[]
 }) {
   const { $t: t } = useFluent()
@@ -74,6 +75,11 @@ export function useRuleStepText(options: {
     switch (action.kind) {
       case 'reply':
         return c.visibility === 'internal' ? t('ticket-actions-step-note') : t('ticket-actions-step-reply')
+      case 'notify': {
+        if (c.recipient !== 'user') return t('ticket-actions-step-notify-requester')
+        const name = userName(c.user_uuid)
+        return name ? t('ticket-actions-step-notify-person', { name }) : t('ticket-actions-step-notify-person-unknown')
+      }
       case 'set_status': {
         const status = statusName(c.workflow_state_id)
         return status ? t('ticket-actions-step-status', { status }) : t('ticket-actions-step-status-unknown')
@@ -122,6 +128,15 @@ export function useRuleStepText(options: {
         if (visibility === 'internal') return t('admin-rules-activity-did-note')
         if (visibility === 'public') return t('admin-rules-activity-did-reply')
         return t('admin-rules-activity-did-message')
+      }
+      // A notify step with no one to email (no requester, or one with no
+      // address) sent nothing and says why.
+      case 'notify': {
+        if (entry.skipped === 'no_requester') return t('admin-rules-activity-did-notify-no-requester')
+        if (entry.skipped === 'no_email') return t('admin-rules-activity-did-notify-no-email')
+        if (entry.recipient !== 'user') return t('admin-rules-activity-did-notify-requester')
+        const name = userName(entry.user_uuid)
+        return name ? t('admin-rules-activity-did-notify-person', { name }) : t('admin-rules-activity-did-notify-person-unknown')
       }
       case 'set_status': {
         const status = statusName(entry.workflow_state_id)
