@@ -11,7 +11,9 @@ use diesel::prelude::*;
 use backend::db::DbConnection;
 use backend::models::{NewNotification, SyncAggregate, SyncOp};
 use backend::schema::{notification_outbox, notifications};
-use backend::services::notifications::outbox::{ack, claim_batch, fail, MAX_ATTEMPTS};
+use backend::services::notifications::outbox::{
+    ack, claim_batch, fail, too_old, Claimed, MAX_ATTEMPTS,
+};
 use backend::sync::emit::{record, SyncEmit};
 
 fn emit(conn: &mut DbConnection, event_type: &'static str, data: serde_json::Value) -> i64 {
@@ -215,4 +217,107 @@ fn a_derived_notification_persists_once_per_event_recipient_and_type() {
             1
         );
     }
+}
+
+/// Claim `sync_id` now, whatever its schedule.
+fn claim_now(conn: &mut DbConnection, sync_id: i64) -> Claimed {
+    diesel::update(notification_outbox::table.filter(notification_outbox::sync_id.eq(sync_id)))
+        .set(notification_outbox::next_attempt_at.eq(chrono::Utc::now()))
+        .execute(conn)
+        .expect("make due");
+    claim_batch(conn)
+        .expect("claim")
+        .into_iter()
+        .find(|c| c.sync_id == sync_id)
+        .expect("our row is claimable")
+}
+
+/// An event whose retries run well past ten minutes (an outage, a failing
+/// preference lookup) is still handled on every attempt, and the last failure
+/// keeps it as a dead letter.
+#[test]
+fn a_retried_event_is_handled_until_its_last_attempt_and_then_dead_lettered() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool();
+    let mut conn = pool.get().expect("conn");
+
+    let sync_id = emit(
+        &mut conn,
+        "comment.created",
+        serde_json::json!({"id": 5, "ticket_id": 1, "content": "hi"}),
+    );
+
+    // Each claim is checked at the time it would come round: the queue's own
+    // backoff after every earlier failure.
+    let mut waited = chrono::Duration::zero();
+    for attempt in 1..=MAX_ATTEMPTS {
+        let claimed = claim_now(&mut conn, sync_id);
+        assert_eq!(claimed.attempts, attempt);
+        let occurred_at = claimed.occurred_at.expect("the source row is joined in");
+        let at = claimed.enqueued_at + waited;
+        assert!(
+            !too_old(occurred_at, claimed.enqueued_at, at),
+            "attempt {attempt}, {} minutes in, is still handled",
+            waited.num_minutes()
+        );
+        fail(&mut conn, sync_id, attempt, "notify").expect("fail");
+        let (next, dead): (
+            chrono::DateTime<chrono::Utc>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ) = notification_outbox::table
+            .filter(notification_outbox::sync_id.eq(sync_id))
+            .select((
+                notification_outbox::next_attempt_at,
+                notification_outbox::dead_at,
+            ))
+            .first(&mut conn)
+            .expect("row");
+        assert_eq!(dead.is_some(), attempt == MAX_ATTEMPTS, "attempt {attempt}");
+        waited += next - chrono::Utc::now();
+    }
+    assert!(
+        waited > chrono::Duration::minutes(10),
+        "the retries span more than ten minutes"
+    );
+    assert!(
+        !claim_batch(&mut conn)
+            .expect("claim")
+            .iter()
+            .any(|c| c.sync_id == sync_id),
+        "the dead letter is kept, not claimed"
+    );
+}
+
+/// An event recorded long before it was queued (seed-demo's backdated events)
+/// is still acknowledged without notifying anyone, and so is one left in the
+/// queue for more than a day.
+#[test]
+fn a_backdated_or_day_old_event_is_acknowledged_unsent() {
+    crate::common::ensure_test_keyring();
+    let db = crate::common::TestDb::new();
+    let pool = db.pool();
+    let mut conn = pool.get().expect("conn");
+
+    let sync_id = emit(
+        &mut conn,
+        "comment.created",
+        serde_json::json!({"id": 5, "ticket_id": 1, "content": "hi"}),
+    );
+    // Queued an hour after it happened.
+    diesel::update(notification_outbox::table.filter(notification_outbox::sync_id.eq(sync_id)))
+        .set(notification_outbox::enqueued_at.eq(chrono::Utc::now() + chrono::Duration::hours(1)))
+        .execute(&mut conn)
+        .expect("backdate");
+    let claimed = claim_now(&mut conn, sync_id);
+    let occurred_at = claimed.occurred_at.expect("the source row is joined in");
+    assert!(
+        too_old(occurred_at, claimed.enqueued_at, claimed.enqueued_at),
+        "a backdated event is acknowledged"
+    );
+
+    // Queued as it happened, but a day ago.
+    let now = chrono::Utc::now();
+    assert!(!too_old(now, now, now + chrono::Duration::hours(23)));
+    assert!(too_old(now, now, now + chrono::Duration::hours(25)));
 }

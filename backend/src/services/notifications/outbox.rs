@@ -43,13 +43,27 @@ const POLL_SECS: u64 = 2;
 const BATCH: i64 = 100;
 pub const MAX_ATTEMPTS: i16 = 8;
 const STALE_CLAIM_SECS: i64 = 300;
-/// Rows older than this at claim time are acknowledged without deriving.
-/// `seed-demo` emits real, backdated events; without this a seeded workspace
-/// notifies every assignee and mention in the fixture.
-const MAX_AGE_SECS: i64 = 600;
+/// An event recorded this long before it was queued was backdated (`seed-demo`
+/// emits real, backdated events, and moving a row across a month re-fires the
+/// trigger), so it is acknowledged without deriving. Without this a seeded
+/// workspace notifies every assignee and mention in the fixture.
+const BACKDATED_SECS: i64 = 600;
+/// An event queued longer ago than this is acknowledged without deriving.
+/// Past the whole retry span, so a retried event still reaches its last
+/// attempt and the dead letter.
+const MAX_AGE_SECS: i64 = 24 * 60 * 60;
 /// Concurrent `notify()` calls per batch. Each does its own pool work and,
 /// for push, a relay round-trip.
 const DELIVERY_CONCURRENCY: usize = 8;
+
+/// Whether a claimed event is acknowledged without deriving: it was backdated
+/// before it was queued, or it has waited in the queue too long. Measured from
+/// when it was queued, so the queue's own retries and an outage don't age it
+/// out.
+pub fn too_old(occurred_at: DateTime<Utc>, enqueued_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    (enqueued_at - occurred_at).num_seconds() > BACKDATED_SECS
+        || (now - enqueued_at).num_seconds() > MAX_AGE_SECS
+}
 
 /// Backoff after the `attempts`-th failure.
 fn backoff_secs(attempts: i16) -> i64 {
@@ -68,6 +82,8 @@ pub struct Claimed {
     pub sync_id: i64,
     #[diesel(sql_type = SmallInt)]
     pub attempts: i16,
+    #[diesel(sql_type = Timestamptz)]
+    pub enqueued_at: DateTime<Utc>,
     #[diesel(sql_type = Nullable<Integer>)]
     pub workspace_id: Option<i32>,
     #[diesel(sql_type = Nullable<Text>)]
@@ -104,9 +120,9 @@ pub fn claim_batch(conn: &mut crate::db::DbConnection) -> QueryResult<Vec<Claime
                SET claimed_at = now(), attempts = o.attempts + 1
               FROM due
              WHERE o.sync_id = due.sync_id
-         RETURNING o.sync_id, o.attempts
+         RETURNING o.sync_id, o.attempts, o.enqueued_at
         )
-        SELECT c.sync_id, c.attempts,
+        SELECT c.sync_id, c.attempts, c.enqueued_at,
                s.workspace_id, s.event_type, s.data, s.actor_uuid, s.actor_kind, s.occurred_at,
                s.groups
           FROM claimed c
@@ -247,7 +263,7 @@ impl Dispatcher {
                 done.push(c.sync_id);
                 continue;
             }
-            if (now - occurred_at).num_seconds() > MAX_AGE_SECS {
+            if too_old(occurred_at, c.enqueued_at, now) {
                 debug!(
                     sync_id = c.sync_id,
                     "notification outbox: row too old; acknowledged without deriving"
