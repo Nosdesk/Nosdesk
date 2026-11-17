@@ -452,18 +452,24 @@ struct TimedOut {
 }
 
 /// `(workspace_id, ticket_id)` of requests whose approval has waited longer
-/// than their workspace's automatic-approval period. Cross-workspace: run under
-/// the bypass context.
+/// than their workspace's automatic-approval period. Only the current round
+/// counts: a restarted round's clock starts with its own rows, not with an
+/// older round's unanswered ones. A closed, cancelled or merged request no
+/// longer waits. Cross-workspace: run under the bypass context.
 // sync-audit-only: a read-only scan (raw SELECT), no write
 pub fn timed_out(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<(i32, i32)>> {
     let rows: Vec<TimedOut> = diesel::sql_query(
         "SELECT t.workspace_id, t.id AS ticket_id \
          FROM tickets t \
          JOIN site_settings s ON s.workspace_id = t.workspace_id \
+         JOIN workflow_states w ON w.id = t.workflow_state_id \
          WHERE t.approval_state = 'pending' \
+           AND w.category NOT IN ('done', 'cancelled', 'merged') \
            AND s.approval_auto_approve_days IS NOT NULL \
            AND EXISTS (SELECT 1 FROM ticket_approvals a \
                        WHERE a.ticket_id = t.id AND a.decision IS NULL \
+                         AND a.round = (SELECT max(r.round) FROM ticket_approvals r \
+                                        WHERE r.ticket_id = t.id) \
                          AND a.created_at < now() - make_interval(days => s.approval_auto_approve_days)) \
          ORDER BY t.id LIMIT $1",
     )
@@ -476,12 +482,18 @@ pub fn timed_out(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<(i32, i
 }
 
 // sync-audit-only: approval rows are audited; the outcome emits ticket.approval_decided below
-/// Nobody answered in time: approve the waiting rows automatically, recorded
-/// as such. `false` when it was no longer waiting.
+/// Nobody answered in time: approve the current round's waiting rows
+/// automatically, recorded as such. `false` when it was no longer waiting,
+/// including a request that was closed, cancelled or merged meanwhile.
 pub fn auto_approve(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<bool> {
     conn.transaction(|conn| {
         let ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
         if ticket.approval_state.as_deref() != Some(PENDING) {
+            return Ok(false);
+        }
+        if crate::repository::workflow_states::category_of(conn, ticket.workflow_state_id)?
+            .is_some_and(|c| c.is_terminal())
+        {
             return Ok(false);
         }
         let rows = current_round(conn, ticket_id)?;
