@@ -53,6 +53,25 @@ pub fn held_for_approval(conn: &mut DbConnection, ticket: &Ticket) -> QueryResul
     if ticket.approval_state.as_deref() != Some(PENDING) {
         return Ok(false);
     }
+    holds_waiting_requests(conn)
+}
+
+/// Whether a request its workspace held back for approval has just gone
+/// ahead (approved, or its approval skipped), so the event rules its creation
+/// was turned away from run now. A request that wasn't held ran them when it
+/// was made, and one merged while it waited is worked on the ticket it was
+/// merged into.
+pub fn released_from_hold(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<bool> {
+    let ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
+    if !matches!(ticket.approval_state.as_deref(), Some(APPROVED | SKIPPED)) {
+        return Ok(false);
+    }
+    Ok(holds_waiting_requests(conn)?
+        && !crate::repository::ticket_merge::is_merge_source(conn, ticket_id)?)
+}
+
+/// Whether the workspace holds requests back while they wait for approval.
+fn holds_waiting_requests(conn: &mut DbConnection) -> QueryResult<bool> {
     use crate::schema::site_settings;
     Ok(site_settings::table
         .select(site_settings::approval_waiting_display)
@@ -712,52 +731,89 @@ mod tests {
         assert_eq!(t.workflow_state_id, merged, "it stays merged");
     }
 
-    /// An approval on a request merged while it waited is recorded, and the
-    /// held request isn't routed: the ticket it was merged into is the one
-    /// worked on.
-    #[test]
-    fn an_approval_on_a_merged_request_is_recorded_and_it_is_not_routed() {
-        use crate::models::{AssignmentMethod, NewAssignmentRule};
-        use crate::schema::assignment_rules;
-        let mut conn = setup_test_connection();
-        let boss = TestFixtures::create_user(&mut conn, "merged_approve_boss", "user");
-        let agent = TestFixtures::create_user(&mut conn, "merged_approve_agent", "technician");
-        let (ticket, merged) = merged_while_waiting(&mut conn, "merged_approve", boss.uuid);
-        // A held request is routed once approved, and this rule would route
-        // it. The settings row is shared between tests, so it's written last.
-        diesel::insert_into(assignment_rules::table)
-            .values(&NewAssignmentRule {
-                name: "Everything to the agent".into(),
-                description: None,
-                priority: 1,
-                is_active: true,
-                method: AssignmentMethod::DirectUser,
-                target_user_uuid: Some(agent.uuid),
-                target_group_id: None,
-                trigger_on_create: true,
-                trigger_on_category_change: false,
-                category_id: None,
-                conditions: None,
-                created_by: Some(boss.uuid),
-            })
-            .execute(&mut conn)
-            .unwrap();
-        crate::repository::site_settings::get_site_settings(&mut conn).unwrap();
+    /// Make the test workspace hold requests back while they wait.
+    fn hold_waiting_requests(conn: &mut DbConnection) {
+        crate::repository::site_settings::get_site_settings(conn).unwrap();
         diesel::update(crate::schema::site_settings::table)
             .set(crate::schema::site_settings::approval_waiting_display.eq("held"))
-            .execute(&mut conn)
+            .execute(conn)
             .unwrap();
+    }
+
+    /// An approval on a request merged while it waited is recorded, and the
+    /// held request isn't released to the rules that route it: the ticket it
+    /// was merged into is the one worked on.
+    #[test]
+    fn an_approval_on_a_merged_request_is_recorded_and_it_is_not_routed() {
+        let mut conn = setup_test_connection();
+        let boss = TestFixtures::create_user(&mut conn, "merged_approve_boss", "user");
+        let (ticket, merged) = merged_while_waiting(&mut conn, "merged_approve", boss.uuid);
+        hold_waiting_requests(&mut conn);
 
         let decided = decide(&mut conn, ticket.id, boss.uuid, true, None, "portal", None);
         assert_eq!(decided.as_deref(), Ok(APPROVED), "the decision is recorded");
-        let routed = crate::services::assignment::AssignmentEngine::assign_after_approval(
-            &mut conn, ticket.id,
+        assert_eq!(
+            released_from_hold(&mut conn, ticket.id),
+            Ok(false),
+            "not routed"
         );
-        assert!(matches!(routed, Ok(None)), "not routed: {routed:?}");
         let t: Ticket = tickets::table.find(ticket.id).first(&mut conn).unwrap();
         assert_eq!(t.approval_state.as_deref(), Some(APPROVED));
         assert_eq!(t.assignee_uuid, None);
         assert_eq!(t.workflow_state_id, merged, "it stays merged");
+    }
+
+    /// A request the workspace held back is released to its rules once it is
+    /// approved or skipped, not while it waits or after a decline. One that
+    /// wasn't held ran them when it was made.
+    #[test]
+    fn a_held_request_is_released_once_it_goes_ahead() {
+        let mut conn = setup_test_connection();
+        let requester = TestFixtures::create_user(&mut conn, "release_req", "user");
+        let boss = TestFixtures::create_user(&mut conn, "release_boss", "user");
+        let cat = approval_type(&mut conn, "any", false, &[boss.uuid]);
+        let request = |conn: &mut DbConnection| {
+            let ticket = ticket_in(conn, cat, requester.uuid);
+            start_if_required(conn, &ticket).unwrap();
+            ticket
+        };
+
+        // Not held: an approval releases nothing.
+        let shown = request(&mut conn);
+        decide(&mut conn, shown.id, boss.uuid, true, None, "portal", None).unwrap();
+        assert_eq!(released_from_hold(&mut conn, shown.id), Ok(false));
+
+        hold_waiting_requests(&mut conn);
+        let approved = request(&mut conn);
+        assert_eq!(
+            released_from_hold(&mut conn, approved.id),
+            Ok(false),
+            "still waiting"
+        );
+        decide(
+            &mut conn,
+            approved.id,
+            boss.uuid,
+            true,
+            None,
+            "portal",
+            None,
+        )
+        .unwrap();
+        assert_eq!(released_from_hold(&mut conn, approved.id), Ok(true));
+
+        let declined = request(&mut conn);
+        decide(
+            &mut conn,
+            declined.id,
+            boss.uuid,
+            false,
+            Some("No"),
+            "portal",
+            None,
+        )
+        .unwrap();
+        assert_eq!(released_from_hold(&mut conn, declined.id), Ok(false));
     }
 
     #[test]

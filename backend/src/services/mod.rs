@@ -1,6 +1,5 @@
 pub mod admin_setup;
 pub mod assets;
-pub mod assignment;
 pub mod avatar_thumbnails;
 pub mod backup;
 pub mod backup_upgrade;

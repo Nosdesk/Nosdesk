@@ -1,151 +1,231 @@
-//! A new ticket goes through the assignment rules whichever way it arrives.
-//! `assign_new_ticket` is what the app, the portal, the guest form and the
-//! email pipeline all call, so it is tested once here.
+//! New tickets are assigned by the rules engine. A ticket's `ticket.created`
+//! (or, for a category change, its `ticket.category_changed`) reaches the
+//! rule event outbox, and the dispatcher runs the assignment rules on it, so
+//! the assignee arrives a moment after the write that made the ticket, not in
+//! its response (decision D3). The rules here have the shape the migration
+//! gives an assignment rule: an unassigned ticket, an `assign` step, then
+//! `stop_processing`.
+#![allow(clippy::expect_used)]
 
+use std::sync::Arc;
+
+use actix_web::dev::Service;
+use actix_web::http::StatusCode;
+use actix_web::test as http_test;
+use actix_web::{web, App, HttpMessage};
 use diesel::prelude::*;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
-use backend::models::{AssignmentMethod, NewAssignmentRule, NewTicket, Ticket};
-use backend::schema::{assignment_rules, sync_actions, tickets, workflow_states};
-use backend::services::ticket_updates::{assign_new_ticket, ActorConn};
+use backend::extractors::WorkspaceContext;
+use backend::middleware::RequestContext;
+use backend::models::{
+    Claims, NewTicket, RuleApplicationStatus as Status, RuleState, RuleTriggerKind as Trigger,
+    TicketUpdate,
+};
+use backend::repository::{tickets, workflow_states};
+use backend::schema::{sync_actions, ticket_approvals, ticket_categories};
+use backend::services::search::SearchService;
 use backend::sync::actor::ActorContext;
-use backend::sync::session::with_actor_context;
 
-use crate::common;
+use crate::common::WorkspaceSeed;
+use crate::rules_event_triggers::{leaf, Harness, Spec};
 
-#[test]
-fn a_new_ticket_is_assigned_by_the_rules_and_the_assignee_is_told() {
-    common::ensure_test_keyring();
-    let db = common::TestDb::new();
-    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
-    let a = &seeded.a;
-    let mut conn = db.pool_with_size(1).get().expect("conn");
+/// The condition a migrated assignment rule starts from: nobody is assigned.
+fn unassigned() -> Value {
+    json!({ "kind": "leaf", "field": "ticket.assignee_uuid", "op": "is_null" })
+}
 
-    let admin = ActorContext::user(a.admin_uuid, None).with_workspace(a.workspace_id);
-    let ticket: Ticket = with_actor_context(&mut conn, &admin, |c| {
-        diesel::insert_into(assignment_rules::table)
-            .values(&NewAssignmentRule {
-                name: "Everything to the admin".into(),
-                description: None,
-                priority: 1,
-                is_active: true,
-                method: AssignmentMethod::DirectUser,
-                target_user_uuid: Some(a.admin_uuid),
-                target_group_id: None,
-                trigger_on_create: true,
-                trigger_on_category_change: false,
-                category_id: None,
-                conditions: None,
-                created_by: Some(a.admin_uuid),
-            })
-            .execute(c)?;
-        let open_state: i32 = workflow_states::table
-            .filter(workflow_states::workspace_id.eq(a.workspace_id))
-            .filter(workflow_states::is_default.eq(true))
-            .select(workflow_states::id)
-            .first(c)?;
-        diesel::insert_into(tickets::table)
-            .values(&NewTicket {
-                title: "Printer jam".into(),
-                workflow_state_id: open_state,
-                requester_uuid: Some(a.member_uuid),
-                ..Default::default()
-            })
-            .get_result(c)
-    })
-    .expect("seed rule and ticket");
+fn assign_to(user: Uuid) -> Value {
+    json!([
+        { "kind": "assign", "config": { "method": "direct", "user_uuid": user } },
+        { "kind": "stop_processing" },
+    ])
+}
 
-    // The email pipeline runs the rules as the system.
-    let system = ActorContext::system("assignment_rules").with_workspace(a.workspace_id);
-    let assigned = assign_new_ticket(
-        &mut ActorConn {
-            conn: &mut conn,
-            actor: &system,
-        },
+/// A live rule assigning `user` the tickets that meet `also` and that nobody
+/// is assigned.
+fn assignment_rule(trigger: Trigger, trigger_config: Value, also: &[Value], user: Uuid) -> Spec {
+    let mut children = vec![unassigned()];
+    children.extend_from_slice(also);
+    Spec {
+        trigger,
+        state: RuleState::Live,
+        trigger_config,
+        conditions: json!({ "kind": "and", "children": children }),
+        actions: assign_to(user),
+        priority: 1010,
+    }
+}
+
+fn on_create(user: Uuid) -> Spec {
+    assignment_rule(Trigger::TicketCreated, json!({}), &[], user)
+}
+
+fn assignee(h: &Harness, ws: &WorkspaceSeed, ticket: i32) -> Option<Uuid> {
+    h.as_admin(ws, |c| tickets::get_ticket_by_id(c, ticket))
+        .assignee_uuid
+}
+
+#[actix_web::test]
+async fn a_new_ticket_is_assigned_once_its_event_is_dispatched() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let rule = h.rule(a, on_create(a.admin_uuid));
+
+    let ticket = h.ticket(a, "Printer jam");
+    assert_eq!(
+        assignee(&h, a, ticket),
         None,
-        ticket,
+        "not in the write that made it"
     );
-    assert_eq!(assigned.assignee_uuid, Some(a.admin_uuid));
+    h.drain().await;
+    assert_eq!(assignee(&h, a, ticket), Some(a.admin_uuid));
+    assert_eq!(h.statuses(a, rule), vec![Status::Succeeded]);
 
     // The assignment went out as a change with the previous assignee, which
-    // is what the notification deriver reads to tell the new assignee.
-    let events: Vec<(String, Value)> = sync_actions::table
-        .filter(sync_actions::aggregate_id.eq(assigned.id.to_string()))
-        .select((sync_actions::event_type, sync_actions::data))
-        .load(&mut conn)
-        .expect("sync actions");
-    assert!(
-        events
-            .iter()
-            .any(|(kind, data)| kind == "ticket.assignee_changed"
-                && data["assignee_uuid"] == json!(a.admin_uuid)
-                && data.get("previous_assignee_uuid").is_some()),
-        "{events:?}"
+    // the notification deriver reads to tell the new assignee, credited to
+    // the rule rather than to whoever made the ticket.
+    let events: Vec<(Value, String, Option<Uuid>, Option<String>)> = h.as_admin(a, |c| {
+        sync_actions::table
+            .filter(sync_actions::aggregate_id.eq(ticket.to_string()))
+            .filter(sync_actions::event_type.eq("ticket.assignee_changed"))
+            .select((
+                sync_actions::data,
+                sync_actions::actor_kind,
+                sync_actions::actor_uuid,
+                sync_actions::actor_ref,
+            ))
+            .load(c)
+    });
+    assert_eq!(events.len(), 1, "{events:?}");
+    let (data, kind, actor_uuid, actor_ref) = &events[0];
+    assert_eq!(data["assignee_uuid"], json!(a.admin_uuid));
+    assert!(data.get("previous_assignee_uuid").is_some(), "{data}");
+    assert_eq!(
+        (kind.as_str(), *actor_uuid, actor_ref.as_deref()),
+        (
+            "system",
+            None,
+            Some(format!("rules_engine:{rule}").as_str())
+        )
     );
 }
 
-/// A ticket added from a board's column (the kanban quick-add) goes through
-/// the assignment rules like any other new ticket.
+/// The rules route only a ticket nobody is assigned: one made with an
+/// assignee keeps them.
 #[actix_web::test]
-async fn a_ticket_added_from_a_board_is_assigned_by_the_rules() {
-    use std::sync::Arc;
-
-    use actix_web::dev::Service;
-    use actix_web::http::StatusCode;
-    use actix_web::test as http_test;
-    use actix_web::{web, App, HttpMessage};
-    use diesel::sql_types::Integer;
-
-    use backend::extractors::WorkspaceContext;
-    use backend::middleware::RequestContext;
-    use backend::models::Claims;
-    use backend::services::search::SearchService;
-
-    #[derive(QueryableByName)]
-    struct Id {
-        #[diesel(sql_type = Integer)]
-        id: i32,
-    }
-
-    common::ensure_test_keyring();
-    let db = common::TestDb::new();
-    let pool = db.pool_with_size(4);
-    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
-    let a = &seeded.a;
-    let admin = ActorContext::user(a.admin_uuid, None).with_workspace(a.workspace_id);
-    let (project, open_state) = with_actor_context(&mut pool.get().expect("conn"), &admin, |c| {
-        diesel::insert_into(assignment_rules::table)
-            .values(&NewAssignmentRule {
-                name: "Everything to the admin".into(),
-                description: None,
-                priority: 1,
-                is_active: true,
-                method: AssignmentMethod::DirectUser,
-                target_user_uuid: Some(a.admin_uuid),
-                target_group_id: None,
-                trigger_on_create: true,
-                trigger_on_category_change: false,
-                category_id: None,
-                conditions: None,
-                created_by: Some(a.admin_uuid),
-            })
+async fn a_ticket_made_with_an_assignee_keeps_them() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let team = h.as_admin(a, |c| {
+        use backend::schema::{groups, user_groups};
+        let team: i32 = diesel::insert_into(groups::table)
+            .values(groups::name.eq("Service desk"))
+            .returning(groups::id)
+            .get_result(c)?;
+        diesel::insert_into(user_groups::table)
+            .values((
+                user_groups::group_id.eq(team),
+                user_groups::user_uuid.eq(a.admin_uuid),
+            ))
             .execute(c)?;
-        let project =
-            diesel::sql_query("INSERT INTO projects (name) VALUES ('Office move') RETURNING id")
-                .get_result::<Id>(c)?
-                .id;
-        let open_state: i32 = workflow_states::table
-            .filter(workflow_states::workspace_id.eq(a.workspace_id))
-            .filter(workflow_states::is_default.eq(true))
-            .select(workflow_states::id)
-            .first(c)?;
-        Ok::<_, diesel::result::Error>((project, open_state))
-    })
-    .expect("seed rule and project");
+        Ok(team)
+    });
+    let rule = h.rule(
+        a,
+        Spec {
+            actions: json!([
+                { "kind": "assign", "config": { "method": "group", "group_id": team } },
+                { "kind": "stop_processing" },
+            ]),
+            ..on_create(a.admin_uuid)
+        },
+    );
+    let ticket = h.as_admin(a, |c| {
+        let open = workflow_states::default_state(c)?;
+        tickets::create_ticket(
+            c,
+            NewTicket {
+                title: "Laptop".to_string(),
+                workflow_state_id: open.id,
+                requester_uuid: Some(a.member_uuid),
+                assignee_uuid: Some(a.admin_uuid),
+                ..Default::default()
+            },
+        )
+    });
+    h.drain().await;
+    assert_eq!(assignee(&h, a, ticket.id), Some(a.admin_uuid));
+    assert!(h.statuses(a, rule).is_empty(), "the rule didn't run");
+    assert_eq!(h.rule_row(a, rule).skipped_condition_unmet_count, 1);
+}
 
+/// A category change runs the category change rules: an unassigned ticket
+/// moved into the category is assigned, an assigned one keeps its assignee.
+#[actix_web::test]
+async fn a_category_change_assigns_an_unassigned_ticket() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let hardware: i32 = h.as_admin(a, |c| {
+        diesel::insert_into(ticket_categories::table)
+            .values(ticket_categories::name.eq("Hardware"))
+            .returning(ticket_categories::id)
+            .get_result(c)
+    });
+    let rule = h.rule(
+        a,
+        assignment_rule(
+            Trigger::TicketUpdated,
+            json!({ "changed_fields_include": ["ticket.category_id"] }),
+            &[leaf("ticket.category_id", "eq", json!(hardware))],
+            a.admin_uuid,
+        ),
+    );
+    let unassigned = h.ticket(a, "Monitor flickers");
+    let taken = h.ticket(a, "Dock dead");
+    h.update(
+        a,
+        taken,
+        TicketUpdate {
+            assignee_uuid: Some(Some(a.admin_uuid)),
+            ..Default::default()
+        },
+    );
+    h.drain().await;
+    for ticket in [unassigned, taken] {
+        h.update(
+            a,
+            ticket,
+            TicketUpdate {
+                category_id: Some(Some(hardware)),
+                ..Default::default()
+            },
+        );
+    }
+    assert_eq!(assignee(&h, a, unassigned), None);
+    h.drain().await;
+    assert_eq!(assignee(&h, a, unassigned), Some(a.admin_uuid));
+    assert_eq!(assignee(&h, a, taken), Some(a.admin_uuid));
+    let applications = h.applications(a, rule);
+    assert_eq!(applications.len(), 1, "only the unassigned ticket");
+    assert_eq!(applications[0].ticket_id, unassigned);
+    assert_eq!(
+        applications[0].originating_event_kind.as_deref(),
+        Some("ticket.category_changed")
+    );
+}
+
+/// Call `config`'s routes as `ws`'s admin.
+async fn call_as_admin(
+    h: &Harness,
+    ws: &WorkspaceSeed,
+    config: fn(&mut web::ServiceConfig),
+    req: http_test::TestRequest,
+) -> (StatusCode, Value) {
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
-        sub: a.admin_uuid.to_string(),
+        sub: ws.admin_uuid.to_string(),
         name: "Admin".to_string(),
         email: "admin@example.com".to_string(),
         platform_role: "user".to_string(),
@@ -157,20 +237,20 @@ async fn a_ticket_added_from_a_board_is_assigned_by_the_rules() {
         file_path: None,
     };
     let workspace = WorkspaceContext {
-        workspace_id: a.workspace_id,
-        workspace_uuid: a.workspace_uuid,
-        slug: a.slug.clone(),
+        workspace_id: ws.workspace_id,
+        workspace_uuid: ws.workspace_uuid,
+        slug: ws.slug.clone(),
         name: "A".to_string(),
         organisation_id: None,
         custom_domain: None,
     };
-    let corr = uuid::Uuid::now_v7();
-    let actor = ActorContext::user(a.admin_uuid, Some(corr)).with_workspace(a.workspace_id);
+    let corr = Uuid::now_v7();
+    let actor = ActorContext::user(ws.admin_uuid, Some(corr)).with_workspace(ws.workspace_id);
     let search_dir = tempfile::tempdir().expect("search dir");
-    let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
+    let search = Arc::new(SearchService::new(search_dir.path(), &h.pool).expect("init search"));
     let app = http_test::init_service(
         App::new()
-            .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(h.pool.clone()))
             .app_data(web::Data::new(search))
             .wrap_fn(move |req, srv| {
                 req.extensions_mut().insert(workspace.clone());
@@ -179,111 +259,124 @@ async fn a_ticket_added_from_a_board_is_assigned_by_the_rules() {
                     .insert(RequestContext::new(corr, actor.clone()));
                 srv.call(req)
             })
-            .service(web::scope("/api").configure(backend::handlers::projects::config)),
+            .service(web::scope("/api").configure(config)),
     )
     .await;
-    let resp = http_test::call_service(
-        &app,
+    let resp = http_test::call_service(&app, req.to_request()).await;
+    let status = resp.status();
+    let bytes = http_test::read_body(resp).await;
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// A ticket added from a board's column (the kanban quick-add) is assigned
+/// like any other new ticket, after its response.
+#[actix_web::test]
+async fn a_ticket_added_from_a_board_is_assigned_after_its_response() {
+    use diesel::sql_types::Integer;
+
+    #[derive(QueryableByName)]
+    struct Id {
+        #[diesel(sql_type = Integer)]
+        id: i32,
+    }
+
+    crate::common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    h.rule(a, on_create(a.admin_uuid));
+    let (project, open_state) = h.as_admin(a, |c| {
+        let project =
+            diesel::sql_query("INSERT INTO projects (name) VALUES ('Office move') RETURNING id")
+                .get_result::<Id>(c)?
+                .id;
+        Ok((project, workflow_states::default_state(c)?.id))
+    });
+
+    let (status, created) = call_as_admin(
+        &h,
+        a,
+        backend::handlers::projects::config,
         http_test::TestRequest::post()
             .uri(&format!("/api/projects/{project}/tickets/new"))
-            .set_json(json!({ "title": "Move the printers", "workflow_state_id": open_state }))
-            .to_request(),
+            .set_json(json!({ "title": "Move the printers", "workflow_state_id": open_state })),
     )
     .await;
-    assert_eq!(resp.status(), StatusCode::CREATED);
-    let created: Value = http_test::read_body_json(resp).await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    // The response comes first: the ticket is unassigned in it.
+    assert!(
+        matches!(created["assignee"].as_str(), None | Some("")),
+        "{created}"
+    );
     let id = created["id"].as_i64().expect("ticket id") as i32;
 
-    let assignee: Option<uuid::Uuid> =
-        with_actor_context(&mut pool.get().expect("conn"), &admin, |c| {
-            tickets::table
-                .find(id)
-                .select(tickets::assignee_uuid)
-                .first(c)
-        })
-        .expect("ticket");
-    assert_eq!(assignee, Some(a.admin_uuid), "the rule assigned it");
+    h.drain().await;
     assert_eq!(
-        created["assignee"],
-        json!(a.admin_uuid.to_string()),
-        "and the response says so"
+        assignee(&h, a, id),
+        Some(a.admin_uuid),
+        "the rule assigned it"
     );
 }
 
-/// An assignment made by a rule is credited to the rule, not to whoever
-/// created the ticket: the `ticket.assignee_changed` it records carries a
-/// system actor naming the rule.
-#[test]
-fn an_assignment_by_a_rule_is_credited_to_the_rule() {
-    common::ensure_test_keyring();
-    let db = common::TestDb::new();
-    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
-    let a = &seeded.a;
-    let mut conn = db.pool_with_size(1).get().expect("conn");
+/// A request held back for approval is turned away from its rules until it
+/// is approved; the approval runs them then, through
+/// `engine::run_trigger_for_ticket`, and they assign it.
+#[actix_web::test]
+async fn a_held_request_is_assigned_once_it_is_approved() {
+    use backend::schema::site_settings;
 
-    let creator = ActorContext::user(a.member_uuid, None).with_workspace(a.workspace_id);
-    let (rule_id, ticket): (i32, Ticket) = with_actor_context(&mut conn, &creator, |c| {
-        let rule_id = diesel::insert_into(assignment_rules::table)
-            .values(&NewAssignmentRule {
-                name: "Everything to the admin".into(),
-                description: None,
-                priority: 1,
-                is_active: true,
-                method: AssignmentMethod::DirectUser,
-                target_user_uuid: Some(a.admin_uuid),
-                target_group_id: None,
-                trigger_on_create: true,
-                trigger_on_category_change: false,
-                category_id: None,
-                conditions: None,
-                created_by: Some(a.admin_uuid),
-            })
-            .returning(assignment_rules::id)
-            .get_result::<i32>(c)?;
-        let open_state: i32 = workflow_states::table
-            .filter(workflow_states::workspace_id.eq(a.workspace_id))
-            .filter(workflow_states::is_default.eq(true))
-            .select(workflow_states::id)
-            .first(c)?;
-        let ticket = diesel::insert_into(tickets::table)
-            .values(&NewTicket {
-                title: "Laptop won't charge".into(),
-                workflow_state_id: open_state,
+    crate::common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let rule = h.rule(a, on_create(a.admin_uuid));
+    let ticket = h.as_admin(a, |c| {
+        backend::repository::site_settings::get_site_settings(c)?;
+        diesel::update(site_settings::table)
+            .set(site_settings::approval_waiting_display.eq("held"))
+            .execute(c)?;
+        let open = workflow_states::default_state(c)?;
+        let ticket = tickets::create_ticket(
+            c,
+            NewTicket {
+                title: "New laptop".to_string(),
+                workflow_state_id: open.id,
                 requester_uuid: Some(a.member_uuid),
                 ..Default::default()
-            })
-            .get_result(c)?;
-        Ok::<_, diesel::result::Error>((rule_id, ticket))
-    })
-    .expect("seed rule and ticket");
+            },
+        )?;
+        diesel::update(backend::schema::tickets::table.find(ticket.id))
+            .set(backend::schema::tickets::approval_state.eq("pending"))
+            .execute(c)?;
+        diesel::insert_into(ticket_approvals::table)
+            .values((
+                ticket_approvals::ticket_id.eq(ticket.id),
+                ticket_approvals::approver_uuid.eq(a.admin_uuid),
+                ticket_approvals::round.eq(1),
+            ))
+            .execute(c)?;
+        Ok(ticket.id)
+    });
 
-    // Created in the app: the rules run under the creating request's actor.
-    let assigned = assign_new_ticket(
-        &mut ActorConn {
-            conn: &mut conn,
-            actor: &creator,
-        },
-        None,
-        ticket,
-    );
-    assert_eq!(assigned.assignee_uuid, Some(a.admin_uuid));
+    h.drain().await;
+    assert_eq!(assignee(&h, a, ticket), None, "held while it waits");
+    assert!(h.statuses(a, rule).is_empty());
+    assert_eq!(h.rule_row(a, rule).skipped_preflight_count, 1);
 
-    let credited: Vec<(String, Option<uuid::Uuid>, Option<String>)> = sync_actions::table
-        .filter(sync_actions::aggregate_id.eq(assigned.id.to_string()))
-        .filter(sync_actions::event_type.eq("ticket.assignee_changed"))
-        .select((
-            sync_actions::actor_kind,
-            sync_actions::actor_uuid,
-            sync_actions::actor_ref,
-        ))
-        .load(&mut conn)
-        .expect("sync actions");
-    assert_eq!(
-        credited,
-        vec![(
-            "system".to_string(),
-            None,
-            Some(format!("assignment_rule:{rule_id}"))
-        )]
-    );
+    let (status, body) = call_as_admin(
+        &h,
+        a,
+        backend::handlers::approvals::config,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/tickets/{ticket}/approval/decide"))
+            .set_json(json!({ "decision": "approve" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["approval_state"], "approved");
+
+    h.drain().await;
+    assert_eq!(assignee(&h, a, ticket), Some(a.admin_uuid));
+    assert_eq!(h.statuses(a, rule), vec![Status::Succeeded]);
 }

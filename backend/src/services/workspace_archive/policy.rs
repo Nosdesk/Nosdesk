@@ -124,9 +124,6 @@ pub const WORKSPACE_TABLES: &[Table] = &[
     t("tags", Move),
     t("canned_responses", Move),
     t("canned_response_insertions", Move),
-    t("assignment_rules", Move),
-    t("assignment_rule_state", Move),
-    t("assignment_log", Move),
     t("workspace_notices", Move),
     // Projects and cycles.
     t("projects", Move),

@@ -433,8 +433,6 @@ src/services/sync_outbox.rs initial_xid8
 src/services/sync_outbox.rs to_sync_id
 src/services/sync_outbox.rs to_xid8
 src/services/sync_outbox.rs workspaces
-src/services/ticket_updates.rs assignee
-src/services/ticket_updates.rs rule
 src/services/webhooks/delivery.rs duration_ms
 src/services/webhooks/delivery.rs failures
 src/services/webhooks/delivery.rs next_retry

@@ -9,7 +9,7 @@
     "rule_id": { "rust": "Option<i32>", "ts": "number | null" }
   },
   "events": [],
-  "note": "Reserved aggregate. Today ticket assignment changes flow through ticket.assignee_changed events on the ticket aggregate. The dedicated assignment aggregate is reserved for richer assignment-rule provenance (which rule fired, why) once the assignment engine grows beyond the current first-match model.",
+  "note": "Reserved aggregate. Ticket assignment changes flow through ticket.assignee_changed events on the ticket aggregate. An assignment a rule makes is credited to the system actor rules_engine:<rule_id>, and the rule's rule_applications row and ticket.rule_applied event say which rule fired and why.",
   "groups": [
     "workspace:1",
     "ticket:<ticket_id>"

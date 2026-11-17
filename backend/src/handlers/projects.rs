@@ -301,11 +301,6 @@ pub async fn create_ticket_in_project(
 
     match tc.run(|conn| repository::create_ticket_in_project(conn, new_ticket, project_id)) {
         Ok(ticket) => {
-            let ticket = crate::services::ticket_updates::assign_new_ticket(
-                &mut tc,
-                Some(search_service.get_ref()),
-                ticket,
-            );
             crate::services::search::indexing_tasks::spawn_index_ticket(
                 search_service.get_ref().clone(),
                 ticket.clone(),

@@ -1340,6 +1340,16 @@ fn run_locked(
     }
     progress.step = None;
 
+    // A rule's own write to a ticket "New ticket" made, and nobody has touched
+    // since, isn't its requester touching it: it stays blank, so the next
+    // "New ticket" still opens it.
+    if actions_executed > 0
+        && ctx.source != ApplySource::Manual
+        && ticket.blank_at == Some(ticket.updated_at)
+    {
+        crate::repository::tickets::mark_blank(conn, ticket.id)?;
+    }
+
     // A shadow run changes nothing on the rule: it didn't fire.
     let updated_rule: Rule = if shadow {
         rule.clone()
@@ -1973,10 +1983,10 @@ fn execute_assign(
             })?
         }
         other => {
-            return Err(ApplyError::UnsupportedActionPhase1 {
+            return Err(ApplyError::ActionFailed {
                 index: action_index,
                 message: format!(
-                    "assign method '{other}' lands in Phase 2 when assignment_rules absorbs here"
+                    "assign method '{other}' isn't one a rule takes; assign a person (direct) or a team (group)"
                 ),
             });
         }

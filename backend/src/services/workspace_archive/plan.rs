@@ -91,8 +91,6 @@ pub const QUEUED_MAIL_DROPPED: &str = "queued_mail";
 /// and counts it, rather than leave a uuid that may be another account's here.
 pub const USER_REFERENCES_WITHOUT_FK: &[(&str, &str)] = &[
     ("article_content_revisions", "contributed_by"),
-    ("assignment_log", "new_assignee_uuid"),
-    ("assignment_log", "previous_assignee_uuid"),
     ("outbound_emails", "skip_if_seen_by"),
     ("ticket_merges", "merged_by_user_uuid"),
 ];
@@ -3397,13 +3395,17 @@ mod tests {
             let mut known = p(Some(&format!("known-{}@example.com", tag())), Some("agent"));
             known.uuid = Uuid::now_v7();
             let who = known.uuid;
+            let ticket = |id: i32| json!({"id": id, "uuid": Uuid::now_v7(), "number": id, "workspace_id": SOURCE_WS});
+            let merge = |id: i32, by: Uuid| {
+                json!({"ticket_id": id, "merged_into_ticket_id": 41, "workspace_id": SOURCE_WS,
+                       "merged_at": "2026-01-02T00:00:00+00:00", "merged_by_user_uuid": by})
+            };
             let contents = archive(
                 &[known],
-                vec![(
-                    "assignment_log",
-                    vec![json!({"id": 1, "workspace_id": SOURCE_WS,
-                               "previous_assignee_uuid": who, "new_assignee_uuid": stranger})],
-                )],
+                vec![
+                    ("tickets", vec![ticket(41), ticket(42), ticket(43)]),
+                    ("ticket_merges", vec![merge(42, who), merge(43, stranger)]),
+                ],
             );
             let plan = plan_for(
                 c,
@@ -3413,14 +3415,20 @@ mod tests {
                 Runner::Operator { user: None },
             );
             assert!(plan.importable(), "{:?}", plan.report.refusals);
-            let row = &planned_rows(&plan, "assignment_log")[0];
             let target = plan.person(who).unwrap().target_uuid;
-            assert_eq!(row["previous_assignee_uuid"], target.to_string());
-            assert_eq!(row["new_assignee_uuid"], Value::Null);
+            let merged_by: Vec<&Value> = planned_rows(&plan, "ticket_merges")
+                .iter()
+                .map(|row| &row["merged_by_user_uuid"])
+                .collect();
+            assert!(
+                merged_by.contains(&&json!(target.to_string())),
+                "{merged_by:?}"
+            );
+            assert!(merged_by.contains(&&Value::Null), "{merged_by:?}");
             assert_eq!(
-                table(&plan, "assignment_log")
+                table(&plan, "ticket_merges")
                     .cleared
-                    .get("new_assignee_uuid"),
+                    .get("merged_by_user_uuid"),
                 Some(&1)
             );
         });

@@ -17,7 +17,6 @@ pub mod asset_models;
 pub mod asset_settings;
 pub mod asset_usage;
 pub mod assets;
-pub mod assignment_rules;
 pub mod audit;
 pub mod audit_log;
 pub mod auth;

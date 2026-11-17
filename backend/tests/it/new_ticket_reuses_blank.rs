@@ -202,7 +202,6 @@ fn presses_that_arrive_together_get_one_ticket() {
                             actor: &actor,
                         },
                         requester,
-                        None,
                     )? {
                         BlankTicket::Reused(t) | BlankTicket::Made(t, _) => {
                             Ok::<_, diesel::result::Error>(t.id)
@@ -221,41 +220,49 @@ fn presses_that_arrive_together_get_one_ticket() {
     assert_eq!(tickets_of(&pool, &a, a.admin_uuid), 1);
 }
 
-/// The assignment rules assigning the new ticket are part of making it: it is
-/// still blank, and the next press opens it.
+/// The rules engine assigning the new ticket doesn't count as touching it:
+/// it stays blank, and the next press opens it.
 #[actix_web::test]
 async fn a_blank_ticket_the_rules_assigned_is_still_blank() {
-    use backend::models::{AssignmentMethod, NewAssignmentRule};
-    use backend::schema::assignment_rules;
+    use backend::models::{NewRule, RuleState, RuleTriggerKind};
+    use backend::services::rules::engine::Dispatcher;
 
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let pool = db.pool_with_size(4);
     let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
     let a = &seeded.a;
+    let engine = Dispatcher::new(db.runtime_pool(2), None);
     let search_dir = tempfile::tempdir().expect("search dir");
     let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
     as_user(&pool, a, a.admin_uuid, |c| {
-        diesel::insert_into(assignment_rules::table)
-            .values(&NewAssignmentRule {
+        backend::repository::rules::create(
+            c,
+            NewRule {
+                workspace_id: a.workspace_id,
                 name: "Everything to the admin".into(),
                 description: None,
-                priority: 1,
-                is_active: true,
-                method: AssignmentMethod::DirectUser,
-                target_user_uuid: Some(a.admin_uuid),
-                target_group_id: None,
-                trigger_on_create: true,
-                trigger_on_category_change: false,
-                category_id: None,
-                conditions: None,
+                trigger_kind: RuleTriggerKind::TicketCreated,
+                trigger_config: serde_json::json!({}),
+                conditions: serde_json::json!({ "kind": "and", "children": [
+                    { "kind": "leaf", "field": "ticket.assignee_uuid", "op": "is_null" },
+                ] }),
+                actions: serde_json::json!([
+                    { "kind": "assign", "config": { "method": "direct", "user_uuid": a.admin_uuid } },
+                    { "kind": "stop_processing" },
+                ]),
+                reads_set: Vec::new(),
+                writes_set: Vec::new(),
+                state: RuleState::Live,
+                priority: 1010,
                 created_by: Some(a.admin_uuid),
-            })
-            .execute(c)
+            },
+        )
     });
 
     let (status, first) = press_new_ticket!(pool, search, a, a.member_uuid);
     assert_eq!(status, StatusCode::CREATED);
+    while engine.dispatch_batch().await.expect("dispatch") > 0 {}
     let assignee: Option<Uuid> = as_user(&pool, a, a.admin_uuid, |c| {
         tickets::table
             .find(first)

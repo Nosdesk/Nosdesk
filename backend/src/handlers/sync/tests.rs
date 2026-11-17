@@ -558,13 +558,15 @@ fn push_a_closed_recurring_ticket_gets_one_next_occurrence() {
     assert!(successors(&mut conn)[0].is_some_and(|d| d > due));
 }
 
-/// A category change through push runs the assignment rules for an
-/// unassigned ticket, as the REST PATCH does.
+/// A category change through push reaches the rules engine the way the REST
+/// PATCH does: its `ticket.category_changed` names the changed field and is
+/// queued for the engine, which runs the category change rules (and assigns
+/// the ticket) once it commits.
 #[test]
-fn push_category_change_runs_the_assignment_rules() {
+fn push_category_change_is_queued_for_the_rules_engine() {
     use super::push::PushTransaction;
-    use crate::models::{AssignmentMethod, NewAssignmentRule};
-    use crate::schema::{ticket_categories, tickets};
+    use crate::models::{NewRule, RuleState, RuleTriggerKind};
+    use crate::schema::{rule_event_outbox, ticket_categories};
 
     let mut conn = setup_test_connection();
     let admin = TestFixtures::create_user(&mut conn, "sync_push_route_admin", "admin");
@@ -576,20 +578,26 @@ fn push_category_change_runs_the_assignment_rules() {
         .returning(ticket_categories::id)
         .get_result(&mut conn)
         .expect("category");
-    crate::repository::assignment_rules::create_rule(
+    crate::repository::rules::create(
         &mut conn,
-        NewAssignmentRule {
+        NewRule {
+            workspace_id: 1,
             name: "Hardware to the desk".to_string(),
             description: None,
+            trigger_kind: RuleTriggerKind::TicketUpdated,
+            trigger_config: json!({ "changed_fields_include": ["ticket.category_id"] }),
+            conditions: json!({ "kind": "and", "children": [
+                { "kind": "leaf", "field": "ticket.assignee_uuid", "op": "is_null" },
+                { "kind": "leaf", "field": "ticket.category_id", "op": "eq", "value": hardware },
+            ] }),
+            actions: json!([
+                { "kind": "assign", "config": { "method": "direct", "user_uuid": agent.uuid } },
+                { "kind": "stop_processing" },
+            ]),
+            reads_set: Vec::new(),
+            writes_set: Vec::new(),
+            state: RuleState::Live,
             priority: 1,
-            is_active: true,
-            method: AssignmentMethod::DirectUser,
-            target_user_uuid: Some(agent.uuid),
-            target_group_id: None,
-            trigger_on_create: false,
-            trigger_on_category_change: true,
-            category_id: Some(hardware),
-            conditions: None,
             created_by: None,
         },
     )
@@ -606,12 +614,24 @@ fn push_category_change_runs_the_assignment_rules() {
     };
     super::push::apply_transaction_for_test(&mut conn, &tx, &actor).expect("recategorise");
 
-    let assignee: Option<Uuid> = tickets::table
-        .find(ticket.id)
-        .select(tickets::assignee_uuid)
+    let (sync_id, data): (i64, serde_json::Value) = sync_actions::table
+        .filter(sync_actions::aggregate_id.eq(ticket.id.to_string()))
+        .filter(sync_actions::event_type.eq("ticket.category_changed"))
+        .select((sync_actions::sync_id, sync_actions::data))
         .first(&mut conn)
-        .expect("reload");
-    assert_eq!(assignee, Some(agent.uuid));
+        .expect("the category change event");
+    assert!(
+        data["changed_fields"]
+            .as_array()
+            .is_some_and(|f| f.contains(&json!("ticket.category_id"))),
+        "{data}"
+    );
+    let queued: i64 = rule_event_outbox::table
+        .filter(rule_event_outbox::sync_id.eq(sync_id))
+        .count()
+        .get_result(&mut conn)
+        .expect("outbox");
+    assert_eq!(queued, 1, "queued for the rules engine");
 }
 
 #[test]

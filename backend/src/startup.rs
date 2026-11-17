@@ -1316,8 +1316,6 @@ pub fn configure_app(
                     .configure(crate::handlers::groups::config)
                     // ===== CATEGORY MANAGEMENT =====
                     .configure(crate::handlers::categories::config)
-                    // ===== ASSIGNMENT RULES MANAGEMENT =====
-                    .configure(crate::handlers::assignment_rules::config)
                     // ===== API TOKEN MANAGEMENT =====
                     .configure(crate::handlers::api_tokens::config)
                     // ===== WEBHOOK MANAGEMENT =====

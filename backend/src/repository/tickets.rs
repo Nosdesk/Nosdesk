@@ -340,8 +340,9 @@ pub fn blank_ticket_for(conn: &mut DbConnection, requester: Uuid) -> QueryResult
 
 // sync-audit-only: blank_at is not in the sync row; modified moves only by the time the creating request took
 /// Marks a ticket "New ticket" has just made, once everything that goes with
-/// making it (assignment, its description) is written: `updated_at` and
-/// `blank_at` take the same moment, after every write so far.
+/// making it (its description) is written: `updated_at` and `blank_at` take
+/// the same moment, after every write so far. The rules engine marks it again
+/// after a rule's automated write, which isn't its requester touching it.
 pub fn mark_blank(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Ticket> {
     let at = chrono::Utc::now().naive_utc();
     diesel::update(tickets::table.find(ticket_id))
@@ -941,7 +942,9 @@ fn create_next_occurrence(
         _ => None,
     };
     let open_state = crate::repository::workflow_states::default_state(conn)?.id;
-    let mut next = create_ticket(
+    // Its `ticket.created` runs the rules engine, which assigns it when it
+    // carries no assignee.
+    let next = create_ticket(
         conn,
         NewTicket {
             title: closed.title.clone(),
@@ -962,34 +965,6 @@ fn create_next_occurrence(
         next_due = %next_due,
         "Materialised next recurring occurrence"
     );
-    if next.assignee_uuid.is_none() {
-        let picked = crate::services::assignment::AssignmentEngine::evaluate_rules(
-            conn,
-            &next,
-            AssignmentTrigger::TicketCreated,
-        )
-        .and_then(|r| r.assigned_user_uuid);
-        if let Some(assignee) = picked {
-            // Best effort: the occurrence stands unassigned if this fails.
-            match conn.transaction(|conn| {
-                update_ticket_partial(
-                    conn,
-                    next.id,
-                    TicketUpdate {
-                        assignee_uuid: Some(Some(assignee)),
-                        updated_at: Some(chrono::Utc::now().naive_utc()),
-                        ..Default::default()
-                    },
-                    None,
-                )
-            }) {
-                Ok(assigned) => next = assigned,
-                Err(e) => {
-                    warn!(ticket_id = next.id, error = ?e, "Failed to assign a recurring occurrence");
-                }
-            }
-        }
-    }
     Ok(Some(next))
 }
 
@@ -2431,7 +2406,6 @@ mod tests {
             "category_group_visibility_pkey",
             "article_content_revisions_pkey",
             "article_content_revisions_article_content_id_revision_numbe_key",
-            "assignment_rule_state_pkey",
             "device_groups_pkey",
             "documentation_revisions_pkey",
             "documentation_revisions_page_id_revision_number_key",

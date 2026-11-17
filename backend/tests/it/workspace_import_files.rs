@@ -42,8 +42,6 @@ const SVG: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)<
 /// The references without a foreign key, each naming its own person.
 const NO_FK: &[(&str, &str)] = &[
     ("article_content_revisions", "contributed_by[1]"),
-    ("assignment_log", "previous_assignee_uuid"),
-    ("assignment_log", "new_assignee_uuid"),
     ("outbound_emails", "skip_if_seen_by"),
     ("ticket_merges", "merged_by_user_uuid"),
 ];
@@ -169,17 +167,6 @@ async fn source(pool: &TestPool) -> Source {
     .execute(&mut conn)
     .expect("revision");
     diesel::sql_query(
-        "INSERT INTO assignment_log (workspace_id, ticket_id, trigger_type, method, \
-           previous_assignee_uuid, new_assignee_uuid) \
-         VALUES ($1, $2, 'manual', 'direct_user', $3, $4)",
-    )
-    .bind::<Integer, _>(ws)
-    .bind::<Integer, _>(ticket)
-    .bind::<SqlUuid, _>(people[1])
-    .bind::<SqlUuid, _>(people[2])
-    .execute(&mut conn)
-    .expect("assignment log");
-    diesel::sql_query(
         "INSERT INTO outbound_emails (workspace_id, ticket_id, recipient, subject, body_text, \
            message_id, skip_if_seen_by, status, sent_at) \
          VALUES ($1, $2, 'someone@example.com', 'Re: Projector', 'Hello', $3, $4, 'sent', now())",
@@ -187,7 +174,7 @@ async fn source(pool: &TestPool) -> Source {
     .bind::<Integer, _>(ws)
     .bind::<Integer, _>(ticket)
     .bind::<Text, _>(format!("<{tag}@example.com>"))
-    .bind::<SqlUuid, _>(people[3])
+    .bind::<SqlUuid, _>(people[1])
     .execute(&mut conn)
     .expect("outbound email");
     diesel::sql_query(
@@ -197,7 +184,7 @@ async fn source(pool: &TestPool) -> Source {
     .bind::<Integer, _>(ws)
     .bind::<Integer, _>(merged)
     .bind::<Integer, _>(ticket)
-    .bind::<SqlUuid, _>(people[4])
+    .bind::<SqlUuid, _>(people[2])
     .execute(&mut conn)
     .expect("ticket merge");
 

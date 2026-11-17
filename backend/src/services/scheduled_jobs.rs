@@ -2026,18 +2026,25 @@ pub async fn approval_timeouts(pool: Pool) -> Result<()> {
             workspace_id,
             |conn| {
                 if crate::repository::ticket_approvals::auto_approve(conn, ticket_id)? {
-                    // Best effort, like a decision's routing: the approval
-                    // stands even if the request can't be assigned, and the
-                    // savepoint keeps a failed assignment from undoing it.
+                    // Best effort, like a decision's: the held request runs
+                    // the rules that route it, and the savepoint keeps a
+                    // failure from undoing the approval.
                     if let Err(e) = conn.transaction(|conn| {
-                        crate::services::assignment::AssignmentEngine::assign_after_approval(
+                        if !crate::repository::ticket_approvals::released_from_hold(
                             conn, ticket_id,
+                        )? {
+                            return Ok(false);
+                        }
+                        crate::services::rules::engine::run_trigger_for_ticket(
+                            conn,
+                            ticket_id,
+                            crate::models::RuleTriggerKind::TicketCreated,
                         )
                     }) {
                         warn!(
                             ticket_id,
                             error = ?e,
-                            "scheduler:approval_timeouts: assignment after approval failed"
+                            "scheduler:approval_timeouts: rules after approval not queued"
                         );
                     }
                 }
