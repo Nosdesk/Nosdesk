@@ -56,20 +56,6 @@ pub fn held_for_approval(conn: &mut DbConnection, ticket: &Ticket) -> QueryResul
     holds_waiting_requests(conn)
 }
 
-/// Whether a request its workspace held back for approval has just gone
-/// ahead (approved, or its approval skipped), so the event rules its creation
-/// was turned away from run now. A request that wasn't held ran them when it
-/// was made, and one merged while it waited is worked on the ticket it was
-/// merged into.
-pub fn released_from_hold(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<bool> {
-    let ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
-    if !matches!(ticket.approval_state.as_deref(), Some(APPROVED | SKIPPED)) {
-        return Ok(false);
-    }
-    Ok(holds_waiting_requests(conn)?
-        && !crate::repository::ticket_merge::is_merge_source(conn, ticket_id)?)
-}
-
 /// Whether the workspace holds requests back while they wait for approval.
 fn holds_waiting_requests(conn: &mut DbConnection) -> QueryResult<bool> {
     use crate::schema::site_settings;
@@ -176,7 +162,7 @@ fn emit_event(
     ticket: &Ticket,
     event_type: &str,
     data: serde_json::Value,
-) -> QueryResult<()> {
+) -> QueryResult<i64> {
     let groups = groups::for_ticket(conn, ticket)?;
     emit::record(
         conn,
@@ -189,8 +175,7 @@ fn emit_event(
             groups,
             causation_id: None,
         },
-    )?;
-    Ok(())
+    )
 }
 
 fn set_state(conn: &mut DbConnection, ticket_id: i32, state: &str) -> QueryResult<Ticket> {
@@ -217,6 +202,57 @@ pub fn start_if_required(conn: &mut DbConnection, ticket: &Ticket) -> QueryResul
             _ => return Ok(None),
         };
     start_round(conn, ticket, &category, 1).map(Some)
+}
+
+// sync-audit-only: rules_held_at is engine bookkeeping outside the sync row; the round emits ticket.approval_requested
+/// [`start_if_required`] for a request that has just been made, or released
+/// from guest verification. In a workspace that holds waiting requests, one
+/// left waiting has its `ticket_created` rules held too (`rules_held_at`):
+/// the rules engine never runs them from its creation, and the approval that
+/// lets it go ahead runs them.
+pub fn start_for_new_request(
+    conn: &mut DbConnection,
+    ticket: &Ticket,
+) -> QueryResult<Option<String>> {
+    let state = start_if_required(conn, ticket)?;
+    if state.as_deref() == Some(PENDING) && holds_waiting_requests(conn)? {
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::rules_held_at.eq(Some(Utc::now().naive_utc())))
+            .execute(conn)?;
+    }
+    Ok(state)
+}
+
+// sync-audit-only: stamps engine bookkeeping and queues an already recorded event for the rules engine
+/// Run a held request's `ticket_created` rules, now that its approval let it
+/// go ahead: stamps `rules_released_at`, once, and queues `release`, the
+/// decision's `ticket.approval_decided`, for the rules engine, which runs the
+/// rules as if the request had just been made. A later decision on the same
+/// request (a reopened decline approved) finds it released and queues
+/// nothing. Nothing else is read from the
+/// request's history, so it works for a request a workspace import brought
+/// in. A request merged while it waited is worked on the ticket it was
+/// merged into, and isn't released. Returns whether the rules were queued.
+fn release_held_rules(conn: &mut DbConnection, ticket_id: i32, release: i64) -> QueryResult<bool> {
+    if crate::repository::ticket_merge::is_merge_source(conn, ticket_id)? {
+        return Ok(false);
+    }
+    let released: Option<i32> = diesel::update(
+        tickets::table
+            .find(ticket_id)
+            .filter(tickets::rules_held_at.is_not_null())
+            .filter(tickets::rules_released_at.is_null()),
+    )
+    .set(tickets::rules_released_at.eq(Some(Utc::now().naive_utc())))
+    .returning(tickets::workspace_id)
+    .get_result(conn)
+    .optional()?;
+    match released {
+        Some(workspace_id) => {
+            Ok(crate::repository::rules::queue_rerun(conn, release, workspace_id)? > 0)
+        }
+        None => Ok(false),
+    }
 }
 
 fn start_round(
@@ -434,7 +470,7 @@ fn conclude(
     } else {
         ticket.clone()
     };
-    emit_event(
+    let decided = emit_event(
         conn,
         &ticket,
         "ticket.approval_decided",
@@ -449,6 +485,14 @@ fn conclude(
             "channel": channel,
         }),
     )?;
+    // Going ahead, a held request runs the rules its creation was turned away
+    // from, whichever way it went ahead. Best effort, in a savepoint: the
+    // decision stands either way.
+    if state == APPROVED || state == SKIPPED {
+        if let Err(e) = conn.transaction(|conn| release_held_rules(conn, ticket.id, decided)) {
+            tracing::warn!(ticket_id = ticket.id, error = %e, "approvals: held rules not released");
+        }
+    }
     // A merged request stays merged: the decision is recorded above, and the
     // request it was merged into carries on.
     if state == DECLINED && !crate::repository::ticket_merge::is_merge_source(conn, ticket.id)? {
@@ -692,7 +736,7 @@ mod tests {
         let requester = TestFixtures::create_user(conn, &format!("{name}_req"), "user");
         let cat = approval_type(conn, "any", false, &[approver]);
         let ticket = ticket_in(conn, cat, requester.uuid);
-        start_if_required(conn, &ticket).unwrap();
+        start_for_new_request(conn, &ticket).unwrap();
         let destination =
             TestFixtures::create_ticket(conn, "Laptop again", Some(requester.uuid), None);
         let merged = crate::repository::workflow_states::first_in_category(
@@ -740,6 +784,44 @@ mod tests {
             .unwrap();
     }
 
+    /// Whether the request's creation rules wait for its approval.
+    fn rules_held(conn: &mut DbConnection, ticket_id: i32) -> bool {
+        tickets::table
+            .find(ticket_id)
+            .select(tickets::rules_held_at)
+            .first::<Option<chrono::NaiveDateTime>>(conn)
+            .unwrap()
+            .is_some()
+    }
+
+    /// Whether an approval released the request's creation rules.
+    fn rules_released(conn: &mut DbConnection, ticket_id: i32) -> bool {
+        tickets::table
+            .find(ticket_id)
+            .select(tickets::rules_released_at)
+            .first::<Option<chrono::NaiveDateTime>>(conn)
+            .unwrap()
+            .is_some()
+    }
+
+    /// How many of the request's decisions are queued for the rules engine:
+    /// the release of its held rules.
+    fn releases(conn: &mut DbConnection, ticket_id: i32) -> i64 {
+        use crate::schema::{rule_event_outbox, sync_actions};
+        rule_event_outbox::table
+            .filter(
+                rule_event_outbox::sync_id.eq_any(
+                    sync_actions::table
+                        .filter(sync_actions::aggregate_id.eq(ticket_id.to_string()))
+                        .filter(sync_actions::event_type.eq("ticket.approval_decided"))
+                        .select(sync_actions::sync_id),
+                ),
+            )
+            .count()
+            .get_result(conn)
+            .unwrap()
+    }
+
     /// An approval on a request merged while it waited is recorded, and the
     /// held request isn't released to the rules that route it: the ticket it
     /// was merged into is the one worked on.
@@ -748,24 +830,27 @@ mod tests {
         let mut conn = setup_test_connection();
         let boss = TestFixtures::create_user(&mut conn, "merged_approve_boss", "user");
         let (ticket, merged) = merged_while_waiting(&mut conn, "merged_approve", boss.uuid);
-        hold_waiting_requests(&mut conn);
+        // Held when it was made (the settings row is shared between tests,
+        // so it isn't written here).
+        diesel::update(tickets::table.find(ticket.id))
+            .set(tickets::rules_held_at.eq(Some(Utc::now().naive_utc())))
+            .execute(&mut conn)
+            .unwrap();
 
         let decided = decide(&mut conn, ticket.id, boss.uuid, true, None, "portal", None);
         assert_eq!(decided.as_deref(), Ok(APPROVED), "the decision is recorded");
-        assert_eq!(
-            released_from_hold(&mut conn, ticket.id),
-            Ok(false),
-            "not routed"
-        );
+        assert_eq!(releases(&mut conn, ticket.id), 0, "not routed");
         let t: Ticket = tickets::table.find(ticket.id).first(&mut conn).unwrap();
         assert_eq!(t.approval_state.as_deref(), Some(APPROVED));
         assert_eq!(t.assignee_uuid, None);
         assert_eq!(t.workflow_state_id, merged, "it stays merged");
     }
 
-    /// A request the workspace held back is released to its rules once it is
-    /// approved or skipped, not while it waits or after a decline. One that
-    /// wasn't held ran them when it was made.
+    /// A request made waiting in a workspace that holds waiting requests has
+    /// its creation rules held, whatever the setting says later. Approving,
+    /// skipping or timing out releases them once; a decline doesn't. One made
+    /// while the workspace showed waiting requests ran its rules when it was
+    /// made, and nothing releases them again.
     #[test]
     fn a_held_request_is_released_once_it_goes_ahead() {
         let mut conn = setup_test_connection();
@@ -774,38 +859,36 @@ mod tests {
         let cat = approval_type(&mut conn, "any", false, &[boss.uuid]);
         let request = |conn: &mut DbConnection| {
             let ticket = ticket_in(conn, cat, requester.uuid);
-            start_if_required(conn, &ticket).unwrap();
-            ticket
+            start_for_new_request(conn, &ticket).unwrap();
+            ticket.id
         };
 
-        // Not held: an approval releases nothing.
         let shown = request(&mut conn);
-        decide(&mut conn, shown.id, boss.uuid, true, None, "portal", None).unwrap();
-        assert_eq!(released_from_hold(&mut conn, shown.id), Ok(false));
-
+        assert!(!rules_held(&mut conn, shown));
         hold_waiting_requests(&mut conn);
-        let approved = request(&mut conn);
-        assert_eq!(
-            released_from_hold(&mut conn, approved.id),
-            Ok(false),
-            "still waiting"
-        );
-        decide(
-            &mut conn,
-            approved.id,
-            boss.uuid,
-            true,
-            None,
-            "portal",
-            None,
-        )
-        .unwrap();
-        assert_eq!(released_from_hold(&mut conn, approved.id), Ok(true));
+        decide(&mut conn, shown, boss.uuid, true, None, "portal", None).unwrap();
+        assert_eq!(releases(&mut conn, shown), 0, "it wasn't held");
 
+        let approved = request(&mut conn);
+        let skipped = request(&mut conn);
+        let timed_out = request(&mut conn);
         let declined = request(&mut conn);
+        for id in [approved, skipped, timed_out, declined] {
+            assert!(rules_held(&mut conn, id));
+            assert_eq!(releases(&mut conn, id), 0, "still waiting");
+        }
+        // The setting changing while they wait changes nothing.
+        diesel::update(crate::schema::site_settings::table)
+            .set(crate::schema::site_settings::approval_waiting_display.eq("badge"))
+            .execute(&mut conn)
+            .unwrap();
+
+        decide(&mut conn, approved, boss.uuid, true, None, "portal", None).unwrap();
+        skip(&mut conn, skipped, boss.uuid, Some("Urgent")).unwrap();
+        assert!(auto_approve(&mut conn, timed_out).unwrap());
         decide(
             &mut conn,
-            declined.id,
+            declined,
             boss.uuid,
             false,
             Some("No"),
@@ -813,7 +896,21 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(released_from_hold(&mut conn, declined.id), Ok(false));
+        for id in [approved, skipped, timed_out] {
+            assert_eq!(releases(&mut conn, id), 1, "released");
+            assert!(rules_released(&mut conn, id));
+            assert!(rules_held(&mut conn, id), "its creation still runs nothing");
+            assert_eq!(
+                release_held_rules(&mut conn, id, 0),
+                Ok(false),
+                "and only once"
+            );
+        }
+        assert_eq!(releases(&mut conn, declined), 0);
+        assert!(
+            !rules_released(&mut conn, declined),
+            "held for a later round"
+        );
     }
 
     #[test]

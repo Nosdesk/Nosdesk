@@ -442,11 +442,18 @@ pub fn create_ticket_with_annotation(
             },
         )?;
         // A request type that needs approval starts its round now. A guest
-        // ticket waiting for email confirmation starts when it's released.
+        // ticket waiting for email confirmation starts when it's released,
+        // and an imported one is history, not a request: it starts none.
         let mut ticket = ticket;
-        if ticket.verification_state.as_deref() != Some(groups::PENDING_VERIFICATION) {
+        if ticket.verification_state.as_deref() != Some(groups::PENDING_VERIFICATION)
+            && !ticket.is_imported()
+        {
             ticket.approval_state =
-                crate::repository::ticket_approvals::start_if_required(conn, &ticket)?;
+                crate::repository::ticket_approvals::start_for_new_request(conn, &ticket)?;
+            ticket.rules_held_at = tickets::table
+                .find(ticket.id)
+                .select(tickets::rules_held_at)
+                .first(conn)?;
         }
         // Emit the association event so the project pool sees the
         // link land (mirrors add_ticket_to_project). The ticket.created
@@ -541,7 +548,7 @@ pub fn verify_pending_tickets_for_user(
                 },
             )?;
             crate::sync::hold::release(conn, ticket)?;
-            crate::repository::ticket_approvals::start_if_required(conn, ticket)?;
+            crate::repository::ticket_approvals::start_for_new_request(conn, ticket)?;
         }
         Ok(released)
     })

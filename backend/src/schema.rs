@@ -1827,6 +1827,7 @@ diesel::table! {
         fired_at -> Timestamptz,
         workspace_id -> Int4,
         sync_id -> Int8,
+        stopped -> Bool,
     }
 }
 
@@ -1898,6 +1899,8 @@ diesel::table! {
         number -> Int4,
         raised_by_staff -> Bool,
         blank_at -> Nullable<Timestamptz>,
+        rules_held_at -> Nullable<Timestamptz>,
+        rules_released_at -> Nullable<Timestamptz>,
     }
 }
 

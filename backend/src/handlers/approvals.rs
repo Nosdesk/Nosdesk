@@ -90,26 +90,6 @@ fn decide_error(e: DecideError) -> HttpResponse {
     }
 }
 
-/// A held request that just went ahead runs the `ticket_created` rules its
-/// creation was turned away from, which route it. Best effort, in a
-/// savepoint: the decision stands either way.
-fn after_decision(conn: &mut crate::db::DbConnection, ticket_id: i32) {
-    use diesel::Connection;
-    let queued = conn.transaction(|conn| {
-        if !approvals::released_from_hold(conn, ticket_id)? {
-            return Ok(false);
-        }
-        crate::services::rules::engine::run_trigger_for_ticket(
-            conn,
-            ticket_id,
-            crate::models::RuleTriggerKind::TicketCreated,
-        )
-    });
-    if let Err(e) = queued {
-        tracing::warn!(error = ?e, "approvals: rules after approval not queued");
-    }
-}
-
 fn approve_flag(decision: &str) -> Option<bool> {
     match decision {
         "approve" => Some(true),
@@ -239,18 +219,15 @@ pub async fn decide_my_approval(
     };
     let comment = body.comment.clone();
     match tc.run(|conn| {
-        Ok::<_, diesel::result::Error>(
-            approvals::decide(
-                conn,
-                ticket_id,
-                me,
-                approve,
-                comment.as_deref(),
-                "portal",
-                observer(&search),
-            )
-            .inspect(|_| after_decision(conn, ticket_id)),
-        )
+        Ok::<_, diesel::result::Error>(approvals::decide(
+            conn,
+            ticket_id,
+            me,
+            approve,
+            comment.as_deref(),
+            "portal",
+            observer(&search),
+        ))
     }) {
         Ok(Ok(state)) => HttpResponse::Ok().json(json!({ "approval_state": state })),
         Ok(Err(e)) => decide_error(e),
@@ -326,18 +303,15 @@ pub async fn decide_ticket_approval(
     let comment = body.comment.clone();
     let me = auth.user_uuid;
     match tc.run(|conn| {
-        Ok::<_, diesel::result::Error>(
-            approvals::decide(
-                conn,
-                ticket_id,
-                me,
-                approve,
-                comment.as_deref(),
-                "app",
-                observer(&search),
-            )
-            .inspect(|_| after_decision(conn, ticket_id)),
-        )
+        Ok::<_, diesel::result::Error>(approvals::decide(
+            conn,
+            ticket_id,
+            me,
+            approve,
+            comment.as_deref(),
+            "app",
+            observer(&search),
+        ))
     }) {
         Ok(Ok(state)) => HttpResponse::Ok().json(json!({ "approval_state": state })),
         Ok(Err(e)) => decide_error(e),

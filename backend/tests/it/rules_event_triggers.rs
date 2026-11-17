@@ -18,7 +18,7 @@ use backend::models::{
 };
 use backend::repository::{channels, comments, rules, tickets, workflow_states};
 use backend::schema::{rule_applications, rule_event_outbox, ticket_tags};
-use backend::services::rules::engine::{self, Dispatcher, MAX_ATTEMPTS};
+use backend::services::rules::engine::{Dispatcher, MAX_ATTEMPTS};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::{with_actor_bypass_context, with_actor_context};
 
@@ -475,8 +475,8 @@ async fn a_reply_runs_the_rules_of_its_kind() {
 }
 
 /// A ticket held for approval is turned away before any rule runs: no rows,
-/// a preflight count on each rule it would have run. Once approved,
-/// `run_trigger_for_ticket` runs its `ticket_created` rules.
+/// a preflight count on each rule it would have run. Once approved, its
+/// `ticket_created` rules run.
 #[actix_rt::test]
 async fn a_held_ticket_runs_nothing_until_it_is_approved() {
     let h = Harness::new();
@@ -490,13 +490,19 @@ async fn a_held_ticket_runs_nothing_until_it_is_approved() {
     );
     let ticket = h.ticket(a, "New laptop");
     h.as_admin(a, |c| {
-        use backend::schema::{site_settings, tickets as t};
-        backend::repository::site_settings::get_site_settings(c)?;
-        diesel::update(site_settings::table)
-            .set(site_settings::approval_waiting_display.eq("held"))
-            .execute(c)?;
+        use backend::schema::{ticket_approvals, tickets as t};
         diesel::update(t::table.find(ticket))
-            .set(t::approval_state.eq(Some("pending")))
+            .set((
+                t::approval_state.eq(Some("pending")),
+                t::rules_held_at.eq(Some(chrono::Utc::now().naive_utc())),
+            ))
+            .execute(c)?;
+        diesel::insert_into(ticket_approvals::table)
+            .values((
+                ticket_approvals::ticket_id.eq(ticket),
+                ticket_approvals::approver_uuid.eq(a.admin_uuid),
+                ticket_approvals::round.eq(1),
+            ))
             .execute(c)
     });
     h.drain().await;
@@ -510,15 +516,11 @@ async fn a_held_ticket_runs_nothing_until_it_is_approved() {
     assert_eq!(rule.fire_count, 0);
     assert_eq!(h.priority(a, ticket), TicketPriority::Medium);
 
-    // Approved: its creation runs again.
-    let queued = h.as_admin(a, |c| {
-        use backend::schema::tickets as t;
-        diesel::update(t::table.find(ticket))
-            .set(t::approval_state.eq(Some("approved")))
-            .execute(c)?;
-        engine::run_trigger_for_ticket(c, ticket, Trigger::TicketCreated)
+    // Approved: its creation rules run.
+    let approved = h.as_admin(a, |c| {
+        backend::repository::ticket_approvals::auto_approve(c, ticket)
     });
-    assert!(queued);
+    assert!(approved);
     h.drain().await;
     assert_eq!(h.statuses(a, created), vec![Status::Succeeded]);
     assert_eq!(h.priority(a, ticket), TicketPriority::High);
@@ -806,6 +808,91 @@ async fn a_retried_event_runs_each_rule_once() {
         vec![Status::Succeeded],
         "ran once, no suppression row"
     );
+}
+
+/// A retried event stops at an earlier rule only when that rule's run
+/// stopped the rules after it. A rule with `stop_processing` that failed (or
+/// was suppressed) stopped nothing, so on the retry the rules after it run.
+#[actix_rt::test]
+async fn a_retried_event_stops_only_where_a_run_stopped() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let stop = |assign_to: Uuid| {
+        json!([
+            { "kind": "assign", "config": { "method": "direct", "user_uuid": assign_to } },
+            { "kind": "stop_processing" },
+        ])
+    };
+    // The member can't work tickets, so this one fails at its first step.
+    let failing = h.rule(
+        a,
+        Spec {
+            priority: 1,
+            ..Spec::live(Trigger::TicketCreated, stop(a.member_uuid))
+        },
+    );
+    let failed_ticket = h.ticket(a, "Printer offline");
+    h.drain().await;
+    assert_eq!(h.statuses(a, failing), vec![Status::Failed]);
+
+    // An attempt at the event that went on to fail later: the rule after the
+    // failed one is retried and runs.
+    let after = h.rule(
+        a,
+        Spec {
+            priority: 2,
+            ..Spec::live(Trigger::TicketCreated, marker())
+        },
+    );
+    let requeue = |ticket: i32| {
+        let sync_id = h
+            .as_admin(a, |c| rules::created_event(c, ticket))
+            .expect("created");
+        h.bypass(|c| {
+            diesel::insert_into(rule_event_outbox::table)
+                .values((
+                    rule_event_outbox::sync_id.eq(sync_id),
+                    rule_event_outbox::workspace_id.eq(a.workspace_id),
+                    rule_event_outbox::attempts.eq(1),
+                ))
+                .execute(c)
+        });
+    };
+    requeue(failed_ticket);
+    h.drain().await;
+    assert_eq!(
+        h.statuses(a, failing),
+        vec![Status::Failed],
+        "not run again"
+    );
+    assert_eq!(
+        h.statuses(a, after),
+        vec![Status::Succeeded],
+        "runs on the retry"
+    );
+
+    // A run that did stop the rules after it still stops them on a retry.
+    h.as_admin(a, |c| {
+        rules::archive(c, failing, chrono::Utc::now()).map_err(|e| match e {
+            rules::WriteError::Db(e) => e,
+            other => diesel::result::Error::QueryBuilderError(other.to_string().into()),
+        })
+    });
+    let stopping = h.rule(
+        a,
+        Spec {
+            priority: 1,
+            ..Spec::live(Trigger::TicketCreated, stop(a.admin_uuid))
+        },
+    );
+    let stopped_ticket = h.ticket(a, "Monitor flickers");
+    h.drain().await;
+    assert_eq!(h.statuses(a, stopping), vec![Status::Succeeded]);
+    let after_runs = h.statuses(a, after).len();
+    requeue(stopped_ticket);
+    h.drain().await;
+    assert_eq!(h.statuses(a, stopping), vec![Status::Succeeded]);
+    assert_eq!(h.statuses(a, after).len(), after_runs, "still stopped");
 }
 
 /// On an event's last attempt a transient error is recorded as `failed`

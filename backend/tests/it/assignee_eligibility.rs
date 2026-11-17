@@ -487,7 +487,10 @@ async fn an_approval_that_times_out_approves_without_an_ineligible_assignee() {
                 },
             )?;
             diesel::update(tickets::table.find(ticket.id))
-                .set(tickets::approval_state.eq("pending"))
+                .set((
+                    tickets::approval_state.eq("pending"),
+                    tickets::rules_held_at.eq(Some(chrono::Utc::now().naive_utc())),
+                ))
                 .execute(c)?;
             diesel::insert_into(ticket_approvals::table)
                 .values((

@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use diesel::sql_types::{Array, BigInt, Integer, Text, Uuid as SqlUuid};
-use diesel::{sql_query, Connection, OptionalExtension, QueryableByName, RunQueryDsl};
+use diesel::{sql_query, OptionalExtension, QueryableByName, RunQueryDsl};
 use std::collections::HashMap;
 use tracing::{info, warn};
 
@@ -2025,29 +2025,8 @@ pub async fn approval_timeouts(pool: Pool) -> Result<()> {
             "background:approval_timeout",
             workspace_id,
             |conn| {
-                if crate::repository::ticket_approvals::auto_approve(conn, ticket_id)? {
-                    // Best effort, like a decision's: the held request runs
-                    // the rules that route it, and the savepoint keeps a
-                    // failure from undoing the approval.
-                    if let Err(e) = conn.transaction(|conn| {
-                        if !crate::repository::ticket_approvals::released_from_hold(
-                            conn, ticket_id,
-                        )? {
-                            return Ok(false);
-                        }
-                        crate::services::rules::engine::run_trigger_for_ticket(
-                            conn,
-                            ticket_id,
-                            crate::models::RuleTriggerKind::TicketCreated,
-                        )
-                    }) {
-                        warn!(
-                            ticket_id,
-                            error = ?e,
-                            "scheduler:approval_timeouts: rules after approval not queued"
-                        );
-                    }
-                }
+                // Its approval runs a held request's rules (`conclude`).
+                crate::repository::ticket_approvals::auto_approve(conn, ticket_id)?;
                 Ok(())
             },
         );

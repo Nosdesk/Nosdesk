@@ -342,10 +342,33 @@ pub struct Ticket {
     #[serde(skip_serializing, default)]
     pub raised_by_staff: bool,
     /// When "New ticket" made this blank ticket for its requester; it is still
-    /// blank while `updated_at` equals it. Server-side only. Must stay the
-    /// LAST field to match `schema.rs` column order (positional Queryable).
+    /// blank while `updated_at` equals it. Server-side only.
     #[serde(skip_serializing, default)]
     pub blank_at: Option<NaiveDateTime>,
+    /// When the request was held for approval with its `ticket_created`
+    /// rules waiting: set when it is made pending in a workspace that holds
+    /// waiting requests, and kept, so its `ticket.created` never runs them.
+    /// Server-side only.
+    #[serde(skip_serializing, default)]
+    pub rules_held_at: Option<NaiveDateTime>,
+    /// When the approval that let a held request go ahead released its
+    /// `ticket_created` rules, which that decision's event runs. Set once.
+    /// Server-side only. Must stay the LAST field to match `schema.rs` column
+    /// order (positional Queryable).
+    #[serde(skip_serializing, default)]
+    pub rules_released_at: Option<NaiveDateTime>,
+}
+
+/// `submitted_via` of a ticket a CSV import made.
+pub const CSV_IMPORT: &str = "csv_import";
+
+impl Ticket {
+    /// A ticket an import brought in from another system: history, not a
+    /// request. It starts no approval round and runs no `ticket_created`
+    /// rules.
+    pub fn is_imported(&self) -> bool {
+        self.submitted_via.as_deref() == Some(CSV_IMPORT)
+    }
 }
 
 /// Merge metadata for a ticket that was merged into another (the satellite of
@@ -1120,6 +1143,8 @@ mod new_ticket_write_tests {
             number: 1,
             raised_by_staff: false,
             blank_at: None,
+            rules_held_at: None,
+            rules_released_at: None,
         }
     }
 

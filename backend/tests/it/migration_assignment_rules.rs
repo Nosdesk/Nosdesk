@@ -62,6 +62,10 @@ struct Seeded {
     team: i32,
     hardware: i32,
     ticket: i32,
+    /// Waiting for approval in a workspace that holds waiting requests.
+    held: i32,
+    /// Waiting for approval in one that shows them.
+    shown: i32,
 }
 
 /// An assignment rule as 1.1 stored it.
@@ -185,6 +189,38 @@ fn seed(conn: &mut PgConnection) -> (Seeded, HashMap<&'static str, i32>) {
         ),
     )
     .expect("ticket");
+    let waiting = |conn: &mut PgConnection, ws: i32, display: &str, number: i32| {
+        existing(
+            conn,
+            "site_settings",
+            &format!(
+                "INSERT INTO site_settings (workspace_id, approval_waiting_display) \
+                 VALUES ({ws}, '{display}')"
+            ),
+        );
+        let state = existing(
+            conn,
+            "workflow_states",
+            &format!(
+                "INSERT INTO workflow_states (workspace_id, name, category, color, position, \
+                   is_default) VALUES ({ws}, 'Waiting', 'backlog', 'gray', 5, false) RETURNING id"
+            ),
+        )
+        .expect("state");
+        existing(
+            conn,
+            "tickets",
+            &format!(
+                "INSERT INTO tickets (workspace_id, title, workflow_state_id, number, \
+                   approval_state, created_at, updated_at) \
+                 VALUES ({ws}, 'New laptop', {state}, {number}, 'pending', \
+                   '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z') RETURNING id"
+            ),
+        )
+        .expect("waiting ticket")
+    };
+    let held = waiting(conn, ws, "held", 2);
+    let shown = waiting(conn, other_ws, "badge", 1);
     let seeded = Seeded {
         ws,
         other_ws,
@@ -192,6 +228,8 @@ fn seed(conn: &mut PgConnection) -> (Seeded, HashMap<&'static str, i32>) {
         team,
         hardware,
         ticket,
+        held,
+        shown,
     };
 
     let base = Legacy {
@@ -808,4 +846,53 @@ fn the_assignment_tables_and_type_are_gone() {
         (gone.rules, gone.state, gone.log, gone.method),
         (None, None, None, 0)
     );
+}
+
+#[derive(QueryableByName)]
+struct Hold {
+    #[diesel(sql_type = Integer)]
+    id: i32,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    held: bool,
+    #[diesel(sql_type = Text)]
+    updated_at: String,
+}
+
+/// Requests waiting for approval where the workspace holds them get their
+/// creation rules held, so their approval runs them; the backfill isn't an
+/// edit. The recursion budget can say a run stopped the rules after it.
+#[test]
+fn waiting_requests_in_a_holding_workspace_have_their_rules_held() {
+    let (_db, mut conn, s) = upgrade();
+    let holds: Vec<Hold> = diesel::sql_query(
+        "SELECT id, rules_held_at IS NOT NULL AS held, updated_at::text AS updated_at \
+         FROM tickets ORDER BY id",
+    )
+    .load(&mut conn)
+    .expect("tickets");
+    let held = |id: i32| holds.iter().find(|h| h.id == id).expect("ticket");
+    assert!(held(s.held).held);
+    assert!(
+        !held(s.shown).held,
+        "a workspace that shows waiting requests"
+    );
+    assert!(!held(s.ticket).held, "not waiting");
+    assert!(
+        held(s.held).updated_at.starts_with("2026-10-01"),
+        "{}",
+        held(s.held).updated_at
+    );
+
+    #[derive(QueryableByName)]
+    struct Column {
+        #[diesel(sql_type = BigInt)]
+        n: i64,
+    }
+    let stopped: Column = diesel::sql_query(
+        "SELECT count(*) AS n FROM information_schema.columns \
+         WHERE table_name = 'ticket_rule_runs' AND column_name = 'stopped'",
+    )
+    .get_result(&mut conn)
+    .expect("catalog");
+    assert_eq!(stopped.n, 1);
 }

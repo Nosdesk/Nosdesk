@@ -128,7 +128,10 @@ pub fn find(conn: &mut DbConnection, since: DateTime<Utc>) -> QueryResult<RuleCo
 
 /// Every ordered pair of distinct rules where the first's `writes_set`
 /// meets the second's `reads_set`, in the order `rules` come. A rule that
-/// reads its own writes is the save linter's concern, not a pair.
+/// reads its own writes is the save linter's concern, not a pair. Nor is a
+/// field the second rule only guards on being empty and writes itself
+/// (assignee is empty, then assign): whichever rule writes it first, the
+/// other stands down, which is what both mean.
 pub fn overlaps(rules: &[Rule]) -> Vec<RuleOverlap> {
     let mut out = Vec::new();
     for writer in rules {
@@ -136,11 +139,17 @@ pub fn overlaps(rules: &[Rule]) -> Vec<RuleOverlap> {
             if writer.id == reader.id {
                 continue;
             }
+            let beyond_guards = crate::repository::rules::reads_beyond_guards(&reader.conditions);
+            let guarded_write = |field: &str| {
+                reader.writes_set.iter().flatten().any(|w| w == field)
+                    && !beyond_guards.iter().flatten().any(|r| r == field)
+            };
             let mut fields: Vec<String> = writer
                 .writes_set
                 .iter()
                 .flatten()
                 .filter(|w| reader.reads_set.iter().flatten().any(|r| r == *w))
+                .filter(|w| !guarded_write(w))
                 .cloned()
                 .collect();
             if fields.is_empty() {
@@ -216,6 +225,42 @@ mod tests {
         assert_eq!(pairs[0].fields, vec!["ticket.workflow_state.category"]);
         assert_eq!((pairs[1].writer_rule_id, pairs[1].reader_rule_id), (2, 1));
         assert_eq!(pairs[1].fields, vec!["ticket.priority"]);
+    }
+
+    /// Two rules that each assign a ticket nobody is assigned: whichever runs
+    /// first, the other stands down. Not a pair. A rule that reads the
+    /// assignee beyond that guard still is one.
+    #[test]
+    fn an_is_empty_guard_on_a_field_the_reader_writes_is_no_pair() {
+        let guarded = |id: i32, extra: Option<serde_json::Value>| {
+            let mut children = vec![
+                serde_json::json!({ "kind": "leaf", "field": "ticket.assignee_uuid", "op": "is_null" }),
+            ];
+            children.extend(extra);
+            let mut r = rule(
+                id,
+                &["ticket.assignee_uuid"],
+                &["ticket.assignee_uuid", "ticket.updated_at"],
+            );
+            r.conditions = serde_json::json!({ "kind": "and", "children": children });
+            r
+        };
+        assert!(overlaps(&[guarded(1, None), guarded(2, None)]).is_empty());
+
+        let mut reads_more = guarded(
+            3,
+            Some(serde_json::json!({ "kind": "not", "child":
+                { "kind": "leaf", "field": "ticket.assignee_uuid", "op": "is_null" } })),
+        );
+        reads_more.reads_set = vec![Some("ticket.assignee_uuid".to_string())];
+        let pairs = overlaps(&[guarded(1, None), reads_more]);
+        assert_eq!(
+            pairs
+                .iter()
+                .map(|p| (p.writer_rule_id, p.reader_rule_id))
+                .collect::<Vec<_>>(),
+            vec![(1, 3)]
+        );
     }
 
     #[test]

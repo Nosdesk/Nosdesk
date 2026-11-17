@@ -1,6 +1,10 @@
 -- The assignment tables come back empty. The rules the migration made from
 -- them stay in `rules`, with their applications.
 
+ALTER TABLE public.ticket_rule_runs DROP COLUMN IF EXISTS stopped;
+ALTER TABLE public.tickets DROP COLUMN IF EXISTS rules_released_at;
+ALTER TABLE public.tickets DROP COLUMN IF EXISTS rules_held_at;
+
 CREATE TYPE public.assignment_method AS ENUM (
     'direct_user',
     'group_round_robin',

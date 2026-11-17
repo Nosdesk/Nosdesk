@@ -22,6 +22,14 @@
 -- credited to the system. A log row whose rule was deleted has no rule left to
 -- belong to and isn't copied. `rules` has no audit trigger, and
 -- `rules_version_on_insert` writes each rule's version 1.
+--
+-- Two records the engine reads instead of inferring them:
+-- `tickets.rules_held_at` marks a request whose creation rules wait for its
+-- approval (it was made pending in a workspace that holds waiting requests):
+-- its `ticket.created` never runs them. `tickets.rules_released_at` is set
+-- once, by the approval that lets it go ahead, and that decision runs them;
+-- `ticket_rule_runs.stopped` marks a budget slot whose run stopped the rules
+-- after it, so a retried event stops there only then.
 
 CREATE TEMPORARY TABLE assignment_rule_moves ON COMMIT DROP AS
 WITH legacy AS (
@@ -239,3 +247,23 @@ DROP TABLE public.assignment_log;
 DROP TABLE public.assignment_rule_state;
 DROP TABLE public.assignment_rules;
 DROP TYPE public.assignment_method;
+
+ALTER TABLE public.tickets
+    ADD COLUMN rules_held_at timestamptz,
+    ADD COLUMN rules_released_at timestamptz;
+
+-- Requests held for approval now: the old engine skipped their routing until
+-- approval, and the event rules turned their creation away. Requests that
+-- already went ahead have nothing waiting. Neither is an edit to the ticket.
+ALTER TABLE public.tickets DISABLE TRIGGER tr_audit_tickets;
+ALTER TABLE public.tickets DISABLE TRIGGER set_updated_at;
+UPDATE public.tickets t
+   SET rules_held_at = now()
+  FROM public.site_settings s
+ WHERE s.workspace_id = t.workspace_id
+   AND s.approval_waiting_display = 'held'
+   AND t.approval_state = 'pending';
+ALTER TABLE public.tickets ENABLE TRIGGER set_updated_at;
+ALTER TABLE public.tickets ENABLE TRIGGER tr_audit_tickets;
+
+ALTER TABLE public.ticket_rule_runs ADD COLUMN stopped boolean NOT NULL DEFAULT false;

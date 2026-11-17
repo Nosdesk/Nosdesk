@@ -320,49 +320,169 @@ async fn a_ticket_added_from_a_board_is_assigned_after_its_response() {
     );
 }
 
-/// A request held back for approval is turned away from its rules until it
-/// is approved; the approval runs them then, through
-/// `engine::run_trigger_for_ticket`, and they assign it.
-#[actix_web::test]
-async fn a_held_request_is_assigned_once_it_is_approved() {
+/// Make `ws` hold requests back while they wait for approval, with a request
+/// type its admin approves. Returns the request type.
+fn holding_requests(h: &Harness, ws: &WorkspaceSeed) -> i32 {
     use backend::schema::site_settings;
-
-    crate::common::ensure_test_keyring();
-    let h = Harness::new();
-    let a = &h.seeded.a;
-    let rule = h.rule(a, on_create(a.admin_uuid));
-    let ticket = h.as_admin(a, |c| {
+    h.as_admin(ws, |c| {
         backend::repository::site_settings::get_site_settings(c)?;
         diesel::update(site_settings::table)
             .set(site_settings::approval_waiting_display.eq("held"))
             .execute(c)?;
+        let laptops: i32 = diesel::insert_into(ticket_categories::table)
+            .values((
+                ticket_categories::name.eq("New laptop"),
+                ticket_categories::approval_required.eq(true),
+                ticket_categories::approval_rule.eq("any"),
+            ))
+            .returning(ticket_categories::id)
+            .get_result(c)?;
+        backend::repository::categories::set_category_approvers(c, laptops, &[ws.admin_uuid])?;
+        Ok(laptops)
+    })
+}
+
+/// A request of `request_type` from `ws`'s member, made the way the app
+/// makes one.
+fn request(h: &Harness, ws: &WorkspaceSeed, request_type: i32, title: &str) -> i32 {
+    h.as_admin(ws, |c| {
         let open = workflow_states::default_state(c)?;
-        let ticket = tickets::create_ticket(
+        tickets::create_ticket(
             c,
             NewTicket {
-                title: "New laptop".to_string(),
+                title: title.to_string(),
                 workflow_state_id: open.id,
-                requester_uuid: Some(a.member_uuid),
+                requester_uuid: Some(ws.member_uuid),
+                category_id: Some(request_type),
                 ..Default::default()
             },
-        )?;
-        diesel::update(backend::schema::tickets::table.find(ticket.id))
-            .set(backend::schema::tickets::approval_state.eq("pending"))
-            .execute(c)?;
+        )
+    })
+    .id
+}
+
+/// A request held back for approval is turned away from its rules until it
+/// goes ahead: approved in the app, or its approval skipped. Then its
+/// creation rules run, and they assign it.
+#[actix_web::test]
+async fn a_held_request_is_assigned_once_it_goes_ahead() {
+    crate::common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let rule = h.rule(a, on_create(a.admin_uuid));
+    let laptops = holding_requests(&h, a);
+    let approved = request(&h, a, laptops, "New laptop for Sam");
+    let skipped = request(&h, a, laptops, "New laptop for Jo");
+
+    h.drain().await;
+    for ticket in [approved, skipped] {
+        assert_eq!(assignee(&h, a, ticket), None, "held while it waits");
+    }
+    assert!(h.statuses(a, rule).is_empty());
+    assert_eq!(h.rule_row(a, rule).skipped_preflight_count, 2);
+
+    for (ticket, action, body) in [
+        (approved, "decide", json!({ "decision": "approve" })),
+        (skipped, "skip", json!({ "comment": "Urgent" })),
+    ] {
+        let (status, body) = call_as_admin(
+            &h,
+            a,
+            backend::handlers::approvals::config,
+            http_test::TestRequest::post()
+                .uri(&format!("/api/tickets/{ticket}/approval/{action}"))
+                .set_json(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{action}: {body}");
+    }
+
+    h.drain().await;
+    for ticket in [approved, skipped] {
+        assert_eq!(assignee(&h, a, ticket), Some(a.admin_uuid));
+    }
+    assert_eq!(h.statuses(a, rule), vec![Status::Succeeded; 2]);
+}
+
+/// A held request approved before the engine got to its `ticket.created`
+/// runs its creation rules once: the release runs them, and its creation,
+/// dispatched after the approval, runs nothing.
+#[actix_web::test]
+async fn a_request_approved_before_its_creation_is_dispatched_runs_its_rules_once() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let tag = h.rule(
+        a,
+        Spec {
+            priority: 1,
+            ..Spec::live(
+                Trigger::TicketCreated,
+                json!([{ "kind": "set_priority", "config": { "priority": "high" } }]),
+            )
+        },
+    );
+    let assign = h.rule(a, on_create(a.admin_uuid));
+    let laptops = holding_requests(&h, a);
+    let ticket = request(&h, a, laptops, "New laptop for Lee");
+    let approved = h.as_admin(a, |c| {
+        backend::repository::ticket_approvals::auto_approve(c, ticket)
+    });
+    assert!(approved);
+
+    // Both events are queued: the creation first, then the release.
+    h.drain().await;
+    assert_eq!(assignee(&h, a, ticket), Some(a.admin_uuid));
+    assert_eq!(h.statuses(a, tag), vec![Status::Succeeded]);
+    assert_eq!(h.statuses(a, assign), vec![Status::Succeeded]);
+    let assignments: i64 = h.as_admin(a, |c| {
+        sync_actions::table
+            .filter(sync_actions::aggregate_id.eq(ticket.to_string()))
+            .filter(sync_actions::event_type.eq("ticket.assignee_changed"))
+            .count()
+            .get_result(c)
+    });
+    assert_eq!(assignments, 1);
+}
+
+/// A held request a workspace import brought in has no `ticket.created` in
+/// this server's history. Its approval still runs its creation rules: the
+/// hold travels on the ticket.
+#[actix_web::test]
+async fn a_held_request_moved_by_import_is_assigned_once_approved() {
+    crate::common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let rule = h.rule(a, on_create(a.admin_uuid));
+    let laptops = holding_requests(&h, a);
+    // Written the way the import writes rows: no events.
+    let ticket = h.as_admin(a, |c| {
+        use backend::schema::tickets as t;
+        let open = workflow_states::default_state(c)?;
+        let id: i32 = diesel::insert_into(t::table)
+            .values((
+                t::title.eq("New laptop for Ana"),
+                t::workflow_state_id.eq(open.id),
+                t::requester_uuid.eq(Some(a.member_uuid)),
+                t::category_id.eq(Some(laptops)),
+                t::approval_state.eq(Some("pending")),
+                t::rules_held_at.eq(Some(chrono::Utc::now().naive_utc())),
+            ))
+            .returning(t::id)
+            .get_result(c)?;
         diesel::insert_into(ticket_approvals::table)
             .values((
-                ticket_approvals::ticket_id.eq(ticket.id),
+                ticket_approvals::ticket_id.eq(id),
                 ticket_approvals::approver_uuid.eq(a.admin_uuid),
                 ticket_approvals::round.eq(1),
             ))
             .execute(c)?;
-        Ok(ticket.id)
+        Ok(id)
     });
-
-    h.drain().await;
-    assert_eq!(assignee(&h, a, ticket), None, "held while it waits");
-    assert!(h.statuses(a, rule).is_empty());
-    assert_eq!(h.rule_row(a, rule).skipped_preflight_count, 1);
+    assert!(
+        h.as_admin(a, |c| backend::repository::rules::created_event(c, ticket))
+            .is_none(),
+        "no creation event to replay"
+    );
 
     let (status, body) = call_as_admin(
         &h,
@@ -374,9 +494,52 @@ async fn a_held_request_is_assigned_once_it_is_approved() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["approval_state"], "approved");
-
     h.drain().await;
     assert_eq!(assignee(&h, a, ticket), Some(a.admin_uuid));
     assert_eq!(h.statuses(a, rule), vec![Status::Succeeded]);
+}
+
+/// A CSV import brings in history, not requests: an imported ticket of a
+/// request type that needs approval starts no round, and its creation runs
+/// no rules.
+#[actix_web::test]
+async fn an_imported_ticket_starts_no_approval_and_runs_no_rules() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let rule = h.rule(a, on_create(a.admin_uuid));
+    let laptops = holding_requests(&h, a);
+    let ticket = h.as_admin(a, |c| {
+        let open = workflow_states::default_state(c)?;
+        tickets::create_ticket(
+            c,
+            NewTicket {
+                title: "Laptop from 2019".to_string(),
+                workflow_state_id: open.id,
+                requester_uuid: Some(a.member_uuid),
+                category_id: Some(laptops),
+                submitted_via: Some(backend::models::CSV_IMPORT.to_string()),
+                ..Default::default()
+            },
+        )
+    });
+    assert_eq!(ticket.approval_state, None, "no approval round");
+    let approvals: i64 = h.as_admin(a, |c| {
+        ticket_approvals::table
+            .filter(ticket_approvals::ticket_id.eq(ticket.id))
+            .count()
+            .get_result(c)
+    });
+    assert_eq!(approvals, 0);
+    h.drain().await;
+    assert_eq!(assignee(&h, a, ticket.id), None);
+    assert!(h.statuses(a, rule).is_empty());
+    let row = h.rule_row(a, rule);
+    assert_eq!(
+        (
+            row.skipped_preflight_count,
+            row.skipped_condition_unmet_count
+        ),
+        (0, 0),
+        "not counted as a skip"
+    );
 }
