@@ -137,6 +137,14 @@ impl ImapRuntimeState {
         exhausted.then(|| self.dead_letter(uid, error.to_string()))
     }
 
+    /// The server refused to fetch a message (a NO or BAD reply) while the
+    /// session still answered. It is retried on later polls like a message
+    /// that failed to ingest, and dead-lettered after
+    /// [`MAX_INGEST_ATTEMPTS`]; the poll moves on past it meanwhile.
+    fn record_fetch_refused(&mut self, uid: u32, error: &str) -> Option<IngestDeadLetter> {
+        self.record_ingest_failure(uid, "", error)
+    }
+
     /// Move a UID out of the retry queue into the capped dead-letter list and
     /// return the recorded entry. Carries the queued external_id / attempts
     /// when present.
@@ -826,7 +834,9 @@ impl EmailImapAdapter {
     /// same poison UID forever until an operator intervenes. Per-UID
     /// fetch is a few extra round-trips, but the poll completes and
     /// advances `last_seen_uid` past each message as soon as it has
-    /// been either ingested or logged off as unparseable.
+    /// been either ingested or logged off as unparseable. A failed
+    /// session ends the batch with the cursor before the message it
+    /// was fetching, so the next poll fetches it again ([`Step`]).
     async fn fetch_new_messages(
         &mut self,
         session: &mut ImapSession,
@@ -892,34 +902,69 @@ impl EmailImapAdapter {
         }
 
         events.reserve(uids.len());
-        let mut max_uid = self.state.last_seen_uid;
+        let mut cursor = UidCursor::new(self.state.last_seen_uid);
+        let mut broken: Option<String> = None;
 
         for uid in uids {
-            match fetch_single_uid(session, uid).await {
+            let fetched = fetch_single_uid(session, uid).await;
+            let step = Step::after(&fetched);
+            match fetched {
                 Ok(Some(msg)) => events.push(InboundEvent::MessageReceived(msg)),
-                Ok(None) => warn!(channel = self.id, uid, "fetch returned no body — skipping"),
-                Err(e) => warn!(
+                Ok(None) => warn!(channel = self.id, uid, "fetch returned no body, skipping"),
+                Err(FetchError::Transport(e)) => {
+                    warn!(
+                        channel = self.id,
+                        uid,
+                        error = %e,
+                        "IMAP session failed; the message is fetched again next poll"
+                    );
+                    broken = Some(e);
+                }
+                Err(FetchError::Refused(e)) => {
+                    warn!(
+                        channel = self.id,
+                        uid,
+                        error = %e,
+                        "server refused the message; retrying it on later polls"
+                    );
+                    if let Some(dl) = self.state.record_fetch_refused(uid, &e) {
+                        self.log_dead_letter(&dl);
+                    }
+                }
+                Err(FetchError::Garbled(e)) => {
+                    warn!(
+                        channel = self.id,
+                        uid,
+                        error = %e,
+                        "skipping unparseable message; ending the batch"
+                    );
+                    broken = Some(e);
+                }
+                Err(FetchError::Unparseable(e)) => warn!(
                     channel = self.id,
                     uid,
                     error = %e,
                     "skipping unparseable message"
                 ),
             }
-            // Advance past every UID we attempted, regardless of
-            // outcome. A poison message that can't be parsed has
-            // already been logged; we don't want to replay it on
-            // every poll.
-            if uid > max_uid {
-                max_uid = uid;
+            if !cursor.record(uid, step) {
+                break;
             }
         }
 
-        if max_uid > self.state.last_seen_uid {
-            self.state.last_seen_uid = max_uid;
+        if cursor.uid() > self.state.last_seen_uid {
+            self.state.last_seen_uid = cursor.uid();
             self.persist_state().await?;
         }
 
-        Ok(events)
+        // A batch that ended on a failed session before anything was fetched
+        // is the poll's error, so the caller logs out and polls again rather
+        // than idling on that session. With messages in hand, they go through
+        // first.
+        match broken {
+            Some(e) if cursor.ended_early() && events.is_empty() => Err(ChannelError::Transient(e)),
+            _ => Ok(events),
+        }
     }
 
     async fn persist_state(&self) -> Result<(), ChannelError> {
@@ -953,7 +998,31 @@ impl EmailImapAdapter {
         for uid in uids {
             match fetch_single_uid(session, uid).await {
                 Ok(Some(msg)) => events.push(InboundEvent::MessageReceived(msg)),
-                Ok(None) | Err(_) => unfetchable.push(uid),
+                // The session failed, not the message: it and the rest of
+                // the queue stay queued for the next poll.
+                Err(FetchError::Transport(e)) => {
+                    warn!(
+                        channel = self.id,
+                        uid,
+                        error = %e,
+                        "IMAP session failed during retries; retrying next poll"
+                    );
+                    break;
+                }
+                // Refused again: one more attempt counted, dead-lettered at
+                // the cap.
+                Err(FetchError::Refused(e)) => {
+                    if let Some(dl) = self.state.record_fetch_refused(uid, &e) {
+                        self.log_dead_letter(&dl);
+                    }
+                }
+                // Skipped like any unreadable message, but the session may
+                // be out of step: the rest wait for the next poll.
+                Err(FetchError::Garbled(_)) => {
+                    unfetchable.push(uid);
+                    break;
+                }
+                Ok(None) | Err(FetchError::Unparseable(_)) => unfetchable.push(uid),
             }
         }
         for uid in unfetchable {
@@ -1029,16 +1098,111 @@ async fn idle_wait(session: ImapSession) -> Result<(ImapSession, bool), ChannelE
     Ok((session, had_notification))
 }
 
-/// Fetch a single UID and parse it. All errors — IMAP-layer, missing
-/// body, RFC 5322 parse failure — come back as `Err(String)` so the
-/// caller can log per-UID and move on without tearing down the whole
-/// batch. `Ok(None)` means the fetch succeeded but the server didn't
-/// return a body for this UID (message deleted between SEARCH and
-/// FETCH, typically).
+/// Why a UID's fetch produced no message.
+#[derive(Debug)]
+enum FetchError {
+    /// The session failed (a timeout, a dropped connection, an IO error), so
+    /// nothing is known about the message. It is fetched again next poll.
+    Transport(String),
+    /// The server answered the fetch with NO or BAD. A reply means the
+    /// session still works, so this is the message's failure: it goes to the
+    /// retry queue and the batch goes on. (A BAD can't be told apart from a
+    /// session out of step, so it is treated the same way rather than holding
+    /// the channel at this message.)
+    Refused(String),
+    /// The server's response for this message couldn't be read. The message
+    /// is skipped, and the batch ends because the session may be out of
+    /// step.
+    Garbled(String),
+    /// The message was fetched but isn't a readable RFC 5322 message, and
+    /// never will be. It is skipped.
+    Unparseable(String),
+}
+
+impl FetchError {
+    fn from_imap(label: &str, e: async_imap::error::Error) -> Self {
+        use async_imap::error::Error;
+        match e {
+            Error::No(_) | Error::Bad(_) => Self::Refused(format!("{label}: {e}")),
+            Error::Parse(_) => Self::Garbled(format!("{label}: {e}")),
+            _ => Self::Transport(format!("{label}: {e}")),
+        }
+    }
+
+    fn timed_out(label: &str) -> Self {
+        Self::Transport(format!(
+            "{label}: timed out after {}s",
+            IMAP_OP_TIMEOUT.as_secs()
+        ))
+    }
+}
+
+/// What a UID's fetch does to the batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    /// Handled (fetched, gone, unparseable, or refused and queued for retry):
+    /// the cursor moves past it and the batch goes on.
+    Next,
+    /// Skipped, but the session can't be trusted: the cursor moves past it
+    /// and the batch ends.
+    SkipAndStop,
+    /// Not fetched: the cursor stays before it and the batch ends.
+    Stop,
+}
+
+impl Step {
+    fn after(fetched: &Result<Option<InboundMessage>, FetchError>) -> Self {
+        match fetched {
+            Ok(_) | Err(FetchError::Unparseable(_) | FetchError::Refused(_)) => Self::Next,
+            Err(FetchError::Garbled(_)) => Self::SkipAndStop,
+            Err(FetchError::Transport(_)) => Self::Stop,
+        }
+    }
+}
+
+/// The highest UID a batch has handled, which is where the next poll's
+/// search starts, and whether the batch ended before its last UID.
+#[derive(Debug)]
+struct UidCursor {
+    uid: u32,
+    ended_early: bool,
+}
+
+impl UidCursor {
+    fn new(last_seen_uid: u32) -> Self {
+        Self {
+            uid: last_seen_uid,
+            ended_early: false,
+        }
+    }
+
+    /// Record `uid`'s step; `false` when the batch ends here.
+    fn record(&mut self, uid: u32, step: Step) -> bool {
+        if step != Step::Stop {
+            self.uid = self.uid.max(uid);
+        }
+        self.ended_early = step != Step::Next;
+        !self.ended_early
+    }
+
+    fn uid(&self) -> u32 {
+        self.uid
+    }
+
+    fn ended_early(&self) -> bool {
+        self.ended_early
+    }
+}
+
+/// Fetch a single UID and parse it. Errors say whether the session or the
+/// message failed ([`FetchError`]), so the caller can retry the one and skip
+/// the other. `Ok(None)` means the fetch succeeded but the server didn't
+/// return a body for this UID (message deleted between SEARCH and FETCH,
+/// typically).
 async fn fetch_single_uid(
     session: &mut ImapSession,
     uid: u32,
-) -> Result<Option<InboundMessage>, String> {
+) -> Result<Option<InboundMessage>, FetchError> {
     let stream = match tokio::time::timeout(
         IMAP_OP_TIMEOUT,
         session.uid_fetch(uid.to_string(), FETCH_SPEC),
@@ -1046,23 +1210,13 @@ async fn fetch_single_uid(
     .await
     {
         Ok(Ok(s)) => s,
-        Ok(Err(e)) => return Err(format!("uid_fetch: {e}")),
-        Err(_) => {
-            return Err(format!(
-                "uid_fetch: timed out after {}s",
-                IMAP_OP_TIMEOUT.as_secs()
-            ))
-        }
+        Ok(Err(e)) => return Err(FetchError::from_imap("uid_fetch", e)),
+        Err(_) => return Err(FetchError::timed_out("uid_fetch")),
     };
     let fetches: Vec<_> = match tokio::time::timeout(IMAP_OP_TIMEOUT, stream.try_collect()).await {
         Ok(Ok(v)) => v,
-        Ok(Err(e)) => return Err(format!("fetch stream: {e}")),
-        Err(_) => {
-            return Err(format!(
-                "fetch stream: timed out after {}s",
-                IMAP_OP_TIMEOUT.as_secs()
-            ))
-        }
+        Ok(Err(e)) => return Err(FetchError::from_imap("fetch stream", e)),
+        Err(_) => return Err(FetchError::timed_out("fetch stream")),
     };
 
     let Some(fetch) = fetches.into_iter().find(|f| f.uid == Some(uid)) else {
@@ -1079,7 +1233,7 @@ async fn fetch_single_uid(
             m.source_ref = Some(uid as u64);
             Some(m)
         })
-        .map_err(|e| format!("parse rfc822: {e}"))
+        .map_err(|e| FetchError::Unparseable(format!("parse rfc822: {e}")))
 }
 
 // ---------- Pure parser ----------
@@ -1681,6 +1835,150 @@ mod tests {
         assert_eq!(
             s.dead_letters.last().unwrap().uid,
             DEAD_LETTER_CAP as u32 + 9
+        );
+    }
+
+    #[test]
+    fn a_dropped_session_is_transport_and_a_garbled_response_is_not() {
+        use async_imap::error::{Error, ParseError};
+        let transport = |e: Error| {
+            matches!(
+                FetchError::from_imap("uid_fetch", e),
+                FetchError::Transport(_)
+            )
+        };
+        assert!(transport(Error::ConnectionLost));
+        assert!(transport(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "reset"
+        ))));
+        let refused = |e: Error| {
+            matches!(
+                FetchError::from_imap("uid_fetch", e),
+                FetchError::Refused(_)
+            )
+        };
+        assert!(refused(Error::No(
+            "Some messages could not be FETCHed".into()
+        )));
+        assert!(refused(Error::Bad("command unknown".into())));
+        assert!(matches!(
+            FetchError::timed_out("fetch stream"),
+            FetchError::Transport(_)
+        ));
+        assert!(matches!(
+            FetchError::from_imap(
+                "fetch stream",
+                Error::Parse(ParseError::Invalid(b"*".to_vec()))
+            ),
+            FetchError::Garbled(_)
+        ));
+    }
+
+    #[test]
+    fn only_a_session_failure_keeps_the_cursor_before_the_message() {
+        let step = |r: Result<Option<InboundMessage>, FetchError>| Step::after(&r);
+        assert_eq!(step(Ok(None)), Step::Next);
+        assert_eq!(
+            step(Err(FetchError::Unparseable("parse rfc822".into()))),
+            Step::Next
+        );
+        assert_eq!(
+            step(Err(FetchError::Refused("uid_fetch: no response".into()))),
+            Step::Next
+        );
+        assert_eq!(
+            step(Err(FetchError::Garbled("fetch stream".into()))),
+            Step::SkipAndStop
+        );
+        assert_eq!(
+            step(Err(FetchError::Transport("uid_fetch".into()))),
+            Step::Stop
+        );
+    }
+
+    /// The batch loop's cursor over a run of fetches: where it ends, how many
+    /// UIDs were tried, and whether the batch ended early.
+    fn batch(start: u32, steps: &[(u32, Step)]) -> (u32, usize, bool) {
+        let mut cursor = UidCursor::new(start);
+        let mut tried = 0;
+        for &(uid, step) in steps {
+            tried += 1;
+            if !cursor.record(uid, step) {
+                break;
+            }
+        }
+        (cursor.uid(), tried, cursor.ended_early())
+    }
+
+    #[test]
+    fn a_connection_error_stops_the_batch_before_the_message() {
+        use Step::*;
+        // 512's fetch hits a dead session: 512 onward is fetched next poll.
+        assert_eq!(
+            batch(510, &[(511, Next), (512, Stop), (513, Next), (514, Next)]),
+            (511, 2, true)
+        );
+        // On the first UID, the cursor doesn't move at all.
+        assert_eq!(batch(510, &[(511, Stop), (512, Next)]), (510, 1, true));
+    }
+
+    /// A NO for one UID queues it for retry and the batch moves on; it is
+    /// dead-lettered once it has been refused [`MAX_INGEST_ATTEMPTS`] times.
+    #[test]
+    fn a_refused_message_is_retried_without_holding_the_channel() {
+        let mut state = ImapRuntimeState::default();
+        let mut cursor = UidCursor::new(510);
+        for (uid, fetched) in [
+            (511, Ok(None)),
+            (
+                512,
+                Err(FetchError::Refused("uid_fetch: no response".into())),
+            ),
+            (513, Ok(None)),
+        ] {
+            if let Err(FetchError::Refused(e)) = &fetched {
+                assert!(state.record_fetch_refused(uid, e).is_none());
+            }
+            assert!(cursor.record(uid, Step::after(&fetched)));
+        }
+        assert_eq!(cursor.uid(), 513, "the cursor moves past the refused UID");
+        assert!(!cursor.ended_early());
+        assert_eq!(
+            state.retry_queue.iter().map(|r| r.uid).collect::<Vec<_>>(),
+            [512]
+        );
+
+        // Refused again on each later poll's retry, up to the cap.
+        for _ in 2..MAX_INGEST_ATTEMPTS {
+            assert!(state.record_fetch_refused(512, "no response").is_none());
+        }
+        let dl = state
+            .record_fetch_refused(512, "no response")
+            .expect("dead-lettered at the cap");
+        assert_eq!((dl.uid, dl.attempts), (512, MAX_INGEST_ATTEMPTS));
+        assert!(state.retry_queue.is_empty());
+        assert_eq!(state.dead_letters.len(), 1);
+    }
+
+    #[test]
+    fn a_poison_message_is_skipped() {
+        use Step::*;
+        // Unparseable: skipped, and the batch goes on.
+        assert_eq!(
+            batch(510, &[(511, Next), (512, Next), (513, Next)]),
+            (513, 3, false)
+        );
+        // Garbled: skipped, and the batch ends on a session out of step.
+        assert_eq!(
+            batch(510, &[(511, Next), (512, SkipAndStop), (513, Next)]),
+            (512, 2, true)
+        );
+        // Garbled on the first UID: the batch fetched nothing and ended early,
+        // which the poll reports as its error.
+        assert_eq!(
+            batch(510, &[(511, SkipAndStop), (512, Next)]),
+            (511, 1, true)
         );
     }
 
