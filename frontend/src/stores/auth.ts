@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { logger } from '@nosdesk/core/utils/logger';
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import axios from 'axios';
 import apiClient from '@nosdesk/core/apiClient';
 import { isLoggingOut, setLoggingOut } from '@/services/apiConfig';
@@ -9,6 +9,7 @@ import router, { landAfterLogin } from '@/router';
 import type { User, LoginCredentials } from '@nosdesk/core/types';
 import { useThemeStore } from './theme';
 import { useDateStore } from '@nosdesk/core/stores/dateStore';
+import { useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts';
 import { translate } from '@/i18n';
 import { extractErrorMessage } from '@/utils/errors';
 import { activeWorkspaceSlug } from '@/services/activeWorkspace';
@@ -98,6 +99,15 @@ export const useAuthStore = defineStore('auth', () => {
   // a sign-out. Cleared with the user when the session ends.
   const csrfAtLoad = getCsrfToken();
   const heldSessionAtLoad = ref(csrfAtLoad !== null);
+
+  // Reply drafts belong to the account that wrote them: the drafts store
+  // follows the signed-in account, synchronously, so no draft is read or
+  // written under the wrong one in between.
+  watch(
+    () => user.value?.uuid ?? null,
+    (uuid) => useTicketDraftsStore().setAccount(uuid),
+    { immediate: true, flush: 'sync' },
+  );
 
   // Computed properties
   // UX ONLY: a session the page loaded with, or a loaded user. Actual
@@ -592,7 +602,7 @@ export const useAuthStore = defineStore('auth', () => {
       setLoggingOut(true);
       signingOut.value = true;
       try {
-        await clearLocalSession();
+        await clearLocalSession('session-lost');
         // Inside the window, so the views' held requests are cancelled once
         // they have unmounted.
         if (!here.startsWith('/login')) {
@@ -668,7 +678,7 @@ export const useAuthStore = defineStore('auth', () => {
         logger.error('Failed to tear down the local session on logout', e);
       }
 
-      await clearLocalSession();
+      await clearLocalSession('sign-out');
 
       // RP-initiated logout at the IdP, if the session was an OIDC one. Ending
       // the IdP session (not just the local one) is what stops a re-login from
@@ -708,7 +718,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** What this tab holds for the session: the user, every workspace-scoped
    *  store and cache, the user's theme. No network, no navigation. */
-  async function clearLocalSession() {
+  async function clearLocalSession(reason: 'sign-out' | 'session-lost') {
     // Signed out first, so everything gated on isAuthenticated stops before
     // the user and caches below are dropped.
     heldSessionAtLoad.value = false;
@@ -723,7 +733,7 @@ export const useAuthStore = defineStore('auth', () => {
     // query key is account-scoped, so clearing `user` switches it to `anon`.
     try {
       const { resetWorkspaceScopedState } = await import('@/stores/workspaceReset');
-      await resetWorkspaceScopedState('sign-out');
+      await resetWorkspaceScopedState(reason);
     } catch (e) {
       logger.error('Failed to reset workspace-scoped state on logout', e);
     }
