@@ -28,9 +28,11 @@ import { ACCOUNT_SCOPED_QUERY_KEYS } from '@/stores/accountQueryKeys';
  * collaborative doc is deleted, including ones other tabs have open: those
  * tabs are signed out too, so their copies are the signed-out person's data.
  * On a switch, docs another tab has open are kept, since that tab may still
- * be working in either workspace.
+ * be working in either workspace. A lost session (it expired, or the server
+ * ended it) is a sign-out, except that the person's stored reply drafts are
+ * kept for when they sign back in.
  */
-export type WorkspaceResetReason = 'sign-out' | 'switch';
+export type WorkspaceResetReason = 'sign-out' | 'session-lost' | 'switch';
 
 export async function resetWorkspaceScopedState(reason: WorkspaceResetReason): Promise<void> {
   enteredSlug = null;
@@ -53,7 +55,7 @@ export async function resetWorkspaceScopedState(reason: WorkspaceResetReason): P
     // Open notes' connections belong to the workspace being left; closed
     // before their local copies go.
     await useCollabSessionStore().closeAll();
-    await purgeAllCollabDocs({ includeOpen: reason === 'sign-out' });
+    await purgeAllCollabDocs({ includeOpen: reason !== 'switch' });
   } catch (e) {
     logger.error('Failed to tear down the sync runtime', e);
   }
@@ -75,11 +77,21 @@ export async function resetWorkspaceScopedState(reason: WorkspaceResetReason): P
     // Colada query, so the cache clear below already resets it.)
     import('@/stores/recentUsers').then((m) => m.useRecentUsersStore().clear()),
     // Ticket drafts persist by ticket id, which repeats across workspaces on
-    // one origin; park this workspace's under its own key. The new
-    // workspace's are loaded when its slug is published (enterWorkspace).
-    import('@nosdesk/core/stores/ticketDrafts').then((m) =>
-      m.useTicketDraftsStore().setScope(null),
-    ),
+    // one origin; on a switch this workspace's stay under its own key and
+    // the new workspace's are loaded when its slug is published
+    // (enterWorkspace). At sign-out they are removed: they are the
+    // signed-out person's. A lost session only unloads them; stored under
+    // the account, they show to no one else and load again when it signs
+    // back in.
+    import('@nosdesk/core/stores/ticketDrafts').then((m) => {
+      const drafts = m.useTicketDraftsStore();
+      if (reason === 'sign-out') drafts.signOut();
+      else if (reason === 'session-lost') drafts.setAccount(null);
+      else drafts.setScope(null);
+    }),
+    // Staged reply files, by ticket id too, and uploading as the person who
+    // staged them.
+    import('@nosdesk/core/stores/ticketUi').then((m) => m.useTicketUiStore().clearAll()),
     // Plugins are the workspace's enabled set; their slot and action
     // registrations must not follow the user to the next workspace.
     import('@/plugins').then((m) => m.unloadAllPlugins()),

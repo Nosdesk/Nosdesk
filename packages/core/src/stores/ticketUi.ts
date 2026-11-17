@@ -14,7 +14,8 @@
  * simply dropped: the server deletes unclaimed uploads after a day.
  *
  * Cleanup contract: callers that finish working with a ticket
- * (ticket deleted) call `clearAttachments`, which also stops its uploads.
+ * (ticket deleted) call `clearAttachments`, which also stops its uploads;
+ * the workspace reset calls `clearAll` at sign-out and on a switch.
  * Without explicit clears the map grows until the tab closes; that's
  * acceptable here (small, bounded by the number of tickets a user touches
  * in a session).
@@ -207,6 +208,16 @@ export const useTicketUiStore = defineStore('ticketUi', () => {
     attachments.delete(ticketId)
   }
 
+  /**
+   * Drop every ticket's staged files, stopping their uploads. The files
+   * belong to the workspace and the person they were staged in, so they go
+   * at sign-out and on a workspace switch (ticket ids repeat across
+   * workspaces).
+   */
+  function clearAll(): void {
+    for (const ticketId of [...attachments.keys()]) clearAttachments(ticketId)
+  }
+
   return {
     getAttachments,
     stageFiles,
@@ -215,5 +226,6 @@ export const useTicketUiStore = defineStore('ticketUi', () => {
     takeAttachments,
     restoreAttachments,
     clearAttachments,
+    clearAll,
   }
 })

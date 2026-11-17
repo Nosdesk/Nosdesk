@@ -292,6 +292,7 @@ describe('a reply that fails to send', () => {
 
   it('is not put into another workspace, and says so', async () => {
     const drafts = useTicketDraftsStore()
+    drafts.setAccount('agent-uuid')
     drafts.setScope('acme')
     let fail!: (e: unknown) => void
     addCommentToTicket.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)))
@@ -307,7 +308,7 @@ describe('a reply that fails to send', () => {
     drafts.setScope('acme')
     expect(drafts.getDraft(101).content).toBe('')
     expect(toast.error).toHaveBeenCalledWith('ticket-comments-send-failed-not-kept')
-    drafts.setScope(null)
+    drafts.signOut()
   })
 
   it('is not restored once the server has it', async () => {
