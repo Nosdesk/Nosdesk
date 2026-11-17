@@ -596,18 +596,7 @@ const handlePastedFiles = async (files: File[]) => {
                             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                         ></path>
                     </svg>
-                    <svg
-                        v-else
-                        class="w-4 h-4"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                    >
-                        <path
-                            fill-rule="evenodd"
-                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                            clip-rule="evenodd"
-                        />
-                    </svg>
+                    <Icon v-else name="checkCircle" />
                     {{ conversionMessage }}
                 </div>
 
@@ -639,17 +628,7 @@ const handlePastedFiles = async (files: File[]) => {
                         <div
                             class="bg-surface-alt rounded-lg px-4 py-2 text-accent flex items-center gap-2"
                         >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-5 w-5"
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                            >
-                                <path
-                                    d="M5.5 13a3.5 3.5 0 01-.369-6.98 4 4 0 117.753-1.977A4.5 4.5 0 1113.5 13H11V9.413l1.293 1.293a1 1 0 001.414-1.414l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13H5.5z"
-                                />
-                                <path d="M9 13h2v5a1 1 0 11-2 0v-5z" />
-                            </svg>
+                            <Icon name="upload" size="md" />
                             {{ $t('ticket-comments-drop-files') }}
                         </div>
                     </div>
@@ -809,18 +788,7 @@ const handlePastedFiles = async (files: File[]) => {
                                 :aria-label="$t('ticket-comments-record-voice')"
                                 :title="$t('ticket-comments-record-voice')"
                             >
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    class="h-5 w-5"
-                                    viewBox="0 0 20 20"
-                                    fill="currentColor"
-                                >
-                                    <path
-                                        fill-rule="evenodd"
-                                        d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"
-                                        clip-rule="evenodd"
-                                    />
-                                </svg>
+                                <Icon name="microphone" size="md" />
                             </button>
                             <!-- File Upload Button -->
                             <button
@@ -830,18 +798,7 @@ const handlePastedFiles = async (files: File[]) => {
                                 :aria-label="$t('ticket-comments-upload-file')"
                                 :title="$t('ticket-comments-upload-file')"
                             >
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    class="h-5 w-5"
-                                    viewBox="0 0 20 20"
-                                    fill="currentColor"
-                                >
-                                    <path
-                                        fill-rule="evenodd"
-                                        d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z"
-                                        clip-rule="evenodd"
-                                    />
-                                </svg>
+                                <Icon name="paperclip" size="md" />
                             </button>
                             <!-- Canned Responses Picker -->
                             <CannedResponsePicker
@@ -1039,7 +996,7 @@ const handlePastedFiles = async (files: File[]) => {
                                             v-if="comment.is_internal"
                                             class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-2xs font-medium bg-status-warning-muted text-status-warning flex-shrink-0"
                                         >
-                                            <Icon name="lock" class="w-3 h-3" />
+                                            <Icon name="lock" size="xs" />
                                             {{ $t('ticket-comments-badge-internal') }}
                                         </span>
                                         <span
@@ -1073,9 +1030,7 @@ const handlePastedFiles = async (files: File[]) => {
                                         :title="isAudioOnlyComment(comment) ? $t('ticket-comments-action-delete-voice') : $t('ticket-comments-action-delete-comment')"
                                         :aria-label="isAudioOnlyComment(comment) ? $t('ticket-comments-action-delete-voice') : $t('ticket-comments-action-delete-comment')"
                                     >
-                                        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                                        </svg>
+                                        <Icon name="trash" />
                                     </button>
                                 </div>
                             </div>
@@ -1146,7 +1101,7 @@ const handlePastedFiles = async (files: File[]) => {
                                                 v-if="comment.is_internal"
                                                 class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-2xs font-medium bg-status-warning-muted text-status-warning flex-shrink-0"
                                             >
-                                                <Icon name="lock" class="w-3 h-3" />
+                                                <Icon name="lock" size="xs" />
                                                 {{ $t('ticket-comments-badge-internal') }}
                                             </span>
                                             <span class="text-xs text-tertiary whitespace-nowrap flex-shrink-0">
@@ -1171,9 +1126,7 @@ const handlePastedFiles = async (files: File[]) => {
                                                 :title="isAudioOnlyComment(comment) ? $t('ticket-comments-action-delete-voice') : $t('ticket-comments-action-delete-comment')"
                                                 :aria-label="isAudioOnlyComment(comment) ? $t('ticket-comments-action-delete-voice') : $t('ticket-comments-action-delete-comment')"
                                             >
-                                                <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                                                </svg>
+                                                <Icon name="trash" />
                                             </button>
                                         </div>
                                     </div>

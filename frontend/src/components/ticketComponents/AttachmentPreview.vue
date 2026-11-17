@@ -483,7 +483,7 @@ const generatePdfThumbnail = async () => {
       class="w-full h-full object-cover object-top bg-white"
     />
     <div v-else class="w-full h-full flex flex-col items-center justify-center gap-1 p-1 text-center">
-      <Icon :name="attachmentType === 'pdf' ? 'book' : attachmentType === 'video' ? 'eye' : 'paperclip'" class="w-5 h-5 text-tertiary" />
+      <Icon :name="attachmentType === 'pdf' ? 'book' : attachmentType === 'video' ? 'eye' : 'paperclip'" size="md" class="text-tertiary" />
       <span class="text-3xs text-tertiary leading-tight line-clamp-2 break-all">{{ getDisplayName(attachment.name) }}</span>
     </div>
     <!-- A video's first frame over its icon, shown once decoded (see
@@ -560,9 +560,7 @@ const generatePdfThumbnail = async () => {
             <span class="text-sm text-primary truncate">{{ getAudioDisplayName(attachment.name) }}</span>
           </template>
           <template v-if="attachmentType === 'video'">
-            <svg class="w-5 h-5 text-tertiary flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
-            </svg>
+            <Icon name="video" size="md" class="text-tertiary flex-shrink-0" />
             <span class="text-sm text-secondary truncate">{{ attachment.name }}</span>
           </template>
         </div>
@@ -621,9 +619,7 @@ const generatePdfThumbnail = async () => {
           class="w-full h-full flex items-center justify-center bg-surface-alt p-4"
         >
           <div class="flex flex-col items-center text-center gap-2">
-            <svg class="w-12 h-12 mx-auto text-tertiary mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
+            <Icon name="photo" size="2xl" class="mx-auto text-tertiary mb-3" />
             <p class="text-sm text-secondary">{{ $t('ticket-media-attachment-format-unsupported') }}</p>
           </div>
         </div>
@@ -653,10 +649,7 @@ const generatePdfThumbnail = async () => {
           :aria-label="$t('ticket-media-attachment-open', { name: getDisplayName(attachment.name) })"
           @click.stop="openImagePreview(authenticatedUrl)"
         >
-          <svg class="w-8 h-8 text-primary" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-            <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
-          </svg>
+          <Icon name="eye" size="xl" class="text-primary" />
 
           <!-- Animation indicator for GIF and APNG -->
           <div
@@ -724,9 +717,7 @@ const generatePdfThumbnail = async () => {
 
         <!-- Fallback PDF icon when no thumbnail -->
         <div v-else-if="!isPdfThumbnailLoading" class="w-full h-full flex flex-col items-center justify-center bg-surface-hover gap-2">
-          <svg class="w-20 h-20 text-status-error" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
-          </svg>
+          <Icon name="document" size="2xl" class="text-status-error" />
           <span class="text-xs text-tertiary uppercase font-medium">{{ $t('ticket-media-attachment-pdf-label') }}</span>
         </div>
 
@@ -735,9 +726,7 @@ const generatePdfThumbnail = async () => {
           class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-surface/90 to-transparent"
         >
           <div class="flex items-center gap-2">
-            <svg class="w-6 h-6 text-status-error flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
-            </svg>
+            <Icon name="document" size="lg" class="text-status-error flex-shrink-0" />
             <span class="text-sm text-primary font-medium truncate">{{ getDisplayName(attachment.name) }}</span>
           </div>
         </div>
@@ -749,10 +738,7 @@ const generatePdfThumbnail = async () => {
           :aria-label="$t('ticket-media-attachment-open', { name: getDisplayName(attachment.name) })"
           @click.stop="openImagePreview(authenticatedUrl)"
         >
-          <svg class="w-12 h-12 text-primary" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-            <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
-          </svg>
+          <Icon name="eye" size="2xl" class="text-primary" />
         </button>
         
         <!-- Download button for PDF -->
