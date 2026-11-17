@@ -324,8 +324,6 @@ empty-assets-search-title = Aucun actif ne correspond à votre recherche
 empty-assets-search-description = Essayez d'ajuster votre recherche ou vos filtres
 empty-groups-title = Aucun groupe pour le moment
 empty-groups-description = Créez votre premier groupe pour organiser les utilisateurs
-empty-assignment-rules-title = Aucune règle d'attribution
-empty-assignment-rules-description = Créez votre première règle pour attribuer automatiquement les tickets
 empty-webhooks-title = Aucun webhook
 empty-webhooks-description = Créez un webhook pour envoyer des événements à des services externes
 empty-api-tokens-title = Aucun jeton API
@@ -1159,8 +1157,6 @@ admin-nav-groups-title = Groupes
 admin-nav-groups-description = Gérez les groupes d'utilisateurs et leurs membres
 admin-nav-categories-title = Catégories
 admin-nav-categories-description = Configurez les catégories de tickets et leur visibilité par groupe
-admin-nav-assignment-rules-title = Règles d'affectation
-admin-nav-assignment-rules-description = Configurez l'affectation automatique des tickets selon des règles
 # MACHINE TRANSLATION, pending native review
 admin-nav-rules-title = Règles
 admin-nav-rules-description = Des étapes que les agents appliquent à un ticket en une fois, depuis son bouton Actions
@@ -2140,75 +2136,6 @@ admin-backup-restore-error = Échec de la restauration. Consultez la console pou
 admin-backup-delete-confirm-title = Supprimer cette sauvegarde ?
 admin-backup-delete-confirm-message = Le fichier de sauvegarde sera supprimé définitivement.
 admin-backup-delete-confirm-label = Supprimer
-
-# Admin : Règles d'affectation.
-admin-assignment-rules-title = Règles d'affectation
-admin-assignment-rules-description = Configurez l'affectation automatique des tickets selon des règles
-admin-assignment-rules-new = Nouvelle règle
-admin-assignment-rules-info = Les règles sont évaluées par ordre de priorité (de haut en bas). La première qui correspond gagne. Les tickets déjà affectés ne sont pas réaffectés automatiquement.
-admin-assignment-rules-loading = Chargement des règles...
-admin-assignment-rules-active = Active
-admin-assignment-rules-inactive = Inactive
-admin-assignment-rules-target-none = Non configurée
-admin-assignment-rules-trigger-both = Les deux déclencheurs
-admin-assignment-rules-trigger-create = À la création
-admin-assignment-rules-trigger-category = Au changement de catégorie
-admin-assignment-rules-trigger-none = Aucun déclencheur
-admin-assignment-rules-assigned-count = { $count } affectés
-admin-assignment-rules-move-up = Monter (priorité plus élevée)
-admin-assignment-rules-move-down = Descendre (priorité plus basse)
-admin-assignment-rules-toggle-deactivate = Désactiver la règle
-admin-assignment-rules-toggle-activate = Activer la règle
-admin-assignment-rules-edit = Modifier la règle
-admin-assignment-rules-delete = Supprimer la règle
-admin-assignment-rules-create-action = Créer une règle
-admin-assignment-rules-error-load = Échec du chargement des règles d'affectation
-admin-assignment-rules-error-name = Le nom de la règle est requis
-admin-assignment-rules-error-user = Veuillez sélectionner un utilisateur cible
-admin-assignment-rules-error-group = Veuillez sélectionner un groupe cible
-admin-assignment-rules-error-save = Échec de l'enregistrement de la règle
-admin-assignment-rules-error-update = Échec de la mise à jour de la règle
-admin-assignment-rules-error-delete = Échec de la suppression de la règle
-admin-assignment-rules-error-reorder = Échec de la réorganisation des règles
-admin-assignment-rules-success-create = Règle créée avec succès
-admin-assignment-rules-success-update = Règle mise à jour avec succès
-admin-assignment-rules-success-delete = Règle supprimée avec succès
-admin-assignment-rules-method-direct-label = Utilisateur direct
-admin-assignment-rules-method-direct-description = Affecter directement à un utilisateur spécifique
-admin-assignment-rules-method-round-robin-label = Round-Robin (groupe)
-admin-assignment-rules-method-round-robin-description = Faire tourner l'affectation entre les membres du groupe de manière équitable
-admin-assignment-rules-method-random-label = Aléatoire (groupe)
-admin-assignment-rules-method-random-description = Sélectionner aléatoirement un membre du groupe pour chaque ticket
-admin-assignment-rules-method-queue-label = File du groupe
-admin-assignment-rules-method-queue-description = Affecter à la file du groupe (les utilisateurs récupèrent les tickets)
-admin-assignment-rules-modal-create-title = Créer une règle d'affectation
-admin-assignment-rules-modal-edit-title = Modifier la règle d'affectation
-admin-assignment-rules-modal-name-label = Nom de la règle
-admin-assignment-rules-modal-name-placeholder = ex. Round-Robin Support IT
-admin-assignment-rules-modal-description-label = Description (facultatif)
-admin-assignment-rules-modal-description-placeholder = Décrivez ce que fait cette règle...
-admin-assignment-rules-modal-method-label = Méthode d'affectation
-admin-assignment-rules-modal-user-label = Utilisateur cible
-admin-assignment-rules-modal-user-placeholder = Sélectionnez un utilisateur...
-admin-assignment-rules-modal-group-label = Groupe cible
-admin-assignment-rules-modal-group-placeholder = Sélectionnez un groupe...
-admin-assignment-rules-modal-group-members = { $count } membres
-admin-assignment-rules-modal-category-label = Filtre de catégorie (facultatif)
-admin-assignment-rules-modal-category-all = Toutes les catégories
-admin-assignment-rules-modal-category-hint = N'affecter que les tickets de cette catégorie (vide = toutes)
-admin-assignment-rules-modal-triggers-label = Déclencheurs
-admin-assignment-rules-modal-trigger-create-label = À la création d'un ticket
-admin-assignment-rules-modal-trigger-category-label = Au changement de catégorie d'un ticket
-admin-assignment-rules-modal-active-label = Règle active
-admin-assignment-rules-modal-cancel = Annuler
-admin-assignment-rules-modal-saving = Enregistrement...
-admin-assignment-rules-modal-update = Mettre à jour
-admin-assignment-rules-modal-create = Créer la règle
-admin-assignment-rules-delete-title = Supprimer la règle d'affectation
-admin-assignment-rules-delete-message = Confirmez-vous la suppression de la règle « { $name } » ? Cette action est irréversible.
-admin-assignment-rules-delete-cancel = Annuler
-admin-assignment-rules-delete-confirm = Supprimer
-admin-assignment-rules-deleting = Suppression...
 
 # Admin: Categories (CategoriesManagementView).
 admin-categories-title = Catégories
@@ -7895,7 +7822,6 @@ route-title-administration = Administration
 route-title-admin-groups = Groupes
 route-title-group-configuration = Configuration du groupe
 route-title-admin-categories = Catégories
-route-title-admin-assignment-rules = Règles d'attribution
 route-title-admin-workflow = Flux de travail
 route-title-admin-asset-kinds = Types d'actifs
 # Catalogue d'actifs (machine, à relire par un locuteur natif).
@@ -8662,14 +8588,6 @@ workflow-category-in-review = En relecture
 workflow-category-done = Terminé
 workflow-category-cancelled = Annulé
 workflow-category-merged = Fusionné
-assignment-method-direct-user-name = Utilisateur direct
-assignment-method-direct-user-description = Attribuer directement à un utilisateur précis
-assignment-method-group-round-robin-name = Rotation (groupe)
-assignment-method-group-round-robin-description = Répartir équitablement entre les membres du groupe
-assignment-method-group-random-name = Aléatoire (groupe)
-assignment-method-group-random-description = Choisir un membre du groupe au hasard pour chaque ticket
-assignment-method-group-queue-name = File de groupe
-assignment-method-group-queue-description = Placer dans la file du groupe (les utilisateurs prennent les tickets)
 tickets-category-none = Aucune catégorie
 tickets-menu-flag-for-docs = Signaler pour documentation
 tickets-menu-delete = Supprimer le ticket
@@ -11266,11 +11184,6 @@ workspace-import-n-rules =
     { $count ->
         [one] 1 règle
        *[other] { $count } règles
-    }
-workspace-import-n-assignment-rules =
-    { $count ->
-        [one] 1 règle d'attribution
-       *[other] { $count } règles d'attribution
     }
 workspace-import-n-replies =
     { $count ->

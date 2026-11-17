@@ -321,8 +321,6 @@ empty-assets-search-title = Geen activa komen overeen met je zoekopdracht
 empty-assets-search-description = Probeer uw zoekopdracht of filters aan te passen
 empty-groups-title = Nog geen groepen
 empty-groups-description = Maak uw eerste groep om gebruikers te organiseren
-empty-assignment-rules-title = Nog geen toewijzingsregels
-empty-assignment-rules-description = Maak uw eerste regel om tickets automatisch toe te wijzen
 empty-webhooks-title = Geen webhooks
 empty-webhooks-description = Maak een webhook om gebeurtenissen naar externe diensten te sturen
 empty-api-tokens-title = Geen API-tokens
@@ -1155,8 +1153,6 @@ admin-nav-groups-title = Groepen
 admin-nav-groups-description = Beheer gebruikersgroepen en lidmaatschappen
 admin-nav-categories-title = Categorieën
 admin-nav-categories-description = Ticketcategorieën en zichtbaarheid per groep configureren
-admin-nav-assignment-rules-title = Toewijzingsregels
-admin-nav-assignment-rules-description = Configureer automatische tickettoewijzing op basis van regels
 # MACHINE TRANSLATION, pending native review
 admin-nav-rules-title = Regels
 admin-nav-rules-description = Stappen die agents in één keer op een ticket toepassen, via de knop Acties
@@ -2136,75 +2132,6 @@ admin-backup-restore-error = Herstel mislukt. Bekijk de console voor details.
 admin-backup-delete-confirm-title = Deze back-up verwijderen?
 admin-backup-delete-confirm-message = Het back-upbestand wordt permanent verwijderd.
 admin-backup-delete-confirm-label = Verwijderen
-
-# Beheer: Toewijzingsregels.
-admin-assignment-rules-title = Toewijzingsregels
-admin-assignment-rules-description = Configureer automatische tickettoewijzing op basis van regels
-admin-assignment-rules-new = Nieuwe regel
-admin-assignment-rules-info = Regels worden in prioriteitsvolgorde geëvalueerd (boven naar onder). De eerste passende regel wint. Tickets met een bestaande toegewezene worden niet automatisch toegewezen.
-admin-assignment-rules-loading = Regels laden...
-admin-assignment-rules-active = Actief
-admin-assignment-rules-inactive = Inactief
-admin-assignment-rules-target-none = Niet geconfigureerd
-admin-assignment-rules-trigger-both = Beide triggers
-admin-assignment-rules-trigger-create = Bij aanmaken
-admin-assignment-rules-trigger-category = Bij categoriewijziging
-admin-assignment-rules-trigger-none = Geen triggers
-admin-assignment-rules-assigned-count = { $count } toegewezen
-admin-assignment-rules-move-up = Omhoog (hogere prioriteit)
-admin-assignment-rules-move-down = Omlaag (lagere prioriteit)
-admin-assignment-rules-toggle-deactivate = Regel deactiveren
-admin-assignment-rules-toggle-activate = Regel activeren
-admin-assignment-rules-edit = Regel bewerken
-admin-assignment-rules-delete = Regel verwijderen
-admin-assignment-rules-create-action = Regel aanmaken
-admin-assignment-rules-error-load = Kon toewijzingsregels niet laden
-admin-assignment-rules-error-name = Regelnaam is vereist
-admin-assignment-rules-error-user = Selecteer een doelgebruiker
-admin-assignment-rules-error-group = Selecteer een doelgroep
-admin-assignment-rules-error-save = Kon regel niet opslaan
-admin-assignment-rules-error-update = Kon regel niet bijwerken
-admin-assignment-rules-error-delete = Kon regel niet verwijderen
-admin-assignment-rules-error-reorder = Kon regels niet opnieuw ordenen
-admin-assignment-rules-success-create = Regel aangemaakt
-admin-assignment-rules-success-update = Regel bijgewerkt
-admin-assignment-rules-success-delete = Regel verwijderd
-admin-assignment-rules-method-direct-label = Directe gebruiker
-admin-assignment-rules-method-direct-description = Direct toewijzen aan een specifieke gebruiker
-admin-assignment-rules-method-round-robin-label = Round-Robin (groep)
-admin-assignment-rules-method-round-robin-description = Toewijzing gelijkmatig rouleren tussen groepsleden
-admin-assignment-rules-method-random-label = Willekeurig (groep)
-admin-assignment-rules-method-random-description = Selecteer willekeurig een groepslid voor elk ticket
-admin-assignment-rules-method-queue-label = Groepswachtrij
-admin-assignment-rules-method-queue-description = Toewijzen aan de groepswachtrij (gebruikers claimen tickets)
-admin-assignment-rules-modal-create-title = Toewijzingsregel aanmaken
-admin-assignment-rules-modal-edit-title = Toewijzingsregel bewerken
-admin-assignment-rules-modal-name-label = Regelnaam
-admin-assignment-rules-modal-name-placeholder = bv. IT-support round-robin
-admin-assignment-rules-modal-description-label = Beschrijving (optioneel)
-admin-assignment-rules-modal-description-placeholder = Beschrijf wat deze regel doet...
-admin-assignment-rules-modal-method-label = Toewijzingsmethode
-admin-assignment-rules-modal-user-label = Doelgebruiker
-admin-assignment-rules-modal-user-placeholder = Selecteer een gebruiker...
-admin-assignment-rules-modal-group-label = Doelgroep
-admin-assignment-rules-modal-group-placeholder = Selecteer een groep...
-admin-assignment-rules-modal-group-members = { $count } leden
-admin-assignment-rules-modal-category-label = Categoriefilter (optioneel)
-admin-assignment-rules-modal-category-all = Alle categorieën
-admin-assignment-rules-modal-category-hint = Wijs alleen tickets met deze categorie toe (leeg = alle)
-admin-assignment-rules-modal-triggers-label = Triggers
-admin-assignment-rules-modal-trigger-create-label = Wanneer een ticket wordt aangemaakt
-admin-assignment-rules-modal-trigger-category-label = Wanneer de categorie van een ticket verandert
-admin-assignment-rules-modal-active-label = Regel is actief
-admin-assignment-rules-modal-cancel = Annuleren
-admin-assignment-rules-modal-saving = Opslaan...
-admin-assignment-rules-modal-update = Regel bijwerken
-admin-assignment-rules-modal-create = Regel aanmaken
-admin-assignment-rules-delete-title = Toewijzingsregel verwijderen
-admin-assignment-rules-delete-message = Weet u zeker dat u de regel "{ $name }" wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
-admin-assignment-rules-delete-cancel = Annuleren
-admin-assignment-rules-delete-confirm = Verwijderen
-admin-assignment-rules-deleting = Verwijderen...
 
 # Admin: Categories (CategoriesManagementView).
 admin-categories-title = Categorieën
@@ -7885,7 +7812,6 @@ route-title-administration = Beheer
 route-title-admin-groups = Groepen
 route-title-group-configuration = Groepsconfiguratie
 route-title-admin-categories = Categorieën
-route-title-admin-assignment-rules = Toewijzingsregels
 route-title-admin-workflow = Werkstroom
 route-title-admin-asset-kinds = Activatypen
 # Asset-catalogus (machinevertaling, te controleren door moedertaalspreker).
@@ -8652,14 +8578,6 @@ workflow-category-in-review = In review
 workflow-category-done = Klaar
 workflow-category-cancelled = Geannuleerd
 workflow-category-merged = Samengevoegd
-assignment-method-direct-user-name = Directe gebruiker
-assignment-method-direct-user-description = Direct toewijzen aan een specifieke gebruiker
-assignment-method-group-round-robin-name = Rondgang (groep)
-assignment-method-group-round-robin-description = Verdeel de toewijzing gelijkmatig over de groepsleden
-assignment-method-group-random-name = Willekeurig (groep)
-assignment-method-group-random-description = Kies willekeurig een groepslid voor elk ticket
-assignment-method-group-queue-name = Groepswachtrij
-assignment-method-group-queue-description = Toewijzen aan groepswachtrij (gebruikers claimen tickets)
 tickets-category-none = Geen categorie
 tickets-menu-flag-for-docs = Markeren voor documentatie
 tickets-menu-delete = Ticket verwijderen
@@ -11257,11 +11175,6 @@ workspace-import-n-rules =
     { $count ->
         [one] 1 regel
        *[other] { $count } regels
-    }
-workspace-import-n-assignment-rules =
-    { $count ->
-        [one] 1 toewijzingsregel
-       *[other] { $count } toewijzingsregels
     }
 workspace-import-n-replies =
     { $count ->

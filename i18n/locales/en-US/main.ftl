@@ -350,8 +350,6 @@ empty-assets-search-title = No assets match your search
 empty-assets-search-description = Try adjusting your search or filters
 empty-groups-title = No groups yet
 empty-groups-description = Create your first group to organize users
-empty-assignment-rules-title = No assignment rules yet
-empty-assignment-rules-description = Create your first rule to automatically assign tickets
 empty-webhooks-title = No webhooks
 empty-webhooks-description = Create a webhook to send events to external services
 empty-api-tokens-title = No API tokens
@@ -1247,8 +1245,6 @@ user-addresses-confirm-message = Remove this address?
 user-addresses-error-load = Failed to load addresses
 user-addresses-error-save = Failed to save address
 user-addresses-error-delete = Failed to remove address
-admin-nav-assignment-rules-title = Assignment Rules
-admin-nav-assignment-rules-description = Configure automatic ticket assignment based on rules
 admin-nav-rules-title = Rules
 admin-nav-rules-description = Steps agents apply to a ticket in one go, from its Actions button
 admin-nav-workflow-title = Workflow
@@ -2181,75 +2177,6 @@ admin-backup-restore-error = Restore failed. Please check the console for detail
 admin-backup-delete-confirm-title = Delete this backup?
 admin-backup-delete-confirm-message = The backup file will be permanently removed.
 admin-backup-delete-confirm-label = Delete
-
-# Admin: Assignment Rules (AssignmentRulesView).
-admin-assignment-rules-title = Assignment Rules
-admin-assignment-rules-description = Configure automatic ticket assignment based on rules
-admin-assignment-rules-new = New Rule
-admin-assignment-rules-info = Rules are evaluated in priority order (top to bottom). The first matching rule wins. Tickets with an existing assignee are not auto-assigned.
-admin-assignment-rules-loading = Loading rules...
-admin-assignment-rules-active = Active
-admin-assignment-rules-inactive = Inactive
-admin-assignment-rules-target-none = Not configured
-admin-assignment-rules-trigger-both = Both triggers
-admin-assignment-rules-trigger-create = On create
-admin-assignment-rules-trigger-category = On category change
-admin-assignment-rules-trigger-none = No triggers
-admin-assignment-rules-assigned-count = { $count } assigned
-admin-assignment-rules-move-up = Move up (higher priority)
-admin-assignment-rules-move-down = Move down (lower priority)
-admin-assignment-rules-toggle-deactivate = Deactivate rule
-admin-assignment-rules-toggle-activate = Activate rule
-admin-assignment-rules-edit = Edit rule
-admin-assignment-rules-delete = Delete rule
-admin-assignment-rules-create-action = Create Rule
-admin-assignment-rules-error-load = Failed to load assignment rules
-admin-assignment-rules-error-name = Rule name is required
-admin-assignment-rules-error-user = Please select a target user
-admin-assignment-rules-error-group = Please select a target group
-admin-assignment-rules-error-save = Failed to save rule
-admin-assignment-rules-error-update = Failed to update rule
-admin-assignment-rules-error-delete = Failed to delete rule
-admin-assignment-rules-error-reorder = Failed to reorder rules
-admin-assignment-rules-success-create = Rule created successfully
-admin-assignment-rules-success-update = Rule updated successfully
-admin-assignment-rules-success-delete = Rule deleted successfully
-admin-assignment-rules-method-direct-label = Direct User
-admin-assignment-rules-method-direct-description = Assign directly to a specific user
-admin-assignment-rules-method-round-robin-label = Round-Robin (Group)
-admin-assignment-rules-method-round-robin-description = Rotate assignment among group members evenly
-admin-assignment-rules-method-random-label = Random (Group)
-admin-assignment-rules-method-random-description = Randomly select a group member for each ticket
-admin-assignment-rules-method-queue-label = Group Queue
-admin-assignment-rules-method-queue-description = Assign to group queue (users claim tickets)
-admin-assignment-rules-modal-create-title = Create Assignment Rule
-admin-assignment-rules-modal-edit-title = Edit Assignment Rule
-admin-assignment-rules-modal-name-label = Rule Name
-admin-assignment-rules-modal-name-placeholder = e.g., IT Support Round-Robin
-admin-assignment-rules-modal-description-label = Description (optional)
-admin-assignment-rules-modal-description-placeholder = Describe what this rule does...
-admin-assignment-rules-modal-method-label = Assignment Method
-admin-assignment-rules-modal-user-label = Target User
-admin-assignment-rules-modal-user-placeholder = Select a user...
-admin-assignment-rules-modal-group-label = Target Group
-admin-assignment-rules-modal-group-placeholder = Select a group...
-admin-assignment-rules-modal-group-members = { $count } members
-admin-assignment-rules-modal-category-label = Category Filter (optional)
-admin-assignment-rules-modal-category-all = All categories
-admin-assignment-rules-modal-category-hint = Only assign tickets with this category (leave empty for all)
-admin-assignment-rules-modal-triggers-label = Triggers
-admin-assignment-rules-modal-trigger-create-label = When a ticket is created
-admin-assignment-rules-modal-trigger-category-label = When a ticket's category changes
-admin-assignment-rules-modal-active-label = Rule is active
-admin-assignment-rules-modal-cancel = Cancel
-admin-assignment-rules-modal-saving = Saving...
-admin-assignment-rules-modal-update = Update Rule
-admin-assignment-rules-modal-create = Create Rule
-admin-assignment-rules-delete-title = Delete Assignment Rule
-admin-assignment-rules-delete-message = Are you sure you want to delete the rule "{ $name }"? This action cannot be undone.
-admin-assignment-rules-delete-cancel = Cancel
-admin-assignment-rules-delete-confirm = Delete
-admin-assignment-rules-deleting = Deleting...
 
 # Admin: Categories (CategoriesManagementView).
 admin-categories-title = Categories
@@ -7239,7 +7166,6 @@ route-title-administration = Administration
 route-title-admin-groups = Groups
 route-title-group-configuration = Group configuration
 route-title-admin-categories = Categories
-route-title-admin-assignment-rules = Assignment rules
 route-title-admin-workflow = Workflow
 route-title-admin-asset-kinds = Asset kinds
 route-title-asset-groups = Asset groups
@@ -7966,14 +7892,6 @@ workflow-category-active = Active
 workflow-category-in-review = In Review
 workflow-category-done = Done
 workflow-category-cancelled = Cancelled
-assignment-method-direct-user-name = Direct User
-assignment-method-direct-user-description = Assign directly to a specific user
-assignment-method-group-round-robin-name = Round-Robin (Group)
-assignment-method-group-round-robin-description = Rotate assignment among group members evenly
-assignment-method-group-random-name = Random (Group)
-assignment-method-group-random-description = Randomly select a group member for each ticket
-assignment-method-group-queue-name = Group Queue
-assignment-method-group-queue-description = Assign to group queue (users claim tickets)
 tickets-category-none = No category
 tickets-menu-flag-for-docs = Flag for documentation
 tickets-menu-delete = Delete ticket
@@ -10068,11 +9986,6 @@ workspace-import-n-rules =
     { $count ->
         [one] 1 rule
        *[other] { $count } rules
-    }
-workspace-import-n-assignment-rules =
-    { $count ->
-        [one] 1 assignment rule
-       *[other] { $count } assignment rules
     }
 workspace-import-n-replies =
     { $count ->

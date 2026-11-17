@@ -3,7 +3,7 @@
  * SLA admin: list + edit working calendars and SLA policies.
  *
  * Layout mirrors the dominant admin idiom in this codebase
- * (WebhooksView, ApiTokensView, AssignmentRulesView): a single
+ * (WebhooksView, ApiTokensView): a single
  * column centred in a max-w-8xl container, with each list living
  * inside its own SectionCard and a "+ New" button in the card
  * header that opens a modal. Calendars come first because policies
@@ -12,7 +12,7 @@
  * Both calendars and policies use a unified modal that handles
  * create and edit through the same form; mode is determined by
  * whether the corresponding `*Editing` ref is null. This matches
- * what AssignmentRules + Webhooks already do and saves a second
+ * what Webhooks already does and saves a second
  * form template.
  *
  * Reads go through Pinia Colada so revisits paint from cache and
@@ -625,7 +625,7 @@ const clockStartOptions = computed(() => [
   <div class="flex-1 overflow-y-auto">
     <div class="max-w-8xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-4">
       <!-- Standard admin header: title + description, no sticky chrome.
-           Matches WebhooksView / ApiTokensView / AssignmentRulesView. -->
+           Matches WebhooksView / ApiTokensView. -->
       <header>
         <h1 class="text-xl lg:text-2xl font-bold text-primary">{{ $t('admin-sla-title') }}</h1>
         <p class="text-sm text-secondary mt-1 max-w-2xl">
