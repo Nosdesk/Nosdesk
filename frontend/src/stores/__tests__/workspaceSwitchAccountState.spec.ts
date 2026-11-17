@@ -51,7 +51,7 @@ vi.mock('@/stores/savedViews', () => ({ useSavedViewsStore: () => ({ reset: vi.f
 vi.mock('@/stores/assetGroups', () => ({ useAssetGroupsStore: () => ({ reset: vi.fn() }) }))
 vi.mock('@/stores/recentUsers', () => ({ useRecentUsersStore: () => ({ clear: vi.fn() }) }))
 vi.mock('@nosdesk/core/stores/ticketDrafts', () => ({
-  useTicketDraftsStore: () => ({ setScope: vi.fn() }),
+  useTicketDraftsStore: () => ({ setScope: vi.fn(), signOut: vi.fn() }),
 }))
 vi.mock('@/plugins', () => ({ unloadAllPlugins: vi.fn() }))
 vi.mock('@/services/collabToken', () => ({ resetCollabToken: vi.fn() }))

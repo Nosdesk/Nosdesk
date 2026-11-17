@@ -55,6 +55,13 @@ ignore = [
     # points); S3 and SES here sign with plain SigV4. Drop this entry when
     # openidconnect and aws-sigv4 move to elliptic-curve 0.14.
     { id = "RUSTSEC-2026-0387", reason = "verify only, no SigV4a signing; crypto-bigint 0.5 pinned by elliptic-curve 0.13" },
+    # RUSTSEC-2026-0543 and RUSTSEC-2026-0555 - chrono and chrono-tz are
+    # unmaintained: their maintainer is winding them down and recommends jiff
+    # (chronotope/chrono#1768). No vulnerability is reported. Diesel, rrule
+    # and openidconnect also depend on chrono, so leaving it is its own
+    # migration. Drop these entries when the backend moves to jiff.
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained, no vulnerability; migration to jiff planned" },
+    { id = "RUSTSEC-2026-0555", reason = "unmaintained, no vulnerability; migration to jiff planned" },
 ]
 
 [bans]

@@ -104,6 +104,19 @@ export async function clearSession(): Promise<void> {
   refreshToken = null
   await store?.clear()
   syncAssetProxy()
+  await removeDrafts()
+}
+
+/** The app's storage outlives the session and the server; reply drafts are
+ *  the signed-out person's, so they go with the session, including before a
+ *  server switch, which does not run the sign-out reset. */
+async function removeDrafts(): Promise<void> {
+  try {
+    const { removeAllTicketDrafts } = await import('@nosdesk/core/stores/ticketDrafts')
+    removeAllTicketDrafts()
+  } catch {
+    // Sign-out must never block on draft cleanup.
+  }
 }
 
 /**

@@ -14,6 +14,8 @@ export interface KeyValueStore {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
   removeItem(key: string): void
+  /** Every key held, so a store can find and drop its own entries. */
+  keys(): string[]
 }
 
 function createMemoryStore(): KeyValueStore {
@@ -26,6 +28,7 @@ function createMemoryStore(): KeyValueStore {
     removeItem: (key) => {
       map.delete(key)
     },
+    keys: () => [...map.keys()],
   }
 }
 

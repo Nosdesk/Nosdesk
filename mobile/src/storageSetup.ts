@@ -31,6 +31,18 @@ const localStorageAdapter: KeyValueStore = {
       // ignore unavailable
     }
   },
+  keys() {
+    try {
+      const out: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key !== null) out.push(key)
+      }
+      return out
+    } catch {
+      return []
+    }
+  },
 }
 
 export function setupStorage(): void {
