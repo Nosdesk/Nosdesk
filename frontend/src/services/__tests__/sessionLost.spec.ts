@@ -76,6 +76,27 @@ describe('a session the server rejects', () => {
     expect(sent.filter((s) => s.includes('/auth/logout'))).toEqual([])
   })
 
+  it('unloads the reply drafts and keeps them for the account', async () => {
+    const { apiClient, auth } = await bootRejected()
+    const { useTicketDraftsStore } = await import('@nosdesk/core/stores/ticketDrafts')
+    const drafts = useTicketDraftsStore()
+    drafts.setDraft(12, { content: 'Half-written reply', isInternal: false })
+    expect(drafts.getScope()).not.toBeNull()
+
+    await expect(apiClient.get('/tickets')).rejects.toBeTruthy()
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(drafts.getScope()).toBeNull()
+    expect(drafts.getDraft(12).content).toBe('')
+
+    // Another account signing in doesn't see it; the same one does.
+    auth.user = { uuid: 'u-2' } as never
+    expect(drafts.getDraft(12).content).toBe('')
+    auth.user = null
+    auth.user = { uuid: 'u-1' } as never
+    expect(drafts.getDraft(12).content).toBe('Half-written reply')
+  })
+
   it('is torn down locally when loading the profile finds it gone', async () => {
     const { auth, sent } = await bootRejected()
 

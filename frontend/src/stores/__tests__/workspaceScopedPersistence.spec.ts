@@ -29,13 +29,19 @@ beforeEach(() => {
   localStorage.clear()
   // The core stores write through their own KV facade; point it at the
   // same localStorage so the keys can be asserted.
-  configureStorage(localStorage)
+  configureStorage({
+    getItem: (key) => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value),
+    removeItem: (key) => localStorage.removeItem(key),
+    keys: () => Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)!),
+  })
   slug.value = 'mercury'
 })
 
 describe('ticket drafts across workspaces', () => {
   it('keeps each workspace\'s drafts under its own key', async () => {
     const drafts = useTicketDraftsStore()
+    drafts.setAccount('user-1')
     drafts.setScope('mercury')
     drafts.setDraft(7, { content: 'Mercury reply', isInternal: false })
     // Switch: the mercury draft is parked, ticket 7 on venus is empty.
@@ -46,7 +52,9 @@ describe('ticket drafts across workspaces', () => {
     expect(drafts.getDraft(7).content).toBe('Mercury reply')
     drafts.setScope('venus')
     expect(drafts.getDraft(7).content).toBe('Venus note')
-    expect(localStorage.getItem('nosdesk:ticket-drafts:mercury')).toContain('Mercury reply')
+    const mercuryKey = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)!)
+      .find((key) => key.startsWith('nosdesk:ticket-draft:user-1:') && key.endsWith(':mercury:7'))
+    expect(localStorage.getItem(mercuryKey!)).toContain('Mercury reply')
     await nextTick()
   })
 })

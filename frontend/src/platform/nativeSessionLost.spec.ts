@@ -61,7 +61,7 @@ describe('the mobile app, when the server rejects its refresh', () => {
     expect(await refreshSession()).toBe('rejected')
     await vi.advanceTimersByTimeAsync(1000)
 
-    expect(reset.resetWorkspaceScopedState).toHaveBeenCalledWith('sign-out')
+    expect(reset.resetWorkspaceScopedState).toHaveBeenCalledWith('session-lost')
     expect(auth.user).toBeNull()
     expect(router.push).toHaveBeenCalled()
   })
