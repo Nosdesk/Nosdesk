@@ -15,7 +15,9 @@ vi.mock('@/sync/lifecycle', () => ({ tearDown: async () => {} }))
 vi.mock('@/sync/sseBridge', () => ({ detachSseBridge: () => {} }))
 vi.mock('@/utils/collabLocalCache', () => ({ purgeAllCollabDocs: async () => {} }))
 vi.mock('@/stores/collabSession', () => ({ useCollabSessionStore: () => ({ closeAll: async () => {} }) }))
-vi.mock('@nosdesk/core/stores/ticketDrafts', () => ({ useTicketDraftsStore: () => ({ setScope }) }))
+vi.mock('@nosdesk/core/stores/ticketDrafts', () => ({
+  useTicketDraftsStore: () => ({ setScope, signOut: vi.fn() }),
+}))
 
 beforeEach(() => {
   vi.resetModules()
