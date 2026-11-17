@@ -265,6 +265,7 @@ pub const WORKSPACE_TABLES: &[Table] = &[
     t("notification_deliveries", Never),
     t("rule_event_outbox", Never),
     t("ticket_rule_runs", Never),
+    t("ticket_elapsed_queue", Never),
     t("sync_delta_tokens", Never),
     t("sync_history", Never),
     t("workspace_ldap_sync_state", Never),

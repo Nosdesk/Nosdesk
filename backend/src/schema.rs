@@ -1844,6 +1844,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    ticket_elapsed_queue (ticket_id, rule_id, clock_name) {
+        workspace_id -> Int4,
+        ticket_id -> Int4,
+        rule_id -> Int4,
+        clock_name -> Text,
+        clock_started_at -> Timestamptz,
+        due_at -> Timestamptz,
+        claimed_at -> Nullable<Timestamptz>,
+        attempts -> Int2,
+    }
+}
+
+diesel::table! {
     ticket_merges (ticket_id) {
         ticket_id -> Int4,
         merged_into_ticket_id -> Int4,
@@ -2652,6 +2665,7 @@ diesel::joinable!(ticket_assets -> users (created_by));
 diesel::joinable!(ticket_assets -> workspaces (workspace_id));
 diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_categories -> workspaces (workspace_id));
+diesel::joinable!(ticket_elapsed_queue -> workspaces (workspace_id));
 diesel::joinable!(ticket_merges -> workspaces (workspace_id));
 diesel::joinable!(ticket_ratings -> users (rater_uuid));
 diesel::joinable!(ticket_ratings -> workspaces (workspace_id));
@@ -2798,6 +2812,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     ticket_approvals,
     ticket_assets,
     ticket_categories,
+    ticket_elapsed_queue,
     ticket_merges,
     ticket_ratings,
     ticket_rule_runs,
