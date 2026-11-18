@@ -140,7 +140,7 @@ actix-limitation = "0.6.0"
 redis = { version = "1.5", features = ["tokio-comp", "connection-manager"] }
 
 # MFA (Multi-Factor Authentication) dependencies
-totp-rs = "5.4.0"         # TOTP (Time-based One-Time Password) implementation
+totp-rs = "6.0.0"         # TOTP (Time-based One-Time Password) implementation
 qrcode = "0.14.1"         # QR code generation
 base32 = "0.5.1"          # Base32 encoding for TOTP secrets
 
