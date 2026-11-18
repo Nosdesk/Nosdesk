@@ -1,5 +1,6 @@
 //! Mail a mailbox held before its channel connected is history: it opens its
-//! ticket, but nobody is answered for it. A message received since the
+//! ticket as imported, and nobody is answered or notified for it, nor does
+//! it start approvals or run rules. A message received since the
 //! channel connected still gets its automatic acknowledgement. The
 //! acknowledgements here go through the real send path to a local SMTP sink,
 //! so a missing one is a message never sent, not a send path left unwired.
@@ -13,8 +14,12 @@ use chrono::{DateTime, TimeDelta, Utc};
 use diesel::prelude::*;
 use serde_json::json;
 
-use backend::models::{Channel, NewChannel, Ticket, CHANNEL_DIRECTION_OUTBOUND};
-use backend::repository::{channels as channels_repo, tickets};
+use backend::models::{
+    Channel, NewChannel, NewTicket, RuleTriggerKind as Trigger, Ticket, TicketUpdate,
+    WorkflowStateCategory, CHANNEL_DIRECTION_OUTBOUND, EMAIL_BACKLOG,
+};
+use backend::repository::{channels as channels_repo, tickets, workflow_states};
+use backend::schema::{sync_actions, ticket_approvals, ticket_categories};
 use backend::services::channels::auto_ack::send_auto_ack;
 use backend::services::channels::email_imap::{
     build_email_imap_adapter, parse_rfc822_into_inbound_message,
@@ -27,6 +32,7 @@ use backend::sync::session::with_actor_context;
 use backend::utils::email::{EmailConfig, EmailService, SmtpSecurity};
 
 use crate::common::{self, TestDb, TestPool, WorkspaceSeed};
+use crate::rules_event_triggers::{marker, Harness, Spec};
 
 /// An SMTP server on a local port that accepts every message and records
 /// who it was for.
@@ -102,8 +108,9 @@ fn serve(stream: std::net::TcpStream, seen: &Mutex<Vec<String>>) -> std::io::Res
 /// A workspace with an IMAP channel and a pipeline whose acknowledgements
 /// reach the sink.
 pub struct Inbox {
-    /// Holds the sandbox database for the test's lifetime.
-    pub _db: TestDb,
+    /// Holds the sandbox database for the test's lifetime, when the inbox
+    /// made it.
+    pub _db: Option<TestDb>,
     pub pool: TestPool,
     pub ws: WorkspaceSeed,
     pub channel: Channel,
@@ -115,12 +122,12 @@ impl Inbox {
     pub fn new() -> Self {
         let db = TestDb::new();
         let ws = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn")).a;
-        Self::in_workspace(db, ws)
+        let pool = db.runtime_pool(4);
+        Self::on(Some(db), pool, ws)
     }
 
-    /// The IMAP channel in `ws` of `db`, already seeded.
-    pub fn in_workspace(db: TestDb, ws: WorkspaceSeed) -> Self {
-        let pool = db.runtime_pool(4);
+    /// An IMAP channel in `ws`, reached through `pool`.
+    pub fn on(db: Option<TestDb>, pool: TestPool, ws: WorkspaceSeed) -> Self {
         let sink = Sink::start();
         let mail = Arc::new(EmailService::new(EmailConfig {
             smtp_host: "127.0.0.1".into(),
@@ -389,4 +396,175 @@ async fn the_acknowledgement_refuses_old_mail_itself() {
     assert_eq!(sent, Ok(()));
     assert_eq!(inbox.acks(ticket.id), 1);
     assert_eq!(inbox.sink.recipients(), vec!["ed@customer.example"]);
+}
+
+// ---------- Imported history: approvals, rules, reopen, notifications ----------
+
+/// The ticket ids `rule` has run on.
+fn ran_on(h: &Harness, ws: &WorkspaceSeed, rule: i32) -> Vec<i32> {
+    h.applications(ws, rule)
+        .into_iter()
+        .map(|a| a.ticket_id)
+        .collect()
+}
+
+#[actix_web::test]
+async fn old_mail_opens_an_imported_ticket_that_runs_no_rules_while_new_mail_does() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let rule = h.rule(a, Spec::live(Trigger::TicketCreated, marker()));
+    let inbox = Inbox::on(None, h.pool.clone(), a.clone());
+
+    let old = opened(
+        inbox
+            .receive(
+                &message("Ada <ada@customer.example>", "Printer", "old-2"),
+                years_ago(),
+            )
+            .await,
+    );
+    let new = opened(
+        inbox
+            .receive(
+                &message("Bo <bo@customer.example>", "Laptop", "new-2"),
+                Utc::now(),
+            )
+            .await,
+    );
+
+    let old_ticket = inbox.ticket(old);
+    assert_eq!(old_ticket.submitted_via.as_deref(), Some(EMAIL_BACKLOG));
+    assert!(old_ticket.is_imported());
+    assert_eq!(old_ticket.approval_state, None, "no approval round");
+    let new_ticket = inbox.ticket(new);
+    assert_eq!(new_ticket.submitted_via.as_deref(), Some("email_imap"));
+    assert_eq!(new_ticket.origin_channel_id, old_ticket.origin_channel_id);
+
+    inbox.wait_for_ack(new).await;
+    assert_eq!(inbox.acks(old), 0, "no acknowledgement for old mail");
+    h.drain().await;
+    assert_eq!(
+        ran_on(&h, a, rule),
+        vec![new],
+        "rules ran for new mail only"
+    );
+}
+
+/// An inbound ticket has no request type, so it never needs approval; an
+/// imported email ticket of a type that does still starts no round.
+#[actix_web::test]
+async fn an_email_backlog_ticket_starts_no_approval_round() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let ticket = h.as_admin(a, |c| {
+        let laptops: i32 = diesel::insert_into(ticket_categories::table)
+            .values((
+                ticket_categories::name.eq("New laptop"),
+                ticket_categories::approval_required.eq(true),
+                ticket_categories::approval_rule.eq("any"),
+            ))
+            .returning(ticket_categories::id)
+            .get_result(c)?;
+        backend::repository::categories::set_category_approvers(c, laptops, &[a.admin_uuid])?;
+        let open = workflow_states::default_state(c)?;
+        tickets::create_ticket(
+            c,
+            NewTicket {
+                title: "Laptop from 2019".to_string(),
+                workflow_state_id: open.id,
+                requester_uuid: Some(a.member_uuid),
+                category_id: Some(laptops),
+                submitted_via: Some(EMAIL_BACKLOG.to_string()),
+                ..Default::default()
+            },
+        )
+    });
+    assert_eq!(ticket.approval_state, None);
+    let rounds: i64 = h.as_admin(a, |c| {
+        ticket_approvals::table
+            .filter(ticket_approvals::ticket_id.eq(ticket.id))
+            .count()
+            .get_result(c)
+    });
+    assert_eq!(rounds, 0);
+}
+
+/// A reply from before the channel connected joins its ticket, but a done
+/// ticket stays done, no reply rule runs and the event tells the
+/// notification deriver it is history. A reply sent now does all three.
+#[actix_web::test]
+async fn an_old_reply_reopens_nothing_and_runs_no_reply_rules() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let inbox = Inbox::on(None, h.pool.clone(), a.clone());
+    let ticket = opened(
+        inbox
+            .receive_with(
+                &message("Ada <ada@customer.example>", "Printer", "first-3"),
+                Utc::now(),
+                &PipelineContext::bare(),
+            )
+            .await,
+    );
+    let done = h.as_admin(a, |c| {
+        workflow_states::first_in_category(c, WorkflowStateCategory::Done)
+    });
+    h.update(
+        a,
+        ticket,
+        TicketUpdate {
+            workflow_state_id: Some(done.id),
+            ..Default::default()
+        },
+    );
+    h.drain().await;
+    let rule = h.rule(
+        a,
+        Spec {
+            trigger_config: json!({ "reply_kind": "any" }),
+            ..Spec::live(Trigger::TicketReplied, marker())
+        },
+    );
+
+    let reply = |id: &str| {
+        format!(
+            "From: Ada <ada@customer.example>\r\nTo: support@example.com\r\nSubject: Re: Printer\r\n\
+             Message-ID: <{id}@customer.example>\r\nIn-Reply-To: <first-3@customer.example>\r\n\
+             References: <first-3@customer.example>\r\n\r\nStill broken.\r\n"
+        )
+    };
+    let old = inbox
+        .receive_with(&reply("reply-old"), years_ago(), &PipelineContext::bare())
+        .await;
+    assert!(
+        matches!(old, PipelineOutcome::ReplyAppended { ticket_id, .. } if ticket_id == ticket),
+        "{old:?}"
+    );
+    assert_eq!(
+        inbox.ticket(ticket).workflow_state_id,
+        done.id,
+        "still done"
+    );
+    let created_via: Vec<serde_json::Value> = h.as_admin(a, |c| {
+        sync_actions::table
+            .filter(sync_actions::event_type.eq("comment.created"))
+            .order(sync_actions::occurred_at)
+            .select(sync_actions::data)
+            .load::<serde_json::Value>(c)
+            .map(|rows| rows.into_iter().map(|d| d["created_via"].clone()).collect())
+    });
+    assert_eq!(created_via.last().unwrap()["imported"], json!(true));
+    h.drain().await;
+    assert!(h.statuses(a, rule).is_empty(), "no reply rule for old mail");
+
+    let new = inbox
+        .receive_with(&reply("reply-new"), Utc::now(), &PipelineContext::bare())
+        .await;
+    assert!(
+        matches!(new, PipelineOutcome::ReplyAppended { .. }),
+        "{new:?}"
+    );
+    assert_ne!(inbox.ticket(ticket).workflow_state_id, done.id, "reopened");
+    h.drain().await;
+    assert_eq!(ran_on(&h, a, rule), vec![ticket]);
 }

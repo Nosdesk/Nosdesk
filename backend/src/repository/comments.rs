@@ -98,6 +98,10 @@ pub struct CommentCreationAnnotation {
     pub from_email: Option<String>,
     /// Display name for the sender, when present.
     pub from_name: Option<String>,
+    /// Old mail a newly connected mailbox brought in: it reopens nothing,
+    /// notifies nobody and runs no reply rules. Carried on `created_via` as
+    /// `imported: true` for the notification deriver and the rules engine.
+    pub imported: bool,
 }
 
 /// "Staff" post-W2: workspace owner/admin/agent in `workspace_id`, or any
@@ -269,11 +273,14 @@ pub fn create_comment_with_annotation(
         // frontend reads `data.created_via` the same way regardless
         // of event aggregate. Always emitted (even with all fields
         // None) for shape stability.
-        let created_via = json!({
+        let mut created_via = json!({
             "source": annotation.source,
             "from_email": annotation.from_email,
             "from_name": annotation.from_name,
         });
+        if annotation.imported {
+            created_via["imported"] = json!(true);
+        }
 
         emit::record(
             conn,
@@ -322,7 +329,7 @@ pub fn create_comment_with_annotation(
 
         record_ticket_references(conn, &comment, &parent)?;
 
-        if !comment.is_internal {
+        if !comment.is_internal && !annotation.imported {
             reopen_on_requester_reply(conn, &parent, new_comment.user_uuid)?;
         }
 
