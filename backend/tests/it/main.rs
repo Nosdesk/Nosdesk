@@ -62,6 +62,7 @@ mod backup_restore_safety;
 mod backup_sequences;
 mod backup_tamper;
 mod bearer_auth;
+mod channel_backlog;
 mod closed_follows_state;
 mod collab_fenced_write;
 mod collab_ownership;

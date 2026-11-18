@@ -218,6 +218,15 @@
               autocomplete="off"
             />
 
+            <DatePicker
+              v-model="form.backlog_since"
+              class="md:col-span-2"
+              block
+              :label="$t('admin-channels-email-field-backlog-since-label')"
+              :description="$t('admin-channels-email-field-backlog-since-hint')"
+              :max="today"
+            />
+
             <div class="flex flex-col gap-2 md:col-span-2">
               <PasswordInput
                 v-model="form.password"
@@ -321,6 +330,7 @@ import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
+import DatePicker from '@/components/common/DatePicker.vue';
 import PasswordInput from '@/components/common/PasswordInput.vue';
 import EmailTestResult from '@/components/admin/email/EmailTestResult.vue';
 import {
@@ -334,6 +344,7 @@ import apiClient from '@nosdesk/core/apiClient';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { createErrorFromResponse, errorCode, errorStatus } from '@/utils/errors';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
+import { toCalendarDateString } from '@nosdesk/core/utils/dateMath';
 import {
   isHostedDeployment,
   isInboundForwardingEnabled,
@@ -363,6 +374,8 @@ interface FormState {
   reply_domain: string;
   password: string;
   insecure_skip_cert_verify: boolean;
+  /** `YYYY-MM-DD`, or empty to take only new mail. */
+  backlog_since: string;
 }
 
 function emptyForm(): FormState {
@@ -375,9 +388,13 @@ function emptyForm(): FormState {
     mailbox: DEFAULT_CONFIG.mailbox,
     reply_domain: '',
     password: '',
-    insecure_skip_cert_verify: false
+    insecure_skip_cert_verify: false,
+    backlog_since: ''
   };
 }
+
+// Older mail can only come from days already past.
+const today = toCalendarDateString(new Date());
 
 // The email channel config is cached by Pinia Colada so revisits
 // render the form instantly from cache and revalidate silently in
@@ -557,6 +574,7 @@ function populateForm(ch: Channel) {
     mailbox: cfg.mailbox ?? DEFAULT_CONFIG.mailbox,
     reply_domain: cfg.reply_domain ?? '',
     insecure_skip_cert_verify: cfg.insecure_skip_cert_verify ?? false,
+    backlog_since: cfg.backlog_since ?? '',
     password: '',
   };
 }
@@ -575,7 +593,9 @@ function buildConfig(): Record<string, unknown> {
     reply_domain: f.reply_domain.trim(),
     // Never send true outside development: the server rejects it there, and
     // this also clears a legacy value if a prod deployment inherited one.
-    insecure_skip_cert_verify: insecureTlsAllowed.value && f.insecure_skip_cert_verify
+    insecure_skip_cert_verify: insecureTlsAllowed.value && f.insecure_skip_cert_verify,
+    // Left out when empty: the server reads only a date here.
+    ...(f.backlog_since ? { backlog_since: f.backlog_since } : {})
   };
   return cfg as unknown as Record<string, unknown>;
 }
