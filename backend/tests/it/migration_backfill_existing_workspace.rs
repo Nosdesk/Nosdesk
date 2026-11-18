@@ -50,7 +50,7 @@ impl FreshDb {
         let suffix = Uuid::new_v4().simple().to_string()[..16].to_string();
         let name = format!("nosdesk_migtest_{suffix}");
         let url = with_database(&base_url(), &name);
-        let mut admin = PgConnection::establish(&admin_url()).expect("connect admin db");
+        let mut admin = backend::db::establish(&admin_url()).expect("connect admin db");
         diesel::sql_query(format!("CREATE DATABASE \"{name}\""))
             .execute(&mut admin)
             .expect("create fresh db");
@@ -60,7 +60,7 @@ impl FreshDb {
 
 impl Drop for FreshDb {
     fn drop(&mut self) {
-        if let Ok(mut admin) = PgConnection::establish(&admin_url()) {
+        if let Ok(mut admin) = backend::db::establish(&admin_url()) {
             let _ = diesel::sql_query(format!(
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
                  WHERE datname = '{}' AND pid <> pg_backend_pid()",
@@ -82,7 +82,7 @@ struct Count {
 #[test]
 fn backfill_migration_succeeds_when_a_workspace_already_exists() {
     let db = FreshDb::new();
-    let mut conn = PgConnection::establish(&db.url).expect("connect fresh db");
+    let mut conn = backend::db::establish(&db.url).expect("connect fresh db");
 
     // Diesel's bookkeeping table, created up front so the per-migration
     // harness calls below work on a truly empty database.
@@ -208,7 +208,7 @@ fn state_of(conn: &mut PgConnection, ticket: i32) -> i32 {
 #[test]
 fn tickets_holding_another_workspaces_state_move_into_their_own() {
     let db = FreshDb::new();
-    let mut conn = PgConnection::establish(&db.url).expect("connect fresh db");
+    let mut conn = backend::db::establish(&db.url).expect("connect fresh db");
     diesel::sql_query(
         "CREATE TABLE IF NOT EXISTS __diesel_schema_migrations (\
          version VARCHAR(50) PRIMARY KEY NOT NULL, \

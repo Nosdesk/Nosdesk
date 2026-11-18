@@ -56,7 +56,7 @@ const UNIT_DB_LOCK: i64 = 0x6e6f_7364_756e_6974; // "nosdunit"
 fn with_unit_db_lock<T>(
     f: impl FnOnce(&mut PgConnection) -> Result<T, String>,
 ) -> Result<T, String> {
-    let mut admin = PgConnection::establish(&with_database(&base_database_url(), "postgres"))
+    let mut admin = crate::db::establish(&with_database(&base_database_url(), "postgres"))
         .map_err(|e| format!("connect to the postgres database: {e}"))?;
     diesel::sql_query(format!("SELECT pg_advisory_lock({UNIT_DB_LOCK})"))
         .execute(&mut admin)
@@ -91,7 +91,7 @@ fn ensure_database_locked(
             .execute(admin)
             .map_err(|e| format!("CREATE DATABASE {name}: {e}"))?;
     }
-    let mut conn = PgConnection::establish(&with_database(&base_database_url(), name))
+    let mut conn = crate::db::establish(&with_database(&base_database_url(), name))
         .map_err(|e| format!("connect to {name}: {e}"))?;
     populate(&mut conn)?;
     Ok(!exists)
@@ -124,7 +124,7 @@ fn unit_database_key(name: &str) -> Option<i64> {
 fn hold_unit_database(name: &str) -> Result<(), String> {
     static HOLD: OnceCell<Mutex<PgConnection>> = OnceCell::new();
     let key = unit_database_key(name).ok_or_else(|| format!("{name} carries no hash"))?;
-    let mut conn = PgConnection::establish(&with_database(&base_database_url(), "postgres"))
+    let mut conn = crate::db::establish(&with_database(&base_database_url(), "postgres"))
         .map_err(|e| format!("connect to the postgres database: {e}"))?;
     diesel::sql_query(format!("SELECT pg_advisory_lock_shared({key})"))
         .execute(&mut conn)
@@ -760,7 +760,7 @@ mod tests {
 
     impl Drop for ForeignObject {
         fn drop(&mut self) {
-            if let Ok(mut conn) = PgConnection::establish(&self.url) {
+            if let Ok(mut conn) = crate::db::establish(&self.url) {
                 let _ = diesel::sql_query(format!("DROP SCHEMA IF EXISTS \"{}\"", self.schema))
                     .execute(&mut conn);
             }
@@ -771,7 +771,7 @@ mod tests {
     fn another_branchs_migration_stays_out_of_unit_tests() {
         let base = base_database_url();
         let schema = format!("g7_foreign_{}", &Uuid::new_v4().simple().to_string()[..12]);
-        let mut base_conn = PgConnection::establish(&base).expect("connect to the base test DB");
+        let mut base_conn = crate::db::establish(&base).expect("connect to the base test DB");
         diesel::sql_query(format!("CREATE SCHEMA \"{schema}\""))
             .execute(&mut base_conn)
             .expect("plant the foreign schema");
@@ -805,7 +805,7 @@ mod tests {
     impl Drop for Throwaway {
         fn drop(&mut self) {
             let admin_url = with_database(&base_database_url(), "postgres");
-            if let Ok(mut admin) = PgConnection::establish(&admin_url) {
+            if let Ok(mut admin) = crate::db::establish(&admin_url) {
                 let _ = diesel::sql_query(format!(
                     "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)",
                     self.0
@@ -882,7 +882,7 @@ mod tests {
         let _unheld_cleanup = Throwaway(unheld.clone());
 
         let admin_url = with_database(&base_database_url(), "postgres");
-        let mut admin = PgConnection::establish(&admin_url).expect("connect to admin DB");
+        let mut admin = crate::db::establish(&admin_url).expect("connect to admin DB");
         for name in [&held, &unheld] {
             diesel::sql_query(format!("CREATE DATABASE \"{name}\""))
                 .execute(&mut admin)
@@ -890,7 +890,7 @@ mod tests {
         }
         // Another process using `held` holds its key shared.
         let mut other_process =
-            PgConnection::establish(&admin_url).expect("connect as another process");
+            crate::db::establish(&admin_url).expect("connect as another process");
         diesel::sql_query(format!("SELECT pg_advisory_lock_shared({held_key})"))
             .execute(&mut other_process)
             .expect("hold the database");

@@ -123,7 +123,7 @@ const TEMPLATE_LOCK: i64 = 0x6e6f_7364_746d_706c; // "nosdtmpl"
 /// Run `f` on a fresh admin connection holding the template lock. The lock
 /// is session-level, so a panic in `f` releases it with the connection.
 fn with_template_lock<T>(f: impl FnOnce(&mut PgConnection) -> T) -> T {
-    let mut admin = PgConnection::establish(&admin_url()).expect("connect to admin DB (postgres)");
+    let mut admin = backend::db::establish(&admin_url()).expect("connect to admin DB (postgres)");
     diesel::sql_query(format!("SELECT pg_advisory_lock({TEMPLATE_LOCK})"))
         .execute(&mut admin)
         .expect("take the template lock");
@@ -167,7 +167,7 @@ fn build_template_locked(
         }
     }
     {
-        let mut conn = PgConnection::establish(&with_database(&base_url(), name))
+        let mut conn = backend::db::establish(&with_database(&base_url(), name))
             .expect("connect to template DB");
         populate(&mut conn);
     }
@@ -200,7 +200,7 @@ pub fn template_key(name: &str) -> Option<i64> {
 fn hold_template(name: &str) {
     static HOLD: OnceLock<Mutex<PgConnection>> = OnceLock::new();
     let key = template_key(name).expect("the template name carries its hash");
-    let mut conn = PgConnection::establish(&admin_url()).expect("connect to admin DB (postgres)");
+    let mut conn = backend::db::establish(&admin_url()).expect("connect to admin DB (postgres)");
     diesel::sql_query(format!("SELECT pg_advisory_lock_shared({key})"))
         .execute(&mut conn)
         .expect("hold the template");
@@ -304,7 +304,7 @@ impl TestDb {
         let url = with_database(&base_url(), &name);
 
         let mut admin =
-            PgConnection::establish(&admin_url()).expect("connect to admin DB for sandbox CREATE");
+            backend::db::establish(&admin_url()).expect("connect to admin DB for sandbox CREATE");
         diesel::sql_query(format!(
             "CREATE DATABASE \"{name}\" TEMPLATE \"{}\"",
             current_template()
@@ -376,7 +376,7 @@ impl Drop for TestDb {
         // PG refuses DROP DATABASE while sessions are connected;
         // terminate first. If admin connect fails (shutdown race),
         // we silently leak — better than panicking out of Drop.
-        if let Ok(mut admin) = PgConnection::establish(&admin_url()) {
+        if let Ok(mut admin) = backend::db::establish(&admin_url()) {
             let _ = diesel::sql_query(format!(
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
                  WHERE datname = '{}' AND pid <> pg_backend_pid()",
@@ -1004,7 +1004,7 @@ pub fn horizon_holders() -> String {
         #[diesel(sql_type = Text)]
         line: String,
     }
-    let Ok(mut admin) = PgConnection::establish(&admin_url()) else {
+    let Ok(mut admin) = backend::db::establish(&admin_url()) else {
         return "(could not connect to read pg_stat_activity)".to_string();
     };
     let rows: Vec<Holder> = diesel::sql_query(

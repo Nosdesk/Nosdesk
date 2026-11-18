@@ -49,7 +49,7 @@ fn one(conn: &mut PgConnection, sql: &str) -> i64 {
 #[test]
 fn existing_tickets_keep_their_id_as_their_number() {
     let db = FreshDb::new();
-    let mut conn = PgConnection::establish(&db.url).expect("connect fresh db");
+    let mut conn = backend::db::establish(&db.url).expect("connect fresh db");
     diesel::sql_query(
         "CREATE TABLE IF NOT EXISTS __diesel_schema_migrations (\
          version VARCHAR(50) PRIMARY KEY NOT NULL, \

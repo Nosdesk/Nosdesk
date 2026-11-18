@@ -49,7 +49,7 @@ fn slug_of(conn: &mut PgConnection, name: &str) -> String {
 #[test]
 fn a_workspace_on_a_newly_reserved_slug_is_renamed_on_upgrade() {
     let db = FreshDb::new();
-    let mut conn = PgConnection::establish(&db.url).expect("connect fresh db");
+    let mut conn = backend::db::establish(&db.url).expect("connect fresh db");
     run(
         &mut conn,
         "CREATE TABLE IF NOT EXISTS __diesel_schema_migrations (\

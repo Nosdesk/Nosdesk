@@ -201,7 +201,7 @@ fn seed(conn: &mut PgConnection) -> Seeded {
 #[test]
 fn rows_referencing_another_workspace_are_repaired_before_the_keys_validate() {
     let db = FreshDb::new();
-    let mut conn = PgConnection::establish(&db.url).expect("connect fresh db");
+    let mut conn = backend::db::establish(&db.url).expect("connect fresh db");
     diesel::sql_query(
         "CREATE TABLE IF NOT EXISTS __diesel_schema_migrations (\
          version VARCHAR(50) PRIMARY KEY NOT NULL, \

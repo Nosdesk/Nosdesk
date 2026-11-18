@@ -116,7 +116,7 @@ fn ceiling(conn: &mut PgConnection, name: &str) -> (Option<String>, Option<Strin
 #[test]
 fn existing_tokens_get_the_roles_they_act_with() {
     let db = FreshDb::new();
-    let mut conn = PgConnection::establish(&db.url).expect("connect fresh db");
+    let mut conn = backend::db::establish(&db.url).expect("connect fresh db");
     diesel::sql_query(
         "CREATE TABLE IF NOT EXISTS __diesel_schema_migrations (\
          version VARCHAR(50) PRIMARY KEY NOT NULL, \

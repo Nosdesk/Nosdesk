@@ -348,7 +348,7 @@ fn an_upgrade_restore_matches_an_in_place_upgrade_table_for_table() {
     // Upgrade restore of the backup 1.0.12 restored.
     let db = TestDb::new();
     restore(&db, "1.0.12", "encrypted.zip", Some(PASSPHRASE));
-    let mut restored = PgConnection::establish(db.url()).expect("connect");
+    let mut restored = backend::db::establish(db.url()).expect("connect");
 
     let expected = table_digests(&mut in_place_conn);
     let actual = table_digests(&mut restored);
