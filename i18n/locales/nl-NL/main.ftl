@@ -11750,3 +11750,16 @@ admin-rules-activity-did-notify-person-unknown = E-mail verstuurd naar een bepaa
 admin-rules-activity-did-notify-no-requester = Geen e-mail verstuurd, want het ticket heeft geen aanvrager
 admin-rules-activity-did-notify-no-email = Geen e-mail verstuurd, want de aanvrager heeft geen e-mailadres
 admin-rules-activity-held-spam = Tegengehouden, omdat het ticket mogelijk spam is: { $step }
+
+# Regels: triggers op een gebeurtenis van een plug-in (machine, na te kijken door een moedertaalspreker).
+admin-rules-trigger-plugin-event = Bij een plug-ingebeurtenis
+admin-rule-editor-trigger-plugin-event-summary = Wanneer een geïnstalleerde plug-in een gebeurtenis over een ticket meldt.
+admin-rule-editor-plugin-label = Plug-in
+admin-rule-editor-plugin-placeholder = Kies een plug-in
+admin-rule-editor-plugin-event-label = Gebeurtenis
+admin-rule-editor-plugin-event-placeholder = Kies een gebeurtenis
+admin-rule-editor-plugin-none = Nog geen geïnstalleerde plug-in meldt gebeurtenissen.
+admin-rule-editor-plugin-not-running = { $name } (niet actief)
+admin-rule-editor-plugin-missing = Een plug-in die niet meer is geïnstalleerd
+admin-rule-editor-plugin-incomplete = Kies een plug-in en een van de gebeurtenissen ervan.
+admin-rule-editor-plugin-hint = De regel draait op het ticket dat de gebeurtenis noemt, als een agent of beheerder de plug-in gebruikte en de plug-in leestoegang tot tickets heeft. Gebeurtenissen uit gebruik van de plug-in door aanvragers starten geen regels.

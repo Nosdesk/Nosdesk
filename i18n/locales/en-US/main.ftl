@@ -10560,3 +10560,16 @@ admin-rules-activity-did-notify-person-unknown = Emailed a specific person
 admin-rules-activity-did-notify-no-requester = Sent no email, as the ticket has no requester
 admin-rules-activity-did-notify-no-email = Sent no email, as the requester has no email address
 admin-rules-activity-held-spam = Held, as the ticket may be spam: { $step }
+
+# Rules: plugin event triggers.
+admin-rules-trigger-plugin-event = On a plugin event
+admin-rule-editor-trigger-plugin-event-summary = When an installed plugin reports an event about a ticket.
+admin-rule-editor-plugin-label = Plugin
+admin-rule-editor-plugin-placeholder = Pick a plugin
+admin-rule-editor-plugin-event-label = Event
+admin-rule-editor-plugin-event-placeholder = Pick an event
+admin-rule-editor-plugin-none = No installed plugin reports events yet.
+admin-rule-editor-plugin-not-running = { $name } (not running)
+admin-rule-editor-plugin-missing = A plugin that is no longer installed
+admin-rule-editor-plugin-incomplete = Pick a plugin and one of its events.
+admin-rule-editor-plugin-hint = The rule runs on the ticket the event names, when an agent or admin was using the plugin and the plugin has access to read tickets. Events from requesters' use of the plugin run no rules.

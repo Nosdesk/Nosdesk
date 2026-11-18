@@ -5,7 +5,8 @@
  * is `admin-rules-edit`. Agents apply manual rules from a ticket's
  * Actions dialog; manual rules have `conditions = []` enforced by the
  * backend, so only a rule with an event trigger (ticket created, updated
- * or replied) shows the conditions builder and its live preview.
+ * or replied, or a plugin's event) shows the conditions builder and its
+ * live preview.
  *
  * The action list is the main interaction surface. Each action
  * carries a typed `kind` plus a kind-specific config object. The
@@ -39,9 +40,10 @@ import AssetStepForm from '@/components/admin/rules/AssetStepForm.vue';
 import NotifyStepForm from '@/components/admin/rules/NotifyStepForm.vue';
 import ReplyStepForm from '@/components/admin/rules/ReplyStepForm.vue';
 import ConditionBuilder from '@/components/admin/rules/ConditionBuilder.vue';
+import PluginEventTriggerForm from '@/components/admin/rules/PluginEventTriggerForm.vue';
 import { CHANGEABLE_FIELDS, fromWire, toWire, treeComplete, type ConditionGroup } from '@/components/admin/rules/conditionTree';
 import { EVENT_RULES_RUN, promoteControls } from '@/components/admin/rules/eventRuleGate';
-import { readTriggerConfig, triggerConfigFor, DEFAULT_REPLY_KIND } from '@/components/admin/rules/triggerConfig';
+import { readTriggerConfig, triggerConfigFor, triggerProblem, DEFAULT_REPLY_KIND } from '@/components/admin/rules/triggerConfig';
 import { useWorkspaceQuery } from '@/queries/workspaceQuery';
 import { numberForTicketId } from '@/composables/useTicketNumberLookup';
 import { ticketPathForId } from '@/utils/ticketNumbers';
@@ -103,6 +105,9 @@ const overrideSelfRef = ref(false);
 /** Fields whose change runs an updated rule; none means any change. */
 const changedFields = ref<string[]>([]);
 const replyKind = ref<RuleReplyKind>(DEFAULT_REPLY_KIND);
+/** The plugin and event a plugin event rule runs on. */
+const pluginUuid = ref('');
+const pluginEvent = ref('');
 const conditionRoot = ref<ConditionGroup>(fromWire([]));
 /** Going live without a dry run first: the admin checked the rule by hand. */
 const verifiedManually = ref(false);
@@ -117,6 +122,8 @@ function fill(rule: Rule): void {
   const settings = readTriggerConfig(rule.trigger_config);
   changedFields.value = settings.changedFields;
   replyKind.value = settings.replyKind;
+  pluginUuid.value = settings.pluginUuid;
+  pluginEvent.value = settings.pluginEvent;
   conditionRoot.value = fromWire(rule.conditions);
   verifiedManually.value = false;
   // The loaded rule's preview needn't wait out the typing pause.
@@ -145,9 +152,15 @@ const headerTitle = computed(() =>
 
 const isManual = computed(() => triggerKind.value === 'manual');
 
-const triggerConfig = computed(() =>
-  triggerConfigFor(triggerKind.value, { changedFields: changedFields.value, replyKind: replyKind.value }),
-);
+const triggerSettings = computed(() => ({
+  changedFields: changedFields.value,
+  replyKind: replyKind.value,
+  pluginUuid: pluginUuid.value,
+  pluginEvent: pluginEvent.value,
+}));
+const triggerConfig = computed(() => triggerConfigFor(triggerKind.value, triggerSettings.value));
+/** Set by a save attempt with an unfinished trigger, so its hint shows. */
+const showTriggerProblems = ref(false);
 /** The conditions as saved: none for a manual rule. */
 const conditionsWire = computed<RuleCondition[] | RuleCondition>(() =>
   isManual.value ? [] : toWire(conditionRoot.value),
@@ -294,6 +307,12 @@ async function reloadIfArchived(err: unknown): Promise<boolean> {
 async function save(options: { quiet?: boolean } = {}): Promise<boolean> {
   errorMessage.value = '';
   if (!canSave.value) return false;
+  const unfinishedTrigger = triggerProblem(triggerKind.value, triggerSettings.value);
+  if (unfinishedTrigger) {
+    showTriggerProblems.value = true;
+    errorMessage.value = t(unfinishedTrigger);
+    return false;
+  }
   if (!conditionsComplete.value) {
     showConditionProblems.value = true;
     errorMessage.value = t('admin-rule-editor-conditions-incomplete');
@@ -494,7 +513,7 @@ function triggerLabel(kind: RuleTriggerKind): string {
 
 // Time elapsed rules aren't built here yet; one saved through the API keeps
 // its trigger in the list.
-const TRIGGERS: RuleTriggerKind[] = ['manual', 'ticket_created', 'ticket_updated', 'ticket_replied'];
+const TRIGGERS: RuleTriggerKind[] = ['manual', 'ticket_created', 'ticket_updated', 'ticket_replied', 'plugin_event'];
 const triggerOptions = computed(() => {
   const kinds = [...TRIGGERS];
   const saved = original.value?.trigger_kind;
@@ -693,6 +712,14 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
               {{ changedFields.length === 0 ? t('admin-rule-editor-changed-fields-any') : t('admin-rule-editor-changed-fields-some') }}
             </p>
           </div>
+
+          <PluginEventTriggerForm
+            v-else-if="triggerKind === 'plugin_event'"
+            v-model:plugin-uuid="pluginUuid"
+            v-model:event-type="pluginEvent"
+            :disabled="isArchived"
+            :show-problems="showTriggerProblems"
+          />
 
           <div v-else-if="triggerKind === 'ticket_replied'" class="flex flex-col gap-2" data-test="reply-kind">
             <p class="text-sm font-medium text-primary">{{ t('admin-rule-editor-reply-kind-label') }}</p>

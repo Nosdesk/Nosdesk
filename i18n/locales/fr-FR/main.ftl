@@ -11759,3 +11759,16 @@ admin-rules-activity-did-notify-person-unknown = E-mail envoyé à une personne 
 admin-rules-activity-did-notify-no-requester = Aucun e-mail envoyé, car le ticket n'a pas de demandeur
 admin-rules-activity-did-notify-no-email = Aucun e-mail envoyé, car le demandeur n'a pas d'adresse e-mail
 admin-rules-activity-held-spam = Retenu, car le ticket est peut-être du spam : { $step }
+
+# Règles : déclencheurs sur un événement de plugin (machine, à relire par un locuteur natif).
+admin-rules-trigger-plugin-event = Sur un événement de plugin
+admin-rule-editor-trigger-plugin-event-summary = Quand un plugin installé signale un événement concernant un ticket.
+admin-rule-editor-plugin-label = Plugin
+admin-rule-editor-plugin-placeholder = Choisir un plugin
+admin-rule-editor-plugin-event-label = Événement
+admin-rule-editor-plugin-event-placeholder = Choisir un événement
+admin-rule-editor-plugin-none = Aucun plugin installé ne signale encore d'événements.
+admin-rule-editor-plugin-not-running = { $name } (inactif)
+admin-rule-editor-plugin-missing = Un plugin qui n'est plus installé
+admin-rule-editor-plugin-incomplete = Choisissez un plugin et l'un de ses événements.
+admin-rule-editor-plugin-hint = La règle s'exécute sur le ticket nommé par l'événement, quand un agent ou un administrateur utilisait le plugin et que le plugin a accès en lecture aux tickets. Les événements issus de l'utilisation du plugin par des demandeurs n'exécutent aucune règle.
