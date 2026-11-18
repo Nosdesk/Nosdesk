@@ -11763,3 +11763,7 @@ admin-rule-editor-plugin-not-running = { $name } (niet actief)
 admin-rule-editor-plugin-missing = Een plug-in die niet meer is geïnstalleerd
 admin-rule-editor-plugin-incomplete = Kies een plug-in en een van de gebeurtenissen ervan.
 admin-rule-editor-plugin-hint = De regel draait op het ticket dat de gebeurtenis noemt, als een agent of beheerder de plug-in gebruikte en de plug-in leestoegang tot tickets heeft. Gebeurtenissen uit gebruik van de plug-in door aanvragers starten geen regels.
+
+# E-mailkanaal: oudere e-mail komt alleen binnen als daarom gevraagd wordt, en stil (machine, nog na te kijken door moedertaalspreker).
+admin-channels-email-field-backlog-since-label = Ook e-mail binnenhalen sinds
+admin-channels-email-field-backlog-since-hint = Laat dit leeg om alleen e-mail te ontvangen die vanaf nu binnenkomt. E-mail van voor de koppeling van het kanaal komt stil binnen, zonder ontvangstbevestiging en zonder regels.
