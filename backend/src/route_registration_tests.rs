@@ -361,24 +361,6 @@ async fn categories_config_routes_registered() {
 }
 
 #[actix_web::test]
-async fn assignment_rules_config_routes_registered() {
-    assert_config_registers(
-        crate::handlers::assignment_rules::config,
-        &[
-            ("GET", "/admin/assignment-rules"),
-            ("POST", "/admin/assignment-rules"),
-            ("PUT", "/admin/assignment-rules/reorder"),
-            ("POST", "/admin/assignment-rules/preview"),
-            ("GET", "/admin/assignment-rules/logs"),
-            ("GET", "/admin/assignment-rules/1"),
-            ("PATCH", "/admin/assignment-rules/1"),
-            ("DELETE", "/admin/assignment-rules/1"),
-        ],
-    )
-    .await;
-}
-
-#[actix_web::test]
 async fn api_tokens_config_routes_registered() {
     assert_config_registers(
         crate::handlers::api_tokens::config,

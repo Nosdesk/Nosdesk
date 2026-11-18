@@ -132,6 +132,7 @@ mod logging_pii_guardrail;
 mod logout_ends_session;
 mod merged_ticket_writes;
 mod migration_api_token_role_ceiling;
+mod migration_assignment_rules;
 mod migration_backfill_existing_workspace;
 mod migration_documentation_drafts;
 mod migration_documentation_restriction;

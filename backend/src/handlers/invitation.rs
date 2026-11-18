@@ -492,16 +492,8 @@ fn complete_verification(
                 "Released pending guest tickets on invitation acceptance"
             );
             for ticket in released {
-                // Released, the ticket goes through the assignment rules the
-                // way an unheld one does when it's submitted.
-                let ticket = crate::services::ticket_updates::assign_new_ticket(
-                    &mut crate::services::ticket_updates::ActorConn {
-                        conn: &mut *conn,
-                        actor: &actor,
-                    },
-                    Some(search_service.get_ref()),
-                    ticket,
-                );
+                // Released, the ticket's `ticket.created` reaches the
+                // workspace, and the rules engine runs on it then.
                 indexing_tasks::spawn_index_ticket(
                     search_service.get_ref().clone(),
                     ticket.clone(),

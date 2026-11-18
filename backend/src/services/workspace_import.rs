@@ -607,6 +607,21 @@ mod tests {
         );
     }
 
+    /// A 1.1 export, which can carry assignment rules, is refused like any
+    /// earlier one: its rows have the shape of 1.1's schema. Updating its
+    /// server moves the assignment rules into rules, and an export made
+    /// then carries them.
+    #[test]
+    fn a_1_1_export_with_assignment_rules_is_refused() {
+        let m = export_manifest(2, "1.1.7", "ignored", Some(prefix_at("20261109092241")));
+        assert_eq!(
+            check_importable(&m),
+            Err(ImportRefusal::Earlier {
+                release: "1.1.7".to_string()
+            })
+        );
+    }
+
     #[test]
     fn a_newer_export_is_refused_naming_its_release() {
         let m = export_manifest(2, "99.0.0", "ignored", Some(("99990101000000", "abc")));

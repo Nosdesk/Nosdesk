@@ -442,6 +442,8 @@ mod tests {
             number: 7,
             raised_by_staff: false,
             blank_at: None,
+            rules_held_at: None,
+            rules_released_at: None,
         }
     }
 

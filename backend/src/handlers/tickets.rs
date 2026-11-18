@@ -14,7 +14,7 @@ use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
-use crate::services::ticket_updates::{assign_new_ticket, blank_ticket, BlankTicket};
+use crate::services::ticket_updates::{blank_ticket, BlankTicket};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/tickets", web::get().to(crate::handlers::get_tickets))
@@ -665,9 +665,8 @@ pub async fn create_ticket(
     }
 
     match tc.run(|conn| repository::create_ticket(conn, new_ticket)) {
-        Ok(mut ticket) => {
-            // The assignment rules pick an assignee when it has none.
-            ticket = assign_new_ticket(&mut tc, Some(search_service.get_ref()), ticket);
+        Ok(ticket) => {
+            // The rules engine assigns it from its `ticket.created`.
 
             // Index the new ticket in search
             indexing_tasks::spawn_index_ticket(
@@ -765,8 +764,6 @@ fn save_ticket_update(
         refuse_unseeable_category(tc, auth, category_id)?;
     }
 
-    // An unassigned ticket whose category changed goes through assignment.
-    let category_changed = update.category_id.is_some();
     let update = TicketUpdate {
         updated_at: Some(chrono::Utc::now().naive_utc()),
         ..update
@@ -774,7 +771,6 @@ fn save_ticket_update(
     let updated = tc.run_result(|conn| {
         repository::update_ticket_partial(conn, ticket_id, update, Some(search))
     })?;
-    crate::services::ticket_updates::after_update(tc, Some(search), &updated, category_changed);
     Ok(updated)
 }
 
@@ -905,7 +901,7 @@ pub async fn create_empty_ticket(
     };
 
     let search = search_service.get_ref();
-    let blank = tc.transaction(|db| blank_ticket(db, user_uuid, Some(search)));
+    let blank = tc.transaction(|db| blank_ticket(db, user_uuid));
 
     let (ticket, made) = match blank {
         Ok(BlankTicket::Reused(ticket)) => (ticket, false),

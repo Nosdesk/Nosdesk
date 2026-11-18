@@ -92,6 +92,35 @@ fn collect_condition_fields(node: &Value, out: &mut std::collections::BTreeSet<S
     }
 }
 
+/// The `reads_set` fields `conditions` reads other than through an
+/// is-empty guard: an `is_null` leaf reached from the root through `and`
+/// groups only. A rule whose only read of a field it writes is such a guard
+/// (assignee is empty, then assign) doesn't meet its conditions again by its
+/// own write, so the self-write check and the conflicts inspector leave that
+/// field out.
+pub fn reads_beyond_guards(conditions: &Value) -> Vec<Option<String>> {
+    fn walk(node: &Value, in_and: bool, out: &mut std::collections::BTreeSet<String>) {
+        let Some(obj) = node.as_object() else { return };
+        match obj.get("kind").and_then(Value::as_str).unwrap_or("") {
+            "leaf" if in_and && obj.get("op").and_then(Value::as_str) == Some("is_null") => {}
+            "and" => {
+                for child in obj
+                    .get("children")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    walk(child, in_and, out);
+                }
+            }
+            _ => collect_condition_fields(node, out),
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    walk(conditions, true, &mut out);
+    out.into_iter().map(Some).collect()
+}
+
 /// Plan §11.2 reads_set derivation table, from
 /// [`ConditionField::reads`](crate::models::ConditionField::reads). A
 /// field name the model doesn't know maps to itself.
@@ -684,8 +713,9 @@ pub enum ApplyError {
     #[error("Step {index}: {message}")]
     AssetRefused { index: usize, message: String },
     /// The rule already ran for this event, on an earlier attempt at it.
-    #[error("rule {0} already ran for this event")]
-    AlreadyRan(i32),
+    /// `stopped` when that run stopped the rules after it.
+    #[error("rule {rule} already ran for this event")]
+    AlreadyRan { rule: i32, stopped: bool },
     /// The rule already ran on the ticket earlier in this chain of events.
     #[error("the rule already ran on this ticket in this chain of events")]
     RanInChain,
@@ -712,7 +742,7 @@ impl ApplyError {
     /// if any.
     fn recorded_status(&self) -> Option<RuleApplicationStatus> {
         match self {
-            Self::AlreadyRan(_) => None,
+            Self::AlreadyRan { .. } => None,
             Self::RanInChain => Some(RuleApplicationStatus::SuppressedRecursionBudget),
             Self::ChainCap | Self::AutomatedSource => {
                 Some(RuleApplicationStatus::SuppressedLoopGuard)
@@ -919,8 +949,12 @@ pub const SPAM_HOLD_REASON: &str = "The ticket is flagged as likely spam, so the
 /// What a run's claim on the recursion budget came to.
 enum Slot {
     Taken,
-    /// This rule's slot holds this very event: it ran on an earlier attempt.
-    AlreadyRan,
+    /// This rule's slot holds this very event: it ran on an earlier attempt,
+    /// and `stopped` the rules after it when it was a live run that got to
+    /// its `stop_processing` step. A failed or suppressed run stopped none.
+    AlreadyRan {
+        stopped: bool,
+    },
     /// Another event in the chain already ran the rule on the ticket.
     RanInChain,
     /// The chain ran [`CHAIN_RULE_CAP`] rules on the ticket.
@@ -954,18 +988,37 @@ fn take_slot(
     if taken > 0 {
         return Ok(Slot::Taken);
     }
-    let holder: Option<i64> = dsl::ticket_rule_runs
+    let holder: Option<(i64, bool)> = dsl::ticket_rule_runs
         .filter(dsl::root_id.eq(budget.root_id))
         .filter(dsl::ticket_id.eq(ticket_id))
         .filter(dsl::rule_id.eq(rule_id))
-        .select(dsl::sync_id)
+        .select((dsl::sync_id, dsl::stopped))
         .first(conn)
         .optional()?;
     Ok(match holder {
-        Some(sync_id) if sync_id == budget.sync_id => Slot::AlreadyRan,
+        Some((sync_id, stopped)) if sync_id == budget.sync_id => Slot::AlreadyRan { stopped },
         Some(_) => Slot::RanInChain,
         None => Slot::ChainCap,
     })
+}
+
+/// Mark the rule's slot as a run that stopped the rules after it, in the
+/// run's transaction.
+fn mark_slot_stopped(
+    conn: &mut DbConnection,
+    budget: RunBudget,
+    ticket_id: i32,
+    rule_id: i32,
+) -> QueryResult<usize> {
+    use crate::schema::ticket_rule_runs::dsl;
+    diesel::update(
+        dsl::ticket_rule_runs
+            .filter(dsl::root_id.eq(budget.root_id))
+            .filter(dsl::ticket_id.eq(ticket_id))
+            .filter(dsl::rule_id.eq(rule_id)),
+    )
+    .set(dsl::stopped.eq(true))
+    .execute(conn)
 }
 
 /// Take the rule's slot whatever the cap, for a run that ended in a row of
@@ -1178,7 +1231,12 @@ fn run_locked(
     if let Some(budget) = ctx.budget {
         match take_slot(conn, workspace_id, budget, ticket.id, rule.id)? {
             Slot::Taken => {}
-            Slot::AlreadyRan => return Err(ApplyError::AlreadyRan(rule.id)),
+            Slot::AlreadyRan { stopped } => {
+                return Err(ApplyError::AlreadyRan {
+                    rule: rule.id,
+                    stopped,
+                })
+            }
             Slot::RanInChain => return Err(ApplyError::RanInChain),
             Slot::ChainCap => return Err(ApplyError::ChainCap),
         }
@@ -1199,6 +1257,24 @@ fn run_locked(
     }
     let suppress: std::collections::HashSet<usize> =
         ctx.overrides.suppress_actions.iter().copied().collect();
+
+    // A rule's own write to a ticket "New ticket" made, and nobody has
+    // touched since, isn't its requester touching it: it stays blank, so the
+    // next "New ticket" still opens it. Whether it is still blank is read
+    // again under the row's lock, so an edit that committed since the read
+    // above counts, and none can land before this run commits.
+    let keep_blank = !shadow
+        && ctx.source != ApplySource::Manual
+        && ticket.blank_at == Some(ticket.updated_at)
+        && {
+            let (blank_at, updated_at): (Option<chrono::NaiveDateTime>, chrono::NaiveDateTime) =
+                t::tickets
+                    .find(ticket.id)
+                    .select((t::blank_at, t::updated_at))
+                    .for_no_key_update()
+                    .first(conn)?;
+            blank_at == Some(updated_at)
+        };
 
     let mut comment_id: Option<i32> = None;
     let mut actions_executed = 0usize;
@@ -1339,6 +1415,15 @@ fn run_locked(
         }
     }
     progress.step = None;
+
+    if keep_blank && actions_executed > 0 {
+        crate::repository::tickets::mark_blank(conn, ticket.id)?;
+    }
+    // A live run that got to its `stop_processing` step stopped the rules
+    // after it; a retry of the event stops there too, and only then.
+    if let (Some(budget), true) = (ctx.budget, stop_processing && !shadow) {
+        mark_slot_stopped(conn, budget, ticket.id, rule.id)?;
+    }
 
     // A shadow run changes nothing on the rule: it didn't fire.
     let updated_rule: Rule = if shadow {
@@ -1973,10 +2058,10 @@ fn execute_assign(
             })?
         }
         other => {
-            return Err(ApplyError::UnsupportedActionPhase1 {
+            return Err(ApplyError::ActionFailed {
                 index: action_index,
                 message: format!(
-                    "assign method '{other}' lands in Phase 2 when assignment_rules absorbs here"
+                    "assign method '{other}' isn't one a rule takes; assign a person (direct) or a team (group)"
                 ),
             });
         }
@@ -2837,6 +2922,38 @@ mod tests {
             writes("return_requester_assets"),
             vec!["asset.custody", "asset.loan"]
         );
+    }
+
+    #[test]
+    fn an_is_empty_guard_is_not_a_read_beyond_guards() {
+        let guard = json!({ "kind": "leaf", "field": "ticket.assignee_uuid", "op": "is_null" });
+        let priority =
+            json!({ "kind": "leaf", "field": "ticket.priority", "op": "eq", "value": "high" });
+        let set = |v: &[&str]| v.iter().map(|f| Some(f.to_string())).collect::<Vec<_>>();
+        // Under and groups from the root: a guard.
+        assert_eq!(
+            reads_beyond_guards(&json!({ "kind": "and", "children": [guard, priority] })),
+            set(&["ticket.priority"])
+        );
+        assert_eq!(reads_beyond_guards(&guard), set(&[]));
+        // Under or or not it decides what matches like any read.
+        for wrapped in [
+            json!({ "kind": "or", "children": [guard, priority] }),
+            json!({ "kind": "not", "child": guard }),
+        ] {
+            assert!(
+                reads_beyond_guards(&wrapped).contains(&Some("ticket.assignee_uuid".into())),
+                "{wrapped}"
+            );
+        }
+        // Any other read of the field counts.
+        let named = json!({ "kind": "leaf", "field": "ticket.assignee_uuid", "op": "eq",
+                            "value": "7b5f2c1e-3f0a-4c55-9f1d-0d1e2f3a4b5c" });
+        assert_eq!(
+            reads_beyond_guards(&json!({ "kind": "and", "children": [guard, named] })),
+            set(&["ticket.assignee_uuid"])
+        );
+        assert_eq!(reads_beyond_guards(&json!([])), set(&[]));
     }
 
     #[test]

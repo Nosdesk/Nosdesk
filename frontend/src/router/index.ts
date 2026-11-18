@@ -657,12 +657,8 @@ const router = createRouter({
           component: () => import('../views/admin/UserFieldsView.vue'),
           meta: { titleKey: 'route-title-admin-user-fields' }
         },
-        {
-          path: 'assignment-rules',
-          name: 'admin-assignment-rules',
-          component: () => import('../views/AssignmentRulesView.vue'),
-          meta: { titleKey: 'route-title-admin-assignment-rules' }
-        },
+        // Assignment rules became rules in 1.2.
+        { path: 'assignment-rules', redirect: '/admin/rules' },
         {
           path: 'workflow',
           name: 'admin-workflow',

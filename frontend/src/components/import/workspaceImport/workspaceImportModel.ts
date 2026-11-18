@@ -354,7 +354,6 @@ export const COUNT_KEYS: Record<string, string> = {
   working_calendars: 'workspace-import-n-calendars',
   saved_views: 'workspace-import-n-views',
   rules: 'workspace-import-n-rules',
-  assignment_rules: 'workspace-import-n-assignment-rules',
   canned_responses: 'workspace-import-n-replies',
   webhooks: 'workspace-import-n-webhooks',
   channels: 'workspace-import-n-channels',
@@ -371,7 +370,7 @@ export const AREAS: { id: string; label: string; tables: string[]; note?: string
   {
     id: 'config',
     label: 'workspace-import-area-config',
-    tables: ['workflow_states', 'ticket_categories', 'sla_policies', 'working_calendars', 'saved_views', 'rules', 'assignment_rules', 'canned_responses'],
+    tables: ['workflow_states', 'ticket_categories', 'sla_policies', 'working_calendars', 'saved_views', 'rules', 'canned_responses'],
   },
   { id: 'integrations', label: 'workspace-import-area-integrations', tables: ['webhooks', 'channels', 'plugins'], note: 'workspace-import-area-integrations-note' },
 ]

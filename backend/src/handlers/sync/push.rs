@@ -29,7 +29,6 @@ use crate::middleware::RequestContext;
 use crate::models::{Project, ProjectUpdate, SyncAggregate, SyncOp, TicketUpdate};
 use crate::repository::tickets::{TicketUpdatedObserver, TicketWriteError};
 use crate::services::search::SearchService;
-use crate::services::ticket_updates::{after_update, ActorConn};
 use crate::sync::actor::{ActorContext, ActorKind};
 use crate::sync::session;
 
@@ -385,23 +384,20 @@ fn apply_ticket(
                     return Err(forbidden());
                 }
             }
-            let category_changed = patch.category_id.is_some();
             let observer = search.map(|s| s as &dyn TicketUpdatedObserver);
             // The write refuses an assignee who can't work tickets.
-            let (updated, sync_id) = run_with_actor(conn, actor, |conn| {
-                let updated = if has_scalar {
-                    Some(crate::repository::tickets::update_ticket_partial(
+            run_with_actor(conn, actor, |conn| {
+                if has_scalar {
+                    crate::repository::tickets::update_ticket_partial(
                         conn, ticket_id, patch, observer,
-                    )?)
-                } else {
-                    None
-                };
+                    )?;
+                }
                 if let Some(tag_ids) = &tag_ids {
                     crate::repository::tags::set_tags_for_ticket(
                         conn, ticket_id, tag_ids, actor_uuid,
                     )?;
                 }
-                Ok((updated, latest_sync_id(conn)?))
+                Ok(latest_sync_id(conn)?)
             })
             .map_err(|e| match e {
                 TicketWriteError::IneligibleAssignee(_) => TxReject(
@@ -413,18 +409,7 @@ fn apply_ticket(
                     crate::repository::tickets::MERGED_TICKET.into(),
                 ),
                 TicketWriteError::Database(e) => reject_diesel(e),
-            })?;
-            // What the REST PATCH does next: assignment on a category change.
-            // (A recurring ticket's next occurrence came from the write.)
-            if let Some(updated) = &updated {
-                after_update(
-                    &mut ActorConn { conn, actor },
-                    search,
-                    updated,
-                    category_changed,
-                );
-            }
-            Ok(sync_id)
+            })
         }
         SyncOp::Insert => Err(TxReject(
             "use_rest_endpoint",

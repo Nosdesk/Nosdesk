@@ -582,7 +582,7 @@ fn insert_rule(
         return Err(refused(step_person_refused(problem)));
     }
 
-    let reads = rules::derive_reads_set(&conditions);
+    let reads = rules::reads_beyond_guards(&conditions);
     let writes = rules::derive_writes_set(&actions);
 
     if let Err(e) = check_self_referential(&reads, &writes, override_self_reference) {
@@ -736,7 +736,7 @@ pub async fn update_rule(
         Ok(predicate) => predicate,
         Err(resp) => return Ok(*resp),
     };
-    let reads = rules::derive_reads_set(&effective_conditions);
+    let reads = rules::reads_beyond_guards(&effective_conditions);
     let writes = rules::derive_writes_set(&effective_actions);
     if let Err(e) = check_self_referential(&reads, &writes, override_self_reference) {
         return Ok(errors::conflict_with_code(
@@ -1282,7 +1282,7 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
         NoRequester { .. } => errors::bad_request_with_code(message, "RULE_NO_REQUESTER"),
         AssetRefused { .. } => errors::conflict_with_code(message, "RULE_ASSET_REFUSED"),
         // Only the engine's runs carry a budget or an email source.
-        AlreadyRan(_) | RanInChain | ChainCap | AutomatedSource => {
+        AlreadyRan { .. } | RanInChain | ChainCap | AutomatedSource => {
             errors::conflict_with_code(message, "RULE_SUPPRESSED")
         }
         Db(e) => errors::db_error(&e),
@@ -1680,6 +1680,28 @@ mod tests {
         let reads = vec![Some("ticket.title".to_string())];
         let writes = vec![Some("ticket.priority".to_string())];
         assert!(check_self_referential(&reads, &writes, false).is_ok());
+    }
+
+    /// "Assignee is empty, then assign" guards on the field it writes; its
+    /// write can't meet its conditions again, so it saves without the
+    /// override. Reading the assignee any other way still needs it.
+    #[test]
+    fn self_ref_check_passes_an_is_empty_guard() {
+        let guard =
+            serde_json::json!({ "kind": "leaf", "field": "ticket.assignee_uuid", "op": "is_null" });
+        let writes = rules::derive_writes_set(&serde_json::json!([
+            { "kind": "assign", "config": { "method": "group", "group_id": 3 } },
+            { "kind": "stop_processing" },
+        ]));
+        let guarded = serde_json::json!({ "kind": "and", "children": [guard] });
+        assert!(
+            check_self_referential(&rules::reads_beyond_guards(&guarded), &writes, false).is_ok()
+        );
+        let not_empty = serde_json::json!({ "kind": "not", "child": guard });
+        assert!(
+            check_self_referential(&rules::reads_beyond_guards(&not_empty), &writes, false)
+                .is_err()
+        );
     }
 
     #[test]

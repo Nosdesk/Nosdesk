@@ -202,7 +202,6 @@ fn presses_that_arrive_together_get_one_ticket() {
                             actor: &actor,
                         },
                         requester,
-                        None,
                     )? {
                         BlankTicket::Reused(t) | BlankTicket::Made(t, _) => {
                             Ok::<_, diesel::result::Error>(t.id)
@@ -221,41 +220,54 @@ fn presses_that_arrive_together_get_one_ticket() {
     assert_eq!(tickets_of(&pool, &a, a.admin_uuid), 1);
 }
 
-/// The assignment rules assigning the new ticket are part of making it: it is
-/// still blank, and the next press opens it.
+/// A live rule assigning every new ticket nobody is assigned to the admin.
+fn everything_to_the_admin(pool: &common::TestPool, a: &common::WorkspaceSeed) {
+    use backend::models::{NewRule, RuleState, RuleTriggerKind};
+    as_user(pool, a, a.admin_uuid, |c| {
+        backend::repository::rules::create(
+            c,
+            NewRule {
+                workspace_id: a.workspace_id,
+                name: "Everything to the admin".into(),
+                description: None,
+                trigger_kind: RuleTriggerKind::TicketCreated,
+                trigger_config: serde_json::json!({}),
+                conditions: serde_json::json!({ "kind": "and", "children": [
+                    { "kind": "leaf", "field": "ticket.assignee_uuid", "op": "is_null" },
+                ] }),
+                actions: serde_json::json!([
+                    { "kind": "assign", "config": { "method": "direct", "user_uuid": a.admin_uuid } },
+                    { "kind": "stop_processing" },
+                ]),
+                reads_set: Vec::new(),
+                writes_set: Vec::new(),
+                state: RuleState::Live,
+                priority: 1010,
+                created_by: Some(a.admin_uuid),
+            },
+        )
+    });
+}
+
+/// The rules engine assigning the new ticket doesn't count as touching it:
+/// it stays blank, and the next press opens it.
 #[actix_web::test]
 async fn a_blank_ticket_the_rules_assigned_is_still_blank() {
-    use backend::models::{AssignmentMethod, NewAssignmentRule};
-    use backend::schema::assignment_rules;
+    use backend::services::rules::engine::Dispatcher;
 
     common::ensure_test_keyring();
     let db = common::TestDb::new();
     let pool = db.pool_with_size(4);
     let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
     let a = &seeded.a;
+    let engine = Dispatcher::new(db.runtime_pool(2), None);
     let search_dir = tempfile::tempdir().expect("search dir");
     let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
-    as_user(&pool, a, a.admin_uuid, |c| {
-        diesel::insert_into(assignment_rules::table)
-            .values(&NewAssignmentRule {
-                name: "Everything to the admin".into(),
-                description: None,
-                priority: 1,
-                is_active: true,
-                method: AssignmentMethod::DirectUser,
-                target_user_uuid: Some(a.admin_uuid),
-                target_group_id: None,
-                trigger_on_create: true,
-                trigger_on_category_change: false,
-                category_id: None,
-                conditions: None,
-                created_by: Some(a.admin_uuid),
-            })
-            .execute(c)
-    });
+    everything_to_the_admin(&pool, a);
 
     let (status, first) = press_new_ticket!(pool, search, a, a.member_uuid);
     assert_eq!(status, StatusCode::CREATED);
+    while engine.dispatch_batch().await.expect("dispatch") > 0 {}
     let assignee: Option<Uuid> = as_user(&pool, a, a.admin_uuid, |c| {
         tickets::table
             .find(first)
@@ -267,4 +279,64 @@ async fn a_blank_ticket_the_rules_assigned_is_still_blank() {
     let (status, again) = press_new_ticket!(pool, search, a, a.member_uuid);
     assert_eq!(status, StatusCode::OK);
     assert_eq!(again, first);
+}
+
+/// A ticket its requester edits while a rule runs on it isn't made blank
+/// again by the rule: the run reads it again under the row's lock, after the
+/// edit, and the next press makes a new ticket.
+#[actix_web::test]
+async fn a_ticket_edited_while_a_rule_runs_is_not_blank_again() {
+    use backend::services::rules::engine::Dispatcher;
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let a = seeded.a.clone();
+    let engine = Dispatcher::new(db.runtime_pool(2), None);
+    let search_dir = tempfile::tempdir().expect("search dir");
+    let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
+    everything_to_the_admin(&pool, &a);
+
+    let (status, first) = press_new_ticket!(pool, search, &a, a.member_uuid);
+    assert_eq!(status, StatusCode::CREATED);
+
+    // The requester retitles it, and the edit holds the ticket's row until it
+    // commits, while the rule runs.
+    let edit = {
+        let pool = pool.clone();
+        let a = a.clone();
+        std::thread::spawn(move || {
+            let actor = ActorContext::user(a.member_uuid, None).with_workspace(a.workspace_id);
+            with_actor_context(&mut pool.get().expect("conn"), &actor, |c| {
+                backend::repository::tickets::update_ticket_partial(
+                    c,
+                    first,
+                    TicketUpdate {
+                        title: Some("Printer jam".to_string()),
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
+                std::thread::sleep(std::time::Duration::from_millis(600));
+                Ok::<_, diesel::result::Error>(())
+            })
+            .expect("edit")
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    while engine.dispatch_batch().await.expect("dispatch") > 0 {}
+    edit.join().expect("edit thread");
+
+    let assignee: Option<Uuid> = as_user(&pool, &a, a.admin_uuid, |c| {
+        tickets::table
+            .find(first)
+            .select(tickets::assignee_uuid)
+            .first(c)
+    });
+    assert_eq!(assignee, Some(a.admin_uuid), "the rule assigned it");
+    let (status, next) = press_new_ticket!(pool, search, &a, a.member_uuid);
+    assert_eq!(status, StatusCode::CREATED, "the edited ticket isn't blank");
+    assert_ne!(next, first);
 }

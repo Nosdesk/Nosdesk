@@ -207,7 +207,7 @@ impl Importer for TicketImporter {
                 requester_uuid: resolved.requester_uuid,
                 assignee_uuid: resolved.assignee_uuid,
                 category_id: resolved.category_id,
-                submitted_via: Some("csv_import".to_string()),
+                submitted_via: Some(crate::models::CSV_IMPORT.to_string()),
                 guest_lookup_token: None,
                 verification_state: None,
                 origin_channel_id: None,

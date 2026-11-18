@@ -457,16 +457,6 @@ pub const NO_IDS: &[(&str, &str, &str)] = &[
         "a field schema; `assetKind` names a kind by slug",
     ),
     (
-        "assignment_log",
-        "context",
-        "the rule's name and priority as display values",
-    ),
-    (
-        "assignment_rules",
-        "conditions",
-        "priority, category names and title text; targets are columns",
-    ),
-    (
         "channel_messages",
         "raw_metadata",
         "mail headers as received",
@@ -508,7 +498,7 @@ pub const NO_IDS: &[(&str, &str, &str)] = &[
     (
         "rule_applications",
         "condition_evaluation",
-        "whether the conditions matched, the trigger, event type, changed field names and reply kind",
+        "whether the conditions matched, the trigger, event type, changed field names and reply kind; for an assignment from 1.1, its old method",
     ),
     (
         "rules",

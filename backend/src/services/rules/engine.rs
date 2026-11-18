@@ -14,11 +14,15 @@
 //! `trigger_config.changed_fields_include` names a changed field, or is
 //! empty), and a public `comment.created` to `ticket_replied` (by
 //! `trigger_config.reply_kind`: customer, agent or any). The message a
-//! ticket was opened with is not a reply.
+//! ticket was opened with is not a reply. An imported ticket's creation runs
+//! nothing.
 //!
 //! A ticket held for approval or merged is turned away before any rule runs;
 //! that leaves no application row, only a count on each rule it would have
-//! run. So does a live rule whose conditions aren't met. A dry-run rule runs
+//! run. So does a live rule whose conditions aren't met. A held request's
+//! creation rules never run from its `ticket.created` (`rules_held_at`); the
+//! approval that lets it go ahead releases them (`rules_released_at`) and
+//! queues its `ticket.approval_decided` to run them, once. A dry-run rule runs
 //! in shadow: it records what it would do (a skip too) and changes nothing,
 //! and its `stop_processing` stops nothing.
 //!
@@ -184,28 +188,6 @@ pub fn fail(
         .execute(conn)
 }
 
-/// Run `kind`'s rules on a ticket as if its event had just happened: a
-/// request held for approval runs its `ticket_created` rules once it is
-/// approved, since the approval records no event a trigger reads. Queues the
-/// ticket's `ticket.created` for the engine again, in the caller's
-/// transaction, so it runs once that commits. Only `ticket_created` has an
-/// event to run again; other kinds queue nothing. Returns whether a run was
-/// queued.
-pub fn run_trigger_for_ticket(
-    conn: &mut DbConnection,
-    ticket_id: i32,
-    kind: RuleTriggerKind,
-) -> QueryResult<bool> {
-    if kind != RuleTriggerKind::TicketCreated {
-        return Ok(false);
-    }
-    let Some(sync_id) = repo::created_event(conn, ticket_id)? else {
-        return Ok(false);
-    };
-    let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
-    Ok(repo::queue_rerun(conn, sync_id, ticket.workspace_id)? > 0)
-}
-
 /// Relay a rule's public reply to the requester's channel once the run has
 /// committed: the enqueue a reply posted from the ticket gets. Loads the
 /// ticket and comment fresh in the ticket's workspace. Internal notes and
@@ -253,6 +235,9 @@ struct Event {
     /// For a reply, the comment and its author.
     comment: Option<(i32, Uuid)>,
     changed_fields: Vec<String>,
+    /// The approval that released a held request's creation rules, which
+    /// runs them in place of its `ticket.created`.
+    release: bool,
 }
 
 impl Event {
@@ -265,11 +250,14 @@ impl Event {
         };
         let ticket_id = || aggregate_id.and_then(|id| id.parse::<i32>().ok());
         match event_type {
-            "ticket.created" => Some(Self {
+            // A held request's approval is queued only to release it: its
+            // creation rules run now (`ticket_approvals::release_held_rules`).
+            "ticket.created" | "ticket.approval_decided" => Some(Self {
                 kind: RuleTriggerKind::TicketCreated,
                 ticket_id: ticket_id()?,
                 comment: None,
                 changed_fields: Vec::new(),
+                release: event_type == "ticket.approval_decided",
             }),
             "comment.created" => {
                 if data.get("is_internal").and_then(Value::as_bool) != Some(false) {
@@ -284,6 +272,7 @@ impl Event {
                     ticket_id: int(data.get("ticket_id"))?,
                     comment: Some((int(data.get("id"))?, author)),
                     changed_fields: Vec::new(),
+                    release: false,
                 })
             }
             t if t.starts_with("ticket.") => {
@@ -304,6 +293,7 @@ impl Event {
                     ticket_id: ticket_id()?,
                     comment: None,
                     changed_fields,
+                    release: false,
                 })
             }
             _ => None,
@@ -651,7 +641,7 @@ impl Dispatcher {
                 Err(failed) => match failed.error {
                     // Ran on an earlier attempt at this event and stopped the
                     // rules after it then; otherwise the next rule runs.
-                    ApplyError::AlreadyRan(_) if !shadow && stops_processing(rule) => break,
+                    ApplyError::AlreadyRan { stopped: true, .. } if !shadow => break,
                     ApplyError::TicketNotFound(_) | ApplyError::TicketMerged(_) => break,
                     e if e.is_transient() && !run.last_attempt => {
                         warn!(sync_id = run.sync_id, rule_id = rule.id, error = %e, "rules engine: rule run failed; retrying the event");
@@ -755,15 +745,6 @@ fn again(run: &Run, kind: &'static str, error: &diesel::result::Error) -> Handle
     Handled::Again(kind)
 }
 
-/// Whether a rule ends with `stop_processing`, so no rule after it runs.
-fn stops_processing(rule: &Rule) -> bool {
-    rule.actions
-        .as_array()
-        .into_iter()
-        .flatten()
-        .any(|step| step.get("kind").and_then(Value::as_str) == Some("stop_processing"))
-}
-
 /// The event's ticket and the rules it runs, or `None` when none run: no
 /// rule takes the event, the ticket is gone, the comment opened the ticket,
 /// or the ticket is held for approval or merged (counted on each rule).
@@ -791,6 +772,11 @@ fn prepare(
         reply_author_role =
             crate::repository::workspaces::get_membership_role(conn, ticket.workspace_id, author)?;
     }
+    // An imported ticket is history, not a request: its creation runs no
+    // rules.
+    if event.kind == RuleTriggerKind::TicketCreated && ticket.is_imported() {
+        return Ok(None);
+    }
     let rules: Vec<Rule> = repo::event_candidates(conn, event.kind)?
         .into_iter()
         .filter(|rule| trigger_takes(rule, &event.changed_fields, reply_kind.as_deref()))
@@ -798,9 +784,18 @@ fn prepare(
     if rules.is_empty() {
         return Ok(None);
     }
-    if crate::repository::ticket_approvals::held_for_approval(conn, &ticket)?
-        || crate::repository::ticket_merge::is_merge_source(conn, ticket.id)?
-    {
+    // A held request's creation rules run once, from the approval that
+    // released them, never from its `ticket.created`, however the two events
+    // are ordered. Other events wait while the workspace holds waiting
+    // requests.
+    if event.release && ticket.rules_released_at.is_none() {
+        return Ok(None);
+    }
+    let held = match event.kind {
+        RuleTriggerKind::TicketCreated => !event.release && ticket.rules_held_at.is_some(),
+        _ => crate::repository::ticket_approvals::held_for_approval(conn, &ticket)?,
+    };
+    if held || crate::repository::ticket_merge::is_merge_source(conn, ticket.id)? {
         let ids: Vec<i32> = rules.iter().map(|r| r.id).collect();
         repo::count_skips(conn, &ids, SkipCount::Preflight)?;
         return Ok(None);
@@ -974,6 +969,18 @@ mod tests {
         .unwrap();
         assert_eq!(update.kind, RuleTriggerKind::TicketUpdated);
         assert_eq!(update.changed_fields, vec!["ticket.priority".to_string()]);
+
+        // Queued only to release a held request: its creation rules run.
+        let released = Event::read(
+            "ticket.approval_decided",
+            Some("7"),
+            &json!({ "approval_state": "approved" }),
+        )
+        .unwrap();
+        assert_eq!(
+            (released.kind, released.ticket_id),
+            (RuleTriggerKind::TicketCreated, 7)
+        );
 
         let unchanged = json!({ "changed_fields": [] });
         assert!(Event::read("ticket.updated", Some("7"), &unchanged).is_none());

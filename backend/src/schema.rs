@@ -2,10 +2,6 @@
 
 pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "assignment_method"))]
-    pub struct AssignmentMethod;
-
-    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "documentation_status"))]
     pub struct DocumentationStatus;
 
@@ -347,62 +343,6 @@ diesel::table! {
         status -> Varchar,
         model_id -> Nullable<Int4>,
         managed_by_user_uuid -> Nullable<Uuid>,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::AssignmentMethod;
-
-    assignment_log (id) {
-        id -> Int4,
-        ticket_id -> Int4,
-        rule_id -> Nullable<Int4>,
-        #[max_length = 50]
-        trigger_type -> Varchar,
-        previous_assignee_uuid -> Nullable<Uuid>,
-        new_assignee_uuid -> Nullable<Uuid>,
-        method -> AssignmentMethod,
-        context -> Nullable<Jsonb>,
-        assigned_at -> Timestamptz,
-        workspace_id -> Int4,
-    }
-}
-
-diesel::table! {
-    assignment_rule_state (rule_id) {
-        rule_id -> Int4,
-        last_assigned_index -> Int4,
-        total_assignments -> Int4,
-        last_assigned_at -> Nullable<Timestamptz>,
-        last_assigned_user_uuid -> Nullable<Uuid>,
-        workspace_id -> Int4,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::AssignmentMethod;
-
-    assignment_rules (id) {
-        id -> Int4,
-        uuid -> Uuid,
-        #[max_length = 255]
-        name -> Varchar,
-        description -> Nullable<Text>,
-        priority -> Int4,
-        is_active -> Bool,
-        method -> AssignmentMethod,
-        target_user_uuid -> Nullable<Uuid>,
-        target_group_id -> Nullable<Int4>,
-        trigger_on_create -> Bool,
-        trigger_on_category_change -> Bool,
-        category_id -> Nullable<Int4>,
-        conditions -> Nullable<Jsonb>,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        created_by -> Nullable<Uuid>,
-        workspace_id -> Int4,
     }
 }
 
@@ -1887,6 +1827,7 @@ diesel::table! {
         fired_at -> Timestamptz,
         workspace_id -> Int4,
         sync_id -> Int8,
+        stopped -> Bool,
     }
 }
 
@@ -1958,6 +1899,8 @@ diesel::table! {
         number -> Int4,
         raised_by_staff -> Bool,
         blank_at -> Nullable<Timestamptz>,
+        rules_held_at -> Nullable<Timestamptz>,
+        rules_released_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -2550,10 +2493,6 @@ diesel::joinable!(asset_models -> workspaces (workspace_id));
 diesel::joinable!(asset_usage_log -> users (recorded_by));
 diesel::joinable!(asset_usage_log -> workspaces (workspace_id));
 diesel::joinable!(assets -> workspaces (workspace_id));
-diesel::joinable!(assignment_log -> workspaces (workspace_id));
-diesel::joinable!(assignment_rule_state -> users (last_assigned_user_uuid));
-diesel::joinable!(assignment_rule_state -> workspaces (workspace_id));
-diesel::joinable!(assignment_rules -> workspaces (workspace_id));
 diesel::joinable!(attachments -> users (uploaded_by));
 diesel::joinable!(attachments -> workspaces (workspace_id));
 diesel::joinable!(audit_log -> workspaces (workspace_id));
@@ -2728,9 +2667,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     asset_models,
     asset_usage_log,
     assets,
-    assignment_log,
-    assignment_rule_state,
-    assignment_rules,
     attachments,
     audit_log,
     audit_log_default,
