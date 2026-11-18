@@ -234,7 +234,7 @@ once_cell = "1.19"         # Lazy initialization for OIDC client cache
 
 # WebAuthn/Passkey support
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation", "conditional-ui"] }
-webauthn-rs-proto = "0.5"  # Protocol types for WebAuthn
+webauthn-rs-proto = "0.6"  # Protocol types for WebAuthn
 
 # Backup and restore dependencies
 zip = "9.0.5"              # ZIP archive creation and reading
