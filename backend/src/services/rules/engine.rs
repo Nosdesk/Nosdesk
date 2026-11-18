@@ -17,6 +17,15 @@
 //! ticket was opened with is not a reply. An imported ticket's creation runs
 //! nothing.
 //!
+//! A plugin's event (aggregate `plugin`, emitted by the plugin through a
+//! member's session) maps to `plugin_event` when its payload names a ticket
+//! (`data.event.ticket_id`), and runs the rules whose `trigger_config` names
+//! that plugin and event type. It runs only if the plugin may read the
+//! ticket: the plugin is still active and declares the event, it was granted
+//! `ticket:read`, and the member it emitted for is staff (an agent or above)
+//! and can see the ticket. Otherwise nothing runs and nothing is counted. A
+//! run's `condition_evaluation` names that member in `emitted_by`.
+//!
 //! A ticket held for approval or merged is turned away before any rule runs;
 //! that leaves no application row, only a count on each rule it would have
 //! run. So does a live rule whose conditions aren't met. A held request's
@@ -122,6 +131,12 @@ pub struct Claimed {
     pub groups: Option<Vec<Option<String>>>,
     #[diesel(sql_type = Nullable<BigInt>)]
     pub xid8: Option<i64>,
+    #[diesel(sql_type = Nullable<Text>)]
+    pub aggregate: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_kind: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_ref: Option<String>,
 }
 
 /// Claim due rows and load their source events in one short transaction. A
@@ -148,7 +163,8 @@ pub fn claim_batch(conn: &mut DbConnection) -> QueryResult<Vec<Claimed>> {
         )
         SELECT c.sync_id, c.attempts, c.rerun, c.enqueued_at,
                s.workspace_id, s.event_uuid, s.event_type, s.aggregate_id, s.data,
-               s.correlation_id, s.occurred_at, s.groups, s.xid8
+               s.correlation_id, s.occurred_at, s.groups, s.xid8,
+               s.aggregate::text AS aggregate, s.actor_kind::text AS actor_kind, s.actor_ref
           FROM claimed c
           LEFT JOIN sync_actions s
                  ON s.sync_id = c.sync_id AND s.workspace_id = c.workspace_id
@@ -238,6 +254,31 @@ struct Event {
     /// The approval that released a held request's creation rules, which
     /// runs them in place of its `ticket.created`.
     release: bool,
+    /// For a plugin's event, the plugin and who it emitted for.
+    plugin: Option<PluginSource>,
+}
+
+/// The plugin a `plugin_event` came from.
+#[derive(Debug, Clone, PartialEq)]
+struct PluginSource {
+    plugin_uuid: Uuid,
+    event_type: String,
+    /// The member whose session the plugin emitted through.
+    emitter: Option<Uuid>,
+}
+
+impl PluginSource {
+    /// Whether a `plugin_event` rule's settings name this plugin and event.
+    fn takes(&self, rule: &Rule) -> bool {
+        let config = &rule.trigger_config;
+        rule.trigger_kind == RuleTriggerKind::PluginEvent
+            && config
+                .get("plugin_uuid")
+                .and_then(Value::as_str)
+                .and_then(|u| Uuid::parse_str(u).ok())
+                == Some(self.plugin_uuid)
+            && config.get("event_type").and_then(Value::as_str) == Some(self.event_type.as_str())
+    }
 }
 
 impl Event {
@@ -258,6 +299,7 @@ impl Event {
                 comment: None,
                 changed_fields: Vec::new(),
                 release: event_type == "ticket.approval_decided",
+                plugin: None,
             }),
             "comment.created" => {
                 if data.get("is_internal").and_then(Value::as_bool) != Some(false) {
@@ -273,6 +315,7 @@ impl Event {
                     comment: Some((int(data.get("id"))?, author)),
                     changed_fields: Vec::new(),
                     release: false,
+                    plugin: None,
                 })
             }
             t if t.starts_with("ticket.") => {
@@ -294,10 +337,42 @@ impl Event {
                     comment: None,
                     changed_fields,
                     release: false,
+                    plugin: None,
                 })
             }
             _ => None,
         }
+    }
+
+    /// A plugin's event: `None` unless the plugin itself recorded it and its
+    /// payload names a ticket.
+    fn from_plugin(
+        event_type: &str,
+        aggregate_id: Option<&str>,
+        actor_kind: Option<&str>,
+        actor_ref: Option<&str>,
+        data: &Value,
+    ) -> Option<Self> {
+        if actor_kind != Some("plugin") {
+            return None;
+        }
+        let ticket_id = data
+            .get("event")
+            .and_then(|e| e.get("ticket_id"))
+            .and_then(Value::as_i64)
+            .and_then(|n| i32::try_from(n).ok())?;
+        Some(Self {
+            kind: RuleTriggerKind::PluginEvent,
+            ticket_id,
+            comment: None,
+            changed_fields: Vec::new(),
+            release: false,
+            plugin: Some(PluginSource {
+                plugin_uuid: Uuid::parse_str(aggregate_id?).ok()?,
+                event_type: event_type.to_string(),
+                emitter: actor_ref.and_then(crate::services::plugins::access::event_emitter),
+            }),
+        })
     }
 }
 
@@ -342,6 +417,8 @@ fn trigger_takes(rule: &Rule, changed_fields: &[String], reply_kind: Option<&str
                 wanted => Some(wanted) == reply_kind,
             }
         }
+        // Runs on its plugin's events only (`PluginSource::takes`).
+        RuleTriggerKind::PluginEvent => false,
         _ => true,
     }
 }
@@ -489,7 +566,18 @@ impl Dispatcher {
             );
             return Handled::Done;
         }
-        let Some(event) = Event::read(event_type, row.aggregate_id.as_deref(), data) else {
+        let event = if row.aggregate.as_deref() == Some("plugin") {
+            Event::from_plugin(
+                event_type,
+                row.aggregate_id.as_deref(),
+                row.actor_kind.as_deref(),
+                row.actor_ref.as_deref(),
+                data,
+            )
+        } else {
+            Event::read(event_type, row.aggregate_id.as_deref(), data)
+        };
+        let Some(event) = event else {
             return Handled::Done;
         };
         let mut conn = match self.pool.get() {
@@ -565,13 +653,17 @@ impl Dispatcher {
                 }
             };
             let matched = predicate.matches(&facts, Some(&event_facts));
-            let evaluation = json!({
+            let mut evaluation = json!({
                 "matched": matched,
                 "trigger": rule.trigger_kind.as_str(),
                 "event_type": run.event_type,
                 "changed_fields": event_facts.changed_fields,
                 "reply_kind": event_facts.reply_kind,
             });
+            // A plugin's event: the staff member it was emitted for.
+            if let Some(emitter) = event.plugin.as_ref().and_then(|p| p.emitter) {
+                evaluation["emitted_by"] = json!(emitter);
+            }
             if !matched {
                 let recorded = if shadow {
                     record(
@@ -747,7 +839,8 @@ fn again(run: &Run, kind: &'static str, error: &diesel::result::Error) -> Handle
 
 /// The event's ticket and the rules it runs, or `None` when none run: no
 /// rule takes the event, the ticket is gone, the comment opened the ticket,
-/// or the ticket is held for approval or merged (counted on each rule).
+/// a plugin's event names a ticket the plugin may not read, or the ticket
+/// is held for approval or merged (counted on each rule).
 fn prepare(
     conn: &mut DbConnection,
     event: &Event,
@@ -758,6 +851,17 @@ fn prepare(
     else {
         return Ok(None);
     };
+    if let Some(source) = &event.plugin {
+        if !crate::repository::plugins::plugin_event_runs_rules(
+            conn,
+            source.plugin_uuid,
+            &source.event_type,
+            source.emitter,
+            ticket.id,
+        )? {
+            return Ok(None);
+        }
+    }
     let mut reply_kind = None;
     let mut reply_author_role = None;
     if let Some((_, author)) = event.comment {
@@ -779,7 +883,10 @@ fn prepare(
     }
     let rules: Vec<Rule> = repo::event_candidates(conn, event.kind)?
         .into_iter()
-        .filter(|rule| trigger_takes(rule, &event.changed_fields, reply_kind.as_deref()))
+        .filter(|rule| match &event.plugin {
+            Some(source) => source.takes(rule),
+            None => trigger_takes(rule, &event.changed_fields, reply_kind.as_deref()),
+        })
         .collect();
     if rules.is_empty() {
         return Ok(None);
@@ -1041,5 +1148,75 @@ mod tests {
         assert_eq!(kinds(json!({ "reply_kind": "agent" })), (false, true));
         assert_eq!(kinds(json!({ "reply_kind": "any" })), (true, true));
         assert_eq!(kinds(json!({})), (true, false), "the editor's default");
+    }
+
+    #[test]
+    fn a_plugin_event_naming_a_ticket_serves_the_plugin_trigger() {
+        let plugin = Uuid::now_v7();
+        let member = Uuid::now_v7();
+        let recorded =
+            crate::services::plugins::access::event_emitter_ref("github", &member.to_string());
+        let read = |actor_kind: &str, data: Value| {
+            Event::from_plugin(
+                "github:issue_linked",
+                Some(&plugin.to_string()),
+                Some(actor_kind),
+                Some(&recorded),
+                &data,
+            )
+        };
+        let event = read("plugin", json!({ "event": { "ticket_id": 7 } })).unwrap();
+        assert_eq!(
+            (event.kind, event.ticket_id),
+            (RuleTriggerKind::PluginEvent, 7)
+        );
+        assert_eq!(
+            event.plugin,
+            Some(PluginSource {
+                plugin_uuid: plugin,
+                event_type: "github:issue_linked".into(),
+                emitter: Some(member),
+            })
+        );
+        // No ticket named, or not by number: nothing runs.
+        assert!(read("plugin", json!({ "event": { "issue": 7 } })).is_none());
+        assert!(read("plugin", json!({ "event": { "ticket_id": "7" } })).is_none());
+        assert!(read("plugin", json!({ "ticket_id": 7 })).is_none());
+        // A plugin's lifecycle row, written by a person, is not its event.
+        assert!(read("user", json!({ "event": { "ticket_id": 7 } })).is_none());
+    }
+
+    #[test]
+    fn a_plugin_rule_runs_on_its_own_plugin_and_event_only() {
+        let plugin = Uuid::now_v7();
+        let source = PluginSource {
+            plugin_uuid: plugin,
+            event_type: "github:issue_linked".into(),
+            emitter: None,
+        };
+        let config = |uuid: String, event: &str| {
+            rule(
+                RuleTriggerKind::PluginEvent,
+                json!({ "plugin_uuid": uuid, "event_type": event }),
+            )
+        };
+        assert!(source.takes(&config(plugin.to_string(), "github:issue_linked")));
+        assert!(source.takes(&config(
+            plugin.to_string().to_uppercase(),
+            "github:issue_linked"
+        )));
+        assert!(!source.takes(&config(plugin.to_string(), "github:pr_merged")));
+        assert!(!source.takes(&config(Uuid::now_v7().to_string(), "github:issue_linked")));
+        assert!(!source.takes(&rule(RuleTriggerKind::PluginEvent, json!({}))));
+        // A ticket trigger never takes a plugin's event, nor a plugin
+        // trigger a ticket's.
+        let mut created = config(plugin.to_string(), "github:issue_linked");
+        created.trigger_kind = RuleTriggerKind::TicketCreated;
+        assert!(!source.takes(&created));
+        assert!(!trigger_takes(
+            &config(plugin.to_string(), "github:issue_linked"),
+            &["ticket.priority".to_string()],
+            None
+        ));
     }
 }

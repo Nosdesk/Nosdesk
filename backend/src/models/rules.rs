@@ -83,8 +83,9 @@ impl FromSql<crate::schema::sql_types::RuleState, Pg> for RuleState {
 /// What kind of event a rule reacts to. `manual` (Phase 1) is fired
 /// from the agent Actions toolbar; the rest (Phase 2+) are fired by
 /// the engine subscribing to the existing `sync_actions` stream
-/// (ticket_created / ticket_updated / ticket_replied) or the
-/// per-ticket due_at queue (time_elapsed).
+/// (ticket_created / ticket_updated / ticket_replied, and plugin_event
+/// for an event a plugin emitted naming a ticket) or the per-ticket
+/// due_at queue (time_elapsed).
 #[derive(
     Debug,
     Serialize,
@@ -109,6 +110,11 @@ pub enum RuleTriggerKind {
     TicketReplied,
     #[serde(rename = "time_elapsed")]
     TimeElapsed,
+    /// An event an installed plugin emitted, naming a ticket the plugin may
+    /// read. `trigger_config` names the plugin (`plugin_uuid`) and its
+    /// event (`event_type`).
+    #[serde(rename = "plugin_event")]
+    PluginEvent,
 }
 
 impl RuleTriggerKind {
@@ -119,6 +125,7 @@ impl RuleTriggerKind {
             Self::TicketUpdated => "ticket_updated",
             Self::TicketReplied => "ticket_replied",
             Self::TimeElapsed => "time_elapsed",
+            Self::PluginEvent => "plugin_event",
         }
     }
 }
@@ -138,6 +145,7 @@ impl FromSql<crate::schema::sql_types::RuleTriggerKind, Pg> for RuleTriggerKind 
             b"ticket_updated" => Ok(Self::TicketUpdated),
             b"ticket_replied" => Ok(Self::TicketReplied),
             b"time_elapsed" => Ok(Self::TimeElapsed),
+            b"plugin_event" => Ok(Self::PluginEvent),
             other => Err(format!(
                 "unknown rule_trigger_kind: {}",
                 String::from_utf8_lossy(other)
