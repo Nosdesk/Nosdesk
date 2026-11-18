@@ -104,7 +104,7 @@ log = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-actix-web = "0.7"
-mockall = { version = "0.13.0", optional = true }
+mockall = { version = "0.15.0", optional = true }
 actix-service = "2.0.2"
 derive_more = "2.1.1"
 rand = "0.10.1"             # Random number generation for auth state
@@ -285,7 +285,7 @@ sha2 = "0.10"
 actix-test = "0.1"
 awc = "3"
 futures-util = "0.3"
-mockall = "0.13.0"
+mockall = "0.15.0"
 # Certificates for the stand-in TLS Postgres server in the LISTEN connection
 # tests. aws_lc_rs because aws-lc-rs is already in the tree.
 rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
