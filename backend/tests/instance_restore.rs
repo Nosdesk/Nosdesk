@@ -165,7 +165,7 @@ async fn restore_runs_as_the_migration_role_and_hosted_refuses_it() {
     // While another restore runs, this one is refused with 409 and its job
     // keeps the status it had.
     let waiting_job = restore_job_for(&db, &common::fixture_path("backups/1.0.12/plain.zip"));
-    let mut holder = diesel::PgConnection::establish(db.url()).expect("connect");
+    let mut holder = backend::db::establish(db.url()).expect("connect");
     diesel::sql_query("SELECT pg_advisory_lock($1)")
         .bind::<diesel::sql_types::BigInt, _>(backup_service::RESTORE_LOCK_KEY)
         .execute(&mut holder)

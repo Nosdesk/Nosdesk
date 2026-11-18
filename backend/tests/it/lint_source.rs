@@ -1,6 +1,5 @@
-//! Source reading shared by the lints that look for writes in `src/`: the
-//! files to scan, code with comments and strings masked, and which code is
-//! test code.
+//! Source reading shared by the source lints: the files to scan, code with
+//! comments and strings masked, and which code is test code.
 
 #![allow(clippy::expect_used)]
 
@@ -14,13 +13,19 @@ use walkdir::WalkDir;
 
 /// Every `.rs` file under `src/`, as (path relative to `src/`, contents).
 pub(crate) fn rust_sources() -> Vec<(String, String)> {
-    let src_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
-    WalkDir::new(&src_root)
+    rust_sources_in("src")
+}
+
+/// Every `.rs` file under `dir` (relative to the crate root), as (path
+/// relative to `dir`, contents).
+pub(crate) fn rust_sources_in(dir: &str) -> Vec<(String, String)> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(dir);
+    WalkDir::new(&root)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("rs"))
         .map(|e| {
-            let rel = relative(&src_root, e.path());
+            let rel = relative(&root, e.path());
             (rel, fs::read_to_string(e.path()).expect("read source"))
         })
         .collect()
@@ -188,7 +193,7 @@ pub(crate) fn test_only_files(sources: &[(String, String)]) -> HashSet<String> {
 
 fn relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
-        .expect("under src")
+        .expect("under the walked directory")
         .to_string_lossy()
         .replace('\\', "/")
 }

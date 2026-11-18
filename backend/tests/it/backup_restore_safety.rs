@@ -30,7 +30,7 @@ struct Name {
 
 /// The scratch-database name prefix for `db`.
 fn scratch_prefix(db: &TestDb) -> String {
-    let mut conn = PgConnection::establish(db.url()).expect("connect");
+    let mut conn = backend::db::establish(db.url()).expect("connect");
     let oid: Name = diesel::sql_query(
         "SELECT oid::text AS name FROM pg_database WHERE datname = current_database()",
     )
@@ -41,7 +41,7 @@ fn scratch_prefix(db: &TestDb) -> String {
 
 /// Scratch databases of `db` on the server.
 fn scratch_databases(db: &TestDb) -> i64 {
-    let mut conn = PgConnection::establish(db.url()).expect("connect");
+    let mut conn = backend::db::establish(db.url()).expect("connect");
     diesel::sql_query("SELECT count(*) AS n FROM pg_database WHERE starts_with(datname, $1)")
         .bind::<Text, _>(scratch_prefix(db))
         .get_result::<Count>(&mut conn)
@@ -169,7 +169,7 @@ fn a_second_restore_is_refused_while_one_runs() {
     with_upload_dir();
     let db = TestDb::new();
     // Stand in for a restore in progress: hold its lock.
-    let mut holder = PgConnection::establish(db.url()).expect("connect");
+    let mut holder = backend::db::establish(db.url()).expect("connect");
     diesel::sql_query("SELECT pg_advisory_lock($1)")
         .bind::<BigInt, _>(backup_service::RESTORE_LOCK_KEY)
         .execute(&mut holder)

@@ -63,8 +63,21 @@ pub struct ResettingManager(ConnectionManager<PgConnection>);
 
 impl ResettingManager {
     pub fn new(database_url: impl Into<String>) -> Self {
+        // Every pool's connections come from here (see `establish`).
+        crate::utils::openssl_exit::ensure();
         Self(ConnectionManager::new(database_url))
     }
+}
+
+/// Open one connection outside a pool. With [`ResettingManager`], this is the
+/// only way the process reaches libpq (`libpq_entry_lint` holds the rest of
+/// the code to it), so both first make sure libpq's OpenSSL is initialized
+/// without its exit-time cleanup. That cleanup otherwise races the pools'
+/// worker threads, which nothing joins, and crashes the process as it exits
+/// (`utils::openssl_exit`).
+pub fn establish(database_url: &str) -> diesel::ConnectionResult<PgConnection> {
+    crate::utils::openssl_exit::ensure();
+    PgConnection::establish(database_url)
 }
 
 impl r2d2::ManageConnection for ResettingManager {
@@ -180,8 +193,8 @@ where
 pub fn run_migrations() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (url, role) = migration_url()?;
     info!(role, database = %redact_db_url(&url), "Running migrations");
-    let mut conn = PgConnection::establish(&url)
-        .map_err(|e| format!("migration connection ({role}) failed: {e}"))?;
+    let mut conn =
+        establish(&url).map_err(|e| format!("migration connection ({role}) failed: {e}"))?;
     require_supported_postgres(&mut conn)?;
     with_advisory_lock(&mut conn, apply_pending_migrations)
 }
@@ -437,7 +450,7 @@ pub async fn initialize_database(
         // privileged connection (same role selection as run_migrations), opened
         // just for the check and dropped immediately.
         let (url, role) = migration_url()?;
-        let mut conn = PgConnection::establish(&url)
+        let mut conn = establish(&url)
             .map_err(|e| format!("schema-current check connection ({role}) failed: {e}"))?;
         assert_schema_current(&mut conn)?;
     }

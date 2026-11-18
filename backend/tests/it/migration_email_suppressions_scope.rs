@@ -62,7 +62,7 @@ fn seed(conn: &mut PgConnection) -> i32 {
 #[test]
 fn a_suppression_two_workspaces_mailed_is_kept_for_both() {
     let db = FreshDb::new();
-    let mut conn = PgConnection::establish(&db.url).expect("connect fresh db");
+    let mut conn = backend::db::establish(&db.url).expect("connect fresh db");
     run(
         &mut conn,
         "CREATE TABLE IF NOT EXISTS __diesel_schema_migrations (\

@@ -67,7 +67,7 @@ impl UpgradeDb {
         );
         let url = super::with_database(&super::base_url(), &name);
         let mut admin =
-            PgConnection::establish(&super::admin_url()).expect("connect to admin DB (postgres)");
+            backend::db::establish(&super::admin_url()).expect("connect to admin DB (postgres)");
         run(&mut admin, &format!("CREATE DATABASE \"{name}\""));
         Self { name, url }
     }
@@ -140,7 +140,7 @@ impl UpgradeDb {
 
     /// A new connection as the test's (superuser) role.
     pub fn conn(&self) -> PgConnection {
-        PgConnection::establish(&self.url).expect("connect to the upgrade DB")
+        backend::db::establish(&self.url).expect("connect to the upgrade DB")
     }
 
     /// Run every migration after 1.0.12 in version order; their names.
@@ -161,7 +161,7 @@ impl Drop for UpgradeDb {
     fn drop(&mut self) {
         // FORCE ends the sessions still open on it, including a booted
         // app's pool and workers that would otherwise reconnect.
-        if let Ok(mut admin) = PgConnection::establish(&super::admin_url()) {
+        if let Ok(mut admin) = backend::db::establish(&super::admin_url()) {
             let _ = diesel::sql_query(format!(
                 "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)",
                 self.name

@@ -157,7 +157,7 @@ impl r2d2::CustomizeConnection<diesel::PgConnection, r2d2::Error> for WorkspaceG
 fn ensure_migrated(url: &str) {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
-        let mut conn = diesel::PgConnection::establish(url)
+        let mut conn = backend::db::establish(url)
             .expect("connect to TEST_DATABASE_URL for migration bootstrap");
         conn.run_pending_migrations(MIGRATIONS)
             .expect("apply migrations to test DB");

@@ -89,7 +89,7 @@ where
     Fut: std::future::Future<Output = anyhow::Result<()>>,
 {
     let db = TestDb::new();
-    let mut conn = PgConnection::establish(db.url()).expect("connect");
+    let mut conn = backend::db::establish(db.url()).expect("connect");
     let cutoff = Utc::now().date_naive() - Duration::days(retention_days);
     let expired = month_partition(
         &mut conn,
@@ -141,7 +141,7 @@ async fn sync_actions_are_kept_when_no_retention_is_set() {
         "the test runs with the variable unset"
     );
     let db = TestDb::new();
-    let mut conn = PgConnection::establish(db.url()).expect("connect");
+    let mut conn = backend::db::establish(db.url()).expect("connect");
     let expired = month_partition(
         &mut conn,
         "sync_actions",

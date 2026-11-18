@@ -436,7 +436,7 @@ impl ScratchDatabase {
 impl Drop for ScratchDatabase {
     fn drop(&mut self) {
         let statement = format!("DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)", self.name);
-        let result = match PgConnection::establish(&self.server_url) {
+        let result = match crate::db::establish(&self.server_url) {
             Ok(mut conn) => sql_query(statement)
                 .execute(&mut conn)
                 .map(|_| ())
