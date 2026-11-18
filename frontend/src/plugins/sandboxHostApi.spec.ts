@@ -20,12 +20,14 @@ const inprocUi = {
 const inprocAssets = {
   groups: vi.fn(),
 }
+const inprocEmit = vi.fn()
 vi.mock('./api', () => ({
   createPluginAPI: () => ({
     version: '1.2.0',
     plugin: { uuid: 'u', name: 'n', displayName: 'N', version: '1' },
     assets: inprocAssets,
     ui: inprocUi,
+    emit: inprocEmit,
   }),
 }))
 
@@ -92,5 +94,19 @@ describe('sandbox host api asset forwarding', () => {
     const { hostApi } = createHostApiImpl({} as Plugin)
     await expect(hostApi.assets.groups()).resolves.toEqual(groups)
     expect(inprocAssets.groups).toHaveBeenCalledOnce()
+  })
+})
+
+describe('sandbox host api emit', () => {
+  afterEach(() => vi.clearAllMocks())
+
+  it('forwards an emit, and the refusal of an undeclared name', async () => {
+    const { hostApi } = createHostApiImpl({} as Plugin)
+    inprocEmit.mockResolvedValueOnce(undefined)
+    await hostApi.emit('n:scanned', { ticket_id: 4 })
+    expect(inprocEmit).toHaveBeenCalledWith('n:scanned', { ticket_id: 4 })
+
+    inprocEmit.mockRejectedValueOnce(new Error('denied: n:other is not in the manifest\'s events'))
+    await expect(hostApi.emit('n:other')).rejects.toThrow(/denied/)
   })
 })

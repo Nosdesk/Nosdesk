@@ -687,10 +687,12 @@ pub fn fixture_path(rel: &str) -> std::path::PathBuf {
 /// the only thing keeping them apart is the workspace predicate.
 pub const FIXTURE_WEBHOOK_EVENT: &str = "ticket.created";
 
-/// The event the seeded plugins declare in their manifest: a known plugin
-/// event (`KNOWN_EVENTS`, colon-named), so a plugin event emit with it is
-/// accepted (see `plugin_events_as_events`).
-pub const FIXTURE_PLUGIN_EVENT: &str = "ticket:created";
+/// The event a seeded plugin named `plugin_name` declares in its manifest:
+/// one of its own, namespaced to it (`<plugin name>:<event>`), so a plugin
+/// event emit with it is accepted (see `plugin_events_as_events`).
+pub fn fixture_plugin_event(plugin_name: &str) -> String {
+    format!("{plugin_name}:synced")
+}
 
 /// One workspace's seeded contents. All ids/uuids are captured so
 /// later tests can pin a connection to this workspace and assert
@@ -709,10 +711,17 @@ pub struct WorkspaceSeed {
     pub webhook_id: i32,
     pub webhook_uuid: Uuid,
     /// An installed (active) plugin whose manifest declares
-    /// [`FIXTURE_PLUGIN_EVENT`].
+    /// [`WorkspaceSeed::plugin_event`].
     pub plugin_id: i32,
     pub plugin_uuid: Uuid,
     pub plugin_name: String,
+}
+
+impl WorkspaceSeed {
+    /// The event the seeded plugin declares.
+    pub fn plugin_event(&self) -> String {
+        fixture_plugin_event(&self.plugin_name)
+    }
 }
 
 /// A+B, seeded and independent. Pass to isolation assertions.
@@ -835,7 +844,7 @@ fn seed_one_workspace(conn: &mut TestPooledConn, label: &str) -> WorkspaceSeed {
                 "displayName": format!("{label} Fixture Plugin"),
                 "version": "1.0.0",
                 "engines": { "nosdesk": ">=1.0.0", "plugin_api": "1" },
-                "events": [FIXTURE_PLUGIN_EVENT],
+                "events": [fixture_plugin_event(&plugin_name)],
                 "components": {
                     "panel": { "slot": "ticket-sidebar", "entry": "panel.js" }
                 },

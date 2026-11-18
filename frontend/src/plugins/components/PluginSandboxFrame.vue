@@ -29,6 +29,7 @@ import { usePluginLayout } from '../layout';
 import { createHostApiImpl } from '../sandboxHostApi';
 import type { PluginAPI } from '../api';
 import { registerPluginInstance } from '../pluginInstances';
+import { subscriptionsDeclared } from '../permissions';
 
 const props = defineProps<{
   plugin: Plugin;
@@ -148,7 +149,7 @@ function onFrameLoad(): void {
   bridge = createRemoteHostApi(hostApi);
   const context = snapshot();
   lastPostedContext = JSON.stringify(context);
-  postInit(win, bridge, context, themeSnapshot());
+  postInit(win, bridge, context, themeSnapshot(), subscriptionsDeclared(props.plugin));
   connected = true;
 
   // Size the iframe to the plugin's reported content height.

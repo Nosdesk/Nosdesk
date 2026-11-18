@@ -76,7 +76,7 @@ async fn a_plugin_event_is_recorded_as_an_event_of_the_emitting_plugin() {
                 "aggregate": "plugin",
                 "aggregate_id": other.to_string(),
                 "op": "D",
-                "event_type": common::FIXTURE_PLUGIN_EVENT,
+                "event_type": a.plugin_event(),
                 "data": { "uuid": other, "id": 7, "trust": "verified" },
             }))
             .to_request(),
@@ -109,18 +109,40 @@ async fn a_plugin_event_is_recorded_as_an_event_of_the_emitting_plugin() {
     );
     assert_eq!(data["event"]["trust"], "verified");
 
-    // Only a known plugin event; a made-up name is refused.
-    let resp = http_test::call_service(
-        &app,
-        http_test::TestRequest::post()
-            .uri(&format!("/api/plugins/{}/events", a.plugin_uuid))
-            .set_json(json!({
-                "aggregate": "plugin",
-                "event_type": "report:ready",
-                "data": {},
-            }))
-            .to_request(),
-    )
-    .await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    // A host event's name is refused outright; a name the manifest doesn't
+    // declare, or declares without the plugin's own prefix (a manifest
+    // installed before names were namespaced), is the plugin's to be
+    // refused.
+    {
+        use backend::schema::plugins;
+        let mut manifest: serde_json::Value = plugins::table
+            .filter(plugins::uuid.eq(a.plugin_uuid))
+            .select(plugins::manifest)
+            .first(&mut db.conn())
+            .expect("manifest");
+        manifest["events"] = json!([a.plugin_event(), "other-plugin:synced"]);
+        diesel::update(plugins::table.filter(plugins::uuid.eq(a.plugin_uuid)))
+            .set(plugins::manifest.eq(manifest))
+            .execute(&mut db.conn())
+            .expect("declare an event of another plugin's name");
+    }
+    for (event_type, refused) in [
+        ("ticket:created", StatusCode::BAD_REQUEST),
+        ("report:ready", StatusCode::FORBIDDEN),
+        ("other-plugin:synced", StatusCode::FORBIDDEN),
+    ] {
+        let resp = http_test::call_service(
+            &app,
+            http_test::TestRequest::post()
+                .uri(&format!("/api/plugins/{}/events", a.plugin_uuid))
+                .set_json(json!({
+                    "aggregate": "plugin",
+                    "event_type": event_type,
+                    "data": {},
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), refused, "{event_type}");
+    }
 }

@@ -117,10 +117,22 @@ pub struct PluginManifest {
     #[serde(default)]
     pub components: std::collections::BTreeMap<String, PluginComponentConfig>,
 
-    /// Events the plugin subscribes to. Validated against an
-    /// allowlist; unknown events refused.
+    /// The plugin's own events, which it emits (`api.emit`, sent to
+    /// `POST /api/plugins/{uuid}/events`): the emit allowlist, and the events
+    /// a `plugin_event` rule can run on. Each is `<name>:<event>`, namespaced
+    /// to this manifest's `name`; host event names are reserved
+    /// (`manifest_validate::plugin_event_name_problem`).
     #[serde(default)]
     pub events: Vec<String>,
+
+    /// Host events the plugin listens to through `api.on`, from the known
+    /// plugin events. Absent on a manifest written before the field existed:
+    /// `api.on` then accepts any known host event, as it did before, and the
+    /// plugin frame warns that the next plugin API major version requires
+    /// the list. Kept absent on the wire so that stays visible. Needs
+    /// `engines.nosdesk >= 1.2.0`: older servers refuse the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscriptions: Option<Vec<String>>,
 
     /// Plugin-defined settings rendered in the admin UI.
     #[serde(default)]

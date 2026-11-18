@@ -245,6 +245,23 @@ const pluginService = {
   },
 
   /**
+   * Record one of a plugin's own events (`<plugin name>:<event>`, declared in
+   * its manifest's `events`), as the plugin acting for the current user.
+   */
+  async emitEvent(pluginUuid: string, eventType: string, data: unknown): Promise<void> {
+    try {
+      await apiClient.post(`/plugins/${pluginUuid}/events`, {
+        aggregate: 'plugin',
+        event_type: eventType,
+        data: data ?? {},
+      });
+    } catch (error) {
+      logger.error('Failed to record plugin event', { error, pluginUuid, eventType });
+      throw error;
+    }
+  },
+
+  /**
    * Get a storage value for a plugin
    */
   async getStorage(pluginUuid: string, key: string): Promise<PluginStorage> {

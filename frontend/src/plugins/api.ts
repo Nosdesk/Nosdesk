@@ -22,7 +22,7 @@ import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import { useAssetGroupsStore } from '@/stores/assetGroups';
 import { PluginApiError } from '@nosdesk/plugin-sdk';
-import { effectivePermissions } from './permissions';
+import { effectivePermissions, pluginSubscriptions } from './permissions';
 import { viewerMeetsAudience } from './audience';
 import { createDialogOwner, openPluginDialog, releaseDialogOwner } from './usePluginDialogs';
 import { openExternalUrl } from '@/platform';
@@ -239,7 +239,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
   };
 
   const api: PluginAPI = {
-    version: '1.3.0',
+    version: '1.4.0',
 
     // === Plugin Info ===
     plugin: {
@@ -689,7 +689,13 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     },
 
     // === OBSERVE: React to events ===
+    // Only a host event the manifest may subscribe to (any, with no
+    // `subscriptions` list); the dispatcher checks again.
     on(event: PluginEvent, handler: EventHandler): () => void {
+      if (!pluginSubscriptions(plugin).includes(event)) {
+        logger.warn(`Plugin ${plugin.name} denied subscription to ${event}`);
+        throw new PluginApiError('denied', `${event} is not in the manifest's subscriptions`);
+      }
       const handlers = eventHandlers.get(event) || [];
       handlers.push(handler);
       eventHandlers.set(event, handlers);
@@ -703,6 +709,21 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           eventHandlers.set(event, currentHandlers);
         }
       };
+    },
+
+    // === EMIT: The plugin's own events ===
+    // Only a name the manifest declares in `events`; the server checks it
+    // again, along with the namespace.
+    async emit(name: string, data?: unknown): Promise<void> {
+      if (typeof name !== 'string' || !(plugin.manifest.events ?? []).includes(name)) {
+        logger.warn(`Plugin ${plugin.name} denied emitting ${String(name)}`);
+        throw new PluginApiError('denied', `${String(name)} is not in the manifest's events`);
+      }
+      try {
+        await pluginService.emitEvent(plugin.uuid, name, data ?? {});
+      } catch (error) {
+        throw upstream('failed to emit event', error);
+      }
     },
 
     // === SETTINGS: The plugin's own admin-configured config ===
@@ -951,6 +972,9 @@ export interface PluginAPI {
 
   // Event subscription
   on(event: PluginEvent, handler: EventHandler): () => void;
+
+  // The plugin's own events (manifest `events`)
+  emit(name: string, data?: unknown): Promise<void>;
 
   // User feedback
   notify(message: string, type?: 'info' | 'success' | 'warning' | 'error'): void;

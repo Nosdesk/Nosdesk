@@ -109,6 +109,10 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
       });
     },
 
+    async emit(name, data) {
+      await inproc.emit(name, data);
+    },
+
     async notify(message, type) {
       inproc.notify(message, type);
     },

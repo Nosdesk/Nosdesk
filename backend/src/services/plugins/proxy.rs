@@ -1173,6 +1173,7 @@ mod tests {
             permission_reasons: Default::default(),
             components: std::collections::BTreeMap::new(),
             events: vec![],
+            subscriptions: None,
             settings: vec![],
             collections: std::collections::BTreeMap::new(),
             auth: std::collections::BTreeMap::new(),

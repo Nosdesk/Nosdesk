@@ -61,8 +61,10 @@ pub(crate) const KNOWN_CONTEXTS: &[&str] = &[
     "documentation_page",
 ];
 
-/// Events plugins can subscribe to. Canonical taxonomy mirrored
-/// from `frontend/src/types/plugin.ts::PLUGIN_EVENTS`.
+/// Host events plugins can subscribe to (`subscriptions`). Canonical
+/// taxonomy mirrored from `packages/core/src/types/plugin.ts::PLUGIN_EVENTS`.
+/// Reserved: a plugin's own events (`events`) never take these names, nor
+/// any other under their `ticket:`, `document:` and `asset:` prefixes.
 ///
 /// Subscribing to an event whose dispatch site doesn't yet exist
 /// is a silent no-op (handler never fires), the same pub/sub
@@ -81,6 +83,45 @@ pub(crate) const KNOWN_EVENTS: &[&str] = &[
     "asset:created",
     "asset:updated",
 ];
+
+/// The host's own event prefixes, which no plugin event may use.
+const RESERVED_EVENT_PREFIXES: &[&str] = &["ticket:", "document:", "asset:"];
+
+/// The longest event name a plugin may declare or emit (the emit endpoint's
+/// limit, and `sync_actions.event_type`'s width).
+pub const PLUGIN_EVENT_NAME_MAX: usize = 64;
+
+/// Why a name isn't one of `plugin_name`'s own events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginEventNameProblem {
+    /// A host event name, or another under a host event prefix.
+    Reserved,
+    /// Not `<plugin name>:<event>` with the event part in lowercase letters,
+    /// digits, `_` and `-`, or longer than [`PLUGIN_EVENT_NAME_MAX`].
+    NotNamespaced,
+}
+
+/// Whether `event` is a well-formed event of plugin `plugin_name`:
+/// `<plugin name>:<event>`, the event part lowercase letters, digits, `_` and
+/// `-`, at most [`PLUGIN_EVENT_NAME_MAX`] long in all, and never a host event
+/// name. The manifest's `events` and the emit endpoint hold to the same rule.
+pub fn plugin_event_name_problem(plugin_name: &str, event: &str) -> Option<PluginEventNameProblem> {
+    if KNOWN_EVENTS.contains(&event) || RESERVED_EVENT_PREFIXES.iter().any(|p| event.starts_with(p))
+    {
+        return Some(PluginEventNameProblem::Reserved);
+    }
+    let well_formed = event.len() <= PLUGIN_EVENT_NAME_MAX
+        && event
+            .strip_prefix(plugin_name)
+            .and_then(|rest| rest.strip_prefix(':'))
+            .is_some_and(|name| {
+                !name.is_empty()
+                    && name.bytes().all(|b| {
+                        b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-'
+                    })
+            });
+    (!well_formed).then_some(PluginEventNameProblem::NotNamespaced)
+}
 
 /// Setting types accepted on `settings[].type`. Each maps to a
 /// frontend renderer + a backend storage policy (notably:
@@ -121,6 +162,10 @@ pub enum ManifestValidationError {
     UnsupportedManifestVersion(u32),
     InvalidName(String),
     InvalidEvent(String),
+    /// An `events` entry that takes a host event's name.
+    ReservedEvent(String),
+    /// A `subscriptions` entry that isn't a known plugin event.
+    InvalidSubscription(String),
     InvalidSlot(String),
     InvalidContext(String),
     /// `chrome` was set on an `action` slot, which draws no iframe frame.
@@ -202,7 +247,15 @@ impl std::fmt::Display for ManifestValidationError {
                 "manifest_version {v} is not supported by this Nosdesk build (expected {SUPPORTED_MANIFEST_VERSION})"
             ),
             Self::InvalidName(n) => write!(f, "plugin name {n:?} is invalid"),
-            Self::InvalidEvent(e) => write!(f, "unknown event {e:?}"),
+            Self::InvalidEvent(e) => write!(
+                f,
+                "event {e:?} must be named \"<plugin name>:<event>\", the event in lowercase letters, digits, _ and -, at most {PLUGIN_EVENT_NAME_MAX} characters"
+            ),
+            Self::ReservedEvent(e) => write!(
+                f,
+                "event {e:?} is a host event name; a plugin's events are named \"<plugin name>:<event>\""
+            ),
+            Self::InvalidSubscription(e) => write!(f, "unknown subscription {e:?}"),
             Self::InvalidSlot(s) => write!(f, "unknown slot {s:?}"),
             Self::InvalidContext(c) => write!(f, "unknown component context {c:?}"),
             Self::ChromeOnNonPanelSlot { slot } => write!(
@@ -336,8 +389,19 @@ pub fn validate(
     // patterns for the auth cross-check below.
 
     for event in &manifest.events {
+        match plugin_event_name_problem(&manifest.name, event) {
+            Some(PluginEventNameProblem::Reserved) => {
+                errors.push(ManifestValidationError::ReservedEvent(event.clone()))
+            }
+            Some(PluginEventNameProblem::NotNamespaced) => {
+                errors.push(ManifestValidationError::InvalidEvent(event.clone()))
+            }
+            None => {}
+        }
+    }
+    for event in manifest.subscriptions.iter().flatten() {
         if !KNOWN_EVENTS.contains(&event.as_str()) {
-            errors.push(ManifestValidationError::InvalidEvent(event.clone()));
+            errors.push(ManifestValidationError::InvalidSubscription(event.clone()));
         }
     }
 
@@ -887,7 +951,8 @@ mod tests {
             permissions: vec![perm("ticket:read"), perm("network:api.github.com")],
             permission_reasons: Default::default(),
             components: std::collections::BTreeMap::new(),
-            events: vec!["ticket:created".into()],
+            events: vec!["github-integration:issue_linked".into()],
+            subscriptions: None,
             settings: vec![],
             collections: std::collections::BTreeMap::new(),
             auth: std::collections::BTreeMap::new(),
@@ -978,11 +1043,117 @@ mod tests {
     #[test]
     fn rejects_unknown_event() {
         let mut m = baseline_manifest();
-        m.events.push("ticket:undefined".into());
+        m.events.push("github-integration:Issue Linked".into());
         assert_err!(
             validate(&m, &ctx_official()),
             ManifestValidationError::InvalidEvent(_),
         );
+    }
+
+    #[test]
+    fn a_plugins_events_are_namespaced_to_it() {
+        let ok = |event: &str| plugin_event_name_problem("github-integration", event);
+        assert_eq!(ok("github-integration:issue_linked"), None);
+        assert_eq!(ok("github-integration:pr-merged2"), None);
+        for event in [
+            "issue_linked",
+            "github-integration:",
+            "github-integration:Issue",
+            "github-integration:issue linked",
+            "github-integration:issue.linked",
+            "github:issue_linked",
+            "github-integration-x:issue_linked",
+            "other-plugin:issue_linked",
+        ] {
+            assert_eq!(
+                ok(event),
+                Some(PluginEventNameProblem::NotNamespaced),
+                "{event}"
+            );
+        }
+        let long = format!("github-integration:{}", "e".repeat(PLUGIN_EVENT_NAME_MAX));
+        assert_eq!(ok(&long), Some(PluginEventNameProblem::NotNamespaced));
+        let fits = format!(
+            "github-integration:{}",
+            "e".repeat(PLUGIN_EVENT_NAME_MAX - "github-integration:".len())
+        );
+        assert_eq!(ok(&fits), None);
+        // Host event names are reserved, whatever the plugin is called.
+        for event in [
+            "ticket:created",
+            "ticket:anything",
+            "document:updated",
+            "asset:x",
+        ] {
+            assert_eq!(ok(event), Some(PluginEventNameProblem::Reserved), "{event}");
+        }
+        assert_eq!(
+            plugin_event_name_problem("ticket", "ticket:built"),
+            Some(PluginEventNameProblem::Reserved)
+        );
+
+        let mut m = baseline_manifest();
+        m.events = vec!["ticket:created".into()];
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::ReservedEvent(_),
+        );
+        m.events = vec!["other-plugin:synced".into()];
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::InvalidEvent(_),
+        );
+    }
+
+    #[test]
+    fn subscriptions_are_known_events_apart_from_the_events_emitted() {
+        let mut m = baseline_manifest();
+        m.subscriptions = Some(vec!["ticket:updated".into(), "ticket:comment_added".into()]);
+        validate(&m, &ctx_official()).unwrap();
+
+        // An empty list subscribes to nothing, which is valid.
+        m.subscriptions = Some(vec![]);
+        validate(&m, &ctx_official()).unwrap();
+
+        m.subscriptions = Some(vec!["ticket:undefined".into()]);
+        let errs = validate(&m, &ctx_official()).unwrap_err();
+        assert!(
+            errs.iter().any(
+                |e| matches!(e, ManifestValidationError::InvalidSubscription(s) if s == "ticket:undefined")
+            ),
+            "{errs:?}"
+        );
+        // The emit list is checked on its own.
+        assert!(!errs
+            .iter()
+            .any(|e| matches!(e, ManifestValidationError::InvalidEvent(_))));
+        // A host event's dot name isn't a plugin event.
+        m.subscriptions = Some(vec!["ticket.created".into()]);
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::InvalidSubscription(_),
+        );
+    }
+
+    #[test]
+    fn subscriptions_stay_absent_when_a_manifest_leaves_them_out() {
+        let parsed: PluginManifest = serde_json::from_value(serde_json::json!({
+            "manifest_version": 1,
+            "name": "legacy",
+            "displayName": "Legacy",
+            "version": "1.0.0",
+            "engines": { "nosdesk": ">=1.0.0", "plugin_api": "1" },
+            "events": ["legacy:synced"],
+        }))
+        .expect("a manifest without subscriptions parses");
+        assert_eq!(parsed.subscriptions, None);
+        let wire = serde_json::to_value(&parsed).expect("serialises");
+        assert!(wire.get("subscriptions").is_none(), "{wire}");
+
+        let mut declared = parsed;
+        declared.subscriptions = Some(vec![]);
+        let wire = serde_json::to_value(&declared).expect("serialises");
+        assert_eq!(wire["subscriptions"], serde_json::json!([]));
     }
 
     #[test]
@@ -1613,7 +1784,7 @@ mod tests {
         // hears about all three, not just the first. Saves install
         // round-trips during plugin development.
         let mut m = baseline_manifest();
-        m.events.push("ticket:undefined".into());
+        m.events.push("undefined".into());
         m.categories.push("unknown-category".into());
         m.screenshots.push("../etc/passwd".into());
 

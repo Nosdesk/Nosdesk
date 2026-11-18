@@ -14,6 +14,20 @@
 //
 // Domain types are re-exported from `@nosdesk/core/types` so plugin authors
 // import only from `@nosdesk/plugin-sdk`.
+//
+// Events in the manifest:
+//   - `events` lists the plugin's own events, the names `api.emit` may send.
+//     Each is `<manifest name>:<event>`, the event part lowercase letters,
+//     digits, `_` and `-`, at most 64 characters in all. Host event names
+//     (`ticket:*`, `document:*`, `asset:*`) are reserved. An admin can build
+//     a rule that runs on one of these events.
+//   - `subscriptions` lists the host events (`PluginEvent`) the plugin listens
+//     to with `api.on`. A manifest without it may still subscribe to any host
+//     event for now, with a console warning; the next plugin API major
+//     version requires it.
+//   A plugin that declares `subscriptions` or calls `api.emit` must declare
+//   `engines.nosdesk: ">=1.2.0"`: earlier servers refuse the field and have no
+//   `emit`.
 import type {
   Ticket,
   Asset,
@@ -313,8 +327,20 @@ export interface HostApi {
   };
   /** Access a named collection's CRUD (returns a Comlink-proxied sub-API). */
   collections(name: string): Promise<PluginCollection>;
-  /** Subscribe to a host event; resolves to an async unsubscribe. */
+  /** Subscribe to a host event; resolves to an async unsubscribe. With a
+   * manifest `subscriptions` list, an event outside it throws a `denied`
+   * PluginApiError. */
   on(event: PluginEvent, handler: PluginEventHandler): Promise<() => Promise<void>>;
+  /**
+   * Emit one of this plugin's own events: `name` is `<manifest name>:<event>`
+   * and must be listed in the manifest's `events`, or this throws a `denied`
+   * PluginApiError. `data` is the event's payload (JSON, at most 32 KB); an
+   * event about a ticket names it as `ticket_id` (a number), which lets an
+   * admin's rule run on that ticket when the person using the plugin is an
+   * agent or admin. Recorded as the plugin, acting for the current user.
+   * Needs `engines.nosdesk: ">=1.2.0"`. Since runtime API 1.4.
+   */
+  emit(name: string, data?: unknown): Promise<void>;
   settings: {
     /** Read one of the plugin's admin-configured settings. Secrets are redacted
      * (a `secret`-type setting's value is always `null` — the egress proxy

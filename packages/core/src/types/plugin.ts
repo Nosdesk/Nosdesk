@@ -43,7 +43,15 @@ export interface PluginManifest {
    *  grant. Keys that don't match a requested permission are ignored. */
   permission_reasons?: Record<string, string>;
   components: Record<string, PluginComponentConfig>;
+  /** The plugin's own events, `<plugin name>:<event>`, which it emits with
+   *  `api.emit`, and which a rule can run on (the `plugin_event` trigger).
+   *  Host event names are reserved. */
   events: string[];
+  /** Host events (`PLUGIN_EVENTS`) the plugin listens to through `api.on`.
+   *  Absent on a manifest written before the field existed: `api.on` then
+   *  accepts any host event, and the plugin frame warns that the next plugin
+   *  API major version requires the list (see `pluginSubscriptions`). */
+  subscriptions?: string[];
   settings: PluginSettingDefinition[];
   collections?: Record<string, CollectionDefinition>;
   lifecycle?: PluginLifecyclePolicy;
