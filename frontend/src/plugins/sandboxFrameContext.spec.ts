@@ -38,7 +38,7 @@ vi.mock('@/stores/theme', () => ({
 
 const { default: PluginSandboxFrame } = await import('./components/PluginSandboxFrame.vue')
 
-const plugin = { uuid: 'p-1', name: 'dialog-tester' } as unknown as Plugin
+const plugin = { uuid: 'p-1', name: 'dialog-tester', manifest: { events: [] } } as unknown as Plugin
 
 let wrapper: VueWrapper | null = null
 afterEach(() => {
@@ -101,5 +101,14 @@ describe('sandbox frame context pushes', () => {
     await nextTick()
     expect(sdk.postContext).toHaveBeenCalledTimes(2)
     expect(sdk.postContext.mock.calls[1][1]).toMatchObject({ actionActivated: 1 })
+  })
+})
+
+// A manifest without `subscriptions` is told so, and its frame warns the first
+// time the plugin subscribes to an event.
+describe('sandbox frame init', () => {
+  it('tells the frame whether the manifest lists subscriptions', async () => {
+    await mountFrame()
+    expect(sdk.postInit.mock.calls[0][4]).toBe(false)
   })
 })

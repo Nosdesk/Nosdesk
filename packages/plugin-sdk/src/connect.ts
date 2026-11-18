@@ -15,6 +15,8 @@ interface HostInitMessage {
   type: 'nosdesk-plugin-init';
   context: PluginContext;
   theme: PluginTheme;
+  /** False when the plugin's manifest has no `subscriptions` list. */
+  subscriptionsDeclared?: boolean;
 }
 interface HostContextMessage {
   type: 'nosdesk-plugin-context';
@@ -61,7 +63,10 @@ const CONNECT_TIMEOUT_MS = 10_000;
  * matches). The host calls that one dispatcher; we fan out to local handlers.
  * Every other member passes straight through to the remote.
  */
-function wrapEvents(remote: Comlink.Remote<HostApi>): {
+function wrapEvents(
+  remote: Comlink.Remote<HostApi>,
+  beforeSubscribe: () => void,
+): {
   api: PluginHostApi;
   reset: () => void;
 } {
@@ -82,6 +87,7 @@ function wrapEvents(remote: Comlink.Remote<HostApi>): {
   };
 
   const on = async (event: PluginEvent, handler: PluginEventHandler): Promise<() => void> => {
+    beforeSubscribe();
     let set = local.get(event);
     if (!set) {
       set = new Set();
@@ -128,6 +134,28 @@ function wrapEvents(remote: Comlink.Remote<HostApi>): {
   }) as unknown as PluginHostApi;
 
   return { api, reset };
+}
+
+/** What a plugin frame logs the first time a plugin whose manifest has no
+ * `subscriptions` list subscribes to an event. */
+export const UNDECLARED_SUBSCRIPTIONS_WARNING =
+  "This plugin's manifest has no `subscriptions`, so api.on accepts any host event for now. " +
+  'The next plugin API major version requires `subscriptions` to list the events a plugin listens to.';
+
+/**
+ * Called before each `api.on`: warns once per plugin load, and only when the
+ * manifest declares no `subscriptions`.
+ */
+export function subscriptionsWarner(
+  declared: boolean,
+  warn: (message: string) => void = (message) => console.warn(message),
+): () => void {
+  let warned = declared;
+  return () => {
+    if (warned) return;
+    warned = true;
+    warn(UNDECLARED_SUBSCRIPTIONS_WARNING);
+  };
 }
 
 /**
@@ -216,7 +244,9 @@ export function connectToHost(): Promise<PluginRuntime> {
         clearTimeout(timer);
         context = data.context;
         theme = data.theme;
-        const { api, reset } = wrapEvents(Comlink.wrap<HostApi>(event.ports[0]));
+        // A host that predates the flag only sends it when it is false.
+        const warnOnSubscribe = subscriptionsWarner(data.subscriptionsDeclared !== false);
+        const { api, reset } = wrapEvents(Comlink.wrap<HostApi>(event.ports[0]), warnOnSubscribe);
         resolve({
           api,
           context,

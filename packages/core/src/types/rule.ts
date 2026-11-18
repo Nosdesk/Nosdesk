@@ -10,7 +10,8 @@ export type RuleTriggerKind =
   | 'ticket_created'
   | 'ticket_updated'
   | 'ticket_replied'
-  | 'time_elapsed';
+  | 'time_elapsed'
+  | 'plugin_event';
 
 /**
  * `paused` is a rule an admin stopped. `dry_run` shadow-runs a rule with an
@@ -90,11 +91,15 @@ export type RuleReplyKind = 'customer' | 'agent' | 'any';
  * `trigger_config` by trigger. A `ticket_updated` rule runs only when the
  * update changed one of `changed_fields_include` (`ticket.*` names, as in
  * `reads_set`), or on any change when the list is absent. A `ticket_replied`
- * rule runs on replies of `reply_kind`. Other triggers take `{}`.
+ * rule runs on replies of `reply_kind`. A `plugin_event` rule runs on the
+ * plugin `plugin_uuid`'s `event_type` events (one of its manifest `events`),
+ * on the ticket the event names. Other triggers take `{}`.
  */
 export interface RuleTriggerConfig {
   changed_fields_include?: string[];
   reply_kind?: RuleReplyKind;
+  plugin_uuid?: string;
+  event_type?: string;
 }
 
 /** Wire shape of a Rule. Manual rules have `conditions: []`. */

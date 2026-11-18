@@ -43,8 +43,15 @@ export function postInit(
   bridge: HostBridge,
   context: PluginContext,
   theme: PluginTheme,
+  /** Whether the plugin's manifest lists `subscriptions`; without it the
+   * frame warns the first time the plugin subscribes to an event. */
+  subscriptionsDeclared = true,
 ): void {
-  target.postMessage({ type: 'nosdesk-plugin-init', context, theme }, '*', [bridge.port]);
+  target.postMessage(
+    { type: 'nosdesk-plugin-init', context, theme, subscriptionsDeclared },
+    '*',
+    [bridge.port],
+  );
 }
 
 /** Push a fresh context snapshot to an already-connected plugin iframe. */

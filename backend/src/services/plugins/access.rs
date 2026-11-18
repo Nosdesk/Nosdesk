@@ -70,6 +70,22 @@ pub fn plugin_admits(plugin: &Plugin, caller: PluginCaller) -> bool {
     }
 }
 
+/// The `actor_ref` a plugin event is recorded with: the plugin, and the
+/// member whose session it emitted through (`sub`, a user uuid).
+pub fn event_emitter_ref(plugin_name: &str, sub: &str) -> String {
+    format!("plugin:{plugin_name} via user:{sub}")
+}
+
+/// The member a plugin event was emitted for, read back from its
+/// [`event_emitter_ref`]. `None` for any other shape.
+pub fn event_emitter(actor_ref: &str) -> Option<uuid::Uuid> {
+    let (plugin, user) = actor_ref.rsplit_once(" via user:")?;
+    if !plugin.starts_with("plugin:") {
+        return None;
+    }
+    uuid::Uuid::parse_str(user).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +100,21 @@ mod tests {
         assert!(!admits([A::Admin], Staff));
         assert!(admits([A::Admin], Admin));
         assert!(admits([A::All], Admin));
+    }
+
+    #[test]
+    fn a_plugin_event_names_the_member_it_was_emitted_for() {
+        let member = uuid::Uuid::now_v7();
+        let recorded = event_emitter_ref("github", &member.to_string());
+        assert_eq!(event_emitter(&recorded), Some(member));
+        // A plugin name can't pass for another member.
+        let tricky = event_emitter_ref(
+            "x via user:00000000-0000-0000-0000-000000000000",
+            &member.to_string(),
+        );
+        assert_eq!(event_emitter(&tricky), Some(member));
+        assert_eq!(event_emitter("rules_engine:4"), None);
+        assert_eq!(event_emitter("plugin:github via user:not-a-uuid"), None);
     }
 
     #[test]

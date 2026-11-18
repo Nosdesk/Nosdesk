@@ -58,6 +58,8 @@ pub enum Entity {
     CollectionUuid,
     /// CSV import history, which never moves.
     ImportJob,
+    /// A plugin by its `uuid`.
+    PluginUuid,
 }
 
 impl Entity {
@@ -81,6 +83,7 @@ impl Entity {
             Entity::PageUuid => ("documentation_pages", "uuid"),
             Entity::CollectionUuid => ("documentation_collections", "uuid"),
             Entity::ImportJob => ("import_jobs", "id"),
+            Entity::PluginUuid => ("plugins", "uuid"),
         })
     }
 
@@ -93,6 +96,7 @@ impl Entity {
                 | Entity::PageUuid
                 | Entity::CollectionUuid
                 | Entity::ImportJob
+                | Entity::PluginUuid
         )
     }
 
@@ -114,6 +118,7 @@ impl Entity {
         Entity::PageUuid,
         Entity::CollectionUuid,
         Entity::ImportJob,
+        Entity::PluginUuid,
     ];
 }
 
@@ -223,6 +228,11 @@ const RULE_CONDITIONS: Shape = Shape::Conditions(&[
     ("ticket.assignee_uuid", E::User),
 ]);
 
+/// A rule's trigger settings: a plugin event rule names its plugin. An
+/// updated or replied trigger's changed field names and reply kind name no
+/// row.
+const RULE_TRIGGER: Shape = Shape::Paths(&[("plugin_uuid", Ref(E::PluginUuid))]);
+
 /// Ticket view predicate fields (`CardData` paths) whose value is an id.
 const VIEW_FIELDS: &[(&str, Entity)] = &[
     ("assignee_uuid", E::User),
@@ -250,11 +260,18 @@ pub const REFERENCES: &[Reference] = &[
     // Rules and their history.
     r("rules", "actions", RULE_ACTIONS, Missing::DraftRule),
     r("rules", "conditions", RULE_CONDITIONS, Missing::DraftRule),
+    r("rules", "trigger_config", RULE_TRIGGER, Missing::DraftRule),
     r("rule_versions", "actions", RULE_ACTIONS, Missing::Clear),
     r(
         "rule_versions",
         "conditions",
         RULE_CONDITIONS,
+        Missing::Clear,
+    ),
+    r(
+        "rule_versions",
+        "trigger_config",
+        RULE_TRIGGER,
         Missing::Clear,
     ),
     r(
@@ -268,6 +285,15 @@ pub const REFERENCES: &[Reference] = &[
             ("*.tag_ids_added.*", Ref(E::Tag)),
             ("*.tag_ids_removed.*", Ref(E::Tag)),
         ]),
+        Missing::Clear,
+    ),
+    // Whether the conditions matched, the trigger, event type, changed field
+    // names and reply kind (for an assignment from 1.1, its old method), and
+    // for a plugin's event the member it was emitted for.
+    r(
+        "rule_applications",
+        "condition_evaluation",
+        Shape::Paths(&[("emitted_by", Ref(E::User))]),
         Missing::Clear,
     ),
     // Saved views.
@@ -494,21 +520,6 @@ pub const NO_IDS: &[(&str, &str, &str)] = &[
         "rule_applications",
         "actions_skipped",
         "step indexes and reasons",
-    ),
-    (
-        "rule_applications",
-        "condition_evaluation",
-        "whether the conditions matched, the trigger, event type, changed field names and reply kind; for an assignment from 1.1, its old method",
-    ),
-    (
-        "rules",
-        "trigger_config",
-        "changed field names and a reply kind",
-    ),
-    (
-        "rule_versions",
-        "trigger_config",
-        "changed field names and a reply kind",
     ),
     ("saved_views", "viz_config", "metric and grouping names"),
     (

@@ -27,6 +27,14 @@ vi.mock('@/services/activeWorkspace', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/activeWorkspace')>()),
   workspaceReady: () => true,
 }))
+const PLUGIN = '0190a5b2-0000-7000-8000-0000000000a1'
+vi.mock('@nosdesk/core/services/pluginService', () => ({
+  default: {
+    listPlugins: async () => [
+      { uuid: PLUGIN, name: 'github', display_name: 'GitHub', state: 'installed', manifest: { events: ['github:issue_linked'] } },
+    ],
+  },
+}))
 vi.mock('@/components/ticketComponents/UserPicker.vue', () => ({
   default: { props: ['modelValue'], template: '<input data-test="user-picker" />' },
 }))
@@ -109,5 +117,34 @@ describe('RuleEditView with event rules running', () => {
     button('admin-rules-go-live')!.click()
     await flushPromises()
     expect(rules.transitionState).toHaveBeenCalledWith(4, { state: 'live' })
+  })
+
+  it('saves a plugin event rule with its plugin and event, and not without them', async () => {
+    rules.get.mockResolvedValue(rule({ trigger_kind: 'plugin_event', trigger_config: {} }))
+    const w = await mount()
+    expect(w.find('[data-test="plugin-event"]').exists()).toBe(true)
+    expect(w.text()).toContain('admin-rule-editor-trigger-plugin-event-summary')
+
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).not.toHaveBeenCalled()
+    expect(w.text()).toContain('admin-rule-editor-plugin-incomplete')
+
+    const form = w.findComponent({ name: 'PluginEventTriggerForm' })
+    form.vm.$emit('update:pluginUuid', PLUGIN)
+    form.vm.$emit('update:eventType', 'github:issue_linked')
+    await flushPromises()
+    rules.update.mockResolvedValue(
+      rule({ trigger_kind: 'plugin_event', trigger_config: { plugin_uuid: PLUGIN, event_type: 'github:issue_linked' } }),
+    )
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({
+        trigger_kind: 'plugin_event',
+        trigger_config: { plugin_uuid: PLUGIN, event_type: 'github:issue_linked' },
+      }),
+    )
   })
 })

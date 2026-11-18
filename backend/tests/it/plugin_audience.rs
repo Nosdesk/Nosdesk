@@ -20,7 +20,7 @@ use backend::sync::visibility::{deliveries_pinned, ActionView, Delivery, SyncVie
 
 use crate::common;
 
-const EVENT: &str = common::FIXTURE_PLUGIN_EVENT;
+const EVENT: &str = "staff-crm:synced";
 
 fn seed_staff_plugin(conn: &mut backend::db::DbConnection, ws_id: i32, admin: Uuid) -> Uuid {
     use diesel::prelude::*;

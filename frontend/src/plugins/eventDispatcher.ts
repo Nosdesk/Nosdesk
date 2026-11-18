@@ -12,7 +12,7 @@ import { onSyncActions } from '@nosdesk/core/sync/observers';
 import type { SyncAction } from '@nosdesk/core/sync/types';
 import { getLoadedPlugin } from './loader';
 import { forEachLiveInstance } from './pluginInstances';
-import { effectivePermissions } from './permissions';
+import { effectivePermissions, pluginSubscriptions } from './permissions';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { PluginEvent } from '@nosdesk/core/types/plugin';
 
@@ -140,6 +140,10 @@ function dispatchToPlugins(event: PluginEvent, data: unknown): void {
     if (!loaded) return;
     // Skip restricted events for community plugins.
     if (isRestricted && loaded.plugin.trust_level === 'community') {
+      return;
+    }
+    // Only an event the manifest subscribes to.
+    if (!pluginSubscriptions(loaded.plugin).includes(event)) {
       return;
     }
     // Gate on the matching read permission from the effective (consented) set,

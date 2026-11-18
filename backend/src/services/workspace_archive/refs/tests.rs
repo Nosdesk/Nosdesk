@@ -143,14 +143,78 @@ fn a_rule_trigger_config_names_fields_not_rows() {
     assert_eq!(rule["trigger_config"], trigger_config);
     assert_eq!(rule["state"], "live");
     assert!(reports(tally).is_empty());
-    for table in ["rules", "rule_versions"] {
-        assert!(
-            NO_IDS
-                .iter()
-                .any(|(t, c, _)| *t == table && *c == "trigger_config"),
-            "{table}.trigger_config is listed as holding no ids"
-        );
-    }
+}
+
+#[test]
+fn a_plugin_event_rule_follows_its_plugin() {
+    const PLUGIN: &str = "0190a000-0000-7000-8000-0000000000e1";
+    const PLUGIN_HERE: &str = "0190b000-0000-7000-8000-0000000000e1";
+    let config = json!({ "plugin_uuid": PLUGIN, "event_type": "github:issue_linked" });
+
+    let mut moved = rule("live");
+    moved.insert("trigger_config".into(), config.clone());
+    let lookup = everything().with(Entity::PluginUuid, PLUGIN, PLUGIN_HERE);
+    rewrite_row("rules", &mut moved, &Context::default(), &lookup, None);
+    assert_eq!(
+        moved["trigger_config"],
+        json!({ "plugin_uuid": PLUGIN_HERE, "event_type": "github:issue_linked" })
+    );
+    assert_eq!(moved["state"], "live");
+
+    // Without its plugin the rule can't run; it turns draft.
+    let mut stranded = rule("live");
+    stranded.insert("trigger_config".into(), config);
+    let mut tally = Tally::default();
+    rewrite_row(
+        "rules",
+        &mut stranded,
+        &Context::default(),
+        &everything(),
+        Some(&mut tally),
+    );
+    assert_eq!(stranded["trigger_config"]["plugin_uuid"], Value::Null);
+    assert_eq!(stranded["state"], "draft");
+    assert_eq!(
+        reports(tally),
+        vec![
+            ("rules".into(), "state".into(), Effect::RuleDrafted, 1),
+            ("rules".into(), "trigger_config".into(), Effect::Cleared, 1),
+        ]
+    );
+}
+
+#[test]
+fn a_plugin_event_run_follows_the_member_it_was_emitted_for() {
+    let mut application = row(json!({"condition_evaluation": {
+        "matched": true, "trigger": "plugin_event", "event_type": "github:issue_linked",
+        "changed_fields": [], "reply_kind": null, "emitted_by": ANA
+    }}));
+    rewrite_row(
+        "rule_applications",
+        &mut application,
+        &Context::default(),
+        &everything(),
+        None,
+    );
+    assert_eq!(
+        application["condition_evaluation"]["emitted_by"],
+        json!(ANA_HERE)
+    );
+    assert_eq!(
+        application["condition_evaluation"]["event_type"],
+        "github:issue_linked"
+    );
+
+    let mut gone = row(json!({"condition_evaluation": { "matched": true, "emitted_by": GONE }}));
+    rewrite_row(
+        "rule_applications",
+        &mut gone,
+        &Context::default(),
+        &everything(),
+        None,
+    );
+    assert_eq!(gone["condition_evaluation"]["emitted_by"], Value::Null);
+    assert_eq!(gone["condition_evaluation"]["matched"], true);
 }
 
 #[test]

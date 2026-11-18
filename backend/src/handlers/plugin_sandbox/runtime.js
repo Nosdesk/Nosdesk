@@ -324,7 +324,7 @@ function generateUUID() {
 
 // ../plugin-sdk/src/connect.ts
 var CONNECT_TIMEOUT_MS = 1e4;
-function wrapEvents(remote) {
+function wrapEvents(remote, beforeSubscribe) {
   const local = /* @__PURE__ */ new Map();
   const remoteUnsub = /* @__PURE__ */ new Map();
   const dispatch = (event, payload) => {
@@ -338,6 +338,7 @@ function wrapEvents(remote) {
     }
   };
   const on = async (event, handler) => {
+    beforeSubscribe();
     let set = local.get(event);
     if (!set) {
       set = /* @__PURE__ */ new Set();
@@ -377,6 +378,15 @@ function wrapEvents(remote) {
   });
   return { api, reset };
 }
+var UNDECLARED_SUBSCRIPTIONS_WARNING = "This plugin's manifest has no `subscriptions`, so api.on accepts any host event for now. The next plugin API major version requires `subscriptions` to list the events a plugin listens to.";
+function subscriptionsWarner(declared, warn = (message) => console.warn(message)) {
+  let warned = declared;
+  return () => {
+    if (warned) return;
+    warned = true;
+    warn(UNDECLARED_SUBSCRIPTIONS_WARNING);
+  };
+}
 function isHostMessage(event, gate) {
   if (gate.hostWindow === gate.selfWindow) return false;
   if (event.source !== gate.hostWindow) return false;
@@ -415,7 +425,8 @@ function connectToHost() {
         clearTimeout(timer);
         context = data.context;
         theme = data.theme;
-        const { api, reset } = wrapEvents(wrap(event.ports[0]));
+        const warnOnSubscribe = subscriptionsWarner(data.subscriptionsDeclared !== false);
+        const { api, reset } = wrapEvents(wrap(event.ports[0]), warnOnSubscribe);
         resolve({
           api,
           context,

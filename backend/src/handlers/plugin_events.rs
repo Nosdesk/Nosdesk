@@ -14,8 +14,11 @@
 //! `backend/sync-models/`, and downstream consumer awareness, none of
 //! which a runtime emit can synthesize), and the core aggregates are
 //! rows clients apply as server-written. Plugins extend behaviour
-//! through the `event_type` string instead. (The architecture doc § 6
-//! references this constraint as part of the manifest design.)
+//! through the `event_type` string instead: one of the plugin's own
+//! events, `<plugin name>:<event>`, declared in its manifest's `events`.
+//! Host event names (`ticket:*`, `document:*`, `asset:*`) are reserved.
+//! (The architecture doc § 6 references this constraint as part of the
+//! manifest design.)
 //!
 //! A plugin event is an event, never a row. `plugin` is a pooled aggregate:
 //! clients upsert or delete a pool row for any `plugin` action whose payload
@@ -37,7 +40,9 @@ use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::plugins as plugin_repo;
-use crate::services::plugins::manifest_validate::KNOWN_EVENTS;
+use crate::services::plugins::manifest_validate::{
+    plugin_event_name_problem, PluginEventNameProblem, PLUGIN_EVENT_NAME_MAX,
+};
 use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
@@ -58,7 +63,7 @@ pub struct PluginEventBody {
     pub causation_id: Option<Uuid>,
 }
 
-const PLUGIN_EVENT_TYPE_MAX: usize = 64;
+const PLUGIN_EVENT_TYPE_MAX: usize = PLUGIN_EVENT_NAME_MAX;
 /// Cap the event payload. The row fans out to every workspace SSE client, so an
 /// oversized body is an amplification vector. (Plugin events don't reach
 /// webhooks: their names are colon-named plugin events, and webhooks deliver
@@ -79,10 +84,11 @@ fn validate_event_body(body: &PluginEventBody) -> Result<(), &'static str> {
     if body.event_type.trim().is_empty() || body.event_type.len() > PLUGIN_EVENT_TYPE_MAX {
         return Err("event_type must be 1 to 64 characters");
     }
-    // Only a known plugin event, as a manifest may declare (the manifest check
-    // in the handler holds a plugin to the ones it declares).
-    if !KNOWN_EVENTS.contains(&body.event_type.as_str()) {
-        return Err("event_type is not a known plugin event");
+    // Never a host event's name: those are the host's to record. (The
+    // handler holds a plugin to the events its manifest declares, each
+    // namespaced to it.)
+    if plugin_event_name_problem("", &body.event_type) == Some(PluginEventNameProblem::Reserved) {
+        return Err("event_type is a host event name");
     }
     if serde_json::to_vec(&body.data)
         .map(|v| v.len())
@@ -149,13 +155,16 @@ pub async fn emit_plugin_event(
         return Err(ApiError::Forbidden("Plugin is not active".into()));
     }
 
-    // The event_type must be one the plugin's manifest declares. The manifest
-    // `events` list is an allowlist (see PluginManifest::events); enforcing it
+    // The event_type must be one the plugin's manifest declares, namespaced to
+    // the plugin (`<plugin name>:<event>`). The manifest `events` list is an
+    // allowlist (see PluginManifest::events); enforcing it
     // here stops a caller from injecting arbitrary event types under the
     // plugin's identity, bounding a plugin to its own declared event surface.
     match plugin.parse_manifest() {
         Ok(manifest) => {
-            if !manifest.events.iter().any(|e| e == &body.event_type) {
+            if !manifest.events.iter().any(|e| e == &body.event_type)
+                || plugin_event_name_problem(&plugin.name, &body.event_type).is_some()
+            {
                 warn!(
                     plugin_uuid = %plugin_uuid,
                     event_type = %body.event_type,
@@ -212,7 +221,7 @@ pub async fn emit_plugin_event(
         }
     }
 
-    let user_ref = format!("plugin:{} via user:{}", plugin.name, claims.sub);
+    let user_ref = crate::services::plugins::access::event_emitter_ref(&plugin.name, &claims.sub);
     let actor = ActorContext {
         kind: crate::sync::actor::ActorKind::Plugin,
         uuid: Some(plugin.uuid),
@@ -298,7 +307,7 @@ mod tests {
 
     #[test]
     fn accepts_a_reasonable_event() {
-        assert!(validate_event_body(&body("ticket:created", json!({ "a": 1 }))).is_ok());
+        assert!(validate_event_body(&body("github:issue_linked", json!({ "a": 1 }))).is_ok());
     }
 
     #[test]
@@ -310,7 +319,7 @@ mod tests {
         ] {
             let event = PluginEventBody {
                 aggregate,
-                ..body("ticket:created", json!({}))
+                ..body("github:issue_linked", json!({}))
             };
             assert!(validate_event_body(&event).is_err());
         }
@@ -323,11 +332,16 @@ mod tests {
         assert!(validate_event_body(&body(&long, Value::Null)).is_err());
     }
 
-    /// Only a known plugin event: a made-up name, or a host event's dot name,
-    /// is refused even if a manifest lists it.
+    /// Never a host event's name, even one a manifest might list. (Whether
+    /// the plugin declares the name, namespaced to it, is the handler's check.)
     #[test]
-    fn rejects_an_unknown_event_type() {
-        for name in ["report:ready", "ticket.created", "x.done"] {
+    fn rejects_a_host_event_name() {
+        for name in [
+            "ticket:created",
+            "ticket:made_up",
+            "asset:updated",
+            "document:x",
+        ] {
             assert!(
                 validate_event_body(&body(name, json!({}))).is_err(),
                 "{name}"
@@ -341,7 +355,7 @@ mod tests {
     fn aggregate_id_and_op_are_optional() {
         let parsed: PluginEventBody = serde_json::from_value(json!({
             "aggregate": "plugin",
-            "event_type": "ticket:created",
+            "event_type": "github:issue_linked",
             "data": {},
         }))
         .expect("body parses without aggregate_id and op");
@@ -351,7 +365,7 @@ mod tests {
     #[test]
     fn rejects_oversized_data() {
         let big = json!({ "blob": "x".repeat(PLUGIN_EVENT_DATA_MAX) });
-        assert!(validate_event_body(&body("ticket:created", big)).is_err());
+        assert!(validate_event_body(&body("github:issue_linked", big)).is_err());
     }
 
     /// B6 structural guard: a caller cannot supply `groups`. Unknown fields are

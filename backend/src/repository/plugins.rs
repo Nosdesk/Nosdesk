@@ -67,6 +67,80 @@ pub fn get_plugins_by_uuids(
         .load::<Plugin>(conn)
 }
 
+/// Whether an event plugin `plugin_uuid` emitted as `event_type`, on behalf
+/// of member `emitter`, may run rules on ticket `ticket_id` in the pinned
+/// workspace: the plugin is installed and active, its manifest still lists
+/// the event, its granted permissions include `ticket:read`, and the member
+/// it emitted for is staff in the workspace (an agent or above; a requester's
+/// or guest's plugin events are recorded but run no rules), still in the
+/// plugin's audience, and can see the ticket (a plugin reads tickets as the
+/// member it runs for). Fails closed: a missing plugin, an unreadable
+/// manifest or no emitter is a no.
+pub fn plugin_event_runs_rules(
+    conn: &mut DbConnection,
+    plugin_uuid: Uuid,
+    event_type: &str,
+    emitter: Option<Uuid>,
+    ticket_id: i32,
+) -> QueryResult<bool> {
+    use crate::models::{PlatformRole, WorkspaceRole};
+    use crate::repository::ticket_visibility::{can_view_ticket, VisibilityContext};
+    use crate::services::plugins::access::{plugin_admits, PluginCaller};
+
+    let Some(emitter) = emitter else {
+        return Ok(false);
+    };
+    let Some(plugin) = plugins::table
+        .filter(plugins::uuid.eq(plugin_uuid))
+        .first::<Plugin>(conn)
+        .optional()?
+    else {
+        return Ok(false);
+    };
+    if !plugin.is_active() {
+        return Ok(false);
+    }
+    let declares = plugin
+        .parse_manifest()
+        .is_ok_and(|m| m.events.iter().any(|e| e == event_type));
+    if !declares
+        || !plugin
+            .effective_permission_set()
+            .iter()
+            .any(|p| p == "ticket:read")
+    {
+        return Ok(false);
+    }
+    if !crate::repository::comments::is_workspace_staff(conn, emitter, plugin.workspace_id) {
+        return Ok(false);
+    }
+    let Some(platform_role) = crate::schema::users::table
+        .filter(crate::schema::users::uuid.eq(emitter))
+        .select(crate::schema::users::platform_role)
+        .first::<String>(conn)
+        .optional()?
+    else {
+        return Ok(false);
+    };
+    let workspace_role =
+        crate::repository::workspaces::get_membership_role(conn, plugin.workspace_id, emitter)?
+            .map(|r| WorkspaceRole::from_db(&r));
+    let viewer = VisibilityContext::new(
+        emitter,
+        PlatformRole::from_db(&platform_role),
+        workspace_role,
+    );
+    // Still in the plugin's audience, as the emit endpoint required.
+    let caller = PluginCaller::from_tier(
+        workspace_role.is_some_and(|r| r.meets(WorkspaceRole::Admin)),
+        viewer.sees_all(),
+    );
+    if !plugin_admits(&plugin, caller) {
+        return Ok(false);
+    }
+    can_view_ticket(conn, &viewer, ticket_id)
+}
+
 /// Create a new plugin row.
 ///
 /// The [`InstallToken`](crate::services::plugins::install::InstallToken)

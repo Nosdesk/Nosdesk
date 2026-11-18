@@ -15,7 +15,7 @@ describe('promoteControls', () => {
   })
 
   it('keeps event rules in draft while event rules do not run', () => {
-    for (const trigger of ['ticket_created', 'ticket_updated', 'ticket_replied', 'time_elapsed'] as RuleTriggerKind[]) {
+    for (const trigger of ['ticket_created', 'ticket_updated', 'ticket_replied', 'time_elapsed', 'plugin_event'] as RuleTriggerKind[]) {
       expect(offered(trigger, 'draft', false)).toBe('')
       expect(offered(trigger, 'paused', false)).toBe('')
       // One already running (set through the API) can still be stopped.
@@ -39,5 +39,12 @@ describe('promoteControls', () => {
     expect(offered('ticket_created', 'paused', true)).toBe('dry_run,live_checked')
     expect(offered('ticket_created', 'dry_run', true)).toBe('live,paused')
     expect(offered('ticket_created', 'live', true)).toBe('dry_run,paused')
+  })
+
+  // A plugin's events run a rule the way a ticket's do.
+  it('treats a plugin event rule as an event rule', () => {
+    for (const state of ['draft', 'paused', 'dry_run', 'live'] as RuleState[]) {
+      expect(offered('plugin_event', state, true)).toBe(offered('ticket_created', state, true))
+    }
   })
 })

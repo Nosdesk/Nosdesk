@@ -522,8 +522,8 @@ pub struct ApplyInput {
 }
 
 /// What started a rule run. Each source runs only the trigger kinds it
-/// serves: an agent applies manual rules, ticket events run the event
-/// triggers, and the clock runs time-elapsed rules.
+/// serves: an agent applies manual rules, ticket and plugin events run the
+/// event triggers, and the clock runs time-elapsed rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApplySource {
     Manual,
@@ -541,6 +541,7 @@ impl ApplySource {
                 RuleTriggerKind::TicketCreated
                     | RuleTriggerKind::TicketUpdated
                     | RuleTriggerKind::TicketReplied
+                    | RuleTriggerKind::PluginEvent
             ),
             Self::Time => kind == RuleTriggerKind::TimeElapsed,
         }

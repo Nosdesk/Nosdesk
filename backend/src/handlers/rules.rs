@@ -435,6 +435,76 @@ fn unknown_reference(
     )
 }
 
+/// A plugin event rule's settings as saved: the plugin's uuid, in the form
+/// its events are recorded with, and an event name that isn't a host
+/// event's. Other keys are dropped. Whether the plugin declares the event is
+/// [`unknown_plugin_event`]'s check.
+fn plugin_trigger_config(config: &Value) -> Result<Value, &'static str> {
+    let plugin_uuid = config
+        .get("plugin_uuid")
+        .and_then(Value::as_str)
+        .and_then(|u| Uuid::parse_str(u).ok())
+        .ok_or("a plugin event rule must name the plugin it runs on")?;
+    let event_type = config
+        .get("event_type")
+        .and_then(Value::as_str)
+        .filter(|e| {
+            use crate::services::plugins::manifest_validate::{
+                plugin_event_name_problem, PluginEventNameProblem, PLUGIN_EVENT_NAME_MAX,
+            };
+            !e.is_empty()
+                && e.len() <= PLUGIN_EVENT_NAME_MAX
+                && plugin_event_name_problem("", e) != Some(PluginEventNameProblem::Reserved)
+        })
+        .ok_or("a plugin event rule must name one of the plugin's events")?;
+    Ok(serde_json::json!({
+        "plugin_uuid": plugin_uuid.to_string(),
+        "event_type": event_type,
+    }))
+}
+
+/// A plugin event rule's plugin is installed in this workspace and its
+/// manifest declares the event it names, namespaced to it. Whether the plugin is enabled is checked when an
+/// event comes in, not here.
+fn unknown_plugin_event(
+    conn: &mut crate::db::DbConnection,
+    config: &Value,
+) -> diesel::QueryResult<Option<HttpResponse>> {
+    let (Some(plugin_uuid), Some(event_type)) = (
+        config
+            .get("plugin_uuid")
+            .and_then(Value::as_str)
+            .and_then(|u| Uuid::parse_str(u).ok()),
+        config.get("event_type").and_then(Value::as_str),
+    ) else {
+        return Ok(None);
+    };
+    let plugin = match crate::repository::plugins::get_plugin_by_uuid(conn, plugin_uuid) {
+        Ok(plugin) => plugin,
+        Err(diesel::result::Error::NotFound) => {
+            return Ok(Some(errors::bad_request_with_code(
+                "the plugin the rule runs on isn't installed in this workspace",
+                "RULE_VALIDATION",
+            )))
+        }
+        Err(e) => return Err(e),
+    };
+    let emits = plugin
+        .parse_manifest()
+        .is_ok_and(|m| m.events.iter().any(|e| e == event_type))
+        && crate::services::plugins::manifest_validate::plugin_event_name_problem(
+            &plugin.name,
+            event_type,
+        )
+        .is_none();
+    Ok((!emits).then(|| {
+        errors::bad_request_with_code(
+            format!("the plugin doesn't emit {event_type}"),
+            "RULE_VALIDATION",
+        )
+    }))
+}
+
 fn manual_conditions_refused() -> HttpResponse {
     errors::bad_request_with_code(
         "manual rules must have an empty conditions list",
@@ -549,7 +619,7 @@ fn insert_rule(
         name,
         description,
         trigger_kind,
-        trigger_config,
+        mut trigger_config,
         conditions,
         actions,
         priority,
@@ -580,6 +650,13 @@ fn insert_rule(
         rules::step_person_problem(conn, workspace_id, trigger_kind, &actions, created_by)?
     {
         return Err(refused(step_person_refused(problem)));
+    }
+    if trigger_kind == RuleTriggerKind::PluginEvent {
+        trigger_config = plugin_trigger_config(&trigger_config)
+            .map_err(|msg| refused(errors::bad_request_with_code(msg, "RULE_VALIDATION")))?;
+        if let Some(resp) = unknown_plugin_event(conn, &trigger_config)? {
+            return Err(refused(resp));
+        }
     }
 
     let reads = rules::reads_beyond_guards(&conditions);
@@ -685,7 +762,7 @@ pub async fn update_rule(
         name,
         description,
         trigger_kind,
-        trigger_config,
+        mut trigger_config,
         conditions,
         actions,
         priority,
@@ -736,6 +813,23 @@ pub async fn update_rule(
         Ok(predicate) => predicate,
         Err(resp) => return Ok(*resp),
     };
+    // A plugin event rule's settings are checked when the trigger or its
+    // settings change. The plugin is looked up only when they name another
+    // plugin or event than the rule has: one that has since lost its plugin
+    // can still be renamed or have its steps edited.
+    let mut plugin_trigger = effective_trigger_kind == RuleTriggerKind::PluginEvent
+        && (trigger_kind.is_some() || trigger_config.is_some());
+    if plugin_trigger {
+        let config = trigger_config.as_ref().unwrap_or(&existing.trigger_config);
+        match plugin_trigger_config(config) {
+            Ok(config) => {
+                plugin_trigger = existing.trigger_kind != RuleTriggerKind::PluginEvent
+                    || config != existing.trigger_config;
+                trigger_config = Some(config);
+            }
+            Err(msg) => return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION")),
+        }
+    }
     let reads = rules::reads_beyond_guards(&effective_conditions);
     let writes = rules::derive_writes_set(&effective_actions);
     if let Err(e) = check_self_referential(&reads, &writes, override_self_reference) {
@@ -764,6 +858,7 @@ pub async fn update_rule(
         archived_at: None,
     };
 
+    let plugin_config = change.trigger_config.clone().filter(|_| plugin_trigger);
     let saved = tc.run_result(|conn| {
         if let Some(resp) = unknown_reference(conn, &predicate)? {
             return Err(UpdateRuleError::Refused(Box::new(resp)));
@@ -779,6 +874,11 @@ pub async fn update_rule(
             return Err(UpdateRuleError::Refused(Box::new(step_person_refused(
                 problem,
             ))));
+        }
+        if let Some(config) = &plugin_config {
+            if let Some(resp) = unknown_plugin_event(conn, config)? {
+                return Err(UpdateRuleError::Refused(Box::new(resp)));
+            }
         }
         let rule = rules::update(conn, id, change).map_err(UpdateRuleError::Write)?;
         let preview = rules::preview_match(conn, &predicate, rules::PREVIEW_SCAN)?;
@@ -1833,6 +1933,35 @@ mod tests {
         ] {
             let err = validate_actions(&serde_json::json!([bad])).expect_err(why);
             assert_eq!(err, format!("Step 1: {why}"));
+        }
+    }
+
+    #[test]
+    fn a_plugin_trigger_names_a_plugin_and_one_of_its_events() {
+        let plugin = Uuid::now_v7();
+        let saved = plugin_trigger_config(&serde_json::json!({
+            "plugin_uuid": plugin.to_string().to_uppercase(),
+            "event_type": "github:issue_linked",
+            "reply_kind": "any",
+        }))
+        .expect("valid");
+        assert_eq!(
+            saved,
+            serde_json::json!({ "plugin_uuid": plugin.to_string(), "event_type": "github:issue_linked" }),
+            "the uuid as events record it, and nothing else"
+        );
+        let long = format!("github:{}", "e".repeat(64));
+        for config in [
+            serde_json::json!({}),
+            serde_json::json!({ "event_type": "github:issue_linked" }),
+            serde_json::json!({ "plugin_uuid": "nope", "event_type": "github:issue_linked" }),
+            serde_json::json!({ "plugin_uuid": plugin.to_string() }),
+            serde_json::json!({ "plugin_uuid": plugin.to_string(), "event_type": "" }),
+            serde_json::json!({ "plugin_uuid": plugin.to_string(), "event_type": long }),
+            // A host event is never a plugin's.
+            serde_json::json!({ "plugin_uuid": plugin.to_string(), "event_type": "ticket:updated" }),
+        ] {
+            assert!(plugin_trigger_config(&config).is_err(), "{config}");
         }
     }
 
