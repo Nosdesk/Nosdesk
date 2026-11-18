@@ -402,6 +402,13 @@ pub async fn process_event(
     // isn't a correctness hazard here.
     let existing_ticket_id = adapter.resolve_thread(&msg, channel.id, conn).await;
 
+    // Mail the mailbox held before the channel connected (a backlog the
+    // admin asked for, or a rescan) is history: nobody is waiting on an
+    // answer to it.
+    let before_connection = adapter
+        .connected_at()
+        .is_some_and(|at| super::predates_connection(at, msg.received_at));
+
     // Raw RFC-822 archive. Done before the transaction because
     // storage uploads are async and shouldn't hold a DB connection;
     // a failure here is non-fatal (we log and proceed with a NULL
@@ -573,10 +580,11 @@ pub async fn process_event(
     );
 
     // Fire the system auto-acknowledgement when this message just
-    // opened a fresh ticket. Gated on having both pool + email in
-    // context — tests typically leave those unset. The spawn is
-    // fire-and-forget so an SMTP hiccup never blocks ingestion.
-    if is_new_ticket {
+    // opened a fresh ticket, unless it is mail from before the channel
+    // connected. Gated on having both pool + email in context; tests
+    // typically leave those unset. The spawn is fire-and-forget so an SMTP
+    // hiccup never blocks ingestion.
+    if is_new_ticket && !before_connection {
         if let (Some(pool), Some(resolver)) = (ctx.pool.clone(), ctx.resolver.clone()) {
             super::auto_ack::spawn_auto_ack(
                 pool,
@@ -585,6 +593,7 @@ pub async fn process_event(
                 ticket.clone(),
                 msg.external_id.clone(),
                 msg.content_language.clone(),
+                msg.received_at,
             );
         }
     }

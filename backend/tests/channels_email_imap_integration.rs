@@ -214,8 +214,13 @@ fn build_pool() -> Pool {
 
 /// Create a fresh channel row. The test uses a throwaway row and
 /// deletes it in `teardown` to keep the real `channels` table tidy.
+///
+/// A new channel starts after the newest message, and the tests plant mail
+/// before the first poll, so the channel brings in mail since yesterday
+/// (the mailbox is purged first).
 fn seed_channel(pool: &Pool) -> Channel {
     let mut conn = pool.get().unwrap();
+    let since = (chrono::Utc::now() - chrono::TimeDelta::days(1)).date_naive();
     let cfg = serde_json::json!({
         "host": greenmail_host(),
         "port": IMAP_PORT,
@@ -224,6 +229,7 @@ fn seed_channel(pool: &Pool) -> Channel {
         "use_tls": true,
         "reply_domain": "example.com",
         "insecure_skip_cert_verify": true,
+        "backlog_since": since,
     });
     let ch = channels_repo::create(
         &mut conn,

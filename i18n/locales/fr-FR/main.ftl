@@ -11642,3 +11642,7 @@ onboarding-complete-open = Aller à votre espace de travail
 onboarding-complete-import = Importer un espace de travail depuis un autre Nosdesk
 # MACHINE TRANSLATION, pending native review
 onboarding-complete-import-note = Transfère les tickets, les personnes et les paramètres d'un export vers cet espace de travail. Cela ne fonctionne que tant que l'espace de travail est encore vide.
+
+# Canal e-mail : les anciens messages n'arrivent que sur demande, et discrètement (machine, à relire par un locuteur natif).
+admin-channels-email-field-backlog-since-label = Importer aussi les e-mails depuis le
+admin-channels-email-field-backlog-since-hint = Laissez ce champ vide pour ne recevoir que les e-mails qui arrivent à partir de maintenant. Les e-mails antérieurs à la connexion du canal arrivent discrètement, sans accusé de réception ni règles.

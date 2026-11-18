@@ -53,6 +53,11 @@ export interface ImapChannelConfig {
    * surfaces this as an opt-in toggle with a prominent warning.
    */
   insecure_skip_cert_verify?: boolean;
+  /**
+   * Also bring in the mail received since this date (`YYYY-MM-DD`). Without
+   * it a new channel takes only mail that arrives after it connects.
+   */
+  backlog_since?: string;
 }
 
 /** Known shape of `runtime_state` for the `email_imap` provider. */
@@ -60,6 +65,8 @@ export interface ImapRuntimeState {
   last_seen_uid?: number;
   uid_validity?: number | null;
   last_error?: string | null;
+  /** When the channel first reached its mailbox. */
+  connected_at?: string | null;
 }
 
 export interface CreateChannelRequest {

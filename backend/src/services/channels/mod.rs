@@ -389,6 +389,39 @@ pub trait ChannelAdapter: Send + Sync + 'static {
     ) -> Option<i32> {
         threading::default_explicit_threading(event, channel_id, conn).await
     }
+
+    /// When the channel started watching its source, for a channel that can
+    /// reach mail sent before then (a polled mailbox). A message older than
+    /// this came in with the mailbox's history ([`predates_connection`]).
+    /// `None` for a channel that only receives mail as it arrives.
+    fn connected_at(&self) -> Option<DateTime<Utc>> {
+        None
+    }
+}
+
+// ---------- Connection time ----------
+
+/// How far a message's date may fall before a channel's connection time
+/// and still count as new mail: the mail server's clock and ours disagree a
+/// little, and a message can land while the channel is being saved.
+pub const CONNECTION_CLOCK_SKEW: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+
+/// A message received before its channel connected, beyond the allowed
+/// clock skew: history the mailbox already held, not someone writing in now.
+/// It opens its ticket quietly, and no automatic acknowledgement answers it.
+pub fn predates_connection(connected_at: DateTime<Utc>, received_at: DateTime<Utc>) -> bool {
+    received_at < connected_at - CONNECTION_CLOCK_SKEW
+}
+
+/// When `channel` started watching its mailbox, read from the stored row:
+/// a polled mailbox's first poll, or its creation before that is recorded.
+/// `None` for a channel that only receives mail as it arrives (forwarding
+/// and managed addresses), which never sees a mailbox's history.
+pub fn connected_at(channel: &crate::models::Channel) -> Option<DateTime<Utc>> {
+    (channel.provider == crate::models::CHANNEL_PROVIDER_EMAIL_IMAP).then(|| {
+        email_imap::stored_connected_at(&channel.runtime_state)
+            .unwrap_or_else(|| channel.created_at.and_utc())
+    })
 }
 
 /// Poll-based adapters (IMAP, Gmail fallback). The registry calls
