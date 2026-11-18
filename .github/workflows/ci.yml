@@ -141,6 +141,11 @@ jobs:
 
       - name: cargo test
         working-directory: backend
+        # A green run builds and tests in about 12 minutes. A hung test
+        # has left the runner to die at around 50 minutes, taking the
+        # log with it; failing the step first keeps the log, where
+        # libtest names any test running for over 60 seconds.
+        timeout-minutes: 30
         env:
           # Override backend/.cargo/config.toml's host-port URL
           # (54329 is the compose.dev.yaml publish, irrelevant in
