@@ -362,12 +362,24 @@ pub struct Ticket {
 /// `submitted_via` of a ticket a CSV import made.
 pub const CSV_IMPORT: &str = "csv_import";
 
+/// `submitted_via` of a ticket opened by mail its mailbox held before the
+/// email channel connected (a backlog the admin asked for).
+pub const EMAIL_BACKLOG: &str = "email_backlog";
+
+/// Whether a ticket that came in `submitted_via` this way is imported
+/// history ([`Ticket::is_imported`]). For readers that have the value but
+/// not the ticket, such as an event's data.
+pub fn is_imported_via(submitted_via: Option<&str>) -> bool {
+    matches!(submitted_via, Some(CSV_IMPORT | EMAIL_BACKLOG))
+}
+
 impl Ticket {
-    /// A ticket an import brought in from another system: history, not a
-    /// request. It starts no approval round and runs no `ticket_created`
-    /// rules.
+    /// A ticket an import brought in from another system, or old mail a
+    /// newly connected mailbox brought in: history, not a request. It
+    /// starts no approval round, runs no `ticket_created` rules and tells
+    /// its requester nothing.
     pub fn is_imported(&self) -> bool {
-        self.submitted_via.as_deref() == Some(CSV_IMPORT)
+        is_imported_via(self.submitted_via.as_deref())
     }
 }
 

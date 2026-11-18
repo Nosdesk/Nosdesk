@@ -25,7 +25,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -49,8 +49,8 @@ use crate::utils::email::{EmailService, OutboundEmailMessage};
 /// UIDVALIDITY pinning is what lets us use `last_seen_uid` safely across
 /// restarts: IMAP UIDs are only monotonic within a given UIDVALIDITY, so
 /// if that value changes (rare — mailbox restore, reprovision) we need
-/// to rescan from UID 1. Without it we'd risk re-ingesting or skipping
-/// messages after any backend operation that rotates UIDVALIDITY.
+/// to rescan. Without it we'd risk re-ingesting or skipping messages after
+/// any backend operation that rotates UIDVALIDITY.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ImapRuntimeState {
     #[serde(default)]
@@ -71,6 +71,19 @@ pub struct ImapRuntimeState {
     /// at [`DEAD_LETTER_CAP`], oldest pruned first.
     #[serde(default)]
     pub dead_letters: Vec<IngestDeadLetter>,
+    /// When the channel first reached this mailbox. Its first poll starts
+    /// after the newest message (or at the backlog date), so mail older
+    /// than this is the mailbox's history. Absent on a channel connected
+    /// before this was recorded, which counts from its creation.
+    #[serde(default)]
+    pub connected_at: Option<DateTime<Utc>>,
+    /// The mailbox the cursor belongs to ([`mailbox_key`]). Settings that
+    /// point the channel at another mailbox connect it afresh.
+    #[serde(default)]
+    pub mailbox: Option<String>,
+    /// The earliest backlog date whose mail has been searched for.
+    #[serde(default)]
+    pub backlog_from: Option<NaiveDate>,
 }
 
 /// A message awaiting an ingest retry.
@@ -199,6 +212,12 @@ pub struct ImapChannelConfig {
     /// `false` so an admin has to explicitly enable it.
     #[serde(default)]
     pub insecure_skip_cert_verify: bool,
+    /// Also bring in the mail the mailbox received since this date. Without
+    /// it a new channel takes only mail that arrives after it connects. Mail
+    /// from before the connection comes in quietly: no acknowledgement, no
+    /// rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backlog_since: Option<NaiveDate>,
 }
 
 fn default_imap_port() -> u16 {
@@ -209,6 +228,25 @@ fn default_mailbox() -> String {
 }
 fn default_use_tls() -> bool {
     true
+}
+
+/// The connection time recorded in a stored `runtime_state`, if any.
+pub fn stored_connected_at(runtime_state: &serde_json::Value) -> Option<DateTime<Utc>> {
+    runtime_state
+        .get("connected_at")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+}
+
+/// Names the mailbox a config polls, so the cursor can tell when the
+/// settings point it somewhere else.
+fn mailbox_key(config: &ImapChannelConfig) -> String {
+    format!(
+        "{}@{}/{}",
+        config.username.trim(),
+        config.host.trim().to_ascii_lowercase(),
+        config.mailbox.trim()
+    )
 }
 
 impl ImapChannelConfig {
@@ -271,6 +309,9 @@ pub struct EmailImapAdapter {
     /// runtime state. [`ChannelAdapter::send_reply`] ignores it.
     pool: crate::db::Pool,
     state: ImapRuntimeState,
+    /// When the channel was created: its connection time until its first
+    /// poll records one.
+    created_at: Option<DateTime<Utc>>,
     /// Cached `IDLE` capability. `None` = not yet probed — we will
     /// check `CAPABILITY` on the next successful session. `Some(true)`
     /// = advertised, we use IDLE. `Some(false)` = not advertised (or
@@ -298,8 +339,16 @@ impl EmailImapAdapter {
             email,
             pool,
             state: initial_state,
+            created_at: None,
             idle_supported: None,
         }
+    }
+
+    /// Set the channel's creation time, its connection time until the first
+    /// poll records one.
+    pub fn with_created_at(mut self, created_at: DateTime<Utc>) -> Self {
+        self.created_at = Some(created_at);
+        self
     }
 
     pub fn config(&self) -> &ImapChannelConfig {
@@ -328,14 +377,10 @@ pub fn build_email_imap_adapter(
     config.validate()?;
     let state: ImapRuntimeState =
         serde_json::from_value(channel.runtime_state.clone()).unwrap_or_default();
-    Ok(EmailImapAdapter::new(
-        channel.id,
-        channel.workspace_id,
-        config,
-        email,
-        pool,
-        state,
-    ))
+    Ok(
+        EmailImapAdapter::new(channel.id, channel.workspace_id, config, email, pool, state)
+            .with_created_at(channel.created_at.and_utc()),
+    )
 }
 
 /// Authenticated IMAP session type used by both the test-connection
@@ -550,6 +595,10 @@ impl ChannelAdapter for EmailImapAdapter {
         "email_imap"
     }
 
+    fn connected_at(&self) -> Option<DateTime<Utc>> {
+        self.state.connected_at.or(self.created_at)
+    }
+
     async fn send_reply(
         &self,
         thread: &ThreadContext,
@@ -685,10 +734,9 @@ impl PullAdapter for EmailImapAdapter {
     /// Fetch all messages with UID greater than `last_seen_uid`, parse
     /// them into [`InboundEvent`]s, and advance persisted state.
     ///
-    /// UIDVALIDITY pinning: if the server's current UIDVALIDITY
-    /// differs from what we last saw, UIDs have been rewritten — we
-    /// reset `last_seen_uid` to 0 and rescan. See
-    /// [`ImapRuntimeState`] module docs for background.
+    /// A new channel starts after the newest message (or at its backlog
+    /// date), and a changed UIDVALIDITY rescans from the day the channel
+    /// connected; see [`plan_start`].
     ///
     /// `BODY.PEEK[]` (rather than `BODY[]`) deliberately leaves the
     /// `\Seen` flag untouched. Our dedup is UID-based, not flag-based,
@@ -843,35 +891,71 @@ impl EmailImapAdapter {
     ) -> Result<Vec<InboundEvent>, ChannelError> {
         let mailbox = timed("select", session.select(&self.config.mailbox)).await?;
 
-        // UIDVALIDITY check — the one IMAP invariant we really care
-        // about. Without this, a server that renumbers UIDs (rare,
-        // but mailbox restores do it) would either double-ingest or
-        // skip messages depending on direction of drift.
-        let current_uid_validity = mailbox.uid_validity;
-        let rescan_needed = match (self.state.uid_validity, current_uid_validity) {
-            (Some(prev), Some(now)) if prev == now => false,
-            _ => {
-                debug!(
-                    channel = self.id,
-                    previous = ?self.state.uid_validity,
-                    current = ?current_uid_validity,
-                    "UIDVALIDITY changed — rescanning from UID 1"
-                );
-                self.state.last_seen_uid = 0;
-                self.state.uid_validity = current_uid_validity;
-                true
+        // Where this poll starts: on from the cursor, or, for a mailbox the
+        // channel is reaching for the first time or whose UIDs were
+        // renumbered, from a point worked out here ([`plan_start`]). The
+        // searches run before the state changes, so a failed one leaves the
+        // next poll to plan the same start again.
+        let key = mailbox_key(&self.config);
+        let connected_on = self.connected_at().unwrap_or_else(Utc::now).date_naive();
+        let plan = plan_start(
+            &self.state,
+            mailbox.uid_validity,
+            &key,
+            self.config.backlog_since,
+            connected_on,
+        );
+        let first_since = match plan.start {
+            Start::Since(date) => {
+                let query = format!("SINCE {}", date.format("%-d-%b-%Y"));
+                timed("uid_search", session.uid_search(&query))
+                    .await?
+                    .into_iter()
+                    .min()
             }
+            _ => None,
         };
+        let end = match plan.start {
+            Start::Cursor => 0,
+            _ => match mailbox.uid_next {
+                Some(next) => next.saturating_sub(1),
+                None => timed("uid_search", session.uid_search("ALL"))
+                    .await?
+                    .into_iter()
+                    .max()
+                    .unwrap_or(0),
+            },
+        };
+        let start = start_cursor(&plan, self.state.last_seen_uid, first_since, end);
+        let recorded = self.state.mailbox.as_deref() == Some(key.as_str());
 
-        // Persist the UIDVALIDITY observation right away. Even if the
-        // subsequent fetches fail, we don't want to redo the rescan
-        // reset on the next poll — otherwise a persistently-bad
-        // mailbox would loop in "reset to UID 0 → fetch fails →
-        // restart → reset again" forever.
-        if rescan_needed {
-            // Pending retry UIDs were numbered under the old UIDVALIDITY and
-            // are meaningless now; the rescan re-ingests everything from UID 1.
+        if plan.reset {
+            debug!(
+                channel = self.id,
+                previous = ?self.state.uid_validity,
+                current = ?mailbox.uid_validity,
+                mode = ?plan.start,
+                "mailbox cursor reset"
+            );
+            self.state.uid_validity = mailbox.uid_validity;
+            // Pending retry UIDs were numbered under the old UIDVALIDITY (or
+            // in another mailbox) and are meaningless now.
             self.state.retry_queue.clear();
+        }
+        if plan.connects {
+            self.state.connected_at = Some(Utc::now());
+            self.state.backlog_from = None;
+        }
+        if let Start::Since(date) = plan.start {
+            self.state.backlog_from = Some(self.state.backlog_from.map_or(date, |f| f.min(date)));
+        }
+
+        // Persist the start right away. Even if the fetches below fail, the
+        // next poll must not redo it: a reset that keeps failing would loop,
+        // and a new channel would move its start point.
+        if plan.reset || plan.start != Start::Cursor || !recorded {
+            self.state.last_seen_uid = start;
+            self.state.mailbox = Some(key);
             self.persist_state().await?;
         }
 
@@ -1157,6 +1241,107 @@ impl Step {
             Err(FetchError::Garbled(_)) => Self::SkipAndStop,
             Err(FetchError::Transport(_)) => Self::Stop,
         }
+    }
+}
+
+/// Where a poll's search starts before it goes on from the cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Start {
+    /// On from the stored cursor.
+    Cursor,
+    /// After the newest message in the mailbox.
+    End,
+    /// Before the first message the server finds since this date.
+    Since(NaiveDate),
+}
+
+/// What a poll does with the stored cursor before it searches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StartPlan {
+    /// The stored cursor and retry queue don't describe this mailbox: the
+    /// channel is reaching it for the first time, or its UIDs were
+    /// renumbered.
+    reset: bool,
+    /// This poll connects the channel to the mailbox and records when.
+    connects: bool,
+    start: Start,
+}
+
+/// Plan where a poll starts, from the stored state, the UIDVALIDITY the
+/// server just reported for `mailbox` ([`mailbox_key`]), the channel's
+/// backlog date and the day it connected.
+///
+/// - A channel that has never reached a mailbox, or whose settings now
+///   name another one, connects: it starts after the newest message, or at
+///   its backlog date. Nothing older comes in.
+/// - Renumbered UIDs (a changed UIDVALIDITY) mean a rescan, from the day
+///   the channel connected or its backlog date, whichever is earlier. The
+///   mail before that was never ingested, so a rescan from UID 1 would
+///   bring the mailbox's whole history in. Mail already ingested is skipped
+///   by its Message-ID.
+/// - A server that reports no UIDVALIDITY gives nothing to compare, so the
+///   cursor stands.
+/// - A backlog date set earlier than any searched so far, on a channel
+///   already connected, moves the cursor back to bring that mail in.
+fn plan_start(
+    state: &ImapRuntimeState,
+    uid_validity: Option<u32>,
+    mailbox: &str,
+    backlog_since: Option<NaiveDate>,
+    connected_on: NaiveDate,
+) -> StartPlan {
+    let never_polled =
+        state.connected_at.is_none() && state.uid_validity.is_none() && state.last_seen_uid == 0;
+    let elsewhere = state.mailbox.as_deref().is_some_and(|m| m != mailbox);
+    if never_polled || elsewhere {
+        return StartPlan {
+            reset: true,
+            connects: true,
+            start: backlog_since.map_or(Start::End, Start::Since),
+        };
+    }
+    let renumbered = match (state.uid_validity, uid_validity) {
+        (Some(before), Some(now)) => before != now,
+        (None, None) => false,
+        _ => true,
+    };
+    if renumbered {
+        let from = [Some(connected_on), backlog_since, state.backlog_from]
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or(connected_on);
+        return StartPlan {
+            reset: true,
+            connects: false,
+            start: Start::Since(from),
+        };
+    }
+    let start = match backlog_since {
+        Some(date) if date < connected_on && state.backlog_from.is_none_or(|from| date < from) => {
+            Start::Since(date)
+        }
+        _ => Start::Cursor,
+    };
+    StartPlan {
+        reset: false,
+        connects: false,
+        start,
+    }
+}
+
+/// The cursor a planned start leaves, given the stored cursor, the first
+/// UID the server found since the planned date (if it searched one) and
+/// the newest UID in the mailbox. Moving back for a backlog never moves
+/// the cursor forward past mail not yet fetched.
+fn start_cursor(plan: &StartPlan, last_seen_uid: u32, first_since: Option<u32>, end: u32) -> u32 {
+    match (plan.start, first_since) {
+        (Start::Cursor, _) => last_seen_uid,
+        (Start::End, _) => end,
+        (Start::Since(_), Some(first)) if plan.reset => first.saturating_sub(1),
+        (Start::Since(_), Some(first)) => last_seen_uid.min(first.saturating_sub(1)),
+        (Start::Since(_), None) if plan.reset => end,
+        (Start::Since(_), None) => last_seen_uid,
     }
 }
 
@@ -1784,6 +1969,7 @@ mod tests {
             last_error: None,
             retry_queue: Vec::new(),
             dead_letters: Vec::new(),
+            ..Default::default()
         };
         let v = serde_json::to_value(&state).unwrap();
         let back: ImapRuntimeState = serde_json::from_value(v).unwrap();
@@ -1982,6 +2168,250 @@ mod tests {
         );
     }
 
+    const MAILBOX: &str = "support@example.com@imap.example.com/INBOX";
+
+    fn day(d: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap()
+    }
+
+    /// A channel that has polled `MAILBOX` under UIDVALIDITY 7.
+    fn connected(last_seen_uid: u32) -> ImapRuntimeState {
+        ImapRuntimeState {
+            last_seen_uid,
+            uid_validity: Some(7),
+            connected_at: Some(Utc::now()),
+            mailbox: Some(MAILBOX.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Where a poll starts: the plan and the cursor it leaves, given the
+    /// first UID found since the planned date and the newest UID (500).
+    fn start(
+        state: &ImapRuntimeState,
+        uid_validity: Option<u32>,
+        backlog_since: Option<NaiveDate>,
+        first_since: Option<u32>,
+    ) -> (StartPlan, u32) {
+        let plan = plan_start(
+            state,
+            uid_validity,
+            MAILBOX,
+            backlog_since,
+            day("2026-11-01"),
+        );
+        let cursor = start_cursor(&plan, state.last_seen_uid, first_since, 500);
+        (plan, cursor)
+    }
+
+    #[test]
+    fn a_new_channel_starts_after_the_newest_message() {
+        let (plan, cursor) = start(&ImapRuntimeState::default(), Some(7), None, None);
+        assert_eq!(
+            plan,
+            StartPlan {
+                reset: true,
+                connects: true,
+                start: Start::End,
+            }
+        );
+        assert_eq!(cursor, 500, "nothing already in the mailbox comes in");
+    }
+
+    #[test]
+    fn a_channel_that_only_ever_failed_is_still_new() {
+        // `last_error` is written into runtime_state before any poll works.
+        let state: ImapRuntimeState =
+            serde_json::from_value(serde_json::json!({ "last_error": "login: NO" })).unwrap();
+        let (plan, cursor) = start(&state, Some(7), None, None);
+        assert!(plan.connects);
+        assert_eq!(cursor, 500);
+    }
+
+    #[test]
+    fn a_new_channel_with_a_backlog_date_starts_at_that_date() {
+        let since = day("2026-01-01");
+        let (plan, cursor) = start(
+            &ImapRuntimeState::default(),
+            Some(7),
+            Some(since),
+            Some(120),
+        );
+        assert_eq!(plan.start, Start::Since(since));
+        assert!(plan.connects);
+        assert_eq!(cursor, 119, "from the first message since the date");
+
+        // No mail since then: the same as no backlog date.
+        let (_, cursor) = start(&ImapRuntimeState::default(), Some(7), Some(since), None);
+        assert_eq!(cursor, 500);
+    }
+
+    #[test]
+    fn a_connected_channel_goes_on_from_its_cursor() {
+        let (plan, cursor) = start(&connected(42), Some(7), None, None);
+        assert_eq!(
+            plan,
+            StartPlan {
+                reset: false,
+                connects: false,
+                start: Start::Cursor,
+            }
+        );
+        assert_eq!(cursor, 42);
+
+        // A channel polled before connection times were recorded, with its
+        // progress and UIDVALIDITY stored, is not new.
+        let legacy = ImapRuntimeState {
+            last_seen_uid: 42,
+            uid_validity: Some(7),
+            ..Default::default()
+        };
+        assert_eq!(start(&legacy, Some(7), None, None), (plan, 42));
+    }
+
+    #[test]
+    fn its_own_backlog_date_is_searched_once() {
+        let since = day("2026-01-01");
+        let state = ImapRuntimeState {
+            backlog_from: Some(since),
+            ..connected(42)
+        };
+        assert_eq!(
+            start(&state, Some(7), Some(since), None).0.start,
+            Start::Cursor
+        );
+    }
+
+    #[test]
+    fn an_earlier_backlog_date_set_later_moves_the_cursor_back() {
+        let state = ImapRuntimeState {
+            backlog_from: Some(day("2026-06-01")),
+            ..connected(300)
+        };
+        let since = day("2026-01-01");
+        let (plan, cursor) = start(&state, Some(7), Some(since), Some(120));
+        assert_eq!(
+            plan,
+            StartPlan {
+                reset: false,
+                connects: false,
+                start: Start::Since(since),
+            }
+        );
+        assert_eq!(cursor, 119);
+        // Never forward past mail not yet fetched.
+        assert_eq!(start(&state, Some(7), Some(since), Some(400)).1, 300);
+        assert_eq!(start(&state, Some(7), Some(since), None).1, 300);
+        // A date after the channel connected brings nothing older in.
+        let (plan, _) = start(&connected(300), Some(7), Some(day("2026-11-10")), None);
+        assert_eq!(plan.start, Start::Cursor);
+    }
+
+    #[test]
+    fn a_changed_uidvalidity_rescans_from_the_connection_day() {
+        let (plan, cursor) = start(&connected(300), Some(8), None, Some(250));
+        assert_eq!(
+            plan,
+            StartPlan {
+                reset: true,
+                connects: false,
+                start: Start::Since(day("2026-11-01")),
+            }
+        );
+        assert_eq!(
+            cursor, 249,
+            "a rescan, but not of the mail before the channel"
+        );
+
+        // Or from an earlier backlog date.
+        let state = ImapRuntimeState {
+            backlog_from: Some(day("2026-01-01")),
+            ..connected(300)
+        };
+        assert_eq!(
+            start(&state, Some(8), None, None).0.start,
+            Start::Since(day("2026-01-01"))
+        );
+        // Nothing since then: the rescan starts after the newest message.
+        assert_eq!(start(&connected(300), Some(8), None, None).1, 500);
+        // A UIDVALIDITY that disappears is a change too.
+        assert!(start(&connected(300), None, None, None).0.reset);
+    }
+
+    #[test]
+    fn a_server_without_uidvalidity_keeps_its_cursor() {
+        let state = ImapRuntimeState {
+            uid_validity: None,
+            ..connected(42)
+        };
+        let (plan, cursor) = start(&state, None, None, None);
+        assert_eq!(plan.start, Start::Cursor);
+        assert!(!plan.reset);
+        assert_eq!(cursor, 42);
+    }
+
+    #[test]
+    fn another_mailbox_connects_afresh() {
+        let state = ImapRuntimeState {
+            mailbox: Some("old@imap.example.com/INBOX".to_string()),
+            ..connected(300)
+        };
+        let (plan, cursor) = start(&state, Some(7), None, None);
+        assert!(plan.reset && plan.connects);
+        assert_eq!(cursor, 500);
+        // A channel connected before the mailbox was recorded keeps going.
+        let state = ImapRuntimeState {
+            mailbox: None,
+            ..connected(300)
+        };
+        assert_eq!(start(&state, Some(7), None, None).1, 300);
+    }
+
+    #[test]
+    fn mailbox_key_names_the_user_server_and_folder() {
+        let cfg: ImapChannelConfig = serde_json::from_value(serde_json::json!({
+            "host": "IMAP.Example.com ",
+            "username": "support@example.com",
+            "reply_domain": "example.com",
+        }))
+        .unwrap();
+        assert_eq!(mailbox_key(&cfg), MAILBOX);
+    }
+
+    #[test]
+    fn the_backlog_date_is_optional_and_read_from_config() {
+        let cfg: ImapChannelConfig = serde_json::from_value(serde_json::json!({
+            "host": "imap.example.com",
+            "username": "support@example.com",
+            "reply_domain": "example.com",
+            "backlog_since": "2026-01-01",
+        }))
+        .unwrap();
+        assert_eq!(cfg.backlog_since, Some(day("2026-01-01")));
+        assert_eq!(
+            day("2026-01-01").format("%-d-%b-%Y").to_string(),
+            "1-Jan-2026"
+        );
+        let without = serde_json::to_value(ImapChannelConfig {
+            backlog_since: None,
+            ..cfg
+        })
+        .unwrap();
+        assert!(without.get("backlog_since").is_none());
+    }
+
+    #[test]
+    fn the_stored_connection_time_is_read_back() {
+        let at = Utc::now();
+        let state = ImapRuntimeState {
+            connected_at: Some(at),
+            ..Default::default()
+        };
+        let stored = serde_json::to_value(&state).unwrap();
+        assert_eq!(stored_connected_at(&stored), Some(at));
+        assert_eq!(stored_connected_at(&serde_json::json!({})), None);
+    }
+
     #[test]
     fn runtime_state_defaults_gracefully_from_empty_object() {
         let state: ImapRuntimeState = serde_json::from_value(serde_json::json!({})).unwrap();
@@ -1999,6 +2429,7 @@ mod tests {
             use_tls: true,
             reply_domain: "example.com".into(),
             insecure_skip_cert_verify: false,
+            backlog_since: None,
         };
         assert!(cfg.validate().is_ok());
     }
@@ -2013,6 +2444,7 @@ mod tests {
             use_tls: true,
             reply_domain: "example.com".into(),
             insecure_skip_cert_verify: false,
+            backlog_since: None,
         };
         assert!(cfg.validate().unwrap_err().contains("host"));
     }
@@ -2027,6 +2459,7 @@ mod tests {
             use_tls: true,
             reply_domain: "example.com".into(),
             insecure_skip_cert_verify: false,
+            backlog_since: None,
         };
         assert!(cfg.validate().unwrap_err().contains("port"));
     }
@@ -2041,6 +2474,7 @@ mod tests {
             use_tls: true,
             reply_domain: "   ".into(),
             insecure_skip_cert_verify: false,
+            backlog_since: None,
         };
         assert!(cfg.validate().unwrap_err().contains("reply_domain"));
     }
@@ -2055,6 +2489,7 @@ mod tests {
             use_tls: true,
             reply_domain: "example.com".into(),
             insecure_skip_cert_verify: false,
+            backlog_since: None,
         };
         assert!(cfg.validate().unwrap_err().contains("host"));
     }

@@ -305,6 +305,11 @@ impl Event {
                 if data.get("is_internal").and_then(Value::as_bool) != Some(false) {
                     return None;
                 }
+                // Old mail a newly connected mailbox brought in is history,
+                // not a reply anyone is waiting on.
+                if data["created_via"]["imported"].as_bool() == Some(true) {
+                    return None;
+                }
                 let author = data
                     .get("user_uuid")
                     .and_then(Value::as_str)
@@ -1067,6 +1072,12 @@ mod tests {
 
         let note = json!({ "id": 32, "ticket_id": 7, "user_uuid": author, "is_internal": true });
         assert!(Event::read("comment.created", Some("32"), &note).is_none());
+        // Old mail a newly connected mailbox brought in is no reply.
+        let history = json!({
+            "id": 33, "ticket_id": 7, "user_uuid": author, "is_internal": false,
+            "created_via": { "source": "channel:email_imap", "imported": true },
+        });
+        assert!(Event::read("comment.created", Some("33"), &history).is_none());
 
         let update = Event::read(
             "ticket.priority_changed",

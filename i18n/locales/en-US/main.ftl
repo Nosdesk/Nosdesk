@@ -10573,3 +10573,7 @@ admin-rule-editor-plugin-not-running = { $name } (not running)
 admin-rule-editor-plugin-missing = A plugin that is no longer installed
 admin-rule-editor-plugin-incomplete = Pick a plugin and one of its events.
 admin-rule-editor-plugin-hint = The rule runs on the ticket the event names, when an agent or admin was using the plugin and the plugin has access to read tickets. Events from requesters' use of the plugin run no rules.
+
+# Email channel: older mail comes in only when asked for, and quietly.
+admin-channels-email-field-backlog-since-label = Also bring in mail since
+admin-channels-email-field-backlog-since-hint = Leave this empty to take only mail that arrives from now on. Mail from before the channel connects comes in quietly, with no acknowledgement and no rules.

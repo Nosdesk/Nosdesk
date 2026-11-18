@@ -11772,3 +11772,7 @@ admin-rule-editor-plugin-not-running = { $name } (inactif)
 admin-rule-editor-plugin-missing = Un plugin qui n'est plus installé
 admin-rule-editor-plugin-incomplete = Choisissez un plugin et l'un de ses événements.
 admin-rule-editor-plugin-hint = La règle s'exécute sur le ticket nommé par l'événement, quand un agent ou un administrateur utilisait le plugin et que le plugin a accès en lecture aux tickets. Les événements issus de l'utilisation du plugin par des demandeurs n'exécutent aucune règle.
+
+# Canal e-mail : les anciens messages n'arrivent que sur demande, et discrètement (machine, à relire par un locuteur natif).
+admin-channels-email-field-backlog-since-label = Importer aussi les e-mails depuis le
+admin-channels-email-field-backlog-since-hint = Laissez ce champ vide pour ne recevoir que les e-mails qui arrivent à partir de maintenant. Les e-mails antérieurs à la connexion du canal arrivent discrètement, sans accusé de réception ni règles.

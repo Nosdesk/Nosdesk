@@ -140,6 +140,10 @@ pub fn derive(row: &SyncActionRow) -> Vec<Intent> {
     let mut intents = Vec::new();
 
     if row.event_type == "comment.created" {
+        // Old mail a newly connected mailbox brought in notifies nobody.
+        if data["created_via"]["imported"].as_bool() == Some(true) {
+            return intents;
+        }
         let commenter = uuid_at(data, "user_uuid");
         let (Some(comment_id), Some(ticket_id), Some(commenter)) =
             (i32_at(data, "id"), i32_at(data, "ticket_id"), commenter)
@@ -245,7 +249,7 @@ pub fn derive(row: &SyncActionRow) -> Vec<Intent> {
     let ticket_title = str_at(data, "title").unwrap_or_default().to_string();
     if row.event_type == "ticket.created"
         && data.get("origin_channel_id").is_none_or(Value::is_null)
-        && str_at(data, "submitted_via") != Some("csv_import")
+        && !crate::models::is_imported_via(str_at(data, "submitted_via"))
     {
         if let Some(requester) = uuid_at(data, "requester_uuid") {
             intents.push(Intent::Created {
@@ -959,8 +963,27 @@ mod tests {
         imported["submitted_via"] = json!("csv_import");
         assert!(derive(&row("ticket.created", imported, Some(B))).is_empty());
 
+        let mut backlog = base.clone();
+        backlog["submitted_via"] = json!("email_backlog");
+        assert!(derive(&row("ticket.created", backlog, Some(B))).is_empty());
+
         let no_requester = json!({"id": 7, "title": "T", "workflow_state_id": 1});
         assert!(derive(&row("ticket.created", no_requester, Some(B))).is_empty());
+    }
+
+    #[test]
+    fn a_comment_from_old_mail_notifies_nobody() {
+        let data = json!({
+            "id": 9, "ticket_id": 7, "user_uuid": C, "is_internal": false,
+            "content": format!("@[Alex]({A})"), "ticket_title": "T",
+            "ticket_requester_uuid": C, "ticket_assignee_uuid": A,
+            "created_via": { "source": "channel:email_imap", "imported": true },
+        });
+        assert!(derive(&row("comment.created", data.clone(), None)).is_empty());
+
+        let mut live = data;
+        live["created_via"]["imported"] = json!(false);
+        assert_eq!(derive(&row("comment.created", live, None)).len(), 1);
     }
 
     #[test]

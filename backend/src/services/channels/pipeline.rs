@@ -402,6 +402,15 @@ pub async fn process_event(
     // isn't a correctness hazard here.
     let existing_ticket_id = adapter.resolve_thread(&msg, channel.id, conn).await;
 
+    // Mail the mailbox held before the channel connected (a backlog the
+    // admin asked for, or a rescan) is history: nobody is waiting on an
+    // answer to it. Its ticket is imported (no approval round, no
+    // `ticket_created` rules) and its comment reopens nothing, notifies
+    // nobody and runs no reply rules.
+    let before_connection = adapter
+        .connected_at()
+        .is_some_and(|at| super::predates_connection(at, msg.received_at));
+
     // Raw RFC-822 archive. Done before the transaction because
     // storage uploads are async and shouldn't hold a DB connection;
     // a failure here is non-fatal (we log and proceed with a NULL
@@ -465,12 +474,19 @@ pub async fn process_event(
                         &msg,
                         forwarded_by_uuid,
                         raw_source_uri.clone(),
+                        before_connection,
                         ctx,
                     )?;
                     (ticket, comment, false)
                 }
                 None => {
-                    let ticket = open_ticket_from_message(conn, channel, &msg, sender_uuid)?;
+                    let ticket = open_ticket_from_message(
+                        conn,
+                        channel,
+                        &msg,
+                        sender_uuid,
+                        before_connection,
+                    )?;
                     let comment = insert_inbound_comment(
                         conn,
                         ticket.id,
@@ -478,6 +494,7 @@ pub async fn process_event(
                         &msg,
                         forwarded_by_uuid,
                         raw_source_uri.clone(),
+                        before_connection,
                         ctx,
                     )?;
                     (ticket, comment, true)
@@ -556,10 +573,11 @@ pub async fn process_event(
     );
 
     // Fire the system auto-acknowledgement when this message just
-    // opened a fresh ticket. Gated on having both pool + email in
-    // context — tests typically leave those unset. The spawn is
-    // fire-and-forget so an SMTP hiccup never blocks ingestion.
-    if is_new_ticket {
+    // opened a fresh ticket, unless it is mail from before the channel
+    // connected. Gated on having both pool + email in context; tests
+    // typically leave those unset. The spawn is fire-and-forget so an SMTP
+    // hiccup never blocks ingestion.
+    if is_new_ticket && !before_connection {
         if let (Some(pool), Some(resolver)) = (ctx.pool.clone(), ctx.resolver.clone()) {
             super::auto_ack::spawn_auto_ack(
                 pool,
@@ -568,6 +586,7 @@ pub async fn process_event(
                 ticket.clone(),
                 msg.external_id.clone(),
                 msg.content_language.clone(),
+                msg.received_at,
             );
         }
     }
@@ -702,6 +721,7 @@ fn open_ticket_from_message(
     channel: &Channel,
     msg: &InboundMessage,
     requester_uuid: uuid::Uuid,
+    before_connection: bool,
 ) -> Result<Ticket, diesel::result::Error> {
     let title = msg
         .subject
@@ -718,7 +738,11 @@ fn open_ticket_from_message(
         title,
         workflow_state_id: default_state.id,
         requester_uuid: Some(requester_uuid),
-        submitted_via: Some(channel.provider.clone()),
+        submitted_via: Some(if before_connection {
+            crate::models::EMAIL_BACKLOG.to_string()
+        } else {
+            channel.provider.clone()
+        }),
         origin_channel_id: Some(channel.id),
         triage_state: Some("untriaged".into()),
         // Spam-flagged mail still opens a ticket (never dropped), but badged
@@ -769,6 +793,7 @@ fn combine_collapsed(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn insert_inbound_comment(
     conn: &mut DbConnection,
     ticket_id: i32,
@@ -776,6 +801,7 @@ fn insert_inbound_comment(
     msg: &InboundMessage,
     forwarded_by_user_uuid: Option<uuid::Uuid>,
     raw_source_uri: Option<String>,
+    before_connection: bool,
     ctx: &PipelineContext,
 ) -> Result<Comment, diesel::result::Error> {
     let mut metadata = json!({
@@ -907,6 +933,7 @@ fn insert_inbound_comment(
         source: Some(format!("channel:{}", msg.from.provider)),
         from_email: msg.from.known_email.clone(),
         from_name: non_empty(&msg.from.display_name),
+        imported: before_connection,
     };
 
     comments_repo::create_comment_with_annotation(conn, new_comment, annotation, observer)

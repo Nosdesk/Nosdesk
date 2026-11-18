@@ -664,6 +664,7 @@ pub async fn submit_guest_ticket(
             } else {
                 Some(name.to_string())
             },
+            imported: false,
         };
         let first_comment_id = match repository::comments::create_comment_with_annotation(
             conn,

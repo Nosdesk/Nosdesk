@@ -17,7 +17,8 @@
 //! - Enabled / template stored on `site_settings` so an admin can
 //!   customise wording without a redeploy. `None` template → the
 //!   built-in [`DEFAULT_TEMPLATE`] is used.
-//! - No ack goes to a ticket flagged as likely spam.
+//! - No ack goes to a ticket flagged as likely spam, or answers mail the
+//!   mailbox held before its channel connected.
 //! - Fire-and-forget from the pipeline: a failure to send never
 //!   blocks ticket creation.
 //! - The auto-ack is NOT a ticket comment — it's a system-authored
@@ -32,6 +33,7 @@
 
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use tracing::{debug, info, warn};
 
 use crate::db::Pool;
@@ -67,6 +69,7 @@ pub fn spawn_auto_ack(
     ticket: Ticket,
     in_reply_to: String,
     inbound_locale: Option<String>,
+    received_at: DateTime<Utc>,
 ) {
     tokio::spawn(async move {
         if let Err(e) = send_auto_ack(
@@ -76,6 +79,7 @@ pub fn spawn_auto_ack(
             &ticket,
             &in_reply_to,
             inbound_locale.as_deref(),
+            received_at,
         )
         .await
         {
@@ -89,13 +93,17 @@ pub fn spawn_auto_ack(
     });
 }
 
-async fn send_auto_ack(
+/// Send the acknowledgement for `ticket`, opened by the message
+/// `in_reply_to` that the channel received at `received_at`. `Ok` when it
+/// was sent or deliberately not sent; `Err` when sending failed.
+pub async fn send_auto_ack(
     pool: &Pool,
     resolver: &OutboundEmailResolver,
     channel: &Channel,
     ticket: &Ticket,
     in_reply_to: &str,
     inbound_locale: Option<&str>,
+    received_at: DateTime<Utc>,
 ) -> Result<(), String> {
     // A message flagged as likely spam gets no reply: answering would confirm
     // the address to whoever sent it, and a forged sender would get mail they
@@ -104,6 +112,24 @@ async fn send_auto_ack(
         debug!(
             ticket_id = ticket.id,
             "auto-ack: ticket flagged as spam; skipping"
+        );
+        return Ok(());
+    }
+    // Mail from before the channel connected is the mailbox's history, and
+    // its sender is not waiting on an answer. The pipeline doesn't ask for an
+    // ack for it; this holds even for a path that forgets to check. The
+    // channel is read again for the connection time its first poll recorded.
+    let stored = crate::sync::session::run_in_workspace(
+        pool,
+        "background:auto_ack_channel",
+        ticket.workspace_id,
+        |conn| channels_repo::find(conn, channel.id),
+    )
+    .unwrap_or_else(|_| channel.clone());
+    if super::connected_at(&stored).is_some_and(|at| super::predates_connection(at, received_at)) {
+        debug!(
+            ticket_id = ticket.id,
+            "auto-ack: message predates the channel's connection; skipping"
         );
         return Ok(());
     }
@@ -503,14 +529,32 @@ mod tests {
         ticket.requester_uuid = Some(uuid::Uuid::new_v4());
 
         ticket.spam_suspected = false;
-        let plain = send_auto_ack(&pool, &resolver, &channel, &ticket, "<m@x>", None).await;
+        let plain = send_auto_ack(
+            &pool,
+            &resolver,
+            &channel,
+            &ticket,
+            "<m@x>",
+            None,
+            Utc::now(),
+        )
+        .await;
         assert!(
             plain.is_err(),
             "an unflagged ticket goes on to prepare the ack"
         );
 
         ticket.spam_suspected = true;
-        let flagged = send_auto_ack(&pool, &resolver, &channel, &ticket, "<m@x>", None).await;
+        let flagged = send_auto_ack(
+            &pool,
+            &resolver,
+            &channel,
+            &ticket,
+            "<m@x>",
+            None,
+            Utc::now(),
+        )
+        .await;
         assert_eq!(flagged, Ok(()), "a spam-flagged ticket gets no auto-ack");
     }
 }
