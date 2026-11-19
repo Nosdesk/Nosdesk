@@ -1,8 +1,8 @@
 # Nosdesk dev shortcuts. Run from the repo root.
 #
 # Prerequisites:
-#   - OrbStack (recommended) or Docker Desktop, providing `docker` +
-#     `docker compose`.
+#   - Colima (recommended), OrbStack or Docker Desktop, providing
+#     `docker` + `docker compose`. See DEVELOPMENT.md.
 #   - GNU make. macOS ships with it; type `make --version` to confirm.
 #
 # `make dev` is the canonical command for daily work. Everything else
