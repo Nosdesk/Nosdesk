@@ -13,23 +13,30 @@ items and design plans, see `docs/`.
 
 ### Container runtime
 
-**Recommended: [OrbStack](https://orbstack.dev/).** It's a Docker
-Desktop replacement built for macOS: faster boot, more reliable file
-sync via virtio-fs, lower memory overhead. Drop-in for the `docker`
-and `docker compose` CLIs.
+**Recommended: [Colima](https://github.com/abiosoft/colima).** Free and
+open source. It runs the Docker engine in a small Linux VM and works with
+the standard `docker` and `docker compose` CLIs.
 
 ```bash
-brew install --cask orbstack
+brew install colima docker docker-compose docker-buildx
+colima start --vm-type vz --mount-type virtiofs --cpu 4 --memory 10 --disk 100
 ```
 
-On first launch, OrbStack offers to migrate containers and volumes
-from Docker Desktop if you have it installed. Accept the migration
-to keep your cargo cache and any existing dev DB.
+Homebrew's `docker` needs to be told where the compose and buildx plugins
+live. Add this to `~/.docker/config.json`:
 
-**Alternative**: Docker Desktop. Works, but file watching is less
-reliable on macOS and rebuilds are slower. If you stick with it,
-allocate at least 10 GB of memory in Docker Desktop's settings (the
-backend test crate OOMs below that when bacon builds concurrently).
+```json
+"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]
+```
+
+`brew services start colima` starts the VM at login. Give it 10 GB: a full
+backend rebuild peaks around 9 GB even with the build capped at two jobs
+(`CARGO_BUILD_JOBS` in `compose.dev.yaml`), and 8 GB gets rustc OOM-killed.
+
+**Alternatives**: OrbStack (free for personal use, paid for commercial
+use) and Docker Desktop both work. With Docker Desktop, allocate at least
+10 GB of memory in its settings (the backend test crate OOMs below that
+when bacon builds concurrently).
 
 ### Host tools
 
@@ -226,8 +233,8 @@ silently fails to render**. The only symptom is an iframe whose
 document is `chrome-error://chromewebdata/`; nothing is logged to the
 console.
 
-So if `FRONTEND_URL=https://nosdesk.<host>.orb.local`, do plugin work
-on that URL, not `http://localhost:8080`. Check which you are on with:
+So if `FRONTEND_URL` names a proxy host such as `https://nosdesk.<host>.orb.local`,
+do plugin work on that URL, not `http://localhost:8080`. Check which you are on with:
 
 ```bash
 docker compose -f compose.yaml -f compose.dev.yaml exec nosdesk printenv FRONTEND_URL
