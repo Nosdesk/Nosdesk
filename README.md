@@ -18,7 +18,7 @@
 <p align="center">
   <a href="https://github.com/Nosdesk/Nosdesk/releases/latest"><img src="https://img.shields.io/github/v/release/Nosdesk/Nosdesk?label=release&color=fe6b19" alt="Latest release"></a>
   <a href="https://github.com/Nosdesk/Nosdesk/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Nosdesk/Nosdesk/ci.yml?branch=main&label=ci" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL%201.1-lightgrey" alt="License: BSL 1.1"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
 </p>
 
 <p align="center">
@@ -142,8 +142,8 @@ Found a bug? [Open an issue](https://github.com/Nosdesk/Nosdesk/issues). Found a
 
 ## License
 
-Nosdesk is source-available under the [Business Source License 1.1](LICENSE). Run it yourself for any purpose, including supporting your own customers, clients, users or members and letting them submit and follow tickets. You can also set it up and support it for an organisation that runs it on its own infrastructure. What the license rules out is hosting Nosdesk as a paid service for other organisations to use as their own helpdesk, unless Nosdesk agrees to it in writing. Versions up to 1.1 convert to the GNU AGPL v3 on 29 October 2029, and each later version on the Change Date in its own LICENSE, at most four years after its release. [LICENSING.md](LICENSING.md) explains editions and licence keys.
+From 1.2, Nosdesk is open source under the [GNU Affero General Public License v3](LICENSE). Run it, change it and share it for any purpose. If you let people use a modified version over a network, offer them its source. Releases up to 1.1.x stay under the Business Source License 1.1 in their own LICENSE, which converts to the AGPL v3 on 29 October 2029. [LICENSING.md](LICENSING.md) explains editions and licence keys.
 
 Copyright (c) 2026 Nosdesk Pty Ltd.
 
-Nosdesk&trade; and the Nosdesk logo are trademarks of Nosdesk Pty Ltd. The license above grants no right to use these marks (see the trademark reservation in the [LICENSE](LICENSE)); you may not use the Nosdesk name or logo to brand a derivative or fork in a way that implies endorsement or affiliation.
+Nosdesk&trade; and the Nosdesk logo are trademarks of Nosdesk Pty Ltd. The license above grants no right to use these marks; you may not use the Nosdesk name or logo to brand a derivative or fork in a way that implies endorsement or affiliation.
