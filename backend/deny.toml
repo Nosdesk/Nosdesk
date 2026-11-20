@@ -78,8 +78,8 @@ version = 2
 # transitive deps that introduce something outside this list will
 # fail `cargo deny check licenses` and force a deliberate choice.
 #
-# BSL-licensed product, so we're permissive about upstream licences as
-# long as they're not viral (no GPL, no AGPL).
+# Permissive licences only, so the binary's own licence (AGPL-3.0) is the
+# only copyleft term anyone receiving it has to follow.
 allow = [
     "0BSD",
     "Apache-2.0",
@@ -127,11 +127,9 @@ allow = ["MIT", "ISC", "OpenSSL"]
 name = "ring"
 
 [[licenses.exceptions]]
-# This crate's own licence. BUSL-1.1 only appears here, not on any
-# dependency — a transitive BUSL-1.1 dep would be a real concern
-# (viral source-availability), so we whitelist by name rather than
-# adding it to the global `allow` list.
-allow = ["BUSL-1.1"]
+# This crate's own licence. Allowed by name, not in the global list: a
+# copyleft dependency should still be a deliberate choice.
+allow = ["AGPL-3.0-only"]
 name = "backend"
 
 [sources]
