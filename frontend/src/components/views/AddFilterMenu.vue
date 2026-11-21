@@ -230,30 +230,34 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
         :data-stage-direction="direction"
       >
         <Transition :name="`stage-slide-${direction}`" mode="out-in">
-          <!-- Stage 1: facet picker -->
-          <div
-            v-if="stage === 'facets'"
-            ref="facetListRef"
-            tabindex="-1"
-            role="menu"
-            class="py-1 outline-none"
-            @keydown="onFacetListKeydown"
-          >
-            <MenuItem
-              v-for="(facet, i) in facets"
-              :key="facet.key"
-              :highlighted="facetNav.highlightedIndex.value === i"
-              @click.stop="pickFacet(facet.key)"
-              @mouseenter="facetNav.setHighlighted(i)"
+          <!-- Stage 1: facet picker, after whatever the consumer
+               puts above it (the tickets list puts its sort and
+               grouping there on a phone) -->
+          <div v-if="stage === 'facets'">
+            <slot name="before-facets" />
+            <div
+              ref="facetListRef"
+              tabindex="-1"
+              role="menu"
+              class="py-1 outline-none"
+              @keydown="onFacetListKeydown"
             >
-              <span class="flex-1 text-primary">{{ facet.label }}</span>
-              <Icon
-                v-if="activeSet.has(facet.key)"
-                name="check"
-                class="w-3 h-3 text-accent"
-              />
-              <Icon name="chevronRight" class="w-3 h-3 text-tertiary" />
-            </MenuItem>
+              <MenuItem
+                v-for="(facet, i) in facets"
+                :key="facet.key"
+                :highlighted="facetNav.highlightedIndex.value === i"
+                @click.stop="pickFacet(facet.key)"
+                @mouseenter="facetNav.setHighlighted(i)"
+              >
+                <span class="flex-1 text-primary">{{ facet.label }}</span>
+                <Icon
+                  v-if="activeSet.has(facet.key)"
+                  name="check"
+                  class="w-3 h-3 text-accent"
+                />
+                <Icon name="chevronRight" class="w-3 h-3 text-tertiary" />
+              </MenuItem>
+            </div>
           </div>
 
           <!-- Stage 2: value picker -->

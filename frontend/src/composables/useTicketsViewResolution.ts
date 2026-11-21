@@ -154,22 +154,22 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
   // you're on, not what renderer it uses.
   //
   //   me      — single user silhouette ("mine")
+  //   clock   - the day's work, by when it is due
   //   userPlus— person + badge ("my active assignments")
   //   list    — queue of items ("everything in motion")
   //   ticket  — stub-and-tear ticket ("every ticket, all statuses")
   //   user    — generic person placeholder ("needs an assignee")
   //   warning — triangle ("past due, needs attention")
-  //   clock   - what falls due next
   //   inbox   — unsorted incoming tray
   //   calendar— tickets placed on dates
   const TAB_ICON: Record<string, IconName> = {
     'my-open': 'me',
+    'my-day': 'clock',
     'my-active': 'userPlus',
     'all-active': 'list',
     'all-tickets': 'ticket',
     'unassigned': 'user',
     'overdue': 'warning',
-    'due-soon': 'clock',
     'triage': 'inbox',
     'awaiting-approval': 'checkCircle',
     'calendar': 'calendar',

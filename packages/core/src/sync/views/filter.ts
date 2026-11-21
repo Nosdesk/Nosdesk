@@ -17,6 +17,7 @@
  */
 import type { CardData } from './types'
 import type { FilterGroup, FilterPredicate, FilterState, QuickFilter } from './types'
+import { isOverdue } from '../../utils/ticketDates'
 
 /**
  * Build a card predicate from a FilterState. Composes:
@@ -149,10 +150,9 @@ function quickFilterPredicate(
         checks.push((card) => card.assignee_uuid == null)
         break
       case 'overdue':
-        checks.push((card) => {
-          if (!card.due_date) return false
-          return new Date(card.due_date).getTime() < Date.now()
-        })
+        // Past the end of the due day, so a ticket due today is not
+        // overdue yet. `isOverdue` owns the rule.
+        checks.push((card) => isOverdue(card))
         break
       // The remaining quick filters depend on infrastructure we
       // haven't shipped (sla, mentions, kb-gap signal per ticket,

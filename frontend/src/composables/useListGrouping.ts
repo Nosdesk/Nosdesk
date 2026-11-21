@@ -61,6 +61,10 @@ export interface UseListGroupingOptions<T> {
   /** Translate function (Fluent's $t). Used to label the
    *  built-in 'None' option in the picker. */
   t: (key: string, args?: Record<string, string | number>) => string
+  /** The axis a view starts on when nothing is stored for it.
+   *  Defaults to 'none'. A view whose default is an axis stores an
+   *  explicit 'none' when the user turns grouping off. */
+  getDefaultGroupBy?: (viewId: string) => string
 }
 
 export interface GroupOption {
@@ -95,11 +99,12 @@ function loadGroupBy(
   namespace: string,
   viewId: string,
   validKeys: Set<string>,
+  fallback: string = NONE_AXIS_KEY,
 ): string {
-  if (typeof localStorage === 'undefined') return NONE_AXIS_KEY
+  if (typeof localStorage === 'undefined') return fallback
   const v = localStorage.getItem(groupByStorageKey(namespace, viewId))
   if (v && (v === NONE_AXIS_KEY || validKeys.has(v))) return v
-  return NONE_AXIS_KEY
+  return fallback
 }
 
 function loadCollapsed(namespace: string, viewId: string): Set<string> {
@@ -122,8 +127,13 @@ export function useListGrouping<T>(
   const axisByKey = new Map(axes.map((a) => [a.key, a]))
   const validKeys = new Set(axes.map((a) => a.key))
 
+  function defaultFor(viewId: string): string {
+    const d = options.getDefaultGroupBy?.(viewId) ?? NONE_AXIS_KEY
+    return validKeys.has(d) ? d : NONE_AXIS_KEY
+  }
+
   const groupBy = ref<string>(
-    loadGroupBy(storageNamespace, getViewId(), validKeys),
+    loadGroupBy(storageNamespace, getViewId(), validKeys, defaultFor(getViewId())),
   )
   const collapsed = ref<Set<string>>(loadCollapsed(storageNamespace, getViewId()))
 
@@ -132,7 +142,7 @@ export function useListGrouping<T>(
   watch(
     () => getViewId(),
     (id) => {
-      groupBy.value = loadGroupBy(storageNamespace, id, validKeys)
+      groupBy.value = loadGroupBy(storageNamespace, id, validKeys, defaultFor(id))
       collapsed.value = loadCollapsed(storageNamespace, id)
     },
   )
@@ -142,7 +152,7 @@ export function useListGrouping<T>(
     groupBy.value = value
     if (typeof localStorage === 'undefined') return
     const key = groupByStorageKey(storageNamespace, getViewId())
-    if (value === NONE_AXIS_KEY) localStorage.removeItem(key)
+    if (value === defaultFor(getViewId())) localStorage.removeItem(key)
     else localStorage.setItem(key, value)
   }
 

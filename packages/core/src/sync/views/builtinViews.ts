@@ -15,12 +15,12 @@ export interface BuiltInView {
   /** Stable id used in the URL (`?view=my-open`). */
   id:
     | 'my-open'
+    | 'my-day'
     | 'my-active'
     | 'all-active'
     | 'all-tickets'
     | 'unassigned'
     | 'overdue'
-    | 'due-soon'
     | 'triage'
     | 'awaiting-approval'
     | 'calendar'
@@ -113,6 +113,41 @@ export const MY_OPEN_VIEW: BuiltInView = {
     // `mine` quick filter pulls the current user's UUID from the
     // evaluator context, so this view round-trips through URL
     // serialization without baking a specific UUID in.
+    quick_filters: ['mine'],
+  },
+}
+
+/** The day's work: your open tickets, grouped by when they are due
+ * (Overdue, Today, Tomorrow, This week, Later, No date) and in due
+ * order inside each group. Grouping by due is this view's default
+ * because its shape groups on `due_date`. The Due column takes
+ * Updated's place, so the row is no wider than the other built-ins.
+ * Listed second, after My Open, which stays the landing view. */
+export const MY_DAY_VIEW: BuiltInView = {
+  id: 'my-day',
+  name: 'My day',
+  description: 'Your open tickets by the day they are due',
+  nameKey: 'builtin-view-my-day-name',
+  descriptionKey: 'builtin-view-my-day-description',
+  shape: {
+    ...baseListShape,
+    group_by: { primary: 'due_date' },
+    sort: [{ field: 'due_date', dir: 'asc' }],
+    visible_card_fields: baseListShape.visible_card_fields.map((f) =>
+      f === 'last_activity_at' ? 'due_date' : f,
+    ),
+    columns: defaultColumns.map((c) =>
+      c.field === 'last_activity_at' ? { field: 'due_date', width: 96, sortable: true } : c,
+    ),
+  },
+  filter: {
+    ...baseFilter,
+    predicate: {
+      combinator: 'AND',
+      children: [
+        { field: 'workflow_state.category', op: 'not_in', value: CLOSED_CATEGORIES },
+      ],
+    },
     quick_filters: ['mine'],
   },
 }
@@ -234,38 +269,6 @@ export const OVERDUE_VIEW: BuiltInView = {
   },
 }
 
-/** The day's work in the order it falls due: every active ticket,
- * soonest due date first, overdue ones at the top and tickets with
- * no due date at the bottom. The Due column takes Updated's place,
- * so the row is no wider than the other built-ins. */
-export const DUE_SOON_VIEW: BuiltInView = {
-  id: 'due-soon',
-  name: 'Due soon',
-  description: 'Active tickets, soonest due date first',
-  nameKey: 'builtin-view-due-soon-name',
-  descriptionKey: 'builtin-view-due-soon-description',
-  shape: {
-    ...baseListShape,
-    sort: [{ field: 'due_date', dir: 'asc' }],
-    visible_card_fields: baseListShape.visible_card_fields.map((f) =>
-      f === 'last_activity_at' ? 'due_date' : f,
-    ),
-    columns: defaultColumns.map((c) =>
-      c.field === 'last_activity_at' ? { field: 'due_date', width: 96, sortable: true } : c,
-    ),
-  },
-  filter: {
-    ...baseFilter,
-    predicate: {
-      combinator: 'AND',
-      children: [
-        { field: 'workflow_state.category', op: 'not_in', value: CLOSED_CATEGORIES },
-      ],
-    },
-    quick_filters: [],
-  },
-}
-
 export const TRIAGE_VIEW: BuiltInView = {
   id: 'triage',
   name: 'Triage',
@@ -351,12 +354,12 @@ export const CALENDAR_VIEW: BuiltInView = {
  * Re-ordering changes the perceived front door of the product. */
 export const BUILTIN_VIEWS: BuiltInView[] = [
   MY_OPEN_VIEW,
+  MY_DAY_VIEW,
   MY_ACTIVE_VIEW,
   ALL_ACTIVE_VIEW,
   ALL_TICKETS_VIEW,
   UNASSIGNED_VIEW,
   OVERDUE_VIEW,
-  DUE_SOON_VIEW,
   TRIAGE_VIEW,
   AWAITING_APPROVAL_VIEW,
   CALENDAR_VIEW,
