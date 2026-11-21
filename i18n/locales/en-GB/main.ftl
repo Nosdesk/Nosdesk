@@ -3685,14 +3685,6 @@ views-ticket-preview-more-devices = { $count ->
 views-ticket-preview-view-full = View description, comments, and assets
 
 # Ticket heatmap (TicketHeatmap)
-ticket-heatmap-title-closed = Closed Tickets
-ticket-heatmap-title-activity = Ticket Activity
-ticket-heatmap-error-load = Failed to load ticket data. Please try again.
-ticket-heatmap-tooltip-empty = No tickets
-ticket-heatmap-tooltip-count = { $count ->
-    [one] { $count } ticket
-   *[other] { $count } tickets
-    }
 ticket-heatmap-day-sun = Sun
 ticket-heatmap-day-mon = Mon
 ticket-heatmap-day-tue = Tue
@@ -3701,8 +3693,8 @@ ticket-heatmap-day-thu = Thu
 ticket-heatmap-day-fri = Fri
 ticket-heatmap-day-sat = Sat
 ticket-heatmap-days-with-activity = { $count ->
-    [one] { $count } day with activity
-   *[other] { $count } days with activity
+    [one] { $count } day with work done
+   *[other] { $count } days with work done
     }
 ticket-heatmap-legend-less = Less
 ticket-heatmap-legend-more = More
@@ -4604,9 +4596,9 @@ dashboard-widget-my-devices-title = My assets
 dashboard-widget-my-devices-description = Assets assigned to you as their primary user.
 dashboard-widget-channel-health-title = Channel health
 dashboard-widget-channel-health-description = Status of inbound email channels, last poll, enabled state, errors.
-dashboard-widget-activity-heatmap-title = Activity heatmap
-dashboard-widget-activity-heatmap-description = 365-day heatmap of tickets you closed.
-dashboard-widget-activity-heatmap-prop-title = Your activity
+dashboard-widget-activity-heatmap-title = Completed work
+dashboard-widget-activity-heatmap-description = A year of finished jobs, each on the day it was done.
+dashboard-widget-activity-heatmap-prop-title = Completed work
 dashboard-widget-requested-tickets-title = Your requests
 dashboard-widget-requested-tickets-description = Tickets you have opened with current status.
 dashboard-widget-requested-tickets-prop-title = Your requests

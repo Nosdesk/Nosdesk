@@ -92,7 +92,7 @@ onUnmounted(() => {
         top: `${position.y}px`
       }"
     >
-      <div class="text-sm text-secondary mb-1">{{ details.date }}</div>
+      <div v-if="details.date" class="text-sm text-secondary mb-1">{{ details.date }}</div>
       <div class="text-primary font-medium mb-2">{{ details.title }}</div>
 
       <div v-if="details.tickets && details.tickets.length > 0" class="flex flex-col gap-1">

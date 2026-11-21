@@ -9,14 +9,16 @@ Used by TicketHeatmap on the dashboard and anywhere else a 365-day
 activity grid is needed inside a bounded card body.
 -->
 <script setup lang="ts">
-import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import HeatmapTooltip from '@/components/HeatmapTooltip.vue'
+import { heatmapDayTitle } from '@/utils/ticketHeatmap'
 
 export interface ContributionDay {
   date: string
   count: number
+  /** Shade, 0 (nothing) to 4 (darkest); the caller decides the scale. */
+  level: number
   tickets: { id: number; title: string }[]
 }
 
@@ -24,7 +26,7 @@ const props = defineProps<{
   weeks: ContributionDay[][]
   /** Skeleton placeholder while the parent loads ticket data. */
   loading?: boolean
-  /** ISO date string for today — days after this render invisible. */
+  /** Today's day key in the viewer's zone; days after it render invisible. */
   todayStr: string
 }>()
 
@@ -61,25 +63,16 @@ function isFutureDate(dateStr: string): boolean {
   return dateStr > props.todayStr
 }
 
-function colorClass(count: number): string {
-  if (count === 0) return 'heatmap-level-0'
-  if (count <= 1) return 'heatmap-level-1'
-  if (count <= 2) return 'heatmap-level-2'
-  if (count <= 3) return 'heatmap-level-3'
-  return 'heatmap-level-4'
+function colorClass(level: number): string {
+  return `heatmap-level-${Math.min(Math.max(level, 0), 4)}`
 }
 
 function tooltipDetails(day: ContributionDay) {
-  const formattedDate = formatDate(day.date)
-  if (day.count === 0) {
-    return {
-      title: fluent.$t('ticket-heatmap-tooltip-empty'),
-      date: formattedDate,
-    }
-  }
+  const title = heatmapDayTitle(day, (key, args) => fluent.$t(key, args))
+  if (day.count === 0) return { title, date: '' }
   return {
-    title: fluent.$t('ticket-heatmap-tooltip-count', { count: day.count }),
-    date: formattedDate,
+    title,
+    date: '',
     tickets: day.tickets.slice(0, 5),
     totalTickets: day.tickets.length,
   }
@@ -133,7 +126,7 @@ function tooltipDetails(day: ContributionDay) {
               <div
                 class="heatmap-cell w-full h-full min-h-[2px] border"
                 :class="[
-                  isFutureDate(day.date) ? 'invisible border-transparent' : colorClass(day.count),
+                  isFutureDate(day.date) ? 'invisible border-transparent' : colorClass(day.level),
                   isFutureDate(day.date) ? '' : 'border-subtle',
                   day.count > 0 && !isFutureDate(day.date)
                     ? 'heatmap-cell--interactive cursor-pointer'
