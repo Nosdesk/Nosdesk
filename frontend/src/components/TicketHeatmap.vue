@@ -4,10 +4,14 @@ import { useRouter } from "vue-router";
 import { useFluent } from 'fluent-vue';
 import { useDateStore } from "@nosdesk/core/stores/dateStore";
 import { useAuthStore } from "@/stores/auth";
+import { useMyWorkspacesStore } from "@/stores/myWorkspaces";
 import { useSyncTicketsStore } from "@/sync/stores/tickets";
 import {
     buildCompletedWork,
     hasAssignedWork,
+    heatmapScopeStorageKey,
+    loadHeatmapScope,
+    saveHeatmapScope,
     heatmapDayRoute,
     shiftDayKey,
     weekdayOfDayKey,
@@ -46,8 +50,15 @@ const shellTitle = computed(() =>
 const pool = useSyncTicketsStore().all();
 const me = computed(() => authStore.user?.uuid ?? null);
 
-// Mine by default for someone with assigned work, until they pick.
+// Mine by default for someone with assigned work, until they pick; the
+// pick is remembered on this device per workspace and user.
+const myWorkspaces = useMyWorkspacesStore();
+const browserStorage = typeof localStorage === "undefined" ? undefined : localStorage;
+const scopeKey = computed(() => heatmapScopeStorageKey(myWorkspaces.activeWorkspaceId, me.value));
 const pickedScope = ref<HeatmapScope | null>(null);
+watch(scopeKey, (key) => {
+    pickedScope.value = loadHeatmapScope(browserStorage, key);
+}, { immediate: true });
 const scope = computed<HeatmapScope>(() =>
     pickedScope.value ?? (hasAssignedWork(pool.value, me.value) ? "mine" : "everyone"),
 );
@@ -57,6 +68,7 @@ const scopeOptions = computed(() => [
 ]);
 function setScope(next: HeatmapScope) {
     pickedScope.value = next;
+    saveHeatmapScope(browserStorage, scopeKey.value, next);
 }
 
 // Today moves on when the dashboard is shown again after midnight.

@@ -23,6 +23,9 @@ import {
   completedDay,
   creditedTo,
   hasAssignedWork,
+  heatmapScopeStorageKey,
+  loadHeatmapScope,
+  saveHeatmapScope,
   heatmapDayKeys,
   heatmapDayRoute,
   heatmapDayTitle,
@@ -113,6 +116,46 @@ describe('credit', () => {
     expect(hasAssignedWork(pool, ME)).toBe(true)
     expect(hasAssignedWork(pool.slice(0, 1), ME)).toBe(false)
     expect(hasAssignedWork(pool, null)).toBe(false)
+  })
+})
+
+describe('the remembered Mine / Everyone choice', () => {
+  afterEach(() => localStorage.clear())
+
+  it('is kept per workspace and user on this device', () => {
+    const mine = heatmapScopeStorageKey(1, ME)
+    saveHeatmapScope(localStorage, mine, 'everyone')
+    expect(loadHeatmapScope(localStorage, mine)).toBe('everyone')
+    expect(loadHeatmapScope(localStorage, heatmapScopeStorageKey(2, ME))).toBeNull()
+    expect(loadHeatmapScope(localStorage, heatmapScopeStorageKey(1, OTHER))).toBeNull()
+  })
+
+  it('falls back to the default rule when nothing usable is stored', () => {
+    const key = heatmapScopeStorageKey(1, ME)
+    expect(loadHeatmapScope(localStorage, key)).toBeNull()
+    localStorage.setItem(key!, 'someone')
+    expect(loadHeatmapScope(localStorage, key)).toBeNull()
+    expect(loadHeatmapScope(undefined, key)).toBeNull()
+  })
+
+  it('is not stored without a workspace and a user', () => {
+    expect(heatmapScopeStorageKey(null, ME)).toBeNull()
+    expect(heatmapScopeStorageKey(1, null)).toBeNull()
+    saveHeatmapScope(localStorage, null, 'mine')
+    expect(localStorage.length).toBe(0)
+  })
+
+  it('survives a storage that refuses access', () => {
+    const blocked = {
+      getItem: () => {
+        throw new Error('blocked')
+      },
+      setItem: () => {
+        throw new Error('blocked')
+      },
+    } as unknown as Storage
+    expect(() => saveHeatmapScope(blocked, 'k', 'mine')).not.toThrow()
+    expect(loadHeatmapScope(blocked, 'k')).toBeNull()
   })
 })
 

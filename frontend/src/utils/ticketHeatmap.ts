@@ -147,6 +147,33 @@ export function buildCompletedWork(
   return days
 }
 
+/** Where this device remembers the Mine / Everyone choice: one entry per
+ *  workspace and user, so a shared browser keeps each person's own. */
+export function heatmapScopeStorageKey(workspaceId: number | null, userUuid: string | null): string | null {
+  return workspaceId != null && userUuid ? `ticket-heatmap-scope:${workspaceId}:${userUuid}` : null
+}
+
+/** The stored choice, or null when there is none (or storage is out of
+ *  reach), so the default rule applies. */
+export function loadHeatmapScope(storage: Storage | undefined, key: string | null): HeatmapScope | null {
+  if (!storage || !key) return null
+  try {
+    const value = storage.getItem(key)
+    return value === 'mine' || value === 'everyone' ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function saveHeatmapScope(storage: Storage | undefined, key: string | null, scope: HeatmapScope): void {
+  if (!storage || !key) return
+  try {
+    storage.setItem(key, scope)
+  } catch {
+    // A full or blocked storage only costs remembering the choice.
+  }
+}
+
 /** Whether `me` has any ticket assigned, which makes Mine the default. */
 export function hasAssignedWork(tickets: Iterable<HeatmapTicket>, me: string | null): boolean {
   if (!me) return false
