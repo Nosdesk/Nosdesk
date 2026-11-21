@@ -47,6 +47,7 @@ import DisplayMenu from '@/components/views/DisplayMenu.vue'
 import ListDensityToggle from '@/components/common/ListDensityToggle.vue'
 import FilterPill from '@/components/views/FilterPill.vue'
 import AddFilterMenu from '@/components/views/AddFilterMenu.vue'
+import TicketsSortGroupControls from '@/components/views/TicketsSortGroupControls.vue'
 import {
   FACET_META,
   getOptionsFor,
@@ -58,6 +59,7 @@ import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import type { ColumnId, ListColumn } from '@nosdesk/core/sync/views/ticketColumns'
 import type { Density } from '@/composables/useTicketsDensity'
 import type { GroupBy } from '@/composables/useTicketsGrouping'
+import type { SortDir } from '@/composables/useTicketsSort'
 import type {
   FilterFacet,
   SlaFilter,
@@ -65,7 +67,7 @@ import type {
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 
 const props = defineProps<{
-  /** PRIMARY built-in views (My Open / My Active / All Active /
+  /** PRIMARY built-in views (My Open / My day / All Active /
    * Triage) rendered as a one-click tab strip on lg+. Capped at the
    * daily drivers so the strip can't sprawl horizontally. */
   tabItems: ViewTabItem[]
@@ -83,6 +85,8 @@ const props = defineProps<{
   sourceCards: CardData[]
   density: Density
   groupBy: GroupBy
+  sortField: string
+  sortDir: SortDir
   visibleColumns: ColumnId[]
   canSaveLayoutToView: boolean
   layoutDirty: boolean
@@ -118,6 +122,7 @@ const emit = defineEmits<{
   (e: 'save-as-view'): void
   (e: 'set-density', value: Density): void
   (e: 'set-group-by', value: GroupBy): void
+  (e: 'set-sort', field: string, dir: SortDir): void
   (e: 'toggle-column', id: ColumnId): void
   (e: 'reset-layout'): void
   (e: 'save-layout-to-view'): void
@@ -257,7 +262,7 @@ defineExpose({ openAddFilter })
          widths. -->
     <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
       <!-- Desktop (lg:+): primary tab strip for the daily-driver
-           built-ins (My Open / My Active / All Active / Triage),
+           built-ins (My Open / My day / All Active / Triage),
            capped at four so the strip can't sprawl horizontally and
            crowd the filter / display chrome that shares this row. -->
       <TicketsViewTabs
@@ -397,12 +402,15 @@ defineExpose({ openAddFilter })
           :visible="visibleColumns"
           :density="density"
           :group-by="groupBy"
+          :sort-field="sortField"
+          :sort-dir="sortDir"
           :can-save-to-view="canSaveLayoutToView"
           :layout-dirty="layoutDirty"
           :available-columns="availableColumns"
           @toggle-column="(id) => emit('toggle-column', id)"
           @set-density="(v) => emit('set-density', v)"
           @set-group-by="(v) => emit('set-group-by', v)"
+          @set-sort="(field, dir) => emit('set-sort', field, dir)"
           @reset="emit('reset-layout')"
           @save="emit('save-layout-to-view')"
         />
@@ -429,7 +437,22 @@ defineExpose({ openAddFilter })
         @toggle="(key, v) => emit('toggle-filter', key as FilterFacet, v)"
         @clear="(key) => emit('clear-filter', key as FilterFacet)"
         @set-text="(key, v) => emit('set-filter-text', key as FilterFacet, v)"
-      />
+      >
+        <!-- Phones have no Display menu, so sort and grouping open
+             at the top of this sheet instead of taking a toolbar
+             row of their own. -->
+        <template #before-facets>
+          <div class="md:hidden pt-2 border-b border-subtle">
+            <TicketsSortGroupControls
+              :sort-field="sortField"
+              :sort-dir="sortDir"
+              :group-by="groupBy"
+              @set-sort="(field, dir) => emit('set-sort', field, dir)"
+              @set-group-by="(v) => emit('set-group-by', v)"
+            />
+          </div>
+        </template>
+      </AddFilterMenu>
       <button
         type="button"
         class="text-2xs text-tertiary hover:text-primary px-2 h-6 rounded-md hover:bg-surface-hover transition-colors"

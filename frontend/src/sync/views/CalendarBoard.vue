@@ -21,6 +21,7 @@
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import type { CardData } from '@nosdesk/core/sync/views/types'
+import { dueDay } from '@nosdesk/core/utils/ticketDates'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import { priorityForBadge } from '@/utils/priorityHelpers'
@@ -138,9 +139,8 @@ const grid = computed<DayCell[]>(() => {
 const cardsByDay = computed<Map<string, CardData[]>>(() => {
   const map = new Map<string, CardData[]>()
   for (const card of props.cards) {
-    const raw = readDate(card, props.dateField)
-    if (!raw) continue
-    const key = isoDay(new Date(raw))
+    const key = dayKeyOf(card, props.dateField)
+    if (!key) continue
     let bucket = map.get(key)
     if (!bucket) {
       bucket = []
@@ -152,7 +152,7 @@ const cardsByDay = computed<Map<string, CardData[]>>(() => {
 })
 
 const undatedCards = computed<CardData[]>(() =>
-  props.cards.filter((c) => !readDate(c, props.dateField)),
+  props.cards.filter((c) => !dayKeyOf(c, props.dateField)),
 )
 
 const overlaysByDay = computed<Map<string, CalendarOverlay[]>>(() => {
@@ -191,6 +191,15 @@ function readDate(card: CardData, field: DateField): string | null | undefined {
   if (field === 'due_date') return card.due_date
   if (field === 'created_at') return card.created_at
   return card.last_activity_at
+}
+
+/** The grid day a card sits on. A due date is a calendar day, read
+ * as written; created and last-activity are moments, placed on the
+ * local day they fell on. */
+function dayKeyOf(card: CardData, field: DateField): string | null {
+  if (field === 'due_date') return dueDay(card)
+  const raw = readDate(card, field)
+  return raw ? isoDay(new Date(raw)) : null
 }
 
 function isoDay(d: Date): string {

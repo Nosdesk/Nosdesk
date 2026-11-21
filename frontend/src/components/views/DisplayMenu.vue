@@ -2,8 +2,8 @@
 /**
  * Tickets-table display options menu. Linear-style "Display"
  * button: one trigger that opens a popover containing every
- * presentational knob (density, column visibility, room for
- * grouping / ordering when those land). Replaces the prior
+ * presentational knob (sort, grouping, density, column
+ * visibility). Replaces the prior
  * pattern where density + columns were two separate trigger
  * buttons in the toolbar — a 14-column table with multiple
  * trigger buttons in a row gets noisy fast.
@@ -26,6 +26,8 @@ import {
 } from '@nosdesk/core/sync/views/ticketColumns'
 import type { Density } from '@/composables/useTicketsDensity'
 import type { GroupBy } from '@/composables/useTicketsGrouping'
+import type { SortDir } from '@/composables/useTicketsSort'
+import TicketsSortGroupControls from '@/components/views/TicketsSortGroupControls.vue'
 
 const fluent = useFluent()
 
@@ -33,6 +35,8 @@ const props = withDefaults(defineProps<{
   visible: ColumnId[]
   density: Density
   groupBy: GroupBy
+  sortField: string
+  sortDir: SortDir
   /** True when the active view is editable (saved view owned by
    * the user / workspace) — surfaces the "Save layout to view"
    * affordance below the column list. */
@@ -53,6 +57,7 @@ const emit = defineEmits<{
   (e: 'toggle-column', id: ColumnId): void
   (e: 'set-density', value: Density): void
   (e: 'set-group-by', value: GroupBy): void
+  (e: 'set-sort', field: string, dir: SortDir): void
   (e: 'reset'): void
   (e: 'save'): void
 }>()
@@ -71,23 +76,14 @@ function isOn(col: ListColumn): boolean {
   return visibleSet.value.has(col.id)
 }
 
-/** Density + group choices are static + ordered, so the picker
- * arrays are computeds rather than `const` so the labels follow
- * the active locale. The `value` strings stay as canonical enum
- * keys consumed by the parent. */
+/** Density choices are static + ordered, so the picker array is a
+ * computed rather than a `const` so the labels follow the active
+ * locale. The `value` strings stay as canonical enum keys consumed
+ * by the parent. */
 const densityOptions = computed<ReadonlyArray<{ value: Density; label: string }>>(() => [
   { value: 'compact', label: fluent.$t('views-display-menu-density-compact') },
   { value: 'cosy', label: fluent.$t('views-display-menu-density-cosy') },
   { value: 'comfortable', label: fluent.$t('views-display-menu-density-comfortable') },
-])
-
-const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(() => [
-  { value: 'none', label: fluent.$t('views-display-menu-group-none') },
-  { value: 'status', label: fluent.$t('views-display-menu-group-status') },
-  { value: 'priority', label: fluent.$t('views-display-menu-group-priority') },
-  { value: 'assignee', label: fluent.$t('views-display-menu-group-assignee') },
-  { value: 'sla', label: fluent.$t('views-display-menu-group-sla') },
-  { value: 'cycle', label: fluent.$t('views-display-menu-group-cycle') },
 ])
 </script>
 
@@ -126,25 +122,14 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
       @close="open = false"
     >
       <div class="py-2">
-        <!-- Grouping -->
-        <section class="px-3 pb-2">
-          <h3 class="text-3xs uppercase tracking-wide font-semibold text-tertiary mb-1.5">
-            {{ $t('views-display-menu-grouping') }}
-          </h3>
-          <div class="grid grid-cols-3 gap-1">
-            <button
-              v-for="opt in groupOptions"
-              :key="opt.value"
-              type="button"
-              class="text-2xs px-2 py-1 rounded transition-colors text-center"
-              :class="groupBy === opt.value
-                ? 'bg-accent/10 text-accent font-medium'
-                : 'text-secondary hover:bg-surface-hover'"
-              :aria-pressed="groupBy === opt.value"
-              @click.stop="emit('set-group-by', opt.value)"
-            >{{ opt.label }}</button>
-          </div>
-        </section>
+        <!-- Sort + Grouping (shared with the phone's filter sheet) -->
+        <TicketsSortGroupControls
+          :sort-field="sortField"
+          :sort-dir="sortDir"
+          :group-by="groupBy"
+          @set-sort="(field, dir) => emit('set-sort', field, dir)"
+          @set-group-by="(v) => emit('set-group-by', v)"
+        />
 
         <!-- Density -->
         <section class="px-3 pb-2 border-t border-subtle pt-2">
