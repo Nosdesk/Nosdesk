@@ -15,7 +15,7 @@ export interface BuiltInView {
   /** Stable id used in the URL (`?view=my-open`). */
   id:
     | 'my-open'
-    | 'my-active'
+    | 'my-day'
     | 'all-active'
     | 'all-tickets'
     | 'unassigned'
@@ -116,19 +116,30 @@ export const MY_OPEN_VIEW: BuiltInView = {
   },
 }
 
-/** Your in-flight work: tickets assigned to you that aren't done
- * or cancelled. Where MY_OPEN shows everything that bears your
- * name (including resolved tickets you're still on the hook to
- * verify), MY_ACTIVE narrows to the things you're actually
- * working right now. Mirrors Linear's "My Issues -> Active" and
- * Jira's "Assigned to me" agile filter. */
-export const MY_ACTIVE_VIEW: BuiltInView = {
-  id: 'my-active',
-  name: 'My Active',
-  description: 'Unresolved tickets assigned to you',
-  nameKey: 'builtin-view-my-active-name',
-  descriptionKey: 'builtin-view-my-active-description',
-  shape: { ...baseListShape, columns: defaultColumns },
+/** The day's work: your open tickets, grouped by when they are due
+ * (Overdue, Today, Tomorrow, This week, Later, No date) and in due
+ * order inside each group. Grouping by due is this view's default
+ * because its shape groups on `due_date`. The Due column takes
+ * Updated's place, so the row is no wider than the other built-ins.
+ * Listed second, after My Open, which stays the landing view. It took
+ * My Active's place: same tickets, so `?view=my-active` opens it. */
+export const MY_DAY_VIEW: BuiltInView = {
+  id: 'my-day',
+  name: 'My day',
+  description: 'Your open tickets by the day they are due',
+  nameKey: 'builtin-view-my-day-name',
+  descriptionKey: 'builtin-view-my-day-description',
+  shape: {
+    ...baseListShape,
+    group_by: { primary: 'due_date' },
+    sort: [{ field: 'due_date', dir: 'asc' }],
+    visible_card_fields: baseListShape.visible_card_fields.map((f) =>
+      f === 'last_activity_at' ? 'due_date' : f,
+    ),
+    columns: defaultColumns.map((c) =>
+      c.field === 'last_activity_at' ? { field: 'due_date', width: 96, sortable: true } : c,
+    ),
+  },
   filter: {
     ...baseFilter,
     predicate: {
@@ -318,7 +329,7 @@ export const CALENDAR_VIEW: BuiltInView = {
  * Re-ordering changes the perceived front door of the product. */
 export const BUILTIN_VIEWS: BuiltInView[] = [
   MY_OPEN_VIEW,
-  MY_ACTIVE_VIEW,
+  MY_DAY_VIEW,
   ALL_ACTIVE_VIEW,
   ALL_TICKETS_VIEW,
   UNASSIGNED_VIEW,
@@ -424,6 +435,7 @@ export function findBuiltinView(id: string): BuiltInView | null {
   // Accept the legacy `my-queue` id so bookmarks / shared URLs
   // from before the rename keep working. Resolves to MY_OPEN_VIEW.
   if (id === 'my-queue') return MY_OPEN_VIEW
+  if (id === 'my-active') return MY_DAY_VIEW
   return BUILTIN_VIEWS.find((v) => v.id === id)
     ?? DASHBOARD_BUILTIN_VIEWS.find((v) => v.id === id)
     ?? null

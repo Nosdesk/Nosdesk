@@ -19,6 +19,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { setDateConfig, getUserTimezone } from '../utils/dateUtils'
+import { setPlanningTimezone } from '../utils/ticketDates'
 
 const DEFAULT_LOCALE = 'en-US'
 
@@ -94,6 +95,10 @@ export const useDateStore = defineStore('date', () => {
    * `locale` / `effectiveTimezone`.
    */
   function loadFromUser(user: UserLocalePrefs) {
+    // Due days resolve in the server's zone chain (user pref ->
+    // workspace default -> UTC), matching the backend's due instant.
+    // Formatting below keeps using the raw pref / browser zone.
+    setPlanningTimezone(user.effective_timezone)
     userTimezone.value = user.timezone ?? 'system'
     userLocale.value = user.locale ?? null
     locale.value = user.effective_locale ?? user.locale ?? DEFAULT_LOCALE

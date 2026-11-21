@@ -37,7 +37,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useSavedViewsStore } from '@/stores/savedViews'
 import { buildPredicate } from '@nosdesk/core/sync/views/filter'
 import { toCardData } from './cardData'
-import { ALL_ACTIVE_VIEW, MY_OPEN_VIEW } from '@nosdesk/core/sync/views/builtinViews'
+import { ALL_ACTIVE_VIEW, MY_DAY_VIEW, MY_OPEN_VIEW } from '@nosdesk/core/sync/views/builtinViews'
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 import {
   calendarOverlaysService,
@@ -61,7 +61,9 @@ import {
   type FilterFacet,
   type SlaFilter,
 } from '@/composables/useTicketsFilters'
-import { useTicketsGrouping } from '@/composables/useTicketsGrouping'
+import { defaultGroupByFor, useTicketsGrouping } from '@/composables/useTicketsGrouping'
+import { useToday } from '@/composables/useToday'
+import { dueBucket } from '@nosdesk/core/utils/ticketDates'
 import { useTicketsSummary } from '@/composables/useTicketsSummary'
 import { useSplitView } from '@/composables/useSplitView'
 import { useDragGesture } from '@/composables/useDragGesture'
@@ -103,7 +105,7 @@ const { ready: bootstrapped, populated } = useWorkspaceGroupSubscription(() =>
 )
 
 const { activeView, tabItems, overflowItems, allViewItems, selectViewById } = useTicketsViewResolution()
-const { sortField, sortDir, toggleSort, applySort } = useTicketsSort(activeView)
+const { sortField, sortDir, setSort, toggleSort, applySort } = useTicketsSort(activeView)
 const {
   visibleColumnIds,
   visibleColumns,
@@ -176,7 +178,10 @@ watch(
   },
 )
 const workflowStatesStore = useWorkflowStatesStore()
-const grouping = useTicketsGrouping(() => activeView.value.id)
+const grouping = useTicketsGrouping(
+  () => activeView.value.id,
+  () => defaultGroupByFor(activeView.value.shape),
+)
 const splitView = useSplitView()
 const capabilities = useWorkspaceCapabilities()
 
@@ -248,7 +253,9 @@ const myOpenPredicate = computed(() => buildViewPredicate(MY_OPEN_VIEW))
 const allActivePredicate = computed(() => buildViewPredicate(ALL_ACTIVE_VIEW))
 
 const fallThroughActive = computed(() => {
-  if (activeView.value.id !== MY_OPEN_VIEW.id) return false
+  // My day falls through the same way: with nothing assigned at all
+  // it shows All Active rather than an empty day.
+  if (activeView.value.id !== MY_OPEN_VIEW.id && activeView.value.id !== MY_DAY_VIEW.id) return false
   // .some() short-circuits on the first match instead of
   // materialising a full filtered array just to read its length.
   if (allCards.value.some(myOpenPredicate.value)) return false
@@ -274,6 +281,19 @@ const afterChipFilter = computed<CardData[]>(() =>
 
 const sortedCards = applySort(afterChipFilter)
 const buckets = grouping.buckets(sortedCards)
+
+// My day with work in it but none due today or overdue says so in
+// one line above the list, so the day doesn't read as missing.
+const today = useToday()
+const myDayNothingToday = computed<boolean>(() =>
+  activeView.value.id === MY_DAY_VIEW.id
+  && !fallThroughActive.value
+  && sortedCards.value.length > 0
+  && !sortedCards.value.some((c) => {
+    const bucket = dueBucket(c, today.value)
+    return bucket === 'overdue' || bucket === 'today'
+  }),
+)
 const { segments } = useTicketsSummary(afterViewFilter)
 
 const selection = useTicketSelection(sortedCards)
@@ -955,6 +975,8 @@ function startPaneResize(event: PointerEvent): void {
       :source-cards="afterViewFilter"
       :density="density"
       :group-by="grouping.groupBy.value"
+      :sort-field="sortField"
+      :sort-dir="sortDir"
       :visible-columns="visibleColumnIds"
       :can-save-layout-to-view="canSaveLayoutToView"
       :layout-dirty="layoutDirty"
@@ -974,6 +996,7 @@ function startPaneResize(event: PointerEvent): void {
       @save-as-view="saveAsView"
       @set-density="setDensity"
       @set-group-by="grouping.setGroupBy"
+      @set-sort="setSort"
       @toggle-column="toggleColumn"
       @reset-layout="resetColumns"
       @save-layout-to-view="saveLayoutToView"
@@ -994,6 +1017,12 @@ function startPaneResize(event: PointerEvent): void {
       <span class="font-medium text-primary">{{ $t('ticket-list-empty-no-assigned-message') }}</span>
       <span>{{ $t('ticket-list-empty-showing-all-active') }}</span>
     </div>
+    <p
+      v-else-if="myDayNothingToday"
+      class="px-4 py-2 text-xs text-tertiary border-b border-subtle"
+    >
+      {{ $t('ticket-list-my-day-nothing-today') }}
+    </p>
 
     <div
       v-if="isInitiallyLoading"
@@ -1040,13 +1069,9 @@ function startPaneResize(event: PointerEvent): void {
         <p class="font-medium text-primary">{{ $t('ticket-list-empty-triage-clear-title') }}</p>
         <p class="text-xs">{{ $t('ticket-list-empty-triage-clear-description') }}</p>
       </template>
-      <template v-else-if="activeView.id === MY_OPEN_VIEW.id">
+      <template v-else-if="activeView.id === MY_OPEN_VIEW.id || activeView.id === MY_DAY_VIEW.id">
         <p class="font-medium text-primary">{{ $t('ticket-list-empty-all-caught-up-title') }}</p>
         <p class="text-xs">{{ $t('ticket-list-empty-all-caught-up-description') }}</p>
-      </template>
-      <template v-else-if="activeView.id === 'my-active'">
-        <p class="font-medium text-primary">{{ $t('ticket-list-empty-my-active-title') }}</p>
-        <p class="text-xs">{{ $t('ticket-list-empty-my-active-description') }}</p>
       </template>
       <template v-else-if="activeView.id === ALL_ACTIVE_VIEW.id">
         <p class="font-medium text-primary">{{ $t('ticket-list-empty-no-active-title') }}</p>
@@ -1078,9 +1103,12 @@ function startPaneResize(event: PointerEvent): void {
       v-else-if="!isWideViewport"
       ref="cardListRef"
       :cards="sortedCards"
+      :buckets="buckets"
+      :is-collapsed="grouping.isCollapsed"
       class="flex-1 min-h-0"
       @open="open"
       @contextmenu="handleTicketContextMenu"
+      @toggle-bucket="grouping.toggleCollapsed"
     />
 
     <!-- Desktop: split-view layout. Table on the left, divider,

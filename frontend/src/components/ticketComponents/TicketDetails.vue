@@ -35,7 +35,6 @@ import { useTicketDocs } from "@/composables/usePageTicketLinks";
 import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
 import DatePicker from "@/components/common/DatePicker.vue";
 import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger } from "reka-ui";
-import { getDateConfig } from "@nosdesk/core/utils/dateUtils";
 import type { Asset } from "@nosdesk/core/types/asset";
 import type { CommentWithAttachments } from "@nosdesk/core/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
@@ -46,6 +45,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useWorkspaceCapabilities } from "@/composables/useWorkspaceCapabilities";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
 import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@nosdesk/core/utils/dateUtils";
+import { dueDay, formatDay, startDay } from "@nosdesk/core/utils/ticketDates";
 import { useUsersDirectory } from "@/composables/useUsersDirectory";
 import { ticketSourceLabelKey } from "@/utils/ticketSource";
 
@@ -319,11 +319,11 @@ const categoryLabel = computed(() => {
  * store-UTC-as-naive convention), so it serialises without a tz and
  * its deserialiser rejects a trailing `Z` ("trailing input"). We
  * therefore write a naive midnight datetime (`<day>T00:00:00`, no
- * tz suffix) and read it back by slicing the first 10 chars — which
+ * tz suffix) and read back its date part as written (`dueDay`), which
  * round-trips the exact picked day with no timezone-driven
  * off-by-one. Empty string from the picker clears the due date. */
 const dueDateValue = computed<string>({
-  get: () => (props.ticket.due_date ? props.ticket.due_date.slice(0, 10) : ''),
+  get: () => dueDay(props.ticket) ?? '',
   set: (value: string) => {
     if (!value) {
       emit('update:dueDate', null);
@@ -337,7 +337,7 @@ const dueDateValue = computed<string>({
  * date is the gantt's planning field; unset means the timeline falls
  * back to the ticket's created date. */
 const startDateValue = computed<string>({
-  get: () => (props.ticket.start_date ? props.ticket.start_date.slice(0, 10) : ''),
+  get: () => startDay(props.ticket) ?? '',
   set: (value: string) => {
     if (!value) {
       emit('update:startDate', null);
@@ -383,18 +383,13 @@ const schedulingPanelId = useId();
  * to "None" in the template. */
 const schedulingPreview = computed<string>(() => {
   const parts: string[] = [];
-  const { defaultLocale, defaultTimezone } = getDateConfig();
-  const shortDay = (iso: string): string =>
-    new Date(iso).toLocaleDateString(defaultLocale, {
-      month: 'short',
-      day: 'numeric',
-      timeZone: defaultTimezone,
-    });
-  if (props.ticket.start_date) {
-    parts.push(t('ticket-detail-scheduling-start-prefix', { date: shortDay(props.ticket.start_date) }));
+  const start = startDay(props.ticket);
+  const due = dueDay(props.ticket);
+  if (start) {
+    parts.push(t('ticket-detail-scheduling-start-prefix', { date: formatDay(start, 'monthDay') }));
   }
-  if (props.ticket.due_date) {
-    parts.push(t('ticket-detail-scheduling-due-prefix', { date: shortDay(props.ticket.due_date) }));
+  if (due) {
+    parts.push(t('ticket-detail-scheduling-due-prefix', { date: formatDay(due, 'monthDay') }));
   }
   const rule = props.ticket.recurrence_rule;
   if (rule) {
@@ -604,14 +599,8 @@ const tagsStore = useTagsStore();
 // Absolute due date — paper wants the full date, not the sidebar's
 // compact "due in 2d" relative form.
 const dueDateLabel = computed<string>(() => {
-  if (!props.ticket.due_date) return '';
-  const { defaultLocale, defaultTimezone } = getDateConfig();
-  return new Date(props.ticket.due_date).toLocaleDateString(defaultLocale, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: defaultTimezone,
-  });
+  const due = dueDay(props.ticket);
+  return due ? formatDay(due) : '';
 });
 
 // "On track · 2h left" / "Breached · 3d ago" / "Paused · Target …".

@@ -49,7 +49,13 @@ import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import Icon from '@/components/common/Icon.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
-import { formatDate, formatCompactDate } from '@nosdesk/core/utils/dateUtils'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
+import {
+  daysBetweenDays,
+  dueDay,
+  formatCompactDay,
+  todayIn,
+} from '@nosdesk/core/utils/ticketDates'
 
 const props = defineProps<{ id: string }>()
 
@@ -243,10 +249,11 @@ function rowPriority(p: SyncTicket['priority']): 'low' | 'medium' | 'high' | nul
 
 /** Due-chip tint: overdue reads as an error, due within 48 hours as
  *  a warning, anything further out stays quiet. */
-function dueClass(due: string): string {
-  const ms = new Date(due).getTime() - Date.now()
-  if (ms < 0) return 'text-status-error'
-  if (ms < 2 * 86_400_000) return 'text-status-warning'
+/** Red once past the due day, amber when it is today or tomorrow. */
+function dueClass(day: string): string {
+  const diff = daysBetweenDays(todayIn(), day)
+  if (diff < 0) return 'text-status-error'
+  if (diff <= 1) return 'text-status-warning'
   return 'text-tertiary'
 }
 
@@ -396,10 +403,10 @@ async function onMoveMenuSelect(id: string): Promise<void> {
                         <span class="font-mono text-tertiary text-xs shrink-0">#{{ ticketNumber(ticket) }}</span>
                         <span class="text-sm text-primary truncate flex-1">{{ ticket.title }}</span>
                         <span
-                          v-if="ticket.due_date"
+                          v-if="dueDay(ticket)"
                           class="hidden @sm:inline shrink-0 whitespace-nowrap text-xs tabular-nums"
-                          :class="dueClass(ticket.due_date)"
-                        >{{ formatCompactDate(ticket.due_date) }}</span>
+                          :class="dueClass(dueDay(ticket)!)"
+                        >{{ formatCompactDay(dueDay(ticket)!) }}</span>
                         <UserAvatar
                           v-if="ticket.assignee_uuid"
                           :uuid="ticket.assignee_uuid"
