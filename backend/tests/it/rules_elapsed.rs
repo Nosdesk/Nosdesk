@@ -604,3 +604,73 @@ async fn the_api_checks_settings_and_starts_and_stops_the_clocks() {
     assert_eq!(resp.status(), StatusCode::OK);
     assert!(h.row(a, ticket, rule).is_none(), "paused: cleared");
 }
+
+/// Old mail a newly connected mailbox threads onto a live ticket is history,
+/// not a reply: it restarts no customer clock and doesn't answer the team.
+/// A reply sent now does both.
+#[actix_rt::test]
+async fn an_old_message_threaded_onto_a_live_ticket_moves_no_clock() {
+    use crate::channel_backlog::{message, opened, years_ago, Inbox};
+    use backend::services::channels::pipeline::{PipelineContext, PipelineOutcome};
+
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let inbox = Inbox::on(None, h.pool.clone(), a.clone());
+    let ticket = opened(
+        inbox
+            .receive_with(
+                &message("Ada <ada@customer.example>", "Printer", "first-e"),
+                Utc::now(),
+                &PipelineContext::bare(),
+            )
+            .await,
+    );
+    let asked: DateTime<Utc> = h.bypass(|c| {
+        diesel::update(comments::table.filter(comments::ticket_id.eq(ticket)))
+            .set(comments::created_at.eq(Utc::now() - chrono::Duration::days(3)))
+            .returning(comments::created_at)
+            .get_result(c)
+    });
+    let answered = h.reply_at(a, ticket, a.admin_uuid, 48);
+    let customer = h.time_rule(a, "since_last_customer_reply", 60, set_priority("high"));
+    let waiting = h.time_rule(a, "awaiting_requester", 7 * 24 * 60, set_priority("high"));
+    assert_eq!(h.row(a, ticket, customer).expect("customer clock").3, asked);
+    assert_eq!(
+        h.row(a, ticket, waiting).expect("awaiting clock").3,
+        answered
+    );
+
+    let reply = |id: &str| {
+        format!(
+            "From: Ada <ada@customer.example>\r\nTo: support@example.com\r\nSubject: Re: Printer\r\n\
+             Message-ID: <{id}@customer.example>\r\nIn-Reply-To: <first-e@customer.example>\r\n\
+             References: <first-e@customer.example>\r\n\r\nStill broken.\r\n"
+        )
+    };
+    let old = inbox
+        .receive_with(&reply("reply-old-e"), years_ago(), &PipelineContext::bare())
+        .await;
+    let PipelineOutcome::ReplyAppended { comment_id, .. } = old else {
+        panic!("{old:?}");
+    };
+    let metadata: Option<Value> = h.as_admin(a, |c| {
+        comments::table
+            .find(comment_id)
+            .select(comments::channel_metadata)
+            .first(c)
+    });
+    assert_eq!(metadata.expect("metadata")["imported"], json!(true));
+    h.drain().await;
+    assert_eq!(h.row(a, ticket, customer).expect("customer clock").3, asked);
+    assert_eq!(
+        h.row(a, ticket, waiting).expect("still waiting").3,
+        answered
+    );
+
+    inbox
+        .receive_with(&reply("reply-new-e"), Utc::now(), &PipelineContext::bare())
+        .await;
+    h.drain().await;
+    assert!(h.row(a, ticket, customer).expect("customer clock").3 > asked);
+    assert!(h.row(a, ticket, waiting).is_none(), "answered");
+}

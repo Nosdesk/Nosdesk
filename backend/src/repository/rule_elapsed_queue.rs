@@ -59,7 +59,9 @@ struct InputRow {
 /// owner, admin or agent of the workspace, or a platform admin) or from
 /// anyone else. A reply a rule wrote on its own (`channel_metadata.rule_id`)
 /// is no staff reply: an automated warning doesn't restart the clock it was
-/// sent on. A reply an agent sent by applying a rule is theirs.
+/// sent on. A reply an agent sent by applying a rule is theirs. Old mail a
+/// newly connected mailbox brought in (`channel_metadata.imported`) is no
+/// reply at all.
 pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<Vec<ClockInputs>> {
     if ticket_ids.is_empty() {
         return Ok(Vec::new());
@@ -88,6 +90,7 @@ pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<
                ) AS assigned_at,
                (SELECT max(c.created_at) FROM comments c
                  WHERE c.ticket_id = t.id AND NOT c.is_internal AND c.deleted_at IS NULL
+                   AND coalesce(c.channel_metadata->>'imported', '') <> 'true'
                    AND NOT coalesce(c.channel_metadata ? 'rule_id', false)
                    AND EXISTS (
                        SELECT 1 FROM users u
@@ -101,6 +104,7 @@ pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<
                ) AS agent_reply_at,
                (SELECT max(c.created_at) FROM comments c
                  WHERE c.ticket_id = t.id AND NOT c.is_internal AND c.deleted_at IS NULL
+                   AND coalesce(c.channel_metadata->>'imported', '') <> 'true'
                    AND NOT EXISTS (
                        SELECT 1 FROM users u
                         WHERE u.uuid = c.user_uuid
