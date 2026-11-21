@@ -5,6 +5,14 @@ import { useFluent } from 'fluent-vue';
 import { getTickets } from "@nosdesk/core/services/ticketService";
 import { useWorkflowStatesStore } from "@nosdesk/core/stores/workflowStates";
 import { TERMINAL_CATEGORIES } from "@nosdesk/core/types/workflow";
+import { useDateStore } from "@nosdesk/core/stores/dateStore";
+import {
+    heatmapDayKeys,
+    heatmapDayRoute,
+    shiftDayKey,
+    ticketHeatmapDay,
+    weekdayOfDayKey,
+} from "@/utils/ticketHeatmap";
 import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
 import ContributionHeatmapPlot, {
     type ContributionDay,
@@ -12,6 +20,7 @@ import ContributionHeatmapPlot, {
 
 const fluent = useFluent();
 const wf = useWorkflowStatesStore();
+const dateStore = useDateStore();
 
 interface Props {
     mode?: "completed" | "active";
@@ -46,40 +55,21 @@ const daysWithActivity = computed(
     () => heatmapData.value.filter((d) => d.count > 0).length,
 );
 
-const todayStr = new Date().toISOString().split("T")[0];
+// Days are calendar days in the viewer's zone, so "today" is their today.
+const todayStr = ref(heatmapDayKeys(new Date(), dateStore.effectiveTimezone, 1)[0]);
 
 // Generate 365 days of data ending today
-const generateDateRange = (): ContributionDay[] => {
-    const dates: ContributionDay[] = [];
-    const today = new Date();
-
-    for (let i = 364; i >= 0; i--) {
-        const date = new Date(
-            today.getFullYear(),
-            today.getMonth(),
-            today.getDate() - i,
-        );
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        const dateStr = `${year}-${month}-${day}`;
-
-        dates.push({
-            date: dateStr,
-            count: 0,
-            tickets: [],
-        });
-    }
-
-    return dates;
-};
+const generateDateRange = (tz: string): ContributionDay[] =>
+    heatmapDayKeys(new Date(), tz).map((date) => ({ date, count: 0, tickets: [] }));
 
 const fetchTicketData = async () => {
     isLoading.value = true;
     error.value = null;
 
     try {
-        const emptyDates = generateDateRange();
+        const tz = dateStore.effectiveTimezone;
+        const emptyDates = generateDateRange(tz);
+        todayStr.value = emptyDates[emptyDates.length - 1].date;
         const dateMap = new Map<
             string,
             { count: number; tickets: { id: number; title: string }[] }
@@ -99,10 +89,8 @@ const fetchTicketData = async () => {
             const matches = props.mode === 'completed' ? isTerminal : !isTerminal;
             if (!matches) return;
             if (props.userUuid && ticket.assignee !== props.userUuid) return;
-            const dateStr = props.mode === 'completed' && ticket.closed_at
-                ? ticket.closed_at.split('T')[0]
-                : ticket.modified.split('T')[0];
-            if (dateMap.has(dateStr)) {
+            const dateStr = ticketHeatmapDay(ticket, props.mode, tz);
+            if (dateStr && dateMap.has(dateStr)) {
                 const dayData = dateMap.get(dateStr)!;
                 dayData.count++;
                 dayData.tickets.push({ id: ticket.id, title: ticket.title });
@@ -128,19 +116,12 @@ const weeklyData = computed(() => {
     const weeks: ContributionDay[][] = [];
     const data = [...heatmapData.value];
 
-    const firstDate = new Date(data[0].date);
-    const firstDayOfWeek = firstDate.getDay();
+    const firstDate = data[0].date;
+    const firstDayOfWeek = weekdayOfDayKey(firstDate);
 
-    for (let i = 0; i < firstDayOfWeek; i++) {
-        const paddingDate = new Date(firstDate);
-        paddingDate.setDate(paddingDate.getDate() - (firstDayOfWeek - i));
-        const year = paddingDate.getFullYear();
-        const month = String(paddingDate.getMonth() + 1).padStart(2, "0");
-        const day = String(paddingDate.getDate()).padStart(2, "0");
-        const dateStr = `${year}-${month}-${day}`;
-
+    for (let i = 1; i <= firstDayOfWeek; i++) {
         data.unshift({
-            date: dateStr,
+            date: shiftDayKey(firstDate, -i),
             count: 0,
             tickets: [],
         });
@@ -150,15 +131,8 @@ const weeklyData = computed(() => {
         const week = data.slice(i, i + 7);
         if (week.length > 0) {
             while (week.length < 7) {
-                const lastDate = new Date(week[week.length - 1].date);
-                lastDate.setDate(lastDate.getDate() + 1);
-                const year = lastDate.getFullYear();
-                const month = String(lastDate.getMonth() + 1).padStart(2, "0");
-                const day = String(lastDate.getDate()).padStart(2, "0");
-                const dateStr = `${year}-${month}-${day}`;
-
                 week.push({
-                    date: dateStr,
+                    date: shiftDayKey(week[week.length - 1].date, 1),
                     count: 0,
                     tickets: [],
                 });
@@ -171,17 +145,7 @@ const weeklyData = computed(() => {
 });
 
 function handleDayClick(day: ContributionDay) {
-    const query: Record<string, string> = {};
-    if (props.mode === 'completed') {
-        query.closedOn = day.date;
-    } else {
-        query.createdOn = day.date;
-    }
-
-    router.push({
-        path: "/tickets",
-        query,
-    });
+    router.push(heatmapDayRoute(day.date, props.mode, dateStore.effectiveTimezone));
 }
 
 function legendClass(level: number): string {

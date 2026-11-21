@@ -24,7 +24,7 @@ const props = defineProps<{
   weeks: ContributionDay[][]
   /** Skeleton placeholder while the parent loads ticket data. */
   loading?: boolean
-  /** ISO date string for today — days after this render invisible. */
+  /** Today's day key in the viewer's zone; days after it render invisible. */
   todayStr: string
 }>()
 
@@ -70,7 +70,9 @@ function colorClass(count: number): string {
 }
 
 function tooltipDetails(day: ContributionDay) {
-  const formattedDate = formatDate(day.date)
+  // `day.date` is a calendar day key; read and format it in UTC so it
+  // names the same day in every zone.
+  const formattedDate = formatDate(day.date, 'date', 'UTC')
   if (day.count === 0) {
     return {
       title: fluent.$t('ticket-heatmap-tooltip-empty'),
