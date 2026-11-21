@@ -11,6 +11,7 @@ import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import type { ResolvedView } from '@/composables/useTicketsViewResolution'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import { comparePriority } from '@nosdesk/core/constants/ticketOptions'
+import { parseDate } from '@nosdesk/core/utils/dateUtils'
 
 function readSortField(card: CardData, field: string): string | number | null {
   const parts = field.split('.')
@@ -22,6 +23,50 @@ function readSortField(card: CardData, field: string): string | number | null {
   if (cursor == null) return null
   if (typeof cursor === 'string' || typeof cursor === 'number') return cursor
   return JSON.stringify(cursor)
+}
+
+/** Timestamp fields sort by the instant they name. Their stored
+ * strings mix offsets (`Z`, `+10:00`, none at all for a day the
+ * gantt wrote), so comparing the text would misorder them. */
+const TIMESTAMP_FIELDS = new Set([
+  'due_date',
+  'start_date',
+  'created_at',
+  'updated_at',
+  'last_activity_at',
+  'closed_at',
+])
+
+function sortKeyOf(card: CardData, field: string): string | number | null {
+  const raw = readSortField(card, field)
+  if (raw == null || !TIMESTAMP_FIELDS.has(field)) return raw
+  return parseDate(String(raw))?.getTime() ?? null
+}
+
+/**
+ * Order cards by one field. Cards with no value (no due date, no
+ * category) go last in both directions, so flipping a column never
+ * buries the rows that have one under the blanks. Ties keep their
+ * input order.
+ */
+export function sortCards(
+  cards: readonly CardData[],
+  field: string,
+  dir: 'asc' | 'desc',
+): CardData[] {
+  const sign = dir === 'asc' ? 1 : -1
+  // Priority sorts by severity, not by its name.
+  if (field === 'priority') {
+    return [...cards].sort((a, b) => comparePriority(a.priority, b.priority) * sign)
+  }
+  const keyed = cards.map((card) => ({ card, key: sortKeyOf(card, field) }))
+  keyed.sort((a, b) => {
+    if (a.key === b.key) return 0
+    if (a.key == null) return 1
+    if (b.key == null) return -1
+    return (a.key < b.key ? -1 : 1) * sign
+  })
+  return keyed.map((k) => k.card)
 }
 
 export interface UseTicketsSort {
@@ -53,20 +98,7 @@ export function useTicketsSort(activeView: ComputedRef<ResolvedView>): UseTicket
   }
 
   function applySort(cards: ComputedRef<CardData[]>): ComputedRef<CardData[]> {
-    return computed<CardData[]>(() => {
-      const field = sortField.value
-      const dir = sortDir.value === 'asc' ? 1 : -1
-      return [...cards.value].sort((a, b) => {
-        // Priority sorts by severity, not by its name.
-        if (field === 'priority') return comparePriority(a.priority, b.priority) * dir
-        const av = readSortField(a, field)
-        const bv = readSortField(b, field)
-        if (av === bv) return 0
-        if (av == null) return 1 * dir
-        if (bv == null) return -1 * dir
-        return av < bv ? -1 * dir : 1 * dir
-      })
-    })
+    return computed<CardData[]>(() => sortCards(cards.value, sortField.value, sortDir.value))
   }
 
   return { sortField, sortDir, toggleSort, applySort }

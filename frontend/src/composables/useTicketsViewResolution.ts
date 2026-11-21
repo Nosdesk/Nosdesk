@@ -159,6 +159,7 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
   //   ticket  — stub-and-tear ticket ("every ticket, all statuses")
   //   user    — generic person placeholder ("needs an assignee")
   //   warning — triangle ("past due, needs attention")
+  //   clock   - what falls due next
   //   inbox   — unsorted incoming tray
   //   calendar— tickets placed on dates
   const TAB_ICON: Record<string, IconName> = {
@@ -168,6 +169,7 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     'all-tickets': 'ticket',
     'unassigned': 'user',
     'overdue': 'warning',
+    'due-soon': 'clock',
     'triage': 'inbox',
     'awaiting-approval': 'checkCircle',
     'calendar': 'calendar',

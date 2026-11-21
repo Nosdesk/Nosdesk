@@ -24,8 +24,8 @@
  * - Top line: id + title (truncated). Title carries the visual
  *   weight that lets a tech scan a 30-row queue.
  * - Detail line: workflow state dot + name, assignee, last
- *   activity timestamp, priority. Wraps on very narrow viewports
- *   so nothing gets cut.
+ *   activity timestamp, due date when there is one. Wraps on very
+ *   narrow viewports so nothing gets cut.
  *
  * Whole row is the tap target. Click opens; selection (split-
  * view) is desktop-only and not surfaced here — phones don't
@@ -38,7 +38,7 @@ import UserCell from '@/components/views/UserCell.vue'
 import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import { inlinePriorityClass } from '@/utils/priorityHelpers'
 import { rowSlaToneClass } from '@/utils/priorityHelpers'
-import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
+import { formatCompactDate, formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { rowMemoKey } from '@nosdesk/core/sync/views/ticketColumns'
 import { ref } from 'vue'
 import type { CardData } from '@nosdesk/core/sync/views/types'
@@ -147,6 +147,11 @@ function onContextMenu(id: number, event: MouseEvent): void {
             <span class="shrink-0 text-tertiary tabular-nums">
               {{ formatCompactRelativeTime(card.last_activity_at) }}
             </span>
+
+            <span
+              v-if="card.due_date"
+              class="shrink-0 text-secondary tabular-nums"
+            >{{ $t('ticket-detail-scheduling-due-prefix', { date: formatCompactDate(card.due_date) }) }}</span>
           </div>
         </button>
       </li>

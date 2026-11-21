@@ -8571,6 +8571,9 @@ builtin-view-unassigned-name = Non attribués
 builtin-view-unassigned-description = Tickets actifs sans personne attribuée
 builtin-view-overdue-name = En retard
 builtin-view-overdue-description = Tickets actifs dont l'échéance est dépassée
+# Traduction automatique, en attente de relecture par un locuteur natif.
+builtin-view-due-soon-name = Échéance proche
+builtin-view-due-soon-description = Tickets actifs, échéance la plus proche en premier
 builtin-view-triage-name = Tri initial
 builtin-view-triage-description = Tickets en attente de première catégorisation
 builtin-view-calendar-name = Calendrier

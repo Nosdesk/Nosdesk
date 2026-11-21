@@ -8561,6 +8561,9 @@ builtin-view-unassigned-name = Niet toegewezen
 builtin-view-unassigned-description = Actieve tickets zonder toegewezen persoon
 builtin-view-overdue-name = Te laat
 builtin-view-overdue-description = Actieve tickets waarvan de vervaldatum is verstreken
+# Machinevertaling, te controleren door moedertaalspreker.
+builtin-view-due-soon-name = Vervalt binnenkort
+builtin-view-due-soon-description = Actieve tickets, eerstvolgende vervaldatum eerst
 builtin-view-triage-name = Triage
 builtin-view-triage-description = Tickets die nog ingedeeld moeten worden
 builtin-view-calendar-name = Agenda
