@@ -57,7 +57,7 @@ export interface UseTicketsViewResolution {
   activeView: ComputedRef<ResolvedView>
   savedViews: ComputedRef<SavedView[]>
   /** The PRIMARY built-in views, surfaced as a one-click tab strip
-   * in the header (My Open / My Active / All Active / Triage — the
+   * in the header (My Open / My day / All Active / Triage, the
    * daily drivers). The remaining built-ins live behind the
    * `overflowItems` dropdown so the strip can't sprawl horizontally
    * past four tabs no matter how many built-ins ship. */
@@ -82,7 +82,7 @@ export interface UseTicketsViewResolution {
  * tab / overflow split is a single source of truth. */
 const PRIMARY_VIEW_IDS = new Set<string>([
   'my-open',
-  'my-active',
+  'my-day',
   'all-active',
   'triage',
 ])
@@ -155,7 +155,6 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
   //
   //   me      — single user silhouette ("mine")
   //   clock   - the day's work, by when it is due
-  //   userPlus— person + badge ("my active assignments")
   //   list    — queue of items ("everything in motion")
   //   ticket  — stub-and-tear ticket ("every ticket, all statuses")
   //   user    — generic person placeholder ("needs an assignee")
@@ -165,7 +164,6 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
   const TAB_ICON: Record<string, IconName> = {
     'my-open': 'me',
     'my-day': 'clock',
-    'my-active': 'userPlus',
     'all-active': 'list',
     'all-tickets': 'ticket',
     'unassigned': 'user',

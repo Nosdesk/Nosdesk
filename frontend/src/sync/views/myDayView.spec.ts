@@ -73,4 +73,9 @@ describe('the My day view', () => {
     expect(findBuiltinView('my-day')).toBe(MY_DAY_VIEW)
     expect(findBuiltinView('due-soon')).toBeNull()
   })
+
+  it('takes the place of My Active, whose links open My day', () => {
+    expect(BUILTIN_VIEWS.map((v) => v.id)).not.toContain('my-active')
+    expect(findBuiltinView('my-active')).toBe(MY_DAY_VIEW)
+  })
 })

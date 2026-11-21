@@ -68,7 +68,7 @@ import type {
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 
 const props = defineProps<{
-  /** PRIMARY built-in views (My Open / My Active / All Active /
+  /** PRIMARY built-in views (My Open / My day / All Active /
    * Triage) rendered as a one-click tab strip on lg+. Capped at the
    * daily drivers so the strip can't sprawl horizontally. */
   tabItems: ViewTabItem[]
@@ -263,7 +263,7 @@ defineExpose({ openAddFilter })
          widths. -->
     <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
       <!-- Desktop (lg:+): primary tab strip for the daily-driver
-           built-ins (My Open / My Active / All Active / Triage),
+           built-ins (My Open / My day / All Active / Triage),
            capped at four so the strip can't sprawl horizontally and
            crowd the filter / display chrome that shares this row. -->
       <TicketsViewTabs

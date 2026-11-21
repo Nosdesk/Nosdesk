@@ -439,8 +439,6 @@ ticket-list-empty-all-caught-up-title = Alles bijgewerkt.
 ticket-list-empty-all-caught-up-description = Geen open tickets aan u toegewezen.
 ticket-list-empty-no-active-title = Geen actieve tickets.
 ticket-list-empty-no-active-description = Elk ticket is opgelost of geannuleerd.
-ticket-list-empty-my-active-title = Niets op je bord.
-ticket-list-empty-my-active-description = Er zijn geen onopgeloste tickets aan jou toegewezen.
 ticket-list-empty-all-tickets-title = Nog geen tickets.
 ticket-list-empty-all-tickets-description = Tickets die in deze werkruimte worden aangemaakt, verschijnen hier.
 ticket-list-empty-unassigned-title = Alles heeft een eigenaar.
@@ -8551,8 +8549,6 @@ backend-error-search-rebuild-failed = Index opnieuw opbouwen is mislukt.
 # S1 frontend registries + defaults
 builtin-view-my-open-name = Mijn openstaande
 builtin-view-my-open-description = Aan jou toegewezen openstaande tickets
-builtin-view-my-active-name = Mijn actieve
-builtin-view-my-active-description = Aan jou toegewezen onopgeloste tickets
 builtin-view-all-active-name = Alle actieve
 builtin-view-all-active-description = Elk ticket dat niet is opgelost of geannuleerd
 builtin-view-all-tickets-name = Alle tickets

@@ -16,7 +16,6 @@ export interface BuiltInView {
   id:
     | 'my-open'
     | 'my-day'
-    | 'my-active'
     | 'all-active'
     | 'all-tickets'
     | 'unassigned'
@@ -122,7 +121,8 @@ export const MY_OPEN_VIEW: BuiltInView = {
  * order inside each group. Grouping by due is this view's default
  * because its shape groups on `due_date`. The Due column takes
  * Updated's place, so the row is no wider than the other built-ins.
- * Listed second, after My Open, which stays the landing view. */
+ * Listed second, after My Open, which stays the landing view. It took
+ * My Active's place: same tickets, so `?view=my-active` opens it. */
 export const MY_DAY_VIEW: BuiltInView = {
   id: 'my-day',
   name: 'My day',
@@ -140,31 +140,6 @@ export const MY_DAY_VIEW: BuiltInView = {
       c.field === 'last_activity_at' ? { field: 'due_date', width: 96, sortable: true } : c,
     ),
   },
-  filter: {
-    ...baseFilter,
-    predicate: {
-      combinator: 'AND',
-      children: [
-        { field: 'workflow_state.category', op: 'not_in', value: CLOSED_CATEGORIES },
-      ],
-    },
-    quick_filters: ['mine'],
-  },
-}
-
-/** Your in-flight work: tickets assigned to you that aren't done
- * or cancelled. Where MY_OPEN shows everything that bears your
- * name (including resolved tickets you're still on the hook to
- * verify), MY_ACTIVE narrows to the things you're actually
- * working right now. Mirrors Linear's "My Issues -> Active" and
- * Jira's "Assigned to me" agile filter. */
-export const MY_ACTIVE_VIEW: BuiltInView = {
-  id: 'my-active',
-  name: 'My Active',
-  description: 'Unresolved tickets assigned to you',
-  nameKey: 'builtin-view-my-active-name',
-  descriptionKey: 'builtin-view-my-active-description',
-  shape: { ...baseListShape, columns: defaultColumns },
   filter: {
     ...baseFilter,
     predicate: {
@@ -355,7 +330,6 @@ export const CALENDAR_VIEW: BuiltInView = {
 export const BUILTIN_VIEWS: BuiltInView[] = [
   MY_OPEN_VIEW,
   MY_DAY_VIEW,
-  MY_ACTIVE_VIEW,
   ALL_ACTIVE_VIEW,
   ALL_TICKETS_VIEW,
   UNASSIGNED_VIEW,
@@ -461,6 +435,7 @@ export function findBuiltinView(id: string): BuiltInView | null {
   // Accept the legacy `my-queue` id so bookmarks / shared URLs
   // from before the rename keep working. Resolves to MY_OPEN_VIEW.
   if (id === 'my-queue') return MY_OPEN_VIEW
+  if (id === 'my-active') return MY_DAY_VIEW
   return BUILTIN_VIEWS.find((v) => v.id === id)
     ?? DASHBOARD_BUILTIN_VIEWS.find((v) => v.id === id)
     ?? null

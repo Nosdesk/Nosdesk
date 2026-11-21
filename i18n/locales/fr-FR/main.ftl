@@ -443,8 +443,6 @@ ticket-list-empty-all-caught-up-title = Tout est à jour.
 ticket-list-empty-all-caught-up-description = Aucun ticket ouvert ne vous est assigné.
 ticket-list-empty-no-active-title = Aucun ticket actif.
 ticket-list-empty-no-active-description = Tous les tickets sont résolus ou annulés.
-ticket-list-empty-my-active-title = Rien à votre charge.
-ticket-list-empty-my-active-description = Aucun ticket non résolu ne vous est assigné.
 ticket-list-empty-all-tickets-title = Aucun ticket pour l'instant.
 ticket-list-empty-all-tickets-description = Les tickets créés dans cet espace de travail apparaîtront ici.
 ticket-list-empty-unassigned-title = Tout est attribué.
@@ -8561,8 +8559,6 @@ backend-error-search-rebuild-failed = Échec de la reconstruction de l'index.
 # S1 frontend registries + defaults
 builtin-view-my-open-name = Mes tickets ouverts
 builtin-view-my-open-description = Tickets ouverts qui vous sont attribués
-builtin-view-my-active-name = Mes tickets actifs
-builtin-view-my-active-description = Tickets non résolus qui vous sont attribués
 builtin-view-all-active-name = Tous actifs
 builtin-view-all-active-description = Tous les tickets non résolus ni annulés
 builtin-view-all-tickets-name = Tous les tickets

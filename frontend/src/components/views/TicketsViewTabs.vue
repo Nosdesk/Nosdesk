@@ -2,7 +2,7 @@
 /**
  * Built-in view tab strip for the tickets header.
  *
- * Surfaces only the PRIMARY built-in views (My Open / My Active /
+ * Surfaces only the PRIMARY built-in views (My Open / My day /
  * All Active / Triage — the daily drivers) as one-click tabs. The
  * set is capped at four on purpose: earlier every built-in was a
  * tab, and as the built-in count grew to eight the strip sprawled

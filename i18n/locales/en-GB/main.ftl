@@ -262,8 +262,6 @@ ticket-list-empty-all-caught-up-title = All caught up.
 ticket-list-empty-all-caught-up-description = You have no open tickets assigned to you.
 ticket-list-empty-no-active-title = No active tickets.
 ticket-list-empty-no-active-description = Every ticket has been resolved or cancelled.
-ticket-list-empty-my-active-title = Nothing on your plate.
-ticket-list-empty-my-active-description = You have no unresolved tickets assigned to you.
 ticket-list-empty-all-tickets-title = No tickets yet.
 ticket-list-empty-all-tickets-description = Tickets created in this workspace will appear here.
 ticket-list-empty-unassigned-title = Everything has an owner.
@@ -4723,8 +4721,6 @@ backend-error-search-rebuild-failed = Index rebuild failed.
 # S1 frontend registries + defaults
 builtin-view-my-open-name = My Open
 builtin-view-my-open-description = Open tickets assigned to you
-builtin-view-my-active-name = My Active
-builtin-view-my-active-description = Unresolved tickets assigned to you
 builtin-view-all-active-name = All Active
 builtin-view-all-active-description = Every ticket that hasn't been resolved or cancelled
 builtin-view-all-tickets-name = All Tickets
