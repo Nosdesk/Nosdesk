@@ -594,6 +594,11 @@ pub struct ApplyContext<'a> {
     /// list), so a rule that would email the requester is suppressed rather
     /// than answer it (plan 11.3).
     pub automated_source: bool,
+    /// Checked under the ticket's lock, after the preflight and before any
+    /// step: whether the run still goes ahead. A time-elapsed fire re-reads
+    /// its clock here, so two fires of one due clock run it once. `false`
+    /// ends the run with [`ApplyError::NoLongerDue`], which leaves no row.
+    pub recheck: Option<&'a dyn Fn(&mut DbConnection) -> QueryResult<bool>>,
 }
 
 /// A run's place in a chain of events: the event the chain started from
@@ -629,6 +634,7 @@ impl<'a> ApplyContext<'a> {
             lock_timeout: None,
             retries: false,
             automated_source: false,
+            recheck: None,
         }
     }
 }
@@ -725,6 +731,10 @@ pub enum ApplyError {
         "this chain of events already ran {CHAIN_RULE_CAP} rules on the ticket, the most it may"
     )]
     ChainCap,
+    /// A time-elapsed rule's clock, read again under the ticket's lock, is
+    /// no longer due: it restarted, stopped, or the rule already fired for it.
+    #[error("the rule is no longer due on this ticket")]
+    NoLongerDue,
     /// The rule would email the requester in answer to an automated email.
     #[error("the event came from an automated email (an auto-reply or a mailing list), and answering it could start a mail loop")]
     AutomatedSource,
@@ -743,7 +753,7 @@ impl ApplyError {
     /// if any.
     fn recorded_status(&self) -> Option<RuleApplicationStatus> {
         match self {
-            Self::AlreadyRan { .. } => None,
+            Self::AlreadyRan { .. } | Self::NoLongerDue => None,
             Self::RanInChain => Some(RuleApplicationStatus::SuppressedRecursionBudget),
             Self::ChainCap | Self::AutomatedSource => {
                 Some(RuleApplicationStatus::SuppressedLoopGuard)
@@ -1221,6 +1231,11 @@ fn run_locked(
     .get_result(conn)?;
     if is_merged {
         return Err(ApplyError::TicketMerged(ticket.number));
+    }
+    if let Some(recheck) = ctx.recheck {
+        if !recheck(conn)? {
+            return Err(ApplyError::NoLongerDue);
+        }
     }
 
     let rule_version = current_version(conn, rule.id)?;

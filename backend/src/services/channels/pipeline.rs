@@ -825,6 +825,12 @@ fn insert_inbound_comment(
     if msg.spam_suspected {
         metadata["spam_suspected"] = json!(true);
     }
+    // Mail from before the channel connected is history: stamped on the
+    // comment itself, so readers of the table (the time-elapsed rule clocks)
+    // can tell, as readers of its event do from `created_via`.
+    if before_connection {
+        metadata["imported"] = json!(true);
+    }
 
     // Prefer the rich HTML body when the message has one — it carries
     // the formatting the customer's mail client emitted (lists, links,

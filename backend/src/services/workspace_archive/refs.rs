@@ -229,8 +229,8 @@ const RULE_CONDITIONS: Shape = Shape::Conditions(&[
 ]);
 
 /// A rule's trigger settings: a plugin event rule names its plugin. An
-/// updated or replied trigger's changed field names and reply kind name no
-/// row.
+/// updated or replied trigger's changed field names and reply kind, and a
+/// time-elapsed trigger's clock and minutes, name no row.
 const RULE_TRIGGER: Shape = Shape::Paths(&[("plugin_uuid", Ref(E::PluginUuid))]);
 
 /// Ticket view predicate fields (`CardData` paths) whose value is an id.
@@ -288,8 +288,9 @@ pub const REFERENCES: &[Reference] = &[
         Missing::Clear,
     ),
     // Whether the conditions matched, the trigger, event type, changed field
-    // names and reply kind (for an assignment from 1.1, its old method), and
-    // for a plugin's event the member it was emitted for.
+    // names and reply kind (for an assignment from 1.1, its old method), a
+    // time-elapsed fire's clock and minutes, and for a plugin's event the
+    // member it was emitted for.
     r(
         "rule_applications",
         "condition_evaluation",

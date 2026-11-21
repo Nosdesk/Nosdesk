@@ -190,6 +190,7 @@ mod rule_event_outbox;
 mod rule_starters;
 mod rules_asset_actions;
 mod rules_conflicts;
+mod rules_elapsed;
 mod rules_elapsed_queue;
 mod rules_event_triggers;
 mod rules_in_workspace;

@@ -40,6 +40,7 @@ pub mod starter_catalog;
 pub mod step_up;
 pub mod sync_outbox;
 pub mod template_vars;
+pub mod ticket_dates;
 pub mod ticket_updates;
 pub mod transactional_email;
 pub mod upload_intake;

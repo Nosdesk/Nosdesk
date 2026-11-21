@@ -61,6 +61,8 @@ const SEEDED: &[&str] = &[
     "import_history.prune",
     "workspace_imports.prune",
     "rules.budget_sweep",
+    "rules.elapsed_fire",
+    "rules.elapsed_reconcile",
 ];
 
 /// Jobs that still run here, but with nothing to do, and why.
@@ -155,6 +157,7 @@ struct Seeded {
     old_delivery: i32,
     archived_workspace: i32,
     overdue_ticket: i32,
+    clock_ticket: i32,
     loan: i32,
     old_import: Uuid,
     failed_import: Uuid,
@@ -329,6 +332,44 @@ fn seed(conn: &mut Conn) -> Seeded {
             .execute(c)?;
         Ok(id)
     });
+    // A live time-elapsed rule and a ticket whose clock came due an hour ago.
+    let clock_ticket = pinned(conn, a, |c| {
+        use backend::schema::tickets;
+        let state = backend::repository::workflow_states::default_state(c)?;
+        let rule = diesel::sql_query(
+            "INSERT INTO rules (workspace_id, name, trigger_kind, trigger_config, conditions, actions, state) \
+             VALUES (current_setting('app.workspace_id')::integer, \
+                     'Escalate waiting clocks', 'time_elapsed', \
+                     '{\"clock_name\": \"since_created\", \"minutes\": 60}', \
+                     '{\"kind\": \"leaf\", \"field\": \"ticket.title\", \"op\": \"contains\", \"value\": \"clock\"}', \
+                     '[{\"kind\": \"set_priority\", \"config\": {\"priority\": \"high\"}}]', \
+                     'live') RETURNING id",
+        )
+        .get_result::<Id>(c)?
+        .id;
+        let id: i32 = diesel::insert_into(tickets::table)
+            .values(&NewTicket {
+                title: "Waiting on a clock".into(),
+                workflow_state_id: state.id,
+                ..Default::default()
+            })
+            .returning(tickets::id)
+            .get_result(c)?;
+        diesel::sql_query(
+            "UPDATE tickets SET created_at = now() - interval '2 hours' WHERE id = $1",
+        )
+        .bind::<Integer, _>(id)
+        .execute(c)?;
+        diesel::sql_query(
+            "INSERT INTO ticket_elapsed_queue (ticket_id, rule_id, clock_name, clock_started_at, due_at) \
+             SELECT id, $2, 'since_created', created_at, created_at + interval '1 hour' \
+               FROM tickets WHERE id = $1",
+        )
+        .bind::<Integer, _>(id)
+        .bind::<Integer, _>(rule)
+        .execute(c)?;
+        Ok(id)
+    });
     let loan = pinned(conn, a, |c| {
         let asset = diesel::sql_query(
             "INSERT INTO assets (name, kind) VALUES ('Loaner laptop', 'generic') RETURNING id",
@@ -467,6 +508,7 @@ fn seed(conn: &mut Conn) -> Seeded {
         old_delivery,
         archived_workspace,
         overdue_ticket,
+        clock_ticket,
         loan,
         old_import,
         failed_import,
@@ -639,6 +681,16 @@ async fn every_scheduled_job_runs_cleanly_on_the_job_pool() {
         format!(
             "SELECT count(*) AS n FROM tickets WHERE id = {} AND sla_response_breached_at IS NULL",
             seeded.overdue_ticket
+        ),
+    );
+    gone(
+        &mut conn,
+        "due time-elapsed rule fired once, and the reconcile queued nothing more",
+        format!(
+            "SELECT count(*) AS n FROM tickets WHERE id = {0} AND (priority <> 'high' \
+             OR (SELECT count(*) FROM rule_applications WHERE ticket_id = {0} AND status = 'succeeded') <> 1 \
+             OR EXISTS (SELECT 1 FROM ticket_elapsed_queue WHERE ticket_id = {0}))",
+            seeded.clock_ticket
         ),
     );
     gone(

@@ -35,6 +35,7 @@ use crate::models::{
 use crate::repository::rules;
 use crate::repository::tickets::TicketUpdatedObserver;
 use crate::services::rules::conditions::{self, ConditionError, Predicate};
+use crate::services::rules::{clocks, elapsed};
 use crate::services::search::SearchService;
 use crate::services::ticket_updates::{ActorConn, InWorkspace};
 use crate::utils::rbac::require_workspace_role;
@@ -505,6 +506,25 @@ fn unknown_plugin_event(
     }))
 }
 
+/// A time-elapsed rule's settings as saved ([`clocks::parse_trigger`]).
+fn time_trigger_config(config: &Value) -> Result<Value, &'static str> {
+    clocks::parse_trigger(config).map(clocks::TimeTrigger::to_config)
+}
+
+/// Bring a rule's time-elapsed clocks in line after it was saved or changed
+/// state, off the request: a live or dry-run time-elapsed rule waits on every
+/// open ticket, any other rule on none. One transaction per batch of tickets
+/// on a blocking thread. A failure is logged; the daily reconcile repairs the
+/// rows.
+fn requeue_clocks(pool: &web::Data<Pool>, workspace_id: i32, rule_id: i32) {
+    let pool = pool.get_ref().clone();
+    actix_web::rt::task::spawn_blocking(move || {
+        if let Err(e) = elapsed::requeue_rule(&pool, workspace_id, rule_id) {
+            tracing::warn!(rule_id, error = %e, "rules: time-elapsed clocks not rebuilt");
+        }
+    });
+}
+
 fn manual_conditions_refused() -> HttpResponse {
     errors::bad_request_with_code(
         "manual rules must have an empty conditions list",
@@ -658,6 +678,10 @@ fn insert_rule(
             return Err(refused(resp));
         }
     }
+    if trigger_kind == RuleTriggerKind::TimeElapsed {
+        trigger_config = time_trigger_config(&trigger_config)
+            .map_err(|msg| refused(errors::bad_request_with_code(msg, "RULE_VALIDATION")))?;
+    }
 
     let reads = rules::reads_beyond_guards(&conditions);
     let writes = rules::derive_writes_set(&actions);
@@ -754,6 +778,7 @@ pub async fn update_rule(
     req: HttpRequest,
     path: web::Path<i32>,
     body: web::Json<UpdateRuleRequest>,
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
@@ -780,6 +805,13 @@ pub async fn update_rule(
     if existing.is_archived() {
         return Ok(archived_conflict(id));
     }
+    // What a time-elapsed rule's clocks read, to tell whether an edit moves
+    // them.
+    let clocks_before = (
+        existing.trigger_kind,
+        existing.trigger_config.clone(),
+        existing.conditions.clone(),
+    );
 
     if let Some(ref n) = name {
         if n.trim().is_empty() {
@@ -827,6 +859,17 @@ pub async fn update_rule(
                     || config != existing.trigger_config;
                 trigger_config = Some(config);
             }
+            Err(msg) => return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION")),
+        }
+    }
+    // A time-elapsed rule's settings are checked when the trigger or its
+    // settings change.
+    if effective_trigger_kind == RuleTriggerKind::TimeElapsed
+        && (trigger_kind.is_some() || trigger_config.is_some())
+    {
+        let config = trigger_config.as_ref().unwrap_or(&existing.trigger_config);
+        match time_trigger_config(config) {
+            Ok(config) => trigger_config = Some(config),
             Err(msg) => return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION")),
         }
     }
@@ -885,7 +928,22 @@ pub async fn update_rule(
         Ok((rule, preview))
     });
     match saved {
-        Ok((rule, preview)) => Ok(HttpResponse::Ok().json(SavedRuleDto::new(rule, preview))),
+        Ok((rule, preview)) => {
+            // A time-elapsed rule whose trigger, settings or conditions were
+            // edited recomputes its clocks; one moved to another trigger
+            // drops them. A rename or a change of steps moves nothing.
+            let (kind, config, conditions) = &clocks_before;
+            let moved = rule.trigger_kind != *kind
+                || rule.trigger_config != *config
+                || rule.conditions != *conditions;
+            if moved
+                && (rule.trigger_kind == RuleTriggerKind::TimeElapsed
+                    || *kind == RuleTriggerKind::TimeElapsed)
+            {
+                requeue_clocks(&pool, rule.workspace_id, rule.id);
+            }
+            Ok(HttpResponse::Ok().json(SavedRuleDto::new(rule, preview)))
+        }
         Err(UpdateRuleError::Refused(resp)) => Ok(*resp),
         Err(UpdateRuleError::Write(rules::WriteError::NotFound(_))) => {
             Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
@@ -979,6 +1037,7 @@ pub async fn transition_state(
     req: HttpRequest,
     path: web::Path<i32>,
     body: web::Json<StateTransitionRequest>,
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
@@ -1011,6 +1070,15 @@ pub async fn transition_state(
             "RULE_STATE_TRANSITION",
         ));
     }
+    // A time-elapsed rule saved before its settings were checked can't run
+    // until they are fixed.
+    if matches!(target, RuleState::Live | RuleState::DryRun)
+        && existing.trigger_kind == RuleTriggerKind::TimeElapsed
+    {
+        if let Err(msg) = clocks::parse_trigger(&existing.trigger_config) {
+            return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION"));
+        }
+    }
     // Someone a step names may have left since the rule was saved: it can
     // be parked and edited, but not run.
     if matches!(target, RuleState::Live | RuleState::DryRun) {
@@ -1042,7 +1110,14 @@ pub async fn transition_state(
         ..Default::default()
     };
     match tc.run_result(|conn| rules::update(conn, id, change)) {
-        Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
+        Ok(rule) => {
+            // Going live or into dry run starts its clocks on every open
+            // ticket; leaving them stops them.
+            if rule.trigger_kind == RuleTriggerKind::TimeElapsed {
+                requeue_clocks(&pool, rule.workspace_id, rule.id);
+            }
+            Ok(HttpResponse::Ok().json(RuleDto::from(rule)))
+        }
         Err(rules::WriteError::NotFound(_)) => {
             Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
         }
@@ -1061,6 +1136,7 @@ pub async fn delete_rule(
     req: HttpRequest,
     path: web::Path<i32>,
     query: web::Query<DeleteRuleQuery>,
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
@@ -1089,7 +1165,12 @@ pub async fn delete_rule(
             Err(e) => return Err(ApiError::Database(e)),
         }
         match tc.run_result(|conn| rules::archive(conn, id, Utc::now())) {
-            Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
+            Ok(rule) => {
+                if rule.trigger_kind == RuleTriggerKind::TimeElapsed {
+                    requeue_clocks(&pool, rule.workspace_id, rule.id);
+                }
+                Ok(HttpResponse::Ok().json(RuleDto::from(rule)))
+            }
             Err(rules::WriteError::NotFound(_)) => {
                 Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
             }
@@ -1381,8 +1462,8 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
         }
         NoRequester { .. } => errors::bad_request_with_code(message, "RULE_NO_REQUESTER"),
         AssetRefused { .. } => errors::conflict_with_code(message, "RULE_ASSET_REFUSED"),
-        // Only the engine's runs carry a budget or an email source.
-        AlreadyRan { .. } | RanInChain | ChainCap | AutomatedSource => {
+        // Only the engine's runs carry a budget, an email source or a clock.
+        AlreadyRan { .. } | RanInChain | ChainCap | AutomatedSource | NoLongerDue => {
             errors::conflict_with_code(message, "RULE_SUPPRESSED")
         }
         Db(e) => errors::db_error(&e),

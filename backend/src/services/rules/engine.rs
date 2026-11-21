@@ -35,6 +35,11 @@
 //! in shadow: it records what it would do (a skip too) and changes nothing,
 //! and its `stop_processing` stops nothing.
 //!
+//! Once an event's rules have had their turn, the time-elapsed clocks of
+//! its ticket are read again (`elapsed::maintain_ticket`): a reply, a change
+//! of state, assignee or due date, or a close moves or removes the ticket's
+//! rows in `ticket_elapsed_queue`.
+//!
 //! A chain of events (rule A's write is rule B's event) keeps the root
 //! event's id as its correlation id, and each rule runs at most once per
 //! chain on a ticket (decision D4, `ticket_rule_runs`).
@@ -93,7 +98,7 @@ pub const BUDGET_RETENTION_HOURS: i64 = 48;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Backoff after the `attempts`-th failure.
-fn backoff_secs(attempts: i16) -> i64 {
+pub(crate) fn backoff_secs(attempts: i16) -> i64 {
     match attempts {
         ..=1 => 1,
         2 => 10,
@@ -381,6 +386,30 @@ impl Event {
     }
 }
 
+/// The ticket whose time-elapsed clocks an event may move: a ticket's own
+/// events (created, updated, approved) and its public replies. A plugin's
+/// event changes no clock.
+fn clock_ticket(
+    aggregate: Option<&str>,
+    event_type: &str,
+    aggregate_id: Option<&str>,
+    data: &Value,
+) -> Option<i32> {
+    if aggregate == Some("plugin") {
+        return None;
+    }
+    if event_type == "comment.created" {
+        return data
+            .get("ticket_id")
+            .and_then(Value::as_i64)
+            .and_then(|n| i32::try_from(n).ok());
+    }
+    if event_type.starts_with("ticket.") {
+        return aggregate_id.and_then(|id| id.parse().ok());
+    }
+    None
+}
+
 /// Whether `rule`'s trigger settings take an event with these changed
 /// fields and reply kind. An update rule runs when the update changed a
 /// field its trigger names. With none named it runs on any change to a
@@ -556,6 +585,32 @@ impl Dispatcher {
         if !crate::sync::groups::has_workspace_audience(row.groups.as_deref().unwrap_or(&[])) {
             return Handled::Done;
         }
+        let handled = self.run_event(row, workspace_id, event_uuid, event_type, data, occurred_at);
+        // Once the event's rules have had their turn, the ticket's
+        // time-elapsed clocks catch up with it, however old the event.
+        if matches!(handled, Handled::Done) {
+            if let Some(ticket_id) = clock_ticket(
+                row.aggregate.as_deref(),
+                event_type,
+                row.aggregate_id.as_deref(),
+                data,
+            ) {
+                self.maintain_clocks(workspace_id, ticket_id);
+            }
+        }
+        handled
+    }
+
+    /// Run an event's rules.
+    fn run_event(
+        &self,
+        row: &Claimed,
+        workspace_id: i32,
+        event_uuid: Uuid,
+        event_type: &str,
+        data: &Value,
+        occurred_at: DateTime<Utc>,
+    ) -> Handled {
         let now = Utc::now();
         if !row.rerun && (row.enqueued_at - occurred_at).num_seconds() > BACKDATED_SECS {
             debug!(
@@ -612,6 +667,19 @@ impl Dispatcher {
             last_attempt: row.attempts >= MAX_ATTEMPTS,
         };
         self.run_rules(&mut conn, &run, &event, prepared)
+    }
+
+    /// Bring the ticket's time-elapsed rows in line with it. A failure is
+    /// logged: the daily reconcile repairs the rows.
+    fn maintain_clocks(&self, workspace_id: i32, ticket_id: i32) {
+        if let Err(e) = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "rules_engine:clocks",
+            workspace_id,
+            |c| super::elapsed::maintain_ticket(c, workspace_id, ticket_id),
+        ) {
+            warn!(ticket_id, error = %e, "rules engine: time-elapsed clocks not updated");
+        }
     }
 
     /// Run the event's rules in order.
@@ -787,31 +855,53 @@ impl Dispatcher {
         comment_id: Option<i32>,
         actions_executed: usize,
     ) {
-        if let Some(comment_id) = comment_id {
-            if let Err(e) = relay_reply(&self.pool, run.workspace_id, ticket_id, comment_id) {
-                warn!(error = %e, comment_id, "rules engine: reply relay enqueue failed");
-            }
+        after_live_run(
+            &self.pool,
+            self.search.as_ref(),
+            conn,
+            run.workspace_id,
+            ticket_id,
+            comment_id,
+            actions_executed,
+        );
+    }
+}
+
+/// After an automated live run commits: relay its public reply and reindex
+/// the ticket. Failures are logged; the run stands.
+pub(crate) fn after_live_run(
+    pool: &Pool,
+    search: Option<&Arc<SearchService>>,
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    ticket_id: i32,
+    comment_id: Option<i32>,
+    actions_executed: usize,
+) {
+    if let Some(comment_id) = comment_id {
+        if let Err(e) = relay_reply(pool, workspace_id, ticket_id, comment_id) {
+            warn!(error = %e, comment_id, "rules engine: reply relay enqueue failed");
         }
-        let Some(search) = &self.search else {
-            return;
-        };
-        if actions_executed == 0 {
-            return;
+    }
+    let Some(search) = search else {
+        return;
+    };
+    if actions_executed == 0 {
+        return;
+    }
+    let reader = ActorContext::system("rules_engine").with_workspace(workspace_id);
+    match with_actor_context(conn, &reader, |c| {
+        let ticket = crate::repository::tickets::get_ticket_by_id(c, ticket_id)?;
+        let article =
+            crate::repository::article_content::get_article_content_by_ticket_id(c, ticket_id)
+                .optional()?;
+        Ok::<_, diesel::result::Error>((ticket, article))
+    }) {
+        Ok((ticket, article)) => {
+            use crate::repository::tickets::TicketUpdatedObserver;
+            search.ticket_updated(&ticket, article.as_ref())
         }
-        let reader = ActorContext::system("rules_engine").with_workspace(run.workspace_id);
-        match with_actor_context(conn, &reader, |c| {
-            let ticket = crate::repository::tickets::get_ticket_by_id(c, ticket_id)?;
-            let article =
-                crate::repository::article_content::get_article_content_by_ticket_id(c, ticket_id)
-                    .optional()?;
-            Ok::<_, diesel::result::Error>((ticket, article))
-        }) {
-            Ok((ticket, article)) => {
-                use crate::repository::tickets::TicketUpdatedObserver;
-                search.ticket_updated(&ticket, article.as_ref())
-            }
-            Err(e) => warn!(error = %e, ticket_id, "rules engine: post-run reload failed"),
-        }
+        Err(e) => warn!(error = %e, ticket_id, "rules engine: post-run reload failed"),
     }
 }
 
