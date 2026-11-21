@@ -375,12 +375,25 @@ export function isDashboardBuiltinViewId(id: string): boolean {
   return DASHBOARD_BUILTIN_VIEWS.some((v) => v.id === id)
 }
 
+/** Narrowing a drill-down can carry beyond its time window. The
+ * Completed work heatmap counts Done tickets only, credited to one
+ * person; the Resolved KPI counts every closed ticket but merged ones,
+ * so these stay opt-in and the KPI's list keeps matching its count. */
+export interface DashboardDrillDownScope {
+  /** Done tickets only, leaving out cancelled ones as well as merged. */
+  doneOnly?: boolean
+  /** Tickets credited to this user: assigned to them, or closed by
+   * them when unassigned. */
+  creditedTo?: string
+}
+
 /** Apply dashboard time-window params from the URL to a drill-down
  * view filter so the list matches the KPI the user clicked. */
 export function resolveDashboardViewFilter(
   viewId: string,
   from?: string,
   to?: string,
+  scope: DashboardDrillDownScope = {},
 ): FilterState {
   switch (viewId) {
     case 'dashboard-created':
@@ -411,6 +424,24 @@ export function resolveDashboardViewFilter(
               // A merged ticket closes without being resolved; the
               // Resolved count leaves it out, so the list does too.
               { field: 'workflow_state.category', op: 'not_in', value: ['merged'] },
+              ...(scope.doneOnly
+                ? [{ field: 'workflow_state.category', op: 'eq' as const, value: 'done' }]
+                : []),
+              ...(scope.creditedTo
+                ? [{
+                    combinator: 'OR' as const,
+                    children: [
+                      { field: 'assignee_uuid', op: 'eq' as const, value: scope.creditedTo },
+                      {
+                        combinator: 'AND' as const,
+                        children: [
+                          { field: 'assignee_uuid', op: 'is_empty' as const, value: null },
+                          { field: 'closed_by', op: 'eq' as const, value: scope.creditedTo },
+                        ],
+                      },
+                    ],
+                  }]
+                : []),
             ],
           },
           quick_filters: [],

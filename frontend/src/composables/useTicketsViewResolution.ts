@@ -24,6 +24,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useSavedViewsStore } from '@/stores/savedViews'
 import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
+import { dashboardDrillDownScopeFromQuery } from '@/utils/dashboardTicketDrillDown'
 import {
   BUILTIN_VIEWS,
   findBuiltinView,
@@ -138,6 +139,7 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
           builtin.id,
           typeof route.query.from === 'string' ? route.query.from : undefined,
           typeof route.query.to === 'string' ? route.query.to : undefined,
+          dashboardDrillDownScopeFromQuery(route.query),
         )
       }
       return resolved

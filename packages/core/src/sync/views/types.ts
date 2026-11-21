@@ -63,6 +63,9 @@ export interface CardData {
   /** Set when the ticket reaches a terminal workflow state. Used by
    * dashboard open/resolved drill-down views to mirror analytics KPIs. */
   closed_at?: string | null
+  /** Who closed it; the completed-work drill-down credits an
+   * unassigned ticket to them. */
+  closed_by?: string | null
   /** Sort key the kanban / list views default to. Driven by any
    * activity touching the row (status change, comment, etc.). */
   last_activity_at: string

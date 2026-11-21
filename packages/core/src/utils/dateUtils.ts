@@ -134,6 +134,8 @@ export const DATE_PRESETS = {
   weekday: { weekday: 'short' },
   /** "Thu 17" (the locale orders it: en-US "17 Thu"). */
   weekdayDay: { weekday: 'short', day: 'numeric' },
+  /** "Thu, Sep 17" / "Thu 17 Sep". */
+  weekdayMonthDay: { weekday: 'short', month: 'short', day: 'numeric' },
 } as const satisfies Record<string, Intl.DateTimeFormatOptions>
 
 export type DatePreset = keyof typeof DATE_PRESETS
