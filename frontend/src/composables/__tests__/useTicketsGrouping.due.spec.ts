@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, effectScope } from 'vue'
-import { setDateConfig } from '@nosdesk/core/utils/dateUtils'
+import { setPlanningTimezone } from '@nosdesk/core/utils/ticketDates'
 import { MY_DAY_VIEW, MY_OPEN_VIEW } from '@nosdesk/core/sync/views/builtinViews'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import { defaultGroupByFor, useTicketsGrouping } from '@/composables/useTicketsGrouping'
@@ -23,12 +23,12 @@ function card(id: number, due: string | null): CardData {
 
 beforeEach(() => {
   localStorage.clear()
-  setDateConfig({ defaultTimezone: 'Australia/Sydney' })
+  setPlanningTimezone('Australia/Sydney')
   vi.useFakeTimers()
 })
 afterEach(() => {
   vi.useRealTimers()
-  setDateConfig({ defaultTimezone: 'UTC' })
+  setPlanningTimezone(null)
 })
 
 describe('group by Due', () => {

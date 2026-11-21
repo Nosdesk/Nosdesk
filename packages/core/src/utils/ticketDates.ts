@@ -11,17 +11,20 @@
  * When a day has to become a moment ("is this overdue?") it resolves in
  * the planning timezone, and a due day lasts until the first moment of the
  * next day there. The backend twin is `services::ticket_dates::due_instant`,
- * which resolves in the workspace timezone. The client is not sent the
- * workspace default, so `planningTimezone()` is the viewer's effective
- * timezone (the one every date on screen is formatted in).
+ * which resolves in the workspace timezone. `planningTimezone()` is the
+ * `effective_timezone` `/auth/me` returns (the user's preference, else the
+ * workspace default, else UTC), so for everyone without a preference of
+ * their own it is the workspace's zone and agrees with the server. Before
+ * sign-in, or from a server that doesn't send it, it is the browser's zone.
+ * Display formatting keeps its own zone (`dateStore.effectiveTimezone`).
  *
  * "Today" is a `YYYY-MM-DD` in the same zone, so a day compares to it as a
  * string and the due buckets partition cleanly: a day before today is
  * overdue, and nothing else is.
  */
 import { CalendarDate, parseDate as parseCalendarDate } from '@internationalized/date'
-import { formatDate, getDateConfig } from './dateUtils'
-import { toCalendarDateString } from './dateMath'
+import { formatDate } from './dateUtils'
+import { getLocalTimeZone, toCalendarDateString } from './dateMath'
 
 /** A calendar day as `YYYY-MM-DD`. */
 export type Day = string
@@ -64,10 +67,28 @@ export function planDay(ticket: TicketDates): Day | null {
   return startDay(ticket) ?? dueDay(ticket)
 }
 
-/** The zone days resolve in. Stands in for the workspace timezone, which
- *  the client does not receive. */
+let serverTimezone: string | null = null
+
+function isZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Record the server-resolved zone from `/auth/me` (`effective_timezone`).
+ *  `null`, or a zone this browser doesn't know, falls back to the
+ *  browser's. */
+export function setPlanningTimezone(tz: string | null | undefined): void {
+  serverTimezone = tz && isZone(tz) ? tz : null
+}
+
+/** The zone days resolve in: the server-resolved zone, else the
+ *  browser's. */
 export function planningTimezone(): string {
-  return getDateConfig().defaultTimezone
+  return serverTimezone ?? getLocalTimeZone()
 }
 
 /** Today in `tz`. */

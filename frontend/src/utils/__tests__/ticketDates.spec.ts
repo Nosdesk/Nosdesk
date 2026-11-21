@@ -4,7 +4,10 @@
  * and the due buckets split around today in that zone.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { setDateConfig } from '@nosdesk/core/utils/dateUtils'
+import { createPinia, setActivePinia } from 'pinia'
+import { getDateConfig, setDateConfig } from '@nosdesk/core/utils/dateUtils'
+import { getLocalTimeZone } from '@nosdesk/core/utils/dateMath'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import {
   dueBucket,
   dueChipLabel,
@@ -14,6 +17,8 @@ import {
   formatCompactDay,
   isOverdue,
   planDay,
+  planningTimezone,
+  setPlanningTimezone,
   todayIn,
 } from '@nosdesk/core/utils/ticketDates'
 import { buildPredicate } from '@nosdesk/core/sync/views/filter'
@@ -23,7 +28,10 @@ const SYDNEY = 'Australia/Sydney'
 const LOS_ANGELES = 'America/Los_Angeles'
 
 beforeEach(() => setDateConfig({ defaultLocale: 'en-US', defaultTimezone: 'UTC' }))
-afterEach(() => setDateConfig({ defaultLocale: 'en-US', defaultTimezone: 'UTC' }))
+afterEach(() => {
+  setDateConfig({ defaultLocale: 'en-US', defaultTimezone: 'UTC' })
+  setPlanningTimezone(null)
+})
 
 describe('reading a stored day', () => {
   it('takes the date part as written, whatever follows it', () => {
@@ -101,7 +109,7 @@ describe('overdue', () => {
 
   it('drives the overdue quick filter, so a ticket due today is not overdue', () => {
     const now = new Date()
-    setDateConfig({ defaultTimezone: SYDNEY })
+    setPlanningTimezone(SYDNEY)
     const today = todayIn(SYDNEY, now)
     const card = (due: string) => ({ due_date: `${due}T00:00:00` }) as unknown as CardData
     const yesterday = new Date(now.getTime() - 86_400_000)
@@ -172,5 +180,34 @@ describe('the due chip', () => {
     expect(dueChipLabel('2026-11-27', '2026-11-21', words)).toBe('Fri 27')
     expect(dueChipLabel('2026-11-20', '2026-11-21', words)).toBe('Fri 20')
     expect(dueChipLabel('2026-12-24', '2026-11-21', words)).toBe('24 Dec')
+  })
+})
+
+describe('the planning timezone', () => {
+  it("is the server's effective zone from /auth/me, not the display zone", () => {
+    setActivePinia(createPinia())
+    const dateStore = useDateStore()
+    // No personal preference: the server resolved the workspace default.
+    dateStore.loadFromUser({ timezone: null, effective_timezone: SYDNEY, effective_locale: 'en-US' })
+    expect(planningTimezone()).toBe(SYDNEY)
+    // Display formatting still follows the preference, here the browser's.
+    expect(getDateConfig().defaultTimezone).toBe(getLocalTimeZone())
+
+    dateStore.loadFromUser({ timezone: LOS_ANGELES, effective_timezone: LOS_ANGELES })
+    expect(planningTimezone()).toBe(LOS_ANGELES)
+  })
+
+  it("falls back to the browser's zone when the server sends none, or one it can't read", () => {
+    setPlanningTimezone(null)
+    expect(planningTimezone()).toBe(getLocalTimeZone())
+    setPlanningTimezone('Not/AZone')
+    expect(planningTimezone()).toBe(getLocalTimeZone())
+  })
+
+  it('decides overdue by default, so a workspace in Sydney rolls over at its midnight', () => {
+    setPlanningTimezone(SYDNEY)
+    const due = { due_date: '2026-11-21T00:00:00' }
+    expect(isOverdue(due, new Date('2026-11-21T12:59:00Z'))).toBe(false)
+    expect(isOverdue(due, new Date('2026-11-21T13:00:00Z'))).toBe(true)
   })
 })
