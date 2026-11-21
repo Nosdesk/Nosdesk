@@ -84,6 +84,8 @@ export interface SyncTicket {
   updated_at: string
   last_activity_at: string
   closed_at?: string | null
+  /** Who moved the ticket into its closing state; cleared on reopen. */
+  closed_by?: string | null
 }
 
 export function apiTicketToSync(ticket: Ticket): SyncTicket {

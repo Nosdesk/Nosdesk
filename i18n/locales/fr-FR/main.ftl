@@ -7029,14 +7029,22 @@ views-ticket-preview-more-devices = { $count ->
 views-ticket-preview-view-full = Voir la description, les commentaires et les actifs
 
 # Carte thermique des tickets (TicketHeatmap)
-ticket-heatmap-title-closed = Tickets clôturés
-ticket-heatmap-title-activity = Activité des tickets
-ticket-heatmap-error-load = Échec du chargement des données. Veuillez réessayer.
-ticket-heatmap-tooltip-empty = Aucun ticket
-ticket-heatmap-tooltip-count = { $count ->
-    [one] { $count } ticket
-   *[other] { $count } tickets
+# Travail terminé : la carte ne compte que les tickets terminés, de la personne choisie (machine, à relire par un locuteur natif).
+ticket-heatmap-scope-label = Afficher le travail de
+ticket-heatmap-scope-mine = Moi
+ticket-heatmap-scope-everyone = Tout le monde
+ticket-heatmap-day-done = { $count ->
+    [0] { $date } : aucune tâche terminée
+    [one] { $date } : 1 tâche terminée
+   *[other] { $date } : { $count } tâches terminées
     }
+ticket-heatmap-days-with-activity = { $count ->
+    [one] { $count } jour avec des tâches terminées
+   *[other] { $count } jours avec des tâches terminées
+    }
+dashboard-widget-activity-heatmap-title = Travail terminé
+dashboard-widget-activity-heatmap-description = Une année de tâches terminées, chacune au jour où elle l'a été.
+dashboard-widget-activity-heatmap-prop-title = Travail terminé
 ticket-heatmap-day-sun = Dim
 ticket-heatmap-day-mon = Lun
 ticket-heatmap-day-tue = Mar
@@ -7044,10 +7052,6 @@ ticket-heatmap-day-wed = Mer
 ticket-heatmap-day-thu = Jeu
 ticket-heatmap-day-fri = Ven
 ticket-heatmap-day-sat = Sam
-ticket-heatmap-days-with-activity = { $count ->
-    [one] { $count } jour avec activité
-   *[other] { $count } jours avec activité
-    }
 ticket-heatmap-legend-less = Moins
 ticket-heatmap-legend-more = Plus
 
@@ -8303,9 +8307,6 @@ dashboard-widget-my-devices-title = Mes actifs
 dashboard-widget-my-devices-description = Actifs qui vous sont attribués en tant qu'utilisateur principal.
 dashboard-widget-channel-health-title = Santé des canaux
 dashboard-widget-channel-health-description = État des canaux email entrants : dernier sondage, activation, erreurs.
-dashboard-widget-activity-heatmap-title = Carte d'activité
-dashboard-widget-activity-heatmap-description = Carte 365 jours des tickets que vous avez fermés.
-dashboard-widget-activity-heatmap-prop-title = Votre activité
 dashboard-widget-requested-tickets-title = Vos demandes
 dashboard-widget-requested-tickets-description = Tickets que vous avez ouverts avec leur statut.
 dashboard-widget-requested-tickets-prop-title = Vos demandes
