@@ -76,8 +76,8 @@ impl Harness {
     }
 
     /// Move a ticket's creation `hours` back.
-    fn backdate_ticket(&self, ticket: i32, hours: i64) {
-        self.bypass(|c| {
+    fn backdate_ticket(&self, ws: &WorkspaceSeed, ticket: i32, hours: i64) {
+        self.as_admin(ws, |c| {
             diesel::sql_query(
                 "UPDATE tickets SET created_at = now() - make_interval(hours => $2) WHERE id = $1",
             )
@@ -113,7 +113,7 @@ async fn backdated_replies_start_the_clocks_and_each_fires_once() {
     let h = Harness::new();
     let a = &h.seeded.a;
     let ticket = h.ticket(a, "Printer offline");
-    h.backdate_ticket(ticket, 72);
+    h.backdate_ticket(a, ticket, 72);
     let asked = h.reply_at(a, ticket, a.member_uuid, 48);
     let answered = h.reply_at(a, ticket, a.admin_uuid, 24);
 
@@ -237,7 +237,7 @@ async fn a_rule_edited_mid_wait_recomputes() {
     let h = Harness::new();
     let a = &h.seeded.a;
     let ticket = h.ticket(a, "Laptop slow");
-    h.backdate_ticket(ticket, 2);
+    h.backdate_ticket(a, ticket, 2);
     let rule = h.time_rule(a, "since_created", 600, set_priority("high"));
     let row = h.row(a, ticket, rule).expect("a clock");
     assert!(row.4 > Utc::now());
@@ -312,7 +312,7 @@ async fn two_concurrent_fires_fire_once() {
     let h = Harness::new();
     let a = &h.seeded.a;
     let ticket = h.ticket(a, "Phone won't ring");
-    h.backdate_ticket(ticket, 2);
+    h.backdate_ticket(a, ticket, 2);
     let rule = h.time_rule(a, "since_created", 60, set_priority("high"));
     let claimed = h.bypass(|c| queue::claim_due(c, 10, 10, 300.0));
     assert_eq!(claimed.len(), 1);
@@ -361,8 +361,8 @@ async fn tickets_from_a_mailbox_backlog_wait_on_nothing() {
         })
         .id;
     let current = h.ticket(a, "New mail");
-    h.backdate_ticket(backlog, 48);
-    h.backdate_ticket(current, 48);
+    h.backdate_ticket(a, backlog, 48);
+    h.backdate_ticket(a, current, 48);
     h.reply_at(a, backlog, a.member_uuid, 47);
 
     let created = h.time_rule(a, "since_created", 60, set_priority("high"));
@@ -389,7 +389,7 @@ async fn a_rules_own_warning_does_not_restart_awaiting_requester() {
     let h = Harness::new();
     let a = &h.seeded.a;
     let ticket = h.ticket(a, "Shared drive missing");
-    h.backdate_ticket(ticket, 24 * 10);
+    h.backdate_ticket(a, ticket, 24 * 10);
     h.reply_at(a, ticket, a.member_uuid, 24 * 10);
     let answered = h.reply_at(a, ticket, a.admin_uuid, 24 * 5);
 
@@ -464,6 +464,7 @@ async fn a_due_day_ends_at_midnight_where_the_workspace_is() {
     let a = &h.seeded.a;
     h.as_admin(a, |c| {
         use backend::schema::site_settings::dsl as ss;
+        backend::repository::site_settings::get_site_settings(c)?;
         diesel::update(ss::site_settings)
             .set(ss::default_timezone.eq("Australia/Sydney"))
             .execute(c)
@@ -494,7 +495,7 @@ async fn a_dry_run_rule_shadows_once_then_fires_when_live() {
     let h = Harness::new();
     let a = &h.seeded.a;
     let ticket = h.ticket(a, "Badge reader offline");
-    h.backdate_ticket(ticket, 2);
+    h.backdate_ticket(a, ticket, 2);
     let rule = h.rule(
         a,
         Spec {
