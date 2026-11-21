@@ -1,5 +1,5 @@
 /**
- * Group-by for the tickets table. None / status / priority /
+ * Group-by for the tickets table. None / status / due / priority /
  * assignee / sla / cycle. When grouping is active the consumer
  * renders group header rows between buckets; when disabled, the
  * table is flat.
@@ -23,10 +23,14 @@ import {
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
 import { priorityLabel } from '@/utils/priorityHelpers'
+import { useToday } from '@/composables/useToday'
+import { DUE_BUCKETS, dueBucket, type DueBucket } from '@nosdesk/core/utils/ticketDates'
+import type { ViewShape } from '@nosdesk/core/sync/views/types'
 
 export type GroupBy =
   | 'none'
   | 'status'
+  | 'due'
   | 'priority'
   | 'assignee'
   | 'sla'
@@ -62,8 +66,31 @@ function slaLabel(k: string): string {
   return translate('sla-none', undefined, 'No SLA')
 }
 
-export function useTicketsGrouping(getViewId: () => string): UseTicketsGrouping {
+/** The axis a view groups on until someone picks another: Due for a
+ * view whose shape groups on `due_date` (My day, and saved views
+ * made from it), otherwise none. */
+export function defaultGroupByFor(shape: Pick<ViewShape, 'group_by'>): GroupBy {
+  return shape.group_by.primary === 'due_date' ? 'due' : 'none'
+}
+
+function dueBucketLabel(bucket: DueBucket): string {
+  const fallback: Record<DueBucket, string> = {
+    overdue: 'Overdue',
+    today: 'Today',
+    tomorrow: 'Tomorrow',
+    'this-week': 'This week',
+    later: 'Later',
+    none: 'No date',
+  }
+  return translate(`tickets-due-${bucket}`, undefined, fallback[bucket])
+}
+
+export function useTicketsGrouping(
+  getViewId: () => string,
+  getDefaultGroupBy: () => GroupBy = () => 'none',
+): UseTicketsGrouping {
   const { getUser } = useUsersDirectory()
+  const today = useToday()
 
   const axes: GroupAxisDef<CardData>[] = [
     {
@@ -73,6 +100,15 @@ export function useTicketsGrouping(getViewId: () => string): UseTicketsGrouping 
         key: `status:${card.workflow_state.id}`,
         label: card.workflow_state.name,
       }),
+    },
+    {
+      key: 'due',
+      labelKey: 'views-display-menu-group-due',
+      bucketFor: (card) => {
+        const bucket = dueBucket(card, today.value)
+        return { key: `due:${bucket}`, label: dueBucketLabel(bucket) }
+      },
+      sortBy: (bucketKey) => DUE_BUCKETS.indexOf(bucketKey.replace('due:', '') as DueBucket),
     },
     {
       key: 'priority',
@@ -149,6 +185,7 @@ export function useTicketsGrouping(getViewId: () => string): UseTicketsGrouping 
     // from contexts where useFluent() isn't reachable (eg. a
     // light-weight test harness).
     t: (key, args) => translate(key, args, key),
+    getDefaultGroupBy: () => getDefaultGroupBy(),
   })
 
   // Adapter: tickets historically returned buckets with `cards`

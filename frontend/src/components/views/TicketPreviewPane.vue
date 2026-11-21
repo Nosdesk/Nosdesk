@@ -35,6 +35,7 @@ import {
   formatCleanRelativeTime,
   formatDateTime,
 } from '@nosdesk/core/utils/dateUtils'
+import { dueDay } from '@nosdesk/core/utils/ticketDates'
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 import {
   buildPriorityDropdownOptions,
@@ -97,8 +98,7 @@ const selectedPriority = computed(() => props.card?.priority ?? 'none')
 
 const dueDateValue = computed({
   get(): string {
-    const raw = props.card?.due_date
-    return raw ? raw.slice(0, 10) : ''
+    return (props.card && dueDay(props.card)) ?? ''
   },
   set(value: string) {
     if (!props.card) return

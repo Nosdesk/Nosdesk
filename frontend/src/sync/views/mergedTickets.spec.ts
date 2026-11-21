@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ALL_ACTIVE_VIEW,
   ALL_TICKETS_VIEW,
-  MY_ACTIVE_VIEW,
+  MY_DAY_VIEW,
   OVERDUE_VIEW,
   UNASSIGNED_VIEW,
   resolveDashboardViewFilter,
@@ -76,14 +76,14 @@ describe('a merged ticket', () => {
     expect(shows(ALL_ACTIVE_VIEW, card(merged))).toBe(false)
     expect(shows(UNASSIGNED_VIEW, card(merged))).toBe(false)
     expect(shows(OVERDUE_VIEW, card(merged))).toBe(false)
-    expect(shows(MY_ACTIVE_VIEW, mine)).toBe(false)
+    expect(shows(MY_DAY_VIEW, mine)).toBe(false)
     expect(shows(ALL_TICKETS_VIEW, card(merged))).toBe(true)
 
     // The same ticket while open is in each of them.
     expect(shows(ALL_ACTIVE_VIEW, card(open))).toBe(true)
     expect(shows(UNASSIGNED_VIEW, card(open))).toBe(true)
     expect(shows(OVERDUE_VIEW, card(open))).toBe(true)
-    expect(shows(MY_ACTIVE_VIEW, { ...card(open), assignee_uuid: me })).toBe(true)
+    expect(shows(MY_DAY_VIEW, { ...card(open), assignee_uuid: me })).toBe(true)
   })
 
   it("is out of the dashboard's Resolved list, as it is out of the count", () => {

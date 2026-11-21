@@ -6,7 +6,8 @@
  */
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import { TERMINAL_CATEGORIES } from '@nosdesk/core/types/workflow'
-import { addDays, startOfDay } from '@nosdesk/core/utils/dateMath'
+import { addDays, fromCalendarDateString, startOfDay } from '@nosdesk/core/utils/dateMath'
+import { dueDay, startDay } from '@nosdesk/core/utils/ticketDates'
 
 export interface ScheduledCard {
   card: CardData
@@ -18,7 +19,13 @@ export interface ScheduledCard {
  * tray rather than fabricating a bar. */
 export function isUnscheduled(card: CardData): boolean {
   const terminal = TERMINAL_CATEGORIES.has(card.workflow_state.category)
-  return !terminal && !card.due_date
+  return !terminal && !dueDay(card)
+}
+
+/** Local midnight of a stored calendar day, read as written. The
+ * board's dates are local midnights, so the day stays the day. */
+function localDay(day: string): Date {
+  return fromCalendarDateString(day) ?? startOfDay(new Date(day))
 }
 
 /**
@@ -31,10 +38,12 @@ export function isUnscheduled(card: CardData): boolean {
  * End clamps to at least start + 1 day so a same-day bar has width.
  */
 export function spanOf(card: CardData): { start: Date; end: Date } {
-  const start = startOfDay(new Date(card.start_date ?? card.created_at))
+  const plannedStart = startDay(card)
+  const start = plannedStart ? localDay(plannedStart) : startOfDay(new Date(card.created_at))
+  const due = dueDay(card)
   let end: Date
-  if (card.due_date) {
-    end = startOfDay(new Date(card.due_date))
+  if (due) {
+    end = localDay(due)
   } else {
     // Only reachable for terminal cards (isUnscheduled filters
     // non-terminal cards without a due date into the tray).

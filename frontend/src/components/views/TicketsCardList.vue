@@ -24,8 +24,10 @@
  * - Top line: id + title (truncated). Title carries the visual
  *   weight that lets a tech scan a 30-row queue.
  * - Detail line: workflow state dot + name, assignee, last
- *   activity timestamp, priority. Wraps on very narrow viewports
- *   so nothing gets cut.
+ *   activity timestamp, a due chip when there is a due date. Wraps
+ *   on very narrow viewports so nothing gets cut.
+ * - Grouped, each group gets the table's header row (chevron,
+ *   label, count) and its own row loop (`TicketsCardRows`).
  *
  * Whole row is the tap target. Click opens; selection (split-
  * view) is desktop-only and not surfaced here — phones don't
@@ -34,18 +36,22 @@
  * Memo against the same field subset as the table so SSE
  * updates only re-render the affected rows.
  */
-import UserCell from '@/components/views/UserCell.vue'
-import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
-import { inlinePriorityClass } from '@/utils/priorityHelpers'
-import { rowSlaToneClass } from '@/utils/priorityHelpers'
-import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
-import { rowMemoKey } from '@nosdesk/core/sync/views/ticketColumns'
-import { ref } from 'vue'
+import Icon from '@/components/common/Icon.vue'
+import TicketsCardRows from '@/components/views/TicketsCardRows.vue'
+import { useToday } from '@/composables/useToday'
+import type { TicketGroupBucket } from '@/composables/useTicketsGrouping'
+import { computed, ref } from 'vue'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 
-defineProps<{
+const props = withDefaults(defineProps<{
   cards: CardData[]
-}>()
+  /** Group buckets, when the list is grouped; empty renders flat. */
+  buckets?: TicketGroupBucket[]
+  isCollapsed?: (key: string) => boolean
+}>(), {
+  buckets: () => [],
+  isCollapsed: () => false,
+})
 
 // The card list owns the mobile scroll container; exposed so the
 // parent view can bind pull-to-refresh to it.
@@ -55,102 +61,52 @@ defineExpose({ rootEl })
 const emit = defineEmits<{
   (e: 'open', id: number): void
   (e: 'contextmenu', id: number, event: MouseEvent): void
+  (e: 'toggle-bucket', key: string): void
 }>()
 
-function onRowClick(id: number): void {
-  emit('open', id)
-}
+const today = useToday()
 
-function onContextMenu(id: number, event: MouseEvent): void {
-  event.preventDefault()
-  emit('contextmenu', id, event)
-}
+/** One headerless section when flat, else one per bucket. */
+const sections = computed(() =>
+  props.buckets.length === 0
+    ? [{ key: 'all', label: null, cards: props.cards, collapsed: false }]
+    : props.buckets.map((b) => ({
+        key: b.key,
+        label: b.label as string | null,
+        cards: b.cards,
+        collapsed: props.isCollapsed(b.key),
+      })),
+)
 </script>
 
 <template>
   <div ref="rootEl" class="flex-1 min-h-0 overflow-auto">
-    <ul class="flex flex-col">
-      <li
-        v-for="card in cards"
-        :key="card.id"
-        v-memo="rowMemoKey(card)"
-        class="relative border-b border-subtle last:border-b-0"
+    <template v-for="section in sections" :key="section.key">
+      <!-- Group header, as the table draws it: chevron, label,
+           count. Absent when the list isn't grouped. -->
+      <button
+        v-if="section.label !== null"
+        type="button"
+        class="w-full flex items-center gap-2 px-3 py-1.5 bg-surface/50 border-b border-subtle text-left select-none hover:bg-surface-hover transition-colors"
+        :aria-expanded="!section.collapsed"
+        @click="emit('toggle-bucket', section.key)"
       >
-        <!-- SLA tone strip on the leading edge. Empty when the
-             row has no urgency signal so we don't burn a strip
-             on every row. Matches the table's row stripe so the
-             visual vocabulary is consistent across breakpoints. -->
-        <span
-          v-if="rowSlaToneClass(card)"
-          class="absolute left-0 top-0 bottom-0 w-[3px]"
-          :class="rowSlaToneClass(card)"
-          aria-hidden="true"
+        <Icon
+          name="chevronDown"
+          class="w-3 h-3 text-tertiary transition-transform"
+          :class="section.collapsed && '-rotate-90'"
         />
-
-        <button
-          type="button"
-          class="w-full text-left flex flex-col gap-1 px-3 py-3 hover:bg-surface-hover active:bg-surface-alt transition-colors"
-          @click="onRowClick(card.id)"
-          @contextmenu="onContextMenu(card.id, $event)"
-        >
-          <!-- Top line: id + title. Title takes whatever width
-               remains; truncates on overflow. -->
-          <div class="flex items-center gap-2 min-w-0">
-            <span class="text-2xs font-mono tabular-nums text-tertiary shrink-0">#{{ card.number }}</span>
-            <span
-              v-if="inlinePriorityClass(card.priority)"
-              class="text-2xs leading-none font-bold shrink-0"
-              :class="inlinePriorityClass(card.priority)!"
-              :title="`Priority: ${card.priority}`"
-            >!</span>
-            <span
-              v-if="card.recurrence_rule"
-              class="text-tertiary text-xs leading-none shrink-0"
-              :title="$t('ticket-list-recurring-title')"
-            >↻</span>
-            <span
-              class="truncate font-medium text-sm text-primary"
-              :title="card.title"
-            >{{ card.title }}</span>
-            <span
-              v-if="card.approval_state === 'pending'"
-              class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
-              :title="$t('views-ticket-row-approval-tooltip')"
-            >{{ $t('views-ticket-row-approval-badge') }}</span>
-            <span
-              v-if="card.sla?.breached"
-              class="ml-auto text-3xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
-              :title="$t('ticket-list-sla-breached-title')"
-            >SLA</span>
-          </div>
-
-          <!-- Detail line: workflow state dot + name, assignee
-               avatar (if any), last activity, due date.
-               flex-wrap so nothing gets cut on narrow phones. -->
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-tertiary">
-            <span class="inline-flex items-center gap-1.5 shrink-0">
-              <span
-                class="inline-block w-2 h-2 rounded-full"
-                :class="paletteForColor(card.workflow_state.color).solid"
-                aria-hidden="true"
-              />
-              <span class="text-secondary">{{ card.workflow_state.name }}</span>
-            </span>
-
-            <span
-              v-if="card.assignee_uuid"
-              class="inline-flex items-center gap-1 shrink-0"
-            >
-              <UserCell :uuid="card.assignee_uuid" />
-            </span>
-
-            <span class="shrink-0 text-tertiary tabular-nums">
-              {{ formatCompactRelativeTime(card.last_activity_at) }}
-            </span>
-          </div>
-        </button>
-      </li>
-    </ul>
+        <span class="text-xs font-semibold text-primary">{{ section.label }}</span>
+        <span class="text-2xs text-tertiary tabular-nums">{{ section.cards.length }}</span>
+      </button>
+      <TicketsCardRows
+        v-if="!section.collapsed"
+        :cards="section.cards"
+        :today="today"
+        @open="(id) => emit('open', id)"
+        @contextmenu="(id, event) => emit('contextmenu', id, event)"
+      />
+    </template>
 
     <!-- Empty state lives in the parent (TicketsListView) so the
          contextual copy ("All caught up", "Triage is clear" etc.)

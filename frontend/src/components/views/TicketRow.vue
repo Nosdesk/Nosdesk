@@ -29,9 +29,9 @@ import { priorityForBadge, priorityLabel } from '@/utils/priorityHelpers'
 import { deriveSlaState } from '@/composables/useSlaState'
 import {
   formatCompactRelativeTime,
-  formatCompactDate,
   formatDateTime,
 } from '@nosdesk/core/utils/dateUtils'
+import { dueDay, formatCompactDay, formatDay } from '@nosdesk/core/utils/ticketDates'
 import type { ListColumn } from '@nosdesk/core/sync/views/ticketColumns'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 
@@ -90,8 +90,16 @@ function relativeTime(iso: string): string {
   return formatCompactRelativeTime(iso)
 }
 
-function shortDate(iso: string | null | undefined): string {
-  return formatCompactDate(iso) || '-'
+/** The due day as written, never shifted by the viewer's zone (a
+ * zone west of UTC used to show the day before). */
+function dueLabel(card: CardData): string {
+  const day = dueDay(card)
+  return day ? formatCompactDay(day) : '-'
+}
+
+function dueTitle(card: CardData): string {
+  const day = dueDay(card)
+  return day ? formatDay(day) : fluent.$t('views-ticket-row-no-due-date')
 }
 
 function slaToneClass(card: CardData): string {
@@ -336,8 +344,8 @@ function recurrenceLabel(rule: string | null | undefined): string {
         <span
           class="text-2xs tabular-nums"
           :class="card.due_date ? 'text-secondary' : 'text-tertiary'"
-          :title="card.due_date ? formatDateTime(card.due_date) : $t('views-ticket-row-no-due-date')"
-        >{{ shortDate(card.due_date) }}</span>
+          :title="dueTitle(card)"
+        >{{ dueLabel(card) }}</span>
       </template>
 
       <template v-else-if="col.id === 'last_activity'">
