@@ -57,7 +57,7 @@ pub fn held_for_approval(conn: &mut DbConnection, ticket: &Ticket) -> QueryResul
 }
 
 /// Whether the workspace holds requests back while they wait for approval.
-fn holds_waiting_requests(conn: &mut DbConnection) -> QueryResult<bool> {
+pub fn holds_waiting_requests(conn: &mut DbConnection) -> QueryResult<bool> {
     use crate::schema::site_settings;
     Ok(site_settings::table
         .select(site_settings::approval_waiting_display)

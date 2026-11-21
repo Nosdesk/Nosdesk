@@ -35,6 +35,7 @@ use crate::models::{
 use crate::repository::rules;
 use crate::repository::tickets::TicketUpdatedObserver;
 use crate::services::rules::conditions::{self, ConditionError, Predicate};
+use crate::services::rules::{clocks, elapsed};
 use crate::services::search::SearchService;
 use crate::services::ticket_updates::{ActorConn, InWorkspace};
 use crate::utils::rbac::require_workspace_role;
@@ -505,6 +506,29 @@ fn unknown_plugin_event(
     }))
 }
 
+/// A time-elapsed rule's settings as saved ([`clocks::parse_trigger`]).
+fn time_trigger_config(config: &Value) -> Result<Value, &'static str> {
+    clocks::parse_trigger(config).map(clocks::TimeTrigger::to_config)
+}
+
+/// Bring a rule's time-elapsed clocks in line after it was saved or changed
+/// state: a live or dry-run time-elapsed rule waits on every open ticket,
+/// any other rule on none. One transaction per batch of tickets. A failure
+/// is logged; the daily reconcile repairs the rows.
+fn requeue_clocks(tc: &mut TenantConn, rule_id: i32) {
+    let mut after = 0;
+    loop {
+        match tc.run(|conn| elapsed::requeue_batch(conn, rule_id, after)) {
+            Ok(Some(next)) => after = next,
+            Ok(None) => return,
+            Err(e) => {
+                tracing::warn!(rule_id, error = %e, "rules: time-elapsed clocks not rebuilt");
+                return;
+            }
+        }
+    }
+}
+
 fn manual_conditions_refused() -> HttpResponse {
     errors::bad_request_with_code(
         "manual rules must have an empty conditions list",
@@ -657,6 +681,10 @@ fn insert_rule(
         if let Some(resp) = unknown_plugin_event(conn, &trigger_config)? {
             return Err(refused(resp));
         }
+    }
+    if trigger_kind == RuleTriggerKind::TimeElapsed {
+        trigger_config = time_trigger_config(&trigger_config)
+            .map_err(|msg| refused(errors::bad_request_with_code(msg, "RULE_VALIDATION")))?;
     }
 
     let reads = rules::reads_beyond_guards(&conditions);
@@ -830,6 +858,17 @@ pub async fn update_rule(
             Err(msg) => return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION")),
         }
     }
+    // A time-elapsed rule's settings are checked when the trigger or its
+    // settings change.
+    if effective_trigger_kind == RuleTriggerKind::TimeElapsed
+        && (trigger_kind.is_some() || trigger_config.is_some())
+    {
+        let config = trigger_config.as_ref().unwrap_or(&existing.trigger_config);
+        match time_trigger_config(config) {
+            Ok(config) => trigger_config = Some(config),
+            Err(msg) => return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION")),
+        }
+    }
     let reads = rules::reads_beyond_guards(&effective_conditions);
     let writes = rules::derive_writes_set(&effective_actions);
     if let Err(e) = check_self_referential(&reads, &writes, override_self_reference) {
@@ -885,7 +924,16 @@ pub async fn update_rule(
         Ok((rule, preview))
     });
     match saved {
-        Ok((rule, preview)) => Ok(HttpResponse::Ok().json(SavedRuleDto::new(rule, preview))),
+        Ok((rule, preview)) => {
+            // A time-elapsed rule edited while it waits recomputes its clocks;
+            // one moved to another trigger drops them.
+            if rule.trigger_kind == RuleTriggerKind::TimeElapsed
+                || existing.trigger_kind == RuleTriggerKind::TimeElapsed
+            {
+                requeue_clocks(&mut tc, rule.id);
+            }
+            Ok(HttpResponse::Ok().json(SavedRuleDto::new(rule, preview)))
+        }
         Err(UpdateRuleError::Refused(resp)) => Ok(*resp),
         Err(UpdateRuleError::Write(rules::WriteError::NotFound(_))) => {
             Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
@@ -1011,6 +1059,15 @@ pub async fn transition_state(
             "RULE_STATE_TRANSITION",
         ));
     }
+    // A time-elapsed rule saved before its settings were checked can't run
+    // until they are fixed.
+    if matches!(target, RuleState::Live | RuleState::DryRun)
+        && existing.trigger_kind == RuleTriggerKind::TimeElapsed
+    {
+        if let Err(msg) = clocks::parse_trigger(&existing.trigger_config) {
+            return Ok(errors::bad_request_with_code(msg, "RULE_VALIDATION"));
+        }
+    }
     // Someone a step names may have left since the rule was saved: it can
     // be parked and edited, but not run.
     if matches!(target, RuleState::Live | RuleState::DryRun) {
@@ -1042,7 +1099,14 @@ pub async fn transition_state(
         ..Default::default()
     };
     match tc.run_result(|conn| rules::update(conn, id, change)) {
-        Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
+        Ok(rule) => {
+            // Going live or into dry run starts its clocks on every open
+            // ticket; leaving them stops them.
+            if rule.trigger_kind == RuleTriggerKind::TimeElapsed {
+                requeue_clocks(&mut tc, rule.id);
+            }
+            Ok(HttpResponse::Ok().json(RuleDto::from(rule)))
+        }
         Err(rules::WriteError::NotFound(_)) => {
             Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
         }
@@ -1089,7 +1153,12 @@ pub async fn delete_rule(
             Err(e) => return Err(ApiError::Database(e)),
         }
         match tc.run_result(|conn| rules::archive(conn, id, Utc::now())) {
-            Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
+            Ok(rule) => {
+                if rule.trigger_kind == RuleTriggerKind::TimeElapsed {
+                    requeue_clocks(&mut tc, rule.id);
+                }
+                Ok(HttpResponse::Ok().json(RuleDto::from(rule)))
+            }
             Err(rules::WriteError::NotFound(_)) => {
                 Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
             }
@@ -1381,8 +1450,8 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
         }
         NoRequester { .. } => errors::bad_request_with_code(message, "RULE_NO_REQUESTER"),
         AssetRefused { .. } => errors::conflict_with_code(message, "RULE_ASSET_REFUSED"),
-        // Only the engine's runs carry a budget or an email source.
-        AlreadyRan { .. } | RanInChain | ChainCap | AutomatedSource => {
+        // Only the engine's runs carry a budget, an email source or a clock.
+        AlreadyRan { .. } | RanInChain | ChainCap | AutomatedSource | NoLongerDue => {
             errors::conflict_with_code(message, "RULE_SUPPRESSED")
         }
         Db(e) => errors::db_error(&e),

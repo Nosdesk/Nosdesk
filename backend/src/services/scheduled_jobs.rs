@@ -43,6 +43,8 @@ const UNATTACHED_UPLOAD_LOCK: i64 = 0x004e_6f73_5550_4c44;
 const EMAIL_LOGO_COPIES_LOCK: i64 = 0x004e_6f73_454d_4c47;
 const IMPORT_HISTORY_PRUNE_LOCK: i64 = 0x004e_6f73_494d_5048;
 const WORKSPACE_IMPORT_PRUNE_LOCK: i64 = 0x004e_6f73_5749_4d50;
+const RULES_ELAPSED_FIRE_LOCK: i64 = 0x004e_6f73_5245_4c46;
+const RULES_ELAPSED_RECONCILE_LOCK: i64 = 0x004e_6f73_5245_4c52;
 // Partition drops take a session try-lock that skips the tick when a peer
 // machine is already pruning. Per-parent keys so audit_log and sync_actions
 // prune independently.
@@ -106,6 +108,40 @@ pub async fn sweep_rule_budget(pool: Pool) -> Result<()> {
         .context("sweep the rules budget")?;
     if removed > 0 {
         info!(count = removed, "scheduler: rules budget rows swept");
+    }
+    Ok(())
+}
+
+/// Fire the time-elapsed rules whose clocks are due. Single-machine via
+/// lock; the claim's row locks and the run's re-check under the ticket's
+/// lock keep a clock from firing twice even if two ticks overlap.
+pub async fn fire_elapsed_rules(pool: Pool, search: Arc<SearchService>) -> Result<()> {
+    let _lock = match try_job_lock(&pool, RULES_ELAPSED_FIRE_LOCK, "rules.elapsed_fire")? {
+        Some(lock) => lock,
+        None => return Ok(()),
+    };
+    crate::services::rules::elapsed::fire_due(&pool, Some(&search))
+        .map_err(|e| anyhow::anyhow!(e))
+        .context("fire due time-elapsed rules")?;
+    Ok(())
+}
+
+/// Rebuild the time-elapsed rules' clock queue from the tickets, repairing
+/// what the event consumer missed. Single-machine via lock.
+pub async fn reconcile_elapsed_rules(pool: Pool) -> Result<()> {
+    let _lock = match try_job_lock(
+        &pool,
+        RULES_ELAPSED_RECONCILE_LOCK,
+        "rules.elapsed_reconcile",
+    )? {
+        Some(lock) => lock,
+        None => return Ok(()),
+    };
+    let rebuilt = crate::services::rules::elapsed::reconcile(&pool)
+        .map_err(|e| anyhow::anyhow!(e))
+        .context("reconcile time-elapsed rules")?;
+    if rebuilt > 0 {
+        info!(count = rebuilt, "scheduler: time-elapsed rules reconciled");
     }
     Ok(())
 }

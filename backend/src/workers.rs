@@ -380,6 +380,24 @@ pub fn scheduled_jobs(
         move || jobs::sweep_rule_budget(p.clone()),
     ));
 
+    // Every 60s: fire the time-elapsed rules whose clocks are due.
+    let p = pool.clone();
+    let s = search_service.clone();
+    registry.push(ScheduledJob::new(
+        "rules.elapsed_fire",
+        Duration::from_secs(60),
+        move || jobs::fire_elapsed_rules(p.clone(), s.clone()),
+    ));
+
+    // Daily: rebuild the time-elapsed rules' clock queue from the tickets,
+    // so a missed event or a deleted reply can't leave a clock wrong for long.
+    let p = pool.clone();
+    registry.push(ScheduledJob::new(
+        "rules.elapsed_reconcile",
+        Duration::from_secs(24 * 60 * 60),
+        move || jobs::reconcile_elapsed_rules(p.clone()),
+    ));
+
     // Hourly: approve requests nobody answered within their workspace's
     // automatic-approval period (a no-op unless one is set).
     let p = pool.clone();
