@@ -1076,6 +1076,26 @@ asset-access-none-hint = Aanvragers zien helemaal geen activa: niet de lijst met
 asset-access-saved = Toegang voor aanvragers opgeslagen
 # MT: pending native review (nl-NL)
 asset-access-save-failed = Toegang voor aanvragers kon niet worden opgeslagen
+# MT: pending native review (nl-NL)
+asset-currency-title = Valuta
+# MT: pending native review (nl-NL)
+asset-currency-description = De valuta waarin kosten standaard worden ingevoerd. Elk bedrag houdt de valuta waarin het is ingevoerd, dus een wijziging hier verandert nooit kosten die al zijn vastgelegd.
+# MT: pending native review (nl-NL)
+asset-currency-not-set = Niet ingesteld
+# MT: pending native review (nl-NL)
+asset-currency-set-hint = Nieuwe kosten worden standaard in { $code } ingevoerd.
+# MT: pending native review (nl-NL)
+asset-currency-suggested-hint = Niet ingesteld. Tot je er een kiest, stellen kostenvelden { $code } voor, op basis van de standaardtaal van de werkruimte.
+# MT: pending native review (nl-NL)
+asset-currency-unset-hint = Niet ingesteld. Kies de valuta waarin je team betaalt.
+# MT: pending native review (nl-NL)
+asset-currency-search-placeholder = Valuta zoeken
+# MT: pending native review (nl-NL)
+asset-currency-no-matches = Geen valuta gevonden
+# MT: pending native review (nl-NL)
+asset-currency-saved = Valuta opgeslagen
+# MT: pending native review (nl-NL)
+asset-currency-save-failed = Valuta kon niet worden opgeslagen
 
 # Getypte attribuutbouwer.
 asset-kind-attribute-editor-add = Attribuut toevoegen

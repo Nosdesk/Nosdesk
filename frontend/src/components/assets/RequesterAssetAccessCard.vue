@@ -4,11 +4,11 @@
  * none. Saves on change. Staff always see every asset.
  */
 import { computed, ref, watch } from 'vue'
-import { useQuery, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import { useToastStore } from '@nosdesk/core/stores/toast'
+import { useWorkspaceQuery, useWorkspaceQueryCache } from '@/queries/workspaceQuery'
 import { extractErrorMessage } from '@/utils/errors'
 import {
   assetSettingsService,
@@ -17,9 +17,9 @@ import {
 
 const { $t: t } = useFluent()
 const toast = useToastStore()
-const queryCache = useQueryCache()
+const queryCache = useWorkspaceQueryCache()
 const KEY = ['asset-settings']
-const settings = useQuery({ key: KEY, query: () => assetSettingsService.get() })
+const settings = useWorkspaceQuery({ key: KEY, query: () => assetSettingsService.get() })
 
 const visibility = ref<RequesterAssetVisibility>('all')
 const saving = ref(false)

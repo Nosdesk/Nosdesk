@@ -1588,6 +1588,8 @@ diesel::table! {
         email_logo_light -> Nullable<Jsonb>,
         portal_share_staff_requests -> Bool,
         requester_asset_visibility -> Text,
+        #[max_length = 3]
+        currency_code -> Nullable<Bpchar>,
     }
 }
 

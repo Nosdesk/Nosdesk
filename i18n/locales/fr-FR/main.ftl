@@ -1080,6 +1080,26 @@ asset-access-none-hint = Les demandeurs ne voient aucun actif : ni la liste des 
 asset-access-saved = Accès des demandeurs enregistré
 # MT: pending native review (fr-FR)
 asset-access-save-failed = Impossible d'enregistrer l'accès des demandeurs
+# MT: pending native review (fr-FR)
+asset-currency-title = Devise
+# MT: pending native review (fr-FR)
+asset-currency-description = La devise dans laquelle les coûts sont saisis par défaut. Chaque coût garde la devise dans laquelle il a été saisi : changer ce réglage ne modifie jamais les coûts déjà enregistrés.
+# MT: pending native review (fr-FR)
+asset-currency-not-set = Non définie
+# MT: pending native review (fr-FR)
+asset-currency-set-hint = Les nouveaux coûts sont saisis en { $code } par défaut.
+# MT: pending native review (fr-FR)
+asset-currency-suggested-hint = Non définie. Tant que vous n'en choisissez pas, les champs de coût proposent { $code }, d'après la langue par défaut de l'espace de travail.
+# MT: pending native review (fr-FR)
+asset-currency-unset-hint = Non définie. Choisissez la devise dans laquelle votre équipe paie.
+# MT: pending native review (fr-FR)
+asset-currency-search-placeholder = Rechercher une devise
+# MT: pending native review (fr-FR)
+asset-currency-no-matches = Aucune devise ne correspond
+# MT: pending native review (fr-FR)
+asset-currency-saved = Devise enregistrée
+# MT: pending native review (fr-FR)
+asset-currency-save-failed = Impossible d'enregistrer la devise
 
 # Constructeur d'attributs typé.
 asset-kind-attribute-editor-add = Ajouter un attribut

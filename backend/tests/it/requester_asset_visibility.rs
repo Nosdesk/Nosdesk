@@ -495,7 +495,7 @@ async fn requesters_see_assets_only_while_the_workspace_shows_them() {
     );
     assert_eq!(set_visibility(&f, f.admin, "none").await, StatusCode::OK);
     let saved = get_json(&f, f.admin, "/api/admin/asset-settings").await;
-    assert_eq!(saved, json!({ "requester_visibility": "none" }));
+    assert_eq!(saved["requester_visibility"], json!("none"));
 
     // A change to the asset after the switch reaches staff only.
     run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {

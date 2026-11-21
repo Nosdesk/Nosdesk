@@ -878,14 +878,7 @@ pub enum DateOrder {
 }
 
 /// The decimal mark of number cells.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DecimalMark {
-    #[default]
-    #[serde(rename = ".")]
-    Dot,
-    #[serde(rename = ",")]
-    Comma,
-}
+pub use crate::utils::money::DecimalMark;
 
 /// Choices the admin makes at the Map step, stored on the job and used by
 /// the dry run and the commit alike.

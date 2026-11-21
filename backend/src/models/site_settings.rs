@@ -88,6 +88,9 @@ pub struct SiteSettings {
     /// What requester-role members see of the workspace's assets:
     /// [`RequesterAssetVisibility`] as its stored name.
     pub requester_asset_visibility: String,
+    /// The ISO 4217 code money fields offer by default; `None` until an
+    /// admin picks one. See [`crate::utils::money`].
+    pub currency_code: Option<String>,
 }
 
 /// What requester-role members (role `user`) may see of the workspace's
@@ -155,6 +158,8 @@ pub struct UpdateSiteSettings {
     pub approval_skip_by: Option<String>,
     pub approval_auto_approve_days: Option<Option<i32>>,
     pub requester_asset_visibility: Option<String>,
+    /// `Some(None)` clears the workspace currency.
+    pub currency_code: Option<Option<String>>,
 }
 
 // API response for site settings (without internal fields)
