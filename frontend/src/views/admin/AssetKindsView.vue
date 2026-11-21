@@ -20,6 +20,7 @@ import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import RequesterAssetAccessCard from '@/components/assets/RequesterAssetAccessCard.vue';
+import WorkspaceCurrencyCard from '@/components/assets/WorkspaceCurrencyCard.vue';
 import Icon from '@/components/common/Icon.vue';
 import SearchInput from '@/components/common/SearchInput.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
@@ -172,7 +173,10 @@ function openEdit(kind: AssetKind): void {
 
       <!-- The workspace's asset settings live here, beside the kinds, until
            assets get a settings page of their own. -->
-      <RequesterAssetAccessCard />
+      <div class="grid gap-4 md:grid-cols-2">
+        <RequesterAssetAccessCard />
+        <WorkspaceCurrencyCard />
+      </div>
 
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
       <AlertMessage

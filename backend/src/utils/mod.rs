@@ -28,6 +28,7 @@ pub mod locale;
 pub mod login_timing;
 pub mod markdown_export;
 pub mod mfa;
+pub mod money;
 pub mod nosdesk_account;
 pub mod openssl_exit;
 pub mod pdf;

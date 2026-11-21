@@ -1114,6 +1114,16 @@ asset-access-all-hint = Requesters see every asset, including ones they don't ho
 asset-access-none-hint = Requesters see no assets at all: not the asset list, not assets linked to their tickets, and not the devices or loans on their own profile.
 asset-access-saved = Requester access saved
 asset-access-save-failed = Couldn't save requester access
+asset-currency-title = Currency
+asset-currency-description = The currency costs are entered in by default. Each cost keeps the currency it was entered in, so changing this never changes costs already recorded.
+asset-currency-not-set = Not set
+asset-currency-set-hint = New costs default to { $code }.
+asset-currency-suggested-hint = Not set. Until you pick one, cost fields suggest { $code }, from the workspace's default language.
+asset-currency-unset-hint = Not set. Pick the currency your team pays in.
+asset-currency-search-placeholder = Search currencies
+asset-currency-no-matches = No currencies match
+asset-currency-saved = Currency saved
+asset-currency-save-failed = Couldn't save the currency
 
 # Asset Kinds — typed attribute builder (AttributeEditor +
 # AttributeRow). Replaces the raw JSON textarea for the common
