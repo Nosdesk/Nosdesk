@@ -106,10 +106,14 @@ function compareValues(a: unknown, b: unknown): number {
   return String(a).localeCompare(String(b))
 }
 
+// The server writes ticket timestamps without a zone, meaning UTC;
+// `Date.parse` would read them as the browser's local time.
+const ZONELESS_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
+
 function toComparableNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string') {
-    const parsed = Date.parse(value)
+    const parsed = Date.parse(ZONELESS_DATETIME.test(value) ? `${value}Z` : value)
     if (!Number.isNaN(parsed)) return parsed
     const asNum = Number(value)
     if (!Number.isNaN(asNum)) return asNum

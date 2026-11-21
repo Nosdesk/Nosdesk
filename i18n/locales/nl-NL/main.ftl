@@ -6962,14 +6962,22 @@ views-ticket-preview-more-devices = { $count ->
 views-ticket-preview-view-full = Beschrijving, opmerkingen en activa bekijken
 
 # Ticket-heatmap (TicketHeatmap)
-ticket-heatmap-title-closed = Afgesloten tickets
-ticket-heatmap-title-activity = Ticketactiviteit
-ticket-heatmap-error-load = Kan ticketgegevens niet laden. Probeer het opnieuw.
-ticket-heatmap-tooltip-empty = Geen tickets
-ticket-heatmap-tooltip-count = { $count ->
-    [one] { $count } ticket
-   *[other] { $count } tickets
+# Afgerond werk: de kaart telt alleen afgeronde tickets, van de gekozen persoon (machine, nog na te kijken door moedertaalspreker).
+ticket-heatmap-scope-label = Werk tonen van
+ticket-heatmap-scope-mine = Mij
+ticket-heatmap-scope-everyone = Iedereen
+ticket-heatmap-day-done = { $count ->
+    [0] { $date }: geen taken afgerond
+    [one] { $date }: 1 taak afgerond
+   *[other] { $date }: { $count } taken afgerond
     }
+ticket-heatmap-days-with-activity = { $count ->
+    [one] { $count } dag met afgerond werk
+   *[other] { $count } dagen met afgerond werk
+    }
+dashboard-widget-activity-heatmap-title = Afgerond werk
+dashboard-widget-activity-heatmap-description = Een jaar aan afgeronde taken, elk op de dag dat die klaar was.
+dashboard-widget-activity-heatmap-prop-title = Afgerond werk
 ticket-heatmap-day-sun = Zo
 ticket-heatmap-day-mon = Ma
 ticket-heatmap-day-tue = Di
@@ -6977,10 +6985,6 @@ ticket-heatmap-day-wed = Wo
 ticket-heatmap-day-thu = Do
 ticket-heatmap-day-fri = Vr
 ticket-heatmap-day-sat = Za
-ticket-heatmap-days-with-activity = { $count ->
-    [one] { $count } dag met activiteit
-   *[other] { $count } dagen met activiteit
-    }
 ticket-heatmap-legend-less = Minder
 ticket-heatmap-legend-more = Meer
 
@@ -8235,9 +8239,6 @@ dashboard-widget-my-devices-title = Mijn activa
 dashboard-widget-my-devices-description = Activa waaraan je als primaire gebruiker bent toegewezen.
 dashboard-widget-channel-health-title = Kanaalstatus
 dashboard-widget-channel-health-description = Status van inkomende e-mailkanalen, laatste poll, actief, fouten.
-dashboard-widget-activity-heatmap-title = Activiteitsheatmap
-dashboard-widget-activity-heatmap-description = 365-dagen heatmap van door jou gesloten tickets.
-dashboard-widget-activity-heatmap-prop-title = Jouw activiteit
 dashboard-widget-requested-tickets-title = Jouw verzoeken
 dashboard-widget-requested-tickets-description = Tickets die je hebt geopend met huidige status.
 dashboard-widget-requested-tickets-prop-title = Jouw verzoeken
