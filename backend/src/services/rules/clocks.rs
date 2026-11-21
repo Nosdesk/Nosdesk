@@ -38,7 +38,7 @@ pub enum Clock {
     /// The ticket was created.
     SinceCreated,
     /// The ticket last moved to another workflow state (its creation if it
-    /// never has).
+    /// never has, as far as its recorded history shows).
     SinceStatusChange,
     /// The ticket was given its current assignee. Stopped while it has none.
     SinceAssigned,
@@ -92,10 +92,11 @@ impl Clock {
     pub fn started_at(self, t: &ClockInputs) -> Option<DateTime<Utc>> {
         match self {
             Self::SinceCreated => Some(t.created_at),
-            Self::SinceStatusChange => Some(t.state_changed_at.unwrap_or(t.created_at)),
-            Self::SinceAssigned => t
-                .assignee_uuid
-                .map(|_| t.assigned_at.unwrap_or(t.created_at)),
+            // With no recorded change, the oldest moment the record covers:
+            // a change before it was pruned, so counting from here runs late,
+            // never early.
+            Self::SinceStatusChange => t.state_changed_at.or(t.history_from),
+            Self::SinceAssigned => t.assignee_uuid.and(t.assigned_at.or(t.history_from)),
             Self::SinceLastAgentReply => t.agent_reply_at,
             Self::SinceLastCustomerReply => t.customer_reply_at,
             Self::AwaitingRequester => t
@@ -169,6 +170,10 @@ pub struct ClockInputs {
     /// timezone ([`crate::services::ticket_dates::due_instant`]).
     pub due_at: Option<DateTime<Utc>>,
     pub assignee_uuid: Option<Uuid>,
+    /// How far back the ticket's recorded changes reach: its creation while
+    /// its `ticket.created` event survives, else its oldest surviving event,
+    /// else `None` (nothing is known).
+    pub history_from: Option<DateTime<Utc>>,
     /// The last recorded change of workflow state.
     pub state_changed_at: Option<DateTime<Utc>>,
     /// The last recorded change of assignee.
@@ -263,6 +268,7 @@ mod tests {
             created_at: at(0),
             due_at: None,
             assignee_uuid: None,
+            history_from: Some(at(0)),
             state_changed_at: None,
             assigned_at: None,
             agent_reply_at: None,
@@ -331,6 +337,17 @@ mod tests {
         assert_eq!(Clock::SinceAssigned.started_at(&t), Some(at(0)));
         t.assigned_at = Some(at(20));
         assert_eq!(Clock::SinceAssigned.started_at(&t), Some(at(20)));
+
+        // History pruned: from the oldest surviving event, or not at all.
+        let mut pruned = t.clone();
+        pruned.assigned_at = None;
+        pruned.state_changed_at = None;
+        pruned.history_from = Some(at(5));
+        assert_eq!(Clock::SinceStatusChange.started_at(&pruned), Some(at(5)));
+        assert_eq!(Clock::SinceAssigned.started_at(&pruned), Some(at(5)));
+        pruned.history_from = None;
+        assert_eq!(Clock::SinceStatusChange.started_at(&pruned), None);
+        assert_eq!(Clock::SinceAssigned.started_at(&pruned), None);
 
         assert_eq!(Clock::UntilDueAt.started_at(&t), None);
         t.due_at = Some(at(500));

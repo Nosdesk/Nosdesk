@@ -512,21 +512,17 @@ fn time_trigger_config(config: &Value) -> Result<Value, &'static str> {
 }
 
 /// Bring a rule's time-elapsed clocks in line after it was saved or changed
-/// state: a live or dry-run time-elapsed rule waits on every open ticket,
-/// any other rule on none. One transaction per batch of tickets. A failure
-/// is logged; the daily reconcile repairs the rows.
-fn requeue_clocks(tc: &mut TenantConn, rule_id: i32) {
-    let mut after = 0;
-    loop {
-        match tc.run(|conn| elapsed::requeue_batch(conn, rule_id, after)) {
-            Ok(Some(next)) => after = next,
-            Ok(None) => return,
-            Err(e) => {
-                tracing::warn!(rule_id, error = %e, "rules: time-elapsed clocks not rebuilt");
-                return;
-            }
+/// state, off the request: a live or dry-run time-elapsed rule waits on every
+/// open ticket, any other rule on none. One transaction per batch of tickets
+/// on a blocking thread. A failure is logged; the daily reconcile repairs the
+/// rows.
+fn requeue_clocks(pool: &web::Data<Pool>, workspace_id: i32, rule_id: i32) {
+    let pool = pool.get_ref().clone();
+    actix_web::rt::task::spawn_blocking(move || {
+        if let Err(e) = elapsed::requeue_rule(&pool, workspace_id, rule_id) {
+            tracing::warn!(rule_id, error = %e, "rules: time-elapsed clocks not rebuilt");
         }
-    }
+    });
 }
 
 fn manual_conditions_refused() -> HttpResponse {
@@ -782,6 +778,7 @@ pub async fn update_rule(
     req: HttpRequest,
     path: web::Path<i32>,
     body: web::Json<UpdateRuleRequest>,
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
@@ -808,6 +805,13 @@ pub async fn update_rule(
     if existing.is_archived() {
         return Ok(archived_conflict(id));
     }
+    // What a time-elapsed rule's clocks read, to tell whether an edit moves
+    // them.
+    let clocks_before = (
+        existing.trigger_kind,
+        existing.trigger_config.clone(),
+        existing.conditions.clone(),
+    );
 
     if let Some(ref n) = name {
         if n.trim().is_empty() {
@@ -925,12 +929,18 @@ pub async fn update_rule(
     });
     match saved {
         Ok((rule, preview)) => {
-            // A time-elapsed rule edited while it waits recomputes its clocks;
-            // one moved to another trigger drops them.
-            if rule.trigger_kind == RuleTriggerKind::TimeElapsed
-                || existing.trigger_kind == RuleTriggerKind::TimeElapsed
+            // A time-elapsed rule whose trigger, settings or conditions were
+            // edited recomputes its clocks; one moved to another trigger
+            // drops them. A rename or a change of steps moves nothing.
+            let (kind, config, conditions) = &clocks_before;
+            let moved = rule.trigger_kind != *kind
+                || rule.trigger_config != *config
+                || rule.conditions != *conditions;
+            if moved
+                && (rule.trigger_kind == RuleTriggerKind::TimeElapsed
+                    || *kind == RuleTriggerKind::TimeElapsed)
             {
-                requeue_clocks(&mut tc, rule.id);
+                requeue_clocks(&pool, rule.workspace_id, rule.id);
             }
             Ok(HttpResponse::Ok().json(SavedRuleDto::new(rule, preview)))
         }
@@ -1027,6 +1037,7 @@ pub async fn transition_state(
     req: HttpRequest,
     path: web::Path<i32>,
     body: web::Json<StateTransitionRequest>,
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
@@ -1103,7 +1114,7 @@ pub async fn transition_state(
             // Going live or into dry run starts its clocks on every open
             // ticket; leaving them stops them.
             if rule.trigger_kind == RuleTriggerKind::TimeElapsed {
-                requeue_clocks(&mut tc, rule.id);
+                requeue_clocks(&pool, rule.workspace_id, rule.id);
             }
             Ok(HttpResponse::Ok().json(RuleDto::from(rule)))
         }
@@ -1125,6 +1136,7 @@ pub async fn delete_rule(
     req: HttpRequest,
     path: web::Path<i32>,
     query: web::Query<DeleteRuleQuery>,
+    pool: web::Data<Pool>,
     mut tc: TenantConn,
 ) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
@@ -1155,7 +1167,7 @@ pub async fn delete_rule(
         match tc.run_result(|conn| rules::archive(conn, id, Utc::now())) {
             Ok(rule) => {
                 if rule.trigger_kind == RuleTriggerKind::TimeElapsed {
-                    requeue_clocks(&mut tc, rule.id);
+                    requeue_clocks(&pool, rule.workspace_id, rule.id);
                 }
                 Ok(HttpResponse::Ok().json(RuleDto::from(rule)))
             }

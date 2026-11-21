@@ -98,6 +98,25 @@ impl Harness {
         })
     }
 
+    /// Wait up to five seconds for the rebuild a rule's save started in the
+    /// background to leave `ticket`'s row as `wanted` says.
+    async fn eventually(
+        &self,
+        ws: &WorkspaceSeed,
+        ticket: i32,
+        rule: i32,
+        wanted: impl Fn(Option<&Row>) -> bool,
+    ) -> Option<Row> {
+        for _ in 0..50 {
+            let row = self.row(ws, ticket, rule);
+            if wanted(row.as_ref()) {
+                return row;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("the clocks of rule {rule} never settled on ticket {ticket}");
+    }
+
     fn state_in(&self, ws: &WorkspaceSeed, category: WorkflowStateCategory) -> i32 {
         self.as_admin(ws, |c| workflow_states::first_in_category(c, category))
             .id
@@ -585,7 +604,23 @@ async fn the_api_checks_settings_and_starts_and_stops_the_clocks() {
     };
     let resp = as_admin(&h.pool, a, set_state("live")).await;
     assert_eq!(resp.status(), StatusCode::OK);
-    assert!(h.row(a, ticket, rule).is_some(), "live: queued");
+    h.eventually(a, ticket, rule, |r| r.is_some()).await;
+
+    // A rename moves no clock, so nothing rebuilds the rows.
+    h.as_admin(a, |c| {
+        diesel::delete(q::table.filter(q::rule_id.eq(rule))).execute(c)
+    });
+    let resp = as_admin(
+        &h.pool,
+        a,
+        http_test::TestRequest::put()
+            .uri(&format!("/api/rules/{rule}"))
+            .set_json(json!({ "name": "Escalate after a while" })),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(h.row(a, ticket, rule).is_none(), "a rename rebuilt nothing");
 
     let resp = as_admin(
         &h.pool,
@@ -598,12 +633,16 @@ async fn the_api_checks_settings_and_starts_and_stops_the_clocks() {
     )
     .await;
     assert_eq!(resp.status(), StatusCode::OK);
-    let row = h.row(a, ticket, rule).expect("still queued");
-    assert_eq!(row.4, row.3 + chrono::Duration::minutes(60), "recomputed");
+    let row = h
+        .eventually(a, ticket, rule, |r| {
+            r.is_some_and(|r| r.4 == r.3 + chrono::Duration::minutes(60))
+        })
+        .await;
+    assert!(row.is_some(), "recomputed");
 
     let resp = as_admin(&h.pool, a, set_state("paused")).await;
     assert_eq!(resp.status(), StatusCode::OK);
-    assert!(h.row(a, ticket, rule).is_none(), "paused: cleared");
+    h.eventually(a, ticket, rule, |r| r.is_none()).await;
 }
 
 /// Old mail a newly connected mailbox threads onto a live ticket is history,
@@ -674,4 +713,172 @@ async fn an_old_message_threaded_onto_a_live_ticket_moves_no_clock() {
     h.drain().await;
     assert!(h.row(a, ticket, customer).expect("customer clock").3 > asked);
     assert!(h.row(a, ticket, waiting).is_none(), "answered");
+}
+
+/// The conditions are read again under the ticket's lock: a ticket that left
+/// them while the fire waited for the lock isn't acted on, and nothing is
+/// recorded.
+#[actix_rt::test]
+async fn a_ticket_that_leaves_the_conditions_under_the_lock_is_not_acted_on() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let ticket = h.ticket(a, "Toner low");
+    h.backdate_ticket(a, ticket, 2);
+    let rule = h.rule(
+        a,
+        Spec {
+            trigger_config: json!({ "clock_name": "since_created", "minutes": 60 }),
+            conditions: leaf("ticket.priority", "eq", json!("medium")),
+            ..Spec::live(Trigger::TimeElapsed, set_priority("low"))
+        },
+    );
+    h.requeue(a, rule);
+    let row = h.bypass(|c| queue::claim_due(c, 10, 10, 300.0)).remove(0);
+
+    let lock = h.hold_ticket_lock(a, ticket);
+    let fire = {
+        let pool = h.pool.clone();
+        std::thread::spawn(move || elapsed::fire_claimed(&pool, None, &row))
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    h.set_priority(a, ticket, TicketPriority::Urgent);
+    drop(lock);
+    assert_eq!(fire.join().expect("the fire"), Fired::NotDue);
+    assert!(h.applications(a, rule).is_empty(), "nothing recorded");
+    assert_eq!(h.priority(a, ticket), TicketPriority::Urgent);
+    assert!(
+        h.row(a, ticket, rule).is_none(),
+        "out until the ticket meets them"
+    );
+}
+
+/// `attempts` counts the claims at one due time. A repeating rule's fire
+/// moves its row to the next time and starts the count again; a retry a
+/// failed run scheduled keeps its time and count through a rebuild; and a
+/// rebuild that leaves a row as it was still gives up a claim on it.
+#[actix_rt::test]
+async fn attempts_count_one_due_time_and_a_pending_retry_keeps_its_time() {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let ticket = h.ticket(a, "Fan noisy");
+    h.backdate_ticket(a, ticket, 3);
+    let rule = h.rule(
+        a,
+        Spec {
+            trigger_config: json!({
+                "clock_name": "since_created", "minutes": 60, "repeat_every_minutes": 60
+            }),
+            ..Spec::live(Trigger::TimeElapsed, set_priority("high"))
+        },
+    );
+    h.requeue(a, rule);
+    let attempts = |h: &Harness| -> (i16, Option<DateTime<Utc>>, DateTime<Utc>) {
+        h.as_admin(a, |c| {
+            q::table
+                .filter(q::rule_id.eq(rule))
+                .select((q::attempts, q::claimed_at, q::due_at))
+                .first(c)
+        })
+    };
+
+    // A rebuild of a claimed row it leaves as it was gives up the claim.
+    h.bypass(|c| queue::claim_due(c, 10, 10, 300.0));
+    let (n, claimed, due) = attempts(&h);
+    assert_eq!(n, 1);
+    assert!(claimed.is_some());
+    h.requeue(a, rule);
+    assert_eq!(attempts(&h), (1, None, due), "claim given up, count kept");
+
+    // A retry scheduled after a failure keeps its time through a rebuild.
+    let row = h.bypass(|c| queue::claim_due(c, 10, 10, 300.0)).remove(0);
+    let retry = Utc::now() + chrono::Duration::hours(1);
+    h.as_admin(a, |c| queue::retry_at(c, &row, retry));
+    let (n, _, retry) = attempts(&h);
+    assert_eq!(n, 2);
+    h.requeue(a, rule);
+    assert_eq!(attempts(&h), (2, None, retry), "the retry stands");
+    assert_eq!(h.fire(), 0, "not due until the retry");
+
+    // A fire moves the row to the next repeat and starts the count again,
+    // however many claims came before.
+    h.as_admin(a, |c| {
+        diesel::update(q::table.filter(q::rule_id.eq(rule)))
+            .set((q::due_at.eq(Utc::now()), q::attempts.eq(i16::MAX)))
+            .execute(c)
+    });
+    assert_eq!(h.fire(), 1);
+    assert_eq!(h.statuses(a, rule), vec![Status::Succeeded]);
+    let (n, claimed, due) = attempts(&h);
+    assert_eq!((n, claimed), (0, None));
+    assert!(
+        due > Utc::now() + chrono::Duration::minutes(55),
+        "the next repeat"
+    );
+}
+
+/// Who wrote a reply decides which clock it moves: a staff member removed
+/// since still wrote as staff, and mail a list sent isn't a customer's.
+#[actix_rt::test]
+async fn a_removed_agents_reply_stays_staff_and_list_mail_is_no_customer_reply() {
+    use crate::channel_backlog::{message, opened, Inbox};
+    use backend::services::channels::pipeline::{PipelineContext, PipelineOutcome};
+
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let inbox = Inbox::on(None, h.pool.clone(), a.clone());
+    let ticket = opened(
+        inbox
+            .receive_with(
+                &message("Ada <ada@customer.example>", "Printer", "first-l"),
+                Utc::now(),
+                &PipelineContext::bare(),
+            )
+            .await,
+    );
+    let asked: DateTime<Utc> = h.bypass(|c| {
+        diesel::update(comments::table.filter(comments::ticket_id.eq(ticket)))
+            .set(comments::created_at.eq(Utc::now() - chrono::Duration::days(3)))
+            .returning(comments::created_at)
+            .get_result(c)
+    });
+    let answered = h.reply_at(a, ticket, a.admin_uuid, 48);
+    // The agent who answered has since left the workspace.
+    h.bypass(|c| {
+        use backend::schema::workspace_members as wm;
+        diesel::update(
+            wm::table
+                .filter(wm::user_uuid.eq(a.admin_uuid))
+                .filter(wm::workspace_id.eq(a.workspace_id)),
+        )
+        .set(wm::removed_at.eq(Some(Utc::now())))
+        .execute(c)
+    });
+    let customer = h.time_rule(a, "since_last_customer_reply", 60, set_priority("high"));
+    let waiting = h.time_rule(a, "awaiting_requester", 7 * 24 * 60, set_priority("high"));
+    assert_eq!(h.row(a, ticket, customer).expect("customer clock").3, asked);
+    assert_eq!(
+        h.row(a, ticket, waiting).expect("awaiting clock").3,
+        answered,
+        "the removed agent's reply is still staff's"
+    );
+
+    // A mailing list's copy threads onto the ticket; it answers nothing.
+    let list = "From: Ada <ada@customer.example>\r\nTo: support@example.com\r\n\
+                Subject: Re: Printer\r\nList-Id: <printers.customer.example>\r\n\
+                Message-ID: <list-l@customer.example>\r\n\
+                In-Reply-To: <first-l@customer.example>\r\n\
+                References: <first-l@customer.example>\r\n\r\nDigest.\r\n";
+    let outcome = inbox
+        .receive_with(list, Utc::now(), &PipelineContext::bare())
+        .await;
+    assert!(
+        matches!(outcome, PipelineOutcome::ReplyAppended { ticket_id, .. } if ticket_id == ticket),
+        "{outcome:?}"
+    );
+    h.drain().await;
+    assert_eq!(h.row(a, ticket, customer).expect("customer clock").3, asked);
+    assert_eq!(
+        h.row(a, ticket, waiting).expect("still waiting").3,
+        answered
+    );
 }

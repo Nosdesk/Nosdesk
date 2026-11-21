@@ -36,6 +36,10 @@ struct InputRow {
     category: Option<WorkflowStateCategory>,
     #[diesel(sql_type = Bool)]
     merged: bool,
+    #[diesel(sql_type = Bool)]
+    has_created_event: bool,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    first_event_at: Option<DateTime<Utc>>,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     state_changed_at: Option<DateTime<Utc>>,
     #[diesel(sql_type = Nullable<Timestamptz>)]
@@ -46,6 +50,43 @@ struct InputRow {
     customer_reply_at: Option<DateTime<Utc>>,
 }
 
+/// A comment `c` on ticket `t` whose author was staff when they wrote it: an
+/// owner, admin or agent of the workspace then (removed since or not), or a
+/// platform admin. The same people `comments::is_workspace_staff` counts when
+/// a reply stamps `first_response_at`.
+const STAFF_AUTHOR: &str = "EXISTS (
+    SELECT 1 FROM users u
+     WHERE u.uuid = c.user_uuid
+       AND (u.platform_role = 'platform_admin'
+            OR EXISTS (SELECT 1 FROM workspace_members wm
+                        WHERE wm.user_uuid = u.uuid
+                          AND wm.workspace_id = t.workspace_id
+                          AND wm.role IN ('owner', 'admin', 'agent')
+                          AND (wm.removed_at IS NULL OR wm.removed_at > c.created_at))))";
+
+/// A comment `c` that is a reply at all: public, not deleted, not old mail a
+/// newly connected mailbox brought in, and not written by a rule on its own.
+const REPLY: &str = "NOT c.is_internal AND c.deleted_at IS NULL
+    AND coalesce(c.channel_metadata->>'imported', '') <> 'true'
+    AND NOT coalesce(c.channel_metadata ? 'rule_id', false)";
+
+/// An email behind comment `c` that a machine sent, read from its headers the
+/// way `channels::automated_inbound` reads them. The pipeline drops most such
+/// mail before it becomes a comment; a mailing list's gets through.
+const AUTOMATED_EMAIL: &str = "EXISTS (
+    SELECT 1 FROM channel_messages cm,
+           jsonb_array_elements(CASE WHEN jsonb_typeof(cm.raw_metadata->'headers') = 'array'
+                                     THEN cm.raw_metadata->'headers' ELSE '[]'::jsonb END) h
+     WHERE cm.ticket_id = t.id AND cm.comment_id = c.id AND cm.direction = 'inbound'
+       AND ((lower(h->>0) = 'auto-submitted' AND lower(btrim(h->>1)) <> 'no')
+            OR (lower(h->>0) = 'precedence' AND lower(btrim(h->>1)) IN ('bulk', 'list', 'junk'))
+            OR lower(h->>0) IN ('list-id', 'x-loop', 'x-auto-response-suppress',
+                                'x-autoreply', 'x-autorespond')))";
+
+/// A sync action `s` of ticket `t`.
+const TICKET_EVENT: &str = "s.aggregate = 'ticket' AND s.aggregate_id = t.id::text
+    AND s.workspace_id = t.workspace_id";
+
 // sync-audit-only: read-only
 /// What the clocks read from each of `ticket_ids` in the pinned workspace.
 ///
@@ -54,19 +95,32 @@ struct InputRow {
 ///
 /// A state or assignee change is read from the ticket's `sync_actions`, by
 /// the fields an update changed (an update that changes both records one
-/// event); a ticket with none, or whose events were pruned, counts from its
-/// creation. A reply is a public comment that isn't deleted, from staff (an
-/// owner, admin or agent of the workspace, or a platform admin) or from
-/// anyone else. A reply a rule wrote on its own (`channel_metadata.rule_id`)
-/// is no staff reply: an automated warning doesn't restart the clock it was
-/// sent on. A reply an agent sent by applying a rule is theirs. Old mail a
-/// newly connected mailbox brought in (`channel_metadata.imported`) is no
-/// reply at all.
+/// event). A ticket with no such change counts from its creation while its
+/// `ticket.created` survives; once retention has pruned that, from its
+/// oldest surviving event, so a clock runs late rather than early, and not
+/// at all for a ticket with none left.
+///
+/// A reply is a public comment that isn't deleted, from staff
+/// ([`STAFF_AUTHOR`]) or from anyone else. A reply a rule wrote on its own
+/// (`channel_metadata.rule_id`) is no reply: an automated warning doesn't
+/// restart the clock it was sent on. A reply an agent sent by applying a rule
+/// is theirs. Old mail a newly connected mailbox brought in
+/// (`channel_metadata.imported`) is no reply, nor is mail a machine sent
+/// (an auto-reply, a mailing list) a customer's.
 pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<Vec<ClockInputs>> {
     if ticket_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<InputRow> = diesel::sql_query(
+    let changed = |field: &str, event_type: &str| {
+        format!(
+            "(SELECT max(s.occurred_at) FROM sync_actions s
+               WHERE {TICKET_EVENT}
+                 AND CASE WHEN s.data ? 'changed_fields'
+                          THEN s.data->'changed_fields' ? '{field}'
+                          ELSE s.event_type = '{event_type}' END)"
+        )
+    };
+    let sql = format!(
         r#"
         SELECT t.id AS ticket_id, t.created_at, t.due_date, t.assignee_uuid,
                t.submitted_via::text AS submitted_via,
@@ -74,55 +128,29 @@ pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<
                t.approval_state,
                ws.category,
                EXISTS (SELECT 1 FROM ticket_merges m WHERE m.ticket_id = t.id) AS merged,
-               (SELECT max(s.occurred_at) FROM sync_actions s
-                 WHERE s.aggregate = 'ticket' AND s.aggregate_id = t.id::text
-                   AND s.workspace_id = t.workspace_id
-                   AND CASE WHEN s.data ? 'changed_fields'
-                            THEN s.data->'changed_fields' ? 'ticket.workflow_state_id'
-                            ELSE s.event_type = 'ticket.workflow_state_changed' END
-               ) AS state_changed_at,
-               (SELECT max(s.occurred_at) FROM sync_actions s
-                 WHERE s.aggregate = 'ticket' AND s.aggregate_id = t.id::text
-                   AND s.workspace_id = t.workspace_id
-                   AND CASE WHEN s.data ? 'changed_fields'
-                            THEN s.data->'changed_fields' ? 'ticket.assignee_uuid'
-                            ELSE s.event_type = 'ticket.assignee_changed' END
-               ) AS assigned_at,
+               EXISTS (SELECT 1 FROM sync_actions s
+                        WHERE {TICKET_EVENT} AND s.event_type = 'ticket.created')
+                 AS has_created_event,
+               (SELECT min(s.occurred_at) FROM sync_actions s WHERE {TICKET_EVENT})
+                 AS first_event_at,
+               {state} AS state_changed_at,
+               {assignee} AS assigned_at,
                (SELECT max(c.created_at) FROM comments c
-                 WHERE c.ticket_id = t.id AND NOT c.is_internal AND c.deleted_at IS NULL
-                   AND coalesce(c.channel_metadata->>'imported', '') <> 'true'
-                   AND NOT coalesce(c.channel_metadata ? 'rule_id', false)
-                   AND EXISTS (
-                       SELECT 1 FROM users u
-                        WHERE u.uuid = c.user_uuid
-                          AND (u.platform_role = 'platform_admin'
-                               OR EXISTS (SELECT 1 FROM workspace_members wm
-                                           WHERE wm.user_uuid = u.uuid
-                                             AND wm.workspace_id = t.workspace_id
-                                             AND wm.role IN ('owner', 'admin', 'agent')
-                                             AND wm.removed_at IS NULL)))
-               ) AS agent_reply_at,
+                 WHERE c.ticket_id = t.id AND {REPLY} AND {STAFF_AUTHOR}) AS agent_reply_at,
                (SELECT max(c.created_at) FROM comments c
-                 WHERE c.ticket_id = t.id AND NOT c.is_internal AND c.deleted_at IS NULL
-                   AND coalesce(c.channel_metadata->>'imported', '') <> 'true'
-                   AND NOT EXISTS (
-                       SELECT 1 FROM users u
-                        WHERE u.uuid = c.user_uuid
-                          AND (u.platform_role = 'platform_admin'
-                               OR EXISTS (SELECT 1 FROM workspace_members wm
-                                           WHERE wm.user_uuid = u.uuid
-                                             AND wm.workspace_id = t.workspace_id
-                                             AND wm.role IN ('owner', 'admin', 'agent')
-                                             AND wm.removed_at IS NULL)))
-               ) AS customer_reply_at
+                 WHERE c.ticket_id = t.id AND {REPLY}
+                   AND NOT {STAFF_AUTHOR} AND NOT {AUTOMATED_EMAIL}) AS customer_reply_at
           FROM tickets t
           LEFT JOIN workflow_states ws ON ws.id = t.workflow_state_id
          WHERE t.id = ANY($1)
          ORDER BY t.id
         "#,
-    )
-    .bind::<Array<Integer>, _>(ticket_ids)
-    .load(conn)?;
+        state = changed("ticket.workflow_state_id", "ticket.workflow_state_changed"),
+        assignee = changed("ticket.assignee_uuid", "ticket.assignee_changed"),
+    );
+    let rows: Vec<InputRow> = diesel::sql_query(sql)
+        .bind::<Array<Integer>, _>(ticket_ids)
+        .load(conn)?;
     let pending = crate::repository::ticket_approvals::PENDING;
     let holds_waiting = if rows
         .iter()
@@ -155,8 +183,15 @@ pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<
                 held_for_approval: holds_waiting && r.approval_state.as_deref() == Some(pending),
             }
             .runs_clocks();
+            // How far back the ticket's recorded history reaches.
+            let history_from = if r.has_created_event {
+                Some(r.created_at)
+            } else {
+                r.first_event_at.map(|first| first.max(r.created_at))
+            };
             ClockInputs {
                 ticket_id: r.ticket_id,
+                history_from,
                 created_at: r.created_at,
                 due_at: r
                     .due_date
@@ -226,9 +261,11 @@ pub fn last_fires(
 
 // sync-audit-only: clock queue bookkeeping, no entity sync
 /// Make `rule_id`'s rows on `ticket_id` say `wait` on clock `clock_name`:
-/// one row while the rule waits, none when it doesn't. A row that changes
-/// gives up any claim on it; one whose clock restarted starts its attempts
-/// again.
+/// one row while the rule waits, none when it doesn't. Writing a row gives up
+/// any claim on it. `attempts` counts the claims at one due time: it starts
+/// again when the clock restarts or the row moves to another due time. A
+/// retry a failed run scheduled (unclaimed, with attempts, due later than
+/// `wait` on the same start) keeps its time and its count.
 pub fn set_wait(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -248,17 +285,24 @@ pub fn set_wait(
     // A rule edited to wait on another clock.
     diesel::delete(rows.filter(q::clock_name.ne(clock_name))).execute(conn)?;
     diesel::sql_query(
-        "INSERT INTO ticket_elapsed_queue \
+        "INSERT INTO ticket_elapsed_queue AS q \
              (workspace_id, ticket_id, rule_id, clock_name, clock_started_at, due_at) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (ticket_id, rule_id, clock_name) DO UPDATE \
             SET clock_started_at = EXCLUDED.clock_started_at, \
-                due_at = EXCLUDED.due_at, \
-                claimed_at = NULL, \
-                attempts = CASE WHEN ticket_elapsed_queue.clock_started_at = EXCLUDED.clock_started_at \
-                                THEN ticket_elapsed_queue.attempts ELSE 0 END \
-          WHERE ticket_elapsed_queue.clock_started_at IS DISTINCT FROM EXCLUDED.clock_started_at \
-             OR ticket_elapsed_queue.due_at IS DISTINCT FROM EXCLUDED.due_at",
+                due_at = CASE WHEN q.clock_started_at = EXCLUDED.clock_started_at \
+                               AND q.claimed_at IS NULL AND q.attempts > 0 \
+                               AND q.due_at > EXCLUDED.due_at \
+                              THEN q.due_at ELSE EXCLUDED.due_at END, \
+                attempts = CASE WHEN q.clock_started_at = EXCLUDED.clock_started_at \
+                                 AND (q.due_at = EXCLUDED.due_at \
+                                      OR (q.claimed_at IS NULL AND q.attempts > 0 \
+                                          AND q.due_at > EXCLUDED.due_at)) \
+                                THEN q.attempts ELSE 0 END, \
+                claimed_at = NULL \
+          WHERE q.clock_started_at IS DISTINCT FROM EXCLUDED.clock_started_at \
+             OR q.due_at IS DISTINCT FROM EXCLUDED.due_at \
+             OR q.claimed_at IS NOT NULL",
     )
     .bind::<Integer, _>(workspace_id)
     .bind::<Integer, _>(ticket_id)
@@ -367,7 +411,7 @@ pub fn claim_due(
                FOR UPDATE OF q SKIP LOCKED
         )
         UPDATE ticket_elapsed_queue q
-           SET claimed_at = now(), attempts = q.attempts + 1
+           SET claimed_at = now(), attempts = LEAST(q.attempts, 32766) + 1
           FROM due
          WHERE q.ticket_id = due.ticket_id AND q.rule_id = due.rule_id
            AND q.clock_name = due.clock_name

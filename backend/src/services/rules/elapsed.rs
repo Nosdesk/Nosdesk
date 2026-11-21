@@ -445,16 +445,27 @@ fn try_fire(
         return Ok(Fired::Unmet);
     }
 
-    // Under the ticket's lock, in the run's transaction: the clock is read
-    // once more, and the row moves on as if the rule has fired, which it
-    // has when the run commits.
+    // Under the ticket's lock, in the run's transaction: the clock and the
+    // conditions are read once more, and the row moves on as if the rule has
+    // fired, which it has when the run commits. Anything changed since the
+    // read above ends the run with nothing recorded.
     let recheck = |c: &mut DbConnection| -> QueryResult<bool> {
         let Some(ticket) = queue::clock_inputs(c, &[ticket_id])?.pop() else {
             return Ok(false);
         };
         let fires = queue::last_fires(c, &[rule.rule.id], &[ticket_id])?;
         let now = Utc::now();
-        if rule.wait(&ticket, &fires).is_none_or(|w| w.due_at > now) {
+        let Some(wait) = rule.wait(&ticket, &fires).filter(|w| w.due_at <= now) else {
+            return Ok(false);
+        };
+        let Some(facts) = repo::load_ticket_facts(c, &[ticket_id])?.pop() else {
+            return Ok(false);
+        };
+        if !evaluate(
+            &predicate,
+            &facts,
+            clocks::minutes_since(wait.started_at, now),
+        ) {
             return Ok(false);
         }
         let next = clocks::next_wait(&rule.trigger, &ticket, Some(now));
