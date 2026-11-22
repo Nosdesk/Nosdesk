@@ -66,28 +66,29 @@ export const assetRecordTypeService = {
   },
 
   /** A field or outcome change some records no longer fit answers 409
-   *  `RECORDS_WOULD_NOT_FIT` with `invalid_count` and a `sample`, unless
-   *  `force`. */
+   *  `RECORDS_WOULD_NOT_FIT` with `invalid_count` and a `sample` (each the
+   *  record `id`, `asset_id`, `asset_name`, `asset_tag` and `error`),
+   *  unless `force`. Answers with the type and its `record_count`. */
   async update(
     id: number,
     body: UpdateAssetRecordTypeBody,
     force = false,
-  ): Promise<AssetRecordType> {
-    const { data } = await apiClient.put<AssetRecordType>(`/admin/asset-record-types/${id}`, body, {
+  ): Promise<AdminAssetRecordType> {
+    const { data } = await apiClient.put<AdminAssetRecordType>(`/admin/asset-record-types/${id}`, body, {
       params: force ? { force: true } : undefined,
     });
     return data;
   },
 
-  async archive(id: number): Promise<AssetRecordType> {
-    const { data } = await apiClient.post<AssetRecordType>(
+  async archive(id: number): Promise<AdminAssetRecordType> {
+    const { data } = await apiClient.post<AdminAssetRecordType>(
       `/admin/asset-record-types/${id}/archive`,
     );
     return data;
   },
 
-  async restore(id: number): Promise<AssetRecordType> {
-    const { data } = await apiClient.post<AssetRecordType>(
+  async restore(id: number): Promise<AdminAssetRecordType> {
+    const { data } = await apiClient.post<AdminAssetRecordType>(
       `/admin/asset-record-types/${id}/restore`,
     );
     return data;

@@ -1254,6 +1254,12 @@ admin-asset-record-types-fields-heading = Champs
 # MT: pending native review (fr-FR)
 admin-asset-record-types-fields-hint = Les informations qu'une intervention de ce type recueille. Elles apparaissent dans cet ordre sur le formulaire et dans les modèles d'import.
 # MT: pending native review (fr-FR)
+admin-asset-record-types-fields-empty-title = Aucun champ pour l'instant
+# MT: pending native review (fr-FR)
+admin-asset-record-types-fields-empty-description = Ajoutez un champ pour recueillir une autre information sur chaque intervention de ce type.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-fields-add = Ajouter un champ
+# MT: pending native review (fr-FR)
 admin-asset-record-types-outcomes-heading = Résultats
 # MT: pending native review (fr-FR)
 admin-asset-record-types-outcomes-hint = Comment le travail s'est terminé. Chaque résultat a une catégorie, qui sert à regrouper les rapports et qui décide de ce que fait le résultat.
@@ -1345,7 +1351,7 @@ admin-asset-record-types-conflict-heading = { $count ->
    *[other] { $count } interventions de ce type ne correspondraient plus à cette modification.
    }
 # MT: pending native review (fr-FR)
-admin-asset-record-types-conflict-asset = Actif { $id }
+admin-asset-record-types-conflict-asset-tagged = { $name } ({ $tag })
 # MT: pending native review (fr-FR)
 admin-asset-record-types-conflict-help = Enregistrez quand même pour garder la modification : les interventions gardent ce qu'elles ont, et vous pourrez les corriger ensuite. Ou annulez la modification et enregistrez à nouveau.
 # MT: pending native review (fr-FR)

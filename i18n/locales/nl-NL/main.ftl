@@ -1250,6 +1250,12 @@ admin-asset-record-types-fields-heading = Velden
 # MT: pending native review (nl-NL)
 admin-asset-record-types-fields-hint = De gegevens die een registratie van dit type vastlegt. Ze staan in deze volgorde op het registratieformulier en in importsjablonen.
 # MT: pending native review (nl-NL)
+admin-asset-record-types-fields-empty-title = Nog geen velden
+# MT: pending native review (nl-NL)
+admin-asset-record-types-fields-empty-description = Voeg een veld toe om nog een gegeven vast te leggen bij elke registratie van dit type.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-fields-add = Veld toevoegen
+# MT: pending native review (nl-NL)
 admin-asset-record-types-outcomes-heading = Uitkomsten
 # MT: pending native review (nl-NL)
 admin-asset-record-types-outcomes-hint = Hoe het werk afliep. Elke uitkomst heeft een categorie, waarop rapporten groeperen en die bepaalt wat de uitkomst doet.
@@ -1341,7 +1347,7 @@ admin-asset-record-types-conflict-heading = { $count ->
    *[other] { $count } registraties van dit type zouden niet meer bij deze wijziging passen.
    }
 # MT: pending native review (nl-NL)
-admin-asset-record-types-conflict-asset = Activum { $id }
+admin-asset-record-types-conflict-asset-tagged = { $name } ({ $tag })
 # MT: pending native review (nl-NL)
 admin-asset-record-types-conflict-help = Sla toch op om de wijziging te houden: de registraties houden wat ze hebben, en u kunt ze daarna corrigeren. Of maak de wijziging ongedaan en sla opnieuw op.
 # MT: pending native review (nl-NL)

@@ -39,6 +39,14 @@ const props = defineProps<{
   /** The stored JSON schema (subset). v-model'd; emits a fresh
    * object on every builder edit. */
   modelValue: Record<string, unknown>;
+  /** A display name for a field, shown above its row (a record type's
+   * built-in fields read theirs from the catalogue). */
+  fieldTitle?: (name: string) => string | undefined;
+  /** Copy for the empty state and the add button; the asset kind
+   * wording when absent. */
+  emptyTitle?: string;
+  emptyDescription?: string;
+  addLabel?: string;
 }>();
 
 const emit = defineEmits<{
@@ -120,8 +128,8 @@ function addAttribute(kind: Exclude<AttributeKind, 'raw'>): void {
     <EmptyState
       v-if="!parseError && parsed.defs.length === 0"
       icon="document"
-      :title="t('asset-kind-attribute-editor-empty-title')"
-      :description="t('asset-kind-attribute-editor-empty-description')"
+      :title="emptyTitle ?? t('asset-kind-attribute-editor-empty-title')"
+      :description="emptyDescription ?? t('asset-kind-attribute-editor-empty-description')"
       variant="card"
     />
 
@@ -130,6 +138,7 @@ function addAttribute(kind: Exclude<AttributeKind, 'raw'>): void {
         v-for="(def, index) in parsed.defs"
         :key="`${index}-${def.kind}`"
         :model-value="def"
+        :title="fieldTitle?.(def.name)"
         :is-first="index === 0"
         :is-last="index === parsed.defs.length - 1"
         @update:model-value="(d) => updateAt(index, d)"
@@ -151,7 +160,7 @@ function addAttribute(kind: Exclude<AttributeKind, 'raw'>): void {
     >
       <summary class="list-none cursor-pointer">
         <Button variant="secondary" icon="add" type="button">
-          {{ t('asset-kind-attribute-editor-add') }}
+          {{ addLabel ?? t('asset-kind-attribute-editor-add') }}
         </Button>
       </summary>
       <div class="mt-2 flex flex-wrap gap-1 p-2 bg-surface border border-default rounded-lg">

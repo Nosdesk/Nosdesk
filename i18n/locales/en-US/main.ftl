@@ -1205,6 +1205,9 @@ admin-asset-record-types-color-add = Add a color
 admin-asset-record-types-color-remove = Remove color
 admin-asset-record-types-fields-heading = Fields
 admin-asset-record-types-fields-hint = The details a record of this type collects. They appear in this order on the record form and in import templates.
+admin-asset-record-types-fields-empty-title = No fields yet
+admin-asset-record-types-fields-empty-description = Add a field to collect another detail on every record of this type.
+admin-asset-record-types-fields-add = Add field
 admin-asset-record-types-outcomes-heading = Outcomes
 admin-asset-record-types-outcomes-hint = How the work ended. Each outcome has a category, which reports group by and which decides what the outcome does.
 admin-asset-record-types-outcomes-empty = No outcomes. Records of this type won't ask how the work ended.
@@ -1252,7 +1255,7 @@ admin-asset-record-types-conflict-heading = { $count ->
     [one] 1 record of this type would no longer fit this change.
    *[other] { $count } records of this type would no longer fit this change.
    }
-admin-asset-record-types-conflict-asset = Asset { $id }
+admin-asset-record-types-conflict-asset-tagged = { $name } ({ $tag })
 admin-asset-record-types-conflict-help = Save anyway to keep the change: the records keep what they have, and you can fix them afterwards. Or undo the change and save again.
 admin-asset-record-types-force-save = Save anyway
 admin-asset-record-types-cancel = Cancel

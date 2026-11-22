@@ -31,6 +31,8 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 const props = defineProps<{
   modelValue: AttributeDef;
+  /** The field's display name, when it has one apart from its key. */
+  title?: string;
   /** Whether this row is the first / last in the list. Drives
    * the up/down move-button enabled state. */
   isFirst: boolean;
@@ -135,6 +137,9 @@ const assetScopeOptions = computed(() => [
     class="bg-surface border border-default rounded-lg p-3 flex flex-col gap-3"
     :class="{ 'border-status-warning/60': nameInvalid }"
   >
+    <p v-if="title" class="text-sm font-medium text-primary" data-test="attribute-title">
+      {{ title }}
+    </p>
     <!-- Header row: drag-like up/down + remove on the right;
          name + kind dropdown + required toggle on the left. -->
     <div class="flex flex-wrap items-start gap-3">

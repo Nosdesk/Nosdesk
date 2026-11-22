@@ -63,6 +63,13 @@ export const RECORD_TYPE_ICONS = [
   'paint',
 ] as const;
 
+/** A registry icon's name as words, for its button's label: the registry
+ *  has no translated names, so `clipboardCheck` reads "Clipboard check". */
+export function iconLabel(name: string): string {
+  const words = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 type Translate = (key: string, args?: Record<string, string | number>) => string;
 
 /** A type's name: its own label, or the catalogue name of a built-in nobody
@@ -195,11 +202,21 @@ export function compactCoreFields(
   return out;
 }
 
+/** One record a refused change would no longer fit: the record (`id`), the
+ *  asset it is on, and why. */
+export interface RecordsConflictSample {
+  id: number;
+  asset_id: number;
+  asset_name: string;
+  asset_tag: string | null;
+  error: string;
+}
+
 /** A save the server refused because records of the type would no longer
  *  fit: how many, and a few of them. */
 export interface RecordsConflict {
   invalidCount: number;
-  sample: Array<{ id: number; asset_id: number; error: string }>;
+  sample: RecordsConflictSample[];
 }
 
 export function recordsConflict(body: Record<string, unknown> | undefined): RecordsConflict | null {

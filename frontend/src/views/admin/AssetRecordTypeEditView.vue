@@ -37,6 +37,7 @@ import {
   canonicalJson,
   compactCoreFields,
   fieldOrderOf,
+  iconLabel,
   inFieldOrder,
   keyFrom,
   outcomeRows,
@@ -98,11 +99,22 @@ const catalogueQuery = useWorkspaceQuery({
   query: () => assetRecordService.catalogue(),
   enabled: () => isBuiltin.value,
 });
-const catalogueKeys = computed<string[]>(() => {
-  if (!existing.value?.is_builtin) return [];
-  const entry = catalogueQuery.data.value?.find((e) => e.slug === existing.value?.slug);
-  return entry?.outcomes.map((o) => o.key) ?? [];
-});
+const catalogueEntry = computed(() =>
+  existing.value?.is_builtin
+    ? catalogueQuery.data.value?.find((e) => e.slug === existing.value?.slug)
+    : undefined,
+);
+const catalogueKeys = computed<string[]>(
+  () => catalogueEntry.value?.outcomes.map((o) => o.key) ?? [],
+);
+
+/** A built-in's own fields read their names from the catalogue, in each
+ *  person's language; a field the admin added has only its key. */
+function fieldTitle(name: string): string | undefined {
+  const entry = catalogueEntry.value;
+  if (!entry?.field_order.includes(name)) return undefined;
+  return t(`asset-record-field-${entry.slug}-${name}`);
+}
 
 const { kinds } = useAssetKindsQuery();
 
@@ -351,6 +363,20 @@ async function refresh(): Promise<void> {
   ]);
 }
 
+/** A written type comes back with its record count, so it replaces its row
+ *  in the admin caches as is; only the record form's picker refetches. */
+async function store(row: AdminAssetRecordType): Promise<void> {
+  queryCache.setQueryData([...assetRecordTypeKeys.one(row.id)], row);
+  const list = queryCache.getQueryData<AdminAssetRecordType[]>([...assetRecordTypeKeys.root]);
+  if (list) {
+    queryCache.setQueryData(
+      [...assetRecordTypeKeys.root],
+      list.map((r) => (r.id === row.id ? row : r)),
+    );
+  }
+  await queryCache.invalidateQueries({ key: [...assetRecordKeys.types] });
+}
+
 function refusal(error: unknown): string {
   switch (errorCode(error)) {
     case 'SLUG_TAKEN':
@@ -387,14 +413,14 @@ async function submit(force = false): Promise<void> {
         applies_to_kinds: appliesToKinds(f),
       });
       toast.success(t('admin-asset-record-types-created'));
+      await refresh();
     } else if (editingId.value !== null) {
       const body = changes();
       if (Object.keys(body).length > 0) {
-        await assetRecordTypeService.update(editingId.value, body, force);
+        await store(await assetRecordTypeService.update(editingId.value, body, force));
       }
       toast.success(t('admin-asset-record-types-saved'));
     }
-    await refresh();
     router.push({ name: 'admin-asset-record-types' });
   } catch (error) {
     const refused = recordsConflict(errorBody(error));
@@ -420,14 +446,15 @@ async function setArchived(archived: boolean): Promise<void> {
   if (editingId.value === null) return;
   isArchiving.value = true;
   try {
-    if (archived) await assetRecordTypeService.archive(editingId.value);
-    else await assetRecordTypeService.restore(editingId.value);
+    const row = archived
+      ? await assetRecordTypeService.archive(editingId.value)
+      : await assetRecordTypeService.restore(editingId.value);
+    await store(row);
     toast.success(
       t(archived ? 'admin-asset-record-types-archived' : 'admin-asset-record-types-restored', {
         name: savedName.value,
       }),
     );
-    await refresh();
   } catch (error) {
     formError.value = extractErrorMessage(error, t('admin-asset-record-types-error-save'));
   } finally {
@@ -546,8 +573,8 @@ function cancel(): void {
                 v-for="name in RECORD_TYPE_ICONS"
                 :key="name"
                 type="button"
-                :title="name"
-                :aria-label="name"
+                :title="iconLabel(name)"
+                :aria-label="iconLabel(name)"
                 :aria-pressed="form.icon === name"
                 :class="[
                   'flex items-center justify-center w-9 h-9 rounded-md border transition-colors',
@@ -608,7 +635,14 @@ function cancel(): void {
             class="font-mono"
             :aria-label="t('admin-asset-record-types-fields-heading')"
           />
-          <AttributeEditor v-else v-model="schemaModel" />
+          <AttributeEditor
+            v-else
+            v-model="schemaModel"
+            :field-title="fieldTitle"
+            :empty-title="t('admin-asset-record-types-fields-empty-title')"
+            :empty-description="t('admin-asset-record-types-fields-empty-description')"
+            :add-label="t('admin-asset-record-types-fields-add')"
+          />
         </section>
 
         <section class="flex flex-col gap-3" :aria-label="t('admin-asset-record-types-outcomes-heading')">
@@ -691,8 +725,18 @@ function cancel(): void {
           </p>
           <ul v-if="conflict.sample.length > 0" class="text-xs text-secondary list-disc pl-5 flex flex-col gap-1">
             <li v-for="row in conflict.sample" :key="row.id">
-              <RouterLink :to="`/assets/${row.asset_id}`" class="text-accent hover:underline">
-                {{ t('admin-asset-record-types-conflict-asset', { id: String(row.asset_id) }) }}
+              <RouterLink
+                :to="{ path: `/assets/${row.asset_id}`, query: { record: String(row.id) } }"
+                class="text-accent hover:underline"
+              >
+                {{
+                  row.asset_tag
+                    ? t('admin-asset-record-types-conflict-asset-tagged', {
+                        name: row.asset_name,
+                        tag: row.asset_tag,
+                      })
+                    : row.asset_name
+                }}
               </RouterLink>
               <span class="text-tertiary">: {{ row.error }}</span>
             </li>

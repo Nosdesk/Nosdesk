@@ -29,8 +29,13 @@ vi.mock('vue-router', async () => {
     useRoute: () => route,
     useRouter: () => ({ push }),
     RouterLink: define({
-      props: { to: { type: String, required: true } },
-      setup: (props, { slots }) => () => render('a', { href: props.to }, slots.default?.()),
+      props: { to: { type: [String, Object], required: true } },
+      setup: (props, { slots }) => () => {
+        const to = props.to as string | { path: string; query?: Record<string, string> }
+        const href =
+          typeof to === 'string' ? to : `${to.path}?${new URLSearchParams(to.query).toString()}`
+        return render('a', { href }, slots.default?.())
+      },
     }),
   }
 })
@@ -304,6 +309,52 @@ describe('AssetRecordTypeEditView', () => {
     expect(types.update).toHaveBeenCalledWith(3, { description: 'Work sent to the vendor' }, false)
   })
 
+  it('names a built-in\'s own fields from the catalogue and says "field" on a record type', async () => {
+    records.catalogue.mockResolvedValue([{ ...REPAIR_ENTRY, field_order: ['fault'] }])
+    types.get.mockResolvedValue(
+      recordType({
+        id: 3,
+        slug: 'repair',
+        label: null,
+        is_builtin: true,
+        field_schema: {
+          type: 'object',
+          properties: { fault: { type: 'string' }, bay: { type: 'string' } },
+        },
+        field_order: ['fault', 'bay'],
+      }),
+    )
+    let w = await openType(3)
+    const rows = w.findAll('[data-test="attribute-title"]')
+    expect(rows.map((r) => r.text())).toEqual(['asset-record-field-repair-fault'])
+    expect(fieldNames(w)).toEqual(['fault', 'bay'])
+    expect(w.text()).toContain('admin-asset-record-types-fields-add')
+    expect(w.text()).not.toContain('asset-kind-attribute-editor-add')
+    expect(w.find('button[aria-label="Clipboard check"]').exists()).toBe(true)
+
+    unmount()
+    types.get.mockResolvedValue(recordType())
+    w = await openType(7)
+    expect(w.text()).toContain('admin-asset-record-types-fields-empty-title')
+    expect(w.text()).not.toContain('asset-kind-attribute-editor-empty-title')
+  })
+
+  it('takes the record count from an archive without fetching the type again', async () => {
+    const type = recordType({ record_count: 4 })
+    types.get.mockResolvedValue(type)
+    types.archive.mockResolvedValue({ ...type, archived_at: '2026-11-20T00:00:00Z' })
+    const w = await openType(7)
+    expect(w.text()).not.toContain('admin-asset-record-types-archived-tag')
+
+    button('admin-asset-record-types-archive')!.click()
+    await flushPromises()
+    expect(types.archive).toHaveBeenCalledWith(7)
+    expect(w.text()).toContain('admin-asset-record-types-archived-tag')
+    expect(button('admin-asset-record-types-restore')).toBeDefined()
+    expect(types.get).toHaveBeenCalledTimes(1)
+    expect(types.list).not.toHaveBeenCalled()
+  })
+
   it('puts a renamed built-in back to its catalogue name', async () => {
     const renamed = recordType({ id: 3, slug: 'repair', label: 'Fix-it', is_builtin: true })
     types.get.mockResolvedValue(renamed)
@@ -355,13 +406,28 @@ describe('AssetRecordTypeEditView', () => {
             code: 'RECORDS_WOULD_NOT_FIT',
             error: '3 existing record(s) of this type would no longer fit.',
             invalid_count: 3,
-            sample: [{ id: 51, asset_id: 42, error: 'outcome `failed` is no longer one of the type\'s' }],
+            sample: [
+              {
+                id: 51,
+                asset_id: 42,
+                asset_name: 'Camera',
+                asset_tag: '14',
+                error: 'outcome `failed` is no longer one of the type\'s',
+              },
+              { id: 52, asset_id: 43, asset_name: 'Tripod', asset_tag: null, error: 'outcome' },
+            ],
           },
         },
       })
       .mockResolvedValueOnce({ ...type, outcomes: [type.outcomes[0]] })
 
-    const w = await openType(7, 'admin-asset-record-types-conflict-heading = { $count } records would no longer fit')
+    const w = await openType(
+      7,
+      [
+        'admin-asset-record-types-conflict-heading = { $count } records would no longer fit',
+        'admin-asset-record-types-conflict-asset-tagged = { $name } ({ $tag })',
+      ].join('\n'),
+    )
     await w.findAll('button[aria-label="admin-asset-record-types-outcome-remove"]')[1].trigger('click')
     await w.get('form').trigger('submit')
     await flushPromises()
@@ -370,7 +436,10 @@ describe('AssetRecordTypeEditView', () => {
     expect(types.update).toHaveBeenNthCalledWith(1, 7, expected, false)
     const conflict = w.get('[data-test="records-conflict"]')
     expect(conflict.text()).toContain('3 records would no longer fit')
-    expect(conflict.get('a').attributes('href')).toBe('/assets/42')
+    // Each names its equipment and links to the record.
+    const links = conflict.findAll('a')
+    expect(links.map((a) => a.text())).toEqual(['Camera (14)', 'Tripod'])
+    expect(links[0].attributes('href')).toBe('/assets/42?record=51')
     expect(push).not.toHaveBeenCalled()
     expect(w.find('[data-test="save"]').exists()).toBe(false)
 
