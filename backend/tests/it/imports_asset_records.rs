@@ -696,11 +696,11 @@ async fn rows_that_look_recorded_are_skipped_unless_imported_anyway() {
     assert_eq!(summary(&again, "unchanged"), 4, "{again}");
     assert_eq!(notice(&again, "likely_duplicate"), Some(4), "{again}");
 
-    // A row that differs in its reference is new.
+    // A row whose reference and cost differ from every record's is new.
     let changed = checked(
         &pool,
         &ws,
-        "Tag,Type,Date,Ref,Cost,Summary\nCAM-001,Repair,2020-01-02,RMA-2,,\n",
+        "Tag,Type,Date,Ref,Cost,Summary\nCAM-001,Repair,2020-01-02,RMA-2,95,\n",
         mapping,
         serde_json::json!({}),
     )
@@ -779,7 +779,11 @@ async fn a_source_reference_updates_its_record_and_restore_puts_it_back() {
     assert_eq!(status, StatusCode::OK);
     let file = String::from_utf8(body).expect("utf-8");
     let lines: Vec<&str> = file.trim_start_matches('\u{FEFF}').lines().collect();
-    assert_eq!(lines, vec!["source_ref,summary,cost", "R-1,Lens,100.00"]);
+    // A cost goes with its currency.
+    assert_eq!(
+        lines,
+        vec!["source_ref,summary,cost,currency", "R-1,Lens,100.00,AUD"]
+    );
 
     // Restore puts them back through a records draft.
     let (status, draft) = post(
@@ -1030,4 +1034,411 @@ async fn a_record_type_set_for_every_row_reads_outcomes_as_its_own() {
             ("repair".to_string(), Some("no_fault_found".to_string())),
         ]
     );
+}
+
+#[derive(QueryableByName)]
+struct Stored {
+    #[diesel(sql_type = Text)]
+    record_type: String,
+    #[diesel(sql_type = Nullable<Text>)]
+    outcome: Option<String>,
+    #[diesel(sql_type = Text)]
+    attributes: String,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    cost_minor: Option<i64>,
+    #[diesel(sql_type = Nullable<Text>)]
+    cost_currency: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    holder: Option<String>,
+    #[diesel(sql_type = Text)]
+    snapshot_source: String,
+}
+
+fn stored(pool: &TestPool, source_ref: &str) -> Stored {
+    diesel::sql_query(
+        "SELECT t.slug AS record_type, r.outcome, r.attributes::text AS attributes, r.cost_minor,
+                r.cost_currency::text AS cost_currency, r.holder_uuid::text AS holder, r.snapshot_source
+         FROM asset_records r JOIN asset_record_types t ON t.id = r.record_type_id
+         WHERE r.source_ref = $1",
+    )
+    .bind::<Text, _>(source_ref)
+    .get_result(&mut pool.get().expect("conn"))
+    .expect("record")
+}
+
+fn attributes_of(s: &Stored) -> serde_json::Value {
+    serde_json::from_str(&s.attributes).expect("attributes")
+}
+
+/// The previous values file of committed job `id`, line by line.
+async fn previous_lines(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> Vec<String> {
+    let (status, body) = get(pool, ws, &format!("/api/admin/import/{id}/previous-values")).await;
+    assert_eq!(status, StatusCode::OK);
+    String::from_utf8(body)
+        .expect("utf-8")
+        .trim_start_matches('\u{FEFF}')
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// Restore committed job `id` and commit the draft.
+async fn restore_and_commit(pool: &TestPool, ws: &WorkspaceSeed, id: &str) -> serde_json::Value {
+    let (status, draft) = post(pool, ws, &format!("/api/admin/import/{id}/restore")).await;
+    assert_eq!(status, StatusCode::CREATED, "{draft}");
+    commit(pool, ws, &id_of(&draft)).await;
+    draft
+}
+
+#[actix_web::test]
+async fn a_currency_change_restores_with_its_amount() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool, "UTC");
+    seed_asset(&pool, &ws, "Camera 1", Some("CAM-001"), None);
+    let mapping = &[
+        ("Id", "source_ref"),
+        ("Tag", "asset_tag"),
+        ("Type", "record_type"),
+        ("Date", "occurred_on"),
+        ("Cost", "cost"),
+        ("Currency", "currency"),
+    ];
+    let first = checked(
+        &pool,
+        &ws,
+        "Id,Tag,Type,Date,Cost,Currency\nR-1,CAM-001,Repair,2020-01-02,100,\n",
+        mapping,
+        serde_json::json!({}),
+    )
+    .await;
+    commit(&pool, &ws, &id_of(&first)).await;
+
+    // The amount stays; it was paid in dollars.
+    let update = checked(
+        &pool,
+        &ws,
+        "Id,Tag,Type,Date,Cost,Currency\nR-1,,,,100,USD\n",
+        mapping,
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(summary(&update, "would_update"), 1, "{update}");
+    // Review says only the currency changes.
+    let changed: Vec<&str> = update["summary"]["changes"]
+        .as_array()
+        .expect("changes")
+        .iter()
+        .map(|c| c["field"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(changed, vec!["currency"], "{update}");
+    let update_id = id_of(&update);
+    commit(&pool, &ws, &update_id).await;
+    let r1 = stored(&pool, "R-1");
+    assert_eq!(
+        (r1.cost_minor, r1.cost_currency.as_deref()),
+        (Some(10_000), Some("USD"))
+    );
+
+    // The previous values carry the amount with its currency.
+    assert_eq!(
+        previous_lines(&pool, &ws, &update_id).await,
+        vec!["source_ref,cost,currency", "R-1,100.00,AUD"]
+    );
+    let draft = restore_and_commit(&pool, &ws, &update_id).await;
+    assert_eq!(summary(&draft, "would_update"), 1, "{draft}");
+    let r1 = stored(&pool, "R-1");
+    assert_eq!(
+        (r1.cost_minor, r1.cost_currency.as_deref()),
+        (Some(10_000), Some("AUD"))
+    );
+}
+
+const TYPE_CHANGE: &[(&str, &str)] = &[
+    ("Id", "source_ref"),
+    ("Tag", "asset_tag"),
+    ("Type", "record_type"),
+    ("Date", "occurred_on"),
+    ("Done", "completed_on"),
+    ("Result", "outcome"),
+    ("Fault", "fault"),
+    ("Certificate", "inspector_certificate"),
+];
+
+#[actix_web::test]
+async fn a_type_change_says_what_it_would_drop_and_restores_exactly() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool, "UTC");
+    seed_asset(&pool, &ws, "Camera 1", Some("CAM-001"), None);
+    let header = "Id,Tag,Type,Date,Done,Result,Fault,Certificate";
+    let first = checked(
+        &pool,
+        &ws,
+        &format!("{header}\nR-1,CAM-001,Repair,2020-01-02,2020-01-03,Repaired,x,\n"),
+        TYPE_CHANGE,
+        serde_json::json!({}),
+    )
+    .await;
+    commit(&pool, &ws, &id_of(&first)).await;
+    let before = stored(&pool, "R-1");
+
+    // Only the type: the repair's fault and outcome have nowhere to go.
+    let bare = checked(
+        &pool,
+        &ws,
+        &format!("{header}\nR-1,,Inspection,,,,,\n"),
+        TYPE_CHANGE,
+        serde_json::json!({}),
+    )
+    .await;
+    let errs = errors(&bare);
+    assert!(
+        errs.iter()
+            .any(|(_, col, m)| col.as_deref() == Some("record_type") && m.contains("has no Fault")),
+        "{errs:?}"
+    );
+    assert!(
+        errs.iter()
+            .any(|(_, col, m)| col.as_deref() == Some("outcome") && m.contains("'Repaired'")),
+        "{errs:?}"
+    );
+
+    // With the inspection's own values, the type changes.
+    let change = checked(
+        &pool,
+        &ws,
+        &format!("{header}\nR-1,,Inspection,,,Passed,,C-1\n"),
+        TYPE_CHANGE,
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(summary(&change, "would_update"), 1, "{change}");
+    let change_id = id_of(&change);
+    commit(&pool, &ws, &change_id).await;
+    let inspected = stored(&pool, "R-1");
+    assert_eq!(inspected.record_type, "inspection");
+    assert_eq!(
+        attributes_of(&inspected),
+        serde_json::json!({ "inspector_certificate": "C-1" })
+    );
+
+    // The previous values hold everything the change displaced.
+    assert_eq!(
+        previous_lines(&pool, &ws, &change_id).await,
+        vec![
+            "source_ref,record_type,outcome,fault,inspector_certificate",
+            "R-1,repair,repaired,x,"
+        ]
+    );
+    restore_and_commit(&pool, &ws, &change_id).await;
+    let restored = stored(&pool, "R-1");
+    assert_eq!(restored.record_type, before.record_type);
+    assert_eq!(restored.outcome, before.outcome);
+    assert_eq!(attributes_of(&restored), attributes_of(&before));
+    assert_eq!(
+        attributes_of(&restored),
+        serde_json::json!({ "fault": "x" })
+    );
+}
+
+#[actix_web::test]
+async fn asset_references_read_by_tag_or_id_and_restore_by_tag() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool, "UTC");
+    seed_asset(&pool, &ws, "Camera 1", Some("CAM-001"), None);
+    let spare_a = seed_asset(&pool, &ws, "Spare A", Some("SPARE-A"), None);
+    let spare_b = seed_asset(&pool, &ws, "Spare B", None, Some("SB-1"));
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query(
+            "INSERT INTO asset_record_types (slug, label, field_schema, field_order, core_fields, outcomes)
+             VALUES ('swap', 'Swap',
+                     '{\"type\":\"object\",\"properties\":{\"spare\":{\"type\":\"string\",\"format\":\"asset-ref\"}}}',
+                     '{spare}', '{}', '[]')",
+        )
+        .execute(c)
+    })
+    .expect("swap type");
+    let mapping = &[
+        ("Id", "source_ref"),
+        ("Tag", "asset_tag"),
+        ("Type", "record_type"),
+        ("Date", "occurred_on"),
+        ("Spare", "spare"),
+    ];
+    let first = checked(
+        &pool,
+        &ws,
+        "Id,Tag,Type,Date,Spare\nS-1,CAM-001,Swap,2020-01-02,SPARE-A\n",
+        mapping,
+        serde_json::json!({}),
+    )
+    .await;
+    commit(&pool, &ws, &id_of(&first)).await;
+    assert_eq!(
+        attributes_of(&stored(&pool, "S-1")),
+        serde_json::json!({ "spare": spare_a.to_string() })
+    );
+
+    // An asset without a tag, by its id.
+    let update = checked(
+        &pool,
+        &ws,
+        &format!("Id,Tag,Type,Date,Spare\nS-1,,,,{spare_b}\n"),
+        mapping,
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(summary(&update, "would_update"), 1, "{update}");
+    let update_id = id_of(&update);
+    commit(&pool, &ws, &update_id).await;
+    assert_eq!(
+        attributes_of(&stored(&pool, "S-1")),
+        serde_json::json!({ "spare": spare_b.to_string() })
+    );
+    // The value before is written as the tag, and restores.
+    assert_eq!(
+        previous_lines(&pool, &ws, &update_id).await,
+        vec!["source_ref,spare", "S-1,SPARE-A"]
+    );
+    restore_and_commit(&pool, &ws, &update_id).await;
+    assert_eq!(
+        attributes_of(&stored(&pool, "S-1")),
+        serde_json::json!({ "spare": spare_a.to_string() })
+    );
+}
+
+#[actix_web::test]
+async fn a_time_a_clock_change_skips_imports_and_times_keep_their_seconds() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool, "Australia/Sydney");
+    seed_asset(&pool, &ws, "Camera 1", Some("CAM-001"), None);
+    let mapping = &[
+        ("Id", "source_ref"),
+        ("Tag", "asset_tag"),
+        ("Type", "record_type"),
+        ("Date", "occurred_on"),
+    ];
+    let first = checked(
+        &pool,
+        &ws,
+        "Id,Tag,Type,Date\nT-1,CAM-001,Repair,2023-10-01 02:30\nT-2,CAM-001,Repair,2019-03-14 09:30:15\n",
+        mapping,
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(summary(&first, "would_create"), 2, "{first}");
+    commit(&pool, &ws, &id_of(&first)).await;
+    let written = records(&pool, &ws);
+    assert_eq!(written[0].occurred_on, "2023-10-01");
+    assert_eq!(
+        written[0].occurred_at.as_deref(),
+        Some("2023-09-30T16:30:00")
+    );
+    assert_eq!(
+        written[1].occurred_at.as_deref(),
+        Some("2019-03-13T22:30:15")
+    );
+
+    // The same file again changes nothing, to the second.
+    let again = checked(
+        &pool,
+        &ws,
+        "Id,Tag,Type,Date\nT-2,CAM-001,Repair,2019-03-14 09:30:15\n",
+        mapping,
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(summary(&again, "unchanged"), 1, "{again}");
+    let moved = checked(
+        &pool,
+        &ws,
+        "Id,Tag,Type,Date\nT-2,CAM-001,Repair,2019-03-14 09:31\n",
+        mapping,
+        serde_json::json!({}),
+    )
+    .await;
+    let moved_id = id_of(&moved);
+    commit(&pool, &ws, &moved_id).await;
+    assert_eq!(
+        previous_lines(&pool, &ws, &moved_id).await,
+        vec!["source_ref,occurred_on", "T-2,2019-03-14T09:30:15+11:00"]
+    );
+}
+
+#[actix_web::test]
+async fn a_holder_who_isnt_a_member_is_recorded_as_nobody() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool, "UTC");
+    let cam = seed_asset(&pool, &ws, "Camera 1", Some("CAM-001"), None);
+    // Today's work would otherwise take the asset's own primary user.
+    diesel::sql_query("UPDATE assets SET primary_user_uuid = $1 WHERE id = $2")
+        .bind::<diesel::sql_types::Uuid, _>(ws.member_uuid)
+        .bind::<Integer, _>(cam)
+        .execute(&mut pool.get().expect("conn"))
+        .expect("primary user");
+    let today = chrono::Utc::now().date_naive();
+    let job = checked(
+        &pool,
+        &ws,
+        &format!("Id,Tag,Type,Date,Holder\nH-1,CAM-001,Repair,{today},nobody@example.com\n"),
+        &[
+            ("Id", "source_ref"),
+            ("Tag", "asset_tag"),
+            ("Type", "record_type"),
+            ("Date", "occurred_on"),
+            ("Holder", "holder"),
+        ],
+        serde_json::json!({}),
+    )
+    .await;
+    let dropped = job["summary"]["dropped"].as_array().expect("dropped");
+    assert_eq!(dropped.len(), 1, "{job}");
+    assert_eq!(dropped[0]["column"], "holder", "{job}");
+    commit(&pool, &ws, &id_of(&job)).await;
+    let h1 = stored(&pool, "H-1");
+    assert_eq!((h1.holder, h1.snapshot_source.as_str()), (None, "entered"));
+}
+
+#[actix_web::test]
+async fn a_second_sheet_without_references_finds_the_work_by_cost() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool, "UTC");
+    seed_asset(&pool, &ws, "Camera 1", Some("CAM-001"), None);
+    let first = checked(
+        &pool,
+        &ws,
+        "Tag,Type,Date,Ref,Cost\nCAM-001,Repair,2020-01-02,RMA-1,80\nCAM-001,Repair,2020-01-02,RMA-2,\n",
+        &[
+            ("Tag", "asset_tag"),
+            ("Type", "record_type"),
+            ("Date", "occurred_on"),
+            ("Ref", "reference"),
+            ("Cost", "cost"),
+        ],
+        serde_json::json!({}),
+    )
+    .await;
+    commit(&pool, &ws, &id_of(&first)).await;
+    // The other sheet has no reference column: the costs, then the blank
+    // summaries, tell the work apart.
+    let second = checked(
+        &pool,
+        &ws,
+        "Tag,Type,Date,Cost\nCAM-001,Repair,2020-01-02,80\nCAM-001,Repair,2020-01-02,95\n",
+        &[
+            ("Tag", "asset_tag"),
+            ("Type", "record_type"),
+            ("Date", "occurred_on"),
+            ("Cost", "cost"),
+        ],
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(notice(&second, "likely_duplicate"), Some(2), "{second}");
+    assert_eq!(summary(&second, "would_create"), 0, "{second}");
 }

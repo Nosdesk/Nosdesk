@@ -395,7 +395,13 @@ fn change_counts(rows: &[RowResult]) -> Vec<ChangeCount> {
     );
     let mut out: Vec<(ChangeCount, Pairs)> = Vec::new();
     for row in rows.iter().filter(|r| r.outcome == RowOutcome::Update) {
-        for (field, change) in &row.fields_written {
+        // A field written alongside another without changing (a record's
+        // cost beside its new currency) isn't a change.
+        for (field, change) in row
+            .fields_written
+            .iter()
+            .filter(|(_, c)| c.before != c.after)
+        {
             let i = match out.iter().position(|(c, _)| &c.field == field) {
                 Some(i) => i,
                 None => {

@@ -421,9 +421,13 @@ function rowProblems(row: ImportRowResult): string {
     .join('; ')
 }
 
-/** An updated row's changes, field by field. */
+/** An updated row's changes, field by field. A field written beside
+ *  another without changing (a record's cost beside its new currency) isn't
+ *  one. */
 function rowChanges(row: ImportRowResult) {
-  return Object.entries(row.fields_written ?? {}).map(([field, c]) => ({
+  return Object.entries(row.fields_written ?? {})
+    .filter(([, c]) => c.before !== c.after)
+    .map(([field, c]) => ({
     field,
     name: changeName(field),
     before: shown(field, c.before),

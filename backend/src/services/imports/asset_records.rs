@@ -31,7 +31,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use chrono_tz::Tz;
 use diesel::prelude::*;
 use serde_json::{Map, Value};
@@ -48,6 +48,7 @@ use crate::repository::asset_records::{
 use crate::repository::workspaces as workspace_repo;
 use crate::services::assets::record_catalogue::{self, CatalogueType};
 use crate::services::custom_fields::schema::AttributeError;
+use crate::utils::locale::local_moment;
 use crate::utils::{i18n, money};
 
 use super::assets::{
@@ -1215,7 +1216,9 @@ fn parse_time(raw: &str) -> Option<NaiveTime> {
 }
 
 /// A date cell as the day of the work, or the moment when it has a time. A
-/// time without an offset is read in the workspace's timezone; exactly
+/// time without an offset is read in the workspace's timezone by the shared
+/// wall-clock rule ([`local_moment`]: a time a clock change skips is the
+/// first moment after it, a repeated one the first of the two); exactly
 /// midnight is a date, as a workbook writes one.
 fn read_work_date(raw: &str, order: DateOrder, tz: Tz) -> Option<WorkDate> {
     let raw = raw.trim();
@@ -1228,18 +1231,22 @@ fn read_work_date(raw: &str, order: DateOrder, tz: Tz) -> Option<WorkDate> {
         if time == NaiveTime::MIN {
             return Some(WorkDate::Day(day));
         }
-        let local = NaiveDateTime::new(day, time);
-        let at = tz.from_local_datetime(&local).earliest()?;
-        return Some(WorkDate::At(at.with_timezone(&Utc)));
+        return Some(WorkDate::At(local_moment(
+            NaiveDateTime::new(day, time),
+            tz,
+        )));
     }
     values::parse_date(raw, order).map(WorkDate::Day)
 }
 
-/// A day or moment as a cell writes it back: the day, or the day and time
-/// in the workspace's timezone.
+/// A day or moment as a cell writes it back: the day, or the moment in the
+/// workspace's timezone with its offset, to the second as stored, so it
+/// reads back as the same moment even in an hour a clock change repeats.
 fn work_date_text(on: NaiveDate, at: Option<DateTime<Utc>>, tz: Tz) -> String {
     match at {
-        Some(at) => at.with_timezone(&tz).format("%Y-%m-%d %H:%M").to_string(),
+        Some(at) => at
+            .with_timezone(&tz)
+            .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, false),
         None => on.format("%Y-%m-%d").to_string(),
     }
 }
@@ -1275,7 +1282,7 @@ struct Planned {
     occurred_on: NaiveDate,
     /// For a new record's duplicate check: the reference, else the cost,
     /// else the summary, as compared.
-    likeness: String,
+    likeness: Likeness,
     cost: Option<(String, i64)>,
     fields_written: BTreeMap<String, FieldChange>,
     dropped: Vec<DroppedCell>,
@@ -1569,17 +1576,20 @@ fn mark_likely_duplicates(
         ))
         .order(asset_records::id.asc())
         .load(conn)?;
-    let mut index: HashMap<(i32, String, NaiveDate, String), i32> = HashMap::new();
+    let mut index: HashMap<(i32, String, NaiveDate), Vec<(i32, Likeness)>> = HashMap::new();
     for (id, asset, type_id, on, reference, minor, currency, summary) in stored {
         let Some(slug) = slugs.get(&type_id).cloned() else {
             continue;
         };
-        let likeness = likeness(
+        let likeness = Likeness::of(
             reference.as_deref(),
-            minor.zip(currency).as_ref(),
+            minor.zip(currency),
             summary.as_deref(),
         );
-        index.entry((asset, slug, on, likeness)).or_insert(id);
+        index
+            .entry((asset, slug, on))
+            .or_default()
+            .push((id, likeness));
     }
     let mut count = 0;
     for entry in entries.iter_mut() {
@@ -1590,36 +1600,53 @@ fn mark_likely_duplicates(
         if input.source_ref.is_some() {
             continue;
         }
-        let key = (
-            p.asset_id,
-            p.type_slug.clone(),
-            p.occurred_on,
-            p.likeness.clone(),
-        );
-        if let Some(id) = index.get(&key) {
-            p.action = Action::LooksRecorded(*id);
+        let key = (p.asset_id, p.type_slug.clone(), p.occurred_on);
+        let found = index.get(&key).and_then(|stored| {
+            stored
+                .iter()
+                .find(|(_, other)| p.likeness.same_work(other))
+                .map(|(id, _)| *id)
+        });
+        if let Some(id) = found {
+            p.action = Action::LooksRecorded(id);
             count += 1;
         }
     }
     Ok(count)
 }
 
-/// What tells a record from another of the same asset, type and day: the
-/// reference, else the cost, else the summary, as compared (trimmed, case
-/// ignored).
-fn likeness(
-    reference: Option<&str>,
-    cost: Option<&(i64, String)>,
-    summary: Option<&str>,
-) -> String {
-    let text = |v: Option<&str>| v.map(normalize_value).filter(|v| !v.is_empty());
-    if let Some(reference) = text(reference) {
-        return format!("ref:{reference}");
+/// What tells a record from another of the same asset, type and day, each
+/// as compared (text trimmed, case ignored).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Likeness {
+    reference: Option<String>,
+    cost: Option<(i64, String)>,
+    summary: Option<String>,
+}
+
+impl Likeness {
+    fn of(reference: Option<&str>, cost: Option<(i64, String)>, summary: Option<&str>) -> Self {
+        let text = |v: Option<&str>| v.map(normalize_value).filter(|v| !v.is_empty());
+        Self {
+            reference: text(reference),
+            cost,
+            summary: text(summary),
+        }
     }
-    if let Some((minor, currency)) = cost {
-        return format!("cost:{minor} {currency}");
+
+    /// Whether two records look like the same work: the same reference when
+    /// both have one, else the same cost when both have one, else the same
+    /// summary (blank matching blank). A sheet without a reference column
+    /// still finds the history another sheet imported with one.
+    fn same_work(&self, other: &Self) -> bool {
+        if let (Some(a), Some(b)) = (&self.reference, &other.reference) {
+            return a == b;
+        }
+        if let (Some(a), Some(b)) = (&self.cost, &other.cost) {
+            return a == b;
+        }
+        self.summary == other.summary
     }
-    format!("summary:{}", text(summary).unwrap_or_default())
 }
 
 /// The record type a row names.
@@ -1906,9 +1933,10 @@ fn plan_row(
         found
     });
 
-    // People, as Match values answered them, else by email; anyone else is
-    // left off.
-    let person = |field: &str, dropped: &mut Vec<DroppedCell>| -> Option<Uuid> {
+    // People, as Match values answered them, else by email. A cell naming
+    // someone who isn't a member records nobody: the sheet said who it was,
+    // so nobody else is put in their place. `None` is a blank cell.
+    let person = |field: &str, dropped: &mut Vec<DroppedCell>| -> Option<Option<Uuid>> {
         let raw = opt_cell(row, field)?;
         let linked = match options
             .lookups
@@ -1931,7 +1959,7 @@ fn plan_row(
                 value: Some(raw),
             });
         }
-        linked
+        Some(linked)
     };
     let performed_by = person("performed_by", &mut dropped);
     let holder = person("holder", &mut dropped);
@@ -1988,6 +2016,67 @@ fn plan_row(
         }
     }
 
+    // A type change: the record's fields and outcome the new type doesn't
+    // have go only when the row gives the new type's own; else the row says
+    // what would be lost.
+    if let Some(record) = existing.filter(|r| r.record_type_id != rtype.id) {
+        let keys: HashSet<String> = rtype
+            .field_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .map(|p| p.keys().cloned().collect())
+            .unwrap_or_default();
+        let displaced: Vec<String> = record
+            .attributes
+            .as_object()
+            .map(|a| a.keys().filter(|k| !keys.contains(*k)).cloned().collect())
+            .unwrap_or_default();
+        if !displaced.is_empty() {
+            if attributes_written {
+                attributes.retain(|k, _| keys.contains(k));
+            } else {
+                let names: Vec<String> = displaced
+                    .iter()
+                    .map(|k| {
+                        lookups
+                            .fields
+                            .iter()
+                            .find(|d| &d.key == k)
+                            .map_or_else(|| humanize(k), |d| d.title.clone())
+                    })
+                    .collect();
+                errors.push(error(
+                    Some("record_type"),
+                    format!(
+                        "{} has no {}, which this record holds; give the row {}'s own fields to change its type",
+                        entry.label,
+                        names.join(", "),
+                        entry.label
+                    ),
+                ));
+            }
+        }
+        if let Some(stored) = record.outcome.as_deref() {
+            if outcome.is_none() && rtype.outcome(stored).is_none() {
+                let old = lookups.type_by_id(record.record_type_id);
+                let shown = old.map_or_else(
+                    || stored.to_string(),
+                    |t| {
+                        let own = t.rtype.outcome(stored).and_then(|o| o.label);
+                        outcome_label(&t.rtype, stored, own.as_deref())
+                    },
+                );
+                errors.push(error(
+                    Some("outcome"),
+                    format!(
+                        "'{shown}' isn't an outcome of {}; give the row one of its outcomes to change its type",
+                        entry.label
+                    ),
+                ));
+            }
+        }
+    }
+
     if !errors.is_empty() {
         return Ok(Err(errors));
     }
@@ -2015,13 +2104,13 @@ fn plan_row(
                 completed,
                 outcome,
                 vendor: text("vendor"),
-                performed_by_uuid: performed_by,
+                performed_by_uuid: performed_by.flatten(),
                 reference: text("reference"),
                 cost: cost.clone(),
                 ticket_id: ticket,
                 replacement_asset_id: replacement,
                 snapshot: entered_snapshot.then(|| Snapshot {
-                    holder_uuid: holder,
+                    holder_uuid: holder.flatten(),
                     location: location.clone(),
                 }),
                 attributes: Value::Object(attributes),
@@ -2038,9 +2127,9 @@ fn plan_row(
                     asset_id: asset.id,
                     type_slug: entry.slug().to_string(),
                     occurred_on: draft.occurred_on,
-                    likeness: likeness(
+                    likeness: Likeness::of(
                         draft.reference.as_deref(),
-                        draft.cost_minor.zip(draft.cost_currency.clone()).as_ref(),
+                        draft.cost_minor.zip(draft.cost_currency.clone()),
                         draft.summary.as_deref(),
                     ),
                     cost: draft.cost_currency.clone().zip(draft.cost_minor),
@@ -2061,14 +2150,17 @@ fn plan_row(
                 completed: completed.map(Some),
                 outcome: outcome.map(Some),
                 vendor: text("vendor").map(Some),
-                performed_by_uuid: performed_by.map(Some),
+                performed_by_uuid: performed_by,
                 reference: text("reference").map(Some),
                 cost: cost.clone().map(Some),
                 ticket_id: ticket.map(Some),
                 replacement_asset_id: replacement.map(Some),
                 // A blank half keeps what the record holds.
                 snapshot: entered_snapshot.then(|| Snapshot {
-                    holder_uuid: holder.or(record.holder_uuid),
+                    holder_uuid: match holder {
+                        Some(named) => named,
+                        None => record.holder_uuid,
+                    },
                     location: location.clone().or_else(|| record.location.clone()),
                 }),
                 attributes: attributes_written.then_some(Value::Object(attributes)),
@@ -2077,19 +2169,7 @@ fn plan_row(
                 Ok((draft, warnings)) => {
                     let before = record_values(&RecordView::of_record(record), lookups);
                     let after = record_values(&RecordView::of_draft(&draft, record), lookups);
-                    let fields_written: BTreeMap<String, FieldChange> = after
-                        .iter()
-                        .filter(|(f, v)| before.get(*f) != Some(*v))
-                        .map(|(f, v)| {
-                            (
-                                f.clone(),
-                                FieldChange {
-                                    before: before.get(f).cloned().flatten(),
-                                    after: v.clone(),
-                                },
-                            )
-                        })
-                        .collect();
+                    let fields_written = written_fields(&before, &after);
                     let action = if fields_written.is_empty() {
                         Action::Unchanged(record.id)
                     } else {
@@ -2104,7 +2184,7 @@ fn plan_row(
                         asset_id: asset.id,
                         type_slug: entry.slug().to_string(),
                         occurred_on: draft.occurred_on,
-                        likeness: String::new(),
+                        likeness: Likeness::default(),
                         cost: draft.cost_currency.clone().zip(draft.cost_minor),
                         fields_written,
                         dropped,
@@ -2118,6 +2198,36 @@ fn plan_row(
     };
     Ok(Ok(planned))
 }
+
+/// Each field a write changes, before and after: the fields of both sides,
+/// so a field a type change displaces is there with a blank after. A cost
+/// and its currency go together, so the previous values put back an amount
+/// in the currency it was in.
+fn written_fields(
+    before: &BTreeMap<String, Option<String>>,
+    after: &BTreeMap<String, Option<String>>,
+) -> BTreeMap<String, FieldChange> {
+    let change = |f: &str| FieldChange {
+        before: before.get(f).cloned().flatten(),
+        after: after.get(f).cloned().flatten(),
+    };
+    let mut out: BTreeMap<String, FieldChange> = before
+        .keys()
+        .chain(after.keys())
+        .map(|f| (f.clone(), change(f)))
+        .filter(|(_, c)| c.before != c.after)
+        .collect();
+    if out.contains_key("cost") || out.contains_key("currency") {
+        for f in COST_FIELDS {
+            out.insert(f.to_string(), change(f));
+        }
+    }
+    out
+}
+
+/// The fields a cost is written in, which a write and the previous values
+/// keep together.
+pub const COST_FIELDS: [&str; 2] = ["cost", "currency"];
 
 /// One cell of a type field, as the field's schema types it. The schema's
 /// other rules are checked with the whole record.
@@ -2193,7 +2303,11 @@ fn parse_field(
                     .ok_or_else(|| format!("'{raw}' is not a member of this workspace"))?,
                 Some("asset-ref") => match holders(&lookups.tags, &lookups.tags_lower, raw) {
                     [id] => id.to_string(),
-                    _ => return Err(format!("no asset has the tag '{raw}'")),
+                    [] => match raw.parse::<i32>() {
+                        Ok(id) if id > 0 => id.to_string(),
+                        _ => return Err(format!("no asset has the tag '{raw}'")),
+                    },
+                    ids => return Err(shared(lookups, "tag", raw, ids)),
                 },
                 _ => raw.to_string(),
             };
@@ -2445,13 +2559,46 @@ fn record_values(r: &RecordView, lookups: &Lookups) -> BTreeMap<String, Option<S
         r.holder_uuid.map(|u| lookups.member_text(u)),
     );
     out.insert("location".to_string(), text(r.location));
+    let props = lookups
+        .type_by_id(r.record_type_id)
+        .and_then(|t| t.rtype.field_schema.get("properties"))
+        .and_then(Value::as_object);
     if let Some(attributes) = r.attributes.as_object() {
         for (key, value) in attributes {
-            out.insert(lookups.field_id(key), value_text(value));
+            let prop = props.and_then(|p| p.get(key));
+            out.insert(lookups.field_id(key), field_text(value, prop, lookups));
         }
     }
     out.insert("source_ref".to_string(), text(r.source_ref));
     out
+}
+
+/// A type field's value as a cell writes it: an asset reference by the
+/// asset's tag where it has one, else its id, as [`parse_field`] reads it
+/// back.
+fn field_text(value: &Value, prop: Option<&Value>, lookups: &Lookups) -> Option<String> {
+    let is_ref = |p: Option<&Value>| {
+        p.and_then(|p| p.get("format")).and_then(Value::as_str) == Some("asset-ref")
+    };
+    let tag = |v: &Value| -> Option<String> {
+        let id = match v {
+            Value::String(s) => s.trim().parse::<i32>().ok(),
+            Value::Number(n) => n.as_i64().and_then(|n| i32::try_from(n).ok()),
+            _ => None,
+        }?;
+        lookups.asset_tag_of(id).filter(|t| !t.is_empty())
+    };
+    if is_ref(prop) {
+        return tag(value).or_else(|| value_text(value));
+    }
+    if let (Value::Array(items), true) = (value, is_ref(prop.and_then(|p| p.get("items")))) {
+        let texts: Vec<String> = items
+            .iter()
+            .filter_map(|v| tag(v).or_else(|| value_text(v)))
+            .collect();
+        return (!texts.is_empty()).then(|| texts.join("; "));
+    }
+    value_text(value)
 }
 
 /// Records' importable fields as text by field id, by record id, as the
@@ -2515,7 +2662,37 @@ mod tests {
         };
         assert_eq!(at.to_rfc3339(), "2019-03-13T22:30:00+00:00");
         assert_eq!(day_of(WorkDate::At(at), tz()), day);
-        assert_eq!(work_date_text(day, Some(at), tz()), "2019-03-14 09:30");
+        assert_eq!(
+            work_date_text(day, Some(at), tz()),
+            "2019-03-14T09:30:00+11:00"
+        );
+        assert_eq!(
+            read_work_date("2019-03-14T09:30:00+11:00", DateOrder::Iso, tz()),
+            Some(WorkDate::At(at))
+        );
+        // Seconds and fractions are kept.
+        let Some(WorkDate::At(precise)) =
+            read_work_date("2019-03-14 09:30:15.25", DateOrder::Iso, tz())
+        else {
+            panic!("a precise time reads");
+        };
+        assert_eq!(
+            work_date_text(day, Some(precise), tz()),
+            "2019-03-14T09:30:15.250+11:00"
+        );
+        // 02:30 on 1 October 2023 doesn't exist in Sydney (clocks go from
+        // 02:00 to 03:00): it reads as the first moment after the gap.
+        let Some(WorkDate::At(gap)) = read_work_date("2023-10-01 02:30", DateOrder::Iso, tz())
+        else {
+            panic!("a time in the gap reads");
+        };
+        assert_eq!(gap.to_rfc3339(), "2023-09-30T16:30:00+00:00");
+        // 02:30 on 2 April 2023 happens twice: the first of the two.
+        let Some(WorkDate::At(repeated)) = read_work_date("2023-04-02 02:30", DateOrder::Iso, tz())
+        else {
+            panic!("a repeated time reads");
+        };
+        assert_eq!(repeated.to_rfc3339(), "2023-04-01T15:30:00+00:00");
         assert!(read_work_date("next tuesday", DateOrder::Iso, tz()).is_none());
     }
 
@@ -2528,18 +2705,18 @@ mod tests {
     }
 
     #[test]
-    fn likeness_takes_the_reference_then_the_cost_then_the_summary() {
-        let cost = (125_050, "AUD".to_string());
-        assert_eq!(
-            likeness(Some(" RMA-1 "), Some(&cost), Some("Lens")),
-            "ref:rma-1"
-        );
-        assert_eq!(likeness(None, Some(&cost), Some("Lens")), "cost:125050 AUD");
-        assert_eq!(
-            likeness(Some(""), None, Some(" Lens  mount ")),
-            "summary:lens mount"
-        );
-        assert_eq!(likeness(None, None, None), "summary:");
+    fn likeness_falls_through_when_either_side_lacks_a_value() {
+        let cost = |minor| Some((minor, "AUD".to_string()));
+        let rma = Likeness::of(Some(" RMA-1 "), cost(125_050), Some("Lens"));
+        // Both have a reference: it decides.
+        assert!(rma.same_work(&Likeness::of(Some("rma-1"), cost(1), None)));
+        assert!(!rma.same_work(&Likeness::of(Some("RMA-2"), cost(125_050), Some("Lens"))));
+        // One has none: the cost decides, then the summary.
+        assert!(rma.same_work(&Likeness::of(None, cost(125_050), None)));
+        assert!(!rma.same_work(&Likeness::of(None, cost(1), Some("Lens"))));
+        assert!(rma.same_work(&Likeness::of(None, None, Some(" lens "))));
+        assert!(!rma.same_work(&Likeness::of(None, None, None)));
+        assert!(Likeness::of(Some(""), None, None).same_work(&Likeness::of(None, None, None)));
     }
 
     #[test]

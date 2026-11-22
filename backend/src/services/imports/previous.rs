@@ -53,6 +53,9 @@ pub fn key_field(key: MatchBy) -> &'static str {
 pub struct Layout {
     pub key: &'static str,
     pub order: &'static [&'static str],
+    /// Fields that go back together or not at all: a cost and its
+    /// currency.
+    pub together: &'static [&'static str],
 }
 
 impl Layout {
@@ -61,6 +64,7 @@ impl Layout {
         Self {
             key: key_field(key),
             order: TEMPLATE_CORE_HEADERS,
+            together: &[],
         }
     }
 
@@ -70,6 +74,7 @@ impl Layout {
         Self {
             key: "source_ref",
             order: super::asset_records::TEMPLATE_HEADERS,
+            together: &super::asset_records::COST_FIELDS,
         }
     }
 
@@ -205,12 +210,26 @@ pub fn restorable(
             out.changed_since += candidates.len();
             continue;
         };
-        let (keep, changed): (Vec<_>, Vec<_>) = candidates.into_iter().partition(|(f, c)| {
-            same(
-                now.get(f.as_str()).and_then(Option::as_deref),
-                c.after.as_deref(),
-            )
-        });
+        let (mut keep, mut changed): (Vec<_>, Vec<_>) =
+            candidates.into_iter().partition(|(f, c)| {
+                same(
+                    now.get(f.as_str()).and_then(Option::as_deref),
+                    c.after.as_deref(),
+                )
+            });
+        // A field that goes back with another stays when that one changed
+        // since: a cost put back in a currency someone has changed would be
+        // a different amount.
+        if changed
+            .iter()
+            .any(|(f, _)| layout.together.contains(&f.as_str()))
+        {
+            let (moved, kept): (Vec<_>, Vec<_>) = keep
+                .into_iter()
+                .partition(|(f, _)| layout.together.contains(&f.as_str()));
+            keep = kept;
+            changed.extend(moved);
+        }
         out.changed_since += changed.len();
         if keep.is_empty() {
             continue;

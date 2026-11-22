@@ -591,6 +591,12 @@ fn insert_record(conn: &mut DbConnection, input: NewRecord) -> Result<RecordWrit
         let tz = workspace_timezone(conn)?;
         let asset = load_asset(conn, input.asset_id)?;
         let rtype = load_type(conn, input.record_type_id)?;
+        if rtype.archived_at.is_some() {
+            return Err(RecordError::RecordTypeArchived);
+        }
+        if !rtype.applies_to(&asset.kind) {
+            return Err(RecordError::RecordTypeNotForKind { kind: asset.kind });
+        }
         let source_ref = clean(input.source_ref.clone());
         check_length("source_ref", source_ref.as_deref(), TEXT_MAX)?;
         if let Some(existing) = match &source_ref {
