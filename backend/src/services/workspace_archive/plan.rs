@@ -1294,6 +1294,10 @@ pub fn plan_import(
     let ref_context = refs::Context::from_rows(
         tables.get("asset_kinds").into_iter().flat_map(|t| &t.rows),
         tables
+            .get("asset_record_types")
+            .into_iter()
+            .flat_map(|t| &t.rows),
+        tables
             .get("user_field_schema")
             .into_iter()
             .flat_map(|t| &t.rows),
@@ -3304,6 +3308,9 @@ mod tests {
     fn every_user_reference_goes_through_the_people_map() {
         /// uuid columns on carried tables that don't name a person.
         const NOT_PEOPLE: &[(&str, &str)] = &[
+            // A CSV import job, cleared by `refs` (import history never
+            // moves).
+            ("asset_records", "import_job_id"),
             ("comments", "client_id"),
             ("outbound_emails", "correlation_id"),
             ("outbound_emails", "lease_token"),
