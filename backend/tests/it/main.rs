@@ -98,6 +98,7 @@ mod handler_direct_write_lint;
 mod handler_error_builder_lint;
 mod handler_tenant_read_lint;
 mod idempotency_middleware;
+mod imports_asset_records;
 mod imports_assets;
 mod imports_attributes;
 mod imports_catalog;

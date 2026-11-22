@@ -197,7 +197,13 @@ async function downloadReport(only?: { group?: number; dropped?: number[] }) {
   }
 }
 
-const previous = computed(() => (job.value?.job_type === 'assets' ? job.value.previous_values ?? null : null))
+/** Kept for asset imports, and for asset records imports that updated
+ *  records by their source reference. */
+const previous = computed(() =>
+  job.value?.job_type === 'assets' || job.value?.job_type === 'asset_records'
+    ? job.value.previous_values ?? null
+    : null,
+)
 const previousHelp = computed(() => previousValuesHelp(t, previous.value?.blank_before ?? 0))
 const downloadingPrevious = ref(false)
 

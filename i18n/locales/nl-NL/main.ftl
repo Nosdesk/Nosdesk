@@ -4018,6 +4018,7 @@ import-options-heading = Importinstellingen
 import-options-match-label = { $type ->
     [users] Bestaande gebruikers zoeken op
     [tickets] Bestaande tickets
+    [asset_records] De asset van elke rij zoeken op
    *[other] Bestaande activa zoeken op
    }
 # MT: pending native review (nl-NL)
@@ -4278,6 +4279,7 @@ import-values-footer-link = Opgeslagen koppelingen
 import-matches-noun = { $type ->
     [users] gebruikers
     [tickets] ticket
+    [asset_records] onderhoudshistorie
    *[assets] asset
 }
 # MT: pending native review (nl-NL)
@@ -4285,6 +4287,7 @@ import-matches-nouns = { $type ->
     [users] gebruikers
     [tickets] tickets
     [documentation] documentatie
+    [asset_records] onderhoudshistorie
    *[assets] assets
 }
 # MT: pending native review (nl-NL)
@@ -4301,6 +4304,7 @@ import-matches-type-label = Importtype
 import-matches-type-option = { $type ->
     [users] Gebruikers
     [tickets] Tickets
+    [asset_records] Onderhoudshistorie
    *[assets] Assets
 } · { $count }
 # MT: pending native review (nl-NL)
@@ -4624,6 +4628,10 @@ import-review-changes-records = { $type ->
         [one] 1 ticket
        *[other] { $count } tickets
        }
+    [asset_records] { $count ->
+        [one] 1 registratie
+       *[other] { $count } registraties
+       }
    *[other] { $count ->
         [one] 1 asset
        *[other] { $count } assets
@@ -4646,6 +4654,7 @@ import-review-empty-skipped = Geen overgeslagen rijen. Elke rij is in orde.
 import-review-empty-new = { $type ->
     [users] Geen nieuwe gebruikers. Elke rij kwam overeen met een bestaande gebruiker.
     [tickets] Geen nieuwe tickets.
+    [asset_records] Geen nieuwe registraties.
    *[other] Geen nieuwe assets. Elke rij kwam overeen met een bestaande asset.
    }
 # MT: pending native review (nl-NL)
@@ -4670,6 +4679,10 @@ import-review-confirm-both = { $type ->
         [one] 1 persoon wordt toegevoegd en { $updated } bijgewerkt.
        *[other] { $created } personen worden toegevoegd en { $updated } bijgewerkt.
        }
+    [asset_records] { $created ->
+        [one] 1 registratie wordt aangemaakt en { $updated } bijgewerkt.
+       *[other] { $created } registraties worden aangemaakt en { $updated } bijgewerkt.
+       }
    *[other] { $created ->
         [one] 1 asset wordt aangemaakt en { $updated } bijgewerkt.
        *[other] { $created } assets worden aangemaakt en { $updated } bijgewerkt.
@@ -4685,6 +4698,10 @@ import-review-confirm-created = { $type ->
         [one] 1 ticket wordt aangemaakt.
        *[other] { $count } tickets worden aangemaakt.
        }
+    [asset_records] { $count ->
+        [one] 1 registratie wordt aangemaakt.
+       *[other] { $count } registraties worden aangemaakt.
+       }
    *[other] { $count ->
         [one] 1 asset wordt aangemaakt.
        *[other] { $count } assets worden aangemaakt.
@@ -4696,6 +4713,10 @@ import-review-confirm-updated = { $type ->
         [one] 1 persoon wordt bijgewerkt.
        *[other] { $count } personen worden bijgewerkt.
        }
+    [asset_records] { $count ->
+        [one] 1 registratie wordt bijgewerkt.
+       *[other] { $count } registraties worden bijgewerkt.
+       }
    *[other] { $count ->
         [one] 1 asset wordt bijgewerkt.
        *[other] { $count } assets worden bijgewerkt.
@@ -4706,6 +4727,10 @@ import-review-confirm-unchanged = { $type ->
     [users] { $count ->
         [one] 1 rij komt overeen met een bestaande gebruiker en blijft ongewijzigd.
        *[other] { $count } rijen komen overeen met bestaande gebruikers en blijven ongewijzigd.
+       }
+    [asset_records] { $count ->
+        [one] 1 rij komt overeen met een bestaande registratie en blijft ongewijzigd.
+       *[other] { $count } rijen komen overeen met bestaande registraties en blijven ongewijzigd.
        }
    *[other] { $count ->
         [one] 1 rij komt overeen met een bestaande asset en blijft ongewijzigd.
@@ -4766,6 +4791,10 @@ import-done-created = { $type ->
         [one] 1 ticket aangemaakt
        *[other] { $count } tickets aangemaakt
        }
+    [asset_records] { $count ->
+        [one] 1 registratie aangemaakt
+       *[other] { $count } registraties aangemaakt
+       }
    *[other] { $count ->
         [one] 1 asset aangemaakt
        *[other] { $count } assets aangemaakt
@@ -4785,6 +4814,7 @@ import-done-created-title = Aangemaakt in uw werkruimte
 import-done-view = { $type ->
     [users] Deze gebruikers bekijken
     [tickets] Deze tickets bekijken
+    [asset_records] Assets bekijken
    *[other] Deze assets bekijken
    }
 # MT: pending native review (nl-NL)
@@ -11863,3 +11893,207 @@ admin-rule-editor-plugin-hint = De regel draait op het ticket dat de gebeurtenis
 # E-mailkanaal: oudere e-mail komt alleen binnen als daarom gevraagd wordt, en stil (machine, nog na te kijken door moedertaalspreker).
 admin-channels-email-field-backlog-since-label = Ook e-mail binnenhalen sinds
 admin-channels-email-field-backlog-since-hint = Laat dit leeg om alleen e-mail te ontvangen die vanaf nu binnenkomt. E-mail van voor de koppeling van het kanaal komt stil binnen, zonder ontvangstbevestiging en zonder regels.
+
+# Onderhoudshistorie importeren: eerder werk aan assets uit een spreadsheet (machine, nog na te kijken door moedertaalspreker).
+# MT: pending native review (nl-NL)
+csv-import-type-asset-records = Onderhoudshistorie
+# MT: pending native review (nl-NL)
+import-field-asset_records-asset-tag = Assettag
+# MT: pending native review (nl-NL)
+import-field-asset_records-serial-number = Serienummer
+# MT: pending native review (nl-NL)
+import-field-asset_records-record-type = Soort registratie
+# MT: pending native review (nl-NL)
+import-field-asset_records-occurred-on = Datum van het werk
+# MT: pending native review (nl-NL)
+import-field-asset_records-completed-on = Afgerond op
+# MT: pending native review (nl-NL)
+import-field-asset_records-outcome = Resultaat
+# MT: pending native review (nl-NL)
+import-field-asset_records-summary = Samenvatting
+# MT: pending native review (nl-NL)
+import-field-asset_records-notes = Notities
+# MT: pending native review (nl-NL)
+import-field-asset_records-vendor = Leverancier
+# MT: pending native review (nl-NL)
+import-field-asset_records-reference = Referentie
+# MT: pending native review (nl-NL)
+import-field-asset_records-cost = Kosten
+# MT: pending native review (nl-NL)
+import-field-asset_records-currency = Valuta
+# MT: pending native review (nl-NL)
+import-field-asset_records-location = Locatie destijds
+# MT: pending native review (nl-NL)
+import-field-asset_records-source-ref = Bronreferentie
+# MT: pending native review (nl-NL)
+import-field-asset_records-performed-by = Uitgevoerd door
+# MT: pending native review (nl-NL)
+import-field-asset_records-holder = Destijds in gebruik bij
+# MT: pending native review (nl-NL)
+import-field-asset_records-ticket = Ticket
+# MT: pending native review (nl-NL)
+import-field-asset_records-replacement-asset-tag = Assettag van vervanger
+# MT: pending native review (nl-NL)
+import-options-match-tag-then-serial = Assettag, dan serienummer
+# MT: pending native review (nl-NL)
+import-options-match-records-asset-tag-help = Elke rij vindt zijn asset op assettag. Een rij waarvan de tag hier niet bestaat, wordt overgeslagen en vermeld.
+# MT: pending native review (nl-NL)
+import-options-match-records-serial-number-help = Elke rij vindt zijn asset op serienummer. Een rij waarvan het serienummer hier niet bestaat, wordt overgeslagen en vermeld.
+# MT: pending native review (nl-NL)
+import-options-match-records-tag-then-serial-help = Elke rij vindt zijn asset op assettag, of op serienummer als de tag leeg is of niets vindt.
+# MT: pending native review (nl-NL)
+import-options-mode-create-update-help-records = Rijen waarvan een registratie de bronreferentie heeft, werken die registratie bij. De andere maken er een aan.
+# MT: pending native review (nl-NL)
+import-options-mode-create-only-help-records = Rijen waarvan een registratie de bronreferentie al heeft, worden overgeslagen. De andere maken er een aan.
+# MT: pending native review (nl-NL)
+import-options-mode-update-only-help-records = Rijen waarvan een registratie de bronreferentie heeft, werken die bij. De andere worden overgeslagen als niet gevonden.
+# MT: pending native review (nl-NL)
+import-options-blank-completion = Een lege afronddatum betekent dat het werk die dag klaar was
+# MT: pending native review (nl-NL)
+import-options-blank-completion-same-day-help = Oude historie is afgerond werk. Vink dit uit om rijen zonder afronddatum als nog open te importeren.
+# MT: pending native review (nl-NL)
+import-options-blank-completion-open-help = Rijen zonder afronddatum worden als open werk geïmporteerd.
+# MT: pending native review (nl-NL)
+import-history-options-blank-open = Lege afronddatum betekent open
+# MT: pending native review (nl-NL)
+import-map-summary-match-asset_records = { $key ->
+    [serial_number] Assets zoeken op serienummer
+    [tag_then_serial] Assets zoeken op assettag, dan serienummer
+   *[other] Assets zoeken op assettag
+   }
+# MT: pending native review (nl-NL)
+import-map-create-heading-asset_records = Nieuwe registraties hebben { $fields } nodig
+# MT: pending native review (nl-NL)
+import-map-create-asset_records = Niets levert { $count ->
+    [one] dit
+   *[other] deze
+   }, dus rijen die een registratie bijwerken via de bronreferentie gaan door, en rijen voor nieuwe registraties worden gemeld bij Controleren.
+# MT: pending native review (nl-NL)
+import-map-detect-asset_records = Dit bestand heeft de kolommen { $headers }. Importeer je onderhoudshistorie?
+# MT: pending native review (nl-NL)
+import-map-switch-asset_records = Overschakelen naar onderhoudshistorie
+# MT: pending native review (nl-NL)
+import-map-switch-asset_records-help = Kolommen worden opnieuw gekoppeld voor onderhoudshistorie.
+# MT: pending native review (nl-NL)
+import-template-record-type-label = Soort registratie
+# MT: pending native review (nl-NL)
+import-template-record-type-none = Alleen gedeelde kolommen
+# MT: pending native review (nl-NL)
+import-template-record-type-help = Kies een soort registratie om de eigen velden toe te voegen, met de resultaten in de keuzelijst Resultaat.
+# MT: pending native review (nl-NL)
+import-review-notice-likely-duplicate = { $count ->
+    [one] 1 rij lijkt al geregistreerd: een registratie van dezelfde asset, soort en dag heeft dezelfde referentie, kosten of samenvatting. Deze wordt overgeslagen.
+   *[other] { $count } rijen lijken al geregistreerd: een registratie van dezelfde asset, soort en dag heeft dezelfde referentie, kosten of samenvatting. Deze worden overgeslagen.
+   }
+# MT: pending native review (nl-NL)
+import-review-notice-unmatched-assets = { $count ->
+    [one] 1 rij gaat over een asset die nog niet in Nosdesk staat.
+   *[other] { $count } rijen gaan over assets die nog niet in Nosdesk staan.
+   } Onderhoudshistorie maakt nooit assets aan: importeer die eerst, en daarna dit bestand opnieuw.
+# MT: pending native review (nl-NL)
+import-review-import-assets-first = Eerst de assets importeren
+# MT: pending native review (nl-NL)
+import-review-notice-before-purchase = { $count ->
+    [one] 1 registratie is gedateerd vóór de aankoopdatum van de asset.
+   *[other] { $count } registraties zijn gedateerd vóór de aankoopdatum van hun asset.
+   }
+# MT: pending native review (nl-NL)
+import-review-notice-completed-long-after = { $count ->
+    [one] 1 registratie is meer dan vijf jaar na de start van het werk afgerond.
+   *[other] { $count } registraties zijn meer dan vijf jaar na de start van het werk afgerond.
+   }
+# MT: pending native review (nl-NL)
+import-review-duplicates-include = Toch importeren
+# MT: pending native review (nl-NL)
+import-review-duplicates-skip = Weer overslaan
+# MT: pending native review (nl-NL)
+import-review-duplicates-included = Rijen die al geregistreerd lijken, worden ook geïmporteerd.
+# MT: pending native review (nl-NL)
+import-review-history-title = Dit bestand in één oogopslag
+# MT: pending native review (nl-NL)
+import-review-history-assets = { $count ->
+    [one] 1 asset
+   *[other] { $count } assets
+   }
+# MT: pending native review (nl-NL)
+import-review-history-span = { $from } tot { $to }
+# MT: pending native review (nl-NL)
+import-review-history-costs = Kosten
+# MT: pending native review (nl-NL)
+import-review-new-record-types = Soorten registratie toegevoegd uit de ingebouwde ({ $count })
+# MT: pending native review (nl-NL)
+import-review-count-record-types = { $count ->
+    [one] 1 soort registratie
+   *[other] { $count } soorten registratie
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-ticket-reason = geen ticket met dit nummer, zonder geïmporteerd
+# MT: pending native review (nl-NL)
+import-review-ni-currency-reason = een valuta zonder kosten, weggelaten
+# MT: pending native review (nl-NL)
+import-review-ni-person-reason-blank = { $values ->
+    [one] geen lid, leeg gelaten
+   *[other] geen leden, leeg gelaten
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-attribute-reason-records = { $kind }-registraties hebben geen { $header }, weggelaten
+# MT: pending native review (nl-NL)
+import-remove-button-records = Geïmporteerde registraties verwijderen
+# MT: pending native review (nl-NL)
+import-remove-window-records = Alleen registraties die sindsdien niemand heeft gewijzigd. Tot { $date }.
+# MT: pending native review (nl-NL)
+import-remove-load-failed-records = Kan de geïmporteerde registraties niet controleren. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+import-remove-failed-records = Het verwijderen van de geïmporteerde registraties is mislukt en er is niets verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-already-removed-records = De registraties die deze import heeft aangemaakt, zijn al verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-nothing-none-created-records = Deze import heeft geen registraties aangemaakt, dus er is niets te verwijderen.
+# MT: pending native review (nl-NL)
+import-remove-nothing-all-gone-records = De registraties die deze import heeft aangemaakt, waren al verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-nothing-all-changed-records = Elke registratie die deze import heeft aangemaakt, is sindsdien gewijzigd, dus er is niets verwijderd.
+# MT: pending native review (nl-NL)
+import-remove-title-records = { $count ->
+    [one] 1 registratie verwijderen?
+   *[other] { $count } registraties verwijderen?
+   }
+# MT: pending native review (nl-NL)
+import-remove-confirm-records = { $count ->
+    [one] 1 registratie verwijderen
+   *[other] { $count } registraties verwijderen
+   }
+# MT: pending native review (nl-NL)
+import-remove-created-records = { $count ->
+    [one] Deze import heeft 1 registratie aangemaakt.
+   *[other] Deze import heeft { $count } registraties aangemaakt.
+   }
+# MT: pending native review (nl-NL)
+import-remove-result-records = { $count ->
+    [one] 1 registratie verwijderd op { $date } door { $name }.
+   *[other] { $count } registraties verwijderd op { $date } door { $name }.
+   }
+# MT: pending native review (nl-NL)
+import-remove-result-anonymous-records = { $count ->
+    [one] 1 registratie verwijderd op { $date }.
+   *[other] { $count } registraties verwijderd op { $date }.
+   }
+# MT: pending native review (nl-NL)
+import-remove-group-schedule = { $count } die een onderhoudsschema afronden
+# MT: pending native review (nl-NL)
+import-remove-reason-schedule = Rondt een onderhoudsschema af
+# MT: pending native review (nl-NL)
+import-review-ni-performer-reason = { $values ->
+    [one] kan hier geen tickets behandelen, leeg gelaten
+   *[other] kunnen hier geen tickets behandelen, leeg gelaten
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-person-reason-blank-kept = { $values ->
+    [one] geen lid, geregistreerde waarde behouden
+   *[other] geen leden, geregistreerde waarden behouden
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-performer-reason-kept = { $values ->
+    [one] kan hier geen tickets behandelen, geregistreerde waarde behouden
+   *[other] kunnen hier geen tickets behandelen, geregistreerde waarden behouden
+   }

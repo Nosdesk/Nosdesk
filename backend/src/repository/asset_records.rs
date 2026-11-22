@@ -597,7 +597,7 @@ fn insert_record(conn: &mut DbConnection, input: NewRecord) -> Result<RecordWrit
         if !rtype.applies_to(&asset.kind) {
             return Err(RecordError::RecordTypeNotForKind { kind: asset.kind });
         }
-        let source_ref = clean(input.source_ref);
+        let source_ref = clean(input.source_ref.clone());
         check_length("source_ref", source_ref.as_deref(), TEXT_MAX)?;
         if let Some(existing) = match &source_ref {
             Some(r) => find_by_source_ref(conn, r)?,
@@ -605,45 +605,7 @@ fn insert_record(conn: &mut DbConnection, input: NewRecord) -> Result<RecordWrit
         } {
             return Err(RecordError::SourceRefExists { id: existing.id });
         }
-
-        let (occurred_on, occurred_at) = input.occurred.split(tz);
-        let (completed_on, completed_at) = match input.completed.map(|c| c.split(tz)) {
-            Some((on, at)) => (Some(on), at),
-            None => (None, None),
-        };
-        let (cost_minor, cost_currency) = match input.cost {
-            Some(c) => (Some(c.minor), Some(c.currency.trim().to_ascii_uppercase())),
-            None => (None, None),
-        };
-        let snapshot = match input.snapshot {
-            Some(s) => (s.holder_uuid, clean(s.location), SnapshotSource::Entered),
-            None => derive_snapshot(conn, &asset, occurred_on, tz)?,
-        };
-        let draft = AssetRecordEdit {
-            record_type_id: rtype.id,
-            summary: clean(input.summary),
-            notes: clean(input.notes),
-            occurred_on,
-            occurred_at,
-            completed_on,
-            completed_at,
-            outcome: clean(input.outcome),
-            vendor: clean(input.vendor),
-            performed_by_uuid: input.performed_by_uuid,
-            reference: clean(input.reference),
-            cost_minor,
-            cost_currency,
-            ticket_id: input.ticket_id,
-            replacement_asset_id: input.replacement_asset_id,
-            holder_uuid: snapshot.0,
-            location: snapshot.1,
-            snapshot_source: snapshot.2.as_str().to_string(),
-            attributes: input.attributes,
-            updated_at: Utc::now(),
-            updated_by: input.recorded_by,
-            version: 1,
-        };
-        let warnings = check(conn, &draft, &asset, &rtype, tz)?;
+        let (draft, warnings) = check_new(conn, &input, &asset, &rtype, tz)?;
 
         let row: AssetRecord = diesel::insert_into(asset_records::table)
             .values(&NewAssetRecord {
@@ -690,6 +652,70 @@ fn insert_record(conn: &mut DbConnection, input: NewRecord) -> Result<RecordWrit
     })
 }
 
+/// A new record on `asset` of type `rtype` as [`create`] would write it,
+/// checked as it checks it, and its warnings, without writing. The type may
+/// be a catalogue entry not yet added to the workspace. The source
+/// reference is the caller's to check.
+pub fn check_new(
+    conn: &mut DbConnection,
+    input: &NewRecord,
+    asset: &Asset,
+    rtype: &AssetRecordType,
+    tz: Tz,
+) -> Result<(AssetRecordEdit, Vec<RecordWarning>), RecordError> {
+    if rtype.archived_at.is_some() {
+        return Err(RecordError::RecordTypeArchived);
+    }
+    if !rtype.applies_to(&asset.kind) {
+        return Err(RecordError::RecordTypeNotForKind {
+            kind: asset.kind.clone(),
+        });
+    }
+    let (occurred_on, occurred_at) = input.occurred.split(tz);
+    let (completed_on, completed_at) = match input.completed.map(|c| c.split(tz)) {
+        Some((on, at)) => (Some(on), at),
+        None => (None, None),
+    };
+    let (cost_minor, cost_currency) = match &input.cost {
+        Some(c) => (Some(c.minor), Some(c.currency.trim().to_ascii_uppercase())),
+        None => (None, None),
+    };
+    let snapshot = match &input.snapshot {
+        Some(s) => (
+            s.holder_uuid,
+            clean(s.location.clone()),
+            SnapshotSource::Entered,
+        ),
+        None => derive_snapshot(conn, asset, occurred_on, tz)?,
+    };
+    let draft = AssetRecordEdit {
+        record_type_id: rtype.id,
+        summary: clean(input.summary.clone()),
+        notes: clean(input.notes.clone()),
+        occurred_on,
+        occurred_at,
+        completed_on,
+        completed_at,
+        outcome: clean(input.outcome.clone()),
+        vendor: clean(input.vendor.clone()),
+        performed_by_uuid: input.performed_by_uuid,
+        reference: clean(input.reference.clone()),
+        cost_minor,
+        cost_currency,
+        ticket_id: input.ticket_id,
+        replacement_asset_id: input.replacement_asset_id,
+        holder_uuid: snapshot.0,
+        location: snapshot.1,
+        snapshot_source: snapshot.2.as_str().to_string(),
+        attributes: input.attributes.clone(),
+        updated_at: Utc::now(),
+        updated_by: input.recorded_by,
+        version: 1,
+    };
+    let warnings = check(conn, &draft, asset, rtype, tz)?;
+    Ok((draft, warnings))
+}
+
 /// Edit record `id` as it stood at `expected_version`. Bumps the version and
 /// stamps the editor. The asset, the entry clock and author, and where the
 /// record came from never change.
@@ -719,73 +745,8 @@ pub fn update(
             conn,
             changes.record_type_id.unwrap_or(current.record_type_id),
         )?;
-        if rtype.id != current.record_type_id {
-            if rtype.archived_at.is_some() {
-                return Err(RecordError::RecordTypeArchived);
-            }
-            if !rtype.applies_to(&asset.kind) {
-                return Err(RecordError::RecordTypeNotForKind { kind: asset.kind });
-            }
-        }
-
-        let (occurred_on, occurred_at) = match changes.occurred {
-            Some(w) => w.split(tz),
-            None => (current.occurred_on, current.occurred_at),
-        };
-        let (completed_on, completed_at) = match changes.completed {
-            Some(Some(w)) => {
-                let (on, at) = w.split(tz);
-                (Some(on), at)
-            }
-            Some(None) => (None, None),
-            None => (current.completed_on, current.completed_at),
-        };
-        let (cost_minor, cost_currency) = match changes.cost {
-            Some(Some(c)) => (Some(c.minor), Some(c.currency.trim().to_ascii_uppercase())),
-            Some(None) => (None, None),
-            None => (current.cost_minor, current.cost_currency.clone()),
-        };
-        let entered = current.snapshot_source == SnapshotSource::Entered.as_str();
-        let snapshot = match changes.snapshot {
-            Some(s) => (s.holder_uuid, clean(s.location), SnapshotSource::Entered),
-            None if !entered && occurred_on != current.occurred_on => {
-                derive_snapshot(conn, &asset, occurred_on, tz)?
-            }
-            None => (
-                current.holder_uuid,
-                current.location.clone(),
-                snapshot_source(&current.snapshot_source),
-            ),
-        };
-        let draft = AssetRecordEdit {
-            record_type_id: rtype.id,
-            summary: changes.summary.map_or(current.summary, clean),
-            notes: changes.notes.map_or(current.notes, clean),
-            occurred_on,
-            occurred_at,
-            completed_on,
-            completed_at,
-            outcome: changes.outcome.map_or(current.outcome, clean),
-            vendor: changes.vendor.map_or(current.vendor, clean),
-            performed_by_uuid: changes
-                .performed_by_uuid
-                .unwrap_or(current.performed_by_uuid),
-            reference: changes.reference.map_or(current.reference, clean),
-            cost_minor,
-            cost_currency,
-            ticket_id: changes.ticket_id.unwrap_or(current.ticket_id),
-            replacement_asset_id: changes
-                .replacement_asset_id
-                .unwrap_or(current.replacement_asset_id),
-            holder_uuid: snapshot.0,
-            location: snapshot.1,
-            snapshot_source: snapshot.2.as_str().to_string(),
-            attributes: changes.attributes.unwrap_or(current.attributes),
-            updated_at: Utc::now(),
-            updated_by,
-            version: current.version + 1,
-        };
-        let warnings = check(conn, &draft, &asset, &rtype, tz)?;
+        let (draft, warnings) =
+            check_update(conn, &current, changes, &asset, &rtype, tz, updated_by)?;
 
         let row: AssetRecord = diesel::update(asset_records::table.find(id))
             .set(&draft)
@@ -802,6 +763,91 @@ pub fn update(
             warnings,
         })
     })
+}
+
+/// Record `current` with `changes` as [`update`] would write it, checked as
+/// it checks it, and its warnings, without writing. `rtype` is the type the
+/// record takes: the one `changes` names, else its own.
+pub fn check_update(
+    conn: &mut DbConnection,
+    current: &AssetRecord,
+    changes: RecordChanges,
+    asset: &Asset,
+    rtype: &AssetRecordType,
+    tz: Tz,
+    updated_by: Option<Uuid>,
+) -> Result<(AssetRecordEdit, Vec<RecordWarning>), RecordError> {
+    let current = current.clone();
+    if rtype.id != current.record_type_id {
+        if rtype.archived_at.is_some() {
+            return Err(RecordError::RecordTypeArchived);
+        }
+        if !rtype.applies_to(&asset.kind) {
+            return Err(RecordError::RecordTypeNotForKind {
+                kind: asset.kind.clone(),
+            });
+        }
+    }
+
+    let (occurred_on, occurred_at) = match changes.occurred {
+        Some(w) => w.split(tz),
+        None => (current.occurred_on, current.occurred_at),
+    };
+    let (completed_on, completed_at) = match changes.completed {
+        Some(Some(w)) => {
+            let (on, at) = w.split(tz);
+            (Some(on), at)
+        }
+        Some(None) => (None, None),
+        None => (current.completed_on, current.completed_at),
+    };
+    let (cost_minor, cost_currency) = match changes.cost {
+        Some(Some(c)) => (Some(c.minor), Some(c.currency.trim().to_ascii_uppercase())),
+        Some(None) => (None, None),
+        None => (current.cost_minor, current.cost_currency.clone()),
+    };
+    let entered = current.snapshot_source == SnapshotSource::Entered.as_str();
+    let snapshot = match changes.snapshot {
+        Some(s) => (s.holder_uuid, clean(s.location), SnapshotSource::Entered),
+        None if !entered && occurred_on != current.occurred_on => {
+            derive_snapshot(conn, asset, occurred_on, tz)?
+        }
+        None => (
+            current.holder_uuid,
+            current.location.clone(),
+            snapshot_source(&current.snapshot_source),
+        ),
+    };
+    let draft = AssetRecordEdit {
+        record_type_id: rtype.id,
+        summary: changes.summary.map_or(current.summary, clean),
+        notes: changes.notes.map_or(current.notes, clean),
+        occurred_on,
+        occurred_at,
+        completed_on,
+        completed_at,
+        outcome: changes.outcome.map_or(current.outcome, clean),
+        vendor: changes.vendor.map_or(current.vendor, clean),
+        performed_by_uuid: changes
+            .performed_by_uuid
+            .unwrap_or(current.performed_by_uuid),
+        reference: changes.reference.map_or(current.reference, clean),
+        cost_minor,
+        cost_currency,
+        ticket_id: changes.ticket_id.unwrap_or(current.ticket_id),
+        replacement_asset_id: changes
+            .replacement_asset_id
+            .unwrap_or(current.replacement_asset_id),
+        holder_uuid: snapshot.0,
+        location: snapshot.1,
+        snapshot_source: snapshot.2.as_str().to_string(),
+        attributes: changes.attributes.unwrap_or(current.attributes),
+        updated_at: Utc::now(),
+        updated_by,
+        version: current.version + 1,
+    };
+    let warnings = check(conn, &draft, asset, rtype, tz)?;
+    Ok((draft, warnings))
 }
 
 /// Delete record `id`. Its files stay on the asset, no longer pointing at

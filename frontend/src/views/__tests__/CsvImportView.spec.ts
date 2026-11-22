@@ -2036,3 +2036,202 @@ describe('CsvImportView Match values', () => {
     expect(currentStep()).toBe('map')
   })
 })
+
+describe('CsvImportView service history', () => {
+  const RECORD_FIELDS: ImportField[] = [
+    { id: 'asset_tag', label: 'Asset tag', group: 'core', value_type: 'text', required: false },
+    { id: 'serial_number', label: 'Serial number', group: 'core', value_type: 'text', required: false },
+    {
+      id: 'record_type',
+      label: 'Record type',
+      group: 'core',
+      value_type: 'enum',
+      required: true,
+      enum: ['repair', 'calibration'],
+      enum_labels: ['Repair', 'Calibration'],
+    },
+    { id: 'occurred_on', label: 'Date of work', group: 'core', value_type: 'date', required: true },
+    { id: 'source_ref', label: 'Source reference', group: 'core', value_type: 'text', required: false },
+  ]
+
+  function historyJob(overrides: Partial<ImportJob> = {}): ImportJob {
+    return parsedJob({
+      job_type: 'asset_records',
+      filename: 'history.csv',
+      source: {
+        format: 'csv',
+        sheets: [],
+        sheet: null,
+        header_row: 1,
+        headers: [
+          { index: 0, name: 'Tag', samples: ['CAM-014'] },
+          { index: 1, name: 'Type', samples: ['Repair'] },
+          { index: 2, name: 'Date', samples: ['2019-03-14'] },
+          { index: 3, name: 'Id', samples: ['R-1'] },
+        ],
+        row_count: 3,
+        delimiter: ',',
+      },
+      suggested_mapping: [
+        { index: 0, field: 'asset_tag', reason: 'synonym' },
+        { index: 1, field: 'record_type', reason: 'synonym' },
+        { index: 2, field: 'occurred_on', reason: 'synonym' },
+      ],
+      ...overrides,
+    })
+  }
+
+  function checkedHistory(overrides: Partial<ImportJob> = {}): ImportJob {
+    return historyJob({
+      status: 'dry_run_done',
+      mapping: { asset_tag: 0, record_type: 1, occurred_on: 2 },
+      options: { match_by: 'asset_tag', mode: 'create_update', decimal: '.', date_order: 'iso', constants: [] },
+      summary: {
+        row_count: 3,
+        would_create: 1,
+        would_update: 0,
+        unchanged: 1,
+        errors: [{ row: 4, column: 'asset_tag', message: "no asset with tag 'CAM-404'" }],
+        errors_truncated: false,
+        errors_total: 1,
+        rows_with_errors: 1,
+        error_groups: [{ column: 'asset_tag', message: 'no asset with this tag', count: 1, fix: 'download' }],
+        notices: [
+          { code: 'unmatched_assets', count: 1, message: 'fallback' },
+          { code: 'likely_duplicate', count: 1, message: 'fallback' },
+        ],
+        catalog: { manufacturers: [], models: [], groups: [], record_types: ['repair'] },
+        history: {
+          assets: 1,
+          earliest: '2019-03-14',
+          latest: '2019-03-14',
+          costs: [{ currency: 'AUD', amount: '1250.50', rows: 1 }],
+        },
+      },
+      ...overrides,
+    })
+  }
+
+  beforeEach(() => {
+    api.fields.mockResolvedValue(RECORD_FIELDS)
+  })
+
+  it('offers service history at Start, with a template for one record type', async () => {
+    const createObjectURL = vi.fn(() => 'blob:template')
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL: vi.fn() })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    try {
+      await mountAt()
+      const history = wrapper!
+        .findAll('[role="radio"]')
+        .find((r) => r.text() === 'csv-import-type-asset-records')
+      expect(history).toBeTruthy()
+      await history!.trigger('click')
+      await flushPromises()
+      expect(wrapper!.find('[data-test="import-template-kind"]').exists()).toBe(false)
+      const types = wrapper!.find('[data-test="import-template-record-type"]')
+      expect(types.findAll('button').map((b) => b.text())).toEqual([
+        'import-template-record-type-none',
+        'Repair',
+        'Calibration',
+      ])
+      await types.find('[data-value="repair"]').trigger('click')
+      await wrapper!.find('[data-test="import-template-download"]').trigger('click')
+      await flushPromises()
+      expect(api.template).toHaveBeenLastCalledWith('asset_records', 'repair', 'csv')
+    } finally {
+      click.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('opens Start on the type a link asks for', async () => {
+    await mountAt('/admin/data-import/csv?type=assets')
+    const checked = wrapper!.findAll('[role="radio"][data-state="checked"]').map((r) => r.text())
+    expect(checked).toContain('csv-import-type-assets')
+  })
+
+  it('finds assets by tag then serial, asks the mode only with a source reference, and sends open completions', async () => {
+    api.get.mockResolvedValue(historyJob())
+    api.putMapping.mockResolvedValue(checkedHistory())
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('map')
+
+    const match = wrapper!.findAll('[role="radio"]').filter((r) => r.text().startsWith('import-options-match-'))
+    expect(match.map((r) => r.text())).toEqual([
+      'import-options-match-asset-tag',
+      'import-options-match-serial',
+      'import-options-match-tag-then-serial',
+    ])
+    await match[2].trigger('click')
+    expect(wrapper!.text()).toContain('import-options-match-records-tag-then-serial-help')
+
+    // Without a source reference every row creates: no mode to ask.
+    expect(wrapper!.find('[data-test="import-mode"]').exists()).toBe(false)
+    await targets()[3].setValue('source_ref')
+    expect(wrapper!.find('[data-test="import-mode"]').exists()).toBe(true)
+    expect(wrapper!.text()).toContain('import-options-mode-create-update-help-records')
+
+    // Blank completion means the same day until unticked.
+    const blank = wrapper!.find('[data-test="import-blank-completion"] [role="checkbox"]')
+    expect(blank.attributes('aria-checked')).toBe('true')
+    await blank.trigger('click')
+
+    await checkButton().trigger('click')
+    await flushPromises()
+    expect(api.putMapping.mock.calls[0][1]).toEqual({
+      asset_tag: 0,
+      record_type: 1,
+      occurred_on: 2,
+      source_ref: 3,
+    })
+    expect(api.putMapping.mock.calls[0][2]).toMatchObject({
+      match_by: 'tag_then_serial',
+      mode: 'create_update',
+      blank_completion: 'open',
+    })
+  })
+
+  it('blocks a check when nothing gives the column assets are found by', async () => {
+    api.get.mockResolvedValue(historyJob())
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await targets()[0].setValue('__ignore__')
+    expect(checkButton().attributes('disabled')).toBeDefined()
+  })
+
+  it('reviews the file at a glance, links the asset import, and imports likely duplicates on request', async () => {
+    api.get.mockResolvedValue(checkedHistory())
+    api.putMapping.mockResolvedValue(
+      checkedHistory({ options: { ...checkedHistory().options!, import_likely_duplicates: true } }),
+    )
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('review')
+
+    const glance = wrapper!.find('[data-test="import-review-history"]')
+    expect(glance.text()).toContain('import-review-history-assets')
+    expect(glance.find('[data-test="import-review-history-costs"]').exists()).toBe(true)
+    expect(wrapper!.find('[data-test="import-new-in-workspace"]').text()).toContain(
+      'import-review-new-record-types',
+    )
+
+    const unmatched = wrapper!.find('[data-test="import-review-unmatched-assets"]')
+    expect(unmatched.text()).toContain('import-review-notice-unmatched-assets')
+    expect(unmatched.find('[data-test="import-review-import-assets"]').attributes('href')).toBe(
+      '/admin/data-import/csv?type=assets',
+    )
+
+    const duplicates = wrapper!.find('[data-test="import-review-duplicates"]')
+    expect(duplicates.text()).toContain('import-review-notice-likely-duplicate')
+    await duplicates.find('[data-test="import-review-duplicates-toggle"]').trigger('click')
+    await flushPromises()
+    expect(api.putMapping).toHaveBeenCalledWith(
+      'job-1',
+      { asset_tag: 0, record_type: 1, occurred_on: 2 },
+      expect.objectContaining({ import_likely_duplicates: true, match_by: 'asset_tag' }),
+      [],
+    )
+    expect(wrapper!.find('[data-test="import-review-duplicates"]').text()).toContain(
+      'import-review-duplicates-included',
+    )
+  })
+})

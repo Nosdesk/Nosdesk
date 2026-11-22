@@ -2,7 +2,7 @@ import type { useQueryCache } from '@pinia/colada'
 import apiClient from '../apiClient'
 import { fileNameFromDisposition } from '../utils/contentDisposition'
 
-export type ImportJobType = 'assets' | 'users' | 'tickets'
+export type ImportJobType = 'assets' | 'users' | 'tickets' | 'asset_records'
 
 /** A template download's file format. */
 export type ImportTemplateFormat = 'csv' | 'xlsx'
@@ -88,6 +88,8 @@ export interface DroppedGroup {
   /** The value left out, for a group nothing links or a person who isn't
    *  a member; absent for an attribute. */
   value?: string
+  /** The rows update records that keep what they hold for the field. */
+  kept?: boolean
   /** Rows. */
   count: number
 }
@@ -105,6 +107,26 @@ export interface CatalogPlan {
   manufacturers: string[]
   models: PlannedModel[]
   groups: string[]
+  /** Asset record types added from the catalogue of built-ins, by slug. */
+  record_types?: string[]
+}
+
+/** The cost of some rows in one currency. */
+export interface CostTotal {
+  currency: string
+  /** A plain decimal with the currency's exponent: `1250.50`. */
+  amount: string
+  rows: number
+}
+
+/** An asset records import's file at a glance, over the rows that write. */
+export interface HistoryFacts {
+  /** Assets the rows are on. */
+  assets: number
+  earliest?: string | null
+  latest?: string | null
+  /** Per currency, never converted. */
+  costs: CostTotal[]
 }
 
 export interface ImportSummary {
@@ -130,6 +152,8 @@ export interface ImportSummary {
   /** Columns no field takes (none chosen, or Don't import), in source
    *  order. */
   unmapped?: UnmappedColumn[]
+  /** Asset records only. */
+  history?: HistoryFacts
 }
 
 export interface SourceHeader {
@@ -191,9 +215,12 @@ export interface Suggestion {
 /** Field id to the 0-based column index that feeds it. */
 export type ColumnMapping = Record<string, number>
 
-export type MatchBy = 'asset_tag' | 'serial_number'
+/** How rows find their asset. `tag_then_serial` is for asset records
+ *  only: the tag, else the serial for a row whose tag finds nothing. */
+export type MatchBy = 'asset_tag' | 'serial_number' | 'tag_then_serial'
 /** Which rows write: matched rows update and the others create, or only
- *  one of the two (the other is skipped). Assets only. */
+ *  one of the two (the other is skipped). Assets, and asset records by
+ *  their source reference. */
 export type ImportMode = 'create_update' | 'create_only' | 'update_only'
 export type DateOrder = 'iso' | 'dmy' | 'mdy'
 export type DecimalMark = '.' | ','
@@ -209,6 +236,9 @@ export interface ImportConstant {
   apply_to?: ApplyTo
 }
 
+/** What a blank completion date means on a new asset record. */
+export type BlankCompletion = 'same_day' | 'open'
+
 export interface ImportOptions {
   match_by?: MatchBy
   mode?: ImportMode
@@ -216,6 +246,10 @@ export interface ImportOptions {
   date_order?: DateOrder
   decimal?: DecimalMark | null
   constants?: ImportConstant[]
+  /** Asset records: absent is `same_day`. */
+  blank_completion?: BlankCompletion
+  /** Asset records: import rows that look already recorded. */
+  import_likely_duplicates?: boolean
 }
 
 /** What happens to the rows holding one source value of a field. */
@@ -254,6 +288,9 @@ export interface ImportField {
   /** Kind slugs that define the field (attributes only). */
   kinds?: string[]
   enum?: string[]
+  /** Each of `enum` named, in order, where values aren't their own names
+   *  (an asset record type's slug). */
+  enum_labels?: string[]
   format?: string
   /** Kind slugs whose new assets need the field (attributes only). Never
    *  blocks the check; rows of those kinds that lack it are skipped. */
@@ -355,6 +392,7 @@ export type KeptReason =
   | { code: 'disposed' }
   | { code: 'loan' }
   | { code: 'records'; count: number }
+  | { code: 'schedule' }
   | { code: 'status_changed' }
   | { code: 'ticket'; ticket_id: number }
   | { code: 'media'; photos: number; files: number }
@@ -370,6 +408,8 @@ export interface KeptAsset {
   tag?: string | null
   name: string
   reasons: KeptReason[]
+  /** For a record an asset records import created: the asset it is on. */
+  asset_id?: number | null
 }
 
 /** How many catalog entries the import created would be removed when
@@ -522,7 +562,7 @@ export interface ImportRowResult {
   errors?: { column: string | null; source_column?: string | null; message: string }[]
   /** Values the row imports without: its kind has no such attribute, a
    *  group left off, a person who isn't a member. */
-  dropped?: { column: string; source_column?: string | null; kind: string; value?: string }[]
+  dropped?: { column: string; source_column?: string | null; kind: string; value?: string; kept?: boolean }[]
   /** Each field the row changes, before and after, as text (status and
    *  kind as their keys): after the commit what it wrote, in a checked plan
    *  what an update would write (a new row: its status move). */
@@ -899,13 +939,14 @@ export const importService = {
    *  slug) adds that kind's attribute columns. `xlsx` is a workbook with
    *  dropdowns and a Fields sheet; CSV, the default, adds nothing to the
    *  query. */
+  /** `kind` is an asset kind for assets, a record type for asset records. */
   async template(
     jobType: ImportJobType,
     kind?: string,
     format: ImportTemplateFormat = 'csv',
   ): Promise<{ blob: Blob; filename: string }> {
     const params: Record<string, string> = {}
-    if (kind) params.kind = kind
+    if (kind) params[jobType === 'asset_records' ? 'record_type' : 'kind'] = kind
     if (format === 'xlsx') params.format = 'xlsx'
     const response = await withJsonError(() =>
       apiClient.get<Blob>(`/admin/import/template/${jobType}`, {

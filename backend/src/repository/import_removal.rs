@@ -136,6 +136,87 @@ pub fn media_counts(conn: &mut DbConnection, ids: &[i32]) -> QueryResult<HashMap
     Ok(out)
 }
 
+/// What the untouched rule reads off a record of work an import created.
+#[derive(Debug, Clone, Queryable)]
+pub struct RecordState {
+    pub id: i32,
+    pub asset_id: i32,
+    pub record_type_id: i32,
+    pub summary: Option<String>,
+    pub version: i32,
+    pub updated_at: DateTime<Utc>,
+    pub updated_by: Option<Uuid>,
+    pub schedule_id: Option<i32>,
+}
+
+/// The records of `ids` that still exist, by id. With `lock`, each row is
+/// locked `FOR UPDATE` in id order, as [`asset_states`] locks assets.
+// sync-audit-only: read-only (takes row locks, writes nothing)
+pub fn record_states(
+    conn: &mut DbConnection,
+    ids: &[i32],
+    lock: bool,
+) -> QueryResult<Vec<RecordState>> {
+    let query = asset_records::table
+        .filter(asset_records::id.eq_any(ids))
+        .order(asset_records::id.asc())
+        .select((
+            asset_records::id,
+            asset_records::asset_id,
+            asset_records::record_type_id,
+            asset_records::summary,
+            asset_records::version,
+            asset_records::updated_at,
+            asset_records::updated_by,
+            asset_records::schedule_id,
+        ));
+    if lock {
+        query.for_update().load(conn)
+    } else {
+        query.load(conn)
+    }
+}
+
+/// Each record's photos and other files: `(photos, files)`.
+// sync-audit-only: read-only
+pub fn record_media_counts(
+    conn: &mut DbConnection,
+    ids: &[i32],
+) -> QueryResult<HashMap<i32, (i64, i64)>> {
+    let rows: Vec<(Option<i32>, String, i64)> = asset_media::table
+        .filter(asset_media::record_id.eq_any(ids))
+        .group_by((asset_media::record_id, asset_media::kind))
+        .select((asset_media::record_id, asset_media::kind, count_star()))
+        .load(conn)?;
+    let mut out: HashMap<i32, (i64, i64)> = HashMap::new();
+    for (record, kind, n) in rows {
+        let Some(record) = record else { continue };
+        let entry = out.entry(record).or_default();
+        if kind == "photo" {
+            entry.0 += n;
+        } else {
+            entry.1 += n;
+        }
+    }
+    Ok(out)
+}
+
+/// The name and tag of each asset of `ids`.
+// sync-audit-only: read-only
+pub fn asset_names(
+    conn: &mut DbConnection,
+    ids: &[i32],
+) -> QueryResult<HashMap<i32, (String, Option<String>)>> {
+    let rows: Vec<(i32, String, Option<String>)> = assets::table
+        .filter(assets::id.eq_any(ids))
+        .select((assets::id, assets::name, assets::asset_tag))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, name, tag)| (id, (name, tag)))
+        .collect())
+}
+
 /// Each audited asset's latest count.
 // sync-audit-only: read-only
 pub fn latest_audits(

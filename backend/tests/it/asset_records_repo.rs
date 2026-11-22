@@ -637,6 +637,27 @@ fn long_text_and_a_taken_source_ref_are_refused_by_name() {
     );
 }
 
+/// A new record on an archived type is refused for the type before its
+/// source reference is looked at, as it was before the importer shared the
+/// checks.
+#[test]
+fn an_archived_type_is_refused_before_a_taken_source_ref() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let ws = seeded.a.workspace_id;
+    let asset = new_asset(&pool, ws, "Camera");
+    let repair = repair_type(&pool, ws);
+    let mut first = record(asset, repair.id, day(2024, 2, 1), None);
+    first.source_ref = Some("legacy-9".to_string());
+    in_ws(&pool, ws, |c| records::create(c, first.clone())).expect("create");
+    in_ws(&pool, ws, |c| asset_record_types::archive(c, repair.id)).expect("archive");
+    assert!(matches!(
+        refused(in_ws(&pool, ws, |c| records::create(c, first))),
+        RecordError::RecordTypeArchived
+    ));
+}
+
 /// Deleting the transition that opened a record clears the link, through
 /// the index on it, and leaves the record.
 #[test]

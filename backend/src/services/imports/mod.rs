@@ -12,6 +12,7 @@
 //! Per-type behaviour lives in a [`Importer`] implementation;
 //! the top-level handlers dispatch on `ImportType`.
 
+pub mod asset_records;
 pub mod assets;
 pub mod catalog;
 pub mod csv_parser;
@@ -36,12 +37,12 @@ pub mod values;
 pub mod xlsx;
 
 pub use types::{
-    ApplyTo, CatalogKind, CatalogPlan, CatalogRef, CellError, ChangeCount, CommitError, Committed,
-    Constant, CreatedLink, DateOrder, DecimalMark, DroppedCell, DroppedGroup, ErrorGroup,
-    FieldChange, FieldGroup, FieldSpec, Fix, ImportContext, ImportMode, ImportOptions,
-    ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer, KindCount, MatchBy, Notice,
-    PlannedModel, RecordId, RecordIds, RowError, RowOutcome, RowPhase, RowPlan, RowResult,
-    StoredRowResults, UnmappedColumn, ValueAnswer, ValueAnswers, ValueType,
+    ApplyTo, BlankCompletion, CatalogKind, CatalogPlan, CatalogRef, CellError, ChangeCount,
+    CommitError, Committed, Constant, CostTotal, CreatedLink, DateOrder, DecimalMark, DroppedCell,
+    DroppedGroup, ErrorGroup, FieldChange, FieldGroup, FieldSpec, Fix, HistoryFacts, ImportContext,
+    ImportMode, ImportOptions, ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer,
+    KindCount, MatchBy, Notice, PlannedModel, RecordId, RecordIds, RowError, RowOutcome, RowPhase,
+    RowPlan, RowResult, StoredRowResults, UnmappedColumn, ValueAnswer, ValueAnswers, ValueType,
 };
 
 use diesel::result::Error as DieselError;
@@ -54,6 +55,7 @@ pub fn importer_for(t: ImportType) -> Box<dyn Importer> {
         ImportType::Assets => Box::new(assets::AssetImporter),
         ImportType::Users => Box::new(users::UserImporter),
         ImportType::Tickets => Box::new(tickets::TicketImporter),
+        ImportType::AssetRecords => Box::new(asset_records::AssetRecordImporter),
     }
 }
 

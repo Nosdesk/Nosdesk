@@ -14,6 +14,9 @@
 //! Restore previous values (`services::imports::restore`) reads the same
 //! file through [`restorable`]: a value goes back only where the asset
 //! still holds what the import wrote.
+//!
+//! An asset records import has the same file for the records it updated by
+//! their source reference, keyed by that reference ([`Layout`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -21,7 +24,7 @@ use serde::Serialize;
 
 use super::assets::TEMPLATE_CORE_HEADERS;
 use super::safe_cells::csv_formula_safe;
-use super::{MatchBy, RecordId, RowOutcome, RowResult};
+use super::{ImportType, MatchBy, RecordId, RowOutcome, RowResult};
 
 /// Written by an update but not offered back: an import adds groups and
 /// never removes them.
@@ -40,13 +43,56 @@ pub struct PreviousValues {
 pub fn key_field(key: MatchBy) -> &'static str {
     match key {
         MatchBy::SerialNumber => "serial_number",
-        MatchBy::AssetTag | MatchBy::None => "asset_tag",
+        MatchBy::AssetTag | MatchBy::TagThenSerial | MatchBy::None => "asset_tag",
+    }
+}
+
+/// How an import type's file is laid out: the column rows are matched on,
+/// and the template whose order the other columns take.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Layout {
+    pub key: &'static str,
+    pub order: &'static [&'static str],
+    /// Fields that go back together or not at all: a cost and its
+    /// currency.
+    pub together: &'static [&'static str],
+}
+
+impl Layout {
+    /// An asset import's, matched on its own key.
+    pub fn assets(key: MatchBy) -> Self {
+        Self {
+            key: key_field(key),
+            order: TEMPLATE_CORE_HEADERS,
+            together: &[],
+        }
+    }
+
+    /// An asset records import's: records are updated by their source
+    /// reference only.
+    pub fn asset_records() -> Self {
+        Self {
+            key: "source_ref",
+            order: super::asset_records::TEMPLATE_HEADERS,
+            together: &super::asset_records::COST_FIELDS,
+        }
+    }
+
+    /// The layout of a job of `job_type` matched on `key`, for the types
+    /// whose updates are kept.
+    pub fn of(job_type: ImportType, key: MatchBy) -> Option<Self> {
+        match job_type {
+            ImportType::Assets => Some(Self::assets(key)),
+            ImportType::AssetRecords => Some(Self::asset_records()),
+            ImportType::Users | ImportType::Tickets => None,
+        }
     }
 }
 
 /// The fields the file holds, in the template's order with attributes
 /// after the core fields.
-fn columns(rows: &[&RowResult], key: &str) -> Vec<String> {
+fn columns(rows: &[&RowResult], layout: Layout) -> Vec<String> {
+    let key = layout.key;
     let written: BTreeSet<&str> = rows
         .iter()
         .flat_map(|r| r.fields_written.keys())
@@ -54,10 +100,11 @@ fn columns(rows: &[&RowResult], key: &str) -> Vec<String> {
         .filter(|f| *f != key && !NOT_RESTORABLE.contains(f))
         .collect();
     let rank = |f: &str| {
-        TEMPLATE_CORE_HEADERS
+        layout
+            .order
             .iter()
             .position(|h| *h == f)
-            .unwrap_or(TEMPLATE_CORE_HEADERS.len())
+            .unwrap_or(layout.order.len())
     };
     let mut out: Vec<String> = written.into_iter().map(str::to_string).collect();
     out.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.cmp(b)));
@@ -86,10 +133,9 @@ fn before(row: &RowResult, field: &str) -> Option<String> {
 }
 
 /// How many assets the file has and how many of their fields were blank.
-pub fn counts(rows: &[RowResult], key: MatchBy) -> PreviousValues {
-    let key = key_field(key);
-    let rows = updated(rows, key);
-    let columns = columns(&rows, key);
+pub fn counts(rows: &[RowResult], layout: Layout) -> PreviousValues {
+    let rows = updated(rows, layout.key);
+    let columns = columns(&rows, layout);
     let blank_before = rows
         .iter()
         .map(|r| {
@@ -137,11 +183,11 @@ fn same(a: Option<&str>, b: Option<&str>) -> bool {
 /// `importable` refuses (an attribute removed since).
 pub fn restorable(
     rows: &[RowResult],
-    key: MatchBy,
+    layout: Layout,
     current: &CurrentValues,
     importable: impl Fn(&str) -> bool,
 ) -> Restorable {
-    let key = key_field(key);
+    let key = layout.key;
     let mut out = Restorable::default();
     for row in updated(rows, key) {
         let candidates: Vec<(&String, &super::FieldChange)> = row
@@ -164,12 +210,26 @@ pub fn restorable(
             out.changed_since += candidates.len();
             continue;
         };
-        let (keep, changed): (Vec<_>, Vec<_>) = candidates.into_iter().partition(|(f, c)| {
-            same(
-                now.get(f.as_str()).and_then(Option::as_deref),
-                c.after.as_deref(),
-            )
-        });
+        let (mut keep, mut changed): (Vec<_>, Vec<_>) =
+            candidates.into_iter().partition(|(f, c)| {
+                same(
+                    now.get(f.as_str()).and_then(Option::as_deref),
+                    c.after.as_deref(),
+                )
+            });
+        // A field that goes back with another stays when that one changed
+        // since: a cost put back in a currency someone has changed would be
+        // a different amount.
+        if changed
+            .iter()
+            .any(|(f, _)| layout.together.contains(&f.as_str()))
+        {
+            let (moved, kept): (Vec<_>, Vec<_>) = keep
+                .into_iter()
+                .partition(|(f, _)| layout.together.contains(&f.as_str()));
+            keep = kept;
+            changed.extend(moved);
+        }
         out.changed_since += changed.len();
         if keep.is_empty() {
             continue;
@@ -187,10 +247,10 @@ pub fn restorable(
 /// The file: a UTF-8 BOM so Excel reads it as UTF-8, the key column, then
 /// each field's value before the import; a field the row didn't write is
 /// blank and so left as it is.
-pub fn csv(rows: &[RowResult], key: MatchBy) -> Result<Vec<u8>, csv::Error> {
-    let key = key_field(key);
+pub fn csv(rows: &[RowResult], layout: Layout) -> Result<Vec<u8>, csv::Error> {
+    let key = layout.key;
     let rows = updated(rows, key);
-    let columns = columns(&rows, key);
+    let columns = columns(&rows, layout);
     let mut buf = "\u{FEFF}".as_bytes().to_vec();
     {
         let mut wtr = csv::Writer::from_writer(&mut buf);
@@ -264,7 +324,7 @@ mod tests {
             RowResult::planned(4, RowOutcome::Create).with_key(Some("T-3".to_string())),
             update(5, "T-4", &[("groups", None, Some("B"))]),
         ];
-        let file = csv(&rows, MatchBy::AssetTag).unwrap();
+        let file = csv(&rows, Layout::assets(MatchBy::AssetTag)).unwrap();
         assert_eq!(
             lines(&file),
             vec![
@@ -274,7 +334,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            counts(&rows, MatchBy::AssetTag),
+            counts(&rows, Layout::assets(MatchBy::AssetTag)),
             PreviousValues {
                 rows: 2,
                 blank_before: 1
@@ -293,7 +353,7 @@ mod tests {
                 ("attr:mount", Some("=EF"), Some("PL")),
             ],
         )];
-        let file = csv(&rows, MatchBy::SerialNumber).unwrap();
+        let file = csv(&rows, Layout::assets(MatchBy::SerialNumber)).unwrap();
         assert_eq!(
             lines(&file),
             vec![
@@ -357,7 +417,9 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let restore = restorable(&rows, MatchBy::AssetTag, &current, |f| f != "attr:gone");
+        let restore = restorable(&rows, Layout::assets(MatchBy::AssetTag), &current, |f| {
+            f != "attr:gone"
+        });
         assert_eq!(restore.changed_since, 3);
         assert_eq!(restore.rows.len(), 1);
         assert_eq!(
@@ -365,7 +427,7 @@ mod tests {
             vec!["location"]
         );
         assert_eq!(
-            lines(&csv(&restore.rows, MatchBy::AssetTag).unwrap()),
+            lines(&csv(&restore.rows, Layout::assets(MatchBy::AssetTag)).unwrap()),
             vec!["asset_tag,location".to_string(), "T-1,Studio A".to_string()]
         );
     }
@@ -374,9 +436,12 @@ mod tests {
     fn nothing_updated_is_a_header_only_file() {
         let rows = vec![RowResult::planned(2, RowOutcome::Unchanged)];
         assert_eq!(
-            lines(&csv(&rows, MatchBy::AssetTag).unwrap()),
+            lines(&csv(&rows, Layout::assets(MatchBy::AssetTag)).unwrap()),
             vec!["asset_tag"]
         );
-        assert_eq!(counts(&rows, MatchBy::AssetTag), PreviousValues::default());
+        assert_eq!(
+            counts(&rows, Layout::assets(MatchBy::AssetTag)),
+            PreviousValues::default()
+        );
     }
 }

@@ -124,7 +124,8 @@ pub fn report_csv<'a>(
 }
 
 /// Why a row imports without some of its values, as one cell: "Header:
-/// reason; Header: reason". `kind_label` names a kind by its slug.
+/// reason; Header: reason". `kind_label` names the records of a kind by
+/// its slug: "Vehicle assets", "Repair records".
 pub fn dropped_text(
     cells: &[&DroppedCell],
     fields: &[FieldSpec],
@@ -139,12 +140,25 @@ pub fn dropped_text(
                     .find(|f| f.id == d.column)
                     .map_or_else(|| d.column.clone(), |f| f.label.clone())
             });
+            let left = if d.kept {
+                "kept as recorded"
+            } else {
+                "left blank"
+            };
             let reason = match (d.column.as_str(), &d.value) {
                 ("primary_user", Some(value)) => {
                     format!("'{value}' is not a member of this workspace, left unassigned")
                 }
+                ("performed_by", Some(value)) => {
+                    format!("'{value}' isn't someone who can work tickets here, {left}")
+                }
+                ("holder", Some(value)) => {
+                    format!("'{value}' is not a member of this workspace, {left}")
+                }
+                ("ticket", Some(value)) => format!("no ticket '{value}', left off"),
+                ("currency", Some(value)) => format!("'{value}' without a cost, left off"),
                 (_, Some(value)) => format!("'{value}' left off"),
-                (_, None) => format!("{} assets have no {name}, left out", kind_label(&d.kind)),
+                (_, None) => format!("{} have no {name}, left out", kind_label(&d.kind)),
             };
             format!("{name}: {reason}")
         })
@@ -283,6 +297,7 @@ mod tests {
                 },
                 kind: "camera".to_string(),
                 value: value.map(String::from),
+                kept: false,
             })
             .collect();
         r
@@ -333,7 +348,7 @@ mod tests {
                 &rows,
                 &fields,
                 phase,
-                |_| "Camera".to_string(),
+                |_| "Camera assets".to_string(),
                 |row| file.get(&row).map_or(&[][..], |c| c.as_slice()),
             )
             .unwrap();

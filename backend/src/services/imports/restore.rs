@@ -19,7 +19,8 @@ use uuid::Uuid;
 use super::history::{state_of, JobState};
 use super::mapping::ColumnMapping;
 use super::types::{
-    FieldSpec, ImportMode, ImportOptions, MatchBy, Notice, ValueAnswer, ValueAnswers,
+    DecimalMark, FieldSpec, ImportMode, ImportOptions, ImportType, MatchBy, Notice, ValueAnswer,
+    ValueAnswers,
 };
 use super::values::{Layer, LookupKind, Resolution};
 use crate::models::JobLink;
@@ -59,12 +60,21 @@ pub fn mapping(headers: &[String], fields: &[FieldSpec]) -> ColumnMapping {
         .collect()
 }
 
-/// Update the assets the source matched, on its key, creating nothing.
-pub fn options(key: MatchBy) -> ImportOptions {
-    ImportOptions {
-        mode: ImportMode::UpdateOnly,
-        match_by: key,
-        ..Default::default()
+/// Update the assets the source matched, on its key, creating nothing. A
+/// records restore updates the records by their source reference, and
+/// reads the costs as the file writes them, with a `.`.
+pub fn options(job_type: ImportType, key: MatchBy) -> ImportOptions {
+    match job_type {
+        ImportType::AssetRecords => ImportOptions {
+            mode: ImportMode::UpdateOnly,
+            decimal: Some(DecimalMark::Dot),
+            ..Default::default()
+        },
+        _ => ImportOptions {
+            mode: ImportMode::UpdateOnly,
+            match_by: key,
+            ..Default::default()
+        },
     }
 }
 
@@ -118,7 +128,7 @@ pub fn changed_since_notice(count: usize) -> Notice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::imports::types::{FieldGroup, ImportType, ValueType};
+    use crate::services::imports::types::{FieldGroup, ValueType};
 
     fn job(status: &str, completed: Option<i64>) -> RestoreJobRow {
         let now = chrono::Utc::now();
@@ -168,9 +178,12 @@ mod tests {
 
     #[test]
     fn the_options_only_update_on_the_source_key() {
-        let o = options(MatchBy::SerialNumber);
+        let o = options(ImportType::Assets, MatchBy::SerialNumber);
         assert_eq!(o.mode, ImportMode::UpdateOnly);
         assert_eq!(o.match_by, MatchBy::SerialNumber);
         assert!(o.constants.is_empty());
+        let records = options(ImportType::AssetRecords, MatchBy::SerialNumber);
+        assert_eq!(records.mode, ImportMode::UpdateOnly);
+        assert_eq!(records.decimal, Some(DecimalMark::Dot));
     }
 }

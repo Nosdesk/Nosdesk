@@ -24,7 +24,7 @@ import { examples, firstName } from './matchesModel'
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-const TYPES: ImportJobType[] = ['assets', 'users', 'tickets']
+const TYPES: ImportJobType[] = ['assets', 'users', 'tickets', 'asset_records']
 
 const queries = TYPES.map((type) => ({
   type,

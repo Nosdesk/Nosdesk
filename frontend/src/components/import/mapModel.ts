@@ -14,6 +14,7 @@ import type {
   ImportJobType,
   ImportMode,
   ImportSource,
+  MatchBy,
   Suggestion,
   SuggestionProvenance,
 } from '@nosdesk/core/services/importService'
@@ -54,6 +55,7 @@ const KEY_FIELDS: Record<ImportJobType, string[]> = {
   assets: ['asset_tag', 'serial_number'],
   users: ['email'],
   tickets: [],
+  asset_records: ['asset_tag', 'serial_number', 'source_ref'],
 }
 
 /** What a suggestion pre-fills: its field, or Don't import. */
@@ -150,11 +152,41 @@ export function buildConstants(
 }
 
 /** Whether every row of the file creates a record: tickets always, assets
- *  under Only create new. People match by email and update a member, and
- *  assets under the other modes update the rows that match. */
-export function everyRowCreates(jobType: ImportJobType, mode: ImportMode): boolean {
+ *  under Only create new, and asset records under Only create new or
+ *  without a source reference, which is what updates one. People match by
+ *  email and update a member, and assets under the other modes update the
+ *  rows that match. */
+export function everyRowCreates(
+  jobType: ImportJobType,
+  mode: ImportMode,
+  rows: MapRow[] = [],
+): boolean {
   if (jobType === 'tickets') return true
+  if (jobType === 'asset_records') {
+    return mode === 'create_only' || !rows.some((r) => isMapped(r) && r.target === 'source_ref')
+  }
   return jobType === 'assets' && mode === 'create_only'
+}
+
+/** The columns an asset records row is found by, as the server requires
+ *  them: the source reference to only update existing records, else the
+ *  column the asset is matched on (either one for tag then serial). */
+export function recordKeyProblem(
+  rows: MapRow[],
+  matchBy: MatchBy,
+  mode: ImportMode,
+): Problem | null {
+  const mapped = new Set(rows.filter(isMapped).map((r) => r.target))
+  if (mode === 'update_only') {
+    return mapped.has('source_ref') ? null : { kind: 'required', field: 'source_ref' }
+  }
+  const keys =
+    matchBy === 'serial_number'
+      ? ['serial_number']
+      : matchBy === 'tag_then_serial'
+        ? ['asset_tag', 'serial_number']
+        : ['asset_tag']
+  return keys.some((k) => mapped.has(k)) ? null : { kind: 'required', field: keys[0] }
 }
 
 /** Whether a required field is needed only to create a record: any but a
@@ -201,6 +233,7 @@ export function problems(
   constants: ConstantRow[] = [],
   datesUnresolved = false,
   mode: ImportMode = 'create_update',
+  matchBy: MatchBy = 'asset_tag',
 ): Problem[] {
   const out: Problem[] = []
   const byField = new Map<string, number[]>()
@@ -211,7 +244,11 @@ export function problems(
   for (const [field, columns] of byField) {
     if (columns.length > 1) out.push({ kind: 'duplicate', field, columns })
   }
-  const creates = everyRowCreates(jobType, mode)
+  if (jobType === 'asset_records') {
+    const key = recordKeyProblem(rows, matchBy, mode)
+    if (key) out.push(key)
+  }
+  const creates = everyRowCreates(jobType, mode, rows)
   for (const field of uncovered(rows, fields, jobType, constants)) {
     if (!creates && requiredOnCreate(field, jobType)) continue
     out.push(
@@ -233,8 +270,8 @@ export function createNeeds(
   constants: ConstantRow[] = [],
   mode: ImportMode = 'create_update',
 ): string[] {
-  if (everyRowCreates(jobType, mode)) return []
-  if (jobType === 'assets' && mode === 'update_only') return []
+  if (everyRowCreates(jobType, mode, rows)) return []
+  if (mode === 'update_only') return []
   return uncovered(rows, fields, jobType, constants).filter((f) => requiredOnCreate(f, jobType))
 }
 

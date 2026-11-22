@@ -112,6 +112,11 @@ const authStore = useAuthStore()
 
 const source = computed(() => props.job.source!)
 const isAssets = computed(() => props.job.job_type === 'assets')
+/** An asset records import: rows find their asset, and update a record
+ *  only by its source reference. */
+const isRecords = computed(() => props.job.job_type === 'asset_records')
+/** Whether rows are matched on an asset's tag or serial number. */
+const matchesAssets = computed(() => isAssets.value || isRecords.value)
 
 const rows = ref<MapRow[]>(
   initialRows(
@@ -130,6 +135,9 @@ const stored: ImportOptions = props.job.options ?? {}
 const legacyNone = (stored.match_by as string | undefined) === 'none'
 const matchBy = ref<MatchBy>(legacyNone ? 'asset_tag' : (stored.match_by ?? 'asset_tag'))
 const mode = ref<ImportMode>(legacyNone ? 'create_only' : (stored.mode ?? 'create_update'))
+/** Asset records: whether a blank completion date means the work was
+ *  finished the day it was done (old history is finished work). */
+const blankSameDay = ref(stored.blank_completion !== 'open')
 /** The kind new rows take when the Kind column is mapped and blank: the
  *  job's own, else the template's. */
 const defaultKind = computed(() => stored.default_kind || props.defaultKind || '')
@@ -241,8 +249,10 @@ function valueOptions(c: ConstantRow): DropdownOption[] | null {
   }
   const values = field?.enum
   if (!values || values.length === 0) return null
-  const label = (v: string) => choiceLabel(t, props.job.job_type, c.field, v, v)
-  return values.map((v) => ({ value: v, label: label(v) }))
+  // A record type's slug is named by the field's labels.
+  const label = (v: string, i: number) =>
+    field?.enum_labels?.[i] ?? choiceLabel(t, props.job.job_type, c.field, v, v)
+  return values.map((v, i) => ({ value: v, label: label(v, i) }))
 }
 
 function valueInputType(c: ConstantRow): string {
@@ -294,6 +304,17 @@ function headerName(index: number): string {
   return rows.value.find((r) => r.index === index)?.name ?? ''
 }
 
+/** The mode rows write under: asset records update only by a source
+ *  reference, so without one every row creates. */
+const effectiveMode = computed<ImportMode>(() =>
+  isRecords.value && !mappedFields.value.has('source_ref') ? 'create_update' : mode.value,
+)
+/** Whether the mode is asked: assets, and asset records with a source
+ *  reference column. */
+const showsMode = computed(
+  () => isAssets.value || (isRecords.value && mappedFields.value.has('source_ref')),
+)
+
 const found = computed<Problem[]>(() =>
   problems(
     rows.value,
@@ -301,14 +322,15 @@ const found = computed<Problem[]>(() =>
     props.job.job_type,
     constants.value,
     datesUnresolved.value,
-    mode.value,
+    effectiveMode.value,
+    matchBy.value,
   ),
 )
 
 /** Fields new records need that nothing gives, when rows that match can
  *  update without them: a warning, not a block. */
 const createNeeded = computed(() =>
-  createNeeds(rows.value, props.fields, props.job.job_type, constants.value, mode.value),
+  createNeeds(rows.value, props.fields, props.job.job_type, constants.value, effectiveMode.value),
 )
 const createNeededText = computed(() => {
   const fields = createNeeded.value
@@ -573,12 +595,16 @@ onMounted(async () => {
 const matchOptions = computed(() => [
   { value: 'asset_tag' as MatchBy, label: t('import-options-match-asset-tag') },
   { value: 'serial_number' as MatchBy, label: t('import-options-match-serial') },
+  ...(isRecords.value
+    ? [{ value: 'tag_then_serial' as MatchBy, label: t('import-options-match-tag-then-serial') }]
+    : []),
 ])
-const matchHelp = computed(() =>
-  matchBy.value === 'serial_number'
+const matchHelp = computed(() => {
+  if (isRecords.value) return t(`import-options-match-records-${matchBy.value.replaceAll('_', '-')}-help`)
+  return matchBy.value === 'serial_number'
     ? t('import-options-match-serial-help')
-    : t('import-options-match-asset-tag-help'),
-)
+    : t('import-options-match-asset-tag-help')
+})
 const fixedMatchText = computed(() =>
   props.job.job_type === 'users'
     ? t('import-options-match-users')
@@ -591,7 +617,9 @@ function modeLabel(m: ImportMode): string {
   return t(`import-options-mode-${modeKey(m)}`)
 }
 const modeOptions = computed(() => MODES.map((m) => ({ value: m, label: modeLabel(m) })))
-const modeHelp = computed(() => t(`import-options-mode-${modeKey(mode.value)}-help`))
+const modeHelp = computed(() =>
+  t(`import-options-mode-${modeKey(mode.value)}-help${isRecords.value ? '-records' : ''}`),
+)
 
 const dateOptions = computed(() => [
   { value: 'dmy' as DateOrder, label: t('import-options-date-dmy') },
@@ -620,9 +648,9 @@ const decimalName = computed(() => (decimal.value === ',' ? 'comma' : 'dot'))
 
 const optionsSummary = computed(() => {
   const parts: string[] = []
-  if (isAssets.value) {
-    parts.push(t('import-map-summary-match-assets', { key: matchBy.value }))
-    parts.push(modeLabel(mode.value))
+  if (matchesAssets.value) {
+    parts.push(t(`import-map-summary-match-${props.job.job_type}`, { key: matchBy.value }))
+    if (showsMode.value) parts.push(modeLabel(mode.value))
   } else {
     parts.push(t(`import-map-summary-match-${props.job.job_type}`))
   }
@@ -649,6 +677,13 @@ function check() {
     if (defaultKind.value && mappedFields.value.has('kind')) {
       options.default_kind = defaultKind.value
     }
+  }
+  if (isRecords.value) {
+    options.match_by = matchBy.value
+    options.mode = effectiveMode.value
+    if (!blankSameDay.value) options.blank_completion = 'open'
+    // Kept from Review's Import these anyway, until the admin maps again.
+    if (stored.import_likely_duplicates) options.import_likely_duplicates = true
   }
   emit('check', buildMapping(rows.value), options, buildIgnored(rows.value))
 }
@@ -1050,7 +1085,7 @@ const linkClass =
         <div class="flex flex-col gap-5">
           <div class="flex flex-col gap-2">
             <span class="text-sm font-medium text-primary">{{ $t('import-options-match-label', { type: job.job_type }) }}</span>
-            <template v-if="isAssets">
+            <template v-if="matchesAssets">
               <SegmentedControl
                 v-model="matchBy"
                 class="self-start"
@@ -1063,7 +1098,7 @@ const linkClass =
             <p v-else class="text-xs text-tertiary">{{ fixedMatchText }}</p>
           </div>
 
-          <div v-if="isAssets" class="flex flex-col gap-2" data-test="import-mode">
+          <div v-if="showsMode" class="flex flex-col gap-2" data-test="import-mode">
             <span class="text-sm font-medium text-primary">{{ $t('import-options-mode-label') }}</span>
             <div v-if="isMobile" class="max-w-xs">
               <BaseDropdown
@@ -1082,6 +1117,19 @@ const linkClass =
               :aria-label="$t('import-options-mode-label')"
             />
             <p class="text-xs text-tertiary">{{ modeHelp }}</p>
+          </div>
+
+          <div v-if="isRecords" class="flex flex-col gap-2" data-test="import-blank-completion">
+            <Checkbox
+              v-model="blankSameDay"
+              size="sm"
+              :label="$t('import-options-blank-completion')"
+            />
+            <p class="text-xs text-tertiary">
+              {{ blankSameDay
+                ? $t('import-options-blank-completion-same-day-help')
+                : $t('import-options-blank-completion-open-help') }}
+            </p>
           </div>
 
           <div v-if="showsDateOrder && !datesUnresolved" class="flex flex-col gap-2" data-test="import-dates">
