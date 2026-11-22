@@ -42,6 +42,20 @@ pub fn find_site_settings(conn: &mut DbConnection) -> QueryResult<Option<SiteSet
     site_settings::table.first::<SiteSettings>(conn).optional()
 }
 
+/// The pinned workspace's timezone (`default_timezone`), where a ticket's due
+/// and start dates and times resolve to moments (`services::ticket_dates`).
+/// UTC when it has no settings row or the zone doesn't parse.
+pub fn workspace_timezone(conn: &mut DbConnection) -> QueryResult<chrono_tz::Tz> {
+    let zone: Option<String> = site_settings::table
+        .select(site_settings::default_timezone)
+        .first(conn)
+        .optional()?;
+    Ok(crate::utils::locale::effective_timezone(
+        None,
+        zone.as_deref().unwrap_or("UTC"),
+    ))
+}
+
 // sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
 /// Update the current workspace's site settings. The update targets the
 /// RLS-visible row (the request's workspace); no `id` filter.

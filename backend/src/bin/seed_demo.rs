@@ -38,7 +38,7 @@ use backend::sync::groups;
 use backend::sync::session::with_actor_context;
 use backend::utils::NewUserBuilder;
 
-use chrono::{DateTime, Datelike, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{BigInt, Timestamptz};
 use serde::Deserialize;
@@ -467,16 +467,24 @@ fn seed(
             triage_state: None,
             // Signed the natural way round in the dataset, so `+3` reads as
             // "three days from now" rather than needing a mental negation.
-            due_date: dt
-                .due_in_days
-                .map(|d| (now + Duration::days(d)).naive_utc()),
-            start_date: dt
-                .start_in_days
-                .map(|d| (now + Duration::days(d)).naive_utc()),
+            // A date is a calendar day, stored as its midnight.
+            due_date: dt.due_in_days.map(|d| {
+                (now + Duration::days(d))
+                    .date_naive()
+                    .and_time(NaiveTime::MIN)
+            }),
+            start_date: dt.start_in_days.map(|d| {
+                (now + Duration::days(d))
+                    .date_naive()
+                    .and_time(NaiveTime::MIN)
+            }),
             recurrence_rule: None,
             recurrence_template_id: None,
             resolution_notes: None,
             spam_suspected: false,
+            due_time: None,
+            start_time: None,
+            estimate_minutes: None,
         };
 
         let project_id = match &dt.project {
@@ -676,7 +684,7 @@ fn seed_history(
         // Tickets on this day: weekdays 1-4, weekends usually 0 (occasional 1).
         let hday = hash(d as u64);
         let count = if is_weekend {
-            if hday % 5 == 0 {
+            if hday.is_multiple_of(5) {
                 1
             } else {
                 0
@@ -702,7 +710,7 @@ fn seed_history(
                     2 => (triage.id, false),
                     _ => (backlog.id, false),
                 }
-            } else if h % 10 == 0 {
+            } else if h.is_multiple_of(10) {
                 (cancelled.id, true)
             } else {
                 (done.id, true)
@@ -730,6 +738,9 @@ fn seed_history(
                 recurrence_template_id: None,
                 resolution_notes: None,
                 spam_suspected: false,
+                due_time: None,
+                start_time: None,
+                estimate_minutes: None,
             };
             let ticket = repository::tickets::create_ticket(conn, new_ticket)?;
 

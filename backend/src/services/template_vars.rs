@@ -162,6 +162,10 @@ mod tests {
             blank_at: None,
             rules_held_at: None,
             rules_released_at: None,
+            due_time: None,
+            start_time: None,
+            rank: None,
+            estimate_minutes: None,
         }
     }
 

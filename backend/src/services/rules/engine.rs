@@ -328,6 +328,9 @@ impl Event {
                     plugin: None,
                 })
             }
+            // Reordering a ticket within a day is no change a rule reacts
+            // to (the outbox doesn't queue it either).
+            crate::repository::tickets::RANK_CHANGED => None,
             t if t.starts_with("ticket.") => {
                 let changed_fields: Vec<String> = data
                     .get("changed_fields")
@@ -1192,6 +1195,10 @@ mod tests {
 
         let unchanged = json!({ "changed_fields": [] });
         assert!(Event::read("ticket.updated", Some("7"), &unchanged).is_none());
+
+        // A reorder runs no rule, whatever its data says.
+        let reordered = json!({ "changed_fields": ["ticket.due_date"], "rank": "a1" });
+        assert!(Event::read("ticket.rank_changed", Some("7"), &reordered).is_none());
     }
 
     #[test]

@@ -644,3 +644,96 @@ async fn conditions_that_cannot_run_are_refused_at_save() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(body["details"]["field"], "event.changed_fields");
 }
+
+/// The plan's condition fields read the ticket's plan: a due or start date
+/// as the moment it names with its time, in the workspace's timezone, and the
+/// size in minutes.
+#[actix_web::test]
+async fn the_plan_fields_read_the_moment_the_plan_names() {
+    use backend::models::NewTicket;
+    use backend::schema::{site_settings, tickets, workflow_states};
+    use chrono::{NaiveDate, NaiveTime};
+    use diesel::prelude::*;
+
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let mut conn = db.pool_with_size(2).get().expect("conn");
+    let seeded = common::seed_two_workspaces(&mut conn);
+    let a = &seeded.a;
+    let actor = ActorContext::user(a.admin_uuid, None).with_workspace(a.workspace_id);
+    let day = |d| {
+        NaiveDate::from_ymd_opt(2026, 11, d)
+            .expect("date")
+            .and_time(NaiveTime::MIN)
+    };
+    let booked: i32 = backend::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        backend::repository::site_settings::get_site_settings(c)?;
+        diesel::update(site_settings::table)
+            .set(site_settings::default_timezone.eq("Australia/Sydney"))
+            .execute(c)?;
+        let open: i32 = workflow_states::table
+            .filter(workflow_states::is_default.eq(true))
+            .select(workflow_states::id)
+            .first(c)?;
+        diesel::insert_into(tickets::table)
+            .values(&NewTicket {
+                title: "Visit the Hendersons".to_string(),
+                workflow_state_id: open,
+                due_date: Some(day(21)),
+                due_time: NaiveTime::from_hms_opt(14, 30, 0),
+                start_date: Some(day(21)),
+                start_time: NaiveTime::from_hms_opt(9, 0, 0),
+                estimate_minutes: Some(90),
+                ..Default::default()
+            })
+            .returning(tickets::id)
+            .get_result(c)
+    })
+    .expect("seed a booked ticket");
+    drop(conn);
+    let pool = db.runtime_pool(4);
+
+    // Sydney is UTC+11 in November: 14:30 on the 21st is 03:30 UTC, 09:00 is
+    // 22:00 UTC the day before.
+    for (conditions, matched) in [
+        (
+            leaf("ticket.due_date", "lte", json!("2026-11-21T03:30:00Z")),
+            true,
+        ),
+        (
+            leaf("ticket.due_date", "lt", json!("2026-11-21T03:30:00Z")),
+            false,
+        ),
+        (
+            leaf("ticket.start_date", "gte", json!("2026-11-20T22:00:00Z")),
+            true,
+        ),
+        (
+            leaf("ticket.start_date", "gt", json!("2026-11-20T22:00:00Z")),
+            false,
+        ),
+        (leaf("ticket.due_time", "eq", json!("14:30")), true),
+        (leaf("ticket.start_time", "lt", json!("09:00")), false),
+        (leaf("ticket.estimate_minutes", "gt", json!(60)), true),
+    ] {
+        let (status, body) = json_of(
+            as_admin(
+                &pool,
+                a,
+                http_test::TestRequest::post()
+                    .uri("/api/rules/preview")
+                    .set_json(
+                        json!({ "trigger_kind": "ticket_created", "conditions": conditions }),
+                    ),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            ids(&body).contains(&(booked as i64)),
+            matched,
+            "{conditions}: {body}"
+        );
+    }
+}

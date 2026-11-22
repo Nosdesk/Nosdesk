@@ -273,6 +273,10 @@ fn ticket_sync_row_with_sla(
         "approval_state": ticket.approval_state,
         "due_date": ticket.due_date,
         "start_date": ticket.start_date,
+        "due_time": ticket.due_time,
+        "start_time": ticket.start_time,
+        "rank": ticket.rank,
+        "estimate_minutes": ticket.estimate_minutes,
         "resolution_notes": ticket.resolution_notes,
         "created_by": ticket.created_by,
         "closed_by": ticket.closed_by,
@@ -582,6 +586,11 @@ fn held_created_via(
     Ok(data.and_then(|d| d.get("created_via").cloned()))
 }
 
+/// The event a reorder records ([`crate::models::TicketUpdate::sets_only_rank`]):
+/// a quiet one. The ticket's activity feed, notifications, rules and webhooks
+/// leave it out; the pool applies it like any update.
+pub const RANK_CHANGED: &str = "ticket.rank_changed";
+
 /// The event an update records: the most specific one for what it changes.
 /// Each raises the `ticket.updated` webhook (`WebhookEventType::from_sync_action`).
 fn update_event_type(update: &crate::models::TicketUpdate) -> &'static str {
@@ -614,6 +623,10 @@ pub enum TicketWriteError {
     /// The ticket was merged into another one, where its work continues.
     #[error("{MERGED_TICKET}")]
     Merged,
+    /// The update's plan fields break a rule of the plan (a time with no
+    /// date, a size or rank out of range; `services::ticket_plan`).
+    #[error(transparent)]
+    Plan(#[from] crate::services::ticket_plan::PlanError),
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
 }
@@ -637,6 +650,10 @@ impl From<TicketWriteError> for diesel::result::Error {
             TicketWriteError::Merged => diesel::result::Error::DatabaseError(
                 diesel::result::DatabaseErrorKind::CheckViolation,
                 Box::new(MERGED_TICKET.to_string()),
+            ),
+            TicketWriteError::Plan(e) => diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::CheckViolation,
+                Box::new(e.to_string()),
             ),
             TicketWriteError::Database(e) => e,
         }
@@ -684,6 +701,7 @@ pub fn update_ticket_partial(
         return Ok(get_ticket_by_id(conn, ticket_id)?);
     }
 
+    let mut reorder = false;
     let (result, next_occurrence) = conn.transaction::<_, TicketWriteError, _>(|conn| {
         // Read and lock the row first. The lock is FOR NO KEY UPDATE, the one
         // the UPDATE below takes anyway: FOR UPDATE would also wait on the
@@ -700,6 +718,17 @@ pub fn update_ticket_partial(
         // once the merge commits.
         if crate::repository::ticket_merge::is_merge_source(conn, ticket_id)? {
             return Err(TicketWriteError::Merged);
+        }
+        // The plan's rules, against the ticket as it stands: a cleared date
+        // takes its time, and a ticket that leaves its day or its person
+        // leaves its place.
+        crate::services::ticket_plan::apply_to_update(&mut ticket_update, &locked)?;
+        // A reorder is no activity: it leaves `updated_at` where it was (the
+        // tickets trigger does the same for a write that changes only
+        // `rank`) and records the quiet event.
+        reorder = ticket_update.sets_only_rank(&locked);
+        if reorder {
+            ticket_update.updated_at = None;
         }
         // The notification deriver decides "actually changed" from the
         // before/after pair in `data`, so a write that can change the
@@ -724,7 +753,11 @@ pub fn update_ticket_partial(
         // Pick the most-specific event_type that matches what changed.
         // The full updated row goes in `data` regardless so consumers
         // don't have to query back.
-        let event_type = update_event_type(&ticket_update);
+        let event_type = if reorder {
+            RANK_CHANGED
+        } else {
+            update_event_type(&ticket_update)
+        };
         // Recompute the SLA pill when a field that feeds policy
         // matching or pause state changes — workflow_state_id drives
         // the paused flag (via the state's category), priority and
@@ -807,7 +840,8 @@ pub fn update_ticket_partial(
         Ok((result, next_occurrence))
     })?;
 
-    if let Some(observer) = observer {
+    // A reorder changes nothing search reads.
+    if let Some(observer) = observer.filter(|_| !reorder) {
         // Fetch any associated article content so the observer can
         // reindex with the body text intact, not just the metadata.
         let article =
@@ -843,14 +877,16 @@ fn next_occurrence_on_close(
 }
 
 /// The occurrence after `closed`: a clean copy of it in the default state,
-/// due on the rule's next date, carrying the rule so the series continues and
-/// the series' first ticket as its template. `None` unless this write closed
-/// the ticket, and `None` while the series already has an open occurrence or
-/// a ticket due on or after the next date, so a series has one open occurrence
-/// at a time and never repeats or goes back a date (a reopen and close again,
-/// even in a later period, makes none). An assignee who can no longer work
-/// tickets isn't carried over; an unassigned occurrence goes through the
-/// assignment rules, as every new ticket does.
+/// due on the rule's next date at the same due time, the same size, carrying
+/// the rule so the series continues and the series' first ticket as its
+/// template. It has no start date, so no start time, and no place in a day:
+/// it lands unplaced. `None` unless this write closed the ticket, and `None`
+/// while the series already has an open occurrence or a ticket due on or after
+/// the next date, so a series has one open occurrence at a time and never
+/// repeats or goes back a date (a reopen and close again, even in a later
+/// period, makes none). An assignee who can no longer work tickets isn't
+/// carried over; an unassigned occurrence goes through the assignment rules,
+/// as every new ticket does.
 fn create_next_occurrence(
     conn: &mut DbConnection,
     previous: &Ticket,
@@ -900,12 +936,14 @@ fn create_next_occurrence(
             rule.to_string(),
         ),
     };
+    // A due date is a day: a series with none counts from creation's time
+    // of day, and its next occurrence is due on the day that lands on.
     let next_due = match crate::services::recurrence::next_occurrence_naive(
         &effective_rule,
         series_start,
         after,
     ) {
-        Ok(Some(next_due)) => next_due,
+        Ok(Some(next_due)) => next_due.date().and_time(chrono::NaiveTime::MIN),
         // The series ran out (UNTIL passed).
         Ok(None) => return Ok(None),
         Err(e) => {
@@ -961,6 +999,8 @@ fn create_next_occurrence(
             assignee_uuid,
             category_id: closed.category_id,
             due_date: Some(next_due),
+            due_time: closed.due_time,
+            estimate_minutes: closed.estimate_minutes,
             recurrence_rule: Some(rule.to_string()),
             recurrence_template_id: Some(template_id),
             ..Default::default()
@@ -1512,9 +1552,13 @@ pub fn clear_purged_person_from_tickets(
                 .set(tickets::requester_uuid.eq::<Option<Uuid>>(None))
                 .returning((tickets::workspace_id, tickets::id))
                 .get_results(conn)?;
+        // A place in their day means nothing in anyone else's.
         let as_assignee: Vec<(i32, i32)> =
             diesel::update(tickets::table.filter(tickets::assignee_uuid.eq(user_uuid)))
-                .set(tickets::assignee_uuid.eq::<Option<Uuid>>(None))
+                .set((
+                    tickets::assignee_uuid.eq::<Option<Uuid>>(None),
+                    tickets::rank.eq::<Option<String>>(None),
+                ))
                 .returning((tickets::workspace_id, tickets::id))
                 .get_results(conn)?;
         // Neither column is in the ticket's sync row.
@@ -1532,9 +1576,9 @@ pub fn clear_purged_person_from_tickets(
         // workspace -> ticket id -> the columns cleared on that ticket.
         let mut cleared: BTreeMap<i32, BTreeMap<i32, serde_json::Map<String, serde_json::Value>>> =
             BTreeMap::new();
-        for (column, rows) in [
-            ("requester_uuid", &as_requester),
-            ("assignee_uuid", &as_assignee),
+        for (columns, rows) in [
+            (&["requester_uuid"][..], &as_requester),
+            (&["assignee_uuid", "rank"][..], &as_assignee),
         ] {
             for &(workspace_id, ticket_id) in rows {
                 cleared
@@ -1546,7 +1590,11 @@ pub fn clear_purged_person_from_tickets(
                         data.insert("id".to_string(), json!(ticket_id));
                         data
                     })
-                    .insert(column.to_string(), serde_json::Value::Null);
+                    .extend(
+                        columns
+                            .iter()
+                            .map(|c| (c.to_string(), serde_json::Value::Null)),
+                    );
             }
         }
 

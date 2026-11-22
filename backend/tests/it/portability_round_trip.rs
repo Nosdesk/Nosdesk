@@ -348,9 +348,11 @@ async fn source(pool: &TestPool) -> Source {
         &mut conn,
         &format!(
             "INSERT INTO tickets (workspace_id, title, workflow_state_id, requester_uuid, \
-               assignee_uuid, created_by, guest_lookup_token) \
+               assignee_uuid, created_by, guest_lookup_token, due_date, due_time, \
+               start_date, start_time, rank, estimate_minutes) \
              VALUES ($1, 'Projector flickers', {state}, '{rex_uuid}', '{ana_uuid}', \
-               '{}', gen_random_uuid()) RETURNING id",
+               '{}', gen_random_uuid(), '2026-11-27T00:00:00Z', '14:30', \
+               '2026-11-24T00:00:00Z', '09:15', 'a0V', 120) RETURNING id",
             seed.admin_uuid
         ),
         ws,
@@ -872,6 +874,20 @@ async fn a_workspace_exported_imported_and_exported_again_comes_back_the_same() 
         ),
     );
     assert_eq!(numbers, src.ticket_numbers, "ticket numbers are kept");
+    assert_eq!(
+        text(
+            &pool,
+            &format!(
+                "SELECT concat_ws(' ', due_date AT TIME ZONE 'UTC', due_time, \
+                   start_date AT TIME ZONE 'UTC', start_time, rank, estimate_minutes) AS value \
+                 FROM tickets WHERE workspace_id = $1 AND id = {t1}"
+            ),
+            t,
+        )
+        .as_deref(),
+        Some("2026-11-27 00:00:00 14:30:00 2026-11-24 00:00:00 09:15:00 a0V 120"),
+        "the plan comes with the ticket"
+    );
     let comment = text(
         &pool,
         &format!(

@@ -63,6 +63,16 @@ export interface Ticket {
   due_date?: string | null
   /** Optional planning start for the gantt. Null means unplanned. */
   start_date?: string | null
+  /** Time of day of the deadline (`"14:30:00"`); null means by the end
+   * of the due day. */
+  due_time?: string | null
+  /** Time of day of the planned start; null means some time that day. */
+  start_time?: string | null
+  /** Manual order within a day (a fractional index key); null means not
+   * placed by hand. */
+  rank?: string | null
+  /** How long the job takes, in minutes; null means not sized. */
+  estimate_minutes?: number | null
   /** RFC 5545 RRULE string when the ticket is part of a recurring
    * series. Closing a ticket with a rule spawns the next
    * occurrence on the backend. */

@@ -55,6 +55,12 @@ export interface SyncTicket {
   /** Optional planning start for the gantt. Null means unplanned;
    * the timeline falls back to created_at for a bar's left edge. */
   start_date?: string | null
+  /** The plan: times of day of the deadline and the start, the place in
+   * a day, and the size in minutes. See `CardData`. */
+  due_time?: string | null
+  start_time?: string | null
+  rank?: string | null
+  estimate_minutes?: number | null
   /** KB-gap signal density. Bootstrap derives the bucket from the
    * count of open knowledge_gap_signals attached to the ticket;
    * the renderer maps it to a pill colour. */
@@ -116,6 +122,10 @@ export function apiTicketToSync(ticket: Ticket): SyncTicket {
     triage_state: null,
     due_date: ticket.due_date ?? null,
     start_date: ticket.start_date ?? null,
+    due_time: ticket.due_time ?? null,
+    start_time: ticket.start_time ?? null,
+    rank: ticket.rank ?? null,
+    estimate_minutes: ticket.estimate_minutes ?? null,
     created_at: ticket.created,
     updated_at: ticket.modified,
     last_activity_at: ticket.modified,

@@ -1981,6 +1981,10 @@ diesel::table! {
         blank_at -> Nullable<Timestamptz>,
         rules_held_at -> Nullable<Timestamptz>,
         rules_released_at -> Nullable<Timestamptz>,
+        due_time -> Nullable<Time>,
+        start_time -> Nullable<Time>,
+        rank -> Nullable<Text>,
+        estimate_minutes -> Nullable<Int4>,
     }
 }
 

@@ -459,7 +459,10 @@ fn push_closing_a_recurring_ticket_creates_the_next_one() {
     let admin = TestFixtures::create_user(&mut conn, "sync_push_recur_admin", "admin");
     let ticket =
         TestFixtures::create_ticket(&mut conn, "Check the backups", Some(admin.uuid), None);
-    let due = ticket.created_at + chrono::Duration::days(1);
+    // A due date is a day, stored as its midnight.
+    let due = (ticket.created_at + chrono::Duration::days(1))
+        .date()
+        .and_time(chrono::NaiveTime::MIN);
     diesel::update(tickets::table.find(ticket.id))
         .set((
             tickets::recurrence_rule.eq("FREQ=WEEKLY"),
@@ -507,7 +510,10 @@ fn push_a_closed_recurring_ticket_gets_one_next_occurrence() {
     let admin = TestFixtures::create_user(&mut conn, "sync_push_once_admin", "admin");
     let ticket =
         TestFixtures::create_ticket(&mut conn, "Check the backups", Some(admin.uuid), None);
-    let due = ticket.created_at + chrono::Duration::days(1);
+    // A due date is a day, stored as its midnight.
+    let due = (ticket.created_at + chrono::Duration::days(1))
+        .date()
+        .and_time(chrono::NaiveTime::MIN);
     diesel::update(tickets::table.find(ticket.id))
         .set((
             tickets::recurrence_rule.eq("FREQ=WEEKLY"),

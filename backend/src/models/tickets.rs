@@ -4,7 +4,7 @@ use super::projects::Project;
 use super::serialize_optional_uuid_as_string;
 use super::users::UserInfoWithAvatar;
 use super::workflow_states::WorkflowState;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, NaiveTime, Utc};
 use diesel::deserialize::{self, FromSql};
 use diesel::pg::{Pg, PgValue};
 use diesel::prelude::*;
@@ -353,10 +353,25 @@ pub struct Ticket {
     pub rules_held_at: Option<NaiveDateTime>,
     /// When the approval that let a held request go ahead released its
     /// `ticket_created` rules, which that decision's event runs. Set once.
-    /// Server-side only. Must stay the LAST field to match `schema.rs` column
-    /// order (positional Queryable).
+    /// Server-side only.
     #[serde(skip_serializing, default)]
     pub rules_released_at: Option<NaiveDateTime>,
+    /// The time of day of the deadline, a floating wall-clock time of
+    /// `due_date` (`"14:30:00"`). NULL means by the end of that day. Only set
+    /// with a due date; clearing the date clears it.
+    pub due_time: Option<NaiveTime>,
+    /// The time of day of the planned start, on `start_date`. NULL means
+    /// some time that day.
+    pub start_time: Option<NaiveTime>,
+    /// A fractional index key: the ticket's place among its day's jobs,
+    /// compared byte by byte. NULL means not placed by hand. Cleared when the
+    /// ticket moves to another day or another assignee without a place
+    /// (`services::ticket_plan`).
+    pub rank: Option<String>,
+    /// How long the job takes, in minutes. NULL means not sized. Must stay
+    /// the LAST field to match `schema.rs` column order (positional
+    /// Queryable).
+    pub estimate_minutes: Option<i32>,
 }
 
 /// `submitted_via` of a ticket a CSV import made.
@@ -443,7 +458,17 @@ pub struct NewTicket {
     pub origin_channel_id: Option<i32>,
     #[serde(skip_deserializing)]
     pub triage_state: Option<String>,
+    /// A calendar day, read by `ticket_dates::parse_day` like every date a
+    /// client writes.
+    #[serde(
+        default,
+        deserialize_with = "crate::services::ticket_dates::serde_plan::day_option"
+    )]
     pub due_date: Option<NaiveDateTime>,
+    #[serde(
+        default,
+        deserialize_with = "crate::services::ticket_dates::serde_plan::day_option"
+    )]
     pub start_date: Option<NaiveDateTime>,
     pub recurrence_rule: Option<String>,
     #[serde(skip_deserializing)]
@@ -453,6 +478,17 @@ pub struct NewTicket {
     /// message was flagged as spam.
     #[serde(skip_deserializing)]
     pub spam_suspected: bool,
+    #[serde(
+        default,
+        deserialize_with = "crate::services::ticket_dates::serde_plan::time_option"
+    )]
+    pub due_time: Option<NaiveTime>,
+    #[serde(
+        default,
+        deserialize_with = "crate::services::ticket_dates::serde_plan::time_option"
+    )]
+    pub start_time: Option<NaiveTime>,
+    pub estimate_minutes: Option<i32>,
 }
 
 /// The columns of a ticket a client sets, split from a `NewTicket` by
@@ -469,6 +505,9 @@ struct ClientTicketColumns {
     start_date: Option<NaiveDateTime>,
     recurrence_rule: Option<String>,
     resolution_notes: Option<String>,
+    due_time: Option<NaiveTime>,
+    start_time: Option<NaiveTime>,
+    estimate_minutes: Option<i32>,
 }
 
 impl NewTicket {
@@ -499,6 +538,9 @@ impl NewTicket {
             recurrence_template_id: _,
             resolution_notes,
             spam_suspected: _,
+            due_time,
+            start_time,
+            estimate_minutes,
         } = self;
         ClientTicketColumns {
             title,
@@ -511,6 +553,9 @@ impl NewTicket {
             start_date,
             recurrence_rule,
             resolution_notes,
+            due_time,
+            start_time,
+            estimate_minutes,
         }
     }
 
@@ -536,6 +581,9 @@ impl NewTicket {
             start_date,
             recurrence_rule,
             resolution_notes,
+            due_time,
+            start_time,
+            estimate_minutes,
         } = self.into_client_columns();
         fn differs<T: PartialEq>(new: T, old: &T) -> Option<T> {
             (new != *old).then_some(new)
@@ -554,6 +602,9 @@ impl NewTicket {
             start_date: given_and_differs(start_date, &existing.start_date),
             recurrence_rule: given_and_differs(recurrence_rule, &existing.recurrence_rule),
             resolution_notes: given_and_differs(resolution_notes, &existing.resolution_notes),
+            due_time: given_and_differs(due_time, &existing.due_time),
+            start_time: given_and_differs(start_time, &existing.start_time),
+            estimate_minutes: given_and_differs(estimate_minutes, &existing.estimate_minutes),
             ..TicketUpdate::default()
         }
     }
@@ -572,6 +623,9 @@ impl NewTicket {
             start_date,
             recurrence_rule,
             resolution_notes,
+            due_time,
+            start_time,
+            estimate_minutes,
         } = self.into_client_columns();
         Self {
             title,
@@ -584,6 +638,9 @@ impl NewTicket {
             start_date,
             recurrence_rule,
             resolution_notes,
+            due_time,
+            start_time,
+            estimate_minutes,
             ..Self::default()
         }
     }
@@ -610,6 +667,17 @@ pub const WORKFLOW_STATE_CATEGORY_FIELD: &str = "ticket.workflow_state.category"
 /// The `changed_fields` entry for a change to a ticket's tags.
 pub const TAG_IDS_FIELD: &str = "ticket.tag_ids";
 
+/// A ticket's plan: when it is due and planned, its place in a day and its
+/// size. A client writes them the same way on every path.
+pub const PLAN_FIELDS: [&str; 6] = [
+    "due_date",
+    "start_date",
+    "due_time",
+    "start_time",
+    "rank",
+    "estimate_minutes",
+];
+
 // Add a new struct for partial ticket updates
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::tickets)]
@@ -625,7 +693,17 @@ pub struct TicketUpdate {
     pub origin_channel_id: Option<Option<i32>>,
     pub category_id: Option<Option<i32>>,
     pub triage_state: Option<Option<String>>,
+    /// A calendar day (`ticket_dates::parse_day`); `null` clears it, and
+    /// its time with it.
+    #[serde(
+        default,
+        deserialize_with = "crate::services::ticket_dates::serde_plan::day_double_option"
+    )]
     pub due_date: Option<Option<NaiveDateTime>>,
+    #[serde(
+        default,
+        deserialize_with = "crate::services::ticket_dates::serde_plan::day_double_option"
+    )]
     pub start_date: Option<Option<NaiveDateTime>>,
     pub recurrence_rule: Option<Option<String>>,
     pub recurrence_template_id: Option<Option<i32>>,
@@ -641,6 +719,21 @@ pub struct TicketUpdate {
     /// unchanged; `Some(_)` sets it. A change recomputes the pill (see
     /// `pill_affecting` in `update_ticket_partial`).
     pub sla_override: Option<String>,
+    /// The plan (`services::ticket_plan`): `null` clears each.
+    #[serde(
+        default,
+        deserialize_with = "crate::services::ticket_dates::serde_plan::time_double_option"
+    )]
+    pub due_time: Option<Option<NaiveTime>>,
+    #[serde(
+        default,
+        deserialize_with = "crate::services::ticket_dates::serde_plan::time_double_option"
+    )]
+    pub start_time: Option<Option<NaiveTime>>,
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
+    pub rank: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::utils::double_option::deserialize")]
+    pub estimate_minutes: Option<Option<i32>>,
 }
 
 /// A ticket update sets a column only the server sets.
@@ -683,6 +776,10 @@ impl TicketUpdate {
             resolution_notes,
             spam_suspected,
             sla_override,
+            due_time,
+            start_time,
+            rank,
+            estimate_minutes,
         } = self;
         if closed_at.is_some()
             || verification_state.is_some()
@@ -706,6 +803,10 @@ impl TicketUpdate {
             resolution_notes,
             spam_suspected,
             sla_override,
+            due_time,
+            start_time,
+            rank,
+            estimate_minutes,
             ..Self::default()
         })
     }
@@ -732,6 +833,10 @@ impl TicketUpdate {
             resolution_notes,
             spam_suspected,
             sla_override,
+            due_time,
+            start_time,
+            rank,
+            estimate_minutes,
         } = self;
         [
             ("title", title.is_some()),
@@ -751,6 +856,10 @@ impl TicketUpdate {
             ("resolution_notes", resolution_notes.is_some()),
             ("spam_suspected", spam_suspected.is_some()),
             ("sla_override", sla_override.is_some()),
+            ("due_time", due_time.is_some()),
+            ("start_time", start_time.is_some()),
+            ("rank", rank.is_some()),
+            ("estimate_minutes", estimate_minutes.is_some()),
         ]
         .into_iter()
         .filter_map(|(column, set)| set.then_some(column))
@@ -787,6 +896,12 @@ impl TicketUpdate {
             resolution_notes,
             spam_suspected,
             sla_override,
+            due_time,
+            start_time,
+            // A place in a day is no field a rule reads, and reordering is no
+            // change a rule reacts to (`sets_only_rank`).
+            rank: _,
+            estimate_minutes,
         } = self;
         let mut fields: Vec<String> = [
             ("title", title.is_some() && before.title != after.title),
@@ -856,6 +971,18 @@ impl TicketUpdate {
                 "sla_override",
                 sla_override.is_some() && before.sla_override != after.sla_override,
             ),
+            (
+                "due_time",
+                due_time.is_some() && before.due_time != after.due_time,
+            ),
+            (
+                "start_time",
+                start_time.is_some() && before.start_time != after.start_time,
+            ),
+            (
+                "estimate_minutes",
+                estimate_minutes.is_some() && before.estimate_minutes != after.estimate_minutes,
+            ),
         ]
         .into_iter()
         .filter(|(_, changed)| *changed)
@@ -872,6 +999,73 @@ impl TicketUpdate {
     /// doesn't handle tickets may change on a ticket they can see.
     pub fn changes_only_title(&self) -> bool {
         self.changed_columns().all(|column| column == "title")
+    }
+
+    /// The plan fields a REST body names ([`PLAN_FIELDS`]), decoded as a sync
+    /// push patch is, so both paths share one write rule for dates and times
+    /// (`services::ticket_dates`). The body's other keys are left out.
+    pub fn plan_from_json(body: &serde_json::Value) -> Result<Self, serde_json::Error> {
+        let plan: serde_json::Map<String, serde_json::Value> = PLAN_FIELDS
+            .iter()
+            .filter_map(|&field| body.get(field).map(|v| (field.to_string(), v.clone())))
+            .collect();
+        serde_json::from_value(serde_json::Value::Object(plan))
+    }
+
+    /// Whether the update is a reorder of `before`: it sets `rank`, and every
+    /// other column it sets keeps the value `before` has (a drop within the
+    /// same day names that day again). A reorder is no activity: it records
+    /// `ticket.rank_changed`, which the activity feed, notifications, rules
+    /// and webhooks leave out, and leaves `updated_at` where it was.
+    pub fn sets_only_rank(&self, before: &Ticket) -> bool {
+        fn keeps<T: PartialEq>(set: &Option<T>, current: &T) -> bool {
+            set.as_ref().is_none_or(|v| v == current)
+        }
+        let Self {
+            title,
+            workflow_state_id,
+            priority,
+            requester_uuid,
+            assignee_uuid,
+            updated_at: _,
+            closed_at,
+            verification_state,
+            origin_channel_id,
+            category_id,
+            triage_state,
+            due_date,
+            start_date,
+            recurrence_rule,
+            recurrence_template_id,
+            resolution_notes,
+            spam_suspected,
+            sla_override,
+            due_time,
+            start_time,
+            rank,
+            estimate_minutes,
+        } = self;
+        rank.is_some()
+            && keeps(title, &before.title)
+            && keeps(workflow_state_id, &before.workflow_state_id)
+            && keeps(priority, &before.priority)
+            && keeps(requester_uuid, &before.requester_uuid)
+            && keeps(assignee_uuid, &before.assignee_uuid)
+            && keeps(closed_at, &before.closed_at)
+            && keeps(verification_state, &before.verification_state)
+            && keeps(origin_channel_id, &before.origin_channel_id)
+            && keeps(category_id, &before.category_id)
+            && keeps(triage_state, &before.triage_state)
+            && keeps(due_date, &before.due_date)
+            && keeps(start_date, &before.start_date)
+            && keeps(recurrence_rule, &before.recurrence_rule)
+            && keeps(recurrence_template_id, &before.recurrence_template_id)
+            && keeps(resolution_notes, &before.resolution_notes)
+            && keeps(spam_suspected, &before.spam_suspected)
+            && keeps(sla_override, &before.sla_override)
+            && keeps(due_time, &before.due_time)
+            && keeps(start_time, &before.start_time)
+            && keeps(estimate_minutes, &before.estimate_minutes)
     }
 }
 
@@ -1108,6 +1302,12 @@ mod priority_tests {
     }
 }
 
+/// A ticket with every column set, for unit tests that need one.
+#[cfg(test)]
+pub fn test_ticket() -> Ticket {
+    new_ticket_write_tests::existing_ticket()
+}
+
 #[cfg(test)]
 mod new_ticket_write_tests {
     use super::*;
@@ -1157,6 +1357,10 @@ mod new_ticket_write_tests {
             blank_at: None,
             rules_held_at: None,
             rules_released_at: None,
+            due_time: Some(chrono::NaiveTime::MIN),
+            start_time: None,
+            rank: Some("a0".into()),
+            estimate_minutes: Some(30),
         }
     }
 
@@ -1181,6 +1385,9 @@ mod new_ticket_write_tests {
             recurrence_template_id: Some(994),
             resolution_notes: Some("forged".into()),
             spam_suspected: true,
+            due_time: None,
+            start_time: None,
+            estimate_minutes: None,
         }
     }
 
@@ -1204,6 +1411,9 @@ mod new_ticket_write_tests {
             recurrence_template_id: existing.recurrence_template_id,
             resolution_notes: existing.resolution_notes.clone(),
             spam_suspected: existing.spam_suspected,
+            due_time: existing.due_time,
+            start_time: existing.start_time,
+            estimate_minutes: existing.estimate_minutes,
         }
     }
 

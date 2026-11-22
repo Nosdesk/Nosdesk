@@ -23,7 +23,11 @@ fn weekly_ticket(conn: &mut backend::db::DbConnection, ws: &common::WorkspaceSee
                 title: "Check the backups".to_string(),
                 workflow_state_id: open,
                 requester_uuid: Some(ws.member_uuid),
-                due_date: Some(chrono::Utc::now().naive_utc() + chrono::Duration::days(1)),
+                due_date: Some(
+                    (chrono::Utc::now() + chrono::Duration::days(1))
+                        .date_naive()
+                        .and_time(chrono::NaiveTime::MIN),
+                ),
                 recurrence_rule: Some("FREQ=WEEKLY".to_string()),
                 ..Default::default()
             })
@@ -394,4 +398,106 @@ fn a_monthly_ticket_due_on_the_31st_keeps_its_day() {
     })
     .expect("close twice");
     assert_eq!(dues, vec![Some(day(2027, 2, 28)), Some(day(2027, 3, 31))]);
+}
+
+/// The next occurrence keeps the plan that describes the job (its due time
+/// and size) and lands unplaced: a place in one day means nothing in the next
+/// period's.
+#[test]
+fn the_next_occurrence_keeps_its_time_and_size_but_not_its_place() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let mut conn = pool.get().expect("conn");
+    let ws = common::seed_two_workspaces(&mut conn).a;
+    let admin = ActorContext::user(ws.admin_uuid, None).with_workspace(ws.workspace_id);
+    let nine = chrono::NaiveTime::from_hms_opt(9, 0, 0).expect("time");
+    let next = with_actor_context(&mut conn, &admin, |c| {
+        let open = workflow_states::default_state(c)?.id;
+        let done = workflow_states::first_in_category(c, WorkflowStateCategory::Done)?.id;
+        let due = (chrono::Utc::now() + chrono::Duration::days(2))
+            .date_naive()
+            .and_time(chrono::NaiveTime::MIN);
+        let ticket: i32 = diesel::insert_into(tickets::table)
+            .values(&NewTicket {
+                title: "Water the plants".to_string(),
+                workflow_state_id: open,
+                requester_uuid: Some(ws.member_uuid),
+                due_date: Some(due),
+                due_time: Some(nine),
+                estimate_minutes: Some(30),
+                recurrence_rule: Some("FREQ=WEEKLY".to_string()),
+                ..Default::default()
+            })
+            .returning(tickets::id)
+            .get_result(c)?;
+        ticket_repo::update_ticket_partial(
+            c,
+            ticket,
+            TicketUpdate {
+                rank: Some(Some("a0".to_string())),
+                ..Default::default()
+            },
+            None,
+        )?;
+        ticket_repo::update_ticket_partial(
+            c,
+            ticket,
+            TicketUpdate {
+                workflow_state_id: Some(done),
+                ..Default::default()
+            },
+            None,
+        )?;
+        Ok::<_, ticket_repo::TicketWriteError>(
+            tickets::table
+                .filter(tickets::recurrence_template_id.eq(ticket))
+                .select((tickets::due_time, tickets::estimate_minutes, tickets::rank))
+                .first::<(Option<chrono::NaiveTime>, Option<i32>, Option<String>)>(c)?,
+        )
+    })
+    .expect("close and read the next occurrence");
+    assert_eq!(next, (Some(nine), Some(30), None));
+}
+
+/// A series with no due date counts from creation's time of day; the next
+/// occurrence is due on the day that lands on, as a day.
+#[test]
+fn a_series_without_a_due_date_comes_back_due_on_a_day() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let mut conn = pool.get().expect("conn");
+    let ws = common::seed_two_workspaces(&mut conn).a;
+    let admin = ActorContext::user(ws.admin_uuid, None).with_workspace(ws.workspace_id);
+    let due = with_actor_context(&mut conn, &admin, |c| {
+        let open = workflow_states::default_state(c)?.id;
+        let done = workflow_states::first_in_category(c, WorkflowStateCategory::Done)?.id;
+        let ticket: i32 = diesel::insert_into(tickets::table)
+            .values(&NewTicket {
+                title: "Check the backups".to_string(),
+                workflow_state_id: open,
+                requester_uuid: Some(ws.member_uuid),
+                recurrence_rule: Some("FREQ=DAILY".to_string()),
+                ..Default::default()
+            })
+            .returning(tickets::id)
+            .get_result(c)?;
+        ticket_repo::update_ticket_partial(
+            c,
+            ticket,
+            TicketUpdate {
+                workflow_state_id: Some(done),
+                ..Default::default()
+            },
+            None,
+        )?;
+        Ok::<_, ticket_repo::TicketWriteError>(
+            tickets::table
+                .filter(tickets::recurrence_template_id.eq(ticket))
+                .select(tickets::due_date)
+                .first::<Option<chrono::NaiveDateTime>>(c)?,
+        )
+    })
+    .expect("close and read the next occurrence");
+    let due = due.expect("the next occurrence has a due date");
+    assert_eq!(due.time(), chrono::NaiveTime::MIN, "{due}");
 }

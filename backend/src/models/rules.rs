@@ -456,6 +456,22 @@ pub enum ConditionField {
     FirstResponseAt,
     #[serde(rename = "ticket.resolved_at")]
     ResolvedAt,
+    /// When the ticket is due: its due time on its due date, or the end of
+    /// that day, in the workspace's timezone (`services::ticket_dates`).
+    #[serde(rename = "ticket.due_date")]
+    DueDate,
+    /// The time of day of the deadline.
+    #[serde(rename = "ticket.due_time")]
+    DueTime,
+    /// When the ticket is planned to start: its start time on its start
+    /// date, or the start of that day, in the workspace's timezone.
+    #[serde(rename = "ticket.start_date")]
+    StartDate,
+    #[serde(rename = "ticket.start_time")]
+    StartTime,
+    /// The job's size in minutes.
+    #[serde(rename = "ticket.estimate_minutes")]
+    EstimateMinutes,
     #[serde(rename = "ticket.requester.email")]
     RequesterEmail,
     /// The requester's organization as their profile in this
@@ -486,6 +502,8 @@ pub enum ConditionFieldKind {
     StringArray,
     Timestamp,
     Number,
+    /// A time of day, `"HH:MM"`.
+    Time,
 }
 
 impl ConditionFieldKind {
@@ -499,6 +517,7 @@ impl ConditionFieldKind {
             Self::StringArray => "string_array",
             Self::Timestamp => "timestamp",
             Self::Number => "number",
+            Self::Time => "time",
         }
     }
 
@@ -522,7 +541,10 @@ impl ConditionFieldKind {
             Self::Enum | Self::IntId | Self::Uuid => &[Eq, Neq, In, NotIn, IsNull, IsNotNull],
             Self::IntArray | Self::StringArray => &[HasAny, HasAll, IsNull, IsNotNull],
             Self::Timestamp => &[Gt, Lt, Gte, Lte, IsNull, IsNotNull],
-            Self::Number => &[Gt, Lt, Gte, Lte],
+            // The empty checks apply to a number a ticket may not have (an
+            // unsized job); a clock always has one, and refuses them.
+            Self::Number => &[Gt, Lt, Gte, Lte, IsNull, IsNotNull],
+            Self::Time => &[Eq, Neq, Gt, Lt, Gte, Lte, IsNull, IsNotNull],
         }
     }
 }
@@ -546,6 +568,11 @@ impl ConditionField {
             Self::UpdatedAt => "ticket.updated_at",
             Self::FirstResponseAt => "ticket.first_response_at",
             Self::ResolvedAt => "ticket.resolved_at",
+            Self::DueDate => "ticket.due_date",
+            Self::DueTime => "ticket.due_time",
+            Self::StartDate => "ticket.start_date",
+            Self::StartTime => "ticket.start_time",
+            Self::EstimateMinutes => "ticket.estimate_minutes",
             Self::RequesterEmail => "ticket.requester.email",
             Self::RequesterOrganization => "ticket.requester.organization",
             Self::RequesterOrganizationId => "ticket.requester.organization_id",
@@ -579,10 +606,14 @@ impl ConditionField {
             Self::RequesterUuid | Self::AssigneeUuid => ConditionFieldKind::Uuid,
             Self::TagIds => ConditionFieldKind::IntArray,
             Self::EventChangedFields => ConditionFieldKind::StringArray,
-            Self::CreatedAt | Self::UpdatedAt | Self::FirstResponseAt | Self::ResolvedAt => {
-                ConditionFieldKind::Timestamp
-            }
-            Self::ClockMinutesSince => ConditionFieldKind::Number,
+            Self::CreatedAt
+            | Self::UpdatedAt
+            | Self::FirstResponseAt
+            | Self::ResolvedAt
+            | Self::DueDate
+            | Self::StartDate => ConditionFieldKind::Timestamp,
+            Self::ClockMinutesSince | Self::EstimateMinutes => ConditionFieldKind::Number,
+            Self::DueTime | Self::StartTime => ConditionFieldKind::Time,
         }
     }
 
@@ -686,6 +717,12 @@ impl ConditionField {
             Self::UpdatedAt => &["ticket.updated_at"],
             Self::FirstResponseAt => &["ticket.first_response_at"],
             Self::ResolvedAt => &["ticket.resolved_at"],
+            // The moment a date names depends on its time too.
+            Self::DueDate => &["ticket.due_date", "ticket.due_time"],
+            Self::DueTime => &["ticket.due_time"],
+            Self::StartDate => &["ticket.start_date", "ticket.start_time"],
+            Self::StartTime => &["ticket.start_time"],
+            Self::EstimateMinutes => &["ticket.estimate_minutes"],
         }
     }
 }

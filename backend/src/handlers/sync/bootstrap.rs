@@ -188,7 +188,7 @@ fn stream_bootstrap_inner(
     // workspace-wide streaming here.
     let pinned_workspace = crate::sync::session::current_workspace_id(conn)?;
     let workspace_group: Option<String> = pinned_workspace.map(|id| format!("workspace:{}", id));
-    let workspace_granted = workspace_group.is_some_and(|wg| granted.iter().any(|g| *g == wg));
+    let workspace_granted = workspace_group.is_some_and(|wg| granted.contains(&wg));
 
     let last_sync_id: Option<i64> = crate::schema::sync_actions::table
         .select(diesel::dsl::max(crate::schema::sync_actions::sync_id))
@@ -605,7 +605,7 @@ fn stream_bootstrap_inner(
         let ws = states_by_id.get(&t.workflow_state_id);
         // Same nested shape the create/update emits build, via the one
         // shared helper, so the card's state can't drift across paths.
-        let workflow_state_payload = ws.map(|s| crate::repository::tickets::workflow_state_json(s));
+        let workflow_state_payload = ws.map(crate::repository::tickets::workflow_state_json);
         let kb_gap_signal = match kb_gap_counts.get(&t.id).copied().unwrap_or(0) {
             0 => "none",
             1..=2 => "weak",
@@ -666,6 +666,10 @@ fn stream_bootstrap_inner(
                 "approval_state": t.approval_state,
                 "due_date": t.due_date,
                 "start_date": t.start_date,
+                "due_time": t.due_time,
+                "start_time": t.start_time,
+                "rank": t.rank,
+                "estimate_minutes": t.estimate_minutes,
                 "resolution_notes": t.resolution_notes,
                 // Detail-view scalars (source row + audit bylines) so
                 // the pool-native ticket detail view renders them with

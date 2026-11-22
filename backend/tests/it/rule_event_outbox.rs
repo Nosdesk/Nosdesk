@@ -64,6 +64,8 @@ const SKIPPED: &[&str] = &[
     "ticket.approval_requested",
     "ticket.approval_decided",
     "ticket.rated",
+    // Reordering a ticket within a day is no activity.
+    "ticket.rank_changed",
 ];
 
 fn actor(ws: &WorkspaceSeed) -> ActorContext {

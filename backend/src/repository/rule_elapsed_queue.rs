@@ -5,10 +5,10 @@
 //! application rows ([`last_fires`]), so a row can always be rebuilt (see
 //! `services::rules::elapsed`).
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{
-    Array, BigInt, Bool, Double, Integer, Nullable, SmallInt, Text, Timestamptz,
+    Array, BigInt, Bool, Double, Integer, Nullable, SmallInt, Text, Time, Timestamptz,
 };
 use uuid::Uuid;
 
@@ -24,6 +24,8 @@ struct InputRow {
     created_at: DateTime<Utc>,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     due_date: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Time>)]
+    due_time: Option<NaiveTime>,
     #[diesel(sql_type = Nullable<diesel::sql_types::Uuid>)]
     assignee_uuid: Option<Uuid>,
     #[diesel(sql_type = Nullable<Text>)]
@@ -90,8 +92,9 @@ const TICKET_EVENT: &str = "s.aggregate = 'ticket' AND s.aggregate_id = t.id::te
 // sync-audit-only: read-only
 /// What the clocks read from each of `ticket_ids` in the pinned workspace.
 ///
-/// A due date is a calendar day, due at the end of that day in the
-/// workspace's timezone ([`crate::services::ticket_dates::due_instant`]).
+/// A ticket is due at its due time on its due date, or with no time at the
+/// end of that day, in the workspace's timezone
+/// ([`crate::services::ticket_dates::due_instant`]).
 ///
 /// A state or assignee change is read from the ticket's `sync_actions`, by
 /// the fields an update changed (an update that changes both records one
@@ -122,7 +125,7 @@ pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<
     };
     let sql = format!(
         r#"
-        SELECT t.id AS ticket_id, t.created_at, t.due_date, t.assignee_uuid,
+        SELECT t.id AS ticket_id, t.created_at, t.due_date, t.due_time, t.assignee_uuid,
                t.submitted_via::text AS submitted_via,
                t.verification_state::text AS verification_state,
                t.approval_state,
@@ -160,15 +163,9 @@ pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<
     } else {
         false
     };
-    // A due date is a calendar day; it is due at the end of that day in the
-    // workspace's timezone.
+    // A due date and time resolve in the workspace's timezone.
     let tz = if rows.iter().any(|r| r.due_date.is_some()) {
-        use crate::schema::site_settings::dsl as ss;
-        let zone: Option<String> = ss::site_settings
-            .select(ss::default_timezone)
-            .first(conn)
-            .optional()?;
-        crate::utils::locale::effective_timezone(None, zone.as_deref().unwrap_or("UTC"))
+        crate::repository::site_settings::workspace_timezone(conn)?
     } else {
         chrono_tz::Tz::UTC
     };
@@ -195,7 +192,7 @@ pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<
                 created_at: r.created_at,
                 due_at: r
                     .due_date
-                    .map(|d| crate::services::ticket_dates::due_instant(d, tz)),
+                    .map(|d| crate::services::ticket_dates::due_instant(d, r.due_time, tz)),
                 assignee_uuid: r.assignee_uuid,
                 state_changed_at: r.state_changed_at,
                 assigned_at: r.assigned_at,
