@@ -484,7 +484,7 @@ impl Importer for AssetRecordImporter {
             ("enddate", "completed_on"),
             ("result", "outcome"),
             ("title", "summary"),
-            ("description", "summary"),
+            ("description", "notes"),
             ("comments", "notes"),
             ("comment", "notes"),
             ("note", "notes"),
@@ -508,7 +508,6 @@ impl Importer for AssetRecordImporter {
             ("user", "holder"),
             ("replacementtag", "replacement_asset_tag"),
             ("replacedby", "replacement_asset_tag"),
-            ("id", "source_ref"),
             ("recordid", "source_ref"),
             ("externalid", "source_ref"),
             ("sourceid", "source_ref"),
@@ -796,6 +795,9 @@ impl Importer for AssetRecordImporter {
         })
     }
 }
+
+/// The longest source reference a record holds.
+const SOURCE_REF_MAX: usize = 255;
 
 /// Why an archived type can't be picked for new records.
 const ARCHIVED_TYPE: &str = "Archived; restore it under Settings to import records of it";
@@ -1642,6 +1644,15 @@ fn plan_row(
 
     // The record a source reference names, under the mode.
     let source_ref = opt_cell(row, "source_ref");
+    if source_ref
+        .as_ref()
+        .is_some_and(|r| r.chars().count() > SOURCE_REF_MAX)
+    {
+        return Ok(Err(vec![error(
+            Some("source_ref"),
+            format!("longer than {SOURCE_REF_MAX} characters"),
+        )]));
+    }
     let existing = source_ref.as_ref().and_then(|r| lookups.by_ref.get(r));
     match (existing, mode) {
         (Some(_), ImportMode::CreateOnly) => errors.push(error(

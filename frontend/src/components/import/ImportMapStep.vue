@@ -249,8 +249,10 @@ function valueOptions(c: ConstantRow): DropdownOption[] | null {
   }
   const values = field?.enum
   if (!values || values.length === 0) return null
-  const label = (v: string) => choiceLabel(t, props.job.job_type, c.field, v, v)
-  return values.map((v) => ({ value: v, label: label(v) }))
+  // A record type's slug is named by the field's labels.
+  const label = (v: string, i: number) =>
+    field?.enum_labels?.[i] ?? choiceLabel(t, props.job.job_type, c.field, v, v)
+  return values.map((v, i) => ({ value: v, label: label(v, i) }))
 }
 
 function valueInputType(c: ConstantRow): string {

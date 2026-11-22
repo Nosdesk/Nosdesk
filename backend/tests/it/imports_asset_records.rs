@@ -980,3 +980,54 @@ async fn a_built_in_type_is_added_on_commit_and_an_unknown_one_is_an_error() {
     let listed = rows(&pool, &ws, &id_of(&job)).await;
     assert_eq!(listed.len(), 3);
 }
+
+/// A sheet of one kind of work, with no type column: the type is set for
+/// every row, and outcomes are answered as that type's.
+#[actix_web::test]
+async fn a_record_type_set_for_every_row_reads_outcomes_as_its_own() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool, "UTC");
+    seed_asset(&pool, &ws, "Camera 1", Some("CAM-001"), None);
+    let long_ref = "R".repeat(256);
+    let file = format!(
+        "Tag,Date,Result,Id\n\
+         CAM-001,2020-01-02,Repaired,R-1\n\
+         CAM-001,2020-01-03,No fault found,R-2\n\
+         CAM-001,2020-01-04,Repaired,{long_ref}\n"
+    );
+    let job = checked(
+        &pool,
+        &ws,
+        &file,
+        &[
+            ("Tag", "asset_tag"),
+            ("Date", "occurred_on"),
+            ("Result", "outcome"),
+            ("Id", "source_ref"),
+        ],
+        serde_json::json!({ "constants": [{ "field": "record_type", "value": "repair" }] }),
+    )
+    .await;
+    assert_eq!(summary(&job, "would_create"), 2, "{job}");
+    // A reference longer than a record holds is a row error, not a failed
+    // commit.
+    assert!(
+        errors(&job)
+            .iter()
+            .any(|(row, col, _)| *row == 4 && col.as_deref() == Some("source_ref")),
+        "{job}"
+    );
+    commit(&pool, &ws, &id_of(&job)).await;
+    let written: Vec<(String, Option<String>)> = records(&pool, &ws)
+        .into_iter()
+        .map(|r| (r.record_type, r.outcome))
+        .collect();
+    assert_eq!(
+        written,
+        vec![
+            ("repair".to_string(), Some("repaired".to_string())),
+            ("repair".to_string(), Some("no_fault_found".to_string())),
+        ]
+    );
+}
