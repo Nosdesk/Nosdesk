@@ -9,6 +9,7 @@ use actix_web::dev::Service;
 use actix_web::http::{Method, StatusCode};
 use actix_web::test as http_test;
 use actix_web::{web, App, HttpMessage};
+use diesel::prelude::*;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -17,6 +18,7 @@ use backend::middleware::RequestContext;
 use backend::models::{Claims, UpdateSiteSettings};
 use backend::repository::site_settings;
 use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
+use backend::schema::assets;
 use backend::sync::actor::ActorContext;
 use backend::sync::session::run_in_workspace;
 
@@ -45,7 +47,11 @@ fn seed(db: &common::TestDb) -> Fixture {
             "agent",
             SeatWriteAuthority::ControlPlane,
         )?;
-        Ok(common::insert_stock_asset(c, "Forklift"))
+        let asset = common::insert_stock_asset(c, "Forklift");
+        diesel::update(assets::table.find(asset))
+            .set(assets::asset_tag.eq("FL-14"))
+            .execute(c)?;
+        Ok(asset)
     })
     .expect("seed");
     Fixture {
@@ -306,6 +312,7 @@ async fn a_used_type_is_archived_not_deleted_and_leaves_the_picker() {
     .await;
     assert_eq!(status, StatusCode::OK, "{archived}");
     assert!(archived["archived_at"].is_string());
+    assert_eq!(archived["record_count"], 1, "{archived}");
     let (_, picker) = call(&f, f.agent, Method::GET, "/api/assets/record-types", None).await;
     assert_eq!(picker["types"], json!([]));
     let (_, picker) = call(
@@ -331,6 +338,7 @@ async fn a_used_type_is_archived_not_deleted_and_leaves_the_picker() {
     .await;
     assert_eq!(status, StatusCode::OK, "{restored}");
     assert_eq!(restored["archived_at"], Value::Null);
+    assert_eq!(restored["record_count"], 1, "{restored}");
     let (status, _) = call(&f, f.agent, Method::POST, &records, Some(record)).await;
     assert_eq!(status, StatusCode::CREATED);
 
@@ -362,6 +370,7 @@ async fn a_field_change_records_no_longer_fit_is_refused_with_their_count_unless
     )
     .await;
     let one = format!("{ADMIN}/{}", created["id"]);
+    let mut record_ids = Vec::new();
     for drift in ["0.2%", "0.4%"] {
         let (status, body) = call(
             &f,
@@ -376,6 +385,7 @@ async fn a_field_change_records_no_longer_fit_is_refused_with_their_count_unless
         )
         .await;
         assert_eq!(status, StatusCode::CREATED, "{body}");
+        record_ids.push(body["record"]["id"].clone());
     }
     let numeric = json!({
         "field_schema": {
@@ -394,14 +404,20 @@ async fn a_field_change_records_no_longer_fit_is_refused_with_their_count_unless
     assert_eq!(status, StatusCode::CONFLICT, "{refused}");
     assert_eq!(refused["code"], "RECORDS_WOULD_NOT_FIT");
     assert_eq!(refused["invalid_count"], 2);
-    assert_eq!(refused["sample"].as_array().expect("sample").len(), 2);
+    let sample = refused["sample"].as_array().expect("sample");
+    assert_eq!(sample.len(), 2);
+    // Each names its record and the equipment it is on.
+    assert_eq!(sample[0]["id"], record_ids[0], "{refused}");
+    assert_eq!(sample[0]["asset_id"], json!(f.asset));
+    assert_eq!(sample[0]["asset_name"], "Forklift");
+    assert_eq!(sample[0]["asset_tag"], "FL-14");
 
     let (status, saved) = call(
         &f,
         f.ws.admin_uuid,
         Method::PUT,
         &format!("{one}?force=true"),
-        Some(numeric),
+        Some(numeric.clone()),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{saved}");
@@ -409,6 +425,42 @@ async fn a_field_change_records_no_longer_fit_is_refused_with_their_count_unless
         saved["field_schema"]["properties"]["drift"]["type"],
         "number"
     );
+    assert_eq!(saved["record_count"], 2, "{saved}");
+
+    // Sending the stored schema again, and the same outcome keys under a new
+    // name, changes nothing a record holds, so no check runs: the records
+    // that don't fit were let through by the forced save, not by this edit.
+    let (status, renamed) = call(
+        &f,
+        f.ws.admin_uuid,
+        Method::PUT,
+        &one,
+        Some(json!({
+            "label": "Calibration check",
+            "field_schema": numeric["field_schema"],
+            "outcomes": [{ "key": "in_tolerance", "category": "done", "label": "Within tolerance" }],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{renamed}");
+    assert_eq!(renamed["label"], "Calibration check");
+
+    // A schema that differs is still checked.
+    let (status, refused) = call(
+        &f,
+        f.ws.admin_uuid,
+        Method::PUT,
+        &one,
+        Some(json!({
+            "field_schema": {
+                "type": "object",
+                "properties": { "drift": { "type": "boolean" } }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(refused["invalid_count"], 2);
 }
 
 #[actix_web::test]
