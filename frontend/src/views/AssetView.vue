@@ -671,6 +671,7 @@ useSyncActions(
         <AssetStateHeader
           :asset-id="device.id"
           :status="device.status"
+          :kind="device.kind"
           :can-edit="canChangeLifecycle"
           @loan-changed="() => invalidateAsset()"
           @transitioned="onAssetTransitioned"

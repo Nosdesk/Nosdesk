@@ -30,6 +30,8 @@ const props = defineProps<{
   assetId: number;
   status: string;
   canEdit?: boolean;
+  /** The asset's kind, for the record types its status changes offer. */
+  kind?: string;
 }>();
 
 const emit = defineEmits<{
@@ -181,6 +183,7 @@ function onTransitioned(toStatus: string) {
         :asset-id="assetId"
         :current-status="status"
         :has-active-loan="!!activeLoan"
+        :asset-kind="kind"
         @close="showStatusChange = false"
         @transitioned="onTransitioned"
       />
