@@ -219,10 +219,14 @@ fn a_derived_notification_persists_once_per_event_recipient_and_type() {
     }
 }
 
-/// Claim `sync_id` now, whatever its schedule.
+/// Claim `sync_id` now, whatever its schedule. Due a second ago: the claim
+/// compares with the database's clock, which can run behind this process's.
 fn claim_now(conn: &mut DbConnection, sync_id: i64) -> Claimed {
     diesel::update(notification_outbox::table.filter(notification_outbox::sync_id.eq(sync_id)))
-        .set(notification_outbox::next_attempt_at.eq(chrono::Utc::now()))
+        .set(
+            notification_outbox::next_attempt_at
+                .eq(chrono::Utc::now() - chrono::Duration::seconds(1)),
+        )
         .execute(conn)
         .expect("make due");
     claim_batch(conn)

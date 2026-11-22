@@ -800,10 +800,14 @@ async fn attempts_count_one_due_time_and_a_pending_retry_keeps_its_time() {
     assert_eq!(h.fire(), 0, "not due until the retry");
 
     // A fire moves the row to the next repeat and starts the count again,
-    // however many claims came before.
+    // however many claims came before. Due a second ago, since the claim
+    // reads the database's clock.
     h.as_admin(a, |c| {
         diesel::update(q::table.filter(q::rule_id.eq(rule)))
-            .set((q::due_at.eq(Utc::now()), q::attempts.eq(i16::MAX)))
+            .set((
+                q::due_at.eq(Utc::now() - chrono::Duration::seconds(1)),
+                q::attempts.eq(i16::MAX),
+            ))
             .execute(c)
     });
     assert_eq!(h.fire(), 1);
