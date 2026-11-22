@@ -32,6 +32,7 @@ use crate::schema::{
 use crate::services::custom_fields::schema::{validate_attributes, AttributeError};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
+use crate::utils::locale::day_start;
 use crate::utils::money;
 
 /// The earliest day a record may be dated.
@@ -193,6 +194,11 @@ pub enum RecordError {
     SourceRefExists {
         id: i32,
     },
+    /// A text field longer than its column holds, in characters.
+    TooLong {
+        field: &'static str,
+        max: usize,
+    },
     Db(Error),
 }
 
@@ -236,6 +242,9 @@ impl std::fmt::Display for RecordError {
             }
             RecordError::SourceRefExists { id } => {
                 write!(f, "record {id} already has this source reference")
+            }
+            RecordError::TooLong { field, max } => {
+                write!(f, "{field} is longer than {max} characters")
             }
             RecordError::Db(e) => write!(f, "{e}"),
         }
@@ -366,6 +375,34 @@ fn clean(text: Option<String>) -> Option<String> {
 
 /// Write a record. It never touches the asset.
 pub fn create(conn: &mut DbConnection, input: NewRecord) -> Result<RecordWrite, RecordError> {
+    let source_ref = clean(input.source_ref.clone());
+    match insert_record(conn, input) {
+        // Another write took the same source reference between the check
+        // and the insert.
+        Err(RecordError::Db(e)) if is_source_ref_conflict(&e) => {
+            let existing = match &source_ref {
+                Some(r) => find_by_source_ref(conn, r)?,
+                None => None,
+            };
+            Err(
+                existing.map_or(RecordError::Db(e), |r| RecordError::SourceRefExists {
+                    id: r.id,
+                }),
+            )
+        }
+        other => other,
+    }
+}
+
+fn is_source_ref_conflict(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, info)
+            if info.constraint_name() == Some("asset_records_source_ref_key")
+    )
+}
+
+fn insert_record(conn: &mut DbConnection, input: NewRecord) -> Result<RecordWrite, RecordError> {
     // emit::record fires inside emit_record.
     conn.transaction::<RecordWrite, RecordError, _>(|conn| {
         let tz = workspace_timezone(conn)?;
@@ -378,6 +415,7 @@ pub fn create(conn: &mut DbConnection, input: NewRecord) -> Result<RecordWrite, 
             return Err(RecordError::RecordTypeNotForKind { kind: asset.kind });
         }
         let source_ref = clean(input.source_ref);
+        check_length("source_ref", source_ref.as_deref(), TEXT_MAX)?;
         if let Some(existing) = match &source_ref {
             Some(r) => find_by_source_ref(conn, r)?,
             None => None,
@@ -677,14 +715,17 @@ fn derive_snapshot(
     Ok((None, None, SnapshotSource::None))
 }
 
-/// The first moment of `day` in `tz`.
-fn day_start(day: NaiveDate, tz: Tz) -> DateTime<Utc> {
-    use chrono::TimeZone;
-    let midnight = day.and_hms_opt(0, 0, 0).unwrap_or_default();
-    tz.from_local_datetime(&midnight)
-        .earliest()
-        .map(|t| t.with_timezone(&Utc))
-        .unwrap_or_else(|| midnight.and_utc())
+/// The longest summary, vendor, reference, location or source reference.
+const TEXT_MAX: usize = 255;
+/// The longest outcome key.
+const KEY_MAX: usize = 64;
+
+/// `value` fits a column of `max` characters.
+fn check_length(field: &'static str, value: Option<&str>, max: usize) -> Result<(), RecordError> {
+    match value {
+        Some(v) if v.chars().count() > max => Err(RecordError::TooLong { field, max }),
+        _ => Ok(()),
+    }
 }
 
 /// Validate a record as it will stand, and the warnings it carries.
@@ -695,6 +736,16 @@ fn check(
     rtype: &AssetRecordType,
     tz: Tz,
 ) -> Result<Vec<RecordWarning>, RecordError> {
+    for (field, value) in [
+        ("summary", &draft.summary),
+        ("vendor", &draft.vendor),
+        ("reference", &draft.reference),
+        ("location", &draft.location),
+    ] {
+        check_length(field, value.as_deref(), TEXT_MAX)?;
+    }
+    check_length("outcome", draft.outcome.as_deref(), KEY_MAX)?;
+
     // Dates: none before the floor, none after tomorrow (timezone slack), and
     // no completion before the work.
     let today = Utc::now().with_timezone(&tz).date_naive();

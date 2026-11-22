@@ -43,6 +43,32 @@ static KEY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[a-z][a-z0-9_]{0,63}$").expect("key pattern")
 });
 
+static COLOR: LazyLock<Regex> = LazyLock::new(|| {
+    #[allow(clippy::expect_used)]
+    Regex::new(r"^#[0-9A-Fa-f]{6}$").expect("colour pattern")
+});
+
+/// The longest name, and the longest icon name.
+const LABEL_MAX: usize = 255;
+const ICON_MAX: usize = 64;
+
+/// A name, icon and colour that fit their columns.
+fn check_display(
+    label: Option<&str>,
+    icon: Option<&str>,
+    color: Option<&str>,
+) -> Result<(), RecordTypeError> {
+    for (field, value, max) in [("label", label, LABEL_MAX), ("icon", icon, ICON_MAX)] {
+        if value.is_some_and(|v| v.chars().count() > max) {
+            return Err(RecordTypeError::TooLong { field, max });
+        }
+    }
+    match color {
+        Some(c) if !COLOR.is_match(c) => Err(RecordTypeError::InvalidColor(c.to_string())),
+        _ => Ok(()),
+    }
+}
+
 /// Why a record type write was refused.
 #[derive(Debug)]
 pub enum RecordTypeError {
@@ -79,6 +105,13 @@ pub enum RecordTypeError {
         count: i64,
     },
     NotInCatalogue,
+    /// A name or icon longer than its column holds, in characters.
+    TooLong {
+        field: &'static str,
+        max: usize,
+    },
+    /// A colour that isn't `#rrggbb`.
+    InvalidColor(String),
     Db(Error),
 }
 
@@ -339,6 +372,9 @@ pub fn create(
         return Err(RecordTypeError::SlugReserved);
     }
     let label = clean(Some(input.label)).ok_or(RecordTypeError::LabelRequired)?;
+    let icon = clean(input.icon);
+    let color = clean(input.color);
+    check_display(Some(&label), icon.as_deref(), color.as_deref())?;
     validate_schema(&input.field_schema).map_err(RecordTypeError::Schema)?;
     check_core_fields(&input.core_fields)?;
     check_outcomes(&input.outcomes, None)?;
@@ -358,8 +394,8 @@ pub fn create(
             slug,
             label: Some(label),
             description: clean(input.description),
-            icon: clean(input.icon),
-            color: clean(input.color),
+            icon,
+            color,
             field_schema: input.field_schema,
             field_order,
             core_fields: input.core_fields,
@@ -394,6 +430,13 @@ pub fn update(
         if !current.is_builtin && matches!(label, Some(None)) {
             return Err(RecordTypeError::LabelRequired);
         }
+        let icon = changes.icon.map(clean);
+        let color = changes.color.map(clean);
+        check_display(
+            label.as_ref().and_then(|l| l.as_deref()),
+            icon.as_ref().and_then(|i| i.as_deref()),
+            color.as_ref().and_then(|c| c.as_deref()),
+        )?;
         if let Some(schema) = &changes.field_schema {
             validate_schema(schema).map_err(RecordTypeError::Schema)?;
         }
@@ -440,8 +483,8 @@ pub fn update(
             .set(&AssetRecordTypeChange {
                 label,
                 description: changes.description.map(clean),
-                icon: changes.icon.map(clean),
-                color: changes.color.map(clean),
+                icon,
+                color,
                 field_schema: changes.field_schema,
                 field_order,
                 core_fields: changes.core_fields,

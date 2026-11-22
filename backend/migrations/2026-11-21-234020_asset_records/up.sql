@@ -186,6 +186,9 @@ CREATE INDEX asset_records_ticket_idx
     ON public.asset_records (workspace_id, ticket_id) WHERE ticket_id IS NOT NULL;
 CREATE INDEX asset_records_replacement_idx
     ON public.asset_records (workspace_id, replacement_asset_id) WHERE replacement_asset_id IS NOT NULL;
+-- Deleting a lifecycle event clears the records it opened.
+CREATE INDEX asset_records_lifecycle_event_idx
+    ON public.asset_records (workspace_id, lifecycle_event_id) WHERE lifecycle_event_id IS NOT NULL;
 CREATE INDEX asset_records_import_job_idx
     ON public.asset_records (workspace_id, import_job_id) WHERE import_job_id IS NOT NULL;
 -- Vendor suggestions.

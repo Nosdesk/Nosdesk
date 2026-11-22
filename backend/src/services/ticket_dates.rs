@@ -7,7 +7,7 @@
 //! the same moment for everyone. This module is the one place that rule
 //! lives, so a later due time can extend it.
 
-use chrono::{DateTime, Days, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, Days, Utc};
 use chrono_tz::Tz;
 
 /// When a ticket due on `due_date` is due: the end of that day, that is the
@@ -18,22 +18,13 @@ pub fn due_instant(due_date: DateTime<Utc>, tz: Tz) -> DateTime<Utc> {
         .date_naive()
         .checked_add_days(Days::new(1))
         .unwrap_or(chrono::NaiveDate::MAX);
-    let midnight = next_day.and_time(NaiveTime::MIN);
-    // A zone that skips midnight (a daylight saving change at 00:00) starts
-    // the day at its first moment after the gap.
-    tz.from_local_datetime(&midnight)
-        .earliest()
-        .or_else(|| {
-            tz.from_local_datetime(&(midnight + chrono::Duration::hours(1)))
-                .earliest()
-        })
-        .map(|t| t.with_timezone(&Utc))
-        .unwrap_or_else(|| midnight.and_utc())
+    crate::utils::locale::day_start(next_day, tz)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     fn day(y: i32, m: u32, d: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(y, m, d, 0, 0, 0).unwrap()

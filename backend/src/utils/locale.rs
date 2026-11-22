@@ -182,6 +182,22 @@ pub fn request_locale(req: &actix_web::HttpRequest) -> LanguageIdentifier {
         })
 }
 
+/// The first moment of calendar day `day` in timezone `tz`. A zone that
+/// skips midnight (a daylight saving change at 00:00, as Chile's) starts the
+/// day at its first moment after the gap.
+pub fn day_start(day: chrono::NaiveDate, tz: Tz) -> chrono::DateTime<chrono::Utc> {
+    use chrono::TimeZone;
+    let midnight = day.and_time(chrono::NaiveTime::MIN);
+    tz.from_local_datetime(&midnight)
+        .earliest()
+        .or_else(|| {
+            tz.from_local_datetime(&(midnight + chrono::Duration::hours(1)))
+                .earliest()
+        })
+        .map(|t| t.with_timezone(&chrono::Utc))
+        .unwrap_or_else(|| midnight.and_utc())
+}
+
 /// Resolve the effective IANA timezone for a user. Same chain as
 /// `effective_locale`, with `UTC` as the final fallback. IANA-
 /// only; Windows-style names ("Pacific Standard Time") and bogus
@@ -309,6 +325,23 @@ mod tests {
         // we can't deliver.
         let l = effective_locale(Some("de-DE"), "en-AU");
         assert_eq!(l.to_string(), "en-AU");
+    }
+
+    #[test]
+    fn a_day_starts_at_its_first_local_moment() {
+        use chrono::{NaiveDate, TimeZone, Utc};
+        let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("date");
+        // Sydney in November is UTC+11.
+        assert_eq!(
+            day_start(day(2026, 11, 21), chrono_tz::Australia::Sydney),
+            Utc.with_ymd_and_hms(2026, 11, 20, 13, 0, 0).unwrap()
+        );
+        // Santiago skips 00:00 to 01:00 on 6 September 2026: the day starts
+        // at 01:00 local, UTC-3.
+        assert_eq!(
+            day_start(day(2026, 9, 6), chrono_tz::America::Santiago),
+            Utc.with_ymd_and_hms(2026, 9, 6, 4, 0, 0).unwrap()
+        );
     }
 
     #[test]

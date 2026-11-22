@@ -580,3 +580,117 @@ fn files_stay_and_deletes_cascade() {
     .expect("hard-delete a workspace whose type has records");
     assert_eq!(deleted, 1);
 }
+
+/// Text longer than its column is refused by field, and a source reference
+/// another record holds answers with that record, even when a concurrent
+/// write takes it between the check and the insert.
+#[test]
+fn long_text_and_a_taken_source_ref_are_refused_by_name() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(3);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let ws = seeded.a.workspace_id;
+    let asset = new_asset(&pool, ws, "Camera 26");
+    let repair = repair_type(&pool, ws);
+    let with_ref = move |source_ref: &str| {
+        let mut input = record(asset, repair.id, day(2024, 2, 1), None);
+        input.source_ref = Some(source_ref.to_string());
+        input
+    };
+
+    let mut long = record(asset, repair.id, day(2024, 2, 1), None);
+    long.vendor = Some("v".repeat(256));
+    assert!(matches!(
+        refused(in_ws(&pool, ws, |c| records::create(c, long))),
+        RecordError::TooLong {
+            field: "vendor",
+            max: 255
+        }
+    ));
+
+    let first = in_ws(&pool, ws, |c| records::create(c, with_ref("legacy-1")))
+        .expect("create")
+        .record;
+    assert!(matches!(
+        refused(in_ws(&pool, ws, |c| records::create(c, with_ref("legacy-1")))),
+        RecordError::SourceRefExists { id } if id == first.id
+    ));
+
+    // The holder writes and waits before committing; the second write passes
+    // the check, then meets the unique index once the holder commits.
+    let (written, wait) = std::sync::mpsc::channel();
+    let holder_pool = pool.clone();
+    let holder = std::thread::spawn(move || {
+        in_ws(&holder_pool, ws, |c| {
+            let w = records::create(c, with_ref("legacy-2")).expect("the first write");
+            written.send(()).expect("signal");
+            std::thread::sleep(std::time::Duration::from_millis(800));
+            w.record.id
+        })
+    });
+    wait.recv().expect("the holder wrote");
+    let second = in_ws(&pool, ws, |c| records::create(c, with_ref("legacy-2")));
+    let winner = holder.join().expect("the holder");
+    assert!(
+        matches!(refused(second), RecordError::SourceRefExists { id } if id == winner),
+        "the race answers with the record that won"
+    );
+}
+
+/// Deleting the transition that opened a record clears the link, through
+/// the index on it, and leaves the record.
+#[test]
+fn deleting_the_opening_transition_clears_the_link() {
+    #[derive(QueryableByName)]
+    struct Found {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        found: bool,
+    }
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let ws = seeded.a.workspace_id;
+    let asset = new_asset(&pool, ws, "Camera 27");
+    let repair = repair_type(&pool, ws);
+    let event = in_ws(&pool, ws, |c| {
+        diesel::sql_query(
+            "INSERT INTO asset_lifecycle_events (asset_id, from_status, to_status) \
+             VALUES ($1, 'in_service', 'in_repair') RETURNING id",
+        )
+        .bind::<Integer, _>(asset)
+        .get_result::<IdRow>(c)
+    })
+    .expect("a transition")
+    .id;
+    let mut input = record(asset, repair.id, Utc::now().date_naive(), None);
+    input.completed = None;
+    input.outcome = None;
+    input.source = RecordSource::Transition;
+    input.lifecycle_event_id = Some(event);
+    let opened = in_ws(&pool, ws, |c| records::create(c, input))
+        .expect("an open repair")
+        .record;
+    assert_eq!(opened.lifecycle_event_id, Some(event));
+
+    let mut conn = pool.get().expect("conn");
+    let indexed = with_actor_bypass_context(&mut conn, &ActorContext::system(REF), |c| {
+        diesel::sql_query(
+            "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'asset_records' \
+             AND indexdef LIKE '%(workspace_id, lifecycle_event_id)%') AS found",
+        )
+        .get_result::<Found>(c)
+    })
+    .expect("indexes")
+    .found;
+    assert!(indexed, "the link is indexed for the delete");
+    with_actor_bypass_context(&mut conn, &ActorContext::system(REF), |c| {
+        diesel::sql_query("DELETE FROM asset_lifecycle_events WHERE id = $1")
+            .bind::<Integer, _>(event)
+            .execute(c)
+    })
+    .expect("delete the transition");
+    let kept = in_ws(&pool, ws, |c| records::get(c, opened.id))
+        .expect("read")
+        .expect("the record stays");
+    assert_eq!(kept.lifecycle_event_id, None);
+}

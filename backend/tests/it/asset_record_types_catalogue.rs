@@ -142,6 +142,21 @@ fn a_workspaces_own_types_share_status_and_slugs_with_the_catalogue() {
         in_ws(&pool, ws, |c| types::create(c, custom("repair", None))),
         Err(RecordTypeError::SlugReserved)
     ));
+    let mut odd = custom("calibration", None);
+    odd.color = Some("blue".into());
+    assert!(matches!(
+        in_ws(&pool, ws, |c| types::create(c, odd)),
+        Err(RecordTypeError::InvalidColor(_))
+    ));
+    let mut wordy = custom("calibration", None);
+    wordy.label = "L".repeat(256);
+    assert!(matches!(
+        in_ws(&pool, ws, |c| types::create(c, wordy)),
+        Err(RecordTypeError::TooLong {
+            field: "label",
+            max: 255
+        })
+    ));
     let own = in_ws(&pool, ws, |c| {
         types::create(c, custom("calibration", Some("in_repair")))
     })
