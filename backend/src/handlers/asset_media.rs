@@ -18,7 +18,7 @@ use crate::db::Pool;
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::handlers::files::{authorize_at_owning_workspace, serve_named_or_not_found};
-use crate::models::{AssetMediaUpdate, NewAssetMedia};
+use crate::models::{AssetMedia, AssetMediaUpdate, NewAssetMedia};
 use crate::repository::{asset_media as repo, assets as assets_repo};
 use crate::services::upload_intake::{self as intake, Part, UploadPolicy};
 use crate::utils::image::generate_asset_media_thumbnail;
@@ -136,7 +136,13 @@ pub async fn list_for_asset(
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(mut rows) => {
+            // Records are staff-only, and so are their files.
+            if !auth.can_handle_tickets() {
+                rows.retain(|r| r.record_id.is_none());
+            }
+            HttpResponse::Ok().json(rows)
+        }
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
         }
@@ -147,10 +153,19 @@ pub async fn list_for_asset(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UploadQuery {
+    /// A record of the asset's the files belong to.
+    pub record_id: Option<i32>,
+}
+
+/// `POST /api/assets/{id}/media`, with `?record_id=` to make the files a
+/// record's as well as the asset's.
 pub async fn upload_for_asset(
     mut tc: TenantConn,
     auth: AuthContext,
     path: web::Path<i32>,
+    query: web::Query<UploadQuery>,
     req: HttpRequest,
     payload: Multipart,
     storage: ScopedStorage,
@@ -171,6 +186,18 @@ pub async fn upload_for_asset(
                 crate::errors::internal_error("Failed to load asset")
             }
         })?;
+    let record_id = query.into_inner().record_id;
+    if let Some(record_id) = record_id {
+        let record = tc
+            .run(|conn| crate::repository::asset_records::get(conn, record_id))
+            .map_err(|e| {
+                error!(asset_id, error = ?e, "failed to load the record before a media upload");
+                crate::errors::internal_error("Failed to load the record")
+            })?;
+        if record.is_none_or(|r| r.asset_id != asset_id) {
+            return Err(crate::errors::not_found_error("Record not found"));
+        }
+    }
 
     let policy = UploadPolicy::asset_media(asset_id);
     let mut upload =
@@ -236,13 +263,31 @@ pub async fn upload_for_asset(
             sort_order: 0,
             caption: None,
             uploaded_by: Some(auth.user_uuid),
-            record_id: None,
+            record_id,
         };
 
-        let row = tc.run(|conn| repo::create(conn, new_media)).map_err(|e| {
-            error!(asset_id, error = ?e, "failed to create asset media row");
-            crate::errors::internal_error("Failed to create asset media")
-        })?;
+        let stored_url = new_media.url.clone();
+        let stored_thumb = new_media.thumbnail_url.clone();
+        let row = match tc.run(|conn| repo::create(conn, new_media)) {
+            Ok(row) => row,
+            Err(e) => {
+                // No row points at the stored file: take it away again.
+                remove_stored_paths(&storage, asset_id, &stored_url, stored_thumb.as_deref()).await;
+                return Err(match e {
+                    // The record went away while the file came in.
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+                        info,
+                    ) if info.constraint_name() == Some("asset_media_record_id_fkey") => {
+                        crate::errors::not_found_error("Record not found")
+                    }
+                    other => {
+                        error!(asset_id, error = ?other, "failed to create asset media row");
+                        crate::errors::internal_error("Failed to create asset media")
+                    }
+                });
+            }
+        };
         uploaded.push(row);
     }
 
@@ -320,23 +365,44 @@ pub async fn delete_media(
         }
     };
 
-    if let Some(filename) = deleted.url.rsplit('/').next() {
-        let path = format!("assets/{}/media/{filename}", deleted.asset_id);
+    remove_stored_objects(&storage, &deleted).await;
+    HttpResponse::Ok().json(json!({ "deleted": true }))
+}
+
+/// Delete a deleted media row's stored file and thumbnail. A failure is
+/// logged and left behind: the row is already gone.
+pub(crate) async fn remove_stored_objects(storage: &ScopedStorage, deleted: &AssetMedia) {
+    remove_stored_paths(
+        storage,
+        deleted.asset_id,
+        &deleted.url,
+        deleted.thumbnail_url.as_deref(),
+    )
+    .await;
+}
+
+/// Delete the stored file at `url` and the thumbnail at `thumbnail_url`.
+async fn remove_stored_paths(
+    storage: &ScopedStorage,
+    asset_id: i32,
+    url: &str,
+    thumbnail_url: Option<&str>,
+) {
+    if let Some(filename) = url.rsplit('/').next() {
+        let path = format!("assets/{asset_id}/media/{filename}");
         if let Err(e) = storage.0.delete_file(&path).await {
-            warn!(asset_id, media_id, path = %path, error = ?e, "failed to delete asset media object");
+            warn!(asset_id, path = %path, error = ?e, "failed to delete asset media object");
         }
     }
-    if let Some(thumb_url) = deleted.thumbnail_url.as_deref() {
-        let prefix = format!("/api/files/assets/{}/media/", deleted.asset_id);
+    if let Some(thumb_url) = thumbnail_url {
+        let prefix = format!("/api/files/assets/{asset_id}/media/");
         if let Some(tail) = thumb_url.strip_prefix(&prefix) {
-            let path = format!("assets/{}/media/{tail}", deleted.asset_id);
+            let path = format!("assets/{asset_id}/media/{tail}");
             if let Err(e) = storage.0.delete_file(&path).await {
-                warn!(asset_id, media_id, path = %path, error = ?e, "failed to delete asset media thumbnail");
+                warn!(asset_id, path = %path, error = ?e, "failed to delete asset media thumbnail");
             }
         }
     }
-
-    HttpResponse::Ok().json(json!({ "deleted": true }))
 }
 
 /// `GET /api/files/assets/{asset_id}/media/{filename}`. An `<img>` loads it

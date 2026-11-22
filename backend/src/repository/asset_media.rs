@@ -72,6 +72,17 @@ pub fn name_by_url(
         .optional()
 }
 
+/// The files of each of `record_ids`, in one read.
+pub fn list_for_records(
+    conn: &mut DbConnection,
+    record_ids: &[i32],
+) -> QueryResult<Vec<AssetMedia>> {
+    asset_media::table
+        .filter(asset_media::record_id.eq_any(record_ids))
+        .order((asset_media::sort_order.asc(), asset_media::id.asc()))
+        .load(conn)
+}
+
 /// The files of asset record `record_id`.
 pub fn list_for_record(conn: &mut DbConnection, record_id: i32) -> QueryResult<Vec<AssetMedia>> {
     asset_media::table

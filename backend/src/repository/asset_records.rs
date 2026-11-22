@@ -329,6 +329,189 @@ pub fn list_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Vec
         .load(conn)
 }
 
+/// Which of an asset's records a page lists. Every set filter must hold.
+#[derive(Debug, Clone, Default)]
+pub struct RecordFilter {
+    pub record_type_id: Option<i32>,
+    pub outcome: Option<String>,
+    /// `Some(true)` for open work only, `Some(false)` for completed only.
+    pub open: Option<bool>,
+    /// Work done on or after this day.
+    pub from: Option<NaiveDate>,
+    /// Work done on or before this day.
+    pub to: Option<NaiveDate>,
+}
+
+/// Where a page of records ends: the last record's place in the order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecordCursor {
+    pub occurred_on: NaiveDate,
+    pub occurred_at: Option<DateTime<Utc>>,
+    pub id: i32,
+}
+
+impl RecordCursor {
+    fn of(row: &AssetRecord) -> Self {
+        Self {
+            occurred_on: row.occurred_on,
+            occurred_at: row.occurred_at,
+            id: row.id,
+        }
+    }
+}
+
+/// A page of an asset's records in [`list_for_asset`]'s order, after
+/// `after` when given, and the cursor of the next page when there is one.
+pub fn list_page(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    filter: &RecordFilter,
+    after: Option<RecordCursor>,
+    limit: i64,
+) -> QueryResult<(Vec<AssetRecord>, Option<RecordCursor>)> {
+    use diesel::dsl::sql;
+    use diesel::sql_types::{Bool, Date, Integer, Timestamptz};
+
+    let mut query = asset_records::table
+        .filter(asset_records::asset_id.eq(asset_id))
+        .into_boxed();
+    if let Some(type_id) = filter.record_type_id {
+        query = query.filter(asset_records::record_type_id.eq(type_id));
+    }
+    if let Some(outcome) = &filter.outcome {
+        query = query.filter(asset_records::outcome.eq(outcome.clone()));
+    }
+    match filter.open {
+        Some(true) => query = query.filter(asset_records::completed_on.is_null()),
+        Some(false) => query = query.filter(asset_records::completed_on.is_not_null()),
+        None => {}
+    }
+    if let Some(from) = filter.from {
+        query = query.filter(asset_records::occurred_on.ge(from));
+    }
+    if let Some(to) = filter.to {
+        query = query.filter(asset_records::occurred_on.le(to));
+    }
+    // The order puts a day's date-only records after its timed ones, which
+    // is the order of `COALESCE(occurred_at, '-infinity')`: compare rows on
+    // that.
+    if let Some(c) = after {
+        const ROW: &str = "(occurred_on, COALESCE(occurred_at, '-infinity'::timestamptz), id) < (";
+        query = match c.occurred_at {
+            Some(at) => query.filter(
+                sql::<Bool>(ROW)
+                    .bind::<Date, _>(c.occurred_on)
+                    .sql(", ")
+                    .bind::<Timestamptz, _>(at)
+                    .sql(", ")
+                    .bind::<Integer, _>(c.id)
+                    .sql(")"),
+            ),
+            None => query.filter(
+                sql::<Bool>(ROW)
+                    .bind::<Date, _>(c.occurred_on)
+                    .sql(", '-infinity'::timestamptz, ")
+                    .bind::<Integer, _>(c.id)
+                    .sql(")"),
+            ),
+        };
+    }
+    let mut rows: Vec<AssetRecord> = query
+        .order((
+            asset_records::occurred_on.desc(),
+            asset_records::occurred_at.desc().nulls_last(),
+            asset_records::id.desc(),
+        ))
+        .limit(limit + 1)
+        .load(conn)?;
+    let next = if rows.len() as i64 > limit {
+        rows.truncate(limit as usize);
+        rows.last().map(RecordCursor::of)
+    } else {
+        None
+    };
+    Ok((rows, next))
+}
+
+/// Vendors already written on the workspace's records, most used first,
+/// for the vendor field's suggestions. With `query`, only those containing
+/// it, without regard to case. Spellings that differ only in case are one
+/// vendor, under its most used spelling.
+pub fn vendor_suggestions(
+    conn: &mut DbConnection,
+    query: Option<&str>,
+    limit: usize,
+) -> QueryResult<Vec<String>> {
+    // `%` alone matches every vendor.
+    let pattern = match query.map(str::trim).filter(|q| !q.is_empty()) {
+        Some(q) => format!("%{}%", crate::repository::escape_like(q)),
+        None => "%".to_string(),
+    };
+    // The most used spellings, enough of them that folding case still
+    // leaves `limit` vendors in all but the oddest data.
+    let fetch = i64::try_from(limit.saturating_mul(4)).unwrap_or(i64::MAX);
+    let spellings: Vec<(Option<String>, i64)> = asset_records::table
+        .filter(asset_records::vendor.ilike(pattern))
+        .group_by(asset_records::vendor)
+        .select((asset_records::vendor, diesel::dsl::count_star()))
+        .order((
+            diesel::dsl::count_star().desc(),
+            asset_records::vendor.asc(),
+        ))
+        .limit(fetch)
+        .load(conn)?;
+    // Per vendor without regard to case: its uses, and its most used
+    // spelling.
+    let mut vendors: std::collections::HashMap<String, (i64, String, i64)> =
+        std::collections::HashMap::new();
+    for (spelling, uses) in spellings {
+        let Some(spelling) = spelling else { continue };
+        let entry = vendors
+            .entry(spelling.to_lowercase())
+            .or_insert((0, spelling.clone(), 0));
+        entry.0 += uses;
+        if uses > entry.2 {
+            entry.1 = spelling;
+            entry.2 = uses;
+        }
+    }
+    let mut ranked: Vec<(String, (i64, String, i64))> = vendors.into_iter().collect();
+    ranked.sort_by(|(a_key, a), (b_key, b)| b.0.cmp(&a.0).then_with(|| a_key.cmp(b_key)));
+    Ok(ranked
+        .into_iter()
+        .take(limit)
+        .map(|(_, (_, spelling, _))| spelling)
+        .collect())
+}
+
+/// Whether `user` may be named as who did the work: someone who can work
+/// tickets in the workspace the connection is pinned to, with an account
+/// that isn't deleted.
+pub fn may_perform(conn: &mut DbConnection, user: Uuid) -> QueryResult<bool> {
+    let workspace: Option<i32> =
+        diesel::select(crate::repository::pinned_workspace().nullable()).get_result(conn)?;
+    match workspace {
+        Some(workspace_id) => crate::repository::assignees::is_assignable(conn, workspace_id, user),
+        None => Ok(false),
+    }
+}
+
+/// Whether `user` may be named as who held the asset: a current member of
+/// the workspace the connection is pinned to, with an account that isn't
+/// deleted.
+pub fn may_hold(conn: &mut DbConnection, user: Uuid) -> QueryResult<bool> {
+    use crate::schema::{users, workspace_members};
+    diesel::select(diesel::dsl::exists(
+        workspace_members::table
+            .inner_join(users::table.on(users::uuid.eq(workspace_members::user_uuid)))
+            .filter(workspace_members::workspace_id.eq(crate::repository::pinned_workspace()))
+            .filter(workspace_members::user_uuid.eq(user))
+            .filter(workspace_members::removed_at.is_null())
+            .filter(users::deleted_at.is_null()),
+    ))
+    .get_result(conn)
+}
+
 /// The record carrying `source_ref`, if any.
 pub fn find_by_source_ref(
     conn: &mut DbConnection,

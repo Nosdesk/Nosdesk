@@ -156,8 +156,7 @@ fn action_for(method: &Method, rest: &str) -> Action {
         let first = rest.split('/').next().unwrap_or("");
         let last = rest
             .split(['/', '?'])
-            .filter(|s| !s.is_empty())
-            .next_back()
+            .rfind(|s| !s.is_empty())
             .unwrap_or("");
         if last == "batch" || last == "search" || first == "search" || first == "sync" {
             return Action::Read;
@@ -332,6 +331,35 @@ mod tests {
         assert_eq!(
             req(Method::POST, "/api/comments/9"),
             Capability(Domain::Tickets, Action::Write)
+        );
+    }
+
+    #[test]
+    fn asset_records_are_assets_and_their_type_admin_is_admin() {
+        let reader = claims_scoped("assets:read");
+        assert!(claims_may_call(
+            &reader,
+            &Method::GET,
+            "/api/assets/5/records"
+        ));
+        assert!(claims_may_call(
+            &reader,
+            &Method::GET,
+            "/api/assets/record-types"
+        ));
+        assert!(!claims_may_call(
+            &reader,
+            &Method::POST,
+            "/api/assets/5/records"
+        ));
+        assert!(!claims_may_call(
+            &reader,
+            &Method::POST,
+            "/api/assets/record-types/catalogue/repair"
+        ));
+        assert_eq!(
+            req(Method::POST, "/api/admin/asset-record-types"),
+            Capability(Domain::Admin, Action::Write)
         );
     }
 

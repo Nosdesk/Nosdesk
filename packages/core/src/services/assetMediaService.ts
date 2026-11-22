@@ -13,13 +13,16 @@ export const assetMediaService = {
     return data;
   },
 
-  async upload(assetId: number, files: File[]): Promise<AssetMedia[]> {
+  /** Upload files to an asset; with `recordId`, they are that record's
+   *  files too. */
+  async upload(assetId: number, files: File[], recordId?: number): Promise<AssetMedia[]> {
     const form = new FormData();
     for (const file of files) {
       form.append('files', file);
     }
     const { data } = await apiClient.post<AssetMedia[]>(`/assets/${assetId}/media`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      params: recordId === undefined ? undefined : { record_id: recordId },
     });
     return data;
   },

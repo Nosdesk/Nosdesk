@@ -484,6 +484,10 @@ async fn assets_config_routes_registered() {
             ("GET", "/assets/export"),
             ("GET", "/assets/locations"),
             ("GET", "/assets/itad-vendors"),
+            ("GET", "/assets/record-types"),
+            ("GET", "/assets/record-types/catalogue"),
+            ("POST", "/assets/record-types/catalogue/repair"),
+            ("GET", "/assets/record-vendors"),
             ("GET", "/assets/grouping-dataset"),
             ("POST", "/assets/rollouts"),
             ("GET", "/asset-kinds"),
@@ -518,6 +522,12 @@ async fn assets_config_routes_registered() {
             ("POST", "/assets/1/loans"),
             ("PATCH", "/assets/1/loans/1"),
             ("POST", "/assets/1/loans/1/return"),
+            ("GET", "/assets/1/records"),
+            ("POST", "/assets/1/records"),
+            ("GET", "/assets/1/records/1"),
+            ("PATCH", "/assets/1/records/1"),
+            ("DELETE", "/assets/1/records/1"),
+            ("PUT", "/assets/1/records/1/media"),
             ("GET", "/assets/1/media"),
             ("POST", "/assets/1/media"),
             ("PUT", "/assets/1/media/1"),
@@ -920,6 +930,23 @@ async fn asset_kinds_config_routes_registered() {
             ("GET", "/admin/asset-kinds/1/usage"),
             ("PUT", "/admin/asset-kinds/1"),
             ("DELETE", "/admin/asset-kinds/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn asset_record_types_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::asset_record_types::config,
+        &[
+            ("GET", "/admin/asset-record-types"),
+            ("POST", "/admin/asset-record-types"),
+            ("GET", "/admin/asset-record-types/1"),
+            ("PUT", "/admin/asset-record-types/1"),
+            ("DELETE", "/admin/asset-record-types/1"),
+            ("POST", "/admin/asset-record-types/1/archive"),
+            ("POST", "/admin/asset-record-types/1/restore"),
         ],
     )
     .await;
