@@ -95,9 +95,13 @@ pub enum Rank {
     Ticket = 1,
     LoanOut = 2,
     LoanReturned = 3,
-    Replacement = 4,
-    Record = 5,
-    Status = 6,
+    /// "Replaced by", on the replaced asset.
+    ReplacedBy = 4,
+    /// "Replaces", on the replacement: the same record as a `ReplacedBy`
+    /// entry, so it ranks apart to keep their keys distinct.
+    Replaces = 5,
+    Record = 6,
+    Status = 7,
 }
 
 impl Rank {
@@ -107,9 +111,10 @@ impl Rank {
             1 => Rank::Ticket,
             2 => Rank::LoanOut,
             3 => Rank::LoanReturned,
-            4 => Rank::Replacement,
-            5 => Rank::Record,
-            6 => Rank::Status,
+            4 => Rank::ReplacedBy,
+            5 => Rank::Replaces,
+            6 => Rank::Record,
+            7 => Rank::Status,
             _ => return None,
         })
     }
@@ -656,21 +661,17 @@ impl Read<'_> {
         Ok((entries, more))
     }
 
-    /// Records, or with `rank` of `Replacement` the records naming a
-    /// replacement; `on_replacement` reads those on the replacement's side.
-    fn record_rows(
-        &self,
-        conn: &mut DbConnection,
-        rank: Rank,
-        on_replacement: bool,
-    ) -> QueryResult<Vec<AssetRecord>> {
+    /// The records behind entries of `rank`: the assets' records, those of
+    /// them naming a replacement (`ReplacedBy`), or the records naming one of
+    /// the assets as the replacement (`Replaces`).
+    fn record_rows(&self, conn: &mut DbConnection, rank: Rank) -> QueryResult<Vec<AssetRecord>> {
         let mut query = asset_records::table.into_boxed();
-        query = if on_replacement {
+        query = if rank == Rank::Replaces {
             query.filter(asset_records::replacement_asset_id.eq_any(self.asset_ids))
         } else {
             query.filter(asset_records::asset_id.eq_any(self.asset_ids))
         };
-        if rank == Rank::Replacement && !on_replacement {
+        if rank == Rank::ReplacedBy {
             query = query.filter(asset_records::replacement_asset_id.is_not_null());
         }
         if let Some(type_id) = self.filter.record_type_id {
@@ -709,7 +710,7 @@ impl Read<'_> {
     }
 
     fn records(&self, conn: &mut DbConnection) -> QueryResult<(Vec<Entry>, bool)> {
-        let rows = self.record_rows(conn, Rank::Record, false)?;
+        let rows = self.record_rows(conn, Rank::Record)?;
         let more = self.more(rows.len());
         let entries = rows
             .into_iter()
@@ -728,7 +729,12 @@ impl Read<'_> {
         conn: &mut DbConnection,
         replaces: bool,
     ) -> QueryResult<(Vec<Entry>, bool)> {
-        let rows = self.record_rows(conn, Rank::Replacement, replaces)?;
+        let rank = if replaces {
+            Rank::Replaces
+        } else {
+            Rank::ReplacedBy
+        };
+        let rows = self.record_rows(conn, rank)?;
         let more = self.more(rows.len());
         let others: Vec<i32> = rows
             .iter()
@@ -769,7 +775,7 @@ impl Read<'_> {
                     (record.asset_id, record.replacement_asset_id?)
                 };
                 Some(Entry {
-                    key: Self::record_key(&record, Rank::Replacement, holder),
+                    key: Self::record_key(&record, rank, holder),
                     data: EntryData::Replacement {
                         other: named.get(&other).cloned(),
                         record,

@@ -455,10 +455,16 @@ async fn pages_of_any_size_concatenate_to_the_whole_timeline() {
         .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
     });
 
-    let whole = timeline(&f, f.agent, f.asset, "limit=200").await;
+    assert_pages_concatenate(&f, f.asset, "", 17).await;
+}
+
+/// Pages of every size from one entry up, followed by their cursors, list
+/// exactly the entries one page of all of them does, in the same order.
+async fn assert_pages_concatenate(f: &Fixture, asset: i32, extra: &str, at_least: usize) {
+    let whole = timeline(f, f.agent, asset, &format!("limit=200{extra}")).await;
     assert!(whole["next_cursor"].is_null(), "{whole}");
     let all = keys(&whole);
-    assert!(all.len() >= 17, "{whole}");
+    assert!(all.len() >= at_least, "{whole}");
     let unique: HashSet<&String> = all.iter().collect();
     assert_eq!(unique.len(), all.len(), "keys are unique: {all:?}");
 
@@ -467,10 +473,10 @@ async fn pages_of_any_size_concatenate_to_the_whole_timeline() {
         let mut cursor: Option<String> = None;
         for _ in 0..=all.len() + 1 {
             let query = match &cursor {
-                Some(c) => format!("limit={limit}&before={c}"),
-                None => format!("limit={limit}"),
+                Some(c) => format!("limit={limit}{extra}&before={c}"),
+                None => format!("limit={limit}{extra}"),
             };
-            let page = timeline(&f, f.agent, f.asset, &query).await;
+            let page = timeline(f, f.agent, asset, &query).await;
             let got = keys(&page);
             assert!(got.len() <= limit, "limit {limit}: {page}");
             paged.extend(got);
@@ -481,6 +487,57 @@ async fn pages_of_any_size_concatenate_to_the_whole_timeline() {
         }
         assert_eq!(paged, all, "pages of {limit}");
     }
+}
+
+#[actix_web::test]
+async fn pages_across_a_chain_of_replacements_concatenate_too() {
+    let db = common::TestDb::new();
+    let f = seed(&db, "Australia/Sydney");
+    let repair = add_repair(&f).await;
+    let older = new_asset(&f, "CAM-007");
+    let newer = new_asset(&f, "CAM-022");
+    let swap = |from: i32, to: i32, on: &str| {
+        let mut r = record(repair, from, WorkDate::Day(day(on)), "Swapped");
+        r.completed = Some(WorkDate::Day(day(on)));
+        r.outcome = Some("replaced".to_string());
+        r.replacement_asset_id = Some(to);
+        r
+    };
+    // older was replaced by f.asset, and f.asset by newer, on the same day,
+    // beside date-only work on each written together.
+    write_records(
+        &f,
+        vec![
+            swap(older, f.asset, "2023-05-03"),
+            swap(f.asset, newer, "2023-05-03"),
+            record(repair, older, WorkDate::Day(day("2023-05-03")), "Older"),
+            record(repair, f.asset, WorkDate::Day(day("2023-05-03")), "Middle"),
+            record(repair, newer, WorkDate::Day(day("2023-05-03")), "Newer"),
+        ],
+    );
+    // One ticket on every asset of the chain, and another at its moment.
+    let moment = at("2023-05-03T10:00:00+10:00");
+    let shared = linked_ticket(&f, newer, "Shared", None, None, moment);
+    in_ws(&f, |c| {
+        diesel::insert_into(ticket_assets::table)
+            .values(vec![
+                (
+                    ticket_assets::ticket_id.eq(shared),
+                    ticket_assets::asset_id.eq(f.asset),
+                ),
+                (
+                    ticket_assets::ticket_id.eq(shared),
+                    ticket_assets::asset_id.eq(older),
+                ),
+            ])
+            .execute(c)
+    });
+    linked_ticket(&f, older, "Same moment", None, None, moment);
+    status_event(&f, older, "in_repair", moment);
+
+    let chain = in_ws(&f, |c| predecessors(c, newer));
+    assert_eq!(chain, vec![f.asset, older]);
+    assert_pages_concatenate(&f, newer, "&include_predecessors=true", 18).await;
 }
 
 #[actix_web::test]
