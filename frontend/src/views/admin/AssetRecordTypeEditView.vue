@@ -24,6 +24,7 @@ import Checkbox from '@/components/common/Checkbox.vue';
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import FormInput from '@/components/common/FormInput.vue';
+import FormTextarea from '@/components/common/FormTextarea.vue';
 import Icon from '@/components/common/Icon.vue';
 import SegmentedControl from '@/components/common/SegmentedControl.vue';
 import type { IconName } from '@/components/common/icons';
@@ -216,6 +217,35 @@ const schemaModel = computed<Record<string, unknown>>({
   },
 });
 
+// The JSON view: for a field shape the builder can't edit, which it keeps
+// as is. The text's key order is the field order.
+const showJson = ref(false);
+const schemaText = ref('');
+
+function readSchemaText(): boolean {
+  try {
+    const parsed: unknown = JSON.parse(schemaText.value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+    form.value.schema = parsed as Record<string, unknown>;
+    return true;
+  } catch (e) {
+    formError.value = t('admin-asset-record-types-error-schema-json', {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return false;
+  }
+}
+
+function toggleJson(): void {
+  if (showJson.value) {
+    if (!readSchemaText()) return;
+    formError.value = '';
+  } else {
+    schemaText.value = JSON.stringify(form.value.schema, null, 2);
+  }
+  showJson.value = !showJson.value;
+}
+
 const coreModeOptions = computed(() =>
   CORE_FIELD_MODES.map((m) => ({ value: m, label: t(`admin-asset-record-types-core-mode-${m}`) })),
 );
@@ -266,8 +296,13 @@ function validate(): string {
   const f = form.value;
   if (!isBuiltin.value && !f.label.trim()) return t('admin-asset-record-types-error-name-required');
   if (isCreating.value && !f.slug.trim()) return t('admin-asset-record-types-error-slug-required');
+  // A saved outcome that had no name of its own is a catalogue one.
+  const catalogueNamed = new Set([
+    ...catalogueKeys.value,
+    ...base.outcomes.filter((row) => !row.label.trim()).map((row) => row.key),
+  ]);
   const unnamed = f.outcomes.some(
-    (row) => !row.label.trim() && (row.isNew || !catalogueKeys.value.includes(row.key)),
+    (row) => !row.label.trim() && (row.isNew || !catalogueNamed.has(row.key)),
   );
   if (unnamed) return t('admin-asset-record-types-error-outcome-name');
   if (f.kindsMode === 'some' && f.kinds.length === 0) {
@@ -328,6 +363,7 @@ function refusal(error: unknown): string {
 }
 
 async function submit(force = false): Promise<void> {
+  if (showJson.value && !readSchemaText()) return;
   const invalid = validate();
   if (invalid) {
     formError.value = invalid;
@@ -493,6 +529,7 @@ function cancel(): void {
           <FormInput
             v-model="form.description"
             :label="t('admin-asset-record-types-field-description')"
+            data-test="description-input"
           />
         </section>
 
@@ -548,13 +585,30 @@ function cancel(): void {
         </section>
 
         <section class="flex flex-col gap-3" :aria-label="t('admin-asset-record-types-fields-heading')">
-          <div class="flex flex-col gap-1">
-            <h2 class="text-sm font-medium text-primary">
-              {{ t('admin-asset-record-types-fields-heading') }}
-            </h2>
-            <p class="text-xs text-tertiary">{{ t('admin-asset-record-types-fields-hint') }}</p>
+          <div class="flex flex-wrap items-start gap-2">
+            <div class="flex-1 min-w-0 flex flex-col gap-1">
+              <h2 class="text-sm font-medium text-primary">
+                {{ t('admin-asset-record-types-fields-heading') }}
+              </h2>
+              <p class="text-xs text-tertiary">{{ t('admin-asset-record-types-fields-hint') }}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              :icon="showJson ? 'documentEdit' : 'document'"
+              @click="toggleJson"
+            >
+              {{ showJson ? t('admin-asset-kinds-view-builder') : t('admin-asset-kinds-view-json') }}
+            </Button>
           </div>
-          <AttributeEditor v-model="schemaModel" />
+          <FormTextarea
+            v-if="showJson"
+            v-model="schemaText"
+            :rows="12"
+            class="font-mono"
+            :aria-label="t('admin-asset-record-types-fields-heading')"
+          />
+          <AttributeEditor v-else v-model="schemaModel" />
         </section>
 
         <section class="flex flex-col gap-3" :aria-label="t('admin-asset-record-types-outcomes-heading')">

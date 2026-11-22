@@ -1388,6 +1388,8 @@ admin-asset-record-types-error-kinds = Kies ten minste één activatype, of bied
 admin-asset-record-types-error-slug-taken = Een ander registratietype gebruikt die slug al.
 # MT: pending native review (nl-NL)
 admin-asset-record-types-error-slug-reserved = Die slug hoort bij een ingebouwd type. Voeg dat toe uit de catalogus.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-schema-json = De velden zijn geen geldige JSON: { $error }
 
 # Getypte attribuutbouwer.
 asset-kind-attribute-editor-add = Attribuut toevoegen

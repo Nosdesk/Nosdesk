@@ -1276,6 +1276,7 @@ admin-asset-record-types-error-outcome-name = Give every outcome a name.
 admin-asset-record-types-error-kinds = Choose at least one asset kind, or offer the type for every kind.
 admin-asset-record-types-error-slug-taken = Another record type already uses that slug.
 admin-asset-record-types-error-slug-reserved = That slug belongs to a built-in type. Add it from the catalogue instead.
+admin-asset-record-types-error-schema-json = The fields aren't valid JSON: { $error }
 
 # Asset Kinds — typed attribute builder (AttributeEditor +
 # AttributeRow). Replaces the raw JSON textarea for the common

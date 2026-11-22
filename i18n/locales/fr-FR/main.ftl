@@ -1392,6 +1392,8 @@ admin-asset-record-types-error-kinds = Choisissez au moins un type d'actif, ou p
 admin-asset-record-types-error-slug-taken = Un autre type d'intervention utilise déjà cet identifiant.
 # MT: pending native review (fr-FR)
 admin-asset-record-types-error-slug-reserved = Cet identifiant appartient à un type intégré. Ajoutez-le plutôt depuis le catalogue.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-schema-json = Les champs ne sont pas du JSON valide : { $error }
 
 # Constructeur d'attributs typé.
 asset-kind-attribute-editor-add = Ajouter un attribut

@@ -235,6 +235,75 @@ describe('AssetRecordTypeEditView', () => {
     expect(fieldNames(w)).toEqual(['fault', 'serial_received', 'offsite'])
   })
 
+  it('keeps a field shape the builder cannot edit, and edits it as JSON', async () => {
+    const stored = {
+      type: 'object',
+      properties: {
+        notes: { type: 'string' },
+        tasks_done: { type: 'array', items: { type: 'string' } },
+      },
+    }
+    types.get.mockResolvedValue(
+      recordType({ field_schema: stored, field_order: ['tasks_done', 'notes'] }),
+    )
+    types.update.mockResolvedValue(recordType())
+    const w = await openType(7)
+    expect(w.text()).toContain('asset-kind-attribute-row-raw-warning')
+
+    // The builder writes the list field back as it was, so a reorder is all
+    // that changes.
+    await w.findAll('button[aria-label="asset-kind-attribute-row-move-down"]')[0].trigger('click')
+    expect(fieldNames(w)).toEqual(['notes', 'tasks_done'])
+
+    button('admin-asset-kinds-view-json')!.click()
+    await flushPromises()
+    const text = w.get('textarea')
+    expect(JSON.parse((text.element as HTMLTextAreaElement).value)).toEqual(stored)
+    await text.setValue(
+      JSON.stringify({
+        type: 'object',
+        properties: {
+          tasks_done: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+          notes: { type: 'string' },
+        },
+      }),
+    )
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(types.update).toHaveBeenCalledWith(
+      7,
+      {
+        field_schema: {
+          type: 'object',
+          properties: {
+            tasks_done: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+            notes: { type: 'string' },
+          },
+        },
+        field_order: ['tasks_done', 'notes'],
+      },
+      false,
+    )
+  })
+
+  it('saves a built-in whose outcomes read the catalogue even when the catalogue fails to load', async () => {
+    records.catalogue.mockRejectedValue(new Error('offline'))
+    const repair = recordType({
+      id: 3,
+      slug: 'repair',
+      label: null,
+      is_builtin: true,
+      outcomes: [{ key: 'repaired', category: 'done' }],
+    })
+    types.get.mockResolvedValue(repair)
+    types.update.mockResolvedValue(repair)
+    const w = await openType(3)
+    await w.get('input[data-test="description-input"]').setValue('Work sent to the vendor')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(types.update).toHaveBeenCalledWith(3, { description: 'Work sent to the vendor' }, false)
+  })
+
   it('puts a renamed built-in back to its catalogue name', async () => {
     const renamed = recordType({ id: 3, slug: 'repair', label: 'Fix-it', is_builtin: true })
     types.get.mockResolvedValue(renamed)
