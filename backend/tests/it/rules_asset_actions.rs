@@ -741,3 +741,80 @@ fn conflicts_see_the_asset_write_keys() {
         "no asset step writes a ticket field: {pairs:?}"
     );
 }
+
+/// A rule's moves write no asset record, even into a status a record type
+/// opens with, and add no type from the catalogue: records from a
+/// transition are opt-in, and a rule never opts in.
+#[test]
+fn rule_moves_write_no_records() {
+    use backend::models::{OutcomeCategory, RecordOutcome};
+    use backend::repository::asset_record_types as types_repo;
+    use backend::schema::{asset_record_types, asset_records};
+
+    let s = setup();
+    let a = &s.seeded.a;
+    let requester = a.member_uuid;
+    // Types an admin pointed at the statuses the rule's moves enter.
+    for (slug, status) in [("commissioning", "in_service"), ("handover", "on_loan")] {
+        let mut conn = s.pool.get().expect("conn");
+        with_actor_context(&mut conn, &admin(a), |c| {
+            types_repo::create(
+                c,
+                types_repo::NewRecordTypeInput {
+                    slug: slug.into(),
+                    label: slug.into(),
+                    description: None,
+                    icon: None,
+                    color: None,
+                    field_schema: json!({ "type": "object", "properties": {} }),
+                    field_order: vec![],
+                    core_fields: json!({}),
+                    outcomes: vec![RecordOutcome {
+                        key: "done".into(),
+                        category: OutcomeCategory::Done,
+                        label: Some("Done".into()),
+                    }],
+                    applies_to_kinds: None,
+                    opens_with_status: Some(status.into()),
+                    sort_order: 0,
+                    created_by: None,
+                },
+            )
+            .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+        })
+        .expect("save a record type");
+    }
+    let ticket_id = ticket(&s.pool, a, Some(requester));
+    let laptop = asset(&s.pool, a, "Laptop", "in_stock", None);
+    link(&s.pool, a, ticket_id, laptop);
+    let assign = manual_rule(
+        &s.pool,
+        a,
+        json!([{ "kind": "assign_assets_to_requester", "config": {} }]),
+    );
+    apply(&s.pool, a, &admin(a), assign, ticket_id).expect("assign");
+    assert_eq!(asset_state(&s.admin_pool, laptop).0, "in_service");
+
+    let ticket2 = ticket(&s.pool, a, Some(requester));
+    let spare = asset(&s.pool, a, "Spare", "in_stock", None);
+    link(&s.pool, a, ticket2, spare);
+    let lend = manual_rule(&s.pool, a, json!([{ "kind": "lend_assets", "config": {} }]));
+    apply(&s.pool, a, &admin(a), lend, ticket2).expect("lend");
+    assert_eq!(asset_state(&s.admin_pool, spare).0, "on_loan");
+
+    let mut conn = s.admin_pool.get().expect("conn");
+    let records: i64 = asset_records::table
+        .filter(asset_records::workspace_id.eq(a.workspace_id))
+        .count()
+        .get_result(&mut conn)
+        .expect("count records");
+    assert_eq!(records, 0);
+    let types: i64 = asset_record_types::table
+        .filter(asset_record_types::workspace_id.eq(a.workspace_id))
+        .count()
+        .get_result(&mut conn)
+        .expect("count types");
+    assert_eq!(types, 2, "no type added from the catalogue");
+    let moved = lifecycle_of(&s.admin_pool, laptop);
+    assert!(moved.iter().all(|e| e.metadata.get("record_id").is_none()));
+}

@@ -329,6 +329,24 @@ pub fn list_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Vec
         .load(conn)
 }
 
+/// An asset's open records of type `record_type_id`, oldest work first.
+pub fn open_for_asset(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    record_type_id: i32,
+) -> QueryResult<Vec<AssetRecord>> {
+    asset_records::table
+        .filter(asset_records::asset_id.eq(asset_id))
+        .filter(asset_records::record_type_id.eq(record_type_id))
+        .filter(asset_records::completed_on.is_null())
+        .order((
+            asset_records::occurred_on.asc(),
+            asset_records::occurred_at.asc().nulls_first(),
+            asset_records::id.asc(),
+        ))
+        .load(conn)
+}
+
 /// Which of an asset's records a page lists. Every set filter must hold.
 #[derive(Debug, Clone, Default)]
 pub struct RecordFilter {

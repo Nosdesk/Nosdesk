@@ -2104,6 +2104,9 @@ fn move_status(
         metadata: serde_json::json!({ "import_job_id": ctx.job_id }),
         actor_uuid: ctx.actor,
         disposal: None,
+        // An import's move writes no record, whatever the status opens.
+        record: None,
+        complete_record: None,
     };
     let name = asset.name.clone();
     let refused = |message: String| CommitError::Row {
@@ -2134,6 +2137,14 @@ fn move_status(
         ) => Err(refused(
             "Disposed is set by recording a disposal on the asset page".to_string(),
         )),
+        // The move asks for no record, so none of these can happen.
+        Err(
+            e @ (TransitionError::NoRecordType { .. }
+            | TransitionError::NoOpenRecord
+            | TransitionError::RecordChoiceRequired { .. }
+            | TransitionError::RecordNotOpen(_)
+            | TransitionError::Record(_)),
+        ) => Err(refused(format!("{e:?}"))),
     }
 }
 

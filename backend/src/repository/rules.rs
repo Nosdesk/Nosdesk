@@ -2344,6 +2344,9 @@ fn move_asset(
             metadata: json!({ "rule_id": ctx.rule_id }),
             actor_uuid: ctx.actor.uuid,
             disposal: None,
+            // A rule's move writes no record, whatever the status opens.
+            record: None,
+            complete_record: None,
         },
     )
     .map(|_| ())

@@ -715,6 +715,8 @@ async fn requesters_get_the_public_projection_and_no_records() {
                     itad_vendor: Some("Shred Vendor".to_string()),
                     notes: Some("Drive shredded".to_string()),
                 }),
+                record: None,
+                complete_record: None,
             },
         )
         .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))

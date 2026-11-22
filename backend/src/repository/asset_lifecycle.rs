@@ -5,6 +5,11 @@
 //! row capturing the move (from/to, reason, linked ticket, and any
 //! state-specific `metadata`). Both the asset and the new event emit
 //! sync actions, so list views and the per-asset timeline stay live.
+//!
+//! A transition may also write an asset record, when the caller asks: one
+//! into a status a record type opens with opens a record of that type, and
+//! one out of it completes the asset's open record. Callers that don't ask
+//! (rules, imports, loans) write none. A record never moves a status.
 
 use diesel::prelude::*;
 use diesel::result::Error;
@@ -13,12 +18,18 @@ use serde_json::json;
 
 use crate::db::DbConnection;
 use crate::models::{
-    Asset, AssetDisposal, AssetLifecycleEvent, AssetStatus, NewAssetDisposal,
-    NewAssetLifecycleEvent, SyncAggregate, SyncOp, SANITIZATION_METHODS,
+    Asset, AssetDisposal, AssetLifecycleEvent, AssetRecord, AssetRecordType, AssetStatus,
+    NewAssetDisposal, NewAssetLifecycleEvent, RecordSource, SyncAggregate, SyncOp,
+    SANITIZATION_METHODS,
 };
 use crate::repository::asset_loans as asset_loans_repo;
+use crate::repository::asset_record_types::{self as record_types_repo, RecordTypeError};
+use crate::repository::asset_records::{
+    self as records_repo, Cost, NewRecord, RecordChanges, RecordError, WorkDate,
+};
 use crate::repository::assets as assets_repo;
 use crate::schema::{asset_disposals, asset_lifecycle_events, assets};
+use crate::services::assets::record_catalogue;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
@@ -97,6 +108,36 @@ pub struct TransitionInput {
     /// Disposal record captured in the same transaction. Required for a
     /// transition to `disposed` and refused for every other target.
     pub disposal: Option<DisposalInput>,
+    /// Open a record of the type `to_status` opens with. `None` writes none.
+    pub record: Option<RecordInput>,
+    /// Complete the asset's open record of the type the status it leaves
+    /// opens with. `None` leaves it open.
+    pub complete_record: Option<CompleteRecordInput>,
+}
+
+/// The record a transition opens. The type is the one the target status
+/// opens with; the work starts at the transition, linked to its ticket.
+#[derive(Debug, Clone, Default)]
+pub struct RecordInput {
+    pub summary: Option<String>,
+    pub notes: Option<String>,
+    pub vendor: Option<String>,
+    pub performed_by_uuid: Option<uuid::Uuid>,
+    pub reference: Option<String>,
+    /// Values for the type's own fields.
+    pub attributes: serde_json::Value,
+}
+
+/// The completion a transition out of a status writes on the record it
+/// opened.
+#[derive(Debug, Clone, Default)]
+pub struct CompleteRecordInput {
+    /// Which open record; needed only when more than one is open.
+    pub record_id: Option<i32>,
+    pub outcome: Option<String>,
+    pub cost: Option<Cost>,
+    /// When the work finished; `None` is the moment of the transition.
+    pub completed: Option<WorkDate>,
 }
 
 /// The disposal fields captured alongside a transition to `disposed`. Mirrors
@@ -131,6 +172,21 @@ pub enum TransitionError {
     DisposalNotAllowed,
     /// `sanitization_method` is not one of [`SANITIZATION_METHODS`].
     InvalidSanitizationMethod(String),
+    /// A record was asked for, but no live record type opens with `status`.
+    NoRecordType {
+        status: String,
+    },
+    /// A completion was asked for, but the asset has no open record of the
+    /// type its status opens.
+    NoOpenRecord,
+    /// More than one record is open; the completion must name one of them.
+    RecordChoiceRequired {
+        open: Vec<i32>,
+    },
+    /// The named record isn't an open record of this kind on the asset.
+    RecordNotOpen(i32),
+    /// The record didn't pass the record rules.
+    Record(RecordError),
     Db(Error),
 }
 
@@ -139,6 +195,15 @@ impl From<Error> for TransitionError {
         match e {
             Error::NotFound => TransitionError::AssetNotFound,
             e => TransitionError::Db(e),
+        }
+    }
+}
+
+impl From<RecordError> for TransitionError {
+    fn from(e: RecordError) -> Self {
+        match e {
+            RecordError::Db(e) => TransitionError::Db(e),
+            e => TransitionError::Record(e),
         }
     }
 }
@@ -169,6 +234,12 @@ fn check_disposal(
 /// the loan ledger, so an asset with an active loan leaves it only through
 /// [`asset_loans::return_loan`](crate::repository::asset_loans::return_loan),
 /// and enters it here only to restore an asset whose loan is still active.
+///
+/// With `complete_record`, the open record the status it leaves opened is
+/// completed; with `record`, a record of the type `to_status` opens with is
+/// opened, starting at the transition, and the event's `metadata` names it
+/// (`record_id`) beside the repair keys older readers know (`vendor`,
+/// `rma_number`, `offsite`, `expected_return`).
 pub fn transition(
     conn: &mut DbConnection,
     input: TransitionInput,
@@ -199,19 +270,85 @@ pub fn transition(
             return Err(TransitionError::OnLoanNeedsActiveLoan);
         }
 
+        // The records the move writes, resolved before anything is.
+        let completing = match &input.complete_record {
+            Some(c) => Some(record_to_complete(conn, input.asset_id, &from_status, c)?),
+            None => None,
+        };
+        let opening = match &input.record {
+            Some(_) => Some(type_to_open(conn, &input.to_status, input.actor_uuid)?),
+            None => None,
+        };
+
         let updated = assets_repo::set_status(conn, input.asset_id, &input.to_status)?;
 
-        let event: AssetLifecycleEvent = diesel::insert_into(asset_lifecycle_events::table)
+        // `record_id` is the server's to write: it names the record this
+        // move opened, never one a caller claims.
+        let mut metadata = input.metadata;
+        if let Some(map) = metadata.as_object_mut() {
+            map.remove("record_id");
+            if let Some(record) = &input.record {
+                map.extend(legacy_repair_keys(record));
+            }
+        }
+
+        let mut event: AssetLifecycleEvent = diesel::insert_into(asset_lifecycle_events::table)
             .values(&NewAssetLifecycleEvent {
                 asset_id: input.asset_id,
                 from_status: Some(from_status),
                 to_status: input.to_status,
                 reason: input.reason,
                 ticket_id: input.ticket_id,
-                metadata: input.metadata,
+                metadata,
                 actor_uuid: input.actor_uuid,
             })
             .get_result(conn)?;
+
+        if let (Some(record), Some(c)) = (completing, input.complete_record) {
+            let changes = RecordChanges {
+                completed: Some(Some(c.completed.unwrap_or(WorkDate::At(event.occurred_at)))),
+                outcome: c.outcome.map(Some),
+                cost: c.cost.map(Some),
+                ..Default::default()
+            };
+            records_repo::update(conn, record.id, record.version, changes, input.actor_uuid)?;
+        }
+
+        if let (Some(rtype), Some(r)) = (opening, input.record) {
+            let written = records_repo::create(
+                conn,
+                NewRecord {
+                    asset_id: input.asset_id,
+                    record_type_id: rtype.id,
+                    summary: r.summary,
+                    notes: r.notes,
+                    occurred: WorkDate::At(event.occurred_at),
+                    completed: None,
+                    outcome: None,
+                    vendor: r.vendor,
+                    performed_by_uuid: r.performed_by_uuid,
+                    reference: r.reference,
+                    cost: None,
+                    ticket_id: event.ticket_id,
+                    replacement_asset_id: None,
+                    snapshot: None,
+                    attributes: r.attributes,
+                    source: RecordSource::Transition,
+                    source_ref: None,
+                    import_job_id: None,
+                    rule_id: None,
+                    lifecycle_event_id: Some(event.id),
+                    recorded_by: input.actor_uuid,
+                },
+            )?;
+            let mut metadata = event.metadata.clone();
+            if let Some(map) = metadata.as_object_mut() {
+                map.insert("record_id".to_string(), json!(written.record.id));
+            }
+            event = diesel::update(asset_lifecycle_events::table.find(event.id))
+                .set(asset_lifecycle_events::metadata.eq(metadata))
+                .get_result(conn)?;
+        }
 
         emit::record(
             conn,
@@ -246,6 +383,95 @@ pub fn transition(
 
         Ok((updated, event))
     })
+}
+
+/// The live type a move into `status` opens a record of. When the workspace
+/// has never added the catalogue type that opens with it, it is added now;
+/// one it added and then archived, or pointed elsewhere, stays that way.
+fn type_to_open(
+    conn: &mut DbConnection,
+    status: &str,
+    actor: Option<uuid::Uuid>,
+) -> Result<AssetRecordType, TransitionError> {
+    let missing = || TransitionError::NoRecordType {
+        status: status.to_string(),
+    };
+    if let Some(rtype) = record_types_repo::opened_by_status(conn, status)? {
+        return Ok(rtype);
+    }
+    let Some(entry) = record_catalogue::CATALOGUE
+        .iter()
+        .find(|e| e.opens_with_status.map(AssetStatus::as_str) == Some(status))
+    else {
+        return Err(missing());
+    };
+    if record_types_repo::get_by_slug(conn, entry.slug)?.is_some() {
+        return Err(missing());
+    }
+    let added =
+        record_types_repo::add_from_catalogue(conn, entry.slug, actor).map_err(|e| match e {
+            RecordTypeError::Db(e) => TransitionError::Db(e),
+            _ => missing(),
+        })?;
+    if added.archived_at.is_none() && added.opens_with_status.as_deref() == Some(status) {
+        Ok(added)
+    } else {
+        Err(missing())
+    }
+}
+
+/// The open record a move out of `status` completes: the one named, else
+/// the only open record of the type `status` opens with.
+fn record_to_complete(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    status: &str,
+    input: &CompleteRecordInput,
+) -> Result<AssetRecord, TransitionError> {
+    let rtype = record_types_repo::opened_by_status(conn, status)?.ok_or_else(|| {
+        TransitionError::NoRecordType {
+            status: status.to_string(),
+        }
+    })?;
+    let mut open = records_repo::open_for_asset(conn, asset_id, rtype.id)?;
+    match input.record_id {
+        Some(id) => open
+            .into_iter()
+            .find(|r| r.id == id)
+            .ok_or(TransitionError::RecordNotOpen(id)),
+        None if open.len() == 1 => Ok(open.remove(0)),
+        None if open.is_empty() => Err(TransitionError::NoOpenRecord),
+        None => Err(TransitionError::RecordChoiceRequired {
+            open: open.iter().map(|r| r.id).collect(),
+        }),
+    }
+}
+
+/// The repair keys an `in_repair` event's metadata has always carried, from
+/// the record it opens, so readers of the event that predate records (the
+/// history export, older clients) still find them.
+fn legacy_repair_keys(record: &RecordInput) -> serde_json::Map<String, serde_json::Value> {
+    let text = |v: &Option<String>| {
+        v.as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(|t| json!(t))
+    };
+    let mut keys = serde_json::Map::new();
+    for (key, value) in [
+        ("vendor", text(&record.vendor)),
+        ("rma_number", text(&record.reference)),
+        ("offsite", record.attributes.get("offsite").cloned()),
+        (
+            "expected_return",
+            record.attributes.get("expected_return").cloned(),
+        ),
+    ] {
+        if let Some(value) = value.filter(|v| !v.is_null()) {
+            keys.insert(key.to_string(), value);
+        }
+    }
+    keys
 }
 
 /// The disposal record for an asset, if it has been disposed. Disposal is
@@ -340,6 +566,8 @@ mod tests {
             metadata: json!({}),
             actor_uuid: None,
             disposal: None,
+            record: None,
+            complete_record: None,
         }
     }
 

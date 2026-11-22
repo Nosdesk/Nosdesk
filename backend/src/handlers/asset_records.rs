@@ -188,7 +188,7 @@ pub struct VendorQuery {
 
 /// Why a request is refused, by this module or the repository.
 #[derive(Debug)]
-enum Refusal {
+pub(crate) enum Refusal {
     /// Not staff: records don't exist for them.
     Hidden,
     AssetNotFound,
@@ -218,7 +218,7 @@ fn unprocessable(code: &str, message: impl Into<String>, extra: Value) -> HttpRe
     errors::with_fields(StatusCode::UNPROCESSABLE_ENTITY, code, message, extra)
 }
 
-fn respond(refusal: Refusal) -> HttpResponse {
+pub(crate) fn respond(refusal: Refusal) -> HttpResponse {
     match refusal {
         Refusal::Hidden => errors::not_found_msg("Not found"),
         Refusal::AssetNotFound => errors::not_found_msg("Asset not found"),
@@ -243,7 +243,7 @@ fn unknown_person(field: &str) -> HttpResponse {
 }
 
 /// The status and body for each of the repository's refusals.
-fn record_error(e: RecordError) -> HttpResponse {
+pub(crate) fn record_error(e: RecordError) -> HttpResponse {
     let message = e.to_string();
     match e {
         RecordError::NotFound => errors::not_found_msg("Record not found"),
@@ -387,7 +387,7 @@ fn resolve_type(
 /// work tickets here, whoever held the asset is a member here, and the
 /// ticket is one the caller can see. An unknown id and one outside the
 /// workspace get the same answer.
-fn check_references(
+pub(crate) fn check_references(
     conn: &mut crate::db::DbConnection,
     auth: &AuthContext,
     performed_by: Option<Uuid>,
@@ -421,7 +421,9 @@ fn newly<T: PartialEq + Copy>(field: Option<Option<T>>, current: Option<T>) -> O
 
 /// The currency an amount without a code is in: the workspace currency,
 /// else the one its default locale suggests.
-fn workspace_currency(conn: &mut crate::db::DbConnection) -> Result<Option<String>, Refusal> {
+pub(crate) fn workspace_currency(
+    conn: &mut crate::db::DbConnection,
+) -> Result<Option<String>, Refusal> {
     let settings = settings_repo::get_site_settings(conn)?;
     Ok(settings
         .currency_code
@@ -430,7 +432,7 @@ fn workspace_currency(conn: &mut crate::db::DbConnection) -> Result<Option<Strin
 
 /// A cost body in minor units. The amount is a decimal string (or a JSON
 /// number) with `.` as the decimal mark.
-fn read_cost(body: CostBody, fallback: Option<String>) -> Result<Cost, Refusal> {
+pub(crate) fn read_cost(body: CostBody, fallback: Option<String>) -> Result<Cost, Refusal> {
     let code = body
         .currency
         .map(|c| c.trim().to_ascii_uppercase())
@@ -464,7 +466,7 @@ fn read_cost(body: CostBody, fallback: Option<String>) -> Result<Cost, Refusal> 
 
 /// The day of the work from a body's two date fields, one of which it
 /// gives.
-fn work_date(
+pub(crate) fn work_date(
     on: Option<NaiveDate>,
     at: Option<DateTime<Utc>>,
     name: &str,

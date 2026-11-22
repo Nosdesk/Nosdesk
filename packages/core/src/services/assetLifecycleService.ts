@@ -19,12 +19,41 @@ export interface DisposalBody {
   notes?: string | null;
 }
 
+/** The record a move into a status opens, of the type that status opens
+ *  with. The work starts with the move and links its ticket. */
+export interface TransitionRecordBody {
+  summary?: string | null;
+  vendor?: string | null;
+  performed_by_uuid?: string | null;
+  /** RMA, work order or invoice number. */
+  reference?: string | null;
+  notes?: string | null;
+  /** Values for the type's own fields. */
+  attributes?: Record<string, unknown>;
+}
+
+/** The completion a move out of a status writes on its open record. */
+export interface CompleteRecordBody {
+  /** Which open record; needed only when more than one is open. */
+  record_id?: number | null;
+  outcome?: string | null;
+  /** Without a currency, the amount is in the workspace currency. */
+  cost?: { amount: string; currency?: string | null } | null;
+  /** The day the work finished; left out, the moment of the move. */
+  completed_on?: string | null;
+  completed_at?: string | null;
+}
+
 export interface LifecycleTransitionBody {
   to_status: string;
   reason?: string | null;
   ticket_id?: number | null;
   metadata?: Record<string, unknown>;
   disposal?: DisposalBody;
+  /** Open a record of the type `to_status` opens with; left out, none. */
+  record?: TransitionRecordBody;
+  /** Complete the open record of the type the current status opens with. */
+  complete_record?: CompleteRecordBody;
 }
 
 export const assetLifecycleService = {

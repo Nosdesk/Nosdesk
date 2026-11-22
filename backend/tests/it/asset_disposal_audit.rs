@@ -67,6 +67,8 @@ fn disposed_asset(pool: &TestPool, workspace_id: i32, actor: Option<Uuid>) -> (i
                     itad_vendor: Some("Shredders Ltd".to_string()),
                     notes: None,
                 }),
+                record: None,
+                complete_record: None,
             },
         )
         .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))?;
