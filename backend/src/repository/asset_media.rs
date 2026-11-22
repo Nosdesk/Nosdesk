@@ -23,6 +23,7 @@ fn asset_media_sync_payload(row: &AssetMedia) -> serde_json::Value {
         "caption": row.caption,
         "uploaded_by": row.uploaded_by,
         "created_at": row.created_at,
+        "record_id": row.record_id,
     })
 }
 
@@ -69,6 +70,52 @@ pub fn name_by_url(
         .select(asset_media::name)
         .first(conn)
         .optional()
+}
+
+/// The files of asset record `record_id`.
+pub fn list_for_record(conn: &mut DbConnection, record_id: i32) -> QueryResult<Vec<AssetMedia>> {
+    asset_media::table
+        .filter(asset_media::record_id.eq(record_id))
+        .order((asset_media::sort_order.asc(), asset_media::id.asc()))
+        .load(conn)
+}
+
+/// Make `media_ids` the files of record `record_id` on asset `asset_id`:
+/// each of them points at the record, and the record's other files no longer
+/// do. An id that isn't one of the asset's files is left out, so the caller
+/// compares what comes back with what it asked for. Returns the record's
+/// files as they now stand.
+pub fn set_record_files(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    record_id: i32,
+    media_ids: &[i32],
+) -> QueryResult<Vec<AssetMedia>> {
+    // emit::record fires inside emit_asset_media_event.
+    conn.transaction::<Vec<AssetMedia>, Error, _>(|conn| {
+        let unlinked: Vec<AssetMedia> = diesel::update(
+            asset_media::table
+                .filter(asset_media::record_id.eq(record_id))
+                .filter(asset_media::id.ne_all(media_ids)),
+        )
+        .set(asset_media::record_id.eq(None::<i32>))
+        .get_results(conn)?;
+        for row in &unlinked {
+            emit_asset_media_event(conn, row, SyncOp::Update, "asset_media.updated")?;
+        }
+        let linked: Vec<AssetMedia> = diesel::update(
+            asset_media::table
+                .filter(asset_media::asset_id.eq(asset_id))
+                .filter(asset_media::id.eq_any(media_ids))
+                .filter(asset_media::record_id.is_distinct_from(record_id)),
+        )
+        .set(asset_media::record_id.eq(record_id))
+        .get_results(conn)?;
+        for row in &linked {
+            emit_asset_media_event(conn, row, SyncOp::Update, "asset_media.updated")?;
+        }
+        list_for_record(conn, record_id)
+    })
 }
 
 pub fn get_by_id(conn: &mut DbConnection, media_id: i32) -> QueryResult<AssetMedia> {

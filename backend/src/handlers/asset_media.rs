@@ -236,6 +236,7 @@ pub async fn upload_for_asset(
             sort_order: 0,
             caption: None,
             uploaded_by: Some(auth.user_uuid),
+            record_id: None,
         };
 
         let row = tc.run(|conn| repo::create(conn, new_media)).map_err(|e| {

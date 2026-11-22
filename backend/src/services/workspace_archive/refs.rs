@@ -50,6 +50,7 @@ pub enum Entity {
     Asset,
     AssetGroup,
     AssetLoan,
+    AssetRecord,
     /// A documentation page by its `id`.
     Page,
     /// A documentation page by its `uuid`.
@@ -79,6 +80,7 @@ impl Entity {
             Entity::Asset => ("assets", "id"),
             Entity::AssetGroup => ("asset_groups", "id"),
             Entity::AssetLoan => ("asset_loans", "id"),
+            Entity::AssetRecord => ("asset_records", "id"),
             Entity::Page => ("documentation_pages", "id"),
             Entity::PageUuid => ("documentation_pages", "uuid"),
             Entity::CollectionUuid => ("documentation_collections", "uuid"),
@@ -114,6 +116,7 @@ impl Entity {
         Entity::Asset,
         Entity::AssetGroup,
         Entity::AssetLoan,
+        Entity::AssetRecord,
         Entity::Page,
         Entity::PageUuid,
         Entity::CollectionUuid,
@@ -147,8 +150,9 @@ pub enum Shape {
     /// `scope`.
     ViewScope,
     /// Custom field values keyed by property name; the asset kind's (the
-    /// row's `kind`) or the user field schema's `format` says which name
-    /// people (`user-uuid`) or assets (`asset-ref`).
+    /// row's `kind`), the record type's (the row's `record_type_id`) or the
+    /// user field schema's `format` says which name people (`user-uuid`) or
+    /// assets (`asset-ref`).
     Attributes(Schema),
     /// The column names a row of the type in `type_column`.
     Typed {
@@ -169,6 +173,9 @@ pub enum Shape {
 #[derive(Debug, Clone, Copy)]
 pub enum Schema {
     AssetKind,
+    /// An asset record type, by the archive's id: the walk runs before keys
+    /// are remapped.
+    RecordType,
     UserFields,
 }
 
@@ -398,7 +405,22 @@ pub const REFERENCES: &[Reference] = &[
         Shape::Paths(&[
             ("import_job_id", Ref(E::ImportJob)),
             ("loan_id", Ref(E::AssetLoan)),
+            ("record_id", Ref(E::AssetRecord)),
         ]),
+        Missing::Clear,
+    ),
+    // Asset records: the type's fields, and the CSV import that wrote them,
+    // which never moves.
+    r(
+        "asset_records",
+        "attributes",
+        Shape::Attributes(Schema::RecordType),
+        Missing::Clear,
+    ),
+    r(
+        "asset_records",
+        "import_job_id",
+        Shape::Text(Ref(E::ImportJob)),
         Missing::Clear,
     ),
     r(
@@ -482,6 +504,26 @@ pub const NO_IDS: &[(&str, &str, &str)] = &[
         "user_field_schema",
         "schema",
         "a field schema; `assetKind` names a kind by slug",
+    ),
+    (
+        "asset_record_types",
+        "field_schema",
+        "a field schema; `assetKind` names a kind by slug, which the kinds keep",
+    ),
+    (
+        "asset_record_types",
+        "core_fields",
+        "shared field names and how the type treats them",
+    ),
+    (
+        "asset_record_types",
+        "outcomes",
+        "outcome keys, categories and names",
+    ),
+    (
+        "asset_records",
+        "plugin_fields",
+        "plugins' own values, by plugin name",
     ),
     (
         "channel_messages",
@@ -597,6 +639,16 @@ pub const NO_IDS: &[(&str, &str, &str)] = &[
     ("plugins", "bundle_js", "the plugin's code"),
     ("channel_messages", "external_id", "an RFC Message-ID"),
     ("groups", "external_id", "the directory's group id"),
+    (
+        "asset_records",
+        "source_ref",
+        "the id the record had in the system it came from",
+    ),
+    (
+        "asset_records",
+        "schedule_id",
+        "nothing writes it before service schedules, which bring its foreign key",
+    ),
     ("outbound_emails", "message_id", "an RFC Message-ID"),
     (
         "outbound_emails",
@@ -694,13 +746,18 @@ fn map(entity: Entity, value: &Value, lookup: &dyn Lookup) -> Outcome {
 pub struct Context {
     /// Asset kind slug to its property names and what each names.
     pub asset_kinds: HashMap<String, Vec<(String, Entity)>>,
+    /// Asset record type id, as the archive has it, to its property names
+    /// and what each names.
+    pub record_types: HashMap<String, Vec<(String, Entity)>>,
     pub user_fields: Vec<(String, Entity)>,
 }
 
 impl Context {
-    /// From the archive's `asset_kinds` and `user_field_schema` rows.
+    /// From the archive's `asset_kinds`, `asset_record_types` and
+    /// `user_field_schema` rows.
     pub fn from_rows<'a>(
         asset_kinds: impl IntoIterator<Item = &'a Row>,
+        record_types: impl IntoIterator<Item = &'a Row>,
         user_field_schema: impl IntoIterator<Item = &'a Row>,
     ) -> Self {
         let mut ctx = Context::default();
@@ -713,12 +770,28 @@ impl Context {
                     .insert(slug.to_string(), reference_fields(schema));
             }
         }
+        for row in record_types {
+            if let (Some(id), Some(schema)) =
+                (row.get("id").and_then(id_text), row.get("field_schema"))
+            {
+                ctx.record_types.insert(id, reference_fields(schema));
+            }
+        }
         for row in user_field_schema {
             if let Some(schema) = row.get("schema") {
                 ctx.user_fields.extend(reference_fields(schema));
             }
         }
         ctx
+    }
+}
+
+/// An integer key as text, however the archive wrote it.
+fn id_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Number(n) => n.as_i64().map(|n| n.to_string()),
+        Value::String(s) => s.trim().parse::<i64>().ok().map(|n| n.to_string()),
+        _ => None,
     }
 }
 
@@ -960,6 +1033,11 @@ fn rewrite_column(
                     .get("kind")
                     .and_then(Value::as_str)
                     .and_then(|k| ctx.asset_kinds.get(k))
+                    .map_or(&[], Vec::as_slice),
+                Schema::RecordType => row
+                    .get("record_type_id")
+                    .and_then(id_text)
+                    .and_then(|id| ctx.record_types.get(&id))
                     .map_or(&[], Vec::as_slice),
             };
             let fields = fields.to_vec();

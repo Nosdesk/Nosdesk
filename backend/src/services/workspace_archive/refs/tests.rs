@@ -499,7 +499,7 @@ fn custom_fields_follow_their_schema() {
     let fields = [row(json!({"schema": {"type": "object", "properties": {
         "manager_of": {"type": "string", "format": "user-uuid"}
     }}}))];
-    let ctx = Context::from_rows(&kinds, &fields);
+    let ctx = Context::from_rows(&kinds, &[], &fields);
     let lookup = Keys::default()
         .with(Entity::User, ANA, ANA_HERE)
         .with(Entity::Asset, "7", "707");

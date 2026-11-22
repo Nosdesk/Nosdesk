@@ -269,6 +269,7 @@ diesel::table! {
         workspace_id -> Int4,
         #[max_length = 2048]
         thumbnail_url -> Nullable<Varchar>,
+        record_id -> Nullable<Int4>,
     }
 }
 
@@ -288,6 +289,83 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    asset_record_types (id) {
+        id -> Int4,
+        workspace_id -> Int4,
+        #[max_length = 64]
+        slug -> Varchar,
+        #[max_length = 255]
+        label -> Nullable<Varchar>,
+        description -> Nullable<Text>,
+        #[max_length = 64]
+        icon -> Nullable<Varchar>,
+        #[max_length = 7]
+        color -> Nullable<Varchar>,
+        field_schema -> Jsonb,
+        field_order -> Array<Nullable<Text>>,
+        core_fields -> Jsonb,
+        outcomes -> Jsonb,
+        applies_to_kinds -> Nullable<Array<Nullable<Text>>>,
+        #[max_length = 32]
+        opens_with_status -> Nullable<Varchar>,
+        is_builtin -> Bool,
+        sort_order -> Int4,
+        archived_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    asset_records (id) {
+        id -> Int4,
+        workspace_id -> Int4,
+        asset_id -> Int4,
+        record_type_id -> Int4,
+        #[max_length = 255]
+        summary -> Nullable<Varchar>,
+        notes -> Nullable<Text>,
+        occurred_on -> Date,
+        occurred_at -> Nullable<Timestamptz>,
+        completed_on -> Nullable<Date>,
+        completed_at -> Nullable<Timestamptz>,
+        #[max_length = 64]
+        outcome -> Nullable<Varchar>,
+        #[max_length = 255]
+        vendor -> Nullable<Varchar>,
+        performed_by_uuid -> Nullable<Uuid>,
+        #[max_length = 255]
+        reference -> Nullable<Varchar>,
+        cost_minor -> Nullable<Int8>,
+        #[max_length = 3]
+        cost_currency -> Nullable<Bpchar>,
+        ticket_id -> Nullable<Int4>,
+        replacement_asset_id -> Nullable<Int4>,
+        holder_uuid -> Nullable<Uuid>,
+        #[max_length = 255]
+        location -> Nullable<Varchar>,
+        #[max_length = 16]
+        snapshot_source -> Varchar,
+        attributes -> Jsonb,
+        plugin_fields -> Jsonb,
+        lifecycle_event_id -> Nullable<Int4>,
+        schedule_id -> Nullable<Int4>,
+        #[max_length = 16]
+        source -> Varchar,
+        #[max_length = 255]
+        source_ref -> Nullable<Varchar>,
+        import_job_id -> Nullable<Uuid>,
+        rule_id -> Nullable<Int4>,
+        recorded_at -> Timestamptz,
+        recorded_by -> Nullable<Uuid>,
+        updated_at -> Timestamptz,
+        updated_by -> Nullable<Uuid>,
+        version -> Int4,
     }
 }
 
@@ -2492,6 +2570,9 @@ diesel::joinable!(asset_media -> users (uploaded_by));
 diesel::joinable!(asset_media -> workspaces (workspace_id));
 diesel::joinable!(asset_models -> users (created_by));
 diesel::joinable!(asset_models -> workspaces (workspace_id));
+diesel::joinable!(asset_record_types -> users (created_by));
+diesel::joinable!(asset_record_types -> workspaces (workspace_id));
+diesel::joinable!(asset_records -> workspaces (workspace_id));
 diesel::joinable!(asset_usage_log -> users (recorded_by));
 diesel::joinable!(asset_usage_log -> workspaces (workspace_id));
 diesel::joinable!(assets -> workspaces (workspace_id));
@@ -2667,6 +2748,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     asset_loans,
     asset_media,
     asset_models,
+    asset_record_types,
+    asset_records,
     asset_usage_log,
     assets,
     attachments,

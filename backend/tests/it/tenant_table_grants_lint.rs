@@ -56,10 +56,17 @@ fn insertable_tenant_tables_grant_full_dml_to_nosdesk_app() {
 
     // One row per base table nosdesk_app can INSERT into, flagging whether
     // it also holds UPDATE / DELETE. Views are excluded (their grants are
-    // a separate concern and never carry an app INSERT here).
+    // a separate concern and never carry an app INSERT here). An UPDATE
+    // granted on some columns counts: the app role edits those and the
+    // table keeps the rest (`asset_records` keeps who entered a record and
+    // when).
     let rows: Vec<TableGrant> = diesel::sql_query(
         "SELECT g.table_name AS table_name, \
-                bool_or(g.privilege_type = 'UPDATE') AS has_update, \
+                bool_or(g.privilege_type = 'UPDATE') OR EXISTS ( \
+                  SELECT 1 FROM information_schema.column_privileges c \
+                  WHERE c.grantee = 'nosdesk_app' AND c.table_schema = 'public' \
+                    AND c.table_name = g.table_name AND c.privilege_type = 'UPDATE' \
+                ) AS has_update, \
                 bool_or(g.privilege_type = 'DELETE') AS has_delete \
          FROM information_schema.role_table_grants g \
          JOIN information_schema.tables t \

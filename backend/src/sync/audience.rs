@@ -67,6 +67,8 @@ pub fn audience(aggregate: SyncAggregate) -> Audience {
         SyncAggregate::AssetAudit => Audience::Staff,
         SyncAggregate::AssetLifecycleEvent => Audience::Staff,
         SyncAggregate::AssetMedia => Audience::Staff,
+        // Vendor, cost and RMA are internal: records stay with staff.
+        SyncAggregate::AssetRecord => Audience::Staff,
         // Nothing records it yet; staff until something does.
         SyncAggregate::Assignment => Audience::Staff,
         SyncAggregate::GroupMembership => Audience::Staff,

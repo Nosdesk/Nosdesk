@@ -141,6 +141,7 @@ pub const WORKSPACE_TABLES: &[Table] = &[
     t("asset_loans", Move),
     t("asset_media", Move),
     t("asset_models", Move),
+    t("asset_records", Move),
     t("asset_usage_log", Move),
     t("manufacturers", Move),
     // Groups.
@@ -211,6 +212,9 @@ pub const WORKSPACE_TABLES: &[Table] = &[
     t("category_approvers", Replace),
     t("category_group_visibility", Replace),
     t("asset_kinds", Replace),
+    // Configuration like the kinds, though added from a catalogue rather than
+    // seeded: a target holding a type it added still takes the archive's.
+    t("asset_record_types", Replace),
     t("site_settings", Replace),
     t("user_field_schema", Replace),
     t("workspace_notification_defaults", Replace),

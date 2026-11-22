@@ -4,10 +4,10 @@
 //!
 //! An asset is untouched when every check of [`KeptReason`] passes: its
 //! `updated_at` is the one the commit read back, its newest lifecycle
-//! event is the one the import wrote, it has no loan, disposal, photo or
-//! file, audit, usage entry, ticket link or directory membership, it is in
-//! no group the import didn't add it to, no sync source owns it, and no
-//! other asset's asset-reference attribute names it.
+//! event is the one the import wrote, it has no loan, record of work done,
+//! disposal, photo or file, audit, usage entry, ticket link or directory
+//! membership, it is in no group the import didn't add it to, no sync source
+//! owns it, and no other asset's asset-reference attribute names it.
 //!
 //! The rule reads the job's committed row results, which the 30-day prune
 //! drops. Removal is open for the same 30 days from the commit
@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
+use crate::repository::asset_record_types as record_type_repo;
 use crate::repository::assets::AssetDeletedObserver;
 use crate::repository::{
     asset_groups as group_repo, asset_kinds as kind_repo, asset_models as model_repo,
@@ -50,6 +51,9 @@ pub enum KeptReason {
     Disposed,
     /// A loan record: "Has a loan record".
     Loan,
+    /// Records of work done on it: "Has 3 service records". Removing it
+    /// would take that history with it.
+    Records { count: i64 },
     /// A lifecycle event newer than the import's own: "Status changed
     /// since".
     StatusChanged,
@@ -63,8 +67,9 @@ pub enum KeptReason {
     Usage,
     /// A directory membership: "In a directory group".
     Directory,
-    /// Another asset's asset-reference attribute names it: "Referenced by
-    /// 'Tripod kit 4'".
+    /// Another asset's asset-reference attribute, or a record of work on
+    /// another asset (its replacement, or an asset-reference field), names
+    /// it: "Referenced by 'Tripod kit 4'".
     Referenced { asset_id: i32, name: String },
     /// A group assignment the import didn't make: "Added to a group since".
     GroupAdded,
@@ -256,6 +261,32 @@ fn reference_keys(
     Ok(out)
 }
 
+/// The asset-reference field keys of each asset record type: properties with
+/// `format: asset-ref`, or lists of them.
+fn record_reference_keys(
+    conn: &mut DbConnection,
+) -> Result<HashMap<i32, HashSet<String>>, DieselError> {
+    let is_ref = |prop: &serde_json::Value| {
+        prop.get("format").and_then(serde_json::Value::as_str) == Some("asset-ref")
+    };
+    let mut out: HashMap<i32, HashSet<String>> = HashMap::new();
+    for rtype in record_type_repo::list(conn, true)? {
+        let Some(props) = rtype
+            .field_schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+        else {
+            continue;
+        };
+        for (key, prop) in props {
+            if is_ref(prop) || prop.get("items").is_some_and(is_ref) {
+                out.entry(rtype.id).or_default().insert(key.clone());
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Check every asset the import created against the untouched rule, and
 /// count the catalog entries removal would try. With `lock`, the assets
 /// and catalog entries are locked for the rest of the transaction (see
@@ -279,6 +310,7 @@ pub fn plan(
 
     let events = repo::newest_lifecycle_events(conn, &live)?;
     let loans = repo::loan_counts(conn, &live)?;
+    let records = repo::record_counts(conn, &live)?;
     let disposals = repo::disposal_counts(conn, &live)?;
     let media = repo::media_counts(conn, &live)?;
     let audits = repo::latest_audits(conn, &live)?;
@@ -310,6 +342,9 @@ pub fn plan(
         }
         if loans.get(&c.id).copied().unwrap_or(0) > 0 {
             reasons.push(KeptReason::Loan);
+        }
+        if let Some(count) = records.get(&c.id).copied().filter(|n| *n > 0) {
+            reasons.push(KeptReason::Records { count });
         }
         match (events.get(&c.id), c.transition_id) {
             (None, _) => {}
@@ -420,6 +455,32 @@ fn references_to(
         let is_ref = by_kind
             .get(&r.referrer_kind)
             .is_some_and(|keys| keys.contains(&r.key));
+        let Ok(target) = r.value.trim().parse::<i32>() else {
+            continue;
+        };
+        if is_ref && target != r.referrer_id {
+            out.entry(target)
+                .or_insert((r.referrer_id, r.referrer_name));
+        }
+    }
+    // Records of work on other assets that name it: as their replacement,
+    // or in an asset-reference field of their type. Deleting it would clear
+    // the one and leave the other naming nothing.
+    let by_type = record_reference_keys(conn)?;
+    let record_keys: Vec<String> = by_type
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut record_refs = repo::record_references(conn, &record_keys, &targets)?;
+    record_refs.sort_by_key(|r| r.referrer_id);
+    for r in record_refs {
+        let is_ref = r.key == "replacement_asset_id"
+            || by_type
+                .get(&r.record_type_id)
+                .is_some_and(|keys| keys.contains(&r.key));
         let Ok(target) = r.value.trim().parse::<i32>() else {
             continue;
         };

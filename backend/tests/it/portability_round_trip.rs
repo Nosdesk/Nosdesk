@@ -503,6 +503,39 @@ async fn source(pool: &TestPool) -> Source {
         ws,
     );
 
+    // Work recorded on the projector: a type whose fields name a person and
+    // an asset, a record naming both and its people and ticket, and the photo
+    // linked to it. The CSV import the record names never moves.
+    let record_type = id_in(
+        &mut conn,
+        "INSERT INTO asset_record_types (workspace_id, slug, label, field_schema, field_order, \
+           outcomes) VALUES ($1, 'calibration', 'Calibration', jsonb_build_object('type', \
+           'object', 'properties', jsonb_build_object( \
+             'signed_off_by', jsonb_build_object('type', 'string', 'format', 'user-uuid'), \
+             'loaner_asset_id', jsonb_build_object('type', 'string', 'format', 'asset-ref'))), \
+           ARRAY['signed_off_by', 'loaner_asset_id'], jsonb_build_array(jsonb_build_object('key', 'ok', \
+           'category', 'done', 'label', 'In tolerance'))) RETURNING id",
+        ws,
+    );
+    let record = id_in(
+        &mut conn,
+        &format!(
+            "INSERT INTO asset_records (workspace_id, asset_id, record_type_id, occurred_on, \
+               completed_on, outcome, vendor, performed_by_uuid, holder_uuid, ticket_id, \
+               attributes, source, import_job_id, recorded_by) VALUES ($1, {asset}, \
+               {record_type}, '2023-05-03', '2023-05-04', 'ok', 'Lens Lab', '{ana_uuid}', \
+               '{rex_uuid}', {t1}, jsonb_build_object('signed_off_by', '{ana_uuid}', 'loaner_asset_id', \
+               '{old}'), 'import', '{}', '{ana_uuid}') RETURNING id",
+            Uuid::now_v7()
+        ),
+        ws,
+    );
+    exec(
+        &mut conn,
+        &format!("UPDATE asset_media SET record_id = {record} WHERE workspace_id = $1 AND asset_id = {asset}"),
+        ws,
+    );
+
     // A rule, a view and a saved reply.
     exec(
         &mut conn,
@@ -1011,6 +1044,26 @@ async fn a_workspace_exported_imported_and_exported_again_comes_back_the_same() 
         "SELECT id FROM assets WHERE workspace_id = $1 AND name = 'Projector'",
         t,
     );
+    // The record names the new projector, its type and ticket, the new old
+    // projector in its fields, and its photo points at it; the CSV import it
+    // named stayed behind.
+    assert_eq!(
+        text(
+            &pool,
+            &format!(
+                "SELECT concat_ws(' ', r.attributes->>'loaner_asset_id' = o.id::text, \
+                   r.import_job_id IS NULL, m.record_id = r.id, rt.slug, r.ticket_id = {t1}) \
+                 AS value FROM asset_records r \
+                 JOIN asset_record_types rt ON rt.id = r.record_type_id \
+                 JOIN asset_media m ON m.asset_id = r.asset_id \
+                 JOIN assets o ON o.workspace_id = r.workspace_id AND o.name = 'Old projector' \
+                 WHERE r.workspace_id = $1 AND r.asset_id = {asset}"
+            ),
+            t
+        )
+        .as_deref(),
+        Some("t t t calibration t")
+    );
     let moved_asset = |key: &str| {
         key.replacen(
             &format!("assets/{}/", src.seed_asset()),
@@ -1353,6 +1406,9 @@ fn as_imported(table: &str, row: &Value) -> Option<Value> {
                 .is_some_and(|s| ["pending", "sending", "failed"].contains(&s)) =>
         {
             return None;
+        }
+        "asset_records" => {
+            row["import_job_id"] = Value::Null;
         }
         "asset_lifecycle_events" => {
             if let Some(metadata) = row

@@ -40,6 +40,8 @@ mod asset_kinds_picker;
 mod asset_list_loan_lifecycle;
 mod asset_media_documents;
 mod asset_model_kind;
+mod asset_record_types_catalogue;
+mod asset_records_repo;
 mod asset_settings_currency;
 mod assignable_people;
 mod assignee_eligibility;

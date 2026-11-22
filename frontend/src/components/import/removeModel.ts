@@ -107,6 +107,8 @@ export function reasonLine(t: Translate, reason: KeptReason, date: (iso: string)
       return t('import-remove-reason-status-changed')
     case 'loan':
       return t('import-remove-reason-loan')
+    case 'records':
+      return t('import-remove-reason-records', { count: reason.count })
     case 'disposed':
       return t('import-remove-reason-disposed')
     case 'media':
