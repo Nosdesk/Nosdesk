@@ -14,7 +14,9 @@
 //! For workspace admins, under `/api/admin/asset-record-types`: list (with
 //! archived types and record counts), get, create, edit (`?force=true` saves
 //! a field or outcome change that some records no longer fit), archive,
-//! restore, and delete an unused type of the workspace's own.
+//! restore, and delete an unused type of the workspace's own. Get, edit,
+//! archive and restore answer with the type and its `record_count`, as the
+//! list does.
 
 use std::collections::HashMap;
 
@@ -24,6 +26,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::error;
 
+use crate::db::DbConnection;
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
 use crate::models::{AssetRecordType, RecordOutcome};
@@ -421,7 +424,14 @@ pub async fn create(
     }
 }
 
-/// `PUT /api/admin/asset-record-types/{id}`.
+/// The written type with its record count, read in the same transaction.
+fn counted(conn: &mut DbConnection, t: AssetRecordType) -> Result<Value, RecordTypeError> {
+    let count = repo::count_records(conn, t.id)?;
+    Ok(with_count(&t, count))
+}
+
+/// `PUT /api/admin/asset-record-types/{id}`, answering with the type and its
+/// `record_count`.
 pub async fn update(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -447,33 +457,43 @@ pub async fn update(
         opens_with_status: body.opens_with_status,
         sort_order: body.sort_order,
     };
-    match tc.run_result(|conn| repo::update(conn, id, changes, query.force)) {
-        Ok(t) => HttpResponse::Ok().json(t),
+    match tc.run_result(|conn| {
+        let t = repo::update(conn, id, changes, query.force)?;
+        counted(conn, t)
+    }) {
+        Ok(body) => HttpResponse::Ok().json(body),
         Err(e) => type_error(e),
     }
 }
 
 /// `POST /api/admin/asset-record-types/{id}/archive`: its records keep it,
-/// and pickers leave it out.
+/// and pickers leave it out. Answers with the type and its `record_count`.
 pub async fn archive(mut tc: TenantConn, auth: AuthContext, path: web::Path<i32>) -> HttpResponse {
     if let Some(refused) = require_admin(&auth) {
         return refused;
     }
     let id = path.into_inner();
-    match tc.run_result(|conn| repo::archive(conn, id)) {
-        Ok(t) => HttpResponse::Ok().json(t),
+    match tc.run_result(|conn| {
+        let t = repo::archive(conn, id)?;
+        counted(conn, t)
+    }) {
+        Ok(body) => HttpResponse::Ok().json(body),
         Err(e) => type_error(e),
     }
 }
 
-/// `POST /api/admin/asset-record-types/{id}/restore`.
+/// `POST /api/admin/asset-record-types/{id}/restore`, answering with the type
+/// and its `record_count`.
 pub async fn restore(mut tc: TenantConn, auth: AuthContext, path: web::Path<i32>) -> HttpResponse {
     if let Some(refused) = require_admin(&auth) {
         return refused;
     }
     let id = path.into_inner();
-    match tc.run_result(|conn| repo::restore(conn, id)) {
-        Ok(t) => HttpResponse::Ok().json(t),
+    match tc.run_result(|conn| {
+        let t = repo::restore(conn, id)?;
+        counted(conn, t)
+    }) {
+        Ok(body) => HttpResponse::Ok().json(body),
         Err(e) => type_error(e),
     }
 }

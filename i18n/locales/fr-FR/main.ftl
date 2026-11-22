@@ -1161,6 +1161,246 @@ import-remove-reason-records = { $count ->
 # MT: pending native review (fr-FR)
 import-remove-group-records = { $count } avec des interventions enregistrées
 
+# Types d'intervention dans les paramètres : la liste, le catalogue des
+# types intégrés et l'éditeur (champs, résultats, champs communs, types d'actifs).
+# MT: pending native review (fr-FR)
+route-title-admin-asset-record-types = Types d'intervention
+# MT: pending native review (fr-FR)
+route-title-admin-asset-record-types-new = Nouveau type d'intervention
+# MT: pending native review (fr-FR)
+route-title-admin-asset-record-types-edit = Modifier le type d'intervention
+# MT: pending native review (fr-FR)
+admin-nav-asset-record-types-title = Types d'intervention
+# MT: pending native review (fr-FR)
+admin-nav-asset-record-types-description = Les types de travaux que votre équipe consigne sur les actifs, avec leurs champs et leurs résultats
+# MT: pending native review (fr-FR)
+admin-asset-record-types-title = Types d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-description = Les types de travaux que votre équipe consigne sur les actifs, comme les réparations et les inspections. Chaque type a ses propres champs et résultats.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-back-label = Retour à l'administration
+# MT: pending native review (fr-FR)
+admin-asset-record-types-back-to-list = Retour aux types d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-new = Nouveau type d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-workspace-heading = Vos types d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-none = Aucun type d'intervention pour l'instant. Ajoutez un type intégré ci-dessous, ou créez le vôtre.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-show-archived = Afficher les archivés ({ $count })
+# MT: pending native review (fr-FR)
+admin-asset-record-types-builtin-tag = intégré
+# MT: pending native review (fr-FR)
+admin-asset-record-types-record-count = { $count ->
+    [0] Aucune intervention
+    [one] 1 intervention
+   *[other] { $count } interventions
+   }
+# MT: pending native review (fr-FR)
+admin-asset-record-types-archived-heading = Archivés
+# MT: pending native review (fr-FR)
+admin-asset-record-types-archived-hint = Les interventions gardent un type archivé, mais personne ne peut le choisir pour un nouveau travail. Ouvrez-en un pour le restaurer.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-archived-tag = Archivé
+# MT: pending native review (fr-FR)
+admin-asset-record-types-catalogue-heading = Ajouter depuis le catalogue
+# MT: pending native review (fr-FR)
+admin-asset-record-types-catalogue-hint = Des types intégrés, prêts à l'emploi. Une fois ajouté, vous pouvez le renommer et le modifier comme les vôtres ; tant que vous ne le renommez pas, son nom suit la langue de chacun.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-catalogue-outcomes = Résultats :
+# MT: pending native review (fr-FR)
+admin-asset-record-types-add = Ajouter
+# MT: pending native review (fr-FR)
+admin-asset-record-types-add-aria = Ajouter { $name }
+# MT: pending native review (fr-FR)
+admin-asset-record-types-added = { $name } ajouté
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-load = Impossible de charger les types d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-add = Impossible d'ajouter le type d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-create-title = Nouveau type d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-edit-title = Modifier le type d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-not-found = Ce type d'intervention n'existe pas, ou a été supprimé.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-field-name = Nom
+# MT: pending native review (fr-FR)
+admin-asset-record-types-field-name-builtin-hint = Laissez vide pour utiliser le nom intégré, affiché dans la langue de chacun.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-reset-name = Utiliser le nom intégré ({ $name })
+# MT: pending native review (fr-FR)
+admin-asset-record-types-field-slug = Identifiant
+# MT: pending native review (fr-FR)
+admin-asset-record-types-field-slug-hint = Lettres minuscules, chiffres et tirets bas. Les imports et l'API l'utilisent, et il ne peut plus changer ensuite.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-field-slug-locked = L'identifiant reste fixe pour que les imports et l'API retrouvent toujours ce type.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-field-description = Description
+# MT: pending native review (fr-FR)
+admin-asset-record-types-look-heading = Icône et couleur
+# MT: pending native review (fr-FR)
+admin-asset-record-types-field-icon = Icône
+# MT: pending native review (fr-FR)
+admin-asset-record-types-field-color = Couleur
+# MT: pending native review (fr-FR)
+admin-asset-record-types-color-add = Ajouter une couleur
+# MT: pending native review (fr-FR)
+admin-asset-record-types-color-remove = Retirer la couleur
+# MT: pending native review (fr-FR)
+admin-asset-record-types-fields-heading = Champs
+# MT: pending native review (fr-FR)
+admin-asset-record-types-fields-hint = Les informations qu'une intervention de ce type recueille. Elles apparaissent dans cet ordre sur le formulaire et dans les modèles d'import.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-fields-empty-title = Aucun champ pour l'instant
+# MT: pending native review (fr-FR)
+admin-asset-record-types-fields-empty-description = Ajoutez un champ pour recueillir une autre information sur chaque intervention de ce type.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-fields-add = Ajouter un champ
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcomes-heading = Résultats
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcomes-hint = Comment le travail s'est terminé. Chaque résultat a une catégorie, qui sert à regrouper les rapports et qui décide de ce que fait le résultat.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcomes-empty = Aucun résultat. Les interventions de ce type ne demanderont pas comment le travail s'est terminé.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcome-name = Nom
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcome-name-placeholder = Par exemple, Conforme
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcome-category = Catégorie
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcome-move-up = Monter
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcome-move-down = Descendre
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcome-remove = Retirer le résultat
+# MT: pending native review (fr-FR)
+admin-asset-record-types-outcome-add = Ajouter un résultat
+# MT: pending native review (fr-FR)
+admin-asset-record-types-category-done = Fait
+# MT: pending native review (fr-FR)
+admin-asset-record-types-category-done-hint = Le travail a été fait.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-category-not_done = Non fait
+# MT: pending native review (fr-FR)
+admin-asset-record-types-category-not_done-hint = Le travail n'a pas été terminé, ou l'actif a échoué.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-category-no_fault = Aucun défaut
+# MT: pending native review (fr-FR)
+admin-asset-record-types-category-no_fault-hint = Rien n'allait mal, donc il n'y avait rien à faire.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-category-replaced = Remplacé
+# MT: pending native review (fr-FR)
+admin-asset-record-types-category-replaced-hint = L'actif a été échangé contre un autre, vers lequel l'intervention peut pointer.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-heading = Champs communs
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-hint = Tous les types d'intervention ont ces champs, pour que les rapports puissent les comparer d'un type à l'autre. Masquez ceux que ce type n'utilise pas.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-mode-hidden = Masqué
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-mode-optional = Facultatif
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-mode-required = Obligatoire
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-summary = Résumé
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-summary-hint = Une courte note sur ce qui a été fait.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-outcome = Résultat
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-outcome-hint = L'un des résultats ci-dessus.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-vendor = Prestataire
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-vendor-hint = Qui a fait le travail : une entreprise, ou votre propre technicien.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-reference = Référence
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-reference-hint = Un numéro de dossier, de RMA ou de facture.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-cost = Coût
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-cost-hint = Ce que le travail a coûté.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-ticket = Ticket
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-ticket-hint = Le ticket pour lequel le travail a été fait.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-holder = Détenteur
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-holder-hint = Qui avait l'actif à ce moment-là.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-location = Emplacement
+# MT: pending native review (fr-FR)
+admin-asset-record-types-core-location-hint = Où se trouvait l'actif à ce moment-là.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-kinds-heading = Types d'actifs
+# MT: pending native review (fr-FR)
+admin-asset-record-types-kinds-hint = Les actifs qui proposent ce type quand quelqu'un ajoute une intervention.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-kinds-all = Tous les types
+# MT: pending native review (fr-FR)
+admin-asset-record-types-kinds-some = Types choisis
+# MT: pending native review (fr-FR)
+admin-asset-record-types-conflict-heading = { $count ->
+    [one] 1 intervention de ce type ne correspondrait plus à cette modification.
+   *[other] { $count } interventions de ce type ne correspondraient plus à cette modification.
+   }
+# MT: pending native review (fr-FR)
+admin-asset-record-types-conflict-asset-tagged = { $name } ({ $tag })
+# MT: pending native review (fr-FR)
+admin-asset-record-types-conflict-help = Enregistrez quand même pour garder la modification : les interventions gardent ce qu'elles ont, et vous pourrez les corriger ensuite. Ou annulez la modification et enregistrez à nouveau.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-force-save = Enregistrer quand même
+# MT: pending native review (fr-FR)
+admin-asset-record-types-cancel = Annuler
+# MT: pending native review (fr-FR)
+admin-asset-record-types-save = Enregistrer
+# MT: pending native review (fr-FR)
+admin-asset-record-types-create = Créer le type d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-created = Type d'intervention créé
+# MT: pending native review (fr-FR)
+admin-asset-record-types-saved = Type d'intervention enregistré
+# MT: pending native review (fr-FR)
+admin-asset-record-types-archive = Archiver
+# MT: pending native review (fr-FR)
+admin-asset-record-types-restore = Restaurer
+# MT: pending native review (fr-FR)
+admin-asset-record-types-archived = { $name } archivé
+# MT: pending native review (fr-FR)
+admin-asset-record-types-restored = { $name } restauré
+# MT: pending native review (fr-FR)
+admin-asset-record-types-delete = Supprimer
+# MT: pending native review (fr-FR)
+admin-asset-record-types-delete-title = Supprimer le type d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-delete-confirm = Supprimer { $name } ? Aucune intervention ne l'utilise.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-deleted = { $name } supprimé
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-save = Impossible d'enregistrer le type d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-delete = Impossible de supprimer le type d'intervention
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-name-required = Donnez un nom au type d'intervention.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-slug-required = Donnez un identifiant au type d'intervention.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-outcome-name = Donnez un nom à chaque résultat.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-kinds = Choisissez au moins un type d'actif, ou proposez ce type pour tous les types d'actifs.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-slug-taken = Un autre type d'intervention utilise déjà cet identifiant.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-slug-reserved = Cet identifiant appartient à un type intégré. Ajoutez-le plutôt depuis le catalogue.
+# MT: pending native review (fr-FR)
+admin-asset-record-types-error-schema-json = Les champs ne sont pas du JSON valide : { $error }
+
 # Constructeur d'attributs typé.
 asset-kind-attribute-editor-add = Ajouter un attribut
 asset-kind-attribute-editor-empty-title = Aucun attribut pour l'instant

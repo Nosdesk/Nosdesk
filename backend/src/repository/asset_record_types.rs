@@ -32,7 +32,7 @@ use crate::models::{
     AssetRecordType, AssetRecordTypeChange, AssetStatus, CoreFieldMode, NewAssetRecordType,
     RecordOutcome, CORE_FIELDS,
 };
-use crate::schema::{asset_kinds, asset_record_types, asset_records};
+use crate::schema::{asset_kinds, asset_record_types, asset_records, assets};
 use crate::services::assets::record_catalogue;
 use crate::services::custom_fields::schema::{
     validate_attributes, validate_schema, AttributeSchemaError,
@@ -214,7 +214,9 @@ pub fn record_counts(conn: &mut DbConnection) -> QueryResult<Vec<(i32, i64)>> {
 
 /// Records of type `id` that wouldn't fit `field_schema` and `outcomes`:
 /// how many, and up to `sample_limit` of them with the reason. Run before a
-/// schema or outcome change saves.
+/// schema or outcome change saves. Each sample names its record (`id`) and
+/// its asset (`asset_id`, `asset_name`, `asset_tag`), so a client can say
+/// which equipment it is and link to the record.
 pub fn invalid_records(
     conn: &mut DbConnection,
     id: i32,
@@ -222,20 +224,24 @@ pub fn invalid_records(
     outcomes: &[RecordOutcome],
     sample_limit: usize,
 ) -> QueryResult<(usize, Vec<Value>)> {
-    let rows: Vec<(i32, i32, Value, Option<String>)> = asset_records::table
+    type Row = (i32, i32, Value, Option<String>, String, Option<String>);
+    let rows: Vec<Row> = asset_records::table
+        .inner_join(assets::table.on(assets::id.eq(asset_records::asset_id)))
         .filter(asset_records::record_type_id.eq(id))
         .select((
             asset_records::id,
             asset_records::asset_id,
             asset_records::attributes,
             asset_records::outcome,
+            assets::name,
+            assets::asset_tag,
         ))
         .order(asset_records::id.asc())
         .load(conn)?;
     let keys: HashSet<&str> = outcomes.iter().map(|o| o.key.as_str()).collect();
     let mut count = 0usize;
     let mut samples = Vec::new();
-    for (record_id, asset_id, attributes, outcome) in rows {
+    for (record_id, asset_id, attributes, outcome, asset_name, asset_tag) in rows {
         let error = match validate_attributes(field_schema, &attributes) {
             Err(e) => Some(e.to_string()),
             Ok(()) => outcome
@@ -245,7 +251,13 @@ pub fn invalid_records(
         if let Some(error) = error {
             count += 1;
             if samples.len() < sample_limit {
-                samples.push(json!({ "id": record_id, "asset_id": asset_id, "error": error }));
+                samples.push(json!({
+                    "id": record_id,
+                    "asset_id": asset_id,
+                    "asset_name": asset_name,
+                    "asset_tag": asset_tag,
+                    "error": error,
+                }));
             }
         }
     }
@@ -467,11 +479,24 @@ pub fn update(
             .field_schema
             .clone()
             .unwrap_or_else(|| current.field_schema.clone());
-        if changes.field_schema.is_some() || changes.outcomes.is_some() {
-            let outcomes = changes
-                .outcomes
-                .clone()
-                .unwrap_or_else(|| current.outcome_list());
+        // Only a change can make a record stop fitting: a schema that differs
+        // from the stored one, or outcome keys that do (a record holds an
+        // outcome by key, so a renamed or recategorised outcome still fits).
+        // A client resending the stored values runs no check.
+        let schema_changed = changes
+            .field_schema
+            .as_ref()
+            .is_some_and(|s| *s != current.field_schema);
+        let stored_outcomes = current.outcome_list();
+        let outcome_keys = |list: &[RecordOutcome]| -> HashSet<String> {
+            list.iter().map(|o| o.key.clone()).collect()
+        };
+        let outcome_keys_changed = changes
+            .outcomes
+            .as_ref()
+            .is_some_and(|o| outcome_keys(o) != outcome_keys(&stored_outcomes));
+        if schema_changed || outcome_keys_changed {
+            let outcomes = changes.outcomes.clone().unwrap_or(stored_outcomes);
             let (count, samples) = invalid_records(conn, id, &schema, &outcomes, 10)?;
             if count > 0 && !force {
                 return Err(RecordTypeError::InvalidRecords { count, samples });

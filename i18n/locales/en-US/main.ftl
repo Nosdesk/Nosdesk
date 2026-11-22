@@ -1156,6 +1156,131 @@ import-remove-reason-records = { $count ->
    }
 import-remove-group-records = { $count } with service records
 
+# Asset record types in Settings: the list, the catalogue of built-ins,
+# and the editor (fields, outcomes, shared fields, asset kinds).
+route-title-admin-asset-record-types = Record types
+route-title-admin-asset-record-types-new = New record type
+route-title-admin-asset-record-types-edit = Edit record type
+admin-nav-asset-record-types-title = Asset Record Types
+admin-nav-asset-record-types-description = The kinds of work your team records on assets, with their fields and outcomes
+admin-asset-record-types-title = Asset record types
+admin-asset-record-types-description = The kinds of work your team records on assets, such as repairs and inspections. Each type has its own fields and outcomes.
+admin-asset-record-types-back-label = Back to admin
+admin-asset-record-types-back-to-list = Back to record types
+admin-asset-record-types-new = New record type
+admin-asset-record-types-workspace-heading = Your record types
+admin-asset-record-types-none = No record types yet. Add a built-in type below, or create your own.
+admin-asset-record-types-show-archived = Show archived ({ $count })
+admin-asset-record-types-builtin-tag = built-in
+admin-asset-record-types-record-count = { $count ->
+    [0] No records
+    [one] 1 record
+   *[other] { $count } records
+   }
+admin-asset-record-types-archived-heading = Archived
+admin-asset-record-types-archived-hint = Records keep an archived type, but no one can pick it for new work. Open one to restore it.
+admin-asset-record-types-archived-tag = Archived
+admin-asset-record-types-catalogue-heading = Add from the catalogue
+admin-asset-record-types-catalogue-hint = Built-in types, ready to use. Once added, you can rename and change one like your own; until you rename it, its name follows each person's language.
+admin-asset-record-types-catalogue-outcomes = Outcomes:
+admin-asset-record-types-add = Add
+admin-asset-record-types-add-aria = Add { $name }
+admin-asset-record-types-added = { $name } added
+admin-asset-record-types-error-load = Couldn't load the record types
+admin-asset-record-types-error-add = Couldn't add the record type
+admin-asset-record-types-create-title = New record type
+admin-asset-record-types-edit-title = Edit record type
+admin-asset-record-types-not-found = This record type doesn't exist, or was deleted.
+admin-asset-record-types-field-name = Name
+admin-asset-record-types-field-name-builtin-hint = Leave empty to use the built-in name, shown in each person's language.
+admin-asset-record-types-reset-name = Use the built-in name ({ $name })
+admin-asset-record-types-field-slug = Slug
+admin-asset-record-types-field-slug-hint = Lower case letters, digits and underscores. Imports and the API use it, and it can't change later.
+admin-asset-record-types-field-slug-locked = The slug stays fixed so imports and the API keep finding this type.
+admin-asset-record-types-field-description = Description
+admin-asset-record-types-look-heading = Icon and color
+admin-asset-record-types-field-icon = Icon
+admin-asset-record-types-field-color = Color
+admin-asset-record-types-color-add = Add a color
+admin-asset-record-types-color-remove = Remove color
+admin-asset-record-types-fields-heading = Fields
+admin-asset-record-types-fields-hint = The details a record of this type collects. They appear in this order on the record form and in import templates.
+admin-asset-record-types-fields-empty-title = No fields yet
+admin-asset-record-types-fields-empty-description = Add a field to collect another detail on every record of this type.
+admin-asset-record-types-fields-add = Add field
+admin-asset-record-types-outcomes-heading = Outcomes
+admin-asset-record-types-outcomes-hint = How the work ended. Each outcome has a category, which reports group by and which decides what the outcome does.
+admin-asset-record-types-outcomes-empty = No outcomes. Records of this type won't ask how the work ended.
+admin-asset-record-types-outcome-name = Name
+admin-asset-record-types-outcome-name-placeholder = For example, Passed
+admin-asset-record-types-outcome-category = Category
+admin-asset-record-types-outcome-move-up = Move up
+admin-asset-record-types-outcome-move-down = Move down
+admin-asset-record-types-outcome-remove = Remove outcome
+admin-asset-record-types-outcome-add = Add outcome
+admin-asset-record-types-category-done = Done
+admin-asset-record-types-category-done-hint = The work was done.
+admin-asset-record-types-category-not_done = Not done
+admin-asset-record-types-category-not_done-hint = The work wasn't finished, or the asset failed.
+admin-asset-record-types-category-no_fault = No fault
+admin-asset-record-types-category-no_fault-hint = Nothing was wrong, so nothing needed doing.
+admin-asset-record-types-category-replaced = Replaced
+admin-asset-record-types-category-replaced-hint = The asset was swapped for another, which the record can link to.
+admin-asset-record-types-core-heading = Shared fields
+admin-asset-record-types-core-hint = Every record type has these, so reports can compare them across types. Hide the ones this type doesn't use.
+admin-asset-record-types-core-mode-hidden = Hidden
+admin-asset-record-types-core-mode-optional = Optional
+admin-asset-record-types-core-mode-required = Required
+admin-asset-record-types-core-summary = Summary
+admin-asset-record-types-core-summary-hint = A short note on what was done.
+admin-asset-record-types-core-outcome = Outcome
+admin-asset-record-types-core-outcome-hint = One of the outcomes above.
+admin-asset-record-types-core-vendor = Vendor
+admin-asset-record-types-core-vendor-hint = Who did the work: a company, or your own technician.
+admin-asset-record-types-core-reference = Reference
+admin-asset-record-types-core-reference-hint = A job, RMA or invoice number.
+admin-asset-record-types-core-cost = Cost
+admin-asset-record-types-core-cost-hint = What the work cost.
+admin-asset-record-types-core-ticket = Ticket
+admin-asset-record-types-core-ticket-hint = The ticket the work was for.
+admin-asset-record-types-core-holder = Holder
+admin-asset-record-types-core-holder-hint = Who had the asset at the time.
+admin-asset-record-types-core-location = Location
+admin-asset-record-types-core-location-hint = Where the asset was at the time.
+admin-asset-record-types-kinds-heading = Asset kinds
+admin-asset-record-types-kinds-hint = The assets that offer this type when someone adds a record.
+admin-asset-record-types-kinds-all = Every kind
+admin-asset-record-types-kinds-some = Chosen kinds
+admin-asset-record-types-conflict-heading = { $count ->
+    [one] 1 record of this type would no longer fit this change.
+   *[other] { $count } records of this type would no longer fit this change.
+   }
+admin-asset-record-types-conflict-asset-tagged = { $name } ({ $tag })
+admin-asset-record-types-conflict-help = Save anyway to keep the change: the records keep what they have, and you can fix them afterwards. Or undo the change and save again.
+admin-asset-record-types-force-save = Save anyway
+admin-asset-record-types-cancel = Cancel
+admin-asset-record-types-save = Save
+admin-asset-record-types-create = Create record type
+admin-asset-record-types-created = Record type created
+admin-asset-record-types-saved = Record type saved
+admin-asset-record-types-archive = Archive
+admin-asset-record-types-restore = Restore
+admin-asset-record-types-archived = { $name } archived
+admin-asset-record-types-restored = { $name } restored
+admin-asset-record-types-delete = Delete
+admin-asset-record-types-delete-title = Delete record type
+admin-asset-record-types-delete-confirm = Delete { $name }? No records use it.
+admin-asset-record-types-deleted = { $name } deleted
+admin-asset-record-types-error-save = Couldn't save the record type
+admin-asset-record-types-error-delete = Couldn't delete the record type
+admin-asset-record-types-error-name-required = Give the record type a name.
+admin-asset-record-types-error-slug-required = Give the record type a slug.
+admin-asset-record-types-error-outcome-name = Give every outcome a name.
+admin-asset-record-types-error-kinds = Choose at least one asset kind, or offer the type for every kind.
+admin-asset-record-types-error-slug-taken = Another record type already uses that slug.
+admin-asset-record-types-error-slug-reserved = That slug belongs to a built-in type. Add it from the catalogue instead.
+admin-asset-record-types-error-schema-json = The fields aren't valid JSON: { $error }
+
 # Asset Kinds — typed attribute builder (AttributeEditor +
 # AttributeRow). Replaces the raw JSON textarea for the common
 # cases (Text, Number, Date, Boolean, Select, Multi-select,
