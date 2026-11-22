@@ -310,10 +310,115 @@ async fn records_export_the_import_templates_columns_and_cells() {
     let json: Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(json[0]["reference"], "RMA-4471", "{json}");
 
-    // Records are staff only: anyone else gets the columns and no rows.
-    let csv = get(&f, f.ws.member_uuid, "/api/assets/export?scope=records").await;
-    assert_eq!(rows(&csv).len(), 1, "{csv}");
-    assert!(!csv.contains("RMA-4471"));
+    // Records are staff only: anyone else gets the template's columns and no
+    // rows, the same whether the type they name exists or not, and in a
+    // workspace that shows them no assets.
+    let mut plain: Vec<String> = TEMPLATE_HEADERS.iter().map(ToString::to_string).collect();
+    plain.push("attributes".to_string());
+    let requester = f.ws.member_uuid;
+    let shown = [
+        get(&f, requester, "/api/assets/export?scope=records").await,
+        get(
+            &f,
+            requester,
+            "/api/assets/export?scope=records&record_type=repair",
+        )
+        .await,
+        get(
+            &f,
+            requester,
+            "/api/assets/export?scope=records&record_type=nope",
+        )
+        .await,
+    ];
+    in_ws(&f, |c| {
+        site_settings::update_site_settings(
+            c,
+            UpdateSiteSettings {
+                requester_asset_visibility: Some("none".to_string()),
+                ..Default::default()
+            },
+        )
+    });
+    let hidden = get(
+        &f,
+        requester,
+        "/api/assets/export?scope=records&record_type=repair",
+    )
+    .await;
+    for csv in shown.iter().chain([&hidden]) {
+        assert_eq!(rows(csv), vec![plain.clone()], "{csv}");
+    }
+}
+
+#[actix_web::test]
+async fn the_timeline_export_lists_each_asset_in_turn() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    seed_repair(&f).await;
+    let other = in_ws(&f, |c| {
+        asset_repo::create_device(
+            c,
+            NewAsset {
+                name: "Camera 22".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: None,
+                // Between f.asset's purchase and its repair.
+                purchase_date: Some(NaiveDate::from_ymd_opt(2021, 6, 1).expect("a date")),
+                asset_tag: Some("CAM-022".to_string()),
+                kind: "device".to_string(),
+                attributes: json!({}),
+                quantity: None,
+                unit: None,
+                external_sync_source: None,
+                low_stock_threshold: None,
+                created_by: None,
+            },
+        )
+    })
+    .id;
+    let (status, body) = call(
+        &f,
+        f.agent,
+        Method::POST,
+        &format!("/api/assets/{other}/records"),
+        Some(json!({
+            "record_type": "repair",
+            "summary": "Sensor cleaned",
+            "occurred_on": "2022-02-02",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+
+    let csv = get(&f, f.agent, "/api/assets/export?scope=timeline").await;
+    let tags: Vec<String> = rows(&csv)
+        .into_iter()
+        .skip(1)
+        .map(|r| r[0].clone())
+        .collect();
+    let mut grouped = tags.clone();
+    grouped.dedup();
+    let (first, second) = if f.asset < other {
+        ("CAM-014", "CAM-022")
+    } else {
+        ("CAM-022", "CAM-014")
+    };
+    assert_eq!(grouped, vec![first, second], "one run per asset: {tags:?}");
+    // Within an asset, newest first.
+    let days: Vec<String> = rows(&csv)
+        .into_iter()
+        .skip(1)
+        .filter(|r| r[0] == "CAM-014")
+        .map(|r| r[3].clone())
+        .collect();
+    let mut sorted = days.clone();
+    sorted.sort_by(|a, b| b.cmp(a));
+    assert_eq!(days, sorted, "{csv}");
 }
 
 #[actix_web::test]

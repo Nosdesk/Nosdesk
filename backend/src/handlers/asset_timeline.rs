@@ -79,6 +79,19 @@ pub(crate) fn parse_sources(raw: Option<&str>) -> Result<HashSet<Source>, String
         .collect()
 }
 
+/// `from` and `to` as days the timeline can read, else why not.
+pub(crate) fn check_window(from: Option<NaiveDate>, to: Option<NaiveDate>) -> Result<(), String> {
+    if from.into_iter().chain(to).all(repo::day_in_range) {
+        Ok(())
+    } else {
+        Err(format!(
+            "from and to must fall between {} and {}",
+            repo::FIRST_DAY,
+            repo::LAST_DAY
+        ))
+    }
+}
+
 /// What a `record_type` parameter narrows records to.
 pub(crate) enum TypeFilter {
     Any,
@@ -143,10 +156,24 @@ pub(crate) struct Projected {
     pub actor_uuid: Option<Uuid>,
     /// Who wrote it down.
     pub recorded_by: Option<Uuid>,
+    /// Whether the entry shows when it happened and was written down, or
+    /// only its day: a ticket keeps its times from anyone but staff whose
+    /// credential reads tickets.
+    pub timed: bool,
     pub data: Value,
 }
 
 impl Projected {
+    /// When it happened, unless the entry shows only its day.
+    pub fn at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.key.at.filter(|_| self.timed)
+    }
+
+    /// When it was written down, unless the entry shows only its day.
+    pub fn recorded_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.timed.then_some(self.key.recorded_at)
+    }
+
     /// A key unique within a timeline.
     pub fn key_text(&self) -> String {
         let k = &self.key;
@@ -166,8 +193,8 @@ impl Projected {
             "source": self.source.as_str(),
             "asset_id": self.key.asset_id,
             "day": self.key.day,
-            "at": self.key.at,
-            "recorded_at": self.key.recorded_at,
+            "at": self.at(),
+            "recorded_at": self.recorded_at(),
             "recorded_by": self.recorded_by,
             "actor_uuid": self.actor_uuid,
             "data": self.data,
@@ -195,8 +222,9 @@ pub(crate) fn reads_tickets(req: &HttpRequest) -> bool {
 /// Entries as `auth` may see them: records as the record endpoint answers
 /// them, status changes, disposals and loans through their strip functions,
 /// tickets without their dates for anyone but staff, and by id alone when
-/// the credential can't read tickets (`ticket_details` false). Records and
-/// replacements never reach anyone but staff.
+/// the credential can't read tickets (`ticket_details` false). A ticket
+/// without its dates keeps its day but not its time or entry time. Records
+/// and replacements never reach anyone but staff.
 pub(crate) fn project(
     conn: &mut crate::db::DbConnection,
     auth: &AuthContext,
@@ -258,6 +286,7 @@ pub(crate) fn project(
                     key,
                     source,
                     kind: None,
+                    timed: true,
                     actor_uuid: event.actor_uuid,
                     recorded_by: event.actor_uuid,
                     data,
@@ -271,6 +300,7 @@ pub(crate) fn project(
                     key,
                     source,
                     kind: None,
+                    timed: true,
                     actor_uuid: record.performed_by_uuid,
                     recorded_by: record.recorded_by,
                     data: record_json
@@ -291,6 +321,7 @@ pub(crate) fn project(
                     key,
                     source,
                     kind: Some(if replaces { "replaces" } else { "replaced_by" }),
+                    timed: true,
                     actor_uuid: None,
                     recorded_by: record.recorded_by,
                     data: json!({
@@ -317,6 +348,7 @@ pub(crate) fn project(
                     key,
                     source,
                     kind: Some(if returned { "returned" } else { "lent" }),
+                    timed: true,
                     actor_uuid: actor,
                     recorded_by: actor,
                     data: to_value(&loan),
@@ -354,6 +386,9 @@ pub(crate) fn project(
                     key,
                     source,
                     kind: None,
+                    // The day orders the entry; the times are the ticket's
+                    // own, which only staff who read tickets see.
+                    timed: staff && ticket_details,
                     actor_uuid: None,
                     recorded_by: None,
                     data,
@@ -363,6 +398,7 @@ pub(crate) fn project(
                 key,
                 source,
                 kind: Some(marker.as_str()),
+                timed: true,
                 actor_uuid: None,
                 recorded_by: None,
                 data: json!({}),
@@ -392,7 +428,7 @@ pub(crate) fn export_rows(
                 asset_name: asset.map(|a| a.name.clone()).unwrap_or_default(),
                 source: e.source.as_str(),
                 day: e.key.day,
-                at: e.key.at,
+                at: e.at(),
                 kind: e.kind.map(str::to_string),
                 summary: None,
                 outcome: None,
@@ -402,7 +438,7 @@ pub(crate) fn export_rows(
                 currency: None,
                 ticket_id: None,
                 actor_uuid: e.actor_uuid,
-                recorded_at: e.key.recorded_at,
+                recorded_at: e.recorded_at(),
                 recorded_by: e.recorded_by,
                 details: d.clone(),
             };
@@ -487,11 +523,17 @@ pub async fn list_for_asset(
             })?),
             None => None,
         };
+        check_window(query.from, query.to).map_err(Refusal::BadRequest)?;
         let limit = query.limit.unwrap_or(PAGE_DEFAULT).clamp(1, PAGE_MAX);
         crate::handlers::assets::require_assets_visible(conn, &auth)?;
         assets_repo::get_device_by_id(conn, asset_id)?;
         let viewer = viewer(&auth);
-        let types = type_filter(conn, query.record_type.as_deref())?;
+        // Only staff see records, so only theirs read the type.
+        let types = if viewer.staff {
+            type_filter(conn, query.record_type.as_deref())?
+        } else {
+            TypeFilter::Any
+        };
         let filter = filter_for(sources, &types, query.from, query.to);
         let mut asset_ids = vec![asset_id];
         // The chain is read from records, which only staff see.

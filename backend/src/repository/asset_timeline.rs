@@ -45,6 +45,22 @@ use crate::utils::locale::day_start;
 /// How far back a chain of replacements is followed.
 pub const PREDECESSOR_HOPS: usize = 10;
 
+/// The first and last days a cursor or a `from`/`to` window may name: years
+/// 1 to 9999, which the database stores as a date and as a moment alike.
+pub const FIRST_DAY: NaiveDate = match NaiveDate::from_ymd_opt(1, 1, 1) {
+    Some(day) => day,
+    None => panic!("0001-01-01 is a date"),
+};
+pub const LAST_DAY: NaiveDate = match NaiveDate::from_ymd_opt(9999, 12, 31) {
+    Some(day) => day,
+    None => panic!("9999-12-31 is a date"),
+};
+
+/// Whether `day` is one a cursor or window may name.
+pub fn day_in_range(day: NaiveDate) -> bool {
+    (FIRST_DAY..=LAST_DAY).contains(&day)
+}
+
 /// Where a timeline entry comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Source {
@@ -154,7 +170,8 @@ impl EntryKey {
         )
     }
 
-    /// A cursor [`Self::encode`] wrote, else `None`.
+    /// A cursor [`Self::encode`] wrote, else `None`, as for one naming a day
+    /// or moment outside [`day_in_range`].
     pub fn decode(raw: &str) -> Option<Self> {
         let mut parts = raw.split('~');
         let day = parts.next()?.parse().ok()?;
@@ -167,6 +184,12 @@ impl EntryKey {
         let id = parts.next()?.parse().ok()?;
         let asset_id = parts.next()?.parse().ok()?;
         if parts.next().is_some() {
+            return None;
+        }
+        let in_range = day_in_range(day)
+            && at.is_none_or(|at: DateTime<Utc>| day_in_range(at.date_naive()))
+            && day_in_range(recorded_at.date_naive());
+        if !in_range {
             return None;
         }
         Some(Self {
@@ -1105,6 +1128,13 @@ mod tests {
         assert_eq!(EntryKey::decode("nonsense"), None);
         assert_eq!(EntryKey::decode("2023-05-03~~1~9~1~1"), None);
         assert_eq!(EntryKey::decode("2023-05-03~~1~5~1~1~1"), None);
+        // Days and moments the database can't hold.
+        assert_eq!(
+            EntryKey::decode("2023-05-03~-8000000000000000000~1~5~1~1"),
+            None
+        );
+        assert_eq!(EntryKey::decode("+12023-05-03~~1~5~1~1"), None);
+        assert!(EntryKey::decode("2023-05-03~~1~5~1~1").is_some());
     }
 
     #[test]

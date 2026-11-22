@@ -1026,6 +1026,9 @@ pub async fn export_assets(
         Ok(s) => s,
         Err(message) => return errors::bad_request(message),
     };
+    if let Err(message) = crate::handlers::asset_timeline::check_window(query.from, query.to) {
+        return errors::bad_request(message);
+    }
 
     let import = match import_param(query.import.as_deref(), &auth) {
         Ok(v) => v,
@@ -1062,20 +1065,23 @@ pub async fn export_assets(
                 records_export(conn, &auth, &ids, query.record_type.as_deref())?
             }
             ExportScope::Timeline => {
-                let types = crate::handlers::asset_timeline::type_filter(
-                    conn,
-                    query.record_type.as_deref(),
-                )?;
+                // Only staff see records, so only theirs read the type.
+                let types = if auth.can_handle_tickets() {
+                    crate::handlers::asset_timeline::type_filter(
+                        conn,
+                        query.record_type.as_deref(),
+                    )?
+                } else {
+                    crate::handlers::asset_timeline::TypeFilter::Any
+                };
                 let filter = crate::handlers::asset_timeline::filter_for(
                     sources, &types, query.from, query.to,
                 );
-                ExportExtra::Timeline(timeline_entries(
-                    conn,
-                    &auth,
-                    &ids,
-                    &filter,
-                    ticket_details,
-                )?)
+                let mut entries = timeline_entries(conn, &auth, &ids, &filter, ticket_details)?;
+                // By asset, as the records export is, each asset's newest
+                // first: a sort that keeps the timeline's order within one.
+                entries.sort_by_key(|e| e.key.asset_id);
+                ExportExtra::Timeline(entries)
             }
         };
         let slug = repository::workspaces::find_by_id(conn, workspace_id)
@@ -1205,7 +1211,9 @@ enum ExportExtra {
 }
 
 /// The records of `asset_ids` and what their cells name. Records are staff
-/// only: anyone else gets the columns and no rows.
+/// only: anyone else gets the template's columns and no rows, the same
+/// whatever `record_type` names, so the export tells them nothing of the
+/// workspace's types.
 fn records_export(
     conn: &mut crate::db::DbConnection,
     auth: &AuthContext,
@@ -1214,6 +1222,19 @@ fn records_export(
 ) -> Result<ExportExtra, Error> {
     use crate::handlers::asset_timeline::{type_filter, TypeFilter};
     let tz = repository::asset_records::workspace_timezone(conn)?;
+    if !auth.can_handle_tickets() {
+        return Ok(ExportExtra::Records {
+            records: Vec::new(),
+            record_type: None,
+            lookups: RecordLookups {
+                types: HashMap::new(),
+                emails: HashMap::new(),
+                ticket_numbers: HashMap::new(),
+                tags: HashMap::new(),
+                tz,
+            },
+        });
+    }
     // The type to read records of: `Some(None)` for every type, `None` when
     // `record_type` names no type.
     let (record_type, records_of) = match type_filter(conn, record_type)? {
@@ -1225,10 +1246,8 @@ fn records_export(
         TypeFilter::Unknown => (None, None),
     };
     let records = match records_of {
-        Some(type_id) if auth.can_handle_tickets() => {
-            repository::asset_timeline::records_for_export(conn, asset_ids, type_id)?
-        }
-        _ => Vec::new(),
+        Some(type_id) => repository::asset_timeline::records_for_export(conn, asset_ids, type_id)?,
+        None => Vec::new(),
     };
     let types: HashMap<i32, crate::models::AssetRecordType> =
         repository::asset_record_types::list(conn, true)?

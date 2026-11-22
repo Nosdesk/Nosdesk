@@ -395,6 +395,25 @@ async fn a_date_only_entry_sorts_after_the_timed_entries_of_its_day() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    // Cursors and windows naming days the database can't hold are refused,
+    // not sent on to fail there.
+    for query in [
+        "before=2023-05-03~-8000000000000000000~1~5~1~1",
+        "before=2023-05-03~~-8000000000000000000~5~1~1",
+        "from=0000-12-31",
+        "to=0000-12-31",
+    ] {
+        for uri in [
+            format!("/api/assets/{}/timeline?{query}", f.asset),
+            format!("/api/assets/export?scope=timeline&{query}"),
+        ] {
+            if uri.contains("export") && query.starts_with("before") {
+                continue;
+            }
+            let (status, body) = call(&f, f.agent, Method::GET, &uri).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {body}");
+        }
+    }
 }
 
 #[actix_web::test]
@@ -599,6 +618,13 @@ async fn tickets_are_the_ones_the_viewer_can_see() {
         .collect();
     fields.sort_unstable();
     assert_eq!(fields, vec!["id", "number", "state", "title"], "{ticket}");
+    // Nor when it was raised: the day orders it, the time stays with staff.
+    let entry = &requester_page["entries"][0];
+    assert_eq!(entry["day"], "2024-03-01", "{entry}");
+    assert!(
+        entry["at"].is_null() && entry["recorded_at"].is_null(),
+        "{entry}"
+    );
     let _ = pending;
 }
 
@@ -612,28 +638,38 @@ async fn a_token_that_cant_read_tickets_names_them_by_id() {
         "Lens fault",
         None,
         None,
-        at("2024-03-01T09:00:00Z"),
+        at("2024-03-01T07:41:53Z"),
     );
     let uri = format!("/api/assets/{}/timeline?sources=ticket", f.asset);
-    let ticket_data = |body: &str| -> Value {
+    let entry = |body: &str| -> Value {
         let page: Value = serde_json::from_str(body).expect("a JSON page");
-        page["entries"][0]["data"].clone()
+        page["entries"][0].clone()
     };
 
-    // A session, and a token that can read tickets too, get the ticket.
+    // A session, and a token that can read tickets too, get the ticket and
+    // when it was raised.
     for scope in ["full", "assets:read tickets:read"] {
         let (status, body) = call_scoped(&f, f.agent, scope, Method::GET, &uri).await;
         assert_eq!(status, StatusCode::OK, "{scope}: {body}");
-        let data = ticket_data(&body);
+        let entry = entry(&body);
+        let data = &entry["data"];
         assert_eq!(data["id"], json!(ticket), "{scope}: {data}");
         assert_eq!(data["title"], "Lens fault", "{scope}: {data}");
         assert!(data["number"].is_number(), "{scope}: {data}");
+        assert_eq!(entry["at"], "2024-03-01T07:41:53Z", "{scope}: {entry}");
+        assert!(entry["recorded_at"].is_string(), "{scope}: {entry}");
     }
 
-    // A token for assets alone gets the id the lifecycle already shows.
+    // A token for assets alone gets the id the lifecycle already shows, and
+    // the day it falls on but not the time.
     let (status, body) = call_scoped(&f, f.agent, "assets:read", Method::GET, &uri).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(ticket_data(&body), json!({ "id": ticket }), "{body}");
+    let only_id = entry(&body);
+    assert_eq!(only_id["data"], json!({ "id": ticket }), "{body}");
+    assert_eq!(only_id["day"], "2024-03-01", "{body}");
+    assert!(only_id["at"].is_null(), "{body}");
+    assert!(only_id["recorded_at"].is_null(), "{body}");
+    assert!(!body.contains("07:41:53"), "{body}");
     for uri in [
         format!("/api/assets/{}/record-card", f.asset),
         "/api/assets/export?scope=timeline&format=json".to_string(),
@@ -642,8 +678,10 @@ async fn a_token_that_cant_read_tickets_names_them_by_id() {
         assert_eq!(status, StatusCode::OK, "{uri}: {body}");
         assert!(body.contains("ticket"), "{uri} lists the ticket: {body}");
         assert!(!body.contains("Lens fault"), "{uri}: {body}");
+        assert!(!body.contains("07:41:53"), "{uri}: {body}");
         let (_, body) = call_scoped(&f, f.agent, "full", Method::GET, &uri).await;
         assert!(body.contains("Lens fault"), "{uri}: {body}");
+        assert!(body.contains("07:41:53"), "{uri}: {body}");
     }
 }
 

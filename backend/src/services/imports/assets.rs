@@ -3742,7 +3742,8 @@ pub struct TimelineExportRow {
     pub currency: Option<String>,
     pub ticket_id: Option<i32>,
     pub actor_uuid: Option<Uuid>,
-    pub recorded_at: chrono::DateTime<chrono::Utc>,
+    /// Absent where the entry shows only its day.
+    pub recorded_at: Option<chrono::DateTime<chrono::Utc>>,
     pub recorded_by: Option<Uuid>,
     pub details: Value,
 }
@@ -3770,7 +3771,7 @@ pub fn write_timeline_csv(rows: &[TimelineExportRow]) -> Result<Vec<u8>, csv::Er
                 text(&r.currency),
                 r.ticket_id.map(|t| t.to_string()).unwrap_or_default(),
                 id(r.actor_uuid),
-                r.recorded_at.to_rfc3339(),
+                r.recorded_at.map(|at| at.to_rfc3339()).unwrap_or_default(),
                 id(r.recorded_by),
                 r.details.to_string(),
             ]
