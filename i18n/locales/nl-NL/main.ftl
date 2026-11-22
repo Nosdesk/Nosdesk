@@ -1157,6 +1157,238 @@ import-remove-reason-records = { $count ->
 # MT: pending native review (nl-NL)
 import-remove-group-records = { $count } met onderhoudsregistraties
 
+# Registratietypen in de instellingen: de lijst, de catalogus van ingebouwde
+# typen en de editor (velden, uitkomsten, gedeelde velden, activatypen).
+# MT: pending native review (nl-NL)
+route-title-admin-asset-record-types = Registratietypen
+# MT: pending native review (nl-NL)
+route-title-admin-asset-record-types-new = Nieuw registratietype
+# MT: pending native review (nl-NL)
+route-title-admin-asset-record-types-edit = Registratietype bewerken
+# MT: pending native review (nl-NL)
+admin-nav-asset-record-types-title = Registratietypen
+# MT: pending native review (nl-NL)
+admin-nav-asset-record-types-description = Het soort werk dat uw team op activa registreert, met de velden en uitkomsten
+# MT: pending native review (nl-NL)
+admin-asset-record-types-title = Registratietypen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-description = Het soort werk dat uw team op activa registreert, zoals reparaties en inspecties. Elk type heeft eigen velden en uitkomsten.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-back-label = Terug naar beheer
+# MT: pending native review (nl-NL)
+admin-asset-record-types-back-to-list = Terug naar registratietypen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-new = Nieuw registratietype
+# MT: pending native review (nl-NL)
+admin-asset-record-types-workspace-heading = Uw registratietypen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-none = Nog geen registratietypen. Voeg hieronder een ingebouwd type toe, of maak uw eigen type.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-show-archived = Gearchiveerde tonen ({ $count })
+# MT: pending native review (nl-NL)
+admin-asset-record-types-builtin-tag = ingebouwd
+# MT: pending native review (nl-NL)
+admin-asset-record-types-record-count = { $count ->
+    [0] Geen registraties
+    [one] 1 registratie
+   *[other] { $count } registraties
+   }
+# MT: pending native review (nl-NL)
+admin-asset-record-types-archived-heading = Gearchiveerd
+# MT: pending native review (nl-NL)
+admin-asset-record-types-archived-hint = Registraties houden een gearchiveerd type, maar niemand kan het kiezen voor nieuw werk. Open er een om het te herstellen.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-archived-tag = Gearchiveerd
+# MT: pending native review (nl-NL)
+admin-asset-record-types-catalogue-heading = Toevoegen uit de catalogus
+# MT: pending native review (nl-NL)
+admin-asset-record-types-catalogue-hint = Ingebouwde typen, klaar voor gebruik. Na het toevoegen kunt u een type hernoemen en aanpassen zoals uw eigen typen; zolang u het niet hernoemt, volgt de naam ieders taal.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-catalogue-outcomes = Uitkomsten:
+# MT: pending native review (nl-NL)
+admin-asset-record-types-add = Toevoegen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-add-aria = { $name } toevoegen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-added = { $name } toegevoegd
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-load = De registratietypen konden niet worden geladen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-add = Het registratietype kon niet worden toegevoegd
+# MT: pending native review (nl-NL)
+admin-asset-record-types-create-title = Nieuw registratietype
+# MT: pending native review (nl-NL)
+admin-asset-record-types-edit-title = Registratietype bewerken
+# MT: pending native review (nl-NL)
+admin-asset-record-types-not-found = Dit registratietype bestaat niet, of is verwijderd.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-field-name = Naam
+# MT: pending native review (nl-NL)
+admin-asset-record-types-field-name-builtin-hint = Laat leeg om de ingebouwde naam te gebruiken, getoond in ieders taal.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-reset-name = De ingebouwde naam gebruiken ({ $name })
+# MT: pending native review (nl-NL)
+admin-asset-record-types-field-slug = Slug
+# MT: pending native review (nl-NL)
+admin-asset-record-types-field-slug-hint = Kleine letters, cijfers en underscores. Imports en de API gebruiken deze, en hij kan later niet meer veranderen.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-field-slug-locked = De slug blijft vast, zodat imports en de API dit type blijven vinden.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-field-description = Beschrijving
+# MT: pending native review (nl-NL)
+admin-asset-record-types-look-heading = Pictogram en kleur
+# MT: pending native review (nl-NL)
+admin-asset-record-types-field-icon = Pictogram
+# MT: pending native review (nl-NL)
+admin-asset-record-types-field-color = Kleur
+# MT: pending native review (nl-NL)
+admin-asset-record-types-color-add = Kleur toevoegen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-color-remove = Kleur verwijderen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-fields-heading = Velden
+# MT: pending native review (nl-NL)
+admin-asset-record-types-fields-hint = De gegevens die een registratie van dit type vastlegt. Ze staan in deze volgorde op het registratieformulier en in importsjablonen.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcomes-heading = Uitkomsten
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcomes-hint = Hoe het werk afliep. Elke uitkomst heeft een categorie, waarop rapporten groeperen en die bepaalt wat de uitkomst doet.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcomes-empty = Geen uitkomsten. Registraties van dit type vragen niet hoe het werk afliep.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcome-name = Naam
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcome-name-placeholder = Bijvoorbeeld Goedgekeurd
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcome-category = Categorie
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcome-move-up = Omhoog
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcome-move-down = Omlaag
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcome-remove = Uitkomst verwijderen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-outcome-add = Uitkomst toevoegen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-category-done = Gedaan
+# MT: pending native review (nl-NL)
+admin-asset-record-types-category-done-hint = Het werk is gedaan.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-category-not_done = Niet gedaan
+# MT: pending native review (nl-NL)
+admin-asset-record-types-category-not_done-hint = Het werk is niet afgemaakt, of het activum is afgekeurd.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-category-no_fault = Geen storing
+# MT: pending native review (nl-NL)
+admin-asset-record-types-category-no_fault-hint = Er was niets mis, dus er hoefde niets te gebeuren.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-category-replaced = Vervangen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-category-replaced-hint = Het activum is omgeruild voor een ander, waarnaar de registratie kan verwijzen.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-heading = Gedeelde velden
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-hint = Elk registratietype heeft deze velden, zodat rapporten ze tussen typen kunnen vergelijken. Verberg de velden die dit type niet gebruikt.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-mode-hidden = Verborgen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-mode-optional = Optioneel
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-mode-required = Verplicht
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-summary = Samenvatting
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-summary-hint = Een korte notitie over wat er is gedaan.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-outcome = Uitkomst
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-outcome-hint = Een van de uitkomsten hierboven.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-vendor = Leverancier
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-vendor-hint = Wie het werk deed: een bedrijf, of uw eigen technicus.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-reference = Referentie
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-reference-hint = Een opdracht-, RMA- of factuurnummer.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-cost = Kosten
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-cost-hint = Wat het werk kostte.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-ticket = Ticket
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-ticket-hint = Het ticket waarvoor het werk was.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-holder = Houder
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-holder-hint = Wie het activum op dat moment had.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-location = Locatie
+# MT: pending native review (nl-NL)
+admin-asset-record-types-core-location-hint = Waar het activum op dat moment was.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-kinds-heading = Activatypen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-kinds-hint = De activa die dit type aanbieden wanneer iemand een registratie toevoegt.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-kinds-all = Elk activatype
+# MT: pending native review (nl-NL)
+admin-asset-record-types-kinds-some = Gekozen activatypen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-conflict-heading = { $count ->
+    [one] 1 registratie van dit type zou niet meer bij deze wijziging passen.
+   *[other] { $count } registraties van dit type zouden niet meer bij deze wijziging passen.
+   }
+# MT: pending native review (nl-NL)
+admin-asset-record-types-conflict-asset = Activum { $id }
+# MT: pending native review (nl-NL)
+admin-asset-record-types-conflict-help = Sla toch op om de wijziging te houden: de registraties houden wat ze hebben, en u kunt ze daarna corrigeren. Of maak de wijziging ongedaan en sla opnieuw op.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-force-save = Toch opslaan
+# MT: pending native review (nl-NL)
+admin-asset-record-types-cancel = Annuleren
+# MT: pending native review (nl-NL)
+admin-asset-record-types-save = Opslaan
+# MT: pending native review (nl-NL)
+admin-asset-record-types-create = Registratietype maken
+# MT: pending native review (nl-NL)
+admin-asset-record-types-created = Registratietype gemaakt
+# MT: pending native review (nl-NL)
+admin-asset-record-types-saved = Registratietype opgeslagen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-archive = Archiveren
+# MT: pending native review (nl-NL)
+admin-asset-record-types-restore = Herstellen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-archived = { $name } gearchiveerd
+# MT: pending native review (nl-NL)
+admin-asset-record-types-restored = { $name } hersteld
+# MT: pending native review (nl-NL)
+admin-asset-record-types-delete = Verwijderen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-delete-title = Registratietype verwijderen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-delete-confirm = { $name } verwijderen? Geen enkele registratie gebruikt het.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-deleted = { $name } verwijderd
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-save = Het registratietype kon niet worden opgeslagen
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-delete = Het registratietype kon niet worden verwijderd
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-name-required = Geef het registratietype een naam.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-slug-required = Geef het registratietype een slug.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-outcome-name = Geef elke uitkomst een naam.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-kinds = Kies ten minste één activatype, of bied het type aan voor elk activatype.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-slug-taken = Een ander registratietype gebruikt die slug al.
+# MT: pending native review (nl-NL)
+admin-asset-record-types-error-slug-reserved = Die slug hoort bij een ingebouwd type. Voeg dat toe uit de catalogus.
+
 # Getypte attribuutbouwer.
 asset-kind-attribute-editor-add = Attribuut toevoegen
 asset-kind-attribute-editor-empty-title = Nog geen attributen

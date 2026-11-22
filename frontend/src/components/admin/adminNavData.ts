@@ -87,6 +87,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         keywords: ['assets', 'kinds', 'devices', 'inventory', 'attributes', 'schema', 'discriminator', 'custom', 'requesters', 'access', 'visibility']
       },
       {
+        titleKey: 'admin-nav-asset-record-types-title',
+        descriptionKey: 'admin-nav-asset-record-types-description',
+        icon: 'clipboardCheck',
+        route: '/admin/asset-record-types',
+        keywords: ['assets', 'records', 'record types', 'service history', 'repairs', 'inspections', 'maintenance', 'firmware', 'outcomes', 'work done']
+      },
+      {
         titleKey: 'admin-nav-sla-title',
         descriptionKey: 'admin-nav-sla-description',
         icon: 'clock',

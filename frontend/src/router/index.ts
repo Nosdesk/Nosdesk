@@ -684,6 +684,24 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-asset-kinds-edit' }
         },
         {
+          path: 'asset-record-types',
+          name: 'admin-asset-record-types',
+          component: () => import('../views/admin/AssetRecordTypesView.vue'),
+          meta: { titleKey: 'route-title-admin-asset-record-types' }
+        },
+        {
+          path: 'asset-record-types/new',
+          name: 'admin-asset-record-types-new',
+          component: () => import('../views/admin/AssetRecordTypeEditView.vue'),
+          meta: { titleKey: 'route-title-admin-asset-record-types-new' }
+        },
+        {
+          path: 'asset-record-types/:id(\\d+)',
+          name: 'admin-asset-record-types-edit',
+          component: () => import('../views/admin/AssetRecordTypeEditView.vue'),
+          meta: { titleKey: 'route-title-admin-asset-record-types-edit' }
+        },
+        {
           path: 'api-tokens',
           name: 'admin-api-tokens',
           component: () => import('../views/ApiTokensView.vue'),
