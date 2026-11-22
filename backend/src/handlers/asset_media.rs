@@ -391,12 +391,8 @@ pub async fn serve_asset_media_file(
         &auth,
         |c| assets_repo::asset_workspace_id(c, asset_id),
         |c, _, _| {
-            // A requester shown no assets reads it as missing, and so does
-            // anyone but staff a record's file.
+            // A requester shown no assets reads it as missing.
             if crate::handlers::assets::assets_hidden_from(c, &auth) {
-                return Ok(None);
-            }
-            if !auth.can_handle_tickets() && repo::is_record_file(c, asset_id, &url)? {
                 return Ok(None);
             }
             // Read again under the pin: the asset must be in this workspace.

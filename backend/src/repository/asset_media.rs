@@ -72,18 +72,6 @@ pub fn name_by_url(
         .optional()
 }
 
-/// Whether `asset_id`'s media stored at `url` is a file of one of its
-/// records.
-pub fn is_record_file(conn: &mut DbConnection, asset_id: i32, url: &str) -> QueryResult<bool> {
-    diesel::select(diesel::dsl::exists(
-        asset_media::table
-            .filter(asset_media::asset_id.eq(asset_id))
-            .filter(asset_media::url.eq(url))
-            .filter(asset_media::record_id.is_not_null()),
-    ))
-    .get_result(conn)
-}
-
 /// The files of each of `record_ids`, in one read.
 pub fn list_for_records(
     conn: &mut DbConnection,

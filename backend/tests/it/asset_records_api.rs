@@ -899,3 +899,80 @@ async fn an_assets_read_token_reads_records_and_writes_none() {
     assert_eq!(status, StatusCode::CREATED, "{created}");
     assert_eq!(created["record"]["source"], "api");
 }
+
+/// `GET url` on the file route as `viewer`, with no workspace selected, as
+/// an `<img>` loads it.
+async fn serve(f: &Fixture, viewer: Uuid, url: &str) -> StatusCode {
+    let claims = Claims {
+        sub: viewer.to_string(),
+        name: "Viewer".to_string(),
+        email: format!("{viewer}@example.com"),
+        platform_role: "user".to_string(),
+        scope: "full".to_string(),
+        sid: None,
+        workspace_uuid: None,
+        exp: (chrono::Utc::now().timestamp() + 3600) as usize,
+        iat: chrono::Utc::now().timestamp() as usize,
+        file_path: None,
+    };
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(f.pool.clone()))
+            .app_data(web::Data::new(common::test_storage()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(claims.clone());
+                srv.call(req)
+            })
+            .route(
+                "/api/files/assets/{asset_id}/media/{filename:.*}",
+                web::get().to(backend::handlers::asset_media::serve_asset_media_file),
+            ),
+    )
+    .await;
+    http_test::call_service(&app, http_test::TestRequest::get().uri(url).to_request())
+        .await
+        .status()
+}
+
+#[actix_web::test]
+async fn a_records_file_is_served_to_staff_and_not_to_requesters() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let a = f.asset;
+    let id = create(&f, f.agent, repair("2023-05-03")).await;
+    let pdf = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\ntrailer << >>\n%%EOF\n";
+    let mut urls = Vec::new();
+    for uri in [
+        format!("/api/assets/{a}/media?record_id={id}"),
+        format!("/api/assets/{a}/media"),
+    ] {
+        let (status, uploaded) = send(
+            &f,
+            f.agent,
+            http_test::TestRequest::post()
+                .uri(&uri)
+                .insert_header(("content-type", "multipart/form-data; boundary=x"))
+                .set_payload(multipart("report.pdf", pdf)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{uploaded}");
+        urls.push(uploaded[0]["url"].as_str().expect("url").to_string());
+    }
+    // Staff open both, with no workspace selected; the file route admits
+    // only staff, so a requester opens neither.
+    for url in &urls {
+        assert_eq!(serve(&f, f.agent, url).await, StatusCode::OK, "{url}");
+        assert_eq!(
+            serve(&f, f.ws.admin_uuid, url).await,
+            StatusCode::OK,
+            "{url}"
+        );
+        assert_eq!(
+            serve(&f, f.ws.member_uuid, url).await,
+            StatusCode::NOT_FOUND,
+            "{url}"
+        );
+    }
+}
