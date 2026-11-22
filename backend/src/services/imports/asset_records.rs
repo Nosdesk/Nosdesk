@@ -768,7 +768,7 @@ impl Importer for AssetRecordImporter {
                 }
                 Ok(Planned {
                     action:
-                        Action::Update {
+                        Action::Edit {
                             id,
                             version,
                             changes,
@@ -1256,7 +1256,7 @@ fn day_of(date: WorkDate, tz: Tz) -> NaiveDate {
 #[derive(Debug, Clone)]
 enum Action {
     Create(NewRecord),
-    Update {
+    Edit {
         id: i32,
         version: i32,
         changes: RecordChanges,
@@ -1295,7 +1295,7 @@ impl Entry {
             Ok(p) => {
                 let (outcome, id) = match &p.action {
                     Action::Create(_) => (RowOutcome::Create, None),
-                    Action::Update { id, .. } => (RowOutcome::Update, Some(*id)),
+                    Action::Edit { id, .. } => (RowOutcome::Update, Some(*id)),
                     Action::Unchanged(id) | Action::LooksRecorded(id) => {
                         (RowOutcome::Unchanged, Some(*id))
                     }
@@ -1398,7 +1398,7 @@ fn plan_all(
     let (mut before_purchase, mut long_after) = (0, 0);
     for entry in &entries {
         let Ok(p) = &entry.planned else { continue };
-        if !matches!(p.action, Action::Create(_) | Action::Update { .. }) {
+        if !matches!(p.action, Action::Create(_) | Action::Edit { .. }) {
             continue;
         }
         assets.insert(p.asset_id);
@@ -2071,7 +2071,7 @@ fn plan_row(
                     holder_uuid: holder.or(record.holder_uuid),
                     location: location.clone().or_else(|| record.location.clone()),
                 }),
-                attributes: attributes_written.then(|| Value::Object(attributes)),
+                attributes: attributes_written.then_some(Value::Object(attributes)),
             };
             match record_repo::check_update(conn, record, changes.clone(), asset, rtype, tz, None) {
                 Ok((draft, warnings)) => {
@@ -2093,7 +2093,7 @@ fn plan_row(
                     let action = if fields_written.is_empty() {
                         Action::Unchanged(record.id)
                     } else {
-                        Action::Update {
+                        Action::Edit {
                             id: record.id,
                             version: record.version,
                             changes,
