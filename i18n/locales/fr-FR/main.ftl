@@ -1101,6 +1101,66 @@ asset-currency-saved = Devise enregistrée
 # MT: pending native review (fr-FR)
 asset-currency-save-failed = Impossible d'enregistrer la devise
 
+# Interventions sur les actifs : noms des types intégrés, de leurs champs et
+# de leurs résultats, et pourquoi Supprimer garde un actif qui en a.
+# MT: pending native review (fr-FR)
+asset-record-type-repair = Réparation
+# MT: pending native review (fr-FR)
+asset-record-type-inspection = Inspection
+# MT: pending native review (fr-FR)
+asset-record-type-preventative_maintenance = Maintenance préventive
+# MT: pending native review (fr-FR)
+asset-record-type-firmware_update = Mise à jour du micrologiciel
+# MT: pending native review (fr-FR)
+asset-record-field-repair-fault = Panne
+# MT: pending native review (fr-FR)
+asset-record-field-repair-offsite = Envoyé à l'extérieur
+# MT: pending native review (fr-FR)
+asset-record-field-repair-expected_return = Retour prévu
+# MT: pending native review (fr-FR)
+asset-record-field-repair-serial_received = Numéro de série reçu
+# MT: pending native review (fr-FR)
+asset-record-field-inspection-inspector_certificate = Certificat de l'inspecteur
+# MT: pending native review (fr-FR)
+asset-record-field-inspection-next_due = Prochaine échéance
+# MT: pending native review (fr-FR)
+asset-record-field-preventative_maintenance-tasks_done = Tâches effectuées
+# MT: pending native review (fr-FR)
+asset-record-field-firmware_update-from_version = Version d'origine
+# MT: pending native review (fr-FR)
+asset-record-field-firmware_update-to_version = Nouvelle version
+# MT: pending native review (fr-FR)
+asset-record-outcome-repair-repaired = Réparé
+# MT: pending native review (fr-FR)
+asset-record-outcome-repair-replaced = Remplacé
+# MT: pending native review (fr-FR)
+asset-record-outcome-repair-beyond_repair = Irréparable
+# MT: pending native review (fr-FR)
+asset-record-outcome-repair-no_fault_found = Aucune panne constatée
+# MT: pending native review (fr-FR)
+asset-record-outcome-inspection-passed = Réussie
+# MT: pending native review (fr-FR)
+asset-record-outcome-inspection-passed_with_notes = Réussie avec remarques
+# MT: pending native review (fr-FR)
+asset-record-outcome-inspection-failed = Échouée
+# MT: pending native review (fr-FR)
+asset-record-outcome-preventative_maintenance-completed = Terminée
+# MT: pending native review (fr-FR)
+asset-record-outcome-preventative_maintenance-partially_completed = Partiellement terminée
+# MT: pending native review (fr-FR)
+asset-record-outcome-firmware_update-updated = Mise à jour effectuée
+# MT: pending native review (fr-FR)
+asset-record-outcome-firmware_update-failed = Échouée
+# MT: pending native review (fr-FR)
+asset-record-outcome-firmware_update-rolled_back = Version précédente rétablie
+# MT: pending native review (fr-FR)
+import-remove-reason-records = { $count ->
+    [one] A 1 intervention enregistrée
+   *[other] A { $count } interventions enregistrées
+   }
+# MT: pending native review (fr-FR)
+import-remove-group-records = { $count } avec des interventions enregistrées
+
 # Constructeur d'attributs typé.
 asset-kind-attribute-editor-add = Ajouter un attribut
 asset-kind-attribute-editor-empty-title = Aucun attribut pour l'instant

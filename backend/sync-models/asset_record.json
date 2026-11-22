@@ -1,0 +1,55 @@
+{
+  "name": "asset_record",
+  "schema_version": 1,
+  "audience": "staff",
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "asset_id": { "rust": "i32", "ts": "number" },
+    "record_type_id": { "rust": "i32", "ts": "number" },
+    "summary": { "rust": "Option<String>", "ts": "string | null" },
+    "notes": { "rust": "Option<String>", "ts": "string | null" },
+    "occurred_on": { "rust": "NaiveDate", "ts": "string" },
+    "occurred_at": { "rust": "Option<DateTime<Utc>>", "ts": "string | null" },
+    "completed_on": { "rust": "Option<NaiveDate>", "ts": "string | null" },
+    "completed_at": { "rust": "Option<DateTime<Utc>>", "ts": "string | null" },
+    "outcome": { "rust": "Option<String>", "ts": "string | null" },
+    "vendor": { "rust": "Option<String>", "ts": "string | null" },
+    "performed_by_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "reference": { "rust": "Option<String>", "ts": "string | null" },
+    "cost_minor": { "rust": "Option<i64>", "ts": "number | null" },
+    "cost_currency": { "rust": "Option<String>", "ts": "string | null" },
+    "ticket_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "replacement_asset_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "holder_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "location": { "rust": "Option<String>", "ts": "string | null" },
+    "snapshot_source": { "rust": "String", "ts": "string" },
+    "attributes": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },
+    "plugin_fields": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },
+    "lifecycle_event_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "schedule_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "source": { "rust": "String", "ts": "string" },
+    "source_ref": { "rust": "Option<String>", "ts": "string | null" },
+    "import_job_id": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "rule_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "recorded_at": { "rust": "DateTime<Utc>", "ts": "string" },
+    "recorded_by": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "updated_at": { "rust": "DateTime<Utc>", "ts": "string" },
+    "updated_by": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "version": { "rust": "i32", "ts": "number" }
+  },
+  "events": [
+    { "type": "asset_record.created", "op": "I" },
+    { "type": "asset_record.updated", "op": "U" },
+    { "type": "asset_record.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ],
+  "references": [
+    { "field": "asset_id", "aggregate": "asset" },
+    { "field": "ticket_id", "aggregate": "ticket" },
+    { "field": "replacement_asset_id", "aggregate": "asset" },
+    { "field": "performed_by_uuid", "aggregate": "user" },
+    { "field": "holder_uuid", "aggregate": "user" }
+  ]
+}

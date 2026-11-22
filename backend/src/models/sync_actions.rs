@@ -160,6 +160,12 @@ pub enum SyncAggregate {
     /// return or due-date edit.
     #[serde(rename = "asset_loan")]
     AssetLoan,
+    /// Work done on an asset (`asset_records`): a repair, an inspection or a
+    /// workspace's own type of record. Op Insert, Update and Delete. Not
+    /// pool-materialised: views read records over REST and refetch on the
+    /// event.
+    #[serde(rename = "asset_record")]
+    AssetRecord,
 }
 
 impl SyncAggregate {
@@ -193,6 +199,7 @@ impl SyncAggregate {
             Self::AssetUsage => "asset_usage",
             Self::AssetAudit => "asset_audit",
             Self::AssetLoan => "asset_loan",
+            Self::AssetRecord => "asset_record",
         }
     }
 }
@@ -235,6 +242,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"asset_usage" => Ok(Self::AssetUsage),
             b"asset_audit" => Ok(Self::AssetAudit),
             b"asset_loan" => Ok(Self::AssetLoan),
+            b"asset_record" => Ok(Self::AssetRecord),
             other => {
                 Err(format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into())
             }

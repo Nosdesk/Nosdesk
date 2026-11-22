@@ -1097,6 +1097,66 @@ asset-currency-saved = Valuta opgeslagen
 # MT: pending native review (nl-NL)
 asset-currency-save-failed = Valuta kon niet worden opgeslagen
 
+# Onderhoudsregistraties: namen van de ingebouwde typen, hun velden en
+# uitkomsten, en waarom Verwijderen een item met registraties houdt.
+# MT: pending native review (nl-NL)
+asset-record-type-repair = Reparatie
+# MT: pending native review (nl-NL)
+asset-record-type-inspection = Inspectie
+# MT: pending native review (nl-NL)
+asset-record-type-preventative_maintenance = Preventief onderhoud
+# MT: pending native review (nl-NL)
+asset-record-type-firmware_update = Firmware-update
+# MT: pending native review (nl-NL)
+asset-record-field-repair-fault = Storing
+# MT: pending native review (nl-NL)
+asset-record-field-repair-offsite = Extern verzonden
+# MT: pending native review (nl-NL)
+asset-record-field-repair-expected_return = Verwacht terug
+# MT: pending native review (nl-NL)
+asset-record-field-repair-serial_received = Ontvangen serienummer
+# MT: pending native review (nl-NL)
+asset-record-field-inspection-inspector_certificate = Certificaat van de inspecteur
+# MT: pending native review (nl-NL)
+asset-record-field-inspection-next_due = Volgende keer
+# MT: pending native review (nl-NL)
+asset-record-field-preventative_maintenance-tasks_done = Uitgevoerde taken
+# MT: pending native review (nl-NL)
+asset-record-field-firmware_update-from_version = Van versie
+# MT: pending native review (nl-NL)
+asset-record-field-firmware_update-to_version = Naar versie
+# MT: pending native review (nl-NL)
+asset-record-outcome-repair-repaired = Gerepareerd
+# MT: pending native review (nl-NL)
+asset-record-outcome-repair-replaced = Vervangen
+# MT: pending native review (nl-NL)
+asset-record-outcome-repair-beyond_repair = Niet te repareren
+# MT: pending native review (nl-NL)
+asset-record-outcome-repair-no_fault_found = Geen storing gevonden
+# MT: pending native review (nl-NL)
+asset-record-outcome-inspection-passed = Goedgekeurd
+# MT: pending native review (nl-NL)
+asset-record-outcome-inspection-passed_with_notes = Goedgekeurd met opmerkingen
+# MT: pending native review (nl-NL)
+asset-record-outcome-inspection-failed = Afgekeurd
+# MT: pending native review (nl-NL)
+asset-record-outcome-preventative_maintenance-completed = Voltooid
+# MT: pending native review (nl-NL)
+asset-record-outcome-preventative_maintenance-partially_completed = Gedeeltelijk voltooid
+# MT: pending native review (nl-NL)
+asset-record-outcome-firmware_update-updated = Bijgewerkt
+# MT: pending native review (nl-NL)
+asset-record-outcome-firmware_update-failed = Mislukt
+# MT: pending native review (nl-NL)
+asset-record-outcome-firmware_update-rolled_back = Teruggedraaid
+# MT: pending native review (nl-NL)
+import-remove-reason-records = { $count ->
+    [one] Heeft 1 onderhoudsregistratie
+   *[other] Heeft { $count } onderhoudsregistraties
+   }
+# MT: pending native review (nl-NL)
+import-remove-group-records = { $count } met onderhoudsregistraties
+
 # Getypte attribuutbouwer.
 asset-kind-attribute-editor-add = Attribuut toevoegen
 asset-kind-attribute-editor-empty-title = Nog geen attributen

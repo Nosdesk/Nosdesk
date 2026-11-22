@@ -1123,6 +1123,39 @@ asset-currency-no-matches = No currencies match
 asset-currency-saved = Currency saved
 asset-currency-save-failed = Couldn't save the currency
 
+# Asset records: the catalogue names of the built-in record types, their
+# fields and outcomes, and why Remove keeps an asset with records.
+asset-record-type-repair = Repair
+asset-record-type-inspection = Inspection
+asset-record-type-preventative_maintenance = Preventative maintenance
+asset-record-type-firmware_update = Firmware update
+asset-record-field-repair-fault = Fault
+asset-record-field-repair-offsite = Sent offsite
+asset-record-field-repair-expected_return = Expected back
+asset-record-field-repair-serial_received = Serial number received
+asset-record-field-inspection-inspector_certificate = Inspector's certificate
+asset-record-field-inspection-next_due = Next due
+asset-record-field-preventative_maintenance-tasks_done = Tasks done
+asset-record-field-firmware_update-from_version = From version
+asset-record-field-firmware_update-to_version = To version
+asset-record-outcome-repair-repaired = Repaired
+asset-record-outcome-repair-replaced = Replaced
+asset-record-outcome-repair-beyond_repair = Beyond repair
+asset-record-outcome-repair-no_fault_found = No fault found
+asset-record-outcome-inspection-passed = Passed
+asset-record-outcome-inspection-passed_with_notes = Passed with notes
+asset-record-outcome-inspection-failed = Failed
+asset-record-outcome-preventative_maintenance-completed = Completed
+asset-record-outcome-preventative_maintenance-partially_completed = Partly completed
+asset-record-outcome-firmware_update-updated = Updated
+asset-record-outcome-firmware_update-failed = Failed
+asset-record-outcome-firmware_update-rolled_back = Rolled back
+import-remove-reason-records = { $count ->
+    [one] Has 1 service record
+   *[other] Has { $count } service records
+   }
+import-remove-group-records = { $count } with service records
+
 # Asset Kinds — typed attribute builder (AttributeEditor +
 # AttributeRow). Replaces the raw JSON textarea for the common
 # cases (Text, Number, Date, Boolean, Select, Multi-select,

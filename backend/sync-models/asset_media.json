@@ -14,7 +14,8 @@
     "sort_order": { "rust": "i32", "ts": "number" },
     "caption": { "rust": "Option<String>", "ts": "string | null" },
     "uploaded_by": { "rust": "Option<Uuid>", "ts": "string | null" },
-    "created_at": { "rust": "DateTime<Utc>", "ts": "string" }
+    "created_at": { "rust": "DateTime<Utc>", "ts": "string" },
+    "record_id": { "rust": "Option<i32>", "ts": "number | null" }
   },
   "events": [
     { "type": "asset_media.created", "op": "I" },
@@ -25,6 +26,7 @@
     "workspace:1"
   ],
   "references": [
-    { "field": "asset_id", "aggregate": "asset" }
+    { "field": "asset_id", "aggregate": "asset" },
+    { "field": "record_id", "aggregate": "asset_record" }
   ]
 }

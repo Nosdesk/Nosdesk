@@ -433,6 +433,8 @@ pub struct AssetMedia {
     // Field order mirrors `schema.rs`: the column was added by a later
     // migration, so it lands last. Diesel `Queryable` maps positionally.
     pub thumbnail_url: Option<String>,
+    /// The asset record this file belongs to, if any.
+    pub record_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
@@ -449,6 +451,7 @@ pub struct NewAssetMedia {
     pub caption: Option<String>,
     pub uploaded_by: Option<Uuid>,
     pub thumbnail_url: Option<String>,
+    pub record_id: Option<i32>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, AsChangeset)]

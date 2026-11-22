@@ -30,6 +30,7 @@ export type SyncAggregate =
   | 'asset_usage'
   | 'asset_audit'
   | 'asset_loan'
+  | 'asset_record'
   | 'cycle'
   | 'notification'
   | 'documentation_page'

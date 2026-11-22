@@ -1116,6 +1116,7 @@ mod tests {
             SyncAggregate::AssetAudit,
             SyncAggregate::AssetLifecycleEvent,
             SyncAggregate::AssetMedia,
+            SyncAggregate::AssetRecord,
             SyncAggregate::Assignment,
             SyncAggregate::GroupMembership,
             SyncAggregate::KnowledgeGap,
