@@ -571,25 +571,46 @@ pub fn add_from_catalogue(
         Some(status) if !status_taken(conn, status, None)? => Some(status.to_string()),
         _ => None,
     };
-    diesel::insert_into(asset_record_types::table)
-        .values(&NewAssetRecordType {
-            slug: entry.slug.to_string(),
-            label: None,
-            description: None,
-            icon: Some(entry.icon.to_string()),
-            color: None,
-            field_schema: entry.field_schema(),
-            field_order: entry.field_order(),
-            core_fields: entry.core_fields(),
-            outcomes: entry.outcomes(),
-            applies_to_kinds: None,
-            opens_with_status,
-            is_builtin: true,
-            sort_order: entry.sort_order,
-            created_by,
+    let insert = |conn: &mut DbConnection, opens_with_status: Option<String>| {
+        // A savepoint, so a refused insert leaves the caller's transaction
+        // usable for the retry.
+        conn.transaction(|conn| {
+            diesel::insert_into(asset_record_types::table)
+                .values(&NewAssetRecordType {
+                    slug: entry.slug.to_string(),
+                    label: None,
+                    description: None,
+                    icon: Some(entry.icon.to_string()),
+                    color: None,
+                    field_schema: entry.field_schema(),
+                    field_order: entry.field_order(),
+                    core_fields: entry.core_fields(),
+                    outcomes: entry.outcomes(),
+                    applies_to_kinds: None,
+                    opens_with_status,
+                    is_builtin: true,
+                    sort_order: entry.sort_order,
+                    created_by,
+                })
+                .on_conflict((asset_record_types::workspace_id, asset_record_types::slug))
+                .do_nothing()
+                .execute(conn)
         })
-        .on_conflict((asset_record_types::workspace_id, asset_record_types::slug))
-        .do_nothing()
-        .execute(conn)?;
+    };
+    match insert(conn, opens_with_status) {
+        // Another type took the status since the check: add this one
+        // without it, as when the status was taken already.
+        Err(e) if is_status_conflict(&e) => insert(conn, None)?,
+        other => other?,
+    };
     get_by_slug(conn, slug)?.ok_or(RecordTypeError::NotFound)
+}
+
+/// A write refused because another live type already opens with the status.
+pub fn is_status_conflict(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, info)
+            if info.constraint_name() == Some("asset_record_types_opens_with_status_key")
+    )
 }

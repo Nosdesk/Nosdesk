@@ -266,10 +266,28 @@ pub async fn upload_for_asset(
             record_id,
         };
 
-        let row = tc.run(|conn| repo::create(conn, new_media)).map_err(|e| {
-            error!(asset_id, error = ?e, "failed to create asset media row");
-            crate::errors::internal_error("Failed to create asset media")
-        })?;
+        let stored_url = new_media.url.clone();
+        let stored_thumb = new_media.thumbnail_url.clone();
+        let row = match tc.run(|conn| repo::create(conn, new_media)) {
+            Ok(row) => row,
+            Err(e) => {
+                // No row points at the stored file: take it away again.
+                remove_stored_paths(&storage, asset_id, &stored_url, stored_thumb.as_deref()).await;
+                return Err(match e {
+                    // The record went away while the file came in.
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+                        info,
+                    ) if info.constraint_name() == Some("asset_media_record_id_fkey") => {
+                        crate::errors::not_found_error("Record not found")
+                    }
+                    other => {
+                        error!(asset_id, error = ?other, "failed to create asset media row");
+                        crate::errors::internal_error("Failed to create asset media")
+                    }
+                });
+            }
+        };
         uploaded.push(row);
     }
 
@@ -354,20 +372,34 @@ pub async fn delete_media(
 /// Delete a deleted media row's stored file and thumbnail. A failure is
 /// logged and left behind: the row is already gone.
 pub(crate) async fn remove_stored_objects(storage: &ScopedStorage, deleted: &AssetMedia) {
-    let asset_id = deleted.asset_id;
-    let media_id = deleted.id;
-    if let Some(filename) = deleted.url.rsplit('/').next() {
+    remove_stored_paths(
+        storage,
+        deleted.asset_id,
+        &deleted.url,
+        deleted.thumbnail_url.as_deref(),
+    )
+    .await;
+}
+
+/// Delete the stored file at `url` and the thumbnail at `thumbnail_url`.
+async fn remove_stored_paths(
+    storage: &ScopedStorage,
+    asset_id: i32,
+    url: &str,
+    thumbnail_url: Option<&str>,
+) {
+    if let Some(filename) = url.rsplit('/').next() {
         let path = format!("assets/{asset_id}/media/{filename}");
         if let Err(e) = storage.0.delete_file(&path).await {
-            warn!(asset_id, media_id, path = %path, error = ?e, "failed to delete asset media object");
+            warn!(asset_id, path = %path, error = ?e, "failed to delete asset media object");
         }
     }
-    if let Some(thumb_url) = deleted.thumbnail_url.as_deref() {
+    if let Some(thumb_url) = thumbnail_url {
         let prefix = format!("/api/files/assets/{asset_id}/media/");
         if let Some(tail) = thumb_url.strip_prefix(&prefix) {
             let path = format!("assets/{asset_id}/media/{tail}");
             if let Err(e) = storage.0.delete_file(&path).await {
-                warn!(asset_id, media_id, path = %path, error = ?e, "failed to delete asset media thumbnail");
+                warn!(asset_id, path = %path, error = ?e, "failed to delete asset media thumbnail");
             }
         }
     }

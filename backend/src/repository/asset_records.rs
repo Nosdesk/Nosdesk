@@ -447,10 +447,18 @@ pub fn vendor_suggestions(
         Some(q) => format!("%{}%", crate::repository::escape_like(q)),
         None => "%".to_string(),
     };
+    // The most used spellings, enough of them that folding case still
+    // leaves `limit` vendors in all but the oddest data.
+    let fetch = i64::try_from(limit.saturating_mul(4)).unwrap_or(i64::MAX);
     let spellings: Vec<(Option<String>, i64)> = asset_records::table
         .filter(asset_records::vendor.ilike(pattern))
         .group_by(asset_records::vendor)
         .select((asset_records::vendor, diesel::dsl::count_star()))
+        .order((
+            diesel::dsl::count_star().desc(),
+            asset_records::vendor.asc(),
+        ))
+        .limit(fetch)
         .load(conn)?;
     // Per vendor without regard to case: its uses, and its most used
     // spelling.
@@ -474,6 +482,34 @@ pub fn vendor_suggestions(
         .take(limit)
         .map(|(_, (_, spelling, _))| spelling)
         .collect())
+}
+
+/// Whether `user` may be named as who did the work: someone who can work
+/// tickets in the workspace the connection is pinned to, with an account
+/// that isn't deleted.
+pub fn may_perform(conn: &mut DbConnection, user: Uuid) -> QueryResult<bool> {
+    let workspace: Option<i32> =
+        diesel::select(crate::repository::pinned_workspace().nullable()).get_result(conn)?;
+    match workspace {
+        Some(workspace_id) => crate::repository::assignees::is_assignable(conn, workspace_id, user),
+        None => Ok(false),
+    }
+}
+
+/// Whether `user` may be named as who held the asset: a current member of
+/// the workspace the connection is pinned to, with an account that isn't
+/// deleted.
+pub fn may_hold(conn: &mut DbConnection, user: Uuid) -> QueryResult<bool> {
+    use crate::schema::{users, workspace_members};
+    diesel::select(diesel::dsl::exists(
+        workspace_members::table
+            .inner_join(users::table.on(users::uuid.eq(workspace_members::user_uuid)))
+            .filter(workspace_members::workspace_id.eq(crate::repository::pinned_workspace()))
+            .filter(workspace_members::user_uuid.eq(user))
+            .filter(workspace_members::removed_at.is_null())
+            .filter(users::deleted_at.is_null()),
+    ))
+    .get_result(conn)
 }
 
 /// The record carrying `source_ref`, if any.

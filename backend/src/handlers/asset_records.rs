@@ -33,6 +33,7 @@ use crate::repository::asset_records::{
     self as repo, Cost, NewRecord, RecordChanges, RecordCursor, RecordError, RecordFilter,
     RecordWrite, Snapshot, WorkDate,
 };
+use crate::repository::ticket_visibility::{self, VisibilityContext};
 use crate::repository::{
     asset_media as media_repo, asset_record_types as types_repo, assets as assets_repo,
     site_settings as settings_repo,
@@ -195,6 +196,9 @@ enum Refusal {
     Forbidden(&'static str),
     /// Media ids that aren't files of the record's asset.
     NotTheAssetsFiles(Vec<i32>),
+    /// A person field names someone who isn't in the workspace (or no one):
+    /// the same answer either way.
+    UnknownPerson(&'static str),
     Record(RecordError),
 }
 
@@ -225,8 +229,17 @@ fn respond(refusal: Refusal) -> HttpResponse {
             "Some of these files aren't the asset's",
             json!({ "media_ids": ids }),
         ),
+        Refusal::UnknownPerson(field) => unknown_person(field),
         Refusal::Record(e) => record_error(e),
     }
+}
+
+fn unknown_person(field: &str) -> HttpResponse {
+    unprocessable(
+        "UNKNOWN_PERSON",
+        format!("{field} isn't someone in this workspace"),
+        json!({ "field": field }),
+    )
 }
 
 /// The status and body for each of the repository's refusals.
@@ -284,19 +297,43 @@ fn record_error(e: RecordError) -> HttpResponse {
         RecordError::TooLong { field, max } => {
             unprocessable("TOO_LONG", message, json!({ "field": field, "max": max }))
         }
-        RecordError::Db(diesel::result::Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::ForeignKeyViolation,
-            _,
-        )) => unprocessable(
-            "UNKNOWN_PERSON",
-            "A person the record names doesn't exist",
-            json!({}),
-        ),
         RecordError::Db(e) => {
+            if let diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+                info,
+            ) = &e
+            {
+                if let Some(answer) = foreign_key_answer(info.constraint_name()) {
+                    return answer;
+                }
+            }
             error!(error = ?e, "asset record request failed");
             errors::internal("Failed to process the asset record")
         }
     }
+}
+
+/// The answer for a write a foreign key refused, by the key: something it
+/// names went away between the checks and the write.
+fn foreign_key_answer(constraint: Option<&str>) -> Option<HttpResponse> {
+    let message = |what: &str| format!("{what} not found");
+    Some(match constraint? {
+        "asset_records_performed_by_uuid_fkey" => unknown_person("performed_by_uuid"),
+        "asset_records_holder_uuid_fkey" => unknown_person("holder_uuid"),
+        "asset_records_ticket_id_fkey" => {
+            unprocessable("TICKET_NOT_FOUND", message("ticket"), json!({}))
+        }
+        "asset_records_replacement_asset_id_fkey" => unprocessable(
+            "REPLACEMENT_NOT_FOUND",
+            message("replacement asset"),
+            json!({}),
+        ),
+        "asset_records_record_type_id_fkey" => {
+            unprocessable("RECORD_TYPE_NOT_FOUND", message("record type"), json!({}))
+        }
+        "asset_records_asset_id_fkey" => errors::not_found_msg("Asset not found"),
+        _ => return None,
+    })
 }
 
 /// Only staff see records; to anyone else they don't exist.
@@ -334,16 +371,52 @@ fn resolve_type(
 ) -> Result<AssetRecordType, Refusal> {
     let found = match by {
         TypeRef::Id(id) => types_repo::get(conn, *id)?,
-        TypeRef::Slug(slug) => types_repo::get_by_slug(conn, slug.trim())?,
+        // A slug, else digits as an id: `"7"` in a body reads as `?type=7`.
+        TypeRef::Slug(raw) => match types_repo::get_by_slug(conn, raw.trim())? {
+            Some(t) => Some(t),
+            None => match raw.trim().parse::<i32>() {
+                Ok(id) => types_repo::get(conn, id)?,
+                Err(_) => None,
+            },
+        },
     };
     found.ok_or(Refusal::Record(RecordError::RecordTypeNotFound))
 }
 
-/// A type named in a query string: digits are an id, anything else a slug.
-fn type_ref_from_query(raw: &str) -> TypeRef {
-    raw.trim()
-        .parse::<i32>()
-        .map_or_else(|_| TypeRef::Slug(raw.trim().to_string()), TypeRef::Id)
+/// The people and ticket a write newly names: whoever did the work can
+/// work tickets here, whoever held the asset is a member here, and the
+/// ticket is one the caller can see. An unknown id and one outside the
+/// workspace get the same answer.
+fn check_references(
+    conn: &mut crate::db::DbConnection,
+    auth: &AuthContext,
+    performed_by: Option<Uuid>,
+    holder: Option<Uuid>,
+    ticket_id: Option<i32>,
+) -> Result<(), Refusal> {
+    if let Some(user) = performed_by {
+        if !repo::may_perform(conn, user)? {
+            return Err(Refusal::UnknownPerson("performed_by_uuid"));
+        }
+    }
+    if let Some(user) = holder {
+        if !repo::may_hold(conn, user)? {
+            return Err(Refusal::UnknownPerson("holder_uuid"));
+        }
+    }
+    if let Some(ticket_id) = ticket_id {
+        let viewer = VisibilityContext::from_auth(auth);
+        if !ticket_visibility::can_view_ticket(conn, &viewer, ticket_id)? {
+            return Err(RecordError::TicketNotFound.into());
+        }
+    }
+    Ok(())
+}
+
+/// The value a PATCH field writes when it changes what is there; `None`
+/// when it is left out, cleared, or the same.
+fn newly<T: PartialEq + Copy>(field: Option<Option<T>>, current: Option<T>) -> Option<T> {
+    field.flatten().filter(|v| Some(*v) != current)
 }
 
 /// The currency an amount without a code is in: the workspace currency,
@@ -515,7 +588,7 @@ pub async fn list_for_asset(
         require_staff(&auth)?;
         require_asset(conn, asset_id)?;
         let record_type_id = match query.record_type.as_deref().filter(|t| !t.is_empty()) {
-            Some(raw) => match resolve_type(conn, &type_ref_from_query(raw)) {
+            Some(raw) => match resolve_type(conn, &TypeRef::Slug(raw.to_string())) {
                 Ok(t) => Some(t.id),
                 // No such type: no records of it.
                 Err(Refusal::Record(RecordError::RecordTypeNotFound)) => {
@@ -566,6 +639,13 @@ pub async fn create(
             Some(c) => Some(read_cost(c, workspace_currency(conn)?)?),
             None => None,
         };
+        check_references(
+            conn,
+            &auth,
+            body.performed_by_uuid,
+            body.holder_uuid.flatten(),
+            body.ticket_id,
+        )?;
         let snapshot = (body.holder_uuid.is_some() || body.location.is_some()).then(|| Snapshot {
             holder_uuid: body.holder_uuid.flatten(),
             location: body.location.flatten(),
@@ -641,17 +721,27 @@ pub async fn update(
             None => None,
         };
         let occurred = work_date(body.occurred_on, body.occurred_at, "occurred")?;
+        // Nulling `completed_on` reopens the work; nulling only
+        // `completed_at` keeps the day and drops the time.
         let completed = match (body.completed_on, body.completed_at) {
             (Some(Some(_)), Some(Some(_))) => {
                 return Err(Refusal::BadRequest(
                     "give completed_on or completed_at, not both".into(),
                 ))
             }
+            (Some(None), _) => Some(None),
             (_, Some(Some(at))) => Some(Some(WorkDate::At(at))),
             (Some(Some(day)), _) => Some(Some(WorkDate::Day(day))),
-            (Some(None), _) | (_, Some(None)) => Some(None),
+            (None, Some(None)) => current.completed_on.map(|day| Some(WorkDate::Day(day))),
             (None, None) => None,
         };
+        check_references(
+            conn,
+            &auth,
+            newly(body.performed_by_uuid, current.performed_by_uuid),
+            newly(body.holder_uuid, current.holder_uuid),
+            newly(body.ticket_id, current.ticket_id),
+        )?;
         let cost = match body.cost {
             Some(Some(c)) => Some(Some(read_cost(c, workspace_currency(conn)?)?)),
             Some(None) => Some(None),
@@ -887,6 +977,16 @@ mod tests {
     }
 
     #[test]
+    fn a_patch_names_only_what_it_changes() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        assert_eq!(newly(Some(Some(a)), Some(b)), Some(a));
+        assert_eq!(newly(Some(Some(a)), Some(a)), None);
+        assert_eq!(newly(Some(None), Some(a)), None);
+        assert_eq!(newly(None::<Option<Uuid>>, None), None);
+    }
+
+    #[test]
     fn a_type_is_named_by_id_or_slug() {
         let body: CreateBody =
             serde_json::from_value(json!({ "record_type": 4, "occurred_on": "2023-05-03" }))
@@ -896,7 +996,9 @@ mod tests {
             serde_json::from_value(json!({ "record_type": "repair", "occurred_on": "2023-05-03" }))
                 .unwrap();
         assert!(matches!(body.record_type, TypeRef::Slug(ref s) if s == "repair"));
-        assert!(matches!(type_ref_from_query("7"), TypeRef::Id(7)));
-        assert!(matches!(type_ref_from_query("repair"), TypeRef::Slug(_)));
+        let body: CreateBody =
+            serde_json::from_value(json!({ "record_type": "7", "occurred_on": "2023-05-03" }))
+                .unwrap();
+        assert!(matches!(body.record_type, TypeRef::Slug(ref s) if s == "7"));
     }
 }

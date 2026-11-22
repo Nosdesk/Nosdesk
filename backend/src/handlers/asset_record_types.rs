@@ -228,6 +228,12 @@ fn type_error(e: RecordTypeError) -> HttpResponse {
             "A colour is #rrggbb",
             json!({ "color": color }),
         ),
+        // Another type took the status between the check and the write.
+        RecordTypeError::Db(e) if repo::is_status_conflict(&e) => conflict(
+            "STATUS_TAKEN",
+            "Another record type already opens with that status",
+            json!({}),
+        ),
         RecordTypeError::Db(diesel::result::Error::DatabaseError(
             diesel::result::DatabaseErrorKind::UniqueViolation,
             _,

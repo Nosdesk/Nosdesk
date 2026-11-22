@@ -976,3 +976,194 @@ async fn a_records_file_is_served_to_staff_and_not_to_requesters() {
         );
     }
 }
+
+#[actix_web::test]
+async fn clearing_only_the_completion_time_keeps_the_day_and_clearing_the_day_reopens() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let mut body = repair("2024-03-05");
+    body.as_object_mut().expect("body").remove("completed_on");
+    body["completed_at"] = json!("2024-03-05T15:00:00Z");
+    let id = create(&f, f.agent, body).await;
+    let one = format!("/api/assets/{}/records/{id}", f.asset);
+
+    let (status, edited) = call(
+        &f,
+        f.agent,
+        Method::PATCH,
+        &one,
+        Some(json!({ "expected_version": 1, "completed_at": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{edited}");
+    let record = &edited["record"];
+    assert_eq!(record["completed_on"], "2024-03-05");
+    assert_eq!(record["completed_at"], Value::Null);
+    assert_eq!(record["outcome"], "repaired", "still complete");
+
+    let (status, reopened) = call(
+        &f,
+        f.agent,
+        Method::PATCH,
+        &one,
+        Some(json!({ "expected_version": 2, "completed_on": null, "outcome": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+    assert_eq!(reopened["record"]["completed_on"], Value::Null);
+}
+
+#[actix_web::test]
+async fn people_named_on_a_record_belong_to_the_workspace() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let uri = format!("/api/assets/{}/records", f.asset);
+    let outsider = common::insert_plain_user(&mut f.pool.get().expect("conn"), "Outsider");
+    let gone = common::insert_plain_user(&mut f.pool.get().expect("conn"), "Gone");
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        add_membership(
+            c,
+            f.ws.workspace_id,
+            gone,
+            "member",
+            SeatWriteAuthority::ControlPlane,
+        )
+    })
+    .expect("add a member");
+    diesel::sql_query("UPDATE users SET deleted_at = now() WHERE uuid = $1")
+        .bind::<diesel::sql_types::Uuid, _>(gone)
+        .execute(&mut db.conn())
+        .expect("soft-delete the member");
+
+    // Someone outside the workspace and no one at all read the same.
+    let mut refusals = Vec::new();
+    for (field, who) in [
+        ("holder_uuid", outsider),
+        ("holder_uuid", Uuid::new_v4()),
+        ("holder_uuid", gone),
+        ("performed_by_uuid", outsider),
+        ("performed_by_uuid", Uuid::new_v4()),
+        // A requester holds assets; they don't do the work.
+        ("performed_by_uuid", f.ws.member_uuid),
+    ] {
+        let mut body = repair("2023-05-03");
+        body[field] = json!(who);
+        let (status, refused) = call(&f, f.agent, Method::POST, &uri, Some(body)).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{field} {refused}"
+        );
+        assert_eq!(refused["code"], "UNKNOWN_PERSON");
+        refusals.push((field, refused));
+    }
+    assert_eq!(refusals[0].1, refusals[1].1, "no existence oracle");
+    assert_eq!(refusals[3].1, refusals[4].1, "no existence oracle");
+
+    let mut body = repair("2023-05-03");
+    body["holder_uuid"] = json!(f.ws.member_uuid);
+    body["performed_by_uuid"] = json!(f.agent);
+    let (status, created) = call(&f, f.agent, Method::POST, &uri, Some(body)).await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let id = created["record"]["id"].as_i64().expect("id");
+
+    // An edit that leaves them alone isn't checked again.
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::workspaces::remove_membership(
+            c,
+            f.ws.workspace_id,
+            f.ws.member_uuid,
+            SeatWriteAuthority::Product,
+        )
+    })
+    .expect("the holder leaves");
+    let (status, edited) = call(
+        &f,
+        f.agent,
+        Method::PATCH,
+        &format!("{uri}/{id}"),
+        Some(json!({ "expected_version": 1, "summary": "Mount reseated" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{edited}");
+    assert_eq!(edited["record"]["holder_uuid"], json!(f.ws.member_uuid));
+}
+
+#[actix_web::test]
+async fn a_ticket_staff_cant_see_is_not_linked() {
+    use backend::models::NewTicket;
+    use backend::repository::tickets::{self, TicketCreationAnnotation};
+    use backend::schema::workflow_states;
+
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let [pending, open] = [true, false].map(|pending| {
+        in_ws(&f, |c| {
+            let state: i32 = workflow_states::table
+                .filter(workflow_states::is_default.eq(true))
+                .select(workflow_states::id)
+                .first(c)?;
+            tickets::create_ticket_with_annotation(
+                c,
+                NewTicket {
+                    title: "Camera won't focus".into(),
+                    workflow_state_id: state,
+                    requester_uuid: Some(f.ws.member_uuid),
+                    verification_state: pending.then(|| "pending".to_string()),
+                    ..Default::default()
+                },
+                TicketCreationAnnotation {
+                    source: Some("guest_portal".into()),
+                    from_email: Some("guest@example.com".into()),
+                    from_name: Some("Guest".into()),
+                    subject: Some("Camera won't focus".into()),
+                },
+                None,
+            )
+        })
+        .id
+    });
+    let uri = format!("/api/assets/{}/records", f.asset);
+    let mut body = repair("2023-05-03");
+    body["ticket_id"] = json!(pending);
+    let (status, refused) = call(&f, f.agent, Method::POST, &uri, Some(body.clone())).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert_eq!(refused["code"], "TICKET_NOT_FOUND");
+    body["ticket_id"] = json!(open);
+    let (status, created) = call(&f, f.agent, Method::POST, &uri, Some(body)).await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(created["record"]["ticket_id"], json!(open));
+}
+
+#[actix_web::test]
+async fn a_type_id_as_a_string_reads_the_same_in_a_body_and_a_query() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let (_, added) = call(
+        &f,
+        f.agent,
+        Method::POST,
+        "/api/assets/record-types/catalogue/repair",
+        None,
+    )
+    .await;
+    let type_id = added["id"].as_i64().expect("type id");
+    let mut body = repair("2023-05-03");
+    body["record_type"] = json!(type_id.to_string());
+    let id = create(&f, f.agent, body).await;
+    for filter in [type_id.to_string(), "repair".to_string()] {
+        let (status, page) = call(
+            &f,
+            f.agent,
+            Method::GET,
+            &format!("/api/assets/{}/records?type={filter}", f.asset),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["records"][0]["id"], json!(id), "?type={filter}");
+    }
+}
