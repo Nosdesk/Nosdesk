@@ -23,7 +23,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use actix_web::{web, HttpResponse};
+use actix_web::http::Method;
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use chrono::NaiveDate;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -34,7 +35,8 @@ use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::asset_lifecycle::{strip_staff_disposal_fields, strip_staff_lifecycle_fields};
 use crate::handlers::asset_loans::strip_staff_loan_fields;
-use crate::models::Asset;
+use crate::middleware::token_scope::claims_may_call;
+use crate::models::{Asset, Claims};
 use crate::repository::asset_timeline::{
     self as repo, Entry, EntryData, EntryKey, Source, TimelineFilter, Viewer,
 };
@@ -181,14 +183,25 @@ fn to_value<T: serde::Serialize>(row: &T) -> Value {
     serde_json::to_value(row).unwrap_or(Value::Null)
 }
 
+/// Whether the request's credential may read tickets. Sessions and
+/// unnarrowed tokens may; an API token narrowed to other scopes (such as
+/// `assets:read`) may not, so the timeline names its tickets by id alone.
+pub(crate) fn reads_tickets(req: &HttpRequest) -> bool {
+    req.extensions()
+        .get::<Claims>()
+        .is_some_and(|c| claims_may_call(c, &Method::GET, "/api/tickets"))
+}
+
 /// Entries as `auth` may see them: records as the record endpoint answers
 /// them, status changes, disposals and loans through their strip functions,
-/// tickets without their dates for anyone but staff. Records and
+/// tickets without their dates for anyone but staff, and by id alone when
+/// the credential can't read tickets (`ticket_details` false). Records and
 /// replacements never reach anyone but staff.
 pub(crate) fn project(
     conn: &mut crate::db::DbConnection,
     auth: &AuthContext,
     entries: Vec<Entry>,
+    ticket_details: bool,
 ) -> diesel::QueryResult<Vec<Projected>> {
     let staff = auth.can_handle_tickets();
     let records: Vec<crate::models::AssetRecord> = entries
@@ -317,7 +330,9 @@ pub(crate) fn project(
                         "category": s.category,
                     })
                 });
-                let data = if staff {
+                let data = if !ticket_details {
+                    json!({ "id": t.id })
+                } else if staff {
                     json!({
                         "id": t.id,
                         "number": t.number,
@@ -457,11 +472,13 @@ impl From<diesel::result::Error> for Refusal {
 pub async fn list_for_asset(
     mut tc: TenantConn,
     auth: AuthContext,
+    req: HttpRequest,
     path: web::Path<i32>,
     query: web::Query<TimelineQuery>,
 ) -> HttpResponse {
     let asset_id = path.into_inner();
     let query = query.into_inner();
+    let ticket_details = reads_tickets(&req);
     let result = tc.run_result(|conn| {
         let sources = parse_sources(query.sources.as_deref()).map_err(Refusal::BadRequest)?;
         let after = match query.before.as_deref().filter(|c| !c.is_empty()) {
@@ -482,7 +499,7 @@ pub async fn list_for_asset(
             asset_ids.extend(repo::predecessors(conn, asset_id)?);
         }
         let page = repo::page(conn, &asset_ids, &viewer, &filter, after, Some(limit))?;
-        let entries: Vec<Value> = project(conn, &auth, page.entries)?
+        let entries: Vec<Value> = project(conn, &auth, page.entries, ticket_details)?
             .iter()
             .map(Projected::to_json)
             .collect();

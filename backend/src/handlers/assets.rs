@@ -1004,8 +1004,10 @@ pub async fn get_all_devices(mut tc: TenantConn, auth: AuthContext) -> impl Resp
 pub async fn export_assets(
     mut tc: TenantConn,
     auth: AuthContext,
+    req: actix_web::HttpRequest,
     query: web::Query<AssetExportQuery>,
 ) -> impl Responder {
+    let ticket_details = crate::handlers::asset_timeline::reads_tickets(&req);
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::forbidden("Export requires a resolved workspace context for this request");
     };
@@ -1067,7 +1069,13 @@ pub async fn export_assets(
                 let filter = crate::handlers::asset_timeline::filter_for(
                     sources, &types, query.from, query.to,
                 );
-                ExportExtra::Timeline(timeline_entries(conn, &auth, &ids, &filter)?)
+                ExportExtra::Timeline(timeline_entries(
+                    conn,
+                    &auth,
+                    &ids,
+                    &filter,
+                    ticket_details,
+                )?)
             }
         };
         let slug = repository::workspaces::find_by_id(conn, workspace_id)
@@ -1253,16 +1261,18 @@ fn records_export(
     })
 }
 
-/// Every timeline entry of `asset_ids` as `auth` may see it, newest first.
+/// Every timeline entry of `asset_ids` as `auth` may see it, newest first;
+/// tickets by id alone unless `ticket_details`.
 fn timeline_entries(
     conn: &mut crate::db::DbConnection,
     auth: &AuthContext,
     asset_ids: &[i32],
     filter: &repository::asset_timeline::TimelineFilter,
+    ticket_details: bool,
 ) -> Result<Vec<crate::handlers::asset_timeline::Projected>, Error> {
     let viewer = crate::handlers::asset_timeline::viewer(auth);
     let page = repository::asset_timeline::page(conn, asset_ids, &viewer, filter, None, None)?;
-    crate::handlers::asset_timeline::project(conn, auth, page.entries)
+    crate::handlers::asset_timeline::project(conn, auth, page.entries, ticket_details)
 }
 
 /// `GET /api/assets/{id}/record-card`: the asset's timeline as a CSV, one
@@ -1271,9 +1281,11 @@ fn timeline_entries(
 pub async fn record_card(
     mut tc: TenantConn,
     auth: AuthContext,
+    req: actix_web::HttpRequest,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
+    let ticket_details = crate::handlers::asset_timeline::reads_tickets(&req);
     let result = tc.run(|conn| {
         require_assets_visible(conn, &auth)?;
         let asset = repository::get_device_by_id(conn, asset_id)?;
@@ -1282,6 +1294,7 @@ pub async fn record_card(
             &auth,
             &[asset_id],
             &repository::asset_timeline::TimelineFilter::default(),
+            ticket_details,
         )?;
         Ok((asset, entries))
     });

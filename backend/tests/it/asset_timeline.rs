@@ -118,12 +118,24 @@ fn seed(db: &common::TestDb, timezone: &str) -> Fixture {
 
 /// Send `method uri` as `viewer` in workspace A; the status and the body.
 async fn call(f: &Fixture, viewer: Uuid, method: Method, uri: &str) -> (StatusCode, String) {
+    call_scoped(f, viewer, "full", method, uri).await
+}
+
+/// [`call`] with a credential of `scope`, as an API token narrowed to it
+/// carries.
+async fn call_scoped(
+    f: &Fixture,
+    viewer: Uuid,
+    scope: &str,
+    method: Method,
+    uri: &str,
+) -> (StatusCode, String) {
     let claims = Claims {
         sub: viewer.to_string(),
         name: "Viewer".to_string(),
         email: format!("{viewer}@example.com"),
         platform_role: "user".to_string(),
-        scope: "full".to_string(),
+        scope: scope.to_string(),
         sid: None,
         workspace_uuid: None,
         exp: (Utc::now().timestamp() + 3600) as usize,
@@ -588,6 +600,51 @@ async fn tickets_are_the_ones_the_viewer_can_see() {
     fields.sort_unstable();
     assert_eq!(fields, vec!["id", "number", "state", "title"], "{ticket}");
     let _ = pending;
+}
+
+#[actix_web::test]
+async fn a_token_that_cant_read_tickets_names_them_by_id() {
+    let db = common::TestDb::new();
+    let f = seed(&db, "UTC");
+    let ticket = linked_ticket(
+        &f,
+        f.asset,
+        "Lens fault",
+        None,
+        None,
+        at("2024-03-01T09:00:00Z"),
+    );
+    let uri = format!("/api/assets/{}/timeline?sources=ticket", f.asset);
+    let ticket_data = |body: &str| -> Value {
+        let page: Value = serde_json::from_str(body).expect("a JSON page");
+        page["entries"][0]["data"].clone()
+    };
+
+    // A session, and a token that can read tickets too, get the ticket.
+    for scope in ["full", "assets:read tickets:read"] {
+        let (status, body) = call_scoped(&f, f.agent, scope, Method::GET, &uri).await;
+        assert_eq!(status, StatusCode::OK, "{scope}: {body}");
+        let data = ticket_data(&body);
+        assert_eq!(data["id"], json!(ticket), "{scope}: {data}");
+        assert_eq!(data["title"], "Lens fault", "{scope}: {data}");
+        assert!(data["number"].is_number(), "{scope}: {data}");
+    }
+
+    // A token for assets alone gets the id the lifecycle already shows.
+    let (status, body) = call_scoped(&f, f.agent, "assets:read", Method::GET, &uri).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(ticket_data(&body), json!({ "id": ticket }), "{body}");
+    for uri in [
+        format!("/api/assets/{}/record-card", f.asset),
+        "/api/assets/export?scope=timeline&format=json".to_string(),
+    ] {
+        let (status, body) = call_scoped(&f, f.agent, "assets:read", Method::GET, &uri).await;
+        assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+        assert!(body.contains("ticket"), "{uri} lists the ticket: {body}");
+        assert!(!body.contains("Lens fault"), "{uri}: {body}");
+        let (_, body) = call_scoped(&f, f.agent, "full", Method::GET, &uri).await;
+        assert!(body.contains("Lens fault"), "{uri}: {body}");
+    }
 }
 
 #[actix_web::test]

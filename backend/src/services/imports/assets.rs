@@ -3481,8 +3481,9 @@ pub fn build_history_rows(
         .collect()
 }
 
-/// CSV of lifecycle history (one row per event). Mirrors `write_assets_csv`;
-/// shares `build_history_rows` with the JSON export.
+/// CSV of lifecycle history (one row per event). Mirrors `write_assets_csv`,
+/// every cell guarded against formulas; shares `build_history_rows` with the
+/// JSON export.
 pub fn write_history_csv(
     assets: &[Asset],
     events: &[AssetLifecycleEvent],
@@ -3493,45 +3494,25 @@ pub fn write_history_csv(
         let mut wtr = csv::Writer::from_writer(&mut buf);
         wtr.write_record(HISTORY_HEADERS)?;
         for r in &rows {
-            wtr.write_record([
-                r.asset_tag.clone().unwrap_or_default(),
-                r.asset_name.clone(),
-                r.occurred_at.to_rfc3339(),
-                r.from_status.clone().unwrap_or_default(),
-                r.to_status.clone(),
-                r.reason.clone().unwrap_or_default(),
-                r.actor_uuid.map(|u| u.to_string()).unwrap_or_default(),
-                r.ticket_id.map(|t| t.to_string()).unwrap_or_default(),
-                r.metadata.to_string(),
-            ])?;
+            wtr.write_record(
+                [
+                    r.asset_tag.clone().unwrap_or_default(),
+                    r.asset_name.clone(),
+                    r.occurred_at.to_rfc3339(),
+                    r.from_status.clone().unwrap_or_default(),
+                    r.to_status.clone(),
+                    r.reason.clone().unwrap_or_default(),
+                    r.actor_uuid.map(|u| u.to_string()).unwrap_or_default(),
+                    r.ticket_id.map(|t| t.to_string()).unwrap_or_default(),
+                    r.metadata.to_string(),
+                ]
+                .map(csv_formula_safe),
+            )?;
         }
         wtr.flush()?;
     }
     Ok(buf)
 }
-
-/// The records export's columns before a type's own fields, in order. They
-/// equal the records import template's, so an export imports back.
-pub const RECORD_EXPORT_HEADERS: &[&str] = &[
-    "asset_tag",
-    "serial_number",
-    "record_type",
-    "occurred_on",
-    "completed_on",
-    "outcome",
-    "summary",
-    "notes",
-    "vendor",
-    "performed_by",
-    "reference",
-    "cost",
-    "currency",
-    "ticket",
-    "holder",
-    "location",
-    "replacement_asset_tag",
-    "source_ref",
-];
 
 /// The column holding a record's type fields as JSON when the export spans
 /// types.
@@ -3566,17 +3547,18 @@ fn record_field_keys(rtype: &crate::models::AssetRecordType) -> Vec<String> {
 /// A type field's column: its key, or `attr:<key>` when a shared column
 /// already has that name.
 fn record_field_header(key: &str) -> String {
-    if RECORD_EXPORT_HEADERS.contains(&key) {
+    if super::asset_records::TEMPLATE_HEADERS.contains(&key) {
         format!("{ATTRIBUTE_PREFIX}{key}")
     } else {
         key.to_string()
     }
 }
 
-/// The records export's header row: the shared columns, then `record_type`'s
-/// fields when the export is of one type, else one JSON column of them.
+/// The records export's header row: the records import template's shared
+/// columns, so an export imports back, then `record_type`'s fields when the
+/// export is of one type, else one JSON column of them.
 pub fn record_export_headers(record_type: Option<&crate::models::AssetRecordType>) -> Vec<String> {
-    let mut headers: Vec<String> = RECORD_EXPORT_HEADERS
+    let mut headers: Vec<String> = super::asset_records::TEMPLATE_HEADERS
         .iter()
         .map(ToString::to_string)
         .collect();
@@ -3873,6 +3855,36 @@ mod export_tests {
         assert!(row.starts_with("TAG-1,Laptop,"));
         // reason, empty actor, ticket id in order (the ticket id is the correlation).
         assert!(row.contains(",in_service,in_repair,screen,,42,"));
+    }
+
+    #[test]
+    fn history_prefixes_formula_trigger_cells() {
+        let mut asset = sample_asset();
+        asset.name = "=SUM(A1)".to_string();
+        let event = |reason: &str| AssetLifecycleEvent {
+            id: 1,
+            asset_id: 1,
+            from_status: None,
+            to_status: "in_repair".to_string(),
+            reason: Some(reason.to_string()),
+            ticket_id: None,
+            metadata: json!({}),
+            actor_uuid: None,
+            occurred_at: "2024-02-01T00:00:00Z".parse().unwrap(),
+            workspace_id: 1,
+        };
+        let events: Vec<_> = ["+cmd", "-1+1", "@SUM(1)", "=1"]
+            .into_iter()
+            .map(event)
+            .collect();
+        let csv = write_history_csv(&[asset], &events).unwrap();
+        let rows: Vec<csv::StringRecord> = csv::Reader::from_reader(csv.as_slice())
+            .records()
+            .map(Result::unwrap)
+            .collect();
+        let reasons: Vec<&str> = rows.iter().map(|r| &r[5]).collect();
+        assert_eq!(reasons, vec!["'+cmd", "'-1+1", "'@SUM(1)", "'=1"]);
+        assert!(rows.iter().all(|r| &r[1] == "'=SUM(A1)"));
     }
 
     #[test]

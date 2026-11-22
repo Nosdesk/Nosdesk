@@ -396,12 +396,13 @@ export type AssetTimelineSource =
   | 'marker';
 
 /** A ticket linked to the asset, as the timeline shows it. `created_at`,
- *  `closed_at` and `linked_at` are staff only. */
+ *  `closed_at` and `linked_at` are staff only; an API token that can't read
+ *  tickets gets the `id` alone. */
 export interface AssetTimelineTicket {
   id: number;
-  number: number;
-  title: string;
-  state: { id: number; name: string; category: WorkflowStateCategory } | null;
+  number?: number;
+  title?: string;
+  state?: { id: number; name: string; category: WorkflowStateCategory } | null;
   created_at?: string;
   closed_at?: string | null;
   /** When the ticket was linked to the asset. */

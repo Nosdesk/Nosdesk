@@ -20,35 +20,13 @@ use backend::models::{Claims, NewAsset, NewTicket, UpdateSiteSettings};
 use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
 use backend::repository::{assets as asset_repo, site_settings};
 use backend::schema::{tickets, user_emails};
+use backend::services::imports::asset_records::{template_headers, TEMPLATE_HEADERS};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::run_in_workspace;
 
 use crate::common::{self, TestPool, WorkspaceSeed};
 
 const REF: &str = "test:asset_export_records";
-
-/// The records import template's shared columns, in order, as the records
-/// importer names them.
-const TEMPLATE_HEADERS: &[&str] = &[
-    "asset_tag",
-    "serial_number",
-    "record_type",
-    "occurred_on",
-    "completed_on",
-    "outcome",
-    "summary",
-    "notes",
-    "vendor",
-    "performed_by",
-    "reference",
-    "cost",
-    "currency",
-    "ticket",
-    "holder",
-    "location",
-    "replacement_asset_tag",
-    "source_ref",
-];
 
 struct Fixture {
     pool: TestPool,
@@ -293,12 +271,9 @@ async fn records_export_the_import_templates_columns_and_cells() {
         "/api/assets/export?scope=records&record_type=repair",
     )
     .await;
-    let mut expected: Vec<String> = TEMPLATE_HEADERS.iter().map(ToString::to_string).collect();
-    expected.extend(
-        ["fault", "offsite", "expected_return", "serial_received"]
-            .iter()
-            .map(ToString::to_string),
-    );
+    // The template the importer offers for the type, column for column.
+    let expected = in_ws(&f, |c| template_headers(c, Some("repair"))).expect("the repair template");
+    assert!(expected.contains(&"fault".to_string()), "{expected:?}");
     let all = rows(&csv);
     assert_eq!(all[0], expected);
     let cell = |name: &str| -> String {
@@ -405,4 +380,58 @@ async fn the_timeline_export_and_record_card_write_one_row_per_entry() {
         .map(|r| r["source"].as_str().expect("source"))
         .collect();
     assert_eq!(sources, vec!["marker", "marker"], "{json}");
+}
+
+#[actix_web::test]
+async fn a_records_export_imports_back_with_nothing_to_change() {
+    use crate::imports_assets::{call_import_route, json, mapping_request, upload_request_for};
+    use crate::imports_attributes::{errors, id_of};
+
+    common::ensure_test_keyring();
+    common::with_upload_dir();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    seed_repair(&f).await;
+    let csv = get(
+        &f,
+        f.agent,
+        "/api/assets/export?scope=records&record_type=repair",
+    )
+    .await;
+
+    // Upload the export as service history, each field from its column.
+    let (status, body) = call_import_route(
+        &f.pool,
+        &f.ws,
+        f.ws.admin_uuid,
+        upload_request_for("asset_records", "history.csv", csv.as_bytes()),
+    )
+    .await;
+    let job = json(&body);
+    assert_eq!(status, StatusCode::OK, "{job}");
+    let mapping: serde_json::Map<String, Value> = header(&csv)
+        .into_iter()
+        .enumerate()
+        .map(|(i, h)| (h, i.into()))
+        .collect();
+    let (status, body) = call_import_route(
+        &f.pool,
+        &f.ws,
+        f.ws.admin_uuid,
+        mapping_request(&id_of(&job), json!({ "mapping": mapping, "options": {} })),
+    )
+    .await;
+    let job = json(&body);
+    assert_eq!(status, StatusCode::OK, "{job}");
+    assert_eq!(errors(&job), Vec::new(), "{job}");
+    let count = |key: &str| job["summary"][key].as_u64().unwrap_or(0);
+    assert_eq!(
+        (
+            count("would_create"),
+            count("would_update"),
+            count("unchanged")
+        ),
+        (0, 0, 1),
+        "{job}"
+    );
 }
