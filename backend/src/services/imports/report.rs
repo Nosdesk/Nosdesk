@@ -144,7 +144,10 @@ pub fn dropped_text(
                 ("primary_user", Some(value)) => {
                     format!("'{value}' is not a member of this workspace, left unassigned")
                 }
-                ("performed_by" | "holder", Some(value)) => {
+                ("performed_by", Some(value)) => {
+                    format!("'{value}' isn't someone who can work tickets here, left blank")
+                }
+                ("holder", Some(value)) => {
                     format!("'{value}' is not a member of this workspace, left blank")
                 }
                 ("ticket", Some(value)) => format!("no ticket '{value}', left off"),

@@ -12082,3 +12082,8 @@ import-remove-result-anonymous-records = { $count ->
 import-remove-group-schedule = { $count } die een onderhoudsschema afronden
 # MT: pending native review (nl-NL)
 import-remove-reason-schedule = Rondt een onderhoudsschema af
+# MT: pending native review (nl-NL)
+import-review-ni-performer-reason = { $values ->
+    [one] kan hier geen tickets behandelen, leeg gelaten
+   *[other] kunnen hier geen tickets behandelen, leeg gelaten
+   }

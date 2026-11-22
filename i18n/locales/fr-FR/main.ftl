@@ -12091,3 +12091,8 @@ import-remove-result-anonymous-records = { $count ->
 import-remove-group-schedule = { $count } clôturant un plan d'entretien
 # MT: pending native review (fr-FR)
 import-remove-reason-schedule = Clôture un plan d'entretien
+# MT: pending native review (fr-FR)
+import-review-ni-performer-reason = { $values ->
+    [one] ne peut pas traiter de tickets ici, laissé vide
+   *[other] ne peuvent pas traiter de tickets ici, laissés vides
+   }

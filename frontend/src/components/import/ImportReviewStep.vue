@@ -248,7 +248,9 @@ function lineDetail(line: NotImportedLine): string[] {
         t(
           line.field === 'primary_user'
             ? 'import-review-ni-person-reason'
-            : 'import-review-ni-person-reason-blank',
+            : line.field === 'performed_by'
+              ? 'import-review-ni-performer-reason'
+              : 'import-review-ni-person-reason-blank',
           { values: line.values },
         ),
       ]

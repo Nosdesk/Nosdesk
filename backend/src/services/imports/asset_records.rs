@@ -867,6 +867,9 @@ struct Lookups {
     /// Members by lowercased primary email, and their emails.
     members: HashMap<String, Uuid>,
     member_emails: HashMap<Uuid, String>,
+    /// The members who can work tickets here: who may be named as having
+    /// done the work.
+    performers: HashSet<Uuid>,
     /// The tickets the file's ticket numbers name, by number.
     tickets: HashMap<i32, i32>,
     /// Ticket numbers by id, for the tickets records being updated link.
@@ -952,6 +955,9 @@ impl Lookups {
             member_emails.insert(user, email);
         }
 
+        let people: Vec<Uuid> = member_emails.keys().copied().collect();
+        let performers = crate::repository::assignees::assignable_among(conn, &people)?;
+
         let numbers: Vec<i32> = parsed
             .records()
             .filter_map(|r| ticket_number(&cell(&r.values, "ticket")))
@@ -987,6 +993,7 @@ impl Lookups {
             by_ref,
             members,
             member_emails,
+            performers,
             tickets: found.into_iter().collect(),
             ticket_numbers,
             currency,
@@ -1933,9 +1940,19 @@ fn plan_row(
         found
     });
 
-    // People, as Match values answered them, else by email. A cell naming
-    // someone who isn't a member records nobody: the sheet said who it was,
-    // so nobody else is put in their place. `None` is a blank cell.
+    // People, as Match values answered them, else by email, under the rules
+    // the record API names them by: whoever held the asset is a member, and
+    // whoever did the work can work tickets here (unless the record already
+    // names them). A cell naming anyone else records nobody: the sheet said
+    // who it was, so nobody else is put in their place. `None` is a blank
+    // cell.
+    let may_name = |field: &str, user: Uuid| match field {
+        "performed_by" => {
+            lookups.performers.contains(&user)
+                || existing.is_some_and(|r| r.performed_by_uuid == Some(user))
+        }
+        _ => true,
+    };
     let person = |field: &str, dropped: &mut Vec<DroppedCell>| -> Option<Option<Uuid>> {
         let raw = opt_cell(row, field)?;
         let linked = match options
@@ -1950,7 +1967,8 @@ fn plan_row(
                 .filter(|u| lookups.member_emails.contains_key(u)),
             Some(ValueAnswer::LeaveBlank) => None,
             _ => lookups.member(&raw),
-        };
+        }
+        .filter(|u| may_name(field, *u));
         if linked.is_none() {
             dropped.push(DroppedCell {
                 column: field.to_string(),

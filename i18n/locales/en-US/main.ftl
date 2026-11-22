@@ -10783,3 +10783,7 @@ import-remove-result-anonymous-records = { $count ->
    }
 import-remove-group-schedule = { $count } completing a service schedule
 import-remove-reason-schedule = Completes a service schedule
+import-review-ni-performer-reason = { $values ->
+    [one] can't work tickets here, left blank
+   *[other] can't work tickets here, left blank
+   }

@@ -1442,3 +1442,78 @@ async fn a_second_sheet_without_references_finds_the_work_by_cost() {
     assert_eq!(notice(&second, "likely_duplicate"), Some(2), "{second}");
     assert_eq!(summary(&second, "would_create"), 0, "{second}");
 }
+
+#[derive(QueryableByName)]
+struct Email {
+    #[diesel(sql_type = Text)]
+    email: String,
+}
+
+/// Give `user` a primary email (the fixture's people have none): it.
+fn primary_email(pool: &TestPool, user: uuid::Uuid, name: &str) -> String {
+    diesel::sql_query(
+        "INSERT INTO user_emails (user_uuid, email, is_primary, is_verified)
+         VALUES ($1, $2, true, true) RETURNING email",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(user)
+    .bind::<Text, _>(format!("{name}-{user}@example.com"))
+    .get_result::<Email>(&mut pool.get().expect("conn"))
+    .expect("email")
+    .email
+}
+
+/// Whoever did the work is named under the record API's rule: someone who
+/// can work tickets here. A member who can't is left blank and reported,
+/// as the API would refuse them.
+#[actix_web::test]
+async fn the_technician_is_someone_who_can_work_tickets() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool, "UTC");
+    seed_asset(&pool, &ws, "Camera 1", Some("CAM-001"), None);
+    let admin = primary_email(&pool, ws.admin_uuid, "boss");
+    let member = primary_email(&pool, ws.member_uuid, "sam");
+    let job = checked(
+        &pool,
+        &ws,
+        &format!(
+            "Id,Tag,Type,Date,By\nP-1,CAM-001,Repair,2020-01-02,{admin}\nP-2,CAM-001,Repair,2020-01-03,{member}\n"
+        ),
+        &[
+            ("Id", "source_ref"),
+            ("Tag", "asset_tag"),
+            ("Type", "record_type"),
+            ("Date", "occurred_on"),
+            ("By", "performed_by"),
+        ],
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(summary(&job, "would_create"), 2, "{job}");
+    let dropped = job["summary"]["dropped"].as_array().expect("dropped");
+    assert_eq!(dropped.len(), 1, "{job}");
+    assert_eq!(
+        (&dropped[0]["column"], &dropped[0]["value"]),
+        (
+            &serde_json::json!("performed_by"),
+            &serde_json::json!(member)
+        ),
+        "{job}"
+    );
+    commit(&pool, &ws, &id_of(&job)).await;
+    #[derive(QueryableByName)]
+    struct By {
+        #[diesel(sql_type = Nullable<Text>)]
+        by: Option<String>,
+    }
+    let by: Vec<Option<String>> = diesel::sql_query(
+        "SELECT performed_by_uuid::text AS by FROM asset_records WHERE workspace_id = $1 ORDER BY source_ref",
+    )
+    .bind::<Integer, _>(ws.workspace_id)
+    .load::<By>(&mut pool.get().expect("conn"))
+    .expect("records")
+    .into_iter()
+    .map(|b| b.by)
+    .collect();
+    assert_eq!(by, vec![Some(ws.admin_uuid.to_string()), None]);
+}
