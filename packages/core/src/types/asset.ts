@@ -21,6 +21,9 @@ export interface AssetMedia {
   caption?: string | null;
   uploaded_by?: string | null;
   created_at: string;
+  /** The asset record the file belongs to, if any. Staff only: a record's
+   *  files are left out of what anyone else sees. */
+  record_id?: number | null;
 }
 
 /** Asset row as the REST + sync surfaces ship it. IT-flavoured
@@ -226,4 +229,156 @@ export interface AssetFormData {
   quantity?: string | null;
   unit?: string | null;
   low_stock_threshold?: string | null;
+}
+
+/** What an outcome means, whatever a record type calls it. */
+export type AssetRecordOutcomeCategory = 'done' | 'not_done' | 'no_fault' | 'replaced';
+
+/** One of a record type's outcomes. `label` is absent on a built-in outcome
+ *  nobody renamed: show `asset-record-outcome-<type slug>-<key>`. */
+export interface AssetRecordOutcome {
+  key: string;
+  category: AssetRecordOutcomeCategory;
+  label?: string | null;
+}
+
+/** The fields every record type shares. */
+export type AssetRecordCoreField =
+  | 'vendor'
+  | 'reference'
+  | 'cost'
+  | 'outcome'
+  | 'ticket'
+  | 'holder'
+  | 'location'
+  | 'summary';
+
+/** How a type treats a shared field; absent means optional. */
+export type AssetRecordCoreFieldMode = 'hidden' | 'optional' | 'required';
+
+/** A workspace's kind of work on its assets. A built-in type's `label` is
+ *  null until someone renames it: show `asset-record-type-<slug>`. */
+export interface AssetRecordType {
+  id: number;
+  slug: string;
+  label: string | null;
+  description: string | null;
+  icon: string | null;
+  color: string | null;
+  /** The type's own fields, in the custom-fields schema subset. */
+  field_schema: Record<string, unknown>;
+  /** `field_schema`'s property names in display order. */
+  field_order: string[];
+  core_fields: Partial<Record<AssetRecordCoreField, AssetRecordCoreFieldMode>>;
+  outcomes: AssetRecordOutcome[];
+  /** Asset kind slugs offered this type; null for every kind. */
+  applies_to_kinds: string[] | null;
+  /** The asset status whose transition opens a record of this type. */
+  opens_with_status: string | null;
+  is_builtin: boolean;
+  sort_order: number;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+/** A record type as the admin list gives it. */
+export interface AdminAssetRecordType extends AssetRecordType {
+  record_count: number;
+}
+
+/** The record form's list of types, and the currency its cost field
+ *  offers: the workspace currency, else the default locale's suggestion. */
+export interface AssetRecordTypeList {
+  types: AssetRecordType[];
+  currency: string | null;
+  suggested_currency: string | null;
+}
+
+/** A built-in record type, and whether the workspace has added it (an
+ *  archived one counts). */
+export interface AssetRecordCatalogueEntry {
+  slug: string;
+  icon: string;
+  sort_order: number;
+  opens_with_status: string | null;
+  field_schema: Record<string, unknown>;
+  field_order: string[];
+  core_fields: Partial<Record<AssetRecordCoreField, AssetRecordCoreFieldMode>>;
+  outcomes: AssetRecordOutcome[];
+  added: boolean;
+  /** The workspace's type, once added. */
+  type: AssetRecordType | null;
+}
+
+/** A cost: a decimal amount in its currency, and the same in minor units. */
+export interface AssetRecordCost {
+  amount: string;
+  currency: string;
+  amount_minor: number;
+}
+
+/** Where a record's holder and location came from. */
+export type AssetRecordSnapshotSource = 'entered' | 'loan' | 'current' | 'none';
+
+/** Work done on an asset. `occurred_on` is the day of the work;
+ *  `recorded_at` and `recorded_by` are when and by whom it was entered.
+ *  Staff only. */
+export interface AssetRecord {
+  id: number;
+  asset_id: number;
+  record_type_id: number;
+  /** The type's slug. */
+  record_type: string | null;
+  summary: string | null;
+  notes: string | null;
+  occurred_on: string;
+  occurred_at: string | null;
+  /** Null while the work is open. */
+  completed_on: string | null;
+  completed_at: string | null;
+  outcome: string | null;
+  vendor: string | null;
+  performed_by_uuid: string | null;
+  reference: string | null;
+  cost: AssetRecordCost | null;
+  ticket_id: number | null;
+  replacement_asset_id: number | null;
+  holder_uuid: string | null;
+  location: string | null;
+  snapshot_source: AssetRecordSnapshotSource;
+  attributes: Record<string, unknown>;
+  plugin_fields: Record<string, unknown>;
+  lifecycle_event_id: number | null;
+  schedule_id: number | null;
+  source: string;
+  source_ref: string | null;
+  import_job_id: string | null;
+  rule_id: number | null;
+  recorded_at: string;
+  recorded_by: string | null;
+  updated_at: string;
+  updated_by: string | null;
+  version: number;
+  files: AssetMedia[];
+}
+
+/** Something worth a second look that didn't stop a write. */
+export type AssetRecordWarning =
+  | { code: 'before_purchase'; purchase_date: string }
+  | { code: 'completed_long_after' }
+  | { code: 'holder_unknown' };
+
+/** A written record and its warnings. */
+export interface AssetRecordWrite {
+  record: AssetRecord;
+  warnings: AssetRecordWarning[];
+}
+
+/** A page of an asset's records, newest work first. */
+export interface AssetRecordPage {
+  records: AssetRecord[];
+  /** Pass as `before` for the next page; null on the last. */
+  next_cursor: string | null;
 }

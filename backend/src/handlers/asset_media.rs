@@ -18,7 +18,7 @@ use crate::db::Pool;
 use crate::errors::{self, ApiError};
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::handlers::files::{authorize_at_owning_workspace, serve_named_or_not_found};
-use crate::models::{AssetMediaUpdate, NewAssetMedia};
+use crate::models::{AssetMedia, AssetMediaUpdate, NewAssetMedia};
 use crate::repository::{asset_media as repo, assets as assets_repo};
 use crate::services::upload_intake::{self as intake, Part, UploadPolicy};
 use crate::utils::image::generate_asset_media_thumbnail;
@@ -136,7 +136,13 @@ pub async fn list_for_asset(
         assets_repo::get_device_by_id(conn, asset_id)?;
         repo::list_for_asset(conn, asset_id)
     }) {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(mut rows) => {
+            // Records are staff-only, and so are their files.
+            if !auth.can_handle_tickets() {
+                rows.retain(|r| r.record_id.is_none());
+            }
+            HttpResponse::Ok().json(rows)
+        }
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
         }
@@ -147,10 +153,19 @@ pub async fn list_for_asset(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UploadQuery {
+    /// A record of the asset's the files belong to.
+    pub record_id: Option<i32>,
+}
+
+/// `POST /api/assets/{id}/media`, with `?record_id=` to make the files a
+/// record's as well as the asset's.
 pub async fn upload_for_asset(
     mut tc: TenantConn,
     auth: AuthContext,
     path: web::Path<i32>,
+    query: web::Query<UploadQuery>,
     req: HttpRequest,
     payload: Multipart,
     storage: ScopedStorage,
@@ -171,6 +186,18 @@ pub async fn upload_for_asset(
                 crate::errors::internal_error("Failed to load asset")
             }
         })?;
+    let record_id = query.into_inner().record_id;
+    if let Some(record_id) = record_id {
+        let record = tc
+            .run(|conn| crate::repository::asset_records::get(conn, record_id))
+            .map_err(|e| {
+                error!(asset_id, error = ?e, "failed to load the record before a media upload");
+                crate::errors::internal_error("Failed to load the record")
+            })?;
+        if record.is_none_or(|r| r.asset_id != asset_id) {
+            return Err(crate::errors::not_found_error("Record not found"));
+        }
+    }
 
     let policy = UploadPolicy::asset_media(asset_id);
     let mut upload =
@@ -236,7 +263,7 @@ pub async fn upload_for_asset(
             sort_order: 0,
             caption: None,
             uploaded_by: Some(auth.user_uuid),
-            record_id: None,
+            record_id,
         };
 
         let row = tc.run(|conn| repo::create(conn, new_media)).map_err(|e| {
@@ -320,23 +347,30 @@ pub async fn delete_media(
         }
     };
 
+    remove_stored_objects(&storage, &deleted).await;
+    HttpResponse::Ok().json(json!({ "deleted": true }))
+}
+
+/// Delete a deleted media row's stored file and thumbnail. A failure is
+/// logged and left behind: the row is already gone.
+pub(crate) async fn remove_stored_objects(storage: &ScopedStorage, deleted: &AssetMedia) {
+    let asset_id = deleted.asset_id;
+    let media_id = deleted.id;
     if let Some(filename) = deleted.url.rsplit('/').next() {
-        let path = format!("assets/{}/media/{filename}", deleted.asset_id);
+        let path = format!("assets/{asset_id}/media/{filename}");
         if let Err(e) = storage.0.delete_file(&path).await {
             warn!(asset_id, media_id, path = %path, error = ?e, "failed to delete asset media object");
         }
     }
     if let Some(thumb_url) = deleted.thumbnail_url.as_deref() {
-        let prefix = format!("/api/files/assets/{}/media/", deleted.asset_id);
+        let prefix = format!("/api/files/assets/{asset_id}/media/");
         if let Some(tail) = thumb_url.strip_prefix(&prefix) {
-            let path = format!("assets/{}/media/{tail}", deleted.asset_id);
+            let path = format!("assets/{asset_id}/media/{tail}");
             if let Err(e) = storage.0.delete_file(&path).await {
                 warn!(asset_id, media_id, path = %path, error = ?e, "failed to delete asset media thumbnail");
             }
         }
     }
-
-    HttpResponse::Ok().json(json!({ "deleted": true }))
 }
 
 /// `GET /api/files/assets/{asset_id}/media/{filename}`. An `<img>` loads it
@@ -357,8 +391,12 @@ pub async fn serve_asset_media_file(
         &auth,
         |c| assets_repo::asset_workspace_id(c, asset_id),
         |c, _, _| {
-            // A requester shown no assets reads it as missing.
+            // A requester shown no assets reads it as missing, and so does
+            // anyone but staff a record's file.
             if crate::handlers::assets::assets_hidden_from(c, &auth) {
+                return Ok(None);
+            }
+            if !auth.can_handle_tickets() && repo::is_record_file(c, asset_id, &url)? {
                 return Ok(None);
             }
             // Read again under the pin: the asset must be in this workspace.

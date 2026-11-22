@@ -88,6 +88,24 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/assets/itad-vendors",
             web::get().to(crate::handlers::asset_lifecycle::list_itad_vendors),
         )
+        // Asset records and their types. Literal segments; the numeric
+        // `{id:\d+}` routes below can't absorb them.
+        .route(
+            "/assets/record-types",
+            web::get().to(crate::handlers::asset_record_types::list_for_picker),
+        )
+        .route(
+            "/assets/record-types/catalogue",
+            web::get().to(crate::handlers::asset_record_types::catalogue),
+        )
+        .route(
+            "/assets/record-types/catalogue/{slug}",
+            web::post().to(crate::handlers::asset_record_types::add_from_catalogue),
+        )
+        .route(
+            "/assets/record-vendors",
+            web::get().to(crate::handlers::asset_records::vendors),
+        )
         .route(
             "/assets/grouping-dataset",
             web::get().to(crate::handlers::assets::asset_grouping_dataset),
@@ -226,6 +244,30 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route(
             "/assets/{id:\\d+}/loans/{loan_id:\\d+}/return",
             web::post().to(crate::handlers::asset_loans::return_loan),
+        )
+        .route(
+            "/assets/{id:\\d+}/records",
+            web::get().to(crate::handlers::asset_records::list_for_asset),
+        )
+        .route(
+            "/assets/{id:\\d+}/records",
+            web::post().to(crate::handlers::asset_records::create),
+        )
+        .route(
+            "/assets/{id:\\d+}/records/{record_id:\\d+}",
+            web::get().to(crate::handlers::asset_records::get),
+        )
+        .route(
+            "/assets/{id:\\d+}/records/{record_id:\\d+}",
+            web::patch().to(crate::handlers::asset_records::update),
+        )
+        .route(
+            "/assets/{id:\\d+}/records/{record_id:\\d+}",
+            web::delete().to(crate::handlers::asset_records::delete),
+        )
+        .route(
+            "/assets/{id:\\d+}/records/{record_id:\\d+}/media",
+            web::put().to(crate::handlers::asset_records::set_media),
         )
         .route(
             "/assets/{id:\\d+}/media",

@@ -204,6 +204,14 @@ pub fn count_records(conn: &mut DbConnection, id: i32) -> QueryResult<i64> {
         .get_result(conn)
 }
 
+/// How many records use each type that has any.
+pub fn record_counts(conn: &mut DbConnection) -> QueryResult<Vec<(i32, i64)>> {
+    asset_records::table
+        .group_by(asset_records::record_type_id)
+        .select((asset_records::record_type_id, diesel::dsl::count_star()))
+        .load(conn)
+}
+
 /// Records of type `id` that wouldn't fit `field_schema` and `outcomes`:
 /// how many, and up to `sample_limit` of them with the reason. Run before a
 /// schema or outcome change saves.

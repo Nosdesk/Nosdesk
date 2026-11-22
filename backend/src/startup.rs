@@ -1267,6 +1267,10 @@ pub fn configure_app(
                     // `assets.kind` validation.
                     .configure(crate::handlers::asset_kinds::config)
 
+                    // Asset record types: workspace-admin CRUD. The staff
+                    // picker and catalogue live under /assets.
+                    .configure(crate::handlers::asset_record_types::config)
+
                     // Bulk CSV import — admin-only. The template
                     // route is declared before /{id} so the literal
                     // "template" path segment doesn't get matched
