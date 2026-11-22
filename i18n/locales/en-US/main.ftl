@@ -10787,3 +10787,11 @@ import-review-ni-performer-reason = { $values ->
     [one] can't work tickets here, left blank
    *[other] can't work tickets here, left blank
    }
+import-review-ni-person-reason-blank-kept = { $values ->
+    [one] not a member, kept as recorded
+   *[other] not members, kept as recorded
+   }
+import-review-ni-performer-reason-kept = { $values ->
+    [one] can't work tickets here, kept as recorded
+   *[other] can't work tickets here, kept as recorded
+   }

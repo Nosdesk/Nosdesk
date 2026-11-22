@@ -2500,7 +2500,10 @@ pub async fn error_report(
                         .iter()
                         .filter(|d| {
                             groups.iter().any(|g| {
-                                g.column == d.column && g.kind == d.kind && g.value == d.value
+                                g.column == d.column
+                                    && g.kind == d.kind
+                                    && g.value == d.value
+                                    && g.kept == d.kept
                             })
                         })
                         .collect();

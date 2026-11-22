@@ -12096,3 +12096,13 @@ import-review-ni-performer-reason = { $values ->
     [one] ne peut pas traiter de tickets ici, laissé vide
    *[other] ne peuvent pas traiter de tickets ici, laissés vides
    }
+# MT: pending native review (fr-FR)
+import-review-ni-person-reason-blank-kept = { $values ->
+    [one] pas membre, valeur enregistrée conservée
+   *[other] pas membres, valeurs enregistrées conservées
+   }
+# MT: pending native review (fr-FR)
+import-review-ni-performer-reason-kept = { $values ->
+    [one] ne peut pas traiter de tickets ici, valeur enregistrée conservée
+   *[other] ne peuvent pas traiter de tickets ici, valeurs enregistrées conservées
+   }

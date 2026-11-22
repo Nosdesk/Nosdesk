@@ -140,15 +140,20 @@ pub fn dropped_text(
                     .find(|f| f.id == d.column)
                     .map_or_else(|| d.column.clone(), |f| f.label.clone())
             });
+            let left = if d.kept {
+                "kept as recorded"
+            } else {
+                "left blank"
+            };
             let reason = match (d.column.as_str(), &d.value) {
                 ("primary_user", Some(value)) => {
                     format!("'{value}' is not a member of this workspace, left unassigned")
                 }
                 ("performed_by", Some(value)) => {
-                    format!("'{value}' isn't someone who can work tickets here, left blank")
+                    format!("'{value}' isn't someone who can work tickets here, {left}")
                 }
                 ("holder", Some(value)) => {
-                    format!("'{value}' is not a member of this workspace, left blank")
+                    format!("'{value}' is not a member of this workspace, {left}")
                 }
                 ("ticket", Some(value)) => format!("no ticket '{value}', left off"),
                 ("currency", Some(value)) => format!("'{value}' without a cost, left off"),
@@ -292,6 +297,7 @@ mod tests {
                 },
                 kind: "camera".to_string(),
                 value: value.map(String::from),
+                kept: false,
             })
             .collect();
         r

@@ -88,6 +88,8 @@ export interface DroppedGroup {
   /** The value left out, for a group nothing links or a person who isn't
    *  a member; absent for an attribute. */
   value?: string
+  /** The rows update records that keep what they hold for the field. */
+  kept?: boolean
   /** Rows. */
   count: number
 }
@@ -560,7 +562,7 @@ export interface ImportRowResult {
   errors?: { column: string | null; source_column?: string | null; message: string }[]
   /** Values the row imports without: its kind has no such attribute, a
    *  group left off, a person who isn't a member. */
-  dropped?: { column: string; source_column?: string | null; kind: string; value?: string }[]
+  dropped?: { column: string; source_column?: string | null; kind: string; value?: string; kept?: boolean }[]
   /** Each field the row changes, before and after, as text (status and
    *  kind as their keys): after the commit what it wrote, in a checked plan
    *  what an update would write (a new row: its status move). */

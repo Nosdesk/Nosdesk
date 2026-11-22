@@ -1920,6 +1920,7 @@ fn plan_row(
                     source_column: None,
                     kind: entry.slug().to_string(),
                     value: Some(code.clone()),
+                    kept: false,
                 });
             }
             None
@@ -1935,6 +1936,7 @@ fn plan_row(
                 source_column: None,
                 kind: entry.slug().to_string(),
                 value: Some(raw),
+                kept: false,
             });
         }
         found
@@ -1943,9 +1945,11 @@ fn plan_row(
     // People, as Match values answered them, else by email, under the rules
     // the record API names them by: whoever held the asset is a member, and
     // whoever did the work can work tickets here (unless the record already
-    // names them). A cell naming anyone else records nobody: the sheet said
-    // who it was, so nobody else is put in their place. `None` is a blank
-    // cell.
+    // names them). A cell naming anyone else is left off. On a new record it
+    // records nobody: the sheet said who it was, so nobody else is put in
+    // their place. On a record being updated it keeps the person stored, as
+    // a blank cell does, so running a sheet again after someone has left
+    // keeps their name on their past work. `None` leaves the field as it is.
     let may_name = |field: &str, user: Uuid| match field {
         "performed_by" => {
             lookups.performers.contains(&user)
@@ -1975,7 +1979,11 @@ fn plan_row(
                 source_column: None,
                 kind: entry.slug().to_string(),
                 value: Some(raw),
+                kept: existing.is_some(),
             });
+            if existing.is_some() {
+                return None;
+            }
         }
         Some(linked)
     };
@@ -2021,6 +2029,7 @@ fn plan_row(
                     source_column: None,
                     kind: entry.slug().to_string(),
                     value: None,
+                    kept: false,
                 });
             }
             continue;

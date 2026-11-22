@@ -275,7 +275,10 @@ impl ImportSummary {
             if result.outcome != RowOutcome::Skipped {
                 for cell in &result.dropped {
                     match dropped.iter_mut().find(|g| {
-                        g.column == cell.column && g.kind == cell.kind && g.value == cell.value
+                        g.column == cell.column
+                            && g.kind == cell.kind
+                            && g.value == cell.value
+                            && g.kept == cell.kept
                     }) {
                         Some(group) => group.count += 1,
                         None => dropped.push(DroppedGroup {
@@ -283,6 +286,7 @@ impl ImportSummary {
                             source_column: cell.source_column.clone(),
                             kind: cell.kind.clone(),
                             value: cell.value.clone(),
+                            kept: cell.kept,
                             count: 1,
                         }),
                     }
@@ -495,6 +499,9 @@ pub struct DroppedGroup {
     /// (a group nothing links); `None` for an attribute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
+    /// The rows update records that keep what they hold for the field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub kept: bool,
     pub count: usize,
 }
 
@@ -510,6 +517,10 @@ pub struct DroppedCell {
     /// The value left out, as [`DroppedGroup::value`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
+    /// The row updates a record that keeps what it holds for the field, as
+    /// [`DroppedGroup::kept`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub kept: bool,
 }
 
 /// What one row of the file comes to.

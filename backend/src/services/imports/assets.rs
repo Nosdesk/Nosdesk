@@ -1971,6 +1971,7 @@ fn plan_row(
             source_column: None,
             kind: kind.clone().unwrap_or_default(),
             value: Some(value),
+            kept: false,
         });
     }
 
@@ -2418,6 +2419,7 @@ fn pick_groups(
                 source_column: None,
                 kind: kind.to_string(),
                 value: Some(item.to_string()),
+                kept: false,
             }),
         }
     }
@@ -2889,6 +2891,7 @@ fn read_attributes(
                     source_column: None,
                     kind: kind.to_string(),
                     value: None,
+                    kept: false,
                 });
             }
             continue;

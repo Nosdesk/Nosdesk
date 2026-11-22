@@ -12087,3 +12087,13 @@ import-review-ni-performer-reason = { $values ->
     [one] kan hier geen tickets behandelen, leeg gelaten
    *[other] kunnen hier geen tickets behandelen, leeg gelaten
    }
+# MT: pending native review (nl-NL)
+import-review-ni-person-reason-blank-kept = { $values ->
+    [one] geen lid, geregistreerde waarde behouden
+   *[other] geen leden, geregistreerde waarden behouden
+   }
+# MT: pending native review (nl-NL)
+import-review-ni-performer-reason-kept = { $values ->
+    [one] kan hier geen tickets behandelen, geregistreerde waarde behouden
+   *[other] kunnen hier geen tickets behandelen, geregistreerde waarden behouden
+   }

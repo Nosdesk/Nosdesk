@@ -1517,3 +1517,84 @@ async fn the_technician_is_someone_who_can_work_tickets() {
     .collect();
     assert_eq!(by, vec![Some(ws.admin_uuid.to_string()), None]);
 }
+
+/// Running a sheet again after someone has left: a technician and holder
+/// who no longer resolve keep their names on the records of their past
+/// work, as a blank cell would, and the row is unchanged.
+#[actix_web::test]
+async fn people_who_have_left_stay_on_the_records_of_their_work() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool, "UTC");
+    seed_asset(&pool, &ws, "Camera 1", Some("CAM-001"), None);
+    let tech = primary_email(&pool, ws.member_uuid, "kim");
+    diesel::sql_query(
+        "UPDATE workspace_members SET role = 'agent' WHERE workspace_id = $1 AND user_uuid = $2",
+    )
+    .bind::<Integer, _>(ws.workspace_id)
+    .bind::<diesel::sql_types::Uuid, _>(ws.member_uuid)
+    .execute(&mut pool.get().expect("conn"))
+    .expect("make an agent");
+    let file = format!("Id,Tag,Type,Date,By,Holder\nK-1,CAM-001,Repair,2020-01-02,{tech},{tech}\n");
+    let mapping = &[
+        ("Id", "source_ref"),
+        ("Tag", "asset_tag"),
+        ("Type", "record_type"),
+        ("Date", "occurred_on"),
+        ("By", "performed_by"),
+        ("Holder", "holder"),
+    ];
+    let first = checked(&pool, &ws, &file, mapping, serde_json::json!({})).await;
+    assert!(
+        first["summary"]["dropped"]
+            .as_array()
+            .is_none_or(Vec::is_empty),
+        "{first}"
+    );
+    commit(&pool, &ws, &id_of(&first)).await;
+
+    diesel::sql_query(
+        "UPDATE workspace_members SET removed_at = now() WHERE workspace_id = $1 AND user_uuid = $2",
+    )
+    .bind::<Integer, _>(ws.workspace_id)
+    .bind::<diesel::sql_types::Uuid, _>(ws.member_uuid)
+    .execute(&mut pool.get().expect("conn"))
+    .expect("remove the member");
+
+    let again = checked(&pool, &ws, &file, mapping, serde_json::json!({})).await;
+    assert_eq!(summary(&again, "unchanged"), 1, "{again}");
+    assert_eq!(summary(&again, "would_update"), 0, "{again}");
+    let dropped = again["summary"]["dropped"].as_array().expect("dropped");
+    let mut kept: Vec<(&str, bool)> = dropped
+        .iter()
+        .map(|d| (d["column"].as_str().unwrap_or_default(), d["kept"] == true))
+        .collect();
+    kept.sort_unstable();
+    assert_eq!(
+        kept,
+        vec![("holder", true), ("performed_by", true)],
+        "{again}"
+    );
+    commit(&pool, &ws, &id_of(&again)).await;
+
+    #[derive(QueryableByName)]
+    struct People {
+        #[diesel(sql_type = Nullable<Text>)]
+        by: Option<String>,
+        #[diesel(sql_type = Nullable<Text>)]
+        held: Option<String>,
+        #[diesel(sql_type = Integer)]
+        version: i32,
+    }
+    let people: People = diesel::sql_query(
+        "SELECT performed_by_uuid::text AS by, holder_uuid::text AS held, version
+         FROM asset_records WHERE source_ref = 'K-1'",
+    )
+    .get_result(&mut pool.get().expect("conn"))
+    .expect("record");
+    let member = ws.member_uuid.to_string();
+    assert_eq!(
+        (people.by.as_deref(), people.held.as_deref(), people.version),
+        (Some(member.as_str()), Some(member.as_str()), 1)
+    );
+}

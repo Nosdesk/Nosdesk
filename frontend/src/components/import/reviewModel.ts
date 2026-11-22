@@ -118,12 +118,15 @@ export type NotImportedLine =
       rows: number
       dropped: number[]
     }
-  /** People who aren't members, left unassigned (or, on a record, blank). */
+  /** People who aren't members, left unassigned (or, on a record, blank,
+   *  or kept as recorded when the row updates one). */
   | {
       kind: 'person'
       key: string
       /** Field id. */
       field: string
+      /** The rows update records that keep the person they hold. */
+      kept: boolean
       columns: number[]
       header: string
       values: number
@@ -200,20 +203,23 @@ export function notImported(
 
   // People: one line per column, every value and row together.
   for (const field of PERSON_FIELDS) {
-    const people = dropped.filter((d) => d.column === field)
-    if (people.length === 0) continue
-    const first = people[0]
-    lines.push({
-      kind: 'person',
-      key: `person:${field}`,
-      field,
-      columns: columnsOf(first.column),
-      header: headerOf(first.column, first.source_column, byId, label),
-      values: new Set(people.map((d) => (d.value ?? '').toLowerCase())).size,
-      rows: people.reduce((n, d) => n + d.count, 0),
-      dropped: people.map((d) => d.index),
-      order: orderOf(first.column),
-    })
+    for (const kept of [false, true]) {
+      const people = dropped.filter((d) => d.column === field && !!d.kept === kept)
+      if (people.length === 0) continue
+      const first = people[0]
+      lines.push({
+        kind: 'person',
+        key: `person:${field}${kept ? ':kept' : ''}`,
+        field,
+        kept,
+        columns: columnsOf(first.column),
+        header: headerOf(first.column, first.source_column, byId, label),
+        values: new Set(people.map((d) => (d.value ?? '').toLowerCase())).size,
+        rows: people.reduce((n, d) => n + d.count, 0),
+        dropped: people.map((d) => d.index),
+        order: orderOf(first.column),
+      })
+    }
   }
 
   // Groups: one line per value, whatever the rows' kinds.
