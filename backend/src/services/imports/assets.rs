@@ -3510,6 +3510,293 @@ pub fn write_history_csv(
     Ok(buf)
 }
 
+/// The records export's columns before a type's own fields, in order. They
+/// equal the records import template's, so an export imports back.
+pub const RECORD_EXPORT_HEADERS: &[&str] = &[
+    "asset_tag",
+    "serial_number",
+    "record_type",
+    "occurred_on",
+    "completed_on",
+    "outcome",
+    "summary",
+    "notes",
+    "vendor",
+    "performed_by",
+    "reference",
+    "cost",
+    "currency",
+    "ticket",
+    "holder",
+    "location",
+    "replacement_asset_tag",
+    "source_ref",
+];
+
+/// The column holding a record's type fields as JSON when the export spans
+/// types.
+pub const RECORD_EXPORT_ATTRIBUTES: &str = "attributes";
+
+/// A record type's fields in its order: the ordered keys, then any the order
+/// leaves out.
+fn record_field_keys(rtype: &crate::models::AssetRecordType) -> Vec<String> {
+    let Some(properties) = rtype
+        .field_schema
+        .get("properties")
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+    let mut keys: Vec<String> = rtype
+        .field_order
+        .iter()
+        .flatten()
+        .filter(|k| properties.contains_key(*k))
+        .cloned()
+        .collect();
+    let rest: Vec<String> = properties
+        .keys()
+        .filter(|k| !keys.contains(k))
+        .cloned()
+        .collect();
+    keys.extend(rest);
+    keys
+}
+
+/// A type field's column: its key, or `attr:<key>` when a shared column
+/// already has that name.
+fn record_field_header(key: &str) -> String {
+    if RECORD_EXPORT_HEADERS.contains(&key) {
+        format!("{ATTRIBUTE_PREFIX}{key}")
+    } else {
+        key.to_string()
+    }
+}
+
+/// The records export's header row: the shared columns, then `record_type`'s
+/// fields when the export is of one type, else one JSON column of them.
+pub fn record_export_headers(record_type: Option<&crate::models::AssetRecordType>) -> Vec<String> {
+    let mut headers: Vec<String> = RECORD_EXPORT_HEADERS
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    match record_type {
+        Some(rtype) => headers.extend(
+            record_field_keys(rtype)
+                .iter()
+                .map(|k| record_field_header(k)),
+        ),
+        None => headers.push(RECORD_EXPORT_ATTRIBUTES.to_string()),
+    }
+    headers
+}
+
+/// What the records export reads besides the records: the assets, types,
+/// people, tickets and replacement tags they name, and the workspace's
+/// timezone.
+pub struct RecordExportLookups<'a> {
+    pub assets: HashMap<i32, &'a Asset>,
+    pub types: HashMap<i32, crate::models::AssetRecordType>,
+    /// Primary email by user.
+    pub emails: HashMap<Uuid, String>,
+    /// Ticket number by ticket id.
+    pub ticket_numbers: HashMap<i32, i32>,
+    /// Asset tag by asset id, for replacements.
+    pub tags: HashMap<i32, String>,
+    pub tz: chrono_tz::Tz,
+}
+
+/// A day or moment as the import reads it back: the day, or the moment in
+/// the workspace's timezone with its offset.
+fn work_date_cell(
+    on: Option<NaiveDate>,
+    at: Option<chrono::DateTime<chrono::Utc>>,
+    tz: chrono_tz::Tz,
+) -> String {
+    match (on, at) {
+        (_, Some(at)) => at
+            .with_timezone(&tz)
+            .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, false),
+        (Some(on), None) => on.format("%Y-%m-%d").to_string(),
+        (None, None) => String::new(),
+    }
+}
+
+/// The records export's rows, one per record, in the columns of
+/// [`record_export_headers`] for `record_type`. Cells are as the import
+/// reads them: people by email, the ticket by its number, the replacement by
+/// its tag, the type by its slug. Not yet guarded against formulas.
+pub fn build_record_rows(
+    records: &[crate::models::AssetRecord],
+    record_type: Option<&crate::models::AssetRecordType>,
+    lookups: &RecordExportLookups,
+) -> Vec<Vec<String>> {
+    let field_keys = record_type.map(record_field_keys);
+    let text = |v: &Option<String>| v.clone().unwrap_or_default();
+    let email = |u: Option<Uuid>| {
+        u.and_then(|u| lookups.emails.get(&u).cloned())
+            .unwrap_or_default()
+    };
+    records
+        .iter()
+        .map(|r| {
+            let asset = lookups.assets.get(&r.asset_id);
+            let cost = match (r.cost_minor, r.cost_currency.as_deref()) {
+                (Some(minor), Some(code)) => {
+                    crate::utils::money::format_minor(minor, code).unwrap_or_default()
+                }
+                _ => String::new(),
+            };
+            let mut row = vec![
+                asset.and_then(|a| a.asset_tag.clone()).unwrap_or_default(),
+                asset
+                    .and_then(|a| a.serial_number.clone())
+                    .unwrap_or_default(),
+                lookups
+                    .types
+                    .get(&r.record_type_id)
+                    .map(|t| t.slug.clone())
+                    .unwrap_or_default(),
+                work_date_cell(Some(r.occurred_on), r.occurred_at, lookups.tz),
+                work_date_cell(r.completed_on, r.completed_at, lookups.tz),
+                text(&r.outcome),
+                text(&r.summary),
+                text(&r.notes),
+                text(&r.vendor),
+                email(r.performed_by_uuid),
+                text(&r.reference),
+                cost,
+                text(&r.cost_currency),
+                r.ticket_id
+                    .and_then(|t| lookups.ticket_numbers.get(&t))
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+                email(r.holder_uuid),
+                text(&r.location),
+                r.replacement_asset_id
+                    .and_then(|a| lookups.tags.get(&a).cloned())
+                    .unwrap_or_default(),
+                text(&r.source_ref),
+            ];
+            match &field_keys {
+                Some(keys) => row.extend(
+                    keys.iter()
+                        .map(|k| r.attributes.get(k).and_then(value_text).unwrap_or_default()),
+                ),
+                None => row.push(r.attributes.to_string()),
+            }
+            row
+        })
+        .collect()
+}
+
+/// A table of cells as CSV, every cell guarded against formulas.
+pub fn write_cells_csv(headers: &[String], rows: &[Vec<String>]) -> Result<Vec<u8>, csv::Error> {
+    let mut buf = Vec::new();
+    {
+        let mut wtr = csv::Writer::from_writer(&mut buf);
+        wtr.write_record(headers)?;
+        for row in rows {
+            wtr.write_record(row.iter().map(|c| csv_formula_safe(c.clone())))?;
+        }
+        wtr.flush()?;
+    }
+    Ok(buf)
+}
+
+/// A table of cells as JSON objects keyed by header, for the JSON exports.
+pub fn cells_json(headers: &[String], rows: &[Vec<String>]) -> Vec<Map<String, Value>> {
+    rows.iter()
+        .map(|row| {
+            headers
+                .iter()
+                .cloned()
+                .zip(row.iter().map(|c| Value::String(c.clone())))
+                .collect()
+        })
+        .collect()
+}
+
+/// Columns of the timeline export and the record card. One row per entry.
+pub const TIMELINE_HEADERS: &[&str] = &[
+    "asset_tag",
+    "asset_name",
+    "source",
+    "day",
+    "at",
+    "type",
+    "summary",
+    "outcome",
+    "vendor",
+    "reference",
+    "cost",
+    "currency",
+    "ticket_id",
+    "actor_uuid",
+    "recorded_at",
+    "recorded_by",
+    "details",
+];
+
+/// A timeline export row: an entry with its asset's tag and name, the
+/// fields reports read, and the whole entry as `details`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TimelineExportRow {
+    pub asset_tag: Option<String>,
+    pub asset_name: String,
+    pub source: &'static str,
+    pub day: NaiveDate,
+    pub at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The record's type, the status moved to, the ticket's state, or which
+    /// loan, replacement or marker entry it is.
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
+    pub summary: Option<String>,
+    pub outcome: Option<String>,
+    pub vendor: Option<String>,
+    pub reference: Option<String>,
+    /// A record's cost as a decimal, in `currency`.
+    pub cost: Option<String>,
+    pub currency: Option<String>,
+    pub ticket_id: Option<i32>,
+    pub actor_uuid: Option<Uuid>,
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
+    pub recorded_by: Option<Uuid>,
+    pub details: Value,
+}
+
+/// CSV of timeline rows, every cell guarded against formulas.
+pub fn write_timeline_csv(rows: &[TimelineExportRow]) -> Result<Vec<u8>, csv::Error> {
+    let headers: Vec<String> = TIMELINE_HEADERS.iter().map(ToString::to_string).collect();
+    let id = |u: Option<Uuid>| u.map(|u| u.to_string()).unwrap_or_default();
+    let text = |v: &Option<String>| v.clone().unwrap_or_default();
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| {
+            vec![
+                text(&r.asset_tag),
+                r.asset_name.clone(),
+                r.source.to_string(),
+                r.day.format("%Y-%m-%d").to_string(),
+                r.at.map(|at| at.to_rfc3339()).unwrap_or_default(),
+                text(&r.kind),
+                text(&r.summary),
+                text(&r.outcome),
+                text(&r.vendor),
+                text(&r.reference),
+                text(&r.cost),
+                text(&r.currency),
+                r.ticket_id.map(|t| t.to_string()).unwrap_or_default(),
+                id(r.actor_uuid),
+                r.recorded_at.to_rfc3339(),
+                id(r.recorded_by),
+                r.details.to_string(),
+            ]
+        })
+        .collect();
+    write_cells_csv(&headers, &cells)
+}
+
 #[cfg(test)]
 mod export_tests {
     use super::*;

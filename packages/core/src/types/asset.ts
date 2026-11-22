@@ -1,3 +1,5 @@
+import type { WorkflowStateCategory } from './workflow';
+
 /** Compact group reference. Shared shape for both the directory groups an
  *  asset is synced into (`Asset.groups`) and the native asset groups it is
  *  classified under (`Asset.asset_groups`). */
@@ -379,6 +381,86 @@ export interface AssetRecordWrite {
 /** A page of an asset's records, newest work first. */
 export interface AssetRecordPage {
   records: AssetRecord[];
+  /** Pass as `before` for the next page; null on the last. */
+  next_cursor: string | null;
+}
+
+/** Where an asset timeline entry comes from. `record` and `replacement`
+ *  are staff only. */
+export type AssetTimelineSource =
+  | 'status'
+  | 'record'
+  | 'replacement'
+  | 'loan'
+  | 'ticket'
+  | 'marker';
+
+/** A ticket linked to the asset, as the timeline shows it. `created_at`,
+ *  `closed_at` and `linked_at` are staff only. */
+export interface AssetTimelineTicket {
+  id: number;
+  number: number;
+  title: string;
+  state: { id: number; name: string; category: WorkflowStateCategory } | null;
+  created_at?: string;
+  closed_at?: string | null;
+  /** When the ticket was linked to the asset. */
+  linked_at?: string;
+}
+
+/** A record naming a replacement asset, on either asset's timeline. */
+export interface AssetTimelineReplacement {
+  record_id: number;
+  /** The record type's slug. */
+  record_type: string | null;
+  outcome: string | null;
+  /** The other asset; null once it is gone. */
+  other_asset: { id: number; name: string; asset_tag: string | null } | null;
+}
+
+/** A status change, with the disposal on the one that disposed of the
+ *  asset and, for staff, the records the transition opened. */
+export interface AssetTimelineStatus extends AssetLifecycleEvent {
+  disposal: AssetDisposal | null;
+  record_ids?: number[];
+}
+
+interface AssetTimelineEntryBase {
+  /** Unique within the timeline. */
+  key: string;
+  /** The asset the entry is on: a predecessor's, with
+   *  `include_predecessors`. */
+  asset_id: number;
+  /** The day it happened, in the workspace timezone. */
+  day: string;
+  /** The moment, when known; null on a date-only entry. */
+  at: string | null;
+  /** When it was written down. */
+  recorded_at: string;
+  recorded_by: string | null;
+  /** Who did it. */
+  actor_uuid: string | null;
+}
+
+/** One entry of an asset's timeline: `data` is the row as its own endpoint
+ *  gives it to the viewer. */
+export type AssetTimelineEntry = AssetTimelineEntryBase &
+  (
+    | { source: 'status'; data: AssetTimelineStatus }
+    | { source: 'record'; data: AssetRecord }
+    | {
+        source: 'replacement';
+        kind: 'replaces' | 'replaced_by';
+        data: AssetTimelineReplacement;
+      }
+    | { source: 'loan'; kind: 'lent' | 'returned'; data: AssetLoan }
+    | { source: 'ticket'; data: AssetTimelineTicket }
+    | { source: 'marker'; kind: 'purchased' | 'added'; data: Record<string, never> }
+  );
+
+/** A page of an asset's timeline, newest first. */
+export interface AssetTimelinePage {
+  entries: AssetTimelineEntry[];
   /** Pass as `before` for the next page; null on the last. */
   next_cursor: string | null;
 }

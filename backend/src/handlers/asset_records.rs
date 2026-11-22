@@ -511,11 +511,12 @@ fn record_json(record: &AssetRecord, slug: Option<&str>, files: &[&AssetMedia]) 
     out
 }
 
-/// Records with their slugs and files, read in one pass.
-fn records_json(
+/// Records with their slugs and files, read in one pass. The timeline
+/// answers its record entries with these.
+pub(crate) fn records_json(
     conn: &mut crate::db::DbConnection,
     records: &[AssetRecord],
-) -> Result<Vec<Value>, Refusal> {
+) -> diesel::QueryResult<Vec<Value>> {
     let slugs: HashMap<i32, String> = types_repo::list(conn, true)?
         .into_iter()
         .map(|t| (t.id, t.slug))

@@ -185,22 +185,20 @@ async function downloadCsv(
 }
 
 /** Download workspace assets as CSV, honouring the same filters as the
- *  paginated list. `scope: 'history'` exports the lifecycle event log
- *  (one row per transition) instead of the current-state snapshot. */
+ *  paginated list. Instead of the current-state snapshot, `scope: 'history'`
+ *  exports the lifecycle event log (one row per transition), `'records'` one
+ *  row per asset record (staff only) and `'timeline'` one row per timeline
+ *  entry. */
 export async function downloadAssetsCsv(
   filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock' | 'import'>,
-  scope?: 'history',
+  scope?: 'history' | 'records' | 'timeline',
 ): Promise<void> {
   const params = assetExportParams(filters);
   if (scope) params.set('scope', scope);
-  await downloadCsv(
-    '/assets/export',
-    params,
-    scope === 'history' ? 'asset-history.csv' : 'assets-export.csv',
-  );
+  await downloadCsv('/assets/export', params, scope ? `asset-${scope}.csv` : 'assets-export.csv');
 }
 
-/** Download one asset's full lifecycle history as a CSV record card
+/** Download one asset's timeline as a CSV record card, one row per entry
  *  (offboarding / disposal / dispute evidence). */
 export async function downloadAssetRecordCard(assetId: number): Promise<void> {
   await downloadCsv(`/assets/${assetId}/record-card`, undefined, `record-card-${assetId}.csv`);
