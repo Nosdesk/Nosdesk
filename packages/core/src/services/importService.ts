@@ -354,6 +354,7 @@ export type KeptReason =
   | { code: 'synced'; source: string }
   | { code: 'disposed' }
   | { code: 'loan' }
+  | { code: 'records'; count: number }
   | { code: 'status_changed' }
   | { code: 'ticket'; ticket_id: number }
   | { code: 'media'; photos: number; files: number }

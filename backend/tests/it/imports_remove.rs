@@ -250,6 +250,40 @@ async fn an_asset_with_a_loan_is_kept() {
     .await;
 }
 
+/// Work recorded on it since: "Has 2 service records". Removing the asset
+/// would take that history with it.
+#[actix_web::test]
+async fn an_asset_with_records_is_kept() {
+    let reason = kept_for(
+        |pool, ws, asset| {
+            let mut conn = pool.get().expect("conn");
+            let type_id = diesel::sql_query(
+                "INSERT INTO asset_record_types (slug, is_builtin, workspace_id)
+                 VALUES ('repair', true, $1) RETURNING id",
+            )
+            .bind::<Integer, _>(ws.workspace_id)
+            .get_result::<IdRow>(&mut conn)
+            .expect("record type")
+            .id;
+            for day in ["2023-05-03", "2024-01-10"] {
+                diesel::sql_query(
+                    "INSERT INTO asset_records (asset_id, record_type_id, occurred_on, source, workspace_id)
+                     VALUES ($1, $2, $3::date, 'manual', $4)",
+                )
+                .bind::<Integer, _>(asset)
+                .bind::<Integer, _>(type_id)
+                .bind::<Text, _>(day)
+                .bind::<Integer, _>(ws.workspace_id)
+                .execute(&mut conn)
+                .expect("record");
+            }
+        },
+        "records",
+    )
+    .await;
+    assert_eq!(reason["count"], 2, "{reason}");
+}
+
 #[actix_web::test]
 async fn a_disposed_asset_is_kept() {
     kept_for(

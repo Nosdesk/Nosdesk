@@ -20,8 +20,8 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::schema::{
     asset_audits, asset_directory_memberships, asset_disposals, asset_group_assignments,
-    asset_groups, asset_lifecycle_events, asset_loans, asset_media, asset_models, asset_usage_log,
-    assets, manufacturers, ticket_assets,
+    asset_groups, asset_lifecycle_events, asset_loans, asset_media, asset_models, asset_records,
+    asset_usage_log, assets, manufacturers, ticket_assets,
 };
 
 /// What the untouched rule reads off an asset row itself.
@@ -90,6 +90,17 @@ pub fn loan_counts(conn: &mut DbConnection, ids: &[i32]) -> QueryResult<HashMap<
         .filter(asset_loans::asset_id.eq_any(ids))
         .group_by(asset_loans::asset_id)
         .select((asset_loans::asset_id, count_star()))
+        .load::<(i32, i64)>(conn)
+        .map(|rows| rows.into_iter().collect())
+}
+
+/// How many asset records (work done) each asset has.
+// sync-audit-only: read-only
+pub fn record_counts(conn: &mut DbConnection, ids: &[i32]) -> QueryResult<HashMap<i32, i64>> {
+    asset_records::table
+        .filter(asset_records::asset_id.eq_any(ids))
+        .group_by(asset_records::asset_id)
+        .select((asset_records::asset_id, count_star()))
         .load::<(i32, i64)>(conn)
         .map(|rows| rows.into_iter().collect())
 }

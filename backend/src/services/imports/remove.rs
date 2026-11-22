@@ -4,10 +4,10 @@
 //!
 //! An asset is untouched when every check of [`KeptReason`] passes: its
 //! `updated_at` is the one the commit read back, its newest lifecycle
-//! event is the one the import wrote, it has no loan, disposal, photo or
-//! file, audit, usage entry, ticket link or directory membership, it is in
-//! no group the import didn't add it to, no sync source owns it, and no
-//! other asset's asset-reference attribute names it.
+//! event is the one the import wrote, it has no loan, record of work done,
+//! disposal, photo or file, audit, usage entry, ticket link or directory
+//! membership, it is in no group the import didn't add it to, no sync source
+//! owns it, and no other asset's asset-reference attribute names it.
 //!
 //! The rule reads the job's committed row results, which the 30-day prune
 //! drops. Removal is open for the same 30 days from the commit
@@ -50,6 +50,9 @@ pub enum KeptReason {
     Disposed,
     /// A loan record: "Has a loan record".
     Loan,
+    /// Records of work done on it: "Has 3 service records". Removing it
+    /// would take that history with it.
+    Records { count: i64 },
     /// A lifecycle event newer than the import's own: "Status changed
     /// since".
     StatusChanged,
@@ -279,6 +282,7 @@ pub fn plan(
 
     let events = repo::newest_lifecycle_events(conn, &live)?;
     let loans = repo::loan_counts(conn, &live)?;
+    let records = repo::record_counts(conn, &live)?;
     let disposals = repo::disposal_counts(conn, &live)?;
     let media = repo::media_counts(conn, &live)?;
     let audits = repo::latest_audits(conn, &live)?;
@@ -310,6 +314,9 @@ pub fn plan(
         }
         if loans.get(&c.id).copied().unwrap_or(0) > 0 {
             reasons.push(KeptReason::Loan);
+        }
+        if let Some(count) = records.get(&c.id).copied().filter(|n| *n > 0) {
+            reasons.push(KeptReason::Records { count });
         }
         match (events.get(&c.id), c.transition_id) {
             (None, _) => {}
