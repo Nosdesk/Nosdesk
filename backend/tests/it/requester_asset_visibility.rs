@@ -442,6 +442,7 @@ async fn assert_sees_assets(f: &Fixture, viewer: Uuid, who: &str, sees: bool) {
     for route in [
         "",
         "/record-card",
+        "/timeline",
         "/lifecycle",
         "/loans",
         "/media",
@@ -946,8 +947,8 @@ async fn lifecycle_reasons_actors_and_metadata_stay_with_staff() {
 /// A disposal record reaches anyone but staff as that the asset was disposed,
 /// when, how it was sanitised and whether it held data. The notes, the ITAD
 /// vendor, the certificate and who recorded it stay with staff, and so does
-/// the list of past ITAD vendors. Neither the record card nor the history
-/// export carries the disposal detail.
+/// the list of past ITAD vendors. The record card carries the disposal
+/// detail to staff alone, and the history export to nobody.
 #[actix_web::test]
 async fn disposal_notes_vendor_and_actor_stay_with_staff() {
     common::ensure_test_keyring();
@@ -1004,16 +1005,24 @@ async fn disposal_notes_vendor_and_actor_stay_with_staff() {
             "{who}: past ITAD vendors"
         );
 
-        for uri in [
-            format!("/api/assets/{}/record-card", f.asset),
-            "/api/assets/export?scope=history&format=json".to_string(),
+        // The record card is the timeline, which folds the disposal into
+        // its status change as the viewer may see it; the history export
+        // carries no disposal detail.
+        for (uri, carries) in [
+            (format!("/api/assets/{}/record-card", f.asset), sees),
+            (
+                "/api/assets/export?scope=history&format=json".to_string(),
+                false,
+            ),
         ] {
             let (status, body) = call(&f, viewer, Method::GET, &uri, None).await;
             assert_eq!(status, StatusCode::OK, "{who}: {uri}");
             assert!(body.contains("disposed"), "{who}: {uri} lists the disposal");
-            assert!(
-                !body.contains(NOTES) && !body.contains(VENDOR),
-                "{who}: {uri} carries no disposal detail"
+            assert_eq!(body.contains(NOTES), carries, "{who}: {uri} and the notes");
+            assert_eq!(
+                body.contains(VENDOR),
+                carries,
+                "{who}: {uri} and the vendor"
             );
         }
     }

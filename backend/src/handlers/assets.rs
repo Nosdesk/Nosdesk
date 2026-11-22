@@ -16,7 +16,9 @@ use crate::repository::groups as groups_repo;
 use crate::services::assets::{
     model_stamp, validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS,
 };
-use crate::services::imports::assets::{build_history_rows, write_assets_csv, write_history_csv};
+use crate::services::imports::assets::{
+    self as imports_assets, build_history_rows, write_assets_csv, write_history_csv,
+};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 
@@ -270,6 +272,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             web::put().to(crate::handlers::asset_records::set_media),
         )
         .route(
+            "/assets/{id:\\d+}/timeline",
+            web::get().to(crate::handlers::asset_timeline::list_for_asset),
+        )
+        .route(
             "/assets/{id:\\d+}/media",
             web::get().to(crate::handlers::asset_media::list_for_asset),
         )
@@ -379,8 +385,19 @@ pub struct AssetExportQuery {
     /// As on the paginated list.
     import: Option<String>,
     /// `snapshot` (default) exports current-state rows; `history` exports the
-    /// lifecycle event log (one row per transition, ticket-correlated).
+    /// lifecycle event log (one row per transition, ticket-correlated);
+    /// `records` one row per asset record (staff only); `timeline` one row
+    /// per timeline entry.
     scope: Option<String>,
+    /// `records` and `timeline`: records of this type only, by slug or id.
+    /// A `records` export of one type has a column per type field.
+    record_type: Option<String>,
+    /// `timeline`: the sources to list, as the timeline endpoint takes them.
+    sources: Option<String>,
+    /// `timeline`: entries on or after this day.
+    from: Option<chrono::NaiveDate>,
+    /// `timeline`: entries on or before this day.
+    to: Option<chrono::NaiveDate>,
 }
 
 // Paginated response
@@ -987,8 +1004,10 @@ pub async fn get_all_devices(mut tc: TenantConn, auth: AuthContext) -> impl Resp
 pub async fn export_assets(
     mut tc: TenantConn,
     auth: AuthContext,
+    req: actix_web::HttpRequest,
     query: web::Query<AssetExportQuery>,
 ) -> impl Responder {
+    let ticket_details = crate::handlers::asset_timeline::reads_tickets(&req);
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::forbidden("Export requires a resolved workspace context for this request");
     };
@@ -997,7 +1016,19 @@ pub async fn export_assets(
     if format != "csv" && format != "json" {
         return errors::bad_request("format must be csv or json");
     }
-    let want_history = query.scope.as_deref() == Some("history");
+    let scope = match query.scope.as_deref() {
+        Some("history") => ExportScope::History,
+        Some("records") => ExportScope::Records,
+        Some("timeline") => ExportScope::Timeline,
+        _ => ExportScope::Snapshot,
+    };
+    let sources = match crate::handlers::asset_timeline::parse_sources(query.sources.as_deref()) {
+        Ok(s) => s,
+        Err(message) => return errors::bad_request(message),
+    };
+    if let Err(message) = crate::handlers::asset_timeline::check_window(query.from, query.to) {
+        return errors::bad_request(message);
+    }
 
     let import = match import_param(query.import.as_deref(), &auth) {
         Ok(v) => v,
@@ -1023,22 +1054,45 @@ pub async fn export_assets(
         } else {
             repository::assets::list_for_export(conn, filters)?
         };
-        // History exports the lifecycle log for the same filtered assets.
-        let events = if want_history {
-            let ids: Vec<i32> = rows.iter().map(|a| a.id).collect();
-            Some(repository::asset_lifecycle::history_for_export(conn, &ids)?)
-        } else {
-            None
+        let ids: Vec<i32> = rows.iter().map(|a| a.id).collect();
+        let extra = match scope {
+            ExportScope::Snapshot => ExportExtra::None,
+            // History exports the lifecycle log for the same filtered assets.
+            ExportScope::History => {
+                ExportExtra::History(repository::asset_lifecycle::history_for_export(conn, &ids)?)
+            }
+            ExportScope::Records => {
+                records_export(conn, &auth, &ids, query.record_type.as_deref())?
+            }
+            ExportScope::Timeline => {
+                // Only staff see records, so only theirs read the type.
+                let types = if auth.can_handle_tickets() {
+                    crate::handlers::asset_timeline::type_filter(
+                        conn,
+                        query.record_type.as_deref(),
+                    )?
+                } else {
+                    crate::handlers::asset_timeline::TypeFilter::Any
+                };
+                let filter = crate::handlers::asset_timeline::filter_for(
+                    sources, &types, query.from, query.to,
+                );
+                let mut entries = timeline_entries(conn, &auth, &ids, &filter, ticket_details)?;
+                // By asset, as the records export is, each asset's newest
+                // first: a sort that keeps the timeline's order within one.
+                entries.sort_by_key(|e| e.key.asset_id);
+                ExportExtra::Timeline(entries)
+            }
         };
         let slug = repository::workspaces::find_by_id(conn, workspace_id)
             .ok()
             .flatten()
             .map(|w| w.slug)
             .unwrap_or_else(|| "workspace".to_string());
-        Ok((rows, events, slug))
+        Ok((rows, extra, slug))
     });
 
-    let (mut rows, mut events, slug) = match export_result {
+    let (mut rows, mut extra, slug) = match export_result {
         Ok(v) => v,
         Err(e) => {
             error!(error = ?e, "Database error exporting assets");
@@ -1048,31 +1102,65 @@ pub async fn export_assets(
     // The CSV keeps its `notes` column, blank, so a re-import still parses.
     strip_staff_asset_fields(&mut rows, &auth);
     // History keeps its columns too, blank where the timeline is staff only.
-    if let Some(events) = events.as_mut() {
+    if let ExportExtra::History(events) = &mut extra {
         crate::handlers::asset_lifecycle::strip_staff_lifecycle_fields(events, &auth);
     }
 
-    let kind = if events.is_some() {
-        "asset-history"
-    } else {
-        "assets"
+    let kind = match &extra {
+        ExportExtra::None => "assets",
+        ExportExtra::History(_) => "asset-history",
+        ExportExtra::Records { .. } => "asset-records",
+        ExportExtra::Timeline(_) => "asset-timeline",
     };
-    let built: Result<(Vec<u8>, &'static str, &'static str), String> = if format == "json" {
-        match &events {
-            Some(events) => serde_json::to_vec(&build_history_rows(&rows, events)),
-            None => serde_json::to_vec(&rows),
+    let by_id: HashMap<i32, &Asset> = rows.iter().map(|a| (a.id, a)).collect();
+    let json = format == "json";
+    let built: Result<Vec<u8>, String> = match extra {
+        ExportExtra::None if json => serde_json::to_vec(&rows).map_err(|e| e.to_string()),
+        ExportExtra::None => write_assets_csv(&rows).map_err(|e| e.to_string()),
+        ExportExtra::History(events) if json => {
+            serde_json::to_vec(&build_history_rows(&rows, &events)).map_err(|e| e.to_string())
         }
-        .map(|b| (b, "application/json; charset=utf-8", "json"))
-        .map_err(|e| e.to_string())
-    } else {
-        match &events {
-            Some(events) => write_history_csv(&rows, events),
-            None => write_assets_csv(&rows),
+        ExportExtra::History(events) => {
+            write_history_csv(&rows, &events).map_err(|e| e.to_string())
         }
-        .map(|b| (b, "text/csv; charset=utf-8", "csv"))
-        .map_err(|e| e.to_string())
+        ExportExtra::Records {
+            records,
+            record_type,
+            lookups,
+        } => {
+            let lookups = imports_assets::RecordExportLookups {
+                assets: by_id,
+                types: lookups.types,
+                emails: lookups.emails,
+                ticket_numbers: lookups.ticket_numbers,
+                tags: lookups.tags,
+                tz: lookups.tz,
+            };
+            let headers = imports_assets::record_export_headers(record_type.as_ref());
+            let cells = imports_assets::build_record_rows(&records, record_type.as_ref(), &lookups);
+            if json {
+                serde_json::to_vec(&imports_assets::cells_json(&headers, &cells))
+                    .map_err(|e| e.to_string())
+            } else {
+                imports_assets::write_cells_csv(&headers, &cells).map_err(|e| e.to_string())
+            }
+        }
+        ExportExtra::Timeline(entries) => {
+            let rows = crate::handlers::asset_timeline::export_rows(&entries, &by_id);
+            if json {
+                serde_json::to_vec(&crate::handlers::asset_timeline::export_rows_json(&rows))
+                    .map_err(|e| e.to_string())
+            } else {
+                imports_assets::write_timeline_csv(&rows).map_err(|e| e.to_string())
+            }
+        }
     };
-    let (body, content_type, ext) = match built {
+    let (content_type, ext) = if json {
+        ("application/json; charset=utf-8", "json")
+    } else {
+        ("text/csv; charset=utf-8", "csv")
+    };
+    let body = match built {
         Ok(v) => v,
         Err(e) => {
             error!(error = %e, "Failed to serialize asset export");
@@ -1091,22 +1179,145 @@ pub async fn export_assets(
         .body(body)
 }
 
-/// `GET /api/assets/{id}/record-card` — the asset's full lifecycle history as a
-/// CSV (offboarding / disposal / dispute evidence). Same rows as the bulk
-/// history export, scoped to one asset. Any authenticated workspace member.
+/// Which rows an asset export holds.
+#[derive(Debug, Clone, Copy)]
+enum ExportScope {
+    Snapshot,
+    History,
+    Records,
+    Timeline,
+}
+
+/// What the records export reads besides the assets and records.
+struct RecordLookups {
+    types: HashMap<i32, crate::models::AssetRecordType>,
+    emails: HashMap<Uuid, String>,
+    ticket_numbers: HashMap<i32, i32>,
+    tags: HashMap<i32, String>,
+    tz: chrono_tz::Tz,
+}
+
+/// What an export holds besides the assets.
+enum ExportExtra {
+    None,
+    History(Vec<crate::models::AssetLifecycleEvent>),
+    Records {
+        records: Vec<crate::models::AssetRecord>,
+        /// The one type exported, when `record_type` named one.
+        record_type: Option<crate::models::AssetRecordType>,
+        lookups: RecordLookups,
+    },
+    Timeline(Vec<crate::handlers::asset_timeline::Projected>),
+}
+
+/// The records of `asset_ids` and what their cells name. Records are staff
+/// only: anyone else gets the template's columns and no rows, the same
+/// whatever `record_type` names, so the export tells them nothing of the
+/// workspace's types.
+fn records_export(
+    conn: &mut crate::db::DbConnection,
+    auth: &AuthContext,
+    asset_ids: &[i32],
+    record_type: Option<&str>,
+) -> Result<ExportExtra, Error> {
+    use crate::handlers::asset_timeline::{type_filter, TypeFilter};
+    let tz = repository::asset_records::workspace_timezone(conn)?;
+    if !auth.can_handle_tickets() {
+        return Ok(ExportExtra::Records {
+            records: Vec::new(),
+            record_type: None,
+            lookups: RecordLookups {
+                types: HashMap::new(),
+                emails: HashMap::new(),
+                ticket_numbers: HashMap::new(),
+                tags: HashMap::new(),
+                tz,
+            },
+        });
+    }
+    // The type to read records of: `Some(None)` for every type, `None` when
+    // `record_type` names no type.
+    let (record_type, records_of) = match type_filter(conn, record_type)? {
+        TypeFilter::Any => (None, Some(None)),
+        TypeFilter::Only(t) => {
+            let id = t.id;
+            (Some(t), Some(Some(id)))
+        }
+        TypeFilter::Unknown => (None, None),
+    };
+    let records = match records_of {
+        Some(type_id) => repository::asset_timeline::records_for_export(conn, asset_ids, type_id)?,
+        None => Vec::new(),
+    };
+    let types: HashMap<i32, crate::models::AssetRecordType> =
+        repository::asset_record_types::list(conn, true)?
+            .into_iter()
+            .map(|t| (t.id, t))
+            .collect();
+    let people: Vec<Uuid> = records
+        .iter()
+        .flat_map(|r| [r.performed_by_uuid, r.holder_uuid])
+        .flatten()
+        .collect();
+    let emails = repository::user_helpers::primary_emails(conn, &people)?;
+    let tickets: Vec<i32> = records.iter().filter_map(|r| r.ticket_id).collect();
+    let ticket_numbers = repository::asset_timeline::ticket_numbers(conn, &tickets)?;
+    let replacements: Vec<i32> = records
+        .iter()
+        .filter_map(|r| r.replacement_asset_id)
+        .collect();
+    let tags = repository::asset_timeline::asset_tags(conn, &replacements)?;
+    Ok(ExportExtra::Records {
+        records,
+        record_type,
+        lookups: RecordLookups {
+            types,
+            emails,
+            ticket_numbers,
+            tags,
+            tz,
+        },
+    })
+}
+
+/// Every timeline entry of `asset_ids` as `auth` may see it, newest first;
+/// tickets by id alone unless `ticket_details`.
+fn timeline_entries(
+    conn: &mut crate::db::DbConnection,
+    auth: &AuthContext,
+    asset_ids: &[i32],
+    filter: &repository::asset_timeline::TimelineFilter,
+    ticket_details: bool,
+) -> Result<Vec<crate::handlers::asset_timeline::Projected>, Error> {
+    let viewer = crate::handlers::asset_timeline::viewer(auth);
+    let page = repository::asset_timeline::page(conn, asset_ids, &viewer, filter, None, None)?;
+    crate::handlers::asset_timeline::project(conn, auth, page.entries, ticket_details)
+}
+
+/// `GET /api/assets/{id}/record-card`: the asset's timeline as a CSV, one
+/// row per entry, as the caller may see it (offboarding, disposal and
+/// dispute evidence). Any member shown assets.
 pub async fn record_card(
     mut tc: TenantConn,
     auth: AuthContext,
+    req: actix_web::HttpRequest,
     path: web::Path<i32>,
 ) -> impl Responder {
     let asset_id = path.into_inner();
+    let ticket_details = crate::handlers::asset_timeline::reads_tickets(&req);
     let result = tc.run(|conn| {
         require_assets_visible(conn, &auth)?;
         let asset = repository::get_device_by_id(conn, asset_id)?;
-        let events = repository::asset_lifecycle::history_for_export(conn, &[asset_id])?;
-        Ok((asset, events))
+        let entries = timeline_entries(
+            conn,
+            &auth,
+            &[asset_id],
+            &repository::asset_timeline::TimelineFilter::default(),
+            ticket_details,
+        )?;
+        Ok((asset, entries))
     });
-    let (asset, mut events) = match result {
+    let (asset, entries) = match result {
         Ok(v) => v,
         Err(diesel::result::Error::NotFound) => {
             return errors::not_found_msg(format!("Asset {asset_id} not found"));
@@ -1116,8 +1327,9 @@ pub async fn record_card(
             return errors::internal("Failed to build asset record card");
         }
     };
-    crate::handlers::asset_lifecycle::strip_staff_lifecycle_fields(&mut events, &auth);
-    let body = match write_history_csv(std::slice::from_ref(&asset), &events) {
+    let by_id = HashMap::from([(asset.id, &asset)]);
+    let rows = crate::handlers::asset_timeline::export_rows(&entries, &by_id);
+    let body = match imports_assets::write_timeline_csv(&rows) {
         Ok(bytes) => bytes,
         Err(e) => {
             error!(asset_id, error = ?e, "Failed to serialize asset record card CSV");
