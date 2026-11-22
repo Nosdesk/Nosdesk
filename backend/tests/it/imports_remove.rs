@@ -284,6 +284,67 @@ async fn an_asset_with_records_is_kept() {
     assert_eq!(reason["count"], 2, "{reason}");
 }
 
+/// A record of work on another asset that names it, as the asset that
+/// replaced the one repaired or in an asset-reference field of the record's
+/// type: "Referenced by 'Camera 14'". Removing it would quietly clear the
+/// one and leave the other naming nothing.
+#[actix_web::test]
+async fn an_asset_another_assets_record_names_is_kept() {
+    for (field_schema, replacement, attributes) in [
+        ("{}", true, "{}"),
+        (
+            r#"{"type": "object", "properties": {"loaners": {"type": "array", "items": {"type": "string", "format": "asset-ref"}}}}"#,
+            false,
+            r#"{"loaners": ["TARGET"]}"#,
+        ),
+    ] {
+        let reason = kept_for(
+            |pool, ws, asset| {
+                let mut conn = pool.get().expect("conn");
+                let other = diesel::sql_query(
+                    "INSERT INTO assets (name, workspace_id) VALUES ('Camera 14', $1) RETURNING id",
+                )
+                .bind::<Integer, _>(ws.workspace_id)
+                .get_result::<IdRow>(&mut conn)
+                .expect("the repaired asset")
+                .id;
+                let schema = if field_schema == "{}" {
+                    r#"{"type": "object", "properties": {}}"#
+                } else {
+                    field_schema
+                };
+                let type_id = diesel::sql_query(
+                    "INSERT INTO asset_record_types (slug, is_builtin, field_schema, outcomes, workspace_id)
+                     VALUES ('repair', true, $1::jsonb,
+                       '[{\"key\": \"replaced\", \"category\": \"replaced\"}]'::jsonb, $2)
+                     RETURNING id",
+                )
+                .bind::<Text, _>(schema)
+                .bind::<Integer, _>(ws.workspace_id)
+                .get_result::<IdRow>(&mut conn)
+                .expect("record type")
+                .id;
+                diesel::sql_query(
+                    "INSERT INTO asset_records (asset_id, record_type_id, occurred_on, completed_on,
+                       outcome, replacement_asset_id, attributes, source, workspace_id)
+                     VALUES ($1, $2, '2024-01-10', '2024-01-11', 'replaced', $3, $4::jsonb,
+                       'manual', $5)",
+                )
+                .bind::<Integer, _>(other)
+                .bind::<Integer, _>(type_id)
+                .bind::<Nullable<Integer>, _>(replacement.then_some(asset))
+                .bind::<Text, _>(attributes.replace("TARGET", &asset.to_string()))
+                .bind::<Integer, _>(ws.workspace_id)
+                .execute(&mut conn)
+                .expect("a record on the other asset");
+            },
+            "referenced",
+        )
+        .await;
+        assert_eq!(reason["name"], "Camera 14", "{reason}");
+    }
+}
+
 #[actix_web::test]
 async fn a_disposed_asset_is_kept() {
     kept_for(

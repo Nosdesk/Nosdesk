@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
+use crate::repository::asset_record_types as record_type_repo;
 use crate::repository::assets::AssetDeletedObserver;
 use crate::repository::{
     asset_groups as group_repo, asset_kinds as kind_repo, asset_models as model_repo,
@@ -66,8 +67,9 @@ pub enum KeptReason {
     Usage,
     /// A directory membership: "In a directory group".
     Directory,
-    /// Another asset's asset-reference attribute names it: "Referenced by
-    /// 'Tripod kit 4'".
+    /// Another asset's asset-reference attribute, or a record of work on
+    /// another asset (its replacement, or an asset-reference field), names
+    /// it: "Referenced by 'Tripod kit 4'".
     Referenced { asset_id: i32, name: String },
     /// A group assignment the import didn't make: "Added to a group since".
     GroupAdded,
@@ -259,6 +261,32 @@ fn reference_keys(
     Ok(out)
 }
 
+/// The asset-reference field keys of each asset record type: properties with
+/// `format: asset-ref`, or lists of them.
+fn record_reference_keys(
+    conn: &mut DbConnection,
+) -> Result<HashMap<i32, HashSet<String>>, DieselError> {
+    let is_ref = |prop: &serde_json::Value| {
+        prop.get("format").and_then(serde_json::Value::as_str) == Some("asset-ref")
+    };
+    let mut out: HashMap<i32, HashSet<String>> = HashMap::new();
+    for rtype in record_type_repo::list(conn, true)? {
+        let Some(props) = rtype
+            .field_schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+        else {
+            continue;
+        };
+        for (key, prop) in props {
+            if is_ref(prop) || prop.get("items").is_some_and(is_ref) {
+                out.entry(rtype.id).or_default().insert(key.clone());
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Check every asset the import created against the untouched rule, and
 /// count the catalog entries removal would try. With `lock`, the assets
 /// and catalog entries are locked for the rest of the transaction (see
@@ -427,6 +455,32 @@ fn references_to(
         let is_ref = by_kind
             .get(&r.referrer_kind)
             .is_some_and(|keys| keys.contains(&r.key));
+        let Ok(target) = r.value.trim().parse::<i32>() else {
+            continue;
+        };
+        if is_ref && target != r.referrer_id {
+            out.entry(target)
+                .or_insert((r.referrer_id, r.referrer_name));
+        }
+    }
+    // Records of work on other assets that name it: as their replacement,
+    // or in an asset-reference field of their type. Deleting it would clear
+    // the one and leave the other naming nothing.
+    let by_type = record_reference_keys(conn)?;
+    let record_keys: Vec<String> = by_type
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut record_refs = repo::record_references(conn, &record_keys, &targets)?;
+    record_refs.sort_by_key(|r| r.referrer_id);
+    for r in record_refs {
+        let is_ref = r.key == "replacement_asset_id"
+            || by_type
+                .get(&r.record_type_id)
+                .is_some_and(|keys| keys.contains(&r.key));
         let Ok(target) = r.value.trim().parse::<i32>() else {
             continue;
         };

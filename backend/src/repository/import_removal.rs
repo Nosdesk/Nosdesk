@@ -249,6 +249,60 @@ pub fn attribute_references(
     .load(conn)
 }
 
+/// A record of work on one asset that names another: as its replacement
+/// (`key` "replacement_asset_id"), or in one of its type's fields.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct RecordReference {
+    /// The asset the record is on.
+    #[diesel(sql_type = Int4)]
+    pub referrer_id: i32,
+    #[diesel(sql_type = Text)]
+    pub referrer_name: String,
+    #[diesel(sql_type = Int4)]
+    pub record_type_id: i32,
+    #[diesel(sql_type = Text)]
+    pub key: String,
+    #[diesel(sql_type = Text)]
+    pub value: String,
+}
+
+/// Every asset record that names one of `targets` (asset ids as text): as
+/// its replacement asset, or in a field among `keys`, a single value or an
+/// item of a list. The caller keeps the fields that are asset references on
+/// the record's type.
+// sync-audit-only: read-only
+pub fn record_references(
+    conn: &mut DbConnection,
+    keys: &[String],
+    targets: &[String],
+) -> QueryResult<Vec<RecordReference>> {
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+    diesel::sql_query(
+        "SELECT r.asset_id AS referrer_id, a.name::text AS referrer_name, r.record_type_id, \
+                'replacement_asset_id' AS key, r.replacement_asset_id::text AS value \
+         FROM asset_records r JOIN assets a ON a.id = r.asset_id \
+         WHERE r.replacement_asset_id::text = ANY($2) \
+         UNION ALL \
+         SELECT r.asset_id, a.name::text, r.record_type_id, kv.key, e.value \
+         FROM (SELECT asset_id, record_type_id, attributes FROM asset_records \
+               WHERE jsonb_typeof(attributes) = 'object' AND attributes ?| $1) r \
+         JOIN assets a ON a.id = r.asset_id \
+         CROSS JOIN LATERAL jsonb_each(r.attributes) kv \
+         CROSS JOIN LATERAL ( \
+           SELECT kv.value #>> '{}' AS value WHERE jsonb_typeof(kv.value) <> 'array' \
+           UNION ALL \
+           SELECT x FROM jsonb_array_elements_text( \
+             CASE WHEN jsonb_typeof(kv.value) = 'array' THEN kv.value ELSE '[]'::jsonb END) x \
+         ) e \
+         WHERE kv.key = ANY($1) AND e.value = ANY($2)",
+    )
+    .bind::<Array<Text>, _>(keys)
+    .bind::<Array<Text>, _>(targets)
+    .load(conn)
+}
+
 #[derive(QueryableByName)]
 struct LastEdit {
     #[diesel(sql_type = Text)]
