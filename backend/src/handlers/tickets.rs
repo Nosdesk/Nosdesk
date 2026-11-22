@@ -409,6 +409,8 @@ pub async fn get_ticket_activity(
             .filter(sync_actions::aggregate.ne(crate::models::SyncAggregate::Attachment))
             .filter(sync_actions::event_type.ne("comment.moved"))
             .filter(sync_actions::event_type.ne("ticket.people_cleared"))
+            // Nor does dragging it into another place in a day.
+            .filter(sync_actions::event_type.ne(crate::repository::tickets::RANK_CHANGED))
             .order((
                 sync_actions::occurred_at.desc(),
                 sync_actions::sync_id.desc(),
@@ -626,6 +628,8 @@ pub async fn create_ticket(
     // A client sets only the columns it owns, and someone who doesn't handle
     // tickets files one the way the portal does.
     let mut new_ticket = ticket.into_inner().without_server_columns();
+    crate::services::ticket_plan::check_new(&new_ticket)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     if !auth.can_handle_tickets() {
         let default_state = tc
             .run(repository::workflow_states::default_state)
@@ -965,10 +969,14 @@ pub async fn update_ticket_partial(
         ));
     }
 
-    // Parse JSON and build TicketUpdate with user lookups
-    let mut ticket_update = TicketUpdate::default();
+    // The plan (due and start dates and their times, rank, size) decodes as
+    // a sync push patch does, so the two paths read a date the same way:
+    // the calendar day written, any offset ignored (`ticket_dates`). Each
+    // takes null to clear.
+    let mut ticket_update =
+        TicketUpdate::plan_from_json(&body).map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
-    // Handle simple string fields
+    // The rest by hand, with user lookups. Simple string fields first.
     if let Some(title) = body.get("title").and_then(|v| v.as_str()) {
         ticket_update.title = Some(title.to_string());
     }
@@ -1025,56 +1033,6 @@ pub async fn update_ticket_partial(
                 Ok(Ok(uuid)) => ticket_update.assignee_uuid = Some(Some(uuid)),
                 Ok(Err(e)) => return Err(e),
                 Err(_) => return Err(ApiError::Internal("Failed to resolve assignee".into())),
-            }
-        }
-    }
-
-    // due_date: ISO timestamp string, or null to clear. Calendar
-    // view reads this; ticket_id default is null.
-    if body.get("due_date").is_some() {
-        match body.get("due_date") {
-            Some(Value::String(s)) => match chrono::DateTime::parse_from_rfc3339(s) {
-                Ok(dt) => {
-                    ticket_update.due_date = Some(Some(dt.naive_utc()));
-                }
-                Err(_) => {
-                    return Err(ApiError::BadRequest(
-                        "due_date must be RFC3339 or null".into(),
-                    ))
-                }
-            },
-            Some(Value::Null) => {
-                ticket_update.due_date = Some(None);
-            }
-            _ => {
-                return Err(ApiError::BadRequest(
-                    "due_date must be a string or null".into(),
-                ))
-            }
-        }
-    }
-
-    // start_date: ISO timestamp string, or null to clear. Optional
-    // planning start for the gantt; same shape as due_date.
-    if body.get("start_date").is_some() {
-        match body.get("start_date") {
-            Some(Value::String(s)) => match chrono::DateTime::parse_from_rfc3339(s) {
-                Ok(dt) => {
-                    ticket_update.start_date = Some(Some(dt.naive_utc()));
-                }
-                Err(_) => {
-                    return Err(ApiError::BadRequest(
-                        "start_date must be RFC3339 or null".into(),
-                    ))
-                }
-            },
-            Some(Value::Null) => {
-                ticket_update.start_date = Some(None);
-            }
-            _ => {
-                return Err(ApiError::BadRequest(
-                    "start_date must be a string or null".into(),
-                ))
             }
         }
     }

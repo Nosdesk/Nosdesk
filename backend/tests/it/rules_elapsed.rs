@@ -886,3 +886,60 @@ async fn a_removed_agents_reply_stays_staff_and_list_mail_is_no_customer_reply()
         answered
     );
 }
+
+/// A due time is the moment `until_due_at` counts down to, in the
+/// workspace's timezone, and setting or clearing it moves the clock.
+#[actix_rt::test]
+async fn a_due_time_moves_the_countdown() {
+    use chrono::TimeZone;
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    h.as_admin(a, |c| {
+        use backend::schema::site_settings::dsl as ss;
+        backend::repository::site_settings::get_site_settings(c)?;
+        diesel::update(ss::site_settings)
+            .set(ss::default_timezone.eq("Australia/Sydney"))
+            .execute(c)
+    });
+    let ticket = h.ticket(a, "Visit the Hendersons");
+    let day = Utc.with_ymd_and_hms(2036, 11, 21, 0, 0, 0).unwrap();
+    h.update(
+        a,
+        ticket,
+        TicketUpdate {
+            due_date: Some(Some(day.naive_utc())),
+            ..Default::default()
+        },
+    );
+    let rule = h.time_rule(a, "until_due_at", 60, set_priority("high"));
+    let end_of_day = Utc.with_ymd_and_hms(2036, 11, 21, 13, 0, 0).unwrap();
+    assert_eq!(h.row(a, ticket, rule).expect("a countdown").3, end_of_day);
+
+    // 14:30 in Sydney (UTC+11) is 03:30 UTC.
+    h.update(
+        a,
+        ticket,
+        TicketUpdate {
+            due_time: Some(Some(chrono::NaiveTime::from_hms_opt(14, 30, 0).unwrap())),
+            ..Default::default()
+        },
+    );
+    h.drain().await;
+    let booked = Utc.with_ymd_and_hms(2036, 11, 21, 3, 30, 0).unwrap();
+    let row = h.row(a, ticket, rule).expect("a countdown");
+    assert_eq!(
+        (row.3, row.4),
+        (booked, booked - chrono::Duration::hours(1))
+    );
+
+    h.update(
+        a,
+        ticket,
+        TicketUpdate {
+            due_time: Some(None),
+            ..Default::default()
+        },
+    );
+    h.drain().await;
+    assert_eq!(h.row(a, ticket, rule).expect("a countdown").3, end_of_day);
+}

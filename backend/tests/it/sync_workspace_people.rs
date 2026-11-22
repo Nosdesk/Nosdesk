@@ -504,6 +504,10 @@ fn a_purge_reaches_each_workspace_with_its_own_changes() {
                 ..Default::default()
             })
             .get_result(c)?;
+        // A place in the person's day.
+        diesel::update(backend::schema::tickets::table.find(ticket.id))
+            .set(backend::schema::tickets::rank.eq("a0"))
+            .execute(c)?;
         let comment: i32 = diesel::insert_into(backend::schema::comments::table)
             .values(&NewComment {
                 content: "On it".to_string(),
@@ -611,11 +615,21 @@ fn a_purge_reaches_each_workspace_with_its_own_changes() {
         "only the requester, which is all that changed on it"
     );
     let cleared_b = of_type(&in_b, "ticket.people_cleared", &b_ticket_id);
-    assert_eq!(cleared_b.len(), 1, "B's ticket loses its assignee");
+    assert_eq!(
+        cleared_b.len(),
+        1,
+        "B's ticket loses its assignee, and its place in their day"
+    );
     assert_eq!(
         cleared_b[0].2,
-        serde_json::json!({ "id": b_ticket, "assignee_uuid": null })
+        serde_json::json!({ "id": b_ticket, "assignee_uuid": null, "rank": null })
     );
+    let rank: Option<String> = run_in_workspace(&f.pool, REF, b, |c| {
+        use backend::schema::tickets::dsl as t;
+        t::tickets.find(b_ticket).select(t::rank).first(c)
+    })
+    .expect("B's ticket");
+    assert_eq!(rank, None);
 
     let replies = of_type(&in_b, "comment.deleted", &b_comment.to_string());
     assert_eq!(replies.len(), 1, "B hears the reply go");

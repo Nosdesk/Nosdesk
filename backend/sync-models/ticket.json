@@ -1,6 +1,6 @@
 {
   "name": "ticket",
-  "schema_version": 1,
+  "schema_version": 2,
   "audience": "ticket",
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
@@ -17,6 +17,10 @@
     "verification_state": { "rust": "Option<String>", "ts": "string | null" },
     "due_date": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
     "start_date": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
+    "due_time": { "rust": "Option<NaiveTime>", "ts": "string | null" },
+    "start_time": { "rust": "Option<NaiveTime>", "ts": "string | null" },
+    "rank": { "rust": "Option<String>", "ts": "string | null" },
+    "estimate_minutes": { "rust": "Option<i32>", "ts": "number | null" },
     "closed_at": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
     "created_at": { "rust": "NaiveDateTime", "ts": "string" },
     "updated_at": { "rust": "NaiveDateTime", "ts": "string" }
@@ -43,7 +47,8 @@
     { "type": "ticket.watcher_added", "op": "U" },
     { "type": "ticket.watcher_removed", "op": "U" },
     { "type": "ticket.watcher_pref_changed", "op": "U" },
-    { "type": "ticket.people_cleared", "op": "U" }
+    { "type": "ticket.people_cleared", "op": "U" },
+    { "type": "ticket.rank_changed", "op": "U" }
   ],
   "groups": [
     "workspace:1",

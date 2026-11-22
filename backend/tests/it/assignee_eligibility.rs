@@ -426,7 +426,9 @@ fn a_recurring_ticket_whose_assignee_was_demoted_comes_back_unassigned() {
         diesel::update(tickets::table.find(ticket.id))
             .set((
                 tickets::recurrence_rule.eq("FREQ=WEEKLY"),
-                tickets::due_date.eq(ticket.created_at + chrono::Duration::days(1)),
+                tickets::due_date.eq((ticket.created_at + chrono::Duration::days(1))
+                    .date()
+                    .and_time(chrono::NaiveTime::MIN)),
             ))
             .execute(c)
     });

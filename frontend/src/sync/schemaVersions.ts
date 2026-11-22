@@ -16,7 +16,7 @@ import type { SyncAggregate } from '@nosdesk/core/sync/types'
  * entry here in the same commit.
  */
 export const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
-  ticket: 1,
+  ticket: 2,
   project: 1,
   project_ticket: 1,
   ticket_asset: 1,

@@ -16,7 +16,7 @@ use crate::models::SyncAggregate;
 
 pub fn schema_version_for(aggregate: SyncAggregate) -> i16 {
     match aggregate {
-        SyncAggregate::Ticket => 1,
+        SyncAggregate::Ticket => 2,
         SyncAggregate::Project => 1,
         SyncAggregate::ProjectTicket => 1,
         SyncAggregate::WorkflowState => 1,

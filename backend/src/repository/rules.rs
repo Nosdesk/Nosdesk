@@ -1998,6 +1998,9 @@ fn update_ticket_fields(
             crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?.number,
         )),
         Err(TicketWriteError::Database(e)) => Err(ApplyError::Db(e)),
+        // No step writes a plan field; one that breaks the plan's rules is
+        // refused like a check the database makes.
+        Err(e @ TicketWriteError::Plan(_)) => Err(ApplyError::Db(e.into())),
     }
 }
 
@@ -2658,6 +2661,11 @@ fn load_ticket_facts_with(
         DateTime<Utc>,
         Option<DateTime<Utc>>,
         Option<DateTime<Utc>>,
+        Option<DateTime<Utc>>,
+        Option<chrono::NaiveTime>,
+        Option<DateTime<Utc>>,
+        Option<chrono::NaiveTime>,
+        Option<i32>,
     );
     let rows: Vec<Row> = tickets::table
         .filter(tickets::id.eq_any(ticket_ids))
@@ -2673,8 +2681,19 @@ fn load_ticket_facts_with(
             tickets::updated_at,
             tickets::first_response_at,
             tickets::closed_at,
+            tickets::due_date,
+            tickets::due_time,
+            tickets::start_date,
+            tickets::start_time,
+            tickets::estimate_minutes,
         ))
         .load(conn)?;
+    // A due or start date and time resolve in the workspace's timezone.
+    let tz = if rows.iter().any(|r| r.11.is_some() || r.13.is_some()) {
+        crate::repository::site_settings::workspace_timezone(conn)?
+    } else {
+        chrono_tz::Tz::UTC
+    };
     let mut tags = crate::repository::tags::tag_ids_for_tickets(conn, ticket_ids)?;
     let requesters: Vec<Uuid> = rows.iter().filter_map(|r| r.4).collect();
     let emails = crate::repository::user_helpers::primary_emails(conn, &requesters)?;
@@ -2713,6 +2732,15 @@ fn load_ticket_facts_with(
                 resolved_at: r.10,
                 requester_email: present(r.4.and_then(|u| emails.get(&u))),
                 requester_organization: present(r.4.and_then(|u| organizations.get(&u))),
+                due_at: r
+                    .11
+                    .map(|d| crate::services::ticket_dates::due_instant(d, r.12, tz)),
+                due_time: r.12,
+                start_at: r
+                    .13
+                    .map(|d| crate::services::ticket_dates::start_instant(d, r.14, tz)),
+                start_time: r.14,
+                estimate_minutes: r.15,
             };
             (facts.id, facts)
         })

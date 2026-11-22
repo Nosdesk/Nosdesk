@@ -47,6 +47,8 @@ const TICKET_FIELD_ACTIONS: Readonly<Record<string, string>> = {
   tag_ids: 'sync-rejected-tags',
   due_date: 'sync-rejected-dates',
   start_date: 'sync-rejected-dates',
+  due_time: 'sync-rejected-dates',
+  start_time: 'sync-rejected-dates',
 }
 const BOOKKEEPING = new Set(['last_activity_at', 'workflow_state'])
 

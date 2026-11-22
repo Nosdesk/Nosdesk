@@ -873,6 +873,17 @@ mod tests {
     }
 
     #[test]
+    fn a_reorder_notifies_nobody() {
+        // A reorder's row is the whole ticket with no previous_* keys.
+        let r = row(
+            "ticket.rank_changed",
+            json!({"id": 7, "title": "T", "assignee_uuid": A, "rank": "a1", "requester_uuid": B}),
+            Some(B),
+        );
+        assert!(derive(&r).is_empty());
+    }
+
+    #[test]
     fn unchanged_assignee_is_not_an_assignment() {
         let r = row(
             "ticket.updated",

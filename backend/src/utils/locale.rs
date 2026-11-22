@@ -186,16 +186,22 @@ pub fn request_locale(req: &actix_web::HttpRequest) -> LanguageIdentifier {
 /// skips midnight (a daylight saving change at 00:00, as Chile's) starts the
 /// day at its first moment after the gap.
 pub fn day_start(day: chrono::NaiveDate, tz: Tz) -> chrono::DateTime<chrono::Utc> {
+    local_moment(day.and_time(chrono::NaiveTime::MIN), tz)
+}
+
+/// The moment a wall-clock time names in timezone `tz`. A time a daylight
+/// saving change skips (clocks going forward over it) reads as the first
+/// moment after the gap; one it repeats, as the first of the two.
+pub fn local_moment(local: chrono::NaiveDateTime, tz: Tz) -> chrono::DateTime<chrono::Utc> {
     use chrono::TimeZone;
-    let midnight = day.and_time(chrono::NaiveTime::MIN);
-    tz.from_local_datetime(&midnight)
+    tz.from_local_datetime(&local)
         .earliest()
         .or_else(|| {
-            tz.from_local_datetime(&(midnight + chrono::Duration::hours(1)))
+            tz.from_local_datetime(&(local + chrono::Duration::hours(1)))
                 .earliest()
         })
         .map(|t| t.with_timezone(&chrono::Utc))
-        .unwrap_or_else(|| midnight.and_utc())
+        .unwrap_or_else(|| local.and_utc())
 }
 
 /// Resolve the effective IANA timezone for a user. Same chain as

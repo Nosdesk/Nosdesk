@@ -831,7 +831,8 @@ pub enum ApiError {
 }
 
 /// A ticket write's refusal is the caller's mistake: 400 `INVALID_ASSIGNEE` for
-/// an assignee who can't work tickets, 409 `ticket_merged` for a merged ticket.
+/// an assignee who can't work tickets, 409 `ticket_merged` for a merged ticket,
+/// 400 for plan fields that break the plan's rules.
 impl From<crate::repository::tickets::TicketWriteError> for ApiError {
     fn from(err: crate::repository::tickets::TicketWriteError) -> Self {
         use crate::repository::tickets::TicketWriteError;
@@ -846,6 +847,7 @@ impl From<crate::repository::tickets::TicketWriteError> for ApiError {
             TicketWriteError::Merged => {
                 ApiError::Actix(from_response("merged ticket", ticket_merged()))
             }
+            TicketWriteError::Plan(e) => ApiError::BadRequest(e.to_string()),
             TicketWriteError::Database(e) => ApiError::Database(e),
         }
     }

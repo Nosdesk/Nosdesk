@@ -58,6 +58,15 @@ export interface CardData {
   /** Optional planning start. Null means unplanned; the gantt falls
    * back to created_at for a bar's left edge. */
   start_date?: string | null
+  /** Time of day of the deadline (`"14:30:00"`), a floating wall-clock
+   * time of `due_date`. Null means by the end of that day. */
+  due_time?: string | null
+  /** Time of day of the planned start, on `start_date`. Null means some
+   * time that day. */
+  start_time?: string | null
+  /** Manual order within a day: a fractional index key of ASCII letters
+   * and digits, compared byte by byte. Null means not placed by hand. */
+  rank?: string | null
   created_at: string
   updated_at: string
   /** Set when the ticket reaches a terminal workflow state. Used by
@@ -71,8 +80,8 @@ export interface CardData {
   last_activity_at: string
   unread_activity?: boolean
 
-  // Estimation (optional; reserved for cycles in Phase 6+).
-  estimate?: { value: number; unit: 'points' | 'hours' | 'tshirt' } | null
+  /** How long the job takes, in minutes. Null means not sized. */
+  estimate_minutes?: number | null
 
   // Hierarchy
   parent_ticket_id?: number | null

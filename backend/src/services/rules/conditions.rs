@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 use regex::{Regex, RegexBuilder};
 use serde_json::Value;
 use uuid::Uuid;
@@ -113,6 +113,13 @@ pub struct TicketFacts {
     pub resolved_at: Option<DateTime<Utc>>,
     pub requester_email: Option<String>,
     pub requester_organization: Option<String>,
+    /// When it is due and when it starts, resolved in the workspace's
+    /// timezone (`services::ticket_dates`).
+    pub due_at: Option<DateTime<Utc>>,
+    pub due_time: Option<NaiveTime>,
+    pub start_at: Option<DateTime<Utc>>,
+    pub start_time: Option<NaiveTime>,
+    pub estimate_minutes: Option<i32>,
 }
 
 /// What a condition reads from the event that fired the rule.
@@ -281,6 +288,9 @@ impl Checker {
                         err("give a date and time like 2026-01-31T09:00:00Z".to_string())
                     })?;
                 }
+                K::Time => {
+                    time_of_day(value).map_err(err)?;
+                }
                 _ => {
                     let minutes = value
                         .as_i64()
@@ -382,6 +392,7 @@ fn canon(kind: ConditionFieldKind, value: &Value) -> Option<String> {
             .as_str()
             .and_then(|s| Uuid::parse_str(s).ok())
             .map(|u| u.to_string()),
+        K::Time => time_of_day(value).ok().map(|t| t.to_string()),
         _ => None,
     }
 }
@@ -407,6 +418,7 @@ fn check_scalar(field: ConditionField, value: &Value) -> Result<(), String> {
             .and_then(|s| Uuid::parse_str(s).ok())
             .map(drop)
             .ok_or_else(|| "give a person's id".to_string()),
+        K::Time => time_of_day(value).map(drop),
         other => Err(format!("a {} field takes no single value", other.as_str())),
     }
 }
@@ -437,6 +449,13 @@ fn list(value: &Value) -> Result<&Vec<Value>, String> {
         Some(items) => Ok(items),
         None => Err("give a list of values".to_string()),
     }
+}
+
+fn time_of_day(value: &Value) -> Result<NaiveTime, String> {
+    value
+        .as_str()
+        .and_then(crate::services::ticket_dates::parse_time)
+        .ok_or_else(|| "give a time of day like 14:30".to_string())
 }
 
 fn timestamp(value: &Value) -> Option<DateTime<Utc>> {
@@ -554,10 +573,27 @@ impl Predicate {
                     _ => false,
                 },
             },
-            Fact::Number(have) => match (have, value.as_i64()) {
-                (Some(have), Some(want)) => ordered(op, have.cmp(&want)),
-                _ => false,
+            Fact::Number(have) => match op {
+                IsNull => have.is_none(),
+                IsNotNull => have.is_some(),
+                _ => match (have, value.as_i64()) {
+                    (Some(have), Some(want)) => ordered(op, have.cmp(&want)),
+                    _ => false,
+                },
             },
+            Fact::Clock(have) => {
+                let want = time_of_day(value).ok();
+                match op {
+                    IsNull => have.is_none(),
+                    IsNotNull => have.is_some(),
+                    Eq => have.is_some() && have == want,
+                    Neq => have.is_none() || have != want,
+                    _ => match (have, want) {
+                        (Some(have), Some(want)) => ordered(op, have.cmp(&want)),
+                        _ => false,
+                    },
+                }
+            }
             Fact::Ints(have) => {
                 let want = || {
                     value
@@ -611,6 +647,8 @@ enum Fact<'a> {
     Scalar(Option<String>),
     Time(Option<DateTime<Utc>>),
     Number(Option<i64>),
+    /// A time of day.
+    Clock(Option<NaiveTime>),
     Ints(&'a [i32]),
     Strings(&'a [String]),
 }
@@ -638,6 +676,11 @@ fn fact<'a>(
         F::UpdatedAt => Fact::Time(Some(ticket.updated_at)),
         F::FirstResponseAt => Fact::Time(ticket.first_response_at),
         F::ResolvedAt => Fact::Time(ticket.resolved_at),
+        F::DueDate => Fact::Time(ticket.due_at),
+        F::DueTime => Fact::Clock(ticket.due_time),
+        F::StartDate => Fact::Time(ticket.start_at),
+        F::StartTime => Fact::Clock(ticket.start_time),
+        F::EstimateMinutes => Fact::Number(ticket.estimate_minutes.map(i64::from)),
         F::RequesterEmail => Fact::Scalar(lower(&ticket.requester_email)),
         F::RequesterOrganization => Fact::Scalar(lower(&ticket.requester_organization)),
         F::EventChangedFields => Fact::Strings(&event?.changed_fields),
@@ -718,6 +761,11 @@ mod tests {
             resolved_at: None,
             requester_email: Some("Pat@Example.com".into()),
             requester_organization: None,
+            due_at: Some(at("2026-11-21T13:00:00Z")),
+            due_time: None,
+            start_at: None,
+            start_time: None,
+            estimate_minutes: Some(120),
         }
     }
 
@@ -748,11 +796,12 @@ mod tests {
             (K::StringArray, HasAny | HasAll) => json!(["ticket.priority"]),
             (K::Timestamp, Gt | Lt | Gte | Lte) => json!("2026-01-31T09:00:00Z"),
             (K::Number, Gt | Lt | Gte | Lte) => json!(30),
+            (K::Time, Eq | Neq | Gt | Lt | Gte | Lte) => json!("09:30"),
             _ => return None,
         })
     }
 
-    const FIELDS: [&str; 18] = [
+    const FIELDS: [&str; 23] = [
         "ticket.priority",
         "ticket.category_id",
         "ticket.requester_uuid",
@@ -765,6 +814,11 @@ mod tests {
         "ticket.updated_at",
         "ticket.first_response_at",
         "ticket.resolved_at",
+        "ticket.due_date",
+        "ticket.due_time",
+        "ticket.start_date",
+        "ticket.start_time",
+        "ticket.estimate_minutes",
         "ticket.requester.email",
         "ticket.requester.organization",
         "event.changed_fields",
@@ -886,7 +940,79 @@ mod tests {
             ops(K::Timestamp),
             ["gt", "lt", "gte", "lte", "is_null", "is_not_null"]
         );
-        assert_eq!(ops(K::Number), ["gt", "lt", "gte", "lte"]);
+        assert_eq!(
+            ops(K::Number),
+            ["gt", "lt", "gte", "lte", "is_null", "is_not_null"]
+        );
+        assert_eq!(
+            ops(K::Time),
+            [
+                "eq",
+                "neq",
+                "gt",
+                "lt",
+                "gte",
+                "lte",
+                "is_null",
+                "is_not_null"
+            ]
+        );
+    }
+
+    /// The plan's fields: when it is due (a moment), its times of day and
+    /// its size, each of which a ticket may not have.
+    #[test]
+    fn the_plan_fields_read_the_ticket() {
+        let booked = TicketFacts {
+            due_time: Some(NaiveTime::from_hms_opt(14, 30, 0).unwrap()),
+            ..ticket()
+        };
+        let on = |conditions: Value, t: &TicketFacts| {
+            compile(&conditions, TicketCreated)
+                .expect("valid")
+                .matches(t, None)
+        };
+        assert!(on(
+            leaf("ticket.due_date", "lt", json!("2026-11-22T00:00:00Z")),
+            &booked
+        ));
+        assert!(!on(
+            leaf("ticket.due_date", "lt", json!("2026-11-21T00:00:00Z")),
+            &booked
+        ));
+        assert!(on(null_leaf("ticket.start_date", "is_null"), &booked));
+        assert!(on(leaf("ticket.due_time", "eq", json!("14:30")), &booked));
+        assert!(on(leaf("ticket.due_time", "gte", json!("12:00")), &booked));
+        assert!(!on(leaf("ticket.due_time", "lt", json!("12:00")), &booked));
+        assert!(on(leaf("ticket.due_time", "neq", json!("09:00")), &booked));
+        assert!(on(null_leaf("ticket.due_time", "is_null"), &ticket()));
+        assert!(on(
+            leaf("ticket.estimate_minutes", "gt", json!(60)),
+            &booked
+        ));
+        let not_sized = TicketFacts {
+            estimate_minutes: None,
+            ..ticket()
+        };
+        assert!(on(
+            null_leaf("ticket.estimate_minutes", "is_null"),
+            &not_sized
+        ));
+        assert!(!on(
+            leaf("ticket.estimate_minutes", "lt", json!(60)),
+            &not_sized
+        ));
+        // A time is hours and minutes; a clock always has a value.
+        refused(leaf("ticket.due_time", "eq", json!("2pm")), TicketCreated);
+        refused(null_leaf("clock.minutes_since", "is_null"), TimeElapsed);
+        // An and that wants two times at once never matches.
+        refused(
+            json!({ "kind": "and", "children": [
+                leaf("ticket.due_time", "eq", json!("09:00")),
+                leaf("ticket.due_time", "eq", json!("10:00")),
+            ]}),
+            TicketCreated,
+        );
     }
 
     #[test]

@@ -409,6 +409,8 @@ fn apply_ticket(
                     "ticket_merged",
                     crate::repository::tickets::MERGED_TICKET.into(),
                 ),
+                // The app's controls only write plans that keep the rules.
+                TicketWriteError::Plan(e) => TxReject("invalid_patch", e.to_string()),
                 TicketWriteError::Database(e) => reject_diesel(e),
             })
         }

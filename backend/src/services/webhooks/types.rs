@@ -259,6 +259,9 @@ mod tests {
             // A purge clearing a person from each of their tickets raises
             // nothing: a requester can have thousands.
             ("ticket.people_cleared", None),
+            // Reordering a ticket within a day is no update anyone outside
+            // hears of.
+            ("ticket.rank_changed", None),
             ("ticket.deleted", Some(TicketDeleted)),
             ("comment.created", Some(CommentAdded)),
             ("attachment.created", Some(AttachmentAdded)),
