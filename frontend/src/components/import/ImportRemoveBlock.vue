@@ -31,7 +31,7 @@ import {
 } from '@nosdesk/core/services/importService'
 
 import { errorBody, removalRefusalText } from './refusals'
-import { dialogMessage, reasonLine, removalState, resultLine } from './removeModel'
+import { dialogMessage, reasonLine, removalState, removeKey, resultLine } from './removeModel'
 
 const props = defineProps<{
   job: ImportJob
@@ -56,6 +56,9 @@ const list = (items: string[]) =>
 const date = (iso: string) => formatCompactDate(iso)
 
 const state = computed(() => removalState(props.job))
+/** Records, for an asset records import: its strings and kept links. */
+const records = computed(() => props.job.job_type === 'asset_records')
+const k = (key: string) => removeKey(props.job, key)
 const closesOn = computed(() =>
   props.job.removal_closes_at ? formatCompactDate(props.job.removal_closes_at) : '',
 )
@@ -118,9 +121,9 @@ async function waitForRemoval() {
  *  failure that isn't one. */
 async function refused(e: unknown): Promise<boolean> {
   const code = codeOf(e).code
-  const worded = removalRefusalText(t, errorBody(e))
+  const worded = removalRefusalText(t, errorBody(e), records.value)
   if (code === 'import_already_removed') {
-    errorMessage.value = t('import-remove-already-removed')
+    errorMessage.value = t(k('import-remove-already-removed'))
   } else if (code === 'import_removal_window_closed') {
     errorMessage.value = t('import-remove-window-closed', { date: closesOn.value })
   } else if (worded) {
@@ -141,7 +144,7 @@ async function openDialog() {
     plan.value = await importService.removalPlan(props.job.id)
     showDialog.value = true
   } catch (e) {
-    if (!(await refused(e))) errorMessage.value = t('import-remove-load-failed')
+    if (!(await refused(e))) errorMessage.value = t(k('import-remove-load-failed'))
   } finally {
     checking.value = false
   }
@@ -165,7 +168,7 @@ async function confirm() {
     // Read back before calling it failed: it may have run all the same.
     const found = await reread()
     if (hasRun(found)) emit('removed', found)
-    else errorMessage.value = t('import-remove-failed')
+    else errorMessage.value = t(k('import-remove-failed'))
   } finally {
     removing.value = false
   }
@@ -173,17 +176,20 @@ async function confirm() {
 
 const deletable = computed(() => plan.value?.deletable ?? 0)
 const title = computed(() =>
-  deletable.value > 0 ? t('import-remove-title', { count: deletable.value }) : t('import-remove-title-none'),
+  deletable.value > 0 ? t(k('import-remove-title'), { count: deletable.value }) : t('import-remove-title-none'),
 )
 const message = computed(() =>
-  plan.value ? dialogMessage(t, plan.value, { webhooks: !!props.webhooks, list }) : '',
+  plan.value
+    ? dialogMessage(t, plan.value, { webhooks: !!props.webhooks, list, records: records.value })
+    : '',
 )
 const planKept = computed(() => plan.value?.kept ?? [])
 
 const result = computed(() => resultLine(t, props.job, date))
 const resultKept = computed(() => props.job.remove_result?.kept ?? [])
 
-const keptReason = (k: KeptAsset) => (k.reasons[0] ? reasonLine(t, k.reasons[0], date) : '')
+const keptReason = (kept: KeptAsset) =>
+  kept.reasons[0] ? reasonLine(t, kept.reasons[0], date) : ''
 </script>
 
 <template>
@@ -193,12 +199,15 @@ const keptReason = (k: KeptAsset) => (k.reasons[0] ? reasonLine(t, k.reasons[0],
         <span class="font-medium text-primary">{{ result }}</span>
       </template>
       <ul v-if="resultKept.length > 0" class="flex flex-col gap-1 px-4 py-3 text-sm" data-test="import-remove-kept">
-        <li v-for="k in resultKept" :key="k.id" class="flex flex-wrap items-baseline gap-x-1.5 min-w-0">
-          <RouterLink :to="`/assets/${k.id}`" class="flex flex-wrap items-baseline gap-x-1.5 min-w-0 text-accent hover:underline">
-            <span v-if="k.tag" class="font-mono text-xs">{{ k.tag }}</span>
-            <span class="break-words min-w-0">{{ k.name }}</span>
+        <li v-for="kept in resultKept" :key="kept.id" class="flex flex-wrap items-baseline gap-x-1.5 min-w-0">
+          <RouterLink
+            :to="`/assets/${kept.asset_id ?? kept.id}`"
+            class="flex flex-wrap items-baseline gap-x-1.5 min-w-0 text-accent hover:underline"
+          >
+            <span v-if="kept.tag" class="font-mono text-xs">{{ kept.tag }}</span>
+            <span class="break-words min-w-0">{{ kept.name }}</span>
           </RouterLink>
-          <span class="text-tertiary">· {{ keptReason(k) }}</span>
+          <span class="text-tertiary">· {{ keptReason(kept) }}</span>
         </li>
       </ul>
     </Callout>
@@ -214,10 +223,10 @@ const keptReason = (k: KeptAsset) => (k.reasons[0] ? reasonLine(t, k.reasons[0],
         data-test="import-remove-button"
         @click="openDialog"
       >
-        {{ $t('import-remove-button') }}
+        {{ $t(k('import-remove-button')) }}
       </Button>
       <span class="text-xs text-tertiary" data-test="import-remove-window">
-        {{ $t('import-remove-window', { date: closesOn }) }}
+        {{ $t(k('import-remove-window'), { date: closesOn }) }}
       </span>
     </div>
 
@@ -231,7 +240,7 @@ const keptReason = (k: KeptAsset) => (k.reasons[0] ? reasonLine(t, k.reasons[0],
       variant="danger"
       :title="title"
       :message="message"
-      :confirm-label="$t('import-remove-confirm', { count: deletable })"
+      :confirm-label="$t(k('import-remove-confirm'), { count: deletable })"
       :confirm-disabled="deletable === 0"
       :loading="removing"
       @close="showDialog = false"
@@ -243,10 +252,10 @@ const keptReason = (k: KeptAsset) => (k.reasons[0] ? reasonLine(t, k.reasons[0],
             {{ $t('import-remove-which-kept', { count: planKept.length }) }}
           </summary>
           <ul class="mt-2 flex flex-col gap-1 max-h-48 overflow-y-auto">
-            <li v-for="k in planKept" :key="k.id" class="flex flex-wrap items-baseline gap-x-1.5 min-w-0">
-              <span v-if="k.tag" class="font-mono text-xs text-primary">{{ k.tag }}</span>
-              <span class="text-primary break-words min-w-0">{{ k.name }}</span>
-              <span class="text-tertiary">· {{ keptReason(k) }}</span>
+            <li v-for="kept in planKept" :key="kept.id" class="flex flex-wrap items-baseline gap-x-1.5 min-w-0">
+              <span v-if="kept.tag" class="font-mono text-xs text-primary">{{ kept.tag }}</span>
+              <span class="text-primary break-words min-w-0">{{ kept.name }}</span>
+              <span class="text-tertiary">· {{ keptReason(kept) }}</span>
             </li>
           </ul>
         </details>

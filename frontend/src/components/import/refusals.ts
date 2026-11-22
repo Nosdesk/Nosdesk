@@ -119,12 +119,16 @@ const NOTHING_TO_REMOVE_KEYS: Record<string, string> = {
 /** Why Remove imported assets was refused, for the refusals that leave
  *  the job as it was: nothing to delete (by `args.reason`) or an import
  *  that wasn't committed. `null` for any other refusal. */
-export function removalRefusalText(t: Translate, body: ErrorBody | undefined): string | null {
+export function removalRefusalText(
+  t: Translate,
+  body: ErrorBody | undefined,
+  records = false,
+): string | null {
   switch (body?.code) {
     case 'import_nothing_to_remove': {
       const reason = body.args?.reason
       const key = typeof reason === 'string' ? NOTHING_TO_REMOVE_KEYS[reason] : undefined
-      if (key) return t(key)
+      if (key) return t(records ? `${key}-records` : key)
       return typeof body.error === 'string' ? body.error : null
     }
     case 'import_not_committed':

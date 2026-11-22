@@ -4,9 +4,11 @@
  * dialog's sentences, each kept asset's reason line, the result line, and
  * the previous values help text.
  *
- * Removal is for asset imports that created assets, once, for 30 days
- * after the commit (`removal_closes_at`); after that, or once the prune
- * removed the details, the page says the window closed.
+ * Removal is for asset imports that created assets, and asset records
+ * imports that created records, once, for 30 days after the commit
+ * (`removal_closes_at`); after that, or once the prune removed the
+ * details, the page says the window closed. Records are worded as records
+ * ({@link removeKey}).
  */
 import type {
   ImportJob,
@@ -22,8 +24,15 @@ type Translate = (key: string, args?: Record<string, string | number>) => string
 /** What a past asset import shows for removal. */
 export type RemovalState = 'offer' | 'removed' | 'closed'
 
+/** A removal string's key for `job`: the records wording for an asset
+ *  records import. */
+export function removeKey(job: Pick<ImportJob, 'job_type'>, key: string): string {
+  return job.job_type === 'asset_records' ? `${key}-records` : key
+}
+
 export function removalState(job: ImportJob, now: number = Date.now()): RemovalState | null {
-  if (job.job_type !== 'assets' || job.state !== 'imported') return null
+  if (job.job_type !== 'assets' && job.job_type !== 'asset_records') return null
+  if (job.state !== 'imported') return null
   if (job.removed_at || job.remove_result) return 'removed'
   if (!job.summary || outcomes(job.summary).created === 0) return null
   if (!job.removal_closes_at) return null
@@ -69,10 +78,11 @@ export function keptGroups(t: Translate, kept: KeptAsset[]): string {
 export function dialogMessage(
   t: Translate,
   plan: RemovalPlan,
-  opts: { webhooks: boolean; list: (items: string[]) => string },
+  opts: { webhooks: boolean; list: (items: string[]) => string; records?: boolean },
 ): string {
-  if (plan.created === 0) return t('import-remove-nothing-none-created')
-  const parts = [t('import-remove-created', { count: plan.created })]
+  const key = (k: string) => (opts.records ? `${k}-records` : k)
+  if (plan.created === 0) return t(key('import-remove-nothing-none-created'))
+  const parts = [t(key('import-remove-created'), { count: plan.created })]
   if (plan.deletable > 0) parts.push(t('import-remove-deletable', { count: plan.deletable }))
   if (plan.kept.length > 0) {
     parts.push(t('import-remove-kept', { count: plan.kept.length, reasons: keptGroups(t, plan.kept) }))
@@ -88,7 +98,7 @@ export function dialogMessage(
   if (plan.deletable > 0 && made.length > 0) {
     parts.push(t('import-remove-catalog', { list: opts.list(made) }))
   }
-  if (opts.webhooks && plan.deletable > 0) {
+  if (opts.webhooks && !opts.records && plan.deletable > 0) {
     parts.push(t('import-remove-webhooks', { count: plan.deletable }))
   }
   return parts.join(' ')
@@ -109,6 +119,8 @@ export function reasonLine(t: Translate, reason: KeptReason, date: (iso: string)
       return t('import-remove-reason-loan')
     case 'records':
       return t('import-remove-reason-records', { count: reason.count })
+    case 'schedule':
+      return t('import-remove-reason-schedule')
     case 'disposed':
       return t('import-remove-reason-disposed')
     case 'media':
@@ -138,8 +150,8 @@ export function resultLine(t: Translate, job: ImportJob, date: (iso: string) => 
   if (!result || !job.removed_at) return ''
   const when = date(job.removed_at)
   const head = job.removed_by_name
-    ? t('import-remove-result', { count: result.deleted, date: when, name: job.removed_by_name })
-    : t('import-remove-result-anonymous', { count: result.deleted, date: when })
+    ? t(removeKey(job, 'import-remove-result'), { count: result.deleted, date: when, name: job.removed_by_name })
+    : t(removeKey(job, 'import-remove-result-anonymous'), { count: result.deleted, date: when })
   return result.kept.length > 0
     ? `${head} ${t('import-remove-result-kept', { count: result.kept.length })}`
     : head

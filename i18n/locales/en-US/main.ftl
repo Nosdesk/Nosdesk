@@ -3828,6 +3828,7 @@ import-options-heading = How to import
 import-options-match-label = { $type ->
     [users] Match existing users by
     [tickets] Existing tickets
+    [asset_records] Find each row's asset by
    *[other] Match existing assets by
    }
 import-options-match-asset-tag = Asset tag
@@ -3975,12 +3976,14 @@ import-values-footer-link = Saved matches
 import-matches-noun = { $type ->
     [users] user
     [tickets] ticket
+    [asset_records] service history
    *[assets] asset
 }
 import-matches-nouns = { $type ->
     [users] users
     [tickets] tickets
     [documentation] documentation
+    [asset_records] service history
    *[assets] assets
 }
 import-matches-title = Saved matches
@@ -3991,6 +3994,7 @@ import-matches-type-label = Import type
 import-matches-type-option = { $type ->
     [users] Users
     [tickets] Tickets
+    [asset_records] Service history
    *[assets] Assets
 } · { $count }
 import-matches-values-title = Values · { $count }
@@ -4191,6 +4195,10 @@ import-review-changes-records = { $type ->
         [one] 1 ticket
        *[other] { $count } tickets
        }
+    [asset_records] { $count ->
+        [one] 1 record
+       *[other] { $count } records
+       }
    *[other] { $count ->
         [one] 1 asset
        *[other] { $count } assets
@@ -4207,6 +4215,7 @@ import-review-empty-skipped = No skipped rows. Every row checks out.
 import-review-empty-new = { $type ->
     [users] No new users. Every row matched an existing user.
     [tickets] No new tickets.
+    [asset_records] No new records.
    *[other] No new assets. Every row matched an existing asset.
    }
 import-review-empty-updated = No updates. Every matched row is unchanged.
@@ -4222,6 +4231,10 @@ import-review-confirm-both = { $type ->
         [one] 1 person will be added and { $updated } updated.
        *[other] { $created } people will be added and { $updated } updated.
        }
+    [asset_records] { $created ->
+        [one] 1 record will be created and { $updated } updated.
+       *[other] { $created } records will be created and { $updated } updated.
+       }
    *[other] { $created ->
         [one] 1 asset will be created and { $updated } updated.
        *[other] { $created } assets will be created and { $updated } updated.
@@ -4236,6 +4249,10 @@ import-review-confirm-created = { $type ->
         [one] 1 ticket will be created.
        *[other] { $count } tickets will be created.
        }
+    [asset_records] { $count ->
+        [one] 1 record will be created.
+       *[other] { $count } records will be created.
+       }
    *[other] { $count ->
         [one] 1 asset will be created.
        *[other] { $count } assets will be created.
@@ -4246,6 +4263,10 @@ import-review-confirm-updated = { $type ->
         [one] 1 person will be updated.
        *[other] { $count } people will be updated.
        }
+    [asset_records] { $count ->
+        [one] 1 record will be updated.
+       *[other] { $count } records will be updated.
+       }
    *[other] { $count ->
         [one] 1 asset will be updated.
        *[other] { $count } assets will be updated.
@@ -4255,6 +4276,10 @@ import-review-confirm-unchanged = { $type ->
     [users] { $count ->
         [one] 1 row matches an existing user and is unchanged.
        *[other] { $count } rows match existing users and are unchanged.
+       }
+    [asset_records] { $count ->
+        [one] 1 row matches a record already there and is unchanged.
+       *[other] { $count } rows match records already there and are unchanged.
        }
    *[other] { $count ->
         [one] 1 row matches an existing asset and is unchanged.
@@ -4304,6 +4329,10 @@ import-done-created = { $type ->
         [one] 1 ticket created
        *[other] { $count } tickets created
        }
+    [asset_records] { $count ->
+        [one] 1 record created
+       *[other] { $count } records created
+       }
    *[other] { $count ->
         [one] 1 asset created
        *[other] { $count } assets created
@@ -4317,6 +4346,7 @@ import-done-created-title = Created in your workspace
 import-done-view = { $type ->
     [users] View these users
     [tickets] View these tickets
+    [asset_records] View assets
    *[other] View these assets
    }
 import-done-another = Import another file like this
@@ -10636,3 +10666,120 @@ admin-rule-editor-plugin-hint = The rule runs on the ticket the event names, whe
 # Email channel: older mail comes in only when asked for, and quietly.
 admin-channels-email-field-backlog-since-label = Also bring in mail since
 admin-channels-email-field-backlog-since-hint = Leave this empty to take only mail that arrives from now on. Mail from before the channel connects comes in quietly, with no acknowledgement and no rules.
+
+# Importing service history: past work on assets from a spreadsheet.
+csv-import-type-asset-records = Service history
+import-field-asset_records-asset-tag = Asset tag
+import-field-asset_records-serial-number = Serial number
+import-field-asset_records-record-type = Record type
+import-field-asset_records-occurred-on = Date of work
+import-field-asset_records-completed-on = Completed on
+import-field-asset_records-outcome = Outcome
+import-field-asset_records-summary = Summary
+import-field-asset_records-notes = Notes
+import-field-asset_records-vendor = Vendor
+import-field-asset_records-reference = Reference
+import-field-asset_records-cost = Cost
+import-field-asset_records-currency = Currency
+import-field-asset_records-location = Location then
+import-field-asset_records-source-ref = Source reference
+import-field-asset_records-performed-by = Performed by
+import-field-asset_records-holder = Held by then
+import-field-asset_records-ticket = Ticket
+import-field-asset_records-replacement-asset-tag = Replacement asset tag
+import-options-match-tag-then-serial = Tag, then serial
+import-options-match-records-asset-tag-help = Each row finds its asset by tag. A row whose tag isn't here is skipped and listed.
+import-options-match-records-serial-number-help = Each row finds its asset by serial number. A row whose serial isn't here is skipped and listed.
+import-options-match-records-tag-then-serial-help = Each row finds its asset by tag, or by serial number when the tag is blank or finds nothing.
+import-options-mode-create-update-help-records = Rows whose source reference a record has update that record. The others create one.
+import-options-mode-create-only-help-records = Rows whose source reference a record already has are skipped. The others create one.
+import-options-mode-update-only-help-records = Rows whose source reference a record has update it. The others are skipped as not found.
+import-options-blank-completion = A blank completion date means the work was finished that day
+import-options-blank-completion-same-day-help = Old history is finished work. Untick this to import rows without a completion date as still open.
+import-options-blank-completion-open-help = Rows without a completion date are imported as open work.
+import-history-options-blank-open = Blank completion means open
+import-map-summary-match-asset_records = { $key ->
+    [serial_number] Finding assets by serial number
+    [tag_then_serial] Finding assets by tag, then serial
+   *[other] Finding assets by asset tag
+   }
+import-map-create-heading-asset_records = New records need { $fields }
+import-map-create-asset_records = Nothing gives { $count ->
+    [one] it
+   *[other] them
+   }, so rows that update a record by its source reference go ahead, and rows for new records will be reported on Review.
+import-map-detect-asset_records = This file has { $headers } columns. Importing service history?
+import-map-switch-asset_records = Switch to service history
+import-map-switch-asset_records-help = Columns are matched again for service history.
+import-template-record-type-label = Record type
+import-template-record-type-none = Shared columns only
+import-template-record-type-help = Pick a record type to add its own fields, with its outcomes in the Outcome dropdown.
+import-review-notice-likely-duplicate = { $count ->
+    [one] 1 row looks already recorded: a record of the same asset, type and day has the same reference, cost or summary. It's skipped.
+   *[other] { $count } rows look already recorded: a record of the same asset, type and day has the same reference, cost or summary. They're skipped.
+   }
+import-review-notice-unmatched-assets = { $count ->
+    [one] 1 row is about an asset that isn't in Nosdesk yet.
+   *[other] { $count } rows are about assets that aren't in Nosdesk yet.
+   } Service history never creates assets: import them first, then this file again.
+import-review-import-assets-first = Import the assets first
+import-review-notice-before-purchase = { $count ->
+    [one] 1 record is dated before its asset's purchase date.
+   *[other] { $count } records are dated before their asset's purchase date.
+   }
+import-review-notice-completed-long-after = { $count ->
+    [one] 1 record was completed more than five years after the work started.
+   *[other] { $count } records were completed more than five years after the work started.
+   }
+import-review-duplicates-include = Import these anyway
+import-review-duplicates-skip = Skip them again
+import-review-duplicates-included = Rows that look already recorded will be imported too.
+import-review-history-title = This file at a glance
+import-review-history-assets = { $count ->
+    [one] 1 asset
+   *[other] { $count } assets
+   }
+import-review-history-span = { $from } to { $to }
+import-review-history-costs = Cost
+import-review-new-record-types = Record types added from the built-ins ({ $count })
+import-review-count-record-types = { $count ->
+    [one] 1 record type
+   *[other] { $count } record types
+   }
+import-review-ni-ticket-reason = no ticket with this number, imported without it
+import-review-ni-currency-reason = a currency without a cost, left off
+import-review-ni-person-reason-blank = { $values ->
+    [one] not a member, left blank
+   *[other] not members, left blank
+   }
+import-review-ni-attribute-reason-records = { $kind } records have no { $header }, left out
+import-remove-button-records = Remove imported records
+import-remove-window-records = Only records nobody has changed since. Until { $date }.
+import-remove-load-failed-records = Couldn't check the imported records. Try again.
+import-remove-failed-records = Removing the imported records failed and nothing was deleted.
+import-remove-already-removed-records = The records this import created were already removed.
+import-remove-nothing-none-created-records = This import created no records, so there is nothing to remove.
+import-remove-nothing-all-gone-records = The records this import created were already deleted.
+import-remove-nothing-all-changed-records = Every record this import created has been changed since, so nothing was deleted.
+import-remove-title-records = { $count ->
+    [one] Delete 1 record?
+   *[other] Delete { $count } records?
+   }
+import-remove-confirm-records = { $count ->
+    [one] Delete 1 record
+   *[other] Delete { $count } records
+   }
+import-remove-created-records = { $count ->
+    [one] This import created 1 record.
+   *[other] This import created { $count } records.
+   }
+import-remove-result-records = { $count ->
+    [one] 1 record deleted on { $date } by { $name }.
+   *[other] { $count } records deleted on { $date } by { $name }.
+   }
+import-remove-result-anonymous-records = { $count ->
+    [one] 1 record deleted on { $date }.
+   *[other] { $count } records deleted on { $date }.
+   }
+import-remove-group-schedule = { $count } completing a service schedule
+import-remove-reason-schedule = Completes a service schedule

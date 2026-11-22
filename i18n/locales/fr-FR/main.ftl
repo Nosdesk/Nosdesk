@@ -4028,6 +4028,7 @@ import-options-heading = Options d'import
 import-options-match-label = { $type ->
     [users] Retrouver les utilisateurs existants par
     [tickets] Tickets existants
+    [asset_records] Retrouver l'actif de chaque ligne par
    *[other] Retrouver les actifs existants par
    }
 # MT: pending native review (fr-FR)
@@ -4288,6 +4289,7 @@ import-values-footer-link = Correspondances enregistrées
 import-matches-noun = { $type ->
     [users] d'utilisateurs
     [tickets] de tickets
+    [asset_records] d'historique des interventions
    *[assets] de ressources
 }
 # MT: pending native review (fr-FR)
@@ -4295,6 +4297,7 @@ import-matches-nouns = { $type ->
     [users] les utilisateurs
     [tickets] les tickets
     [documentation] la documentation
+    [asset_records] l'historique des interventions
    *[assets] les ressources
 }
 # MT: pending native review (fr-FR)
@@ -4311,6 +4314,7 @@ import-matches-type-label = Type d'import
 import-matches-type-option = { $type ->
     [users] Utilisateurs
     [tickets] Tickets
+    [asset_records] Historique des interventions
    *[assets] Ressources
 } · { $count }
 # MT: pending native review (fr-FR)
@@ -4634,6 +4638,10 @@ import-review-changes-records = { $type ->
         [one] 1 ticket
        *[other] { $count } tickets
        }
+    [asset_records] { $count ->
+        [one] 1 intervention
+       *[other] { $count } interventions
+       }
    *[other] { $count ->
         [one] 1 actif
        *[other] { $count } actifs
@@ -4656,6 +4664,7 @@ import-review-empty-skipped = Aucune ligne ignorée. Toutes les lignes sont vali
 import-review-empty-new = { $type ->
     [users] Aucun nouvel utilisateur. Chaque ligne correspond à un utilisateur existant.
     [tickets] Aucun nouveau ticket.
+    [asset_records] Aucune nouvelle intervention.
    *[other] Aucun nouvel actif. Chaque ligne correspond à un actif existant.
    }
 # MT: pending native review (fr-FR)
@@ -4680,6 +4689,10 @@ import-review-confirm-both = { $type ->
         [one] 1 personne sera ajoutée et { $updated } mises à jour.
        *[other] { $created } personnes seront ajoutées et { $updated } mises à jour.
        }
+    [asset_records] { $created ->
+        [one] 1 intervention sera créée et { $updated } mises à jour.
+       *[other] { $created } interventions seront créées et { $updated } mises à jour.
+       }
    *[other] { $created ->
         [one] 1 actif sera créé et { $updated } mis à jour.
        *[other] { $created } actifs seront créés et { $updated } mis à jour.
@@ -4695,6 +4708,10 @@ import-review-confirm-created = { $type ->
         [one] 1 ticket sera créé.
        *[other] { $count } tickets seront créés.
        }
+    [asset_records] { $count ->
+        [one] 1 intervention sera créée.
+       *[other] { $count } interventions seront créées.
+       }
    *[other] { $count ->
         [one] 1 actif sera créé.
        *[other] { $count } actifs seront créés.
@@ -4706,6 +4723,10 @@ import-review-confirm-updated = { $type ->
         [one] 1 personne sera mise à jour.
        *[other] { $count } personnes seront mises à jour.
        }
+    [asset_records] { $count ->
+        [one] 1 intervention sera mise à jour.
+       *[other] { $count } interventions seront mises à jour.
+       }
    *[other] { $count ->
         [one] 1 actif sera mis à jour.
        *[other] { $count } actifs seront mis à jour.
@@ -4716,6 +4737,10 @@ import-review-confirm-unchanged = { $type ->
     [users] { $count ->
         [one] 1 ligne correspond à un utilisateur existant et reste inchangée.
        *[other] { $count } lignes correspondent à des utilisateurs existants et restent inchangées.
+       }
+    [asset_records] { $count ->
+        [one] 1 ligne correspond à une intervention déjà enregistrée et reste inchangée.
+       *[other] { $count } lignes correspondent à des interventions déjà enregistrées et restent inchangées.
        }
    *[other] { $count ->
         [one] 1 ligne correspond à un actif existant et reste inchangée.
@@ -4776,6 +4801,10 @@ import-done-created = { $type ->
         [one] 1 ticket créé
        *[other] { $count } tickets créés
        }
+    [asset_records] { $count ->
+        [one] 1 intervention créée
+       *[other] { $count } interventions créées
+       }
    *[other] { $count ->
         [one] 1 actif créé
        *[other] { $count } actifs créés
@@ -4795,6 +4824,7 @@ import-done-created-title = Créé dans votre espace de travail
 import-done-view = { $type ->
     [users] Voir ces utilisateurs
     [tickets] Voir ces tickets
+    [asset_records] Voir les actifs
    *[other] Voir ces actifs
    }
 # MT: pending native review (fr-FR)
@@ -11872,3 +11902,192 @@ admin-rule-editor-plugin-hint = La règle s'exécute sur le ticket nommé par l'
 # Canal e-mail : les anciens messages n'arrivent que sur demande, et discrètement (machine, à relire par un locuteur natif).
 admin-channels-email-field-backlog-since-label = Importer aussi les e-mails depuis le
 admin-channels-email-field-backlog-since-hint = Laissez ce champ vide pour ne recevoir que les e-mails qui arrivent à partir de maintenant. Les e-mails antérieurs à la connexion du canal arrivent discrètement, sans accusé de réception ni règles.
+
+# Import de l'historique des interventions : le travail passé sur les actifs, depuis un tableur (machine, à relire par un locuteur natif).
+# MT: pending native review (fr-FR)
+csv-import-type-asset-records = Historique des interventions
+# MT: pending native review (fr-FR)
+import-field-asset_records-asset-tag = Numéro d'inventaire
+# MT: pending native review (fr-FR)
+import-field-asset_records-serial-number = Numéro de série
+# MT: pending native review (fr-FR)
+import-field-asset_records-record-type = Type d'intervention
+# MT: pending native review (fr-FR)
+import-field-asset_records-occurred-on = Date de l'intervention
+# MT: pending native review (fr-FR)
+import-field-asset_records-completed-on = Terminée le
+# MT: pending native review (fr-FR)
+import-field-asset_records-outcome = Résultat
+# MT: pending native review (fr-FR)
+import-field-asset_records-summary = Résumé
+# MT: pending native review (fr-FR)
+import-field-asset_records-notes = Notes
+# MT: pending native review (fr-FR)
+import-field-asset_records-vendor = Prestataire
+# MT: pending native review (fr-FR)
+import-field-asset_records-reference = Référence
+# MT: pending native review (fr-FR)
+import-field-asset_records-cost = Coût
+# MT: pending native review (fr-FR)
+import-field-asset_records-currency = Devise
+# MT: pending native review (fr-FR)
+import-field-asset_records-location = Emplacement à ce moment
+# MT: pending native review (fr-FR)
+import-field-asset_records-source-ref = Référence source
+# MT: pending native review (fr-FR)
+import-field-asset_records-performed-by = Réalisée par
+# MT: pending native review (fr-FR)
+import-field-asset_records-holder = Détenu alors par
+# MT: pending native review (fr-FR)
+import-field-asset_records-ticket = Ticket
+# MT: pending native review (fr-FR)
+import-field-asset_records-replacement-asset-tag = Numéro d'inventaire du remplaçant
+# MT: pending native review (fr-FR)
+import-options-match-tag-then-serial = Numéro d'inventaire, puis numéro de série
+# MT: pending native review (fr-FR)
+import-options-match-records-asset-tag-help = Chaque ligne retrouve son actif par son numéro d'inventaire. Une ligne dont le numéro est introuvable est ignorée et listée.
+# MT: pending native review (fr-FR)
+import-options-match-records-serial-number-help = Chaque ligne retrouve son actif par son numéro de série. Une ligne dont le numéro de série est introuvable est ignorée et listée.
+# MT: pending native review (fr-FR)
+import-options-match-records-tag-then-serial-help = Chaque ligne retrouve son actif par son numéro d'inventaire, ou par son numéro de série quand le numéro d'inventaire est vide ou introuvable.
+# MT: pending native review (fr-FR)
+import-options-mode-create-update-help-records = Les lignes dont une intervention porte la référence source mettent cette intervention à jour. Les autres en créent une.
+# MT: pending native review (fr-FR)
+import-options-mode-create-only-help-records = Les lignes dont une intervention porte déjà la référence source sont ignorées. Les autres en créent une.
+# MT: pending native review (fr-FR)
+import-options-mode-update-only-help-records = Les lignes dont une intervention porte la référence source la mettent à jour. Les autres sont ignorées comme introuvables.
+# MT: pending native review (fr-FR)
+import-options-blank-completion = Une date de fin vide signifie que l'intervention s'est terminée le jour même
+# MT: pending native review (fr-FR)
+import-options-blank-completion-same-day-help = L'historique ancien correspond à des interventions terminées. Décochez pour importer les lignes sans date de fin comme encore ouvertes.
+# MT: pending native review (fr-FR)
+import-options-blank-completion-open-help = Les lignes sans date de fin sont importées comme des interventions ouvertes.
+# MT: pending native review (fr-FR)
+import-history-options-blank-open = Date de fin vide : ouverte
+# MT: pending native review (fr-FR)
+import-map-summary-match-asset_records = { $key ->
+    [serial_number] Actifs retrouvés par numéro de série
+    [tag_then_serial] Actifs retrouvés par numéro d'inventaire, puis numéro de série
+   *[other] Actifs retrouvés par numéro d'inventaire
+   }
+# MT: pending native review (fr-FR)
+import-map-create-heading-asset_records = Les nouvelles interventions ont besoin de { $fields }
+# MT: pending native review (fr-FR)
+import-map-create-asset_records = Rien ne { $count ->
+    [one] le fournit
+   *[other] les fournit
+   }, donc les lignes qui mettent à jour une intervention par sa référence source sont importées, et les lignes pour de nouvelles interventions seront signalées à la vérification.
+# MT: pending native review (fr-FR)
+import-map-detect-asset_records = Ce fichier contient les colonnes { $headers }. Vous importez un historique des interventions ?
+# MT: pending native review (fr-FR)
+import-map-switch-asset_records = Passer à l'historique des interventions
+# MT: pending native review (fr-FR)
+import-map-switch-asset_records-help = Les colonnes sont associées de nouveau pour l'historique des interventions.
+# MT: pending native review (fr-FR)
+import-template-record-type-label = Type d'intervention
+# MT: pending native review (fr-FR)
+import-template-record-type-none = Colonnes communes uniquement
+# MT: pending native review (fr-FR)
+import-template-record-type-help = Choisissez un type d'intervention pour ajouter ses propres champs, avec ses résultats dans la liste Résultat.
+# MT: pending native review (fr-FR)
+import-review-notice-likely-duplicate = { $count ->
+    [one] 1 ligne semble déjà enregistrée : une intervention sur le même actif, du même type et le même jour a la même référence, le même coût ou le même résumé. Elle est ignorée.
+   *[other] { $count } lignes semblent déjà enregistrées : une intervention sur le même actif, du même type et le même jour a la même référence, le même coût ou le même résumé. Elles sont ignorées.
+   }
+# MT: pending native review (fr-FR)
+import-review-notice-unmatched-assets = { $count ->
+    [one] 1 ligne concerne un actif qui n'est pas encore dans Nosdesk.
+   *[other] { $count } lignes concernent des actifs qui ne sont pas encore dans Nosdesk.
+   } L'historique ne crée jamais d'actifs : importez-les d'abord, puis ce fichier de nouveau.
+# MT: pending native review (fr-FR)
+import-review-import-assets-first = Importer d'abord les actifs
+# MT: pending native review (fr-FR)
+import-review-notice-before-purchase = { $count ->
+    [one] 1 intervention est datée d'avant la date d'achat de son actif.
+   *[other] { $count } interventions sont datées d'avant la date d'achat de leur actif.
+   }
+# MT: pending native review (fr-FR)
+import-review-notice-completed-long-after = { $count ->
+    [one] 1 intervention s'est terminée plus de cinq ans après son début.
+   *[other] { $count } interventions se sont terminées plus de cinq ans après leur début.
+   }
+# MT: pending native review (fr-FR)
+import-review-duplicates-include = Les importer quand même
+# MT: pending native review (fr-FR)
+import-review-duplicates-skip = Les ignorer de nouveau
+# MT: pending native review (fr-FR)
+import-review-duplicates-included = Les lignes qui semblent déjà enregistrées seront aussi importées.
+# MT: pending native review (fr-FR)
+import-review-history-title = Ce fichier en un coup d'œil
+# MT: pending native review (fr-FR)
+import-review-history-assets = { $count ->
+    [one] 1 actif
+   *[other] { $count } actifs
+   }
+# MT: pending native review (fr-FR)
+import-review-history-span = Du { $from } au { $to }
+# MT: pending native review (fr-FR)
+import-review-history-costs = Coût
+# MT: pending native review (fr-FR)
+import-review-new-record-types = Types d'intervention ajoutés depuis les types intégrés ({ $count })
+# MT: pending native review (fr-FR)
+import-review-count-record-types = { $count ->
+    [one] 1 type d'intervention
+   *[other] { $count } types d'intervention
+   }
+# MT: pending native review (fr-FR)
+import-review-ni-ticket-reason = aucun ticket avec ce numéro, importée sans
+# MT: pending native review (fr-FR)
+import-review-ni-currency-reason = une devise sans coût, ignorée
+# MT: pending native review (fr-FR)
+import-review-ni-person-reason-blank = { $values ->
+    [one] pas membre, laissé vide
+   *[other] pas membres, laissés vides
+   }
+# MT: pending native review (fr-FR)
+import-review-ni-attribute-reason-records = Les interventions de type { $kind } n'ont pas de champ { $header }, ignoré
+# MT: pending native review (fr-FR)
+import-remove-button-records = Supprimer les interventions importées
+# MT: pending native review (fr-FR)
+import-remove-window-records = Uniquement les interventions que personne n'a modifiées depuis. Jusqu'au { $date }.
+# MT: pending native review (fr-FR)
+import-remove-load-failed-records = Impossible de vérifier les interventions importées. Réessayez.
+# MT: pending native review (fr-FR)
+import-remove-failed-records = La suppression des interventions importées a échoué et rien n'a été supprimé.
+# MT: pending native review (fr-FR)
+import-remove-already-removed-records = Les interventions créées par cet import ont déjà été supprimées.
+# MT: pending native review (fr-FR)
+import-remove-nothing-none-created-records = Cet import n'a créé aucune intervention, il n'y a donc rien à supprimer.
+# MT: pending native review (fr-FR)
+import-remove-nothing-all-gone-records = Les interventions créées par cet import ont déjà été supprimées.
+# MT: pending native review (fr-FR)
+import-remove-nothing-all-changed-records = Chaque intervention créée par cet import a été modifiée depuis, donc rien n'a été supprimé.
+# MT: pending native review (fr-FR)
+import-remove-title-records = { $count ->
+    [one] Supprimer 1 intervention ?
+   *[other] Supprimer { $count } interventions ?
+   }
+# MT: pending native review (fr-FR)
+import-remove-confirm-records = { $count ->
+    [one] Supprimer 1 intervention
+   *[other] Supprimer { $count } interventions
+   }
+# MT: pending native review (fr-FR)
+import-remove-created-records = { $count ->
+    [one] Cet import a créé 1 intervention.
+   *[other] Cet import a créé { $count } interventions.
+   }
+# MT: pending native review (fr-FR)
+import-remove-result-records = { $count ->
+    [one] 1 intervention supprimée le { $date } par { $name }.
+   *[other] { $count } interventions supprimées le { $date } par { $name }.
+   }
+# MT: pending native review (fr-FR)
+import-remove-result-anonymous-records = { $count ->
+    [one] 1 intervention supprimée le { $date }.
+   *[other] { $count } interventions supprimées le { $date }.
+   }
+# MT: pending native review (fr-FR)
+import-remove-group-schedule = { $count } clôturant un plan d'entretien
+# MT: pending native review (fr-FR)
+import-remove-reason-schedule = Clôture un plan d'entretien

@@ -84,6 +84,10 @@ export function problems(summary: ImportSummary): Problem[] {
   }))
 }
 
+/** Fields whose values name a person: the asset's primary user, and a
+ *  record's technician and holder. */
+const PERSON_FIELDS = ['primary_user', 'performed_by', 'holder']
+
 /** One Not imported line, in source column order. */
 export type NotImportedLine =
   /** Columns no field was chosen for, as one line. */
@@ -100,20 +104,26 @@ export type NotImportedLine =
       rows: number
       dropped: number[]
     }
-  /** A group the rows list that nothing links. */
+  /** A value the rows hold that is left off: a group nothing links, or
+   *  (asset records) a ticket number no ticket has, a currency without a
+   *  cost. */
   | {
       kind: 'group'
       key: string
+      /** Field id. */
+      field: string
       columns: number[]
       header: string
       value: string
       rows: number
       dropped: number[]
     }
-  /** People who aren't members, left unassigned. */
+  /** People who aren't members, left unassigned (or, on a record, blank). */
   | {
       kind: 'person'
       key: string
+      /** Field id. */
+      field: string
       columns: number[]
       header: string
       values: number
@@ -189,12 +199,14 @@ export function notImported(
   const columnsOf = (field: string) => (columnOf(field) === undefined ? [] : [columnOf(field)!])
 
   // People: one line per column, every value and row together.
-  const people = dropped.filter((d) => d.column === 'primary_user')
-  if (people.length > 0) {
+  for (const field of PERSON_FIELDS) {
+    const people = dropped.filter((d) => d.column === field)
+    if (people.length === 0) continue
     const first = people[0]
     lines.push({
       kind: 'person',
-      key: 'person:primary_user',
+      key: `person:${field}`,
+      field,
       columns: columnsOf(first.column),
       header: headerOf(first.column, first.source_column, byId, label),
       values: new Set(people.map((d) => (d.value ?? '').toLowerCase())).size,
@@ -206,7 +218,7 @@ export function notImported(
 
   // Groups: one line per value, whatever the rows' kinds.
   const groupLines = new Map<string, NotImportedLine & { kind: 'group'; order: number }>()
-  for (const d of dropped.filter((d) => d.column !== 'primary_user' && d.value !== undefined)) {
+  for (const d of dropped.filter((d) => !PERSON_FIELDS.includes(d.column) && d.value !== undefined)) {
     const key = `group:${d.column}:${d.value}`
     const line = groupLines.get(key)
     if (line) {
@@ -217,6 +229,7 @@ export function notImported(
     groupLines.set(key, {
       kind: 'group',
       key,
+      field: d.column,
       columns: columnsOf(d.column),
       header: headerOf(d.column, d.source_column, byId, label),
       value: d.value!,

@@ -43,7 +43,7 @@ const router = useRouter()
 const toast = useToastStore()
 const queryCache = useQueryCache()
 
-const TYPES: ImportJobType[] = ['assets', 'users', 'tickets']
+const TYPES: ImportJobType[] = ['assets', 'users', 'tickets', 'asset_records']
 
 function useAnswers(type: ImportJobType) {
   return useQuery({
@@ -55,6 +55,7 @@ const queries = {
   assets: useAnswers('assets'),
   users: useAnswers('users'),
   tickets: useAnswers('tickets'),
+  asset_records: useAnswers('asset_records'),
 }
 const countOf = (type: ImportJobType) => queries[type].data.value?.entries.length ?? 0
 
@@ -69,7 +70,9 @@ watch(type, (value) => {
 })
 
 const typeOptions = computed(() =>
-  TYPES.filter((ty) => ty !== 'tickets' || countOf('tickets') > 0 || type.value === 'tickets').map(
+  TYPES.filter(
+    (ty) => (ty !== 'tickets' && ty !== 'asset_records') || countOf(ty) > 0 || type.value === ty,
+  ).map(
     (ty) => ({ value: ty, label: t('import-matches-type-option', { type: ty, count: countOf(ty) }) }),
   ),
 )

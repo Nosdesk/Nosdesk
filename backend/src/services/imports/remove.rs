@@ -9,6 +9,10 @@
 //! membership, it is in no group the import didn't add it to, no sync source
 //! owns it, and no other asset's asset-reference attribute names it.
 //!
+//! For an asset records import, Remove deletes the records it created
+//! that are untouched ([`plan_records`]): still at the version it wrote, with
+//! no file and no service schedule pointing at them.
+//!
 //! The rule reads the job's committed row results, which the 30-day prune
 //! drops. Removal is open for the same 30 days from the commit
 //! ([`window_closes_at`]) and refuses a pruned job, so it never runs
@@ -24,6 +28,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::repository::asset_record_types as record_type_repo;
+use crate::repository::asset_records as record_repo;
 use crate::repository::assets::AssetDeletedObserver;
 use crate::repository::{
     asset_groups as group_repo, asset_kinds as kind_repo, asset_models as model_repo,
@@ -54,6 +59,9 @@ pub enum KeptReason {
     /// Records of work done on it: "Has 3 service records". Removing it
     /// would take that history with it.
     Records { count: i64 },
+    /// A record of work that completes a service schedule: "Completes a
+    /// service schedule". Records only.
+    Schedule,
     /// A lifecycle event newer than the import's own: "Status changed
     /// since".
     StatusChanged,
@@ -84,7 +92,8 @@ pub enum KeptReason {
     },
 }
 
-/// An asset the import created that stays, and why.
+/// An asset the import created that stays, and why; for an asset records
+/// import, a record, named by its asset and what was done.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeptAsset {
     pub id: i32,
@@ -92,6 +101,9 @@ pub struct KeptAsset {
     pub tag: Option<String>,
     pub name: String,
     pub reasons: Vec<KeptReason>,
+    /// For a record, the asset it is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_id: Option<i32>,
 }
 
 /// How many catalog entries the import created that still exist unchanged
@@ -398,6 +410,7 @@ pub fn plan(
                 tag: state.asset_tag.clone().filter(|t| !t.is_empty()),
                 name: state.name.clone(),
                 reasons,
+                asset_id: None,
             });
         }
     }
@@ -427,6 +440,105 @@ pub fn plan(
         kept,
         catalog,
         deletable_ids,
+    })
+}
+
+/// Check every record an asset records import created against the
+/// untouched rule: it still has the version the import wrote, no file
+/// points at it, and it completes no service schedule. With `lock`, the
+/// records are locked for the rest of the transaction.
+pub fn plan_records(
+    conn: &mut DbConnection,
+    rows: &[RowResult],
+    lock: bool,
+) -> Result<RemovalPlan, DieselError> {
+    let candidates = candidates(rows);
+    let ids: Vec<i32> = candidates.iter().map(|c| c.id).collect();
+    let states = repo::record_states(conn, &ids, lock)?;
+    let live: Vec<i32> = states.iter().map(|s| s.id).collect();
+    let media = repo::record_media_counts(conn, &live)?;
+    let asset_ids: Vec<i32> = states.iter().map(|s| s.asset_id).collect();
+    let assets = repo::asset_names(conn, &asset_ids)?;
+    let types: HashMap<i32, String> = record_type_repo::list(conn, true)?
+        .into_iter()
+        .map(|t| (t.id, super::asset_records::type_label(&t)))
+        .collect();
+
+    let mut kept = Vec::new();
+    let mut deletable_ids = Vec::new();
+    for state in &states {
+        let mut reasons = Vec::new();
+        if state.schedule_id.is_some() {
+            reasons.push(KeptReason::Schedule);
+        }
+        if let Some((photos, files)) = media.get(&state.id) {
+            reasons.push(KeptReason::Media {
+                photos: *photos,
+                files: *files,
+            });
+        }
+        if state.version != 1 {
+            reasons.push(KeptReason::Edited {
+                at: state.updated_at,
+                by: state.updated_by,
+                by_name: None,
+            });
+        }
+        if reasons.is_empty() {
+            deletable_ids.push(state.id);
+            continue;
+        }
+        reasons.sort();
+        let (asset, tag) = assets.get(&state.asset_id).cloned().unwrap_or_default();
+        let what = state
+            .summary
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| types.get(&state.record_type_id).cloned())
+            .unwrap_or_default();
+        kept.push(KeptAsset {
+            id: state.id,
+            tag: tag.filter(|t| !t.is_empty()),
+            name: if what.is_empty() {
+                asset
+            } else {
+                format!("{asset}: {what}")
+            },
+            reasons,
+            asset_id: Some(state.asset_id),
+        });
+    }
+    Ok(RemovalPlan {
+        created: candidates.len(),
+        deletable: deletable_ids.len(),
+        gone: candidates.len() - live.len(),
+        kept,
+        catalog: CatalogCounts::default(),
+        deletable_ids,
+    })
+}
+
+/// Delete the records `plan` found untouched, each through
+/// `asset_records::delete` so sync and the audit trigger see it. The record
+/// types the import added from the catalogue stay. Run inside the
+/// transaction that made `plan` with `lock`.
+pub fn remove_records(
+    conn: &mut DbConnection,
+    plan: RemovalPlan,
+) -> Result<RemoveResult, DieselError> {
+    let mut deleted_ids = Vec::with_capacity(plan.deletable_ids.len());
+    for id in &plan.deletable_ids {
+        if record_repo::delete(conn, *id)?.is_some() {
+            deleted_ids.push(*id);
+        }
+    }
+    Ok(RemoveResult {
+        created: plan.created,
+        deleted: deleted_ids.len(),
+        gone: plan.gone,
+        deleted_ids,
+        kept: plan.kept,
+        catalog: CatalogOutcome::default(),
     })
 }
 

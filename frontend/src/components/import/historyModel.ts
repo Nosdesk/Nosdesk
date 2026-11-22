@@ -129,9 +129,10 @@ export function reportOffered(job: ImportJob): boolean {
 export function optionsLine(t: Translate, type: ImportJobType, options: ImportOptions | null): string {
   const o = options ?? {}
   const parts: string[] = []
-  if (type === 'assets') {
-    parts.push(t('import-map-summary-match-assets', { key: o.match_by ?? 'asset_tag' }))
+  if (type === 'assets' || type === 'asset_records') {
+    parts.push(t(`import-map-summary-match-${type}`, { key: o.match_by ?? 'asset_tag' }))
     parts.push(t(`import-options-mode-${(o.mode ?? 'create_update').replace('_', '-')}`))
+    if (o.blank_completion === 'open') parts.push(t('import-history-options-blank-open'))
   } else {
     parts.push(t(`import-map-summary-match-${type}`))
   }

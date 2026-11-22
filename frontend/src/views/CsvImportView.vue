@@ -29,6 +29,8 @@
  * the job's status implies. AdminLayout keys its page by the full path, so
  * changing the query mounts this view afresh; the kind picked for the
  * template rides along in `?kind=`, as nothing else carries it to Map.
+ * `?type=` opens Start on a type: Review of a service history file links
+ * to an asset import for the assets it couldn't find.
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -91,9 +93,11 @@ const STEP_KEYS: Record<Step, string> = {
 // The type Start opens on: the last one this browser imported or
 // switched to.
 const LAST_TYPE_KEY = 'nosdesk.import.lastType'
-const JOB_TYPES: ImportJobType[] = ['assets', 'users', 'tickets']
+const JOB_TYPES: ImportJobType[] = ['assets', 'users', 'tickets', 'asset_records']
 
 function readLastType(): ImportJobType {
+  const asked = JOB_TYPES.find((t) => t === route.query.type)
+  if (asked) return asked
   try {
     const stored = localStorage.getItem(LAST_TYPE_KEY)
     return JOB_TYPES.find((t) => t === stored) ?? 'assets'
@@ -144,8 +148,13 @@ const jobType = computed<ImportJobType>(() => job.value?.job_type ?? selectedTyp
 const fieldsQuery = useQuery({
   key: () => importFieldsQueryKey(jobType.value),
   query: () => importService.fields(jobType.value),
+  // Start reads them for the service history template's record types.
   enabled: () =>
-    step.value === 'map' || step.value === 'values' || step.value === 'review' || step.value === 'done',
+    step.value === 'map' ||
+    step.value === 'values' ||
+    step.value === 'review' ||
+    step.value === 'done' ||
+    (step.value === 'start' && selectedType.value === 'asset_records'),
 })
 const fields = computed(() => fieldsQuery.data.value ?? [])
 
@@ -209,6 +218,7 @@ const typeOptions = computed(() => [
   { value: 'assets' as ImportJobType, label: t('csv-import-type-assets') },
   { value: 'users' as ImportJobType, label: t('csv-import-type-users') },
   { value: 'tickets' as ImportJobType, label: t('csv-import-type-tickets') },
+  { value: 'asset_records' as ImportJobType, label: t('csv-import-type-asset-records') },
 ])
 
 const stepIndex = computed(() => STEPS.value.indexOf(step.value))
@@ -333,6 +343,17 @@ const templateKindOptions = computed(() => [
 
 /** CSV, or an Excel workbook with dropdowns and a Fields sheet. */
 const templateFormat = ref<ImportTemplateFormat>('csv')
+
+/** The record type whose fields and outcomes the service history template
+ *  carries; empty for the shared columns only. */
+const templateRecordType = ref('')
+const templateRecordTypeOptions = computed(() => {
+  const field = fields.value.find((f) => f.id === 'record_type')
+  return [
+    { value: '', label: t('import-template-record-type-none') },
+    ...(field?.enum ?? []).map((slug, i) => ({ value: slug, label: field?.enum_labels?.[i] ?? slug })),
+  ]
+})
 const templateFormatOptions = computed(() => [
   { value: 'csv' as ImportTemplateFormat, label: t('import-template-format-csv') },
   { value: 'xlsx' as ImportTemplateFormat, label: t('import-template-format-excel') },
@@ -346,7 +367,12 @@ async function downloadTemplate() {
   if (downloadingTemplate.value) return
   downloadingTemplate.value = true
   errorMessage.value = ''
-  const kind = selectedType.value === 'assets' ? templateKind.value : ''
+  const kind =
+    selectedType.value === 'assets'
+      ? templateKind.value
+      : selectedType.value === 'asset_records'
+        ? templateRecordType.value
+        : ''
   try {
     const { blob, filename } = await importService.template(
       selectedType.value,
@@ -756,9 +782,23 @@ function viewImported() {
     case 'tickets':
       router.push('/tickets')
       return
+    case 'asset_records':
+      router.push('/assets')
+      return
     default:
       router.push({ path: '/assets', query: { import: job.value?.id } })
   }
+}
+
+/** Review's Import these anyway (or Skip them again): check the rows again
+ *  with the rows that look already recorded imported, or not. */
+async function includeDuplicates(include: boolean) {
+  const current = job.value
+  if (!current?.mapping) return
+  const options: ImportOptions = { ...(current.options ?? {}) }
+  if (include) options.import_likely_duplicates = true
+  else delete options.import_likely_duplicates
+  await check(current.mapping, options, current.ignored ?? [])
 }
 </script>
 
@@ -914,6 +954,9 @@ function viewImported() {
             <p v-if="selectedType === 'assets'" class="text-xs text-tertiary">
               {{ $t('import-template-kind-help') }}
             </p>
+            <p v-if="selectedType === 'asset_records'" class="text-xs text-tertiary">
+              {{ $t('import-template-record-type-help') }}
+            </p>
             <p class="text-xs text-tertiary">{{ $t('import-template-format-help') }}</p>
             <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
               <div v-if="selectedType === 'assets'" class="w-full sm:w-64" data-test="import-template-kind">
@@ -922,6 +965,18 @@ function viewImported() {
                   :options="templateKindOptions"
                   :label="$t('import-template-kind-label')"
                   :placeholder="$t('import-template-kind-none')"
+                />
+              </div>
+              <div
+                v-if="selectedType === 'asset_records'"
+                class="w-full sm:w-64"
+                data-test="import-template-record-type"
+              >
+                <BaseDropdown
+                  v-model="templateRecordType"
+                  :options="templateRecordTypeOptions"
+                  :label="$t('import-template-record-type-label')"
+                  :placeholder="$t('import-template-record-type-none')"
                 />
               </div>
               <div class="flex flex-col gap-1.5" data-test="import-template-format">
@@ -1030,6 +1085,7 @@ function viewImported() {
         @fix-map="fixMap"
         @commit="commit"
         @download-report="downloadReport"
+        @include-duplicates="includeDuplicates"
       />
 
       <!-- Done ----------------------------------------------------------- -->

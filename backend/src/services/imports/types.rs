@@ -20,6 +20,8 @@ pub enum ImportedRecords {
     Users(Vec<ImportedUser>),
     Assets(Vec<models::Asset>),
     Tickets(Vec<models::Ticket>),
+    /// Records of work done; not indexed for search.
+    AssetRecords(Vec<models::AssetRecord>),
 }
 
 /// A user written by the import, paired with its primary email so the
@@ -38,6 +40,7 @@ impl ImportedRecords {
             Self::Users(v) => v.len(),
             Self::Assets(v) => v.len(),
             Self::Tickets(v) => v.len(),
+            Self::AssetRecords(v) => v.len(),
         }
     }
 
@@ -55,6 +58,9 @@ pub enum ImportType {
     Assets,
     Users,
     Tickets,
+    /// Records of work done on assets: years of service history.
+    #[serde(rename = "asset_records")]
+    AssetRecords,
 }
 
 impl ImportType {
@@ -63,6 +69,7 @@ impl ImportType {
             Self::Assets => "assets",
             Self::Users => "users",
             Self::Tickets => "tickets",
+            Self::AssetRecords => "asset_records",
         }
     }
 
@@ -71,6 +78,7 @@ impl ImportType {
             "assets" => Some(Self::Assets),
             "users" => Some(Self::Users),
             "tickets" => Some(Self::Tickets),
+            "asset_records" => Some(Self::AssetRecords),
             _ => None,
         }
     }
@@ -126,6 +134,35 @@ pub struct ImportSummary {
     /// in source order, each with how many rows hold a value in it.
     #[serde(default)]
     pub unmapped: Vec<UnmappedColumn>,
+    /// What the rows that write come to across the file. Asset records only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<HistoryFacts>,
+}
+
+/// An asset records import's file at a glance: the assets its rows are on,
+/// the span of the work, and what it cost.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryFacts {
+    /// Assets the rows that write are on.
+    pub assets: usize,
+    /// The earliest and latest day of work among those rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earliest: Option<chrono::NaiveDate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<chrono::NaiveDate>,
+    /// The cost of those rows per currency, by code. Never converted.
+    #[serde(default)]
+    pub costs: Vec<CostTotal>,
+}
+
+/// The cost of some rows in one currency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CostTotal {
+    pub currency: String,
+    /// A plain decimal with the currency's exponent (`1250.50`).
+    pub amount: String,
+    /// Rows with a cost in this currency.
+    pub rows: usize,
 }
 
 /// One field updated rows change.
@@ -180,11 +217,18 @@ pub struct CatalogPlan {
     pub models: Vec<PlannedModel>,
     #[serde(default)]
     pub groups: Vec<String>,
+    /// Asset record types added to the workspace from the catalogue of
+    /// built-ins, by slug.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub record_types: Vec<String>,
 }
 
 impl CatalogPlan {
     pub fn is_empty(&self) -> bool {
-        self.manufacturers.is_empty() && self.models.is_empty() && self.groups.is_empty()
+        self.manufacturers.is_empty()
+            && self.models.is_empty()
+            && self.groups.is_empty()
+            && self.record_types.is_empty()
     }
 }
 
@@ -264,6 +308,7 @@ impl ImportSummary {
         summary.catalog = plan.catalog.clone();
         summary.changes = change_counts(&plan.rows);
         summary.kinds = kind_counts(&plan.rows);
+        summary.history = plan.history.clone();
         // Stable: equal counts keep file order.
         dropped.sort_by_key(|g| std::cmp::Reverse(g.count));
         summary.dropped = dropped;
@@ -699,6 +744,8 @@ pub struct RowPlan {
     pub notices: Vec<Notice>,
     /// Catalog entries the rows create.
     pub catalog: CatalogPlan,
+    /// Asset records only: the file at a glance.
+    pub history: Option<HistoryFacts>,
 }
 
 /// What a commit wrote: the records for search indexing and every row's
@@ -839,14 +886,19 @@ pub struct ImportContext {
     pub options: ImportOptions,
 }
 
-/// How rows find the record they update. Assets only; users match by
-/// email and tickets always create.
+/// How rows find the asset they are about: the record an asset row
+/// updates, or the asset an asset record row is on. Users match by email
+/// and tickets always create.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchBy {
     #[default]
     AssetTag,
     SerialNumber,
+    /// The tag, else the serial number for a row whose tag is blank or
+    /// names no asset. Asset records only: old history often lacks tags
+    /// for part of the fleet.
+    TagThenSerial,
     /// Read only, from jobs and clients before [`ImportMode`]: create new
     /// assets only, matched by tag. [`ImportOptions::normalize`] rewrites
     /// it to `asset_tag` with [`ImportMode::CreateOnly`].
@@ -880,6 +932,24 @@ pub enum DateOrder {
 /// The decimal mark of number cells.
 pub use crate::utils::money::DecimalMark;
 
+/// What a blank completion date means on a new asset record.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlankCompletion {
+    /// The work was finished the day it was done: old history is finished
+    /// work.
+    #[default]
+    SameDay,
+    /// The work is still open.
+    Open,
+}
+
+impl BlankCompletion {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// Choices the admin makes at the Map step, stored on the job and used by
 /// the dry run and the commit alike.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -894,6 +964,13 @@ pub struct ImportOptions {
     pub decimal: Option<DecimalMark>,
     /// Values set for every row on fields no column feeds.
     pub constants: Vec<Constant>,
+    /// Asset records: what a blank completion date means on a new record.
+    #[serde(skip_serializing_if = "BlankCompletion::is_default")]
+    pub blank_completion: BlankCompletion,
+    /// Asset records: import rows that look already recorded instead of
+    /// skipping them.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub import_likely_duplicates: bool,
     /// The answers of lookup columns (manufacturer, model, groups) the rows
     /// take, set by `values::settle` and never stored: their links name
     /// entries by id, which a cell can't.
@@ -1055,6 +1132,10 @@ pub struct FieldSpec {
     pub kinds: Option<Vec<String>>,
     #[serde(rename = "enum", skip_serializing_if = "Option::is_none")]
     pub enum_values: Option<Vec<String>>,
+    /// Each of `enum_values` named, in the same order, for a field whose
+    /// values aren't their own names (an asset record type's slug).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enum_labels: Option<Vec<String>>,
     /// Expected text form, e.g. `YYYY-MM-DD`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
@@ -1089,6 +1170,7 @@ impl FieldSpec {
             required,
             kinds: None,
             enum_values: None,
+            enum_labels: None,
             format: None,
             required_for: None,
         }
@@ -1265,6 +1347,7 @@ mod tests {
             ],
             notices: vec![],
             catalog: CatalogPlan::default(),
+            history: None,
         };
         let summary = ImportSummary::from_plan(4, &plan);
         assert_eq!(

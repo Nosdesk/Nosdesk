@@ -45,13 +45,31 @@ const ASSET_KEY = new Set([
   'sn',
 ])
 const ASSET_NAME = new Set(['name', 'assetname', 'devicename', 'itemname'])
+/** Columns of service history: when work was done, and what kind. */
+const HISTORY = new Set([
+  'startdate',
+  'completiondate',
+  'datecompleted',
+  'servicedate',
+  'repairdate',
+  'dateofwork',
+  'workdate',
+  'occurredon',
+  'completedon',
+  'maintenancetype',
+  'assetmaintenancetype',
+  'recordtype',
+  'worktype',
+])
 
 /**
  * The type `headers` look like when it isn't `current`, or null.
  *
  * Users: an email column and a first or last name column, and nothing
- * that keys an asset. Assets: an asset tag or serial column and a name
- * column. Tickets are never guessed; their columns overlap the others.
+ * that keys an asset. Asset records: an asset tag or serial column and a
+ * column of service history (a date of work, a type of work). Assets: an
+ * asset tag or serial column and a name column, and no history. Tickets
+ * are never guessed; their columns overlap the others.
  */
 export function detectOtherType(current: ImportJobType, headers: string[]): TypeHint | null {
   const pick = (set: Set<string>) => headers.filter((h) => set.has(normalizeHeader(h)))
@@ -63,8 +81,13 @@ export function detectOtherType(current: ImportJobType, headers: string[]): Type
     const used = new Set([emails[0], ...names])
     return { type: 'users', headers: headers.filter((h) => used.has(h)) }
   }
+  const history = pick(HISTORY)
+  if (current !== 'asset_records' && keys.length > 0 && history.length > 0) {
+    const used = new Set([keys[0], ...history])
+    return { type: 'asset_records', headers: headers.filter((h) => used.has(h)) }
+  }
   const assetNames = pick(ASSET_NAME)
-  if (current !== 'assets' && keys.length > 0 && assetNames.length > 0) {
+  if (current !== 'assets' && keys.length > 0 && assetNames.length > 0 && history.length === 0) {
     const used = new Set([...keys, assetNames[0]])
     return { type: 'assets', headers: headers.filter((h) => used.has(h)) }
   }

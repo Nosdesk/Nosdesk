@@ -203,8 +203,9 @@ pub struct UploadQuery {
 }
 
 fn parse_type(raw: &str) -> Result<ImportType, String> {
-    ImportType::from_str(raw)
-        .ok_or_else(|| format!("unknown import type '{raw}'; must be assets, users, or tickets"))
+    ImportType::from_str(raw).ok_or_else(|| {
+        format!("unknown import type '{raw}'; must be assets, users, tickets or asset_records")
+    })
 }
 
 /// What reading an upload came to, before any transaction.
@@ -1210,15 +1211,30 @@ fn resolve_options(
     source: &ImportSource,
 ) -> Result<(), String> {
     options.normalize()?;
-    if job_type != ImportType::Assets && options.mode != imports::ImportMode::CreateUpdate {
+    let records = job_type == ImportType::AssetRecords;
+    if !matches!(job_type, ImportType::Assets | ImportType::AssetRecords)
+        && options.mode != imports::ImportMode::CreateUpdate
+    {
         return Err(format!(
-            "mode applies to asset imports only; {} imports {}",
+            "mode applies to asset imports only, and to asset records by their source reference; {} imports {}",
             job_type.as_str(),
             match job_type {
                 ImportType::Users => "match people by email",
                 _ => "always create",
             }
         ));
+    }
+    if !records && options.match_by == imports::MatchBy::TagThenSerial {
+        return Err("match_by 'tag_then_serial' applies to asset record imports only".to_string());
+    }
+    if !records
+        && (options.blank_completion != imports::BlankCompletion::default()
+            || options.import_likely_duplicates)
+    {
+        return Err(
+            "blank_completion and import_likely_duplicates apply to asset record imports only"
+                .to_string(),
+        );
     }
     if options.decimal.is_none() {
         options.decimal = Some(mapping::default_decimal(source));
@@ -1651,6 +1667,8 @@ fn index_imported_records(search_service: &Arc<SearchService>, records: Imported
                 indexing_tasks::spawn_index_ticket(Arc::clone(search_service), ticket, None);
             }
         }
+        // Records of work aren't in the search index.
+        ImportedRecords::AssetRecords(_) => {}
     }
 }
 
@@ -2354,13 +2372,14 @@ pub async fn error_report(
         let (fields, kinds) = match &read {
             RowResultsRead::Ok(job, _) => match ImportType::from_str(&job.job_type) {
                 Some(t) => {
-                    let kinds = if t == ImportType::Assets {
-                        crate::repository::asset_kinds::list_kinds(conn)?
+                    // What a row's kind names, as "Vehicle assets".
+                    let kinds = match t {
+                        ImportType::Assets => crate::repository::asset_kinds::list_kinds(conn)?
                             .into_iter()
-                            .map(|k| (k.slug, k.label))
-                            .collect()
-                    } else {
-                        std::collections::HashMap::new()
+                            .map(|k| (k.slug, format!("{} assets", k.label)))
+                            .collect(),
+                        ImportType::AssetRecords => imports::asset_records::type_owners(conn)?,
+                        _ => std::collections::HashMap::new(),
                     };
                     (imports::importer_for(t).fields(conn)?, kinds)
                 }
@@ -2984,7 +3003,7 @@ impl RemovalRefusal {
     fn response(self) -> HttpResponse {
         match self {
             Self::AssetsOnly => errors::bad_request_with_code(
-                "Only an asset import can remove what it created.",
+                "Only an asset or asset records import can remove what it created.",
                 "import_removal_assets_only",
             ),
             Self::NotImported => errors::conflict_with_code(
@@ -3009,7 +3028,9 @@ fn removal_precondition(
     job: &ImportJob,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Option<RemovalRefusal> {
-    if job.job_type != ImportType::Assets.as_str() {
+    if job.job_type != ImportType::Assets.as_str()
+        && job.job_type != ImportType::AssetRecords.as_str()
+    {
         return Some(RemovalRefusal::AssetsOnly);
     }
     if job.status != "done" {
@@ -3072,7 +3093,11 @@ pub async fn removal_preview(
             Ok(rows) => rows,
             Err(refusal) => return Ok(RemovalRead::Refused(refusal)),
         };
-        let mut plan = remove::plan(conn, &rows, false)?;
+        let mut plan = if job.job_type == ImportType::AssetRecords.as_str() {
+            remove::plan_records(conn, &rows, false)?
+        } else {
+            remove::plan(conn, &rows, false)?
+        };
         let editors: Vec<Uuid> = plan
             .kept
             .iter()
@@ -3114,7 +3139,8 @@ enum RemoveOutcome {
     Refused(RemovalRefusal),
     Busy,
     TypeBusy,
-    NothingToRemove(NothingToRemove),
+    /// Why nothing was deleted, and whether the import was of records.
+    NothingToRemove(NothingToRemove, bool),
 }
 
 /// Why a removal found nothing to delete. The client words it from
@@ -3140,19 +3166,33 @@ impl NothingToRemove {
         }
     }
 
-    fn response(self) -> HttpResponse {
-        let (reason, message) = match self {
-            Self::NoneCreated => (
+    /// The answer, worded for the records of an asset records import when
+    /// `records`.
+    fn response(self, records: bool) -> HttpResponse {
+        let (reason, message) = match (self, records) {
+            (Self::NoneCreated, false) => (
                 "none_created",
                 "This import created no assets, so there is nothing to remove.",
             ),
-            Self::AllGone => (
+            (Self::NoneCreated, true) => (
+                "none_created",
+                "This import created no records, so there is nothing to remove.",
+            ),
+            (Self::AllGone, false) => (
                 "all_gone",
                 "The assets this import created were already deleted.",
             ),
-            Self::AllChanged => (
+            (Self::AllGone, true) => (
+                "all_gone",
+                "The records this import created were already deleted.",
+            ),
+            (Self::AllChanged, false) => (
                 "all_changed",
                 "Every asset this import created has been changed since, so nothing was deleted.",
+            ),
+            (Self::AllChanged, true) => (
+                "all_changed",
+                "Every record this import created has been changed since, so nothing was deleted.",
             ),
         };
         errors::with_fields(
@@ -3200,11 +3240,23 @@ pub async fn remove_created(
             Ok(rows) => rows,
             Err(refusal) => return Ok(RemoveOutcome::Refused(refusal)),
         };
-        let plan = remove::plan(conn, &rows, true)?;
+        let records = job.job_type == ImportType::AssetRecords.as_str();
+        let plan = if records {
+            remove::plan_records(conn, &rows, true)?
+        } else {
+            remove::plan(conn, &rows, true)?
+        };
         if plan.deletable == 0 {
-            return Ok(RemoveOutcome::NothingToRemove(NothingToRemove::of(&plan)));
+            return Ok(RemoveOutcome::NothingToRemove(
+                NothingToRemove::of(&plan),
+                records,
+            ));
         }
-        let outcome = remove::remove(conn, &rows, plan, &deleted)?;
+        let outcome = if records {
+            remove::remove_records(conn, plan)?
+        } else {
+            remove::remove(conn, &rows, plan, &deleted)?
+        };
         let value = serde_json::to_value(&outcome)
             .map_err(|e| diesel::result::Error::SerializationError(Box::new(e)))?;
         let updated = repo::record_removal(conn, id, auth.user_uuid, value)?;
@@ -3240,7 +3292,7 @@ pub async fn remove_created(
             "Another import of this type is being committed. Try again when it finishes.",
             "import_type_busy",
         ),
-        Ok(RemoveOutcome::NothingToRemove(why)) => why.response(),
+        Ok(RemoveOutcome::NothingToRemove(why, records)) => why.response(records),
         Err(e) => {
             error!(job_id = %id, error = ?e, "failed to remove imported assets");
             errors::internal("Removing the imported assets failed and nothing was deleted.")
@@ -3336,19 +3388,19 @@ pub async fn previous_values(
             return errors::internal("failed to load import rows");
         }
     };
-    if job.job_type != ImportType::Assets.as_str() {
-        return errors::bad_request_with_code(
-            "Previous values are kept for asset imports only.",
-            "import_previous_values_assets_only",
-        );
-    }
-    if job.status != "done" || stored.phase != RowPhase::Committed {
-        return errors::conflict(NOT_COMMITTED);
-    }
     let key = stored_choices(&job)
         .map(|(_, options)| options.key())
         .unwrap_or_default();
-    match previous::csv(&stored.rows, key) {
+    let Some(layout) = keeps_previous(&job, &stored.rows, key) else {
+        return errors::bad_request_with_code(
+            PREVIOUS_VALUES_KEPT,
+            "import_previous_values_assets_only",
+        );
+    };
+    if job.status != "done" || stored.phase != RowPhase::Committed {
+        return errors::conflict(NOT_COMMITTED);
+    }
+    match previous::csv(&stored.rows, layout) {
         Ok(body) => HttpResponse::Ok()
             .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
             .insert_header((
@@ -3368,16 +3420,33 @@ pub async fn previous_values(
 
 const NOT_COMMITTED: &str = "this import hasn't been committed, so it changed nothing";
 
+const PREVIOUS_VALUES_KEPT: &str = "Previous values are kept for asset imports, and for asset records imports that updated records by their source reference.";
+
+/// The previous values file's layout for `job`, when its type keeps one: an
+/// asset import, or an asset records import that updated records (only a
+/// source reference updates one).
+fn keeps_previous(
+    job: &ImportJob,
+    rows: &[RowResult],
+    key: imports::MatchBy,
+) -> Option<previous::Layout> {
+    let job_type = ImportType::from_str(&job.job_type)?;
+    if job_type == ImportType::AssetRecords && !rows.iter().any(|r| r.outcome == RowOutcome::Update)
+    {
+        return None;
+    }
+    previous::Layout::of(job_type, key)
+}
+
 /// The size of a committed asset import's previous values file, while its
 /// row results are kept.
 fn previous_values_of(
     conn: &mut crate::db::DbConnection,
     job: &ImportJob,
 ) -> Result<Option<previous::PreviousValues>, diesel::result::Error> {
-    if job.job_type != ImportType::Assets.as_str()
-        || job.status != "done"
-        || job.pruned_at.is_some()
-    {
+    let kept = job.job_type == ImportType::Assets.as_str()
+        || job.job_type == ImportType::AssetRecords.as_str();
+    if !kept || job.status != "done" || job.pruned_at.is_some() {
         return Ok(None);
     }
     let Some(stored) = repo::row_results(conn, job.id)?
@@ -3389,7 +3458,7 @@ fn previous_values_of(
     let key = stored_choices(job)
         .map(|(_, options)| options.key())
         .unwrap_or_default();
-    Ok(Some(previous::counts(&stored.rows, key)))
+    Ok(keeps_previous(job, &stored.rows, key).map(|layout| previous::counts(&stored.rows, layout)))
 }
 
 /// For a restore, the import it puts back; for a committed asset import,
@@ -3406,7 +3475,9 @@ fn restore_links(
         },
         None => None,
     };
-    let restored_by = if job.job_type == ImportType::Assets.as_str() && job.status == "done" {
+    let restores_kept = job.job_type == ImportType::Assets.as_str()
+        || job.job_type == ImportType::AssetRecords.as_str();
+    let restored_by = if restores_kept && job.status == "done" {
         restore::restored_by(&repo::restores_of(conn, job.id)?)
     } else {
         None
@@ -3429,10 +3500,9 @@ enum RestoreRefusal {
 fn restore_refused(refusal: RestoreRefusal, id: Uuid) -> HttpResponse {
     match refusal {
         RestoreRefusal::NotFound => errors::not_found_msg(format!("import job {id} not found")),
-        RestoreRefusal::AssetsOnly => errors::bad_request_with_code(
-            "Previous values are kept for asset imports only.",
-            "import_previous_values_assets_only",
-        ),
+        RestoreRefusal::AssetsOnly => {
+            errors::bad_request_with_code(PREVIOUS_VALUES_KEPT, "import_previous_values_assets_only")
+        }
         RestoreRefusal::NotCommitted => errors::conflict_with_code(
             "This import wasn't committed, so it changed nothing.",
             "import_not_committed",
@@ -3454,6 +3524,7 @@ enum RestoreCheck {
     /// Make a new draft from this file.
     Create {
         source: ImportJob,
+        job_type: ImportType,
         key: imports::MatchBy,
         file: Vec<u8>,
         changed_since: usize,
@@ -3477,18 +3548,21 @@ fn restore_check(
         }
         RowResultsRead::Pruned => return Ok(RestoreCheck::Refused(RestoreRefusal::Pruned)),
     };
-    if job.job_type != ImportType::Assets.as_str() {
+    let key = stored_choices(&job)
+        .map(|(_, options)| options.key())
+        .unwrap_or_default();
+    let (Some(job_type), Some(layout)) = (
+        ImportType::from_str(&job.job_type),
+        keeps_previous(&job, &stored.rows, key),
+    ) else {
         return Ok(RestoreCheck::Refused(RestoreRefusal::AssetsOnly));
-    }
+    };
     if job.status != "done" || stored.phase != RowPhase::Committed {
         return Ok(RestoreCheck::Refused(RestoreRefusal::NotCommitted));
     }
     if let Some(draft) = restore::open_draft(&repo::restores_of(conn, job.id)?) {
         return Ok(RestoreCheck::Existing(repo::get(conn, draft)?));
     }
-    let key = stored_choices(&job)
-        .map(|(_, options)| options.key())
-        .unwrap_or_default();
     let ids: Vec<i32> = stored
         .rows
         .iter()
@@ -3498,19 +3572,24 @@ fn restore_check(
             _ => None,
         })
         .collect();
-    let current = imports::assets::current_field_values(conn, &ids)?;
-    let fields = imports::importer_for(ImportType::Assets).fields(conn)?;
+    let current = match job_type {
+        ImportType::AssetRecords => imports::asset_records::current_field_values(conn, &ids)?,
+        _ => imports::assets::current_field_values(conn, &ids)?,
+    };
+    let fields = imports::importer_for(job_type).fields(conn)?;
     let importable: std::collections::HashSet<&str> =
         fields.iter().map(|f| f.id.as_str()).collect();
-    let restorable = previous::restorable(&stored.rows, key, &current, |f| importable.contains(f));
+    let restorable =
+        previous::restorable(&stored.rows, layout, &current, |f| importable.contains(f));
     if restorable.rows.is_empty() {
         return Ok(RestoreCheck::Refused(RestoreRefusal::NothingToRestore));
     }
-    let file = previous::csv(&restorable.rows, key).map_err(|e| {
+    let file = previous::csv(&restorable.rows, layout).map_err(|e| {
         diesel::result::Error::QueryBuilderError(format!("previous values file: {e}").into())
     })?;
     Ok(RestoreCheck::Create {
         source: job,
+        job_type,
         key,
         file,
         changed_since: restorable.changed_since,
@@ -3536,13 +3615,15 @@ pub async fn restore(
     }
     let id = path.into_inner();
 
-    let (source, key, file, changed_since) = match tc.run(|conn| restore_check(conn, id)) {
+    let (source, job_type, key, file, changed_since) = match tc.run(|conn| restore_check(conn, id))
+    {
         Ok(RestoreCheck::Create {
             source,
+            job_type,
             key,
             file,
             changed_since,
-        }) => (source, key, file, changed_since),
+        }) => (source, job_type, key, file, changed_since),
         Ok(RestoreCheck::Existing(draft)) => {
             return HttpResponse::Ok().json(ImportJobResponse::from(draft))
         }
@@ -3609,7 +3690,7 @@ pub async fn restore(
             conn,
             NewImportJob {
                 id: new_id,
-                job_type: ImportType::Assets.as_str().to_string(),
+                job_type: job_type.as_str().to_string(),
                 filename: filename.clone(),
                 file_path: stored_key.clone(),
                 created_by: Some(auth.user_uuid),
@@ -3617,15 +3698,15 @@ pub async fn restore(
                 restore_of: Some(source.id),
             },
         )?;
-        let fields = imports::importer_for(ImportType::Assets).fields(conn)?;
+        let fields = imports::importer_for(job_type).fields(conn)?;
         let source_read = mapping::csv_source(&grid);
         let column_mapping = restore::mapping(&grid.headers, &fields);
-        let mut options = restore::options(key);
+        let mut options = restore::options(job_type, key);
         // Both hold by construction; a failure is a bug, not the admin's.
-        resolve_options(conn, ImportType::Assets, &mut options, &source_read)
+        resolve_options(conn, job_type, &mut options, &source_read)
             .map_err(|message| diesel::result::Error::QueryBuilderError(message.into()))?;
         mapping::validate(
-            ImportType::Assets,
+            job_type,
             &column_mapping,
             &options,
             &fields,
@@ -3647,7 +3728,7 @@ pub async fn restore(
         for _ in 0..3 {
             let resolution = values::prepare(
                 conn,
-                ImportType::Assets,
+                job_type,
                 &fields,
                 &column_mapping,
                 &options,
@@ -3666,7 +3747,7 @@ pub async fn restore(
         };
         let resolution = values::settle(
             conn,
-            ImportType::Assets,
+            job_type,
             &fields,
             &column_mapping,
             &mut ctx.options,
@@ -3675,7 +3756,7 @@ pub async fn restore(
         )?;
         let (summary, rows) = plan(
             conn,
-            ImportType::Assets,
+            job_type,
             &mapped,
             &resolution,
             &ctx,
@@ -3724,6 +3805,9 @@ pub async fn restore(
 pub struct TemplateQuery {
     /// Assets only: the kind whose attributes follow the core columns.
     pub kind: Option<String>,
+    /// Asset records only: the record type whose fields follow the shared
+    /// columns, and whose outcomes the outcome dropdown offers.
+    pub record_type: Option<String>,
     /// `csv` (the default) or `xlsx`.
     pub format: Option<String>,
 }
@@ -3732,7 +3816,8 @@ const XLSX_CONTENT_TYPE: &str = "application/vnd.openxmlformats-officedocument.s
 
 /// Template for the requested import type: a header row the admin fills
 /// in. For assets, the core columns, then the attributes of `?kind=` when
-/// given. As CSV (the default), with a BOM and each header guarded against
+/// given; for asset records, the shared columns, then the fields of
+/// `?record_type=`. As CSV (the default), with a BOM and each header guarded against
 /// formulas; with `?format=xlsx`, a workbook with dropdowns and a Fields
 /// sheet (`imports::template`).
 pub async fn template(
@@ -3761,12 +3846,23 @@ pub async fn template(
     if kind.is_some() && job_type != ImportType::Assets {
         return errors::bad_request("kind applies to asset templates only");
     }
+    let record_type = query
+        .record_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    if record_type.is_some() && job_type != ImportType::AssetRecords {
+        return errors::bad_request("record_type applies to asset records templates only");
+    }
     let importer = imports::importer_for(job_type);
-    let stem = match (job_type, kind) {
-        (ImportType::Assets, Some(kind)) => {
+    let stem = match (job_type, kind, record_type) {
+        (ImportType::Assets, Some(kind), _) => {
             download_stem(&format!("nosdesk-assets-{kind}-template.csv"))
         }
-        _ => format!("nosdesk-{}-template", job_type.as_str()),
+        (ImportType::AssetRecords, _, Some(slug)) => {
+            download_stem(&format!("nosdesk-asset-records-{slug}-template.csv"))
+        }
+        _ => format!("nosdesk-{}-template", job_type.as_str().replace('_', "-")),
     };
     let headers = match job_type {
         ImportType::Assets => match tc.run(|conn| imports::assets::template_headers(conn, kind)) {
@@ -3779,6 +3875,21 @@ pub async fn template(
                 return errors::internal("failed to build the template");
             }
         },
+        ImportType::AssetRecords => {
+            match tc.run(|conn| imports::asset_records::template_headers(conn, record_type)) {
+                Ok(Some(headers)) => headers,
+                Ok(None) => {
+                    return errors::bad_request(format!(
+                        "unknown record type '{}'",
+                        record_type.unwrap_or_default()
+                    ))
+                }
+                Err(e) => {
+                    error!(error = ?e, "failed to read record types for a template");
+                    return errors::internal("failed to build the template");
+                }
+            }
+        }
         _ => importer
             .template_headers()
             .iter()
@@ -3787,8 +3898,10 @@ pub async fn template(
     };
 
     if xlsx {
+        // A type's template is read as that type defines its fields.
+        let context = kind.or(record_type);
         let columns = match tc
-            .run(|conn| imports::template::columns(conn, importer.as_ref(), &headers, kind))
+            .run(|conn| imports::template::columns(conn, importer.as_ref(), &headers, context))
         {
             Ok(columns) => columns,
             Err(e) => {
@@ -3807,13 +3920,15 @@ pub async fn template(
     }
 
     let body = match job_type {
-        ImportType::Assets => match imports::assets::template_csv(&headers) {
-            Ok(body) => body,
-            Err(e) => {
-                error!(error = ?e, "failed to write an import template");
-                return errors::internal("failed to build the template");
+        ImportType::Assets | ImportType::AssetRecords => {
+            match imports::assets::template_csv(&headers) {
+                Ok(body) => body,
+                Err(e) => {
+                    error!(error = ?e, "failed to write an import template");
+                    return errors::internal("failed to build the template");
+                }
             }
-        },
+        }
         _ => (headers.join(",") + "\n").into_bytes(),
     };
     template_response("text/csv; charset=utf-8", &format!("{stem}.csv"), body)

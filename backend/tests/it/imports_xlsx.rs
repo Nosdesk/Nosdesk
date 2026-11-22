@@ -1072,3 +1072,197 @@ async fn a_filled_xlsx_template_imports_with_exact_matches() {
     assert_eq!(attributes["odometer"], 2000);
     assert_eq!(attributes["serviced"], "2026-03-02");
 }
+
+/// A service history template for one record type, filled in with the
+/// dropdowns' labels, imports as it stands: every header maps by its exact
+/// id, every value matches exactly, the type is added from the catalogue,
+/// and the records are written.
+#[actix_web::test]
+async fn a_filled_service_history_template_imports_with_exact_matches() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    for r in 1..=2 {
+        diesel::sql_query(
+            "INSERT INTO assets (name, kind, asset_tag, status, workspace_id)
+             VALUES ($1, 'generic', $2, 'in_service', $3)",
+        )
+        .bind::<diesel::sql_types::Text, _>(format!("Camera {r}"))
+        .bind::<diesel::sql_types::Text, _>(format!("CAM-X-{r}"))
+        .bind::<diesel::sql_types::Integer, _>(ws.workspace_id)
+        .execute(&mut pool.get().expect("conn"))
+        .expect("seed asset");
+    }
+    let (_, disposition, bytes) = template_download(
+        &pool,
+        &ws,
+        "/api/admin/import/template/asset_records?record_type=repair&format=xlsx",
+    )
+    .await;
+    assert!(
+        disposition.contains("nosdesk-asset-records-repair-template.xlsx"),
+        "{disposition}"
+    );
+    let headers: Vec<String> = cells(&bytes, "Template")[0].iter().map(text).collect();
+    for id in [
+        "asset_tag",
+        "record_type",
+        "occurred_on",
+        "outcome",
+        "fault",
+        "offsite",
+    ] {
+        assert!(headers.iter().any(|h| h == id), "no {id} in {headers:?}");
+    }
+    let lists = lists(&bytes);
+    let entries = |id: &str| {
+        lists
+            .iter()
+            .find(|(list, _)| list == id)
+            .map(|(_, entries)| entries.clone())
+            .unwrap_or_else(|| panic!("no {id} list"))
+    };
+    // The outcome dropdown holds the repair outcomes, named.
+    assert_eq!(
+        entries("outcome"),
+        vec!["Repaired", "Replaced", "Beyond repair", "No fault found"]
+    );
+    let repair = entries("record_type")
+        .into_iter()
+        .find(|t| t == "Repair")
+        .expect("Repair on the type list");
+    let aud = entries("currency")
+        .into_iter()
+        .find(|c| c == "AUD")
+        .expect("AUD on the currency list");
+
+    let mut wb = Workbook::new();
+    let date = Format::new().set_num_format("yyyy-mm-dd");
+    {
+        let sheet = wb.add_worksheet();
+        sheet.set_name("Template").expect("name");
+        for (c, h) in headers.iter().enumerate() {
+            sheet.write_string(0, c as u16, h).expect("write");
+        }
+        let col = |id: &str| headers.iter().position(|h| h == id).expect(id) as u16;
+        for r in 1..=2u32 {
+            let i = r as usize - 1;
+            sheet
+                .write_string(r, col("asset_tag"), format!("CAM-X-{r}"))
+                .expect("write");
+            sheet
+                .write_string(r, col("record_type"), &repair)
+                .expect("write");
+            for field in ["occurred_on", "completed_on"] {
+                sheet
+                    .write_datetime_with_format(
+                        r,
+                        col(field),
+                        ExcelDateTime::from_ymd(2024, 3, r as u8).expect("date"),
+                        &date,
+                    )
+                    .expect("write");
+            }
+            sheet
+                .write_string(r, col("outcome"), entries("outcome")[i].clone())
+                .expect("write");
+            sheet
+                .write_string(r, col("summary"), "Lens mount")
+                .expect("write");
+            sheet
+                .write_number(r, col("cost"), 120.5 * f64::from(r))
+                .expect("write");
+            sheet.write_string(r, col("currency"), &aud).expect("write");
+            sheet
+                .write_string(r, col("fault"), "Won't focus")
+                .expect("write");
+            sheet
+                .write_string(r, col("offsite"), entries("offsite")[i % 2].clone())
+                .expect("write");
+        }
+    }
+    let filled = wb.save_to_buffer().expect("save");
+
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        crate::imports_assets::upload_request_for("asset_records", "history.xlsx", &filled),
+    )
+    .await;
+    let job = json(&body);
+    assert_eq!(status, StatusCode::OK, "{job}");
+    let suggested = job["suggested_mapping"].as_array().expect("suggestions");
+    assert_eq!(suggested.len(), headers.len(), "{job}");
+    let mut mapping = serde_json::Map::new();
+    for s in suggested {
+        let index = s["index"].as_u64().expect("index") as usize;
+        assert_eq!(s["reason"], "exact", "{s}");
+        assert_eq!(s["field"], headers[index].as_str(), "{s}");
+        mapping.insert(headers[index].clone(), index.into());
+    }
+    let id = job["id"].as_str().expect("id").to_string();
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        mapping_request(&id, serde_json::json!({ "mapping": mapping })),
+    )
+    .await;
+    let checked = json(&body);
+    assert_eq!(status, StatusCode::OK, "{checked}");
+    assert_eq!(checked["summary"]["would_create"], 2, "{checked}");
+    assert_eq!(checked["summary"]["rows_with_errors"], 0, "{checked}");
+    assert_eq!(
+        checked["summary"]["catalog"]["record_types"],
+        serde_json::json!(["repair"]),
+        "{checked}"
+    );
+
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        TestRequest::get().uri(&format!("/api/admin/import/{id}/values")),
+    )
+    .await;
+    let view = json(&body);
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let columns = view["columns"].as_array().expect("columns");
+    for field in ["record_type", "outcome", "currency", "offsite"] {
+        assert!(
+            columns.iter().any(|c| c["field"] == field),
+            "no {field} column in {view}"
+        );
+    }
+    for column in columns {
+        for value in column["values"].as_array().expect("values") {
+            assert_eq!(value["match"], "exact", "{} {value}", column["field"]);
+        }
+    }
+
+    crate::imports_attributes::commit(&pool, &ws, &id).await;
+    #[derive(QueryableByName)]
+    struct Stored {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        outcome: String,
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        cost_minor: i64,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        attributes: String,
+    }
+    let stored: Vec<Stored> = diesel::sql_query(
+        "SELECT outcome, cost_minor, attributes::text AS attributes FROM asset_records
+         WHERE workspace_id = $1 ORDER BY id",
+    )
+    .bind::<diesel::sql_types::Integer, _>(ws.workspace_id)
+    .load(&mut pool.get().expect("conn"))
+    .expect("records");
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].outcome, "repaired");
+    assert_eq!(stored[1].outcome, "replaced");
+    assert_eq!(stored[1].cost_minor, 24_100);
+    let attributes: serde_json::Value = serde_json::from_str(&stored[0].attributes).expect("json");
+    assert_eq!(attributes["fault"], "Won't focus");
+    assert_eq!(attributes["offsite"], true);
+}

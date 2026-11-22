@@ -59,10 +59,10 @@ pub struct TemplateColumn {
 }
 
 /// The columns of a template with `headers`, each described by the
-/// importer's field of that id. For a kind template (`kind`, assets), a
-/// field answered per kind is read as that kind defines it, so its
-/// dropdown holds that kind's options only. A header with no field is a
-/// text column.
+/// importer's field of that id. For a kind template (`kind`: an asset
+/// kind, or an asset record type), a field answered per kind is read as
+/// that kind defines it, so its dropdown holds that kind's options only. A
+/// header with no field is a text column.
 pub fn columns(
     conn: &mut DbConnection,
     importer: &dyn Importer,

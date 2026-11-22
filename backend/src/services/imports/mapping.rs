@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use super::csv_parser::{ParsedCsv, SourceRow, MAX_CELL_CHARS, MAX_ROWS};
 use super::types::{
-    ApplyTo, DecimalMark, FieldSpec, ImportMode, ImportOptions, ImportSummary, ImportType,
+    ApplyTo, DecimalMark, FieldSpec, ImportMode, ImportOptions, ImportSummary, ImportType, MatchBy,
     RowOutcome, RowResult, UnmappedColumn, ValueAnswer, ValueAnswers,
 };
 
@@ -430,7 +430,11 @@ pub fn validate(
         }
     }
     validate_constants(import_type, mapping, options, fields)?;
-    let creates = every_row_creates(import_type, options);
+    if import_type == ImportType::AssetRecords {
+        validate_record_keys(mapping, options, fields)?;
+    }
+    let creates = every_row_creates(import_type, options)
+        || (import_type == ImportType::AssetRecords && !mapping.contains_key("source_ref"));
     let keys = key_fields(import_type);
     for spec in fields
         .iter()
@@ -469,7 +473,9 @@ pub fn validate(
 pub fn every_row_creates(import_type: ImportType, options: &ImportOptions) -> bool {
     match import_type {
         ImportType::Tickets => true,
-        ImportType::Assets => options.row_mode() == ImportMode::CreateOnly,
+        ImportType::Assets | ImportType::AssetRecords => {
+            options.row_mode() == ImportMode::CreateOnly
+        }
         ImportType::Users => false,
     }
 }
@@ -481,7 +487,47 @@ fn key_fields(import_type: ImportType) -> &'static [&'static str] {
         ImportType::Assets => &["asset_tag", "serial_number"],
         ImportType::Users => &["email"],
         ImportType::Tickets => &[],
+        ImportType::AssetRecords => &["asset_tag", "serial_number", "source_ref"],
     }
+}
+
+/// An asset records mapping has what rows are found by: the source
+/// reference when only existing records are updated, else the column the
+/// asset is matched on.
+fn validate_record_keys(
+    mapping: &ColumnMapping,
+    options: &ImportOptions,
+    fields: &[FieldSpec],
+) -> Result<(), MappingError> {
+    let label = |id: &str| {
+        fields
+            .iter()
+            .find(|f| f.id == id)
+            .map_or(id.to_string(), |f| f.label.clone())
+    };
+    if options.row_mode() == ImportMode::UpdateOnly {
+        return if mapping.contains_key("source_ref") {
+            Ok(())
+        } else {
+            Err(MappingError(format!(
+                "no column maps to {}; existing records are found by it",
+                label("source_ref")
+            )))
+        };
+    }
+    let keys: &[&str] = match options.key() {
+        MatchBy::SerialNumber => &["serial_number"],
+        MatchBy::TagThenSerial => &["asset_tag", "serial_number"],
+        MatchBy::AssetTag | MatchBy::None => &["asset_tag"],
+    };
+    if keys.iter().any(|k| mapping.contains_key(*k)) {
+        return Ok(());
+    }
+    let names: Vec<String> = keys.iter().map(|k| label(k)).collect();
+    Err(MappingError(format!(
+        "no column maps to {}; each row finds its asset by it",
+        names.join(" or ")
+    )))
 }
 
 /// Check the constants: each sets a known field once, one no column feeds

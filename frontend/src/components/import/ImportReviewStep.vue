@@ -85,6 +85,9 @@ const emit = defineEmits<{
   /** Match values, at the card of this field (none: the first). */
   (e: 'fix-values', field: string | null): void
   (e: 'fix-map', field: string | null): void
+  /** Asset records: import the rows that look already recorded, or skip
+   *  them again. */
+  (e: 'include-duplicates', include: boolean): void
 }>()
 
 const fluent = useFluent()
@@ -108,9 +111,18 @@ const o = computed(() => outcomes(summary.value))
 const hasReport = computed(() => reportHasRows(o.value.skipped, summary.value))
 const type = computed(() => props.job.job_type)
 const isAssets = computed(() => type.value === 'assets')
+const isRecords = computed(() => type.value === 'asset_records')
 
 const fieldById = computed(() => new Map(props.fields.map((f) => [f.id, f])))
-const kindLabels = computed(() => new Map((props.kinds ?? []).map((k) => [k.value, k.label])))
+/** A row's kind: an asset kind, or for asset records the record type,
+ *  named as the type field names it. */
+const kindLabels = computed(() => {
+  if (isRecords.value) {
+    const field = fieldById.value.get('record_type')
+    return new Map((field?.enum ?? []).map((slug, i) => [slug, field?.enum_labels?.[i] ?? slug]))
+  }
+  return new Map((props.kinds ?? []).map((k) => [k.value, k.label]))
+})
 const kindLabel = (slug: string) => kindLabels.value.get(slug) ?? slug
 
 const fieldLabel = (f: ImportField) => (f.label_key ? t(f.label_key) : f.label)
@@ -133,7 +145,7 @@ function changeName(field: string): string {
 function shown(field: string, value: string | null | undefined): string | null {
   if (value === null || value === undefined || value === '') return null
   if (localisesChoices(type.value, field)) return choiceLabel(t, type.value, field, value, value)
-  if (field === 'kind') return kindLabel(value)
+  if (field === 'kind' || (isRecords.value && field === 'record_type')) return kindLabel(value)
   return value
 }
 
@@ -177,12 +189,27 @@ function runFix(p: Problem) {
 const NOTICE_KEYS: Record<string, string> = {
   no_key: 'import-review-notice-no-key',
   restore_changed_since: 'import-review-notice-restore-changed-since',
+  likely_duplicate: 'import-review-notice-likely-duplicate',
+  unmatched_assets: 'import-review-notice-unmatched-assets',
+  before_purchase: 'import-review-notice-before-purchase',
+  completed_long_after: 'import-review-notice-completed-long-after',
 }
+/** Notices with their own line below: rows that look already recorded,
+ *  and rows whose asset isn't here. */
+const OWN_LINE = new Set(['location_snapped', 'likely_duplicate', 'unmatched_assets'])
 const notices = computed(() =>
   (summary.value.notices ?? [])
-    .filter((n) => n.code !== 'location_snapped')
+    .filter((n) => !OWN_LINE.has(n.code))
     .map((n) => (NOTICE_KEYS[n.code] ? t(NOTICE_KEYS[n.code], { count: n.count }) : n.message)),
 )
+const noticeCount = (code: string) =>
+  (summary.value.notices ?? []).find((n) => n.code === code)?.count ?? 0
+/** Asset records: rows planned as already recorded, skipped unless the
+ *  admin imports them anyway. */
+const likelyDuplicates = computed(() => noticeCount('likely_duplicate'))
+const includingDuplicates = computed(() => !!props.job.options?.import_likely_duplicates)
+/** Asset records: rows about assets that aren't in the workspace. */
+const unmatchedAssets = computed(() => noticeCount('unmatched_assets'))
 const snapped = computed(
   () => (summary.value.notices ?? []).find((n) => n.code === 'location_snapped')?.count ?? 0,
 )
@@ -201,17 +228,29 @@ function lineDetail(line: NotImportedLine): string[] {
     case 'attribute':
       return [
         t('import-review-ni-attribute-rows', { count: line.rows, kind: kindLabel(line.kindSlug) }),
-        t('import-review-ni-attribute-reason', { kind: kindLabel(line.kindSlug), header: line.header }),
+        t(isRecords.value ? 'import-review-ni-attribute-reason-records' : 'import-review-ni-attribute-reason', {
+          kind: kindLabel(line.kindSlug),
+          header: line.header,
+        }),
       ]
     case 'group':
       return [
         t('import-review-ni-group-rows', { value: line.value, count: line.rows }),
-        t('import-review-ni-group-reason'),
+        t(
+          line.field === 'ticket' || line.field === 'currency'
+            ? `import-review-ni-${line.field}-reason`
+            : 'import-review-ni-group-reason',
+        ),
       ]
     case 'person':
       return [
         t('import-review-ni-person-rows', { values: line.values, count: line.rows }),
-        t('import-review-ni-person-reason', { values: line.values }),
+        t(
+          line.field === 'primary_user'
+            ? 'import-review-ni-person-reason'
+            : 'import-review-ni-person-reason-blank',
+          { values: line.values },
+        ),
       ]
   }
 }
@@ -234,7 +273,15 @@ function downloadLine(line: NotImportedLine) {
 // ---- new in your workspace ----
 
 const catalog = computed(() => summary.value.catalog ?? { manufacturers: [], models: [], groups: [] })
-const catalogLines = computed(() => [
+/** Asset records: built-in types the commit adds from the catalogue. */
+const recordTypesAdded = computed(() => catalog.value.record_types ?? [])
+const catalogLines = computed(() => isRecords.value ? [
+  {
+    key: 'import-review-new-record-types',
+    field: 'record_type',
+    names: recordTypesAdded.value.map((slug) => t(`asset-record-type-${slug}`)),
+  },
+] : [
   {
     key: 'import-review-new-manufacturers',
     field: 'manufacturer',
@@ -248,6 +295,35 @@ const catalogLines = computed(() => [
   { key: 'import-review-new-groups', field: 'groups', names: catalog.value.groups },
 ])
 const createsAny = computed(() => catalogLines.value.some((l) => l.names.length > 0))
+const showsCatalog = computed(() => isAssets.value || (isRecords.value && createsAny.value))
+
+// ---- asset records at a glance ----
+
+const history = computed(() => (isRecords.value ? summary.value.history ?? null : null))
+const dayFormat = (day: string) => {
+  const [y, m, d] = day.split('-').map(Number)
+  return new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+    new Date(Date.UTC(y, m - 1, d)),
+  )
+}
+const historySpan = computed(() => {
+  const h = history.value
+  if (!h?.earliest || !h.latest) return ''
+  return h.earliest === h.latest
+    ? dayFormat(h.earliest)
+    : t('import-review-history-span', { from: dayFormat(h.earliest), to: dayFormat(h.latest) })
+})
+const money = (amount: string, currency: string) => {
+  try {
+    return new Intl.NumberFormat(lang, { style: 'currency', currency }).format(Number(amount))
+  } catch {
+    return `${amount} ${currency}`
+  }
+}
+const historyCosts = computed(() =>
+  (history.value?.costs ?? []).map((c) => money(c.amount, c.currency)).join(' · '),
+)
+
 const firstCreated = computed(() => catalogLines.value.find((l) => l.names.length > 0)?.field ?? null)
 
 // ---- what changes ----
@@ -412,6 +488,9 @@ const confirmMessage = computed(() => {
       : '',
     catalog.value.models.length > 0 ? t('import-review-count-models', { count: catalog.value.models.length }) : '',
     catalog.value.groups.length > 0 ? t('import-review-count-groups', { count: catalog.value.groups.length }) : '',
+    recordTypesAdded.value.length > 0
+      ? t('import-review-count-record-types', { count: recordTypesAdded.value.length })
+      : '',
   ].filter(Boolean)
   if (made.length > 0) parts.push(t('import-review-confirm-catalog', { list: list(made) }))
   if (notImported.value.columns > 0) {
@@ -520,6 +599,61 @@ const linkClass =
       </ul>
     </Callout>
 
+    <!-- Asset records: rows whose asset isn't here; the assets come first. -->
+    <Callout v-if="isReview && unmatchedAssets > 0" severity="warning" data-test="import-review-unmatched-assets">
+      <div class="px-4 py-3 flex flex-col gap-1 text-sm">
+        <p class="text-primary">{{ $t('import-review-notice-unmatched-assets', { count: unmatchedAssets }) }}</p>
+        <RouterLink
+          :class="linkClass"
+          class="self-start"
+          :to="{ path: '/admin/data-import/csv', query: { type: 'assets' } }"
+          data-test="import-review-import-assets"
+        >
+          {{ $t('import-review-import-assets-first') }}
+        </RouterLink>
+      </div>
+    </Callout>
+
+    <!-- Asset records: rows that look already recorded are skipped unless
+         the admin imports them anyway. -->
+    <Callout
+      v-if="isReview && (likelyDuplicates > 0 || includingDuplicates)"
+      severity="info"
+      data-test="import-review-duplicates"
+    >
+      <div class="px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+        <span class="text-secondary">
+          {{ includingDuplicates
+            ? $t('import-review-duplicates-included')
+            : $t('import-review-notice-likely-duplicate', { count: likelyDuplicates }) }}
+        </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          :disabled="committing || discarding"
+          data-test="import-review-duplicates-toggle"
+          @click="emit('include-duplicates', !includingDuplicates)"
+        >
+          {{ includingDuplicates ? $t('import-review-duplicates-skip') : $t('import-review-duplicates-include') }}
+        </Button>
+      </div>
+    </Callout>
+
+    <!-- Asset records: the file at a glance. -->
+    <SectionCard v-if="showsCards && history" content-padding="" data-test="import-review-history">
+      <template #title>{{ $t('import-review-history-title') }}</template>
+      <ul class="flex flex-col divide-y divide-default">
+        <li class="flex flex-wrap gap-x-2 px-3 py-2 text-sm">
+          <span class="font-medium text-primary">{{ $t('import-review-history-assets', { count: history.assets }) }}</span>
+          <span v-if="historySpan" class="text-tertiary">· {{ historySpan }}</span>
+        </li>
+        <li v-if="historyCosts" class="flex flex-wrap gap-x-2 px-3 py-2 text-sm" data-test="import-review-history-costs">
+          <span class="font-medium text-primary">{{ $t('import-review-history-costs') }}</span>
+          <span class="text-tertiary">· {{ historyCosts }}</span>
+        </li>
+      </ul>
+    </SectionCard>
+
     <!-- Not imported from this file. -->
     <SectionCard v-if="showsCards" content-padding="" data-test="import-not-imported">
       <template #title>
@@ -559,7 +693,7 @@ const linkClass =
     </SectionCard>
 
     <!-- New in your workspace: catalog entries the import creates. -->
-    <SectionCard v-if="showsCards && isAssets" content-padding="" data-test="import-new-in-workspace">
+    <SectionCard v-if="showsCards && showsCatalog" content-padding="" data-test="import-new-in-workspace">
       <template #title>{{ isReview ? $t('import-review-new-title') : $t('import-done-created-title') }}</template>
       <ul class="flex flex-col divide-y divide-default">
         <li v-for="line in catalogLines" :key="line.key" class="px-3 py-2 text-sm break-words">

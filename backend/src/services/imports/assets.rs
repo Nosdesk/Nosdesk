@@ -225,7 +225,7 @@ fn attribute_spec(id: &str, title: &str, value_type: ValueType) -> FieldSpec {
 }
 
 /// A property's enum options that are text.
-fn enum_options(prop: &Value) -> Vec<String> {
+pub(super) fn enum_options(prop: &Value) -> Vec<String> {
     prop.get("enum")
         .and_then(Value::as_array)
         .map(|values| {
@@ -238,7 +238,7 @@ fn enum_options(prop: &Value) -> Vec<String> {
 }
 
 /// How a property's cells read.
-fn value_type_of(prop: &Value) -> ValueType {
+pub(super) fn value_type_of(prop: &Value) -> ValueType {
     match prop.get("type").and_then(Value::as_str) {
         Some("boolean") => return ValueType::Boolean,
         Some("number" | "integer") => return ValueType::Number,
@@ -259,7 +259,7 @@ fn value_type_of(prop: &Value) -> ValueType {
 }
 
 /// `warranty_end` as "Warranty end".
-fn humanize(key: &str) -> String {
+pub(super) fn humanize(key: &str) -> String {
     let words = key.replace('_', " ");
     let words = words.trim();
     let mut chars = words.chars();
@@ -959,7 +959,7 @@ fn matches_existing(
     options: &ImportOptions,
 ) -> bool {
     match options.key() {
-        MatchBy::AssetTag | MatchBy::None => {
+        MatchBy::AssetTag | MatchBy::TagThenSerial | MatchBy::None => {
             let tag = trimmed(row, "asset_tag");
             !tag.is_empty() && lookups.tags.contains_key(&tag)
         }
@@ -977,10 +977,12 @@ fn matched_asset<'a>(
     options: &ImportOptions,
 ) -> Option<&'a Asset> {
     let id = match options.key() {
-        MatchBy::AssetTag | MatchBy::None => match lookups.tags.get(&trimmed(row, "asset_tag")) {
-            Some(ids) if ids.len() == 1 => Some(ids[0]),
-            _ => None,
-        },
+        MatchBy::AssetTag | MatchBy::TagThenSerial | MatchBy::None => {
+            match lookups.tags.get(&trimmed(row, "asset_tag")) {
+                Some(ids) if ids.len() == 1 => Some(ids[0]),
+                _ => None,
+            }
+        }
         MatchBy::SerialNumber => lookups.serials.get(&trimmed(row, "serial_number")).copied(),
     }?;
     lookups.existing.get(&id)
@@ -1013,7 +1015,7 @@ fn row_kind(
 }
 
 /// A value as `fields_written` keeps it: text, blank as `None`.
-fn value_text(value: &Value) -> Option<String> {
+pub(super) fn value_text(value: &Value) -> Option<String> {
     match value {
         Value::Null => None,
         Value::String(s) if s.is_empty() => None,
@@ -1303,7 +1305,7 @@ fn identify(
     options: &ImportOptions,
 ) -> RowResult {
     let key = match options.key() {
-        MatchBy::AssetTag | MatchBy::None => trimmed(row, "asset_tag"),
+        MatchBy::AssetTag | MatchBy::TagThenSerial | MatchBy::None => trimmed(row, "asset_tag"),
         MatchBy::SerialNumber => trimmed(row, "serial_number"),
     };
     let name = opt_string(row, "name")
@@ -2141,7 +2143,9 @@ const MANUFACTURER_FAMILY: &str = "manufacturer";
 
 /// The workspace's members as a primary user's choices: by user id, named
 /// by name with the primary email beside it, which a value matches on.
-fn member_choices(conn: &mut DbConnection) -> Result<Vec<Choice>, diesel::result::Error> {
+pub(super) fn member_choices(
+    conn: &mut DbConnection,
+) -> Result<Vec<Choice>, diesel::result::Error> {
     Ok(workspace_repo::member_directory(conn)?
         .into_iter()
         .map(|(user, name, email)| {
@@ -2936,7 +2940,7 @@ fn parse_attribute(
 }
 
 /// A number as JSON: whole numbers as integers.
-fn number_value(number: &BigDecimal, integer: bool) -> Option<Value> {
+pub(super) fn number_value(number: &BigDecimal, integer: bool) -> Option<Value> {
     if number.is_integer() {
         return number.to_i64().map(Value::from);
     }
