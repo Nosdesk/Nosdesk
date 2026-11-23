@@ -10920,3 +10920,25 @@ import-review-ni-performer-reason-kept = { $values ->
     [one] can't work tickets here, kept as recorded
    *[other] can't work tickets here, kept as recorded
    }
+
+# Status change dialog: the record a move into a status opens, and the
+# completion a move out writes.
+asset-lifecycle-record-open = Open a repair record
+asset-lifecycle-record-open-type = Open a record: { $type }
+asset-lifecycle-record-complete = Complete repair record
+asset-lifecycle-record-complete-type = Complete record: { $type }
+asset-lifecycle-record-summary = Summary
+asset-lifecycle-record-vendor = Vendor or technician
+asset-lifecycle-record-reference = Reference
+asset-lifecycle-record-reference-placeholder = RMA, work order or invoice number
+asset-lifecycle-record-which = Record to complete
+asset-lifecycle-record-which-placeholder = Pick a record
+asset-lifecycle-record-choice = Opened { $date } ({ $detail })
+asset-lifecycle-record-choice-plain = Opened { $date }
+asset-lifecycle-record-outcome = Outcome
+asset-lifecycle-record-outcome-none = Not recorded
+asset-lifecycle-record-cost = Cost ({ $currency })
+asset-lifecycle-record-completed-on = Completed on
+asset-lifecycle-record-cost-invalid = Enter the cost as a number
+asset-lifecycle-record-cost-ambiguous = This amount reads two ways; write it without a thousands separator
+asset-lifecycle-record-cost-negative = A cost can't be below zero

@@ -867,6 +867,8 @@ async fn lifecycle_reasons_actors_and_metadata_stay_with_staff() {
                 metadata: json!({ "vendor": VENDOR, "rma": "RMA-42" }),
                 actor_uuid: Some(f.agent),
                 disposal: None,
+                record: None,
+                complete_record: None,
             },
         )
         .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
@@ -973,6 +975,8 @@ async fn disposal_notes_vendor_and_actor_stay_with_staff() {
                     itad_vendor: Some(VENDOR.to_string()),
                     notes: Some(NOTES.to_string()),
                 }),
+                record: None,
+                complete_record: None,
             },
         )
         .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))

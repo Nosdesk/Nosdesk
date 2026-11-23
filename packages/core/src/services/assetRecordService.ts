@@ -87,6 +87,9 @@ export interface AssetRecordFilter {
   outcome?: string;
   /** `true` for open work only, `false` for completed only. */
   open?: boolean;
+  /** Only records a move out of this status completes: of the type that
+   *  opens with it, or opened by a move into it. */
+  leaving?: string;
   /** Work done on or after this day (YYYY-MM-DD). */
   from?: string;
   /** Work done on or before this day (YYYY-MM-DD). */

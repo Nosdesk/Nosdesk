@@ -5,17 +5,28 @@
 //! retired, ...), so transitions are permitted even on externally
 //! synced assets: the status and its history live outside the fields
 //! Intune/Entra owns.
+//!
+//! A transition writes an asset record only when the body asks: `record`
+//! opens one of the type the target status opens with, and
+//! `complete_record` completes the open one the status it leaves opened.
 
+use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse, Responder};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
+use uuid::Uuid;
 
 use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
+use crate::handlers::asset_records::{self as records_api, CostBody, Refusal};
 use crate::models::{AssetDisposal, AssetLifecycleEvent, AssetStatus, SANITIZATION_METHODS};
 use crate::repository::{
-    asset_lifecycle::{self as repo, DisposalInput, TransitionError, TransitionInput},
+    asset_lifecycle::{
+        self as repo, CompleteRecordInput, DisposalInput, RecordInput, TransitionError,
+        TransitionInput,
+    },
     assets as assets_repo,
 };
 
@@ -34,6 +45,77 @@ pub struct TransitionBody {
     /// otherwise. Captured atomically with the transition for the
     /// compliance / export trail.
     pub disposal: Option<DisposalBody>,
+    /// Open a record of the type the target status opens with (the repair
+    /// type for `in_repair`). Left out, the move writes no record.
+    #[serde(default)]
+    pub record: Option<TransitionRecordBody>,
+    /// Complete the open record of the type the current status opens with.
+    #[serde(default)]
+    pub complete_record: Option<CompleteRecordBody>,
+}
+
+/// The record a transition opens: the work starts with the move and links
+/// its ticket.
+#[derive(Debug, Default, Deserialize)]
+pub struct TransitionRecordBody {
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub vendor: Option<String>,
+    #[serde(default)]
+    pub performed_by_uuid: Option<Uuid>,
+    /// RMA, work order or invoice number.
+    #[serde(default)]
+    pub reference: Option<String>,
+    /// Values for the type's own fields.
+    #[serde(default)]
+    pub attributes: Option<serde_json::Value>,
+}
+
+/// The completion a transition out of a status writes on its open record.
+#[derive(Debug, Default, Deserialize)]
+pub struct CompleteRecordBody {
+    /// Which open record; needed only when more than one is open.
+    #[serde(default)]
+    pub record_id: Option<i32>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    /// Without a currency, the amount is in the workspace currency.
+    #[serde(default)]
+    pub cost: Option<CostBody>,
+    /// The day the work finished, or the moment; neither is the moment of
+    /// the transition.
+    #[serde(default)]
+    pub completed_on: Option<NaiveDate>,
+    #[serde(default)]
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+/// Why a transition is refused: by the status rules, or by the record it
+/// writes.
+enum Refused {
+    Transition(TransitionError),
+    Record(Refusal),
+}
+
+impl From<diesel::result::Error> for Refused {
+    fn from(e: diesel::result::Error) -> Self {
+        Refused::Transition(e.into())
+    }
+}
+
+impl From<TransitionError> for Refused {
+    fn from(e: TransitionError) -> Self {
+        Refused::Transition(e)
+    }
+}
+
+impl From<Refusal> for Refused {
+    fn from(e: Refusal) -> Self {
+        Refused::Record(e)
+    }
 }
 
 /// Disposal detail submitted with a transition to `disposed`. Maps to the
@@ -127,7 +209,10 @@ pub async fn create_transition(
         return errors::bad_request(format!("Unknown asset status '{}'", body.to_status));
     }
 
-    let metadata = if body.metadata.is_null() {
+    // A move that writes a record names it in the metadata, which needs an
+    // object to hold it.
+    let writes_record = body.record.is_some() || body.complete_record.is_some();
+    let metadata = if body.metadata.is_null() || (writes_record && !body.metadata.is_object()) {
         json!({})
     } else {
         body.metadata
@@ -135,9 +220,50 @@ pub async fn create_transition(
     let actor_uuid = Some(auth.user_uuid);
 
     // The status rules (terminal `disposed`, loan-owned `on_loan`, the
-    // disposal record) are checked by the repository inside the transaction.
-    let result = tc.run_result(|conn| {
-        repo::transition(
+    // disposal record) and the record rules are checked by the repository
+    // inside the transaction.
+    let result = tc.run_result(|conn| -> Result<_, Refused> {
+        let record = match body.record {
+            Some(r) => {
+                // The people and ticket a record names, as a record written
+                // on its own checks them.
+                records_api::check_references(
+                    conn,
+                    &auth,
+                    r.performed_by_uuid,
+                    None,
+                    body.ticket_id,
+                )?;
+                Some(RecordInput {
+                    summary: r.summary,
+                    notes: r.notes,
+                    vendor: r.vendor,
+                    performed_by_uuid: r.performed_by_uuid,
+                    reference: r.reference,
+                    attributes: r
+                        .attributes
+                        .filter(|a| !a.is_null())
+                        .unwrap_or_else(|| json!({})),
+                })
+            }
+            None => None,
+        };
+        let complete_record = match body.complete_record {
+            Some(c) => Some(CompleteRecordInput {
+                record_id: c.record_id,
+                outcome: c.outcome,
+                cost: match c.cost {
+                    Some(cost) => Some(records_api::read_cost(
+                        cost,
+                        records_api::workspace_currency(conn)?,
+                    )?),
+                    None => None,
+                },
+                completed: records_api::work_date(c.completed_on, c.completed_at, "completed")?,
+            }),
+            None => None,
+        };
+        Ok(repo::transition(
             conn,
             TransitionInput {
                 asset_id,
@@ -153,13 +279,16 @@ pub async fn create_transition(
                     itad_vendor: d.itad_vendor.clone(),
                     notes: d.notes.clone(),
                 }),
+                record,
+                complete_record,
             },
-        )
+        )?)
     });
 
     match result {
         Ok((_asset, event)) => HttpResponse::Created().json(event),
-        Err(e) => map_transition_err(asset_id, e),
+        Err(Refused::Transition(e)) => map_transition_err(asset_id, e),
+        Err(Refused::Record(e)) => records_api::respond(e),
     }
 }
 
@@ -188,6 +317,31 @@ fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpResponse {
             "Unknown sanitization method '{method}'; expected one of: {}",
             SANITIZATION_METHODS.join(", ")
         )),
+        TransitionError::NoRecordType { status } => errors::with_fields(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "NO_RECORD_TYPE_FOR_STATUS",
+            format!("No record type opens with the status {status}"),
+            json!({ "status": status }),
+        ),
+        TransitionError::NoOpenRecord => errors::with_fields(
+            StatusCode::CONFLICT,
+            "NO_OPEN_RECORD",
+            "The asset has no open record to complete",
+            json!({}),
+        ),
+        TransitionError::RecordChoiceRequired { open } => errors::with_fields(
+            StatusCode::CONFLICT,
+            "RECORD_CHOICE_REQUIRED",
+            "More than one record is open; name the one to complete",
+            json!({ "open_record_ids": open }),
+        ),
+        TransitionError::RecordNotOpen(id) => errors::with_fields(
+            StatusCode::CONFLICT,
+            "RECORD_NOT_OPEN",
+            format!("Record {id} isn't an open record of this asset"),
+            json!({ "record_id": id }),
+        ),
+        TransitionError::Record(e) => records_api::record_error(e),
         TransitionError::Db(err) => {
             error!(asset_id, error = ?err, "failed to record asset lifecycle transition");
             errors::internal("Failed to change asset status")

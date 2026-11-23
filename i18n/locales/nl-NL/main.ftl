@@ -12337,3 +12337,44 @@ import-review-ni-performer-reason-kept = { $values ->
     [one] kan hier geen tickets behandelen, geregistreerde waarde behouden
    *[other] kunnen hier geen tickets behandelen, geregistreerde waarden behouden
    }
+
+# Statuswijziging: de registratie die een overgang opent, en het afronden
+# ervan bij het verlaten.
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-open = Reparatieregistratie openen
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-open-type = Registratie openen: { $type }
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-complete = Reparatieregistratie afronden
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-complete-type = Registratie afronden: { $type }
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-summary = Samenvatting
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-vendor = Leverancier of technicus
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-reference = Referentie
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-reference-placeholder = RMA, werkorder of factuurnummer
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-which = Af te ronden registratie
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-which-placeholder = Kies een registratie
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-choice = Geopend op { $date } ({ $detail })
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-choice-plain = Geopend op { $date }
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-outcome = Uitkomst
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-outcome-none = Niet vastgelegd
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-cost = Kosten ({ $currency })
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-completed-on = Afgerond op
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-cost-invalid = Voer de kosten in als getal
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-cost-ambiguous = Dit bedrag is op twee manieren te lezen; schrijf het zonder scheidingsteken voor duizendtallen
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-cost-negative = Kosten kunnen niet negatief zijn

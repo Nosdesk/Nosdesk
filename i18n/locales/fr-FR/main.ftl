@@ -12346,3 +12346,44 @@ import-review-ni-performer-reason-kept = { $values ->
     [one] ne peut pas traiter de tickets ici, valeur enregistrée conservée
    *[other] ne peuvent pas traiter de tickets ici, valeurs enregistrées conservées
    }
+
+# Changement de statut : l'intervention ouverte en entrant dans un statut
+# et sa clôture en le quittant.
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-open = Ouvrir une intervention de réparation
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-open-type = Ouvrir une intervention : { $type }
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-complete = Clôturer l'intervention de réparation
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-complete-type = Clôturer l'intervention : { $type }
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-summary = Résumé
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-vendor = Prestataire ou technicien
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-reference = Référence
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-reference-placeholder = RMA, ordre de travail ou numéro de facture
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-which = Intervention à clôturer
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-which-placeholder = Choisir une intervention
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-choice = Ouverte le { $date } ({ $detail })
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-choice-plain = Ouverte le { $date }
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-outcome = Résultat
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-outcome-none = Non renseigné
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-cost = Coût ({ $currency })
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-completed-on = Terminée le
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-cost-invalid = Saisissez le coût sous forme de nombre
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-cost-ambiguous = Ce montant peut se lire de deux façons ; écrivez-le sans séparateur de milliers
+# MT: pending native review (fr-FR)
+asset-lifecycle-record-cost-negative = Un coût ne peut pas être négatif
