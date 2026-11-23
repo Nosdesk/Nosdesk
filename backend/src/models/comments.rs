@@ -122,6 +122,31 @@ pub struct NewComment {
     pub client_id: Option<Uuid>,
 }
 
+/// Insert payload for a reply a helpdesk import writes: history, so it keeps
+/// the date the source recorded. Only `repository::comments::import_comment`
+/// writes it.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::comments)]
+pub struct NewImportedComment {
+    pub content: String,
+    pub ticket_id: i32,
+    pub user_uuid: Uuid,
+    pub is_internal: bool,
+    pub content_format: ContentFormat,
+    /// Render tier (`text`/`simple`/`rich`), as the email pipeline
+    /// classifies it, and the render-safe body for that tier.
+    pub render_kind: Option<String>,
+    pub new_content: Option<String>,
+    /// The body exactly as the source sent it, before sanitising, so a
+    /// later policy change can re-render without the source.
+    pub body_html: Option<String>,
+    pub body_text: Option<String>,
+    /// Where it came from: `{"source": "zendesk", "source_id": "..."}`.
+    pub channel_metadata: Option<serde_json::Value>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
 #[diesel(table_name = crate::schema::attachments)]
 #[diesel(belongs_to(Comment))]

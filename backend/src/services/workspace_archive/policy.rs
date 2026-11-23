@@ -277,6 +277,10 @@ pub const WORKSPACE_TABLES: &[Table] = &[
     t("yjs_snapshots", Never),
     t("import_jobs", Never),
     t("import_value_answers", Never),
+    // The helpdesk import's id map points at ids a move rewrites, so it
+    // stays behind. A rerun of the same import into the moved workspace
+    // starts its map over (and would bring the tickets in again).
+    t("import_source_ids", Never),
     t("backup_jobs", Never),
     t("bug_reports", Never),
     t("csp_reports", Never),

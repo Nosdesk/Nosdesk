@@ -394,6 +394,63 @@ pub fn create_comment_with_annotation(
     Ok(comment)
 }
 
+/// Write a reply a helpdesk import brings across: history, with the date the
+/// source recorded.
+///
+/// It does none of what a new reply does to its ticket: no `updated_at` bump,
+/// no reopen, no first-response stamp, no ticket references (an old "#123"
+/// means the source's ticket 123, which may not be ours). The loader sets the
+/// ticket's dates itself. It sends one `comment.created`, shaped like a live
+/// reply's so the ticket view renders it from the pool, with `created_via`
+/// naming the source and `imported: true`. Run it under an `import:<job>`
+/// actor reference and the outboxes skip it.
+pub fn import_comment(
+    conn: &mut DbConnection,
+    row: NewImportedComment,
+    source: &str,
+) -> QueryResult<Comment> {
+    conn.transaction(|conn| {
+        let parent: Ticket = tickets::table.find(row.ticket_id).first(conn)?;
+        let comment: Comment = diesel::insert_into(comments::table)
+            .values(&row)
+            .get_result(conn)?;
+        let groups = groups::for_ticket(conn, &parent)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Comment,
+                aggregate_id: comment.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "comment.created",
+                data: json!({
+                    "id": comment.id,
+                    "ticket_id": comment.ticket_id,
+                    "user_uuid": comment.user_uuid,
+                    "is_internal": comment.is_internal,
+                    "content_format": comment.content_format,
+                    "render_kind": comment.render_kind,
+                    "content": comment.content,
+                    "new_content": comment.new_content,
+                    "quoted_content": comment.quoted_content,
+                    "created_at": comment.created_at,
+                    "created_via": {
+                        "source": format!("import:{source}"),
+                        "from_email": serde_json::Value::Null,
+                        "from_name": serde_json::Value::Null,
+                        "imported": true,
+                    },
+                    "ticket_title": parent.title,
+                    "ticket_requester_uuid": parent.requester_uuid,
+                    "ticket_assignee_uuid": parent.assignee_uuid,
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(comment)
+    })
+}
+
 /// Record the tickets a new comment references through `ticket_link`
 /// nodes and emit one `ticket_reference.added` per reference, grouped on
 /// the referenced ticket so its activity feed and the notification deriver

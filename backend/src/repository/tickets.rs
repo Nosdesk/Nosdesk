@@ -488,6 +488,56 @@ pub fn create_ticket_with_annotation(
     })
 }
 
+/// How many tickets the workspace holds, merged and closed ones included.
+/// A helpdesk import keeps the source's numbers only when every one of them
+/// is its own.
+pub fn count_tickets(conn: &mut DbConnection) -> QueryResult<i64> {
+    tickets::table.count().get_result(conn)
+}
+
+/// Write a ticket a helpdesk import brings across: history, not a request.
+///
+/// Unlike [`create_ticket_with_annotation`] it keeps the source's dates,
+/// number and closing, and it starts nothing: no SLA targets (the row says
+/// `sla_override = 'none'`), no approval round. It sends one
+/// `ticket.created` so every client's pool and the activity feed see the
+/// ticket, with `created_via` naming the source and `imported: true`. Run
+/// it under an `import:<job>` actor reference and the notification, rule and
+/// webhook outboxes skip that event.
+pub fn import_ticket(
+    conn: &mut DbConnection,
+    row: NewImportedTicket,
+    source: &str,
+) -> QueryResult<Ticket> {
+    conn.transaction(|conn| {
+        let ticket: Ticket = diesel::insert_into(tickets::table)
+            .values(&row)
+            .get_result(conn)?;
+        let groups = groups::for_ticket(conn, &ticket)?;
+        let created_via = json!({
+            "source": format!("import:{source}"),
+            "from_email": serde_json::Value::Null,
+            "from_name": serde_json::Value::Null,
+            "subject": serde_json::Value::Null,
+            "imported": true,
+        });
+        let data = ticket_created_data(conn, &ticket, created_via)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Ticket,
+                aggregate_id: ticket.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "ticket.created",
+                data,
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(ticket)
+    })
+}
+
 /// Look up a ticket by its opaque guest-lookup token. Used by the public
 /// `/api/public/tickets/{token}` status endpoint.
 pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult<Ticket> {
