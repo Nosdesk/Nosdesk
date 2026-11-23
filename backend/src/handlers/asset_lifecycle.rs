@@ -209,7 +209,10 @@ pub async fn create_transition(
         return errors::bad_request(format!("Unknown asset status '{}'", body.to_status));
     }
 
-    let metadata = if body.metadata.is_null() {
+    // A move that writes a record names it in the metadata, which needs an
+    // object to hold it.
+    let writes_record = body.record.is_some() || body.complete_record.is_some();
+    let metadata = if body.metadata.is_null() || (writes_record && !body.metadata.is_object()) {
         json!({})
     } else {
         body.metadata

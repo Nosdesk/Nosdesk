@@ -536,3 +536,142 @@ async fn the_type_pointed_at_the_status_is_the_one_opened() {
     assert_eq!(code, StatusCode::CREATED);
     assert_eq!(records(&f)[0].outcome.as_deref(), Some("in_tolerance"));
 }
+
+/// A record a move into the status opened is completed by the move out,
+/// whatever its type: here a repair whose type lost the status to another
+/// type, as a backfilled repair can. It is listed for the move too.
+#[actix_web::test]
+async fn a_record_opened_by_a_move_into_the_status_is_completed_by_the_move_out() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    // Calibration takes in_repair first, so the repair type comes without it.
+    let calibration = in_ws(&f, |c| {
+        types_repo::create(
+            c,
+            types_repo::NewRecordTypeInput {
+                slug: "calibration".into(),
+                label: "Calibration".into(),
+                description: None,
+                icon: None,
+                color: None,
+                field_schema: json!({ "type": "object", "properties": {} }),
+                field_order: vec![],
+                core_fields: json!({}),
+                outcomes: vec![],
+                applies_to_kinds: None,
+                opens_with_status: Some("in_repair".into()),
+                sort_order: 0,
+                created_by: None,
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .id;
+    let repair = in_ws(&f, |c| {
+        types_repo::add_from_catalogue(c, "repair", None)
+            .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    });
+    assert_eq!(repair.opens_with_status, None);
+
+    let (code, event) = transition(&f, json!({ "to_status": "in_repair" })).await;
+    assert_eq!(code, StatusCode::CREATED, "{event}");
+    let event_id = event["id"].as_i64().expect("event id") as i32;
+    // The repair the backfill would have written for that move.
+    let backfilled = in_ws(&f, |c| {
+        asset_records::create(
+            c,
+            asset_records::NewRecord {
+                asset_id: f.asset,
+                record_type_id: repair.id,
+                summary: None,
+                notes: None,
+                occurred: asset_records::WorkDate::Day(chrono::Utc::now().date_naive()),
+                completed: None,
+                outcome: None,
+                vendor: Some("Camera Clinic".into()),
+                performed_by_uuid: None,
+                reference: None,
+                cost: None,
+                ticket_id: None,
+                replacement_asset_id: None,
+                snapshot: None,
+                attributes: json!({}),
+                source: backend::models::RecordSource::Backfill,
+                source_ref: None,
+                import_job_id: None,
+                rule_id: None,
+                lifecycle_event_id: Some(event_id),
+                recorded_by: None,
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .record
+    .id;
+    // Another repair, opened by no move: not this move's to complete.
+    let (code, unrelated) = call(
+        &f,
+        Method::POST,
+        &format!("/api/assets/{}/records", f.asset),
+        Some(json!({
+            "record_type": "repair",
+            "occurred_on": chrono::Utc::now().date_naive(),
+        })),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{unrelated}");
+    let unrelated = unrelated["record"]["id"].as_i64().expect("id") as i32;
+
+    let (code, listed) = call(
+        &f,
+        Method::GET,
+        &format!(
+            "/api/assets/{}/records?open=true&leaving=in_repair",
+            f.asset
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{listed}");
+    let ids: Vec<i64> = listed["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .map(|r| r["id"].as_i64().expect("id"))
+        .collect();
+    assert_eq!(ids, vec![backfilled as i64]);
+
+    let (code, done) = transition(
+        &f,
+        json!({ "to_status": "in_service", "complete_record": { "outcome": "repaired" } }),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{done}");
+    let rows = records(&f);
+    let completed = rows
+        .iter()
+        .find(|r| r.id == backfilled)
+        .expect("the repair");
+    assert_eq!(completed.outcome.as_deref(), Some("repaired"));
+    assert!(completed.completed_on.is_some());
+    let other = rows.iter().find(|r| r.id == unrelated).expect("the other");
+    assert_eq!(other.completed_on, None, "left open");
+    assert!(rows.iter().all(|r| r.record_type_id != calibration));
+}
+
+/// Metadata that isn't an object becomes one when the move writes a record,
+/// so the event still names the record and carries the repair keys.
+#[actix_web::test]
+async fn metadata_that_isnt_an_object_still_names_the_record() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let mut body = into_repair(json!({ "vendor": "Camera Clinic" }));
+    body["metadata"] = json!(["not", "an", "object"]);
+    let (code, event) = transition(&f, body).await;
+    assert_eq!(code, StatusCode::CREATED, "{event}");
+    let record = records(&f).remove(0);
+    assert_eq!(
+        event["metadata"],
+        json!({ "record_id": record.id, "vendor": "Camera Clinic" })
+    );
+}

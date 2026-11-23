@@ -172,12 +172,13 @@ pub enum TransitionError {
     DisposalNotAllowed,
     /// `sanitization_method` is not one of [`SANITIZATION_METHODS`].
     InvalidSanitizationMethod(String),
-    /// A record was asked for, but no live record type opens with `status`.
+    /// A record was asked to be opened, but no live record type opens with
+    /// `status`.
     NoRecordType {
         status: String,
     },
-    /// A completion was asked for, but the asset has no open record of the
-    /// type its status opens.
+    /// A completion was asked for, but the asset has no open record a move
+    /// out of its status completes.
     NoOpenRecord,
     /// More than one record is open; the completion must name one of them.
     RecordChoiceRequired {
@@ -421,19 +422,15 @@ fn type_to_open(
 }
 
 /// The open record a move out of `status` completes: the one named, else
-/// the only open record of the type `status` opens with.
+/// the only one open of those the move may complete (of the type `status`
+/// opens with, or opened by a move into it).
 fn record_to_complete(
     conn: &mut DbConnection,
     asset_id: i32,
     status: &str,
     input: &CompleteRecordInput,
 ) -> Result<AssetRecord, TransitionError> {
-    let rtype = record_types_repo::opened_by_status(conn, status)?.ok_or_else(|| {
-        TransitionError::NoRecordType {
-            status: status.to_string(),
-        }
-    })?;
-    let mut open = records_repo::open_for_asset(conn, asset_id, rtype.id)?;
+    let mut open = records_repo::open_for_leaving(conn, asset_id, status)?;
     match input.record_id {
         Some(id) => open
             .into_iter()

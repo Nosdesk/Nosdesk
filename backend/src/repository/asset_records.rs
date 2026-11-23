@@ -329,16 +329,51 @@ pub fn list_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Vec
         .load(conn)
 }
 
-/// An asset's open records of type `record_type_id`, oldest work first.
-pub fn open_for_asset(
+/// Which of an asset's records a move out of `status` completes: those of
+/// the live type that opens with `status`, and those a move into `status`
+/// opened, whatever their type (a backfilled repair whose type another one
+/// has since taken the status from, say). Open or not; callers filter.
+fn completed_by_leaving(
+    conn: &mut DbConnection,
+    status: &str,
+) -> QueryResult<
+    Box<
+        dyn BoxableExpression<
+            asset_records::table,
+            diesel::pg::Pg,
+            SqlType = diesel::sql_types::Bool,
+        >,
+    >,
+> {
+    use crate::schema::asset_lifecycle_events;
+    let into_status = asset_lifecycle_events::table
+        .filter(asset_lifecycle_events::to_status.eq(status.to_string()))
+        .select(asset_lifecycle_events::id.nullable());
+    let opened_by_move = asset_records::lifecycle_event_id.eq_any(into_status);
+    Ok(
+        match crate::repository::asset_record_types::opened_by_status(conn, status)? {
+            Some(rtype) => Box::new(
+                asset_records::record_type_id
+                    .eq(rtype.id)
+                    .or(opened_by_move.assume_not_null()),
+            ),
+            None => Box::new(opened_by_move.assume_not_null()),
+        },
+    )
+}
+
+/// The asset's open records a move out of `status` may complete (see
+/// [`completed_by_leaving`]), oldest work first.
+pub fn open_for_leaving(
     conn: &mut DbConnection,
     asset_id: i32,
-    record_type_id: i32,
+    status: &str,
 ) -> QueryResult<Vec<AssetRecord>> {
+    let leaving = completed_by_leaving(conn, status)?;
     asset_records::table
         .filter(asset_records::asset_id.eq(asset_id))
-        .filter(asset_records::record_type_id.eq(record_type_id))
         .filter(asset_records::completed_on.is_null())
+        .filter(leaving)
         .order((
             asset_records::occurred_on.asc(),
             asset_records::occurred_at.asc().nulls_first(),
@@ -358,6 +393,9 @@ pub struct RecordFilter {
     pub from: Option<NaiveDate>,
     /// Work done on or before this day.
     pub to: Option<NaiveDate>,
+    /// Only records a move out of this status completes (see
+    /// [`open_for_leaving`]).
+    pub leaving: Option<String>,
 }
 
 /// Where a page of records ends: the last record's place in the order.
@@ -409,6 +447,9 @@ pub fn list_page(
     }
     if let Some(to) = filter.to {
         query = query.filter(asset_records::occurred_on.le(to));
+    }
+    if let Some(status) = &filter.leaving {
+        query = query.filter(completed_by_leaving(conn, status)?);
     }
     // The order puts a day's date-only records after its timed ones, which
     // is the order of `COALESCE(occurred_at, '-infinity')`: compare rows on

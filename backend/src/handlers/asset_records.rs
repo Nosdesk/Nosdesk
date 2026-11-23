@@ -163,6 +163,9 @@ pub struct ListQuery {
     pub open: Option<bool>,
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
+    /// Only records a move out of this status completes: of the type that
+    /// opens with it, or opened by a move into it.
+    pub leaving: Option<String>,
     /// The `next_cursor` of the page before.
     pub before: Option<String>,
     pub limit: Option<i64>,
@@ -607,6 +610,7 @@ pub async fn list_for_asset(
             open: query.open,
             from: query.from,
             to: query.to,
+            leaving: query.leaving.clone().filter(|s| !s.is_empty()),
         };
         let (rows, next) = repo::list_page(conn, asset_id, &filter, after, limit)?;
         Ok(json!({
