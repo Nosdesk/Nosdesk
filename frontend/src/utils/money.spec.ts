@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currencyName, formatMoney } from '@nosdesk/core/utils/money'
+import { currencyName, formatMoney, readAmountInput } from '@nosdesk/core/utils/money'
 
 // Expectations come from the runtime's own Intl, so the specs hold whatever
 // ICU data the Node version ships; they pin what our code decides: the
@@ -59,5 +59,64 @@ describe('currencyName', () => {
     expect(currencyName('AUD', 'en-US')).toBe(named)
     expect(currencyName('AUD', 'en-US')).not.toBe('AUD')
     expect(currencyName('??', 'en-US')).toBe('??')
+  })
+})
+
+describe('readAmountInput', () => {
+  const read = (text: string, locale: string, exponent?: number) =>
+    readAmountInput(text, { locale, exponent })
+  const amount = (value: string) => ({ ok: true, amount: value })
+  const refused = (error: string) => ({ ok: false, error })
+
+  it('reads en-US and en-AU with a point for decimals and commas between thousands', () => {
+    for (const locale of ['en-US', 'en-AU']) {
+      expect(read('1,250', locale)).toEqual(amount('1250'))
+      expect(read('1,250.50', locale)).toEqual(amount('1250.50'))
+      expect(read('  $1,234,567.8 ', locale)).toEqual(amount('1234567.8'))
+      expect(read('A$12', locale)).toEqual(amount('12'))
+      expect(read('120.50 AUD', locale)).toEqual(amount('120.50'))
+      expect(read('.5', locale)).toEqual(amount('0.5'))
+      expect(read('007', locale)).toEqual(amount('7'))
+      // A comma that can't group three digits isn't a decimal mark here.
+      expect(read('12,50', locale)).toEqual(refused('invalid'))
+      expect(read('1,25,000', locale)).toEqual(refused('invalid'))
+    }
+  })
+
+  it('reads fr-FR with a comma for decimals and spaces between thousands', () => {
+    expect(read('12,50', 'fr-FR')).toEqual(amount('12.50'))
+    expect(read('1 250,50 €', 'fr-FR')).toEqual(amount('1250.50'))
+    expect(read('1\u202f250', 'fr-FR')).toEqual(amount('1250'))
+    // A point before three digits: a thousand and more, or one and a quarter?
+    expect(read('1.250', 'fr-FR')).toEqual(refused('ambiguous'))
+    expect(read('12.50', 'fr-FR')).toEqual(refused('invalid'))
+    // One comma before three digits reads either way too.
+    expect(read('1,250', 'fr-FR')).toEqual(refused('ambiguous'))
+  })
+
+  it('reads nl-NL with a comma for decimals and points between thousands', () => {
+    expect(read('12,50', 'nl-NL')).toEqual(amount('12.50'))
+    expect(read('1.250', 'nl-NL')).toEqual(amount('1250'))
+    expect(read('€ 1.250,50', 'nl-NL')).toEqual(amount('1250.50'))
+    expect(read('0,250', 'nl-NL')).toEqual(amount('0.250'))
+    expect(read('1,250', 'nl-NL')).toEqual(refused('ambiguous'))
+    expect(read('1.25', 'nl-NL')).toEqual(refused('invalid'))
+  })
+
+  it('takes no decimals in a zero-exponent currency when told its exponent', () => {
+    expect(read('¥1,250', 'en-US', 0)).toEqual(amount('1250'))
+    expect(read('1250.00', 'en-US', 0)).toEqual(amount('1250'))
+    expect(read('12.5', 'en-US', 0)).toEqual(refused('too_many_decimals'))
+    expect(read('12,5', 'nl-NL', 0)).toEqual(refused('too_many_decimals'))
+    expect(read('12.345', 'en-US', 2)).toEqual(refused('too_many_decimals'))
+  })
+
+  it('refuses what is not an amount, and anything below zero', () => {
+    for (const text of ['', '   ', 'abc', '12abc', '1.2.3', '--5']) {
+      expect(read(text, 'en-US')).toEqual(refused('invalid'))
+    }
+    expect(read('-5', 'en-US')).toEqual(refused('negative'))
+    expect(read('-$5', 'en-US')).toEqual(refused('negative'))
+    expect(read('-0', 'en-US')).toEqual(amount('0'))
   })
 })

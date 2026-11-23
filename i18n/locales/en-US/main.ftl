@@ -10939,3 +10939,6 @@ asset-lifecycle-record-outcome = Outcome
 asset-lifecycle-record-outcome-none = Not recorded
 asset-lifecycle-record-cost = Cost ({ $currency })
 asset-lifecycle-record-completed-on = Completed on
+asset-lifecycle-record-cost-invalid = Enter the cost as a number
+asset-lifecycle-record-cost-ambiguous = This amount reads two ways; write it without a thousands separator
+asset-lifecycle-record-cost-negative = A cost can't be below zero

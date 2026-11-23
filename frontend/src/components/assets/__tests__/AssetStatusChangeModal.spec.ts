@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { FluentBundle } from '@fluent/bundle'
+import { FluentBundle, FluentResource } from '@fluent/bundle'
 import { createFluentVue } from 'fluent-vue'
 import { createPinia } from 'pinia'
 import { PiniaColada } from '@pinia/colada'
@@ -11,11 +11,12 @@ import type {
   AssetRecordType,
 } from '@nosdesk/core/types/asset'
 import '@/test/mountWithProviders'
+import { formatDate, getDateConfig, setDateConfig } from '@nosdesk/core/utils/dateUtils'
 
 // The status dialog opens a record when an asset goes into a status a record
 // type opens with (ticked by default, the type added from the catalogue the
 // first time), and completes the open record when it comes out, asking
-// which one when there are several.
+// which one when there are several. Save waits for what it needs to know.
 
 const lifecycle = vi.hoisted(() => ({ transition: vi.fn(), listItadVendors: vi.fn() }))
 const records = vi.hoisted(() => ({ types: vi.fn(), catalogue: vi.fn(), list: vi.fn() }))
@@ -80,14 +81,17 @@ const stubs = {
       }),
   }),
   FormInput: defineComponent({
-    props: { modelValue: String, label: String },
+    props: { modelValue: String, label: String, error: String },
     emits: ['update:modelValue'],
     setup: (props, { emit }) => () =>
-      h('input', {
-        'data-label': props.label,
-        value: props.modelValue,
-        onInput: (e: Event) => emit('update:modelValue', (e.target as HTMLInputElement).value),
-      }),
+      h('label', [
+        h('input', {
+          'data-label': props.label,
+          value: props.modelValue,
+          onInput: (e: Event) => emit('update:modelValue', (e.target as HTMLInputElement).value),
+        }),
+        props.error ? h('span', { 'data-error': props.label }, props.error) : null,
+      ]),
   }),
   Autocomplete: true,
   FormTextarea: true,
@@ -141,11 +145,11 @@ function repairType(overrides: Partial<AssetRecordType> = {}): AssetRecordType {
   }
 }
 
-function openRecord(id: number, reference: string | null): AssetRecord {
+function openRecord(id: number, reference: string | null, recordTypeId = 3): AssetRecord {
   return {
     id,
     asset_id: 7,
-    record_type_id: 3,
+    record_type_id: recordTypeId,
     record_type: 'repair',
     summary: null,
     notes: null,
@@ -182,12 +186,19 @@ function openRecord(id: number, reference: string | null): AssetRecord {
 
 let wrapper: VueWrapper | null = null
 
-async function open(props: { currentStatus: string; assetKind?: string }): Promise<VueWrapper> {
+/** Mount the dialog; messages resolve to their ids unless `messages` gives
+ *  them text. */
+async function open(
+  props: { currentStatus: string; assetKind?: string },
+  messages = '',
+): Promise<VueWrapper> {
+  const bundle = new FluentBundle('en-US', { useIsolating: false })
+  if (messages) bundle.addResource(new FluentResource(messages))
   wrapper = mount(AssetStatusChangeModal, {
     props: { show: true, assetId: 7, hasActiveLoan: false, ...props },
     global: {
       plugins: [
-        createFluentVue({ bundles: [new FluentBundle('en-US')] }),
+        createFluentVue({ bundles: [bundle] }),
         createPinia(),
         [PiniaColada, {}] as never,
       ],
@@ -204,6 +215,9 @@ async function choose(w: VueWrapper, label: string, value: string) {
   await byLabel(w, label).setValue(value)
   await flushPromises()
 }
+
+const saveButton = (w: VueWrapper) =>
+  w.findAll('button').find((b) => b.text().includes('asset-lifecycle-modal-submit'))!
 
 async function submit(w: VueWrapper) {
   const save = w.findAll('button').find((b) => b.text().includes('asset-lifecycle-modal-submit'))
@@ -286,19 +300,19 @@ describe('AssetStatusChangeModal', () => {
     })
     records.list.mockResolvedValue({ records: [openRecord(5, 'RMA-1')], next_cursor: null })
     const w = await open({ currentStatus: 'in_repair' })
-    expect(records.list).toHaveBeenCalledWith(7, { type: 3, open: true })
+    expect(records.list).toHaveBeenCalledWith(7, { open: true, leaving: 'in_repair' })
 
     expect(w.find('[data-testid="complete-record"]').exists()).toBe(true)
     expect(w.find('[data-label="asset-lifecycle-record-which"]').exists()).toBe(false)
     await choose(w, 'asset-lifecycle-record-outcome', 'repaired')
-    await byLabel(w, 'asset-lifecycle-record-cost').setValue('120,50')
+    await byLabel(w, 'asset-lifecycle-record-cost').setValue('1,250.50')
     await byLabel(w, 'asset-lifecycle-record-completed-on').setValue('2026-11-20')
     await submit(w)
 
     expect(sent().complete_record).toEqual({
       record_id: 5,
       outcome: 'repaired',
-      cost: { amount: '120.50', currency: 'AUD' },
+      cost: { amount: '1250.50', currency: 'AUD' },
       completed_on: '2026-11-20',
     })
     expect(sent().record).toBeUndefined()
@@ -330,5 +344,124 @@ describe('AssetStatusChangeModal', () => {
       cost: null,
       completed_on: null,
     })
+  })
+})
+
+describe('AssetStatusChangeModal guards', () => {
+  it('reads the cost in the reader\'s locale and refuses what it cannot read', async () => {
+    records.types.mockResolvedValue({
+      types: [repairType()],
+      currency: 'USD',
+      suggested_currency: 'USD',
+    })
+    records.list.mockResolvedValue({ records: [openRecord(5, 'RMA-1')], next_cursor: null })
+    const w = await open({ currentStatus: 'in_repair' })
+
+    // "1,250" in en-US is a thousand and more, never 1.25.
+    await byLabel(w, 'asset-lifecycle-record-cost').setValue('1,250')
+    await submit(w)
+    expect(sent().complete_record.cost).toEqual({ amount: '1250', currency: 'USD' })
+
+    lifecycle.transition.mockClear()
+    await byLabel(w, 'asset-lifecycle-record-cost').setValue('12,50')
+    await flushPromises()
+    expect(w.get('[data-error="asset-lifecycle-record-cost"]').text()).toBe(
+      'asset-lifecycle-record-cost-invalid',
+    )
+    expect(saveButton(w).attributes('disabled')).toBeDefined()
+    await submit(w)
+    expect(lifecycle.transition).not.toHaveBeenCalled()
+  })
+
+  it('reads cost decimals with a comma for a French reader', async () => {
+    const before = getDateConfig()
+    setDateConfig({ defaultLocale: 'fr-FR' })
+    try {
+      records.types.mockResolvedValue({
+        types: [repairType()],
+        currency: 'EUR',
+        suggested_currency: 'EUR',
+      })
+      records.list.mockResolvedValue({ records: [openRecord(5, 'RMA-1')], next_cursor: null })
+      const w = await open({ currentStatus: 'in_repair' })
+      await byLabel(w, 'asset-lifecycle-record-cost').setValue('12,50')
+      await submit(w)
+      expect(sent().complete_record.cost).toEqual({ amount: '12.50', currency: 'EUR' })
+    } finally {
+      setDateConfig(before)
+    }
+  })
+
+  it('shows a record\'s opening day as that day west of UTC', async () => {
+    const before = getDateConfig()
+    setDateConfig({ defaultTimezone: 'America/Los_Angeles' })
+    try {
+      records.types.mockResolvedValue({
+        types: [repairType()],
+        currency: 'AUD',
+        suggested_currency: 'AUD',
+      })
+      records.list.mockResolvedValue({
+        records: [openRecord(5, 'RMA-1'), openRecord(6, null)],
+        next_cursor: null,
+      })
+      const w = await open(
+        { currentStatus: 'in_repair' },
+        'asset-lifecycle-record-choice = Opened { $date } ({ $detail })\n' +
+          'asset-lifecycle-record-choice-plain = Opened { $date }\n',
+      )
+      const labels = byLabel(w, 'asset-lifecycle-record-which')
+        .findAll('option')
+        .map((o) => o.text())
+      const fifth = formatDate('2026-11-05', 'date', 'UTC')
+      // Read in Los Angeles, the bare day would be the 4th.
+      expect(formatDate('2026-11-05', 'date')).not.toBe(fifth)
+      expect(labels).toEqual([
+        `Opened ${fifth} (RMA-1)`,
+        `Opened ${formatDate('2026-11-06', 'date', 'UTC')}`,
+      ])
+    } finally {
+      setDateConfig(before)
+    }
+  })
+
+  it('completes a record a move into the status opened, whatever its type', async () => {
+    // Calibration now opens with in_repair; the open repair predates it.
+    records.types.mockResolvedValue({
+      types: [
+        repairType({ opens_with_status: null }),
+        repairType({ id: 9, slug: 'calibration', label: 'Calibration', is_builtin: false }),
+      ],
+      currency: 'AUD',
+      suggested_currency: 'AUD',
+    })
+    records.list.mockResolvedValue({ records: [openRecord(5, 'RMA-1', 3)], next_cursor: null })
+    const w = await open({ currentStatus: 'in_repair' })
+    expect(w.find('[data-testid="complete-record"]').exists()).toBe(true)
+    expect(byLabel(w, 'asset-lifecycle-record-complete').exists()).toBe(true)
+    await choose(w, 'asset-lifecycle-record-outcome', 'repaired')
+    await submit(w)
+    expect(sent().complete_record).toMatchObject({ record_id: 5, outcome: 'repaired' })
+  })
+
+  it('keeps Save off until the types and open records have loaded', async () => {
+    let release: (value: unknown) => void = () => {}
+    records.list.mockReturnValue(new Promise((resolve) => (release = resolve)))
+    records.types.mockResolvedValue({
+      types: [repairType()],
+      currency: 'AUD',
+      suggested_currency: 'AUD',
+    })
+    const w = await open({ currentStatus: 'in_repair' })
+    await choose(w, 'asset-lifecycle-modal-to-status', 'in_service')
+    expect(saveButton(w).attributes('disabled')).toBeDefined()
+    await submit(w)
+    expect(lifecycle.transition).not.toHaveBeenCalled()
+
+    release({ records: [openRecord(5, 'RMA-1')], next_cursor: null })
+    await flushPromises()
+    expect(saveButton(w).attributes('disabled')).toBeUndefined()
+    await submit(w)
+    expect(sent().complete_record).toMatchObject({ record_id: 5 })
   })
 })

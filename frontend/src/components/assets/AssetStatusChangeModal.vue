@@ -8,12 +8,16 @@
  * Moving into a status a record type opens with (repair, unless an admin
  * pointed another type at it) offers to open a record of that type, ticked;
  * the workspace adds the built-in repair type the first time. Moving out
- * offers to complete the open record, with a picker when there are several.
+ * offers to complete the open record (of the type that status opens, or
+ * opened by a move into it), with a picker when there are several. Save
+ * waits until the types and open records have loaded, so a quick submit
+ * can't skip either section.
  */
 import { computed, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import { formatDate } from '@nosdesk/core/utils/dateUtils';
+import { readAmountInput, type AmountInputError } from '@nosdesk/core/utils/money';
 import Autocomplete from '@/components/common/Autocomplete.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
@@ -67,11 +71,11 @@ const itadVendors = computed<string[]>(() =>
   Array.isArray(itadVendorsQuery.data.value) ? itadVendorsQuery.data.value : [],
 );
 
-/** The record types a move opens or completes, with the workspace
- *  currency for a cost. */
+/** The record types a move opens or completes, archived ones too (an open
+ *  record can have one), with the workspace currency for a cost. */
 const recordTypesQuery = useWorkspaceQuery({
-  key: [...assetRecordKeys.types],
-  query: () => assetRecordService.types(),
+  key: [...assetRecordKeys.types, 'with-archived'],
+  query: () => assetRecordService.types(true),
   enabled: () => props.show,
 });
 /** The built-ins, for a type the workspace hasn't added yet. */
@@ -115,22 +119,22 @@ function offeredForKind(type: OpenableType | null): OpenableType | null {
   return type;
 }
 
-/** The live type the current status opens: its open record is the one a
- *  move out completes. */
-const leavingType = computed(() =>
-  (recordTypesQuery.data.value?.types ?? []).find(
-    (type) => type.opens_with_status === props.currentStatus && !type.archived_at,
-  ) ?? null,
-);
-
+/** The asset's open records a move out of its status completes: of the
+ *  type that status opens, or opened by a move into it. */
 const openRecordsQuery = useWorkspaceQuery({
-  key: () => [...assetRecordKeys.forAsset(props.assetId), 'open', leavingType.value?.id ?? 0],
+  key: () => [...assetRecordKeys.forAsset(props.assetId), 'open', 'leaving', props.currentStatus],
   query: () =>
-    assetRecordService.list(props.assetId, { type: leavingType.value?.id ?? 0, open: true }),
-  enabled: () => props.show && !!leavingType.value,
+    assetRecordService.list(props.assetId, { open: true, leaving: props.currentStatus }),
+  enabled: () => props.show,
 });
-const openRecords = computed<AssetRecord[]>(() =>
-  leavingType.value ? (openRecordsQuery.data.value?.records ?? []) : [],
+const openRecords = computed<AssetRecord[]>(() => openRecordsQuery.data.value?.records ?? []);
+
+/** Whether what the move may write is still loading. */
+const recordsLoading = computed(
+  () =>
+    recordTypesQuery.status.value === 'pending' ||
+    catalogueQuery.status.value === 'pending' ||
+    openRecordsQuery.status.value === 'pending',
 );
 
 const currency = computed(
@@ -223,10 +227,36 @@ const enteringType = computed(() =>
 );
 /** The open record the move out completes, picked or the only one. */
 const completing = computed(() => {
-  if (!leavingType.value || openRecords.value.length === 0) return null;
+  if (openRecords.value.length === 0) return null;
   if (openRecords.value.length === 1) return openRecords.value[0];
   return openRecords.value.find((r) => r.id === completeRecordId.value) ?? null;
 });
+/** The type of the record the move completes: the picked one's, else the
+ *  first open one's until one is picked. */
+const leavingType = computed<OpenableType | null>(() => {
+  const record = completing.value ?? openRecords.value[0];
+  if (!record) return null;
+  return (recordTypesQuery.data.value?.types ?? []).find((t) => t.id === record.record_type_id) ?? null;
+});
+// Another record's type has other outcomes.
+watch(completeRecordId, () => {
+  completeOutcome.value = '';
+});
+
+/** The cost as typed, read in the reader's locale. */
+const costInput = computed(() => {
+  const text = completeCost.value.trim();
+  return text ? readAmountInput(text) : null;
+});
+const COST_ERRORS: Record<AmountInputError, string> = {
+  invalid: 'asset-lifecycle-record-cost-invalid',
+  ambiguous: 'asset-lifecycle-record-cost-ambiguous',
+  negative: 'asset-lifecycle-record-cost-negative',
+  too_many_decimals: 'asset-lifecycle-record-cost-invalid',
+};
+const costError = computed(() =>
+  costInput.value && !costInput.value.ok ? t(COST_ERRORS[costInput.value.error]) : '',
+);
 
 const statusOptions = computed(() =>
   ASSET_STATUSES.filter((s) => {
@@ -251,7 +281,8 @@ const outcomeOptions = computed(() => {
 });
 
 function recordChoiceLabel(record: AssetRecord): string {
-  const date = formatDate(record.occurred_on);
+  // A bare day: read in UTC so it isn't shifted to the day before.
+  const date = formatDate(record.occurred_on, 'date', 'UTC');
   const detail = record.reference ?? record.vendor ?? record.summary;
   return detail
     ? t('asset-lifecycle-record-choice', { date, detail })
@@ -307,7 +338,9 @@ watch(
 /** Whether the move opens a record: offered and ticked. */
 const opensRecord = computed(() => !!enteringType.value && openRecord.value);
 /** Whether the move completes a record: there is one open and it's ticked. */
-const completesRecord = computed(() => openRecords.value.length > 0 && completeRecord.value);
+const completesRecord = computed(
+  () => !!leavingType.value && openRecords.value.length > 0 && completeRecord.value,
+);
 
 /** The old repair details, for a move into repair that opens no record
  *  because no type can (the workspace archived its repair type). */
@@ -336,11 +369,11 @@ function buildRecord(): LifecycleTransitionBody['record'] {
 
 function buildCompletion(): LifecycleTransitionBody['complete_record'] {
   if (!completesRecord.value) return undefined;
-  const amount = completeCost.value.trim();
+  const cost = costInput.value;
   return {
     record_id: completing.value?.id ?? completeRecordId.value,
     outcome: completeOutcome.value || null,
-    cost: amount ? { amount: amount.replace(',', '.'), currency: currency.value || null } : null,
+    cost: cost?.ok ? { amount: cost.amount, currency: currency.value || null } : null,
     completed_on:
       completedOn.value && completedOn.value !== completedOnDefault.value
         ? completedOn.value
@@ -381,9 +414,14 @@ function parseTicketId(): number | null {
 const needsChoice = computed(
   () => completesRecord.value && openRecords.value.length > 1 && !completing.value,
 );
+/** Save waits for the record queries, a picked record and a readable cost. */
+const blocked = computed(
+  () =>
+    recordsLoading.value || needsChoice.value || (completesRecord.value && !!costError.value),
+);
 
 async function submitTransition() {
-  if (!toStatus.value || needsChoice.value) return;
+  if (!toStatus.value || blocked.value) return;
   submitting.value = true;
   errorMessage.value = '';
   try {
@@ -480,6 +518,7 @@ async function submitTransition() {
             :label="$t('asset-lifecycle-record-cost', { currency })"
             inputmode="decimal"
             :required="required(leavingType, 'cost')"
+            :error="costError"
           />
           <DatePicker
             v-model="completedOn"
@@ -579,7 +618,7 @@ async function submitTransition() {
         </Button>
         <Button
           :loading="submitting"
-          :disabled="!toStatus || needsChoice"
+          :disabled="!toStatus || blocked"
           @click="submitTransition"
         >
           {{ $t('asset-lifecycle-modal-submit') }}

@@ -12372,3 +12372,9 @@ asset-lifecycle-record-outcome-none = Niet vastgelegd
 asset-lifecycle-record-cost = Kosten ({ $currency })
 # MT: pending native review (nl-NL)
 asset-lifecycle-record-completed-on = Afgerond op
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-cost-invalid = Voer de kosten in als getal
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-cost-ambiguous = Dit bedrag is op twee manieren te lezen; schrijf het zonder scheidingsteken voor duizendtallen
+# MT: pending native review (nl-NL)
+asset-lifecycle-record-cost-negative = Kosten kunnen niet negatief zijn

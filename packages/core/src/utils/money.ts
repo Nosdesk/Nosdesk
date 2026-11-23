@@ -45,3 +45,112 @@ export function currencyName(currency: string, locale?: string): string {
     return currency
   }
 }
+
+/** Why typed text isn't an amount. */
+export type AmountInputError =
+  /** Not a number in the reader's locale. */
+  | 'invalid'
+  /** Could be read two ways (`1.250` in fr-FR: a thousand and more, or one
+   *  and a quarter). */
+  | 'ambiguous'
+  /** Below zero. */
+  | 'negative'
+  /** More decimals than the currency has. */
+  | 'too_many_decimals'
+
+export type AmountInput = { ok: true; amount: string } | { ok: false; error: AmountInputError }
+
+/** Spaces people and `Intl` put between groups of three digits. */
+const GROUP_SPACES = [' ', ' ', ' ', ' ']
+
+/** The locale's decimal mark and group separator. */
+function separators(locale: string): { decimal: string; group: string } {
+  const parts = new Intl.NumberFormat(locale).formatToParts(12345.6)
+  return {
+    decimal: parts.find((p) => p.type === 'decimal')?.value ?? '.',
+    group: parts.find((p) => p.type === 'group')?.value ?? ',',
+  }
+}
+
+/**
+ * What someone typed as an amount, as the canonical decimal the server
+ * reads (`"1250.50"`), using the decimal mark and group separator of their
+ * locale: `1,250` is a thousand and more in en-US, `12,50` is twelve and a
+ * half in fr-FR and nl-NL, `1 250,50` reads in fr-FR. A currency symbol or
+ * code around the number is passed over.
+ *
+ * Text that could be read two ways is refused rather than guessed: the
+ * other punctuation mark alone before three digits (`1.250` in fr-FR), or,
+ * where the decimal mark is a comma, one comma before three digits
+ * (`1,250` in nl-NL), as the server's own reader refuses it. Pass
+ * `exponent` (the currency's decimals) to refuse more decimals here; without
+ * it the server checks them.
+ */
+export function readAmountInput(
+  text: string,
+  options: { locale?: string; exponent?: number } = {},
+): AmountInput {
+  const refuse = (error: AmountInputError): AmountInput => ({ ok: false, error })
+  const { decimal, group } = separators(options.locale ?? getDateConfig().defaultLocale)
+  const other = decimal === '.' ? ',' : '.'
+  const groups = new Set([group, ...GROUP_SPACES])
+
+  // A sign, a symbol or code before the number (`$`, `A$`, `USD`), a sign
+  // after it, and a symbol or code after the number (`€`, `AUD`).
+  const prefix = /^(?:[A-Z]{0,3}\p{Sc}|[A-Z]{3})\s*/u
+  let body = text.trim()
+  let negative = false
+  const sign = () => {
+    if (body.startsWith('-') && !negative) {
+      negative = true
+      body = body.slice(1).trim()
+    } else if (body.startsWith('+')) {
+      body = body.slice(1).trim()
+    }
+  }
+  sign()
+  body = body.replace(prefix, '')
+  sign()
+  body = body.replace(/\s*(?:\p{Sc}|[A-Z]{3})$/u, '').trim()
+  if (!body) return refuse('invalid')
+
+  // The other mark where the locale doesn't group with it: one of them
+  // before three digits could be either reading.
+  if (!groups.has(other) && body.includes(other)) {
+    return new RegExp(`^\\d{1,3}\\${other}\\d{3}$`).test(body)
+      ? refuse('ambiguous')
+      : refuse('invalid')
+  }
+
+  const pieces = body.split(decimal)
+  if (pieces.length > 2) return refuse('invalid')
+  const [whole, fraction = ''] = pieces
+  if (!/^\d*$/.test(fraction)) return refuse('invalid')
+  let digits: string
+  const separator = [...whole].find((c) => !/\d/.test(c))
+  if (separator !== undefined) {
+    // One separator throughout, a lead group of one to three digits, then
+    // groups of three.
+    if (!groups.has(separator)) return refuse('invalid')
+    const parts = whole.split(separator)
+    if (!/^\d{1,3}$/.test(parts[0]) || parts.slice(1).some((g) => !/^\d{3}$/.test(g))) {
+      return refuse('invalid')
+    }
+    digits = parts.join('')
+  } else {
+    if (whole === '' && fraction === '') return refuse('invalid')
+    if (decimal === ',' && fraction.length === 3 && /^[1-9]\d{0,2}$/.test(whole)) {
+      return refuse('ambiguous')
+    }
+    digits = whole
+  }
+  if (negative && /[1-9]/.test(digits + fraction)) return refuse('negative')
+
+  let kept = fraction
+  if (options.exponent !== undefined) {
+    if (/[1-9]/.test(fraction.slice(options.exponent))) return refuse('too_many_decimals')
+    kept = fraction.slice(0, options.exponent)
+  }
+  const unit = digits.replace(/^0+(?=\d)/, '') || '0'
+  return { ok: true, amount: kept ? `${unit}.${kept}` : unit }
+}
