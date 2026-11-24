@@ -1,0 +1,347 @@
+/**
+ * Unsubscribing a group. Its watermark goes, it comes off every pooled row's
+ * owners, and the rows it owned alone go from the pool and the cache; rows
+ * another group owns stay. A bootstrap for it still in flight stops stamping
+ * it, and its end neither strips nor watermarks the group, even when the group
+ * was subscribed again meanwhile. The workspace group is never unsubscribed.
+ */
+import { effectScope, ref } from 'vue'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as pool from '@nosdesk/core/sync/pool'
+
+const fake = vi.hoisted(() => {
+  const dbs = new Map<string, Map<string, unknown>>()
+  const meta = (handle: { name: string }) => {
+    let m = dbs.get(handle.name)
+    if (!m) dbs.set(handle.name, (m = new Map()))
+    return m
+  }
+  const get = (key: string) => async (h: { name: string }) => meta(h).get(key)
+  const set = (key: string) => async (h: { name: string }, v: unknown) => {
+    meta(h).set(key, v)
+  }
+  const store = {
+    /** Every row written, in order. */
+    put: [] as Array<{ aggregate: string; id: string; owners?: string[] }>,
+    /** Every key deleted, as `aggregate:id`. */
+    deleted: [] as string[],
+  }
+  return {
+    dbs,
+    store,
+    idb: {
+      CACHE_GENERATION: 2,
+      open: async (user: string, schema: string, slug: string | null) => ({
+        db: { close() {} },
+        name: `test:${user}:${schema}:${slug}`,
+      }),
+      wipe: async (name: string) => {
+        dbs.delete(name)
+      },
+      putModels: async (_h: unknown, rows: Array<{ aggregate: string; id: string; owners?: string[] }>) => {
+        store.put.push(...rows)
+      },
+      loadModels: async () => [],
+      deleteModel: async (_h: unknown, aggregate: string, id: string) => {
+        store.deleted.push(`${aggregate}:${id}`)
+      },
+      deleteModels: async (_h: unknown, keys: Array<[string, string]>) => {
+        store.deleted.push(...keys.map(([a, id]) => `${a}:${id}`))
+      },
+      putTransaction: async () => {},
+      deleteTransaction: async () => {},
+      loadTransactions: async () => [],
+      setLastSyncId: set('last_sync_id'),
+      getLastSyncId: get('last_sync_id'),
+      setLastXid8: set('last_xid8'),
+      getLastXid8: get('last_xid8'),
+      setSchemaHash: set('schema_hash'),
+      getSchemaHash: get('schema_hash'),
+      setInstanceId: set('instance_id'),
+      getInstanceId: get('instance_id'),
+      setWorkspaceEpoch: set('workspace_epoch'),
+      getWorkspaceEpoch: get('workspace_epoch'),
+      setSubscribedGroups: set('subscribed_groups'),
+      getSubscribedGroups: get('subscribed_groups'),
+      getGroupWatermarks: get('group_watermarks'),
+      setGroupWatermarks: async (h: { name: string }, groups: string[], xid8: number) => {
+        const current = { ...((meta(h).get('group_watermarks') as Record<string, number>) ?? {}) }
+        for (const g of groups) current[g] = xid8
+        meta(h).set('group_watermarks', current)
+      },
+      replaceGroupWatermarks: set('group_watermarks'),
+      setModelVersionsTag: set('model_versions_tag'),
+      getModelVersionsTag: get('model_versions_tag'),
+    },
+  }
+})
+
+/** A point in a snapshot stream where it waits for `release()`. */
+const HOLD = { __hold__: true } as const
+
+/**
+ * The server: the lines each group's snapshot carries (HOLD pauses the stream
+ * there), every request it served, and the xid8 the next snapshot ends at.
+ */
+const server = vi.hoisted(() => ({
+  rows: {} as Record<string, Array<Record<string, unknown>>>,
+  requests: [] as string[],
+  xid8: 10,
+  held: null as null | (() => void),
+}))
+
+vi.mock('./idb', () => fake.idb)
+vi.mock('./queue', () => ({ setIdbHandle: () => {}, flush: async () => {} }))
+vi.mock('@/utils/collabLocalCache', () => ({ purgeAllCollabDocs: async () => {} }))
+vi.mock('@nosdesk/core/services/session', () => ({ sessionGone: () => false }))
+vi.mock('@/services/activeWorkspace', () => ({
+  workspaceReady: () => true,
+  workspaceReadyRef: ref(true),
+}))
+vi.mock('@nosdesk/core/services/ticketService', () => ({ default: {} }))
+vi.mock('@/sync/stores/tickets', () => ({ apiTicketToSync: (t: unknown) => t }))
+vi.mock('@/services/authFetch', () => ({
+  authFetch: vi.fn(async (url: string) => {
+    server.requests.push(url)
+    const params = new URL(url, 'http://x').searchParams
+    const groups = (params.get('groups') ?? '').split(',')
+    if (url.startsWith('/sync/bootstrap')) {
+      const end = { last_xid8: server.xid8++, last_sync_id: 100 }
+      const lines = [
+        { __meta__: { server_schema: 'h', ...end, groups_granted: groups } },
+        ...groups.flatMap((g) => server.rows[g] ?? []),
+        { __end__: end },
+      ]
+      const encoder = new TextEncoder()
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          for (const line of lines) {
+            if ('__hold__' in line) {
+              await new Promise<void>((resolve) => (server.held = resolve))
+              continue
+            }
+            controller.enqueue(encoder.encode(JSON.stringify(line) + '\n'))
+          }
+          controller.close()
+        },
+      })
+      return new Response(body)
+    }
+    if (url.startsWith('/sync/delta')) {
+      return new Response(
+        JSON.stringify({ actions: [], last_xid8: 10, last_sync_id: 100, has_more: false }),
+      )
+    }
+    return new Response(null, { status: 404 })
+  }),
+}))
+
+const { hydrate, subscribe, unsubscribe, runBootstrap, pullDelta, tearDown } = await import(
+  './lifecycle'
+)
+const { useGroupSubscription, GROUP_RELEASE_GRACE_MS } = await import('./useGroupSubscription')
+
+const WORKSPACE = 'workspace:6'
+const TICKET = 'ticket:9'
+const PROJECT = 'project:7'
+const DB = 'test:u1:h:acme'
+
+type Aggregate = 'ticket' | 'comment'
+
+const owners = (aggregate: Aggregate, id: number) => [...pool.ownersOf(aggregate, id)].sort()
+const marks = () => fake.dbs.get(DB)!.get('group_watermarks') as Record<string, number> | undefined
+
+/** Resolves once the stream reaches a HOLD; `release` lets it go on. */
+async function reachHold(): Promise<() => void> {
+  await vi.waitFor(() => {
+    if (!server.held) throw new Error('stream not held yet')
+  })
+  const release = server.held!
+  server.held = null
+  return release
+}
+
+beforeEach(async () => {
+  fake.dbs.clear()
+  fake.dbs.set(DB, new Map<string, unknown>([['schema_hash', 'h']]))
+  fake.store.put = []
+  fake.store.deleted = []
+  server.rows = {
+    [WORKSPACE]: [{ __model__: 'ticket', id: 9, title: 'Printer' }],
+    [TICKET]: [
+      { __model__: 'ticket', id: 9, title: 'Printer' },
+      { __model__: 'comment', id: 40, ticket_id: 9 },
+    ],
+  }
+  server.requests = []
+  server.xid8 = 10
+  server.held = null
+  await hydrate('u1', 'h', '', 'acme', '')
+  await subscribe(WORKSPACE)
+})
+
+afterEach(async () => {
+  vi.useRealTimers()
+  await tearDown()
+})
+
+describe('unsubscribe', () => {
+  it("drops the group's watermark and keeps the others", async () => {
+    await subscribe(TICKET)
+    expect(Object.keys(marks()!).sort()).toEqual([WORKSPACE, TICKET].sort())
+
+    await unsubscribe(TICKET)
+    expect(Object.keys(marks()!)).toEqual([WORKSPACE])
+    expect(pool.getSubscribedGroups().has(TICKET)).toBe(false)
+  })
+
+  it('removes the rows only the group owned, from the pool and the cache', async () => {
+    await subscribe(TICKET)
+    expect(owners('comment', 40)).toEqual([TICKET])
+
+    await unsubscribe(TICKET)
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(fake.store.deleted).toContain('comment:40')
+  })
+
+  it('keeps a row another group owns, and caches the owners it has left', async () => {
+    await subscribe(TICKET)
+    expect(owners('ticket', 9)).toEqual([WORKSPACE, TICKET].sort())
+    fake.store.put = []
+
+    await unsubscribe(TICKET)
+    expect(pool.get('ticket', 9)).toMatchObject({ title: 'Printer' })
+    expect(owners('ticket', 9)).toEqual([WORKSPACE])
+    expect(fake.store.deleted).not.toContain('ticket:9')
+    expect(fake.store.put.find((r) => r.aggregate === 'ticket')?.owners).toEqual([WORKSPACE])
+  })
+
+  it('leaves the group out of the next delta request', async () => {
+    await subscribe(TICKET)
+    await unsubscribe(TICKET)
+    server.requests = []
+
+    await pullDelta()
+    const delta = server.requests.find((u) => u.startsWith('/sync/delta'))!
+    const groups = new URL(delta, 'http://x').searchParams.get('groups')!.split(',')
+    expect(groups).toEqual([WORKSPACE])
+  })
+
+  it('never unsubscribes the workspace group', async () => {
+    await unsubscribe(WORKSPACE)
+    expect(pool.getSubscribedGroups().has(WORKSPACE)).toBe(true)
+    expect(Object.keys(marks()!)).toEqual([WORKSPACE])
+    expect(owners('ticket', 9)).toEqual([WORKSPACE])
+  })
+})
+
+describe('a bootstrap that ends after its group was unsubscribed', () => {
+  it('writes no watermark and leaves no rows behind', async () => {
+    server.rows[TICKET] = [
+      { __model__: 'comment', id: 40, ticket_id: 9 },
+      HOLD,
+      { __model__: 'comment', id: 41, ticket_id: 9 },
+    ]
+    const opening = subscribe(TICKET)
+    const release = await reachHold()
+    expect(pool.has('comment', 40)).toBe(true)
+
+    await unsubscribe(TICKET)
+    release()
+    await opening
+
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(pool.has('comment', 41)).toBe(false)
+    expect(marks()).toEqual({ [WORKSPACE]: 10 })
+    // The row it streamed before the unsubscribe is not cached after its delete.
+    expect(fake.store.put.some((r) => r.aggregate === 'comment')).toBe(false)
+  })
+
+  it('applies nothing when the group went before the stream began', async () => {
+    pool.subscribe(TICKET)
+    const streaming = runBootstrap([TICKET])
+    await unsubscribe(TICKET)
+    await streaming
+
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(owners('ticket', 9)).toEqual([WORKSPACE])
+    expect(marks()).toEqual({ [WORKSPACE]: 10 })
+  })
+
+  it('stamps only the groups still subscribed on the rows a shared stream carries on', async () => {
+    server.rows[PROJECT] = [HOLD, { __model__: 'ticket', id: 12, title: 'Scanner' }]
+    server.rows[TICKET] = [{ __model__: 'comment', id: 40, ticket_id: 9 }]
+    pool.subscribe(PROJECT)
+    pool.subscribe(TICKET)
+    const streaming = runBootstrap([PROJECT, TICKET])
+    const release = await reachHold()
+
+    await unsubscribe(TICKET)
+    release()
+    await streaming
+
+    expect(owners('ticket', 12)).toEqual([PROJECT])
+    // Over-stamped like any row of a multi-group snapshot, by the group still
+    // subscribed alone; that group's next snapshot strips it.
+    expect(owners('comment', 40)).toEqual([PROJECT])
+    expect(Object.keys(marks()!).sort()).toEqual([WORKSPACE, PROJECT].sort())
+  })
+
+  it('strips nothing and watermarks nothing when the group was subscribed again meanwhile', async () => {
+    // The first snapshot of ticket 9 carries comment 40, then stalls.
+    server.rows[TICKET] = [{ __model__: 'comment', id: 40, ticket_id: 9 }, HOLD]
+    const first = subscribe(TICKET)
+    const release = await reachHold()
+
+    // Left and opened again. By now comment 40 was deleted and 41 posted, and
+    // the second snapshot (ending at xid8 12) completes first.
+    await unsubscribe(TICKET)
+    server.rows[TICKET] = [{ __model__: 'comment', id: 41, ticket_id: 9 }]
+    await subscribe(TICKET)
+    expect(marks()![TICKET]).toBe(12)
+
+    release()
+    await first
+
+    // The first stream's end did not take its group off comment 41, which it
+    // never carried, nor put its older watermark back.
+    expect(owners('comment', 41)).toEqual([TICKET])
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(marks()![TICKET]).toBe(12)
+  })
+})
+
+describe('the grace timer', () => {
+  /** Hold the ticket group from a view, then leave it. */
+  async function holdAndLeave(): Promise<void> {
+    const scope = effectScope()
+    const held = scope.run(() => useGroupSubscription(TICKET))!
+    await held.settled()
+    scope.stop()
+  }
+
+  it('unsubscribes the group once the grace runs out', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    await holdAndLeave()
+    expect(pool.has('comment', 40)).toBe(true)
+
+    vi.advanceTimersByTime(GROUP_RELEASE_GRACE_MS)
+    expect(pool.getSubscribedGroups().has(TICKET)).toBe(false)
+    expect(pool.has('comment', 40)).toBe(false)
+  })
+
+  it('does not unsubscribe the next workspace after a tear-down', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    await holdAndLeave()
+    expect(vi.getTimerCount()).toBe(1)
+
+    await tearDown()
+    expect(vi.getTimerCount()).toBe(0)
+    await hydrate('u1', 'h', '', 'acme', '')
+    await subscribe(WORKSPACE)
+    await subscribe(TICKET)
+
+    vi.advanceTimersByTime(GROUP_RELEASE_GRACE_MS)
+    expect(pool.getSubscribedGroups().has(TICKET)).toBe(true)
+  })
+})

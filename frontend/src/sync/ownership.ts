@@ -52,9 +52,13 @@ export function ownersOnHydrate(
 /**
  * Take `groups` off every pooled row of a snapshot-backed aggregate and
  * remove the rows left with no owners. Returns the removed rows' keys for the
- * caller to drop from the cache, or leave to the next hydrate.
+ * caller to drop from the cache, or leave to the next hydrate. Rows that lost
+ * a group and stayed are appended to `kept`, when given.
  */
-export function stripGroups(groups: ReadonlySet<string>): Array<[SyncAggregate, string]> {
+export function stripGroups(
+  groups: ReadonlySet<string>,
+  kept?: Array<[SyncAggregate, string]>,
+): Array<[SyncAggregate, string]> {
   const removed: Array<[SyncAggregate, string]> = []
   if (groups.size === 0) return removed
   for (const aggregate of SNAPSHOT_BACKED) {
@@ -67,6 +71,8 @@ export function stripGroups(groups: ReadonlySet<string>): Array<[SyncAggregate, 
       if (left === 0) {
         pool.remove(aggregate, id)
         removed.push([aggregate, id])
+      } else {
+        kept?.push([aggregate, id])
       }
     }
   }

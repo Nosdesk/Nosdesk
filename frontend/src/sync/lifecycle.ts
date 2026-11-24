@@ -8,6 +8,8 @@
  * - `subscribe(group)` adds to the subscription set and returns a
  *   promise that resolves when bootstrap-of-this-group completes.
  *   Used by router-driven group expansion (entering a project view).
+ * - `unsubscribe(group)` drops a group and the rows only it owned.
+ *   Views reach both through `useGroupSubscription`.
  * - `tearDown()` releases the IndexedDB handle and resets the pool;
  *   called on sign-out.
  */
@@ -25,13 +27,15 @@ import { workspaceReadyRef } from '@/services/activeWorkspace'
 import { canFetchWorkspace, isHydrated, setCaughtUp, state } from './runtimeState'
 import { MODEL_VERSIONS_TAG, SCHEMA_VERSIONS } from './schemaVersions'
 import {
+  dropGroupWatermarks,
   partitionWarmGroups,
   pruneTornWatermarks,
   recordGroupWatermarks,
   resetWatermarkPrune,
 } from './warm'
 import { followAssetVisibility, reconcileByOwner } from './reconcile'
-import { isWorkspaceGroup, ownersOnHydrate, SNAPSHOT_BACKED } from './ownership'
+import { isWorkspaceGroup, ownersOnHydrate, SNAPSHOT_BACKED, stripGroups } from './ownership'
+import { cancelGroupReleases } from './useGroupSubscription'
 import { applyActions, cachedOwners, rowKey } from './apply'
 import { referenceFetcher } from './referenceFetchers'
 import type {
@@ -376,6 +380,54 @@ export async function subscribe(group: string): Promise<void> {
 }
 
 /**
+ * Unsubscribe from a sync group. It leaves the group list every delta sends,
+ * its watermark goes, and it comes off the owners of every pooled row; a row
+ * it owned alone goes from the pool and the cache, and a row another group
+ * still owns stays. A bootstrap for it still in flight stops stamping it and
+ * neither strips nor watermarks it when it ends (see runBootstrap). The
+ * workspace group is never unsubscribed: it backs the lists for the session.
+ */
+export async function unsubscribe(group: string): Promise<void> {
+  if (isWorkspaceGroup(group)) {
+    logger.warn('unsubscribe() ignored for the workspace group', { group })
+    return
+  }
+  if (!pool.unsubscribe(group)) return
+  const kept: Array<[SyncAggregate, string]> = []
+  const removed = stripGroups(new Set([group]), kept)
+  const handle = state.handle
+  if (!handle) return
+  // Issued together and before any await, so a quick re-subscribe's watermark
+  // and rows are written after these, not overwritten by them.
+  const writes: Array<Promise<void>> = [
+    dropGroupWatermarks(handle, [group]),
+    idb.deleteModels(handle, removed),
+  ]
+  // Rows still owned by other groups: cache the owners they have left.
+  const changed: idb.ModelRow[] = []
+  for (const [aggregate, id] of kept) {
+    const version = SCHEMA_VERSIONS[aggregate]
+    if (version == null) continue
+    changed.push({
+      aggregate,
+      id,
+      schema_version: version,
+      data: { ...pool.get<Record<string, unknown>>(aggregate, id) },
+      owners: cachedOwners(aggregate, id),
+    })
+  }
+  if (changed.length > 0) writes.push(idb.putModels(handle, changed))
+  try {
+    await Promise.all(writes)
+  } catch (error) {
+    logger.warn('sync: caching an unsubscribe failed; the next hydrate drops the rows', {
+      group,
+      error,
+    })
+  }
+}
+
+/**
  * Pull a delta from the server for the currently-subscribed groups.
  * Called on warm start (after rehydrate), on SSE reconnect, and on
  * a periodic-poll fallback when SSE is wedged.
@@ -551,6 +603,11 @@ export async function runBootstrap(groups: string[]): Promise<void> {
   // Rows a live action writes from here on are newer than the snapshot may
   // be, so the strip at `__end__` leaves them alone.
   const startedAt = pool.currentTouch()
+  // A group unsubscribed from here on, even if subscribed again since, is no
+  // longer this bootstrap's: its rows stop being stamped with it, and `__end__`
+  // neither strips nor watermarks it. A re-subscribe runs its own bootstrap.
+  const subscribedAt = pool.currentSubscriptionTick()
+  const stillOurs = (g: string) => !pool.unsubscribedSince(g, subscribedAt)
   const url = `/sync/bootstrap?groups=${encodeURIComponent(groups.join(','))}&schema=${encodeURIComponent(state.schemaHash)}`
   const epoch = pool.currentEpoch()
   let res: Response
@@ -573,14 +630,23 @@ export async function runBootstrap(groups: string[]): Promise<void> {
   // (see reconcileByOwner).
   const seen = new Map<SyncAggregate, Set<string>>()
   // What this snapshot's rows are owned by: the groups the server granted,
-  // set when `__meta__` arrives. One set shared by every row it creates.
+  // set when `__meta__` arrives, less those unsubscribed since the start. One
+  // set shared by every row it creates.
   let snapshotOwners: ReadonlySet<string> = new Set(groups)
+  let ownersTick = subscribedAt
   // A workspace snapshot replaces `legacy` on the rows it carries.
   let stripsLegacy = false
-  const persistBatch: idb.ModelRow[] = []
+  // Rows to cache, with their owners read at flush time: an unsubscribe while
+  // they waited may have taken a group off them, or removed them.
+  const persistBatch: Array<Omit<idb.ModelRow, 'owners'>> = []
   const flushPersistBatch = async () => {
     if (state.handle && persistBatch.length > 0) {
-      await idb.putModels(state.handle, persistBatch.splice(0, persistBatch.length))
+      const rows: idb.ModelRow[] = []
+      for (const r of persistBatch.splice(0, persistBatch.length)) {
+        if (!pool.has(r.aggregate, r.id)) continue
+        rows.push({ ...r, owners: cachedOwners(r.aggregate, r.id) })
+      }
+      if (rows.length > 0) await idb.putModels(state.handle, rows)
     }
   }
 
@@ -608,7 +674,14 @@ export async function runBootstrap(groups: string[]): Promise<void> {
       if ('__meta__' in line) {
         const meta = line.__meta__ as BootstrapMeta
         bootstrapMeta = meta
-        snapshotOwners = new Set(meta.groups_granted ?? [])
+        const granted = meta.groups_granted ?? []
+        snapshotOwners = new Set(granted.filter(stillOurs))
+        ownersTick = pool.currentSubscriptionTick()
+        // Unsubscribed from every group it grants while the request was out.
+        if (granted.length > 0 && snapshotOwners.size === 0) {
+          void reader.cancel().catch(() => {})
+          return
+        }
         stripsLegacy = [...snapshotOwners].some(isWorkspaceGroup)
         if (meta.server_schema !== state.schemaHash) {
           logger.warn('bootstrap meta carries a different schema_hash than client', {
@@ -624,6 +697,18 @@ export async function runBootstrap(groups: string[]): Promise<void> {
           groups.some((g) => g.startsWith('workspace:')) ? 'workspace-snapshot' : 'other-snapshot',
         )
       } else if ('__model__' in line) {
+        if (ownersTick !== pool.currentSubscriptionTick()) {
+          ownersTick = pool.currentSubscriptionTick()
+          const before = snapshotOwners.size
+          snapshotOwners = new Set([...snapshotOwners].filter(stillOurs))
+          // Every group this snapshot was for has been unsubscribed: the rest
+          // of it belongs to no one.
+          if (before > 0 && snapshotOwners.size === 0) {
+            void reader.cancel().catch(() => {})
+            await flushPersistBatch()
+            return
+          }
+        }
         const { __model__: aggregate, ...payload } = line
         const id = rowKey(aggregate, payload as Record<string, unknown>)
         if (id == null) {
@@ -641,7 +726,6 @@ export async function runBootstrap(groups: string[]): Promise<void> {
             id: String(id),
             schema_version: SCHEMA_VERSIONS[aggregate]!,
             data: payload as Record<string, unknown>,
-            owners: cachedOwners(aggregate, id),
           })
           if (persistBatch.length >= 200) await flushPersistBatch()
         }
@@ -657,7 +741,11 @@ export async function runBootstrap(groups: string[]): Promise<void> {
           // A `keepCursor` run comes after a delta that already pruned, so this
           // is a no-op there.
           await pruneTornWatermarks()
-          await reconcileByOwner(bootstrapMeta.groups_granted ?? [], seen, startedAt)
+          await reconcileByOwner(
+            (bootstrapMeta.groups_granted ?? []).filter(stillOurs),
+            seen,
+            startedAt,
+          )
           if (!keepCursor) {
             setCaughtUp(true)
             // Advance the in-memory cursor always; persist it only when IDB is
@@ -674,9 +762,12 @@ export async function runBootstrap(groups: string[]): Promise<void> {
             // watermark or the next launch would warm-path it into
             // emptiness) + stamp the aggregate versions they were written
             // under, so the next launch can bring these groups current
-            // with a delta instead of re-streaming the snapshot.
+            // with a delta instead of re-streaming the snapshot. A group
+            // unsubscribed meanwhile gets none. Nothing awaits between this
+            // check and queuing the write, so an unsubscribe either came
+            // first and is filtered here, or queues its drop after the write.
             const granted = bootstrapMeta.groups_granted ?? []
-            const completed = groups.filter((g) => granted.includes(g))
+            const completed = groups.filter((g) => granted.includes(g) && stillOurs(g))
             await recordGroupWatermarks(state.handle, completed, bootstrapMeta.last_xid8)
             await idb.setModelVersionsTag(state.handle, MODEL_VERSIONS_TAG)
           }
@@ -697,6 +788,9 @@ export async function runBootstrap(groups: string[]): Promise<void> {
 /** Tear-down: release the IDB handle, reset the pool, drop subs. */
 export async function tearDown(): Promise<void> {
   stopDeltaPollFallback()
+  // A pending grace unsubscribe belongs to this workspace; it must not fire
+  // into the next one, where the same group name means another ticket.
+  cancelGroupReleases()
   if (state.handle) {
     state.handle.db.close()
     state.handle = null

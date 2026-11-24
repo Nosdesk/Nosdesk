@@ -9,7 +9,7 @@
 import { computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { subscribe } from '@/sync/lifecycle'
+import { useGroupSubscription } from '@/sync/useGroupSubscription'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useProjectCycles } from '@/composables/useProjectCycles'
@@ -139,13 +139,15 @@ if (typeof localStorage !== 'undefined' && localStorage.getItem('gantt-density')
   setDensity('comfortable')
 }
 
+const projectGroup = useGroupSubscription(() => `project:${projectId.value}`)
+
 onMounted(async () => {
-  await subscribe(`project:${projectId.value}`)
+  await projectGroup.settled()
   await seedCycles()
 })
 
 watch(projectId, async () => {
-  await subscribe(`project:${projectId.value}`)
+  await projectGroup.settled()
   await seedCycles()
 })
 
