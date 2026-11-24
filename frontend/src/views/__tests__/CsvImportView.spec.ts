@@ -2199,6 +2199,24 @@ describe('CsvImportView service history', () => {
     expect(checkButton().attributes('disabled')).toBeDefined()
   })
 
+  it('names webhooks in the confirmation when one hears record events, and not for asset events alone', async () => {
+    api.get.mockResolvedValue(checkedHistory())
+    hooks.list.mockResolvedValue([{ enabled: true, events: ['asset.record_created'] }])
+    await mountAt('/admin/data-import/csv?job=job-1')
+    expect(currentStep()).toBe('review')
+    await wrapper!.find('[data-test="import-commit"]').trigger('click')
+    expect(wrapper!.find('[data-test="confirm-message"]').text()).toContain(
+      'import-review-confirm-webhooks-records',
+    )
+    wrapper!.unmount()
+    wrapper = null
+
+    hooks.list.mockResolvedValue([{ enabled: true, events: ['asset.created'] }])
+    await mountAt('/admin/data-import/csv?job=job-1')
+    await wrapper!.find('[data-test="import-commit"]').trigger('click')
+    expect(wrapper!.find('[data-test="confirm-message"]').text()).not.toContain('import-review-confirm-webhooks')
+  })
+
   it('reviews the file at a glance, links the asset import, and imports likely duplicates on request', async () => {
     api.get.mockResolvedValue(checkedHistory())
     api.putMapping.mockResolvedValue(

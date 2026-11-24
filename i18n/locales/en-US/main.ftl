@@ -11187,3 +11187,11 @@ admin-rules-starters-when-automatic = Runs on its own once you turn it on.
 admin-webhooks-event-asset-record-created = Asset Record Created
 admin-webhooks-event-asset-record-updated = Asset Record Updated
 admin-webhooks-event-asset-record-deleted = Asset Record Deleted
+import-review-confirm-webhooks-records = { $count ->
+    [one] Webhooks will receive events for 1 record.
+   *[other] Webhooks will receive events for { $count } records.
+   }
+import-remove-webhooks-records = { $count ->
+    [one] Webhooks will receive 1 asset.record_deleted event.
+   *[other] Webhooks will receive { $count } asset.record_deleted events.
+   }

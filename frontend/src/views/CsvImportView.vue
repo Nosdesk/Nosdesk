@@ -56,7 +56,7 @@ import { detailPath, doneHeadline, reportOffered, resumeTarget } from '@/compone
 import ImportRemoveBlock from '@/components/import/ImportRemoveBlock.vue'
 import ImportSignInLine from '@/components/import/ImportSignInLine.vue'
 import { errorBody, refusalText } from '@/components/import/refusals'
-import { outcomes, planDelta, webhookHearsAssets } from '@/components/import/reviewModel'
+import { outcomes, planDelta, webhookHearsImport } from '@/components/import/reviewModel'
 import { cards as valueCards, needsValues } from '@/components/import/valuesModel'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { saveFile } from '@/platform'
@@ -188,14 +188,16 @@ const valuesAllMatched = computed(
     valueCards(valuesView.value, {}).length === 0,
 )
 
-/** The workspace's webhooks, for the confirmation's line about asset
- *  events. Read on Review of an asset import. */
+/** The workspace's webhooks, for the confirmation's line about asset or
+ *  record events. Read on Review of an asset or service history import. */
 const webhooksQuery = useQuery({
   key: ['webhooks'],
   query: () => webhookService.listWebhooks(),
-  enabled: () => (step.value === 'review' || step.value === 'done') && jobType.value === 'assets',
+  enabled: () =>
+    (step.value === 'review' || step.value === 'done') &&
+    (jobType.value === 'assets' || jobType.value === 'asset_records'),
 })
-const webhooksHearAssets = computed(() => webhookHearsAssets(webhooksQuery.data.value ?? []))
+const webhooksHear = computed(() => webhookHearsImport(webhooksQuery.data.value ?? [], jobType.value))
 
 /** The field whose card Match values opens on: Review's "Fix at Match
  *  values". */
@@ -1077,7 +1079,7 @@ async function includeDuplicates(include: boolean) {
         :discarding="busy === 'discard-draft'"
         :downloading="downloadingReport"
         :values-all-matched="valuesAllMatched"
-        :webhooks="webhooksHearAssets"
+        :webhooks="webhooksHear"
         @back="goTo('map')"
         @discard="discardDraft"
         @see-values="seeValues"
@@ -1153,7 +1155,7 @@ async function includeDuplicates(include: boolean) {
           </Button>
         </div>
 
-        <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" @refreshed="onRemoved" />
+        <ImportRemoveBlock :job="job" :webhooks="webhooksHear" @removed="onRemoved" @refreshed="onRemoved" />
 
         <p class="text-sm">
           <RouterLink :class="linkClass" to="/admin/data-import" data-test="import-done-recent">

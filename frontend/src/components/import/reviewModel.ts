@@ -276,12 +276,27 @@ export function planDelta(before: ImportSummary | null, after: ImportSummary | n
   return outcomes(after).skipped - outcomes(before).skipped
 }
 
+type HookList = { enabled: boolean; events: string[] }[]
+
 /** Whether an enabled webhook hears about assets. Record events share the
  *  `asset.` prefix but an asset import sends none of them. */
-export function webhookHearsAssets(webhooks: { enabled: boolean; events: string[] }[]): boolean {
+export function webhookHearsAssets(webhooks: HookList): boolean {
   return webhooks.some(
     (w) => w.enabled && w.events.some((e) => e.startsWith('asset.') && !e.startsWith('asset.record_')),
   )
+}
+
+/** Whether an enabled webhook hears about asset records. */
+export function webhookHearsRecords(webhooks: HookList): boolean {
+  return webhooks.some((w) => w.enabled && w.events.some((e) => e.startsWith('asset.record_')))
+}
+
+/** Whether an enabled webhook hears what an import of `jobType` writes:
+ *  assets for an asset import, records for a service history import. */
+export function webhookHearsImport(webhooks: HookList, jobType: string): boolean {
+  if (jobType === 'assets') return webhookHearsAssets(webhooks)
+  if (jobType === 'asset_records') return webhookHearsRecords(webhooks)
+  return false
 }
 
 /** Whether a key press belongs to a field being typed in, so a single-key

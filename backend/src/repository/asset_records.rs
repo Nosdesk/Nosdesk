@@ -1031,6 +1031,28 @@ pub fn delete(conn: &mut DbConnection, id: i32) -> QueryResult<Option<AssetRecor
     })
 }
 
+/// Tell sync that each of asset `asset_id`'s records is going with it.
+/// Deleting an asset removes its records by cascade, which emits nothing,
+/// so the asset delete calls this first, in its transaction.
+pub fn emit_deleted_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<usize> {
+    // emit::record fires inside emit_record.
+    let ids: Vec<i32> = asset_records::table
+        .filter(asset_records::asset_id.eq(asset_id))
+        .order(asset_records::id.asc())
+        .select(asset_records::id)
+        .load(conn)?;
+    for id in &ids {
+        emit_record(
+            conn,
+            SyncOp::Delete,
+            "asset_record.deleted",
+            *id,
+            json!({ "id": id, "asset_id": asset_id }),
+        )?;
+    }
+    Ok(ids.len())
+}
+
 /// Make `media_ids` record `id`'s files (asset documents and photos that
 /// point at it). An id that isn't one of the asset's files is left out of
 /// what comes back.

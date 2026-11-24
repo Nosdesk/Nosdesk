@@ -1,9 +1,12 @@
 //! Asset record writes reach webhooks as `asset.record_created`,
 //! `asset.record_updated` and `asset.record_deleted`, carrying the record as
 //! sync stores it. Records written over REST, opened and completed by a move
-//! through repair, and completed by a replacement's move of the old asset
-//! each send theirs. A webhook on other asset events, or in another
-//! workspace, hears none of them.
+//! through repair, completed by a replacement's move of the old asset, and
+//! taken by their asset's delete (alone or in bulk) each send theirs. A
+//! webhook on other asset events, or in another workspace, hears none of
+//! them.
+
+use std::sync::Arc;
 
 use actix_web::dev::Service;
 use actix_web::http::{Method, StatusCode};
@@ -20,6 +23,7 @@ use backend::models::{Claims, NewAsset, UpdateSiteSettings};
 use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
 use backend::repository::{assets as asset_repo, site_settings, webhooks as webhook_repo};
 use backend::schema::webhook_deliveries;
+use backend::services::search::SearchService;
 use backend::services::webhooks::WebhookService;
 use backend::sync::actor::ActorContext;
 use backend::sync::session::{run_in_workspace, with_actor_bypass_context};
@@ -47,6 +51,8 @@ struct Fixture {
     other_ws: i32,
     /// The newest delivery already read.
     seen: std::cell::Cell<i32>,
+    search: Arc<SearchService>,
+    _search_dir: tempfile::TempDir,
 }
 
 fn in_ws<T>(f: &Fixture, op: impl FnOnce(&mut DbConnection) -> QueryResult<T>) -> T {
@@ -105,6 +111,8 @@ fn seed(db: &common::TestDb) -> Fixture {
         ],
     );
     let other_hook = hook(&pool, seeded.b.workspace_id, "other", &RECORD_EVENTS);
+    let search_dir = tempfile::tempdir().expect("search dir");
+    let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("init search"));
     Fixture {
         pool,
         ws,
@@ -114,6 +122,8 @@ fn seed(db: &common::TestDb) -> Fixture {
         other_hook,
         other_ws: seeded.b.workspace_id,
         seen: std::cell::Cell::new(0),
+        search,
+        _search_dir: search_dir,
     }
 }
 
@@ -221,10 +231,21 @@ fn record_deliveries(f: &Fixture) -> Vec<(String, Value)> {
 }
 
 async fn call(f: &Fixture, method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
+    call_as(f, f.agent, method, uri, body).await
+}
+
+/// Send `method uri` with `body` as `who` in workspace A.
+async fn call_as(
+    f: &Fixture,
+    who: Uuid,
+    method: Method,
+    uri: &str,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
     let claims = Claims {
-        sub: f.agent.to_string(),
-        name: "Agent".to_string(),
-        email: format!("{}@example.com", f.agent),
+        sub: who.to_string(),
+        name: "Viewer".to_string(),
+        email: format!("{who}@example.com"),
         platform_role: "user".to_string(),
         scope: "full".to_string(),
         sid: None,
@@ -242,11 +263,12 @@ async fn call(f: &Fixture, method: Method, uri: &str, body: Option<Value>) -> (S
         custom_domain: None,
     };
     let corr = Uuid::now_v7();
-    let actor = ActorContext::user(f.agent, Some(corr)).with_workspace(f.ws.workspace_id);
+    let actor = ActorContext::user(who, Some(corr)).with_workspace(f.ws.workspace_id);
     let app = http_test::init_service(
         App::new()
             .app_data(web::Data::new(f.pool.clone()))
             .app_data(web::Data::new(common::test_storage()))
+            .app_data(web::Data::new(f.search.clone()))
             .wrap_fn(move |req, srv| {
                 req.extensions_mut().insert(workspace.clone());
                 req.extensions_mut().insert(claims.clone());
@@ -527,4 +549,107 @@ async fn a_replacement_moving_the_old_asset_sends_the_record_it_completes() {
     assert_eq!(event, "asset.record_updated");
     assert_eq!(data["id"], open);
     assert!(data["completed_on"].is_string(), "{data}");
+}
+
+/// A record on `asset`, open; its id.
+async fn open_record(f: &Fixture, asset: i32, summary: &str) -> i64 {
+    let (status, body) = call(
+        f,
+        Method::POST,
+        &format!("/api/assets/{asset}/records"),
+        Some(json!({ "record_type": "repair", "summary": summary, "occurred_on": "2025-03-04" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    body["record"]["id"].as_i64().expect("record id")
+}
+
+fn record_count(f: &Fixture, assets: &[i32]) -> i64 {
+    use backend::schema::asset_records;
+    in_ws(f, |c| {
+        asset_records::table
+            .filter(asset_records::asset_id.eq_any(assets))
+            .count()
+            .get_result(c)
+    })
+}
+
+/// Deleting an asset, alone or in bulk, takes its records with it by
+/// cascade; each record still sends `asset.record_deleted`, before the
+/// asset's own `asset.deleted`.
+#[actix_web::test]
+async fn deleting_an_asset_sends_each_of_its_records_deleted() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let one = new_asset(&f, "CAM-014");
+    let two = new_asset(&f, "CAM-015");
+    let three = new_asset(&f, "CAM-016");
+    let kept = new_asset(&f, "CAM-017");
+    let first = open_record(&f, one, "Lens mount").await;
+    let second = open_record(&f, one, "Battery door").await;
+    let on_two = open_record(&f, two, "Shutter").await;
+    let on_three = open_record(&f, three, "Sensor clean").await;
+    let on_kept = open_record(&f, kept, "Strap").await;
+    settle(&f);
+
+    let (status, body) = call_as(
+        &f,
+        f.ws.admin_uuid,
+        Method::DELETE,
+        &format!("/api/assets/{one}"),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{status}: {body}");
+    let asset_deliveries = {
+        drain(&f);
+        deliveries(&f, f.assets_hook, f.ws.workspace_id)
+    };
+    assert_eq!(
+        asset_deliveries
+            .iter()
+            .map(|(_, e, d)| (e.as_str(), d["id"].as_i64()))
+            .collect::<Vec<_>>(),
+        vec![("asset.deleted", Some(one as i64))]
+    );
+    assert_eq!(
+        record_deliveries(&f),
+        vec![
+            (
+                "asset.record_deleted".to_string(),
+                json!({ "id": first, "asset_id": one })
+            ),
+            (
+                "asset.record_deleted".to_string(),
+                json!({ "id": second, "asset_id": one })
+            ),
+        ]
+    );
+    assert_eq!(record_count(&f, &[one]), 0);
+
+    let (status, body) = call_as(
+        &f,
+        f.ws.admin_uuid,
+        Method::POST,
+        "/api/assets/bulk",
+        Some(json!({ "action": "delete", "ids": [two, three] })),
+    )
+    .await;
+    assert!(status.is_success(), "{status}: {body}");
+    assert_eq!(
+        record_deliveries(&f),
+        vec![
+            (
+                "asset.record_deleted".to_string(),
+                json!({ "id": on_two, "asset_id": two })
+            ),
+            (
+                "asset.record_deleted".to_string(),
+                json!({ "id": on_three, "asset_id": three })
+            ),
+        ]
+    );
+    assert_eq!(record_count(&f, &[two, three]), 0);
+    assert_eq!(record_count(&f, &[kept]), 1, "record {on_kept} stays");
 }

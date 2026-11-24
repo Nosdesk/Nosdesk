@@ -809,7 +809,17 @@ pub fn delete_device(
         // Capture the row before deletion so the sync payload can
         // carry the final state to subscribers that joined after
         // the row was already gone from `assets`.
-        let device: Option<Asset> = assets::table.find(device_id).first(conn).optional()?;
+        // Locked, so the records read below are the ones the delete takes.
+        let device: Option<Asset> = assets::table
+            .find(device_id)
+            .for_update()
+            .first(conn)
+            .optional()?;
+        // The asset's records go by cascade; each still gets its delete
+        // event, before the asset's own.
+        if device.is_some() {
+            crate::repository::asset_records::emit_deleted_for_asset(conn, device_id)?;
+        }
         let removed = diesel::delete(assets::table.find(device_id)).execute(conn)?;
         if removed > 0 {
             if let Some(device) = device.as_ref() {

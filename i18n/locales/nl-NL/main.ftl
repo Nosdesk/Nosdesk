@@ -12829,3 +12829,13 @@ admin-webhooks-event-asset-record-created = Registratie aangemaakt
 admin-webhooks-event-asset-record-updated = Registratie bijgewerkt
 # MT: pending native review (nl-NL)
 admin-webhooks-event-asset-record-deleted = Registratie verwijderd
+# MT: pending native review (nl-NL)
+import-review-confirm-webhooks-records = { $count ->
+    [one] Webhooks ontvangen gebeurtenissen voor 1 registratie.
+   *[other] Webhooks ontvangen gebeurtenissen voor { $count } registraties.
+   }
+# MT: pending native review (nl-NL)
+import-remove-webhooks-records = { $count ->
+    [one] Webhooks ontvangen 1 asset.record_deleted-gebeurtenis.
+   *[other] Webhooks ontvangen { $count } asset.record_deleted-gebeurtenissen.
+   }
