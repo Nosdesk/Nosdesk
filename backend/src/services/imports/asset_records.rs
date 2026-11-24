@@ -52,7 +52,7 @@ use crate::utils::locale::local_moment;
 use crate::utils::{i18n, money};
 
 use super::assets::{
-    enum_options, humanize, member_choices, number_value, value_text, value_type_of,
+    allows_custom, enum_options, humanize, member_choices, number_value, value_text, value_type_of,
     ATTRIBUTE_PREFIX, NO_ASSET_WITH_SERIAL, NO_ASSET_WITH_TAG, NO_ASSET_WITH_THIS_SERIAL,
     NO_ASSET_WITH_THIS_TAG, NO_SERIAL_TO_MATCH, NO_TAG_TO_MATCH,
 };
@@ -2292,10 +2292,11 @@ fn parse_field(
             if prop.get("enum").is_some() {
                 let choices = enum_options(prop);
                 let wanted = values::loose(raw);
-                return choices
-                    .iter()
-                    .find(|c| values::loose(c) == wanted)
-                    .cloned()
+                let found = choices.iter().find(|c| values::loose(c) == wanted).cloned();
+                if allows_custom(prop) {
+                    return Ok(Value::String(found.unwrap_or_else(|| raw.to_string())));
+                }
+                return found
                     .map(Value::String)
                     .ok_or_else(|| format!("'{raw}' is not one of: {}", choices.join(", ")));
             }

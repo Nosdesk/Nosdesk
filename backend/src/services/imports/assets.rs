@@ -238,6 +238,12 @@ pub(super) fn enum_options(prop: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Whether a property's `enum` only suggests values (`x-allow-custom`), so a
+/// cell may hold any text.
+pub(super) fn allows_custom(prop: &Value) -> bool {
+    prop.get("x-allow-custom").and_then(Value::as_bool) == Some(true)
+}
+
 /// How a property's cells read.
 pub(super) fn value_type_of(prop: &Value) -> ValueType {
     match prop.get("type").and_then(Value::as_str) {
@@ -246,7 +252,7 @@ pub(super) fn value_type_of(prop: &Value) -> ValueType {
         Some("array") => return ValueType::Array,
         _ => {}
     }
-    if prop.get("enum").and_then(Value::as_array).is_some() {
+    if prop.get("enum").and_then(Value::as_array).is_some() && !allows_custom(prop) {
         return ValueType::Enum;
     }
     match prop.get("format").and_then(Value::as_str) {
@@ -2973,11 +2979,11 @@ fn parse_text_attribute(
     let choices = enum_options(prop);
     if prop.get("enum").is_some() {
         let wanted = values::loose(raw);
-        return choices
-            .iter()
-            .find(|c| values::loose(c) == wanted)
-            .cloned()
-            .ok_or_else(|| format!("'{raw}' is not one of: {}", choices.join(", ")));
+        let found = choices.iter().find(|c| values::loose(c) == wanted).cloned();
+        if allows_custom(prop) {
+            return Ok(found.unwrap_or_else(|| raw.to_string()));
+        }
+        return found.ok_or_else(|| format!("'{raw}' is not one of: {}", choices.join(", ")));
     }
     let order = options.date_order;
     match prop.get("format").and_then(Value::as_str) {

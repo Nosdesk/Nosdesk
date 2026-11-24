@@ -948,3 +948,52 @@ async fn attributes_are_fields_with_their_kinds() {
     assert!(!fields.iter().any(|f| f["id"] == "hostname"));
     assert!(!fields.iter().any(|f| f["id"] == "telematics_id"));
 }
+
+/// An option list marked `x-allow-custom` only suggests values: a cell
+/// naming an option takes its spelling, and any other text is kept.
+#[actix_web::test]
+async fn an_open_option_list_takes_any_text() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool);
+    seed_kind(
+        &pool,
+        &ws,
+        "rig",
+        "Rig",
+        320,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "finish": {
+                    "type": "string", "title": "Finish",
+                    "enum": ["Matte", "Gloss"], "x-allow-custom": true
+                }
+            }
+        }),
+    );
+    let file = "Name,Type,Tag,Finish\nRig 1,rig,R-1,matte\nRig 2,rig,R-2,Brushed steel\n";
+    let job = checked(
+        &pool,
+        &ws,
+        file,
+        &[
+            ("Name", "name"),
+            ("Type", "kind"),
+            ("Tag", "asset_tag"),
+            ("Finish", "finish"),
+        ],
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(errors(&job), vec![], "{job}");
+    commit(&pool, &ws, &id_of(&job)).await;
+    assert_eq!(
+        stored(&pool, "R-1").expect("R-1").1,
+        serde_json::json!({ "finish": "Matte" })
+    );
+    assert_eq!(
+        stored(&pool, "R-2").expect("R-2").1,
+        serde_json::json!({ "finish": "Brushed steel" })
+    );
+}
