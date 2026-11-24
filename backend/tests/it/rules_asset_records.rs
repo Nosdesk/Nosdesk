@@ -27,8 +27,8 @@ use backend::repository::{
     webhooks as webhook_repo,
 };
 use backend::schema::{
-    asset_record_types, asset_records, sync_actions, tickets as tickets_t, webhook_deliveries,
-    workflow_states,
+    asset_record_types, asset_records, rule_event_outbox, sync_actions, tickets as tickets_t,
+    webhook_deliveries, workflow_states,
 };
 use backend::services::webhooks::WebhookService;
 use backend::sync::actor::ActorContext;
@@ -285,6 +285,22 @@ fn opening_writes_one_open_record_on_each_linked_asset() {
         assert_eq!(row.outcome, None);
         assert_eq!(row.recorded_by, Some(s.ws.admin_uuid));
     }
+
+    // A record sets off no rule: its sync actions don't reach the rule
+    // event outbox.
+    let mut conn = s.admin_pool.get().expect("conn");
+    let record_actions: Vec<i64> = sync_actions::table
+        .filter(sync_actions::event_type.like("asset_record.%"))
+        .select(sync_actions::sync_id)
+        .load(&mut conn)
+        .expect("read sync actions");
+    assert_eq!(record_actions.len(), 2);
+    let enqueued: i64 = rule_event_outbox::table
+        .filter(rule_event_outbox::sync_id.eq_any(&record_actions))
+        .count()
+        .get_result(&mut conn)
+        .expect("read the outbox");
+    assert_eq!(enqueued, 0);
 
     let again = apply(&s, id, ticket_id).expect("apply again");
     let taken = step(&again, 0);

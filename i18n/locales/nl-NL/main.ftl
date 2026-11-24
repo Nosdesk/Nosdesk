@@ -12910,3 +12910,9 @@ admin-rules-activity-did-complete-records-created =
         [one] één geschreven waar er geen was
        *[other] { $created } geschreven waar er geen waren
     }
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-no-types = Deze werkruimte heeft nog geen registratietypen.
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-no-types-link = Registratietypen toevoegen
+# MT: pending native review (nl-NL)
+admin-rules-conflicts-field-asset-record = registraties van activa

@@ -5,7 +5,8 @@
  * completing the ticket's open ones with an outcome. A completion may name
  * no type, and then offers every live type's outcomes; writing a record
  * where there is none needs a type. A type archived since the rule was
- * saved stays in the list, so the step still reads.
+ * saved stays in the list, so the step still reads. A workspace with no
+ * live types is pointed at where they are added.
  */
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
@@ -35,6 +36,7 @@ const slug = computed(() => String(props.config?.record_type ?? ''));
 const outcome = computed(() => String(props.config?.outcome ?? ''));
 const creates = computed(() => props.config?.create_if_none === true);
 const chosen = computed(() => props.types.find((x) => x.slug === slug.value) ?? null);
+const noTypes = computed(() => !props.types.some((x) => !x.archived_at));
 
 const typeOptions = computed(() => {
   const offered = props.types.filter((x) => !x.archived_at || x.slug === slug.value);
@@ -112,6 +114,12 @@ function setType(next: string): void {
         @update:model-value="emit('update', 'create_if_none', $event)"
       />
     </template>
+    <p v-if="noTypes" class="text-xs text-secondary" data-test="record-step-no-types">
+      {{ t('admin-rule-editor-records-no-types') }}
+      <RouterLink :to="{ name: 'admin-asset-record-types' }" class="text-accent hover:underline">
+        {{ t('admin-rule-editor-records-no-types-link') }}
+      </RouterLink>
+    </p>
     <p class="text-xs text-secondary">
       {{ t(kind === 'open_asset_record' ? 'admin-rule-editor-records-open-hint' : 'admin-rule-editor-records-complete-hint') }}
     </p>

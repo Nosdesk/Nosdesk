@@ -12919,3 +12919,9 @@ admin-rules-activity-did-complete-records-created =
         [one] une créée là où il n'y en avait aucune
        *[other] { $created } créées là où il n'y en avait aucune
     }
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-no-types = Cet espace de travail n'a encore aucun type d'intervention.
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-no-types-link = Ajouter des types d'intervention
+# MT: pending native review (fr-FR)
+admin-rules-conflicts-field-asset-record = interventions sur les ressources

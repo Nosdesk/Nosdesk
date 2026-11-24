@@ -59,6 +59,7 @@ const FIELD_KEYS: Record<string, string> = {
   'ticket.comments': 'admin-rules-conflicts-field-replies',
   'asset.custody': 'admin-rules-conflicts-field-asset-custody',
   'asset.loan': 'admin-rules-conflicts-field-asset-loan',
+  'asset.record': 'admin-rules-conflicts-field-asset-record',
 };
 
 const lang = typeof document === 'undefined' ? undefined : document.documentElement.lang || undefined;

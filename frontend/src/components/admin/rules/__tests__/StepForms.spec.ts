@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type VueWrapper } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { mountWithProviders } from '@/test/mountWithProviders'
 
 // The pickers, reduced to what they were given and what they send back.
@@ -221,5 +222,35 @@ describe('AssetRecordStepForm', () => {
       ['record_type', null],
       ['create_if_none', false],
     ])
+  })
+})
+
+describe('AssetRecordStepForm with no record types', () => {
+  it('points to where record types are added', () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/admin/asset-record-types', name: 'admin-asset-record-types', component: { template: '<div />' } },
+      ],
+    })
+    wrapper = mountWithProviders(
+      AssetRecordStepForm,
+      { kind: 'open_asset_record', config: { record_type: '' }, types: [TYPES[2]] },
+      {},
+      [router],
+    )
+    const hint = wrapper.find('[data-test="record-step-no-types"]')
+    expect(hint.text()).toContain('admin-rule-editor-records-no-types')
+    expect(hint.find('a').attributes('href')).toBe('/admin/asset-record-types')
+  })
+
+  it('says nothing about it once there is a live type', () => {
+    wrapper = mountWithProviders(AssetRecordStepForm, {
+      kind: 'open_asset_record',
+      config: { record_type: '' },
+      types: TYPES,
+    })
+    expect(wrapper.find('[data-test="record-step-no-types"]').exists()).toBe(false)
   })
 })

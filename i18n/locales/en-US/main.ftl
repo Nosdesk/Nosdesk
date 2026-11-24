@@ -11241,3 +11241,6 @@ admin-rules-activity-did-complete-records-created =
         [one] one where there was none
        *[other] { $created } where there were none
     }
+admin-rule-editor-records-no-types = This workspace has no record types yet.
+admin-rule-editor-records-no-types-link = Add record types
+admin-rules-conflicts-field-asset-record = asset records
