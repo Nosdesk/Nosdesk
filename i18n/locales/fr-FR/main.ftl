@@ -8696,11 +8696,52 @@ kanban-composer-recent = Tickets récents
 kanban-add-ticket = Ajouter un ticket
 kanban-drop-here = Déposer ici
 calendar-today = Aujourd'hui
-calendar-anchor-label = Ancre
-calendar-anchor-tooltip = Le champ d'ancrage est défini par la vue enregistrée; le sélecteur arrivera dans une prochaine version.
-calendar-anchor-due-date = Échéance
-calendar-anchor-created = Création
-calendar-anchor-last-activity = Dernière activité
+# MT: pending native review (fr-FR)
+calendar-previous-month = Mois précédent
+# MT: pending native review (fr-FR)
+calendar-next-month = Mois suivant
+# MT: pending native review (fr-FR)
+calendar-range-label = Période
+# MT: pending native review (fr-FR)
+calendar-range-month = Mois
+# MT: pending native review (fr-FR)
+calendar-range-agenda = Agenda
+# MT: pending native review (fr-FR)
+calendar-month-empty = Rien de prévu ce mois-ci
+# MT: pending native review (fr-FR)
+calendar-agenda-load =
+    { $count ->
+        [one] 1 tâche à partir d'aujourd'hui
+       *[other] { $count } tâches à partir d'aujourd'hui
+    }
+# MT: pending native review (fr-FR)
+calendar-agenda-empty = Rien de prévu à partir d'aujourd'hui
+# MT: pending native review (fr-FR)
+calendar-agenda-start = Rien de prévu avant le { $day }.
+# MT: pending native review (fr-FR)
+calendar-agenda-end = Rien de prévu après le { $day }.
+# MT: pending native review (fr-FR)
+calendar-overdue-count = { $count } en retard
+# MT: pending native review (fr-FR)
+calendar-overdue-jump = { $count } en retard, aller à la plus ancienne
+# MT: pending native review (fr-FR)
+calendar-more = { $count } de plus
+# MT: pending native review (fr-FR)
+calendar-job-overdue = en retard
+# MT: pending native review (fr-FR)
+calendar-undated-button = Sans date, { $count }
+# MT: pending native review (fr-FR)
+calendar-undated-title = Sans date
+# MT: pending native review (fr-FR)
+calendar-overlay-count =
+    { $count ->
+        [one] 1 autre date
+       *[other] { $count } autres dates
+    }
+# MT: pending native review (fr-FR)
+calendar-sla-breached = SLA dépassé : { $title }
+# MT: pending native review (fr-FR)
+calendar-sla-target = Objectif SLA : { $title }
 gantt-today = Aujourd'hui
 gantt-title = Gantt
 # Gantt : zoom, ajustement, tickets non planifiés (machine, à relire par un locuteur natif).
@@ -8951,7 +8992,8 @@ ticket-list-my-day-nothing-today = Rien de prévu aujourd'hui. Donnez une éché
 builtin-view-triage-name = Tri initial
 builtin-view-triage-description = Tickets en attente de première catégorisation
 builtin-view-calendar-name = Calendrier
-builtin-view-calendar-description = Tickets placés à leur date d'échéance
+# MT: pending native review (fr-FR)
+builtin-view-calendar-description = Tickets placés au jour où ils sont planifiés
 builtin-view-dashboard-created-name = Créés
 builtin-view-dashboard-created-description = Tickets créés sur la plage de temps du tableau de bord
 builtin-view-dashboard-resolved-name = Résolus

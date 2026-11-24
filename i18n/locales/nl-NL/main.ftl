@@ -8686,11 +8686,52 @@ kanban-composer-recent = Recente tickets
 kanban-add-ticket = Ticket toevoegen
 kanban-drop-here = Hier neerzetten
 calendar-today = Vandaag
-calendar-anchor-label = Anker
-calendar-anchor-tooltip = Het ankerveld wordt bepaald door de opgeslagen weergave; de kiezer komt in een latere update.
-calendar-anchor-due-date = Vervaldatum
-calendar-anchor-created = Aangemaakt
-calendar-anchor-last-activity = Laatste activiteit
+# MT: pending native review (nl-NL)
+calendar-previous-month = Vorige maand
+# MT: pending native review (nl-NL)
+calendar-next-month = Volgende maand
+# MT: pending native review (nl-NL)
+calendar-range-label = Bereik
+# MT: pending native review (nl-NL)
+calendar-range-month = Maand
+# MT: pending native review (nl-NL)
+calendar-range-agenda = Agenda
+# MT: pending native review (nl-NL)
+calendar-month-empty = Niets gepland deze maand
+# MT: pending native review (nl-NL)
+calendar-agenda-load =
+    { $count ->
+        [one] 1 taak vanaf vandaag
+       *[other] { $count } taken vanaf vandaag
+    }
+# MT: pending native review (nl-NL)
+calendar-agenda-empty = Niets gepland vanaf vandaag
+# MT: pending native review (nl-NL)
+calendar-agenda-start = Niets gepland vóór { $day }.
+# MT: pending native review (nl-NL)
+calendar-agenda-end = Niets gepland na { $day }.
+# MT: pending native review (nl-NL)
+calendar-overdue-count = { $count } te laat
+# MT: pending native review (nl-NL)
+calendar-overdue-jump = { $count } te laat, ga naar de vroegste
+# MT: pending native review (nl-NL)
+calendar-more = nog { $count }
+# MT: pending native review (nl-NL)
+calendar-job-overdue = te laat
+# MT: pending native review (nl-NL)
+calendar-undated-button = Geen datum, { $count }
+# MT: pending native review (nl-NL)
+calendar-undated-title = Geen datum
+# MT: pending native review (nl-NL)
+calendar-overlay-count =
+    { $count ->
+        [one] 1 andere datum
+       *[other] { $count } andere datums
+    }
+# MT: pending native review (nl-NL)
+calendar-sla-breached = SLA overschreden: { $title }
+# MT: pending native review (nl-NL)
+calendar-sla-target = SLA-doel: { $title }
 gantt-today = Vandaag
 gantt-title = Gantt
 # Gantt: zoom, passend maken, niet-geplande tickets (machine, nog na te kijken door moedertaalspreker).
@@ -8941,7 +8982,8 @@ ticket-list-my-day-nothing-today = Niets gepland voor vandaag. Geef een ticket e
 builtin-view-triage-name = Triage
 builtin-view-triage-description = Tickets die nog ingedeeld moeten worden
 builtin-view-calendar-name = Agenda
-builtin-view-calendar-description = Tickets op hun vervaldatum geplaatst
+# MT: pending native review (nl-NL)
+builtin-view-calendar-description = Tickets op de dag waarvoor ze gepland zijn
 builtin-view-dashboard-created-name = Aangemaakt
 builtin-view-dashboard-created-description = Tickets aangemaakt binnen het dashboardtijdsvenster
 builtin-view-dashboard-resolved-name = Opgelost

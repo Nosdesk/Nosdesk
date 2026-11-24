@@ -9,6 +9,7 @@
  */
 import { computed, getCurrentScope, onScopeDispose, ref, type ComputedRef } from 'vue'
 import { planningTimezone, todayIn, type Day } from '@nosdesk/core/utils/ticketDates'
+import { wallClock, type WallClock } from '@nosdesk/core/sync/views/calendar'
 
 const TICK_INTERVAL_MS = 60_000
 const tickNow = ref(Date.now())
@@ -43,4 +44,14 @@ export function useToday(): ComputedRef<Day> {
     onScopeDispose(unsubscribe)
   }
   return computed(() => todayIn(planningTimezone(), new Date(tickNow.value)))
+}
+
+/** Now on the planning timezone's wall clock, the day and `HH:MM`, on the
+ *  same minute tick: what a due time is measured against. */
+export function useWallClock(): ComputedRef<WallClock> {
+  if (getCurrentScope()) {
+    subscribe()
+    onScopeDispose(unsubscribe)
+  }
+  return computed(() => wallClock(planningTimezone(), new Date(tickNow.value)))
 }

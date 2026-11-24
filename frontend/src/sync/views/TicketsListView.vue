@@ -43,7 +43,8 @@ import {
   calendarOverlaysService,
   type CalendarOverlayEntry,
 } from '@nosdesk/core/services/calendarOverlaysService'
-import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
+import CalendarView from './calendar/CalendarView.vue'
+import type { CalendarOverlay } from './calendar/calendarTypes'
 import AgendaView from './agenda/AgendaView.vue'
 import { agendaFor, MANUAL_SORT } from '@nosdesk/core/sync/views/planOrder'
 import TicketsHeader from '@/components/views/TicketsHeader.vue'
@@ -65,7 +66,9 @@ import {
 } from '@/composables/useTicketsFilters'
 import { defaultGroupByFor, useTicketsGrouping } from '@/composables/useTicketsGrouping'
 import { useToday } from '@/composables/useToday'
-import type { Day } from '@nosdesk/core/utils/ticketDates'
+import { useCalendarRange } from '@/composables/useCalendarRange'
+import { planningTimezone, type Day } from '@nosdesk/core/utils/ticketDates'
+import { toCalendarDateString } from '@nosdesk/core/utils/dateMath'
 import { useTicketsSummary } from '@/composables/useTicketsSummary'
 import { useSplitView } from '@/composables/useSplitView'
 import { useDragGesture } from '@/composables/useDragGesture'
@@ -951,9 +954,10 @@ async function handleDelete(uuid: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------
-// Calendar overlays — unchanged; CalendarBoard is one of the two
-// render targets the active view selects between.
+// Calendar overlays: dates that are not tickets, for the days the
+// calendar shows, and its range, kept per view.
 // ---------------------------------------------------------------
+const calendarRange = useCalendarRange(activeView)
 const overlayCache = ref<Map<string, CalendarOverlayEntry[]>>(new Map())
 const calendarOverlays = ref<CalendarOverlay[]>([])
 
@@ -997,16 +1001,12 @@ const slaOverlays = computed<CalendarOverlay[]>(() => {
     // `target_at` is the next unmet target; `breached` is the ticket's.
     // Mark the date breached only when this target is the one that fell.
     const fell = sla.breached && (!!sla.met_at || target.getTime() < Date.now())
-    const y = target.getFullYear()
-    const m = String(target.getMonth() + 1).padStart(2, '0')
-    const d = String(target.getDate()).padStart(2, '0')
     out.push({
       id: `sla:${card.id}`,
-      date: `${y}-${m}-${d}`,
+      // The day the target falls on where the calendar's today is.
+      date: toCalendarDateString(target, planningTimezone()),
       kind: 'sla_breach',
-      label: fell
-        ? `SLA breached: ${card.title}`
-        : `SLA target: ${card.title}`,
+      label: t(fell ? 'calendar-sla-breached' : 'calendar-sla-target', { title: card.title }),
       href: ticketRoute(card.number),
     })
   }
@@ -1113,13 +1113,15 @@ function startPaneResize(event: PointerEvent): void {
       {{ $t('ticket-list-loading') }}
     </div>
 
-    <CalendarBoard
+    <CalendarView
       v-else-if="activeView.shape.type === 'calendar'"
+      v-model:range="calendarRange"
       class="flex-1 min-h-0"
       :cards="afterChipFilter"
       :date-field="activeView.shape.date_field"
       :overlays="mergedCalendarOverlays"
-      :on-card-click="open"
+      @open="open"
+      @patch="patchPlan"
       @visible-range="onCalendarVisibleRange"
     />
 
