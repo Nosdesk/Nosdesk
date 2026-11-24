@@ -90,6 +90,26 @@ export const state: LifecycleState = {
   streamGeneration: 0,
 }
 
+/** Waiting for an expired cursor to settle (see whenCursorSettles). */
+let cursorWaiters: Array<() => void> = []
+
+/**
+ * Resolves once the cursor is no longer expired, or the resync meant to
+ * replace it has ended without doing so (the caller checks which), or the
+ * runtime is torn down. At once when it isn't expired.
+ */
+export function whenCursorSettles(): Promise<void> {
+  if (!state.cursorExpired) return Promise.resolve()
+  return new Promise((resolve) => cursorWaiters.push(resolve))
+}
+
+/** Wake everything waiting in whenCursorSettles. */
+export function settleCursorWaiters(): void {
+  const waiting = cursorWaiters
+  cursorWaiters = []
+  for (const resolve of waiting) resolve()
+}
+
 /** Whether a `keepCursor` bootstrap is streaming (see `cursorHolds`). */
 export function cursorHeld(): boolean {
   return state.cursorHolds.size > 0
