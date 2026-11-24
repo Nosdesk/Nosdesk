@@ -12830,3 +12830,22 @@ admin-rule-conditions-problem-countdown = L'horloge d'échéance fait un compte 
 admin-rule-conditions-problem-zero-always = « Au moins 0 » est toujours vrai. Choisissez un nombre supérieur à 0, ou supprimez la condition.
 # MT: pending native review (fr-FR)
 admin-rule-conditions-problem-zero-never = « Moins de 0 » n'est jamais vrai. Choisissez un nombre supérieur à 0.
+# MT: pending native review (fr-FR)
+admin-rules-starters-when-awaiting-requester = S'exécute d'elle-même après { $wait } d'attente du demandeur, une fois activée.
+# MT: pending native review (fr-FR)
+admin-rules-starters-when-automatic = S'exécute d'elle-même une fois activée.
+# MT: pending native review (fr-FR)
+admin-rules-starters-wait-days = { $count ->
+    [one] { $count } jour
+   *[other] { $count } jours
+}
+# MT: pending native review (fr-FR)
+admin-rules-starters-wait-hours = { $count ->
+    [one] { $count } heure
+   *[other] { $count } heures
+}
+# MT: pending native review (fr-FR)
+admin-rules-starters-wait-minutes = { $count ->
+    [one] { $count } minute
+   *[other] { $count } minutes
+}

@@ -144,6 +144,12 @@ export interface StarterRule {
   name: string;
   description: string;
   trigger_kind: RuleTriggerKind;
+  /** As a rule of its trigger takes it: a time rule's clock and wait. */
+  trigger_config: RuleTriggerConfig & {
+    clock_name?: string;
+    minutes?: number;
+    repeat_every_minutes?: number | null;
+  };
   conditions: RuleCondition[] | RuleCondition;
   actions: RuleAction[];
 }

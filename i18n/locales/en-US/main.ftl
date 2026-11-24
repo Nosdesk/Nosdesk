@@ -11183,3 +11183,17 @@ admin-rule-preview-elapsed-note = This counts recent tickets the conditions matc
 admin-rule-conditions-problem-countdown = The due date clock counts down, so minutes waited never reach this. Remove the condition and set the time on the trigger.
 admin-rule-conditions-problem-zero-always = At least 0 always matches. Pick a number above 0, or remove the condition.
 admin-rule-conditions-problem-zero-never = Less than 0 never matches. Pick a number above 0.
+admin-rules-starters-when-awaiting-requester = Runs on its own after { $wait } waiting on the requester, once you turn it on.
+admin-rules-starters-when-automatic = Runs on its own once you turn it on.
+admin-rules-starters-wait-days = { $count ->
+    [one] { $count } day
+   *[other] { $count } days
+}
+admin-rules-starters-wait-hours = { $count ->
+    [one] { $count } hour
+   *[other] { $count } hours
+}
+admin-rules-starters-wait-minutes = { $count ->
+    [one] { $count } minute
+   *[other] { $count } minutes
+}

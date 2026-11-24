@@ -161,5 +161,90 @@
         }
       }
     ]
+  },
+  {
+    "id": "auto-close-awaiting-requester",
+    "name_en": "Close after 30 days waiting on the requester",
+    "name_fr": "Fermer après 30 jours d'attente du demandeur",
+    "name_nl": "Sluiten na 30 dagen wachten op de aanvrager",
+    "description_en": "When the requester hasn't answered the team's last reply in 30 days. If they reply first, nothing closes, and the 30 days start again from the team's next reply.",
+    "description_fr": "Quand le demandeur n'a pas répondu à la dernière réponse de l'équipe depuis 30 jours. S'il répond avant, rien n'est fermé, et les 30 jours repartent de la prochaine réponse de l'équipe.",
+    "description_nl": "Als de aanvrager in 30 dagen niet heeft gereageerd op het laatste antwoord van het team. Reageert die eerder, dan sluit er niets en beginnen de 30 dagen opnieuw bij het volgende antwoord van het team.",
+    "trigger_kind": "time_elapsed",
+    "trigger_config": {
+      "clock_name": "awaiting_requester",
+      "minutes": 43200,
+      "repeat_every_minutes": null
+    },
+    "conditions": {
+      "kind": "leaf",
+      "field": "ticket.workflow_state.category",
+      "op": "not_in",
+      "value": [
+        "done",
+        "cancelled",
+        "merged"
+      ]
+    },
+    "override_self_reference": true,
+    "actions": [
+      {
+        "kind": "set_status",
+        "config": {
+          "category": "done"
+        }
+      }
+    ]
+  },
+  {
+    "id": "auto-close-warning",
+    "name_en": "Warn 3 days before auto-close",
+    "name_fr": "Prévenir 3 jours avant la fermeture automatique",
+    "name_nl": "Waarschuwen 3 dagen voor automatisch sluiten",
+    "description_en": "When the requester hasn't answered in 27 days, so they hear the ticket will close in 3 days unless they reply.",
+    "description_fr": "Quand le demandeur n'a pas répondu depuis 27 jours, pour qu'il sache que le ticket sera fermé dans 3 jours sans réponse de sa part.",
+    "description_nl": "Als de aanvrager in 27 dagen niet heeft gereageerd, zodat die weet dat het ticket over 3 dagen sluit zonder reactie.",
+    "trigger_kind": "time_elapsed",
+    "trigger_config": {
+      "clock_name": "awaiting_requester",
+      "minutes": 38880,
+      "repeat_every_minutes": null
+    },
+    "conditions": {
+      "kind": "leaf",
+      "field": "ticket.workflow_state.category",
+      "op": "not_in",
+      "value": [
+        "done",
+        "cancelled",
+        "merged"
+      ]
+    },
+    "actions": [
+      {
+        "kind": "notify",
+        "config": {
+          "recipient": "requester",
+          "subject": "We'll close your request in 3 days",
+          "body": "Hi {{customer_first_name}},\n\nWe're still waiting to hear back from you about ticket #{{ticket_id}}, {{ticket_title}}. If we don't hear from you in the next 3 days, we'll close it.\n\nIf you still need help, just reply to this email and the ticket stays open.\n\nThanks,\n{{app_name}}"
+        }
+      },
+      {
+        "kind": "add_tags",
+        "config": {
+          "tag_names": {
+            "en": [
+              "auto-close-warned"
+            ],
+            "fr": [
+              "fermeture-auto-annoncée"
+            ],
+            "nl": [
+              "automatisch-sluiten-gemeld"
+            ]
+          }
+        }
+      }
+    ]
   }
 ]

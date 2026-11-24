@@ -1,30 +1,37 @@
 //! Rules engine starter catalog (Phase 1 / Wave 8).
 //!
-//! Ships ~half a dozen ready-made manual rules baked into the
-//! repo as a JSON file (`backend/data/starter-rules.json`). The
-//! admin Settings → Rules page lets admins browse the catalog and
-//! copy any entry as a new Draft rule in their workspace; per
-//! decision 35 in the plan, we never bulk-insert these on
-//! workspace creation. The catalog is in-memory, loaded once at
-//! startup; the JSON is checked into the repo so changes go
-//! through PR review like any other config.
+//! Ships ready-made rules baked into the repo as a JSON file
+//! (`backend/data/starter-rules.json`): manual rules an agent applies
+//! from a ticket, and time-elapsed rules that run on their own, such as
+//! auto-close and its warning. The admin Settings → Rules page lets
+//! admins browse the catalog and copy any entry as a new Draft rule in
+//! their workspace, so nothing runs until an admin turns it on; per
+//! decision 35 in the plan, we never bulk-insert these on workspace
+//! creation. The catalog is in-memory, loaded once at startup; the JSON
+//! is checked into the repo so changes go through PR review like any
+//! other config. Every entry passes the checks a rule saved through the
+//! API does (a unit test in `handlers::rules`).
 //!
 //! The JSON can't hold workspace ids, so a starter's steps may name
 //! what they need instead, and [`WorkspaceRefs::resolve_actions`]
-//! looks it up in the caller's workspace:
+//! looks it up in the caller's workspace when the starter is listed or
+//! added:
 //!
 //! - `set_status` with `{"category": "done"}`: the workspace's first
 //!   state in that category, as `workflow_state_id`. Adding a starter
 //!   whose category has no state in the workspace is refused.
 //! - `add_tags` with `{"tag_names": {"en": [...], "fr": [...], "nl": [...]}}`:
 //!   the workspace's tags with those names (any case), as `tag_ids`.
+//!
+//! For the same reason an entry's conditions name no ids: categories
+//! and other values by name only.
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::db::DbConnection;
-use crate::models::{NewTag, Tag, WorkflowStateCategory};
+use crate::models::{NewTag, RuleTriggerKind, Tag, WorkflowStateCategory};
 use crate::repository::{tags, workflow_states};
 
 /// One catalog entry. Names + descriptions are pre-translated for
@@ -40,9 +47,23 @@ pub struct StarterRule {
     pub description_en: String,
     pub description_fr: String,
     pub description_nl: String,
-    pub trigger_kind: String,
+    pub trigger_kind: RuleTriggerKind,
+    /// The trigger's settings, as `POST /api/rules` takes them: for a
+    /// time-elapsed rule, its clock and threshold.
+    #[serde(default = "empty_object")]
+    pub trigger_config: Value,
     pub conditions: Value,
     pub actions: Value,
+    /// Saves a rule whose steps change a field its conditions read, as
+    /// the editor's checkbox does. Set only where that write takes the
+    /// ticket out of the conditions, so the rule can't run itself again:
+    /// auto-close moves a ticket that isn't done to done.
+    #[serde(default)]
+    pub override_self_reference: bool,
+}
+
+fn empty_object() -> Value {
+    json!({})
 }
 
 impl StarterRule {
@@ -383,7 +404,58 @@ mod tests {
     #[test]
     fn find_returns_expected_entry() {
         let rule = find("ack-and-acknowledge").expect("entry exists");
-        assert_eq!(rule.trigger_kind, "manual");
+        assert_eq!(rule.trigger_kind, RuleTriggerKind::Manual);
+        assert_eq!(rule.trigger_config, json!({}));
+        assert!(!rule.override_self_reference);
+    }
+
+    /// Auto-close and its warning wait on the requester after the team's
+    /// last public reply, 30 and 27 days, once each, on tickets that are
+    /// still open.
+    #[test]
+    fn auto_close_starters_wait_on_the_requester() {
+        let still_open = json!({
+            "kind": "leaf",
+            "field": "ticket.workflow_state.category",
+            "op": "not_in",
+            "value": ["done", "cancelled", "merged"],
+        });
+        for (id, minutes) in [
+            ("auto-close-awaiting-requester", 30 * 24 * 60),
+            ("auto-close-warning", 27 * 24 * 60),
+        ] {
+            let rule = find(id).expect("listed");
+            assert_eq!(rule.trigger_kind, RuleTriggerKind::TimeElapsed, "{id}");
+            assert_eq!(
+                rule.trigger_config,
+                json!({
+                    "clock_name": "awaiting_requester",
+                    "minutes": minutes,
+                    "repeat_every_minutes": null,
+                }),
+                "{id}"
+            );
+            assert_eq!(rule.conditions, still_open, "{id}");
+        }
+        let close = find("auto-close-awaiting-requester").expect("listed");
+        assert_eq!(
+            close.actions,
+            json!([{ "kind": "set_status", "config": { "category": "done" } }])
+        );
+        let warn = find("auto-close-warning").expect("listed");
+        let kinds: Vec<&str> = warn
+            .actions
+            .as_array()
+            .expect("actions")
+            .iter()
+            .filter_map(|a| a["kind"].as_str())
+            .collect();
+        assert_eq!(kinds, ["notify", "add_tags"]);
+        assert_eq!(warn.actions[0]["config"]["recipient"], "requester");
+        assert_eq!(
+            tag_names(&warn.actions[1]["config"], "en"),
+            Some(vec!["auto-close-warned".to_string()])
+        );
     }
 
     #[test]

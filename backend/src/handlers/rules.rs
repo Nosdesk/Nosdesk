@@ -525,11 +525,10 @@ fn requeue_clocks(pool: &web::Data<Pool>, workspace_id: i32, rule_id: i32) {
     });
 }
 
+const MANUAL_CONDITIONS_REFUSED: &str = "manual rules must have an empty conditions list";
+
 fn manual_conditions_refused() -> HttpResponse {
-    errors::bad_request_with_code(
-        "manual rules must have an empty conditions list",
-        "RULE_VALIDATION",
-    )
+    errors::bad_request_with_code(MANUAL_CONDITIONS_REFUSED, "RULE_VALIDATION")
 }
 
 // =====================================================================
@@ -608,6 +607,79 @@ pub async fn create_rule(
     created_response(tc.run_result(|conn| insert_rule(conn, workspace_id, created_by, body)))
 }
 
+/// Why a rule's own shape keeps it from being saved: what
+/// [`check_rule`] finds, before anything is read from the workspace.
+#[derive(Debug)]
+enum RuleProblem {
+    /// 400 `RULE_VALIDATION`.
+    Invalid(String),
+    /// 400 `RULE_CONDITION_INVALID`.
+    Condition(ConditionError),
+    /// 409 `RULE_SELF_REFERENTIAL`: the fields it reads and writes.
+    SelfReferential(Vec<String>),
+}
+
+impl RuleProblem {
+    fn response(&self) -> HttpResponse {
+        match self {
+            Self::Invalid(msg) => errors::bad_request_with_code(msg.clone(), "RULE_VALIDATION"),
+            Self::Condition(e) => condition_refused(e),
+            Self::SelfReferential(fields) => errors::conflict_with_code(
+                format!(
+                    "rule reads and writes the same fields: {} (set override_self_reference=true to bypass)",
+                    fields.join(", ")
+                ),
+                "RULE_SELF_REFERENTIAL",
+            ),
+        }
+    }
+}
+
+/// A rule that passed [`check_rule`]: its conditions compiled, its trigger
+/// settings as saved, and what it reads and writes.
+struct CheckedRule {
+    predicate: Predicate,
+    trigger_config: Value,
+    reads: Vec<Option<String>>,
+    writes: Vec<Option<String>>,
+}
+
+/// The checks on a new rule that need nothing from the workspace: its
+/// steps, its conditions for its trigger, its trigger's settings and
+/// whether it changes what it reads. [`insert_rule`] runs them before the
+/// workspace's, and the starter catalogue's test runs them on every entry,
+/// so a starter that wouldn't save fails there first.
+fn check_rule(
+    trigger_kind: RuleTriggerKind,
+    trigger_config: Value,
+    conditions: &Value,
+    actions: &Value,
+    override_self_reference: bool,
+) -> Result<CheckedRule, RuleProblem> {
+    validate_actions(actions).map_err(RuleProblem::Invalid)?;
+    if trigger_kind == RuleTriggerKind::Manual && !is_empty_conditions(conditions) {
+        return Err(RuleProblem::Invalid(MANUAL_CONDITIONS_REFUSED.to_string()));
+    }
+    let predicate =
+        conditions::compile(conditions, trigger_kind).map_err(RuleProblem::Condition)?;
+    let invalid = |msg: &str| RuleProblem::Invalid(msg.to_string());
+    let trigger_config = match trigger_kind {
+        RuleTriggerKind::PluginEvent => plugin_trigger_config(&trigger_config).map_err(invalid)?,
+        RuleTriggerKind::TimeElapsed => time_trigger_config(&trigger_config).map_err(invalid)?,
+        _ => trigger_config,
+    };
+    let reads = rules::reads_beyond_guards(conditions);
+    let writes = rules::derive_writes_set(actions);
+    check_self_referential(&reads, &writes, override_self_reference)
+        .map_err(|e| RuleProblem::SelfReferential(e.fields))?;
+    Ok(CheckedRule {
+        predicate,
+        trigger_config,
+        reads,
+        writes,
+    })
+}
+
 /// Why [`insert_rule`] didn't save the rule.
 enum InsertRuleError {
     /// The rule itself is invalid; the response says why.
@@ -639,7 +711,7 @@ fn insert_rule(
         name,
         description,
         trigger_kind,
-        mut trigger_config,
+        trigger_config,
         conditions,
         actions,
         priority,
@@ -652,17 +724,19 @@ fn insert_rule(
             "RULE_VALIDATION",
         )));
     }
-    if let Err(msg) = validate_actions(&actions) {
-        return Err(refused(errors::bad_request_with_code(
-            msg,
-            "RULE_VALIDATION",
-        )));
-    }
-    if trigger_kind == RuleTriggerKind::Manual && !is_empty_conditions(&conditions) {
-        return Err(refused(manual_conditions_refused()));
-    }
-    let predicate =
-        compile_conditions(trigger_kind, &conditions).map_err(InsertRuleError::Refused)?;
+    let CheckedRule {
+        predicate,
+        trigger_config,
+        reads,
+        writes,
+    } = check_rule(
+        trigger_kind,
+        trigger_config,
+        &conditions,
+        &actions,
+        override_self_reference,
+    )
+    .map_err(|problem| refused(problem.response()))?;
     if let Some(resp) = unknown_reference(conn, &predicate)? {
         return Err(refused(resp));
     }
@@ -672,28 +746,9 @@ fn insert_rule(
         return Err(refused(step_person_refused(problem)));
     }
     if trigger_kind == RuleTriggerKind::PluginEvent {
-        trigger_config = plugin_trigger_config(&trigger_config)
-            .map_err(|msg| refused(errors::bad_request_with_code(msg, "RULE_VALIDATION")))?;
         if let Some(resp) = unknown_plugin_event(conn, &trigger_config)? {
             return Err(refused(resp));
         }
-    }
-    if trigger_kind == RuleTriggerKind::TimeElapsed {
-        trigger_config = time_trigger_config(&trigger_config)
-            .map_err(|msg| refused(errors::bad_request_with_code(msg, "RULE_VALIDATION")))?;
-    }
-
-    let reads = rules::reads_beyond_guards(&conditions);
-    let writes = rules::derive_writes_set(&actions);
-
-    if let Err(e) = check_self_referential(&reads, &writes, override_self_reference) {
-        return Err(refused(errors::conflict_with_code(
-            format!(
-                "rule reads and writes the same fields: {} (set override_self_reference=true to bypass)",
-                e.fields.join(", ")
-            ),
-            "RULE_SELF_REFERENTIAL",
-        )));
     }
 
     let new = NewRule {
@@ -1480,7 +1535,8 @@ pub struct StarterRuleDto {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub trigger_kind: String,
+    pub trigger_kind: RuleTriggerKind,
+    pub trigger_config: Value,
     pub conditions: Value,
     pub actions: Value,
 }
@@ -1523,7 +1579,8 @@ pub async fn list_starter_catalog(
                         id: r.id.clone(),
                         name: r.name_for(&locale).to_string(),
                         description: r.description_for(&locale).to_string(),
-                        trigger_kind: r.trigger_kind.clone(),
+                        trigger_kind: r.trigger_kind,
+                        trigger_config: r.trigger_config.clone(),
                         conditions: r.conditions.clone(),
                         actions: refs.resolve_actions(conn, r, &locale, Purpose::Browse)?,
                     })
@@ -1539,8 +1596,9 @@ pub async fn list_starter_catalog(
 }
 
 /// `POST /api/admin/rule-starters/{id}`. Admin only. Adds a starter
-/// to the workspace as a draft manual rule, named and described in the
-/// `Accept-Language` locale, and returns it like `POST /api/rules`.
+/// to the workspace as a draft rule with the starter's trigger, so a time
+/// rule waits on nothing until an admin turns it on. Named and described
+/// in the `Accept-Language` locale, and returns it like `POST /api/rules`.
 /// Named statuses and tags resolve in the workspace, and a named tag
 /// the workspace doesn't have is created, all in one transaction with
 /// the rule. The rule goes through the same checks as one written in
@@ -1580,12 +1638,12 @@ pub async fn add_starter(
             CreateRuleRequest {
                 name: starter.name_for(&locale).to_string(),
                 description: (!description.is_empty()).then(|| description.to_string()),
-                trigger_kind: RuleTriggerKind::Manual,
-                trigger_config: empty_object(),
+                trigger_kind: starter.trigger_kind,
+                trigger_config: starter.trigger_config.clone(),
                 conditions: starter.conditions.clone(),
                 actions,
                 priority: default_priority(),
-                override_self_reference: false,
+                override_self_reference: starter.override_self_reference,
             },
         )
     }))
@@ -2044,6 +2102,102 @@ mod tests {
         ] {
             assert!(plugin_trigger_config(&config).is_err(), "{config}");
         }
+    }
+
+    /// `rule` as [`add_starter`] would check it in a workspace that has every
+    /// status and tag it names: stand-in ids for the names.
+    fn check_starter(
+        rule: &crate::services::starter_catalog::StarterRule,
+        override_self_reference: bool,
+    ) -> Result<CheckedRule, RuleProblem> {
+        let mut actions = rule.actions.clone();
+        for action in actions.as_array_mut().into_iter().flatten() {
+            let config = &mut action["config"];
+            if config.get("category").is_some() {
+                *config = serde_json::json!({ "workflow_state_id": 1 });
+            } else if config.get("tag_names").is_some() {
+                *config = serde_json::json!({ "tag_ids": [1] });
+            }
+        }
+        check_rule(
+            rule.trigger_kind,
+            rule.trigger_config.clone(),
+            &rule.conditions,
+            &actions,
+            override_self_reference,
+        )
+    }
+
+    /// Every starter passes the checks a rule saved through the API does, so
+    /// a bad entry fails here and not when an admin adds it. Its conditions
+    /// name no ids, which the catalogue can't hold, and it overrides the
+    /// self-reference check only where it would otherwise be refused.
+    #[test]
+    fn every_starter_passes_the_checks_a_saved_rule_does() {
+        use crate::services::starter_catalog;
+        for rule in starter_catalog::list() {
+            let checked = check_starter(rule, rule.override_self_reference)
+                .unwrap_or_else(|problem| panic!("{}: {problem:?}", rule.id));
+            assert_eq!(
+                checked.predicate.references(),
+                Default::default(),
+                "{}: conditions name ids",
+                rule.id
+            );
+            let without_override = check_starter(rule, false);
+            assert_eq!(
+                matches!(without_override, Err(RuleProblem::SelfReferential(_))),
+                rule.override_self_reference,
+                "{}: override_self_reference is set only where it is needed",
+                rule.id
+            );
+            if rule.trigger_kind == RuleTriggerKind::TimeElapsed {
+                assert_eq!(
+                    checked.trigger_config, rule.trigger_config,
+                    "{}: trigger_config as it saves",
+                    rule.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_starter_that_would_not_save_fails_the_check() {
+        use crate::services::starter_catalog;
+        let close = starter_catalog::find("auto-close-awaiting-requester").expect("listed");
+        let broken = |edit: &dyn Fn(&mut starter_catalog::StarterRule)| {
+            let mut rule = close.clone();
+            edit(&mut rule);
+            check_starter(&rule, rule.override_self_reference)
+        };
+        let invalid = |r: Result<CheckedRule, RuleProblem>| match r {
+            Err(RuleProblem::Invalid(msg)) => msg,
+            Err(other) => panic!("not RULE_VALIDATION: {other:?}"),
+            Ok(_) => panic!("passed"),
+        };
+
+        invalid(broken(&|r| {
+            r.trigger_config["minutes"] = serde_json::json!(0)
+        }));
+        invalid(broken(&|r| {
+            r.trigger_config["clock_name"] = serde_json::json!("since_forever")
+        }));
+        invalid(broken(&|r| r.trigger_config = serde_json::json!({})));
+        invalid(broken(&|r| r.trigger_kind = RuleTriggerKind::Manual));
+        invalid(broken(&|r| r.actions = serde_json::json!([])));
+        invalid(broken(&|r| {
+            r.actions = serde_json::json!([
+                { "kind": "notify", "config": { "recipient": "requester", "body": "Hi" } }
+            ])
+        }));
+        assert!(matches!(
+            broken(&|r| r.conditions["value"] = serde_json::json!(["finished"])),
+            Err(RuleProblem::Condition(_))
+        ));
+        assert!(matches!(
+            broken(&|r| r.override_self_reference = false),
+            Err(RuleProblem::SelfReferential(_))
+        ));
     }
 
     #[test]

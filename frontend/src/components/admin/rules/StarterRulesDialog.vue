@@ -5,7 +5,9 @@
  * its steps in order on one line. The server resolves a starter's statuses
  * and tags in this workspace, and adding one happens there too, creating
  * any tag it names that the workspace doesn't have yet. A starter whose
- * name is already taken in the workspace shows as added.
+ * name is already taken in the workspace shows as added. A starter that
+ * runs on its own, such as auto-close, says when it runs, and that it does
+ * nothing until an admin turns it on.
  */
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -54,6 +56,22 @@ const steps = (starter: StarterRule) =>
     .filter((s): s is string => !!s)
     .join(' → ')
 
+/** When a starter that runs on its own runs, or null for a manual one. */
+function whenItRuns(starter: StarterRule): string | null {
+  if (starter.trigger_kind === 'manual') return null
+  const { clock_name: clock, minutes } = starter.trigger_config ?? {}
+  if (starter.trigger_kind === 'time_elapsed' && clock === 'awaiting_requester' && typeof minutes === 'number') {
+    return t('admin-rules-starters-when-awaiting-requester', { wait: waitText(minutes) })
+  }
+  return t('admin-rules-starters-when-automatic')
+}
+
+function waitText(minutes: number): string {
+  if (minutes % (24 * 60) === 0) return t('admin-rules-starters-wait-days', { count: minutes / (24 * 60) })
+  if (minutes % 60 === 0) return t('admin-rules-starters-wait-hours', { count: minutes / 60 })
+  return t('admin-rules-starters-wait-minutes', { count: minutes })
+}
+
 const takenNames = computed(() => new Set(props.rules.map((r) => r.name.trim().toLowerCase())))
 const isAdded = (starter: StarterRule) => takenNames.value.has(starter.name.trim().toLowerCase())
 
@@ -101,6 +119,10 @@ async function add(starter: StarterRule) {
           <div class="flex flex-col gap-1 min-w-0">
             <p class="text-sm font-medium text-primary">{{ starter.name }}</p>
             <p v-if="starter.description" class="text-xs text-secondary">{{ starter.description }}</p>
+            <p v-if="whenItRuns(starter)" class="flex items-start gap-1.5 text-xs text-secondary">
+              <span class="flex h-4 flex-shrink-0 items-center"><Icon name="clock" size="xs" /></span>
+              {{ whenItRuns(starter) }}
+            </p>
             <p v-if="steps(starter)" class="text-xs text-tertiary">{{ steps(starter) }}</p>
           </div>
           <!-- The box of a small Button (padding, border width, touch floor)
