@@ -12822,21 +12822,4 @@ admin-rule-conditions-problem-zero-always = Minstens 0 klopt altijd. Kies een ge
 # MT: pending native review (nl-NL)
 admin-rule-conditions-problem-zero-never = Minder dan 0 klopt nooit. Kies een getal boven 0.
 # MT: pending native review (nl-NL)
-admin-rules-starters-when-awaiting-requester = Draait vanzelf na { $wait } wachten op de aanvrager, zodra je hem aanzet.
-# MT: pending native review (nl-NL)
 admin-rules-starters-when-automatic = Draait vanzelf zodra je hem aanzet.
-# MT: pending native review (nl-NL)
-admin-rules-starters-wait-days = { $count ->
-    [one] { $count } dag
-   *[other] { $count } dagen
-}
-# MT: pending native review (nl-NL)
-admin-rules-starters-wait-hours = { $count ->
-    [one] { $count } uur
-   *[other] { $count } uur
-}
-# MT: pending native review (nl-NL)
-admin-rules-starters-wait-minutes = { $count ->
-    [one] { $count } minuut
-   *[other] { $count } minuten
-}

@@ -1643,7 +1643,7 @@ pub async fn add_starter(
                 conditions: starter.conditions.clone(),
                 actions,
                 priority: default_priority(),
-                override_self_reference: starter.override_self_reference,
+                override_self_reference: false,
             },
         )
     }))
@@ -2108,7 +2108,6 @@ mod tests {
     /// status and tag it names: stand-in ids for the names.
     fn check_starter(
         rule: &crate::services::starter_catalog::StarterRule,
-        override_self_reference: bool,
     ) -> Result<CheckedRule, RuleProblem> {
         let mut actions = rule.actions.clone();
         for action in actions.as_array_mut().into_iter().flatten() {
@@ -2124,31 +2123,23 @@ mod tests {
             rule.trigger_config.clone(),
             &rule.conditions,
             &actions,
-            override_self_reference,
+            false,
         )
     }
 
     /// Every starter passes the checks a rule saved through the API does, so
     /// a bad entry fails here and not when an admin adds it. Its conditions
-    /// name no ids, which the catalogue can't hold, and it overrides the
-    /// self-reference check only where it would otherwise be refused.
+    /// name no ids, which the catalogue can't hold.
     #[test]
     fn every_starter_passes_the_checks_a_saved_rule_does() {
         use crate::services::starter_catalog;
         for rule in starter_catalog::list() {
-            let checked = check_starter(rule, rule.override_self_reference)
-                .unwrap_or_else(|problem| panic!("{}: {problem:?}", rule.id));
+            let checked =
+                check_starter(rule).unwrap_or_else(|problem| panic!("{}: {problem:?}", rule.id));
             assert_eq!(
                 checked.predicate.references(),
                 Default::default(),
                 "{}: conditions name ids",
-                rule.id
-            );
-            let without_override = check_starter(rule, false);
-            assert_eq!(
-                matches!(without_override, Err(RuleProblem::SelfReferential(_))),
-                rule.override_self_reference,
-                "{}: override_self_reference is set only where it is needed",
                 rule.id
             );
             if rule.trigger_kind == RuleTriggerKind::TimeElapsed {
@@ -2168,12 +2159,20 @@ mod tests {
         let broken = |edit: &dyn Fn(&mut starter_catalog::StarterRule)| {
             let mut rule = close.clone();
             edit(&mut rule);
-            check_starter(&rule, rule.override_self_reference)
+            check_starter(&rule)
         };
         let invalid = |r: Result<CheckedRule, RuleProblem>| match r {
             Err(RuleProblem::Invalid(msg)) => msg,
             Err(other) => panic!("not RULE_VALIDATION: {other:?}"),
             Ok(_) => panic!("passed"),
+        };
+        let category = |values: Value| {
+            serde_json::json!({
+                "kind": "leaf",
+                "field": "ticket.workflow_state.category",
+                "op": "not_in",
+                "value": values,
+            })
         };
 
         invalid(broken(&|r| {
@@ -2183,19 +2182,24 @@ mod tests {
             r.trigger_config["clock_name"] = serde_json::json!("since_forever")
         }));
         invalid(broken(&|r| r.trigger_config = serde_json::json!({})));
-        invalid(broken(&|r| r.trigger_kind = RuleTriggerKind::Manual));
         invalid(broken(&|r| r.actions = serde_json::json!([])));
         invalid(broken(&|r| {
             r.actions = serde_json::json!([
                 { "kind": "notify", "config": { "recipient": "requester", "body": "Hi" } }
             ])
         }));
+        // A manual rule takes no conditions.
+        invalid(broken(&|r| {
+            r.trigger_kind = RuleTriggerKind::Manual;
+            r.conditions = category(serde_json::json!(["done"]));
+        }));
         assert!(matches!(
-            broken(&|r| r.conditions["value"] = serde_json::json!(["finished"])),
+            broken(&|r| r.conditions = category(serde_json::json!(["finished"]))),
             Err(RuleProblem::Condition(_))
         ));
+        // Closing on a condition about the status reads what it writes.
         assert!(matches!(
-            broken(&|r| r.override_self_reference = false),
+            broken(&|r| r.conditions = category(serde_json::json!(["done"]))),
             Err(RuleProblem::SelfReferential(_))
         ));
     }

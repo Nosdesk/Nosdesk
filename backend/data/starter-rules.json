@@ -176,17 +176,7 @@
       "minutes": 43200,
       "repeat_every_minutes": null
     },
-    "conditions": {
-      "kind": "leaf",
-      "field": "ticket.workflow_state.category",
-      "op": "not_in",
-      "value": [
-        "done",
-        "cancelled",
-        "merged"
-      ]
-    },
-    "override_self_reference": true,
+    "conditions": [],
     "actions": [
       {
         "kind": "set_status",
@@ -210,16 +200,7 @@
       "minutes": 38880,
       "repeat_every_minutes": null
     },
-    "conditions": {
-      "kind": "leaf",
-      "field": "ticket.workflow_state.category",
-      "op": "not_in",
-      "value": [
-        "done",
-        "cancelled",
-        "merged"
-      ]
-    },
+    "conditions": [],
     "actions": [
       {
         "kind": "notify",

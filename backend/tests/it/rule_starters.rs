@@ -451,7 +451,6 @@ async fn a_missing_status_is_refused_before_any_tag_is_created() {
             { "kind": "add_tags", "config": { "tag_names": { "en": ["picked-up"] } } },
             { "kind": "set_status", "config": { "category": "active" } },
         ]),
-        override_self_reference: false,
     };
     let tags_before = tag_count(&setup, a);
     let result = in_workspace(&pool, a, |c| {
@@ -524,16 +523,6 @@ async fn only_admins_add_starters_and_only_ones_that_exist() {
 
 const CLOSE: &str = "auto-close-awaiting-requester";
 const WARN: &str = "auto-close-warning";
-
-/// The conditions both auto-close starters carry: the ticket is still open.
-fn still_open() -> Value {
-    json!({
-        "kind": "leaf",
-        "field": "ticket.workflow_state.category",
-        "op": "not_in",
-        "value": ["done", "cancelled", "merged"],
-    })
-}
 
 fn awaiting_requester(minutes: i64) -> Value {
     json!({
@@ -674,7 +663,7 @@ async fn turn_on_auto_close(h: &Harness, ws: &WorkspaceSeed, waiting: &[i32]) ->
 }
 
 /// Each auto-close starter adds as a draft time rule on the requester's
-/// silence, with its conditions and its steps resolved in the workspace:
+/// silence, with no conditions and its steps resolved in the workspace:
 /// the close moves to the first done state, the warning emails the
 /// requester and tags the ticket with a tag the workspace gets on add.
 #[actix_web::test]
@@ -692,7 +681,7 @@ async fn the_auto_close_starters_add_as_draft_time_rules() {
         let listed = starter(&list, id);
         assert_eq!(listed["trigger_kind"], "time_elapsed", "{listed}");
         assert_eq!(listed["trigger_config"], awaiting_requester(minutes));
-        assert_eq!(listed["conditions"], still_open());
+        assert_eq!(listed["conditions"], json!([]));
     }
     assert_eq!(
         step(&starter(&list, CLOSE)["actions"], "set_status"),
@@ -707,7 +696,7 @@ async fn the_auto_close_starters_add_as_draft_time_rules() {
     assert_eq!(close["state"], "draft");
     assert_eq!(close["trigger_kind"], "time_elapsed");
     assert_eq!(close["trigger_config"], awaiting_requester(43200));
-    assert_eq!(close["conditions"], still_open());
+    assert_eq!(close["conditions"], json!([]));
     assert_eq!(
         close["actions"],
         json!([{ "kind": "set_status", "config": { "workflow_state_id": done } }])
@@ -718,7 +707,7 @@ async fn the_auto_close_starters_add_as_draft_time_rules() {
     assert_eq!(warn["state"], "draft");
     assert_eq!(warn["trigger_kind"], "time_elapsed");
     assert_eq!(warn["trigger_config"], awaiting_requester(38880));
-    assert_eq!(warn["conditions"], still_open());
+    assert_eq!(warn["conditions"], json!([]));
     let warned = tags_named(&setup, a, "auto-close-warned");
     assert_eq!(warned.len(), 1, "the tag is created: {warned:?}");
     let notify = step(&warn["actions"], "notify");
@@ -852,7 +841,8 @@ async fn a_requester_reply_resets_auto_close() {
 }
 
 /// A closed, cancelled or merged ticket is left alone, however long the
-/// requester has been silent.
+/// requester has been silent: the starters carry no conditions, and the
+/// clock doesn't run on such a ticket.
 #[actix_web::test]
 async fn auto_close_skips_closed_and_merged_tickets() {
     common::ensure_test_keyring();

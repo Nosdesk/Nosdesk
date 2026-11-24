@@ -19,6 +19,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue'
 import Button from '@/components/common/Button.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useRuleStepText } from '@/composables/useRuleStepText'
+import { elapsedSummary, readTriggerConfig } from '@/components/admin/rules/triggerConfig'
 import { queryLoadError } from '@/composables/queryLoadError'
 import { extractErrorMessage } from '@/utils/errors'
 import rulesService from '@nosdesk/core/services/rulesService'
@@ -59,17 +60,10 @@ const steps = (starter: StarterRule) =>
 /** When a starter that runs on its own runs, or null for a manual one. */
 function whenItRuns(starter: StarterRule): string | null {
   if (starter.trigger_kind === 'manual') return null
-  const { clock_name: clock, minutes } = starter.trigger_config ?? {}
-  if (starter.trigger_kind === 'time_elapsed' && clock === 'awaiting_requester' && typeof minutes === 'number') {
-    return t('admin-rules-starters-when-awaiting-requester', { wait: waitText(minutes) })
-  }
-  return t('admin-rules-starters-when-automatic')
-}
-
-function waitText(minutes: number): string {
-  if (minutes % (24 * 60) === 0) return t('admin-rules-starters-wait-days', { count: minutes / (24 * 60) })
-  if (minutes % 60 === 0) return t('admin-rules-starters-wait-hours', { count: minutes / 60 })
-  return t('admin-rules-starters-wait-minutes', { count: minutes })
+  const turnOn = t('admin-rules-starters-when-automatic')
+  if (starter.trigger_kind !== 'time_elapsed') return turnOn
+  const summary = elapsedSummary(t, readTriggerConfig(starter.trigger_config))
+  return summary ? `${summary} ${turnOn}` : turnOn
 }
 
 const takenNames = computed(() => new Set(props.rules.map((r) => r.name.trim().toLowerCase())))

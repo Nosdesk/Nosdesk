@@ -61,12 +61,7 @@ const STARTERS: StarterRule[] = [
     description: "When the requester hasn't answered the team's last reply in 30 days.",
     trigger_kind: 'time_elapsed',
     trigger_config: { clock_name: 'awaiting_requester', minutes: 43200, repeat_every_minutes: null },
-    conditions: {
-      kind: 'leaf',
-      field: 'ticket.workflow_state.category',
-      op: 'not_in',
-      value: ['done', 'cancelled', 'merged'],
-    },
+    conditions: [],
     actions: [{ kind: 'set_status', config: { workflow_state_id: 4 } }],
   },
   {
@@ -126,9 +121,13 @@ describe('StarterRulesDialog', () => {
     await open()
     const autoClose = items()[3]
     const when = autoClose.querySelector('p.flex')
-    expect(when?.textContent?.trim()).toBe('admin-rules-starters-when-awaiting-requester')
+    expect(when?.textContent?.trim()).toBe(
+      'admin-rule-elapsed-summary-awaiting-requester admin-rules-starters-when-automatic',
+    )
     expect(when?.querySelector('svg')).not.toBeNull()
-    expect(items()[4].querySelector('p.flex')?.textContent?.trim()).toBe('admin-rules-starters-when-automatic')
+    expect(items()[4].querySelector('p.flex')?.textContent?.trim()).toBe(
+      'admin-rule-elapsed-summary-since-created admin-rules-starters-when-automatic',
+    )
     // A manual starter runs when an agent applies it, so it says nothing.
     for (const manual of items().slice(0, 3)) expect(manual.querySelector('p.flex')).toBeNull()
   })

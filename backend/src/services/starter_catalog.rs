@@ -54,12 +54,6 @@ pub struct StarterRule {
     pub trigger_config: Value,
     pub conditions: Value,
     pub actions: Value,
-    /// Saves a rule whose steps change a field its conditions read, as
-    /// the editor's checkbox does. Set only where that write takes the
-    /// ticket out of the conditions, so the rule can't run itself again:
-    /// auto-close moves a ticket that isn't done to done.
-    #[serde(default)]
-    pub override_self_reference: bool,
 }
 
 fn empty_object() -> Value {
@@ -406,20 +400,14 @@ mod tests {
         let rule = find("ack-and-acknowledge").expect("entry exists");
         assert_eq!(rule.trigger_kind, RuleTriggerKind::Manual);
         assert_eq!(rule.trigger_config, json!({}));
-        assert!(!rule.override_self_reference);
     }
 
     /// Auto-close and its warning wait on the requester after the team's
-    /// last public reply, 30 and 27 days, once each, on tickets that are
-    /// still open.
+    /// last public reply, 30 and 27 days, once each. They need no
+    /// conditions: the clock doesn't run on a closed, cancelled or merged
+    /// ticket.
     #[test]
     fn auto_close_starters_wait_on_the_requester() {
-        let still_open = json!({
-            "kind": "leaf",
-            "field": "ticket.workflow_state.category",
-            "op": "not_in",
-            "value": ["done", "cancelled", "merged"],
-        });
         for (id, minutes) in [
             ("auto-close-awaiting-requester", 30 * 24 * 60),
             ("auto-close-warning", 27 * 24 * 60),
@@ -435,7 +423,7 @@ mod tests {
                 }),
                 "{id}"
             );
-            assert_eq!(rule.conditions, still_open, "{id}");
+            assert_eq!(rule.conditions, json!([]), "{id}");
         }
         let close = find("auto-close-awaiting-requester").expect("listed");
         assert_eq!(
