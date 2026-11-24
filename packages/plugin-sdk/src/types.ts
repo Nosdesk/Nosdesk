@@ -118,6 +118,9 @@ export interface PluginAssetKind {
   /** `it` | `logical` | `physical` | `bulk` | `generic`. */
   category: string;
   attributeSchema: Record<string, unknown>;
+  /** Every key of `attributeSchema.properties`, in the order the kind shows
+   * its fields. */
+  fieldOrder: string[];
   sortOrder: number;
   isBuiltin: boolean;
 }

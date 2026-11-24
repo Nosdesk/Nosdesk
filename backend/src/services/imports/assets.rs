@@ -72,6 +72,7 @@ use crate::services::assets::kinds::{validate_attributes, AttributeError};
 use crate::services::assets::model_stamp::stamp_default_attributes;
 use crate::services::assets::status_rules::{self, MoveFacts, MoveRefused};
 use crate::services::assets::SYNC_OWNED_ATTRIBUTE_KEYS;
+use crate::services::custom_fields::order::{normalise_order, stored_order};
 
 use super::catalog::Catalog;
 use super::csv_parser::ParsedCsv;
@@ -243,6 +244,12 @@ pub(super) fn enum_options(prop: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Whether a property's `enum` only suggests values (`x-allow-custom`), so a
+/// cell may hold any text.
+pub(super) fn allows_custom(prop: &Value) -> bool {
+    prop.get("x-allow-custom").and_then(Value::as_bool) == Some(true)
+}
+
 /// How a property's cells read.
 pub(super) fn value_type_of(prop: &Value) -> ValueType {
     match prop.get("type").and_then(Value::as_str) {
@@ -251,7 +258,7 @@ pub(super) fn value_type_of(prop: &Value) -> ValueType {
         Some("array") => return ValueType::Array,
         _ => {}
     }
-    if prop.get("enum").and_then(Value::as_array).is_some() {
+    if prop.get("enum").and_then(Value::as_array).is_some() && !allows_custom(prop) {
         return ValueType::Enum;
     }
     match prop.get("format").and_then(Value::as_str) {
@@ -357,8 +364,8 @@ fn required_keys(schema: &Value) -> HashSet<String> {
 }
 
 /// The template's header row for `kind` (a slug, or `None` for core
-/// columns only): the core columns, then the kind's attributes sorted by
-/// their title. `None` when no kind has that slug.
+/// columns only): the core columns, then the kind's attributes in its
+/// field order. `None` when no kind has that slug.
 pub fn template_headers(
     conn: &mut DbConnection,
     kind: Option<&str>,
@@ -371,21 +378,17 @@ pub fn template_headers(
         return Ok(Some(headers));
     };
     let kinds = kind_repo::list_kinds(conn)?;
-    if !kinds.iter().any(|k| k.slug == kind) {
+    let Some(this) = kinds.iter().find(|k| k.slug == kind) else {
         return Ok(None);
-    }
-    let mut own: Vec<(String, String)> = attribute_defs(&kinds)
+    };
+    let order = normalise_order(&this.attribute_schema, &stored_order(&this.field_order));
+    let position = |key: &str| order.iter().position(|k| k == key).unwrap_or(usize::MAX);
+    let mut own: Vec<(usize, String)> = attribute_defs(&kinds)
         .into_iter()
-        .filter_map(|def| {
-            let title = title_of(&def.key, def.prop(kind)?);
-            Some((title, def.id))
-        })
+        .filter(|def| def.prop(kind).is_some())
+        .map(|def| (position(&def.key), def.id))
         .collect();
-    own.sort_by(|a, b| {
-        a.0.to_lowercase()
-            .cmp(&b.0.to_lowercase())
-            .then_with(|| a.1.cmp(&b.1))
-    });
+    own.sort();
     headers.extend(own.into_iter().map(|(_, id)| id));
     Ok(Some(headers))
 }
@@ -2985,11 +2988,11 @@ fn parse_text_attribute(
     let choices = enum_options(prop);
     if prop.get("enum").is_some() {
         let wanted = values::loose(raw);
-        return choices
-            .iter()
-            .find(|c| values::loose(c) == wanted)
-            .cloned()
-            .ok_or_else(|| format!("'{raw}' is not one of: {}", choices.join(", ")));
+        let found = choices.iter().find(|c| values::loose(c) == wanted).cloned();
+        if allows_custom(prop) {
+            return Ok(found.unwrap_or_else(|| raw.to_string()));
+        }
+        return found.ok_or_else(|| format!("'{raw}' is not one of: {}", choices.join(", ")));
     }
     let order = options.date_order;
     match prop.get("format").and_then(Value::as_str) {

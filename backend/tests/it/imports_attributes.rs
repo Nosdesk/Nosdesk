@@ -836,13 +836,22 @@ async fn a_synced_asset_takes_attributes_only() {
 }
 
 /// The template for a kind lists the core columns, then the kind's own
-/// attributes sorted by title, leaving out the ones a sync feeds; a header
-/// that reads as a formula is guarded. An unknown kind is refused.
+/// attributes in its field order (key order where it has none), leaving out
+/// the ones a sync feeds; a header that reads as a formula is guarded. An
+/// unknown kind is refused.
 #[actix_web::test]
 async fn the_template_lists_a_kinds_attributes() {
     let db = TestDb::new();
     let pool = db.pool_with_size(4);
     let ws = workspace(&pool);
+    diesel::sql_query(
+        "UPDATE asset_kinds SET field_order = \
+             ARRAY['rego', 'fuel', 'odometer', 'location', 'serviced', 'insured', '@tare', 'hostname'] \
+         WHERE workspace_id = $1 AND slug = 'vehicle'",
+    )
+    .bind::<Integer, _>(ws.workspace_id)
+    .execute(&mut pool.get().expect("conn"))
+    .expect("order the vehicle's fields");
 
     let (status, body) = call_import_route(
         &pool,
@@ -857,7 +866,7 @@ async fn the_template_lists_a_kinds_attributes() {
         text,
         "\u{FEFF}name,kind,asset_tag,serial_number,status,manufacturer,model,location,primary_user,\
          purchase_date,groups,notes,quantity,unit,low_stock_threshold,\
-         condition,attr:location,fuel,insured,serviced,odometer,rego,'@tare\n"
+         rego,fuel,odometer,attr:location,serviced,insured,'@tare,condition\n"
     );
 
     let (status, body) = call_import_route(
@@ -938,4 +947,53 @@ async fn attributes_are_fields_with_their_kinds() {
     );
     assert!(!fields.iter().any(|f| f["id"] == "hostname"));
     assert!(!fields.iter().any(|f| f["id"] == "telematics_id"));
+}
+
+/// An option list marked `x-allow-custom` only suggests values: a cell
+/// naming an option takes its spelling, and any other text is kept.
+#[actix_web::test]
+async fn an_open_option_list_takes_any_text() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool);
+    seed_kind(
+        &pool,
+        &ws,
+        "rig",
+        "Rig",
+        320,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "finish": {
+                    "type": "string", "title": "Finish",
+                    "enum": ["Matte", "Gloss"], "x-allow-custom": true
+                }
+            }
+        }),
+    );
+    let file = "Name,Type,Tag,Finish\nRig 1,rig,R-1,matte\nRig 2,rig,R-2,Brushed steel\n";
+    let job = checked(
+        &pool,
+        &ws,
+        file,
+        &[
+            ("Name", "name"),
+            ("Type", "kind"),
+            ("Tag", "asset_tag"),
+            ("Finish", "finish"),
+        ],
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(errors(&job), vec![], "{job}");
+    commit(&pool, &ws, &id_of(&job)).await;
+    assert_eq!(
+        stored(&pool, "R-1").expect("R-1").1,
+        serde_json::json!({ "finish": "Matte" })
+    );
+    assert_eq!(
+        stored(&pool, "R-2").expect("R-2").1,
+        serde_json::json!({ "finish": "Brushed steel" })
+    );
 }

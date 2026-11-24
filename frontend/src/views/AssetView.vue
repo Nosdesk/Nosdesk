@@ -45,6 +45,7 @@ import { useAssetDetail } from '@/composables/useAssetDetail';
 import { useAuthStore } from '@/stores/auth';
 import type { Asset } from '@nosdesk/core/types/asset';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
+import { inFieldOrder } from '@/components/assetKindComponents/attributeSchema';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 
 const route = useRoute();
@@ -116,9 +117,13 @@ const kindOptions = computed<DropdownOption[]>(() =>
   })),
 );
 
-const selectedKindSchema = computed(
-  () => (selectedKind.value?.attribute_schema as Record<string, unknown>) ?? null,
-);
+// Laid out in the kind's field order, which every list of its fields below
+// (the rail, the Add-property menu, the synced panel) follows.
+const selectedKindSchema = computed(() => {
+  const kind = selectedKind.value;
+  if (!kind?.attribute_schema) return null;
+  return inFieldOrder(kind.attribute_schema, kind.field_order);
+});
 
 const isEditable = computed(() => device.value?.is_editable ?? false);
 const isSynced = computed(() => device.value != null && !device.value.is_editable);

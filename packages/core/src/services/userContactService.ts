@@ -72,19 +72,52 @@ export interface UserAddressInput {
 
 export const USER_FIELD_SCHEMA_QUERY_KEY = ['user-field-schema'] as const;
 
+function propertiesOf(schema: UserFieldSchema): Record<string, unknown> {
+  const props = schema.properties;
+  return props && typeof props === 'object' && !Array.isArray(props)
+    ? (props as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * The schema as the server sends it, its `properties` laid out in the root
+ * `field_order` (jsonb keeps no key order) and that key dropped, so callers
+ * read the display order from key insertion. Keys the order leaves out (all
+ * of them from a 1.1 server) keep their place after the ordered ones.
+ */
+export function orderedUserFieldSchema(raw: unknown): UserFieldSchema {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { type: 'object', properties: {} };
+  }
+  const { field_order: order, ...schema } = raw as UserFieldSchema;
+  const props = propertiesOf(schema);
+  const ordered: Record<string, unknown> = {};
+  if (Array.isArray(order)) {
+    for (const key of order) {
+      if (typeof key === 'string' && key in props) ordered[key] = props[key];
+    }
+  }
+  for (const [key, value] of Object.entries(props)) {
+    if (!(key in ordered)) ordered[key] = value;
+  }
+  return { ...schema, properties: ordered };
+}
+
 export const getUserFieldSchema = async (): Promise<UserFieldSchema> => {
   const response = await apiClient.get('/admin/user-fields');
-  return response.data as UserFieldSchema;
+  return orderedUserFieldSchema(response.data);
 };
 
+/** Saves the schema with its property order as `field_order`. */
 export const setUserFieldSchema = async (
   schema: UserFieldSchema,
   force = false,
 ): Promise<UserFieldSchema> => {
-  const response = await apiClient.put('/admin/user-fields', schema, {
+  const body = { ...schema, field_order: Object.keys(propertiesOf(schema)) };
+  const response = await apiClient.put('/admin/user-fields', body, {
     params: force ? { force: 'true' } : undefined,
   });
-  return response.data as UserFieldSchema;
+  return orderedUserFieldSchema(response.data);
 };
 
 // ---- Per-user profile fields ------------------------------------------------

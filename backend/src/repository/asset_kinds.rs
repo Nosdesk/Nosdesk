@@ -20,6 +20,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::{AssetKind, AssetKindUpdate, NewAssetKind};
 use crate::schema::asset_kinds;
+use crate::services::custom_fields::order::{normalise_order, stored_order};
 
 pub fn list_kinds(conn: &mut DbConnection) -> QueryResult<Vec<AssetKind>> {
     asset_kinds::table
@@ -205,6 +206,11 @@ pub fn seed_defaults_if_empty(
                 is_builtin: true,
                 created_by,
                 category: category.to_string(),
+                field_order: if is_it {
+                    normalise_order(&device_schema, &[])
+                } else {
+                    Vec::new()
+                },
             },
         )
         .collect();
@@ -225,22 +231,44 @@ pub fn get_kind_by_slug(conn: &mut DbConnection, slug: &str) -> QueryResult<Asse
 }
 
 // sync-audit-only: kind registry is workspace config, not a sync aggregate. Admin pickers re-fetch on demand; coverage lives in the audit_log trigger attached in 2026-05-20-110000_attach_audit_assets
-pub fn create_kind(conn: &mut DbConnection, new_kind: NewAssetKind) -> QueryResult<AssetKind> {
+/// Insert a kind, its `field_order` made a permutation of its schema's keys.
+pub fn create_kind(conn: &mut DbConnection, mut new_kind: NewAssetKind) -> QueryResult<AssetKind> {
+    new_kind.field_order = normalise_order(&new_kind.attribute_schema, &new_kind.field_order);
     diesel::insert_into(asset_kinds::table)
         .values(&new_kind)
         .get_result(conn)
 }
 
 // sync-audit-only: kind registry is workspace config, see create_kind
+/// Apply `update` to kind `id`. A new schema or order keeps `field_order`
+/// equal to the schema's keys: a schema sent without an order keeps the
+/// stored order, with removed keys dropped and new ones appended.
 pub fn update_kind(
     conn: &mut DbConnection,
     id: i32,
     mut update: AssetKindUpdate,
 ) -> QueryResult<AssetKind> {
-    update.updated_at = Some(Utc::now());
-    diesel::update(asset_kinds::table.find(id))
-        .set(&update)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        update.updated_at = Some(Utc::now());
+        if update.attribute_schema.is_some() || update.field_order.is_some() {
+            let current: AssetKind = asset_kinds::table
+                .find(id)
+                .for_no_key_update()
+                .first(conn)?;
+            let schema = update
+                .attribute_schema
+                .as_ref()
+                .unwrap_or(&current.attribute_schema);
+            let order = update
+                .field_order
+                .take()
+                .unwrap_or_else(|| stored_order(&current.field_order));
+            update.field_order = Some(normalise_order(schema, &order));
+        }
+        diesel::update(asset_kinds::table.find(id))
+            .set(&update)
+            .get_result(conn)
+    })
 }
 
 // sync-audit-only: kind registry is workspace config, see create_kind

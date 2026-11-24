@@ -23,6 +23,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
+import { inFieldOrder } from '@/components/assetKindComponents/attributeSchema';
 import { userAttributeSchema } from '@/components/assets/assetAttributeSchema';
 
 import { useManufacturersQuery, useAssetModelsQuery } from '@/composables/useAssetCatalogQuery';
@@ -145,9 +146,11 @@ const modelCanSave = computed(
 // Default specs are authored against the user-editable slice of the
 // chosen kind's schema (sync-owned Intune/Entra keys are never defaulted).
 const modelKindUserSchema = computed(() => {
-  const schema = kinds.value.find((k) => k.slug === modelModal.value.kind)
-    ?.attribute_schema as Record<string, unknown> | undefined;
-  return userAttributeSchema(schema ?? null);
+  const kind = kinds.value.find((k) => k.slug === modelModal.value.kind);
+  const schema = kind?.attribute_schema
+    ? inFieldOrder(kind.attribute_schema, kind.field_order)
+    : null;
+  return userAttributeSchema(schema);
 });
 
 // Switching kinds drops any drafted specs the new kind doesn't define,

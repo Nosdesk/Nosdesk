@@ -20,6 +20,7 @@ use crate::models::{
 };
 use crate::repository::pinned_workspace;
 use crate::schema::{user_addresses, user_field_schema, user_phone_numbers, user_profiles};
+use crate::services::custom_fields::order::{normalise_order, stored_order};
 
 /// The built-in user custom-field schema applied when a workspace hasn't
 /// customised one. vCard-aligned keys (office_location→ORG unit, gender→GENDER,
@@ -46,26 +47,68 @@ pub fn get_field_schema(conn: &mut DbConnection) -> QueryResult<Value> {
     Ok(stored.unwrap_or_else(default_user_field_schema))
 }
 
+/// The effective schema with its fields' display order (a permutation of its
+/// keys; the code default shows in key order).
+pub fn get_field_schema_with_order(conn: &mut DbConnection) -> QueryResult<(Value, Vec<String>)> {
+    let stored: Option<(Value, Vec<Option<String>>)> = user_field_schema::table
+        .select((user_field_schema::schema, user_field_schema::field_order))
+        .first(conn)
+        .optional()?;
+    Ok(match stored {
+        Some((schema, order)) => {
+            let order = normalise_order(&schema, &stored_order(&order));
+            (schema, order)
+        }
+        None => {
+            let schema = default_user_field_schema();
+            let order = normalise_order(&schema, &[]);
+            (schema, order)
+        }
+    })
+}
+
 // sync-audit-only: user custom-field schema is workspace config (audited, picker re-fetches), not a sync aggregate
-/// Upsert the workspace's user custom-field schema. Caller validates the schema
-/// shape first. Returns the stored schema.
+/// Upsert the workspace's user custom-field schema and its fields' display
+/// order. Caller validates the schema shape first. `order` absent keeps the
+/// stored order, with removed keys dropped and new ones appended. Returns the
+/// stored schema and order.
 pub fn set_field_schema(
     conn: &mut DbConnection,
     workspace_id: i32,
     schema: &Value,
+    order: Option<Vec<String>>,
     actor: Option<Uuid>,
-) -> QueryResult<Value> {
-    diesel::insert_into(user_field_schema::table)
-        .values((
-            user_field_schema::workspace_id.eq(workspace_id),
-            user_field_schema::schema.eq(schema),
-            user_field_schema::created_by.eq(actor),
-        ))
-        .on_conflict(user_field_schema::workspace_id)
-        .do_update()
-        .set(user_field_schema::schema.eq(schema))
-        .returning(user_field_schema::schema)
-        .get_result(conn)
+) -> QueryResult<(Value, Vec<String>)> {
+    conn.transaction(|conn| {
+        let order = match order {
+            Some(order) => order,
+            None => user_field_schema::table
+                .select(user_field_schema::field_order)
+                .for_no_key_update()
+                .first::<Vec<Option<String>>>(conn)
+                .optional()?
+                .map(|order| stored_order(&order))
+                .unwrap_or_default(),
+        };
+        let order = normalise_order(schema, &order);
+        let (schema, order): (Value, Vec<Option<String>>) =
+            diesel::insert_into(user_field_schema::table)
+                .values((
+                    user_field_schema::workspace_id.eq(workspace_id),
+                    user_field_schema::schema.eq(schema),
+                    user_field_schema::field_order.eq(&order),
+                    user_field_schema::created_by.eq(actor),
+                ))
+                .on_conflict(user_field_schema::workspace_id)
+                .do_update()
+                .set((
+                    user_field_schema::schema.eq(schema),
+                    user_field_schema::field_order.eq(&order),
+                ))
+                .returning((user_field_schema::schema, user_field_schema::field_order))
+                .get_result(conn)?;
+        Ok((schema, stored_order(&order)))
+    })
 }
 
 /// The active workspace's profile row for a user, if any.
@@ -538,9 +581,43 @@ mod tests {
             "type": "object",
             "properties": { "year_level": { "type": "string", "title": "Year level" } }
         });
-        let stored = set_field_schema(&mut conn, 1, &custom, None).unwrap();
+        let (stored, order) = set_field_schema(&mut conn, 1, &custom, None, None).unwrap();
         assert_eq!(stored["properties"]["year_level"]["title"], "Year level");
+        assert_eq!(order, ["year_level"]);
         assert_eq!(get_field_schema(&mut conn).unwrap(), custom);
+    }
+
+    #[test]
+    fn field_order_is_kept_and_follows_the_keys() {
+        let mut conn = setup_test_connection();
+        // The default shows in key order.
+        let (_, order) = get_field_schema_with_order(&mut conn).unwrap();
+        assert_eq!(order, ["birthday", "gender", "office_location"]);
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "a": { "type": "string" },
+                "b": { "type": "string" },
+                "c": { "type": "string" }
+            }
+        });
+        let order = |keys: &[&str]| Some(keys.iter().map(ToString::to_string).collect());
+        let (_, stored) =
+            set_field_schema(&mut conn, 1, &schema, order(&["c", "a"]), None).unwrap();
+        assert_eq!(stored, ["c", "a", "b"]);
+        assert_eq!(
+            get_field_schema_with_order(&mut conn).unwrap().1,
+            ["c", "a", "b"]
+        );
+
+        // A schema saved without an order keeps the stored one.
+        let fewer = json!({
+            "type": "object",
+            "properties": { "a": { "type": "string" }, "c": { "type": "string" }, "d": { "type": "string" } }
+        });
+        let (_, stored) = set_field_schema(&mut conn, 1, &fewer, None, None).unwrap();
+        assert_eq!(stored, ["c", "a", "d"]);
     }
 
     #[test]

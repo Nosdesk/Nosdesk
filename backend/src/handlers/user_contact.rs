@@ -114,9 +114,32 @@ fn synced_property_keys(schema: &Value) -> Vec<String> {
 
 // ---- Workspace user custom-field schema (admin) ----------------------------
 
+/// The schema as the API reads and writes it: the stored schema with the
+/// fields' display order as a root `field_order` array. A client that knows
+/// nothing of the order reads and sends the schema as before.
+fn schema_with_order(mut schema: Value, order: Vec<String>) -> Value {
+    if let Some(obj) = schema.as_object_mut() {
+        obj.insert("field_order".to_string(), json!(order));
+    }
+    schema
+}
+
+/// Split a written schema into the schema to store and its `field_order`,
+/// when the body carries one.
+fn split_order(mut schema: Value) -> Result<(Value, Option<Vec<String>>), String> {
+    let order = match schema.as_object_mut().and_then(|o| o.remove("field_order")) {
+        None => None,
+        Some(order) => Some(
+            serde_json::from_value::<Vec<String>>(order)
+                .map_err(|_| "field_order must be an array of field names".to_string())?,
+        ),
+    };
+    Ok((schema, order))
+}
+
 pub async fn get_user_field_schema(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
-    match tc.run(|conn| repo::get_field_schema(conn)) {
-        Ok(schema) => HttpResponse::Ok().json(schema),
+    match tc.run(repo::get_field_schema_with_order) {
+        Ok((schema, order)) => HttpResponse::Ok().json(schema_with_order(schema, order)),
         Err(e) => {
             error!(error = %e, "get user field schema failed");
             errors::internal("Failed to load user field schema")
@@ -139,7 +162,10 @@ pub async fn set_user_field_schema(
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can edit the user field schema");
     }
-    let schema = body.into_inner();
+    let (schema, order) = match split_order(body.into_inner()) {
+        Ok(split) => split,
+        Err(e) => return errors::unprocessable_entity(format!("Invalid user field schema: {e}")),
+    };
     if let Err(e) = field_schema::validate_schema(&schema) {
         return errors::unprocessable_entity(format!("Invalid user field schema: {e}"));
     }
@@ -187,8 +213,8 @@ pub async fn set_user_field_schema(
     }
 
     let actor = Some(auth.user_uuid);
-    match tc.run(|conn| repo::set_field_schema(conn, workspace_id, &schema, actor)) {
-        Ok(stored) => HttpResponse::Ok().json(stored),
+    match tc.run(|conn| repo::set_field_schema(conn, workspace_id, &schema, order, actor)) {
+        Ok((stored, order)) => HttpResponse::Ok().json(schema_with_order(stored, order)),
         Err(e) => {
             error!(error = %e, "set user field schema failed");
             errors::internal("Failed to save user field schema")

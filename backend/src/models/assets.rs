@@ -256,6 +256,9 @@ pub struct AssetKind {
     /// enforces the closed set.
     pub category: String,
     pub workspace_id: i32,
+    /// The attribute keys in display order, kept equal to the schema's
+    /// key set (`services::custom_fields::order`).
+    pub field_order: Vec<Option<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -270,6 +273,7 @@ pub struct NewAssetKind {
     pub is_builtin: bool,
     pub created_by: Option<Uuid>,
     pub category: String,
+    pub field_order: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]
@@ -281,6 +285,7 @@ pub struct AssetKindUpdate {
     pub attribute_schema: Option<serde_json::Value>,
     pub sort_order: Option<i32>,
     pub category: Option<String>,
+    pub field_order: Option<Vec<String>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 

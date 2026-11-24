@@ -13,7 +13,8 @@
 //!   `minimum`, `maximum`, `multipleOf`
 //! - Nosdesk extension keywords (syntactic only): `assetKind` (scopes an
 //!   `asset-ref` picker), `synced` (bool; the field is fed read-only by a
-//!   directory/asset sync rather than typed by a human)
+//!   directory/asset sync rather than typed by a human), `x-allow-custom`
+//!   (bool; the `enum` values are suggestions and any value is allowed)
 //!
 //! The same validator runs at two boundaries: when a schema is created/updated
 //! (validate the schema) and when a row is written (validate its values).
@@ -248,11 +249,13 @@ fn validate_property_schema(name: &str, prop: &Value) -> Result<(), AttributeSch
                     });
                 }
             }
-            "synced" => {
-                // Nosdesk extension: this field is populated read-only by a
-                // directory/asset sync (e.g. Entra `officeLocation`) rather
-                // than typed by a human. Syntactic only; the sync + UI honour
-                // it. Must be a boolean.
+            "synced" | "x-allow-custom" => {
+                // Nosdesk extensions, both booleans. `synced`: this field is
+                // populated read-only by a directory/asset sync (e.g. Entra
+                // `officeLocation`) rather than typed by a human; the sync and
+                // UI honour it. `x-allow-custom`: the `enum` values are
+                // suggestions a pick-or-type control offers, so a value
+                // outside them is allowed (the default user schema's gender).
                 if !value.is_boolean() {
                     return Err(AttributeSchemaError::UnsupportedKeyword {
                         property: name.to_string(),
@@ -331,7 +334,12 @@ fn validate_value(name: &str, prop: &Value, value: &Value) -> Result<(), Attribu
         });
     }
 
-    if let Some(enum_values) = prop.get("enum").and_then(Value::as_array) {
+    let allow_custom = prop.get("x-allow-custom").and_then(Value::as_bool) == Some(true);
+    if let Some(enum_values) = prop
+        .get("enum")
+        .and_then(Value::as_array)
+        .filter(|_| !allow_custom)
+    {
         if !enum_values.iter().any(|allowed| allowed == value) {
             return Err(AttributeError::NotInEnum {
                 property: name.to_string(),
@@ -700,6 +708,44 @@ mod tests {
             Err(AttributeError::BadFormat { .. })
         ));
         validate_attributes(&s, &json!({"x": "2025-01-15"})).unwrap();
+    }
+
+    #[test]
+    fn allow_custom_makes_the_enum_a_list_of_suggestions() {
+        let s = schema_with(
+            json!({"gender": {"type": "string", "enum": ["Male", "Female"], "x-allow-custom": true}}),
+            None,
+        );
+        validate_schema(&s).unwrap();
+        validate_attributes(&s, &json!({"gender": "Female"})).unwrap();
+        validate_attributes(&s, &json!({"gender": "Non-binary"})).unwrap();
+        assert!(matches!(
+            validate_attributes(&s, &json!({"gender": 3})),
+            Err(AttributeError::WrongType { .. })
+        ));
+
+        let strict = schema_with(
+            json!({"gender": {"type": "string", "enum": ["Male"], "x-allow-custom": false}}),
+            None,
+        );
+        assert!(matches!(
+            validate_attributes(&strict, &json!({"gender": "Other"})),
+            Err(AttributeError::NotInEnum { .. })
+        ));
+        assert!(matches!(
+            validate_schema(&schema_with(
+                json!({"gender": {"type": "string", "x-allow-custom": "yes"}}),
+                None
+            )),
+            Err(AttributeSchemaError::UnsupportedKeyword { .. })
+        ));
+    }
+
+    #[test]
+    fn the_default_user_field_schema_is_valid() {
+        let s = crate::repository::user_contact::default_user_field_schema();
+        validate_schema(&s).unwrap();
+        validate_attributes(&s, &json!({"gender": "Prefer not to say"})).unwrap();
     }
 
     #[test]
