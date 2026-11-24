@@ -110,6 +110,23 @@ export function settleCursorWaiters(): void {
   for (const resolve of waiting) resolve()
 }
 
+/** Waiting for the next bootstrap or resync to end (see nextSyncSettle). */
+let settleWaiters: Array<() => void> = []
+
+/** Resolves the next time a bootstrap or resync ends, or the runtime is torn
+ * down. The caller checks again whether what it waits for is over. */
+export function nextSyncSettle(): Promise<void> {
+  return new Promise((resolve) => settleWaiters.push(resolve))
+}
+
+/** A bootstrap or resync ended, or the runtime was torn down: wake
+ * everything waiting in nextSyncSettle. */
+export function announceSyncSettle(): void {
+  const waiting = settleWaiters
+  settleWaiters = []
+  for (const resolve of waiting) resolve()
+}
+
 /** Whether a `keepCursor` bootstrap is streaming (see `cursorHolds`). */
 export function cursorHeld(): boolean {
   return state.cursorHolds.size > 0

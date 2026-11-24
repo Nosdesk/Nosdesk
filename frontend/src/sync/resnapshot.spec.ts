@@ -2,7 +2,8 @@
  * The server flags a delta `resnapshot` when what the viewer may see changed
  * in the span it covers (a demotion, a membership). The client snapshots its
  * subscribed groups again with the strip, holding the cursor, one run at a
- * time; not while a resync, which snapshots every group, is under way.
+ * time, and after any resync or bootstrap under way, whose snapshot may
+ * predate the change.
  */
 import { ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -236,6 +237,16 @@ async function warmLaunch(): Promise<void> {
   server.requests = []
 }
 
+/** The viewer is demoted: ticket 2 and ticket 9 are no longer theirs. */
+function demote(): void {
+  server.rows[WORKSPACE] = [
+    { __model__: 'ticket', id: 1, title: 'Ticket 1' },
+    { __model__: 'ticket', id: 9, title: 'Ticket 9' },
+  ]
+  server.rows[TICKET] = []
+  server.denied = [TICKET]
+}
+
 /** Resolves once a stream reaches a HOLD; the result lets it go on. */
 async function reachHold(): Promise<() => void> {
   await vi.waitFor(() => {
@@ -253,15 +264,7 @@ beforeEach(() => {
   fake.dbs.set(DB, new Map<string, unknown>([['schema_hash', 'h']]))
   fake.rows.clear()
   fake.wipes.length = 0
-  // The viewer was demoted: ticket 2 and ticket 9 are no longer theirs.
-  server.rows = {
-    [WORKSPACE]: [
-      { __model__: 'ticket', id: 1, title: 'Ticket 1' },
-      { __model__: 'ticket', id: 9, title: 'Ticket 9' },
-    ],
-    [TICKET]: [],
-  }
-  server.denied = [TICKET]
+  demote()
   server.actions = []
   server.floor = 0
   server.epoch = ''
@@ -310,31 +313,55 @@ describe('a delta flagged resnapshot', () => {
     expect(bootstraps()).toHaveLength(2)
   })
 
-  it('leaves out a group a bootstrap is already streaming', async () => {
+  it('snapshots again after a bootstrap whose closing delta brought the signal', async () => {
     await warmLaunch()
+    // Not yet demoted when the project's snapshot is read.
     server.denied = []
+    server.rows[WORKSPACE] = [
+      { __model__: 'ticket', id: 1, title: 'Ticket 1' },
+      { __model__: 'ticket', id: 2, title: 'Ticket 2' },
+      { __model__: 'ticket', id: 9, title: 'Ticket 9' },
+    ]
     server.rows['project:7'] = [HOLD]
     const opening = subscribe('project:7')
     const release = await reachHold()
+    server.rows['project:7'] = []
+    demote()
+    // The poll waits while the cursor is held, so the flag comes on the
+    // delta that closes the project's snapshot.
+    server.resnapshot = true
 
-    await resnapshotSubscribedGroups()
-    expect(bootstraps()).toEqual([['project:7'], [TICKET, WORKSPACE]])
     release()
     await opening
+    await vi.waitFor(() => expect(bootstraps()).toHaveLength(2))
+    expect(bootstraps()[1]).toEqual(['project:7', TICKET, WORKSPACE])
+    await vi.waitFor(() => expect(pool.has('ticket', 2)).toBe(false))
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(fake.rows.has('comment:40')).toBe(false)
   })
 
-  it('waits for nothing while a resync runs: the resync snapshots every group', async () => {
+  it('snapshots again after a resync whose closing delta brought the signal', async () => {
     await warmLaunch()
     server.denied = []
     server.floor = 25
-    server.rows[WORKSPACE] = [HOLD, ...server.rows[WORKSPACE]!]
+    server.rows[WORKSPACE] = [
+      HOLD,
+      { __model__: 'ticket', id: 1, title: 'Ticket 1' },
+      { __model__: 'ticket', id: 2, title: 'Ticket 2' },
+      { __model__: 'ticket', id: 9, title: 'Ticket 9' },
+    ]
+    server.rows[TICKET] = [{ __model__: 'comment', id: 40, ticket_id: 9 }]
     const resyncing = pullDelta()
     const release = await reachHold()
+    demote()
+    server.resnapshot = true
 
-    await resnapshotSubscribedGroups()
-    expect(bootstraps()).toHaveLength(1)
     release()
     await resyncing
-    expect(bootstraps()).toHaveLength(1)
-  })
+    // The resync read the snapshot before the demotion and kept ticket 2.
+    await vi.waitFor(() => expect(bootstraps()).toHaveLength(2))
+    await vi.waitFor(() => expect(pool.has('ticket', 2)).toBe(false))
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(Object.keys(meta().get('group_watermarks') as object)).toEqual([WORKSPACE])
+    })
 })
