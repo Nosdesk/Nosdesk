@@ -11948,7 +11948,7 @@ admin-rules-conflicts-field-replies = reacties
 admin-rule-editor-trigger-ticket-created-summary = Wanneer een ticket wordt aangemaakt.
 admin-rule-editor-trigger-ticket-updated-summary = Wanneer een ticket verandert, zoals de status, prioriteit of toegewezene.
 admin-rule-editor-trigger-ticket-replied-summary = Wanneer iemand een openbaar antwoord op een ticket plaatst.
-admin-rule-editor-trigger-time-elapsed-summary = Wanneer een ingestelde tijd op een ticket is verstreken. De editor kan deze trigger nog niet instellen.
+admin-rule-editor-trigger-time-elapsed-summary = Wanneer een ingestelde tijd op een ticket is verstreken, geteld op de klok die je kiest.
 admin-rule-editor-trigger-locked = Pauzeer de regel om de trigger te wijzigen.
 admin-rule-editor-changed-fields-label = Uitvoeren wanneer deze veranderen
 admin-rule-editor-changed-fields-any = Niets gekozen, dus de regel wordt uitgevoerd wanneer een veld verandert dat de voorwaarden controleren, of bij elke wijziging als er geen voorwaarden zijn.
@@ -12714,3 +12714,104 @@ asset-record-serial-offer = Serienummer van dit activum wijzigen in { $serial }
 asset-record-serial-updated = Serienummer gewijzigd in { $serial }
 # MT: pending native review (nl-NL)
 asset-record-serial-failed = Serienummer kon niet worden gewijzigd
+
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-label = Klok
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-placeholder = Kies een klok
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-created = Sinds het ticket is aangemaakt
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-created-hint = Telt vanaf het moment dat het ticket is geopend.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-status-change = Sinds de laatste statuswijziging
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-status-change-hint = Telt vanaf de laatste overstap naar een andere status, of vanaf het openen als de status nooit is gewijzigd.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-assigned = Sinds het is toegewezen
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-assigned-hint = Telt vanaf het moment dat het de huidige toegewezene kreeg. Loopt niet zolang niemand is toegewezen.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-last-agent-reply = Sinds het laatste antwoord van het team
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-last-agent-reply-hint = Telt vanaf het laatste openbare antwoord van het team. Loopt niet zolang er nog geen is.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-last-customer-reply = Sinds het laatste bericht van de aanvrager
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-since-last-customer-reply-hint = Telt vanaf het laatste openbare bericht van iemand buiten het team, inclusief het bericht waarmee het ticket is geopend.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-awaiting-requester = Wacht op de aanvrager
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-awaiting-requester-hint = Telt vanaf een openbaar antwoord van het team waarop sindsdien niemand buiten het team heeft gereageerd. Een antwoord van de aanvrager stopt de klok.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-until-due-at = Voor de vervaldatum
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-until-due-at-hint = Telt af tot het einde van de vervaldag van het ticket. Loopt niet zolang er geen vervaldatum is.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-after-label = Tijd nadat de klok start
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-before-label = Tijd voor het einde van de vervaldag
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-unit-label = Eenheid
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-unit-minutes = Minuten
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-unit-hours = Uren
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-unit-days = Dagen
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-repeat-label = Herhalen zolang de klok loopt
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-every-label = Elke
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-hint = De regel let alleen op open tickets. Als hij live gaat, worden tickets die de tijd al voorbij zijn kort daarna afgehandeld.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-clock-missing = Kies de klok waarop de regel wacht.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-after-missing = Stel in hoe lang de regel wacht.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-after-range = Stel een tijd in van 1 minuut tot 365 dagen.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-before-range = Stel een tijd in van 0 minuten tot 365 dagen voor de vervaldatum.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-repeat-missing = Stel in hoe vaak de regel herhaalt.
+# MT: pending native review (nl-NL)
+admin-rule-editor-elapsed-repeat-range = Stel een herhaling in van 1 uur tot 365 dagen.
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-duration-minutes =
+    { $count ->
+        [one] { $count } minuut
+       *[other] { $count } minuten
+    }
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-duration-hours =
+    { $count ->
+        [one] { $count } uur
+       *[other] { $count } uur
+    }
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-duration-days =
+    { $count ->
+        [one] { $count } dag
+       *[other] { $count } dagen
+    }
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-summary-since-created = Wanneer een ticket { $duration } oud is.
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-summary-since-status-change = Wanneer een ticket { $duration } dezelfde status heeft.
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-summary-since-assigned = Wanneer een ticket { $duration } dezelfde toegewezene heeft.
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-summary-since-last-agent-reply = Wanneer het team { $duration } geleden voor het laatst openbaar op een ticket antwoordde.
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-summary-since-last-customer-reply = Wanneer de aanvrager { $duration } geleden voor het laatst op een ticket schreef.
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-summary-awaiting-requester = Wanneer een ticket { $duration } op de aanvrager wacht.
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-summary-until-due-at = Wanneer een ticket over { $duration } vervalt.
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-summary-until-due-at-zero = Wanneer een ticket het einde van zijn vervaldag bereikt.
+# MT: pending native review (nl-NL)
+admin-rule-elapsed-summary-repeat = Hij herhaalt { $duration } na elke uitvoering zolang de klok loopt.
+# MT: pending native review (nl-NL)
+admin-rule-preview-elapsed-note = Dit telt recente tickets die aan de voorwaarden voldoen, open of gesloten. De klok wordt hier niet gecontroleerd, en een voorwaarde op gewachte minuten telt als vervuld.

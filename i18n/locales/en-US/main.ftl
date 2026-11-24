@@ -10606,7 +10606,7 @@ admin-rules-conflicts-field-replies = replies
 admin-rule-editor-trigger-ticket-created-summary = When a ticket is created.
 admin-rule-editor-trigger-ticket-updated-summary = When a ticket changes, such as its status, priority or assignee.
 admin-rule-editor-trigger-ticket-replied-summary = When someone posts a public reply on a ticket.
-admin-rule-editor-trigger-time-elapsed-summary = When a set time has passed on a ticket. The editor can't set this trigger up yet.
+admin-rule-editor-trigger-time-elapsed-summary = When a set time has passed on a ticket, counted on the clock you pick.
 admin-rule-editor-trigger-locked = Pause the rule to change its trigger.
 admin-rule-editor-changed-fields-label = Run when these change
 admin-rule-editor-changed-fields-any = None picked, so the rule runs when a field its conditions check changes, or on any change if it has no conditions.
@@ -11122,3 +11122,61 @@ asset-record-carry-error = Couldn't carry over. The record is saved.
 asset-record-serial-offer = Update this asset's serial to { $serial }
 asset-record-serial-updated = Serial updated to { $serial }
 asset-record-serial-failed = Couldn't update the serial
+
+# Rules: the time-elapsed trigger in the rule editor.
+admin-rule-editor-elapsed-clock-label = Clock
+admin-rule-editor-elapsed-clock-placeholder = Pick a clock
+admin-rule-editor-elapsed-clock-since-created = Since the ticket was created
+admin-rule-editor-elapsed-clock-since-created-hint = Counts from when the ticket was opened.
+admin-rule-editor-elapsed-clock-since-status-change = Since its status last changed
+admin-rule-editor-elapsed-clock-since-status-change-hint = Counts from its last move to another status, or from when it was opened if it never moved.
+admin-rule-editor-elapsed-clock-since-assigned = Since it was assigned
+admin-rule-editor-elapsed-clock-since-assigned-hint = Counts from when it got its current assignee. Doesn't run while no one is assigned.
+admin-rule-editor-elapsed-clock-since-last-agent-reply = Since the last staff reply
+admin-rule-editor-elapsed-clock-since-last-agent-reply-hint = Counts from the last public reply from staff. Doesn't run until there is one.
+admin-rule-editor-elapsed-clock-since-last-customer-reply = Since the last requester message
+admin-rule-editor-elapsed-clock-since-last-customer-reply-hint = Counts from the last public message from anyone outside the team, the one that opened the ticket included.
+admin-rule-editor-elapsed-clock-awaiting-requester = Waiting on the requester
+admin-rule-editor-elapsed-clock-awaiting-requester-hint = Counts from a public staff reply that no one outside the team has answered since. A requester's reply stops it.
+admin-rule-editor-elapsed-clock-until-due-at = Before the due date
+admin-rule-editor-elapsed-clock-until-due-at-hint = Counts down to the end of the ticket's due day. Doesn't run while it has no due date.
+admin-rule-editor-elapsed-after-label = Time after the clock starts
+admin-rule-editor-elapsed-before-label = Time before the due day ends
+admin-rule-editor-elapsed-unit-label = Unit
+admin-rule-editor-elapsed-unit-minutes = Minutes
+admin-rule-editor-elapsed-unit-hours = Hours
+admin-rule-editor-elapsed-unit-days = Days
+admin-rule-editor-elapsed-repeat-label = Repeat while the clock keeps running
+admin-rule-editor-elapsed-every-label = Every
+admin-rule-editor-elapsed-hint = The rule waits on open tickets only. When it goes live, tickets already past the time are acted on soon after.
+admin-rule-editor-elapsed-clock-missing = Pick the clock the rule waits on.
+admin-rule-editor-elapsed-after-missing = Set how long the rule waits.
+admin-rule-editor-elapsed-after-range = Set a time from 1 minute to 365 days.
+admin-rule-editor-elapsed-before-range = Set a time from 0 minutes to 365 days before the due date.
+admin-rule-editor-elapsed-repeat-missing = Set how often the rule repeats.
+admin-rule-editor-elapsed-repeat-range = Set a repeat from 1 hour to 365 days.
+admin-rule-elapsed-duration-minutes =
+    { $count ->
+        [one] { $count } minute
+       *[other] { $count } minutes
+    }
+admin-rule-elapsed-duration-hours =
+    { $count ->
+        [one] { $count } hour
+       *[other] { $count } hours
+    }
+admin-rule-elapsed-duration-days =
+    { $count ->
+        [one] { $count } day
+       *[other] { $count } days
+    }
+admin-rule-elapsed-summary-since-created = When a ticket is { $duration } old.
+admin-rule-elapsed-summary-since-status-change = When a ticket has kept its status for { $duration }.
+admin-rule-elapsed-summary-since-assigned = When a ticket has had its assignee for { $duration }.
+admin-rule-elapsed-summary-since-last-agent-reply = When staff last replied in public on a ticket { $duration } ago.
+admin-rule-elapsed-summary-since-last-customer-reply = When the requester last wrote on a ticket { $duration } ago.
+admin-rule-elapsed-summary-awaiting-requester = When a ticket has waited { $duration } on the requester.
+admin-rule-elapsed-summary-until-due-at = When a ticket is due in { $duration }.
+admin-rule-elapsed-summary-until-due-at-zero = When a ticket reaches the end of its due day.
+admin-rule-elapsed-summary-repeat = It repeats { $duration } after each run while the clock keeps running.
+admin-rule-preview-elapsed-note = This counts recent tickets the conditions match, open or closed. The clock isn't checked here, and a condition on minutes waited counts as met.

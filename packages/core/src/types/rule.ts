@@ -93,13 +93,19 @@ export type RuleReplyKind = 'customer' | 'agent' | 'any';
  * `reads_set`), or on any change when the list is absent. A `ticket_replied`
  * rule runs on replies of `reply_kind`. A `plugin_event` rule runs on the
  * plugin `plugin_uuid`'s `event_type` events (one of its manifest `events`),
- * on the ticket the event names. Other triggers take `{}`.
+ * on the ticket the event names. A `time_elapsed` rule runs `minutes` after
+ * its `clock_name` clock started (for `until_due_at`, `minutes` before the
+ * ticket is due), and again every `repeat_every_minutes` while the clock
+ * runs, when set. Other triggers take `{}`.
  */
 export interface RuleTriggerConfig {
   changed_fields_include?: string[];
   reply_kind?: RuleReplyKind;
   plugin_uuid?: string;
   event_type?: string;
+  clock_name?: string;
+  minutes?: number;
+  repeat_every_minutes?: number | null;
 }
 
 /** Wire shape of a Rule. Manual rules have `conditions: []`. */

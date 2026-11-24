@@ -4,9 +4,9 @@
  * `admin-rules-new`, edits an existing rule by id when route name
  * is `admin-rules-edit`. Agents apply manual rules from a ticket's
  * Actions dialog; manual rules have `conditions = []` enforced by the
- * backend, so only a rule with an event trigger (ticket created, updated
- * or replied, or a plugin's event) shows the conditions builder and its
- * live preview.
+ * backend, so only a rule with an automated trigger (ticket created,
+ * updated or replied, a plugin's event, or time elapsed on a clock) shows
+ * the conditions builder and its live preview.
  *
  * The action list is the main interaction surface. Each action
  * carries a typed `kind` plus a kind-specific config object. The
@@ -41,9 +41,17 @@ import NotifyStepForm from '@/components/admin/rules/NotifyStepForm.vue';
 import ReplyStepForm from '@/components/admin/rules/ReplyStepForm.vue';
 import ConditionBuilder from '@/components/admin/rules/ConditionBuilder.vue';
 import PluginEventTriggerForm from '@/components/admin/rules/PluginEventTriggerForm.vue';
+import TimeElapsedTriggerForm from '@/components/admin/rules/TimeElapsedTriggerForm.vue';
 import { CHANGEABLE_FIELDS, fromWire, toWire, treeComplete, type ConditionGroup } from '@/components/admin/rules/conditionTree';
 import { EVENT_RULES_RUN, promoteControls } from '@/components/admin/rules/eventRuleGate';
-import { readTriggerConfig, triggerConfigFor, triggerProblem, DEFAULT_REPLY_KIND } from '@/components/admin/rules/triggerConfig';
+import {
+  readTriggerConfig,
+  triggerConfigFor,
+  triggerProblem,
+  elapsedSummary,
+  DEFAULT_REPLY_KIND,
+  type ElapsedDuration,
+} from '@/components/admin/rules/triggerConfig';
 import { useWorkspaceQuery } from '@/queries/workspaceQuery';
 import { numberForTicketId } from '@/composables/useTicketNumberLookup';
 import { ticketPathForId } from '@/utils/ticketNumbers';
@@ -108,6 +116,12 @@ const replyKind = ref<RuleReplyKind>(DEFAULT_REPLY_KIND);
 /** The plugin and event a plugin event rule runs on. */
 const pluginUuid = ref('');
 const pluginEvent = ref('');
+/** A time-elapsed rule's clock, its time, and its repeat. */
+const blankTimes = readTriggerConfig({});
+const clockName = ref(blankTimes.clockName);
+const elapsedAfter = ref<ElapsedDuration>(blankTimes.after);
+const elapsedRepeat = ref(blankTimes.repeat);
+const elapsedEvery = ref<ElapsedDuration>(blankTimes.every);
 const conditionRoot = ref<ConditionGroup>(fromWire([]));
 /** Going live without a dry run first: the admin checked the rule by hand. */
 const verifiedManually = ref(false);
@@ -124,6 +138,10 @@ function fill(rule: Rule): void {
   replyKind.value = settings.replyKind;
   pluginUuid.value = settings.pluginUuid;
   pluginEvent.value = settings.pluginEvent;
+  clockName.value = settings.clockName;
+  elapsedAfter.value = settings.after;
+  elapsedRepeat.value = settings.repeat;
+  elapsedEvery.value = settings.every;
   conditionRoot.value = fromWire(rule.conditions);
   verifiedManually.value = false;
   // The loaded rule's preview needn't wait out the typing pause.
@@ -157,6 +175,10 @@ const triggerSettings = computed(() => ({
   replyKind: replyKind.value,
   pluginUuid: pluginUuid.value,
   pluginEvent: pluginEvent.value,
+  clockName: clockName.value,
+  after: elapsedAfter.value,
+  repeat: elapsedRepeat.value,
+  every: elapsedEvery.value,
 }));
 const triggerConfig = computed(() => triggerConfigFor(triggerKind.value, triggerSettings.value));
 /** Set by a save attempt with an unfinished trigger, so its hint shows. */
@@ -380,6 +402,13 @@ const STATE_TOASTS: Partial<Record<RuleState, string>> = {
 };
 
 async function setState(target: RuleState): Promise<void> {
+  // A rule saved with an unfinished trigger (through the API, say) can't run.
+  const unfinishedTrigger = triggerProblem(triggerKind.value, triggerSettings.value);
+  if (unfinishedTrigger && (target === 'live' || target === 'dry_run')) {
+    showTriggerProblems.value = true;
+    errorMessage.value = t(unfinishedTrigger);
+    return;
+  }
   if (isDirty.value && !(await save({ quiet: true }))) return;
   const rule = original.value;
   if (!rule) return;
@@ -511,17 +540,25 @@ function triggerLabel(kind: RuleTriggerKind): string {
   return t(`admin-rules-trigger-${kind.replace(/_/g, '-')}`);
 }
 
-// Time elapsed rules aren't built here yet; one saved through the API keeps
-// its trigger in the list.
-const TRIGGERS: RuleTriggerKind[] = ['manual', 'ticket_created', 'ticket_updated', 'ticket_replied', 'plugin_event'];
+const TRIGGERS: RuleTriggerKind[] = [
+  'manual',
+  'ticket_created',
+  'ticket_updated',
+  'ticket_replied',
+  'time_elapsed',
+  'plugin_event',
+];
 const triggerOptions = computed(() => {
   const kinds = [...TRIGGERS];
   const saved = original.value?.trigger_kind;
   if (saved && !kinds.includes(saved)) kinds.push(saved);
   return kinds.map((k) => ({ value: k, label: triggerLabel(k) }));
 });
-const triggerSummary = computed(() =>
-  t(`admin-rule-editor-trigger-${triggerKind.value.replace(/_/g, '-')}-summary`),
+// A time-elapsed rule reads as its settings once they're complete.
+const triggerSummary = computed(
+  () =>
+    (triggerKind.value === 'time_elapsed' ? elapsedSummary(t, triggerSettings.value) : null) ??
+    t(`admin-rule-editor-trigger-${triggerKind.value.replace(/_/g, '-')}-summary`),
 );
 const replyKindOptions = computed(() =>
   (['customer', 'agent', 'any'] as const).map((k) => ({ value: k, label: t(`admin-rule-editor-reply-kind-${k}`) })),
@@ -721,6 +758,16 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
             :show-problems="showTriggerProblems"
           />
 
+          <TimeElapsedTriggerForm
+            v-else-if="triggerKind === 'time_elapsed'"
+            v-model:clock-name="clockName"
+            v-model:after="elapsedAfter"
+            v-model:repeat="elapsedRepeat"
+            v-model:every="elapsedEvery"
+            :disabled="isArchived"
+            :show-problems="showTriggerProblems"
+          />
+
           <div v-else-if="triggerKind === 'ticket_replied'" class="flex flex-col gap-2" data-test="reply-kind">
             <p class="text-sm font-medium text-primary">{{ t('admin-rule-editor-reply-kind-label') }}</p>
             <div>
@@ -774,7 +821,10 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
                   {{ sampleLabel(ticketId) }}
                 </RouterLink>
               </div>
-              <p v-if="checksEvent" class="text-xs text-secondary">{{ t('admin-rule-preview-event-note') }}</p>
+              <p v-if="triggerKind === 'time_elapsed'" class="text-xs text-secondary">
+                {{ t('admin-rule-preview-elapsed-note') }}
+              </p>
+              <p v-else-if="checksEvent" class="text-xs text-secondary">{{ t('admin-rule-preview-event-note') }}</p>
             </template>
           </div>
         </section>
