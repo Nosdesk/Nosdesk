@@ -298,6 +298,13 @@ export function* entries<T extends object>(
   }
 }
 
+/** The aggregates the pool holds rows of. */
+export function aggregatesHeld(): Set<SyncAggregate> {
+  const held = new Set<SyncAggregate>()
+  for (const k of rows.keys()) held.add(k.slice(0, k.indexOf(':')) as SyncAggregate)
+  return held
+}
+
 export function size(): number {
   return rows.size
 }

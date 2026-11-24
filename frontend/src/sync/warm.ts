@@ -196,6 +196,14 @@ export function dropGroupWatermarks(handle: idb.IdbHandle, groups: Iterable<stri
   })
 }
 
+/** Drop every watermark, in turn with every other watermark write: no
+ * cached snapshot can be brought current from the cursor any more. */
+export function dropAllGroupWatermarks(handle: idb.IdbHandle): Promise<void> {
+  sessionMarks.clear()
+  recordedAt.clear()
+  return serialized(() => idb.replaceGroupWatermarks(handle, {}))
+}
+
 /**
  * Drop bootstrap watermarks for groups that are NOT subscribed at the moment
  * this session first advances the cursor. From that advance on, the cursor
