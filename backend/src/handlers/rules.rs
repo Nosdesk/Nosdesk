@@ -2105,7 +2105,8 @@ mod tests {
     }
 
     /// `rule` as [`add_starter`] would check it in a workspace that has every
-    /// status and tag it names: stand-in ids for the names.
+    /// status and tag it names: stand-in ids for the names, and an email's
+    /// English text.
     fn check_starter(
         rule: &crate::services::starter_catalog::StarterRule,
     ) -> Result<CheckedRule, RuleProblem> {
@@ -2116,6 +2117,9 @@ mod tests {
                 *config = serde_json::json!({ "workflow_state_id": 1 });
             } else if config.get("tag_names").is_some() {
                 *config = serde_json::json!({ "tag_ids": [1] });
+            } else if let Some(texts) = crate::services::starter_catalog::notify_texts(config, "en")
+            {
+                *config = texts;
             }
         }
         check_rule(

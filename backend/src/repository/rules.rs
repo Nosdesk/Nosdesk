@@ -1791,8 +1791,9 @@ fn notify_address(
 /// the run's transaction, so a run that rolls back sends nothing, marked
 /// `Auto-Submitted: auto-generated` so an auto-responder doesn't answer it.
 /// Its subject carries the ticket's number and it follows the recipient's
-/// earlier mail about the ticket, so a reply threads back like a reply to
-/// an agent's.
+/// earlier mail about the ticket. The requester's copy goes through the
+/// channel an agent's reply would, with its Reply-To, so their answer
+/// threads back onto the ticket.
 ///
 /// A ticket with no requester, or a requester with no email address, has
 /// no one to tell: the step sends nothing and says why, and the rest of
@@ -1905,13 +1906,39 @@ fn execute_notify(
     let note = outbound::reply_security_note(conn);
     let body = outbound::with_security_note(body, note.as_deref());
     let (in_reply_to, references) = outbound::thread_headers_for(conn, ticket.id, &to_email)?;
-    let domain = crate::utils::email_branding::outbound_email_domain()
-        .unwrap_or_else(|| "nosdesk.local".to_string());
+    // The requester's copy goes out the way an agent's reply to them would:
+    // through the ticket's channel, with its Reply-To, so their answer
+    // threads back onto the ticket and restarts its clocks. Without one,
+    // plain mail from the default sender.
+    let route = if recipient_kind == "requester" {
+        crate::services::channels::relay::requester_reply_channel(conn, ticket)?.and_then(
+            |channel| {
+                outbound::reply_routing(conn, &channel)
+                    .map(|(domain, reply_to)| (channel.id, domain, reply_to))
+            },
+        )
+    } else {
+        None
+    };
+    let mut headers = json!({ "Auto-Submitted": "auto-generated" });
+    let (channel_id, domain) = match route {
+        Some((channel_id, domain, reply_to)) => {
+            if let Some(reply_to) = reply_to {
+                headers["Reply-To"] = json!(reply_to);
+            }
+            (Some(channel_id), domain)
+        }
+        None => (
+            None,
+            crate::utils::email_branding::outbound_email_domain()
+                .unwrap_or_else(|| "nosdesk.local".to_string()),
+        ),
+    };
     let random: u32 = rand::random();
     crate::repository::outbound_emails::enqueue_or_suppress(
         conn,
         crate::models::NewOutboundEmail {
-            channel_id: None,
+            channel_id,
             ticket_id: Some(ticket.id),
             comment_id: None,
             recipient: to_email,
@@ -1924,7 +1951,7 @@ fn execute_notify(
             ),
             in_reply_to,
             references_list: references.into_iter().map(Some).collect(),
-            headers_json: json!({ "Auto-Submitted": "auto-generated" }),
+            headers_json: headers,
             correlation_id: ctx.actor.correlation_id,
             idempotency_key: None,
             sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE.to_string(),

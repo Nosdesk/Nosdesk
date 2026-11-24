@@ -23,6 +23,11 @@
 //! - `add_tags` with `{"tag_names": {"en": [...], "fr": [...], "nl": [...]}}`:
 //!   the workspace's tags with those names (any case), as `tag_ids`.
 //!
+//! An email a starter sends is written in every locale, and the caller's
+//! is picked the same way: `notify` with
+//! `{"texts": {"en": {"subject": ..., "body": ...}, "fr": ..., "nl": ...}}`
+//! becomes `subject` and `body`.
+//!
 //! For the same reason an entry's conditions name no ids: categories
 //! and other values by name only.
 
@@ -111,6 +116,24 @@ pub fn tag_names(config: &Value, locale: &str) -> Option<Vec<String>> {
     )
 }
 
+/// A `notify` step's config with its `texts` replaced by the subject and
+/// body in `locale` (BCP-47 prefix match, falls back to en), or `None` when
+/// it names no texts.
+pub fn notify_texts(config: &Value, locale: &str) -> Option<Value> {
+    let by_locale = config.get("texts")?;
+    let texts = match locale_prefix(locale) {
+        prefix @ ("fr" | "nl") => by_locale.get(prefix),
+        _ => None,
+    }
+    .or_else(|| by_locale.get("en"))?;
+    let mut resolved = config.clone();
+    let obj = resolved.as_object_mut()?;
+    obj.remove("texts");
+    obj.insert("subject".into(), texts.get("subject")?.clone());
+    obj.insert("body".into(), texts.get("body")?.clone());
+    Some(resolved)
+}
+
 /// What [`WorkspaceRefs::resolve_actions`] resolves a starter for, which
 /// decides what happens to a named status or tag the workspace doesn't
 /// have.
@@ -187,6 +210,13 @@ impl WorkspaceRefs {
                     None => config.clone(),
                 },
                 (Some("set_status"), None) => config.clone(),
+                (Some("notify"), None) => match notify_texts(config, locale) {
+                    Some(config) => config,
+                    None => {
+                        resolved.push(action.clone());
+                        continue;
+                    }
+                },
                 _ => {
                     resolved.push(action.clone());
                     continue;
@@ -344,6 +374,22 @@ mod tests {
                             rule.id
                         );
                     }
+                    Some("notify") => {
+                        let texts = config
+                            .get("texts")
+                            .unwrap_or_else(|| panic!("{}: notify needs texts", rule.id));
+                        for locale in ["en", "fr", "nl"] {
+                            for part in ["subject", "body"] {
+                                assert!(
+                                    texts[locale][part]
+                                        .as_str()
+                                        .is_some_and(|t| !t.trim().is_empty()),
+                                    "{}: texts.{locale}.{part} missing",
+                                    rule.id
+                                );
+                            }
+                        }
+                    }
                     Some("add_tags" | "remove_tags") => {
                         let by_locale = config
                             .get("tag_names")
@@ -440,6 +486,16 @@ mod tests {
             .collect();
         assert_eq!(kinds, ["notify", "add_tags"]);
         assert_eq!(warn.actions[0]["config"]["recipient"], "requester");
+        let fr = notify_texts(&warn.actions[0]["config"], "fr-FR").expect("texts");
+        assert!(fr["body"]
+            .as_str()
+            .is_some_and(|b| b.starts_with("Bonjour")));
+        assert_eq!(fr["recipient"], "requester");
+        assert!(fr.get("texts").is_none());
+        let fallback = notify_texts(&warn.actions[0]["config"], "de-DE").expect("texts");
+        assert!(fallback["body"]
+            .as_str()
+            .is_some_and(|b| b.starts_with("Hi")));
         assert_eq!(
             tag_names(&warn.actions[1]["config"], "en"),
             Some(vec!["auto-close-warned".to_string()])

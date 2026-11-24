@@ -206,8 +206,20 @@
         "kind": "notify",
         "config": {
           "recipient": "requester",
-          "subject": "We'll close your request in 3 days",
-          "body": "Hi {{customer_first_name}},\n\nWe're still waiting to hear back from you about ticket #{{ticket_id}}, {{ticket_title}}. If we don't hear from you in the next 3 days, we'll close it.\n\nIf you still need help, just reply to this email and the ticket stays open.\n\nThanks,\n{{app_name}}"
+          "texts": {
+            "en": {
+              "subject": "We'll close your request in 3 days",
+              "body": "Hi {{customer_first_name}},\n\nWe're still waiting to hear back from you about ticket #{{ticket_id}}, {{ticket_title}}. If we don't hear from you in the next 3 days, we'll close it.\n\nIf you still need help, just reply to this email and the ticket stays open.\n\nThanks,\n{{app_name}}"
+            },
+            "fr": {
+              "subject": "Nous fermerons votre demande dans 3 jours",
+              "body": "Bonjour {{customer_first_name}},\n\nNous attendons toujours votre retour concernant le ticket #{{ticket_id}}, {{ticket_title}}. Sans nouvelles de votre part dans les 3 prochains jours, nous le fermerons.\n\nSi vous avez encore besoin d'aide, répondez simplement à cet e-mail et le ticket restera ouvert.\n\nMerci,\n{{app_name}}"
+            },
+            "nl": {
+              "subject": "We sluiten je aanvraag over 3 dagen",
+              "body": "Hoi {{customer_first_name}},\n\nWe wachten nog op je reactie over ticket #{{ticket_id}}, {{ticket_title}}. Als we binnen 3 dagen niets van je horen, sluiten we het.\n\nHeb je nog hulp nodig? Beantwoord dan gewoon deze e-mail, dan blijft het ticket open.\n\nBedankt,\n{{app_name}}"
+            }
+          }
         }
       },
       {

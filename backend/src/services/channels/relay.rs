@@ -237,6 +237,22 @@ pub fn reply_email_recipients(
     Ok(out)
 }
 
+/// The channel mail to `ticket`'s requester goes out through, as an agent's
+/// public reply does: its origin channel, or with none, the workspace's
+/// email channel. `None` when the origin channel is disabled or the
+/// workspace has no email channel to reply through: plain mail from the
+/// default sender. For mail that isn't a comment, such as a rule's notify
+/// step, so the requester's answer threads back onto the ticket.
+pub fn requester_reply_channel(
+    conn: &mut DbConnection,
+    ticket: &Ticket,
+) -> Result<Option<Channel>, diesel::result::Error> {
+    match ticket.origin_channel_id {
+        Some(channel_id) => Ok(Some(channels_repo::find(conn, channel_id)?).filter(|c| c.enabled)),
+        None => workspace_reply_channel(conn),
+    }
+}
+
 /// The email channel a ticket with no origin channel replies through: the
 /// first enabled one that can route a reply back, preferring the managed
 /// address, then a forwarding address, then a polled mailbox.

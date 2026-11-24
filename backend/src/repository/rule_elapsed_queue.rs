@@ -66,6 +66,11 @@ const STAFF_AUTHOR: &str = "EXISTS (
                           AND wm.role IN ('owner', 'admin', 'agent')
                           AND (wm.removed_at IS NULL OR wm.removed_at > c.created_at))))";
 
+/// A comment `c` that ticket `t`'s requester wrote. Theirs is the
+/// requester's message even when they are staff: a staff member's own
+/// request waits on the team like anyone's.
+const BY_REQUESTER: &str = "c.user_uuid IS NOT DISTINCT FROM t.requester_uuid";
+
 /// A comment `c` that is a reply at all: public, not deleted, not old mail a
 /// newly connected mailbox brought in, and not written by a rule on its own.
 const REPLY: &str = "NOT c.is_internal AND c.deleted_at IS NULL
@@ -104,7 +109,9 @@ const TICKET_EVENT: &str = "s.aggregate = 'ticket' AND s.aggregate_id = t.id::te
 /// at all for a ticket with none left.
 ///
 /// A reply is a public comment that isn't deleted, from staff
-/// ([`STAFF_AUTHOR`]) or from anyone else. A reply a rule wrote on its own
+/// ([`STAFF_AUTHOR`]) or from anyone else; the requester's own is never
+/// staff's ([`BY_REQUESTER`]), so every reply clock treats a staff member's
+/// own request like a customer's. A reply a rule wrote on its own
 /// (`channel_metadata.rule_id`) is no reply: an automated warning doesn't
 /// restart the clock it was sent on. A reply an agent sent by applying a rule
 /// is theirs. Old mail a newly connected mailbox brought in
@@ -139,10 +146,12 @@ pub fn clock_inputs(conn: &mut DbConnection, ticket_ids: &[i32]) -> QueryResult<
                {state} AS state_changed_at,
                {assignee} AS assigned_at,
                (SELECT max(c.created_at) FROM comments c
-                 WHERE c.ticket_id = t.id AND {REPLY} AND {STAFF_AUTHOR}) AS agent_reply_at,
+                 WHERE c.ticket_id = t.id AND {REPLY} AND {STAFF_AUTHOR}
+                   AND NOT ({BY_REQUESTER})) AS agent_reply_at,
                (SELECT max(c.created_at) FROM comments c
                  WHERE c.ticket_id = t.id AND {REPLY}
-                   AND NOT {STAFF_AUTHOR} AND NOT {AUTOMATED_EMAIL}) AS customer_reply_at
+                   AND ({BY_REQUESTER} OR NOT {STAFF_AUTHOR})
+                   AND NOT {AUTOMATED_EMAIL}) AS customer_reply_at
           FROM tickets t
           LEFT JOIN workflow_states ws ON ws.id = t.workflow_state_id
          WHERE t.id = ANY($1)
@@ -377,6 +386,10 @@ pub struct DueRow {
 /// another claim holds and taking back claims older than
 /// `stale_claim_secs`. Every workspace's, so the caller runs it with row
 /// security bypassed; each row's work then runs pinned to its workspace.
+///
+/// Returned in the order they fall due (then by ticket and rule), which is
+/// the order the caller fires them in: a ticket long overdue for both the
+/// auto-close warning and the close is warned first.
 pub fn claim_due(
     conn: &mut DbConnection,
     limit: i64,
@@ -406,14 +419,17 @@ pub fn claim_due(
              ORDER BY q.due_at
              LIMIT $3
                FOR UPDATE OF q SKIP LOCKED
+        ),
+        claimed AS (
+            UPDATE ticket_elapsed_queue q
+               SET claimed_at = now(), attempts = LEAST(q.attempts, 32766) + 1
+              FROM due
+             WHERE q.ticket_id = due.ticket_id AND q.rule_id = due.rule_id
+               AND q.clock_name = due.clock_name
+         RETURNING q.workspace_id, q.ticket_id, q.rule_id, q.clock_name, q.clock_started_at,
+                   q.due_at, q.attempts
         )
-        UPDATE ticket_elapsed_queue q
-           SET claimed_at = now(), attempts = LEAST(q.attempts, 32766) + 1
-          FROM due
-         WHERE q.ticket_id = due.ticket_id AND q.rule_id = due.rule_id
-           AND q.clock_name = due.clock_name
-     RETURNING q.workspace_id, q.ticket_id, q.rule_id, q.clock_name, q.clock_started_at,
-               q.due_at, q.attempts
+        SELECT * FROM claimed ORDER BY due_at, ticket_id, rule_id
         "#,
     )
     .bind::<Double, _>(stale_claim_secs)
