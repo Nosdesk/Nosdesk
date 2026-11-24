@@ -62,6 +62,15 @@ ignore = [
     # migration. Drop these entries when the backend moves to jiff.
     { id = "RUSTSEC-2026-0543", reason = "unmaintained, no vulnerability; migration to jiff planned" },
     { id = "RUSTSEC-2026-0555", reason = "unmaintained, no vulnerability; migration to jiff planned" },
+    # RUSTSEC-2026-0594 - cookie 0.16 private (encrypted) cookies can reuse
+    # an AES-GCM nonce in a process that forks after seeding its RNG. Fixed
+    # in cookie 0.18.3, but actix-web 4 (4.20 included) requires ^0.16.
+    #
+    # The backend never forks and never uses private or signed cookie jars:
+    # sessions are our own tokens in plain cookies. The vulnerable code is
+    # compiled in through actix-web's cookie feature but never called. Drop
+    # this entry when actix-web moves to cookie 0.18.
+    { id = "RUSTSEC-2026-0594", reason = "no fork and no private cookie jars; actix-web 4 pins cookie ^0.16" },
 ]
 
 [bans]
