@@ -1,30 +1,42 @@
 //! Rules engine starter catalog (Phase 1 / Wave 8).
 //!
-//! Ships ~half a dozen ready-made manual rules baked into the
-//! repo as a JSON file (`backend/data/starter-rules.json`). The
-//! admin Settings → Rules page lets admins browse the catalog and
-//! copy any entry as a new Draft rule in their workspace; per
-//! decision 35 in the plan, we never bulk-insert these on
-//! workspace creation. The catalog is in-memory, loaded once at
-//! startup; the JSON is checked into the repo so changes go
-//! through PR review like any other config.
+//! Ships ready-made rules baked into the repo as a JSON file
+//! (`backend/data/starter-rules.json`): manual rules an agent applies
+//! from a ticket, and time-elapsed rules that run on their own, such as
+//! auto-close and its warning. The admin Settings → Rules page lets
+//! admins browse the catalog and copy any entry as a new Draft rule in
+//! their workspace, so nothing runs until an admin turns it on; per
+//! decision 35 in the plan, we never bulk-insert these on workspace
+//! creation. The catalog is in-memory, loaded once at startup; the JSON
+//! is checked into the repo so changes go through PR review like any
+//! other config. Every entry passes the checks a rule saved through the
+//! API does (a unit test in `handlers::rules`).
 //!
 //! The JSON can't hold workspace ids, so a starter's steps may name
 //! what they need instead, and [`WorkspaceRefs::resolve_actions`]
-//! looks it up in the caller's workspace:
+//! looks it up in the caller's workspace when the starter is listed or
+//! added:
 //!
 //! - `set_status` with `{"category": "done"}`: the workspace's first
 //!   state in that category, as `workflow_state_id`. Adding a starter
 //!   whose category has no state in the workspace is refused.
 //! - `add_tags` with `{"tag_names": {"en": [...], "fr": [...], "nl": [...]}}`:
 //!   the workspace's tags with those names (any case), as `tag_ids`.
+//!
+//! An email a starter sends is written in every locale, and the caller's
+//! is picked the same way: `notify` with
+//! `{"texts": {"en": {"subject": ..., "body": ...}, "fr": ..., "nl": ...}}`
+//! becomes `subject` and `body`.
+//!
+//! For the same reason an entry's conditions name no ids: categories
+//! and other values by name only.
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::db::DbConnection;
-use crate::models::{NewTag, Tag, WorkflowStateCategory};
+use crate::models::{NewTag, RuleTriggerKind, Tag, WorkflowStateCategory};
 use crate::repository::{tags, workflow_states};
 
 /// One catalog entry. Names + descriptions are pre-translated for
@@ -40,9 +52,17 @@ pub struct StarterRule {
     pub description_en: String,
     pub description_fr: String,
     pub description_nl: String,
-    pub trigger_kind: String,
+    pub trigger_kind: RuleTriggerKind,
+    /// The trigger's settings, as `POST /api/rules` takes them: for a
+    /// time-elapsed rule, its clock and threshold.
+    #[serde(default = "empty_object")]
+    pub trigger_config: Value,
     pub conditions: Value,
     pub actions: Value,
+}
+
+fn empty_object() -> Value {
+    json!({})
 }
 
 impl StarterRule {
@@ -94,6 +114,24 @@ pub fn tag_names(config: &Value, locale: &str) -> Option<Vec<String>> {
             .filter(|n| !n.is_empty())
             .collect(),
     )
+}
+
+/// A `notify` step's config with its `texts` replaced by the subject and
+/// body in `locale` (BCP-47 prefix match, falls back to en), or `None` when
+/// it names no texts.
+pub fn notify_texts(config: &Value, locale: &str) -> Option<Value> {
+    let by_locale = config.get("texts")?;
+    let texts = match locale_prefix(locale) {
+        prefix @ ("fr" | "nl") => by_locale.get(prefix),
+        _ => None,
+    }
+    .or_else(|| by_locale.get("en"))?;
+    let mut resolved = config.clone();
+    let obj = resolved.as_object_mut()?;
+    obj.remove("texts");
+    obj.insert("subject".into(), texts.get("subject")?.clone());
+    obj.insert("body".into(), texts.get("body")?.clone());
+    Some(resolved)
 }
 
 /// What [`WorkspaceRefs::resolve_actions`] resolves a starter for, which
@@ -172,6 +210,13 @@ impl WorkspaceRefs {
                     None => config.clone(),
                 },
                 (Some("set_status"), None) => config.clone(),
+                (Some("notify"), None) => match notify_texts(config, locale) {
+                    Some(config) => config,
+                    None => {
+                        resolved.push(action.clone());
+                        continue;
+                    }
+                },
                 _ => {
                     resolved.push(action.clone());
                     continue;
@@ -329,6 +374,22 @@ mod tests {
                             rule.id
                         );
                     }
+                    Some("notify") => {
+                        let texts = config
+                            .get("texts")
+                            .unwrap_or_else(|| panic!("{}: notify needs texts", rule.id));
+                        for locale in ["en", "fr", "nl"] {
+                            for part in ["subject", "body"] {
+                                assert!(
+                                    texts[locale][part]
+                                        .as_str()
+                                        .is_some_and(|t| !t.trim().is_empty()),
+                                    "{}: texts.{locale}.{part} missing",
+                                    rule.id
+                                );
+                            }
+                        }
+                    }
                     Some("add_tags" | "remove_tags") => {
                         let by_locale = config
                             .get("tag_names")
@@ -383,7 +444,62 @@ mod tests {
     #[test]
     fn find_returns_expected_entry() {
         let rule = find("ack-and-acknowledge").expect("entry exists");
-        assert_eq!(rule.trigger_kind, "manual");
+        assert_eq!(rule.trigger_kind, RuleTriggerKind::Manual);
+        assert_eq!(rule.trigger_config, json!({}));
+    }
+
+    /// Auto-close and its warning wait on the requester after the team's
+    /// last public reply, 30 and 27 days, once each. They need no
+    /// conditions: the clock doesn't run on a closed, cancelled or merged
+    /// ticket.
+    #[test]
+    fn auto_close_starters_wait_on_the_requester() {
+        for (id, minutes) in [
+            ("auto-close-awaiting-requester", 30 * 24 * 60),
+            ("auto-close-warning", 27 * 24 * 60),
+        ] {
+            let rule = find(id).expect("listed");
+            assert_eq!(rule.trigger_kind, RuleTriggerKind::TimeElapsed, "{id}");
+            assert_eq!(
+                rule.trigger_config,
+                json!({
+                    "clock_name": "awaiting_requester",
+                    "minutes": minutes,
+                    "repeat_every_minutes": null,
+                }),
+                "{id}"
+            );
+            assert_eq!(rule.conditions, json!([]), "{id}");
+        }
+        let close = find("auto-close-awaiting-requester").expect("listed");
+        assert_eq!(
+            close.actions,
+            json!([{ "kind": "set_status", "config": { "category": "done" } }])
+        );
+        let warn = find("auto-close-warning").expect("listed");
+        let kinds: Vec<&str> = warn
+            .actions
+            .as_array()
+            .expect("actions")
+            .iter()
+            .filter_map(|a| a["kind"].as_str())
+            .collect();
+        assert_eq!(kinds, ["notify", "add_tags"]);
+        assert_eq!(warn.actions[0]["config"]["recipient"], "requester");
+        let fr = notify_texts(&warn.actions[0]["config"], "fr-FR").expect("texts");
+        assert!(fr["body"]
+            .as_str()
+            .is_some_and(|b| b.starts_with("Bonjour")));
+        assert_eq!(fr["recipient"], "requester");
+        assert!(fr.get("texts").is_none());
+        let fallback = notify_texts(&warn.actions[0]["config"], "de-DE").expect("texts");
+        assert!(fallback["body"]
+            .as_str()
+            .is_some_and(|b| b.starts_with("Hi")));
+        assert_eq!(
+            tag_names(&warn.actions[1]["config"], "en"),
+            Some(vec!["auto-close-warned".to_string()])
+        );
     }
 
     #[test]

@@ -12821,3 +12821,5 @@ admin-rule-conditions-problem-countdown = De klok voor de vervaldatum telt af, d
 admin-rule-conditions-problem-zero-always = Minstens 0 klopt altijd. Kies een getal boven 0, of verwijder de voorwaarde.
 # MT: pending native review (nl-NL)
 admin-rule-conditions-problem-zero-never = Minder dan 0 klopt nooit. Kies een getal boven 0.
+# MT: pending native review (nl-NL)
+admin-rules-starters-when-automatic = Draait vanzelf zodra je hem aanzet.

@@ -2,24 +2,36 @@
 //! and the server resolves them in the caller's workspace: the browse list
 //! shows what each step will do there, and adding a starter saves a draft
 //! whose steps carry that workspace's ids, creating any tag it names that
-//! the workspace doesn't have. Driven through the runtime pool, where a
-//! pooled connection starts with no workspace.
+//! the workspace doesn't have. The auto-close starters are time rules: added,
+//! they wait on nothing until an admin turns them on, then run on the
+//! requester's silence. Driven through the runtime pool, where a pooled
+//! connection starts with no workspace.
 
 use actix_web::dev::{Service, ServiceResponse};
 use actix_web::http::StatusCode;
 use actix_web::test as http_test;
 use actix_web::{web, App, HttpMessage};
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use backend::extractors::WorkspaceContext;
 use backend::middleware::RequestContext;
-use backend::models::{Claims, WorkflowStateCategory};
-use backend::schema::{rules, tags, workflow_states, workspace_members};
+use backend::models::{
+    Claims, NewChannel, NewChannelMessage, NewTicket, OutboundEmail, RuleApplicationStatus,
+    WorkflowStateCategory,
+};
+use backend::repository::ticket_merge::{execute_merge, MergeInput};
+use backend::schema::{
+    comments, outbound_emails, rules, tags, ticket_elapsed_queue, workflow_states,
+    workspace_members,
+};
+use backend::services::rules::elapsed;
 use backend::sync::actor::ActorContext;
 
 use crate::common::{self, TestPool, WorkspaceSeed};
+use crate::rules_event_triggers::{admin, Harness};
 
 /// Call the rules routes as `user` in `ws`, in `locale`.
 async fn call(
@@ -199,7 +211,7 @@ async fn the_catalogue_resolves_statuses_and_tags_in_the_workspace() {
     let done = first_state(&setup, a, WorkflowStateCategory::Done);
 
     let list = catalogue(&pool, a, "en-US").await;
-    assert_eq!(list.len(), 6);
+    assert_eq!(list.len(), 8);
 
     let ack = starter(&list, "ack-and-acknowledge");
     assert_eq!(ack["name"], "Acknowledge and triage");
@@ -435,7 +447,8 @@ async fn a_missing_status_is_refused_before_any_tag_is_created() {
         description_en: String::new(),
         description_fr: String::new(),
         description_nl: String::new(),
-        trigger_kind: "manual".into(),
+        trigger_kind: backend::models::RuleTriggerKind::Manual,
+        trigger_config: json!({}),
         conditions: json!([]),
         actions: json!([
             { "kind": "add_tags", "config": { "tag_names": { "en": ["picked-up"] } } },
@@ -505,4 +518,584 @@ async fn only_admins_add_starters_and_only_ones_that_exist() {
         .get_result(&mut conn)
         .expect("rules");
     assert_eq!(saved, 0);
+}
+
+// =====================================================================
+// Auto-close: time rules from the catalogue.
+// =====================================================================
+
+const CLOSE: &str = "auto-close-awaiting-requester";
+const WARN: &str = "auto-close-warning";
+
+fn awaiting_requester(minutes: i64) -> Value {
+    json!({
+        "clock_name": "awaiting_requester",
+        "minutes": minutes,
+        "repeat_every_minutes": null,
+    })
+}
+
+/// What rules `ids` wait on: ticket, rule, clock started, due.
+type Wait = (i32, i32, DateTime<Utc>, DateTime<Utc>);
+
+fn waits(h: &Harness, ws: &WorkspaceSeed, ids: &[i32]) -> Vec<Wait> {
+    h.as_admin(ws, |c| {
+        ticket_elapsed_queue::table
+            .filter(ticket_elapsed_queue::rule_id.eq_any(ids))
+            .select((
+                ticket_elapsed_queue::ticket_id,
+                ticket_elapsed_queue::rule_id,
+                ticket_elapsed_queue::clock_started_at,
+                ticket_elapsed_queue::due_at,
+            ))
+            .order((
+                ticket_elapsed_queue::ticket_id,
+                ticket_elapsed_queue::rule_id,
+            ))
+            .load(c)
+    })
+}
+
+fn wait_on(h: &Harness, ws: &WorkspaceSeed, ticket: i32, rule: i32) -> Option<Wait> {
+    waits(h, ws, &[rule]).into_iter().find(|w| w.0 == ticket)
+}
+
+/// Give `user` a primary email address, so a notify step has somewhere to
+/// send.
+fn email(h: &Harness, user: Uuid, address: &str) {
+    use backend::schema::user_emails;
+    diesel::insert_into(user_emails::table)
+        .values((
+            user_emails::user_uuid.eq(user),
+            user_emails::email.eq(address),
+            user_emails::email_type.eq("personal"),
+            user_emails::is_primary.eq(true),
+            user_emails::is_verified.eq(true),
+        ))
+        .execute(&mut h.db.conn())
+        .expect("insert email");
+}
+
+/// A public reply on `ticket` by `author`, written `days` ago.
+fn reply_days_ago(h: &Harness, ws: &WorkspaceSeed, ticket: i32, author: Uuid, days: i64) {
+    let id = h.reply(ws, ticket, author);
+    h.bypass(|c| {
+        diesel::update(comments::table.find(id))
+            .set(comments::created_at.eq(Utc::now() - chrono::Duration::days(days)))
+            .execute(c)
+    });
+}
+
+/// Every email queued about `ticket`, oldest first.
+fn mail(h: &Harness, ws: &WorkspaceSeed, ticket: i32) -> Vec<OutboundEmail> {
+    h.as_admin(ws, |c| {
+        outbound_emails::table
+            .filter(outbound_emails::ticket_id.eq(ticket))
+            .order(outbound_emails::id)
+            .load(c)
+    })
+}
+
+fn state_of(h: &Harness, ws: &WorkspaceSeed, ticket: i32) -> i32 {
+    h.as_admin(ws, |c| {
+        backend::repository::tickets::get_ticket_by_id(c, ticket)
+    })
+    .workflow_state_id
+}
+
+fn first_in(h: &Harness, ws: &WorkspaceSeed, category: WorkflowStateCategory) -> i32 {
+    h.as_admin(ws, |c| {
+        backend::repository::workflow_states::first_in_category(c, category)
+    })
+    .id
+}
+
+fn tag_id(h: &Harness, ws: &WorkspaceSeed, name: &str) -> i32 {
+    h.as_admin(ws, |c| {
+        tags::table
+            .filter(tags::name.eq(name))
+            .select(tags::id)
+            .first(c)
+    })
+}
+
+/// Add both auto-close starters to `ws` and turn them on, as an admin does
+/// from the rules page, the close first: its clocks are queued before the
+/// warning's. Before they are on they wait on nothing; once on, every ticket
+/// in `waiting` waits on both. Returns (close, warn).
+async fn turn_on_auto_close(h: &Harness, ws: &WorkspaceSeed, waiting: &[i32]) -> (i32, i32) {
+    let mut ids = Vec::new();
+    for starter in [CLOSE, WARN] {
+        let rule = added(&h.pool, ws, "en-US", starter).await;
+        assert_eq!(rule["state"], "draft", "{rule}");
+        ids.push(rule["id"].as_i64().expect("id") as i32);
+    }
+    for id in &ids {
+        elapsed::requeue_rule(&h.pool, ws.workspace_id, *id).expect("requeue");
+    }
+    assert!(waits(h, ws, &ids).is_empty(), "a draft waits on nothing");
+
+    for id in &ids {
+        let resp = call(
+            &h.pool,
+            ws,
+            ws.admin_uuid,
+            "en-US",
+            http_test::TestRequest::patch()
+                .uri(&format!("/api/rules/{id}/state"))
+                .set_json(json!({ "state": "live" })),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK, "rule {id} goes live");
+        // Going live queues the clocks off the request.
+        queued_on(h, ws, *id, waiting).await;
+    }
+    (ids[0], ids[1])
+}
+
+/// Wait until every ticket in `waiting` waits on `rule`.
+async fn queued_on(h: &Harness, ws: &WorkspaceSeed, rule: i32, waiting: &[i32]) {
+    for _ in 0..50 {
+        let queued = waits(h, ws, &[rule]);
+        if waiting.iter().all(|t| queued.iter().any(|w| w.0 == *t)) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!(
+        "rule {rule}'s clocks never queued: {:?}",
+        waits(h, ws, &[rule])
+    );
+}
+
+/// Each auto-close starter adds as a draft time rule on the requester's
+/// silence, with no conditions and its steps resolved in the workspace:
+/// the close moves to the first done state, the warning emails the
+/// requester and tags the ticket with a tag the workspace gets on add.
+#[actix_web::test]
+async fn the_auto_close_starters_add_as_draft_time_rules() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
+    let setup = db.pool_with_size(1);
+    let pool = db.runtime_pool(4);
+    let (a, b) = (&seeded.a, &seeded.b);
+    let done = first_state(&setup, a, WorkflowStateCategory::Done);
+
+    let list = catalogue(&pool, a, "en-US").await;
+    for (id, minutes) in [(CLOSE, 43200), (WARN, 38880)] {
+        let listed = starter(&list, id);
+        assert_eq!(listed["trigger_kind"], "time_elapsed", "{listed}");
+        assert_eq!(listed["trigger_config"], awaiting_requester(minutes));
+        assert_eq!(listed["conditions"], json!([]));
+    }
+    assert_eq!(
+        step(&starter(&list, CLOSE)["actions"], "set_status"),
+        &json!({ "workflow_state_id": done })
+    );
+
+    let close = added(&pool, a, "en-US", CLOSE).await;
+    assert_eq!(
+        close["name"],
+        "Close after 30 days waiting on the requester"
+    );
+    assert_eq!(close["state"], "draft");
+    assert_eq!(close["trigger_kind"], "time_elapsed");
+    assert_eq!(close["trigger_config"], awaiting_requester(43200));
+    assert_eq!(close["conditions"], json!([]));
+    assert_eq!(
+        close["actions"],
+        json!([{ "kind": "set_status", "config": { "workflow_state_id": done } }])
+    );
+
+    let warn = added(&pool, a, "en-US", WARN).await;
+    assert_eq!(warn["name"], "Warn 3 days before auto-close");
+    assert_eq!(warn["state"], "draft");
+    assert_eq!(warn["trigger_kind"], "time_elapsed");
+    assert_eq!(warn["trigger_config"], awaiting_requester(38880));
+    assert_eq!(warn["conditions"], json!([]));
+    let warned = tags_named(&setup, a, "auto-close-warned");
+    assert_eq!(warned.len(), 1, "the tag is created: {warned:?}");
+    let notify = step(&warn["actions"], "notify");
+    assert_eq!(notify["recipient"], "requester");
+    assert!(notify["subject"]
+        .as_str()
+        .is_some_and(|s| s.contains("3 days")));
+    assert_eq!(
+        step(&warn["actions"], "add_tags"),
+        &json!({ "tag_ids": [warned[0].0] })
+    );
+
+    // In French, the French name, email and tag.
+    let fr = added(&pool, b, "fr-FR", WARN).await;
+    assert_eq!(
+        fr["name"],
+        "Prévenir 3 jours avant la fermeture automatique"
+    );
+    let notify_fr = step(&fr["actions"], "notify");
+    assert_eq!(
+        notify_fr["subject"],
+        "Nous fermerons votre demande dans 3 jours"
+    );
+    assert!(
+        notify_fr["body"]
+            .as_str()
+            .is_some_and(|b| b.starts_with("Bonjour {{customer_first_name}},")
+                && b.contains("répondez simplement à cet e-mail")),
+        "{notify_fr}"
+    );
+    assert!(notify_fr.get("texts").is_none(), "{notify_fr}");
+    let annoncee = tags_named(&setup, b, "fermeture-auto-annoncée");
+    assert_eq!(annoncee.len(), 1, "{annoncee:?}");
+    assert_eq!(
+        step(&fr["actions"], "add_tags"),
+        &json!({ "tag_ids": [annoncee[0].0] })
+    );
+}
+
+/// Turned on, the copies run on the elapsed clock: a ticket the team
+/// answered 31 days ago, with no word from the requester since, is warned,
+/// tagged and closed; one answered 28 days ago is only warned. Each fires
+/// once.
+#[actix_web::test]
+async fn turned_on_auto_close_warns_then_closes() {
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let overdue = h.ticket(a, "Printer jammed");
+    reply_days_ago(&h, a, overdue, a.member_uuid, 40);
+    reply_days_ago(&h, a, overdue, a.admin_uuid, 31);
+    let warned_only = h.ticket(a, "Scanner offline");
+    reply_days_ago(&h, a, warned_only, a.admin_uuid, 28);
+
+    let (close, warn) = turn_on_auto_close(&h, a, &[overdue, warned_only]).await;
+
+    assert_eq!(elapsed::fire_due(&h.pool, None).expect("fire"), 3);
+    let done = first_in(&h, a, WorkflowStateCategory::Done);
+    let warned_tag = tag_id(&h, a, "auto-close-warned");
+    assert_eq!(state_of(&h, a, overdue), done, "closed");
+    assert_ne!(state_of(&h, a, warned_only), done, "not yet");
+    for ticket in [overdue, warned_only] {
+        assert!(h.tags(a, ticket).contains(&warned_tag), "{ticket} tagged");
+        let sent = mail(&h, a, ticket);
+        assert_eq!(sent.len(), 1, "{ticket}: {sent:?}");
+        assert_eq!(sent[0].recipient, "requester@example.com");
+        assert!(
+            sent[0]
+                .subject
+                .contains("We'll close your request in 3 days"),
+            "{sent:?}"
+        );
+        // No channel in the workspace: plain mail from the default sender.
+        assert_eq!(sent[0].channel_id, None);
+        assert_eq!(sent[0].sender_identity, "workspace");
+        assert!(sent[0].headers_json.get("Reply-To").is_none());
+    }
+    let statuses = |rule| {
+        h.applications(a, rule)
+            .into_iter()
+            .map(|app| (app.ticket_id, app.status))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        statuses(close),
+        vec![(overdue, RuleApplicationStatus::Succeeded)]
+    );
+    let mut warned = statuses(warn);
+    warned.sort_by_key(|w| w.0);
+    assert_eq!(
+        warned,
+        vec![
+            (overdue, RuleApplicationStatus::Succeeded),
+            (warned_only, RuleApplicationStatus::Succeeded)
+        ]
+    );
+
+    // Their writes reach the consumer and nothing fires again: the closed
+    // ticket waits on nothing, the warned one only on the close.
+    h.drain().await;
+    assert!(wait_on(&h, a, overdue, close).is_none());
+    assert!(wait_on(&h, a, warned_only, warn).is_none(), "warned once");
+    assert!(wait_on(&h, a, warned_only, close).is_some());
+    assert_eq!(elapsed::fire_due(&h.pool, None).expect("fire"), 0);
+    assert_eq!(mail(&h, a, warned_only).len(), 1);
+}
+
+/// A requester's reply before the threshold resets the wait: the due
+/// clocks leave the queue and nothing fires. When the team answers again,
+/// the 30 days count from that reply.
+#[actix_web::test]
+async fn a_requester_reply_resets_auto_close() {
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let ticket = h.ticket(a, "Laptop won't charge");
+    reply_days_ago(&h, a, ticket, a.admin_uuid, 31);
+    let (close, warn) = turn_on_auto_close(&h, a, &[ticket]).await;
+    let due = wait_on(&h, a, ticket, close).expect("waiting");
+    assert!(due.3 <= Utc::now(), "due");
+
+    h.reply(a, ticket, a.member_uuid);
+    h.drain().await;
+    assert!(waits(&h, a, &[close, warn]).is_empty(), "reset");
+    assert_eq!(elapsed::fire_due(&h.pool, None).expect("fire"), 0);
+    assert!(h.applications(a, close).is_empty());
+    assert!(h.applications(a, warn).is_empty());
+    assert!(mail(&h, a, ticket).is_empty());
+    assert_ne!(
+        state_of(&h, a, ticket),
+        first_in(&h, a, WorkflowStateCategory::Done)
+    );
+
+    let answered = h.reply(a, ticket, a.admin_uuid);
+    let answered_at: DateTime<Utc> = h.as_admin(a, |c| {
+        comments::table
+            .find(answered)
+            .select(comments::created_at)
+            .first(c)
+    });
+    h.drain().await;
+    let again = wait_on(&h, a, ticket, close).expect("waiting again");
+    assert_eq!(again.2, answered_at, "counts from the new reply");
+    assert_eq!(again.3, again.2 + chrono::Duration::days(30));
+    let warning = wait_on(&h, a, ticket, warn).expect("warning again");
+    assert_eq!(warning.3, again.2 + chrono::Duration::days(27));
+    assert_eq!(elapsed::fire_due(&h.pool, None).expect("fire"), 0);
+}
+
+/// A closed, cancelled or merged ticket is left alone, however long the
+/// requester has been silent: the starters carry no conditions, and the
+/// clock doesn't run on such a ticket.
+#[actix_web::test]
+async fn auto_close_skips_closed_and_merged_tickets() {
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let silent = |title: &str| {
+        let ticket = h.ticket(a, title);
+        reply_days_ago(&h, a, ticket, a.admin_uuid, 31);
+        ticket
+    };
+    let open = silent("Monitor flickers");
+    let closed = silent("Mouse lag");
+    let cancelled = silent("Old request");
+    let merged = silent("Mouse lag again");
+    let kept = h.ticket(a, "Mouse lag, the one kept");
+    let done = first_in(&h, a, WorkflowStateCategory::Done);
+    let cancel = first_in(&h, a, WorkflowStateCategory::Cancelled);
+    for (ticket, state) in [(closed, done), (cancelled, cancel)] {
+        h.update(
+            a,
+            ticket,
+            backend::models::TicketUpdate {
+                workflow_state_id: Some(state),
+                ..Default::default()
+            },
+        );
+    }
+    execute_merge(
+        &mut h.pool.get().expect("conn"),
+        MergeInput {
+            destination_ticket_id: kept,
+            source_ticket_ids: vec![merged],
+            reason: None,
+            notify_customer: false,
+            expected_state: Vec::new(),
+            marker_body: None,
+        },
+        &admin(a),
+    )
+    .expect("merge");
+    let merged_state = state_of(&h, a, merged);
+
+    // Once the open tickets wait, the requeue has passed the others too.
+    let (close, warn) = turn_on_auto_close(&h, a, &[open, kept]).await;
+    let queued: Vec<i32> = waits(&h, a, &[close, warn]).iter().map(|w| w.0).collect();
+    for ticket in [closed, cancelled, merged] {
+        assert!(!queued.contains(&ticket), "{ticket} waits: {queued:?}");
+    }
+
+    // The merge carries the merged ticket's conversation to the one kept,
+    // which is open, so it is as overdue as `open`.
+    assert_eq!(elapsed::fire_due(&h.pool, None).expect("fire"), 4);
+    assert_eq!(state_of(&h, a, open), done);
+    assert_eq!(state_of(&h, a, kept), done);
+    assert_eq!(state_of(&h, a, cancelled), cancel, "still cancelled");
+    assert_eq!(state_of(&h, a, merged), merged_state, "still merged");
+    for ticket in [closed, cancelled, merged] {
+        assert!(mail(&h, a, ticket).is_empty(), "{ticket}");
+        assert!(h.tags(a, ticket).is_empty(), "{ticket}");
+    }
+    assert!(h
+        .applications(a, close)
+        .iter()
+        .chain(h.applications(a, warn).iter())
+        .all(|app| app.ticket_id == open || app.ticket_id == kept));
+}
+
+/// A ticket long overdue for both is warned before it closes, though the
+/// close was turned on first and its clock queued first: due rows are
+/// claimed and fired in the order they fall due.
+#[actix_web::test]
+async fn a_backlog_ticket_is_warned_before_it_closes() {
+    use backend::repository::rule_elapsed_queue as queue;
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let ticket = h.ticket(a, "Old request");
+    reply_days_ago(&h, a, ticket, a.admin_uuid, 60);
+    let (close, warn) = turn_on_auto_close(&h, a, &[ticket]).await;
+
+    let claimed = h.bypass(|c| queue::claim_due(c, 10, 10, 300.0));
+    let order: Vec<i32> = claimed.iter().map(|r| r.rule_id).collect();
+    assert_eq!(order, vec![warn, close]);
+    for row in &claimed {
+        elapsed::fire_claimed(&h.pool, None, row);
+    }
+    assert_eq!(
+        state_of(&h, a, ticket),
+        first_in(&h, a, WorkflowStateCategory::Done)
+    );
+    assert!(h
+        .tags(a, ticket)
+        .contains(&tag_id(&h, a, "auto-close-warned")));
+    assert_eq!(mail(&h, a, ticket).len(), 1, "warned");
+    let warned = h.applications(a, warn);
+    let closed = h.applications(a, close);
+    assert_eq!(warned.len(), 1);
+    assert_eq!(closed.len(), 1);
+    assert!(warned[0].id < closed[0].id, "warned, then closed");
+}
+
+/// The warning goes to the requester the way an agent's reply would: through
+/// the mailbox a ticket came in by, with its Reply-To and following the mail
+/// the ticket received, so their answer threads back. A ticket that didn't
+/// come in by email goes through the workspace's mailbox too.
+#[actix_web::test]
+async fn the_warning_goes_through_the_tickets_mailbox() {
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let channel = h.as_admin(a, |c| {
+        backend::repository::channels::create(
+            c,
+            NewChannel {
+                provider: "email_imap".into(),
+                name: "Support".into(),
+                enabled: true,
+                config: json!({
+                    "host": "imap.example.com",
+                    "username": "support@example.com",
+                    "reply_domain": "example.com",
+                }),
+            },
+        )
+    });
+    let by_email = h
+        .as_admin(a, |c| {
+            let open = backend::repository::workflow_states::default_state(c)?;
+            backend::repository::tickets::create_ticket(
+                c,
+                NewTicket {
+                    title: "Printer offline".to_string(),
+                    workflow_state_id: open.id,
+                    requester_uuid: Some(a.member_uuid),
+                    origin_channel_id: Some(channel.id),
+                    ..Default::default()
+                },
+            )
+        })
+        .id;
+    h.as_admin(a, |c| {
+        backend::repository::channels::record_message(
+            c,
+            NewChannelMessage {
+                channel_id: channel.id,
+                external_id: "<first@customer.example>".into(),
+                direction: "inbound".into(),
+                ticket_id: Some(by_email),
+                comment_id: None,
+                in_reply_to: None,
+                from_address: Some("requester@example.com".into()),
+                author_user_uuid: Some(a.member_uuid),
+                raw_metadata: None,
+            },
+        )
+    });
+    reply_days_ago(&h, a, by_email, a.admin_uuid, 28);
+    let from_portal = h.ticket(a, "Badge expired");
+    reply_days_ago(&h, a, from_portal, a.admin_uuid, 28);
+
+    turn_on_auto_close(&h, a, &[by_email, from_portal]).await;
+    assert_eq!(elapsed::fire_due(&h.pool, None).expect("fire"), 2);
+
+    let sent = mail(&h, a, by_email);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    let warning = &sent[0];
+    assert_eq!(warning.recipient, "requester@example.com");
+    assert_eq!(warning.channel_id, Some(channel.id));
+    assert_eq!(warning.sender_identity, "workspace");
+    assert_eq!(warning.headers_json["Reply-To"], "support@example.com");
+    assert_eq!(warning.headers_json["Auto-Submitted"], "auto-generated");
+    assert!(
+        warning.message_id.ends_with("@example.com"),
+        "{}",
+        warning.message_id
+    );
+    assert_eq!(
+        warning.in_reply_to.as_deref(),
+        Some("<first@customer.example>")
+    );
+
+    let sent = mail(&h, a, from_portal);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].channel_id, Some(channel.id));
+    assert_eq!(sent[0].headers_json["Reply-To"], "support@example.com");
+}
+
+/// A staff member's own request waits on the team like anyone's: their own
+/// public messages are the requester's, so `awaiting_requester` never starts
+/// and nothing fires however long ago they wrote.
+#[actix_web::test]
+async fn a_staff_members_own_request_is_not_auto_closed() {
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    let own = h
+        .as_admin(a, |c| {
+            let open = backend::repository::workflow_states::default_state(c)?;
+            backend::repository::tickets::create_ticket(
+                c,
+                NewTicket {
+                    title: "My laptop".to_string(),
+                    workflow_state_id: open.id,
+                    requester_uuid: Some(a.admin_uuid),
+                    ..Default::default()
+                },
+            )
+        })
+        .id;
+    reply_days_ago(&h, a, own, a.admin_uuid, 40);
+    reply_days_ago(&h, a, own, a.admin_uuid, 31);
+    let control = h.ticket(a, "Their laptop");
+    reply_days_ago(&h, a, control, a.admin_uuid, 31);
+
+    let (close, warn) = turn_on_auto_close(&h, a, &[control]).await;
+    let queued: Vec<i32> = waits(&h, a, &[close, warn]).iter().map(|w| w.0).collect();
+    assert!(!queued.contains(&own), "{queued:?}");
+    assert_eq!(elapsed::fire_due(&h.pool, None).expect("fire"), 2);
+    assert_ne!(
+        state_of(&h, a, own),
+        first_in(&h, a, WorkflowStateCategory::Done)
+    );
+    assert!(h
+        .applications(a, close)
+        .iter()
+        .chain(h.applications(a, warn).iter())
+        .all(|app| app.ticket_id == control));
 }

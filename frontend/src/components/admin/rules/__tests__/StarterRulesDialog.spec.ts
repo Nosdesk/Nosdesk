@@ -29,6 +29,7 @@ const STARTERS: StarterRule[] = [
     name: 'Bump to high priority',
     description: 'For anything blocking work.',
     trigger_kind: 'manual',
+    trigger_config: {},
     conditions: [],
     actions: [{ kind: 'set_priority', config: { priority: 'high' } }],
   },
@@ -37,6 +38,7 @@ const STARTERS: StarterRule[] = [
     name: 'Request more information',
     description: 'Ask for the details needed to reproduce.',
     trigger_kind: 'manual',
+    trigger_config: {},
     conditions: [],
     actions: [{ kind: 'reply', config: { visibility: 'public', body: 'Hi {{customer_name}}, could you share more?' } }],
   },
@@ -45,12 +47,31 @@ const STARTERS: StarterRule[] = [
     name: 'Escalate to on-call',
     description: 'When a ticket needs the on-call person.',
     trigger_kind: 'manual',
+    trigger_config: {},
     conditions: [],
     actions: [
       { kind: 'reply', config: { visibility: 'internal', body: 'Escalated.' } },
       { kind: 'set_status', config: {} },
       { kind: 'add_tags', config: { tag_ids: [], tag_names: ['escalated'] } },
     ],
+  },
+  {
+    id: 'auto-close-awaiting-requester',
+    name: 'Close after 30 days waiting on the requester',
+    description: "When the requester hasn't answered the team's last reply in 30 days.",
+    trigger_kind: 'time_elapsed',
+    trigger_config: { clock_name: 'awaiting_requester', minutes: 43200, repeat_every_minutes: null },
+    conditions: [],
+    actions: [{ kind: 'set_status', config: { workflow_state_id: 4 } }],
+  },
+  {
+    id: 'hourly-nudge',
+    name: 'Nudge after a day and a half',
+    description: 'A time rule on another clock.',
+    trigger_kind: 'time_elapsed',
+    trigger_config: { clock_name: 'since_created', minutes: 2160, repeat_every_minutes: null },
+    conditions: [],
+    actions: [{ kind: 'set_priority', config: { priority: 'high' } }],
   },
 ]
 
@@ -94,6 +115,21 @@ describe('StarterRulesDialog', () => {
     expect(line).toBe(
       'ticket-actions-step-note → ticket-actions-step-status-unknown → ticket-actions-step-add-tags',
     )
+  })
+
+  it('says when a starter that runs on its own runs, and that it waits to be turned on', async () => {
+    await open()
+    const autoClose = items()[3]
+    const when = autoClose.querySelector('p.flex')
+    expect(when?.textContent?.trim()).toBe(
+      'admin-rule-elapsed-summary-awaiting-requester admin-rules-starters-when-automatic',
+    )
+    expect(when?.querySelector('svg')).not.toBeNull()
+    expect(items()[4].querySelector('p.flex')?.textContent?.trim()).toBe(
+      'admin-rule-elapsed-summary-since-created admin-rules-starters-when-automatic',
+    )
+    // A manual starter runs when an agent applies it, so it says nothing.
+    for (const manual of items().slice(0, 3)) expect(manual.querySelector('p.flex')).toBeNull()
   })
 
   it('marks a starter whose name is taken as added', async () => {

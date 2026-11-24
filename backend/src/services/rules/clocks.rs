@@ -178,9 +178,11 @@ pub struct ClockInputs {
     pub state_changed_at: Option<DateTime<Utc>>,
     /// The last recorded change of assignee.
     pub assigned_at: Option<DateTime<Utc>>,
-    /// The last public reply from staff that no rule wrote on its own.
+    /// The last public reply from staff other than the requester that no
+    /// rule wrote on its own.
     pub agent_reply_at: Option<DateTime<Utc>>,
-    /// The last public message from someone who isn't staff.
+    /// The last public message from the requester or someone else who isn't
+    /// staff.
     pub customer_reply_at: Option<DateTime<Utc>>,
     /// Whether the ticket's clocks run at all ([`Eligibility::runs_clocks`]).
     pub runs_clocks: bool,

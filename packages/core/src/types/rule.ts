@@ -144,6 +144,7 @@ export interface StarterRule {
   name: string;
   description: string;
   trigger_kind: RuleTriggerKind;
+  trigger_config: RuleTriggerConfig;
   conditions: RuleCondition[] | RuleCondition;
   actions: RuleAction[];
 }
