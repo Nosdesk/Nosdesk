@@ -69,14 +69,16 @@ const fake = vi.hoisted(() => {
       setSubscribedGroups: set('subscribed_groups'),
       getSubscribedGroups: get('subscribed_groups'),
       getGroupWatermarks: get('group_watermarks'),
-      setGroupWatermarks: async (h: { name: string }, groups: string[], xid8: number) => {
-        const current = { ...((meta(h).get('group_watermarks') as Record<string, number>) ?? {}) }
-        for (const g of groups) current[g] = xid8
+      setGroupWatermarks: async (h: { name: string }, groups: string[], mark: unknown) => {
+        const current = { ...((meta(h).get('group_watermarks') as Record<string, unknown>) ?? {}) }
+        for (const g of groups) current[g] = mark
         meta(h).set('group_watermarks', current)
       },
       replaceGroupWatermarks: set('group_watermarks'),
       setModelVersionsTag: set('model_versions_tag'),
       getModelVersionsTag: get('model_versions_tag'),
+      setSnapshotMaxAge: set('snapshot_max_age_secs'),
+      getSnapshotMaxAge: get('snapshot_max_age_secs'),
     },
   }
 })
@@ -204,7 +206,9 @@ describe('a workspace snapshot', () => {
     expect(pool.has('ticket', 3)).toBe(false)
     // Gone from the cache too, not left for a later hydrate.
     expect(fake.store.deleted).toContain('ticket:3')
-    expect(fake.dbs.get(DB)!.get('group_watermarks')).toEqual({ [WORKSPACE]: 10 })
+    expect(fake.dbs.get(DB)!.get('group_watermarks')).toEqual({
+      [WORKSPACE]: { xid8: 10, at: expect.any(Number) },
+    })
   })
 
   it("removes the comments of a ticket that isn't subscribed", async () => {

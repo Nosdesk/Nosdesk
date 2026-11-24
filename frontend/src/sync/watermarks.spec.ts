@@ -10,7 +10,7 @@ import type { IdbHandle } from './idb'
  * so two unserialized read-modify-writes interleave. */
 const fake = vi.hoisted(() => {
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
-  const store = { marks: {} as Record<string, number> }
+  const store = { marks: {} as Record<string, unknown> }
   return {
     store,
     idb: {
@@ -19,14 +19,14 @@ const fake = vi.hoisted(() => {
         await tick()
         return read
       },
-      replaceGroupWatermarks: async (_h: unknown, marks: Record<string, number>) => {
+      replaceGroupWatermarks: async (_h: unknown, marks: Record<string, unknown>) => {
         await tick()
         store.marks = { ...marks }
       },
-      setGroupWatermarks: async (_h: unknown, groups: string[], xid8: number) => {
+      setGroupWatermarks: async (_h: unknown, groups: string[], mark: unknown) => {
         const current = { ...store.marks }
         await tick()
-        for (const g of groups) current[g] = xid8
+        for (const g of groups) current[g] = mark
         await tick()
         store.marks = current
       },
@@ -48,7 +48,10 @@ describe('watermark writes', () => {
       dropGroupWatermarks(handle, ['ticket:3']),
       recordGroupWatermarks(handle, ['project:2'], 11),
     ])
-    expect(fake.store.marks).toEqual({ 'workspace:6': 10, 'project:2': 11 })
+    expect(fake.store.marks).toEqual({
+      'workspace:6': { xid8: 10, at: expect.any(Number) },
+      'project:2': { xid8: 11, at: expect.any(Number) },
+    })
   })
 
   it('run in the order they were asked for', async () => {

@@ -28,10 +28,12 @@ import { canFetchWorkspace, isHydrated, setCaughtUp, state } from './runtimeStat
 import { MODEL_VERSIONS_TAG, SCHEMA_VERSIONS } from './schemaVersions'
 import {
   dropGroupWatermarks,
+  noteSnapshotMaxAge,
   partitionWarmGroups,
   pruneTornWatermarks,
   recordGroupWatermarks,
   resetWatermarkPrune,
+  staleWatermarkedGroups,
 } from './warm'
 import { followAssetVisibility, reconcileByOwner } from './reconcile'
 import { isWorkspaceGroup, ownersOnHydrate, SNAPSHOT_BACKED, stripGroupsAndCache } from './ownership'
@@ -74,11 +76,15 @@ async function bringGroupsCurrent(groups: string[]): Promise<void> {
   // Read before any await: a group let go while the partition and catch-up
   // run is no longer the bootstrap's to stream (see runBootstrap).
   const subscribedAt = pool.currentSubscriptionTick()
-  const { warm, cold } = await partitionWarmGroups(groups)
-  if (warm.length > 0) {
+  const { warm, cold, stale } = await partitionWarmGroups(groups)
+  if (warm.length > 0 || stale.length > 0) {
     logger.info('sync warm launch: delta catch-up instead of snapshot re-stream', {
       groups: warm,
+      stale,
     })
+    // A stale group's cached rows catch up too, so its fresh snapshot runs
+    // the `keepCursor` path: the cursor holds for any group brought current
+    // by delta elsewhere, and the strip drops what lingered.
     await catchUpViaDelta()
   }
   if (cold.length > 0) {
@@ -307,6 +313,13 @@ export async function hydrate(
   const lastCachedXid8 = (await idb.getLastXid8(state.handle)) ?? 0
   pool.setCursor(lastCachedXid8, lastCachedSyncId)
 
+  // The max age the server sent last session judges this launch's
+  // watermarks; this session's first bootstrap or delta replaces it.
+  const storedMaxAge = await idb.getSnapshotMaxAge(state.handle)
+  if (typeof storedMaxAge === 'number' && state.snapshotMaxAgeSecs === null) {
+    state.snapshotMaxAgeSecs = storedMaxAge
+  }
+
   // Persist hash + instance id for the next warm start so the next
   // boot can detect a schema or database-generation change.
   await idb.setSchemaHash(state.handle, schemaHash)
@@ -327,9 +340,62 @@ export async function hydrate(
   // where SSE is wedged behind a corporate proxy or the EventSource
   // is mid-reconnect. Idempotent — only starts a single timer.
   startDeltaPollFallback()
+  watchSnapshotAge()
 
   // Drain groups that subscribed before hydrate() finished (see subscribe()).
   bootstrapDeferredGroups()
+}
+
+/**
+ * Take a group's snapshot again once it grows past the max age, while the
+ * app runs: when the tab becomes visible, and on the poll while it is. A
+ * delta never removes a row whose removal it missed (an access change, a
+ * cascade with no event); a snapshot's strip does. Runs the `keepCursor` path
+ * (the session is caught up), so the cursor holds and a delta replays what
+ * the snapshot's horizon passed.
+ */
+let staleRefresh = false
+
+/** When each group was last snapshotted again for its age. A snapshot that
+ * failed, or that the server no longer grants (so it leaves the old
+ * watermark), waits this long before the next try instead of every poll. */
+const staleRefreshTriedAt = new Map<string, number>()
+const STALE_REFRESH_RETRY_MS = 10 * 60_000
+
+export async function refreshStaleSnapshots(): Promise<void> {
+  if (staleRefresh || state.resyncing || !state.caughtUp || !canFetchWorkspace()) return
+  // Read with the groups, before any await (see runBootstrap's `stillOurs`).
+  const subscribedAt = pool.currentSubscriptionTick()
+  const groups = Array.from(pool.getSubscribedGroups())
+  staleRefresh = true
+  try {
+    const now = Date.now()
+    const stale = (await staleWatermarkedGroups(groups)).filter((g) => {
+      const tried = staleRefreshTriedAt.get(g)
+      return tried === undefined || now - tried >= STALE_REFRESH_RETRY_MS || now < tried
+    })
+    if (stale.length === 0) return
+    for (const g of stale) staleRefreshTriedAt.set(g, now)
+    logger.info('sync: snapshots past their max age; taking them again', { groups: stale })
+    await runBootstrap(stale, subscribedAt)
+  } finally {
+    staleRefresh = false
+  }
+}
+
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'visible') void refreshStaleSnapshots()
+}
+
+function watchSnapshotAge(): void {
+  if (typeof document === 'undefined') return
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+}
+
+function unwatchSnapshotAge(): void {
+  if (typeof document === 'undefined') return
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 }
 
 /** Fetch the server's compiled schema hash, database instance id and
@@ -476,6 +542,9 @@ async function resyncFromScratch(newWorkspaceEpoch?: string): Promise<void> {
       if (state.workspaceEpoch !== '') {
         await idb.setWorkspaceEpoch(state.handle, state.workspaceEpoch)
       }
+      if (state.snapshotMaxAgeSecs !== null) {
+        await idb.setSnapshotMaxAge(state.handle, state.snapshotMaxAgeSecs)
+      }
     }
 
     // The groups to bring back, read right before reset() drops them and with
@@ -542,6 +611,7 @@ export async function pullDelta(): Promise<boolean> {
     if (body.capabilities) {
       applyWorkspaceCapabilities(body.capabilities)
     }
+    noteSnapshotMaxAge(body.snapshot_max_age_secs)
     applyActions(body.actions)
     // Torn-cache prune must land before the advanced cursor is persisted
     // (see pruneTornWatermarks).
@@ -687,6 +757,7 @@ export async function runBootstrap(groups: string[], subscribedAt?: number): Pro
         // Surface workspace-level capability flags into the
         // shared composable so any UI component can read them.
         applyWorkspaceCapabilities(meta)
+        noteSnapshotMaxAge(meta.snapshot_max_age_secs)
         await followAssetVisibility(
           meta.assets_visible,
           groups.some((g) => g.startsWith('workspace:')) ? 'workspace-snapshot' : 'other-snapshot',
@@ -779,6 +850,9 @@ export async function runBootstrap(groups: string[], subscribedAt?: number): Pro
 /** Tear-down: release the IDB handle, reset the pool, drop subs. */
 export async function tearDown(): Promise<void> {
   stopDeltaPollFallback()
+  unwatchSnapshotAge()
+  staleRefresh = false
+  staleRefreshTriedAt.clear()
   // A pending grace unsubscribe belongs to this workspace; it must not fire
   // into the next one, where the same group name means another ticket.
   cancelGroupReleases()
@@ -795,6 +869,7 @@ export async function tearDown(): Promise<void> {
   state.resyncing = false
   state.instanceId = ''
   state.workspaceEpoch = ''
+  state.snapshotMaxAgeSecs = null
   setCaughtUp(false)
   resetWatermarkPrune()
   // Re-arm the single-flight bootstrap so the next navigation rebuilds the
@@ -811,6 +886,10 @@ function startDeltaPollFallback(): void {
   if (state.pollTimer) return
   state.pollTimer = setInterval(() => {
     void pullDelta()
+    // A tab that stays visible (a wallboard) never sees a visibility change.
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      void refreshStaleSnapshots()
+    }
   }, POLL_INTERVAL_MS)
 }
 

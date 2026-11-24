@@ -44,6 +44,10 @@ export interface LifecycleState {
   /** The database instance id hydrate() fenced on ('' when the server
    * reported none), kept so a resync can write it into the reopened cache. */
   instanceId: string
+  /** How old a group's snapshot may grow, in seconds, before it is taken
+   * again (0: never), as the server last sent it; null until a server has,
+   * which a 1.1 server never does (see snapshotMaxAgeSecs). */
+  snapshotMaxAgeSecs: number | null
 }
 
 export const state: LifecycleState = {
@@ -56,6 +60,7 @@ export const state: LifecycleState = {
   caughtUp: false,
   workspaceEpoch: '',
   instanceId: '',
+  snapshotMaxAgeSecs: null,
 }
 
 /** Memory-only counts as hydrated (it still bootstraps and serves; only

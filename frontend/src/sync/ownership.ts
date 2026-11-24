@@ -63,7 +63,9 @@ export function isWorkspaceGroup(group: string): boolean {
  * The owners a cached row of a snapshot-backed aggregate keeps at hydrate:
  * those holding a watermark, and `legacy` while a workspace group holds one.
  * A group without a watermark has no snapshot the cursor tracks, so it owns
- * nothing. An empty result drops the row. `local` was never cached.
+ * nothing. An empty result drops the row. `local` was never cached. A stale
+ * watermark (past the max age, or a bare xid8 from an older build) still
+ * counts: the rows paint from the cache while the group snapshots again.
  */
 export function ownersOnHydrate(
   owners: readonly string[],
