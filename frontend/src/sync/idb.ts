@@ -48,6 +48,21 @@ const META_KEY_INSTANCE_ID = 'instance_id'
 const META_KEY_WORKSPACE_EPOCH = 'workspace_epoch'
 const META_KEY_GROUP_WATERMARKS = 'group_watermarks'
 const META_KEY_MODEL_VERSIONS_TAG = 'model_versions_tag'
+const META_KEY_SNAPSHOT_MAX_AGE = 'snapshot_max_age_secs'
+
+/**
+ * A group's bootstrap watermark: the cursor its snapshot completed at, and
+ * when, by this device's clock. A build before snapshot ages wrote the xid8
+ * alone; such a watermark still marks the cached rows as tracked, but counts
+ * as stale (see warm.ts).
+ */
+export interface GroupWatermark {
+  xid8: number
+  /** `Date.now()` when the snapshot completed. */
+  at: number
+}
+
+export type StoredWatermark = GroupWatermark | number
 
 export interface IdbHandle {
   db: IDBDatabase
@@ -350,11 +365,13 @@ export function getSubscribedGroups(handle: IdbHandle): Promise<string[] | undef
   return getMeta<string[]>(handle, META_KEY_SUBSCRIBED_GROUPS)
 }
 
-export function getGroupWatermarks(handle: IdbHandle): Promise<Record<string, number> | undefined> {
-  return getMeta<Record<string, number>>(handle, META_KEY_GROUP_WATERMARKS)
+export function getGroupWatermarks(
+  handle: IdbHandle,
+): Promise<Record<string, StoredWatermark> | undefined> {
+  return getMeta<Record<string, StoredWatermark>>(handle, META_KEY_GROUP_WATERMARKS)
 }
 
-/** Record that a full snapshot of each group completed at `xid8`. Presence
+/** Record that a full snapshot of each group completed at `mark`. Presence
  * of a group's watermark is the signal the warm-launch path reads for "this
  * group's rows are fully cached; a delta can bring them current" — so it is
  * only written when a bootstrap stream reached its `__end__` line. Wiping
@@ -362,10 +379,10 @@ export function getGroupWatermarks(handle: IdbHandle): Promise<Record<string, nu
 export async function setGroupWatermarks(
   handle: IdbHandle,
   groups: string[],
-  xid8: number,
+  mark: GroupWatermark,
 ): Promise<void> {
   const current = (await getGroupWatermarks(handle)) ?? {}
-  for (const g of groups) current[g] = xid8
+  for (const g of groups) current[g] = mark
   await putMeta(handle, META_KEY_GROUP_WATERMARKS, current)
 }
 
@@ -374,9 +391,19 @@ export async function setGroupWatermarks(
  * advances the cursor (their cached rows stop tracking it from then on). */
 export function replaceGroupWatermarks(
   handle: IdbHandle,
-  marks: Record<string, number>,
+  marks: Record<string, StoredWatermark>,
 ): Promise<void> {
   return putMeta(handle, META_KEY_GROUP_WATERMARKS, marks)
+}
+
+/** The snapshot max age the server last sent, in seconds (0: never stale).
+ * Kept so a launch can judge its watermarks before the server answers. */
+export function setSnapshotMaxAge(handle: IdbHandle, secs: number): Promise<void> {
+  return putMeta(handle, META_KEY_SNAPSHOT_MAX_AGE, secs)
+}
+
+export function getSnapshotMaxAge(handle: IdbHandle): Promise<number | undefined> {
+  return getMeta<number>(handle, META_KEY_SNAPSHOT_MAX_AGE)
 }
 
 /** Client-side aggregate schema-version tag (see `SCHEMA_VERSIONS` in

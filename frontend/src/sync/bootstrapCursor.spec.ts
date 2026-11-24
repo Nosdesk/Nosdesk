@@ -55,6 +55,8 @@ const fake = vi.hoisted(() => {
       replaceGroupWatermarks: async () => {},
       setModelVersionsTag: set('model_versions_tag'),
       getModelVersionsTag: get('model_versions_tag'),
+      setSnapshotMaxAge: set('snapshot_max_age_secs'),
+      getSnapshotMaxAge: get('snapshot_max_age_secs'),
     },
   }
 })

@@ -11,7 +11,9 @@ import { stripGroupsAndCache } from './ownership'
 
 /**
  * Split groups into warm (cached snapshot a delta can bring current) and cold
- * (needs the full bootstrap stream). A group is warm only when ALL of:
+ * (needs the full bootstrap stream), and say which cold groups are only stale
+ * (their cached rows still track the cursor). A group is warm only when ALL
+ * of:
  *
  *  - persistence is live and the rehydrated pool actually holds rows;
  *  - the cached cursor is a real xid8 (a 0 cursor means no commit-safe
@@ -24,29 +26,126 @@ import { stripGroupsAndCache } from './ownership'
  *    group's snapshot stream completes and pruned when a session advances
  *    the cursor while the group is unsubscribed (see pruneTornWatermarks),
  *    so presence means "these cached rows have tracked the cursor
- *    continuously since their snapshot".
+ *    continuously since their snapshot";
+ *  - that snapshot is fresh (see isFreshWatermark). A delta never removes a
+ *    row whose removal it missed, so a snapshot past the max age is taken
+ *    again, and its strip drops whatever lingered.
  */
 export async function partitionWarmGroups(
   groups: string[],
-): Promise<{ warm: string[]; cold: string[] }> {
+): Promise<{ warm: string[]; cold: string[]; stale: string[] }> {
   if (!state.handle || pool.getLastXid8() <= 0 || pool.size() === 0) {
-    return { warm: [], cold: groups }
+    return { warm: [], cold: groups, stale: [] }
   }
   const versionsTag = await idb.getModelVersionsTag(state.handle)
   if (versionsTag !== MODEL_VERSIONS_TAG) {
-    return { warm: [], cold: groups }
+    return { warm: [], cold: groups, stale: [] }
   }
   // Read in turn with the watermark writes: a drop already queued (a group
   // let go and taken again) must count, or the group would delta from rows
   // its unsubscribe stripped.
   const handle = state.handle
   const watermarks = (await serialized(() => idb.getGroupWatermarks(handle))) ?? {}
+  const maxAge = snapshotMaxAgeSecs()
+  const now = Date.now()
   const warm: string[] = []
   const cold: string[] = []
+  // Cold for being too old, not for lacking a snapshot: the cached rows a
+  // delta keeps current until the new snapshot strips them.
+  const stale: string[] = []
   for (const g of groups) {
-    ;(watermarks[g] != null ? warm : cold).push(g)
+    if (watermarks[g] != null) sessionMarks.set(g, watermarks[g])
+    else sessionMarks.delete(g)
+    if (isFreshWatermark(watermarks[g], maxAge, now)) {
+      warm.push(g)
+    } else {
+      cold.push(g)
+      if (watermarks[g] != null) stale.push(g)
+    }
   }
-  return { warm, cold }
+  return { warm, cold, stale }
+}
+
+/** The max age when the server never sent one (a 1.1 server): a day. */
+export const DEFAULT_SNAPSHOT_MAX_AGE_SECS = 86_400
+
+/** How old a snapshot may grow, in seconds; 0 means never too old. */
+export function snapshotMaxAgeSecs(): number {
+  return state.snapshotMaxAgeSecs ?? DEFAULT_SNAPSHOT_MAX_AGE_SECS
+}
+
+/**
+ * Whether a watermark stands for a snapshot a delta may still bring current.
+ * Its age is measured on this device's clock, which also stamped it, so skew
+ * against the server's clock plays no part. A watermark from before ages were
+ * kept (a bare xid8) is stale whatever the max age: it marks a snapshot that
+ * never stripped `legacy` owners. A stamp in the future (the clock was set
+ * back) is stale too.
+ */
+export function isFreshWatermark(
+  mark: idb.StoredWatermark | undefined,
+  maxAgeSecs: number,
+  now: number,
+): boolean {
+  if (mark == null || typeof mark === 'number') return false
+  if (maxAgeSecs <= 0) return true
+  const age = now - mark.at
+  return age >= 0 && age < maxAgeSecs * 1000
+}
+
+/**
+ * Take the max age a bootstrap or delta carried (absent from a 1.1 server,
+ * which leaves the current value), and keep it for the next launch.
+ */
+export function noteSnapshotMaxAge(secs: number | undefined): void {
+  if (typeof secs !== 'number' || secs === state.snapshotMaxAgeSecs) return
+  state.snapshotMaxAgeSecs = secs
+  if (state.handle) {
+    void idb.setSnapshotMaxAge(state.handle, secs).catch((error: unknown) => {
+      logger.warn('sync: storing the snapshot max age failed', { error })
+    })
+  }
+}
+
+/**
+ * Each group's watermark as this session knows it: read at its warm split,
+ * then as this session records and drops them. Not the cached map, which
+ * other tabs write too: another tab's fresh snapshot stripped its own pool,
+ * not this one, so this session's age is what says this pool is stale.
+ */
+const sessionMarks = new Map<string, idb.StoredWatermark>()
+
+/** When this session last recorded each group's watermark, as a tick of
+ * `recordClock`, so an older bootstrap can tell a newer one has since. */
+const recordedAt = new Map<string, number>()
+let recordClock = 0
+
+/** The current record tick, for `recordedSince`. */
+export function currentRecordTick(): number {
+  return recordClock
+}
+
+/** Whether this session recorded `group`'s watermark after `tick`. */
+export function recordedSince(group: string, tick: number): boolean {
+  return (recordedAt.get(group) ?? 0) > tick
+}
+
+/** Forget this session's watermarks (tear-down, or a wiped cache). */
+export function resetSessionMarks(): void {
+  sessionMarks.clear()
+  recordedAt.clear()
+}
+
+/** Of `groups`, those this session holds a watermark for that is no longer
+ * fresh. A group without one is cold already, or its first snapshot is still
+ * streaming. */
+export function staleWatermarkedGroups(groups: readonly string[]): string[] {
+  const maxAge = snapshotMaxAgeSecs()
+  const now = Date.now()
+  return groups.filter((g) => {
+    const mark = sessionMarks.get(g)
+    return mark != null && !isFreshWatermark(mark, maxAge, now)
+  })
 }
 
 /**
@@ -62,7 +161,7 @@ function serialized<T>(write: () => Promise<T>): Promise<T> {
   return run
 }
 
-/** Record that each group's snapshot completed at `xid8` (see
+/** Record that each group's snapshot completed at `xid8`, now (see
  * idb.setGroupWatermarks), in turn with every other watermark write. */
 export function recordGroupWatermarks(
   handle: idb.IdbHandle,
@@ -70,7 +169,13 @@ export function recordGroupWatermarks(
   xid8: number,
 ): Promise<void> {
   if (groups.length === 0) return Promise.resolve()
-  return serialized(() => idb.setGroupWatermarks(handle, [...groups], xid8))
+  const mark: idb.GroupWatermark = { xid8, at: Date.now() }
+  const tick = ++recordClock
+  for (const g of groups) {
+    sessionMarks.set(g, mark)
+    recordedAt.set(g, tick)
+  }
+  return serialized(() => idb.setGroupWatermarks(handle, [...groups], mark))
 }
 
 /** Drop the watermarks of `groups`, in turn with every other watermark write.
@@ -78,11 +183,12 @@ export function recordGroupWatermarks(
 export function dropGroupWatermarks(handle: idb.IdbHandle, groups: Iterable<string>): Promise<void> {
   const dropped = new Set(groups)
   if (dropped.size === 0) return Promise.resolve()
+  for (const g of dropped) sessionMarks.delete(g)
   return serialized(async () => {
     const marks = (await idb.getGroupWatermarks(handle)) ?? {}
-    const kept: Record<string, number> = {}
-    for (const [g, xid8] of Object.entries(marks)) {
-      if (!dropped.has(g)) kept[g] = xid8
+    const kept: Record<string, idb.StoredWatermark> = {}
+    for (const [g, mark] of Object.entries(marks)) {
+      if (!dropped.has(g)) kept[g] = mark
     }
     if (Object.keys(kept).length !== Object.keys(marks).length) {
       await idb.replaceGroupWatermarks(handle, kept)

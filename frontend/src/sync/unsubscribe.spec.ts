@@ -88,14 +88,16 @@ const fake = vi.hoisted(() => {
       setSubscribedGroups: set('subscribed_groups'),
       getSubscribedGroups: get('subscribed_groups'),
       getGroupWatermarks: get('group_watermarks'),
-      setGroupWatermarks: async (h: { name: string }, groups: string[], xid8: number) => {
-        const current = { ...((meta(h).get('group_watermarks') as Record<string, number>) ?? {}) }
-        for (const g of groups) current[g] = xid8
+      setGroupWatermarks: async (h: { name: string }, groups: string[], mark: unknown) => {
+        const current = { ...((meta(h).get('group_watermarks') as Record<string, unknown>) ?? {}) }
+        for (const g of groups) current[g] = mark
         meta(h).set('group_watermarks', current)
       },
       replaceGroupWatermarks: set('group_watermarks'),
       setModelVersionsTag: set('model_versions_tag'),
       getModelVersionsTag: get('model_versions_tag'),
+      setSnapshotMaxAge: set('snapshot_max_age_secs'),
+      getSnapshotMaxAge: get('snapshot_max_age_secs'),
     },
   }
 })
@@ -182,7 +184,16 @@ const DB = 'test:u1:h:acme'
 type Aggregate = 'ticket' | 'comment'
 
 const owners = (aggregate: Aggregate, id: number) => [...pool.ownersOf(aggregate, id)].sort()
-const marks = () => fake.dbs.get(DB)!.get('group_watermarks') as Record<string, number> | undefined
+/** Each group's watermark xid8. */
+const marks = () => {
+  const stored = fake.dbs.get(DB)!.get('group_watermarks') as
+    | Record<string, { xid8: number } | number>
+    | undefined
+  if (!stored) return undefined
+  return Object.fromEntries(
+    Object.entries(stored).map(([g, m]) => [g, typeof m === 'number' ? m : m.xid8]),
+  )
+}
 
 /** Resolves once the stream reaches a HOLD; `release` lets it go on. */
 async function reachHold(): Promise<() => void> {
