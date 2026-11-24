@@ -296,6 +296,8 @@ export interface AssetRecordTypeList {
   types: AssetRecordType[];
   currency: string | null;
   suggested_currency: string | null;
+  /** The workspace timezone, which a timed record's day is read in. */
+  timezone?: string | null;
 }
 
 /** A built-in record type, and whether the workspace has added it (an
@@ -382,7 +384,8 @@ export interface AssetRecordWrite {
  *  currency and never converted, largest first. */
 export interface AssetRecordTotals {
   count: number;
-  costs: { currency: string; amount: string; amount_minor: number }[];
+  /** `amount` is null for a code the server can't format. */
+  costs: { currency: string; amount: string | null; amount_minor: number }[];
 }
 
 /** What an asset's records add up to. `count`, `costs` and `by_type` take

@@ -262,8 +262,9 @@ fn with_count(t: &AssetRecordType, count: i64) -> Value {
 }
 
 /// `GET /api/assets/record-types`: the workspace's types for the record
-/// form, and the currency its cost field offers: the workspace currency,
-/// and the one the default locale suggests while that is unset.
+/// form, the currency its cost field offers (the workspace currency, and
+/// the one the default locale suggests while that is unset), and the
+/// timezone a record's day is read in.
 pub async fn list_for_picker(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -276,12 +277,14 @@ pub async fn list_for_picker(
     match tc.run(|conn| {
         let types = repo::list(conn, include_archived)?;
         let settings = settings_repo::get_site_settings(conn)?;
-        Ok((types, settings))
+        let timezone = crate::repository::asset_records::workspace_timezone(conn)?;
+        Ok((types, settings, timezone))
     }) {
-        Ok((types, settings)) => HttpResponse::Ok().json(json!({
+        Ok((types, settings, timezone)) => HttpResponse::Ok().json(json!({
             "types": types,
             "currency": settings.currency_code,
             "suggested_currency": money::suggested_currency(&settings.default_locale),
+            "timezone": timezone.name(),
         })),
         Err(e) => {
             error!(error = ?e, "failed to list asset record types");
