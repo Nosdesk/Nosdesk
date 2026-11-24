@@ -17,8 +17,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{Asset, AssetLoan, AssetLoanChange, NewAssetLoan, SyncAggregate, SyncOp};
-use crate::repository::asset_lifecycle::{self, LoanMove, TransitionError};
+use crate::models::{
+    Asset, AssetLoan, AssetLoanChange, AssetStatus, NewAssetLoan, SyncAggregate, SyncOp,
+};
+use crate::repository::asset_lifecycle::{self, LoanMove, MoveError};
 use crate::schema::{asset_loans, assets};
 use crate::services::assets::status_rules::{MoveRefused, RefusalCode};
 use crate::sync::emit::{self, SyncEmit};
@@ -45,8 +47,7 @@ pub enum LoanError {
     /// Asset is in a status it can't be loaned from (carries the status).
     NotLoanable(String),
     AlreadyOnLoan,
-    /// The status rules refuse the ledger's move (a return of an asset that
-    /// isn't on loan).
+    /// The status rules refuse the ledger's move, beyond the two above.
     Refused(MoveRefused),
     /// Borrower or ticket reference doesn't resolve (FK violation).
     InvalidReference,
@@ -62,20 +63,20 @@ impl From<DieselError> for LoanError {
 }
 
 /// A refused ledger move as the loan error callers already know.
-fn loan_refusal(asset: &Asset, e: TransitionError) -> LoanError {
+fn loan_refusal(asset: &Asset, r: MoveRefused) -> LoanError {
+    match r.code {
+        RefusalCode::NotLoanable => LoanError::NotLoanable(asset.status.clone()),
+        RefusalCode::SameStatus if r.to == crate::models::AssetStatus::OnLoan => {
+            LoanError::AlreadyOnLoan
+        }
+        _ => LoanError::Refused(r),
+    }
+}
+
+fn loan_move_error(asset: &Asset, e: MoveError) -> LoanError {
     match e {
-        TransitionError::Refused(r) => match r.code {
-            RefusalCode::NotLoanable => LoanError::NotLoanable(asset.status.clone()),
-            RefusalCode::SameStatus if r.to == crate::models::AssetStatus::OnLoan => {
-                LoanError::AlreadyOnLoan
-            }
-            _ => LoanError::Refused(r),
-        },
-        TransitionError::AssetNotFound => LoanError::AssetNotFound,
-        TransitionError::Db(e) => LoanError::Db(e),
-        other => LoanError::Db(DieselError::QueryBuilderError(
-            format!("unexpected loan move refusal: {other:?}").into(),
-        )),
+        MoveError::Refused(r) => loan_refusal(asset, r),
+        MoveError::Db(e) => LoanError::Db(e),
     }
 }
 
@@ -322,7 +323,7 @@ pub fn issue(conn: &mut DbConnection, input: IssueLoan) -> Result<AssetLoan, Loa
         // rather than the generic not-loanable one; the unique index below
         // is the race-safe backstop for concurrent issues.
         asset_lifecycle::check_for_loan(&asset, &LoanMove::Issue)
-            .map_err(|e| loan_refusal(&asset, e))?;
+            .map_err(|r| loan_refusal(&asset, r))?;
 
         // The partial unique index `(workspace_id, asset_id) WHERE
         // returned_at IS NULL` is the race-safe guard; map its violation to
@@ -372,15 +373,17 @@ pub fn issue(conn: &mut DbConnection, input: IssueLoan) -> Result<AssetLoan, Loa
             loan.actor_uuid,
             None,
         )
-        .map_err(|e| loan_refusal(&asset, e))?;
+        .map_err(|e| loan_move_error(&asset, e))?;
         emit::record(conn, loan_emit(&loan, SyncOp::Insert, "asset_loan.issued"))?;
         Ok(loan)
     })
 }
 
 /// Return a loan: stamps `returned_at`, reverts the asset to its pre-loan
-/// status, logs the transition, and emits the updates. Refused unless the
-/// asset is `on_loan`.
+/// status, logs the transition, and emits the updates. An asset no longer on
+/// loan (it drifted, or was disposed before the ledger refused that) keeps
+/// its status: the loan is closed and the return shows on the asset's
+/// timeline as the loan's.
 pub fn return_loan(
     conn: &mut DbConnection,
     asset_id: i32,
@@ -398,9 +401,11 @@ pub fn return_loan(
         notes,
         None,
     )
+    .map(|(loan, _)| loan)
 }
 
-/// [`return_loan`], with a reason recorded on the lifecycle event.
+/// [`return_loan`], with a reason recorded on the lifecycle event. Also
+/// whether the asset's status moved back (false when it wasn't on loan).
 pub fn return_loan_logged(
     conn: &mut DbConnection,
     asset_id: i32,
@@ -409,47 +414,8 @@ pub fn return_loan_logged(
     returned_by: Option<Uuid>,
     notes: Option<String>,
     reason: Option<&str>,
-) -> Result<AssetLoan, LoanError> {
-    return_inner(
-        conn,
-        Return {
-            asset_id,
-            loan_id,
-            returned_at,
-            returned_by,
-            notes,
-            reason,
-        },
-        true,
-    )
-}
-
-struct Return<'a> {
-    asset_id: i32,
-    loan_id: i32,
-    returned_at: DateTime<Utc>,
-    returned_by: Option<Uuid>,
-    notes: Option<String>,
-    reason: Option<&'a str>,
-}
-
-/// Close the loan and move the asset back. With `strict` off, a loan whose
-/// asset has drifted off `on_loan` is closed and the asset's status left as
-/// it is, so a purge is never blocked by a status it can't explain.
-fn return_inner(
-    conn: &mut DbConnection,
-    input: Return<'_>,
-    strict: bool,
-) -> Result<AssetLoan, LoanError> {
-    let Return {
-        asset_id,
-        loan_id,
-        returned_at,
-        returned_by,
-        notes,
-        reason,
-    } = input;
-    conn.transaction::<AssetLoan, LoanError, _>(|conn| {
+) -> Result<(AssetLoan, bool), LoanError> {
+    conn.transaction::<(AssetLoan, bool), LoanError, _>(|conn| {
         // The asset first, as an issue and a transition lock it.
         let asset: Asset = asset_lifecycle::lock(conn, asset_id)
             .optional()?
@@ -473,30 +439,29 @@ fn return_inner(
             })
             .get_result(conn)?;
 
-        let back = LoanMove::Return {
-            to: loan.status_before.clone(),
-        };
-        match asset_lifecycle::check_for_loan(&asset, &back) {
-            Ok(_) => {
-                asset_lifecycle::move_for_loan(
-                    conn,
-                    &asset,
-                    back,
-                    loan.id,
-                    loan.ticket_id,
-                    returned_by,
-                    reason,
-                )
-                .map_err(|e| loan_refusal(&asset, e))?;
-            }
-            Err(_) if !strict => {}
-            Err(e) => return Err(loan_refusal(&asset, e)),
+        // Back to the recorded status when the asset is on loan and the
+        // ledger recorded one of the nine; otherwise the status stays.
+        let back = AssetStatus::from_str_opt(&loan.status_before)
+            .map(|to| LoanMove::Return { to })
+            .filter(|back| asset_lifecycle::check_for_loan(&asset, back).is_ok());
+        let moved = back.is_some();
+        if let Some(back) = back {
+            asset_lifecycle::move_for_loan(
+                conn,
+                &asset,
+                back,
+                loan.id,
+                loan.ticket_id,
+                returned_by,
+                reason,
+            )
+            .map_err(|e| loan_move_error(&asset, e))?;
         }
         emit::record(
             conn,
             loan_emit(&updated_loan, SyncOp::Update, "asset_loan.updated"),
         )?;
-        Ok(updated_loan)
+        Ok((updated_loan, moved))
     })
 }
 
@@ -560,8 +525,8 @@ fn in_workspace<T>(
 
 /// Return every active loan of a user about to be purged, in every workspace,
 /// through the normal return path: the asset goes back to its pre-loan status
-/// with a lifecycle event and sync actions. A loan whose asset is no longer
-/// `on_loan` is closed and the asset left as it is. The borrower then goes NULL through
+/// with a lifecycle event and sync actions, or keeps its status when it is
+/// no longer on loan. The borrower then goes NULL through
 /// the `ON DELETE SET NULL` key when the user row is deleted, so the ledger
 /// outlives the account. Called by
 /// [`purge_user`](crate::repository::users::purge_user) on a bypass
@@ -584,17 +549,14 @@ pub fn return_loans_of_purged_borrower(
     let now = Utc::now();
     for &(loan_id, asset_id, workspace_id) in &active {
         in_workspace(conn, workspace_id, |conn| {
-            return_inner(
+            return_loan_logged(
                 conn,
-                Return {
-                    asset_id,
-                    loan_id,
-                    returned_at: now,
-                    returned_by: None,
-                    notes: None,
-                    reason: Some(BORROWER_PURGED_REASON),
-                },
-                false,
+                asset_id,
+                loan_id,
+                now,
+                None,
+                None,
+                Some(BORROWER_PURGED_REASON),
             )
         })?;
     }

@@ -95,9 +95,9 @@ pub fn create(
     model_id: Option<i32>,
     status: AssetStatus,
     first: Option<FirstEvent>,
-) -> Result<(Asset, Option<AssetLifecycleEvent>), TransitionError> {
+) -> Result<(Asset, Option<AssetLifecycleEvent>), MoveError> {
     status_rules::check_initial(status)?;
-    conn.transaction::<_, TransitionError, _>(|conn| {
+    conn.transaction::<_, MoveError, _>(|conn| {
         let asset = assets_repo::create_device_in(conn, new_asset, model_id, status)?;
         let event = match first {
             Some(first) => Some(insert_event(
@@ -181,21 +181,36 @@ pub enum LoanMove {
     /// A loan was issued: into `on_loan`.
     Issue,
     /// A loan was returned: back to the status it recorded.
-    Return { to: String },
+    Return { to: AssetStatus },
+}
+
+/// Why a create in a status, or the loan ledger's move, didn't happen.
+#[derive(Debug)]
+pub enum MoveError {
+    Refused(MoveRefused),
+    Db(Error),
+}
+
+impl From<Error> for MoveError {
+    fn from(e: Error) -> Self {
+        MoveError::Db(e)
+    }
+}
+
+impl From<MoveRefused> for MoveError {
+    fn from(e: MoveRefused) -> Self {
+        MoveError::Refused(e)
+    }
 }
 
 /// Whether the loan ledger may make `mv` on `asset`: an issue only from a
 /// loanable status, a return only from `on_loan`. The status it moves to. A
 /// stored status outside the nine is neither, so the ledger never records
 /// one as the status a return goes back to.
-pub fn check_for_loan(asset: &Asset, mv: &LoanMove) -> Result<AssetStatus, TransitionError> {
+pub fn check_for_loan(asset: &Asset, mv: &LoanMove) -> Result<AssetStatus, MoveRefused> {
     let (mover, to) = match mv {
         LoanMove::Issue => (Mover::LoanIssue, AssetStatus::OnLoan),
-        LoanMove::Return { to } => (
-            Mover::LoanReturn,
-            AssetStatus::from_str_opt(to)
-                .ok_or_else(|| TransitionError::UnknownStatus(to.clone()))?,
-        ),
+        LoanMove::Return { to } => (Mover::LoanReturn, *to),
     };
     let Some(from) = AssetStatus::from_str_opt(&asset.status) else {
         let code = match mover {
@@ -206,8 +221,7 @@ pub fn check_for_loan(asset: &Asset, mv: &LoanMove) -> Result<AssetStatus, Trans
             code,
             from: None,
             to,
-        }
-        .into());
+        });
     };
     status_rules::check_move(
         from,
@@ -233,7 +247,7 @@ pub fn move_for_loan(
     ticket_id: Option<i32>,
     actor_uuid: Option<uuid::Uuid>,
     reason: Option<&str>,
-) -> Result<Asset, TransitionError> {
+) -> Result<Asset, MoveError> {
     let to = check_for_loan(asset, &mv)?;
     let to_status = to.as_str().to_string();
     let updated = set_status(conn, asset.id, to)?;
@@ -890,7 +904,7 @@ mod tests {
 
         for status in [AssetStatus::OnLoan, AssetStatus::Disposed] {
             let err = create(&mut conn, new_asset("Lifecycle-11"), None, status, None).unwrap_err();
-            assert!(matches!(err, TransitionError::Refused(_)), "{status:?}");
+            assert!(matches!(err, MoveError::Refused(_)), "{status:?}");
         }
     }
 

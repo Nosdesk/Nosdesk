@@ -43,6 +43,8 @@ pub enum RefusalCode {
     DisposalNotAllowed,
     /// The category is where an asset starts; nothing moves back into it.
     StartOnly,
+    /// A new asset can't start on loan; it is lent once it exists.
+    StartOnLoan,
 }
 
 impl RefusalCode {
@@ -57,6 +59,7 @@ impl RefusalCode {
             Self::NeedsDisposal => "needs_disposal",
             Self::DisposalNotAllowed => "disposal_not_allowed",
             Self::StartOnly => "start_only",
+            Self::StartOnLoan => "start_on_loan",
         }
     }
 
@@ -72,6 +75,7 @@ impl RefusalCode {
             Self::NeedsDisposal => "asset-move-refused-needs-disposal",
             Self::DisposalNotAllowed => "asset-move-refused-disposal-not-allowed",
             Self::StartOnly => "asset-move-refused-start-only",
+            Self::StartOnLoan => "asset-move-refused-start-on-loan",
         }
     }
 }
@@ -229,7 +233,7 @@ pub fn check_initial(category: AssetStatus) -> Result<(), MoveRefused> {
     }
     let code = match category {
         AssetStatus::Disposed => RefusalCode::NeedsDisposal,
-        _ => RefusalCode::NeedsActiveLoan,
+        _ => RefusalCode::StartOnLoan,
     };
     Err(MoveRefused {
         code,
@@ -258,18 +262,24 @@ pub fn check_move_in(
             to,
         })
     };
-    if from == to {
-        return refuse(RefusalCode::SameStatus);
-    }
     match facts.mover {
-        // The ledger puts back the category the loan recorded.
+        // The ledger puts back the category the loan recorded, from on loan
+        // only; an asset that drifted to that very category isn't on loan.
         Mover::LoanReturn if from != AssetStatus::OnLoan => return refuse(RefusalCode::NotOnLoan),
+        Mover::LoanReturn if to == AssetStatus::OnLoan => return refuse(RefusalCode::SameStatus),
         Mover::LoanReturn => return Ok(()),
+        Mover::LoanIssue if from == AssetStatus::OnLoan => return refuse(RefusalCode::SameStatus),
         Mover::LoanIssue if !flags(from).loanable => return refuse(RefusalCode::NotLoanable),
         Mover::LoanIssue => return Ok(()),
         Mover::Hand => {}
     }
-    if from == AssetStatus::OnLoan && facts.active_loan {
+    if from == to {
+        return refuse(RefusalCode::SameStatus);
+    }
+    // A loan out owns the asset: off on loan only by the return, and never
+    // into disposed, whatever status it drifted to, so no disposed asset is
+    // left holding a loan.
+    if facts.active_loan && (from == AssetStatus::OnLoan || to == AssetStatus::Disposed) {
         return refuse(RefusalCode::LoanOwned);
     }
     match matrix(from, to) {
@@ -375,7 +385,8 @@ mod tests {
             _ => match to {
                 OnOrder => into_on_order,
                 OnLoan => Loan,
-                Disposed => Disposal,
+                // A loan out keeps it from being disposed.
+                Disposed => DisposalNoLoan,
                 _ => Ok,
             },
         }
@@ -439,6 +450,9 @@ mod tests {
         assert_eq!(code(Disposed, Retired, false, true), RefusalCode::Terminal);
         // A loan out beats the record's shape and the cell.
         assert_eq!(code(OnLoan, Disposed, true, false), RefusalCode::LoanOwned);
+        // A loan out keeps an asset from disposed, whatever its status.
+        assert_eq!(code(InStock, Disposed, true, true), RefusalCode::LoanOwned);
+        assert_eq!(code(InRepair, Disposed, true, true), RefusalCode::LoanOwned);
         // A record sent with another target is refused before the loan rule.
         assert_eq!(
             code(InStock, OnLoan, true, true),
@@ -486,6 +500,8 @@ mod tests {
         assert_eq!(back(OnLoan, InStock), Ok(()));
         assert_eq!(back(OnLoan, InService), Ok(()));
         assert_eq!(back(InService, InStock), Err(RefusalCode::NotOnLoan));
+        // Drifted to the very status the loan recorded: still not on loan.
+        assert_eq!(back(InStock, InStock), Err(RefusalCode::NotOnLoan));
         assert_eq!(back(Disposed, InStock), Err(RefusalCode::NotOnLoan));
     }
 
@@ -494,7 +510,7 @@ mod tests {
         for status in AssetStatus::ALL {
             let got = check_initial(status).map_err(|e| e.code);
             let want = match status {
-                OnLoan => Err(RefusalCode::NeedsActiveLoan),
+                OnLoan => Err(RefusalCode::StartOnLoan),
                 Disposed => Err(RefusalCode::NeedsDisposal),
                 _ => Ok(()),
             };
@@ -536,7 +552,7 @@ mod tests {
         let in_service = of(InService);
         assert!(in_service.contains(&(InStock, vec![])));
         assert!(in_service.contains(&(OnLoan, vec![Need::ActiveLoan])));
-        assert!(in_service.contains(&(Disposed, vec![Need::Disposal])));
+        assert!(in_service.contains(&(Disposed, vec![Need::Disposal, Need::NoActiveLoan])));
         assert!(!in_service.iter().any(|(k, _)| *k == InService));
         assert_eq!(
             in_service.iter().any(|(k, _)| *k == OnOrder),
@@ -561,6 +577,7 @@ mod tests {
             RefusalCode::NeedsDisposal,
             RefusalCode::DisposalNotAllowed,
             RefusalCode::StartOnly,
+            RefusalCode::StartOnLoan,
         ];
         for code in codes {
             let message = MoveRefused {

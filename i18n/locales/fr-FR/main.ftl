@@ -6912,6 +6912,7 @@ asset-move-refused-not-on-loan = La ressource n'est pas en prêt, le prêt ne pe
 asset-move-refused-needs-disposal = L'élimination d'une ressource exige un enregistrement d'élimination
 asset-move-refused-disposal-not-allowed = Un enregistrement d'élimination n'est accepté que lors de l'élimination d'une ressource
 asset-move-refused-start-only = Le statut { $status } n'est défini qu'à la création d'une ressource ; une ressource ne peut pas y revenir
+asset-move-refused-start-on-loan = Une ressource ne peut pas être créée en prêt ; prêtez-la après l'avoir créée
 
 asset-lifecycle-heading = Historique des statuts
 asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.

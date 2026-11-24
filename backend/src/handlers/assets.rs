@@ -1657,29 +1657,17 @@ pub async fn create_device(
     }
 
     let actor = auth.user_uuid;
-    let result = tc.run(|conn| {
+    use crate::repository::asset_lifecycle::{self as lifecycle, MoveError};
+    let result = tc.run_result(|conn| -> Result<_, MoveError> {
         let device = match status {
             None => repository::create_device(conn, new_device)?,
             Some(status) => {
-                let first = crate::repository::asset_lifecycle::FirstEvent {
+                let first = lifecycle::FirstEvent {
                     reason: None,
                     metadata: json!({}),
                     actor_uuid: Some(actor),
                 };
-                crate::repository::asset_lifecycle::create(
-                    conn,
-                    new_device,
-                    None,
-                    status,
-                    Some(first),
-                )
-                .map_err(|e| match e {
-                    crate::repository::asset_lifecycle::TransitionError::Db(e) => e,
-                    other => Error::QueryBuilderError(
-                        format!("asset create refused after its check: {other:?}").into(),
-                    ),
-                })?
-                .0
+                lifecycle::create(conn, new_device, None, status, Some(first))?.0
             }
         };
         let user = device
@@ -1701,7 +1689,8 @@ pub async fn create_device(
             // repository write emits `asset.created`); no discrete SSE.
             HttpResponse::Created().json(device_response)
         }
-        Err(e) => {
+        Err(MoveError::Refused(r)) => crate::handlers::asset_lifecycle::refusal_response(r),
+        Err(MoveError::Db(e)) => {
             error!(error = ?e, "Database error creating device");
             errors::internal("Failed to create device")
         }

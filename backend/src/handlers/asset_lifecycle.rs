@@ -347,9 +347,10 @@ pub(crate) fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpRespo
 /// its stable `code`.
 pub(crate) fn refusal_response(r: MoveRefused) -> HttpResponse {
     let status = match r.code {
-        RefusalCode::SameStatus | RefusalCode::NeedsDisposal | RefusalCode::DisposalNotAllowed => {
-            StatusCode::BAD_REQUEST
-        }
+        RefusalCode::SameStatus
+        | RefusalCode::NeedsDisposal
+        | RefusalCode::DisposalNotAllowed
+        | RefusalCode::StartOnLoan => StatusCode::BAD_REQUEST,
         RefusalCode::Terminal
         | RefusalCode::LoanOwned
         | RefusalCode::NeedsActiveLoan

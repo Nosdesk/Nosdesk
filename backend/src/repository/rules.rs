@@ -2350,7 +2350,19 @@ fn transition_failed(
     match e {
         TransitionError::Db(e) => ApplyError::Db(e),
         TransitionError::Refused(r) => move_refused(index, asset, r),
-        other => asset_refused(index, asset, &format!("can't change status ({other:?})")),
+        TransitionError::AssetNotFound => asset_refused(index, asset, "no longer exists"),
+        TransitionError::UnknownStatus(status) => asset_refused(
+            index,
+            asset,
+            &format!("can't change to the unknown status {status}"),
+        ),
+        // A rule's move carries no disposal and opens or completes no record.
+        TransitionError::InvalidSanitizationMethod(_)
+        | TransitionError::NoRecordType { .. }
+        | TransitionError::NoOpenRecord
+        | TransitionError::RecordChoiceRequired { .. }
+        | TransitionError::RecordNotOpen(_)
+        | TransitionError::Record(_) => asset_refused(index, asset, "can't change status"),
     }
 }
 
@@ -2369,7 +2381,12 @@ fn loan_failed(
             &format!("is {}, so it can't be lent", status_words(&status)),
         ),
         LoanError::Refused(r) => move_refused(index, asset, r),
-        other => asset_refused(index, asset, &format!("can't change its loan ({other:?})")),
+        LoanError::AssetNotFound => asset_refused(index, asset, "no longer exists"),
+        LoanError::LoanNotFound => asset_refused(index, asset, "has no such loan"),
+        LoanError::AlreadyReturned => asset_refused(index, asset, "was already returned"),
+        LoanError::InvalidReference => {
+            asset_refused(index, asset, "can't be lent to someone who isn't here")
+        }
     }
 }
 
@@ -2606,23 +2623,22 @@ fn execute_return_assets(
     use crate::repository::asset_loans;
 
     let requester = requester_of(ticket, index)?;
-    let active = asset_loans::active_for_borrower(conn, &requester)?;
-    // Every return asked of the status rules first, in shadow too, so one
-    // the ledger would refuse refuses the step before anything is written.
-    for (loan, asset) in &active {
-        let back = crate::repository::asset_lifecycle::LoanMove::Return {
-            to: loan.status_before.clone(),
-        };
-        if let Err(e) = crate::repository::asset_lifecycle::check_for_loan(asset, &back) {
-            return Err(transition_failed(index, asset, e));
-        }
-    }
     let mut returned_loans = Vec::new();
     let mut returned_assets = Vec::new();
-    for (loan, asset) in active {
+    // Loans whose asset wasn't on loan any more: closed, the status kept.
+    let mut kept_status = Vec::new();
+    for (loan, asset) in asset_loans::active_for_borrower(conn, &requester)? {
         returned_loans.push(loan.id);
-        returned_assets.push(asset.id);
-        if !shadow {
+        let moves = if shadow {
+            // What the return would do, asked of the same rules.
+            crate::models::AssetStatus::from_str_opt(&loan.status_before).is_some_and(|to| {
+                crate::repository::asset_lifecycle::check_for_loan(
+                    &asset,
+                    &crate::repository::asset_lifecycle::LoanMove::Return { to },
+                )
+                .is_ok()
+            })
+        } else {
             asset_loans::return_loan_logged(
                 conn,
                 asset.id,
@@ -2632,7 +2648,13 @@ fn execute_return_assets(
                 None,
                 Some(RULE_RETURNED_REASON),
             )
-            .map_err(|e| loan_failed(index, &asset, e))?;
+            .map_err(|e| loan_failed(index, &asset, e))?
+            .1
+        };
+        if moves {
+            returned_assets.push(asset.id);
+        } else {
+            kept_status.push(asset.id);
         }
     }
 
@@ -2667,6 +2689,7 @@ fn execute_return_assets(
         "requester_uuid": requester,
         "loan_ids": returned_loans,
         "returned_asset_ids": returned_assets,
+        "kept_status_asset_ids": kept_status,
         "cleared_asset_ids": cleared,
         "synced_asset_ids": synced,
     }))

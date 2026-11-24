@@ -87,8 +87,8 @@ describe('manualTargets', () => {
     expect(manualTargets(null, 'in_service', true)).toContain('on_loan')
   })
 
-  it('moves a status outside the nine as an in-service asset', () => {
-    expect(manualTargets(catalogue, 'broken', false)).toEqual(['in_stock', 'disposed'])
+  it('moves a status outside the nine as an in-service asset, in service included', () => {
+    expect(manualTargets(catalogue, 'broken', false)).toEqual(['in_service', 'in_stock', 'disposed'])
   })
 
   it('falls back when the catalogue carries no targets (a requester)', () => {

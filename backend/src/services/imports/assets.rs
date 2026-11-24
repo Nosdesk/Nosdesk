@@ -61,7 +61,7 @@ use crate::models::{
 use crate::repository::asset_groups as group_repo;
 use crate::repository::asset_kinds as kind_repo;
 use crate::repository::asset_lifecycle::{
-    self as asset_lifecycle_repo, FirstEvent, TransitionError,
+    self as asset_lifecycle_repo, FirstEvent, MoveError, TransitionError,
 };
 use crate::repository::asset_loans as asset_loans_repo;
 use crate::repository::asset_models as model_repo;
@@ -834,13 +834,10 @@ impl Importer for AssetImporter {
                             first_event = event;
                             Ok(asset)
                         }
-                        Err(TransitionError::Refused(r)) => {
+                        Err(MoveError::Refused(r)) => {
                             return Err(status_refused(row_num, &trimmed(row, "name"), r))
                         }
-                        Err(TransitionError::Db(e)) => Err(e),
-                        Err(other) => Err(diesel::result::Error::QueryBuilderError(
-                            format!("{other:?}").into(),
-                        )),
+                        Err(MoveError::Db(e)) => Err(e),
                     };
                     (RowOutcome::Create, created)
                 }
@@ -2146,14 +2143,17 @@ fn move_status(
         // The move names a known status and asks for no disposal or record,
         // so none of these can happen.
         Err(
-            e @ (TransitionError::UnknownStatus(_)
+            TransitionError::UnknownStatus(_)
             | TransitionError::InvalidSanitizationMethod(_)
             | TransitionError::NoRecordType { .. }
             | TransitionError::NoOpenRecord
             | TransitionError::RecordChoiceRequired { .. }
             | TransitionError::RecordNotOpen(_)
-            | TransitionError::Record(_)),
-        ) => Err(refused(format!("{e:?}"))),
+            | TransitionError::Record(_),
+        ) => Err(refused(format!(
+            "{name}: its status can't change to {}",
+            to.as_str()
+        ))),
     }
 }
 

@@ -141,6 +141,14 @@ pub fn carry_over(
     actor: Option<uuid::Uuid>,
 ) -> Result<CarryOverResult, ReplacementError> {
     conn.transaction::<CarryOverResult, ReplacementError, _>(|conn| {
+        // The old asset first, as a transition locks it before the record it
+        // completes, so the two can't deadlock; its status is read under the
+        // lock the move then holds.
+        let old = match asset_lifecycle::lock(conn, asset_id) {
+            Ok(a) => a,
+            Err(Error::NotFound) => return Err(ReplacementError::RecordNotFound),
+            Err(e) => return Err(e.into()),
+        };
         // Lock the record so two carry-overs from it run one after the
         // other: the second sees the first one's links.
         let record: AssetRecord = asset_records::table
@@ -165,7 +173,6 @@ pub fn carry_over(
         let new_id = record
             .replacement_asset_id
             .ok_or(ReplacementError::NoReplacementAsset)?;
-        let old = assets::get_device_by_id(conn, asset_id)?;
         let new = match assets::get_device_by_id(conn, new_id) {
             Ok(a) => a,
             Err(Error::NotFound) => return Err(ReplacementError::NoReplacementAsset),

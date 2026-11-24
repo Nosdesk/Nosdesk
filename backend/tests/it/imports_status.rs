@@ -612,6 +612,12 @@ async fn the_dry_run_refuses_what_the_lifecycle_rules_refuse() {
             "NEW-1",
             "NEW-1: Disposing an asset requires a disposal record",
         ),
+        (
+            "On loan",
+            "new",
+            "NEW-2",
+            "NEW-2: An asset can't be created on loan; lend it after creating it",
+        ),
     ] {
         let job = checked(
             &pool,

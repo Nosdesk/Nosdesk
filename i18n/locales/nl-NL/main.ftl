@@ -6902,6 +6902,7 @@ asset-move-refused-not-on-loan = Het item is niet uitgeleend, dus de uitlening k
 asset-move-refused-needs-disposal = Voor het afvoeren van een item is een afvoerregistratie nodig
 asset-move-refused-disposal-not-allowed = Een afvoerregistratie wordt alleen geaccepteerd bij het afvoeren van een item
 asset-move-refused-start-only = De status { $status } wordt alleen gezet bij het aanmaken van een item; een item kan er niet naar terug
+asset-move-refused-start-on-loan = Een item kan niet worden aangemaakt als uitgeleend; leen het uit nadat het is aangemaakt
 
 asset-lifecycle-heading = Statusgeschiedenis
 asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.

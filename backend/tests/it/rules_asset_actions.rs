@@ -821,20 +821,20 @@ fn rule_moves_write_no_records() {
     assert!(moved.iter().all(|e| e.metadata.get("record_id").is_none()));
 }
 
-/// A move the status rules refuse reads in their words, naming the asset:
-/// a loan whose asset drifted off on loan can't be returned by a step. Every
-/// return is checked before any is made, so the loan before it stays out.
+/// A loan whose asset drifted off on loan is closed without moving the
+/// asset's status and reported as kept; the step carries on with the
+/// requester's other loans, which go back as usual.
 #[test]
-fn a_refused_move_reads_in_the_status_rules_words() {
+fn a_drifted_loan_is_closed_and_the_step_carries_on() {
     let s = setup();
     let a = &s.seeded.a;
     let leaver = a.member_uuid;
     let ticket_id = ticket(&s.pool, a, Some(leaver));
     let fine = asset(&s.pool, a, "Fine loaner", "in_stock", None);
-    lend(&s.pool, a, fine, leaver);
-    let loaner = asset(&s.pool, a, "Drifted loaner", "in_stock", None);
-    lend(&s.pool, a, loaner, leaver);
-    diesel::update(assets::table.find(loaner))
+    let fine_loan = lend(&s.pool, a, fine, leaver);
+    let drifted = asset(&s.pool, a, "Drifted loaner", "in_stock", None);
+    let drifted_loan = lend(&s.pool, a, drifted, leaver);
+    diesel::update(assets::table.find(drifted))
         .set(assets::status.eq("in_repair"))
         .execute(&mut s.admin_pool.get().expect("conn"))
         .expect("drift the status");
@@ -844,14 +844,17 @@ fn a_refused_move_reads_in_the_status_rules_words() {
         a,
         json!([{ "kind": "return_requester_assets", "config": {} }]),
     );
-    match apply(&s.pool, a, &admin(a), id, ticket_id) {
-        Err(ApplyError::AssetRefused { index: 1, message }) => assert_eq!(
-            message,
-            "\"Drifted loaner\": Asset isn't on loan, so the loan can't be returned"
-        ),
-        other => panic!("expected the step to be refused, got {other:?}"),
-    }
-    assert!(loans_of(&s.admin_pool, loaner)[0].returned_at.is_none());
-    assert!(loans_of(&s.admin_pool, fine)[0].returned_at.is_none());
-    assert_eq!(asset_state(&s.admin_pool, fine).0, "on_loan");
+    let outcome = apply(&s.pool, a, &admin(a), id, ticket_id).expect("apply");
+    let step = first_step(&outcome);
+    assert_eq!(
+        ids(&step["loan_ids"]),
+        vec![fine_loan as i64, drifted_loan as i64]
+    );
+    assert_eq!(ids(&step["returned_asset_ids"]), vec![fine as i64]);
+    assert_eq!(ids(&step["kept_status_asset_ids"]), vec![drifted as i64]);
+
+    assert!(loans_of(&s.admin_pool, fine)[0].returned_at.is_some());
+    assert_eq!(asset_state(&s.admin_pool, fine).0, "in_stock");
+    assert!(loans_of(&s.admin_pool, drifted)[0].returned_at.is_some());
+    assert_eq!(asset_state(&s.admin_pool, drifted).0, "in_repair");
 }

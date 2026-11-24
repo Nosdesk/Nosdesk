@@ -1,10 +1,11 @@
 //! The status rules on every path: REST moves answer with the rule's code,
 //! a create starts in its own status with one event, nothing moves back to
 //! on order, a loan can't race a disposal into a disposed asset on loan, a
-//! return is refused unless the asset is on loan (a purge closes it anyway),
-//! and `GET /assets/statuses` lists the categories, with the moves for staff
-//! only. A rule step's refusal is in `rules_asset_actions`, a replacement's
-//! in `asset_replacement`, the importer's in `imports_status`.
+//! loan out keeps its asset from disposed, a loan whose asset isn't on loan
+//! closes and leaves the status, and `GET /assets/statuses` lists the
+//! categories, with the moves for staff only. A rule step's handling is in
+//! `rules_asset_actions`, a replacement's in `asset_replacement`, the
+//! importer's in `imports_status`.
 
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -394,7 +395,7 @@ async fn a_create_starts_in_its_status_and_nothing_goes_back_to_on_order() {
     }
 
     for (status, code, http) in [
-        ("on_loan", "needs_active_loan", StatusCode::CONFLICT),
+        ("on_loan", "start_on_loan", StatusCode::BAD_REQUEST),
         ("disposed", "needs_disposal", StatusCode::BAD_REQUEST),
     ] {
         let (got, resp) = call(
@@ -554,32 +555,62 @@ async fn a_loan_and_a_disposal_cant_both_land() {
     assert_eq!(status_of(&f, id), "on_loan");
 }
 
-/// A return is refused unless the asset is on loan, by the ledger and over
-/// REST; a purge of the borrower closes such a loan anyway and leaves the
-/// status as it is.
+/// A loan whose asset isn't on loan any more closes and leaves the status,
+/// by the ledger and over REST: drifted elsewhere, drifted to the very status
+/// it recorded, recorded a status outside the nine, or disposed before the
+/// rules stopped that. The return shows on the asset's timeline. The purge
+/// of a borrower closes such loans the same way.
 #[actix_web::test]
-async fn a_loan_returns_only_from_on_loan() {
+async fn a_loan_closes_whatever_its_asset_drifted_to() {
     let db = common::TestDb::new();
     let f = seed(&db);
+    let close = |id: i32, loan: i32| {
+        run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+            asset_loans::return_loan(c, id, loan, chrono::Utc::now(), None, None).map_err(loan_err)
+        })
+        .expect("return the loan")
+    };
+    let returned = |loan: i32| -> bool {
+        in_ws(&f, |c| {
+            loans_t::table
+                .find(loan)
+                .select(loans_t::returned_at)
+                .first::<Option<chrono::DateTime<chrono::Utc>>>(c)
+        })
+        .is_some()
+    };
+
+    // Drifted elsewhere: the ledger closes it, the status stays.
     let id = asset(&f, "Drifted");
     let loan = lend(&f, id);
-    force_status(&f, id, "in_stock");
-
-    let refused = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
-        Ok(asset_loans::return_loan(
-            c,
-            id,
-            loan,
-            chrono::Utc::now(),
-            None,
-            None,
-        ))
-    })
-    .expect("try the return");
+    force_status(&f, id, "in_repair");
+    let events_before = events_of(&f, id).len();
+    close(id, loan);
+    assert!(returned(loan));
+    assert_eq!(status_of(&f, id), "in_repair");
+    assert_eq!(events_of(&f, id).len(), events_before, "no status event");
+    let (got, timeline) = call(
+        &f,
+        f.agent,
+        Method::GET,
+        &format!("/api/assets/{id}/timeline"),
+        None,
+    )
+    .await;
+    assert_eq!(got, StatusCode::OK, "{timeline}");
     assert!(
-        matches!(&refused, Err(LoanError::Refused(r)) if r.code == RefusalCode::NotOnLoan),
-        "{refused:?}"
+        timeline["entries"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .any(|e| e["source"] == "loan" && e["kind"] == "returned"),
+        "{timeline}"
     );
+
+    // Drifted to the very status it recorded: over REST, closed.
+    let id = asset(&f, "Back already");
+    let loan = lend(&f, id);
+    force_status(&f, id, "in_service");
     let (got, resp) = call(
         &f,
         f.agent,
@@ -588,23 +619,59 @@ async fn a_loan_returns_only_from_on_loan() {
         Some(json!({})),
     )
     .await;
-    assert_eq!(got, StatusCode::CONFLICT, "{resp}");
-    assert_eq!(resp["code"], "not_on_loan", "{resp}");
-    assert_eq!(status_of(&f, id), "in_stock");
+    assert!(got.is_success(), "{got}: {resp}");
+    assert!(returned(loan));
+    assert_eq!(status_of(&f, id), "in_service");
 
-    // The purge closes it, and moves nothing.
+    // A recorded status outside the nine: closed, the asset left on loan
+    // with no loan, which a move by hand then puts right.
+    let id = asset(&f, "Odd record");
+    let loan = lend(&f, id);
+    in_ws(&f, |c| {
+        diesel::update(loans_t::table.find(loan))
+            .set(loans_t::status_before.eq("broken"))
+            .execute(c)
+    });
+    close(id, loan);
+    assert!(returned(loan));
+    assert_eq!(status_of(&f, id), "on_loan");
+    let (got, resp) = transition(&f, id, json!({ "to_status": "in_stock" })).await;
+    assert_eq!(got, StatusCode::CREATED, "{resp}");
+
+    // Disposed with a loan out, as old data may have it: the loan closes,
+    // so the person can be offboarded; the asset stays disposed.
+    let id = asset(&f, "Disposed holder");
+    let loan = lend(&f, id);
+    force_status(&f, id, "disposed");
     let mut conn = f.pool.get().expect("conn");
     backend::sync::session::with_actor_bypass_context(&mut conn, &ActorContext::system(REF), |c| {
         asset_loans::return_loans_of_purged_borrower(c, &f.ws.member_uuid).map_err(loan_err)
     })
     .expect("purge the borrower's loans");
-    let returned: Option<chrono::DateTime<chrono::Utc>> = in_ws(&f, |c| {
-        loans_t::table
-            .find(loan)
-            .select(loans_t::returned_at)
-            .first(c)
-    });
-    assert!(returned.is_some());
+    assert!(returned(loan));
+    assert_eq!(status_of(&f, id), "disposed");
+}
+
+/// A loan out keeps its asset from being disposed, whatever status the asset
+/// drifted to, so the rules can't make a disposed asset that holds a loan.
+#[actix_web::test]
+async fn an_asset_with_a_loan_out_cant_be_disposed() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let id = asset(&f, "Lent and drifted");
+    lend(&f, id);
+    force_status(&f, id, "in_stock");
+    let (got, resp) = transition(
+        &f,
+        id,
+        json!({
+            "to_status": "disposed",
+            "disposal": { "sanitization_method": "destroy", "data_bearing": true },
+        }),
+    )
+    .await;
+    assert_eq!(got, StatusCode::CONFLICT, "{resp}");
+    assert_eq!(resp["code"], "loan_owned", "{resp}");
     assert_eq!(status_of(&f, id), "in_stock");
 }
 
@@ -644,7 +711,7 @@ async fn the_statuses_endpoint_lists_categories_and_moves_for_staff() {
     assert_eq!(target("in_stock").expect("in_stock")["needs"], json!([]));
     assert_eq!(
         target("disposed").expect("disposed")["needs"],
-        json!(["disposal"])
+        json!(["disposal", "no_active_loan"])
     );
     assert_eq!(
         target("on_loan").expect("on_loan")["needs"],

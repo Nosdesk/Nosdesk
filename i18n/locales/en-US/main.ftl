@@ -6135,6 +6135,7 @@ asset-move-refused-not-on-loan = Asset isn't on loan, so the loan can't be retur
 asset-move-refused-needs-disposal = Disposing an asset requires a disposal record
 asset-move-refused-disposal-not-allowed = A disposal record is only accepted when disposing an asset
 asset-move-refused-start-only = { $status } is only set when an asset is created; an asset can't move back to it
+asset-move-refused-start-on-loan = An asset can't be created on loan; lend it after creating it
 
 # Asset lifecycle panel.
 asset-lifecycle-heading = Status history

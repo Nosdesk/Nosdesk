@@ -63,10 +63,10 @@ export function manualTargets(
   hasActiveLoan: boolean,
 ): AssetStatus[] {
   const categories = catalogue?.categories;
-  const from =
-    categories?.find((c) => c.key === current) ??
-    // A stored status outside the nine moves as an in-service asset does.
-    categories?.find((c) => c.default);
+  const known = categories?.find((c) => c.key === current);
+  // A stored status outside the nine moves as an in-service asset does, and
+  // in service itself is the move that puts it right.
+  const from = known ?? categories?.find((c) => c.default);
   if (!from?.targets) {
     return ASSET_STATUSES.filter((s) => {
       if (s === current) return false;
@@ -74,7 +74,8 @@ export function manualTargets(
       return true;
     });
   }
-  return from.targets
+  const targets = known ? from.targets : [{ key: from.key, needs: [] }, ...from.targets];
+  return targets
     .filter((target) => target.key !== current)
     .filter((target) =>
       target.needs.every((need) => {
