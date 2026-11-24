@@ -13122,6 +13122,8 @@ asset-records-export-started =
        *[other] { $count } interventions
     }
 # MT: pending native review (fr-FR)
+asset-records-export-capped = Export des { $rows } premières interventions sur { $total }. Affinez les filtres pour exporter le reste.
+# MT: pending native review (fr-FR)
 asset-records-export-failed = Impossible d'exporter les interventions. Veuillez réessayer.
 # MT: pending native review (fr-FR)
 asset-records-import = Importer l'historique des interventions

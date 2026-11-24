@@ -13113,6 +13113,8 @@ asset-records-export-started =
        *[other] { $count } registraties
     } exporteren
 # MT: pending native review (nl-NL)
+asset-records-export-capped = De eerste { $rows } van { $total } registraties geëxporteerd. Verfijn de filters om de rest te exporteren.
+# MT: pending native review (nl-NL)
 asset-records-export-failed = De registraties konden niet worden geëxporteerd. Probeer het opnieuw.
 # MT: pending native review (nl-NL)
 asset-records-import = Onderhoudshistorie importeren

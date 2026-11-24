@@ -37,6 +37,9 @@ use crate::utils::money;
 
 const PAGE_DEFAULT: i64 = 100;
 const PAGE_MAX: i64 = 500;
+/// The most records one export holds, so a wide filter can't exhaust the
+/// process. A capped export says so in `X-Export-Rows` and `X-Export-Total`.
+const EXPORT_MAX: i64 = 50_000;
 
 /// The list's query, read from a query string whose filters repeat.
 #[derive(Debug, Default)]
@@ -253,8 +256,10 @@ pub async fn list(mut tc: TenantConn, auth: AuthContext, req: HttpRequest) -> Ht
             "totals": costs_json(&totals, currency.as_deref()),
             "currency": currency,
             "groups": groups_json,
+            "group": query.group.map(GroupAxis::as_str),
             "offset": query.offset,
-            "next_offset": (loaded < totals.count).then_some(loaded),
+            // An empty page ends the list even if the set changed under it.
+            "next_offset": (!rows.is_empty() && loaded < totals.count).then_some(loaded),
         }))
     });
     match result {
@@ -300,7 +305,16 @@ pub async fn export(mut tc: TenantConn, auth: AuthContext, req: HttpRequest) -> 
     let result = tc.run_result(|conn| {
         require_staff(&auth)?;
         let filter = filter_for(conn, &query)?;
-        let rows = list_repo::page(conn, &filter, query.sort, query.descending, None, 0, None)?;
+        let total = list_repo::totals(conn, &filter)?.count;
+        let rows = list_repo::page(
+            conn,
+            &filter,
+            query.sort,
+            query.descending,
+            None,
+            0,
+            Some(EXPORT_MAX),
+        )?;
         let records: Vec<_> = rows.into_iter().map(|r| r.record).collect();
         let tz = repository::asset_records::workspace_timezone(conn)?;
         let lookups = crate::handlers::assets::record_lookups(conn, &records, tz)?;
@@ -328,9 +342,9 @@ pub async fn export(mut tc: TenantConn, auth: AuthContext, req: HttpRequest) -> 
             Some([id]) => lookups.types.get(id).cloned(),
             _ => None,
         };
-        Ok::<_, Refusal>((records, lookups, assets, slug, one_type))
+        Ok::<_, Refusal>((records, lookups, assets, slug, one_type, total))
     });
-    let (records, lookups, assets, slug, one_type) = match result {
+    let (records, lookups, assets, slug, one_type, total) = match result {
         Ok(v) => v,
         Err(r) => return respond(r),
     };
@@ -363,6 +377,8 @@ pub async fn export(mut tc: TenantConn, auth: AuthContext, req: HttpRequest) -> 
     };
     let date = chrono::Utc::now().format("%Y%m%d");
     HttpResponse::Ok()
+        .insert_header(("X-Export-Rows", records.len().to_string()))
+        .insert_header(("X-Export-Total", total.to_string()))
         .insert_header((header::CONTENT_TYPE, content_type))
         .insert_header((
             header::CONTENT_DISPOSITION,

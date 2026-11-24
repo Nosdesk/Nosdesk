@@ -9,7 +9,10 @@ use tracing::{debug, error};
 use super::SearchService;
 use crate::models;
 
-/// Spawn a background indexing task that commits after completion.
+/// Spawn a background indexing task that commits after completion. It runs
+/// on the blocking pool: a task may read the database (an asset's records,
+/// a user's memberships) and takes the index writer's lock, neither of which
+/// belongs on an async worker.
 fn spawn_indexing_task(
     search_service: Arc<SearchService>,
     label: &'static str,
@@ -17,7 +20,7 @@ fn spawn_indexing_task(
         + Send
         + 'static,
 ) {
-    tokio::spawn(async move {
+    tokio::task::spawn_blocking(move || {
         if let Err(e) = task(&search_service) {
             error!(error = ?e, "Failed to {label}");
         } else {

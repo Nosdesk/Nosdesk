@@ -7,7 +7,7 @@
 //! and the export always describe the same set. Costs are summed per
 //! currency and never converted. RLS scopes every read to the workspace.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::NaiveDate;
 use diesel::pg::Pg;
@@ -82,6 +82,15 @@ impl GroupAxis {
             "asset" => Some(Self::Asset),
             "month" => Some(Self::Month),
             _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Vendor => "vendor",
+            Self::Type => "type",
+            Self::Asset => "asset",
+            Self::Month => "month",
         }
     }
 
@@ -221,11 +230,6 @@ impl<'a> Query<'a> {
     }
 }
 
-/// The vendor as the filter and the groups compare it.
-fn vendor_key(vendor: &str) -> String {
-    vendor.trim().to_lowercase()
-}
-
 /// `query` narrowed to `filter`'s records.
 fn filtered<'a>(mut query: Query<'a>, filter: &ListFilter) -> Query<'a> {
     if let Some(text) = filter.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
@@ -249,10 +253,10 @@ fn filtered<'a>(mut query: Query<'a>, filter: &ListFilter) -> Query<'a> {
         None => {}
     }
     if !filter.vendors.is_empty() {
-        let keys: Vec<String> = filter.vendors.iter().map(|v| vendor_key(v)).collect();
-        query = query.sql(" AND lower(btrim(r.vendor)) = ANY(");
-        query = query.bind::<Array<Text>, _>(keys);
-        query = query.sql(")");
+        // Postgres folds both sides, so a vendor compares as its group's key.
+        query = query.sql(" AND lower(btrim(r.vendor)) IN (SELECT lower(btrim(v)) FROM unnest(");
+        query = query.bind::<Array<Text>, _>(filter.vendors.clone());
+        query = query.sql("::text[]) AS v)");
     }
     if !filter.asset_ids.is_empty() {
         query = query.sql(" AND r.asset_id = ANY(");
@@ -535,36 +539,68 @@ pub fn facets(conn: &mut DbConnection) -> QueryResult<Facets> {
     })
 }
 
+/// How many of an asset's records its search document reads, newest work
+/// first, and how much of their text it carries at most.
+const SEARCH_RECORDS: i64 = 200;
+const SEARCH_TEXT_BYTES: usize = 16 * 1024;
+
+// sync-audit-only: read-only (one SELECT)
 /// The record text each of `asset_ids`' search documents carries: the
-/// distinct summaries, vendors and references of its records. `None` reads
+/// distinct summaries, vendors and references of its newest
+/// [`SEARCH_RECORDS`] records, up to [`SEARCH_TEXT_BYTES`]. `None` reads
 /// every asset the connection sees.
 pub fn search_text(
     conn: &mut DbConnection,
     asset_ids: Option<&[i32]>,
 ) -> QueryResult<HashMap<i32, Vec<String>>> {
-    let mut query = asset_records::table
-        .select((
-            asset_records::asset_id,
-            asset_records::summary,
-            asset_records::vendor,
-            asset_records::reference,
-        ))
-        .order((asset_records::asset_id.asc(), asset_records::id.asc()))
-        .into_boxed();
-    if let Some(ids) = asset_ids {
-        if ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-        query = query.filter(asset_records::asset_id.eq_any(ids.to_vec()));
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Integer)]
+        asset_id: i32,
+        #[diesel(sql_type = Nullable<Text>)]
+        summary: Option<String>,
+        #[diesel(sql_type = Nullable<Text>)]
+        vendor: Option<String>,
+        #[diesel(sql_type = Nullable<Text>)]
+        reference: Option<String>,
     }
-    type Row = (i32, Option<String>, Option<String>, Option<String>);
+
+    if asset_ids.is_some_and(<[i32]>::is_empty) {
+        return Ok(HashMap::new());
+    }
+    let mut query = Query::new(
+        "SELECT asset_id, summary::text AS summary, vendor::text AS vendor, \
+                reference::text AS reference \
+         FROM (SELECT asset_id, summary, vendor, reference, \
+                      row_number() OVER (PARTITION BY asset_id \
+                          ORDER BY occurred_on DESC, id DESC) AS n \
+               FROM asset_records",
+    );
+    if let Some(ids) = asset_ids {
+        query = query.sql(" WHERE asset_id = ANY(");
+        query = query.bind::<Array<Integer>, _>(ids.to_vec());
+        query = query.sql(")");
+    }
+    query = query.sql(") ranked WHERE n <= ");
+    query = query.bind::<BigInt, _>(SEARCH_RECORDS);
+    query = query.sql(" ORDER BY asset_id, n");
     let rows: Vec<Row> = query.load(conn)?;
+
     let mut out: HashMap<i32, Vec<String>> = HashMap::new();
-    for (asset_id, summary, vendor, reference) in rows {
-        let texts = out.entry(asset_id).or_default();
-        for text in [summary, vendor, reference].into_iter().flatten() {
+    let mut seen: HashMap<i32, (HashSet<String>, usize)> = HashMap::new();
+    for row in rows {
+        let texts = out.entry(row.asset_id).or_default();
+        let (known, bytes) = seen.entry(row.asset_id).or_default();
+        for text in [row.summary, row.vendor, row.reference]
+            .into_iter()
+            .flatten()
+        {
             let text = text.trim();
-            if !text.is_empty() && !texts.iter().any(|t| t == text) {
+            if text.is_empty() || *bytes + text.len() > SEARCH_TEXT_BYTES {
+                continue;
+            }
+            if known.insert(text.to_string()) {
+                *bytes += text.len();
                 texts.push(text.to_string());
             }
         }
@@ -575,11 +611,6 @@ pub fn search_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn vendors_compare_without_case_or_space() {
-        assert_eq!(vendor_key("  Acme Repairs "), "acme repairs");
-    }
 
     #[test]
     fn every_order_ends_in_the_id() {

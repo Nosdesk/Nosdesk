@@ -80,6 +80,7 @@ function list(over: Partial<AssetRecordList> = {}): AssetRecordList {
     totals: TOTALS,
     currency: 'AUD',
     groups: null,
+    group: null,
     offset: 0,
     next_offset: 100,
     ...over,
@@ -115,13 +116,13 @@ async function mountAt(path: string) {
 describe('AssetRecordsView', () => {
   it('asks for the set the address bar names and says what all of it adds up to', async () => {
     records.listAll.mockResolvedValue(list())
-    await mountAt('/assets/records?type=repair&status=open&vendor=Dell&period=last-year')
+    await mountAt('/assets/records?type=repair&status=open&vendor=Dell&vendor=A%7CB&period=last-year')
 
     expect(records.listAll).toHaveBeenCalledWith(
       expect.objectContaining({
         type: ['repair'],
         status: ['open'],
-        vendor: ['Dell'],
+        vendor: ['A|B', 'Dell'],
         offset: 0,
         limit: 100,
       }),
@@ -143,6 +144,7 @@ describe('AssetRecordsView', () => {
           { key: 'camera clinic', label: 'Camera Clinic', count: 3, open: 0, totals: [TOTALS[1]] },
           { key: 'dell', label: 'Dell', count: 2, open: 1, totals: [TOTALS[0]] },
         ],
+        group: 'vendor',
       }),
     )
     await mountAt('/assets/records?group=vendor')
@@ -168,5 +170,14 @@ describe('AssetRecordsView', () => {
 
     expect(wrapper.text()).toContain('asset-records-empty-title')
     expect(wrapper.find('[data-records-toolbar]').exists()).toBe(false)
+  })
+})
+
+describe('AssetRecordsView, when the query fails', () => {
+  it('says so instead of keeping rows under the new filters', async () => {
+    records.listAll.mockRejectedValue(new Error('from must not be after to'))
+    await mountAt('/assets/records?vendor=Dell')
+    expect(wrapper!.text()).toContain('from must not be after to')
+    expect(wrapper!.find('[data-records-summary]').exists()).toBe(false)
   })
 })

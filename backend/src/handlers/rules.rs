@@ -1472,6 +1472,10 @@ pub async fn apply_rule(
     // a step closed got its next occurrence in that step's write.)
     if outcome.actions_executed > 0 {
         let search = search.as_ref().map(|s| s.get_ref());
+        // The assets whose records the rule wrote carry their text in search.
+        if let Some(search) = search {
+            crate::services::rules::engine::reindex_record_assets(search, &outcome.record_assets);
+        }
         let mut db = ActorConn {
             conn: &mut conn,
             actor: &actor,

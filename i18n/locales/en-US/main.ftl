@@ -11364,6 +11364,7 @@ asset-records-export-started = Exporting { $count ->
     [one] { $count } record
    *[other] { $count } records
 }
+asset-records-export-capped = Exported the first { $rows } of { $total } records. Narrow the filters to export the rest.
 asset-records-export-failed = The records couldn't be exported. Try again.
 asset-records-import = Import service history
 

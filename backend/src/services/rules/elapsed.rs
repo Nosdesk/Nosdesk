@@ -494,15 +494,7 @@ fn try_fire(
     match repo::run_rule_on_ticket(&mut conn, ctx) {
         Ok(outcome) => {
             if !shadow {
-                after_live_run(
-                    pool,
-                    search,
-                    &mut conn,
-                    workspace_id,
-                    ticket_id,
-                    outcome.comment_id,
-                    outcome.actions_executed,
-                );
+                after_live_run(pool, search, &mut conn, workspace_id, ticket_id, &outcome);
             }
             Ok(Fired::Ran)
         }

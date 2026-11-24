@@ -77,9 +77,9 @@ const toasts = useToastStore()
 const router = useRouter()
 const auth = useAuthStore()
 const query = useRecordsQuery()
-const today = todayDay()
-
-const { types, currency: typesCurrency, suggestedCurrency } = useAssetRecordTypes(true)
+const { types, currency: typesCurrency, suggestedCurrency, timezone } = useAssetRecordTypes(true)
+/** Today in the workspace's timezone, the one the server dates work in. */
+const today = computed(() => todayDay(timezone.value ?? undefined))
 const typeBySlug = computed(() => new Map(types.value.map((type) => [type.slug, type])))
 const typeById = computed(() => new Map(types.value.map((type) => [type.id, type])))
 const typeLabel = (slug: string | null) => typeName(t, typeBySlug.value.get(slug ?? ''), slug)
@@ -87,7 +87,7 @@ const typeLabel = (slug: string | null) => typeName(t, typeBySlug.value.get(slug
 // --- The filtered set -------------------------------------------------
 
 const PAGE = 100
-const filter = computed(() => listFilter(query, today))
+const filter = computed(() => listFilter(query, today.value))
 
 const listQuery = useWorkspaceInfiniteQuery<AssetRecordList, Error, number>({
   key: () => [...assetRecordKeys.listFiltered(filter.value)],
@@ -114,8 +114,10 @@ const loadingMore = computed(() => listQuery.asyncStatus.value === 'loading' && 
  *  chrome renders and the body waits. */
 const firstLoad = computed(() => listQuery.data.value === undefined || facetsQuery.data.value === undefined)
 const hasAny = computed(() => (facetsQuery.data.value?.total ?? 0) > 0)
+/** The current query failed (a refused filter, say): say so rather than
+ *  keep the last list under the new pills. */
 const loadError = computed(() =>
-  listQuery.error.value && !listQuery.data.value
+  listQuery.status.value === 'error' && listQuery.error.value
     ? extractErrorMessage(listQuery.error.value, t('asset-records-load-failed'))
     : null,
 )
@@ -133,10 +135,11 @@ async function loadMore() {
 }
 
 // Records written anywhere (the asset page, an import, a rule) refetch
-// the list and the filters' choices.
+// the list and the filters' choices, and so does an asset renamed or
+// retagged, which the rows name.
 const cache = useWorkspaceQueryCache()
 useSyncActions(() => void cache.invalidateQueries({ key: [...assetRecordKeys.list] }), {
-  aggregates: ['asset_record'],
+  aggregates: ['asset_record', 'asset'],
   debounceMs: 250,
 })
 
@@ -145,7 +148,9 @@ useSyncActions(() => void cache.invalidateQueries({ key: [...assetRecordKeys.lis
 const grouped = computed(() => query.group !== 'none')
 /** Groups render once the server has answered for them; until then (the
  *  ungrouped list held while the grouped one loads) the rows stay flat. */
-const showGroups = computed(() => grouped.value && !!first.value?.groups)
+const showGroups = computed(
+  () => grouped.value && !!first.value?.groups && first.value.group === query.group,
+)
 
 interface RecordBucket extends DataTableBucket<AssetRecordListRow> {
   totals: AssetRecordCurrencyTotal[]
@@ -380,8 +385,13 @@ async function exportCsv() {
   // The whole filtered set, in the list's order, one row per record.
   const count = total.value
   try {
-    await downloadAssetRecordsCsv(filter.value)
-    toasts.success(t('asset-records-export-started', { count }))
+    const saved = await downloadAssetRecordsCsv(filter.value)
+    // One export holds so many records; past that it says how many it has.
+    if (saved.rows < saved.total) {
+      toasts.warning(t('asset-records-export-capped', { rows: saved.rows, total: saved.total }))
+    } else {
+      toasts.success(t('asset-records-export-started', { count }))
+    }
   } catch (error) {
     toasts.error(extractErrorMessage(error, t('asset-records-export-failed')))
   }

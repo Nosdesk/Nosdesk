@@ -785,13 +785,7 @@ impl Dispatcher {
                     if shadow {
                         continue;
                     }
-                    self.after_run(
-                        conn,
-                        run,
-                        event.ticket_id,
-                        outcome.comment_id,
-                        outcome.actions_executed,
-                    );
+                    self.after_run(conn, run, event.ticket_id, &outcome);
                     if outcome.stop_processing {
                         break;
                     }
@@ -855,8 +849,7 @@ impl Dispatcher {
         conn: &mut DbConnection,
         run: &Run,
         ticket_id: i32,
-        comment_id: Option<i32>,
-        actions_executed: usize,
+        outcome: &repo::ApplyOutcome,
     ) {
         after_live_run(
             &self.pool,
@@ -864,24 +857,23 @@ impl Dispatcher {
             conn,
             run.workspace_id,
             ticket_id,
-            comment_id,
-            actions_executed,
+            outcome,
         );
     }
 }
 
 /// After an automated live run commits: relay its public reply and reindex
-/// the ticket. Failures are logged; the run stands.
+/// the ticket, and the assets whose records it wrote. Failures are logged;
+/// the run stands.
 pub(crate) fn after_live_run(
     pool: &Pool,
     search: Option<&Arc<SearchService>>,
     conn: &mut DbConnection,
     workspace_id: i32,
     ticket_id: i32,
-    comment_id: Option<i32>,
-    actions_executed: usize,
+    outcome: &repo::ApplyOutcome,
 ) {
-    if let Some(comment_id) = comment_id {
+    if let Some(comment_id) = outcome.comment_id {
         if let Err(e) = relay_reply(pool, workspace_id, ticket_id, comment_id) {
             warn!(error = %e, comment_id, "rules engine: reply relay enqueue failed");
         }
@@ -889,9 +881,10 @@ pub(crate) fn after_live_run(
     let Some(search) = search else {
         return;
     };
-    if actions_executed == 0 {
+    if outcome.actions_executed == 0 {
         return;
     }
+    reindex_record_assets(search, &outcome.record_assets);
     let reader = ActorContext::system("rules_engine").with_workspace(workspace_id);
     match with_actor_context(conn, &reader, |c| {
         let ticket = crate::repository::tickets::get_ticket_by_id(c, ticket_id)?;
@@ -905,6 +898,17 @@ pub(crate) fn after_live_run(
             search.ticket_updated(&ticket, article.as_ref())
         }
         Err(e) => warn!(error = %e, ticket_id, "rules engine: post-run reload failed"),
+    }
+}
+
+/// After a run commits: the search entries of the assets whose records it
+/// wrote carry those records' text, so rewrite them.
+pub(crate) fn reindex_record_assets(search: &Arc<SearchService>, assets: &[i32]) {
+    for asset_id in assets {
+        crate::services::search::indexing_tasks::spawn_reindex_device(
+            Arc::clone(search),
+            *asset_id,
+        );
     }
 }
 

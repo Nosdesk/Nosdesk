@@ -452,6 +452,9 @@ export interface AssetRecordList {
   currency: string | null;
   /** Grouped only, in the order the list shows them. */
   groups: AssetRecordListGroup[] | null;
+  /** The axis `groups` are along, so a list held while another axis loads
+   *  isn't shown under the new one's labels. */
+  group: 'vendor' | 'type' | 'asset' | 'month' | null;
   offset: number;
   /** Pass as `offset` for the next page; null on the last. */
   next_offset: number | null;

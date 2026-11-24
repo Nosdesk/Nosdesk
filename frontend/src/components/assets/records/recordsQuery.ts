@@ -36,17 +36,34 @@ export interface RecordsQuery {
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 
+/** `day` when it is a real calendar day (not 2024-02-31), else ''. */
+function validDay(day: string): string {
+  if (!DAY.test(day)) return ''
+  const parsed = new Date(`${day}T12:00:00Z`)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : ''
+}
+
 function one(value: LocationQuery[string]): string {
   const first = Array.isArray(value) ? value[0] : value
   return typeof first === 'string' ? first : ''
 }
 
-const list = (value: LocationQuery[string]) => new Set(one(value).split('|').filter(Boolean))
+/** A list filter: its key repeats, once per value, so any value (a vendor
+ *  with a `|` in it) survives a link. */
+function list(value: LocationQuery[string]): Set<string> {
+  const values = Array.isArray(value) ? value : [value]
+  return new Set(values.filter((v): v is string => typeof v === 'string' && v !== ''))
+}
 
 /** The query `raw` (a route's query) describes. */
 export function readQuery(raw: LocationQuery): RecordsQuery {
-  const from = DAY.test(one(raw.from)) ? one(raw.from) : ''
-  const to = DAY.test(one(raw.to)) ? one(raw.to) : ''
+  let from = validDay(one(raw.from))
+  let to = validDay(one(raw.to))
+  // A range that ends before it starts covers nothing a link meant.
+  if (from && to && from > to) {
+    from = ''
+    to = ''
+  }
   const preset = PERIOD_PRESETS.find((x) => x === one(raw.period))
   return {
     q: one(raw.q),
@@ -66,19 +83,23 @@ export function readQuery(raw: LocationQuery): RecordsQuery {
   }
 }
 
-const joined = (set: Set<string>) => [...set].join('|')
-
-/** `query` as a route's query, leaving out what is at its default. */
-export function writeQuery(query: RecordsQuery): Record<string, string> {
-  const out: Record<string, string> = {}
+/** `query` as a route's query, leaving out what is at its default. A list
+ *  filter with one value is a string, with more an array (the key
+ *  repeats). */
+export function writeQuery(query: RecordsQuery): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {}
   const put = (key: string, value: string | null | undefined) => {
     if (value) out[key] = value
   }
+  const putAll = (key: string, set: Set<string>) => {
+    const values = [...set]
+    if (values.length) out[key] = values.length === 1 ? values[0] : values
+  }
   put('q', query.q)
-  put('type', joined(query.type))
-  put('status', joined(query.status))
-  put('vendor', joined(query.vendor))
-  put('asset', joined(query.asset))
+  putAll('type', query.type)
+  putAll('status', query.status)
+  putAll('vendor', query.vendor)
+  putAll('asset', query.asset)
   if (query.period === 'custom') {
     put('from', query.from)
     put('to', query.to)
@@ -93,19 +114,21 @@ export function writeQuery(query: RecordsQuery): Record<string, string> {
 }
 
 /** The days `query`'s period covers, inclusive; an open end is an empty
- *  string. `today` is YYYY-MM-DD. */
+ *  string. `today` is YYYY-MM-DD, in the workspace's timezone. A period that
+ *  runs to today is left open at the end, so it still does tomorrow and
+ *  nothing hangs on the reader's clock. */
 export function periodRange(query: RecordsQuery, today: string): { from: string; to: string } {
   const year = Number(today.slice(0, 4))
   switch (query.period) {
     case 'last-30': {
       const d = new Date(`${today}T12:00:00Z`)
       d.setUTCDate(d.getUTCDate() - 29)
-      return { from: d.toISOString().slice(0, 10), to: today }
+      return { from: d.toISOString().slice(0, 10), to: '' }
     }
     case 'this-month':
-      return { from: `${today.slice(0, 7)}-01`, to: today }
+      return { from: `${today.slice(0, 7)}-01`, to: '' }
     case 'this-year':
-      return { from: `${year}-01-01`, to: today }
+      return { from: `${year}-01-01`, to: '' }
     case 'last-year':
       return { from: `${year - 1}-01-01`, to: `${year - 1}-12-31` }
     case 'custom':

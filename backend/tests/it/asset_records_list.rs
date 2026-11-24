@@ -105,6 +105,20 @@ fn seed(db: &common::TestDb) -> Fixture {
 }
 
 async fn send(f: &Fixture, viewer: Uuid, req: http_test::TestRequest) -> (StatusCode, Vec<u8>) {
+    let (status, body, _) = send_raw(f, viewer, req).await;
+    (status, body)
+}
+
+/// [`send`], with the response's headers by lower-case name.
+async fn send_raw(
+    f: &Fixture,
+    viewer: Uuid,
+    req: http_test::TestRequest,
+) -> (
+    StatusCode,
+    Vec<u8>,
+    std::collections::HashMap<String, String>,
+) {
     let claims = Claims {
         sub: viewer.to_string(),
         name: "Viewer".to_string(),
@@ -150,7 +164,12 @@ async fn send(f: &Fixture, viewer: Uuid, req: http_test::TestRequest) -> (Status
     .await;
     let resp = http_test::call_service(&app, req.to_request()).await;
     let status = resp.status();
-    (status, http_test::read_body(resp).await.to_vec())
+    let headers = resp
+        .headers()
+        .iter()
+        .filter_map(|(k, v)| Some((k.as_str().to_string(), v.to_str().ok()?.to_string())))
+        .collect();
+    (status, http_test::read_body(resp).await.to_vec(), headers)
 }
 
 async fn call(
@@ -341,6 +360,11 @@ async fn the_count_and_totals_cover_the_whole_filtered_set_on_every_page() {
         "page two says what the whole set adds up to"
     );
     assert_eq!(second["next_offset"], Value::Null);
+    // Past the end, an empty page ends the list.
+    let past = get(&f, "/api/assets/records?limit=4&offset=40").await;
+    assert_eq!(ids(&past), Vec::<i64>::new());
+    assert_eq!(past["next_offset"], Value::Null);
+    assert_eq!(past["group"], Value::Null);
 
     // Filtered, the totals follow the filter and not the page.
     let aud_only = get(&f, "/api/assets/records?vendor=CAMERA%20CLINIC&limit=1").await;
@@ -382,6 +406,8 @@ async fn filters_narrow_the_list() {
         5,
         "each vendor chosen"
     );
+    // Postgres folds the asked vendor as it folds the records'.
+    assert_eq!(list("vendor=%20%20dell%20".into()).await.len(), 2);
     assert_eq!(
         list(format!("asset={}", f.laptop)).await,
         sorted(vec![all[3], all[4], all[5]])
@@ -436,6 +462,7 @@ async fn grouped_rows_come_group_by_group_with_each_groups_totals() {
     let all = history(&f).await;
 
     let first = get(&f, "/api/assets/records?group=vendor&limit=3").await;
+    assert_eq!(first["group"], "vendor", "the axis is echoed");
     let groups = first["groups"].as_array().expect("groups");
     // The biggest spend in the workspace currency first, then the most
     // records; work done in house is its own group.
@@ -563,8 +590,11 @@ async fn the_export_holds_the_filtered_set_in_the_import_templates_columns() {
     history(&f).await;
 
     let req = http_test::TestRequest::get().uri("/api/assets/records/export?vendor=Dell");
-    let (status, bytes) = send(&f, f.agent, req).await;
+    let (status, bytes, headers) = send_raw(&f, f.agent, req).await;
     assert_eq!(status, StatusCode::OK);
+    // Under the cap: every match exported, and the headers say so.
+    assert_eq!(headers.get("x-export-rows").map(String::as_str), Some("2"));
+    assert_eq!(headers.get("x-export-total").map(String::as_str), Some("2"));
     let mut reader = csv::Reader::from_reader(bytes.as_slice());
     let headers: Vec<String> = reader
         .headers()

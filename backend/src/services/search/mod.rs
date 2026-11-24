@@ -260,12 +260,14 @@ impl SearchService {
         self.index_document(&doc)
     }
 
-    /// Index a device, with the text of its records, which it reads.
+    /// Index a device, with the text of its records, which it reads. When
+    /// they can't be read the asset is indexed without them rather than not
+    /// at all.
     pub fn index_device(
         &self,
         device: &models::Asset,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut records = crate::sync::session::run_in_workspace(
+        let records = crate::sync::session::run_in_workspace(
             &self.pool,
             "background:search_index_device",
             device.workspace_id,
@@ -275,8 +277,14 @@ impl SearchService {
                     Some(std::slice::from_ref(&device.id)),
                 )
             },
-        )?;
-        let records = records.remove(&device.id).unwrap_or_default();
+        );
+        let records = match records {
+            Ok(mut text) => text.remove(&device.id).unwrap_or_default(),
+            Err(e) => {
+                warn!(asset_id = device.id, error = ?e, "Failed to read an asset's records for its search entry");
+                Vec::new()
+            }
+        };
         let doc = indexer::index_document_from_device(device, &records);
         self.index_document(&doc)
     }

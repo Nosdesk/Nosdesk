@@ -205,28 +205,40 @@ async fn drain_since(
 
                 let last = rows.last().unwrap().sync_id;
                 let count = rows.len();
+                // A record's text lives in its asset's document: each asset
+                // the batch's records touched is reindexed once.
+                let mut record_assets = std::collections::BTreeSet::new();
                 for row in &rows {
-                    // A single bad row (parse error, transient load failure)
-                    // must not stall the whole stream; log and carry on.
-                    let record_asset = match row.aggregate {
-                        SyncAggregate::AssetRecord => row
+                    if row.aggregate == SyncAggregate::AssetRecord {
+                        if let Some(asset_id) = row
                             .asset_id
                             .as_deref()
-                            .and_then(|id| id.parse::<i32>().ok()),
-                        _ => None,
-                    };
-                    let applied = match record_asset {
-                        // A record's text lives in its asset's document.
-                        Some(asset_id) => search.reindex_device(asset_id),
-                        None => search.apply_sync_action(row.aggregate, row.op, &row.aggregate_id),
-                    };
-                    if let Err(e) = applied {
+                            .and_then(|id| id.parse::<i32>().ok())
+                        {
+                            record_assets.insert(asset_id);
+                        }
+                        continue;
+                    }
+                    // A single bad row (parse error, transient load failure)
+                    // must not stall the whole stream; log and carry on.
+                    if let Err(e) =
+                        search.apply_sync_action(row.aggregate, row.op, &row.aggregate_id)
+                    {
                         warn!(
                             sync_id = row.sync_id,
                             aggregate = ?row.aggregate,
                             aggregate_id = %row.aggregate_id,
                             error = %e,
                             "search replicator: failed to apply sync action"
+                        );
+                    }
+                }
+                for asset_id in record_assets {
+                    if let Err(e) = search.reindex_device(asset_id) {
+                        warn!(
+                            asset_id,
+                            error = %e,
+                            "search replicator: failed to reindex a record's asset"
                         );
                     }
                 }
