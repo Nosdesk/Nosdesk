@@ -101,4 +101,25 @@ describe('SettingsRulesView', () => {
     expect(offers('Event draft', 'admin-rules-go-live')).toBe(false)
     expect(offers('Event live', 'admin-rules-pause')).toBe(true)
   })
+
+  it('says when a time-elapsed rule runs, under its trigger', async () => {
+    rules.list.mockResolvedValue([
+      rule(1, 'Nudge', {
+        trigger_kind: 'time_elapsed',
+        trigger_config: { clock_name: 'awaiting_requester', minutes: 4320, repeat_every_minutes: null },
+      }),
+      rule(2, 'Unfinished', { trigger_kind: 'time_elapsed', trigger_config: {} }),
+      rule(3, 'Escalate', { trigger_kind: 'ticket_created' }),
+    ])
+    wrapper = mountWithProviders(SettingsRulesView, {}, {}, [[PiniaColada, {}] as never])
+    await flushPromises()
+
+    const detail = (name: string) =>
+      Array.from(document.body.querySelectorAll('tbody tr'))
+        .find((r) => r.textContent?.includes(name))!
+        .querySelector('[data-test="trigger-detail"]')?.textContent?.trim()
+    expect(detail('Nudge')).toBe('admin-rule-elapsed-summary-awaiting-requester')
+    expect(detail('Unfinished')).toBeUndefined()
+    expect(detail('Escalate')).toBeUndefined()
+  })
 })

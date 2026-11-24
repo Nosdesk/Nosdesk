@@ -13,6 +13,8 @@ export interface ConditionOption<T = string | number> {
 
 export interface ConditionBuilderContext {
   trigger: () => RuleTriggerKind
+  /** A time-elapsed rule's clock; empty for other triggers. */
+  clock: () => string
   root: () => ConditionGroup
   /** Replace the whole tree (every edit builds a new one). */
   edit: (next: ConditionGroup) => void

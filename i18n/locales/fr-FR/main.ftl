@@ -11957,7 +11957,7 @@ admin-rules-conflicts-field-replies = réponses
 admin-rule-editor-trigger-ticket-created-summary = Quand un ticket est créé.
 admin-rule-editor-trigger-ticket-updated-summary = Quand un ticket change, par exemple son statut, sa priorité ou son responsable.
 admin-rule-editor-trigger-ticket-replied-summary = Quand quelqu'un publie une réponse publique sur un ticket.
-admin-rule-editor-trigger-time-elapsed-summary = Quand un délai donné s'est écoulé sur un ticket. L'éditeur ne permet pas encore de configurer ce déclencheur.
+admin-rule-editor-trigger-time-elapsed-summary = Quand un délai donné s'est écoulé sur un ticket, compté sur l'horloge choisie.
 admin-rule-editor-trigger-locked = Mettez la règle en pause pour changer son déclencheur.
 admin-rule-editor-changed-fields-label = S'exécuter quand ces champs changent
 admin-rule-editor-changed-fields-any = Aucun choisi : la règle s'exécute quand un champ vérifié par ses conditions change, ou à chaque modification si elle n'a pas de conditions.
@@ -12723,3 +12723,110 @@ asset-record-serial-offer = Remplacer le numéro de série de cet actif par { $s
 asset-record-serial-updated = Numéro de série remplacé par { $serial }
 # MT: pending native review (fr-FR)
 asset-record-serial-failed = Impossible de modifier le numéro de série
+
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-label = Horloge
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-placeholder = Choisir une horloge
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-created = Depuis la création du ticket
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-created-hint = Compte à partir de l'ouverture du ticket.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-status-change = Depuis son dernier changement de statut
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-status-change-hint = Compte à partir de son dernier passage à un autre statut, ou de son ouverture s'il n'en a jamais changé.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-assigned = Depuis son attribution
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-assigned-hint = Compte à partir de l'attribution à son responsable actuel. Ne tourne pas tant que personne n'est responsable.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-last-agent-reply = Depuis la dernière réponse de l'équipe
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-last-agent-reply-hint = Compte à partir de la dernière réponse publique de l'équipe. Ne tourne pas tant qu'il n'y en a pas.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-last-customer-reply = Depuis le dernier message du demandeur
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-since-last-customer-reply-hint = Compte à partir du dernier message public d'une personne extérieure à l'équipe, y compris celui qui a ouvert le ticket.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-awaiting-requester = En attente du demandeur
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-awaiting-requester-hint = Compte à partir d'une réponse publique de l'équipe à laquelle personne d'extérieur n'a répondu depuis. Une réponse du demandeur l'arrête.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-until-due-at = Avant l'échéance
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-until-due-at-hint = Compte à rebours jusqu'à la fin du jour d'échéance du ticket. Ne tourne pas tant qu'il n'a pas d'échéance.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-after-label = Délai après le départ de l'horloge
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-before-label = Délai avant la fin du jour d'échéance
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-unit-label = Unité
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-unit-minutes = Minutes
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-unit-hours = Heures
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-unit-days = Jours
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-repeat-label = Répéter tant que l'horloge tourne
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-every-label = Intervalle
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-hint = La règle ne surveille que les tickets ouverts. Quand elle passe en production, les tickets qui ont déjà dépassé le délai sont traités peu après.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-clock-missing = Choisissez l'horloge que la règle surveille.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-after-missing = Indiquez combien de temps la règle attend.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-after-range = Indiquez un délai de 1 minute à 365 jours.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-before-range = Indiquez un délai de 0 minute à 365 jours avant l'échéance.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-repeat-missing = Indiquez à quelle fréquence la règle se répète.
+# MT: pending native review (fr-FR)
+admin-rule-editor-elapsed-repeat-range = Indiquez une répétition de 1 heure à 365 jours.
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-duration-minutes =
+    { $count ->
+        [one] { $count } minute
+       *[other] { $count } minutes
+    }
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-duration-hours =
+    { $count ->
+        [one] { $count } heure
+       *[other] { $count } heures
+    }
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-duration-days =
+    { $count ->
+        [one] { $count } jour
+       *[other] { $count } jours
+    }
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-summary-since-created = Quand un ticket a { $duration }.
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-summary-since-status-change = Quand un ticket a gardé son statut pendant { $duration }.
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-summary-since-assigned = Quand un ticket a gardé son responsable pendant { $duration }.
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-summary-since-last-agent-reply = Quand l'équipe a répondu publiquement sur un ticket pour la dernière fois il y a { $duration }.
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-summary-since-last-customer-reply = Quand le demandeur a écrit sur un ticket pour la dernière fois il y a { $duration }.
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-summary-awaiting-requester = Quand un ticket attend le demandeur depuis { $duration }.
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-summary-until-due-at = Quand un ticket arrive à échéance dans { $duration }.
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-summary-until-due-at-zero = Quand un ticket atteint la fin de son jour d'échéance.
+# MT: pending native review (fr-FR)
+admin-rule-elapsed-summary-repeat = Elle se répète { $duration } après chaque exécution tant que l'horloge tourne.
+# MT: pending native review (fr-FR)
+admin-rule-preview-elapsed-note = Ce décompte porte sur les tickets récents qui remplissent les conditions, ouverts ou fermés. L'horloge n'est pas vérifiée ici, et une condition sur les minutes d'attente compte comme remplie.
+# MT: pending native review (fr-FR)
+admin-rule-conditions-problem-countdown = L'horloge d'échéance fait un compte à rebours, donc les minutes d'attente n'atteignent jamais cette valeur. Supprimez la condition et réglez le délai sur le déclencheur.
+# MT: pending native review (fr-FR)
+admin-rule-conditions-problem-zero-always = « Au moins 0 » est toujours vrai. Choisissez un nombre supérieur à 0, ou supprimez la condition.
+# MT: pending native review (fr-FR)
+admin-rule-conditions-problem-zero-never = « Moins de 0 » n'est jamais vrai. Choisissez un nombre supérieur à 0.

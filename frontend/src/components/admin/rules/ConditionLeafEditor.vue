@@ -40,7 +40,7 @@ const def = computed(() => fieldDef(props.leaf.field))
 const shape = computed(() => valueShape(props.leaf.op))
 
 const fieldOptions = computed(() => {
-  const options = fieldsFor(ctx.trigger()).map((f) => ({ value: f.name, label: ctx.fieldLabel(f.name) }))
+  const options = fieldsFor(ctx.trigger(), ctx.clock()).map((f) => ({ value: f.name, label: ctx.fieldLabel(f.name) }))
   // A field from another trigger stays listed so the leaf still reads.
   if (!options.some((o) => o.value === props.leaf.field)) {
     options.push({ value: props.leaf.field, label: ctx.fieldLabel(props.leaf.field) })
@@ -88,7 +88,7 @@ const listValue = computed<unknown[]>(() => (Array.isArray(props.leaf.value) ? p
 const textValue = computed(() => (typeof props.leaf.value === 'string' ? props.leaf.value : ''))
 const uuidList = computed(() => listValue.value.filter((v): v is string => typeof v === 'string'))
 
-const problem = computed(() => leafProblem(props.leaf, ctx.trigger()))
+const problem = computed(() => leafProblem(props.leaf, ctx.trigger(), ctx.clock()))
 
 function edit(change: { field?: string; op?: RuleConditionOp; value?: unknown }): void {
   ctx.edit(updateLeaf(ctx.root(), props.path, change))

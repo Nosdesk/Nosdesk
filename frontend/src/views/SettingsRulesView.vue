@@ -24,6 +24,7 @@ import SearchInput from '@/components/common/SearchInput.vue';
 import StatusPill from '@/components/common/StatusPill.vue';
 import StarterRulesDialog from '@/components/admin/rules/StarterRulesDialog.vue';
 import { EVENT_RULES_RUN, promoteControls } from '@/components/admin/rules/eventRuleGate';
+import { elapsedSummary, readTriggerConfig } from '@/components/admin/rules/triggerConfig';
 import type { StatusPillTone } from '@/components/common/statusPillTone';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
@@ -94,6 +95,11 @@ function formatLastFired(value: string | null): string {
 
 function triggerLabel(kind: RuleTriggerKind): string {
   return t(`admin-rules-trigger-${kind.replace(/_/g, '-')}`);
+}
+
+/** A time-elapsed rule says when it runs, under its trigger. */
+function triggerDetail(rule: Rule): string | null {
+  return rule.trigger_kind === 'time_elapsed' ? elapsedSummary(t, readTriggerConfig(rule.trigger_config)) : null;
 }
 
 function stateLabel(state: RuleState): string {
@@ -287,7 +293,14 @@ async function setLive(rule: Rule, live: boolean): Promise<void> {
                 {{ rule.description }}
               </div>
             </td>
-            <td class="py-2 text-secondary">{{ triggerLabel(rule.trigger_kind) }}</td>
+            <td class="py-2 text-secondary">
+              <div class="flex flex-col gap-0.5">
+                <span>{{ triggerLabel(rule.trigger_kind) }}</span>
+                <span v-if="triggerDetail(rule)" class="text-xs max-w-xs" data-test="trigger-detail">
+                  {{ triggerDetail(rule) }}
+                </span>
+              </div>
+            </td>
             <td class="py-2">
               <StatusPill
                 :label="stateLabel(isArchived(rule) ? 'archived' : rule.state)"
