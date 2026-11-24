@@ -9,11 +9,10 @@ that is the name in the startup log and in `GET /api/admin/license`. Hosted
 (SaaS) deployments provision workspaces through the control plane and are
 not affected.
 
-A license key is separate from the source license in [LICENSE](LICENSE),
-the Business Source License 1.1, which lets you run Nosdesk in production
-unless you offer it as a Hosted Helpdesk Service. Each release carries its
-own Change Date, when it converts to the GNU AGPL v3: 2029-10-29 for every
-release through 1.1.x, 2030-01-01 from 1.2.0.
+A license key is separate from the source license in [LICENSE](LICENSE).
+From 1.2.0 that is the GNU AGPL v3. Releases through 1.1.x are under the
+Business Source License 1.1, which converts them to the AGPL v3 on
+2029-10-29.
 
 The cap is enforced server-side in `admin_workspaces::create_workspace`:
 on self-hosted deployments, once the active-workspace count reaches the

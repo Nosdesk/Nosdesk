@@ -41,7 +41,7 @@ pub struct PluginManifest {
     pub description: Option<String>,
 
     /// SPDX license identifier (e.g. "MIT", "Apache-2.0",
-    /// "BUSL-1.1"). Optional but strongly recommended.
+    /// "AGPL-3.0-only"). Optional but strongly recommended.
     pub license: Option<String>,
 
     /// Author display name. For non-official plugins (verified /
