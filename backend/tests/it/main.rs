@@ -47,6 +47,7 @@ mod asset_records_api;
 mod asset_records_repo;
 mod asset_records_summary;
 mod asset_repair_transition_record;
+mod asset_replacement;
 mod asset_settings_currency;
 mod asset_timeline;
 mod assignable_people;

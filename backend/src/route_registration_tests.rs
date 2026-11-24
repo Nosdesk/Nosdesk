@@ -529,6 +529,7 @@ async fn assets_config_routes_registered() {
             ("PATCH", "/assets/1/records/1"),
             ("DELETE", "/assets/1/records/1"),
             ("PUT", "/assets/1/records/1/media"),
+            ("POST", "/assets/1/records/1/replacement"),
             ("GET", "/assets/1/timeline"),
             ("GET", "/assets/1/media"),
             ("POST", "/assets/1/media"),

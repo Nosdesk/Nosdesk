@@ -277,6 +277,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             web::put().to(crate::handlers::asset_records::set_media),
         )
         .route(
+            "/assets/{id:\\d+}/records/{record_id:\\d+}/replacement",
+            web::post().to(crate::handlers::asset_replacement::carry_over),
+        )
+        .route(
             "/assets/{id:\\d+}/timeline",
             web::get().to(crate::handlers::asset_timeline::list_for_asset),
         )
