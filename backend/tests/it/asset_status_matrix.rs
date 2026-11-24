@@ -364,6 +364,20 @@ async fn a_create_starts_in_its_status_and_nothing_goes_back_to_on_order() {
         assert_eq!(status_of(&f, id), "in_stock");
     }
 
+    // The rest of the body reads as it always did beside the status.
+    let mut stocked = create(Some("in_stock"));
+    stocked["quantity"] = json!(3);
+    stocked["unit"] = json!("box");
+    stocked["attributes"] = json!({});
+    stocked["kind"] = json!("generic");
+    let (got, created) = call(&f, f.agent, Method::POST, "/api/assets", Some(stocked)).await;
+    assert_eq!(got, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_i64().expect("id") as i32;
+    let row = in_ws(&f, |c| asset_repo::get_device_by_id(c, id));
+    assert_eq!(row.status, "in_stock");
+    assert_eq!(row.quantity, Some(bigdecimal::BigDecimal::from(3)));
+    assert_eq!(row.unit.as_deref(), Some("box"));
+
     for status in [None, Some("in_service"), Some("")] {
         let (got, created) = call(
             &f,

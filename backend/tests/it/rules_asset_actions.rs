@@ -822,13 +822,16 @@ fn rule_moves_write_no_records() {
 }
 
 /// A move the status rules refuse reads in their words, naming the asset:
-/// a loan whose asset drifted off on loan can't be returned by a step.
+/// a loan whose asset drifted off on loan can't be returned by a step. Every
+/// return is checked before any is made, so the loan before it stays out.
 #[test]
 fn a_refused_move_reads_in_the_status_rules_words() {
     let s = setup();
     let a = &s.seeded.a;
     let leaver = a.member_uuid;
     let ticket_id = ticket(&s.pool, a, Some(leaver));
+    let fine = asset(&s.pool, a, "Fine loaner", "in_stock", None);
+    lend(&s.pool, a, fine, leaver);
     let loaner = asset(&s.pool, a, "Drifted loaner", "in_stock", None);
     lend(&s.pool, a, loaner, leaver);
     diesel::update(assets::table.find(loaner))
@@ -849,4 +852,6 @@ fn a_refused_move_reads_in_the_status_rules_words() {
         other => panic!("expected the step to be refused, got {other:?}"),
     }
     assert!(loans_of(&s.admin_pool, loaner)[0].returned_at.is_none());
+    assert!(loans_of(&s.admin_pool, fine)[0].returned_at.is_none());
+    assert_eq!(asset_state(&s.admin_pool, fine).0, "on_loan");
 }

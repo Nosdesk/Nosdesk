@@ -706,6 +706,20 @@ mod tests {
     }
 
     #[test]
+    fn a_status_outside_the_nine_is_not_loanable() {
+        let mut conn = setup_test_connection();
+        let borrower = TestFixtures::create_user(&mut conn, "borrower", "user");
+        let a = asset(&mut conn, "Loaner-stray");
+        diesel::update(assets::table.find(a.id))
+            .set(assets::status.eq("broken"))
+            .execute(&mut conn)
+            .unwrap();
+        let err = issue(&mut conn, issue_input(a.id, borrower.uuid)).unwrap_err();
+        assert!(matches!(err, LoanError::NotLoanable(s) if s == "broken"));
+        assert!(active_for_asset(&mut conn, a.id).unwrap().is_none());
+    }
+
+    #[test]
     fn return_reverts_status_and_frees_the_asset() {
         let mut conn = setup_test_connection();
         let borrower = TestFixtures::create_user(&mut conn, "borrower", "user");

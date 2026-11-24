@@ -2416,7 +2416,13 @@ fn move_asset(
         },
     )
     .map(|_| ())
-    .map_err(|e| transition_failed(index, asset, e))
+    .or_else(|e| match e {
+        // Already there: nothing to move.
+        crate::repository::asset_lifecycle::TransitionError::Refused(r) if r.is_same_status() => {
+            Ok(())
+        }
+        e => Err(transition_failed(index, asset, e)),
+    })
 }
 
 /// `assign_assets_to_requester` action. Each linked asset gets the requester
@@ -2600,9 +2606,20 @@ fn execute_return_assets(
     use crate::repository::asset_loans;
 
     let requester = requester_of(ticket, index)?;
+    let active = asset_loans::active_for_borrower(conn, &requester)?;
+    // Every return asked of the status rules first, in shadow too, so one
+    // the ledger would refuse refuses the step before anything is written.
+    for (loan, asset) in &active {
+        let back = crate::repository::asset_lifecycle::LoanMove::Return {
+            to: loan.status_before.clone(),
+        };
+        if let Err(e) = crate::repository::asset_lifecycle::check_for_loan(asset, &back) {
+            return Err(transition_failed(index, asset, e));
+        }
+    }
     let mut returned_loans = Vec::new();
     let mut returned_assets = Vec::new();
-    for (loan, asset) in asset_loans::active_for_borrower(conn, &requester)? {
+    for (loan, asset) in active {
         returned_loans.push(loan.id);
         returned_assets.push(asset.id);
         if !shadow {

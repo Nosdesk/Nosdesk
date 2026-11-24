@@ -35,7 +35,7 @@ use crate::repository::asset_records::{
 use crate::repository::assets as assets_repo;
 use crate::schema::{asset_disposals, asset_lifecycle_events, assets};
 use crate::services::assets::record_catalogue;
-use crate::services::assets::status_rules::{self, MoveFacts, MoveRefused, Mover};
+use crate::services::assets::status_rules::{self, MoveFacts, MoveRefused, Mover, RefusalCode};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
@@ -185,7 +185,9 @@ pub enum LoanMove {
 }
 
 /// Whether the loan ledger may make `mv` on `asset`: an issue only from a
-/// loanable status, a return only from `on_loan`. The status it moves to.
+/// loanable status, a return only from `on_loan`. The status it moves to. A
+/// stored status outside the nine is neither, so the ledger never records
+/// one as the status a return goes back to.
 pub fn check_for_loan(asset: &Asset, mv: &LoanMove) -> Result<AssetStatus, TransitionError> {
     let (mover, to) = match mv {
         LoanMove::Issue => (Mover::LoanIssue, AssetStatus::OnLoan),
@@ -195,8 +197,20 @@ pub fn check_for_loan(asset: &Asset, mv: &LoanMove) -> Result<AssetStatus, Trans
                 .ok_or_else(|| TransitionError::UnknownStatus(to.clone()))?,
         ),
     };
-    check_from_stored(
-        &asset.status,
+    let Some(from) = AssetStatus::from_str_opt(&asset.status) else {
+        let code = match mover {
+            Mover::LoanIssue => RefusalCode::NotLoanable,
+            _ => RefusalCode::NotOnLoan,
+        };
+        return Err(MoveRefused {
+            code,
+            from: None,
+            to,
+        }
+        .into());
+    };
+    status_rules::check_move(
+        from,
         to,
         MoveFacts {
             mover,
@@ -653,7 +667,6 @@ mod tests {
     use crate::models::NewAsset;
     use crate::repository::asset_loans::{self, IssueLoan};
     use crate::repository::assets::{create_device, get_device_by_id};
-    use crate::services::assets::status_rules::RefusalCode;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     fn refusal(err: TransitionError) -> RefusalCode {
