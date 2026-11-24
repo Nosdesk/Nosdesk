@@ -484,6 +484,7 @@ async fn assets_config_routes_registered() {
             ("GET", "/assets/export"),
             ("GET", "/assets/locations"),
             ("GET", "/assets/itad-vendors"),
+            ("GET", "/assets/statuses"),
             ("GET", "/assets/record-types"),
             ("GET", "/assets/record-types/catalogue"),
             ("POST", "/assets/record-types/catalogue/repair"),

@@ -49,6 +49,8 @@ mod asset_records_summary;
 mod asset_repair_transition_record;
 mod asset_replacement;
 mod asset_settings_currency;
+mod asset_status_matrix;
+mod asset_status_write_lint;
 mod asset_timeline;
 mod assignable_people;
 mod assignee_eligibility;

@@ -35,13 +35,16 @@ use crate::repository::{
     asset_groups, asset_record_types as types_repo, asset_records as records_repo, assets, tickets,
 };
 use crate::schema::{asset_records, ticket_assets, tickets as tickets_table, workflow_states};
+use crate::services::assets::status_rules;
 
-/// The statuses the old asset may move to.
-pub const OLD_ASSET_STATUSES: [AssetStatus; 3] = [
-    AssetStatus::Retired,
-    AssetStatus::InStock,
-    AssetStatus::Disposed,
-];
+/// The statuses the old asset may move to: the old-asset targets of the
+/// status rules ([`status_rules::flags`]), in picker order.
+pub fn old_asset_statuses() -> Vec<AssetStatus> {
+    AssetStatus::ALL
+        .into_iter()
+        .filter(|s| status_rules::flags(*s).old_asset_target)
+        .collect()
+}
 
 /// The old asset's move: its status, and the disposal record a move to
 /// `disposed` carries.

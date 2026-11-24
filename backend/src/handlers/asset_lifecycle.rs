@@ -9,11 +9,15 @@
 //! A transition writes an asset record only when the body asks: `record`
 //! opens one of the type the target status opens with, and
 //! `complete_record` completes the open one the status it leaves opened.
+//!
+//! `GET /assets/statuses` lists the categories with their flags and, for
+//! staff, the moves the status rules allow out of each, so a client offers
+//! what the server would accept.
 
 use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse, Responder};
 use chrono::{DateTime, NaiveDate, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
@@ -29,6 +33,7 @@ use crate::repository::{
     },
     assets as assets_repo,
 };
+use crate::services::assets::status_rules::{self, MoveRefused, RefusalCode};
 
 #[derive(Debug, Deserialize)]
 pub struct TransitionBody {
@@ -297,21 +302,9 @@ pub(crate) fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpRespo
         TransitionError::AssetNotFound => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
         }
-        TransitionError::NoOp => errors::bad_request("Asset is already in the requested status"),
-        TransitionError::FromDisposed => {
-            errors::conflict("Disposed assets can't change status; disposal is final")
-        }
-        TransitionError::OnLoanReturnViaLoan => {
-            errors::conflict("Asset is out on loan; return the loan to change its status")
-        }
-        TransitionError::OnLoanNeedsActiveLoan => errors::conflict(
-            "On-loan status is set by issuing a loan; there is no active loan to restore",
-        ),
-        TransitionError::DisposalRequired => {
-            errors::bad_request("Disposing an asset requires a disposal record")
-        }
-        TransitionError::DisposalNotAllowed => {
-            errors::bad_request("A disposal record is only accepted when disposing an asset")
+        TransitionError::Refused(r) => refusal_response(r),
+        TransitionError::UnknownStatus(status) => {
+            errors::bad_request(format!("Unknown asset status '{status}'"))
         }
         TransitionError::InvalidSanitizationMethod(method) => errors::bad_request(format!(
             "Unknown sanitization method '{method}'; expected one of: {}",
@@ -347,6 +340,68 @@ pub(crate) fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpRespo
             errors::internal("Failed to change asset status")
         }
     }
+}
+
+/// A refused move: its HTTP status (400 for a body that can't be right, 409
+/// for the asset's state, 422 for a move no asset may make), its message and
+/// its stable `code`.
+pub(crate) fn refusal_response(r: MoveRefused) -> HttpResponse {
+    let status = match r.code {
+        RefusalCode::SameStatus | RefusalCode::NeedsDisposal | RefusalCode::DisposalNotAllowed => {
+            StatusCode::BAD_REQUEST
+        }
+        RefusalCode::Terminal
+        | RefusalCode::LoanOwned
+        | RefusalCode::NeedsActiveLoan
+        | RefusalCode::NotLoanable
+        | RefusalCode::NotOnLoan => StatusCode::CONFLICT,
+        RefusalCode::StartOnly => StatusCode::UNPROCESSABLE_ENTITY,
+    };
+    errors::with_fields(
+        status,
+        r.code.as_str(),
+        r.message(),
+        json!({ "message_key": r.code.message_key() }),
+    )
+}
+
+/// One category as `GET /assets/statuses` lists it.
+#[derive(Debug, Serialize)]
+struct CategoryView {
+    key: AssetStatus,
+    /// The status a new asset gets when the create names none.
+    default: bool,
+    #[serde(flatten)]
+    flags: status_rules::CategoryFlags,
+    /// The moves by hand out of this category; staff only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    targets: Option<Vec<status_rules::Target>>,
+}
+
+/// GET the status categories, in picker order, with their flags and, for
+/// staff, the manual targets of each and what each needs (`disposal`,
+/// `active_loan`, `no_active_loan`). `statuses` lists the workspace's named
+/// statuses; none exist yet. Open to whoever sees assets.
+pub async fn list_statuses(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    match tc.run(|conn| crate::handlers::assets::require_assets_visible(conn, &auth)) {
+        Ok(()) => {}
+        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Not found"),
+        Err(e) => {
+            error!(error = ?e, "failed to check asset visibility");
+            return errors::internal("Failed to load asset statuses");
+        }
+    }
+    let staff = auth.can_handle_tickets();
+    let categories: Vec<CategoryView> = AssetStatus::ALL
+        .into_iter()
+        .map(|key| CategoryView {
+            key,
+            default: key.as_str() == AssetStatus::default_str(),
+            flags: status_rules::flags(key),
+            targets: staff.then(|| status_rules::manual_targets(key)),
+        })
+        .collect();
+    HttpResponse::Ok().json(json!({ "categories": categories, "statuses": [] }))
 }
 
 /// GET the disposal record for an asset (`None` -> 404). Read on demand for the

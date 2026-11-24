@@ -1046,7 +1046,7 @@ async fn an_event_rule_runs_asset_steps() {
     );
     let ticket = h.ticket(a, "New starter");
     let laptop = h.as_admin(a, |c| {
-        let asset = backend::repository::assets::create_device(
+        let (asset, _) = backend::repository::asset_lifecycle::create(
             c,
             NewAsset {
                 name: "Laptop".to_string(),
@@ -1066,8 +1066,11 @@ async fn an_event_rule_runs_asset_steps() {
                 low_stock_threshold: None,
                 created_by: None,
             },
-        )?;
-        backend::repository::assets::set_status(c, asset.id, "in_stock")?;
+            None,
+            backend::models::AssetStatus::InStock,
+            None,
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))?;
         tickets::add_device_to_ticket(c, ticket, asset.id)?;
         Ok(asset.id)
     });

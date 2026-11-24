@@ -6892,6 +6892,16 @@ asset-status-retired = Buiten gebruik
 asset-status-lost = Verloren
 asset-status-disposed = Afgevoerd
 asset-status-unknown = Onbekend
+# MACHINE TRANSLATION, pending native review
+asset-move-refused-same-status = Het item heeft de gevraagde status al
+asset-move-refused-terminal = Afgevoerde items kunnen niet van status veranderen; afvoeren is definitief
+asset-move-refused-loan-owned = Het item is uitgeleend; neem de uitlening in om de status te wijzigen
+asset-move-refused-needs-active-loan = De status Uitgeleend wordt gezet door een uitlening; er is geen actieve uitlening om te herstellen
+asset-move-refused-not-loanable = Een item met de status { $status } kan niet worden uitgeleend
+asset-move-refused-not-on-loan = Het item is niet uitgeleend, dus de uitlening kan niet worden ingenomen
+asset-move-refused-needs-disposal = Voor het afvoeren van een item is een afvoerregistratie nodig
+asset-move-refused-disposal-not-allowed = Een afvoerregistratie wordt alleen geaccepteerd bij het afvoeren van een item
+asset-move-refused-start-only = De status { $status } wordt alleen gezet bij het aanmaken van een item; een item kan er niet naar terug
 
 asset-lifecycle-heading = Statusgeschiedenis
 asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.

@@ -2274,9 +2274,21 @@ pub const RULE_ASSIGNED_REASON: &str = "Assigned to the requester by a rule";
 /// Lifecycle reason on a loan or asset a rule takes back from the requester.
 pub const RULE_RETURNED_REASON: &str = "Taken back from the requester by a rule";
 
-/// Statuses an assign step puts in service. An asset in repair, on loan,
-/// retired, lost or disposed isn't one to hand out.
-pub const ASSIGNABLE_FROM: &[&str] = &["in_service", "in_stock", "on_order", "in_transit"];
+/// Whether an assign step hands out an asset in `status`: one whose
+/// category is assignable
+/// ([`status_rules::flags`](crate::services::assets::status_rules::flags)).
+/// An asset in repair, on loan, retired, lost or disposed isn't one to hand
+/// out.
+fn assignable(status: &str) -> bool {
+    crate::models::AssetStatus::from_str_opt(status)
+        .is_some_and(|s| crate::services::assets::status_rules::flags(s).assignable)
+}
+
+/// Whether a lend step lends an asset in `status`.
+fn loanable(status: &str) -> bool {
+    crate::models::AssetStatus::from_str_opt(status)
+        .is_some_and(|s| crate::services::assets::status_rules::flags(s).loanable)
+}
 
 /// Longest loan a lend step sets, in days.
 pub const MAX_LOAN_DAYS: i64 = 3650;
@@ -2317,6 +2329,18 @@ fn status_words(status: &str) -> String {
     status.replace('_', " ")
 }
 
+/// A status move the rules refused, in their words.
+fn move_refused(
+    index: usize,
+    asset: &crate::models::Asset,
+    r: crate::services::assets::status_rules::MoveRefused,
+) -> ApplyError {
+    ApplyError::AssetRefused {
+        index,
+        message: format!("\"{}\": {}", asset.name, r.message()),
+    }
+}
+
 fn transition_failed(
     index: usize,
     asset: &crate::models::Asset,
@@ -2325,6 +2349,7 @@ fn transition_failed(
     use crate::repository::asset_lifecycle::TransitionError;
     match e {
         TransitionError::Db(e) => ApplyError::Db(e),
+        TransitionError::Refused(r) => move_refused(index, asset, r),
         other => asset_refused(index, asset, &format!("can't change status ({other:?})")),
     }
 }
@@ -2343,6 +2368,7 @@ fn loan_failed(
             asset,
             &format!("is {}, so it can't be lent", status_words(&status)),
         ),
+        LoanError::Refused(r) => move_refused(index, asset, r),
         other => asset_refused(index, asset, &format!("can't change its loan ({other:?})")),
     }
 }
@@ -2411,8 +2437,10 @@ fn execute_assign_assets(
     }
     let requester = requester_of(ticket, index)?;
     for asset in &assets {
-        if asset.external_sync_source.is_none() && !ASSIGNABLE_FROM.contains(&asset.status.as_str())
-        {
+        if asset.external_sync_source.is_some() {
+            continue;
+        }
+        if !assignable(&asset.status) {
             return Err(asset_refused(
                 index,
                 asset,
@@ -2421,6 +2449,16 @@ fn execute_assign_assets(
                     status_words(&asset.status)
                 ),
             ));
+        }
+        // The move in service, asked of the rules the write asks.
+        let in_service = crate::models::AssetStatus::InService;
+        match crate::repository::asset_lifecycle::check_from_stored(
+            &asset.status,
+            in_service,
+            crate::services::assets::status_rules::MoveFacts::by_hand(false, false),
+        ) {
+            Err(r) if !r.is_same_status() => return Err(move_refused(index, asset, r)),
+            _ => {}
         }
     }
     let mut assigned = Vec::new();
@@ -2509,7 +2547,7 @@ fn execute_lend_assets(
                 "is on loan to someone else, so it can't be lent",
             ));
         }
-        if !asset_loans::LOANABLE_FROM.contains(&asset.status.as_str()) {
+        if !loanable(&asset.status) {
             return Err(asset_refused(
                 index,
                 asset,

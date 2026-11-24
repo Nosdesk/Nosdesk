@@ -35,14 +35,16 @@
 //! change never leaves the asset holding attributes the new kind doesn't
 //! define. Any other row is an error that points to the asset page.
 //!
-//! Status moves through the lifecycle rules
-//! ([`asset_lifecycle_repo::transition`], reason Imported, naming the job),
-//! after the asset's own write and, on a new asset, after its Imported
-//! event: a new asset starts in service and moves from there. A blank cell
+//! Status follows the status rules ([`status_rules`]). A new asset is
+//! created in the row's status with one Imported event
+//! ([`asset_lifecycle_repo::create`]); a blank cell starts it in service. An
+//! existing asset moves through [`asset_lifecycle_repo::transition`]
+//! (reason Imported, naming the job) after its own write; a blank cell
 //! leaves the status. Disposed and on loan come from a disposal or a loan,
-//! a disposed asset keeps its status, and one out on loan leaves it only
-//! by its return; the dry run refuses each such row as the transition
-//! would. A synced asset's status moves too, as on the asset page.
+//! a disposed asset keeps its status, one out on loan leaves it only by its
+//! return, and nothing moves back to on order; the dry run asks the same
+//! rules the write does and refuses each such row in their words. A synced
+//! asset's status moves too, as on the asset page.
 
 use bigdecimal::{BigDecimal, ToPrimitive};
 use chrono::NaiveDate;
@@ -58,7 +60,9 @@ use crate::models::{
 };
 use crate::repository::asset_groups as group_repo;
 use crate::repository::asset_kinds as kind_repo;
-use crate::repository::asset_lifecycle::{self as asset_lifecycle_repo, TransitionError};
+use crate::repository::asset_lifecycle::{
+    self as asset_lifecycle_repo, FirstEvent, TransitionError,
+};
 use crate::repository::asset_loans as asset_loans_repo;
 use crate::repository::asset_models as model_repo;
 use crate::repository::assets as asset_repo;
@@ -66,6 +70,7 @@ use crate::repository::manufacturers as manufacturer_repo;
 use crate::repository::workspaces as workspace_repo;
 use crate::services::assets::kinds::{validate_attributes, AttributeError};
 use crate::services::assets::model_stamp::stamp_default_attributes;
+use crate::services::assets::status_rules::{self, MoveFacts, MoveRefused};
 use crate::services::assets::SYNC_OWNED_ATTRIBUTE_KEYS;
 
 use super::catalog::Catalog;
@@ -118,9 +123,10 @@ const STATUSES: &[(AssetStatus, &str)] = &[
 /// asset page sets them, with the disposal record or the loan.
 pub const STATUS_SET_AFTER_IMPORT: &str = "Set by a disposal or a loan after import";
 
-/// Whether only a disposal or a loan sets `status`, never an import.
+/// Whether only a disposal or a loan sets `status`, never an import: a
+/// status no asset starts in.
 fn set_after_import(status: AssetStatus) -> bool {
-    matches!(status, AssetStatus::Disposed | AssetStatus::OnLoan)
+    !status_rules::flags(status).start
 }
 
 /// A status cell as the status it names, by key or label, ignoring case,
@@ -811,15 +817,33 @@ impl Importer for AssetImporter {
             let texts = made
                 .settle(conn, &lookups, &names, &planned, ctx.actor, &mut created)
                 .map_err(|e| row_write_error(row_num, e))?;
+            // A new asset starts in the row's status with its Imported event.
+            let mut first_event = None;
             let (outcome, written) = match planned.action {
-                RowAction::Create => (
-                    RowOutcome::Create,
-                    asset_repo::create_device_linked(
+                RowAction::Create => {
+                    let status = planned.status_to.unwrap_or(AssetStatus::InService);
+                    let created = asset_lifecycle_repo::create(
                         conn,
                         build_new_asset(row, &planned, &texts, ctx.actor, mark),
                         texts.link,
-                    ),
-                ),
+                        status,
+                        Some(FirstEvent::imported(ctx.actor, ctx.job_id)),
+                    );
+                    let created = match created {
+                        Ok((asset, event)) => {
+                            first_event = event;
+                            Ok(asset)
+                        }
+                        Err(TransitionError::Refused(r)) => {
+                            return Err(status_refused(row_num, &trimmed(row, "name"), r))
+                        }
+                        Err(TransitionError::Db(e)) => Err(e),
+                        Err(other) => Err(diesel::result::Error::QueryBuilderError(
+                            format!("{other:?}").into(),
+                        )),
+                    };
+                    (RowOutcome::Create, created)
+                }
                 // Routed through update_device so the asset.updated sync
                 // event fires, matching the create path.
                 RowAction::Update(asset_id) => (
@@ -883,14 +907,12 @@ impl Importer for AssetImporter {
                         set.into_iter().filter(|id| !current.contains(id)).collect();
                 }
             }
-            // A new asset's first event, then the status move: the last
-            // event the import writes is the one the row keeps.
-            if outcome == RowOutcome::Create {
-                let event =
-                    asset_lifecycle_repo::record_imported(conn, &asset, ctx.actor, ctx.job_id)?;
+            // A new asset's one event, or an existing one's status move: the
+            // event the row keeps.
+            if let Some(event) = first_event {
                 result.transition_id = Some(event.id);
             }
-            if let Some(to) = planned.status_to {
+            if let (Some(to), true) = (planned.status_to, outcome != RowOutcome::Create) {
                 let (moved, event) = move_status(conn, asset, to, ctx, row_num)?;
                 asset = moved;
                 if let Some(event) = event {
@@ -2034,13 +2056,11 @@ fn plan_row(
     }
 }
 
-/// The status a row moves its asset to, checked as
-/// [`asset_lifecycle_repo::transition`] checks it so the commit's
-/// transition goes through: `None` for a blank cell or the status the asset
-/// already has (a new asset starts in service). Disposed and on loan come
-/// from a disposal or a loan; a disposed asset keeps its status, and one
-/// out on loan leaves it only by its return. The error, worded for the
-/// admin.
+/// The status a row puts its asset in, asked of the status rules the commit
+/// asks ([`status_rules::check_initial`] for a new asset, a move by hand for
+/// an existing one): `None` for a blank cell, the status the asset already
+/// has, or in service on a new asset. The error is the rules' refusal,
+/// naming the asset.
 fn plan_status(
     row: &HashMap<String, String>,
     existing: Option<&Asset>,
@@ -2051,39 +2071,36 @@ fn plan_status(
         return Ok(None);
     }
     let to = read_status(&cell).ok_or_else(|| format!("'{cell}' isn't a status"))?;
-    let from = existing.map_or(AssetStatus::default_str(), |a| a.status.as_str());
-    if to.as_str() == from {
-        return Ok(None);
+    let checked = match existing {
+        None if to.as_str() == AssetStatus::default_str() => return Ok(None),
+        None => status_rules::check_initial(to),
+        Some(asset) => asset_lifecycle_repo::check_from_stored(
+            &asset.status,
+            to,
+            MoveFacts::by_hand(lookups.on_loan.contains(&asset.id), false),
+        ),
+    };
+    match checked {
+        Ok(()) => Ok(Some(to)),
+        Err(r) if r.is_same_status() => Ok(None),
+        Err(r) => {
+            let name = existing.map_or_else(|| trimmed(row, "name"), |a| a.name.clone());
+            Err(refusal_text(&name, r))
+        }
     }
-    let on_loan = existing.is_some_and(|a| lookups.on_loan.contains(&a.id));
-    match to {
-        AssetStatus::Disposed => {
-            return Err(format!(
-                "'{cell}' is set by recording a disposal on the asset page"
-            ));
-        }
-        _ if from == AssetStatus::Disposed.as_str() => {
-            return Err(disposal_is_final(existing.map_or("", |a| a.name.as_str())));
-        }
-        _ if from == AssetStatus::OnLoan.as_str() && on_loan => {
-            return Err(out_on_loan(existing.map_or("", |a| a.name.as_str())));
-        }
-        AssetStatus::OnLoan if !on_loan => {
-            return Err(format!(
-                "'{cell}' is set by issuing a loan on the asset page"
-            ));
-        }
-        _ => {}
-    }
-    Ok(Some(to))
 }
 
-fn disposal_is_final(name: &str) -> String {
-    format!("{name} is disposed, and disposal is final; its status can't change")
+/// A status refusal in the admin's words: the asset, then the rule.
+fn refusal_text(name: &str, r: MoveRefused) -> String {
+    format!("{name}: {}", r.message())
 }
 
-fn out_on_loan(name: &str) -> String {
-    format!("{name} is out on loan; return the loan on the asset page to change its status")
+fn status_refused(row: usize, name: &str, r: MoveRefused) -> CommitError {
+    CommitError::Row {
+        row,
+        column: Some("status".to_string()),
+        message: refusal_text(name, r),
+    }
 }
 
 /// The commit's status move for a row, through the lifecycle rules: reason
@@ -2117,29 +2134,21 @@ fn move_status(
     match asset_lifecycle_repo::transition(conn, input) {
         Ok((moved, event)) => Ok((moved, Some(event))),
         // Moved there since the plan was checked: nothing to write.
-        Err(TransitionError::NoOp) => {
+        Err(TransitionError::Refused(r)) if r.is_same_status() => {
             let current = asset_repo::get_device_by_id(conn, asset.id)?;
             Ok((current, None))
         }
-        Err(TransitionError::FromDisposed) => Err(refused(disposal_is_final(&name))),
-        Err(TransitionError::OnLoanReturnViaLoan) => Err(refused(out_on_loan(&name))),
-        Err(TransitionError::OnLoanNeedsActiveLoan) => Err(refused(
-            "On loan is set by issuing a loan on the asset page".to_string(),
-        )),
+        Err(TransitionError::Refused(r)) => Err(status_refused(row, &name, r)),
         Err(TransitionError::Db(e)) => Err(row_write_error(row, e)),
         Err(TransitionError::AssetNotFound) => {
             Err(CommitError::Db(diesel::result::Error::NotFound))
         }
+        // The move names a known status and asks for no disposal or record,
+        // so none of these can happen.
         Err(
-            TransitionError::DisposalRequired
-            | TransitionError::DisposalNotAllowed
-            | TransitionError::InvalidSanitizationMethod(_),
-        ) => Err(refused(
-            "Disposed is set by recording a disposal on the asset page".to_string(),
-        )),
-        // The move asks for no record, so none of these can happen.
-        Err(
-            e @ (TransitionError::NoRecordType { .. }
+            e @ (TransitionError::UnknownStatus(_)
+            | TransitionError::InvalidSanitizationMethod(_)
+            | TransitionError::NoRecordType { .. }
             | TransitionError::NoOpenRecord
             | TransitionError::RecordChoiceRequired { .. }
             | TransitionError::RecordNotOpen(_)

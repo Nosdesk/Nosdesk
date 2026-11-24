@@ -1,9 +1,9 @@
 //! The Status column: values matched to the lifecycle statuses (labels,
 //! saved answers, known other names), disposed and on loan listed but not
-//! pickable, a new asset's Imported event followed by its status move,
-//! updates moved through the lifecycle rules, the dry run refusing what
-//! those rules refuse, an unchanged status writing nothing, and the commit
-//! refusing a plan whose status moves changed since the check.
+//! pickable, a new asset created in its status with one Imported event,
+//! updates moved through the status rules, the dry run refusing what those
+//! rules refuse in their words, an unchanged status writing nothing, and the
+//! commit refusing a plan whose status moves changed since the check.
 
 use actix_web::http::StatusCode;
 use actix_web::test::TestRequest;
@@ -367,21 +367,25 @@ async fn status_values_match_in_layers_and_disposed_and_on_loan_cant_be_picked()
     }
 }
 
-/// A new asset gets its Imported event, then a move to the row's status
-/// through the lifecycle rules (reason Imported, naming the job, by the
-/// admin), and the row keeps that move as its `transition_id`, the status
-/// among what it wrote, and the asset's `updated_at` as it stands after the
-/// move. A blank status, or In service, leaves the asset in service with
-/// the Imported event alone.
+/// A new asset is created in the row's status with one Imported event, from
+/// no status (reason Imported, naming the job, by the admin), and the row
+/// keeps that event as its `transition_id`, the status among what it wrote,
+/// and the asset's `updated_at` as created. A blank status, or In service,
+/// starts the asset in service. On order is a status an asset starts in.
 #[actix_web::test]
-async fn a_new_asset_moves_to_its_status_after_the_imported_event() {
+async fn a_new_asset_starts_in_its_status_with_one_imported_event() {
     let db = TestDb::new();
     let pool = db.pool_with_size(4);
     let ws = import_workspace(&pool);
     let job = checked(
         &pool,
         &ws,
-        &file(&[("N-1", "In repair"), ("N-2", ""), ("N-3", "In service")]),
+        &file(&[
+            ("N-1", "In repair"),
+            ("N-2", ""),
+            ("N-3", "In service"),
+            ("N-4", "On order"),
+        ]),
         MAPPING,
         options(),
     )
@@ -401,28 +405,33 @@ async fn a_new_asset_moves_to_its_status_after_the_imported_event() {
     let moved = asset(&pool, "N-1");
     assert_eq!(moved.status, "in_repair");
     let history = events(&pool, moved.id);
-    assert_eq!(history.len(), 2, "{history:?}");
-    let (imported, transition) = (&history[0], &history[1]);
+    assert_eq!(history.len(), 1, "{history:?}");
+    let imported = &history[0];
     assert_eq!(imported.from_status, None);
-    assert_eq!(imported.to_status, "in_service");
+    assert_eq!(imported.to_status, "in_repair");
     assert_eq!(imported.reason.as_deref(), Some("Imported"));
-    assert_eq!(transition.from_status.as_deref(), Some("in_service"));
-    assert_eq!(transition.to_status, "in_repair");
-    assert_eq!(transition.reason.as_deref(), Some("Imported"));
-    for event in &history {
-        assert_eq!(event.metadata, serde_json::json!({ "import_job_id": id }));
-        assert_eq!(event.actor_uuid, Some(ws.admin_uuid));
-    }
-    assert_eq!(event_sync_actions(&pool, moved.id), 2);
+    assert_eq!(
+        imported.metadata,
+        serde_json::json!({ "import_job_id": id })
+    );
+    assert_eq!(imported.actor_uuid, Some(ws.admin_uuid));
+    assert_eq!(event_sync_actions(&pool, moved.id), 1);
 
     let n1 = row_result(&done, 2);
     assert_eq!(n1["outcome"], "create");
-    assert_eq!(n1["transition_id"], transition.id);
+    assert_eq!(n1["transition_id"], imported.id);
     assert_eq!(
         n1["fields_written"]["status"],
         serde_json::json!({ "before": null, "after": "in_repair" })
     );
     assert_eq!(n1["observed_updated_at"], moved.updated_at);
+
+    let ordered = asset(&pool, "N-4");
+    assert_eq!(ordered.status, "on_order");
+    let history = events(&pool, ordered.id);
+    assert_eq!(history.len(), 1, "{history:?}");
+    assert_eq!(history[0].from_status, None);
+    assert_eq!(history[0].to_status, "on_order");
 
     for (row, tag) in [(3, "N-2"), (4, "N-3")] {
         let stayed = asset(&pool, tag);
@@ -517,11 +526,12 @@ async fn an_update_moves_the_status_and_an_unchanged_status_writes_nothing() {
     );
 }
 
-/// The dry run refuses what the lifecycle rules would, each a row error on
-/// the Status column in the admin's words: a disposed asset keeps its
-/// status, one out on loan leaves it only by its return, and on loan and
-/// disposed come from a loan and a disposal. An asset left on loan with no
-/// loan out can be moved, and a status an asset already has is no move.
+/// The dry run refuses what the status rules would, each a row error on the
+/// Status column naming the asset, in the rules' words (the words the asset
+/// page's refusal has): a disposed asset keeps its status, one out on loan
+/// leaves it only by its return, on loan and disposed come from a loan and a
+/// disposal, and nothing moves back to on order. An asset left on loan with
+/// no loan out can be moved, and a status an asset already has is no move.
 #[actix_web::test]
 async fn the_dry_run_refuses_what_the_lifecycle_rules_refuse() {
     let db = TestDb::new();
@@ -532,6 +542,9 @@ async fn the_dry_run_refuses_what_the_lifecycle_rules_refuse() {
     let loaned = seed_asset(&pool, &ws, "L-1", "on_loan", false);
     seed_loan(&pool, &ws, loaned);
     seed_asset(&pool, &ws, "X-1", "on_loan", false);
+    seed_asset(&pool, &ws, "O-1", "in_stock", false);
+    let on_order_refused = backend::services::assets::status_rules::INTO_ON_ORDER
+        != backend::services::assets::status_rules::Cell::Allowed;
 
     let job = checked(
         &pool,
@@ -541,31 +554,37 @@ async fn the_dry_run_refuses_what_the_lifecycle_rules_refuse() {
             ("D-2", "Disposed"),
             ("L-1", "In stock"),
             ("X-1", "In stock"),
+            ("O-1", "On order"),
         ]),
         MAPPING,
         options(),
     )
     .await;
-    assert_eq!(
-        errors(&job),
-        vec![
-            (
-                2,
-                Some("status".to_string()),
-                "D-1 is disposed, and disposal is final; its status can't change".to_string()
-            ),
-            (
-                4,
-                Some("status".to_string()),
-                "L-1 is out on loan; return the loan on the asset page to change its status"
-                    .to_string()
-            ),
-        ],
-        "{job}"
-    );
+    let mut expected = vec![
+        (
+            2,
+            Some("status".to_string()),
+            "D-1: Disposed assets can't change status; disposal is final".to_string(),
+        ),
+        (
+            4,
+            Some("status".to_string()),
+            "L-1: Asset is out on loan; return the loan to change its status".to_string(),
+        ),
+    ];
+    if on_order_refused {
+        expected.push((
+            6,
+            Some("status".to_string()),
+            "O-1: On order is only set when an asset is created; an asset can't move back to it"
+                .to_string(),
+        ));
+    }
+    assert_eq!(errors(&job), expected, "{job}");
     assert_eq!(job["summary"]["errors"][0]["source_column"], "Status");
     // X-1 moves; D-2 already has its status and changes nothing.
-    assert_eq!(job["summary"]["would_update"], 1, "{job}");
+    let moving = if on_order_refused { 1 } else { 2 };
+    assert_eq!(job["summary"]["would_update"], moving, "{job}");
     assert_eq!(job["summary"]["unchanged"], 1, "{job}");
 
     commit(&pool, &ws, &id_of(&job)).await;
@@ -573,6 +592,9 @@ async fn the_dry_run_refuses_what_the_lifecycle_rules_refuse() {
     assert_eq!(asset(&pool, "D-2").status, "disposed");
     assert_eq!(asset(&pool, "L-1").status, "on_loan");
     assert_eq!(asset(&pool, "X-1").status, "in_stock");
+    if on_order_refused {
+        assert_eq!(asset(&pool, "O-1").status, "in_stock");
+    }
 
     // On loan and disposed set for every row: refused on an existing asset
     // and on a new one.
@@ -582,13 +604,13 @@ async fn the_dry_run_refuses_what_the_lifecycle_rules_refuse() {
             "On loan",
             "all",
             "N-1",
-            "'On loan' is set by issuing a loan on the asset page",
+            "N-1: On-loan status is set by issuing a loan; there is no active loan to restore",
         ),
         (
             "disposed",
             "new",
             "NEW-1",
-            "'disposed' is set by recording a disposal on the asset page",
+            "NEW-1: Disposing an asset requires a disposal record",
         ),
     ] {
         let job = checked(

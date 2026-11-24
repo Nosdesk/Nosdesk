@@ -12,13 +12,13 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use backend::models::{
-    AssetLifecycleEvent, AssetLoan, NewAsset, NewTicket, RuleApplicationStatus, RuleState,
-    RuleTriggerKind,
+    AssetLifecycleEvent, AssetLoan, AssetStatus, NewAsset, NewTicket, RuleApplicationStatus,
+    RuleState, RuleTriggerKind,
 };
 use backend::repository::rules::{
     self, ApplyContext, ApplyError, ApplyInput, ApplyOverrides, ApplySource,
 };
-use backend::repository::{asset_loans, assets as assets_repo, tickets};
+use backend::repository::{asset_lifecycle, asset_loans, tickets};
 use backend::schema::{
     asset_lifecycle_events, asset_loans as loans_t, assets, rule_applications, rule_event_outbox,
     sync_actions, ticket_assets, workflow_states,
@@ -94,8 +94,9 @@ fn ticket(pool: &TestPool, ws: &WorkspaceSeed, requester: Option<Uuid>) -> i32 {
 /// An asset in `ws` in `status`, used by `user`.
 fn asset(pool: &TestPool, ws: &WorkspaceSeed, name: &str, status: &str, user: Option<Uuid>) -> i32 {
     let mut conn = pool.get().expect("conn");
+    let status = AssetStatus::from_str_opt(status).expect("a status key");
     with_actor_context(&mut conn, &admin(ws), |c| {
-        let asset = assets_repo::create_device(
+        let (asset, _) = asset_lifecycle::create(
             c,
             NewAsset {
                 name: name.to_string(),
@@ -115,10 +116,11 @@ fn asset(pool: &TestPool, ws: &WorkspaceSeed, name: &str, status: &str, user: Op
                 low_stock_threshold: None,
                 created_by: None,
             },
-        )?;
-        if status != "in_service" {
-            assets_repo::set_status(c, asset.id, status)?;
-        }
+            None,
+            status,
+            None,
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))?;
         Ok::<_, diesel::result::Error>(asset.id)
     })
     .expect("seed an asset")
@@ -817,4 +819,34 @@ fn rule_moves_write_no_records() {
     assert_eq!(types, 2, "no type added from the catalogue");
     let moved = lifecycle_of(&s.admin_pool, laptop);
     assert!(moved.iter().all(|e| e.metadata.get("record_id").is_none()));
+}
+
+/// A move the status rules refuse reads in their words, naming the asset:
+/// a loan whose asset drifted off on loan can't be returned by a step.
+#[test]
+fn a_refused_move_reads_in_the_status_rules_words() {
+    let s = setup();
+    let a = &s.seeded.a;
+    let leaver = a.member_uuid;
+    let ticket_id = ticket(&s.pool, a, Some(leaver));
+    let loaner = asset(&s.pool, a, "Drifted loaner", "in_stock", None);
+    lend(&s.pool, a, loaner, leaver);
+    diesel::update(assets::table.find(loaner))
+        .set(assets::status.eq("in_repair"))
+        .execute(&mut s.admin_pool.get().expect("conn"))
+        .expect("drift the status");
+
+    let id = manual_rule(
+        &s.pool,
+        a,
+        json!([{ "kind": "return_requester_assets", "config": {} }]),
+    );
+    match apply(&s.pool, a, &admin(a), id, ticket_id) {
+        Err(ApplyError::AssetRefused { index: 1, message }) => assert_eq!(
+            message,
+            "\"Drifted loaner\": Asset isn't on loan, so the loan can't be returned"
+        ),
+        other => panic!("expected the step to be refused, got {other:?}"),
+    }
+    assert!(loans_of(&s.admin_pool, loaner)[0].returned_at.is_none());
 }

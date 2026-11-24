@@ -20,6 +20,7 @@ import { formatDate, getDateConfig, setDateConfig } from '@nosdesk/core/utils/da
 
 const lifecycle = vi.hoisted(() => ({ transition: vi.fn(), listItadVendors: vi.fn() }))
 const records = vi.hoisted(() => ({ types: vi.fn(), catalogue: vi.fn(), list: vi.fn() }))
+const statuses = vi.hoisted(() => ({ list: vi.fn() }))
 
 vi.mock('@nosdesk/core/services/assetLifecycleService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@nosdesk/core/services/assetLifecycleService')>()),
@@ -28,6 +29,10 @@ vi.mock('@nosdesk/core/services/assetLifecycleService', async (importOriginal) =
 vi.mock('@nosdesk/core/services/assetRecordService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@nosdesk/core/services/assetRecordService')>()),
   assetRecordService: records,
+}))
+vi.mock('@nosdesk/core/services/assetStatusService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@nosdesk/core/services/assetStatusService')>()),
+  assetStatusService: statuses,
 }))
 vi.mock('@/services/activeWorkspace', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/activeWorkspace')>()),
@@ -233,6 +238,8 @@ beforeEach(() => {
   records.types.mockResolvedValue({ types: [], currency: 'AUD', suggested_currency: 'AUD' })
   records.catalogue.mockResolvedValue([REPAIR_ENTRY])
   records.list.mockResolvedValue({ records: [], next_cursor: null })
+  // A server without the statuses endpoint, unless a case says otherwise.
+  statuses.list.mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -463,5 +470,79 @@ describe('AssetStatusChangeModal guards', () => {
     expect(saveButton(w).attributes('disabled')).toBeUndefined()
     await submit(w)
     expect(sent().complete_record).toMatchObject({ record_id: 5 })
+  })
+})
+
+describe('AssetStatusChangeModal targets', () => {
+  const options = (w: VueWrapper) =>
+    byLabel(w, 'asset-lifecycle-modal-to-status')
+      .findAll('option')
+      .map((o) => o.attributes('value'))
+
+  const category = (key: string, targets: { key: string; needs: string[] }[]) => ({
+    key,
+    default: key === 'in_service',
+    start: true,
+    loanable: false,
+    assignable: false,
+    old_asset_target: false,
+    terminal: false,
+    targets,
+  })
+
+  it('offers the moves the server allows, and what each needs', async () => {
+    statuses.list.mockResolvedValue({
+      categories: [
+        category('in_stock', [
+          { key: 'in_service', needs: [] },
+          { key: 'on_loan', needs: ['active_loan'] },
+          { key: 'retired', needs: [] },
+          { key: 'disposed', needs: ['disposal'] },
+        ]),
+      ],
+      statuses: [],
+    })
+    const w = await open({ currentStatus: 'in_stock' })
+    expect(options(w)).toEqual(['in_service', 'retired', 'disposed'])
+    expect(options(w)).not.toContain('on_order')
+  })
+
+  it('offers on loan back only while a loan is open', async () => {
+    statuses.list.mockResolvedValue({
+      categories: [
+        category('in_service', [
+          { key: 'in_stock', needs: [] },
+          { key: 'on_loan', needs: ['active_loan'] },
+        ]),
+      ],
+      statuses: [],
+    })
+    wrapper = mount(AssetStatusChangeModal, {
+      props: { show: true, assetId: 7, hasActiveLoan: true, currentStatus: 'in_service' },
+      global: {
+        plugins: [
+          createFluentVue({ bundles: [new FluentBundle('en-US', { useIsolating: false })] }),
+          createPinia(),
+          [PiniaColada, {}] as never,
+        ],
+        stubs,
+      },
+    })
+    await flushPromises()
+    expect(options(wrapper)).toEqual(['in_stock', 'on_loan'])
+  })
+
+  it('offers every other status, as before, when the server answers 404', async () => {
+    statuses.list.mockResolvedValue(null)
+    const w = await open({ currentStatus: 'in_stock' })
+    expect(options(w)).toEqual([
+      'in_service',
+      'on_order',
+      'in_transit',
+      'in_repair',
+      'retired',
+      'lost',
+      'disposed',
+    ])
   })
 })
