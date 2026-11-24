@@ -11096,3 +11096,29 @@ asset-timeline-status-moved = Moved to { $status }
 asset-timeline-ticket-closed = Closed { $date }
 asset-timeline-ticket-untitled = Ticket
 asset-timeline-year-totals = { $records }, { $costs }
+asset-record-carry-title = Carry over to { $asset }
+asset-record-carry-description = The record is saved. Pick what moves from { $old } to { $asset }; nothing changes unless ticked.
+asset-record-carry-tickets = Link open tickets
+asset-record-carry-tickets-detail = { $count ->
+    [0] { $old } has no open tickets
+    [one] One open ticket also links to { $asset } and stays on { $old }
+   *[other] { $count } open tickets also link to { $asset } and stay on { $old }
+}
+asset-record-carry-assignment = Copy holder, managed by, location and groups
+asset-record-carry-assignment-none = { $old } has no holder, manager, location or groups
+asset-record-carry-assignment-replaces = Replaces what { $asset } has now; its own groups stay
+asset-record-carry-assignment-synced = { $asset } is synced, so its holder and location stay with the sync
+asset-record-carry-managed-by = managed by { $name }
+asset-record-carry-groups = { $count } groups
+asset-record-carry-move = Change the status of { $old }
+asset-record-carry-move-detail = Status now: { $status }
+asset-record-carry-move-to = New status
+asset-record-carry-move-disposed = { $old } is disposed, which is final
+asset-record-carry-move-on-loan = { $old } is out on loan; returning the loan moves it
+asset-record-carry-skip = Skip
+asset-record-carry-apply = Carry over
+asset-record-carry-done = Carried over to { $asset }
+asset-record-carry-error = Couldn't carry over. The record is saved.
+asset-record-serial-offer = Update this asset's serial to { $serial }
+asset-record-serial-updated = Serial updated to { $serial }
+asset-record-serial-failed = Couldn't update the serial

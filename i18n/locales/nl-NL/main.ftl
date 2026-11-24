@@ -12666,3 +12666,51 @@ asset-timeline-ticket-closed = Gesloten op { $date }
 asset-timeline-ticket-untitled = Ticket
 # MT: pending native review (nl-NL)
 asset-timeline-year-totals = { $records }, { $costs }
+# MT: pending native review (nl-NL)
+asset-record-carry-title = Overzetten naar { $asset }
+# MT: pending native review (nl-NL)
+asset-record-carry-description = De registratie is opgeslagen. Kies wat van { $old } naar { $asset } gaat; er verandert niets zonder vinkje.
+# MT: pending native review (nl-NL)
+asset-record-carry-tickets = Open tickets koppelen
+# MT: pending native review (nl-NL)
+asset-record-carry-tickets-detail = { $count ->
+    [0] { $old } heeft geen open tickets
+    [one] Eén open ticket wordt ook aan { $asset } gekoppeld en blijft op { $old }
+   *[other] { $count } open tickets worden ook aan { $asset } gekoppeld en blijven op { $old }
+}
+# MT: pending native review (nl-NL)
+asset-record-carry-assignment = Gebruiker, beheerder, locatie en groepen kopiëren
+# MT: pending native review (nl-NL)
+asset-record-carry-assignment-none = { $old } heeft geen gebruiker, beheerder, locatie of groepen
+# MT: pending native review (nl-NL)
+asset-record-carry-assignment-replaces = Vervangt wat { $asset } nu heeft; de eigen groepen blijven
+# MT: pending native review (nl-NL)
+asset-record-carry-assignment-synced = { $asset } wordt gesynchroniseerd, dus gebruiker en locatie blijven van de synchronisatie
+# MT: pending native review (nl-NL)
+asset-record-carry-managed-by = beheerd door { $name }
+# MT: pending native review (nl-NL)
+asset-record-carry-groups = { $count } groepen
+# MT: pending native review (nl-NL)
+asset-record-carry-move = Status van { $old } wijzigen
+# MT: pending native review (nl-NL)
+asset-record-carry-move-detail = Huidige status: { $status }
+# MT: pending native review (nl-NL)
+asset-record-carry-move-to = Nieuwe status
+# MT: pending native review (nl-NL)
+asset-record-carry-move-disposed = { $old } is afgevoerd, en dat is definitief
+# MT: pending native review (nl-NL)
+asset-record-carry-move-on-loan = { $old } is uitgeleend; het terugbrengen van de lening verplaatst het
+# MT: pending native review (nl-NL)
+asset-record-carry-skip = Overslaan
+# MT: pending native review (nl-NL)
+asset-record-carry-apply = Overzetten
+# MT: pending native review (nl-NL)
+asset-record-carry-done = Overgezet naar { $asset }
+# MT: pending native review (nl-NL)
+asset-record-carry-error = Overzetten is mislukt. De registratie is opgeslagen.
+# MT: pending native review (nl-NL)
+asset-record-serial-offer = Serienummer van dit activum wijzigen in { $serial }
+# MT: pending native review (nl-NL)
+asset-record-serial-updated = Serienummer gewijzigd in { $serial }
+# MT: pending native review (nl-NL)
+asset-record-serial-failed = Serienummer kon niet worden gewijzigd

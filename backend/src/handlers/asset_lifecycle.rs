@@ -292,7 +292,7 @@ pub async fn create_transition(
     }
 }
 
-fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpResponse {
+pub(crate) fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpResponse {
     match e {
         TransitionError::AssetNotFound => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))

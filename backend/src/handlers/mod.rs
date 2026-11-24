@@ -16,6 +16,7 @@ pub mod asset_media;
 pub mod asset_models;
 pub mod asset_record_types;
 pub mod asset_records;
+pub mod asset_replacement;
 pub mod asset_settings;
 pub mod asset_timeline;
 pub mod asset_usage;

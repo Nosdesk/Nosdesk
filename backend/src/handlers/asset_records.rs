@@ -6,6 +6,9 @@
 //! - `GET | PATCH | DELETE /api/assets/{id}/records/{record_id}`.
 //! - `PUT    /api/assets/{id}/records/{record_id}/media`: which of the
 //!   asset's files are the record's.
+//! - `POST   /api/assets/{id}/records/{record_id}/replacement`: carry
+//!   tickets, assignment and status over to the replacement asset
+//!   (`handlers::asset_replacement`).
 //! - `GET    /api/assets/{id}/records/summary`: counts and costs per
 //!   currency, per type and per year.
 //! - `GET    /api/assets/record-vendors`: vendors already written, for
@@ -342,7 +345,7 @@ fn foreign_key_answer(constraint: Option<&str>) -> Option<HttpResponse> {
 }
 
 /// Only staff see records; to anyone else they don't exist.
-fn require_staff(auth: &AuthContext) -> Result<(), Refusal> {
+pub(crate) fn require_staff(auth: &AuthContext) -> Result<(), Refusal> {
     if auth.can_handle_tickets() {
         Ok(())
     } else {

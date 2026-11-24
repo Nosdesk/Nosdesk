@@ -11,6 +11,7 @@ import type {
   AssetRecordTypeList,
   AssetRecordWrite,
 } from '../types/asset';
+import type { DisposalBody } from './assetLifecycleService';
 
 /** Pinia Colada cache keys for records and their types. */
 export const assetRecordKeys = {
@@ -83,6 +84,39 @@ export interface UpdateAssetRecordBody {
   attributes?: Record<string, unknown>;
 }
 
+/** The statuses a replaced asset can move to with its carry-overs. */
+export const REPLACED_ASSET_STATUSES = ['retired', 'in_stock', 'disposed'] as const;
+export type ReplacedAssetStatus = (typeof REPLACED_ASSET_STATUSES)[number];
+
+/** Which carry-overs to run from a replaced asset to its replacement. Each
+ *  runs only when asked. */
+export interface ReplacementCarryOverBody {
+  /** Link the old asset's open tickets to the new one too. */
+  link_open_tickets?: boolean;
+  /** Copy holder, managed by, location and groups to the new asset. */
+  copy_assignment?: boolean;
+  /** Move the old asset through the normal status change. */
+  move_old_to?: ReplacedAssetStatus | null;
+  /** Required with `move_old_to: 'disposed'`, refused otherwise. */
+  disposal?: DisposalBody | null;
+}
+
+/** What the carry-overs did, a part for each one asked for. */
+export interface ReplacementCarryOverResult {
+  record_id: number;
+  asset_id: number;
+  replacement_asset_id: number;
+  tickets: { linked: number[]; already_linked: number[] } | null;
+  assignment: {
+    copied: ('holder' | 'managed_by' | 'location')[];
+    /** What a synced new asset can't take: its holder and location are the sync's. */
+    skipped: ('holder' | 'location')[];
+    groups_added: number[];
+  } | null;
+  /** `event_id` is null when the old asset was already in the status. */
+  old_asset: { status: ReplacedAssetStatus; event_id: number | null } | null;
+}
+
 /** Which of an asset's records a page lists. */
 export interface AssetRecordFilter {
   /** A type's slug or id. */
@@ -151,6 +185,20 @@ export const assetRecordService = {
     const { data } = await apiClient.delete<{ deleted: boolean; files_deleted: number }>(
       `/assets/${assetId}/records/${recordId}`,
       { params: deleteFiles ? { delete_files: true } : undefined },
+    );
+    return data;
+  },
+
+  /** Carry tickets, assignment and status over from a replaced asset to
+   *  the asset record `recordId` names as its replacement. */
+  async carryOver(
+    assetId: number,
+    recordId: number,
+    body: ReplacementCarryOverBody,
+  ): Promise<ReplacementCarryOverResult> {
+    const { data } = await apiClient.post<ReplacementCarryOverResult>(
+      `/assets/${assetId}/records/${recordId}/replacement`,
+      body,
     );
     return data;
   },

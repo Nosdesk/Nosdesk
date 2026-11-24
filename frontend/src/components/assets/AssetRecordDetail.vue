@@ -7,6 +7,10 @@
  *
  * The same two columns at every width; a narrow dialog on desktop and a
  * sheet on phones show the same thing.
+ *
+ * A unit exchanged under the same tag comes back with another serial: when
+ * the record's "serial received" differs from the asset's, its row offers
+ * to update the asset's serial to it.
  */
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -39,7 +43,14 @@ const props = defineProps<{
   type?: AssetRecordType
   /** The asset that replaced this one, when the record names it. */
   replacement?: Pick<Asset, 'id' | 'name' | 'asset_tag'> | null
+  /** The asset's serial now, when it may be updated from the record; left
+   *  out, no update is offered. */
+  assetSerial?: string | null
+  /** The serial update is under way. */
+  updatingSerial?: boolean
 }>()
+
+const emit = defineEmits<{ 'update-serial': [serial: string] }>()
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -57,7 +68,18 @@ interface Fact {
   note?: string
   to?: string
   tone?: 'state' | 'failed'
+  /** Offer to make this the asset's serial. */
+  serialOffer?: string
 }
+
+/** The serial the record received, when the asset's differs. */
+const serialOffer = computed(() => {
+  if (props.assetSerial === undefined) return null
+  const received = props.record.attributes.serial_received
+  if (typeof received !== 'string' || !received.trim()) return null
+  const serial = received.trim()
+  return serial === (props.assetSerial ?? '').trim() ? null : serial
+})
 
 const facts = computed<Fact[]>(() => {
   const r = props.record
@@ -126,7 +148,12 @@ const facts = computed<Fact[]>(() => {
     const value = fieldValueText(t, prop, r.attributes[key])
     if (!value || !props.type) continue
     const { name, unit } = splitUnit(fieldTitle(t, props.type, key, prop))
-    out.push({ key: `field-${key}`, label: name, value: unit ? `${value} ${unit}` : value })
+    out.push({
+      key: `field-${key}`,
+      label: name,
+      value: unit ? `${value} ${unit}` : value,
+      serialOffer: key === 'serial_received' ? (serialOffer.value ?? undefined) : undefined,
+    })
   }
   const sourceNote =
     r.snapshot_source === 'loan'
@@ -198,6 +225,16 @@ const TONE = { state: 'font-medium', failed: 'text-status-error' } as const
           <RouterLink v-if="fact.to" :to="fact.to" class="underline decoration-strong underline-offset-2 hover:decoration-current">{{ fact.value }}</RouterLink>
           <span v-else :class="fact.tone ? TONE[fact.tone] : undefined">{{ fact.value }}</span>
           <span v-if="fact.note" class="text-tertiary">, {{ fact.note }}</span>
+          <button
+            v-if="fact.serialOffer"
+            type="button"
+            class="relative block text-left font-medium text-accent hover:underline disabled:opacity-50 pointer-coarse:after:absolute pointer-coarse:after:-inset-y-2.5 pointer-coarse:after:inset-x-0"
+            :disabled="updatingSerial"
+            data-testid="serial-offer"
+            @click="emit('update-serial', fact.serialOffer)"
+          >
+            {{ t('asset-record-serial-offer', { serial: fact.serialOffer }) }}
+          </button>
         </dd>
       </template>
 
