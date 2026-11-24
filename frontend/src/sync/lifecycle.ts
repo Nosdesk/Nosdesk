@@ -535,8 +535,10 @@ export async function resnapshotSubscribedGroups(): Promise<void> {
         await nextSyncSettle()
         if (!current()) return
       }
-      resnapshotOwed = false
+      // Still owed when the workspace can't be fetched now; the next signal
+      // (or tear-down) settles it.
       if (!canFetchWorkspace()) return
+      resnapshotOwed = false
       // Read with the groups, before any await (see runBootstrap's `stillOurs`).
       const subscribedAt = pool.currentSubscriptionTick()
       const groups = Array.from(pool.getSubscribedGroups())
