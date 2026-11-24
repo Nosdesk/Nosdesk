@@ -46,7 +46,7 @@ import {
 } from '@/components/import/historyModel'
 import { errorBody, refusalText, restoreRefusalText } from '@/components/import/refusals'
 import { previousValuesHelp, removalState } from '@/components/import/removeModel'
-import { webhookHearsAssets } from '@/components/import/reviewModel'
+import { webhookHearsImport } from '@/components/import/reviewModel'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -85,14 +85,14 @@ const kindOptions = computed(() => assetKinds.value.map((k) => ({ value: k.slug,
 
 const queryCache = useQueryCache()
 
-/** The workspace's webhooks, for the removal dialog's line about asset
- *  events. Read while removal is offered. */
+/** The workspace's webhooks, for the removal dialog's line about asset or
+ *  record events. Read while removal is offered. */
 const webhooksQuery = useQuery({
   key: ['webhooks'],
   query: () => webhookService.listWebhooks(),
   enabled: () => !!job.value && !docsJob.value && removalState(job.value) === 'offer',
 })
-const webhooksHearAssets = computed(() => webhookHearsAssets(webhooksQuery.data.value ?? []))
+const webhooksHear = computed(() => webhookHearsImport(webhooksQuery.data.value ?? [], jobType.value))
 
 /** Remove imported assets ran: the page shows its result, and Recent
  *  imports its count. The previous values counts aren't on the removal's
@@ -409,7 +409,7 @@ const linkClass =
               {{ previousHelp }}
             </p>
           </div>
-          <ImportRemoveBlock :job="job" :webhooks="webhooksHearAssets" @removed="onRemoved" @refreshed="onRemoved" />
+          <ImportRemoveBlock :job="job" :webhooks="webhooksHear" @removed="onRemoved" @refreshed="onRemoved" />
         </template>
 
         <p class="text-sm">

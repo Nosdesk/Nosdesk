@@ -12823,3 +12823,19 @@ admin-rule-conditions-problem-zero-always = Minstens 0 klopt altijd. Kies een ge
 admin-rule-conditions-problem-zero-never = Minder dan 0 klopt nooit. Kies een getal boven 0.
 # MT: pending native review (nl-NL)
 admin-rules-starters-when-automatic = Draait vanzelf zodra je hem aanzet.
+# MT: pending native review (nl-NL)
+admin-webhooks-event-asset-record-created = Registratie aangemaakt
+# MT: pending native review (nl-NL)
+admin-webhooks-event-asset-record-updated = Registratie bijgewerkt
+# MT: pending native review (nl-NL)
+admin-webhooks-event-asset-record-deleted = Registratie verwijderd
+# MT: pending native review (nl-NL)
+import-review-confirm-webhooks-records = { $count ->
+    [one] Webhooks ontvangen gebeurtenissen voor 1 registratie.
+   *[other] Webhooks ontvangen gebeurtenissen voor { $count } registraties.
+   }
+# MT: pending native review (nl-NL)
+import-remove-webhooks-records = { $count ->
+    [one] Webhooks ontvangen 1 asset.record_deleted-gebeurtenis.
+   *[other] Webhooks ontvangen { $count } asset.record_deleted-gebeurtenissen.
+   }

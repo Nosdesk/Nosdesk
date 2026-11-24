@@ -160,6 +160,8 @@ impl WebhookService {
             let rows: Vec<(i64, i32, String, serde_json::Value, Vec<Option<String>>)> =
                 sync_actions::table
                     .filter(sync_actions::sync_id.eq_any(&claimed))
+                    // In event order, so a batch's deliveries follow it.
+                    .order(sync_actions::sync_id.asc())
                     .select((
                         sync_actions::sync_id,
                         sync_actions::workspace_id,

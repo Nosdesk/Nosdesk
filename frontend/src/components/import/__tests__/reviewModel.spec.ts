@@ -11,6 +11,8 @@ import {
   reportHasRows,
   typingIn,
   webhookHearsAssets,
+  webhookHearsImport,
+  webhookHearsRecords,
 } from '../reviewModel'
 
 function summary(overrides: Partial<ImportSummary> = {}): ImportSummary {
@@ -164,6 +166,33 @@ describe('webhookHearsAssets', () => {
     expect(webhookHearsAssets([{ enabled: false, events: ['asset.created'] }])).toBe(false)
     expect(webhookHearsAssets([{ enabled: true, events: ['ticket.created'] }])).toBe(false)
     expect(webhookHearsAssets([])).toBe(false)
+    expect(webhookHearsAssets([{ enabled: true, events: ['asset.record_created', 'asset.record_deleted'] }])).toBe(false)
+    expect(webhookHearsAssets([{ enabled: true, events: ['asset.record_updated', 'asset.deleted'] }])).toBe(true)
+  })
+})
+
+describe('webhookHearsRecords', () => {
+  it('needs an enabled webhook on a record event', () => {
+    expect(webhookHearsRecords([{ enabled: true, events: ['asset.record_deleted'] }])).toBe(true)
+    expect(webhookHearsRecords([{ enabled: false, events: ['asset.record_created'] }])).toBe(false)
+    expect(webhookHearsRecords([{ enabled: true, events: ['asset.created', 'asset.deleted'] }])).toBe(false)
+    expect(webhookHearsRecords([])).toBe(false)
+  })
+})
+
+describe('webhookHearsImport', () => {
+  const assetsOnly = [{ enabled: true, events: ['asset.created'] }]
+  const recordsOnly = [{ enabled: true, events: ['asset.record_created'] }]
+
+  it('reads asset events for an asset import and record events for a service history import', () => {
+    expect(webhookHearsImport(assetsOnly, 'assets')).toBe(true)
+    expect(webhookHearsImport(recordsOnly, 'assets')).toBe(false)
+    expect(webhookHearsImport(recordsOnly, 'asset_records')).toBe(true)
+    expect(webhookHearsImport(assetsOnly, 'asset_records')).toBe(false)
+  })
+
+  it('is false for other imports', () => {
+    expect(webhookHearsImport([...assetsOnly, ...recordsOnly], 'users')).toBe(false)
   })
 })
 

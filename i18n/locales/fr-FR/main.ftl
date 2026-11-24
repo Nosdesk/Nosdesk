@@ -12832,3 +12832,19 @@ admin-rule-conditions-problem-zero-always = « Au moins 0 » est toujours vrai. 
 admin-rule-conditions-problem-zero-never = « Moins de 0 » n'est jamais vrai. Choisissez un nombre supérieur à 0.
 # MT: pending native review (fr-FR)
 admin-rules-starters-when-automatic = S'exécute d'elle-même une fois activée.
+# MT: pending native review (fr-FR)
+admin-webhooks-event-asset-record-created = Intervention créée
+# MT: pending native review (fr-FR)
+admin-webhooks-event-asset-record-updated = Intervention mise à jour
+# MT: pending native review (fr-FR)
+admin-webhooks-event-asset-record-deleted = Intervention supprimée
+# MT: pending native review (fr-FR)
+import-review-confirm-webhooks-records = { $count ->
+    [one] Les webhooks recevront des événements pour 1 intervention.
+   *[other] Les webhooks recevront des événements pour { $count } interventions.
+   }
+# MT: pending native review (fr-FR)
+import-remove-webhooks-records = { $count ->
+    [one] Les webhooks recevront 1 événement asset.record_deleted.
+   *[other] Les webhooks recevront { $count } événements asset.record_deleted.
+   }

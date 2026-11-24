@@ -27,6 +27,9 @@ pub enum WebhookEventType {
     AssetDeleted,
     AssetLinked,
     AssetUnlinked,
+    AssetRecordCreated,
+    AssetRecordUpdated,
+    AssetRecordDeleted,
 
     // Project events
     ProjectAssigned,
@@ -65,6 +68,9 @@ impl WebhookEventType {
             Self::AssetDeleted => "asset.deleted",
             Self::AssetLinked => "asset.linked",
             Self::AssetUnlinked => "asset.unlinked",
+            Self::AssetRecordCreated => "asset.record_created",
+            Self::AssetRecordUpdated => "asset.record_updated",
+            Self::AssetRecordDeleted => "asset.record_deleted",
             Self::ProjectAssigned => "project.assigned",
             Self::ProjectUnassigned => "project.unassigned",
             Self::TicketLinked => "ticket.linked",
@@ -81,7 +87,7 @@ impl WebhookEventType {
     /// Every event type, in the order the API lists them. `all()` and
     /// `from_str` both derive from this, so an event name can't be offered
     /// without also being accepted and delivered.
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 25] = [
         Self::TicketCreated,
         Self::TicketUpdated,
         Self::TicketDeleted,
@@ -94,6 +100,9 @@ impl WebhookEventType {
         Self::AssetDeleted,
         Self::AssetLinked,
         Self::AssetUnlinked,
+        Self::AssetRecordCreated,
+        Self::AssetRecordUpdated,
+        Self::AssetRecordDeleted,
         Self::ProjectAssigned,
         Self::ProjectUnassigned,
         Self::TicketLinked,
@@ -154,6 +163,11 @@ impl WebhookEventType {
             // names stable by mapping the new event types here.
             "ticket_asset.added" => Self::AssetLinked,
             "ticket_asset.removed" => Self::AssetUnlinked,
+            // Records are their own aggregate; the webhook names keep them
+            // under `asset.` beside the asset events.
+            "asset_record.created" => Self::AssetRecordCreated,
+            "asset_record.updated" => Self::AssetRecordUpdated,
+            "asset_record.deleted" => Self::AssetRecordDeleted,
             "linked_ticket.added" => Self::TicketLinked,
             "linked_ticket.removed" => Self::TicketUnlinked,
             "ticket.sla_breached" => Self::TicketSlaBreached,
@@ -209,10 +223,12 @@ mod tests {
             match e {
                 TicketCreated | TicketUpdated | TicketDeleted | CommentAdded | CommentDeleted
                 | AttachmentAdded | AttachmentDeleted | AssetCreated | AssetUpdated
-                | AssetDeleted | AssetLinked | AssetUnlinked | ProjectAssigned
-                | ProjectUnassigned | TicketLinked | TicketUnlinked | DocumentationCreated
-                | DocumentationUpdated | UserCreated | UserUpdated | UserDeleted
-                | TicketSlaBreached => WebhookEventType::ALL.contains(&e),
+                | AssetDeleted | AssetLinked | AssetUnlinked | AssetRecordCreated
+                | AssetRecordUpdated | AssetRecordDeleted | ProjectAssigned | ProjectUnassigned
+                | TicketLinked | TicketUnlinked | DocumentationCreated | DocumentationUpdated
+                | UserCreated | UserUpdated | UserDeleted | TicketSlaBreached => {
+                    WebhookEventType::ALL.contains(&e)
+                }
             }
         }
         assert!(WebhookEventType::ALL.into_iter().all(listed));
@@ -241,6 +257,9 @@ mod tests {
             "asset.deleted",
             "asset.linked",
             "asset.unlinked",
+            "asset.record_created",
+            "asset.record_updated",
+            "asset.record_deleted",
         ] {
             assert!(all.contains(&e), "{e}");
         }
@@ -283,6 +302,9 @@ mod tests {
             // stable by mapping the new event types.
             ("ticket_asset.added", Some(AssetLinked)),
             ("ticket_asset.removed", Some(AssetUnlinked)),
+            ("asset_record.created", Some(AssetRecordCreated)),
+            ("asset_record.updated", Some(AssetRecordUpdated)),
+            ("asset_record.deleted", Some(AssetRecordDeleted)),
             ("linked_ticket.added", Some(TicketLinked)),
             ("linked_ticket.removed", Some(TicketUnlinked)),
             ("ticket.sla_breached", Some(TicketSlaBreached)),
@@ -293,6 +315,7 @@ mod tests {
             ("documentation_page.visibility_changed", None),
             ("workflow_state.created", None),
             ("cycle.created", None),
+            ("asset_lifecycle_event.created", None),
         ];
         for (event_type, expected) in cases {
             assert_eq!(

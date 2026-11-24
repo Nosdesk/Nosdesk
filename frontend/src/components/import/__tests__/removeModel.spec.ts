@@ -137,6 +137,15 @@ describe('dialogMessage', () => {
     expect(dialogMessage(t, plan(), { webhooks: false, list })).not.toContain('Webhooks')
   })
 
+  it('names record delete events when a webhook hears about records', () => {
+    const records = plan({ kept: [], catalog: { manufacturers: 0, models: 0, groups: 0 } })
+    expect(dialogMessage(t, records, { webhooks: true, list, records: true })).toBe(
+      'This import created 407 records. 398 have not been changed since and will be deleted. ' +
+        'Webhooks will receive 398 asset.record_deleted events.',
+    )
+    expect(dialogMessage(t, records, { webhooks: false, list, records: true })).not.toContain('Webhooks')
+  })
+
   it('has no kept or catalog sentence when everything goes and nothing was created', () => {
     expect(
       dialogMessage(

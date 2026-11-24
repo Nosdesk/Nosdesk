@@ -68,7 +68,8 @@ const props = defineProps<{
   /** Every value in the mapped columns matched without a question, so
    *  Match values wasn't needed. */
   valuesAllMatched?: boolean
-  /** An enabled webhook hears about assets: the confirmation says so. */
+  /** An enabled webhook hears what this import writes (assets, or asset
+   *  records): the confirmation says so. */
   webhooks?: boolean
   /** On a past import, how many fields its updates wrote that were blank
    *  before: What changes says so, for the previous values file. */
@@ -500,8 +501,9 @@ const confirmMessage = computed(() => {
   if (notImported.value.columns > 0) {
     parts.push(t('import-review-confirm-columns', { count: notImported.value.columns }))
   }
-  if (props.webhooks && isAssets.value && c.imported > 0) {
-    parts.push(t('import-review-confirm-webhooks', { count: c.imported }))
+  if (props.webhooks && (isAssets.value || isRecords.value) && c.imported > 0) {
+    const key = isRecords.value ? 'import-review-confirm-webhooks-records' : 'import-review-confirm-webhooks'
+    parts.push(t(key, { count: c.imported }))
   }
   return parts.join(' ')
 })

@@ -1652,6 +1652,9 @@ admin-webhooks-event-ticket-sla-breached = Ticket SLA breached
 admin-webhooks-event-asset-created = Asset created
 admin-webhooks-event-asset-deleted = Asset deleted
 admin-webhooks-event-documentation-created = Documentation created
+admin-webhooks-event-asset-record-created = Asset record created
+admin-webhooks-event-asset-record-updated = Asset record updated
+admin-webhooks-event-asset-record-deleted = Asset record deleted
 
 # Users list (UsersListView): people directory with role filter,
 # bulk role change, and bulk delete.

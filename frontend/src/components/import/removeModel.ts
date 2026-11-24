@@ -73,8 +73,8 @@ export function keptGroups(t: Translate, kept: KeptAsset[]): string {
 
 /** The dialog's body: what the import created, what goes and what stays,
  *  the catalog entries that go with them, and the webhook line when a
- *  webhook hears about assets. An import that created no assets says
- *  only that. */
+ *  webhook hears about what it deletes (assets, or records). An import
+ *  that created nothing says only that. */
 export function dialogMessage(
   t: Translate,
   plan: RemovalPlan,
@@ -98,8 +98,8 @@ export function dialogMessage(
   if (plan.deletable > 0 && made.length > 0) {
     parts.push(t('import-remove-catalog', { list: opts.list(made) }))
   }
-  if (opts.webhooks && !opts.records && plan.deletable > 0) {
-    parts.push(t('import-remove-webhooks', { count: plan.deletable }))
+  if (opts.webhooks && plan.deletable > 0) {
+    parts.push(t(key('import-remove-webhooks'), { count: plan.deletable }))
   }
   return parts.join(' ')
 }
