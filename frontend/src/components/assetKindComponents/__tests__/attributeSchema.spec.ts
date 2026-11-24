@@ -70,6 +70,22 @@ describe('field order', () => {
     expect(props.gender).toEqual(stored.properties.gender)
   })
 
+  it('keeps a field whose format it does not edit as it is through a move', () => {
+    const stored = {
+      type: 'object',
+      properties: {
+        team: { type: 'string', format: 'group-ref', title: 'Team' },
+        bay: { type: 'string' },
+      },
+    }
+    const parsed = parseSchema(stored)
+    expect(parsed.defs[0].kind).toBe('raw')
+    const moved = serializeSchema({ defs: [parsed.defs[1], parsed.defs[0]], extras: parsed.extras })
+    const props = moved.properties as Record<string, Record<string, unknown>>
+    expect(Object.keys(props)).toEqual(['bay', 'team'])
+    expect(props.team).toEqual(stored.properties.team)
+  })
+
   it('lays the user field schema out in its field_order and drops the key', () => {
     const fromServer = {
       type: 'object',

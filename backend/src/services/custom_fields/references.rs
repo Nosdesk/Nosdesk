@@ -42,6 +42,17 @@ pub fn target_of(prop: &Value) -> Option<Target> {
     scalar(prop).or_else(|| prop.get("items").and_then(scalar))
 }
 
+/// A reference value as compared: a person by their UUID however it is
+/// spelled, anything else as written.
+pub fn same_spelling(target: &Target, value: &str) -> String {
+    match target {
+        Target::User => {
+            Uuid::parse_str(value).map_or_else(|_| value.to_string(), |u| u.to_string())
+        }
+        _ => value.to_string(),
+    }
+}
+
 /// The reference values `values` adds over `previous`, by property: a
 /// changed scalar, or array items `previous` doesn't hold.
 pub fn added_references(
@@ -61,9 +72,13 @@ pub fn added_references(
             continue;
         };
         let before = previous.and_then(|p| p.get(key));
-        let held: HashSet<&str> = match before {
-            Some(Value::String(s)) => HashSet::from([s.as_str()]),
-            Some(Value::Array(items)) => items.iter().filter_map(Value::as_str).collect(),
+        let held: HashSet<String> = match before {
+            Some(Value::String(s)) => HashSet::from([same_spelling(&target, s)]),
+            Some(Value::Array(items)) => items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|s| same_spelling(&target, s))
+                .collect(),
             _ => HashSet::new(),
         };
         let now: Vec<&str> = match value {
@@ -72,7 +87,7 @@ pub fn added_references(
             _ => Vec::new(),
         };
         for v in now {
-            if !held.contains(v) {
+            if !held.contains(&same_spelling(&target, v)) {
                 out.push((key.clone(), target.clone(), v.to_string()));
             }
         }
@@ -223,6 +238,11 @@ mod tests {
             ]
         );
         assert!(added_references(&schema, &before, Some(&before)).is_empty());
+
+        // A person stored in another spelling isn't added again.
+        let owner = "019dcf49-a30e-7af2-9ede-78a96a4b6832";
+        let old = json!({ "owner": owner.to_uppercase() });
+        assert!(added_references(&schema, &json!({ "owner": owner }), Some(&old)).is_empty());
         assert_eq!(added_references(&schema, &before, None).len(), 4);
     }
 }

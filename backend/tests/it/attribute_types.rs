@@ -2,7 +2,9 @@
 //! are written canonical to it, sort by currency then amount; references to
 //! people, assets and people groups are checked when a write adds or changes
 //! them, with `assetKind` enforced, while one that already dangles saves
-//! unchanged; and a purged person leaves the attributes that named them.
+//! unchanged; a model stamp that moves an asset to another kind checks
+//! every reference again; and a purged person leaves the attributes that
+//! named them, however they were spelled.
 
 use actix_web::dev::Service;
 use actix_web::http::{Method, StatusCode};
@@ -70,6 +72,15 @@ fn seed(db: &common::TestDb) -> Fixture {
         &ws,
         "screen",
         json!({ "type": "object", "properties": {} }),
+    );
+    kind(
+        &pool,
+        &ws,
+        "hub",
+        json!({
+            "type": "object",
+            "properties": { "screen": { "type": "string", "format": "asset-ref" } }
+        }),
     );
     run_in_workspace(&pool, REF, ws.workspace_id, |c| {
         backend::repository::site_settings::update_site_settings(
@@ -277,6 +288,58 @@ async fn references_are_checked_when_a_write_adds_or_changes_them() {
     assert_eq!(stored(&f, dock)["team"], json!(team.to_string()));
 }
 
+/// Stamping a model of another kind checks the asset's references under the
+/// new kind: an old one to an asset of the wrong kind is refused.
+#[actix_web::test]
+async fn a_model_of_another_kind_checks_the_references_again() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let screen = asset(&f, "Screen", "screen", json!({}));
+    let not_a_screen = asset(&f, "Other dock", "dock", json!({}));
+    let model = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        use backend::schema::{asset_models, manufacturers};
+        let maker: i32 = diesel::insert_into(manufacturers::table)
+            .values(manufacturers::name.eq("Acme"))
+            .returning(manufacturers::id)
+            .get_result(c)?;
+        diesel::insert_into(asset_models::table)
+            .values((
+                asset_models::manufacturer_id.eq(maker),
+                asset_models::name.eq("Dock 9"),
+                asset_models::kind.eq("dock"),
+            ))
+            .returning(asset_models::id)
+            .get_result::<i32>(c)
+    })
+    .expect("seed a model");
+
+    let wrong = asset(
+        &f,
+        "Hub A",
+        "hub",
+        json!({ "screen": not_a_screen.to_string() }),
+    );
+    let (status, body) = call(
+        &f,
+        Method::POST,
+        &format!("/api/assets/{wrong}/model"),
+        Some(json!({ "model_id": model })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.to_string().contains("screen"), "{body}");
+
+    let right = asset(&f, "Hub B", "hub", json!({ "screen": screen.to_string() }));
+    let (status, body) = call(
+        &f,
+        Method::POST,
+        &format!("/api/assets/{right}/model"),
+        Some(json!({ "model_id": model })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
 #[actix_web::test]
 async fn money_takes_the_workspace_currency_and_sorts_by_currency_then_amount() {
     let db = common::TestDb::new();
@@ -366,6 +429,13 @@ async fn a_purged_person_leaves_the_attributes_that_named_them() {
         json!({ "owner": member.to_string(), "bay": member.to_string() }),
     );
     let kept = asset(&f, "Kept", "dock", json!({ "owner": other.to_string() }));
+    // Stored before writes kept one spelling.
+    let shouted = asset(
+        &f,
+        "Shouted",
+        "dock",
+        json!({ "owner": member.to_string().to_uppercase() }),
+    );
     // Another workspace's kind of the same slug swaps the roles: there `bay`
     // names a person and `owner` is text.
     kind(
@@ -399,6 +469,7 @@ async fn a_purged_person_leaves_the_attributes_that_named_them() {
     // isn't one.
     assert_eq!(stored(&f, dock), json!({ "bay": member.to_string() }));
     assert_eq!(stored(&f, kept), json!({ "owner": other.to_string() }));
+    assert_eq!(stored(&f, shouted), json!({}));
     assert_eq!(
         stored_in(&f, &f.other, swapped),
         json!({ "owner": member.to_string(), "bay": [other.to_string()] })

@@ -272,6 +272,11 @@ function modelledDef(
         description: stringOrUndefined(prop.description),
       };
     }
+    // A format the builder doesn't edit (`group-ref`, later ones) would be
+    // lost as plain text: the field is kept as it is.
+    if (format !== undefined) {
+      return { name, kind: 'raw', required, raw: prop };
+    }
     if (Array.isArray(prop.enum) && prop.enum.every((v) => typeof v === 'string')) {
       return {
         name,

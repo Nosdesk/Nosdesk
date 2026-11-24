@@ -518,6 +518,10 @@ fn custom_fields_follow_their_schema() {
             "serial": "7"
         })
     );
+    // A person stored in another spelling is still the person.
+    let mut upper = row(json!({"kind": "laptop", "attributes": {"owner": ANA.to_uppercase()}}));
+    rewrite_row("assets", &mut upper, &ctx, &lookup, None);
+    assert_eq!(upper["attributes"]["owner"], ANA_HERE);
     let mut other_kind = row(json!({"kind": "phone", "attributes": {"owner": ANA}}));
     rewrite_row("assets", &mut other_kind, &ctx, &lookup, None);
     assert_eq!(other_kind["attributes"]["owner"], ANA);

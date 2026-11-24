@@ -74,7 +74,7 @@ fn canonical_uuids(value: &mut Value) {
 }
 
 /// The largest whole number a JSON number holds exactly (2^53).
-const EXACT_NUMBER: i64 = 1 << 53;
+const EXACT_NUMBER: u64 = 1 << 53;
 
 fn normalise_money(
     property: &str,
@@ -108,7 +108,7 @@ fn normalise_money(
         Some(Value::String(s)) => s.clone(),
         // A number reaches us through a float, which can't hold every
         // decimal: only whole numbers it holds exactly are taken.
-        Some(Value::Number(n)) => match n.as_i64().filter(|v| v.abs() <= EXACT_NUMBER) {
+        Some(Value::Number(n)) => match n.as_i64().filter(|v| v.unsigned_abs() <= EXACT_NUMBER) {
             Some(whole) => whole.to_string(),
             None => {
                 return Err(bad(
@@ -221,7 +221,12 @@ mod tests {
                 "crew": { "type": "array", "items": { "type": "string", "format": "user-uuid" } }
             }
         });
-        for amount in [json!(0.1), json!(9_007_199_254_740_993_i64), json!(1e20)] {
+        for amount in [
+            json!(0.1),
+            json!(9_007_199_254_740_993_i64),
+            json!(1e20),
+            json!(i64::MIN),
+        ] {
             let err = normalise_values(
                 &schema,
                 &json!({ "cost": { "amount": amount } }),

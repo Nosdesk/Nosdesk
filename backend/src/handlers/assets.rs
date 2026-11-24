@@ -1103,11 +1103,11 @@ pub async fn export_assets(
         Err(e) => return e.response(),
     };
     let visible = visible_attributes(&mut tc, &auth);
-    // A staff-only warranty status would be read back through the filter.
+    // A warranty status they don't get would be read back through the filter.
     let warranty = query
         .warranty
         .as_deref()
-        .filter(|_| !visible.hides_anywhere("warranty_status"));
+        .filter(|_| visible.may_order_by("warranty_status"));
 
     let export_result = tc.run(|conn| {
         let ids = match import {
@@ -1514,11 +1514,11 @@ pub async fn get_paginated_devices(
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
     let keys = visible_attributes(&mut tc, &auth);
-    // A staff-only attribute's order would say what it holds.
+    // An order by a value they don't get would say what it holds.
     let sort_field = query.sort_field.clone().filter(|field| {
         field
             .strip_prefix("attr:")
-            .is_none_or(|key| !keys.hides_anywhere(key))
+            .is_none_or(|key| keys.may_order_by(key))
     });
     let sort_direction = query.sort_direction.clone();
     let search = query.search.clone();
@@ -1526,7 +1526,7 @@ pub async fn get_paginated_devices(
     let warranty = query
         .warranty
         .clone()
-        .filter(|_| !keys.hides_anywhere("warranty_status"));
+        .filter(|_| keys.may_order_by("warranty_status"));
     let location = query.location.clone();
     let groups = query.groups.clone();
     let kind = query.kind.clone();

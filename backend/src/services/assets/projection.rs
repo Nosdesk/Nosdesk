@@ -103,13 +103,22 @@ impl VisibleAttributes {
         }
     }
 
-    /// Whether some kind keeps `key` from this viewer, so an order or a
-    /// filter by it would say what it holds.
-    pub fn hides_anywhere(&self, key: &str) -> bool {
+    /// Whether this viewer may order or filter assets by `key`: only when
+    /// every kind declares it and none keeps it for staff. Otherwise an order
+    /// or a filter would say what a value they don't get holds (a staff-only
+    /// one, one a kind no longer declares).
+    pub fn may_order_by(&self, key: &str) -> bool {
         match self {
-            Self::Everything => false,
-            Self::Nothing => true,
-            Self::Declared { staff_only, .. } => staff_only.contains(key),
+            Self::Everything => true,
+            Self::Nothing => false,
+            Self::Declared {
+                by_kind,
+                staff_only,
+            } => {
+                !staff_only.contains(key)
+                    && !by_kind.is_empty()
+                    && by_kind.values().all(|shown| shown.contains(key))
+            }
         }
     }
 
@@ -202,8 +211,13 @@ mod tests {
         let mut van = json!({ "kind": "van", "attributes": { "cost": "x", "rego": "ABC" } });
         for_viewer(&mut van, &visible());
         assert_eq!(van["attributes"], json!({ "rego": "ABC" }));
-        assert!(visible().hides_anywhere("cost"));
-        assert!(!visible().hides_anywhere("rego"));
+        assert!(!visible().may_order_by("cost"));
+        // Only one kind declares it.
+        assert!(!visible().may_order_by("rego"));
+        let both = json!({ "type": "object", "properties": { "rego": { "type": "string" } } });
+        let declared = VisibleAttributes::from_schemas([("van", &both), ("ute", &both)]);
+        assert!(declared.may_order_by("rego"));
+        assert!(VisibleAttributes::everything().may_order_by("anything"));
         assert!(visible().shows("laptop", "colour"));
         assert!(!visible().shows("laptop", "cost"));
     }
@@ -228,6 +242,6 @@ mod tests {
         assert_eq!(asset["attributes"], attributes);
         for_viewer(&mut asset, &VisibleAttributes::nothing());
         assert_eq!(asset["attributes"], json!({}));
-        assert!(VisibleAttributes::nothing().hides_anywhere("colour"));
+        assert!(!VisibleAttributes::nothing().may_order_by("colour"));
     }
 }

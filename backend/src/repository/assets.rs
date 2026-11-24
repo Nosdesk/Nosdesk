@@ -884,12 +884,22 @@ fn clear_person_attributes(
     use crate::services::custom_fields::references::{target_of, Target};
     use std::collections::BTreeMap;
 
-    let needle = user_uuid.to_string();
-    // A cheap match first; the kinds decide what is a reference.
+    // A cheap match first, in either spelling of the UUID and any case;
+    // the kinds decide what is a reference, by the UUID it parses to.
+    let spellings = vec![
+        format!("%{}%", user_uuid.hyphenated()),
+        format!("%{}%", user_uuid.simple()),
+    ];
+    let is_person = |v: &serde_json::Value| {
+        v.as_str()
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .is_some_and(|u| u == *user_uuid)
+    };
     let held: Vec<(i32, i32, String, serde_json::Value)> = assets::table
         .filter(
-            diesel::dsl::sql::<diesel::sql_types::Bool>("attributes::text LIKE ")
-                .bind::<diesel::sql_types::Text, _>(format!("%{needle}%")),
+            diesel::dsl::sql::<diesel::sql_types::Bool>("lower(attributes::text) LIKE ANY(")
+                .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(spellings)
+                .sql(")"),
         )
         .select((
             assets::workspace_id,
@@ -927,13 +937,13 @@ fn clear_person_attributes(
                         continue;
                     }
                     match map.get_mut(key) {
-                        Some(serde_json::Value::String(v)) if *v == needle => {
+                        Some(v @ serde_json::Value::String(_)) if is_person(v) => {
                             map.remove(key);
                             touched = true;
                         }
                         Some(serde_json::Value::Array(items)) => {
                             let before = items.len();
-                            items.retain(|item| item.as_str() != Some(needle.as_str()));
+                            items.retain(|item| !is_person(item));
                             touched |= items.len() != before;
                         }
                         _ => {}
