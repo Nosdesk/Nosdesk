@@ -8936,6 +8936,7 @@ tickets-due-tomorrow = Demain
 tickets-due-this-week = Cette semaine
 tickets-due-later = Plus tard
 tickets-due-none = Sans date
+ticket-list-my-day-nothing-today = Rien de prévu aujourd'hui. Donnez une échéance à un ticket pour planifier votre journée.
 builtin-view-triage-name = Tri initial
 builtin-view-triage-description = Tickets en attente de première catégorisation
 builtin-view-calendar-name = Calendrier

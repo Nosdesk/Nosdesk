@@ -18,7 +18,7 @@ import SizeChip from '@/components/planning/SizeChip.vue'
 import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { priorityForBadge, priorityLabel } from '@/utils/priorityHelpers'
-import { dueChipLabel, formatDay, type Day } from '@nosdesk/core/utils/ticketDates'
+import { dueChipLabel, dueDay, formatDay, type Day } from '@nosdesk/core/utils/ticketDates'
 import { formatWallTime, planTime, toHhmm } from '@nosdesk/core/utils/ticketPlan'
 import { endMinutes, separateDueDay } from '@nosdesk/core/sync/views/planOrder'
 import type { CardData } from '@nosdesk/core/sync/views/types'
@@ -33,6 +33,9 @@ const props = defineProps<{
   /** Being dragged: it stays in place, dimmed, until the drop. */
   lifted?: boolean
   timeOpen?: boolean
+  /** A job outside the day's order (Overdue, No date): no grip, and its
+   *  deadline shows even when it is the plan day. */
+  fixed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -54,10 +57,11 @@ const requester = computed(() =>
   props.card.requester_uuid ? (getUserHandle(props.card.requester_uuid).user.value?.name ?? '') : '',
 )
 
-/** "due Fri", only when the deadline is another day than the plan day;
- *  in the danger color once that day has passed. */
+/** "due Fri", only when the deadline is another day than the plan day
+ *  (any day, on a fixed row); in the danger color once that day has
+ *  passed. */
 const due = computed(() => {
-  const day = separateDueDay(props.card)
+  const day = props.fixed ? dueDay(props.card) : separateDueDay(props.card)
   if (!day) return null
   return {
     label: fluent.$t('plan-row-due', {
@@ -103,7 +107,8 @@ function onKeydown(event: KeyboardEvent): void {
       selected ? 'bg-accent/5 hover:bg-accent/10' : 'hover:bg-surface-hover',
       lifted && 'opacity-40',
     ]"
-    @pointerdown="emit('row-down', $event)"
+    @pointerdown="!fixed && emit('row-down', $event)"
+    @click="fixed && emit('open')"
     @contextmenu.prevent="emit('menu', $event)"
     @keydown="onKeydown"
   >
@@ -124,7 +129,7 @@ function onKeydown(event: KeyboardEvent): void {
         {{ timeLabel }}<span v-if="overlap" class="sr-only">. {{ overlapTitle }}</span>
       </button>
       <span
-        v-else
+        v-else-if="!fixed"
         data-no-drag
         class="plan-grip -mx-1 inline-flex h-5 w-5 cursor-grab items-center justify-center rounded text-tertiary transition-opacity hover:text-secondary active:cursor-grabbing"
         role="img"

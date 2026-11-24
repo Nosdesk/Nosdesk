@@ -8926,6 +8926,7 @@ tickets-due-tomorrow = Morgen
 tickets-due-this-week = Deze week
 tickets-due-later = Later
 tickets-due-none = Geen datum
+ticket-list-my-day-nothing-today = Niets gepland voor vandaag. Geef een ticket een vervaldatum om je dag te plannen.
 builtin-view-triage-name = Triage
 builtin-view-triage-description = Tickets die nog ingedeeld moeten worden
 builtin-view-calendar-name = Agenda

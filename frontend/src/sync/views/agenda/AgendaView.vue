@@ -2,8 +2,14 @@
 /**
  * My day as the `agenda` view shape: one day, read as a sequence.
  *
+ *   Overdue   today only: open jobs from an earlier day
  *   Booked    jobs with a time, in time order
  *   Any time  the rest: placed by hand first, then by priority
+ *   No date   today only: open jobs with no day at all
+ *
+ * Overdue and No date keep in sight what My day listed before it had
+ * an order; they are not part of the day's order, so their rows don't
+ * drag. Moving them onto the day comes with "Move to today".
  *
  * One column, at most 720px wide, on the list area's left edge. The day
  * is the title; the load ("11 jobs, about 8.5 h") follows it. Dragging
@@ -12,7 +18,7 @@
  * the time.
  *
  * The parent owns the day (so its selection follows the jobs on screen)
- * and splits it with `planFor`; everything derives from the pool, so the
+ * and splits it with `agendaFor`; everything derives from the pool, so the
  * view paints at once and has no loading state.
  */
 import { computed, nextTick, ref } from 'vue'
@@ -34,14 +40,14 @@ import {
   sizeOf,
   type Size,
 } from '@nosdesk/core/utils/ticketPlan'
-import { overlaps, prefillTime, ranksForDrop, type DayPlan } from '@nosdesk/core/sync/views/planOrder'
+import { overlaps, prefillTime, ranksForDrop, type AgendaPlan } from '@nosdesk/core/sync/views/planOrder'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import { useRowReorder, type RowDrop } from '../useRowReorder'
 import AgendaRow from './AgendaRow.vue'
 
 const props = defineProps<{
-  /** The day's jobs, split by `planFor`. */
-  plan: DayPlan
+  /** The day's jobs, split by `agendaFor`. */
+  plan: AgendaPlan
   today: Day
   /** The ticket the preview pane is showing, if any. */
   selectedId?: number | null
@@ -91,8 +97,17 @@ const firstUnplacedId = computed(() => {
   return index > 0 ? list[index].id : null
 })
 
+const isToday = computed(() => daysBetweenDays(props.today, day.value) === 0)
+
 const byId = (id: number) =>
-  props.plan.booked.find((c) => c.id === id) ?? props.plan.anyTime.find((c) => c.id === id)
+  props.plan.booked.find((c) => c.id === id) ??
+  props.plan.anyTime.find((c) => c.id === id) ??
+  props.plan.overdue.find((c) => c.id === id) ??
+  props.plan.undated.find((c) => c.id === id)
+
+/** Overdue and No date rows: outside the day's order. */
+const isFixed = (id: number) =>
+  props.plan.overdue.some((c) => c.id === id) || props.plan.undated.some((c) => c.id === id)
 
 // --- Time and size -----------------------------------------------------
 
@@ -179,14 +194,17 @@ const menuItems = computed<MenuItem[]>(() => {
   if (!card) return []
   const timed = planTime(card) != null
   const size = sizeOf(card.estimate_minutes)
-  const items: MenuItem[] = [
-    { id: 'time', label: fluent.$t(timed ? 'plan-menu-change-time' : 'plan-menu-set-time'), icon: 'clock' },
-  ]
+  const undated = props.plan.undated.some((c) => c.id === card.id)
+  const items: MenuItem[] = []
+  // A time needs a day, and only the day's own jobs have a place in it.
+  if (!undated) {
+    items.push({ id: 'time', label: fluent.$t(timed ? 'plan-menu-change-time' : 'plan-menu-set-time'), icon: 'clock' })
+  }
   if (timed) items.push({ id: 'clear-time', label: fluent.$t('plan-menu-clear-time') })
-  else if (props.plan.anyTime[0]?.id !== card.id) {
+  else if (!isFixed(card.id) && props.plan.anyTime[0]?.id !== card.id) {
     items.push({ id: 'top', label: fluent.$t('plan-menu-move-top'), icon: 'arrowUp' })
   }
-  items.push({ id: 'size', label: fluent.$t('plan-size-label'), heading: true, divider: true })
+  items.push({ id: 'size', label: fluent.$t('plan-size-label'), heading: true, divider: items.length > 0 })
   for (const s of SIZES) {
     items.push({
       id: `size-${s}`,
@@ -237,7 +255,28 @@ function onMenuSelect(action: string): void {
         </div>
       </header>
 
-      <p v-if="count === 0" class="px-4 py-3 text-sm text-tertiary">{{ $t('plan-day-empty') }}</p>
+      <section v-if="plan.overdue.length > 0" data-section="overdue" :aria-label="$t('tickets-due-overdue')">
+        <h3 class="px-4 pt-3 pb-1.5 text-xs font-medium text-tertiary">{{ $t('tickets-due-overdue') }}</h3>
+        <ul class="flex flex-col border-t border-subtle/40">
+          <AgendaRow
+            v-for="card in plan.overdue"
+            :key="card.id"
+            :card="card"
+            :today="today"
+            :selected="selectedId === card.id"
+            :time-open="timeFor === card.id"
+            fixed
+            @open="emit('open', card.id)"
+            @open-time="timeFor = timeFor === card.id ? null : card.id"
+            @size="(minutes) => emit('patch', card.id, { estimate_minutes: minutes })"
+            @menu="(e) => openMenu(card.id, e)"
+          />
+        </ul>
+      </section>
+
+      <p v-if="count === 0" class="px-4 py-3 text-sm text-tertiary">
+        {{ isToday ? $t('ticket-list-my-day-nothing-today') : $t('plan-day-empty') }}
+      </p>
 
       <template v-else>
         <section data-lane="booked" :aria-label="$t('plan-section-booked')">
@@ -287,6 +326,23 @@ function onMenuSelect(action: string): void {
           </ul>
         </section>
       </template>
+
+      <section v-if="plan.undated.length > 0" data-section="undated" :aria-label="$t('tickets-due-none')">
+        <h3 class="px-4 pt-4 pb-1.5 text-xs font-medium text-tertiary">{{ $t('tickets-due-none') }}</h3>
+        <ul class="flex flex-col border-t border-subtle/40">
+          <AgendaRow
+            v-for="card in plan.undated"
+            :key="card.id"
+            :card="card"
+            :today="today"
+            :selected="selectedId === card.id"
+            fixed
+            @open="emit('open', card.id)"
+            @size="(minutes) => emit('patch', card.id, { estimate_minutes: minutes })"
+            @menu="(e) => openMenu(card.id, e)"
+          />
+        </ul>
+      </section>
     </div>
 
     <!-- Where the drop lands. Rows stay put until it does. -->

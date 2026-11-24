@@ -45,7 +45,7 @@ import {
 } from '@nosdesk/core/services/calendarOverlaysService'
 import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
 import AgendaView from './agenda/AgendaView.vue'
-import { MANUAL_SORT, planFor } from '@nosdesk/core/sync/views/planOrder'
+import { agendaFor, MANUAL_SORT } from '@nosdesk/core/sync/views/planOrder'
 import TicketsHeader from '@/components/views/TicketsHeader.vue'
 import TicketsTable from '@/components/views/TicketsTable.vue'
 import TicketsCardList from '@/components/views/TicketsCardList.vue'
@@ -286,9 +286,9 @@ const buckets = grouping.buckets(sortedCards)
 
 // ---------------------------------------------------------------
 // Agenda (My day): one day of the filtered tickets, Booked then Any
-// time. The day lives here so the preview's selection and its arrow
-// keys follow the jobs on screen. A day left on today moves on at
-// midnight with it.
+// time, with Overdue above and No date below on today. The day lives
+// here so the preview's selection and its arrow keys follow the jobs on
+// screen. A day left on today moves on at midnight with it.
 // ---------------------------------------------------------------
 const today = useToday()
 const agendaActive = computed<boolean>(
@@ -298,13 +298,18 @@ const agendaDay = ref<Day>(today.value)
 watch(today, (next, prev) => {
   if (agendaDay.value === prev) agendaDay.value = next
 })
-const agendaPlan = computed(() => planFor(afterChipFilter.value, agendaDay.value))
+const agendaPlan = computed(() => agendaFor(afterChipFilter.value, agendaDay.value, today.value))
 
 /** The tickets on screen, in their order: the day's jobs on the agenda,
  *  else the sorted list. */
 const shownCards = computed<CardData[]>(() =>
   agendaActive.value
-    ? [...agendaPlan.value.booked, ...agendaPlan.value.anyTime]
+    ? [
+        ...agendaPlan.value.overdue,
+        ...agendaPlan.value.booked,
+        ...agendaPlan.value.anyTime,
+        ...agendaPlan.value.undated,
+      ]
     : sortedCards.value,
 )
 

@@ -75,6 +75,49 @@ export function planFor(cards: readonly CardData[], day: Day): DayPlan {
   }
 }
 
+export interface AgendaPlan extends DayPlan {
+  /** Today only: jobs whose plan day has passed, oldest day first. */
+  overdue: CardData[]
+  /** Today only: jobs with no plan day at all. */
+  undated: CardData[]
+}
+
+/** Jobs from earlier days: by plan day, then as a day orders them (timed
+ *  first by time, then placed by rank, then by priority and age). */
+export function compareOverdue(a: CardData, b: CardData): number {
+  const da = planDay(a) ?? ''
+  const db = planDay(b) ?? ''
+  if (da !== db) return da < db ? -1 : 1
+  const ta = planTime(a)
+  const tb = planTime(b)
+  if (ta != null || tb != null) {
+    if (ta == null) return 1
+    if (tb == null) return -1
+    if (ta !== tb) return ta < tb ? -1 : 1
+  }
+  return compareAnyTime(a, b)
+}
+
+/**
+ * What the agenda shows for `day`. Every day shows its own Booked and
+ * Any time jobs. Today also keeps the open work that would otherwise
+ * drop out of sight, as My day's due buckets did: Overdue (a plan day
+ * before today) above the day, and No date below it. `cards` is the
+ * view's set, already narrowed to open jobs.
+ */
+export function agendaFor(cards: readonly CardData[], day: Day, today: Day): AgendaPlan {
+  const plan = planFor(cards, day)
+  if (day !== today) return { ...plan, overdue: [], undated: [] }
+  return {
+    ...plan,
+    overdue: cards.filter((c) => {
+      const d = planDay(c)
+      return d != null && d < today
+    }).sort(compareOverdue),
+    undated: cards.filter((c) => planDay(c) == null).sort(compareAnyTime),
+  }
+}
+
 /** When a booked job is due to finish, in minutes after midnight; its
  *  start when it has no size. */
 export function endMinutes(card: CardData): number {

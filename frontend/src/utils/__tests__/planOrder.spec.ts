@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agendaFor,
   compareAnyTime,
   compareBooked,
   overlaps,
@@ -71,6 +72,44 @@ describe('the order inside a day', () => {
     expect(separateDueDay(job(2, { start_date: `${DAY}T00:00:00`, due_date: '2026-11-27T00:00:00' }))).toBe(
       '2026-11-27',
     )
+  })
+})
+
+describe("the agenda's sections", () => {
+  const TODAY = DAY
+  const cards = [
+    job(1, { due_date: '2026-11-20T00:00:00' }, 'low'),
+    job(2, { due_date: '2026-11-22T00:00:00', due_time: '09:00:00' }),
+    job(3, { start_date: '2026-11-23T00:00:00', due_date: '2026-11-30T00:00:00' }, 'urgent'),
+    job(4, { due_time: '10:00:00' }),
+    job(5),
+    job(6, { due_date: null }, 'high'),
+    job(7, { due_date: null, rank: 'V' }),
+    job(8, { due_date: '2026-11-25T00:00:00' }),
+    job(9, { start_date: '2026-11-25T00:00:00', due_date: '2026-11-20T00:00:00' }),
+  ]
+
+  it('shows today with Overdue above and No date below', () => {
+    const plan = agendaFor(cards, TODAY, TODAY)
+    expect(ids(plan.overdue)).toEqual([1, 2, 3])
+    expect(ids(plan.booked)).toEqual([4])
+    expect(ids(plan.anyTime)).toEqual([5])
+    expect(ids(plan.undated)).toEqual([7, 6])
+  })
+
+  it('reads overdue by the plan day, so a job booked ahead of a passed deadline is not overdue', () => {
+    const plan = agendaFor(cards, TODAY, TODAY)
+    expect(ids(plan.overdue)).not.toContain(9)
+    expect(ids(agendaFor(cards, '2026-11-25', TODAY).anyTime)).toEqual([8, 9])
+  })
+
+  it('shows only the day itself on any other day', () => {
+    for (const day of ['2026-11-25', '2026-11-22']) {
+      const plan = agendaFor(cards, day, TODAY)
+      expect(plan.overdue).toEqual([])
+      expect(plan.undated).toEqual([])
+    }
+    expect(ids(agendaFor(cards, '2026-11-22', TODAY).booked)).toEqual([2])
   })
 })
 

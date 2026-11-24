@@ -8089,6 +8089,7 @@ tickets-due-tomorrow = Tomorrow
 tickets-due-this-week = This week
 tickets-due-later = Later
 tickets-due-none = No date
+ticket-list-my-day-nothing-today = Nothing planned for today. Give a ticket a due date to plan your day.
 builtin-view-triage-name = Triage
 builtin-view-triage-description = Tickets awaiting initial categorization
 builtin-view-calendar-name = Calendar
