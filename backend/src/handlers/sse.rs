@@ -594,7 +594,7 @@ async fn filter_sync_actions_frame(
     let Some(workspace_id) = workspace_id else {
         let decided =
             crate::sync::visibility::fail_closed_deliveries(&viewer, &rows, json_row_to_view);
-        let keys = crate::services::assets::projection::StaffOnlyKeys::fail_closed();
+        let keys = crate::services::assets::projection::VisibleAttributes::nothing();
         return frame_filtered(env, rows, decided, &viewer, &keys);
     };
     let rows_for_block = rows.clone();
@@ -621,7 +621,7 @@ async fn filter_sync_actions_frame(
             tracing::error!("SSE sync visibility filter failed; failing closed");
             (
                 crate::sync::visibility::fail_closed_deliveries(&viewer, &rows, json_row_to_view),
-                crate::services::assets::projection::StaffOnlyKeys::fail_closed(),
+                crate::services::assets::projection::VisibleAttributes::nothing(),
             )
         }
     };
@@ -683,7 +683,7 @@ fn frame_filtered(
     rows: Vec<serde_json::Value>,
     decided: Vec<crate::sync::visibility::Delivery>,
     viewer: &crate::sync::visibility::SyncViewer,
-    asset_keys: &crate::services::assets::projection::StaffOnlyKeys,
+    asset_keys: &crate::services::assets::projection::VisibleAttributes,
 ) -> Option<String> {
     if crate::sync::visibility::any_unclassified(&decided) {
         tracing::error!("SSE: documentation visibility lookup failed; ending the stream");

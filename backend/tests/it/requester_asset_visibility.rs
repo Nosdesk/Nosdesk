@@ -157,6 +157,7 @@ async fn call(
                     .configure(backend::handlers::sync::config)
                     .configure(backend::handlers::asset_settings::config)
                     .configure(backend::handlers::assets::config)
+                    .configure(backend::handlers::search::config)
                     .service(
                         web::resource("/tickets/{id}")
                             .route(web::get().to(backend::handlers::get_ticket))
@@ -1034,7 +1035,10 @@ async fn disposal_notes_vendor_and_actor_stay_with_staff() {
 
 /// The attributes a kind marks `staffOnly` reach staff only: not a
 /// requester's asset routes, ticket, profile or export, nor their sync
-/// snapshot, delta or live stream. The kind's other attributes reach them.
+/// snapshot, delta or live stream, the calendar, a ticket card's OS, the
+/// warranty filter or search. Nor do values the kind no longer declares, or
+/// any value of an asset whose kind is gone. The kind's other attributes
+/// reach them.
 #[actix_web::test]
 async fn staff_only_attributes_reach_staff_only() {
     common::ensure_test_keyring();
@@ -1050,7 +1054,11 @@ async fn staff_only_attributes_reach_staff_only() {
             "type": "object",
             "properties": {
                 "cost": { "type": "object", "format": "money", "staffOnly": true },
-                "colour": { "type": "string" }
+                "colour": { "type": "string" },
+                "code": { "type": "string", "staffOnly": true },
+                "operating_system": { "type": "string", "staffOnly": true },
+                "warranty_status": { "type": "string", "staffOnly": true },
+                "warranty_end_date": { "type": "string", "format": "date", "staffOnly": true }
             }
         })
         .to_string(),
@@ -1060,7 +1068,12 @@ async fn staff_only_attributes_reach_staff_only() {
     .expect("seed the kind");
     let attributes = json!({
         "cost": { "amount": "1999.95", "currency": "AUD" },
-        "colour": "Graphite"
+        "colour": "Graphite",
+        "code": "ZQXSECRET",
+        "operating_system": "Windows 11",
+        "warranty_status": "Active",
+        "warranty_end_date": "2030-01-15",
+        "retired_field": "left behind"
     });
     run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
         backend::repository::assets::update_device(
@@ -1138,6 +1151,63 @@ async fn staff_only_attributes_reach_staff_only() {
         );
     }
 
+    // The calendar's warranty date, the warranty filter and a ticket card's
+    // OS read the attributes directly; a requester gets none of them.
+    let overlay_uri = "/api/assets/calendar-overlay?start=2030-01-01&end=2030-02-01";
+    let in_overlay = |v: &Value| {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .any(|e| e["device_id"] == json!(f.asset))
+    };
+    assert!(in_overlay(&get_json(&f, f.agent, overlay_uri).await));
+    assert!(!in_overlay(&get_json(&f, f.member, overlay_uri).await));
+    let expired = "/api/assets/paginated?warranty=expired";
+    assert_eq!(
+        ids(&get_json(&f, f.agent, expired).await["data"]),
+        Vec::<i64>::new()
+    );
+    assert_eq!(
+        ids(&get_json(&f, f.member, expired).await["data"]),
+        vec![f.asset as i64],
+        "member: the filter is ignored"
+    );
+    let card_os = |rows: &[Value]| -> Value {
+        rows.iter()
+            .find(|r| r["__model__"] == "ticket" && r["id"] == json!(f.ticket))
+            .map(|r| r["affected_devices"]["first"]["os"].clone())
+            .unwrap_or(Value::Null)
+    };
+    assert_eq!(
+        card_os(&bootstrap(&f, f.agent).await.1),
+        json!("Windows 11")
+    );
+    assert_eq!(card_os(&bootstrap(&f, f.member).await.1), Value::Null);
+
+    // Staff-only values aren't indexed, and a requester's count is of what
+    // they get.
+    let stored = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::get_device_by_id(c, f.asset)
+    })
+    .expect("the asset");
+    f.search.index_device(&stored).expect("index the asset");
+    f.search.commit().expect("commit the index");
+    f.search.reload().expect("read the commit");
+    let found = get_json(&f, f.agent, "/api/search?q=Graphite").await;
+    assert!(
+        found["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .any(|r| r["entity_type"] == "device" && r["entity_id"] == json!(f.asset)),
+        "agent finds the asset: {found}"
+    );
+    let secret = get_json(&f, f.agent, "/api/search?q=ZQXSECRET").await;
+    assert_eq!(secret["total"], json!(0), "{secret}");
+    let member = get_json(&f, f.member, "/api/search?q=Graphite").await;
+    assert_eq!(member["total"], json!(0), "{member}");
+    assert_eq!(member["results"], json!([]));
+
     // Sorting by it would give its order away: a requester's list keeps
     // its default order, by name.
     let dearer = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
@@ -1177,5 +1247,38 @@ async fn staff_only_attributes_reach_staff_only() {
         by_name,
         vec![dearer as i64, f.asset as i64],
         "member: by name"
+    );
+
+    // An asset whose kind is gone shows a requester no attributes.
+    let orphan = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::create_device(
+            c,
+            NewAsset {
+                name: "Orphan".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: None,
+                purchase_date: None,
+                asset_tag: None,
+                kind: "kind_since_deleted".to_string(),
+                attributes: json!({ "colour": "Teal" }),
+                quantity: None,
+                unit: None,
+                external_sync_source: None,
+                low_stock_threshold: None,
+                created_by: None,
+            },
+        )
+    })
+    .expect("an orphan")
+    .id;
+    let uri = format!("/api/assets/{orphan}");
+    assert_eq!(get_json(&f, f.member, &uri).await["attributes"], json!({}));
+    assert_eq!(
+        get_json(&f, f.agent, &uri).await["attributes"],
+        json!({ "colour": "Teal" })
     );
 }

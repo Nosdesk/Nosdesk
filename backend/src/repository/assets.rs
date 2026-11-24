@@ -49,6 +49,18 @@ pub fn asset_sync_payload(device: &Asset) -> serde_json::Value {
     })
 }
 
+/// Every asset's kind in the pinned workspace, for checking the assets an
+/// import names.
+pub fn all_kinds_by_id(
+    conn: &mut DbConnection,
+) -> QueryResult<std::collections::HashMap<i32, String>> {
+    Ok(assets::table
+        .select((assets::id, assets::kind))
+        .load::<(i32, String)>(conn)?
+        .into_iter()
+        .collect())
+}
+
 /// The kind of each of `ids` that exists in the pinned workspace, for
 /// checking a reference to an asset.
 pub fn kinds_of(

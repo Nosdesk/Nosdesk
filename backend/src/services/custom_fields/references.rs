@@ -80,10 +80,69 @@ pub fn added_references(
     out
 }
 
+/// The people, assets and people groups a check reads references against.
+#[derive(Debug, Default, Clone)]
+pub struct Known {
+    /// Active members of the workspace.
+    pub members: HashSet<Uuid>,
+    /// Each asset's kind.
+    pub asset_kinds: HashMap<i32, String>,
+    /// People groups.
+    pub groups: HashSet<i32>,
+}
+
 /// Refuse a reference `values` adds over `previous` that names no member
 /// of the workspace, no asset (or one of another kind than the property
-/// scopes), or no people group. Values are assumed well formed: the
-/// validator has run.
+/// scopes), or no people group of `known`. Values are assumed well formed:
+/// the validator has run.
+pub fn check_known(
+    schema: &Value,
+    values: &Value,
+    previous: Option<&Value>,
+    known: &Known,
+) -> Result<(), AttributeError> {
+    for (property, target, value) in added_references(schema, values, previous) {
+        let missing = || AttributeError::MissingReference {
+            property: property.clone(),
+            value: value.clone(),
+        };
+        match target {
+            Target::User => {
+                if !Uuid::parse_str(&value).is_ok_and(|u| known.members.contains(&u)) {
+                    return Err(missing());
+                }
+            }
+            Target::Asset(scope) => {
+                let Some(kind) = value
+                    .parse::<i32>()
+                    .ok()
+                    .and_then(|id| known.asset_kinds.get(&id))
+                else {
+                    return Err(missing());
+                };
+                if let Some(scope) = scope.filter(|s| s != kind) {
+                    return Err(AttributeError::WrongAssetKind {
+                        property,
+                        value,
+                        kind: scope,
+                    });
+                }
+            }
+            Target::Group => {
+                if !value
+                    .parse::<i32>()
+                    .is_ok_and(|id| known.groups.contains(&id))
+                {
+                    return Err(missing());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// [`check_known`] against the pinned workspace, reading only the records
+/// the write adds.
 pub fn check_references(
     conn: &mut DbConnection,
     schema: &Value,
@@ -109,52 +168,24 @@ pub fn check_references(
         .filter(|(_, t, _)| *t == Target::Group)
         .filter_map(|(_, _, v)| v.parse().ok())
         .collect();
-    let members: HashSet<Uuid> = if users.is_empty() {
-        HashSet::new()
-    } else {
-        workspaces::active_members_among(conn, &users)?
+    let known = Known {
+        members: if users.is_empty() {
+            HashSet::new()
+        } else {
+            workspaces::active_members_among(conn, &users)?
+        },
+        asset_kinds: if asset_ids.is_empty() {
+            HashMap::new()
+        } else {
+            asset_repo::kinds_of(conn, &asset_ids)?
+        },
+        groups: if group_ids.is_empty() {
+            HashSet::new()
+        } else {
+            group_repo::existing_ids(conn, &group_ids)?
+        },
     };
-    let kinds: HashMap<i32, String> = if asset_ids.is_empty() {
-        HashMap::new()
-    } else {
-        asset_repo::kinds_of(conn, &asset_ids)?
-    };
-    let groups: HashSet<i32> = if group_ids.is_empty() {
-        HashSet::new()
-    } else {
-        group_repo::existing_ids(conn, &group_ids)?
-    };
-    for (property, target, value) in added {
-        let missing = || AttributeError::MissingReference {
-            property: property.clone(),
-            value: value.clone(),
-        };
-        match target {
-            Target::User => {
-                if !Uuid::parse_str(&value).is_ok_and(|u| members.contains(&u)) {
-                    return Ok(Err(missing()));
-                }
-            }
-            Target::Asset(scope) => {
-                let Some(kind) = value.parse::<i32>().ok().and_then(|id| kinds.get(&id)) else {
-                    return Ok(Err(missing()));
-                };
-                if let Some(scope) = scope.filter(|s| s != kind) {
-                    return Ok(Err(AttributeError::WrongAssetKind {
-                        property,
-                        value,
-                        kind: scope,
-                    }));
-                }
-            }
-            Target::Group => {
-                if !value.parse::<i32>().is_ok_and(|id| groups.contains(&id)) {
-                    return Ok(Err(missing()));
-                }
-            }
-        }
-    }
-    Ok(Ok(()))
+    Ok(check_known(schema, values, previous, &known))
 }
 
 #[cfg(test)]

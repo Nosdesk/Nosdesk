@@ -73,6 +73,7 @@ use crate::services::assets::model_stamp::stamp_default_attributes;
 use crate::services::assets::status_rules::{self, MoveFacts, MoveRefused};
 use crate::services::assets::SYNC_OWNED_ATTRIBUTE_KEYS;
 use crate::services::custom_fields::order::{normalise_order, stored_order};
+use crate::services::custom_fields::references;
 
 use super::catalog::Catalog;
 use super::csv_parser::ParsedCsv;
@@ -1445,6 +1446,8 @@ struct Lookups {
     people_groups: HashMap<String, Vec<i32>>,
     /// The currency an amount without a code is in.
     currency: Option<String>,
+    /// The people, assets and groups a reference attribute may name.
+    known: crate::services::custom_fields::references::Known,
 }
 
 struct KindInfo {
@@ -1517,6 +1520,7 @@ impl Lookups {
             })
             .collect();
 
+        let people_groups = crate::repository::groups::ids_by_name(conn)?;
         let mut members = HashMap::new();
         let mut member_emails = HashMap::new();
         for (user, email) in workspace_repo::member_primary_emails(conn)? {
@@ -1540,8 +1544,13 @@ impl Lookups {
             on_loan: asset_loans_repo::assets_on_active_loan(conn)?
                 .into_iter()
                 .collect(),
-            people_groups: crate::repository::groups::ids_by_name(conn)?,
+            people_groups: people_groups.clone(),
             currency: crate::repository::site_settings::workspace_currency(conn)?,
+            known: crate::services::custom_fields::references::Known {
+                members: workspace_repo::active_member_uuids(conn)?,
+                asset_kinds: asset_repo::all_kinds_by_id(conn)?,
+                groups: people_groups.values().flatten().copied().collect(),
+            },
         })
     }
 
@@ -1989,7 +1998,13 @@ fn plan_row(
         if read_ok && kind_ok && (existing.is_none() || writes || kind_changed) {
             if let Some(info) = lookups.by_slug.get(kind) {
                 let merged_value = Value::Object(merged.clone());
-                if let Err(e) = validate_attributes(&info.schema, &merged_value) {
+                // References the row adds are checked as an asset page's
+                // save checks them; under another kind, every one.
+                let previous = existing.filter(|a| a.kind == *kind).map(|a| &a.attributes);
+                let checked = validate_attributes(&info.schema, &merged_value).and_then(|()| {
+                    references::check_known(&info.schema, &merged_value, previous, &lookups.known)
+                });
+                if let Err(e) = checked {
                     let (key, message) = attribute_error(&e, lookups, kind, &merged);
                     // Without a key the attributes as a whole are refused,
                     // which the kind accounts for.

@@ -4,9 +4,15 @@
 //! viewer who isn't staff passes it through [`for_viewer`]: the REST routes,
 //! the sync snapshot, delta and live stream, and the export.
 //!
-//! The keys are read from the kinds per request or batch rather than cached:
-//! the kinds are a handful of rows, and a read can't go stale on another
-//! server after a kind is saved.
+//! The rule is an allowlist: a viewer who isn't staff gets only the keys
+//! their asset's kind declares and doesn't mark staff only. A value the kind
+//! no longer declares (a field removed with its values left in place), an
+//! asset whose kind is gone, and kinds that couldn't be read all give
+//! nothing.
+//!
+//! The kinds are read per request or batch rather than cached: they are a
+//! handful of rows, and a read can't go stale on another server after a kind
+//! is saved.
 
 use std::collections::{HashMap, HashSet};
 
@@ -14,85 +20,117 @@ use diesel::QueryResult;
 use serde_json::Value;
 
 use crate::db::DbConnection;
-use crate::models::Asset;
+use crate::models::{Asset, AssetKind};
 use crate::repository::asset_kinds as kind_repo;
 
-/// The attribute keys each kind keeps from viewers who aren't staff.
-#[derive(Debug, Clone, Default)]
-pub struct StaffOnlyKeys {
-    by_kind: HashMap<String, HashSet<String>>,
-    /// The kinds couldn't be read: every attribute is kept back.
-    all: bool,
+/// The attribute keys a viewer gets of each kind's assets.
+#[derive(Debug, Clone)]
+pub enum VisibleAttributes {
+    /// Every attribute: staff.
+    Everything,
+    /// None: the kinds couldn't be read.
+    Nothing,
+    /// Per kind slug, the keys it declares and doesn't mark staff only,
+    /// beside every key some kind marks staff only.
+    Declared {
+        by_kind: HashMap<String, HashSet<String>>,
+        staff_only: HashSet<String>,
+    },
 }
 
-impl StaffOnlyKeys {
-    /// Nothing kept back: for staff.
-    pub fn none() -> Self {
-        Self::default()
+impl VisibleAttributes {
+    /// Every attribute: for staff.
+    pub fn everything() -> Self {
+        Self::Everything
     }
 
-    /// Every attribute kept back, for when the kinds couldn't be read.
-    pub fn fail_closed() -> Self {
-        Self {
-            by_kind: HashMap::new(),
-            all: true,
-        }
+    /// No attribute, for when the kinds couldn't be read.
+    pub fn nothing() -> Self {
+        Self::Nothing
     }
 
     /// From `(kind slug, attribute schema)` pairs.
     pub fn from_schemas<'a>(kinds: impl IntoIterator<Item = (&'a str, &'a Value)>) -> Self {
-        let by_kind = kinds
-            .into_iter()
-            .filter_map(|(slug, schema)| {
-                let keys = staff_only_properties(schema);
-                (!keys.is_empty()).then(|| (slug.to_string(), keys))
-            })
-            .collect();
-        Self {
-            by_kind,
-            all: false,
+        let mut by_kind = HashMap::new();
+        let mut staff_only = HashSet::new();
+        for (slug, schema) in kinds {
+            let mut shown = HashSet::new();
+            if let Some(props) = schema.get("properties").and_then(Value::as_object) {
+                for (key, prop) in props {
+                    if is_staff_only(prop) {
+                        staff_only.insert(key.clone());
+                    } else {
+                        shown.insert(key.clone());
+                    }
+                }
+            }
+            by_kind.insert(slug.to_string(), shown);
         }
+        Self::Declared {
+            by_kind,
+            staff_only,
+        }
+    }
+
+    /// From a workspace's kinds.
+    pub fn from_kinds(kinds: &[AssetKind]) -> Self {
+        Self::from_schemas(kinds.iter().map(|k| (k.slug.as_str(), &k.attribute_schema)))
     }
 
     /// The pinned workspace's kinds.
     pub fn load(conn: &mut DbConnection) -> QueryResult<Self> {
-        let kinds = kind_repo::list_kinds(conn)?;
-        Ok(Self::from_schemas(
-            kinds.iter().map(|k| (k.slug.as_str(), &k.attribute_schema)),
-        ))
+        Ok(Self::from_kinds(&kind_repo::list_kinds(conn)?))
     }
 
-    /// What a viewer keeps back: nothing for staff, the workspace's
-    /// staff-only keys for anyone else, every attribute when they can't be
-    /// read.
+    /// What a viewer gets: every attribute for staff, the declared ones that
+    /// aren't staff only for anyone else, none when the kinds can't be read.
     pub fn for_viewer(conn: &mut DbConnection, is_staff: bool) -> Self {
         if is_staff {
-            return Self::none();
+            return Self::everything();
         }
         Self::load(conn).unwrap_or_else(|e| {
-            tracing::error!(error = %e, "staff-only attributes unreadable; keeping every attribute back");
-            Self::fail_closed()
+            tracing::error!(error = %e, "asset kinds unreadable; keeping every attribute back");
+            Self::nothing()
         })
     }
 
-    /// Whether `key` is staff only on any kind.
-    pub fn any_kind_has(&self, key: &str) -> bool {
-        self.all || self.by_kind.values().any(|keys| keys.contains(key))
+    /// Whether a viewer gets `key` of an asset of `kind`.
+    pub fn shows(&self, kind: &str, key: &str) -> bool {
+        match self {
+            Self::Everything => true,
+            Self::Nothing => false,
+            Self::Declared { by_kind, .. } => by_kind.get(kind).is_some_and(|k| k.contains(key)),
+        }
     }
 
-    /// `attributes` of an asset of `kind` without the keys kept back.
+    /// Whether some kind keeps `key` from this viewer, so an order or a
+    /// filter by it would say what it holds.
+    pub fn hides_anywhere(&self, key: &str) -> bool {
+        match self {
+            Self::Everything => false,
+            Self::Nothing => true,
+            Self::Declared { staff_only, .. } => staff_only.contains(key),
+        }
+    }
+
+    /// `attributes` of an asset of `kind` with only what the viewer gets.
     pub fn strip(&self, kind: &str, attributes: &mut Value) {
         let Some(map) = attributes.as_object_mut() else {
             return;
         };
-        if self.all {
-            map.clear();
-            return;
-        }
-        if let Some(keys) = self.by_kind.get(kind) {
-            map.retain(|key, _| !keys.contains(key));
+        match self {
+            Self::Everything => {}
+            Self::Nothing => map.clear(),
+            Self::Declared { by_kind, .. } => match by_kind.get(kind) {
+                Some(shown) => map.retain(|key, _| shown.contains(key)),
+                None => map.clear(),
+            },
         }
     }
+}
+
+fn is_staff_only(prop: &Value) -> bool {
+    prop.get("staffOnly").and_then(Value::as_bool) == Some(true)
 }
 
 /// The properties of a schema marked `staffOnly`.
@@ -103,7 +141,7 @@ pub fn staff_only_properties(schema: &Value) -> HashSet<String> {
         .map(|props| {
             props
                 .iter()
-                .filter(|(_, prop)| prop.get("staffOnly").and_then(Value::as_bool) == Some(true))
+                .filter(|(_, prop)| is_staff_only(prop))
                 .map(|(key, _)| key.clone())
                 .collect()
         })
@@ -111,21 +149,21 @@ pub fn staff_only_properties(schema: &Value) -> HashSet<String> {
 }
 
 /// An asset as JSON (a REST response or a sync row, which carry `kind` and
-/// `attributes`) without what `keys` keeps back.
-pub fn for_viewer(asset: &mut Value, keys: &StaffOnlyKeys) {
+/// `attributes`) with only the attributes `visible` gives.
+pub fn for_viewer(asset: &mut Value, visible: &VisibleAttributes) {
     let kind = asset
         .get("kind")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
     if let Some(attributes) = asset.get_mut("attributes") {
-        keys.strip(&kind, attributes);
+        visible.strip(&kind, attributes);
     }
 }
 
-/// An asset row without what `keys` keeps back.
-pub fn row_for_viewer(asset: &mut Asset, keys: &StaffOnlyKeys) {
-    keys.strip(&asset.kind, &mut asset.attributes);
+/// An asset row with only the attributes `visible` gives.
+pub fn row_for_viewer(asset: &mut Asset, visible: &VisibleAttributes) {
+    visible.strip(&asset.kind, &mut asset.attributes);
 }
 
 #[cfg(test)]
@@ -133,7 +171,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn keys() -> StaffOnlyKeys {
+    fn visible() -> VisibleAttributes {
         let laptop = json!({
             "type": "object",
             "properties": {
@@ -143,33 +181,53 @@ mod tests {
             }
         });
         let van = json!({ "type": "object", "properties": { "rego": { "type": "string" } } });
-        StaffOnlyKeys::from_schemas([("laptop", &laptop), ("van", &van)])
+        VisibleAttributes::from_schemas([("laptop", &laptop), ("van", &van)])
     }
 
     #[test]
-    fn strips_a_kinds_staff_only_keys_and_nothing_else() {
+    fn a_viewer_gets_only_what_the_kind_declares_and_shows() {
         let mut asset = json!({
             "kind": "laptop",
-            "attributes": { "cost": { "amount": "10.00", "currency": "AUD" }, "colour": "red", "po": "P1" }
+            "attributes": {
+                "cost": { "amount": "10.00", "currency": "AUD" },
+                "colour": "red",
+                "po": "P1",
+                "removed_field": "left behind"
+            }
         });
-        for_viewer(&mut asset, &keys());
+        for_viewer(&mut asset, &visible());
         assert_eq!(asset["attributes"], json!({ "colour": "red", "po": "P1" }));
 
         // Another kind's key of the same name is its own.
         let mut van = json!({ "kind": "van", "attributes": { "cost": "x", "rego": "ABC" } });
-        for_viewer(&mut van, &keys());
-        assert_eq!(van["attributes"], json!({ "cost": "x", "rego": "ABC" }));
-        assert!(keys().any_kind_has("cost"));
-        assert!(!keys().any_kind_has("rego"));
+        for_viewer(&mut van, &visible());
+        assert_eq!(van["attributes"], json!({ "rego": "ABC" }));
+        assert!(visible().hides_anywhere("cost"));
+        assert!(!visible().hides_anywhere("rego"));
+        assert!(visible().shows("laptop", "colour"));
+        assert!(!visible().shows("laptop", "cost"));
     }
 
     #[test]
-    fn staff_keep_everything_and_a_failed_read_keeps_back_everything() {
-        let attributes = json!({ "cost": 1, "colour": "red" });
-        let mut asset = json!({ "kind": "laptop", "attributes": attributes });
-        for_viewer(&mut asset, &StaffOnlyKeys::none());
-        assert_eq!(asset["attributes"], attributes);
-        for_viewer(&mut asset, &StaffOnlyKeys::fail_closed());
+    fn an_unknown_kind_or_no_kinds_give_nothing() {
+        let mut gone = json!({ "kind": "deleted", "attributes": { "colour": "red" } });
+        for_viewer(&mut gone, &visible());
+        assert_eq!(gone["attributes"], json!({}));
+
+        let none_read = VisibleAttributes::from_schemas([]);
+        let mut asset = json!({ "kind": "laptop", "attributes": { "colour": "red" } });
+        for_viewer(&mut asset, &none_read);
         assert_eq!(asset["attributes"], json!({}));
+    }
+
+    #[test]
+    fn staff_get_everything_and_a_failed_read_gives_nothing() {
+        let attributes = json!({ "cost": 1, "colour": "red", "stray": true });
+        let mut asset = json!({ "kind": "deleted", "attributes": attributes });
+        for_viewer(&mut asset, &VisibleAttributes::everything());
+        assert_eq!(asset["attributes"], attributes);
+        for_viewer(&mut asset, &VisibleAttributes::nothing());
+        assert_eq!(asset["attributes"], json!({}));
+        assert!(VisibleAttributes::nothing().hides_anywhere("colour"));
     }
 }

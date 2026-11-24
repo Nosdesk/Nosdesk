@@ -1120,6 +1120,23 @@ pub fn member_primary_emails(conn: &mut DbConnection) -> QueryResult<Vec<(Uuid, 
         .load(conn)
 }
 
+/// The pinned workspace's active members, for checking the people an
+/// import names.
+pub fn active_member_uuids(
+    conn: &mut DbConnection,
+) -> QueryResult<std::collections::HashSet<Uuid>> {
+    use crate::schema::users;
+    Ok(workspace_members::table
+        .inner_join(users::table)
+        .filter(workspace_members::workspace_id.eq(super::pinned_workspace()))
+        .filter(workspace_members::removed_at.is_null())
+        .filter(users::deleted_at.is_null())
+        .select(workspace_members::user_uuid)
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
+}
+
 /// Which of `user_uuids` are active members of the pinned workspace, for
 /// checking a reference to a person.
 pub fn active_members_among(

@@ -1094,3 +1094,66 @@ struct GroupId {
     #[diesel(sql_type = Integer)]
     id: i32,
 }
+
+/// An asset reference cell must name an asset of the workspace, of the kind
+/// the attribute scopes, as an asset page's save requires; the row error is
+/// on the cell.
+#[actix_web::test]
+async fn asset_reference_cells_name_an_asset_of_their_kind() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool);
+    seed_kind(
+        &pool,
+        &ws,
+        "rig",
+        "Rig",
+        320,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "dock": { "type": "string", "format": "asset-ref", "assetKind": "camera", "title": "Dock" },
+                "spare": { "type": "string", "format": "asset-ref", "title": "Spare" }
+            }
+        }),
+    );
+    seed_asset(&pool, &ws, "CAM-1", "camera", serde_json::json!({}), None);
+    seed_asset(
+        &pool,
+        &ws,
+        "VAN-1",
+        "vehicle",
+        serde_json::json!({ "fuel": "Diesel" }),
+        None,
+    );
+    let file = "Name,Type,Tag,Dock,Spare\n\
+                Rig 1,rig,R-1,CAM-1,VAN-1\n\
+                Rig 2,rig,R-2,VAN-1,\n\
+                Rig 3,rig,R-3,,999999\n";
+    let job = checked(
+        &pool,
+        &ws,
+        file,
+        &[
+            ("Name", "name"),
+            ("Type", "kind"),
+            ("Tag", "asset_tag"),
+            ("Dock", "dock"),
+            ("Spare", "spare"),
+        ],
+        serde_json::json!({}),
+    )
+    .await;
+    let found: Vec<(u64, Option<String>)> = errors(&job)
+        .into_iter()
+        .map(|(row, col, _)| (row, col))
+        .collect();
+    assert_eq!(
+        found,
+        vec![
+            (3, Some("dock".to_string())),
+            (4, Some("spare".to_string()))
+        ],
+        "{job}"
+    );
+}

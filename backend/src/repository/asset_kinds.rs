@@ -294,3 +294,13 @@ pub fn count_assets_using_kind(conn: &mut DbConnection, slug: &str) -> QueryResu
         .count()
         .get_result(conn)
 }
+
+/// The ids of the assets of kind `slug`, for re-indexing them after the
+/// kind's schema changes.
+pub fn asset_ids_of_kind(conn: &mut DbConnection, slug: &str) -> QueryResult<Vec<i32>> {
+    use crate::schema::assets;
+    assets::table
+        .filter(assets::kind.eq(slug))
+        .select(assets::id)
+        .load(conn)
+}

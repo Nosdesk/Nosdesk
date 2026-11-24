@@ -271,7 +271,15 @@ impl SearchService {
             indexer::index_document_from_documentation,
         )?;
 
-        // Each page of assets with its records' text, read in one pass.
+        // Each page of assets with its records' text, read in one pass;
+        // the kinds say which attributes are staff only, which aren't
+        // indexed.
+        let staff_only = indexer::staff_only_by_kind(&run_in_workspace(
+            &self.pool,
+            REF,
+            workspace_id,
+            crate::repository::asset_kinds::list_kinds,
+        )?);
         stats.indexed.devices = self.index_pages(
             workspace_id,
             &mut seen,
@@ -288,7 +296,13 @@ impl SearchService {
                     .collect())
             },
             |(a, _)| a.id,
-            |(a, records)| indexer::index_document_from_device(a, records),
+            |(a, records)| {
+                let hidden = staff_only
+                    .get(&(a.workspace_id, a.kind.clone()))
+                    .cloned()
+                    .unwrap_or_default();
+                indexer::index_document_from_device(a, records, &hidden)
+            },
         )?;
 
         stats.indexed.projects = self.index_pages(

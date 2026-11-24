@@ -221,6 +221,11 @@ async fn references_are_checked_when_a_write_adds_or_changes_them() {
     let member = f.ws.member_uuid.to_string();
     let stranger = Uuid::new_v4().to_string();
 
+    // A person is stored in one spelling, however the write spells them.
+    let (status, body) = put_attributes(&f, dock, json!({ "owner": member.to_uppercase() })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(stored(&f, dock)["owner"], json!(member));
+
     let (status, body) = put_attributes(
         &f,
         dock,
@@ -315,6 +320,10 @@ async fn money_takes_the_workspace_currency_and_sorts_by_currency_then_amount() 
             "unknown code",
         ),
         (json!({ "cost": "1250.50" }), "not an object"),
+        (
+            json!({ "cost": { "amount": 0.1 } }),
+            "a fractional JSON number",
+        ),
     ] {
         let (status, body) = put_attributes(&f, dock, value).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{why}: {body}");

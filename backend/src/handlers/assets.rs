@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::models::{Asset, AssetGroupRef, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
-use crate::services::assets::projection::{self, StaffOnlyKeys};
+use crate::services::assets::projection::{self, VisibleAttributes};
 use crate::services::assets::{
     model_stamp, validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS,
 };
@@ -46,8 +46,8 @@ pub(crate) fn require_assets_visible(
     }
 }
 
-/// Blank the staff-only fields (notes, and the attributes each kind marks
-/// `staffOnly`) of raw asset rows for anyone but staff, by the same rule as
+/// Blank the staff-only fields (notes, and each attribute the asset's kind
+/// marks `staffOnly` or no longer declares) of raw asset rows for anyone but staff, by the same rule as
 /// `assets_for_viewer`. For responses that embed [`Asset`] rows: a ticket, a
 /// group, a profile, the export.
 pub(crate) fn strip_staff_asset_fields<'a>(
@@ -58,15 +58,15 @@ pub(crate) fn strip_staff_asset_fields<'a>(
     if auth.can_handle_tickets() {
         return;
     }
-    let keys = StaffOnlyKeys::for_viewer(conn, false);
+    let keys = VisibleAttributes::for_viewer(conn, false);
     strip_staff_asset_rows(assets, auth, &keys);
 }
 
-/// [`strip_staff_asset_fields`] with the attributes kept back already read.
+/// [`strip_staff_asset_fields`] with what the viewer gets already read.
 fn strip_staff_asset_rows<'a>(
     assets: impl IntoIterator<Item = &'a mut Asset>,
     auth: &AuthContext,
-    keys: &StaffOnlyKeys,
+    keys: &VisibleAttributes,
 ) {
     if auth.can_handle_tickets() {
         return;
@@ -77,14 +77,14 @@ fn strip_staff_asset_rows<'a>(
     }
 }
 
-/// The attributes `auth` doesn't get: none for staff, the kinds' staff-only
-/// keys for anyone else.
-fn staff_only_keys(tc: &mut TenantConn, auth: &AuthContext) -> StaffOnlyKeys {
+/// The attributes `auth` gets: every one for staff, for anyone else those
+/// their asset's kind declares and doesn't mark staff only.
+fn visible_attributes(tc: &mut TenantConn, auth: &AuthContext) -> VisibleAttributes {
     if auth.can_handle_tickets() {
-        return StaffOnlyKeys::none();
+        return VisibleAttributes::everything();
     }
-    tc.run(|conn| Ok::<_, Error>(StaffOnlyKeys::for_viewer(conn, false)))
-        .unwrap_or_else(|_| StaffOnlyKeys::fail_closed())
+    tc.run(|conn| Ok::<_, Error>(VisibleAttributes::for_viewer(conn, false)))
+        .unwrap_or_else(|_| VisibleAttributes::nothing())
 }
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -656,7 +656,7 @@ fn resolve_asset_user(u: &User, conn: &mut crate::db::DbConnection) -> UserInfo 
 fn assets_for_viewer(
     body: impl Serialize,
     auth: &AuthContext,
-    keys: &StaffOnlyKeys,
+    keys: &VisibleAttributes,
 ) -> serde_json::Value {
     let mut body = serde_json::to_value(body).unwrap_or(serde_json::Value::Null);
     if auth.can_handle_tickets() {
@@ -806,6 +806,8 @@ pub async fn calendar_overlay(
         id: i32,
         #[diesel(sql_type = diesel::sql_types::Text)]
         name: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        kind: String,
         #[diesel(sql_type = diesel::sql_types::Date)]
         warranty_end_date: NaiveDate,
     }
@@ -815,7 +817,7 @@ pub async fn calendar_overlay(
             return Ok(Vec::new());
         }
         diesel::sql_query(
-            "SELECT id, name, NULLIF(attributes->>'warranty_end_date','')::date AS warranty_end_date \
+            "SELECT id, name, kind, NULLIF(attributes->>'warranty_end_date','')::date AS warranty_end_date \
              FROM assets \
              WHERE NULLIF(attributes->>'warranty_end_date','')::date BETWEEN $1 AND $2",
         )
@@ -823,11 +825,14 @@ pub async fn calendar_overlay(
         .bind::<diesel::sql_types::Date, _>(end)
         .load(conn)
     });
+    // The date is an attribute: only where the viewer's kind shows it.
+    let visible = visible_attributes(&mut tc, &auth);
 
     match rows {
         Ok(rows) => {
             let entries: Vec<CalendarOverlayEntry> = rows
                 .into_iter()
+                .filter(|row| visible.shows(&row.kind, "warranty_end_date"))
                 .map(|row| CalendarOverlayEntry {
                     kind: "warranty_expiry",
                     date: row.warranty_end_date.format("%Y-%m-%d").to_string(),
@@ -1034,7 +1039,7 @@ pub async fn get_all_devices(mut tc: TenantConn, auth: AuthContext) -> impl Resp
         Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(
             device_responses,
             &auth,
-            &staff_only_keys(&mut tc, &auth),
+            &visible_attributes(&mut tc, &auth),
         )),
         Err(e) => {
             error!(error = ?e, "Database error getting all devices");
@@ -1097,6 +1102,12 @@ pub async fn export_assets(
         Ok(v) => v,
         Err(e) => return e.response(),
     };
+    let visible = visible_attributes(&mut tc, &auth);
+    // A staff-only warranty status would be read back through the filter.
+    let warranty = query
+        .warranty
+        .as_deref()
+        .filter(|_| !visible.hides_anywhere("warranty_status"));
 
     let export_result = tc.run(|conn| {
         let ids = match import {
@@ -1106,7 +1117,7 @@ pub async fn export_assets(
         let filters = repository::assets::AssetListFilters {
             search: query.search.as_deref(),
             status: query.status.as_deref(),
-            warranty: query.warranty.as_deref(),
+            warranty,
             location: query.location.as_deref(),
             groups: query.groups.as_deref(),
             low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
@@ -1163,7 +1174,7 @@ pub async fn export_assets(
         }
     };
     // The CSV keeps its `notes` column, blank, so a re-import still parses.
-    strip_staff_asset_rows(&mut rows, &auth, &staff_only_keys(&mut tc, &auth));
+    strip_staff_asset_rows(&mut rows, &auth, &visible);
     // History keeps its columns too, blank where the timeline is staff only.
     if let ExportExtra::History(events) = &mut extra {
         crate::handlers::asset_lifecycle::strip_staff_lifecycle_fields(events, &auth);
@@ -1502,17 +1513,20 @@ pub async fn get_paginated_devices(
 ) -> impl Responder {
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
-    let keys = staff_only_keys(&mut tc, &auth);
+    let keys = visible_attributes(&mut tc, &auth);
     // A staff-only attribute's order would say what it holds.
     let sort_field = query.sort_field.clone().filter(|field| {
         field
             .strip_prefix("attr:")
-            .is_none_or(|key| !keys.any_kind_has(key))
+            .is_none_or(|key| !keys.hides_anywhere(key))
     });
     let sort_direction = query.sort_direction.clone();
     let search = query.search.clone();
     let status = query.status.clone();
-    let warranty = query.warranty.clone();
+    let warranty = query
+        .warranty
+        .clone()
+        .filter(|_| !keys.hides_anywhere("warranty_status"));
     let location = query.location.clone();
     let groups = query.groups.clone();
     let kind = query.kind.clone();
@@ -1630,7 +1644,7 @@ pub async fn get_device_by_id(
         Ok(device_response) => HttpResponse::Ok().json(assets_for_viewer(
             device_response,
             &auth,
-            &staff_only_keys(&mut tc, &auth),
+            &visible_attributes(&mut tc, &auth),
         )),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
@@ -1668,7 +1682,7 @@ pub async fn get_user_devices(
         Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(
             device_responses,
             &auth,
-            &staff_only_keys(&mut tc, &auth),
+            &visible_attributes(&mut tc, &auth),
         )),
         Err(e) => {
             error!(user_uuid = %user_uuid_str, error = ?e, "Error getting devices for user");
@@ -2198,7 +2212,7 @@ pub async fn get_paginated_devices_excluding(
             HttpResponse::Ok().json(assets_for_viewer(
                 response,
                 &auth,
-                &staff_only_keys(&mut tc, &auth),
+                &visible_attributes(&mut tc, &auth),
             ))
         }
         Err(e) => {
@@ -2331,13 +2345,14 @@ pub async fn set_asset_model(
     // asset that fails its own kind's schema.
     let kind = stamp.kind.clone();
     let attrs_for_validation = stamp.attributes.clone();
-    let previous = existing.attributes.clone();
+    // Under another kind every reference is the new kind's to check.
+    let previous = (stamp.kind == existing.kind).then(|| existing.attributes.clone());
     match tc.run(move |conn| {
         Ok::<_, Error>(validate_for_kind(
             conn,
             &kind,
             &attrs_for_validation,
-            Some(&previous),
+            previous.as_ref(),
         ))
     }) {
         Ok(Ok(attributes)) => stamp.attributes = attributes,

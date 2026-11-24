@@ -209,13 +209,14 @@ pub async fn update(
                 return errors::internal("Failed to load asset model");
             }
         };
-        let kind = body.kind.clone().unwrap_or(existing.kind);
+        let kind = body.kind.clone().unwrap_or_else(|| existing.kind.clone());
         let attrs = stripped_default_attributes
             .clone()
             .unwrap_or_else(|| existing.default_attributes.clone());
-        let previous = existing.default_attributes;
+        // Under another kind every reference is the new kind's to check.
+        let previous = (kind == existing.kind).then_some(existing.default_attributes);
         match tc.run(move |conn| {
-            Ok::<_, DieselError>(validate_for_kind(conn, &kind, &attrs, Some(&previous)))
+            Ok::<_, DieselError>(validate_for_kind(conn, &kind, &attrs, previous.as_ref()))
         }) {
             Ok(Ok(attributes)) => {
                 if stripped_default_attributes.is_some() {

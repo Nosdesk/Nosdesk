@@ -23,6 +23,7 @@ import {
   isValidAttributeName,
   type AttributeDef,
   type AttributeKind,
+  TYPE_INDEPENDENT_KEYWORDS,
 } from './attributeSchema';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 
@@ -60,6 +61,12 @@ function onKindChange(kind: AttributeKind): void {
     required: props.modelValue.required,
     description: props.modelValue.description,
   };
+  const extras = Object.fromEntries(
+    Object.entries(props.modelValue.extras ?? {}).filter(([key]) =>
+      TYPE_INDEPENDENT_KEYWORDS.includes(key),
+    ),
+  );
+  if (Object.keys(extras).length > 0) base.extras = extras;
   if (kind === 'select' || kind === 'multi_select') base.enumValues = props.modelValue.enumValues ?? [];
   emit('update:modelValue', base);
 }

@@ -3,13 +3,15 @@
 //! canonical to its currency's exponent (`utils::money`), so equal amounts
 //! are equal text and sums are exact.
 //!
-//! A write may leave the currency out, or give the amount as a number or
-//! with extra zeros; [`normalise_values`] fills and canonicalises it before
-//! the validator, which then needs no database read and accepts only the
-//! canonical shape.
+//! A write may leave the currency out, or give the amount as a whole number
+//! or with extra zeros; [`normalise_values`] fills and canonicalises it
+//! before the validator, which then needs no database read and accepts only
+//! the canonical shape. It also writes person references in one spelling
+//! (lowercase, hyphenated), so a purge or a workspace move finds them.
 
 use serde_json::{json, Map, Value};
 
+use super::references::{target_of, Target};
 use super::schema::AttributeError;
 use crate::utils::money::{self, DecimalMark};
 
@@ -26,8 +28,9 @@ pub fn pinned_currency(prop: &Value) -> Option<&str> {
 
 /// `values` with each money value made canonical: its currency filled from
 /// the property's pinned code, else `default_currency` (the workspace's),
-/// and its amount written to the currency's exponent. Values that aren't
-/// money, and money values that aren't objects, are left for the validator.
+/// and its amount written to the currency's exponent. Person references
+/// (`user-uuid`, alone or in a list) are written lowercase and hyphenated.
+/// Anything else, and values of the wrong shape, are left for the validator.
 pub fn normalise_values(
     schema: &Value,
     values: &Value,
@@ -41,15 +44,37 @@ pub fn normalise_values(
     };
     let mut out = map.clone();
     for (key, value) in out.iter_mut() {
-        let Some(prop) = props.get(key).filter(|p| is_money(p)) else {
+        let Some(prop) = props.get(key) else {
             continue;
         };
+        if target_of(prop) == Some(Target::User) {
+            canonical_uuids(value);
+        }
+        if !is_money(prop) {
+            continue;
+        }
         if let Value::Object(money) = value {
             *value = normalise_money(key, prop, money, default_currency)?;
         }
     }
     Ok(Value::Object(out))
 }
+
+/// A UUID, or each in a list, in its one spelling.
+fn canonical_uuids(value: &mut Value) {
+    match value {
+        Value::String(s) => {
+            if let Ok(uuid) = uuid::Uuid::parse_str(s) {
+                *s = uuid.to_string();
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(canonical_uuids),
+        _ => {}
+    }
+}
+
+/// The largest whole number a JSON number holds exactly (2^53).
+const EXACT_NUMBER: i64 = 1 << 53;
 
 fn normalise_money(
     property: &str,
@@ -81,7 +106,17 @@ fn normalise_money(
         .ok_or_else(|| bad("needs a currency while the workspace has none".into()))?;
     let text = match value.get("amount") {
         Some(Value::String(s)) => s.clone(),
-        Some(Value::Number(n)) => n.to_string(),
+        // A number reaches us through a float, which can't hold every
+        // decimal: only whole numbers it holds exactly are taken.
+        Some(Value::Number(n)) => match n.as_i64().filter(|v| v.abs() <= EXACT_NUMBER) {
+            Some(whole) => whole.to_string(),
+            None => {
+                return Err(bad(
+                    "amount must be a decimal string such as \"1250.50\"; a JSON number is taken only when it's a whole number"
+                        .into(),
+                ))
+            }
+        },
         _ => {
             return Err(bad(
                 "amount must be a decimal string such as \"1250.50\"".into()
@@ -151,8 +186,8 @@ mod tests {
         let out = normalise_values(
             &schema(),
             &json!({
-                "cost": { "amount": 1250.5 },
-                "usd": { "amount": "7" },
+                "cost": { "amount": "1250.5" },
+                "usd": { "amount": 7 },
                 "note": "kept"
             }),
             Some("AUD"),
@@ -174,6 +209,41 @@ mod tests {
         )
         .unwrap();
         assert_eq!(jpy["cost"], json!({ "amount": "1250", "currency": "JPY" }));
+    }
+
+    #[test]
+    fn a_fractional_or_huge_json_number_is_refused_and_person_references_are_canonical() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "cost": { "type": "object", "format": "money" },
+                "owner": { "type": "string", "format": "user-uuid" },
+                "crew": { "type": "array", "items": { "type": "string", "format": "user-uuid" } }
+            }
+        });
+        for amount in [json!(0.1), json!(9_007_199_254_740_993_i64), json!(1e20)] {
+            let err = normalise_values(
+                &schema,
+                &json!({ "cost": { "amount": amount } }),
+                Some("AUD"),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(&err, AttributeError::BadMoney { property, .. } if property == "cost"),
+                "{amount}: {err:?}"
+            );
+        }
+        let upper = "019DCF49-A30E-7AF2-9EDE-78A96A4B6832";
+        let bare = "019dcf49a30e7af29ede78a96a4b6832";
+        let out = normalise_values(
+            &schema,
+            &json!({ "owner": upper, "crew": [bare, "not-a-uuid"] }),
+            None,
+        )
+        .unwrap();
+        let canonical = "019dcf49-a30e-7af2-9ede-78a96a4b6832";
+        assert_eq!(out["owner"], json!(canonical));
+        assert_eq!(out["crew"], json!([canonical, "not-a-uuid"]));
     }
 
     #[test]

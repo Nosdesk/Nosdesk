@@ -27,6 +27,8 @@ use crate::extractors::{AuthContext, TenantConn};
 use crate::models::{AssetKind, AssetKindUpdate, NewAssetKind};
 use crate::repository::asset_kinds as repo;
 use crate::services::assets::kinds as schema_validator;
+use crate::services::search::{indexing_tasks, SearchService};
+use std::sync::Arc;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route(
@@ -265,6 +267,7 @@ pub async fn update(
     body: web::Json<UpdateBody>,
     query: web::Query<UpdateQuery>,
     auth: AuthContext,
+    search: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
@@ -342,6 +345,7 @@ pub async fn update(
         }
     }
 
+    let schema_changed = body.attribute_schema.is_some();
     let update = AssetKindUpdate {
         label: body.label.map(|s| s.trim().to_string()),
         description: body
@@ -356,7 +360,20 @@ pub async fn update(
     };
 
     match tc.run(|conn| repo::update_kind(conn, id, update)) {
-        Ok(kind) => HttpResponse::Ok().json(kind),
+        Ok(kind) => {
+            // Which attributes are staff only may have changed, and those
+            // aren't indexed: the kind's assets are indexed again.
+            if let (true, Some(search)) = (schema_changed, search) {
+                match tc.run(|conn| repo::asset_ids_of_kind(conn, &kind.slug)) {
+                    Ok(ids) if !ids.is_empty() => {
+                        indexing_tasks::spawn_reindex_devices(search.get_ref().clone(), ids)
+                    }
+                    Ok(_) => {}
+                    Err(e) => error!(id, error = %e, "failed to list a kind's assets to reindex"),
+                }
+            }
+            HttpResponse::Ok().json(kind)
+        }
         Err(DieselError::NotFound) => errors::not_found_msg(format!("Asset kind {id} not found")),
         Err(e) => {
             error!(id, error = %e, "failed to update asset kind");
