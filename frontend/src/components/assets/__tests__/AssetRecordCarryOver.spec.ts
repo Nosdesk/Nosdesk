@@ -96,9 +96,11 @@ const checkbox = defineComponent({
 const stubs = {
   Modal: defineComponent({
     props: { show: Boolean, title: String, description: String },
-    setup: (props, { slots }) => () =>
+    emits: ['close'],
+    setup: (props, { slots, emit }) => () =>
       h('div', [
         h('h2', { 'data-title': '' }, props.title),
+        h('button', { 'data-close': '', onClick: () => emit('close') }, 'close'),
         h('p', { 'data-description': '' }, props.description),
         slots.default?.(),
         slots.footer?.(),
@@ -330,6 +332,28 @@ describe('the carry-over step', () => {
     expect(records.carryOver).not.toHaveBeenCalled()
     expect(w.emitted('saved')).toHaveLength(1)
     expect(w.find('[data-testid="carry-step"]').exists()).toBe(false)
+  })
+
+  it('keeps the record and moves nothing when closed', async () => {
+    const w = await open()
+    await saveReplaced(w)
+    await w.get('[data-close]').trigger('click')
+    await flushPromises()
+
+    expect(records.carryOver).not.toHaveBeenCalled()
+    expect(w.emitted('saved')).toHaveLength(1)
+    expect(w.emitted('close')).toHaveLength(1)
+  })
+
+  it('follows an edit that newly names a replacement', async () => {
+    const record = savedRecord({ replacement_asset_id: null })
+    const w = await open({ record })
+    await set(w, 'asset-record-form-replacement', '31')
+    await press(w, 'asset-record-form-save')
+
+    expect(records.update).toHaveBeenCalledWith(14, 40, expect.objectContaining({ replacement_asset_id: 31 }))
+    expect(w.find('[data-testid="carry-step"]').exists()).toBe(true)
+    expect(w.emitted('saved')).toBeUndefined()
   })
 
   it('sends only what is ticked', async () => {
