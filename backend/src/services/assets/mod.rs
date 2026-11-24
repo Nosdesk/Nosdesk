@@ -8,6 +8,7 @@
 pub mod bucketing;
 pub mod kinds;
 pub mod model_stamp;
+pub mod projection;
 pub mod record_catalogue;
 pub mod rollout;
 pub mod status_rules;
@@ -18,6 +19,7 @@ use serde_json::Value;
 
 use crate::db::DbConnection;
 use crate::repository::asset_kinds as repo;
+use crate::services::custom_fields;
 
 /// Attribute keys owned by the Microsoft Graph (Intune / Entra) sync.
 /// Mirrors the frontend `SYNC_OWNED_ATTRIBUTE_KEYS`. These are written by
@@ -79,15 +81,22 @@ pub enum AssetValidationError {
     Attributes(#[from] kinds::AttributeError),
 }
 
-/// Look up the kind by slug and validate `attributes` against
-/// the kind's stored `attribute_schema`. Run this at every
-/// asset write site so the IT-desk path and any future
+/// Look up the kind by slug and check `attributes` against the kind's
+/// stored `attribute_schema`, returning them as they are to be stored. Run
+/// this at every asset write site so the IT-desk path and any future
 /// kind-specific paths share one validation chokepoint.
+///
+/// Money values are made canonical first, a value without a currency taking
+/// the workspace's. References the write adds over `previous` (the stored
+/// attributes, `None` for a new asset) must name a member, an asset (of the
+/// property's `assetKind`, when it scopes one) or a people group of the
+/// workspace; references already stored are kept as they are.
 pub fn validate_for_kind(
     conn: &mut DbConnection,
     kind_slug: &str,
     attributes: &Value,
-) -> Result<(), AssetValidationError> {
+    previous: Option<&Value>,
+) -> Result<Value, AssetValidationError> {
     let kind = match repo::get_kind_by_slug(conn, kind_slug) {
         Ok(k) => k,
         Err(DieselError::NotFound) => {
@@ -95,8 +104,20 @@ pub fn validate_for_kind(
         }
         Err(e) => return Err(AssetValidationError::Database(e)),
     };
-    kinds::validate_attributes(&kind.attribute_schema, attributes)?;
-    Ok(())
+    let currency = crate::repository::site_settings::workspace_currency(conn)?;
+    let attributes = custom_fields::money::normalise_values(
+        &kind.attribute_schema,
+        attributes,
+        currency.as_deref(),
+    )?;
+    kinds::validate_attributes(&kind.attribute_schema, &attributes)?;
+    custom_fields::references::check_references(
+        conn,
+        &kind.attribute_schema,
+        &attributes,
+        previous,
+    )??;
+    Ok(attributes)
 }
 
 /// Typed accessor for the IT-flavoured attribute keys that used

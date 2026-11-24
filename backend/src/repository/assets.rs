@@ -49,6 +49,20 @@ pub fn asset_sync_payload(device: &Asset) -> serde_json::Value {
     })
 }
 
+/// The kind of each of `ids` that exists in the pinned workspace, for
+/// checking a reference to an asset.
+pub fn kinds_of(
+    conn: &mut DbConnection,
+    ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, String>> {
+    Ok(assets::table
+        .filter(assets::id.eq_any(ids))
+        .select((assets::id, assets::kind))
+        .load::<(i32, String)>(conn)?
+        .into_iter()
+        .collect())
+}
+
 pub(crate) fn emit_asset_event(
     conn: &mut DbConnection,
     device: &Asset,
@@ -360,7 +374,8 @@ pub fn get_paginated_devices(
         .and_then(|f| f.strip_prefix("attr:"))
         .filter(|key| is_attribute_key(key));
     if let Some(key) = attribute_sort {
-        query = order_by_attribute(query, key, ascending);
+        let money = is_money_attribute(conn, key)?;
+        query = order_by_attribute(query, key, ascending, money);
     } else if let Some(expression) = derived_sort_expression(sort_field.as_deref()) {
         query = order_by_derived(query, expression, ascending);
     } else {
@@ -498,26 +513,57 @@ fn is_attribute_key(key: &str) -> bool {
         && key.len() <= 64
 }
 
+/// Whether any kind in the pinned workspace holds money under `key`.
+fn is_money_attribute(conn: &mut DbConnection, key: &str) -> QueryResult<bool> {
+    Ok(crate::repository::asset_kinds::list_kinds(conn)?
+        .iter()
+        .filter_map(|k| k.attribute_schema.get("properties")?.get(key))
+        .any(crate::services::custom_fields::money::is_money))
+}
+
 /// Order by one attribute's JSON value. jsonb ordering compares numbers
 /// numerically, strings (ISO dates included) as text, and booleans false
-/// before true. Assets without the key sort last either way; name breaks ties.
+/// before true. Money (`{amount, currency}`) would compare its amount as
+/// text, so a money key orders by currency, then amount as a number; totals
+/// are never converted between currencies. Assets without the key sort last
+/// either way; name breaks ties.
 fn order_by_attribute<'a>(
     query: AssetBoxedQuery<'a>,
     key: &str,
     ascending: bool,
+    money: bool,
 ) -> AssetBoxedQuery<'a> {
+    use diesel::sql_types::{Nullable, Numeric, Text};
     let direction = if ascending {
         " ASC NULLS LAST"
     } else {
         " DESC NULLS LAST"
     };
+    if money {
+        // Amounts are canonical decimals (`services::custom_fields::money`);
+        // the guard keeps a stray value from failing the cast.
+        return query
+            .order(
+                diesel::dsl::sql::<Nullable<Text>>("(attributes -> ")
+                    .bind::<Text, _>(key.to_string())
+                    .sql(") ->> 'currency'")
+                    .sql(direction),
+            )
+            .then_order_by(
+                diesel::dsl::sql::<Nullable<Numeric>>("CASE WHEN (attributes -> ")
+                    .bind::<Text, _>(key.to_string())
+                    .sql(") ->> 'amount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN ((attributes -> ")
+                    .bind::<Text, _>(key.to_string())
+                    .sql(") ->> 'amount')::numeric END")
+                    .sql(direction),
+            )
+            .then_order_by(assets::name.asc());
+    }
     query
         .order(
-            diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::Jsonb>>(
-                "attributes -> ",
-            )
-            .bind::<diesel::sql_types::Text, _>(key.to_string())
-            .sql(direction),
+            diesel::dsl::sql::<Nullable<diesel::sql_types::Jsonb>>("attributes -> ")
+                .bind::<Text, _>(key.to_string())
+                .sql(direction),
         )
         .then_order_by(assets::name.asc())
 }
@@ -760,8 +806,10 @@ pub fn set_quantity(
 }
 
 /// Clear `user_uuid`, an account being purged, from every asset that names
-/// it: its user, its manager and its creator. Each asset whose synced row
-/// changed (user or manager) gets `asset.updated` in its own workspace.
+/// it: its user, its manager, its creator, and the person attributes its
+/// kind declares (`user-uuid`, alone or in a list). Each asset whose synced
+/// row changed (user, manager or attributes) gets `asset.updated` in its own
+/// workspace.
 /// Called by [`purge_user`](crate::repository::users::purge_user) on a bypass
 /// connection, which sees every workspace's assets. Puts the caller's pin
 /// back. Returns the number of assets whose synced row changed.
@@ -794,6 +842,9 @@ pub fn clear_purged_person_from_assets(
         for (workspace_id, asset_id) in as_user.into_iter().chain(as_manager) {
             changed.entry(workspace_id).or_default().insert(asset_id);
         }
+        for (workspace_id, asset_id) in clear_person_attributes(conn, user_uuid)? {
+            changed.entry(workspace_id).or_default().insert(asset_id);
+        }
         let mut count = 0;
         for (workspace_id, ids) in changed {
             crate::sync::session::with_workspace_pinned(conn, workspace_id, |conn| {
@@ -809,6 +860,85 @@ pub fn clear_purged_person_from_assets(
         }
         Ok(count)
     })
+}
+
+/// Remove `user_uuid` from the person attributes of every asset holding it,
+/// each workspace read under its own pin so its kinds say which keys name a
+/// person. Returns `(workspace, asset)` for each asset changed.
+fn clear_person_attributes(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> QueryResult<Vec<(i32, i32)>> {
+    use crate::services::custom_fields::references::{target_of, Target};
+    use std::collections::BTreeMap;
+
+    let needle = user_uuid.to_string();
+    // A cheap match first; the kinds decide what is a reference.
+    let held: Vec<(i32, i32, String, serde_json::Value)> = assets::table
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("attributes::text LIKE ")
+                .bind::<diesel::sql_types::Text, _>(format!("%{needle}%")),
+        )
+        .select((
+            assets::workspace_id,
+            assets::id,
+            assets::kind,
+            assets::attributes,
+        ))
+        .load(conn)?;
+    let mut by_workspace: BTreeMap<i32, Vec<(i32, String, serde_json::Value)>> = BTreeMap::new();
+    for (workspace_id, id, kind, attributes) in held {
+        by_workspace
+            .entry(workspace_id)
+            .or_default()
+            .push((id, kind, attributes));
+    }
+    let mut changed = Vec::new();
+    for (workspace_id, rows) in by_workspace {
+        crate::sync::session::with_workspace_pinned(conn, workspace_id, |conn| {
+            let kinds = crate::repository::asset_kinds::list_kinds(conn)?;
+            for (id, kind, mut attributes) in rows {
+                let Some(props) = kinds
+                    .iter()
+                    .find(|k| k.workspace_id == workspace_id && k.slug == kind)
+                    .and_then(|k| k.attribute_schema.get("properties"))
+                    .and_then(serde_json::Value::as_object)
+                else {
+                    continue;
+                };
+                let Some(map) = attributes.as_object_mut() else {
+                    continue;
+                };
+                let mut touched = false;
+                for (key, prop) in props {
+                    if target_of(prop) != Some(Target::User) {
+                        continue;
+                    }
+                    match map.get_mut(key) {
+                        Some(serde_json::Value::String(v)) if *v == needle => {
+                            map.remove(key);
+                            touched = true;
+                        }
+                        Some(serde_json::Value::Array(items)) => {
+                            let before = items.len();
+                            items.retain(|item| item.as_str() != Some(needle.as_str()));
+                            touched |= items.len() != before;
+                        }
+                        _ => {}
+                    }
+                }
+                if touched {
+                    // The caller sends asset.updated for each asset changed here.
+                    diesel::update(assets::table.find(id))
+                        .set(assets::attributes.eq(&attributes))
+                        .execute(conn)?;
+                    changed.push((workspace_id, id));
+                }
+            }
+            Ok::<_, Error>(())
+        })?;
+    }
+    Ok(changed)
 }
 
 pub fn delete_device(

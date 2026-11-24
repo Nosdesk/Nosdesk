@@ -29,6 +29,7 @@ use crate::repository::asset_media as media_repo;
 use crate::schema::{
     asset_loans, asset_record_types, asset_records, assets, site_settings, tickets,
 };
+use crate::services::custom_fields::money::normalise_values;
 use crate::services::custom_fields::schema::{validate_attributes, AttributeError};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
@@ -881,7 +882,7 @@ pub fn check_new(
         holder_uuid: snapshot.0,
         location: snapshot.1,
         snapshot_source: snapshot.2.as_str().to_string(),
-        attributes: input.attributes.clone(),
+        attributes: normalised_attributes(conn, rtype, input.attributes.clone())?,
         updated_at: Utc::now(),
         updated_by: input.recorded_by,
         version: 1,
@@ -1015,7 +1016,10 @@ pub fn check_update(
         holder_uuid: snapshot.0,
         location: snapshot.1,
         snapshot_source: snapshot.2.as_str().to_string(),
-        attributes: changes.attributes.unwrap_or(current.attributes),
+        attributes: match changes.attributes {
+            Some(attributes) => normalised_attributes(conn, rtype, attributes)?,
+            None => current.attributes,
+        },
         updated_at: Utc::now(),
         updated_by,
         version: current.version + 1,
@@ -1151,6 +1155,18 @@ fn check_length(field: &'static str, value: Option<&str>, max: usize) -> Result<
         Some(v) if v.chars().count() > max => Err(RecordError::TooLong { field, max }),
         _ => Ok(()),
     }
+}
+
+/// A record's field values as they are stored: money made canonical, a
+/// value without a currency taking the workspace's.
+fn normalised_attributes(
+    conn: &mut DbConnection,
+    rtype: &AssetRecordType,
+    attributes: Value,
+) -> Result<Value, RecordError> {
+    let currency = crate::repository::site_settings::workspace_currency(conn)?;
+    normalise_values(&rtype.field_schema, &attributes, currency.as_deref())
+        .map_err(RecordError::Attributes)
 }
 
 /// Validate a record as it will stand, and the warnings it carries.

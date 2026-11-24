@@ -43,6 +43,7 @@ use crate::models::{PlatformRole, SyncAggregate, SyncOp, User};
 use crate::repository::ticket_visibility::{self, VisibilityContext};
 use crate::repository::{comments, directory, documentation, knowledge_gaps, user_helpers};
 use crate::schema::tickets;
+use crate::services::assets::projection::StaffOnlyKeys;
 use crate::services::plugins::access::{self as plugin_access, PluginCaller};
 use crate::sync::audience::{audience, Audience};
 use crate::sync::user_projection;
@@ -748,18 +749,24 @@ pub fn deliveries<T>(
 }
 
 /// A kept row as `viewer` may see it: a `user` row loses the fields they may
-/// not see ([`user_projection`]), and a usage or loan row reaches anyone but
-/// staff with its notes blanked, as the REST lists give it. The ticket id
-/// stays: the ticket panels key live updates on it. Every other kind is sent
-/// whole. A bare-id prune names no one and is left as it is.
+/// not see ([`user_projection`]), an `asset` row reaches anyone but staff
+/// without the attributes its kind keeps for staff (`asset_keys`, read for
+/// the batch by [`asset_keys_for`]), and a usage or loan row reaches anyone
+/// but staff with its notes blanked, as the REST lists give it. The ticket
+/// id stays: the ticket panels key live updates on it. Every other kind is
+/// sent whole. A bare-id prune names no one and is left as it is.
 pub fn project_row(
     viewer: &SyncViewer,
     aggregate: Option<SyncAggregate>,
     data: &mut serde_json::Value,
+    asset_keys: &StaffOnlyKeys,
 ) {
     match aggregate {
         Some(SyncAggregate::User) if !names_only_the_row(data) => {
             user_projection::value_for_viewer(data, viewer.projection());
+        }
+        Some(SyncAggregate::Asset) if !viewer.sees_all() && !names_only_the_row(data) => {
+            crate::services::assets::projection::for_viewer(data, asset_keys);
         }
         Some(SyncAggregate::AssetUsage | SyncAggregate::AssetLoan) if !viewer.sees_all() => {
             if let Some(notes) = data.get_mut("notes") {
@@ -768,6 +775,46 @@ pub fn project_row(
         }
         _ => {}
     }
+}
+
+/// The asset attributes `viewer` doesn't get, for a batch of rows of
+/// `aggregates`: none for staff or a batch with no asset row, else the
+/// workspace's staff-only keys, every attribute when they can't be read.
+pub fn asset_keys_for(
+    conn: &mut DbConnection,
+    viewer: &SyncViewer,
+    mut aggregates: impl Iterator<Item = Option<SyncAggregate>>,
+) -> StaffOnlyKeys {
+    if viewer.sees_all() || !aggregates.any(|a| a == Some(SyncAggregate::Asset)) {
+        return StaffOnlyKeys::none();
+    }
+    StaffOnlyKeys::for_viewer(conn, false)
+}
+
+/// [`asset_keys_for`] on a connection from `pool` pinned to the viewer's
+/// workspace, for the live stream. A pool or pin failure keeps every
+/// attribute back.
+pub fn asset_keys_pinned(
+    pool: &crate::db::Pool,
+    workspace_id: i32,
+    viewer: &SyncViewer,
+    aggregates: impl Iterator<Item = Option<SyncAggregate>>,
+) -> StaffOnlyKeys {
+    let aggregates: Vec<Option<SyncAggregate>> = aggregates.collect();
+    if viewer.sees_all() || !aggregates.contains(&Some(SyncAggregate::Asset)) {
+        return StaffOnlyKeys::none();
+    }
+    let actor =
+        crate::sync::actor::ActorContext::user_at_workspace(viewer.ctx.user_uuid, workspace_id);
+    pool.get()
+        .ok()
+        .and_then(|mut conn| {
+            crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+                Ok::<_, diesel::result::Error>(asset_keys_for(c, viewer, aggregates.into_iter()))
+            })
+            .ok()
+        })
+        .unwrap_or_else(StaffOnlyKeys::fail_closed)
 }
 
 /// The ticket query the bootstrap snapshot should load: every ticket for

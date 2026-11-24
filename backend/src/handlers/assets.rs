@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::models::{Asset, AssetGroupRef, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
+use crate::services::assets::projection::{self, StaffOnlyKeys};
 use crate::services::assets::{
     model_stamp, validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS,
 };
@@ -45,19 +46,45 @@ pub(crate) fn require_assets_visible(
     }
 }
 
-/// Blank the staff-only fields (notes) of raw asset rows for anyone but
-/// staff, by the same rule as `assets_for_viewer`. For responses that embed
-/// [`Asset`] rows: a ticket, a group, a profile, the export.
+/// Blank the staff-only fields (notes, and the attributes each kind marks
+/// `staffOnly`) of raw asset rows for anyone but staff, by the same rule as
+/// `assets_for_viewer`. For responses that embed [`Asset`] rows: a ticket, a
+/// group, a profile, the export.
 pub(crate) fn strip_staff_asset_fields<'a>(
+    conn: &mut crate::db::DbConnection,
     assets: impl IntoIterator<Item = &'a mut Asset>,
     auth: &AuthContext,
 ) {
     if auth.can_handle_tickets() {
         return;
     }
+    let keys = StaffOnlyKeys::for_viewer(conn, false);
+    strip_staff_asset_rows(assets, auth, &keys);
+}
+
+/// [`strip_staff_asset_fields`] with the attributes kept back already read.
+fn strip_staff_asset_rows<'a>(
+    assets: impl IntoIterator<Item = &'a mut Asset>,
+    auth: &AuthContext,
+    keys: &StaffOnlyKeys,
+) {
+    if auth.can_handle_tickets() {
+        return;
+    }
     for asset in assets {
         asset.notes = None;
+        projection::row_for_viewer(asset, keys);
     }
+}
+
+/// The attributes `auth` doesn't get: none for staff, the kinds' staff-only
+/// keys for anyone else.
+fn staff_only_keys(tc: &mut TenantConn, auth: &AuthContext) -> StaffOnlyKeys {
+    if auth.can_handle_tickets() {
+        return StaffOnlyKeys::none();
+    }
+    tc.run(|conn| Ok::<_, Error>(StaffOnlyKeys::for_viewer(conn, false)))
+        .unwrap_or_else(|_| StaffOnlyKeys::fail_closed())
 }
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -622,10 +649,15 @@ fn resolve_asset_user(u: &User, conn: &mut crate::db::DbConnection) -> UserInfo 
 }
 
 /// Assets as `auth` may see them. Staff get them whole. Anyone else gets no
-/// notes, and the embedded primary user goes through `sync::user_projection`,
-/// as the user routes do: of someone else, the name and avatar. `body` is one
+/// notes, none of the attributes `keys` keeps back (`staff_only_keys`), and
+/// the embedded primary user goes through `sync::user_projection`, as the
+/// user routes do: of someone else, the name and avatar. `body` is one
 /// asset, a list of them, or a page (`data`).
-fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Value {
+fn assets_for_viewer(
+    body: impl Serialize,
+    auth: &AuthContext,
+    keys: &StaffOnlyKeys,
+) -> serde_json::Value {
     let mut body = serde_json::to_value(body).unwrap_or(serde_json::Value::Null);
     if auth.can_handle_tickets() {
         return body;
@@ -646,6 +678,7 @@ fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Va
         if let Some(fields) = asset.as_object_mut() {
             fields.remove("notes");
         }
+        projection::for_viewer(asset, keys);
         if let Some(user) = asset.get_mut("primary_user") {
             crate::sync::user_projection::value_for_viewer(user, viewer);
         }
@@ -998,7 +1031,11 @@ pub async fn get_all_devices(mut tc: TenantConn, auth: AuthContext) -> impl Resp
     });
 
     match result {
-        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(device_responses, &auth)),
+        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(
+            device_responses,
+            &auth,
+            &staff_only_keys(&mut tc, &auth),
+        )),
         Err(e) => {
             error!(error = ?e, "Database error getting all devices");
             errors::internal("Failed to get devices")
@@ -1126,7 +1163,7 @@ pub async fn export_assets(
         }
     };
     // The CSV keeps its `notes` column, blank, so a re-import still parses.
-    strip_staff_asset_fields(&mut rows, &auth);
+    strip_staff_asset_rows(&mut rows, &auth, &staff_only_keys(&mut tc, &auth));
     // History keeps its columns too, blank where the timeline is staff only.
     if let ExportExtra::History(events) = &mut extra {
         crate::handlers::asset_lifecycle::strip_staff_lifecycle_fields(events, &auth);
@@ -1465,7 +1502,13 @@ pub async fn get_paginated_devices(
 ) -> impl Responder {
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
-    let sort_field = query.sort_field.clone();
+    let keys = staff_only_keys(&mut tc, &auth);
+    // A staff-only attribute's order would say what it holds.
+    let sort_field = query.sort_field.clone().filter(|field| {
+        field
+            .strip_prefix("attr:")
+            .is_none_or(|key| !keys.any_kind_has(key))
+    });
     let sort_direction = query.sort_direction.clone();
     let search = query.search.clone();
     let status = query.status.clone();
@@ -1544,7 +1587,7 @@ pub async fn get_paginated_devices(
                 page_size,
                 total_pages,
             };
-            HttpResponse::Ok().json(assets_for_viewer(response, &auth))
+            HttpResponse::Ok().json(assets_for_viewer(response, &auth, &keys))
         }
         Err(e) => {
             error!(error = ?e, "Database error getting paginated devices");
@@ -1584,7 +1627,11 @@ pub async fn get_device_by_id(
     });
 
     match result {
-        Ok(device_response) => HttpResponse::Ok().json(assets_for_viewer(device_response, &auth)),
+        Ok(device_response) => HttpResponse::Ok().json(assets_for_viewer(
+            device_response,
+            &auth,
+            &staff_only_keys(&mut tc, &auth),
+        )),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
             _ => {
@@ -1618,7 +1665,11 @@ pub async fn get_user_devices(
     });
 
     match result {
-        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(device_responses, &auth)),
+        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(
+            device_responses,
+            &auth,
+            &staff_only_keys(&mut tc, &auth),
+        )),
         Err(e) => {
             error!(user_uuid = %user_uuid_str, error = ?e, "Error getting devices for user");
             errors::internal(format!("Failed to get devices for user {user_uuid_str}"))
@@ -1652,7 +1703,7 @@ pub async fn create_device(
     }
 
     let CreateAssetBody {
-        asset: new_device,
+        asset: mut new_device,
         status,
     } = body.into_inner();
     let status = match status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -1672,10 +1723,10 @@ pub async fn create_device(
     // bubbles cleanly while still running inside the txn.
     let kind = new_device.kind.clone();
     let attributes = new_device.attributes.clone();
-    let validation: Result<Result<(), AssetValidationError>, diesel::result::Error> =
-        tc.run(|conn| Ok(validate_for_kind(conn, &kind, &attributes)));
+    let validation: Result<Result<serde_json::Value, AssetValidationError>, diesel::result::Error> =
+        tc.run(|conn| Ok(validate_for_kind(conn, &kind, &attributes, None)));
     match validation {
-        Ok(Ok(())) => {}
+        Ok(Ok(attributes)) => new_device.attributes = attributes,
         Ok(Err(e)) => return asset_validation_response(e),
         Err(_) => return errors::internal("Failed to validate asset"),
     }
@@ -1881,16 +1932,26 @@ pub async fn update_device(
             .attributes
             .clone()
             .unwrap_or_else(|| existing_device.attributes.clone());
-        let validation: Result<Result<(), AssetValidationError>, diesel::result::Error> =
-            tc.run(|conn| {
-                Ok(validate_for_kind(
-                    conn,
-                    &effective_kind,
-                    &effective_attributes,
-                ))
-            });
+        // Under another kind every reference is the new kind's to check.
+        let previous =
+            (effective_kind == existing_device.kind).then_some(&existing_device.attributes);
+        let validation: Result<
+            Result<serde_json::Value, AssetValidationError>,
+            diesel::result::Error,
+        > = tc.run(|conn| {
+            Ok(validate_for_kind(
+                conn,
+                &effective_kind,
+                &effective_attributes,
+                previous,
+            ))
+        });
         match validation {
-            Ok(Ok(())) => {}
+            Ok(Ok(attributes)) => {
+                if update_data.attributes.is_some() {
+                    update_data.attributes = Some(attributes);
+                }
+            }
             Ok(Err(e)) => return asset_validation_response(e),
             Err(_) => return errors::internal("Failed to validate asset"),
         }
@@ -2134,7 +2195,11 @@ pub async fn get_paginated_devices_excluding(
                 total: total_count,
                 total_pages,
             };
-            HttpResponse::Ok().json(assets_for_viewer(response, &auth))
+            HttpResponse::Ok().json(assets_for_viewer(
+                response,
+                &auth,
+                &staff_only_keys(&mut tc, &auth),
+            ))
         }
         Err(e) => {
             error!(error = ?e, "Error getting paginated devices");
@@ -2260,15 +2325,22 @@ pub async fn set_asset_model(
             }
         };
 
-    let stamp = model_stamp::stamp(&existing.attributes, &model, &manufacturer.name);
+    let mut stamp = model_stamp::stamp(&existing.attributes, &model, &manufacturer.name);
 
     // The stamped (kind, attributes) pair must be valid, or we'd write an
     // asset that fails its own kind's schema.
     let kind = stamp.kind.clone();
     let attrs_for_validation = stamp.attributes.clone();
-    match tc.run(move |conn| Ok::<_, Error>(validate_for_kind(conn, &kind, &attrs_for_validation)))
-    {
-        Ok(Ok(())) => {}
+    let previous = existing.attributes.clone();
+    match tc.run(move |conn| {
+        Ok::<_, Error>(validate_for_kind(
+            conn,
+            &kind,
+            &attrs_for_validation,
+            Some(&previous),
+        ))
+    }) {
+        Ok(Ok(attributes)) => stamp.attributes = attributes,
         Ok(Err(e)) => return asset_validation_response(e),
         Err(_) => return errors::internal("Failed to validate asset"),
     }

@@ -252,6 +252,9 @@ pub(super) fn allows_custom(prop: &Value) -> bool {
 
 /// How a property's cells read.
 pub(super) fn value_type_of(prop: &Value) -> ValueType {
+    if crate::services::custom_fields::money::is_money(prop) {
+        return ValueType::Money;
+    }
     match prop.get("type").and_then(Value::as_str) {
         Some("boolean") => return ValueType::Boolean,
         Some("number" | "integer") => return ValueType::Number,
@@ -266,6 +269,7 @@ pub(super) fn value_type_of(prop: &Value) -> ValueType {
         Some("date-time") => ValueType::DateTime,
         Some("user-uuid") => ValueType::User,
         Some("asset-ref") => ValueType::AssetRef,
+        Some("group-ref") => ValueType::Group,
         Some("email") => ValueType::Email,
         _ => ValueType::Text,
     }
@@ -1049,6 +1053,14 @@ pub(super) fn value_text(value: &Value) -> Option<String> {
                 .collect::<Vec<_>>()
                 .join("; "),
         ),
+        // Money as a cell writes it, code first, so it reads back the same.
+        Value::Object(map) => match (
+            map.get("amount").and_then(Value::as_str),
+            map.get("currency").and_then(Value::as_str),
+        ) {
+            (Some(amount), Some(currency)) => Some(format!("{currency} {amount}")),
+            _ => Some(Value::Object(map.clone()).to_string()),
+        },
         other => Some(other.to_string()),
     }
 }
@@ -1429,6 +1441,10 @@ struct Lookups {
     asset_groups: HashMap<i32, Vec<i32>>,
     /// Assets with a loan out now.
     on_loan: HashSet<i32>,
+    /// People groups by lowercased name, for group attributes.
+    people_groups: HashMap<String, Vec<i32>>,
+    /// The currency an amount without a code is in.
+    currency: Option<String>,
 }
 
 struct KindInfo {
@@ -1524,6 +1540,8 @@ impl Lookups {
             on_loan: asset_loans_repo::assets_on_active_loan(conn)?
                 .into_iter()
                 .collect(),
+            people_groups: crate::repository::groups::ids_by_name(conn)?,
+            currency: crate::repository::site_settings::workspace_currency(conn)?,
         })
     }
 
@@ -2950,6 +2968,12 @@ fn parse_attribute(
         "boolean" => values::read_boolean(raw)
             .map(Value::Bool)
             .ok_or_else(|| format!("'{raw}' is not yes or no")),
+        "object" => money_cell(
+            raw,
+            prop,
+            lookups.currency.as_deref(),
+            options.decimal_mark(),
+        ),
         ty @ ("number" | "integer") => {
             let number = values::parse_decimal(raw, options.decimal_mark())?
                 .ok_or_else(|| format!("'{raw}' is not a number"))?;
@@ -3010,7 +3034,66 @@ fn parse_text_attribute(
             .map(|u| u.to_string())
             .ok_or_else(|| not_a_member(raw)),
         Some("asset-ref") => asset_ref(raw, lookups),
+        Some("group-ref") => group_ref(raw, lookups),
         _ => Ok(raw.to_string()),
+    }
+}
+
+/// An amount of money: `1250.50`, `1 250,50` under a `,` mark, or with its
+/// code, `AUD 1250.50`. A bare amount is in the property's pinned currency,
+/// else `default_currency` (the workspace's). Written canonical to the
+/// currency's exponent.
+pub(super) fn money_cell(
+    raw: &str,
+    prop: &Value,
+    default_currency: Option<&str>,
+    mark: crate::utils::money::DecimalMark,
+) -> Result<Value, String> {
+    use crate::services::custom_fields::money::pinned_currency;
+    use crate::utils::money;
+    let written = money::read_number(raw, mark)
+        .ok()
+        .and_then(|n| n.code.map(str::to_string));
+    let pinned = pinned_currency(prop);
+    if let (Some(written), Some(pinned)) = (&written, pinned) {
+        if written != pinned {
+            return Err(format!(
+                "'{raw}' is in {written}; this attribute takes {pinned}"
+            ));
+        }
+    }
+    let code = written
+        .or_else(|| pinned.map(str::to_string))
+        .or_else(|| default_currency.map(str::to_string))
+        .ok_or_else(|| {
+            format!("'{raw}' needs a currency code, such as AUD {raw}, while the workspace has no currency")
+        })?;
+    let minor = money::parse_amount(raw, &code, mark).map_err(|e| format!("'{raw}': {e}"))?;
+    let amount = money::format_minor(minor, &code).map_err(|e| format!("'{raw}': {e}"))?;
+    Ok(serde_json::json!({ "amount": amount, "currency": code }))
+}
+
+/// A people group: one group's name (any case), or a group id.
+fn group_ref(raw: &str, lookups: &Lookups) -> Result<String, String> {
+    match lookups
+        .people_groups
+        .get(&raw.trim().to_lowercase())
+        .map(Vec::as_slice)
+    {
+        Some([id]) => return Ok(id.to_string()),
+        Some(ids) if ids.len() > 1 => {
+            return Err(format!(
+                "{} groups are named '{raw}'; use the group's id",
+                ids.len()
+            ))
+        }
+        _ => {}
+    }
+    match raw.parse::<i32>() {
+        Ok(id) if id > 0 && lookups.people_groups.values().flatten().any(|g| *g == id) => {
+            Ok(id.to_string())
+        }
+        _ => Err(format!("no group is named '{raw}'")),
     }
 }
 
@@ -3134,6 +3217,23 @@ fn attribute_error(
             property,
             format!("'{}' is not a multiple of {step}", shown(property)),
         ),
+        E::BadMoney { property, reason } => about(
+            property,
+            format!("'{}' is not an amount of money: {reason}", shown(property)),
+        ),
+        E::CurrencyNotAllowed { property, currency } => about(
+            property,
+            format!("'{}' must be in {currency}", shown(property)),
+        ),
+        E::MissingReference { property, value } => about(
+            property,
+            format!("'{value}' doesn't exist in this workspace"),
+        ),
+        E::WrongAssetKind {
+            property,
+            value,
+            kind,
+        } => about(property, format!("asset '{value}' is not a {kind}")),
     }
 }
 
@@ -3848,6 +3948,18 @@ mod export_tests {
             model_id: None,
             managed_by_user_uuid: None,
         }
+    }
+
+    #[test]
+    fn money_reads_back_as_the_cell_that_writes_it() {
+        let value = serde_json::json!({ "amount": "1250.50", "currency": "AUD" });
+        let text = value_text(&value).expect("text");
+        assert_eq!(text, "AUD 1250.50");
+        let prop = serde_json::json!({ "type": "object", "format": "money" });
+        assert_eq!(
+            money_cell(&text, &prop, None, crate::utils::money::DecimalMark::Dot),
+            Ok(value)
+        );
     }
 
     #[test]

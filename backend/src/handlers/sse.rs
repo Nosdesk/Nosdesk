@@ -594,27 +594,45 @@ async fn filter_sync_actions_frame(
     let Some(workspace_id) = workspace_id else {
         let decided =
             crate::sync::visibility::fail_closed_deliveries(&viewer, &rows, json_row_to_view);
-        return frame_filtered(env, rows, decided, &viewer);
+        let keys = crate::services::assets::projection::StaffOnlyKeys::fail_closed();
+        return frame_filtered(env, rows, decided, &viewer, &keys);
     };
     let rows_for_block = rows.clone();
-    let decided = match web::block(move || {
-        crate::sync::visibility::deliveries_pinned(
+    let (decided, keys) = match web::block(move || {
+        let decided = crate::sync::visibility::deliveries_pinned(
             &pool,
             workspace_id,
             &viewer,
             &rows_for_block,
             json_row_to_view,
-        )
+        );
+        let keys = crate::sync::visibility::asset_keys_pinned(
+            &pool,
+            workspace_id,
+            &viewer,
+            rows_for_block.iter().map(row_aggregate),
+        );
+        (decided, keys)
     })
     .await
     {
         Ok(m) => m,
         Err(_) => {
             tracing::error!("SSE sync visibility filter failed; failing closed");
-            crate::sync::visibility::fail_closed_deliveries(&viewer, &rows, json_row_to_view)
+            (
+                crate::sync::visibility::fail_closed_deliveries(&viewer, &rows, json_row_to_view),
+                crate::services::assets::projection::StaffOnlyKeys::fail_closed(),
+            )
         }
     };
-    frame_filtered(env, rows, decided, &viewer)
+    frame_filtered(env, rows, decided, &viewer, &keys)
+}
+
+/// A wire row's aggregate, when it names one this server knows.
+fn row_aggregate(row: &serde_json::Value) -> Option<crate::models::SyncAggregate> {
+    row.get("aggregate")
+        .cloned()
+        .and_then(|v| serde_json::from_value::<crate::models::SyncAggregate>(v).ok())
 }
 
 /// Whether `viewer`, resolved when the stream connected, still describes the
@@ -665,6 +683,7 @@ fn frame_filtered(
     rows: Vec<serde_json::Value>,
     decided: Vec<crate::sync::visibility::Delivery>,
     viewer: &crate::sync::visibility::SyncViewer,
+    asset_keys: &crate::services::assets::projection::StaffOnlyKeys,
 ) -> Option<String> {
     if crate::sync::visibility::any_unclassified(&decided) {
         tracing::error!("SSE: documentation visibility lookup failed; ending the stream");
@@ -685,24 +704,22 @@ fn frame_filtered(
         return Some(String::new());
     };
     use crate::sync::visibility::Delivery;
-    let kept: Vec<serde_json::Value> =
-        rows.into_iter()
-            .zip(decided)
-            .filter_map(|(mut row, delivery)| match delivery {
-                Delivery::Send => {
-                    let aggregate = row.get("aggregate").cloned().and_then(|v| {
-                        serde_json::from_value::<crate::models::SyncAggregate>(v).ok()
-                    });
-                    if let Some(data) = row.get_mut("data") {
-                        crate::sync::visibility::project_row(viewer, aggregate, data);
-                    }
-                    Some(row)
+    let kept: Vec<serde_json::Value> = rows
+        .into_iter()
+        .zip(decided)
+        .filter_map(|(mut row, delivery)| match delivery {
+            Delivery::Send => {
+                let aggregate = row_aggregate(&row);
+                if let Some(data) = row.get_mut("data") {
+                    crate::sync::visibility::project_row(viewer, aggregate, data, asset_keys);
                 }
-                Delivery::Retract => crate::sync::visibility::Retraction::of_wire_row(&row)
-                    .and_then(|r| serde_json::to_value(r).ok()),
-                Delivery::Drop | Delivery::Unclassified => None,
-            })
-            .collect();
+                Some(row)
+            }
+            Delivery::Retract => crate::sync::visibility::Retraction::of_wire_row(&row)
+                .and_then(|r| serde_json::to_value(r).ok()),
+            Delivery::Drop | Delivery::Unclassified => None,
+        })
+        .collect();
 
     Some(frame_envelope(&Envelope {
         id,

@@ -151,8 +151,8 @@ pub enum Shape {
     ViewScope,
     /// Custom field values keyed by property name; the asset kind's (the
     /// row's `kind`), the record type's (the row's `record_type_id`) or the
-    /// user field schema's `format` says which name people (`user-uuid`) or
-    /// assets (`asset-ref`).
+    /// user field schema's `format` says which name people (`user-uuid`),
+    /// assets (`asset-ref`) or people groups (`group-ref`).
     Attributes(Schema),
     /// The column names a row of the type in `type_column`.
     Typed {
@@ -796,7 +796,7 @@ fn id_text(value: &Value) -> Option<String> {
 }
 
 /// The properties of a field schema whose values (or array items) are
-/// people or assets.
+/// people, assets or people groups.
 fn reference_fields(schema: &Value) -> Vec<(String, Entity)> {
     let Some(props) = schema.get("properties").and_then(Value::as_object) else {
         return Vec::new();
@@ -804,6 +804,7 @@ fn reference_fields(schema: &Value) -> Vec<(String, Entity)> {
     let entity = |prop: &Value| match prop.get("format").and_then(Value::as_str) {
         Some("user-uuid") => Some(E::User),
         Some("asset-ref") => Some(E::Asset),
+        Some("group-ref") => Some(E::Group),
         _ => None,
     };
     props

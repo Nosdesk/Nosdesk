@@ -433,10 +433,7 @@ fn newly<T: PartialEq + Copy>(field: Option<Option<T>>, current: Option<T>) -> O
 pub(crate) fn workspace_currency(
     conn: &mut crate::db::DbConnection,
 ) -> Result<Option<String>, Refusal> {
-    let settings = settings_repo::get_site_settings(conn)?;
-    Ok(settings
-        .currency_code
-        .or_else(|| money::suggested_currency(&settings.default_locale).map(str::to_string)))
+    Ok(settings_repo::workspace_currency(conn)?)
 }
 
 /// A cost body in minor units. The amount is a decimal string (or a JSON

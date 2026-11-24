@@ -3349,12 +3349,15 @@ pub async fn get_user_profile_bundle(
                 bundle.devices = bundle.devices.map(|_| Vec::new());
                 bundle.loans = bundle.loans.map(|_| Vec::new());
             }
-            // Asset and loan notes are staff only, here as on the asset routes.
+            // Asset and loan notes, and staff-only attributes, are staff only,
+            // here as on the asset routes.
             crate::handlers::assets::strip_staff_asset_fields(
+                &mut conn,
                 bundle.devices.iter_mut().flatten(),
                 &auth,
             );
             crate::handlers::assets::strip_staff_asset_fields(
+                &mut conn,
                 bundle.loans.iter_mut().flatten().map(|l| &mut l.asset),
                 &auth,
             );

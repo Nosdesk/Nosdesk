@@ -493,6 +493,8 @@ fn custom_fields_follow_their_schema() {
             "owner": {"type": "string", "format": "user-uuid"},
             "dock": {"type": "string", "format": "asset-ref"},
             "spares": {"type": "array", "items": {"type": "string", "format": "asset-ref"}},
+            "team": {"type": "string", "format": "group-ref"},
+            "teams": {"type": "array", "items": {"type": "string", "format": "group-ref"}},
             "serial": {"type": "string"}
         }
     }}))];
@@ -502,14 +504,19 @@ fn custom_fields_follow_their_schema() {
     let ctx = Context::from_rows(&kinds, &[], &fields);
     let lookup = Keys::default()
         .with(Entity::User, ANA, ANA_HERE)
-        .with(Entity::Asset, "7", "707");
+        .with(Entity::Asset, "7", "707")
+        .with(Entity::Group, "4", "104");
     let mut asset = row(json!({"kind": "laptop", "attributes": {
-        "owner": ANA, "dock": "7", "spares": ["7", "8"], "serial": "7"
+        "owner": ANA, "dock": "7", "spares": ["7", "8"], "team": "4", "teams": ["4", "5"],
+        "serial": "7"
     }}));
     rewrite_row("assets", &mut asset, &ctx, &lookup, None);
     assert_eq!(
         asset["attributes"],
-        json!({"owner": ANA_HERE, "dock": "707", "spares": ["707"], "serial": "7"})
+        json!({
+            "owner": ANA_HERE, "dock": "707", "spares": ["707"], "team": "104", "teams": ["104"],
+            "serial": "7"
+        })
     );
     let mut other_kind = row(json!({"kind": "phone", "attributes": {"owner": ANA}}));
     rewrite_row("assets", &mut other_kind, &ctx, &lookup, None);

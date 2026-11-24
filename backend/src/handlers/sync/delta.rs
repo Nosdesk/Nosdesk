@@ -363,10 +363,15 @@ pub async fn delta(
     // documentation: a doc row that couldn't be classified fails the poll,
     // so the client asks again instead of moving its cursor past what may
     // be a withdrawal of access.
-    let (actions, decided) = match tc.run(move |conn| {
+    let (actions, decided, asset_keys) = match tc.run(move |conn| {
         let decided =
             crate::sync::visibility::deliveries(conn, &viewer, &actions, action_row_to_view);
-        Ok::<_, diesel::result::Error>((actions, decided))
+        let asset_keys = crate::sync::visibility::asset_keys_for(
+            conn,
+            &viewer,
+            actions.iter().map(|a| Some(a.aggregate)),
+        );
+        Ok::<_, diesel::result::Error>((actions, decided, asset_keys))
     }) {
         Ok(x) => x,
         Err(e) => {
@@ -387,6 +392,7 @@ pub async fn delta(
                     &viewer,
                     Some(action.aggregate),
                     &mut action.data,
+                    &asset_keys,
                 );
                 Some(DeltaAction::Row(action))
             }

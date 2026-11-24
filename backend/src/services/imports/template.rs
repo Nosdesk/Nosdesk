@@ -167,6 +167,8 @@ fn format_of(spec: &FieldSpec) -> Option<String> {
         ValueType::Array => "Separate items with ;",
         ValueType::User => "A member's email",
         ValueType::AssetRef => "An asset tag",
+        ValueType::Money => "1250.50, or with its code: AUD 1250.50",
+        ValueType::Group => "A group's name",
         _ => return None,
     };
     Some(format.to_string())
@@ -184,6 +186,8 @@ fn type_name(value_type: ValueType) -> &'static str {
         ValueType::Email => "Email",
         ValueType::User => "Person",
         ValueType::AssetRef => "Asset",
+        ValueType::Money => "Money",
+        ValueType::Group => "Group",
     }
 }
 

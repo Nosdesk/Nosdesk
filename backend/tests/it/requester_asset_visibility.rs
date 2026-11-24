@@ -1031,3 +1031,151 @@ async fn disposal_notes_vendor_and_actor_stay_with_staff() {
         }
     }
 }
+
+/// The attributes a kind marks `staffOnly` reach staff only: not a
+/// requester's asset routes, ticket, profile or export, nor their sync
+/// snapshot, delta or live stream. The kind's other attributes reach them.
+#[actix_web::test]
+async fn staff_only_attributes_reach_staff_only() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    diesel::sql_query(
+        "INSERT INTO asset_kinds (slug, label, attribute_schema, sort_order, is_builtin, category, workspace_id)
+         VALUES ('computer', 'Computer', $1::jsonb, 500, false, 'it', $2)
+         ON CONFLICT (workspace_id, slug) DO UPDATE SET attribute_schema = EXCLUDED.attribute_schema",
+    )
+    .bind::<diesel::sql_types::Text, _>(
+        json!({
+            "type": "object",
+            "properties": {
+                "cost": { "type": "object", "format": "money", "staffOnly": true },
+                "colour": { "type": "string" }
+            }
+        })
+        .to_string(),
+    )
+    .bind::<diesel::sql_types::Integer, _>(f.ws.workspace_id)
+    .execute(&mut f.pool.get().expect("conn"))
+    .expect("seed the kind");
+    let attributes = json!({
+        "cost": { "amount": "1999.95", "currency": "AUD" },
+        "colour": "Graphite"
+    });
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::update_device(
+            c,
+            f.asset,
+            AssetUpdate {
+                attributes: Some(attributes.clone()),
+                ..Default::default()
+            },
+        )
+    })
+    .expect("set attributes");
+
+    let only_colour = json!({ "colour": "Graphite" });
+    let asset_attributes = |rows: &[Value]| -> Vec<Value> {
+        rows.iter()
+            .filter(|r| r.get("aggregate").or_else(|| r.get("__model__")) == Some(&json!("asset")))
+            .map(|r| r.get("data").unwrap_or(r)["attributes"].clone())
+            .filter(|a| !a.is_null())
+            .collect()
+    };
+
+    for (viewer, who, want) in [
+        (f.member, "member", &only_colour),
+        (f.agent, "agent", &attributes),
+    ] {
+        let one = get_json(&f, viewer, &format!("/api/assets/{}", f.asset)).await;
+        assert_eq!(&one["attributes"], want, "{who}: GET /assets/:id");
+        let page = get_json(&f, viewer, "/api/assets/paginated").await;
+        assert_eq!(&page["data"][0]["attributes"], want, "{who}: paginated");
+        let all = get_json(&f, viewer, "/api/assets").await;
+        assert_eq!(&all[0]["attributes"], want, "{who}: /assets");
+        let ticket = get_json(&f, viewer, &format!("/api/tickets/{}", f.ticket)).await;
+        assert_eq!(&ticket["devices"][0]["attributes"], want, "{who}: ticket");
+        let profile = get_json(
+            &f,
+            viewer,
+            &format!("/api/users/{}/profile?include=devices", f.member),
+        )
+        .await;
+        assert_eq!(&profile["devices"][0]["attributes"], want, "{who}: profile");
+        let (status, export) = call(
+            &f,
+            viewer,
+            Method::GET,
+            "/api/assets/export?format=json",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{who}: export");
+        assert_eq!(
+            export.contains("1999.95"),
+            viewer == f.agent,
+            "{who}: export: {export}"
+        );
+
+        let (_, rows) = bootstrap(&f, viewer).await;
+        assert_eq!(
+            asset_attributes(&rows),
+            vec![want.clone()],
+            "{who}: bootstrap"
+        );
+        let (actions, _) = delta(&f, viewer).await;
+        let seen = asset_attributes(&actions);
+        assert_eq!(seen.last(), Some(want), "{who}: delta");
+        assert!(
+            seen.iter().all(|a| a.get("cost").is_none()) || viewer == f.agent,
+            "{who}: delta"
+        );
+        let streamed = asset_attributes(&stream_rows(&f, viewer).await);
+        assert_eq!(streamed.last(), Some(want), "{who}: live stream");
+        assert!(
+            streamed.iter().all(|a| a.get("cost").is_none()) || viewer == f.agent,
+            "{who}: live stream"
+        );
+    }
+
+    // Sorting by it would give its order away: a requester's list keeps
+    // its default order, by name.
+    let dearer = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::create_device(
+            c,
+            NewAsset {
+                name: "Aardvark rig".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: None,
+                purchase_date: None,
+                asset_tag: None,
+                kind: "computer".to_string(),
+                attributes: json!({ "cost": { "amount": "5000.00", "currency": "AUD" } }),
+                quantity: None,
+                unit: None,
+                external_sync_source: None,
+                low_stock_threshold: None,
+                created_by: None,
+            },
+        )
+    })
+    .expect("a dearer asset")
+    .id;
+    let uri = "/api/assets/paginated?sortField=attr:cost&sortDirection=asc";
+    let by_cost = ids(&get_json(&f, f.agent, uri).await["data"]);
+    assert_eq!(
+        by_cost,
+        vec![f.asset as i64, dearer as i64],
+        "agent: by cost"
+    );
+    let by_name = ids(&get_json(&f, f.member, uri).await["data"]);
+    assert_eq!(
+        by_name,
+        vec![dearer as i64, f.asset as i64],
+        "member: by name"
+    );
+}

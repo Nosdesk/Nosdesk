@@ -7,14 +7,19 @@
 //! Accepted shape:
 //! - root MUST be `{ "type": "object", "properties": { ... }, "required"?: [...] }`
 //! - each property MUST be string | number | integer | boolean | array (with
-//!   `items` of a primitive type)
+//!   `items` of a primitive type), or money: `{ "type": "object", "format":
+//!   "money" }`, valued `{ "amount": "1250.50", "currency": "AUD" }` (see
+//!   `super::money`), with an optional pinned `currency` and `minimum` /
+//!   `maximum` on the amount
 //! - per-property constraints: `enum`, `minLength`, `maxLength`, `pattern`,
-//!   `format` (date | date-time | email | uri | user-uuid | asset-ref),
-//!   `minimum`, `maximum`, `multipleOf`
-//! - Nosdesk extension keywords (syntactic only): `assetKind` (scopes an
-//!   `asset-ref` picker), `synced` (bool; the field is fed read-only by a
-//!   directory/asset sync rather than typed by a human), `x-allow-custom`
-//!   (bool; the `enum` values are suggestions and any value is allowed)
+//!   `format` (date | date-time | email | uri | user-uuid | asset-ref |
+//!   group-ref), `minimum`, `maximum`, `multipleOf`
+//! - Nosdesk extension keywords: `assetKind` (scopes an `asset-ref`; checked
+//!   on write by `super::references`), `synced` (bool; the field is fed
+//!   read-only by a directory/asset sync rather than typed by a human),
+//!   `x-allow-custom` (bool; the `enum` values are suggestions and any value
+//!   is allowed), `staffOnly` (bool; only staff see the value, enforced for
+//!   assets by `services::assets::projection`)
 //!
 //! The same validator runs at two boundaries: when a schema is created/updated
 //! (validate the schema) and when a row is written (validate its values).
@@ -74,6 +79,8 @@ pub enum AttributeSchemaError {
     RequiredNotArray,
     #[error("`required` references unknown property `{0}`")]
     RequiredUnknown(String),
+    #[error("property `{property}` pins `{currency}`, which is not an ISO 4217 currency code")]
+    UnknownCurrency { property: String, currency: String },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -109,6 +116,18 @@ pub enum AttributeError {
     AboveMaximum { property: String, max: f64 },
     #[error("property `{property}` must be a multiple of {step}")]
     NotMultipleOf { property: String, step: f64 },
+    #[error("property `{property}` is not a valid amount of money: {reason}")]
+    BadMoney { property: String, reason: String },
+    #[error("property `{property}` must be in {currency}")]
+    CurrencyNotAllowed { property: String, currency: String },
+    #[error("property `{property}` names `{value}`, which doesn't exist in this workspace")]
+    MissingReference { property: String, value: String },
+    #[error("property `{property}` names asset `{value}`, which is not a {kind}")]
+    WrongAssetKind {
+        property: String,
+        value: String,
+        kind: String,
+    },
 }
 
 /// Validate that the supplied JSON is a well-formed
@@ -159,8 +178,10 @@ fn validate_property_schema(name: &str, prop: &Value) -> Result<(), AttributeSch
         .and_then(Value::as_str)
         .ok_or_else(|| AttributeSchemaError::PropertyMissingType(name.to_string()))?;
 
+    let money = super::money::is_money(prop);
     match ty {
         "string" | "number" | "integer" | "boolean" => {}
+        "object" if money => {}
         "array" => {
             let items = obj
                 .get("items")
@@ -185,6 +206,21 @@ fn validate_property_schema(name: &str, prop: &Value) -> Result<(), AttributeSch
     for (keyword, value) in obj {
         match keyword.as_str() {
             "type" | "items" | "enum" | "title" | "description" | "default" => {}
+            "currency" if money => {
+                let code = value.as_str().unwrap_or_default();
+                if crate::utils::money::currency(code).is_none() {
+                    return Err(AttributeSchemaError::UnknownCurrency {
+                        property: name.to_string(),
+                        currency: value.to_string(),
+                    });
+                }
+            }
+            "minLength" | "maxLength" | "multipleOf" if money => {
+                return Err(AttributeSchemaError::UnsupportedKeyword {
+                    property: name.to_string(),
+                    keyword: keyword.clone(),
+                });
+            }
             "minLength" | "maxLength" | "minimum" | "maximum" | "multipleOf" => {
                 if !value.is_number() {
                     return Err(AttributeSchemaError::UnsupportedKeyword {
@@ -224,10 +260,16 @@ fn validate_property_schema(name: &str, prop: &Value) -> Result<(), AttributeSch
                 // Storing asset refs as strings avoids the "what type
                 // is the FK?" question at the JSONB layer and lines
                 // up with how user-uuid is stored.
-                if !matches!(
-                    f,
+                // `group-ref` names a people group by its id, as
+                // `asset-ref` does an asset. `money` goes only with
+                // `type: object`, and is the only format that does.
+                let fits = match f {
+                    "money" => ty == "object",
                     "date" | "date-time" | "email" | "uri" | "user-uuid" | "asset-ref"
-                ) {
+                    | "group-ref" => ty != "object",
+                    _ => false,
+                };
+                if !fits {
                     return Err(AttributeSchemaError::UnsupportedFormat {
                         property: name.to_string(),
                         format: f.to_string(),
@@ -249,13 +291,15 @@ fn validate_property_schema(name: &str, prop: &Value) -> Result<(), AttributeSch
                     });
                 }
             }
-            "synced" | "x-allow-custom" => {
+            "synced" | "x-allow-custom" | "staffOnly" => {
                 // Nosdesk extensions, both booleans. `synced`: this field is
                 // populated read-only by a directory/asset sync (e.g. Entra
                 // `officeLocation`) rather than typed by a human; the sync and
                 // UI honour it. `x-allow-custom`: the `enum` values are
                 // suggestions a pick-or-type control offers, so a value
                 // outside them is allowed (the default user schema's gender).
+                // `staffOnly`: only staff see the value (assets act on it;
+                // record fields are staff only anyway).
                 if !value.is_boolean() {
                     return Err(AttributeSchemaError::UnsupportedKeyword {
                         property: name.to_string(),
@@ -324,6 +368,7 @@ fn validate_value(name: &str, prop: &Value, value: &Value) -> Result<(), Attribu
         "integer" => value.is_i64() || value.is_u64(),
         "boolean" => value.is_boolean(),
         "array" => value.is_array(),
+        "object" => value.is_object(),
         _ => false,
     };
     if !type_ok {
@@ -351,6 +396,7 @@ fn validate_value(name: &str, prop: &Value, value: &Value) -> Result<(), Attribu
     match ty {
         "string" => check_string(name, prop, value.as_str().unwrap_or(""))?,
         "number" | "integer" => check_number(name, prop, value.as_f64().unwrap_or(0.0))?,
+        "object" => check_money_value(name, prop, value)?,
         "array" => {
             if let Some(items) = prop.get("items") {
                 let arr = value.as_array().unwrap();
@@ -407,13 +453,51 @@ fn check_string(name: &str, prop: &Value, value: &str) -> Result<(), AttributeEr
             // only arise from out-of-band edits; we treat them as
             // the same shape of problem as any dangling FK.
             "user-uuid" => uuid::Uuid::parse_str(value).is_ok(),
-            "asset-ref" => value.parse::<i32>().ok().filter(|n| *n > 0).is_some(),
+            "asset-ref" | "group-ref" => value.parse::<i32>().ok().filter(|n| *n > 0).is_some(),
             _ => true,
         };
         if !ok {
             return Err(AttributeError::BadFormat {
                 property: name.to_string(),
                 format: format.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// A money value: the canonical shape for its currency, within the
+/// property's bounds on the amount.
+fn check_money_value(name: &str, prop: &Value, value: &Value) -> Result<(), AttributeError> {
+    use std::str::FromStr;
+    let (_, _) =
+        super::money::check_money(prop, value).map_err(|reason| AttributeError::BadMoney {
+            property: name.to_string(),
+            reason,
+        })?;
+    let amount = value
+        .get("amount")
+        .and_then(Value::as_str)
+        .and_then(|a| bigdecimal::BigDecimal::from_str(a).ok());
+    let bound = |key: &str| {
+        prop.get(key)
+            .filter(|b| b.is_number())
+            .and_then(|b| bigdecimal::BigDecimal::from_str(&b.to_string()).ok())
+            .zip(prop.get(key).and_then(Value::as_f64))
+    };
+    if let (Some(amount), Some((min, shown))) = (&amount, bound("minimum")) {
+        if *amount < min {
+            return Err(AttributeError::BelowMinimum {
+                property: name.to_string(),
+                min: shown,
+            });
+        }
+    }
+    if let (Some(amount), Some((max, shown))) = (&amount, bound("maximum")) {
+        if *amount > max {
+            return Err(AttributeError::AboveMaximum {
+                property: name.to_string(),
+                max: shown,
             });
         }
     }
@@ -746,6 +830,116 @@ mod tests {
         let s = crate::repository::user_contact::default_user_field_schema();
         validate_schema(&s).unwrap();
         validate_attributes(&s, &json!({"gender": "Prefer not to say"})).unwrap();
+    }
+
+    #[test]
+    fn money_takes_its_canonical_shape_its_pinned_code_and_its_bounds() {
+        let s = schema_with(
+            json!({
+                "cost": { "type": "object", "format": "money", "minimum": 0, "maximum": 1000.5, "staffOnly": true },
+                "usd": { "type": "object", "format": "money", "currency": "USD" },
+                "yen": { "type": "object", "format": "money", "currency": "JPY" }
+            }),
+            None,
+        );
+        validate_schema(&s).unwrap();
+        validate_attributes(
+            &s,
+            &json!({ "cost": { "amount": "1000.50", "currency": "AUD" } }),
+        )
+        .unwrap();
+        validate_attributes(
+            &s,
+            &json!({ "yen": { "amount": "1250", "currency": "JPY" } }),
+        )
+        .unwrap();
+        for (value, why) in [
+            (
+                json!({ "cost": { "amount": "1000.51", "currency": "AUD" } }),
+                "above",
+            ),
+            (
+                json!({ "cost": { "amount": "-0.01", "currency": "AUD" } }),
+                "below",
+            ),
+            (
+                json!({ "cost": { "amount": "10.5", "currency": "AUD" } }),
+                "not canonical",
+            ),
+            (
+                json!({ "cost": { "amount": "10.00", "currency": "ZZZ" } }),
+                "unknown code",
+            ),
+            (json!({ "cost": { "amount": "10.00" } }), "no code"),
+            (json!({ "cost": "10.00" }), "not an object"),
+            (
+                json!({ "usd": { "amount": "10.00", "currency": "AUD" } }),
+                "pinned",
+            ),
+            (
+                json!({ "yen": { "amount": "1250.00", "currency": "JPY" } }),
+                "exponent",
+            ),
+        ] {
+            assert!(validate_attributes(&s, &value).is_err(), "{why}");
+        }
+    }
+
+    #[test]
+    fn money_schemas_are_checked() {
+        let bad =
+            |prop: Value| validate_schema(&schema_with(json!({ "x": prop }), None)).unwrap_err();
+        assert!(matches!(
+            bad(json!({ "type": "object" })),
+            AttributeSchemaError::UnsupportedType { .. }
+        ));
+        assert!(matches!(
+            bad(json!({ "type": "string", "format": "money" })),
+            AttributeSchemaError::UnsupportedFormat { .. }
+        ));
+        assert!(matches!(
+            bad(json!({ "type": "object", "format": "date" })),
+            AttributeSchemaError::UnsupportedType { .. }
+        ));
+        assert!(matches!(
+            bad(json!({ "type": "object", "format": "money", "currency": "ZZZ" })),
+            AttributeSchemaError::UnknownCurrency { .. }
+        ));
+        assert!(matches!(
+            bad(json!({ "type": "object", "format": "money", "maxLength": 3 })),
+            AttributeSchemaError::UnsupportedKeyword { .. }
+        ));
+        assert!(matches!(
+            bad(json!({ "type": "string", "currency": "AUD" })),
+            AttributeSchemaError::UnsupportedKeyword { .. }
+        ));
+        assert!(matches!(
+            bad(json!({ "type": "string", "staffOnly": "yes" })),
+            AttributeSchemaError::UnsupportedKeyword { .. }
+        ));
+    }
+
+    #[test]
+    fn group_ref_names_a_group_by_id() {
+        let s = schema_with(
+            json!({
+                "team": { "type": "string", "format": "group-ref" },
+                "teams": { "type": "array", "items": { "type": "string", "format": "group-ref" } }
+            }),
+            None,
+        );
+        validate_schema(&s).unwrap();
+        validate_attributes(&s, &json!({ "team": "4", "teams": ["4", "5"] })).unwrap();
+        for bad in [
+            json!({ "team": "0" }),
+            json!({ "team": "Desk" }),
+            json!({ "teams": ["x"] }),
+        ] {
+            assert!(matches!(
+                validate_attributes(&s, &bad),
+                Err(AttributeError::BadFormat { .. })
+            ));
+        }
     }
 
     #[test]

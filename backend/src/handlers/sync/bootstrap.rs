@@ -326,6 +326,7 @@ fn stream_bootstrap_inner(
             &viewer,
             Some(crate::models::SyncAggregate::User),
             &mut row,
+            &crate::services::assets::projection::StaffOnlyKeys::none(),
         );
         row["__model__"] = json!("user");
         send(tx, row)?;
@@ -343,8 +344,24 @@ fn stream_bootstrap_inner(
     } else {
         Vec::new()
     };
+    // Each row as the delta and the live stream give it to this viewer:
+    // without the attributes its kind keeps for staff.
+    let asset_keys = crate::sync::visibility::asset_keys_for(
+        conn,
+        &viewer,
+        asset_rows
+            .first()
+            .map(|_| Some(crate::models::SyncAggregate::Asset))
+            .into_iter(),
+    );
     for asset in asset_rows {
         let mut row = crate::repository::assets::asset_sync_payload(&asset);
+        crate::sync::visibility::project_row(
+            &viewer,
+            Some(crate::models::SyncAggregate::Asset),
+            &mut row,
+            &asset_keys,
+        );
         row["__model__"] = json!("asset");
         send(tx, row)?;
     }

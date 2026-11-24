@@ -60,6 +60,7 @@ mod attachment_claims;
 mod attachment_display_names;
 mod attachment_emit_lint;
 mod attribute_field_order;
+mod attribute_types;
 mod audit_context_lint;
 mod audit_redaction;
 mod audit_unified;

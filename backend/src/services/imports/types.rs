@@ -1129,6 +1129,10 @@ pub enum ValueType {
     Email,
     User,
     AssetRef,
+    /// An amount, with or without its currency code.
+    Money,
+    /// A people group, by name or id.
+    Group,
 }
 
 /// One field a column can map to. Static fields carry a `label_key` the
