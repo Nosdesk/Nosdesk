@@ -108,6 +108,11 @@ export interface DeltaResponse {
    * takes a fresh one instead of catching up by delta; 0 means never.
    * Absent from an older backend. */
   snapshot_max_age_secs?: number
+  /** What the viewer may see changed within the span this page covers (a
+   * role, a membership, a group): rows they hold may no longer be theirs and
+   * rows they may now see never reached them. The client snapshots its
+   * groups again. Absent when unset, and from an older backend. */
+  resnapshot?: boolean
 }
 
 export interface BootstrapMeta {

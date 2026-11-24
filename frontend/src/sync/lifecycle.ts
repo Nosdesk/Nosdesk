@@ -470,6 +470,50 @@ export async function refreshStaleSnapshots(jitterMs = staleRefreshJitterMs()): 
   }
 }
 
+/** The resnapshot running now, if any, and whether a signal came in while it
+ * ran (see resnapshotSubscribedGroups). Cleared on tear-down. */
+let resnapshotRun: object | null = null
+let resnapshotAgain = false
+
+/**
+ * The server says what the viewer may see changed (`resnapshot` on a delta):
+ * snapshot every subscribed group again, so the strip drops rows no longer
+ * theirs and the snapshot brings rows they may now see. On the `keepCursor`
+ * path: the cursor is still good, so it holds while the snapshot streams and
+ * the closing delta replays from it. Not while a resync runs or the cursor is
+ * expired: the resync snapshots every group itself. Groups a bootstrap is
+ * already pending for are left to it. One runs at a time; signals during it
+ * ask for one more after it, not one each.
+ */
+export async function resnapshotSubscribedGroups(): Promise<void> {
+  if (resnapshotRun) {
+    resnapshotAgain = true
+    return
+  }
+  const run = {}
+  resnapshotRun = run
+  try {
+    do {
+      resnapshotAgain = false
+      if (state.resyncing || state.cursorExpired || !canFetchWorkspace()) return
+      // Read with the groups, before any await (see runBootstrap's `stillOurs`).
+      const subscribedAt = pool.currentSubscriptionTick()
+      const groups = Array.from(pool.getSubscribedGroups()).filter(
+        (g) => !state.bootstrapping.has(g),
+      )
+      if (groups.length === 0) return
+      logger.info('sync: what this viewer may see changed; snapshotting their groups again', {
+        groups,
+      })
+      await runBootstrap(groups, { subscribedAt })
+    } while (resnapshotAgain && resnapshotRun === run)
+  } catch (error) {
+    logger.warn('sync: snapshotting groups again after an access change failed', { error })
+  } finally {
+    if (resnapshotRun === run) resnapshotRun = null
+  }
+}
+
 function onVisibilityChange(): void {
   if (document.visibilityState === 'visible') void refreshStaleSnapshots()
 }
@@ -775,6 +819,9 @@ export async function pullDelta(): Promise<boolean> {
     // After the cursor is stored: bringing assets back re-reads the snapshot,
     // which moves the cursor on itself.
     await followAssetVisibility(body.capabilities?.assets_visible, 'delta')
+    // Not awaited: a page the resnapshot's own closing delta reads must not
+    // wait on the resnapshot.
+    if (body.resnapshot) void resnapshotSubscribedGroups()
     return body.has_more
   } catch (e) {
     logger.warn('sync delta network error', { error: e })
@@ -1139,6 +1186,8 @@ export async function tearDown(): Promise<void> {
   stopDeltaPollFallback()
   unwatchSnapshotAge()
   refreshRun = null
+  resnapshotRun = null
+  resnapshotAgain = false
   staleRefreshTriedAt.clear()
   resetSessionMarks()
   // A pending grace unsubscribe belongs to this workspace; it must not fire
