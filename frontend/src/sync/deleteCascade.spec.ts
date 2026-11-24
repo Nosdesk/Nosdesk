@@ -23,6 +23,7 @@ vi.mock('./idb', () => ({
   deleteModels: async (_h: unknown, keys: Array<readonly [string, string]>) => {
     fake.deleted.push(...keys)
   },
+  deleteModelsOwnedOnlyBy: async () => {},
   getGroupWatermarks: async () => ({ ...fake.watermarks }),
   replaceGroupWatermarks: async (_h: unknown, marks: Record<string, number>) => {
     fake.watermarks = { ...marks }

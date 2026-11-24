@@ -20,7 +20,7 @@ import BackButton from '@/components/common/BackButton.vue'
 import { useViewBackFallback } from '@/router/navigation'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { subscribe } from '@/sync/lifecycle'
+import { useGroupSubscription } from '@/sync/useGroupSubscription'
 import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
 import { cyclesService } from '@nosdesk/core/services/cyclesService'
 import * as pool from '@nosdesk/core/sync/pool'
@@ -76,15 +76,12 @@ watch(
 const cycle = computed(() => findPoolCycleByUuid(props.uuid))
 
 // Subscribe to the cycle's project so the ticket pool is populated for
-// the kanban cards. Fires once the cycle resolves (we only know its
+// the kanban cards. Holds once the cycle resolves (we only know its
 // project from the fetched metadata).
-watch(
-  () => cycle.value?.project_id,
-  (projectId) => {
-    if (projectId != null) void subscribe(`project:${projectId}`)
-  },
-  { immediate: true },
-)
+useGroupSubscription(() => {
+  const projectId = cycle.value?.project_id
+  return projectId != null ? `project:${projectId}` : null
+})
 
 // ---- Edit cycle (name + dates) -------------------------------------
 const showEdit = ref(false)

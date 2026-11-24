@@ -46,6 +46,7 @@ const fake = vi.hoisted(() => {
       loadModels: async () => store.cached,
       deleteModel: async () => {},
       deleteModels: async () => {},
+      deleteModelsOwnedOnlyBy: async () => {},
       putTransaction: async () => {},
       deleteTransaction: async () => {},
       loadTransactions: async () => [],
@@ -350,6 +351,57 @@ describe('deleteModels', () => {
     const real = await vi.importActual<typeof import('./idb')>('./idb')
     const { handle, transaction } = fakeHandle()
     await real.deleteModels(handle, [])
+    expect(transaction).not.toHaveBeenCalled()
+  })
+})
+
+describe('deleteModelsOwnedOnlyBy', () => {
+  /** A database stand-in holding `rows` by key, counting transactions. */
+  function fakeHandle(rows: Record<string, { owners?: string[] }>) {
+    const deleted: string[] = []
+    const transaction = vi.fn(() => {
+      const tx: { oncomplete?: () => void; onerror?: () => void; onabort?: () => void } & {
+        objectStore: () => unknown
+      } = {
+        objectStore: () => ({
+          get: (key: [string, string]) => {
+            const req: { result?: unknown; onsuccess?: () => void } = {}
+            queueMicrotask(() => {
+              req.result = rows[key.join(':')]
+              req.onsuccess?.()
+            })
+            return req
+          },
+          delete: (key: [string, string]) => void deleted.push(key.join(':')),
+        }),
+      }
+      // Completes once the gets and their deletes have run.
+      setTimeout(() => tx.oncomplete?.(), 0)
+      return tx
+    })
+    const handle = { db: { transaction }, name: 'test' } as unknown as IdbHandle
+    return { handle, transaction, deleted }
+  }
+
+  it('deletes, in one transaction, only rows the groups alone own in the cache', async () => {
+    const real = await vi.importActual<typeof import('./idb')>('./idb')
+    const { handle, transaction, deleted } = fakeHandle({
+      'comment:1': { owners: ['ticket:9'] },
+      'comment:2': { owners: ['ticket:9', 'project:7'] },
+      'comment:3': { owners: ['project:7'] },
+      'comment:4': {},
+    })
+    const keys = ['1', '2', '3', '4', '5'].map((id) => ['comment', id] as const)
+
+    await real.deleteModelsOwnedOnlyBy(handle, keys, new Set(['ticket:9']))
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(deleted).toEqual(['comment:1'])
+  })
+
+  it('opens no transaction for no rows', async () => {
+    const real = await vi.importActual<typeof import('./idb')>('./idb')
+    const { handle, transaction } = fakeHandle({})
+    await real.deleteModelsOwnedOnlyBy(handle, [], new Set(['ticket:9']))
     expect(transaction).not.toHaveBeenCalled()
   })
 })

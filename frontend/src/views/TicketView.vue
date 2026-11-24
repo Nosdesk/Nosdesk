@@ -14,7 +14,7 @@ import type { Ticket } from "@nosdesk/core/types/ticket";
 
 // Composables
 import { useTicketDetail } from "@/sync/stores/ticketDetail";
-import { subscribe } from "@/sync/lifecycle";
+import { useGroupSubscription } from "@/sync/useGroupSubscription";
 import { useTicketPresence } from "@/composables/useTicketPresence";
 import { useSSE } from "@/services/sseService";
 import { previewTicketField } from "@nosdesk/core/services/ticketService";
@@ -558,9 +558,12 @@ usePageTitle({
 // silently streams nothing for a ticket the caller can't read or that
 // doesn't exist). Reads come from the pool reactively; live changes
 // arrive on the sync stream.
-const loadTicket = async (id: number) => {
+const ticketGroup = useGroupSubscription(() =>
+    ticketId.value !== undefined ? `ticket:${ticketId.value}` : null,
+);
+const loadTicket = async () => {
     error.value = null;
-    await subscribe(`ticket:${id}`);
+    await ticketGroup.settled();
     if (!ticket.value) {
         error.value = t('ticket-data-load-failed');
         return;
@@ -573,7 +576,7 @@ onMounted(async () => {
     loadCategories();
 
     if (ticketId.value !== undefined) {
-        await loadTicket(ticketId.value);
+        await loadTicket();
     }
 });
 
@@ -581,7 +584,7 @@ watch(
     () => ticketId.value,
     async (newId) => {
         if (newId !== undefined) {
-            await loadTicket(newId);
+            await loadTicket();
         }
     },
 );

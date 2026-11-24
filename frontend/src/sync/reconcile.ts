@@ -63,8 +63,11 @@ export async function reconcileByOwner(
     }
   }
   if (state.handle) {
-    if (removed.length > 0) await idb.deleteModels(state.handle, removed)
-    if (changed.length > 0) await idb.putModels(state.handle, changed)
+    // Both issued before either is awaited, so no other write lands between.
+    await Promise.all([
+      idb.deleteModels(state.handle, removed),
+      changed.length > 0 ? idb.putModels(state.handle, changed) : undefined,
+    ])
   }
   if (removed.length > 0) {
     logger.info('sync bootstrap: removed rows no snapshot owns', { removed: removed.length })

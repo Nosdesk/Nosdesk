@@ -52,6 +52,7 @@ const fake = vi.hoisted(() => {
       deleteModels: async (_h: unknown, keys: Array<[string, string]>) => {
         store.deleted.push(...keys.map(([a, id]) => `${a}:${id}`))
       },
+      deleteModelsOwnedOnlyBy: async () => {},
       putTransaction: async () => {},
       deleteTransaction: async () => {},
       loadTransactions: async () => [],

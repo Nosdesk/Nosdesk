@@ -10,10 +10,10 @@
  * close to the surface it affects and lets the header stay short
  * across all three tabs.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { subscribe } from '@/sync/lifecycle'
+import { useGroupSubscription } from '@/sync/useGroupSubscription'
 import * as pool from '@nosdesk/core/sync/pool'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
@@ -36,9 +36,7 @@ const projectId = computed(() => Number(props.id))
 const projectsStore = useSyncProjectsStore()
 const ticketsStore = useSyncTicketsStore()
 
-onMounted(async () => {
-  await subscribe(`project:${projectId.value}`)
-})
+useGroupSubscription(() => `project:${projectId.value}`)
 
 const project = projectsStore.byId(projectId)
 const { cards } = useProjectTickets(projectId)

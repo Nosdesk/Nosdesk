@@ -18,7 +18,7 @@ import Button from '@/components/common/Button.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { subscribe } from '@/sync/lifecycle'
+import { useGroupSubscription } from '@/sync/useGroupSubscription'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { type SyncTicket } from '@/sync/stores/tickets'
 import { ticketNumber, ticketPath } from '@/utils/ticketNumbers'
@@ -76,12 +76,14 @@ const { cycles, activeCycle, seed: seedCycles } = useProjectCycles(projectId)
 const { tickets: projectTickets } = useProjectTickets(projectId)
 const { statsFor } = useCycleStats(projectTickets)
 
+const projectGroup = useGroupSubscription(() => `project:${projectId.value}`)
+
 onMounted(async () => {
-  await subscribe(`project:${projectId.value}`)
+  await projectGroup.settled()
   await seedCycles()
 })
 watch(projectId, async () => {
-  await subscribe(`project:${projectId.value}`)
+  await projectGroup.settled()
   await seedCycles()
 })
 

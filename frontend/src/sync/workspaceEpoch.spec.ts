@@ -38,6 +38,7 @@ const fake = vi.hoisted(() => {
       loadModels: async () => [],
       deleteModel: async () => {},
       deleteModels: async () => {},
+      deleteModelsOwnedOnlyBy: async () => {},
       putTransaction: async () => {},
       deleteTransaction: async () => {},
       loadTransactions: async () => [],

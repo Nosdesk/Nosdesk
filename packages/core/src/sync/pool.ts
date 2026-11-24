@@ -76,11 +76,21 @@ let lastXid8 = 0
 let schemaHash = ''
 
 /**
- * Groups the runtime is currently subscribed to. The router's
- * route-change hook adds new groups on entry; a group-eviction
- * task drops them after a 5-minute grace.
+ * Groups the runtime is currently subscribed to, sent with every delta
+ * request. The workspace group stays for the session; a view adds a ticket
+ * or project group on entry and drops it a grace period after the last view
+ * holding it leaves (`useGroupSubscription` in the app).
  */
 const subscribedGroups = reactive(new Set<string>())
+
+/**
+ * When each group was last unsubscribed, as a tick of `subscriptionClock`. A
+ * bootstrap reads the clock when it starts; a group unsubscribed after that
+ * (re-subscribed since or not) is no longer that bootstrap's to stamp,
+ * strip or watermark.
+ */
+const unsubscribedAt = new Map<string, number>()
+let subscriptionClock = 0
 
 /**
  * Owner of a row a REST read or an optimistic write created, with no stream
@@ -329,7 +339,19 @@ export function subscribe(group: string): void {
 }
 
 export function unsubscribe(group: string): boolean {
-  return subscribedGroups.delete(group)
+  if (!subscribedGroups.delete(group)) return false
+  unsubscribedAt.set(group, ++subscriptionClock)
+  return true
+}
+
+/** The current subscription tick, for `unsubscribedSince`. */
+export function currentSubscriptionTick(): number {
+  return subscriptionClock
+}
+
+/** Whether `group` was unsubscribed after `tick`. */
+export function unsubscribedSince(group: string, tick: number): boolean {
+  return (unsubscribedAt.get(group) ?? 0) > tick
 }
 
 /**
@@ -354,6 +376,8 @@ export function reset(): void {
   touchedAt.clear()
   touchClock = 0
   subscribedGroups.clear()
+  unsubscribedAt.clear()
+  subscriptionClock = 0
   lastSyncId = 0
   lastXid8 = 0
   schemaHash = ''
