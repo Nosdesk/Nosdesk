@@ -10445,6 +10445,6 @@ onboarding-complete-open = Go to your workspace
 onboarding-complete-import = Bring a workspace from another Nosdesk
 onboarding-complete-import-note = Moves the tickets, people and settings from an export into this workspace. It only works while the workspace is still empty.
 
-# Email channel: older mail comes in only when asked for, and quietly.
+# Email channel: older mail comes in only when asked for, and gets no acknowledgement.
 admin-channels-email-field-backlog-since-label = Also bring in mail since
-admin-channels-email-field-backlog-since-hint = Leave this empty to take only mail that arrives from now on. Mail from before the channel connects comes in quietly, with no acknowledgement and no rules.
+admin-channels-email-field-backlog-since-hint = Leave this empty to take only mail that arrives from now on. Mail from before the channel connects gets no automatic acknowledgement.
