@@ -329,6 +329,22 @@ pub fn list_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Vec
         .load(conn)
 }
 
+/// The records linked to ticket `ticket_id`, of type `record_type_id` when
+/// one is given, lowest id first.
+pub fn for_ticket(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    record_type_id: Option<i32>,
+) -> QueryResult<Vec<AssetRecord>> {
+    let mut query = asset_records::table
+        .filter(asset_records::ticket_id.eq(ticket_id))
+        .into_boxed();
+    if let Some(type_id) = record_type_id {
+        query = query.filter(asset_records::record_type_id.eq(type_id));
+    }
+    query.order(asset_records::id.asc()).load(conn)
+}
+
 /// Which of an asset's records a move out of `status` completes: those of
 /// the live type that opens with `status`, and those a move into `status`
 /// opened, whatever their type (a backfilled repair whose type another one

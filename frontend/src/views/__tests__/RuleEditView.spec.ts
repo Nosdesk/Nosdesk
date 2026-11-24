@@ -40,8 +40,29 @@ vi.mock('@nosdesk/core/services/categoryService', () => ({
 }))
 vi.mock('@/composables/useTicketNumberLookup', () => ({ numberForTicketId: (id: number) => id + 1000 }))
 vi.mock('@/utils/ticketNumbers', () => ({ ticketPathForId: (id: number) => `/tickets/${id + 1000}` }))
+const recordTypesEnabled = vi.hoisted(() => ({ calls: [] as boolean[] }))
+vi.mock('@/composables/useAssetTimeline', async () => {
+  const { computed } = await import('vue')
+  return {
+    useAssetRecordTypes: (enabled: () => boolean) => ({
+      types: computed(() => {
+        recordTypesEnabled.calls.push(enabled())
+        return [
+          {
+            id: 1,
+            slug: 'repair',
+            label: null,
+            outcomes: [{ key: 'repaired', category: 'done', label: null }],
+            archived_at: null,
+          },
+        ]
+      }),
+    }),
+  }
+})
 
 import RuleEditView from '@/views/RuleEditView.vue'
+import AssetRecordStepForm from '@/components/admin/rules/AssetRecordStepForm.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import type { RulePreview } from '@nosdesk/core/types/rule'
 
@@ -394,6 +415,56 @@ describe('RuleEditView', () => {
     expect(rules.update).toHaveBeenCalledWith(
       4,
       expect.objectContaining({ actions: [{ kind: 'lend_assets', config: { due_in_days: 14 } }] }),
+    )
+  })
+
+  it('saves a record step once it has its type, and a completion once it has its outcome', async () => {
+    rules.get.mockResolvedValue(
+      rule({
+        actions: [
+          { kind: 'open_asset_record', config: { record_type: '' } },
+          { kind: 'complete_asset_records', config: { record_type: null, outcome: '', create_if_none: false } },
+        ],
+      }),
+    )
+    rules.update.mockResolvedValue(rule())
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    const forms = w.findAllComponents(AssetRecordStepForm)
+    expect(forms.map((f) => f.props('kind'))).toEqual(['open_asset_record', 'complete_asset_records'])
+    expect(forms[0].props('types').map((x: { slug: string }) => x.slug)).toEqual(['repair'])
+    expect(recordTypesEnabled.calls.at(-1)).toBe(true)
+
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(w.text()).toContain('admin-rule-editor-step-needs-record-type')
+    expect(w.text()).toContain('admin-rule-editor-step-needs-outcome')
+    expect(rules.update).not.toHaveBeenCalled()
+
+    forms[0].vm.$emit('update', 'record_type', 'repair')
+    forms[0].vm.$emit('update', 'summary', 'Sent to the vendor')
+    forms[1].vm.$emit('update', 'outcome', 'repaired')
+    forms[1].vm.$emit('update', 'create_if_none', true)
+    await flushPromises()
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(w.text()).toContain('admin-rule-editor-step-needs-record-type-to-create')
+    expect(rules.update).not.toHaveBeenCalled()
+
+    forms[1].vm.$emit('update', 'record_type', 'repair')
+    await flushPromises()
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({
+        actions: [
+          { kind: 'open_asset_record', config: { record_type: 'repair', summary: 'Sent to the vendor' } },
+          {
+            kind: 'complete_asset_records',
+            config: { record_type: 'repair', outcome: 'repaired', create_if_none: true },
+          },
+        ],
+      }),
     )
   })
 

@@ -202,6 +202,7 @@ mod route_auth_funnel_lint;
 mod rule_event_outbox;
 mod rule_starters;
 mod rules_asset_actions;
+mod rules_asset_records;
 mod rules_conflicts;
 mod rules_elapsed;
 mod rules_elapsed_queue;

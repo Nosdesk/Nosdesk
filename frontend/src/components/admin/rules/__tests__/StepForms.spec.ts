@@ -20,6 +20,7 @@ vi.mock('@/components/ticketComponents/UserPicker.vue', () => ({
   },
 }))
 
+import AssetRecordStepForm from '../AssetRecordStepForm.vue'
 import NotifyStepForm from '../NotifyStepForm.vue'
 import ReplyStepForm from '../ReplyStepForm.vue'
 
@@ -126,6 +127,99 @@ describe('NotifyStepForm', () => {
     expect(updates(wrapper, NotifyStepForm)).toEqual([
       ['subject', 'Your request #12'],
       ['body', 'We close it in 3 days.'],
+    ])
+  })
+})
+
+const TYPES = [
+  {
+    id: 1,
+    slug: 'repair',
+    label: null,
+    outcomes: [
+      { key: 'repaired', category: 'done', label: null },
+      { key: 'beyond_repair', category: 'not_done', label: null },
+    ],
+    archived_at: null,
+  },
+  {
+    id: 2,
+    slug: 'calibration',
+    label: 'Calibration',
+    outcomes: [{ key: 'passed', category: 'done', label: 'In tolerance' }],
+    archived_at: null,
+  },
+  { id: 3, slug: 'inspection', label: null, outcomes: [], archived_at: '2026-11-01T00:00:00Z' },
+] as never[]
+
+const dropdown = (w: VueWrapper, test: string) =>
+  w.findAllComponents({ name: 'BaseDropdownStub' }).find((d) => d.attributes('data-test') === test)!
+const optionValues = (w: VueWrapper, test: string) =>
+  (dropdown(w, test).props('options') as { value: string; label: string }[]).map((o) => o.value)
+
+describe('AssetRecordStepForm', () => {
+  it('opens a record of a live type, with an optional summary', async () => {
+    wrapper = mountWithProviders(AssetRecordStepForm, {
+      kind: 'open_asset_record',
+      config: { record_type: '' },
+      types: TYPES,
+    })
+    expect(optionValues(wrapper, 'record-step-type')).toEqual(['repair', 'calibration'])
+    expect(wrapper.find('[data-test="record-step-outcome"]').exists()).toBe(false)
+    dropdown(wrapper, 'record-step-type').vm.$emit('update:modelValue', 'repair')
+    await wrapper.find('[data-test="record-step-summary"]').setValue('Sent to the vendor')
+    expect(updates(wrapper, AssetRecordStepForm)).toEqual([
+      ['record_type', 'repair'],
+      ['summary', 'Sent to the vendor'],
+    ])
+    expect(wrapper.text()).toContain('admin-rule-editor-records-open-hint')
+  })
+
+  it('keeps an archived type a step already names in its list', () => {
+    wrapper = mountWithProviders(AssetRecordStepForm, {
+      kind: 'open_asset_record',
+      config: { record_type: 'inspection' },
+      types: TYPES,
+    })
+    expect(optionValues(wrapper, 'record-step-type')).toEqual(['repair', 'calibration', 'inspection'])
+  })
+
+  it("offers the chosen type's outcomes, or every live type's with no type", async () => {
+    wrapper = mountWithProviders(AssetRecordStepForm, {
+      kind: 'complete_asset_records',
+      config: { record_type: null, outcome: 'passed', create_if_none: false },
+      types: TYPES,
+    })
+    expect(optionValues(wrapper, 'record-step-type')).toEqual(['', 'repair', 'calibration'])
+    expect(dropdown(wrapper, 'record-step-outcome').props('options')).toEqual([
+      { value: 'repaired', label: 'asset-record-outcome-repair-repaired' },
+      { value: 'beyond_repair', label: 'asset-record-outcome-repair-beyond_repair' },
+      { value: 'passed', label: 'In tolerance' },
+    ])
+    // With no type, a record can't be written where there is none.
+    expect(wrapper.findComponent({ name: 'Checkbox' }).props('disabled')).toBe(true)
+
+    // A type without the outcome clears it.
+    dropdown(wrapper, 'record-step-type').vm.$emit('update:modelValue', 'repair')
+    expect(updates(wrapper, AssetRecordStepForm)).toEqual([
+      ['record_type', 'repair'],
+      ['outcome', ''],
+    ])
+    await wrapper.setProps({ config: { record_type: 'repair', outcome: '', create_if_none: false } })
+    expect(optionValues(wrapper, 'record-step-outcome')).toEqual(['repaired', 'beyond_repair'])
+    expect(wrapper.findComponent({ name: 'Checkbox' }).props('disabled')).toBe(false)
+  })
+
+  it('turns off writing a record where there is none when the type goes', async () => {
+    wrapper = mountWithProviders(AssetRecordStepForm, {
+      kind: 'complete_asset_records',
+      config: { record_type: 'repair', outcome: 'repaired', create_if_none: true },
+      types: TYPES,
+    })
+    dropdown(wrapper, 'record-step-type').vm.$emit('update:modelValue', '')
+    expect(updates(wrapper, AssetRecordStepForm)).toEqual([
+      ['record_type', null],
+      ['create_if_none', false],
     ])
   })
 })

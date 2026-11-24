@@ -11195,3 +11195,49 @@ import-remove-webhooks-records = { $count ->
     [one] Webhooks will receive 1 asset.record_deleted event.
    *[other] Webhooks will receive { $count } asset.record_deleted events.
    }
+admin-rule-editor-action-open-asset-record = Open a record on the linked assets
+admin-rule-editor-action-complete-asset-records = Complete the ticket's asset records
+admin-rule-editor-records-type-label = Record type
+admin-rule-editor-records-type-placeholder = Pick a record type
+admin-rule-editor-records-type-any = Any type
+admin-rule-editor-records-summary-label = Summary
+admin-rule-editor-records-summary-hint = Optional. Each record gets this one line.
+admin-rule-editor-records-outcome-label = Outcome
+admin-rule-editor-records-outcome-placeholder = Pick an outcome
+admin-rule-editor-records-create-label = Write a completed record on a linked asset that has none
+admin-rule-editor-records-open-hint = Each asset linked to the ticket gets an open record of this type, dated today and linked to the ticket. An asset that already has one open from this ticket gets no second. The asset's status stays as it is.
+admin-rule-editor-records-complete-hint = The ticket's open records of this type, or of any type with this outcome, are completed today with it. A record written where there was none starts when the ticket was created, and needs a type.
+admin-rule-editor-step-needs-record-type = Pick a record type.
+admin-rule-editor-step-needs-outcome = Pick an outcome.
+admin-rule-editor-step-needs-record-type-to-create = Pick a record type to write records where there are none.
+ticket-actions-step-open-record = Open a record of type { $type } on each linked asset
+ticket-actions-step-open-record-unknown = Open a record on each linked asset
+ticket-actions-step-complete-records = Complete the ticket's open records of type { $type } as { $outcome }
+ticket-actions-step-complete-records-create = Complete the ticket's records of type { $type } as { $outcome }, writing one on each linked asset that has none
+ticket-actions-step-complete-records-any = Complete the ticket's open records as { $outcome }
+ticket-actions-step-complete-records-unknown = Complete the ticket's open records
+admin-rules-activity-did-open-records =
+    { $count ->
+        [0] Opened no new records
+        [one] Opened one record
+       *[other] Opened { $count } records
+    }
+admin-rules-activity-did-complete-records =
+    { $count ->
+        [0] Found no open records to complete
+        [one] Completed one record
+       *[other] Completed { $count } records
+    }
+admin-rules-activity-did-complete-records-wrote =
+    { $created ->
+        [one] Wrote one completed record where there was none
+       *[other] Wrote { $created } completed records where there were none
+    }
+admin-rules-activity-did-complete-records-created =
+    Completed { $count ->
+        [one] one record
+       *[other] { $count } records
+    } and wrote { $created ->
+        [one] one where there was none
+       *[other] { $created } where there were none
+    }

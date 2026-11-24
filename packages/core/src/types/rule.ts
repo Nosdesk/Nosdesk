@@ -41,6 +41,8 @@ export interface RuleAction {
     | 'assign_assets_to_requester'
     | 'lend_assets'
     | 'return_requester_assets'
+    | 'open_asset_record'
+    | 'complete_asset_records'
     | 'notify'
     | 'apply_macro_template'
     | 'webhook'
