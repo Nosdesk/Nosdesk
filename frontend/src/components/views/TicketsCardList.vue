@@ -35,12 +35,18 @@
  *
  * Memo against the same field subset as the table so SSE
  * updates only re-render the affected rows.
+ *
+ * Under the Manual sort, ungrouped, a held row lifts and drags into an
+ * order, as the table's rows do; the drop writes ranks.
  */
 import Icon from '@/components/common/Icon.vue'
 import TicketsCardRows from '@/components/views/TicketsCardRows.vue'
 import { useToday } from '@/composables/useToday'
 import type { TicketGroupBucket } from '@/composables/useTicketsGrouping'
 import { computed, ref } from 'vue'
+import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
+import { useRowReorder } from '@/sync/views/useRowReorder'
+import { ranksForDrop } from '@nosdesk/core/sync/views/planOrder'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 
 const props = withDefaults(defineProps<{
@@ -48,9 +54,12 @@ const props = withDefaults(defineProps<{
   /** Group buckets, when the list is grouped; empty renders flat. */
   buckets?: TicketGroupBucket[]
   isCollapsed?: (key: string) => boolean
+  /** The sort is Manual: an ungrouped list's rows can be dragged. */
+  manual?: boolean
 }>(), {
   buckets: () => [],
   isCollapsed: () => false,
+  manual: false,
 })
 
 // The card list owns the mobile scroll container; exposed so the
@@ -62,7 +71,35 @@ const emit = defineEmits<{
   (e: 'open', id: number): void
   (e: 'contextmenu', id: number, event: MouseEvent): void
   (e: 'toggle-bucket', key: string): void
+  (e: 'patch', id: number, patch: Partial<CardData>): void
 }>()
+
+const draggable = computed<boolean>(() => props.manual && props.buckets.length === 0)
+
+const reorder = useRowReorder({
+  root: () => rootEl.value,
+  onDrop: ({ id, slot }) => {
+    for (const write of ranksForDrop(props.cards, id, slot)) emit('patch', write.id, { rank: write.rank })
+  },
+  onClick: (id) => emit('open', id),
+})
+
+/** A hold that turns into a drag must not also open the row menu. */
+function onContextMenu(id: number, event: MouseEvent): void {
+  if (draggable.value && (reorder.settling.value || reorder.lastPointerType() !== 'mouse')) return
+  emit('contextmenu', id, event)
+}
+
+/** The last hand-placed row, when unplaced rows follow it. */
+const lastPlacedId = computed<number | null>(() => {
+  if (!draggable.value) return null
+  const index = props.cards.findIndex((c) => c.rank == null)
+  return index > 0 ? props.cards[index - 1].id : null
+})
+
+const dragged = computed(() =>
+  reorder.draggedId.value != null ? props.cards.find((c) => c.id === reorder.draggedId.value) : undefined,
+)
 
 const today = useToday()
 
@@ -103,10 +140,41 @@ const sections = computed(() =>
         v-if="!section.collapsed"
         :cards="section.cards"
         :today="today"
+        :draggable="draggable"
+        :dragged-id="reorder.draggedId.value"
+        :last-placed-id="lastPlacedId"
+        :data-lane="draggable ? 'manual' : undefined"
         @open="(id) => emit('open', id)"
-        @contextmenu="(id, event) => emit('contextmenu', id, event)"
+        @contextmenu="onContextMenu"
+        @row-down="reorder.onRowDown"
+        @patch="(id, patch) => emit('patch', id, patch)"
       />
     </template>
+
+    <Teleport to="body">
+      <div
+        v-if="reorder.line.value"
+        class="pointer-events-none fixed z-overlay h-0.5 -translate-y-px rounded-full bg-accent"
+        data-drop-line
+        :style="{
+          top: `${reorder.line.value.top}px`,
+          left: `${reorder.line.value.left}px`,
+          width: `${reorder.line.value.width}px`,
+        }"
+      />
+    </Teleport>
+    <TicketDragPreview
+      v-if="dragged && reorder.state.dragPosition"
+      :ticket="{
+        id: dragged.id,
+        number: dragged.number,
+        title: dragged.title,
+        category: dragged.workflow_state.category,
+        assigneeUuid: dragged.assignee_uuid,
+        priority: dragged.priority,
+      }"
+      :position="reorder.state.dragPosition"
+    />
 
     <!-- Empty state lives in the parent (TicketsListView) so the
          contextual copy ("All caught up", "Triage is clear" etc.)

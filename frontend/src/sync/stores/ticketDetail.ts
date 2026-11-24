@@ -29,6 +29,7 @@ import { useRouter } from 'vue-router'
 import { useEntity, useReference, useAggregate } from '@nosdesk/core/sync/composables'
 import * as pool from '@nosdesk/core/sync/pool'
 import { dispatchOptimistic } from '@/sync/queue'
+import { planPatchEffects } from '@nosdesk/core/utils/ticketPlan'
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
 import { logger } from '@nosdesk/core/utils/logger'
@@ -73,6 +74,12 @@ interface SyncTicketDetail {
   due_date: string | null
   /** Optional planning start for the gantt. Null means unplanned. */
   start_date?: string | null
+  /** The plan: the times on the two dates, the place in the day and the
+   *  size in minutes. See `CardData`. */
+  due_time?: string | null
+  start_time?: string | null
+  rank?: string | null
+  estimate_minutes?: number | null
   recurrence_rule: string | null
   resolution_notes: string | null
   tag_ids?: number[]
@@ -322,6 +329,9 @@ export function useTicketDetail(
       submitted_via: r.submitted_via ?? null,
       due_date: r.due_date,
       start_date: r.start_date ?? null,
+      due_time: r.due_time ?? null,
+      start_time: r.start_time ?? null,
+      estimate_minutes: r.estimate_minutes ?? null,
       recurrence_rule: r.recurrence_rule,
       created_by: r.created_by ?? null,
       closed_by: r.closed_by ?? null,
@@ -476,16 +486,41 @@ export function useTicketDetail(
     if (id.value != null) recentTicketsStore.updateTicketData(id.value, { title })
   }
 
-  async function updateDueDate(due: string | null): Promise<void> {
+  /** A plan write, carrying what the server does with it (a cleared date
+   *  clears its time, a move to another day clears the rank) so the row
+   *  reads the stored result at once. */
+  type PlanField = 'due_date' | 'start_date' | 'due_time' | 'start_time' | 'estimate_minutes'
+  async function patchPlan(patch: Partial<Pick<SyncTicketDetail, PlanField>>): Promise<void> {
     const r = row.value
-    if (!r || r.due_date === due) return
-    await patchTicket({ due_date: due }, { due_date: r.due_date })
+    if (!r) return
+    const keys = Object.keys(patch) as PlanField[]
+    if (keys.every((k) => (r[k] ?? null) === (patch[k] ?? null))) return
+    const forward: Partial<SyncTicketDetail> = { ...patch, ...planPatchEffects(r, patch) }
+    const inverse: Partial<SyncTicketDetail> = {}
+    for (const k of Object.keys(forward) as (keyof SyncTicketDetail)[]) {
+      ;(inverse as Record<string, unknown>)[k] = r[k] ?? null
+    }
+    await patchTicket(forward, inverse)
+  }
+
+  async function updateDueDate(due: string | null): Promise<void> {
+    await patchPlan({ due_date: due })
   }
 
   async function updateStartDate(start: string | null): Promise<void> {
-    const r = row.value
-    if (!r || (r.start_date ?? null) === start) return
-    await patchTicket({ start_date: start }, { start_date: r.start_date ?? null })
+    await patchPlan({ start_date: start })
+  }
+
+  async function updateDueTime(time: string | null): Promise<void> {
+    await patchPlan({ due_time: time })
+  }
+
+  async function updateStartTime(time: string | null): Promise<void> {
+    await patchPlan({ start_time: time })
+  }
+
+  async function updateEstimate(minutes: number | null): Promise<void> {
+    await patchPlan({ estimate_minutes: minutes })
   }
 
   async function updateRecurrenceRule(rule: string | null): Promise<void> {
@@ -996,6 +1031,9 @@ export function useTicketDetail(
     updateTitle,
     updateDueDate,
     updateStartDate,
+    updateDueTime,
+    updateStartTime,
+    updateEstimate,
     updateRecurrenceRule,
     updateResolutionNotes,
     updateTags,

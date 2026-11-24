@@ -8910,7 +8910,7 @@ builtin-view-overdue-name = Te laat
 builtin-view-overdue-description = Actieve tickets waarvan de vervaldatum is verstreken
 # Machinevertaling, te controleren door moedertaalspreker.
 builtin-view-my-day-name = Mijn dag
-builtin-view-my-day-description = Je openstaande tickets op de dag waarop ze vervallen
+builtin-view-my-day-description = Je openstaande tickets die voor de dag gepland zijn
 views-display-menu-sort = Sorteren
 views-display-menu-sort-due = Vervaldatum
 views-display-menu-sort-priority = Prioriteit
@@ -8926,7 +8926,6 @@ tickets-due-tomorrow = Morgen
 tickets-due-this-week = Deze week
 tickets-due-later = Later
 tickets-due-none = Geen datum
-ticket-list-my-day-nothing-today = Niets gepland voor vandaag. Geef een ticket een vervaldatum om je dag te plannen.
 builtin-view-triage-name = Triage
 builtin-view-triage-description = Tickets die nog ingedeeld moeten worden
 builtin-view-calendar-name = Agenda
@@ -12916,3 +12915,85 @@ admin-rule-editor-records-no-types = Deze werkruimte heeft nog geen registratiet
 admin-rule-editor-records-no-types-link = Registratietypen toevoegen
 # MT: pending native review (nl-NL)
 admin-rules-conflicts-field-asset-record = registraties van activa
+# MT: pending native review (nl-NL)
+plan-day-previous = Vorige dag
+# MT: pending native review (nl-NL)
+plan-day-next = Volgende dag
+# MT: pending native review (nl-NL)
+plan-day-today = Vandaag
+# MT: pending native review (nl-NL)
+plan-day-load = { $count ->
+    [one] 1 taak
+   *[other] { $count } taken
+}
+# MT: pending native review (nl-NL)
+plan-day-load-sized = { $count ->
+    [one] 1 taak, ongeveer { $hours } u
+   *[other] { $count } taken, ongeveer { $hours } u
+}
+# MT: pending native review (nl-NL)
+plan-section-booked = Ingepland
+# MT: pending native review (nl-NL)
+plan-section-any-time = Op elk moment
+# MT: pending native review (nl-NL)
+plan-day-empty = Niets gepland voor deze dag.
+# MT: pending native review (nl-NL)
+plan-row-due = vervalt { $day }
+# MT: pending native review (nl-NL)
+plan-row-time-aria = Tijd voor #{ $number }: { $time }
+# MT: pending native review (nl-NL)
+plan-row-move-aria = #{ $number } verplaatsen
+# MT: pending native review (nl-NL)
+plan-row-overlap = Begint voordat #{ $number } om { $time } klaar zou zijn
+# MT: pending native review (nl-NL)
+plan-size-label = Omvang
+# MT: pending native review (nl-NL)
+plan-size-s = Klein
+# MT: pending native review (nl-NL)
+plan-size-m = Middel
+# MT: pending native review (nl-NL)
+plan-size-l = Groot
+# MT: pending native review (nl-NL)
+plan-size-none = Geen omvang
+# MT: pending native review (nl-NL)
+plan-size-letter-s = K
+# MT: pending native review (nl-NL)
+plan-size-letter-m = M
+# MT: pending native review (nl-NL)
+plan-size-letter-l = G
+# MT: pending native review (nl-NL)
+plan-size-length-s = 30 min
+# MT: pending native review (nl-NL)
+plan-size-length-m = 2 u
+# MT: pending native review (nl-NL)
+plan-size-length-l = 6 u
+# MT: pending native review (nl-NL)
+plan-size-aria = Omvang van #{ $number }: { $size }
+# MT: pending native review (nl-NL)
+plan-size-set-aria = Omvang instellen voor #{ $number }
+# MT: pending native review (nl-NL)
+plan-time-title = Tijd
+# MT: pending native review (nl-NL)
+plan-time-start-title = Begintijd
+# MT: pending native review (nl-NL)
+plan-time-due-title = Vervaltijd
+# MT: pending native review (nl-NL)
+plan-time-clear = Wissen
+# MT: pending native review (nl-NL)
+plan-time-add = Tijd toevoegen
+# MT: pending native review (nl-NL)
+plan-menu-set-time = Tijd instellen
+# MT: pending native review (nl-NL)
+plan-menu-change-time = Tijd wijzigen
+# MT: pending native review (nl-NL)
+plan-menu-clear-time = Tijd wissen
+# MT: pending native review (nl-NL)
+plan-menu-move-top = Bovenaan zetten
+# MT: pending native review (nl-NL)
+plan-menu-aria = #{ $number } plannen
+# MT: pending native review (nl-NL)
+views-display-menu-sort-manual = Handmatig
+# MT: pending native review (nl-NL)
+tickets-column-size = Omvang
+# MT: pending native review (nl-NL)
+tickets-column-size-description = Hoe groot de taak is: klein, middel of groot

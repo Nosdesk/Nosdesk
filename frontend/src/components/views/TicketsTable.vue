@@ -42,10 +42,15 @@
  * column flexes via `colStyle` with a 280px min-width floor;
  * lower-priority columns drop out via container queries (see the
  * <style> block) before that floor is reached.
+ *
+ * Under the Manual sort, ungrouped, rows can be dragged into an order:
+ * a drop writes ranks (`ranksForDrop`), a line shows where it lands, and
+ * a rule marks where the hand-placed order ends.
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
+import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import TicketRow from '@/components/views/TicketRow.vue'
 import BucketRows from '@/components/views/BucketRows.vue'
 import { rowMemoKey, type ListColumn } from '@nosdesk/core/sync/views/ticketColumns'
@@ -53,6 +58,8 @@ import type { useColumnLayout } from '@/composables/useColumnLayout'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import type { TicketGroupBucket as GroupBucket } from '@/composables/useTicketsGrouping'
 import type { BulkSelection } from '@/composables/useBulkSelection'
+import { useRowReorder } from '@/sync/views/useRowReorder'
+import { ranksForDrop } from '@nosdesk/core/sync/views/planOrder'
 
 const props = defineProps<{
   cards: CardData[]
@@ -75,6 +82,8 @@ const props = defineProps<{
    * — when omitted the leading state cell stays as the
    * workflow-state glyph and no checkboxes render. */
   bulkSelection?: BulkSelection<CardData>
+  /** The sort is Manual: an ungrouped list's rows can be dragged. */
+  manual?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -83,6 +92,7 @@ const emit = defineEmits<{
   (e: 'contextmenu', id: number, event: MouseEvent): void
   (e: 'toggle-sort', field: string): void
   (e: 'toggle-bucket', key: string): void
+  (e: 'patch', id: number, patch: Partial<CardData>): void
 }>()
 
 /** True when at least one row is in the bulk-selection set. Pins
@@ -133,6 +143,37 @@ function onRowContextMenu(id: number, event: MouseEvent): void {
 }
 
 const grouped = computed<boolean>(() => props.buckets.length > 0)
+
+// --- Manual order ----------------------------------------------------
+
+const container = ref<HTMLElement | null>(null)
+const draggable = computed<boolean>(() => !!props.manual && !grouped.value)
+
+const reorder = useRowReorder({
+  root: () => container.value,
+  onDrop: ({ id, slot }) => {
+    for (const write of ranksForDrop(props.cards, id, slot)) emit('patch', write.id, { rank: write.rank })
+  },
+  onClick: (id) => onRowClick(id),
+})
+
+/** Under Manual the drag helper tells a click from a drag, so the row's
+ *  own click stands down. */
+function onRowClickUnlessDraggable(id: number): void {
+  if (!draggable.value) onRowClick(id)
+}
+
+/** The last hand-placed row, when unplaced rows follow it: its rule
+ *  marks where the hand order ends and priority order begins. */
+const lastPlacedId = computed<number | null>(() => {
+  if (!draggable.value) return null
+  const index = props.cards.findIndex((c) => c.rank == null)
+  return index > 0 ? props.cards[index - 1].id : null
+})
+
+const dragged = computed(() =>
+  reorder.draggedId.value != null ? props.cards.find((c) => c.id === reorder.draggedId.value) : undefined,
+)
 </script>
 
 <template>
@@ -154,6 +195,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
        they enable many optional columns; we'd rather give them
        a horizontal scrollbar than a squashed title. -->
   <div
+    ref="container"
     class="tickets-table-container flex-1 min-h-0 overflow-auto"
     :class="{ 'split-active': isSplitMode, 'pr-2': !isSplitMode }"
   >
@@ -278,7 +320,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
           </th>
         </tr>
       </thead>
-      <tbody>
+      <tbody :data-lane="draggable ? 'manual' : undefined">
         <!-- Flat (ungrouped) list -->
         <template v-if="!grouped">
           <TicketRow
@@ -292,6 +334,9 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
               selectedId === card.id,
               bulkActive,
               bulkSelection?.isSelected(String(card.id)) ?? false,
+              draggable,
+              reorder.draggedId.value === card.id,
+              lastPlacedId === card.id,
             ]"
             :card="card"
             :visible-columns="visibleColumns"
@@ -301,10 +346,15 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
             :selected="selectedId === card.id"
             :bulk-active="bulkActive"
             :bulk-selected="bulkSelection?.isSelected(String(card.id)) ?? false"
-            @click="onRowClick"
+            :draggable="draggable"
+            :lifted="reorder.draggedId.value === card.id"
+            :rule-below="lastPlacedId === card.id"
+            @click="onRowClickUnlessDraggable"
             @open="onRowOpen"
             @contextmenu="onRowContextMenu"
             @toggle-bulk="onRowToggleBulk"
+            @row-down="reorder.onRowDown"
+            @patch="(id, patch) => emit('patch', id, patch)"
           />
         </template>
 
@@ -346,11 +396,38 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
               @open="onRowOpen"
               @contextmenu="onRowContextMenu"
               @toggle-bulk="onRowToggleBulk"
+              @patch="(id, patch) => emit('patch', id, patch)"
             />
           </template>
         </template>
       </tbody>
     </table>
+
+    <!-- Where a Manual drop lands. Rows stay put until it does. -->
+    <Teleport to="body">
+      <div
+        v-if="reorder.line.value"
+        class="pointer-events-none fixed z-overlay h-0.5 -translate-y-px rounded-full bg-accent"
+        data-drop-line
+        :style="{
+          top: `${reorder.line.value.top}px`,
+          left: `${reorder.line.value.left}px`,
+          width: `${reorder.line.value.width}px`,
+        }"
+      />
+    </Teleport>
+    <TicketDragPreview
+      v-if="dragged && reorder.state.dragPosition"
+      :ticket="{
+        id: dragged.id,
+        number: dragged.number,
+        title: dragged.title,
+        category: dragged.workflow_state.category,
+        assigneeUuid: dragged.assignee_uuid,
+        priority: dragged.priority,
+      }"
+      :position="reorder.state.dragPosition"
+    />
   </div>
 </template>
 

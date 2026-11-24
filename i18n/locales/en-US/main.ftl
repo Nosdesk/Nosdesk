@@ -8073,7 +8073,7 @@ builtin-view-unassigned-description = Active tickets with no assignee
 builtin-view-overdue-name = Overdue
 builtin-view-overdue-description = Active tickets past their due date
 builtin-view-my-day-name = My day
-builtin-view-my-day-description = Your open tickets by the day they are due
+builtin-view-my-day-description = Your open tickets planned for the day
 views-display-menu-sort = Sort
 views-display-menu-sort-due = Due
 views-display-menu-sort-priority = Priority
@@ -8089,7 +8089,6 @@ tickets-due-tomorrow = Tomorrow
 tickets-due-this-week = This week
 tickets-due-later = Later
 tickets-due-none = No date
-ticket-list-my-day-nothing-today = Nothing planned for today. Give a ticket a due date to plan your day.
 builtin-view-triage-name = Triage
 builtin-view-triage-description = Tickets awaiting initial categorization
 builtin-view-calendar-name = Calendar
@@ -11244,3 +11243,49 @@ admin-rules-activity-did-complete-records-created =
 admin-rule-editor-records-no-types = This workspace has no record types yet.
 admin-rule-editor-records-no-types-link = Add record types
 admin-rules-conflicts-field-asset-record = asset records
+
+## Work planning: My day as an agenda, a job's time and size, the Manual sort
+plan-day-previous = Previous day
+plan-day-next = Next day
+plan-day-today = Today
+plan-day-load = { $count ->
+    [one] 1 job
+   *[other] { $count } jobs
+}
+plan-day-load-sized = { $count ->
+    [one] 1 job, about { $hours } h
+   *[other] { $count } jobs, about { $hours } h
+}
+plan-section-booked = Booked
+plan-section-any-time = Any time
+plan-day-empty = Nothing planned for this day.
+plan-row-due = due { $day }
+plan-row-time-aria = Time for #{ $number }: { $time }
+plan-row-move-aria = Move #{ $number }
+plan-row-overlap = Starts before #{ $number } is due to finish at { $time }
+plan-size-label = Size
+plan-size-s = Small
+plan-size-m = Medium
+plan-size-l = Big
+plan-size-none = No size
+plan-size-letter-s = S
+plan-size-letter-m = M
+plan-size-letter-l = L
+plan-size-length-s = 30 min
+plan-size-length-m = 2 h
+plan-size-length-l = 6 h
+plan-size-aria = Size of #{ $number }: { $size }
+plan-size-set-aria = Set a size for #{ $number }
+plan-time-title = Time
+plan-time-start-title = Start time
+plan-time-due-title = Due time
+plan-time-clear = Clear
+plan-time-add = Add time
+plan-menu-set-time = Set time
+plan-menu-change-time = Change time
+plan-menu-clear-time = Clear time
+plan-menu-move-top = Move to top
+plan-menu-aria = Plan #{ $number }
+views-display-menu-sort-manual = Manual
+tickets-column-size = Size
+tickets-column-size-description = How big the job is: small, medium or big

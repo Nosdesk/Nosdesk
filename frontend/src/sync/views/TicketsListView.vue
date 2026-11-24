@@ -44,6 +44,8 @@ import {
   type CalendarOverlayEntry,
 } from '@nosdesk/core/services/calendarOverlaysService'
 import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
+import AgendaView from './agenda/AgendaView.vue'
+import { MANUAL_SORT, planFor } from '@nosdesk/core/sync/views/planOrder'
 import TicketsHeader from '@/components/views/TicketsHeader.vue'
 import TicketsTable from '@/components/views/TicketsTable.vue'
 import TicketsCardList from '@/components/views/TicketsCardList.vue'
@@ -63,7 +65,7 @@ import {
 } from '@/composables/useTicketsFilters'
 import { defaultGroupByFor, useTicketsGrouping } from '@/composables/useTicketsGrouping'
 import { useToday } from '@/composables/useToday'
-import { dueBucket } from '@nosdesk/core/utils/ticketDates'
+import type { Day } from '@nosdesk/core/utils/ticketDates'
 import { useTicketsSummary } from '@/composables/useTicketsSummary'
 import { useSplitView } from '@/composables/useSplitView'
 import { useDragGesture } from '@/composables/useDragGesture'
@@ -282,21 +284,33 @@ const afterChipFilter = computed<CardData[]>(() =>
 const sortedCards = applySort(afterChipFilter)
 const buckets = grouping.buckets(sortedCards)
 
-// My day with work in it but none due today or overdue says so in
-// one line above the list, so the day doesn't read as missing.
+// ---------------------------------------------------------------
+// Agenda (My day): one day of the filtered tickets, Booked then Any
+// time. The day lives here so the preview's selection and its arrow
+// keys follow the jobs on screen. A day left on today moves on at
+// midnight with it.
+// ---------------------------------------------------------------
 const today = useToday()
-const myDayNothingToday = computed<boolean>(() =>
-  activeView.value.id === MY_DAY_VIEW.id
-  && !fallThroughActive.value
-  && sortedCards.value.length > 0
-  && !sortedCards.value.some((c) => {
-    const bucket = dueBucket(c, today.value)
-    return bucket === 'overdue' || bucket === 'today'
-  }),
+const agendaActive = computed<boolean>(
+  () => activeView.value.shape.type === 'agenda' && !fallThroughActive.value,
 )
+const agendaDay = ref<Day>(today.value)
+watch(today, (next, prev) => {
+  if (agendaDay.value === prev) agendaDay.value = next
+})
+const agendaPlan = computed(() => planFor(afterChipFilter.value, agendaDay.value))
+
+/** The tickets on screen, in their order: the day's jobs on the agenda,
+ *  else the sorted list. */
+const shownCards = computed<CardData[]>(() =>
+  agendaActive.value
+    ? [...agendaPlan.value.booked, ...agendaPlan.value.anyTime]
+    : sortedCards.value,
+)
+
 const { segments } = useTicketsSummary(afterViewFilter)
 
-const selection = useTicketSelection(sortedCards)
+const selection = useTicketSelection(shownCards)
 
 // ---------------------------------------------------------------
 // Bulk selection (multi-row checkbox model). Coexists with the
@@ -403,6 +417,35 @@ const isWideViewport = ref<boolean>(true)
 }
 const splitViewActive = computed(() => splitView.enabled.value && isWideViewport.value)
 
+/** The agenda shows the preview beside the day once a job is picked,
+ *  whether or not the list's split view is on: picking a job is how the
+ *  day opens one. Closing it clears the pick. */
+const agendaPreviewShowing = computed(
+  () => agendaActive.value && isWideViewport.value && selection.selectedId.value != null,
+)
+const previewShowing = computed(() =>
+  agendaActive.value ? agendaPreviewShowing.value : splitViewActive.value,
+)
+
+function openFromAgenda(id: number): void {
+  if (isWideViewport.value) selection.setSelected(id)
+  else open(id)
+}
+
+function toggleSplitView(): void {
+  if (agendaActive.value && agendaPreviewShowing.value) {
+    splitView.setEnabled(false)
+    selection.clearSelected()
+    return
+  }
+  splitView.toggle()
+}
+
+/** A plan write from a row: a drop's rank, a size, a time. */
+function patchPlan(id: number, patch: Partial<CardData>): void {
+  void ticketsStore.patchPlan(id, patch)
+}
+
 // Auto-select the first row whenever split-view turns on so the
 // preview pane has something to render. Two distinct triggers
 // share one effect:
@@ -427,7 +470,7 @@ watch(
   },
   { immediate: true },
 )
-watch(sortedCards, () => {
+watch(shownCards, () => {
   selection.reconcile()
   if (splitViewActive.value) selection.selectFirstIfNone()
 })
@@ -596,6 +639,17 @@ const ticketContextMenuItems = computed<MenuItem[]>(() => {
   return items
 })
 
+/** The agenda's row menu carries the list's ticket actions under its
+ *  planning ones; the day has no bulk selection, so those go. */
+const AGENDA_SKIPPED_ACTIONS = new Set(['selection-heading', 'toggle-select', 'merge'])
+const agendaContextMenuItems = computed<MenuItem[]>(() =>
+  ticketContextMenuItems.value.filter((item) => !AGENDA_SKIPPED_ACTIONS.has(item.id)),
+)
+
+function onAgendaMenuOpen(ticketId: number): void {
+  contextMenuTicketId.value = ticketId
+}
+
 function handleTicketContextMenu(ticketId: number, event: MouseEvent): void {
   contextMenuTicketId.value = ticketId
   contextMenuPos.value = { x: event.clientX, y: event.clientY }
@@ -752,7 +806,7 @@ function onKey(e: KeyboardEvent): void {
   // Use the viewport-aware splitViewActive — keyboard nav for
   // selected-row arrow keys only makes sense when the preview pane
   // is actually visible.
-  if (!splitViewActive.value || inField) return
+  if (!previewShowing.value || inField) return
   if (e.key === 'ArrowDown' || e.key === 'j') {
     e.preventDefault()
     selection.move(1)
@@ -980,7 +1034,7 @@ function startPaneResize(event: PointerEvent): void {
       :visible-columns="visibleColumnIds"
       :can-save-layout-to-view="canSaveLayoutToView"
       :layout-dirty="layoutDirty"
-      :summary-segments="segments"
+      :summary-segments="agendaActive ? [] : segments"
       :active-facets="filters.activeFacets.value"
       :filter-title="filters.title.value"
       :filter-status="filters.status.value"
@@ -988,7 +1042,7 @@ function startPaneResize(event: PointerEvent): void {
       :filter-assignee="filters.assignee.value"
       :filter-sla="filters.sla.value"
       :filter-cycle="filters.cycle.value"
-      :split-view-enabled="splitView.enabled.value"
+      :split-view-enabled="agendaActive ? agendaPreviewShowing : splitView.enabled.value"
       :facet-order="facetOrder"
       :available-columns="availableColumns"
       @select-view="selectViewById"
@@ -1003,7 +1057,7 @@ function startPaneResize(event: PointerEvent): void {
       @toggle-filter="toggleFilter"
       @clear-filter="clearFilter"
       @set-filter-text="setFilterText"
-      @toggle-split-view="splitView.toggle"
+      @toggle-split-view="toggleSplitView"
     />
 
     <!-- Fall-through banner: My Open was empty, we transparently
@@ -1017,12 +1071,6 @@ function startPaneResize(event: PointerEvent): void {
       <span class="font-medium text-primary">{{ $t('ticket-list-empty-no-assigned-message') }}</span>
       <span>{{ $t('ticket-list-empty-showing-all-active') }}</span>
     </div>
-    <p
-      v-else-if="myDayNothingToday"
-      class="px-4 py-2 text-xs text-tertiary border-b border-subtle"
-    >
-      {{ $t('ticket-list-my-day-nothing-today') }}
-    </p>
 
     <div
       v-if="isInitiallyLoading"
@@ -1095,6 +1143,38 @@ function startPaneResize(event: PointerEvent): void {
       </template>
     </div>
 
+    <!-- My day: the agenda, with the preview beside it once a job is
+         picked (from 768px; a phone opens the ticket). The day keeps to
+         720px; past 1280px the preview takes the room beyond it. -->
+    <div
+      v-else-if="agendaActive"
+      class="flex-1 flex min-h-0 min-w-0"
+    >
+      <AgendaView
+        v-model:day="agendaDay"
+        class="min-w-0 flex-[1_1_45rem] border-subtle xl:max-w-[45rem] xl:border-r"
+        :plan="agendaPlan"
+        :today="today"
+        :selected-id="agendaPreviewShowing ? selection.selectedId.value : null"
+        :extra-menu-items="agendaContextMenuItems"
+        @open="openFromAgenda"
+        @patch="patchPlan"
+        @menu-open="onAgendaMenuOpen"
+        @menu-action="handleTicketContextMenuSelect"
+      />
+      <div
+        v-if="agendaPreviewShowing"
+        class="flex max-w-[30rem] shrink-0 grow-0 basis-[22.5rem] border-l border-subtle xl:-ml-px xl:grow"
+      >
+        <TicketPreviewPane
+          class="w-full"
+          :card="selection.selectedCard.value"
+          @open="open"
+          @close="toggleSplitView"
+        />
+      </div>
+    </div>
+
     <!-- Mobile: card list. Stacks each ticket's attributes
          vertically so a phone shows ~5-6 facts per row without
          horizontal scroll. Same `sortedCards` source so sort /
@@ -1105,10 +1185,12 @@ function startPaneResize(event: PointerEvent): void {
       :cards="sortedCards"
       :buckets="buckets"
       :is-collapsed="grouping.isCollapsed"
+      :manual="sortField === MANUAL_SORT"
       class="flex-1 min-h-0"
       @open="open"
       @contextmenu="handleTicketContextMenu"
       @toggle-bucket="grouping.toggleCollapsed"
+      @patch="patchPlan"
     />
 
     <!-- Desktop: split-view layout. Table on the left, divider,
@@ -1133,12 +1215,14 @@ function startPaneResize(event: PointerEvent): void {
         :is-collapsed="grouping.isCollapsed"
         :selected-id="splitViewActive ? selection.selectedId.value : undefined"
         :bulk-selection="bulkSelection"
+        :manual="sortField === MANUAL_SORT"
         class="flex-1 min-w-0"
         @open="open"
         @select="selection.setSelected"
         @contextmenu="handleTicketContextMenu"
         @toggle-sort="toggleSort"
         @toggle-bucket="grouping.toggleCollapsed"
+        @patch="patchPlan"
       />
 
       <!-- Split-view divider + preview pane. Mounted only while

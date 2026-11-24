@@ -135,6 +135,9 @@ const {
     updateTitle,
     updateDueDate,
     updateStartDate,
+    updateDueTime,
+    updateStartTime,
+    updateEstimate,
     updateRecurrenceRule,
     updateResolutionNotes,
     updateTags,
@@ -803,6 +806,9 @@ const rootEl = ref<HTMLElement | null>(null);
                                 @update:assignee="updateAssignee"
                                 @update:dueDate="updateDueDate"
                                 @update:startDate="updateStartDate"
+                                @update:dueTime="updateDueTime"
+                                @update:startTime="updateStartTime"
+                                @update:estimate="updateEstimate"
                                 @update:recurrenceRule="updateRecurrenceRule"
                                 @update:resolutionNotes="updateResolutionNotes"
                                 @update:slaOverride="updateSlaOverride"

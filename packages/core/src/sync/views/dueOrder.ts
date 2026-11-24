@@ -1,10 +1,10 @@
 /**
- * The order tickets take when sorted by Due: the due day, then (once the
- * fields exist) the due time and the hand-placed rank, then priority with
- * the most urgent first, then the oldest created first. Tickets with no
- * due date go last in both directions.
+ * The order tickets take when sorted by Due: the due day, then the due
+ * time (untimed jobs after timed ones), then the hand-placed rank, then
+ * priority with the most urgent first, then the oldest created first.
+ * Tickets with no due date go last in both directions.
  *
- * Descending reverses the day (and later the time) only. The keys below it
+ * Descending reverses the day and the time only. The keys below it
  * break ties the same way either way: within one day the most urgent job
  * still comes first.
  */
@@ -15,10 +15,9 @@ import { dueDay, type Day } from '../../utils/ticketDates'
 
 export interface DueOrderKey {
   day: Day | null
-  /** Due time of day, `HH:MM:SS`. Always null until tickets carry one. */
+  /** Due time of day, `HH:MM:SS`. */
   time: string | null
-  /** Fractional index from a hand placement. Always null until tickets
-   *  carry one. */
+  /** Fractional index from a hand placement (`planOrder.ts`). */
   rank: string | null
   priority: number
   created: number
@@ -27,8 +26,8 @@ export interface DueOrderKey {
 export function dueOrderKey(card: CardData): DueOrderKey {
   return {
     day: dueDay(card),
-    time: null,
-    rank: null,
+    time: card.due_time ?? null,
+    rank: card.rank ?? null,
     priority: priorityRank(card.priority),
     created: parseDate(card.created_at)?.getTime() ?? 0,
   }

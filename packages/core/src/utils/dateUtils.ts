@@ -136,6 +136,8 @@ export const DATE_PRESETS = {
   weekdayDay: { weekday: 'short', day: 'numeric' },
   /** "Thu, Sep 17" / "Thu 17 Sep". */
   weekdayMonthDay: { weekday: 'short', month: 'short', day: 'numeric' },
+  /** "Thursday, September 17" / "Thursday 17 September". */
+  weekdayLongMonthDay: { weekday: 'long', month: 'long', day: 'numeric' },
 } as const satisfies Record<string, Intl.DateTimeFormatOptions>
 
 export type DatePreset = keyof typeof DATE_PRESETS

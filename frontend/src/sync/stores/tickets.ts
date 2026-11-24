@@ -17,6 +17,7 @@ import * as pool from '@nosdesk/core/sync/pool'
 import ticketService from '@nosdesk/core/services/ticketService'
 import { logger } from '@nosdesk/core/utils/logger'
 import type { Ticket } from '@nosdesk/core/types/ticket'
+import { planPatchEffects } from '@nosdesk/core/utils/ticketPlan'
 import type { CardWorkflowState, Priority } from '@nosdesk/core/sync/views/types'
 
 /**
@@ -233,6 +234,52 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     })
   }
 
+  /**
+   * Patch a ticket's plan: its dates and their times, its place in the
+   * day and its size. The forward patch carries what the server will do
+   * with it (`planPatchEffects`: a cleared date clears its time, a move to
+   * another day clears the rank) so the row doesn't show a stale value
+   * until the echo. A write that only places the job is not activity: it
+   * leaves `last_activity_at` alone, as the server leaves `updated_at`.
+   */
+  type PlanPatchableField =
+    | 'due_date'
+    | 'start_date'
+    | 'due_time'
+    | 'start_time'
+    | 'rank'
+    | 'estimate_minutes'
+  type PlanPatch = Partial<Pick<SyncTicket, PlanPatchableField>>
+  const PLAN_FIELDS: readonly PlanPatchableField[] = [
+    'due_date',
+    'start_date',
+    'due_time',
+    'start_time',
+    'rank',
+    'estimate_minutes',
+  ]
+
+  async function patchPlan(ticketId: number, patch: PlanPatch): Promise<void> {
+    const current = useEntity<SyncTicket>('ticket', ticketId).value
+    if (!current) return
+    const changed: PlanPatch = {}
+    for (const k of PLAN_FIELDS) {
+      if (!(k in patch) || (current[k] ?? null) === (patch[k] ?? null)) continue
+      ;(changed[k] as SyncTicket[PlanPatchableField]) = patch[k] as SyncTicket[PlanPatchableField]
+    }
+    if (Object.keys(changed).length === 0) return
+    const forward: PlanPatch = { ...changed, ...(planPatchEffects(current, changed) as PlanPatch) }
+    const inverse: PlanPatch = {}
+    for (const k of Object.keys(forward) as PlanPatchableField[]) {
+      ;(inverse[k] as SyncTicket[PlanPatchableField]) = (current[k] ?? null) as SyncTicket[PlanPatchableField]
+    }
+    const quiet = Object.keys(changed).every((k) => k === 'rank')
+    await dispatchOptimistic<SyncTicket>('ticket', ticketId, {
+      forward: quiet ? forward : { ...forward, last_activity_at: new Date().toISOString() },
+      inverse,
+    })
+  }
+
   async function patchTitle(ticketId: number, title: string): Promise<void> {
     const current = useEntity<SyncTicket>('ticket', ticketId).value
     if (!current || current.title === title) return
@@ -307,6 +354,7 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     moveToWorkflowState,
     bulkMoveToWorkflowState,
     patchKanbanFields,
+    patchPlan,
     patchTitle,
     bulkPatchKanbanFields,
     ensureInPool,

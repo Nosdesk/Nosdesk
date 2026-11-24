@@ -6,9 +6,9 @@ import {
   findBuiltinView,
 } from '@nosdesk/core/sync/views/builtinViews'
 import { buildPredicate } from '@nosdesk/core/sync/views/filter'
+import { planFor } from '@nosdesk/core/sync/views/planOrder'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
-import { sortCards } from '@/composables/useTicketsSort'
 
 const ME = 'agent-uuid'
 
@@ -17,8 +17,10 @@ function card(
   category: WorkflowStateCategory,
   due_date: string | null,
   assignee_uuid: string | null = ME,
+  plan: Partial<CardData> = {},
 ): CardData {
   return {
+    ...plan,
     id,
     number: id,
     title: `Ticket ${id}`,
@@ -32,21 +34,27 @@ function card(
   }
 }
 
-function myDay(cards: CardData[]): number[] {
+const DAY = '2026-11-21'
+
+/** The day's jobs as the agenda shows them: Booked, then Any time. */
+function myDay(cards: CardData[], day = DAY): number[] {
   const keep = buildPredicate(MY_DAY_VIEW.filter, { currentUserUuid: ME })
-  const sort = MY_DAY_VIEW.shape.sort[0]
-  return sortCards(cards.filter(keep), sort.field, sort.dir).map((c) => c.id)
+  const plan = planFor(cards.filter(keep), day)
+  return [...plan.booked, ...plan.anyTime].map((c) => c.id)
 }
 
 describe('the My day view', () => {
-  it('lists my open tickets by due day, the undated last', () => {
+  it('shows the jobs planned for the day: booked by time, then the rest', () => {
     const cards = [
       card(1, 'active', null),
       card(2, 'backlog', '2026-11-25T00:00:00Z'),
       card(3, 'triage', '2026-11-21T00:00:00+11:00'),
-      card(4, 'in_review', '2026-11-20T00:00:00'),
+      card(4, 'in_review', '2026-11-21T00:00:00', ME, { due_time: '14:30:00' }),
+      card(5, 'active', '2026-11-28T00:00:00', ME, { start_date: '2026-11-21T00:00:00', start_time: '09:00:00' }),
+      card(6, 'active', '2026-11-21T00:00:00', ME, { start_date: '2026-11-24T00:00:00' }),
     ]
-    expect(myDay(cards)).toEqual([4, 3, 2, 1])
+    expect(myDay(cards)).toEqual([5, 4, 3])
+    expect(myDay(cards, '2026-11-24')).toEqual([6])
   })
 
   it("leaves out other people's tickets, unassigned ones, and closed ones", () => {
@@ -56,13 +64,13 @@ describe('the My day view', () => {
       card(3, 'done', '2026-11-21T00:00:00'),
       card(4, 'cancelled', null),
       card(5, 'merged', null),
-      card(6, 'active', '2026-11-22T00:00:00'),
+      card(6, 'active', '2026-11-21T00:00:00'),
     ]
     expect(myDay(cards)).toEqual([6])
   })
 
-  it('groups on the due date and shows the Due column in place of Updated', () => {
-    expect(MY_DAY_VIEW.shape.group_by.primary).toBe('due_date')
+  it('is an agenda that keeps a list layout, Due in place of Updated, for its fall-through', () => {
+    expect(MY_DAY_VIEW.shape.type).toBe('agenda')
     const fields = MY_DAY_VIEW.shape.visible_card_fields
     expect(fields).toContain('due_date')
     expect(fields).not.toContain('last_activity_at')
