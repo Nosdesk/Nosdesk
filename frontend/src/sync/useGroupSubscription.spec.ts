@@ -114,6 +114,16 @@ describe('useGroupSubscription', () => {
     leave()
   })
 
+  it('takes no hold for a settled() call after the view is gone', () => {
+    const { held, leave } = enter('ticket:9')
+    leave()
+    void held.settled()
+
+    vi.advanceTimersByTime(GROUP_RELEASE_GRACE_MS)
+    expect(lifecycle.subscribe).toHaveBeenCalledTimes(1)
+    expect(lifecycle.unsubscribe).toHaveBeenCalledExactlyOnceWith('ticket:9')
+  })
+
   it('drops pending unsubscribes on tear-down, and releases taken before it do nothing', () => {
     enter('ticket:9').leave()
     const open = enter('ticket:10')

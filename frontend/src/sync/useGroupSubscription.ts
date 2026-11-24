@@ -71,8 +71,11 @@ export function useGroupSubscription(group: MaybeRefOrGetter<string | null | und
   let held: string | null = null
   let heldIn = session
   let subscribed: Promise<void> = Promise.resolve()
+  let disposed = false
 
   function follow(): Promise<void> {
+    // A call after the component is gone would take a hold nothing releases.
+    if (disposed) return subscribed
     const next = toValue(group) || null
     if (next === held && heldIn === session) return subscribed
     if (held !== null) release(held, heldIn)
@@ -92,6 +95,7 @@ export function useGroupSubscription(group: MaybeRefOrGetter<string | null | und
     { immediate: true },
   )
   onScopeDispose(() => {
+    disposed = true
     if (held !== null) release(held, heldIn)
     held = null
   })

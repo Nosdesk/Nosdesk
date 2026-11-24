@@ -36,7 +36,11 @@ export async function partitionWarmGroups(
   if (versionsTag !== MODEL_VERSIONS_TAG) {
     return { warm: [], cold: groups }
   }
-  const watermarks = (await idb.getGroupWatermarks(state.handle)) ?? {}
+  // Read in turn with the watermark writes: a drop already queued (a group
+  // let go and taken again) must count, or the group would delta from rows
+  // its unsubscribe stripped.
+  const handle = state.handle
+  const watermarks = (await serialized(() => idb.getGroupWatermarks(handle))) ?? {}
   const warm: string[] = []
   const cold: string[] = []
   for (const g of groups) {

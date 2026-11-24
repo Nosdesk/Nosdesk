@@ -1,9 +1,10 @@
 /**
  * Unsubscribing a group. Its watermark goes, it comes off every pooled row's
- * owners, and the rows it owned alone go from the pool and the cache; rows
- * another group owns stay. A bootstrap for it still in flight stops stamping
- * it, and its end neither strips nor watermarks the group, even when the group
- * was subscribed again meanwhile. The workspace group is never unsubscribed.
+ * owners, and the rows it owned alone leave the pool; rows another group owns
+ * stay. The cache is left for the next hydrate. A bootstrap for it still in
+ * flight stops stamping it, and its end neither strips nor watermarks the
+ * group, even when the group was subscribed again meanwhile. The workspace
+ * group is never unsubscribed.
  */
 import { effectScope, ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -29,6 +30,8 @@ const fake = vi.hoisted(() => {
   return {
     dbs,
     store,
+    /** Runs while a resync's wipe is in flight. */
+    onWipe: null as null | (() => void),
     idb: {
       CACHE_GENERATION: 2,
       open: async (user: string, schema: string, slug: string | null) => ({
@@ -37,6 +40,9 @@ const fake = vi.hoisted(() => {
       }),
       wipe: async (name: string) => {
         dbs.delete(name)
+        const during = fake.onWipe
+        fake.onWipe = null
+        during?.()
       },
       putModels: async (_h: unknown, rows: Array<{ aggregate: string; id: string; owners?: string[] }>) => {
         store.put.push(...rows)
@@ -88,6 +94,8 @@ const server = vi.hoisted(() => ({
   requests: [] as string[],
   xid8: 10,
   held: null as null | (() => void),
+  /** The next delta answers `resync_required`. */
+  resync: false,
 }))
 
 vi.mock('./idb', () => fake.idb)
@@ -128,17 +136,24 @@ vi.mock('@/services/authFetch', () => ({
       return new Response(body)
     }
     if (url.startsWith('/sync/delta')) {
+      const resync_required = server.resync
+      server.resync = false
       return new Response(
-        JSON.stringify({ actions: [], last_xid8: 10, last_sync_id: 100, has_more: false }),
+        JSON.stringify({
+          actions: [],
+          last_xid8: 10,
+          last_sync_id: 100,
+          has_more: false,
+          resync_required,
+        }),
       )
     }
     return new Response(null, { status: 404 })
   }),
 }))
 
-const { hydrate, subscribe, unsubscribe, runBootstrap, pullDelta, tearDown } = await import(
-  './lifecycle'
-)
+const { hydrate, subscribe, unsubscribe, runBootstrap, pullDelta, applySseFrame, tearDown } =
+  await import('./lifecycle')
 const { useGroupSubscription, GROUP_RELEASE_GRACE_MS } = await import('./useGroupSubscription')
 
 const WORKSPACE = 'workspace:6'
@@ -195,16 +210,16 @@ describe('unsubscribe', () => {
     expect(pool.getSubscribedGroups().has(TICKET)).toBe(false)
   })
 
-  it('removes the rows only the group owned, from the pool and the cache', async () => {
+  it('removes the rows only the group owned from the pool, and leaves the cache to hydrate', async () => {
     await subscribe(TICKET)
     expect(owners('comment', 40)).toEqual([TICKET])
 
     await unsubscribe(TICKET)
     expect(pool.has('comment', 40)).toBe(false)
-    expect(fake.store.deleted).toContain('comment:40')
+    expect(fake.store.deleted).toEqual([])
   })
 
-  it('keeps a row another group owns, and caches the owners it has left', async () => {
+  it('keeps a row another group owns, without rewriting its cached copy', async () => {
     await subscribe(TICKET)
     expect(owners('ticket', 9)).toEqual([WORKSPACE, TICKET].sort())
     fake.store.put = []
@@ -212,8 +227,7 @@ describe('unsubscribe', () => {
     await unsubscribe(TICKET)
     expect(pool.get('ticket', 9)).toMatchObject({ title: 'Printer' })
     expect(owners('ticket', 9)).toEqual([WORKSPACE])
-    expect(fake.store.deleted).not.toContain('ticket:9')
-    expect(fake.store.put.find((r) => r.aggregate === 'ticket')?.owners).toEqual([WORKSPACE])
+    expect(fake.store.put).toEqual([])
   })
 
   it('leaves the group out of the next delta request', async () => {
@@ -225,6 +239,19 @@ describe('unsubscribe', () => {
     const delta = server.requests.find((u) => u.startsWith('/sync/delta'))!
     const groups = new URL(delta, 'http://x').searchParams.get('groups')!.split(',')
     expect(groups).toEqual([WORKSPACE])
+  })
+
+  it('re-streams a group taken again before its watermark drop has landed', async () => {
+    await subscribe(TICKET)
+    server.requests = []
+
+    const leaving = unsubscribe(TICKET)
+    await subscribe(TICKET)
+    await leaving
+
+    expect(server.requests.some((u) => u.startsWith('/sync/bootstrap'))).toBe(true)
+    expect(owners('comment', 40)).toEqual([TICKET])
+    expect(marks()![TICKET]).toBe(12)
   })
 
   it('never unsubscribes the workspace group', async () => {
@@ -253,8 +280,50 @@ describe('a bootstrap that ends after its group was unsubscribed', () => {
     expect(pool.has('comment', 40)).toBe(false)
     expect(pool.has('comment', 41)).toBe(false)
     expect(marks()).toEqual({ [WORKSPACE]: 10 })
-    // The row it streamed before the unsubscribe is not cached after its delete.
+    // The row it streamed before the unsubscribe is not cached afterwards.
     expect(fake.store.put.some((r) => r.aggregate === 'comment')).toBe(false)
+  })
+
+  it('does not stream a group let go while the caller was still partitioning', async () => {
+    server.requests = []
+    const opening = subscribe(TICKET)
+    // The group goes before the bootstrap request is made.
+    const leaving = unsubscribe(TICKET)
+    await Promise.all([opening, leaving])
+
+    expect(server.requests.some((u) => u.startsWith('/sync/bootstrap'))).toBe(false)
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(owners('ticket', 9)).toEqual([WORKSPACE])
+    expect(marks()).toEqual({ [WORKSPACE]: 10 })
+  })
+
+  it('caches a row as the pool holds it when the batch is written', async () => {
+    server.rows[TICKET] = [{ __model__: 'ticket', id: 9, title: 'Printer' }, HOLD]
+    const opening = subscribe(TICKET)
+    const release = await reachHold()
+    applySseFrame(
+      [
+        {
+          sync_id: 101,
+          aggregate: 'ticket',
+          aggregate_id: '9',
+          op: 'U',
+          event_type: 'ticket.updated',
+          schema_version: 1,
+          data: { id: 9, title: 'Printer jammed' },
+          groups: [WORKSPACE, TICKET],
+        },
+      ],
+      11,
+      101,
+    )
+    release()
+    await opening
+
+    const cachedTicket = fake.store.put.filter((r) => r.aggregate === 'ticket').at(-1) as
+      | { data: Record<string, unknown> }
+      | undefined
+    expect(cachedTicket?.data.title).toBe('Printer jammed')
   })
 
   it('applies nothing when the group went before the stream began', async () => {
@@ -320,14 +389,16 @@ describe('the grace timer', () => {
     scope.stop()
   }
 
-  it('unsubscribes the group once the grace runs out', async () => {
+  it('unsubscribes the group once the grace runs out, and its watermark goes', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     await holdAndLeave()
     expect(pool.has('comment', 40)).toBe(true)
+    expect(marks()![TICKET]).toBe(11)
 
     vi.advanceTimersByTime(GROUP_RELEASE_GRACE_MS)
     expect(pool.getSubscribedGroups().has(TICKET)).toBe(false)
     expect(pool.has('comment', 40)).toBe(false)
+    await vi.waitFor(() => expect(marks()).toEqual({ [WORKSPACE]: 10 }))
   })
 
   it('does not unsubscribe the next workspace after a tear-down', async () => {
@@ -343,5 +414,27 @@ describe('the grace timer', () => {
 
     vi.advanceTimersByTime(GROUP_RELEASE_GRACE_MS)
     expect(pool.getSubscribedGroups().has(TICKET)).toBe(true)
+  })
+})
+
+describe('a resync', () => {
+  it('brings back the groups subscribed when its wipe ends, not when it began', async () => {
+    await subscribe(TICKET)
+    server.rows[PROJECT] = [{ __model__: 'ticket', id: 12, title: 'Scanner' }]
+    server.requests = []
+    server.resync = true
+    // During the wipe, a view lets the ticket go and another takes the project.
+    fake.onWipe = () => {
+      void unsubscribe(TICKET)
+      pool.subscribe(PROJECT)
+    }
+
+    await pullDelta()
+    expect([...pool.getSubscribedGroups()].sort()).toEqual([WORKSPACE, PROJECT].sort())
+    const bootstrap = server.requests.find((u) => u.startsWith('/sync/bootstrap'))!
+    const groups = new URL(bootstrap, 'http://x').searchParams.get('groups')!.split(',')
+    expect(groups.sort()).toEqual([WORKSPACE, PROJECT].sort())
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(owners('ticket', 12)).toEqual([WORKSPACE, PROJECT].sort())
   })
 })
