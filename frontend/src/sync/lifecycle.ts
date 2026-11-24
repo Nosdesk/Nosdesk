@@ -87,6 +87,7 @@ async function bringGroupsCurrent(groups: string[]): Promise<void> {
   // Marked pending through the catch-up too, so a refresh in that window
   // doesn't snapshot them a second time.
   await whileBootstrapping(cold, async () => {
+    const recordTick = currentRecordTick()
     if (cached) {
       logger.info('sync warm launch: delta catch-up instead of snapshot re-stream', {
         groups: warm,
@@ -97,8 +98,10 @@ async function bringGroupsCurrent(groups: string[]): Promise<void> {
       // by delta elsewhere, and the strip drops what lingered.
       await catchUpViaDelta()
     }
-    if (cold.length > 0) {
-      await runBootstrap(cold, { subscribedAt, holdCursor: cached })
+    // A resync the catch-up ran into has snapshotted them already.
+    const pending = cold.filter((g) => !recordedSince(g, recordTick))
+    if (pending.length > 0) {
+      await runBootstrap(pending, { subscribedAt, holdCursor: cached })
     }
   })
 }

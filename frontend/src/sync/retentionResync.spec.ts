@@ -359,9 +359,32 @@ describe('a retention resync', () => {
   })
 })
 
+describe('a launch whose catch-up finds the cursor too old', () => {
+  it('paints from the cache and snapshots the stale workspace once', async () => {
+    const m = meta()
+    m.set('last_xid8', 20)
+    m.set('last_sync_id', 200)
+    m.set('model_versions_tag', MODEL_VERSIONS_TAG)
+    m.set('group_watermarks', { [WORKSPACE]: 20 })
+    cache('ticket', 1, { title: 'Ticket 1', status: 'open' }, [WORKSPACE])
+    cache('ticket', 2, { title: 'Deleted while away' }, [WORKSPACE])
+    server.floor = 25
+
+    await hydrate('u1', 'h', '', 'acme', '')
+    expect(pool.has('ticket', 2)).toBe(true)
+    await subscribe(WORKSPACE)
+
+    expect(fake.wipes).toEqual([])
+    expect(bootstraps()).toHaveLength(1)
+    expect(pool.has('ticket', 2)).toBe(false)
+    expect(pool.getLastXid8()).toBe(30)
+  })
+})
+
 describe('sync ids told to observers ahead of a delta', () => {
   it('are kept to a bounded number, and forgotten when no group is subscribed', async () => {
     await hydrate('u1', 'h', '', 'acme', '')
+    for (const id of [1000, 1001, 1002]) pool.upsert('ticket', id, { id, title: 'x' })
     // Not caught up yet, so frames leave the cursor where it is.
     const frames = Array.from({ length: 6_000 }, (_, i) =>
       ticketEvent(i + 1, 'U', { id: 1000 + (i % 3), title: 'x' }),
