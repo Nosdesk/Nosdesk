@@ -32,6 +32,8 @@ import {
   partitionWarmGroups,
   pruneTornWatermarks,
   recordGroupWatermarks,
+  currentRecordTick,
+  recordedSince,
   resetSessionMarks,
   resetWatermarkPrune,
   staleWatermarkedGroups,
@@ -116,15 +118,26 @@ async function whileBootstrapping<T>(groups: readonly string[], work: () => Prom
   }
 }
 
-/** Run `work` holding the cursor (see LifecycleState.cursorHolds). */
+/**
+ * Run `work` holding the cursor (see LifecycleState.cursorHolds). The last
+ * hold to go runs the delta that replays, for every subscribed group, what
+ * the holds kept back and what the snapshots' horizons passed: rows come back
+ * to their latest state, since events carry whole rows, in order. That holds
+ * whether `work` finished, failed or was cut short. A tear-down or resync
+ * replaces the holds, and the replay is theirs to run then.
+ */
 async function holdCursorWhile<T>(work: () => Promise<T>): Promise<T> {
   const holds = state.cursorHolds
+  const epoch = pool.currentEpoch()
   const token = {}
   holds.add(token)
   try {
     return await work()
   } finally {
     holds.delete(token)
+    if (holds.size === 0 && holds === state.cursorHolds && pool.currentEpoch() === epoch) {
+      await catchUpViaDelta()
+    }
   }
 }
 
@@ -618,6 +631,11 @@ async function resyncFromScratch(newWorkspaceEpoch?: string): Promise<void> {
     // the hash: runBootstrap compares the server's against it and would
     // otherwise warn on a mismatch against an empty string every resync.
     pool.reset()
+    // Bootstraps still streaming belong to the old pool and stop at its
+    // epoch; their holds must not keep the cursor back from this one.
+    state.cursorHolds = new Set()
+    state.bootstrapping = new Map()
+    state.notifiedAhead = new Set()
     pool.setSchemaHash(state.schemaHash)
     for (const g of groups) pool.subscribe(g)
     if (groups.length > 0) await runBootstrap(groups)
@@ -655,6 +673,10 @@ export async function pullDelta(): Promise<boolean> {
     const body = (await res.json()) as DeltaResponse
     // The workspace was torn down while this was in flight.
     if (pool.currentEpoch() !== epoch) return false
+    // A `keepCursor` bootstrap began meanwhile: this page could move the
+    // cursor past an event its rows then overwrite. Its closing delta reads
+    // the span again.
+    if (cursorHeld()) return false
     // The workspace's data was replaced. Checked before `resync_required`
     // and independently of it: SSE frames may already have moved the cursor
     // past the server's resync floor, and only this wipe also clears the
@@ -691,8 +713,13 @@ export async function pullDelta(): Promise<boolean> {
     }
     // Same observer fan-out as the SSE path, so imperative consumers
     // (useSyncActions) stay live even when SSE is wedged and this 10s
-    // poll is the delivery path.
-    notifySyncActions(body.actions)
+    // poll is the delivery path. Events SSE already told them about while
+    // the cursor stayed behind are applied again here but not told twice.
+    const ahead = state.notifiedAhead
+    notifySyncActions(
+      ahead.size > 0 ? body.actions.filter((a) => !ahead.has(a.sync_id)) : body.actions,
+    )
+    if (!body.has_more && !cursorHeld()) ahead.clear()
     // After the cursor is stored: bringing assets back re-reads the snapshot,
     // which moves the cursor on itself.
     await followAssetVisibility(body.capabilities?.assets_visible, 'delta')
@@ -737,14 +764,59 @@ export async function runBootstrap(
   // While it streams, live events apply their rows but leave the cursor
   // where it is (see holdCursorWhile): the delta after it then replays them
   // over the snapshot's rows, which may be older.
-  const finished = await whileBootstrapping(groups, () =>
+  await whileBootstrapping(groups, () =>
     keepCursor
       ? holdCursorWhile(() => streamBootstrap(groups, keepCursor, since))
       : streamBootstrap(groups, keepCursor, since),
   )
-  // Replays what the snapshot's horizon passed, for every subscribed group.
-  // Rows come back to their latest state: events carry whole rows, in order.
-  if (keepCursor && finished) await catchUpViaDelta()
+}
+
+/** How long a bootstrap may go without a byte before it is given up. A
+ * socket that died quietly (a laptop waking) never ends on its own, and the
+ * cursor would stay held behind it for the rest of the session. */
+const BOOTSTRAP_IDLE_MS = 60_000
+
+/** An abort signal that fires after `ms` with no `touch()`, and a hook run
+ * when it does. */
+function idleWatch(ms: number) {
+  const controller = new AbortController()
+  let onStall: () => void = () => {}
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const touch = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      controller.abort()
+      onStall()
+    }, ms)
+  }
+  touch()
+  return {
+    signal: controller.signal,
+    touch,
+    stalled: () => controller.signal.aborted,
+    onStall: (run: () => void) => {
+      onStall = run
+    },
+    stop: () => clearTimeout(timer),
+  }
+}
+
+/**
+ * Stream one bootstrap (see readBootstrap), giving it up when it goes
+ * BOOTSTRAP_IDLE_MS without a byte: it then ends unfinished, as a failed
+ * fetch does.
+ */
+async function streamBootstrap(
+  groups: string[],
+  keepCursor: boolean,
+  since: number,
+): Promise<boolean> {
+  const idle = idleWatch(BOOTSTRAP_IDLE_MS)
+  try {
+    return await readBootstrap(groups, keepCursor, since, idle)
+  } finally {
+    idle.stop()
+  }
 }
 
 /**
@@ -752,15 +824,16 @@ export async function runBootstrap(
  * taken away, or the ticket gone) has no snapshot behind its rows: drop its
  * watermark and strip it, with its cached rows where the cache says it alone
  * owns them. Otherwise its stale watermark and rows would outlive it. Only
- * when the server sent a granted list at all.
+ * when the server sent a granted list at all, and only for groups `ours`
+ * keeps: not one let go meanwhile, nor one a newer snapshot has granted.
  */
 async function dropDeniedGroups(
   requested: readonly string[],
   granted: readonly string[] | undefined,
-  stillOurs: (group: string) => boolean,
+  ours: (group: string) => boolean,
 ): Promise<void> {
   if (!Array.isArray(granted)) return
-  const denied = requested.filter((g) => !granted.includes(g) && stillOurs(g))
+  const denied = requested.filter((g) => !granted.includes(g) && ours(g))
   if (denied.length === 0) return
   logger.info('sync: groups no longer granted; dropping their snapshot', { groups: denied })
   const handle = state.handle
@@ -773,16 +846,19 @@ async function dropDeniedGroups(
 }
 
 /**
- * Stream one bootstrap into the pool and the cache, and at its end strip,
+ * Read one bootstrap into the pool and the cache, and at its end strip,
  * watermark and (unless `keepCursor`) move the cursor. `since`: see
  * runBootstrap. True when it reached its end in this workspace.
  */
-async function streamBootstrap(
+async function readBootstrap(
   groups: string[],
   keepCursor: boolean,
   since: number,
+  idle: ReturnType<typeof idleWatch>,
 ): Promise<boolean> {
   const stillOurs = (g: string) => !pool.unsubscribedSince(g, since)
+  // A watermark this session records after now belongs to a newer snapshot.
+  const recordTick = currentRecordTick()
   // Rows a live action writes from here on are newer than the snapshot may
   // be, so the strip at `__end__` leaves them alone.
   const startedAt = pool.currentTouch()
@@ -790,9 +866,10 @@ async function streamBootstrap(
   const epoch = pool.currentEpoch()
   let res: Response
   try {
-    res = await authFetch(url)
+    res = await authFetch(url, { signal: idle.signal })
   } catch (e) {
-    logger.error('sync bootstrap network error', { error: e })
+    if (idle.stalled()) logger.warn('sync bootstrap stalled before it began; giving it up', { groups })
+    else logger.error('sync bootstrap network error', { error: e })
     return false
   }
   if (!res.ok || !res.body) {
@@ -801,6 +878,12 @@ async function streamBootstrap(
   }
 
   const reader = res.body.getReader()
+  idle.onStall(() => {
+    logger.warn('sync bootstrap stalled; giving it up', { groups })
+    void reader.cancel().catch(() => {})
+  })
+  idle.touch()
+  let reachedEnd = false
   const decoder = new TextDecoder()
   let buffer = ''
   let bootstrapMeta: BootstrapMeta | null = null
@@ -837,7 +920,17 @@ async function streamBootstrap(
   }
 
   while (true) {
-    const { done, value } = await reader.read()
+    let chunk: ReadableStreamReadResult<Uint8Array>
+    try {
+      chunk = await reader.read()
+    } catch (e) {
+      // Aborted (see idleWatch) or the connection dropped: unfinished.
+      if (!idle.stalled()) logger.warn('sync bootstrap stream failed', { error: e })
+      return false
+    }
+    const { done, value } = chunk
+    if (idle.stalled()) return false
+    idle.touch()
     // The workspace was torn down mid-stream: the rest is not ours to apply.
     if (pool.currentEpoch() !== epoch) {
       void reader.cancel().catch(() => {})
@@ -917,6 +1010,7 @@ async function streamBootstrap(
         // advance the cursor.
         await flushPersistBatch()
         if (bootstrapMeta) {
+          reachedEnd = true
           // The end line advances the cursor to now, which tears any cached
           // group not currently subscribed; prune before persisting. The prune
           // also strips those groups from owners, and runs before the strip
@@ -929,7 +1023,11 @@ async function streamBootstrap(
             seen,
             startedAt,
           )
-          await dropDeniedGroups(groups, bootstrapMeta.groups_granted, stillOurs)
+          await dropDeniedGroups(
+            groups,
+            bootstrapMeta.groups_granted,
+            (g) => stillOurs(g) && !recordedSince(g, recordTick),
+          )
           if (!keepCursor) {
             setCaughtUp(true)
             // Advance the in-memory cursor always; persist it only when IDB is
@@ -962,7 +1060,7 @@ async function streamBootstrap(
     }
   }
   await flushPersistBatch()
-  return bootstrapMeta !== null && pool.currentEpoch() === epoch
+  return reachedEnd && pool.currentEpoch() === epoch
 }
 
 /** Tear-down: release the IDB handle, reset the pool, drop subs. */
@@ -991,6 +1089,7 @@ export async function tearDown(): Promise<void> {
   state.snapshotMaxAgeSecs = null
   state.cursorHolds = new Set()
   state.bootstrapping = new Map()
+  state.notifiedAhead = new Set()
   setCaughtUp(false)
   resetWatermarkPrune()
   // Re-arm the single-flight bootstrap so the next navigation rebuilds the

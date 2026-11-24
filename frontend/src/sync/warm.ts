@@ -115,9 +115,25 @@ export function noteSnapshotMaxAge(secs: number | undefined): void {
  */
 const sessionMarks = new Map<string, idb.StoredWatermark>()
 
+/** When this session last recorded each group's watermark, as a tick of
+ * `recordClock`, so an older bootstrap can tell a newer one has since. */
+const recordedAt = new Map<string, number>()
+let recordClock = 0
+
+/** The current record tick, for `recordedSince`. */
+export function currentRecordTick(): number {
+  return recordClock
+}
+
+/** Whether this session recorded `group`'s watermark after `tick`. */
+export function recordedSince(group: string, tick: number): boolean {
+  return (recordedAt.get(group) ?? 0) > tick
+}
+
 /** Forget this session's watermarks (tear-down, or a wiped cache). */
 export function resetSessionMarks(): void {
   sessionMarks.clear()
+  recordedAt.clear()
 }
 
 /** Of `groups`, those this session holds a watermark for that is no longer
@@ -154,7 +170,11 @@ export function recordGroupWatermarks(
 ): Promise<void> {
   if (groups.length === 0) return Promise.resolve()
   const mark: idb.GroupWatermark = { xid8, at: Date.now() }
-  for (const g of groups) sessionMarks.set(g, mark)
+  const tick = ++recordClock
+  for (const g of groups) {
+    sessionMarks.set(g, mark)
+    recordedAt.set(g, tick)
+  }
   return serialized(() => idb.setGroupWatermarks(handle, [...groups], mark))
 }
 

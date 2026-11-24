@@ -232,6 +232,7 @@ export function applySseFrame(actions: SyncAction[], lastXid8: number, lastSyncI
   // The same while a `keepCursor` bootstrap streams: its rows may land after
   // these and be older, and the delta closing it re-applies these after them.
   if (!state.caughtUp || cursorHeld()) {
+    for (const action of actions) state.notifiedAhead.add(action.sync_id)
     notifySyncActions(actions)
     return
   }

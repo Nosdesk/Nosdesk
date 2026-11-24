@@ -57,6 +57,11 @@ export interface LifecycleState {
    * refresh skips them rather than start a second snapshot. Replaced on
    * tear-down like `cursorHolds`. */
   bootstrapping: Map<string, number>
+  /** Sync ids of live events observers were told about while the cursor
+   * stayed behind them (before the first catch-up, or under a hold). The
+   * delta that later replays them applies them again but tells observers
+   * only once. Emptied once a delta has caught up with no hold active. */
+  notifiedAhead: Set<number>
 }
 
 export const state: LifecycleState = {
@@ -72,6 +77,7 @@ export const state: LifecycleState = {
   snapshotMaxAgeSecs: null,
   cursorHolds: new Set(),
   bootstrapping: new Map(),
+  notifiedAhead: new Set(),
 }
 
 /** Whether a `keepCursor` bootstrap is streaming (see `cursorHolds`). */
