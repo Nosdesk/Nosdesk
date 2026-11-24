@@ -164,6 +164,8 @@ describe('webhookHearsAssets', () => {
     expect(webhookHearsAssets([{ enabled: false, events: ['asset.created'] }])).toBe(false)
     expect(webhookHearsAssets([{ enabled: true, events: ['ticket.created'] }])).toBe(false)
     expect(webhookHearsAssets([])).toBe(false)
+    expect(webhookHearsAssets([{ enabled: true, events: ['asset.record_created', 'asset.record_deleted'] }])).toBe(false)
+    expect(webhookHearsAssets([{ enabled: true, events: ['asset.record_updated', 'asset.deleted'] }])).toBe(true)
   })
 })
 

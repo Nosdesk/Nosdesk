@@ -276,9 +276,12 @@ export function planDelta(before: ImportSummary | null, after: ImportSummary | n
   return outcomes(after).skipped - outcomes(before).skipped
 }
 
-/** Whether an enabled webhook hears about assets. */
+/** Whether an enabled webhook hears about assets. Record events share the
+ *  `asset.` prefix but an asset import sends none of them. */
 export function webhookHearsAssets(webhooks: { enabled: boolean; events: string[] }[]): boolean {
-  return webhooks.some((w) => w.enabled && w.events.some((e) => e.startsWith('asset.')))
+  return webhooks.some(
+    (w) => w.enabled && w.events.some((e) => e.startsWith('asset.') && !e.startsWith('asset.record_')),
+  )
 }
 
 /** Whether a key press belongs to a field being typed in, so a single-key

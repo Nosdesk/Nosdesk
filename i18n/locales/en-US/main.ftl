@@ -11184,3 +11184,6 @@ admin-rule-conditions-problem-countdown = The due date clock counts down, so min
 admin-rule-conditions-problem-zero-always = At least 0 always matches. Pick a number above 0, or remove the condition.
 admin-rule-conditions-problem-zero-never = Less than 0 never matches. Pick a number above 0.
 admin-rules-starters-when-automatic = Runs on its own once you turn it on.
+admin-webhooks-event-asset-record-created = Asset Record Created
+admin-webhooks-event-asset-record-updated = Asset Record Updated
+admin-webhooks-event-asset-record-deleted = Asset Record Deleted

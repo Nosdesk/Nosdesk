@@ -264,6 +264,7 @@ mod user_delete_reauth;
 mod user_delete_workspace_admin;
 mod user_settings_workspace_admin;
 mod users_bulk_delete;
+mod webhook_asset_records;
 mod webhook_audit_redaction;
 mod webhook_delivery_in_workspace;
 mod webhook_outbox_durability;
