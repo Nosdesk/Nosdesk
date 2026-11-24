@@ -6,6 +6,7 @@ import type {
   AssetRecord,
   AssetRecordCatalogueEntry,
   AssetRecordPage,
+  AssetRecordSummary,
   AssetRecordType,
   AssetRecordTypeList,
   AssetRecordWrite,
@@ -15,6 +16,8 @@ import type {
 export const assetRecordKeys = {
   root: ['asset-records'] as const,
   forAsset: (assetId: number) => ['asset-records', assetId] as const,
+  summary: (assetId: number, recordType?: string) =>
+    ['asset-records', assetId, 'summary', recordType ?? ''] as const,
   types: ['asset-record-types'] as const,
   catalogue: ['asset-record-types', 'catalogue'] as const,
   vendors: (query: string) => ['asset-record-vendors', query] as const,
@@ -109,6 +112,16 @@ export const assetRecordService = {
 
   async get(assetId: number, recordId: number): Promise<AssetRecord> {
     const { data } = await apiClient.get<AssetRecord>(`/assets/${assetId}/records/${recordId}`);
+    return data;
+  },
+
+  /** What the asset's records add up to, of one type when `recordType`
+   *  (a slug or id) is given. */
+  async summary(assetId: number, recordType?: AssetRecordTypeRef): Promise<AssetRecordSummary> {
+    const { data } = await apiClient.get<AssetRecordSummary>(
+      `/assets/${assetId}/records/summary`,
+      { params: recordType === undefined || recordType === '' ? undefined : { record_type: recordType } },
+    );
     return data;
   },
 

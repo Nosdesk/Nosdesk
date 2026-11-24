@@ -45,6 +45,7 @@ mod asset_record_types_admin;
 mod asset_record_types_catalogue;
 mod asset_records_api;
 mod asset_records_repo;
+mod asset_records_summary;
 mod asset_repair_transition_record;
 mod asset_settings_currency;
 mod asset_timeline;

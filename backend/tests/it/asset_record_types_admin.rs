@@ -495,3 +495,23 @@ async fn the_record_form_list_carries_the_workspace_currency_for_staff_only() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[actix_web::test]
+async fn the_record_form_list_carries_the_workspace_timezone() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        site_settings::update_site_settings(
+            c,
+            UpdateSiteSettings {
+                default_timezone: Some("Australia/Sydney".to_string()),
+                ..Default::default()
+            },
+        )
+    })
+    .expect("set the timezone");
+    let (status, picker) = call(&f, f.agent, Method::GET, "/api/assets/record-types", None).await;
+    assert_eq!(status, StatusCode::OK, "{picker}");
+    // The zone a timed record's day is read in.
+    assert_eq!(picker["timezone"], "Australia/Sydney");
+}

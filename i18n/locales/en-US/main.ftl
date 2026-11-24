@@ -10942,3 +10942,157 @@ asset-lifecycle-record-completed-on = Completed on
 asset-lifecycle-record-cost-invalid = Enter the cost as a number
 asset-lifecycle-record-cost-ambiguous = This amount reads two ways; write it without a thousands separator
 asset-lifecycle-record-cost-negative = A cost can't be below zero
+
+# Asset Timeline card, record form and record view.
+asset-record-ago-days = { $count } days ago
+asset-record-ago-months = { $count ->
+    [one] { $count } month ago
+   *[other] { $count } months ago
+}
+asset-record-ago-today = Today
+asset-record-ago-years = { $count ->
+    [one] { $count } year ago
+   *[other] { $count } years ago
+}
+asset-record-ago-yesterday = Yesterday
+asset-record-delete = Delete
+asset-record-delete-failed = The record could not be deleted
+asset-record-delete-message = The record is removed from the timeline. This can't be undone.
+asset-record-delete-message-files = { $count ->
+    [one] The record is removed from the timeline. Its file stays on the asset.
+   *[other] The record is removed from the timeline. Its { $count } files stay on the asset.
+}
+asset-record-delete-title = Delete this record?
+asset-record-deleted = Record deleted
+asset-record-detail-completed = Completed
+asset-record-detail-edited-label = Edited
+asset-record-detail-files-all = Show all { $count } files
+asset-record-detail-files-fewer = Show fewer
+asset-record-detail-holder = Who had it then
+asset-record-detail-location = Where it was then
+asset-record-detail-recorded-label = Recorded
+asset-record-detail-recorded-value-by = { $date } by { $name }
+asset-record-detail-snapshot-current = as it was when recorded
+asset-record-detail-snapshot-loan = from the loan at the time
+asset-record-detail-source-api = Added through the API
+asset-record-detail-source-backfill = Carried over from an earlier status change
+asset-record-detail-source-import = Imported from a spreadsheet
+asset-record-detail-source-rule = Added by a rule
+asset-record-detail-source-transition = Opened with a status change
+asset-record-detail-span-days = { $count ->
+    [one] { $count } day later
+   *[other] { $count } days later
+}
+asset-record-detail-started = Started
+asset-record-detail-title = { $type }, { $date }
+asset-record-detail-type = Type
+asset-record-detail-work-done = Work done
+asset-record-edit = Edit
+asset-record-files-failed = The record was saved, but its files could not be uploaded
+asset-record-form-add = Add:
+asset-record-form-add-another = Add another after this
+asset-record-form-add-files = files
+asset-record-form-add-holder = who had it then
+asset-record-form-add-notes = notes
+asset-record-form-add-technician = our technician
+asset-record-form-add-ticket = a ticket
+asset-record-form-add-time = time of day
+asset-record-form-backdated = { $ago }. It will sit in the timeline at { $date } and show as recorded today by you.
+asset-record-form-before-purchase = This is before the purchase date ({ $date }). You can still save it.
+asset-record-form-cancel = Cancel
+asset-record-form-completed = Completed
+asset-record-form-conflict = Someone else changed this record while you had it open. Close it and open it again to see their change.
+asset-record-form-currency-unset = No workspace currency is set, so this uses { $code }.
+asset-record-form-error = The record could not be saved.
+asset-record-form-files = Files
+asset-record-form-files-remove = Remove { $name }
+asset-record-form-finished = Finished
+asset-record-form-in-progress = Still in progress
+asset-record-form-list-hint = Separate items with commas.
+asset-record-form-none = None
+asset-record-form-notes = Notes
+asset-record-form-outcome-none = No outcome
+asset-record-form-remove = Remove
+asset-record-form-replacement = Replaced by
+asset-record-form-replacement-hint = Pick the asset that took over. Leave it if the vendor exchanged the unit under the same tag.
+asset-record-form-replacement-none = Same asset tag, or not in Nosdesk
+asset-record-form-required = Required for this record type.
+asset-record-form-required-day = Enter the date the work was done.
+asset-record-form-required-type = Choose the kind of work.
+asset-record-form-save = Save
+asset-record-form-save-new = Save record
+asset-record-form-snapshot-current-both = With { $name } at { $location }, as it is now.
+asset-record-form-snapshot-current-holder = With { $name }, as it is now.
+asset-record-form-snapshot-current-location = At { $location }, as it is now.
+asset-record-form-snapshot-loan = On loan to { $name } on { $date }.
+asset-record-form-snapshot-none = Who had it on { $date }? Not known.
+asset-record-form-status-unchanged = Adds to the history of { $asset }. Its status stays { $status }.
+asset-record-form-summary-placeholder = For example, Lens mount replaced
+asset-record-form-technician = Our technician
+asset-record-form-time = Time of day
+asset-record-form-title-complete = Complete { $type }
+asset-record-form-title-edit = Edit record
+asset-record-form-title-new = New record for { $asset }
+asset-record-form-type = What kind of work?
+asset-record-form-type-first-run = This workspace has no record types yet. Choose one to add it and carry on.
+asset-record-form-type-first-run-hint = An admin can rename these, change their fields and add your own types in Settings.
+asset-record-form-type-more-hint = Add from the catalogue:
+asset-record-form-type-short = Type
+asset-record-form-type-use = Use
+asset-record-form-when-short = Work done
+asset-record-saved-edit = { $type } record saved
+asset-record-saved-new = { $type } recorded for { $date }
+asset-record-saved-status = { $asset } is still { $status }.
+asset-record-value-no = No
+asset-record-value-yes = Yes
+asset-record-warning-before-purchase = It is dated before the purchase date ({ $date }).
+asset-record-warning-completed-long-after = It was completed more than five years after it started.
+asset-timeline-add = Add record
+asset-timeline-complete = Complete
+asset-timeline-empty-description = Add repairs, inspections and servicing as you come across them, however long ago they were. Each one takes the date the work was done.
+asset-timeline-empty-title = No work recorded yet
+asset-timeline-expected-back = Expected back { $date }
+asset-timeline-fact = { $label }: { $value }
+asset-timeline-files = { $count ->
+    [one] { $count } file
+   *[other] { $count } files
+}
+asset-timeline-filter-all = All
+asset-timeline-filter-aria = Show: { $value }
+asset-timeline-filter-label = Show
+asset-timeline-filter-loans = Loans
+asset-timeline-filter-records = Records
+asset-timeline-filter-status = Status
+asset-timeline-filter-tickets = Tickets
+asset-timeline-heading = Timeline
+asset-timeline-imported-fact = imported { $date }
+asset-timeline-in-progress = In progress
+asset-timeline-include-predecessor = Include { $name } history
+asset-timeline-loan-lent = Lent to { $name }
+asset-timeline-loan-lent-due = Lent to { $name }, due back { $date }
+asset-timeline-loan-returned = Returned by { $name }
+asset-timeline-marker-added = Added to Nosdesk
+asset-timeline-marker-purchased = Purchased
+asset-timeline-more = More
+asset-timeline-moved-to = moved to { $status }
+asset-timeline-nothing-matches = Nothing here for this filter.
+asset-timeline-record-fallback = Record
+asset-timeline-recorded-fact = recorded { $date }
+asset-timeline-records-count = { $count ->
+    [one] { $count } record
+   *[other] { $count } records
+}
+asset-timeline-replaced-by = Replaced by { $name }
+asset-timeline-replaced-by-fact = replaced by { $name }
+asset-timeline-replacement-gone = an asset that was deleted
+asset-timeline-replaces = Replaces { $name }
+asset-timeline-sentence = { $records }.
+asset-timeline-sentence-cost = { $records }, { $costs } in all.
+asset-timeline-sentence-cost-last = { $records }, { $costs } in all. Last work { $date }.
+asset-timeline-sentence-last = { $records }. Last work { $date }.
+asset-timeline-show-older-than = Show entries before { $date }
+asset-timeline-someone = someone
+asset-timeline-status-moved = Moved to { $status }
+asset-timeline-ticket-closed = Closed { $date }
+asset-timeline-ticket-untitled = Ticket
+asset-timeline-year-totals = { $records }, { $costs }

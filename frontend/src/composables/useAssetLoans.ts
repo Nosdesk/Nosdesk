@@ -2,6 +2,8 @@ import { computed, type MaybeRefOrGetter, toValue } from 'vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { assetLifecycleKeys } from '@nosdesk/core/services/assetLifecycleService';
+import { assetTimelineKeys } from '@nosdesk/core/services/assetTimelineService';
+import { useWorkspaceQueryCache } from '@/queries/workspaceQuery';
 import type { AssetLoan } from '@nosdesk/core/types/asset';
 
 /**
@@ -11,6 +13,7 @@ import type { AssetLoan } from '@nosdesk/core/types/asset';
  */
 export function useAssetLoans(assetId: MaybeRefOrGetter<number>) {
   const queryCache = useQueryCache();
+  const workspaceCache = useWorkspaceQueryCache();
   const query = useQuery({
     key: () => assetLoanKeys.forAsset(toValue(assetId)),
     query: () => assetLoanService.list(toValue(assetId)),
@@ -26,13 +29,15 @@ export function useAssetLoans(assetId: MaybeRefOrGetter<number>) {
     () => query.status.value === 'pending' && query.data.value === undefined,
   );
 
-  /** Refetch the ledger and the status timeline: issuing or returning a loan
-   *  changes the asset's status and writes a lifecycle event. */
+  /** Refetch the ledger, the status changes and the timeline: issuing or
+   *  returning a loan changes the asset's status and writes a lifecycle
+   *  event. */
   function invalidate() {
     const id = toValue(assetId);
     return Promise.all([
       queryCache.invalidateQueries({ key: assetLoanKeys.forAsset(id) }),
       queryCache.invalidateQueries({ key: assetLifecycleKeys.forAsset(id) }),
+      workspaceCache.invalidateQueries({ key: [...assetTimelineKeys.forAsset(id)] }),
     ]);
   }
 

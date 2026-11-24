@@ -296,6 +296,8 @@ export interface AssetRecordTypeList {
   types: AssetRecordType[];
   currency: string | null;
   suggested_currency: string | null;
+  /** The workspace timezone, which a timed record's day is read in. */
+  timezone?: string | null;
 }
 
 /** A built-in record type, and whether the workspace has added it (an
@@ -376,6 +378,25 @@ export type AssetRecordWarning =
 export interface AssetRecordWrite {
   record: AssetRecord;
   warnings: AssetRecordWarning[];
+}
+
+/** Counts and costs for some of an asset's records. Costs are summed per
+ *  currency and never converted, largest first. */
+export interface AssetRecordTotals {
+  count: number;
+  /** `amount` is null for a code the server can't format. */
+  costs: { currency: string; amount: string | null; amount_minor: number }[];
+}
+
+/** What an asset's records add up to. `count`, `costs` and `by_type` take
+ *  every record; `by_year` (by the year of `occurred_on`) completed ones
+ *  only, since open work is pinned above the years. */
+export interface AssetRecordSummary extends AssetRecordTotals {
+  /** The day the newest completed work was completed, or null. */
+  last_on: string | null;
+  open: number;
+  by_type: { record_type: string | null; count: number }[];
+  by_year: Record<string, AssetRecordTotals>;
 }
 
 /** A page of an asset's records, newest work first. */

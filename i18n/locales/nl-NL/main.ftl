@@ -12378,3 +12378,291 @@ asset-lifecycle-record-cost-invalid = Voer de kosten in als getal
 asset-lifecycle-record-cost-ambiguous = Dit bedrag is op twee manieren te lezen; schrijf het zonder scheidingsteken voor duizendtallen
 # MT: pending native review (nl-NL)
 asset-lifecycle-record-cost-negative = Kosten kunnen niet negatief zijn
+
+# Tijdlijn van het activum, registratieformulier en registratieweergave.
+# MT: pending native review (nl-NL)
+asset-record-ago-days = { $count } dagen geleden
+# MT: pending native review (nl-NL)
+asset-record-ago-months = { $count ->
+    [one] { $count } maand geleden
+   *[other] { $count } maanden geleden
+}
+# MT: pending native review (nl-NL)
+asset-record-ago-today = Vandaag
+# MT: pending native review (nl-NL)
+asset-record-ago-years = { $count ->
+    [one] { $count } jaar geleden
+   *[other] { $count } jaar geleden
+}
+# MT: pending native review (nl-NL)
+asset-record-ago-yesterday = Gisteren
+# MT: pending native review (nl-NL)
+asset-record-delete = Verwijderen
+# MT: pending native review (nl-NL)
+asset-record-delete-failed = De registratie kon niet worden verwijderd
+# MT: pending native review (nl-NL)
+asset-record-delete-message = De registratie verdwijnt uit de tijdlijn. Dit kan niet ongedaan worden gemaakt.
+# MT: pending native review (nl-NL)
+asset-record-delete-message-files = { $count ->
+    [one] De registratie verdwijnt uit de tijdlijn. Het bestand blijft bij het activum.
+   *[other] De registratie verdwijnt uit de tijdlijn. De { $count } bestanden blijven bij het activum.
+}
+# MT: pending native review (nl-NL)
+asset-record-delete-title = Deze registratie verwijderen?
+# MT: pending native review (nl-NL)
+asset-record-deleted = Registratie verwijderd
+# MT: pending native review (nl-NL)
+asset-record-detail-completed = Afgerond
+# MT: pending native review (nl-NL)
+asset-record-detail-edited-label = Bewerkt
+# MT: pending native review (nl-NL)
+asset-record-detail-files-all = Alle { $count } bestanden tonen
+# MT: pending native review (nl-NL)
+asset-record-detail-files-fewer = Minder tonen
+# MT: pending native review (nl-NL)
+asset-record-detail-holder = Wie het toen had
+# MT: pending native review (nl-NL)
+asset-record-detail-location = Waar het toen was
+# MT: pending native review (nl-NL)
+asset-record-detail-recorded-label = Geregistreerd
+# MT: pending native review (nl-NL)
+asset-record-detail-recorded-value-by = { $date } door { $name }
+# MT: pending native review (nl-NL)
+asset-record-detail-snapshot-current = zoals bij het registreren
+# MT: pending native review (nl-NL)
+asset-record-detail-snapshot-loan = volgens de uitlening van toen
+# MT: pending native review (nl-NL)
+asset-record-detail-source-api = Toegevoegd via de API
+# MT: pending native review (nl-NL)
+asset-record-detail-source-backfill = Overgenomen uit een eerdere statuswijziging
+# MT: pending native review (nl-NL)
+asset-record-detail-source-import = Geïmporteerd uit een spreadsheet
+# MT: pending native review (nl-NL)
+asset-record-detail-source-rule = Toegevoegd door een regel
+# MT: pending native review (nl-NL)
+asset-record-detail-source-transition = Geopend bij een statuswijziging
+# MT: pending native review (nl-NL)
+asset-record-detail-span-days = { $count ->
+    [one] { $count } dag later
+   *[other] { $count } dagen later
+}
+# MT: pending native review (nl-NL)
+asset-record-detail-started = Begonnen
+# MT: pending native review (nl-NL)
+asset-record-detail-title = { $type }, { $date }
+# MT: pending native review (nl-NL)
+asset-record-detail-type = Type
+# MT: pending native review (nl-NL)
+asset-record-detail-work-done = Werk uitgevoerd
+# MT: pending native review (nl-NL)
+asset-record-edit = Bewerken
+# MT: pending native review (nl-NL)
+asset-record-files-failed = De registratie is opgeslagen, maar de bestanden konden niet worden geüpload
+# MT: pending native review (nl-NL)
+asset-record-form-add = Toevoegen:
+# MT: pending native review (nl-NL)
+asset-record-form-add-another = Hierna nog een toevoegen
+# MT: pending native review (nl-NL)
+asset-record-form-add-files = bestanden
+# MT: pending native review (nl-NL)
+asset-record-form-add-holder = wie het toen had
+# MT: pending native review (nl-NL)
+asset-record-form-add-notes = notities
+# MT: pending native review (nl-NL)
+asset-record-form-add-technician = onze technicus
+# MT: pending native review (nl-NL)
+asset-record-form-add-ticket = een ticket
+# MT: pending native review (nl-NL)
+asset-record-form-add-time = tijdstip
+# MT: pending native review (nl-NL)
+asset-record-form-backdated = { $ago }. De registratie komt in de tijdlijn op { $date } en staat als vandaag door u geregistreerd.
+# MT: pending native review (nl-NL)
+asset-record-form-before-purchase = Dit is vóór de aankoopdatum ({ $date }). U kunt het toch opslaan.
+# MT: pending native review (nl-NL)
+asset-record-form-cancel = Annuleren
+# MT: pending native review (nl-NL)
+asset-record-form-completed = Afgerond op
+# MT: pending native review (nl-NL)
+asset-record-form-conflict = Iemand anders heeft deze registratie gewijzigd terwijl u die open had. Sluit en open haar opnieuw om de wijziging te zien.
+# MT: pending native review (nl-NL)
+asset-record-form-currency-unset = Er is geen valuta voor de werkruimte ingesteld, dus dit gebruikt { $code }.
+# MT: pending native review (nl-NL)
+asset-record-form-error = De registratie kon niet worden opgeslagen.
+# MT: pending native review (nl-NL)
+asset-record-form-files = Bestanden
+# MT: pending native review (nl-NL)
+asset-record-form-files-remove = { $name } verwijderen
+# MT: pending native review (nl-NL)
+asset-record-form-finished = Afgerond
+# MT: pending native review (nl-NL)
+asset-record-form-in-progress = Nog bezig
+# MT: pending native review (nl-NL)
+asset-record-form-list-hint = Scheid items met komma's.
+# MT: pending native review (nl-NL)
+asset-record-form-none = Geen
+# MT: pending native review (nl-NL)
+asset-record-form-notes = Notities
+# MT: pending native review (nl-NL)
+asset-record-form-outcome-none = Geen uitkomst
+# MT: pending native review (nl-NL)
+asset-record-form-remove = Verwijderen
+# MT: pending native review (nl-NL)
+asset-record-form-replacement = Vervangen door
+# MT: pending native review (nl-NL)
+asset-record-form-replacement-hint = Kies het activum dat het overnam. Laat leeg als de leverancier het apparaat onder hetzelfde inventarisnummer heeft omgeruild.
+# MT: pending native review (nl-NL)
+asset-record-form-replacement-none = Zelfde inventarisnummer, of niet in Nosdesk
+# MT: pending native review (nl-NL)
+asset-record-form-required = Verplicht voor dit registratietype.
+# MT: pending native review (nl-NL)
+asset-record-form-required-day = Vul de datum van het werk in.
+# MT: pending native review (nl-NL)
+asset-record-form-required-type = Kies het soort werk.
+# MT: pending native review (nl-NL)
+asset-record-form-save = Opslaan
+# MT: pending native review (nl-NL)
+asset-record-form-save-new = Registratie opslaan
+# MT: pending native review (nl-NL)
+asset-record-form-snapshot-current-both = Bij { $name } op { $location }, zoals nu.
+# MT: pending native review (nl-NL)
+asset-record-form-snapshot-current-holder = Bij { $name }, zoals nu.
+# MT: pending native review (nl-NL)
+asset-record-form-snapshot-current-location = Op { $location }, zoals nu.
+# MT: pending native review (nl-NL)
+asset-record-form-snapshot-loan = Uitgeleend aan { $name } op { $date }.
+# MT: pending native review (nl-NL)
+asset-record-form-snapshot-none = Wie had het op { $date }? Onbekend.
+# MT: pending native review (nl-NL)
+asset-record-form-status-unchanged = Wordt toegevoegd aan de geschiedenis van { $asset }. De status blijft { $status }.
+# MT: pending native review (nl-NL)
+asset-record-form-summary-placeholder = Bijvoorbeeld: lensvatting vervangen
+# MT: pending native review (nl-NL)
+asset-record-form-technician = Onze technicus
+# MT: pending native review (nl-NL)
+asset-record-form-time = Tijdstip
+# MT: pending native review (nl-NL)
+asset-record-form-title-complete = Afronden: { $type }
+# MT: pending native review (nl-NL)
+asset-record-form-title-edit = Registratie bewerken
+# MT: pending native review (nl-NL)
+asset-record-form-title-new = Nieuwe registratie voor { $asset }
+# MT: pending native review (nl-NL)
+asset-record-form-type = Wat voor werk?
+# MT: pending native review (nl-NL)
+asset-record-form-type-first-run = Deze werkruimte heeft nog geen registratietypen. Kies er een om het toe te voegen en verder te gaan.
+# MT: pending native review (nl-NL)
+asset-record-form-type-first-run-hint = Een beheerder kan deze hernoemen, hun velden wijzigen en eigen typen toevoegen in Instellingen.
+# MT: pending native review (nl-NL)
+asset-record-form-type-more-hint = Toevoegen uit de catalogus:
+# MT: pending native review (nl-NL)
+asset-record-form-type-short = Type
+# MT: pending native review (nl-NL)
+asset-record-form-type-use = Gebruiken
+# MT: pending native review (nl-NL)
+asset-record-form-when-short = Werk uitgevoerd
+# MT: pending native review (nl-NL)
+asset-record-saved-edit = Registratie { $type } opgeslagen
+# MT: pending native review (nl-NL)
+asset-record-saved-new = { $type } geregistreerd op { $date }
+# MT: pending native review (nl-NL)
+asset-record-saved-status = { $asset } blijft { $status }.
+# MT: pending native review (nl-NL)
+asset-record-value-no = Nee
+# MT: pending native review (nl-NL)
+asset-record-value-yes = Ja
+# MT: pending native review (nl-NL)
+asset-record-warning-before-purchase = De datum ligt vóór de aankoopdatum ({ $date }).
+# MT: pending native review (nl-NL)
+asset-record-warning-completed-long-after = Het werk is meer dan vijf jaar na de start afgerond.
+# MT: pending native review (nl-NL)
+asset-timeline-add = Registratie toevoegen
+# MT: pending native review (nl-NL)
+asset-timeline-complete = Afronden
+# MT: pending native review (nl-NL)
+asset-timeline-empty-description = Voeg reparaties, inspecties en onderhoud toe wanneer u ze tegenkomt, hoe lang geleden ook. Elke registratie krijgt de datum waarop het werk is gedaan.
+# MT: pending native review (nl-NL)
+asset-timeline-empty-title = Nog geen werk geregistreerd
+# MT: pending native review (nl-NL)
+asset-timeline-expected-back = Terug verwacht op { $date }
+# MT: pending native review (nl-NL)
+asset-timeline-fact = { $label }: { $value }
+# MT: pending native review (nl-NL)
+asset-timeline-files = { $count ->
+    [one] { $count } bestand
+   *[other] { $count } bestanden
+}
+# MT: pending native review (nl-NL)
+asset-timeline-filter-all = Alles
+# MT: pending native review (nl-NL)
+asset-timeline-filter-aria = Tonen: { $value }
+# MT: pending native review (nl-NL)
+asset-timeline-filter-label = Tonen
+# MT: pending native review (nl-NL)
+asset-timeline-filter-loans = Uitleningen
+# MT: pending native review (nl-NL)
+asset-timeline-filter-records = Registraties
+# MT: pending native review (nl-NL)
+asset-timeline-filter-status = Status
+# MT: pending native review (nl-NL)
+asset-timeline-filter-tickets = Tickets
+# MT: pending native review (nl-NL)
+asset-timeline-heading = Tijdlijn
+# MT: pending native review (nl-NL)
+asset-timeline-imported-fact = geïmporteerd op { $date }
+# MT: pending native review (nl-NL)
+asset-timeline-in-progress = Bezig
+# MT: pending native review (nl-NL)
+asset-timeline-include-predecessor = Geschiedenis van { $name } meenemen
+# MT: pending native review (nl-NL)
+asset-timeline-loan-lent = Uitgeleend aan { $name }
+# MT: pending native review (nl-NL)
+asset-timeline-loan-lent-due = Uitgeleend aan { $name }, terug op { $date }
+# MT: pending native review (nl-NL)
+asset-timeline-loan-returned = Teruggebracht door { $name }
+# MT: pending native review (nl-NL)
+asset-timeline-marker-added = Toegevoegd aan Nosdesk
+# MT: pending native review (nl-NL)
+asset-timeline-marker-purchased = Aangeschaft
+# MT: pending native review (nl-NL)
+asset-timeline-more = Meer
+# MT: pending native review (nl-NL)
+asset-timeline-moved-to = naar { $status }
+# MT: pending native review (nl-NL)
+asset-timeline-nothing-matches = Niets voor dit filter.
+# MT: pending native review (nl-NL)
+asset-timeline-record-fallback = Registratie
+# MT: pending native review (nl-NL)
+asset-timeline-recorded-fact = geregistreerd op { $date }
+# MT: pending native review (nl-NL)
+asset-timeline-records-count = { $count ->
+    [one] { $count } registratie
+   *[other] { $count } registraties
+}
+# MT: pending native review (nl-NL)
+asset-timeline-replaced-by = Vervangen door { $name }
+# MT: pending native review (nl-NL)
+asset-timeline-replaced-by-fact = vervangen door { $name }
+# MT: pending native review (nl-NL)
+asset-timeline-replacement-gone = een verwijderd activum
+# MT: pending native review (nl-NL)
+asset-timeline-replaces = Vervangt { $name }
+# MT: pending native review (nl-NL)
+asset-timeline-sentence = { $records }.
+# MT: pending native review (nl-NL)
+asset-timeline-sentence-cost = { $records }, { $costs } in totaal.
+# MT: pending native review (nl-NL)
+asset-timeline-sentence-cost-last = { $records }, { $costs } in totaal. Laatste werk { $date }.
+# MT: pending native review (nl-NL)
+asset-timeline-sentence-last = { $records }. Laatste werk { $date }.
+# MT: pending native review (nl-NL)
+asset-timeline-show-older-than = Items vóór { $date } tonen
+# MT: pending native review (nl-NL)
+asset-timeline-someone = iemand
+# MT: pending native review (nl-NL)
+asset-timeline-status-moved = Naar { $status }
+# MT: pending native review (nl-NL)
+asset-timeline-ticket-closed = Gesloten op { $date }
+# MT: pending native review (nl-NL)
+asset-timeline-ticket-untitled = Ticket
+# MT: pending native review (nl-NL)
+asset-timeline-year-totals = { $records }, { $costs }
