@@ -259,12 +259,24 @@ impl SearchService {
         self.index_document(&doc)
     }
 
-    /// Index a device
+    /// Index a device, with the text of its records, which it reads.
     pub fn index_device(
         &self,
         device: &models::Asset,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let doc = indexer::index_document_from_device(device);
+        let mut records = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:search_index_device",
+            device.workspace_id,
+            |conn| {
+                crate::repository::asset_record_list::search_text(
+                    conn,
+                    Some(std::slice::from_ref(&device.id)),
+                )
+            },
+        )?;
+        let records = records.remove(&device.id).unwrap_or_default();
+        let doc = indexer::index_document_from_device(device, &records);
         self.index_document(&doc)
     }
 

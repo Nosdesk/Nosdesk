@@ -52,6 +52,9 @@ struct IndexRow {
     aggregate: SyncAggregate,
     aggregate_id: String,
     op: SyncOp,
+    /// `data.asset_id`: an asset record's asset, whose document carries the
+    /// record's text. A deleted record can't be read back for it.
+    asset_id: Option<String>,
 }
 
 /// Spawn the replicator. Returns immediately; the task runs for the
@@ -188,6 +191,9 @@ async fn drain_since(
                                 sync_actions::aggregate,
                                 sync_actions::aggregate_id,
                                 sync_actions::op,
+                                diesel::dsl::sql::<
+                                    diesel::sql_types::Nullable<diesel::sql_types::Text>,
+                                >("data->>'asset_id'"),
                             ))
                             .load::<IndexRow>(conn)
                     },
@@ -202,9 +208,19 @@ async fn drain_since(
                 for row in &rows {
                     // A single bad row (parse error, transient load failure)
                     // must not stall the whole stream; log and carry on.
-                    if let Err(e) =
-                        search.apply_sync_action(row.aggregate, row.op, &row.aggregate_id)
-                    {
+                    let record_asset = match row.aggregate {
+                        SyncAggregate::AssetRecord => row
+                            .asset_id
+                            .as_deref()
+                            .and_then(|id| id.parse::<i32>().ok()),
+                        _ => None,
+                    };
+                    let applied = match record_asset {
+                        // A record's text lives in its asset's document.
+                        Some(asset_id) => search.reindex_device(asset_id),
+                        None => search.apply_sync_action(row.aggregate, row.op, &row.aggregate_id),
+                    };
+                    if let Err(e) = applied {
                         warn!(
                             sync_id = row.sync_id,
                             aggregate = ?row.aggregate,

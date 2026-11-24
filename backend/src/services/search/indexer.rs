@@ -142,8 +142,10 @@ pub fn index_document_from_attachment(
         .is_internal(is_internal)
 }
 
-/// Create an index document from a device
-pub fn index_document_from_device(device: &models::Asset) -> IndexDocument {
+/// Create an index document from a device. `records` is the text of the
+/// asset's records (summaries, vendors and references), so an RMA or work
+/// order number finds the asset. Asset hits are staff only, as records are.
+pub fn index_document_from_device(device: &models::Asset, records: &[String]) -> IndexDocument {
     // The IT-flavoured fields (hostname, OS, etc.) used to live
     // as top-level columns; Pass B moved them into the
     // attributes JSONB. Read through the typed accessors so the
@@ -224,6 +226,8 @@ pub fn index_document_from_device(device: &models::Asset) -> IndexDocument {
         .cloned()
         .collect::<Vec<_>>()
         .join(" | ");
+    // After the preview, which keeps describing the asset itself.
+    metadata_parts.extend(records.iter().cloned());
 
     IndexDocument::new(EntityType::Asset, device.id as i64, title, "")
         .metadata(metadata_parts.join(" "))
@@ -461,11 +465,16 @@ pub fn rebuild_index(
         }
     }
 
-    // Index all devices
+    // Index all devices, each with its records' text.
     let all_devices: Vec<models::Asset> = assets::table.load(conn)?;
+    let record_text = crate::repository::asset_record_list::search_text(conn, None)?;
     info!(count = all_devices.len(), "Indexing devices");
     for device in &all_devices {
-        let doc = index_document_from_device(device);
+        let records = record_text
+            .get(&device.id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let doc = index_document_from_device(device, records);
         if let Err(e) = add_document_to_index(writer, schema, &doc) {
             warn!(device_id = device.id, error = ?e, "Failed to index device");
         } else {

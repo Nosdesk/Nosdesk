@@ -7,6 +7,10 @@ import { RequestManager } from '@nosdesk/core/utils/requestManager';
 import { isCancellation } from '@nosdesk/core/utils/cancellation';
 import { fileNameFromDisposition } from '@nosdesk/core/utils/contentDisposition';
 import { saveFile } from '@/platform';
+import {
+  assetRecordListParams,
+  type AssetRecordListFilter,
+} from '@nosdesk/core/services/assetRecordService';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();
@@ -196,6 +200,13 @@ export async function downloadAssetsCsv(
   const params = assetExportParams(filters);
   if (scope) params.set('scope', scope);
   await downloadCsv('/assets/export', params, scope ? `asset-${scope}.csv` : 'assets-export.csv');
+}
+
+/** Download the workspace's records the Records list's filters match, in
+ *  the list's order, in the records import template's columns. */
+export async function downloadAssetRecordsCsv(filter: AssetRecordListFilter): Promise<void> {
+  const params = assetRecordListParams({ ...filter, group: undefined, offset: undefined, limit: undefined });
+  await downloadCsv('/assets/records/export', params, 'asset-records.csv');
 }
 
 /** Download one asset's timeline as a CSV record card, one row per entry

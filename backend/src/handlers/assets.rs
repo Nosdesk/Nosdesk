@@ -112,6 +112,19 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/assets/record-vendors",
             web::get().to(crate::handlers::asset_records::vendors),
         )
+        // Records across every asset: the Records tab.
+        .route(
+            "/assets/records",
+            web::get().to(crate::handlers::asset_record_list::list),
+        )
+        .route(
+            "/assets/records/facets",
+            web::get().to(crate::handlers::asset_record_list::facets),
+        )
+        .route(
+            "/assets/records/export",
+            web::get().to(crate::handlers::asset_record_list::export),
+        )
         .route(
             "/assets/grouping-dataset",
             web::get().to(crate::handlers::assets::asset_grouping_dataset),
@@ -1202,12 +1215,12 @@ enum ExportScope {
 }
 
 /// What the records export reads besides the assets and records.
-struct RecordLookups {
-    types: HashMap<i32, crate::models::AssetRecordType>,
-    emails: HashMap<Uuid, String>,
-    ticket_numbers: HashMap<i32, i32>,
-    tags: HashMap<i32, String>,
-    tz: chrono_tz::Tz,
+pub(crate) struct RecordLookups {
+    pub(crate) types: HashMap<i32, crate::models::AssetRecordType>,
+    pub(crate) emails: HashMap<Uuid, String>,
+    pub(crate) ticket_numbers: HashMap<i32, i32>,
+    pub(crate) tags: HashMap<i32, String>,
+    pub(crate) tz: chrono_tz::Tz,
 }
 
 /// What an export holds besides the assets.
@@ -1262,6 +1275,21 @@ fn records_export(
         Some(type_id) => repository::asset_timeline::records_for_export(conn, asset_ids, type_id)?,
         None => Vec::new(),
     };
+    let lookups = record_lookups(conn, &records, tz)?;
+    Ok(ExportExtra::Records {
+        records,
+        record_type,
+        lookups,
+    })
+}
+
+/// The types, people, tickets and replacement tags `records`' export cells
+/// name.
+pub(crate) fn record_lookups(
+    conn: &mut crate::db::DbConnection,
+    records: &[crate::models::AssetRecord],
+    tz: chrono_tz::Tz,
+) -> Result<RecordLookups, Error> {
     let types: HashMap<i32, crate::models::AssetRecordType> =
         repository::asset_record_types::list(conn, true)?
             .into_iter()
@@ -1280,16 +1308,12 @@ fn records_export(
         .filter_map(|r| r.replacement_asset_id)
         .collect();
     let tags = repository::asset_timeline::asset_tags(conn, &replacements)?;
-    Ok(ExportExtra::Records {
-        records,
-        record_type,
-        lookups: RecordLookups {
-            types,
-            emails,
-            ticket_numbers,
-            tags,
-            tz,
-        },
+    Ok(RecordLookups {
+        types,
+        emails,
+        ticket_numbers,
+        tags,
+        tz,
     })
 }
 

@@ -13022,3 +13022,116 @@ tickets-column-size = Taille
 tickets-column-size-description = La taille de la tâche : petite, moyenne ou grande
 # MT: pending native review (fr-FR)
 plan-drop-too-many = Ce dépôt placerait plus de { $count } tâches à la main. Déposez-la plus près des tâches déjà placées.
+
+
+## Asset Records tab: work done across every asset.
+# MT: pending native review (fr-FR)
+route-title-asset-records = Interventions sur les actifs
+# MT: pending native review (fr-FR)
+asset-tabs-records = Interventions
+# MT: pending native review (fr-FR)
+asset-records-search-placeholder = Résumé, prestataire ou référence
+# MT: pending native review (fr-FR)
+asset-records-column-date = Date
+# MT: pending native review (fr-FR)
+asset-records-column-asset = Actif
+# MT: pending native review (fr-FR)
+asset-records-column-type = Type
+# MT: pending native review (fr-FR)
+asset-records-column-summary = Résumé
+# MT: pending native review (fr-FR)
+asset-records-column-vendor = Prestataire
+# MT: pending native review (fr-FR)
+asset-records-column-reference = Référence
+# MT: pending native review (fr-FR)
+asset-records-column-cost = Coût
+# MT: pending native review (fr-FR)
+asset-records-count =
+    { $count ->
+        [one] { $count } intervention
+       *[other] { $count } interventions
+    }
+# MT: pending native review (fr-FR)
+asset-records-open-count = { $count } en cours
+# MT: pending native review (fr-FR)
+asset-records-total-label = Total
+# MT: pending native review (fr-FR)
+asset-records-show-more = Afficher { $count } de plus
+# MT: pending native review (fr-FR)
+asset-records-load-failed = Impossible de charger les interventions. Veuillez réessayer.
+# MT: pending native review (fr-FR)
+asset-records-filter-type = Type
+# MT: pending native review (fr-FR)
+asset-records-filter-status = Statut
+# MT: pending native review (fr-FR)
+asset-records-filter-status-completed = Terminée
+# MT: pending native review (fr-FR)
+asset-records-filter-vendor = Prestataire
+# MT: pending native review (fr-FR)
+asset-records-filter-asset = Actif
+# MT: pending native review (fr-FR)
+asset-records-filter-count =
+    { $count ->
+        [one] { $count } intervention
+       *[other] { $count } interventions
+    }
+# MT: pending native review (fr-FR)
+asset-records-period-label = Date
+# MT: pending native review (fr-FR)
+asset-records-period-any = Toutes les dates
+# MT: pending native review (fr-FR)
+asset-records-period-last-30 = 30 derniers jours
+# MT: pending native review (fr-FR)
+asset-records-period-this-month = Ce mois-ci
+# MT: pending native review (fr-FR)
+asset-records-period-this-year = Cette année
+# MT: pending native review (fr-FR)
+asset-records-period-last-year = L'année dernière
+# MT: pending native review (fr-FR)
+asset-records-period-custom = Période personnalisée
+# MT: pending native review (fr-FR)
+asset-records-period-range = Du { $from } au { $to }
+# MT: pending native review (fr-FR)
+asset-records-period-from = À partir du { $from }
+# MT: pending native review (fr-FR)
+asset-records-period-until = Jusqu'au { $to }
+# MT: pending native review (fr-FR)
+asset-records-period-clear = Effacer le filtre de date
+# MT: pending native review (fr-FR)
+asset-records-group-none = Aucun regroupement
+# MT: pending native review (fr-FR)
+asset-records-group-vendor = Prestataire
+# MT: pending native review (fr-FR)
+asset-records-group-type = Type
+# MT: pending native review (fr-FR)
+asset-records-group-asset = Actif
+# MT: pending native review (fr-FR)
+asset-records-group-month = Mois
+# MT: pending native review (fr-FR)
+asset-records-group-no-vendor = Réalisée en interne
+# MT: pending native review (fr-FR)
+asset-records-group-clear = Arrêter le regroupement
+# MT: pending native review (fr-FR)
+asset-records-more = Plus
+# MT: pending native review (fr-FR)
+asset-records-export-csv = Exporter en CSV
+# MT: pending native review (fr-FR)
+asset-records-export-started =
+    Export de { $count ->
+        [one] { $count } intervention
+       *[other] { $count } interventions
+    }
+# MT: pending native review (fr-FR)
+asset-records-export-failed = Impossible d'exporter les interventions. Veuillez réessayer.
+# MT: pending native review (fr-FR)
+asset-records-import = Importer l'historique des interventions
+# MT: pending native review (fr-FR)
+asset-records-empty-title = Aucune intervention pour l'instant
+# MT: pending native review (fr-FR)
+asset-records-empty-description = Les interventions sont le travail effectué sur vos actifs : réparations, inspections, mises à niveau. Ajoutez-en une depuis la chronologie d'un actif, ou importez des années d'historique depuis un tableur.
+# MT: pending native review (fr-FR)
+asset-records-no-match-title = Aucune intervention ne correspond
+# MT: pending native review (fr-FR)
+asset-records-no-match-description = Rien ne correspond à cette recherche et à ces filtres.
+# MT: pending native review (fr-FR)
+asset-records-clear-filters = Effacer les filtres

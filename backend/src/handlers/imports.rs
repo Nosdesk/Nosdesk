@@ -1667,8 +1667,15 @@ fn index_imported_records(search_service: &Arc<SearchService>, records: Imported
                 indexing_tasks::spawn_index_ticket(Arc::clone(search_service), ticket, None);
             }
         }
-        // Records of work aren't in the search index.
-        ImportedRecords::AssetRecords(_) => {}
+        // A record's text is in its asset's entry: each asset once.
+        ImportedRecords::AssetRecords(records) => {
+            let mut assets: Vec<i32> = records.iter().map(|r| r.asset_id).collect();
+            assets.sort_unstable();
+            assets.dedup();
+            for asset in assets {
+                indexing_tasks::spawn_reindex_device(Arc::clone(search_service), asset);
+            }
+        }
     }
 }
 
@@ -3224,6 +3231,8 @@ pub async fn remove_created(
     }
     let id = path.into_inner();
     let deleted = remove::DeletedAssets::default();
+    // Assets whose records went, whose search entries carry their text.
+    let mut touched = Vec::new();
     let result = tc.run(|conn| {
         if !repo::try_lock_job(conn, id)? {
             return Ok(RemoveOutcome::Busy);
@@ -3256,7 +3265,7 @@ pub async fn remove_created(
             ));
         }
         let outcome = if records {
-            remove::remove_records(conn, plan)?
+            remove::remove_records(conn, plan, &mut touched)?
         } else {
             remove::remove(conn, &rows, plan, &deleted)?
         };
@@ -3276,6 +3285,9 @@ pub async fn remove_created(
             // The deletes committed: the search index drops them now.
             for asset in deleted.into_ids() {
                 search_service.get_ref().device_deleted(asset);
+            }
+            for asset in touched {
+                indexing_tasks::spawn_reindex_device(search_service.get_ref().clone(), asset);
             }
             match tc.run(|conn| job_response(conn, job.clone())) {
                 Ok(response) => HttpResponse::Ok().json(response),

@@ -198,6 +198,7 @@ pub async fn list_for_asset(
 pub async fn create_transition(
     mut tc: TenantConn,
     auth: AuthContext,
+    search: Option<web::Data<std::sync::Arc<crate::services::search::SearchService>>>,
     path: web::Path<i32>,
     body: web::Json<TransitionBody>,
 ) -> impl Responder {
@@ -291,7 +292,17 @@ pub async fn create_transition(
     });
 
     match result {
-        Ok((_asset, event)) => HttpResponse::Created().json(event),
+        Ok((_asset, event)) => {
+            // A record written with the move puts its text in the asset's
+            // search entry.
+            if let (true, Some(search)) = (writes_record, search) {
+                crate::services::search::indexing_tasks::spawn_reindex_device(
+                    search.get_ref().clone(),
+                    asset_id,
+                );
+            }
+            HttpResponse::Created().json(event)
+        }
         Err(Refused::Transition(e)) => map_transition_err(asset_id, e),
         Err(Refused::Record(e)) => records_api::respond(e),
     }

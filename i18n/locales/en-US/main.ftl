@@ -11304,3 +11304,71 @@ views-display-menu-sort-manual = Manual
 tickets-column-size = Size
 tickets-column-size-description = How big the job is: small, medium or big
 plan-drop-too-many = That drop would place more than { $count } jobs by hand. Drop it nearer the jobs already placed.
+
+## Asset Records tab: work done across every asset.
+
+route-title-asset-records = Asset records
+asset-tabs-records = Records
+
+asset-records-search-placeholder = Summary, vendor or reference
+asset-records-column-date = Date
+asset-records-column-asset = Asset
+asset-records-column-type = Type
+asset-records-column-summary = Summary
+asset-records-column-vendor = Vendor
+asset-records-column-reference = Reference
+asset-records-column-cost = Cost
+
+asset-records-count = { $count ->
+    [one] { $count } record
+   *[other] { $count } records
+}
+asset-records-open-count = { $count } in progress
+asset-records-total-label = Total
+asset-records-show-more = Show { $count } more
+asset-records-load-failed = Records couldn't be loaded. Try again.
+
+asset-records-filter-type = Type
+asset-records-filter-status = Status
+asset-records-filter-status-completed = Completed
+asset-records-filter-vendor = Vendor
+asset-records-filter-asset = Asset
+asset-records-filter-count = { $count ->
+    [one] { $count } record
+   *[other] { $count } records
+}
+
+asset-records-period-label = Date
+asset-records-period-any = Any date
+asset-records-period-last-30 = Last 30 days
+asset-records-period-this-month = This month
+asset-records-period-this-year = This year
+asset-records-period-last-year = Last year
+asset-records-period-custom = Custom range
+asset-records-period-range = { $from } to { $to }
+asset-records-period-from = From { $from }
+asset-records-period-until = Until { $to }
+asset-records-period-clear = Clear the date filter
+
+asset-records-group-none = No grouping
+asset-records-group-vendor = Vendor
+asset-records-group-type = Type
+asset-records-group-asset = Asset
+asset-records-group-month = Month
+asset-records-group-no-vendor = Done in house
+asset-records-group-clear = Stop grouping
+
+asset-records-more = More
+asset-records-export-csv = Export CSV
+asset-records-export-started = Exporting { $count ->
+    [one] { $count } record
+   *[other] { $count } records
+}
+asset-records-export-failed = The records couldn't be exported. Try again.
+asset-records-import = Import service history
+
+asset-records-empty-title = No records yet
+asset-records-empty-description = Records are the work done on your assets: repairs, inspections, upgrades. Add one from an asset's timeline, or import years of history from a spreadsheet.
+asset-records-no-match-title = No records match
+asset-records-no-match-description = Nothing fits this search and these filters.
+asset-records-clear-filters = Clear filters

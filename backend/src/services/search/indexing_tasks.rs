@@ -89,6 +89,14 @@ pub fn spawn_index_device(search_service: Arc<SearchService>, device: models::As
     });
 }
 
+/// Re-index a device from current DB state in the background: after a
+/// write to one of its records, whose text its document carries.
+pub fn spawn_reindex_device(search_service: Arc<SearchService>, device_id: i32) {
+    spawn_indexing_task(search_service, "reindex device", move |svc| {
+        svc.reindex_device(device_id)
+    });
+}
+
 /// Delete a device from the index in the background
 pub fn spawn_delete_device(search_service: Arc<SearchService>, device_id: i32) {
     spawn_indexing_task(search_service, "delete device", move |svc| {

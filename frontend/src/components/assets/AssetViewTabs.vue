@@ -2,7 +2,7 @@
 /**
  * Tab strip across the top of the asset section. Flips between the
  * views that share the underlying asset data (inventory list, make/
- * model catalog) without leaning on the sidebar. The fleet-planning
+ * model catalog, groups, records of work) without leaning on the sidebar. The fleet-planning
  * lenses that used to be a separate "Planner" view now live inside the
  * inventory list as group-by axes.
  */
@@ -10,6 +10,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import TabBar, { type TabBarItem } from '@/components/common/TabBar.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,19 +25,25 @@ interface Tab {
   routes: string[]
 }
 
-const tabs: Tab[] = [
+const auth = useAuthStore()
+
+const tabs = computed<Tab[]>(() => [
   // The asset detail page (/assets/:id) falls under Inventory.
   { to: '/assets', labelKey: 'asset-tabs-inventory', routes: ['assets', 'asset-view'] },
   { to: '/assets/catalog', labelKey: 'asset-tabs-catalog', routes: ['asset-catalog'] },
   { to: '/assets/groups', labelKey: 'asset-tabs-groups', routes: ['asset-groups'] },
-]
+  // Work done across every asset. Records are staff only.
+  ...(auth.isTechnician
+    ? [{ to: '/assets/records', labelKey: 'asset-tabs-records', routes: ['asset-records'] }]
+    : []),
+])
 
 const activeTo = computed(() => {
   const name = typeof route.name === 'string' ? route.name : ''
-  return tabs.find((tab) => tab.routes.includes(name))?.to ?? tabs[0].to
+  return tabs.value.find((tab) => tab.routes.includes(name))?.to ?? tabs.value[0].to
 })
 const tabItems = computed<TabBarItem[]>(() =>
-  tabs.map((tab) => ({ value: tab.to, label: fluent.$t(tab.labelKey) })),
+  tabs.value.map((tab) => ({ value: tab.to, label: fluent.$t(tab.labelKey) })),
 )
 </script>
 

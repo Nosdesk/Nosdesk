@@ -271,12 +271,24 @@ impl SearchService {
             indexer::index_document_from_documentation,
         )?;
 
+        // Each page of assets with its records' text, read in one pass.
         stats.indexed.devices = self.index_pages(
             workspace_id,
             &mut seen,
-            |conn, after| repo::assets_after(conn, workspace_id, after, PAGE),
-            |a| a.id,
-            indexer::index_document_from_device,
+            |conn, after| {
+                let assets = repo::assets_after(conn, workspace_id, after, PAGE)?;
+                let ids: Vec<i32> = assets.iter().map(|a| a.id).collect();
+                let mut text = crate::repository::asset_record_list::search_text(conn, Some(&ids))?;
+                Ok(assets
+                    .into_iter()
+                    .map(|a| {
+                        let records = text.remove(&a.id).unwrap_or_default();
+                        (a, records)
+                    })
+                    .collect())
+            },
+            |(a, _)| a.id,
+            |(a, records)| indexer::index_document_from_device(a, records),
         )?;
 
         stats.indexed.projects = self.index_pages(

@@ -43,6 +43,7 @@ use crate::repository::{
     asset_media as media_repo, asset_record_types as types_repo, assets as assets_repo,
     site_settings as settings_repo,
 };
+use crate::services::search::{indexing_tasks, SearchService};
 use crate::utils::money::{self, DecimalMark};
 
 /// How long whoever entered a record may delete it themselves.
@@ -489,6 +490,18 @@ pub(crate) fn work_date(
     }
 }
 
+/// The search handle a record write reindexes its asset with, when the app
+/// has one.
+type Search = Option<web::Data<std::sync::Arc<SearchService>>>;
+
+/// After a record write commits: the asset's search entry carries its
+/// records' summaries, vendors and references, so rewrite it.
+fn reindex_asset(search: Search, asset_id: i32) {
+    if let Some(search) = search {
+        indexing_tasks::spawn_reindex_device(search.get_ref().clone(), asset_id);
+    }
+}
+
 /// What wrote a record over HTTP: an API token, or someone in the app.
 fn source_of(req: &HttpRequest) -> RecordSource {
     if req.extensions().get::<ApiTokenRequest>().is_some() {
@@ -633,6 +646,7 @@ pub async fn list_for_asset(
 pub async fn create(
     mut tc: TenantConn,
     auth: AuthContext,
+    search: Search,
     req: HttpRequest,
     path: web::Path<i32>,
     body: web::Json<CreateBody>,
@@ -691,7 +705,10 @@ pub async fn create(
         write_json(conn, &write)
     });
     match result {
-        Ok(body) => HttpResponse::Created().json(body),
+        Ok(body) => {
+            reindex_asset(search, asset_id);
+            HttpResponse::Created().json(body)
+        }
         Err(r) => respond(r),
     }
 }
@@ -720,6 +737,7 @@ pub async fn get(
 pub async fn update(
     mut tc: TenantConn,
     auth: AuthContext,
+    search: Search,
     path: web::Path<(i32, i32)>,
     body: web::Json<UpdateBody>,
 ) -> HttpResponse {
@@ -788,7 +806,10 @@ pub async fn update(
         write_json(conn, &write)
     });
     match result {
-        Ok(body) => HttpResponse::Ok().json(body),
+        Ok(body) => {
+            reindex_asset(search, asset_id);
+            HttpResponse::Ok().json(body)
+        }
         Err(r) => respond(r),
     }
 }
@@ -806,6 +827,7 @@ fn may_delete(auth: &AuthContext, record: &AssetRecord, now: DateTime<Utc>) -> b
 pub async fn delete(
     mut tc: TenantConn,
     auth: AuthContext,
+    search: Search,
     path: web::Path<(i32, i32)>,
     query: web::Query<DeleteQuery>,
     storage: ScopedStorage,
@@ -838,6 +860,7 @@ pub async fn delete(
     });
     match result {
         Ok(files) => {
+            reindex_asset(search, asset_id);
             for file in &files {
                 crate::handlers::asset_media::remove_stored_objects(&storage, file).await;
             }

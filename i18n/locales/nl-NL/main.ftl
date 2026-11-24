@@ -13013,3 +13013,116 @@ tickets-column-size = Omvang
 tickets-column-size-description = Hoe groot de taak is: klein, middel of groot
 # MT: pending native review (nl-NL)
 plan-drop-too-many = Hiermee zouden meer dan { $count } taken met de hand worden geplaatst. Zet hem dichter bij de taken die al geplaatst zijn.
+
+
+## Asset Records tab: work done across every asset.
+# MT: pending native review (nl-NL)
+route-title-asset-records = Registraties van assets
+# MT: pending native review (nl-NL)
+asset-tabs-records = Registraties
+# MT: pending native review (nl-NL)
+asset-records-search-placeholder = Samenvatting, leverancier of referentie
+# MT: pending native review (nl-NL)
+asset-records-column-date = Datum
+# MT: pending native review (nl-NL)
+asset-records-column-asset = Asset
+# MT: pending native review (nl-NL)
+asset-records-column-type = Type
+# MT: pending native review (nl-NL)
+asset-records-column-summary = Samenvatting
+# MT: pending native review (nl-NL)
+asset-records-column-vendor = Leverancier
+# MT: pending native review (nl-NL)
+asset-records-column-reference = Referentie
+# MT: pending native review (nl-NL)
+asset-records-column-cost = Kosten
+# MT: pending native review (nl-NL)
+asset-records-count =
+    { $count ->
+        [one] { $count } registratie
+       *[other] { $count } registraties
+    }
+# MT: pending native review (nl-NL)
+asset-records-open-count = { $count } bezig
+# MT: pending native review (nl-NL)
+asset-records-total-label = Totaal
+# MT: pending native review (nl-NL)
+asset-records-show-more = Nog { $count } tonen
+# MT: pending native review (nl-NL)
+asset-records-load-failed = Registraties konden niet worden geladen. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+asset-records-filter-type = Type
+# MT: pending native review (nl-NL)
+asset-records-filter-status = Status
+# MT: pending native review (nl-NL)
+asset-records-filter-status-completed = Afgerond
+# MT: pending native review (nl-NL)
+asset-records-filter-vendor = Leverancier
+# MT: pending native review (nl-NL)
+asset-records-filter-asset = Asset
+# MT: pending native review (nl-NL)
+asset-records-filter-count =
+    { $count ->
+        [one] { $count } registratie
+       *[other] { $count } registraties
+    }
+# MT: pending native review (nl-NL)
+asset-records-period-label = Datum
+# MT: pending native review (nl-NL)
+asset-records-period-any = Elke datum
+# MT: pending native review (nl-NL)
+asset-records-period-last-30 = Afgelopen 30 dagen
+# MT: pending native review (nl-NL)
+asset-records-period-this-month = Deze maand
+# MT: pending native review (nl-NL)
+asset-records-period-this-year = Dit jaar
+# MT: pending native review (nl-NL)
+asset-records-period-last-year = Vorig jaar
+# MT: pending native review (nl-NL)
+asset-records-period-custom = Aangepaste periode
+# MT: pending native review (nl-NL)
+asset-records-period-range = { $from } tot { $to }
+# MT: pending native review (nl-NL)
+asset-records-period-from = Vanaf { $from }
+# MT: pending native review (nl-NL)
+asset-records-period-until = Tot { $to }
+# MT: pending native review (nl-NL)
+asset-records-period-clear = Datumfilter wissen
+# MT: pending native review (nl-NL)
+asset-records-group-none = Niet groeperen
+# MT: pending native review (nl-NL)
+asset-records-group-vendor = Leverancier
+# MT: pending native review (nl-NL)
+asset-records-group-type = Type
+# MT: pending native review (nl-NL)
+asset-records-group-asset = Asset
+# MT: pending native review (nl-NL)
+asset-records-group-month = Maand
+# MT: pending native review (nl-NL)
+asset-records-group-no-vendor = Zelf uitgevoerd
+# MT: pending native review (nl-NL)
+asset-records-group-clear = Groeperen stoppen
+# MT: pending native review (nl-NL)
+asset-records-more = Meer
+# MT: pending native review (nl-NL)
+asset-records-export-csv = CSV exporteren
+# MT: pending native review (nl-NL)
+asset-records-export-started =
+    { $count ->
+        [one] { $count } registratie
+       *[other] { $count } registraties
+    } exporteren
+# MT: pending native review (nl-NL)
+asset-records-export-failed = De registraties konden niet worden geëxporteerd. Probeer het opnieuw.
+# MT: pending native review (nl-NL)
+asset-records-import = Onderhoudshistorie importeren
+# MT: pending native review (nl-NL)
+asset-records-empty-title = Nog geen registraties
+# MT: pending native review (nl-NL)
+asset-records-empty-description = Registraties zijn het werk dat aan je assets is gedaan: reparaties, inspecties, upgrades. Voeg er een toe vanuit de tijdlijn van een asset, of importeer jaren aan historie uit een spreadsheet.
+# MT: pending native review (nl-NL)
+asset-records-no-match-title = Geen registraties gevonden
+# MT: pending native review (nl-NL)
+asset-records-no-match-description = Niets past bij deze zoekopdracht en deze filters.
+# MT: pending native review (nl-NL)
+asset-records-clear-filters = Filters wissen

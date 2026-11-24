@@ -406,6 +406,67 @@ export interface AssetRecordPage {
   next_cursor: string | null;
 }
 
+/** The parts of an asset the Records list names it by. */
+export interface AssetRecordAsset {
+  id: number;
+  name: string;
+  asset_tag: string | null;
+}
+
+/** A record in the workspace-wide list, with its asset. `group` is the key
+ *  of the group it falls in when the list is grouped. */
+export interface AssetRecordListRow extends AssetRecord {
+  asset: AssetRecordAsset;
+  group?: string;
+}
+
+/** A sum in one currency, never converted. `amount` is null for a code the
+ *  server can't format. */
+export interface AssetRecordCurrencyTotal {
+  currency: string;
+  amount: string | null;
+  amount_minor: number;
+}
+
+/** One group of the filtered set and what all of it adds up to. `key` is
+ *  the vendor in lower case (empty for work done in house), the type's id,
+ *  the asset's id, or the month as YYYY-MM. */
+export interface AssetRecordListGroup {
+  key: string;
+  /** The vendor's most used spelling, for a vendor group. */
+  label: string | null;
+  count: number;
+  open: number;
+  totals: AssetRecordCurrencyTotal[];
+}
+
+/** A page of the workspace's records. `total`, `open`, `totals` and
+ *  `groups` cover every record the filters match, whatever page this is.
+ *  `totals` lists other currencies by code, then the workspace currency. */
+export interface AssetRecordList {
+  records: AssetRecordListRow[];
+  total: number;
+  open: number;
+  totals: AssetRecordCurrencyTotal[];
+  /** The workspace currency, else the default locale's suggestion. */
+  currency: string | null;
+  /** Grouped only, in the order the list shows them. */
+  groups: AssetRecordListGroup[] | null;
+  offset: number;
+  /** Pass as `offset` for the next page; null on the last. */
+  next_offset: number | null;
+}
+
+/** What the Records list's filters offer, over every record. */
+export interface AssetRecordFacets {
+  /** How many records the workspace has. */
+  total: number;
+  /** Most used first, under their most used spelling. */
+  vendors: { vendor: string; count: number }[];
+  /** The assets with the most records first. */
+  assets: { asset: AssetRecordAsset; count: number }[];
+}
+
 /** Where an asset timeline entry comes from. `record` and `replacement`
  *  are staff only. */
 export type AssetTimelineSource =

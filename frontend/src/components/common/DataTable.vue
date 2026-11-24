@@ -10,12 +10,17 @@ export interface Column {
   sortable?: boolean
   sortKey?: string // Optional different field name for API sorting (defaults to field)
   responsive?: 'always' | 'md' | 'lg' // Show only on certain breakpoints
+  /** `end` right-aligns the header and the cells, so an amount column and
+   *  its heading share one edge. */
+  align?: 'start' | 'end'
 }
 
 export interface DataTableBucket<T> {
   key: string
   label: string
   items: readonly T[]
+  /** How many the whole group holds, when `items` is only the part loaded. */
+  count?: number
 }
 
 /** Header drag-reorder bundle. The consumer wires this up via
@@ -263,6 +268,7 @@ const dataCellPadding = computed(() =>
             headerCellPadding,
             'first:pl-4 [&:nth-last-child(2)]:pr-4 flex items-center text-3xs font-semibold uppercase tracking-wider text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 relative',
             getColumnVisibility(column),
+            column.align === 'end' ? 'justify-end' : '',
             column.sortable ? 'cursor-pointer hover:bg-surface-hover hover:text-primary' : '',
             columnReorder?.sourceId.value === column.field ? 'opacity-50' : '',
             columnReorder?.targetId.value === column.field ? 'before:absolute before:left-0 before:top-1 before:bottom-1 before:w-0.5 before:bg-accent before:rounded-r' : '',
@@ -344,6 +350,7 @@ const dataCellPadding = computed(() =>
                 'first:pl-4 [&:nth-last-child(2)]:pr-4 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
                 rowClass,
                 getColumnVisibility(column),
+                column.align === 'end' ? 'justify-end' : '',
                 loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
                 index > 0 ? 'border-t border-default' : ''
               ]"
@@ -390,7 +397,11 @@ const dataCellPadding = computed(() =>
               :class="isCollapsed?.(bucket.key) ? '-rotate-90' : ''"
             />
             <span class="text-xs font-medium text-primary">{{ bucket.label }}</span>
-            <span class="text-3xs text-tertiary tabular-nums">{{ bucket.items.length }}</span>
+            <span class="text-3xs text-tertiary tabular-nums">{{ bucket.count ?? bucket.items.length }}</span>
+            <!-- What the group adds up to, on the row's far edge. -->
+            <span v-if="$slots['bucket-meta']" class="ml-auto pl-3 pr-1 min-w-0">
+              <slot name="bucket-meta" :bucket="bucket" />
+            </span>
           </button>
 
           <template v-if="!isCollapsed?.(bucket.key)">
@@ -427,6 +438,7 @@ const dataCellPadding = computed(() =>
                     'first:pl-4 [&:nth-last-child(2)]:pr-4 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
                     rowClass,
                     getColumnVisibility(column),
+                    column.align === 'end' ? 'justify-end' : '',
                     loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
                     index > 0 ? 'border-t border-default' : ''
                   ]"
