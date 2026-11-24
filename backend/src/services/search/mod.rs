@@ -36,8 +36,9 @@ const INDEX_WRITER_MEMORY_BYTES: usize = 50_000_000;
 /// What the indexed documents hold, beyond the schema's fields. Raise it when
 /// a change to how documents are built needs every existing one rebuilt (an
 /// index written by an older version is recreated, then filled from the
-/// database). 2: attachments on internal notes carry `is_internal`.
-const INDEX_CONTENT_VERSION: u32 = 2;
+/// database). 2: attachments on internal notes carry `is_internal`. 3: an
+/// asset's document carries its records' summaries, vendors and references.
+const INDEX_CONTENT_VERSION: u32 = 3;
 const INDEX_CONTENT_VERSION_FILE: &str = "nosdesk_content_version";
 
 fn index_content_version(index_path: &Path) -> Option<u32> {

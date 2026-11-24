@@ -594,7 +594,15 @@ async fn the_export_holds_the_filtered_set_in_the_import_templates_columns() {
     let (status, bytes) = send(&f, f.agent, req).await;
     assert_eq!(status, StatusCode::OK);
     let rows: Value = serde_json::from_slice(&bytes).expect("json");
-    assert_eq!(rows.as_array().expect("rows").len(), 2);
+    let rows = rows.as_array().expect("rows");
+    assert_eq!(rows.len(), 2);
+    // One type: a column per field of it in place of the JSON column.
+    assert!(rows[0].get("attributes").is_none(), "{}", rows[0]);
+    assert!(
+        rows[0].get("inspector_certificate").is_some(),
+        "{}",
+        rows[0]
+    );
 }
 
 #[actix_web::test]
@@ -643,4 +651,16 @@ async fn a_records_reference_finds_its_asset_in_search() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     assert_eq!(hits, vec![i64::from(f.camera)]);
+
+    // Records are staff only: a requester's search for the reference finds
+    // nothing, and its total doesn't count the asset either.
+    for uri in [
+        "/api/search?q=RMA-48213907",
+        "/api/search?q=RMA-48213907&types=device",
+    ] {
+        let (status, body) = call(&f, f.ws.member_uuid, Method::GET, uri, None).await;
+        assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+        assert_eq!(body["results"], json!([]), "{uri}: {body}");
+        assert_eq!(body["total"], 0, "{uri}: {body}");
+    }
 }

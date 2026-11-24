@@ -143,6 +143,9 @@ useSyncActions(() => void cache.invalidateQueries({ key: [...assetRecordKeys.lis
 // --- Grouping ---------------------------------------------------------
 
 const grouped = computed(() => query.group !== 'none')
+/** Groups render once the server has answered for them; until then (the
+ *  ungrouped list held while the grouped one loads) the rows stay flat. */
+const showGroups = computed(() => grouped.value && !!first.value?.groups)
 
 interface RecordBucket extends DataTableBucket<AssetRecordListRow> {
   totals: AssetRecordCurrencyTotal[]
@@ -164,7 +167,7 @@ function groupLabel(key: string, axis: GroupAxis, label: string | null, items: A
 /** The server's groups, in its order, each with the rows loaded so far.
  *  Groups whose rows haven't loaded yet wait below "Show more". */
 const buckets = computed<RecordBucket[]>(() => {
-  if (!grouped.value || !first.value?.groups) return []
+  if (!showGroups.value || !first.value?.groups) return []
   const byKey = new Map<string, AssetRecordListRow[]>()
   for (const record of records.value) {
     const key = record.group ?? ''
@@ -572,7 +575,7 @@ const inProgress = (record: AssetRecordListRow) => (record.completed_on === null
         <div ref="listBox">
           <DataTable
             :columns="columns"
-            :data="grouped ? [] : records"
+            :data="showGroups ? [] : records"
             :buckets="buckets"
             :is-collapsed="(key: string) => collapsed.has(key)"
             :selected-items="[]"
@@ -643,7 +646,7 @@ const inProgress = (record: AssetRecordListRow) => (record.completed_on === null
       <!-- Below 1024px: two-line rows, or the same groups and what each
            adds up to. -->
       <template #mobile>
-        <template v-if="grouped">
+        <template v-if="showGroups">
           <template v-for="bucket in buckets" :key="bucket.key">
             <button
               type="button"

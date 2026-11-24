@@ -282,7 +282,8 @@ pub async fn facets(mut tc: TenantConn, auth: AuthContext) -> HttpResponse {
 
 /// `GET /api/assets/records/export?format=csv|json`: every record the
 /// filters match, in the list's order, one row each in the records import
-/// template's columns, so an export imports back.
+/// template's columns, so an export imports back: with one type, a column
+/// per field of it; otherwise the fields in one JSON column.
 pub async fn export(mut tc: TenantConn, auth: AuthContext, req: HttpRequest) -> HttpResponse {
     let query = match parse_query(req.query_string()) {
         Ok(q) => q,
@@ -321,9 +322,15 @@ pub async fn export(mut tc: TenantConn, auth: AuthContext, req: HttpRequest) -> 
         let slug = repository::workspaces::find_by_id(conn, workspace_id)?
             .map(|w| w.slug)
             .unwrap_or_else(|| "workspace".to_string());
-        Ok::<_, Refusal>((records, lookups, assets, slug))
+        // Records of one type get a column per field of that type, as the
+        // type's import template has.
+        let one_type = match filter.record_type_ids.as_deref() {
+            Some([id]) => lookups.types.get(id).cloned(),
+            _ => None,
+        };
+        Ok::<_, Refusal>((records, lookups, assets, slug, one_type))
     });
-    let (records, lookups, assets, slug) = match result {
+    let (records, lookups, assets, slug, one_type) = match result {
         Ok(v) => v,
         Err(r) => return respond(r),
     };
@@ -335,8 +342,8 @@ pub async fn export(mut tc: TenantConn, auth: AuthContext, req: HttpRequest) -> 
         tags: lookups.tags,
         tz: lookups.tz,
     };
-    let headers = imports_assets::record_export_headers(None);
-    let cells = imports_assets::build_record_rows(&records, None, &lookups);
+    let headers = imports_assets::record_export_headers(one_type.as_ref());
+    let cells = imports_assets::build_record_rows(&records, one_type.as_ref(), &lookups);
     let built = if json_out {
         serde_json::to_vec(&imports_assets::cells_json(&headers, &cells)).map_err(|e| e.to_string())
     } else {
