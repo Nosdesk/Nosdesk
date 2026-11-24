@@ -32,6 +32,14 @@ vi.mock('@/services/activeWorkspace', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/activeWorkspace')>()),
   workspaceReady: () => true,
 }))
+const PLUGIN = '0190a5b2-0000-7000-8000-0000000000a1'
+vi.mock('@nosdesk/core/services/pluginService', () => ({
+  default: {
+    listPlugins: async () => [
+      { uuid: PLUGIN, name: 'github', display_name: 'GitHub', state: 'installed', manifest: { events: ['github:issue_linked'] } },
+    ],
+  },
+}))
 vi.mock('@/components/ticketComponents/UserPicker.vue', () => ({
   default: { props: ['modelValue'], template: '<input data-test="user-picker" />' },
 }))
@@ -172,5 +180,66 @@ describe('RuleEditView with a time-elapsed trigger', () => {
     await flushPromises()
     expect(rules.transitionState).not.toHaveBeenCalled()
     expect(w.text()).toContain('admin-rule-editor-elapsed-clock-missing')
+  })
+})
+
+describe('RuleEditView state changes on a finished trigger', () => {
+  const FINISHED: Partial<Rule>[] = [
+    { trigger_kind: 'time_elapsed' },
+    { trigger_kind: 'ticket_updated', trigger_config: {} },
+    { trigger_kind: 'plugin_event', trigger_config: { plugin_uuid: PLUGIN, event_type: 'github:issue_linked' } },
+  ]
+
+  it.each(FINISHED)('starts a dry run of a saved $trigger_kind rule without saving it again', async (overrides) => {
+    rules.get.mockResolvedValue(rule(overrides))
+    rules.transitionState.mockResolvedValue(rule({ ...overrides, state: 'dry_run' }))
+    await mountAt('admin-rules-edit', { id: '4' })
+    button('admin-rules-dry-run')!.click()
+    await flushPromises()
+    expect(rules.update).not.toHaveBeenCalled()
+    expect(rules.transitionState).toHaveBeenCalledWith(4, { state: 'dry_run' })
+  })
+
+  it.each(FINISHED)('puts a saved $trigger_kind rule live from its dry run', async (overrides) => {
+    rules.get.mockResolvedValue(rule({ ...overrides, state: 'dry_run' }))
+    rules.transitionState.mockResolvedValue(rule({ ...overrides, state: 'live' }))
+    await mountAt('admin-rules-edit', { id: '4' })
+    button('admin-rules-go-live')!.click()
+    await flushPromises()
+    expect(rules.update).not.toHaveBeenCalled()
+    expect(rules.transitionState).toHaveBeenCalledWith(4, { state: 'live' })
+  })
+
+  it('saves a time config in the shape the server takes before putting the rule live', async () => {
+    const loose = rule({ state: 'dry_run', trigger_config: { clock_name: 'since_created', minutes: 60 } })
+    rules.get.mockResolvedValue(loose)
+    rules.update.mockImplementation(async (_id: number, req: Record<string, unknown>) => ({ ...loose, ...req }))
+    rules.transitionState.mockResolvedValue(rule({ state: 'live' }))
+    await mountAt('admin-rules-edit', { id: '4' })
+    button('admin-rules-go-live')!.click()
+    await flushPromises()
+    expect(rules.update).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({
+        trigger_config: { clock_name: 'since_created', minutes: 60, repeat_every_minutes: null },
+      }),
+    )
+    expect(rules.transitionState).toHaveBeenCalledWith(4, { state: 'live' })
+    expect(rules.update.mock.invocationCallOrder[0]).toBeLessThan(rules.transitionState.mock.invocationCallOrder[0])
+  })
+
+  it('holds a check on minutes waited against the due date clock', async () => {
+    rules.get.mockResolvedValue(
+      rule({
+        trigger_config: { clock_name: 'until_due_at', minutes: 1440, repeat_every_minutes: null },
+        conditions: { kind: 'and', children: [{ kind: 'leaf', field: 'clock.minutes_since', op: 'gt', value: 60 }] },
+      }),
+    )
+    const w = await mountAt('admin-rules-edit', { id: '4' })
+    button('admin-rule-editor-save')!.click()
+    await flushPromises()
+    expect(rules.update).not.toHaveBeenCalled()
+    expect(w.text()).toContain('admin-rule-editor-conditions-incomplete')
+    expect(w.text()).toContain('admin-rule-conditions-problem-countdown')
   })
 })

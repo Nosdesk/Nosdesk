@@ -12815,3 +12815,9 @@ admin-rule-elapsed-summary-until-due-at-zero = Wanneer een ticket het einde van 
 admin-rule-elapsed-summary-repeat = Hij herhaalt { $duration } na elke uitvoering zolang de klok loopt.
 # MT: pending native review (nl-NL)
 admin-rule-preview-elapsed-note = Dit telt recente tickets die aan de voorwaarden voldoen, open of gesloten. De klok wordt hier niet gecontroleerd, en een voorwaarde op gewachte minuten telt als vervuld.
+# MT: pending native review (nl-NL)
+admin-rule-conditions-problem-countdown = De klok voor de vervaldatum telt af, dus gewachte minuten bereiken dit nooit. Verwijder de voorwaarde en stel de tijd in op de trigger.
+# MT: pending native review (nl-NL)
+admin-rule-conditions-problem-zero-always = Minstens 0 klopt altijd. Kies een getal boven 0, of verwijder de voorwaarde.
+# MT: pending native review (nl-NL)
+admin-rule-conditions-problem-zero-never = Minder dan 0 klopt nooit. Kies een getal boven 0.

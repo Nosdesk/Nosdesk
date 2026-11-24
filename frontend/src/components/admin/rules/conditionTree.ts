@@ -110,9 +110,19 @@ export function fieldDef(name: string): ConditionFieldDef | undefined {
   return CONDITION_FIELDS.find((f) => f.name === name)
 }
 
-/** The fields a rule with this trigger can check. */
-export function fieldsFor(trigger: RuleTriggerKind): ConditionFieldDef[] {
-  return CONDITION_FIELDS.filter((f) => !f.triggerOnly || f.triggerOnly === trigger)
+/**
+ * Whether a time-elapsed rule on `clock` can check `field`. The due date
+ * clock counts down, so minutes since its start stay below zero until the
+ * ticket is due: a check on them could never let the rule run.
+ */
+function fitsClock(field: string, clock: string | undefined): boolean {
+  return !(field === 'clock.minutes_since' && clock === 'until_due_at')
+}
+
+/** The fields a rule with this trigger (and, for a time-elapsed rule, this
+ *  clock) can check. */
+export function fieldsFor(trigger: RuleTriggerKind, clock?: string): ConditionFieldDef[] {
+  return CONDITION_FIELDS.filter((f) => (!f.triggerOnly || f.triggerOnly === trigger) && fitsClock(f.name, clock))
 }
 
 /** The operators a field takes: its kind's, less the empty checks on a field
@@ -311,11 +321,13 @@ function valueFits(field: string, op: RuleConditionOp, value: unknown): boolean 
 // What still needs doing before the conditions can be saved
 // ---------------------------------------------------------------------------
 
-/** What a leaf still needs, as a message key, or null when it's complete. */
-export function leafProblem(leaf: RuleConditionLeaf, trigger: RuleTriggerKind): string | null {
+/** What a leaf still needs, as a message key, or null when it's complete.
+ *  `clock` is a time-elapsed rule's clock. */
+export function leafProblem(leaf: RuleConditionLeaf, trigger: RuleTriggerKind, clock?: string): string | null {
   const def = fieldDef(leaf.field)
   if (!def) return 'admin-rule-conditions-problem-field'
   if (def.triggerOnly && def.triggerOnly !== trigger) return 'admin-rule-conditions-problem-trigger'
+  if (trigger === 'time_elapsed' && !fitsClock(leaf.field, clock)) return 'admin-rule-conditions-problem-countdown'
   if (!opsFor(leaf.field).includes(leaf.op)) return 'admin-rule-conditions-problem-op'
   const shape = valueShape(leaf.op)
   if (shape === 'none') return null
@@ -327,9 +339,11 @@ export function leafProblem(leaf: RuleConditionLeaf, trigger: RuleTriggerKind): 
     case 'int_id':
       return typeof value === 'number' && value > 0 ? null : 'admin-rule-conditions-problem-value'
     case 'number':
-      return typeof value === 'number' && Number.isInteger(value) && value >= 0
-        ? null
-        : 'admin-rule-conditions-problem-value'
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return 'admin-rule-conditions-problem-value'
+      // The server refuses a check on 0 that can't go either way.
+      if (value === 0 && leaf.op === 'gte') return 'admin-rule-conditions-problem-zero-always'
+      if (value === 0 && leaf.op === 'lt') return 'admin-rule-conditions-problem-zero-never'
+      return null
     case 'timestamp':
       return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? null : 'admin-rule-conditions-problem-value'
     default:
@@ -338,9 +352,9 @@ export function leafProblem(leaf: RuleConditionLeaf, trigger: RuleTriggerKind): 
 }
 
 /** Whether every leaf is complete and no group below the root is empty. */
-export function treeComplete(root: ConditionGroup, trigger: RuleTriggerKind): boolean {
+export function treeComplete(root: ConditionGroup, trigger: RuleTriggerKind, clock?: string): boolean {
   const walk = (node: ConditionNode, isRoot: boolean): boolean => {
-    if (node.kind === 'leaf') return leafProblem(node, trigger) === null
+    if (node.kind === 'leaf') return leafProblem(node, trigger, clock) === null
     if (!isRoot && node.children.length === 0) return false
     return node.children.every((child) => walk(child, false))
   }

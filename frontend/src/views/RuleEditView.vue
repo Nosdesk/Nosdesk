@@ -49,6 +49,7 @@ import {
   triggerConfigFor,
   triggerProblem,
   elapsedSummary,
+  savedConfigIsCanonical,
   DEFAULT_REPLY_KIND,
   type ElapsedDuration,
 } from '@/components/admin/rules/triggerConfig';
@@ -187,7 +188,11 @@ const showTriggerProblems = ref(false);
 const conditionsWire = computed<RuleCondition[] | RuleCondition>(() =>
   isManual.value ? [] : toWire(conditionRoot.value),
 );
-const conditionsComplete = computed(() => isManual.value || treeComplete(conditionRoot.value, triggerKind.value));
+/** The clock the conditions are checked against: a time-elapsed rule's. */
+const conditionClock = computed(() => (triggerKind.value === 'time_elapsed' ? clockName.value : ''));
+const conditionsComplete = computed(
+  () => isManual.value || treeComplete(conditionRoot.value, triggerKind.value, conditionClock.value),
+);
 /** Set by a save attempt with unfinished conditions, so their hints show. */
 const showConditionProblems = ref(false);
 
@@ -305,6 +310,7 @@ const isDirty = computed(() => {
     JSON.stringify(actions.value) !== JSON.stringify(rule.actions) ||
     JSON.stringify(triggerConfig.value) !==
       JSON.stringify(triggerConfigFor(rule.trigger_kind, readTriggerConfig(rule.trigger_config))) ||
+    !savedConfigIsCanonical(rule.trigger_kind, rule.trigger_config) ||
     JSON.stringify(conditionsWire.value) !== JSON.stringify(savedConditions)
   );
 });
@@ -789,6 +795,7 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
           <ConditionBuilder
             v-model="conditionRoot"
             :trigger-kind="triggerKind"
+            :clock-name="conditionClock"
             :disabled="isArchived"
             :show-problems="showConditionProblems"
           />

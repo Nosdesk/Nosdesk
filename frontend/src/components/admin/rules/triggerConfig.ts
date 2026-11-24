@@ -116,6 +116,22 @@ export function triggerConfigFor(kind: RuleTriggerKind, settings: TriggerSetting
   return {}
 }
 
+/** A config's keys and values, in key order. */
+const canonical = (config: RuleTriggerConfig | null | undefined) =>
+  JSON.stringify(Object.entries(config ?? {}).sort(([a], [b]) => a.localeCompare(b)))
+
+/**
+ * Whether a saved time-elapsed config is already in the shape the editor
+ * saves. One that isn't (no repeat key, a repeat that isn't a number, a key
+ * of another trigger) reads as an unsaved edit, so a state change saves the
+ * shape the server takes before asking it to run the rule. Other triggers
+ * are taken as saved.
+ */
+export function savedConfigIsCanonical(kind: RuleTriggerKind, config: RuleTriggerConfig | null | undefined): boolean {
+  if (kind !== 'time_elapsed') return true
+  return canonical(config) === canonical(triggerConfigFor(kind, readTriggerConfig(config)))
+}
+
 /** What's wrong with each part of a time-elapsed trigger, as message keys.
  *  The ranges are the server's (`clocks::parse_trigger`). */
 export interface ElapsedProblems {

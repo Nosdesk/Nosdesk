@@ -12824,3 +12824,9 @@ admin-rule-elapsed-summary-until-due-at-zero = Quand un ticket atteint la fin de
 admin-rule-elapsed-summary-repeat = Elle se répète { $duration } après chaque exécution tant que l'horloge tourne.
 # MT: pending native review (fr-FR)
 admin-rule-preview-elapsed-note = Ce décompte porte sur les tickets récents qui remplissent les conditions, ouverts ou fermés. L'horloge n'est pas vérifiée ici, et une condition sur les minutes d'attente compte comme remplie.
+# MT: pending native review (fr-FR)
+admin-rule-conditions-problem-countdown = L'horloge d'échéance fait un compte à rebours, donc les minutes d'attente n'atteignent jamais cette valeur. Supprimez la condition et réglez le délai sur le déclencheur.
+# MT: pending native review (fr-FR)
+admin-rule-conditions-problem-zero-always = « Au moins 0 » est toujours vrai. Choisissez un nombre supérieur à 0, ou supprimez la condition.
+# MT: pending native review (fr-FR)
+admin-rule-conditions-problem-zero-never = « Moins de 0 » n'est jamais vrai. Choisissez un nombre supérieur à 0.

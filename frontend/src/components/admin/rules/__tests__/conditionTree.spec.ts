@@ -153,6 +153,14 @@ describe('fields and operators', () => {
     expect(names('ticket_replied')).not.toContain('event.changed_fields')
   })
 
+  it("offers minutes waited to a time rule, but not on the due date clock's countdown", () => {
+    const names = (clock?: string) => fieldsFor('time_elapsed', clock).map((f) => f.name)
+    expect(names('awaiting_requester')).toContain('clock.minutes_since')
+    expect(names()).toContain('clock.minutes_since')
+    expect(names('until_due_at')).not.toContain('clock.minutes_since')
+    expect(names('until_due_at')).toContain('ticket.priority')
+  })
+
   it('leaves out the fields the server cannot read yet', () => {
     const names = CONDITION_FIELDS.map((f) => f.name)
     for (const gone of ['ticket.status', 'ticket.body', 'ticket.source_channel_id', 'ticket.organization_id']) {
@@ -180,6 +188,25 @@ describe('what a condition still needs', () => {
     expect(check('reply.kind', 'eq', 'agent')).toBe('admin-rule-conditions-problem-trigger')
     expect(check('reply.kind', 'eq', 'agent', 'ticket_replied')).toBeNull()
     expect(check('ticket.priority', 'contains', 'hi')).toBe('admin-rule-conditions-problem-op')
+  })
+
+  it('flags minutes waited on the due date clock, which counts down', () => {
+    const leaf = { kind: 'leaf', field: 'clock.minutes_since', op: 'gt', value: 60 } as never
+    expect(leafProblem(leaf, 'time_elapsed', 'until_due_at')).toBe('admin-rule-conditions-problem-countdown')
+    expect(leafProblem(leaf, 'time_elapsed', 'since_created')).toBeNull()
+    const root = addChild(emptyGroup(), [], leaf)
+    expect(treeComplete(root, 'time_elapsed', 'until_due_at')).toBe(false)
+    expect(treeComplete(root, 'time_elapsed', 'awaiting_requester')).toBe(true)
+  })
+
+  it('flags a check on 0 minutes that the server refuses as always or never true', () => {
+    const minutes = (op: string, value: number) => check('clock.minutes_since', op, value, 'time_elapsed')
+    expect(minutes('gte', 0)).toBe('admin-rule-conditions-problem-zero-always')
+    expect(minutes('lt', 0)).toBe('admin-rule-conditions-problem-zero-never')
+    expect(minutes('gt', 0)).toBeNull()
+    expect(minutes('lte', 0)).toBeNull()
+    expect(minutes('gte', 1)).toBeNull()
+    expect(minutes('lt', 1)).toBeNull()
   })
 
   it('counts an empty nested group as unfinished, but not an empty root', () => {

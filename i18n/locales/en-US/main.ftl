@@ -11180,3 +11180,6 @@ admin-rule-elapsed-summary-until-due-at = When a ticket is due in { $duration }.
 admin-rule-elapsed-summary-until-due-at-zero = When a ticket reaches the end of its due day.
 admin-rule-elapsed-summary-repeat = It repeats { $duration } after each run while the clock keeps running.
 admin-rule-preview-elapsed-note = This counts recent tickets the conditions match, open or closed. The clock isn't checked here, and a condition on minutes waited counts as met.
+admin-rule-conditions-problem-countdown = The due date clock counts down, so minutes waited never reach this. Remove the condition and set the time on the trigger.
+admin-rule-conditions-problem-zero-always = At least 0 always matches. Pick a number above 0, or remove the condition.
+admin-rule-conditions-problem-zero-never = Less than 0 never matches. Pick a number above 0.

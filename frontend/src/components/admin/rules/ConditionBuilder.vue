@@ -22,11 +22,14 @@ const props = withDefaults(
   defineProps<{
     modelValue: ConditionGroup
     triggerKind: RuleTriggerKind
+    /** A time-elapsed rule's clock, which decides whether it can check
+     *  minutes waited. */
+    clockName?: string
     disabled?: boolean
     /** Show what each unfinished condition still needs. */
     showProblems?: boolean
   }>(),
-  { disabled: false, showProblems: false },
+  { clockName: '', disabled: false, showProblems: false },
 )
 
 const emit = defineEmits<{
@@ -78,6 +81,7 @@ function fieldLabel(name: string): string {
 
 provide(CONDITION_BUILDER, {
   trigger: () => props.triggerKind,
+  clock: () => props.clockName,
   root: () => props.modelValue,
   edit: (next) => emit('update:modelValue', next),
   disabled: () => props.disabled,

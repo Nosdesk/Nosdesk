@@ -9,6 +9,7 @@ import {
   ELAPSED_CLOCKS,
   elapsedSummary,
   readTriggerConfig,
+  savedConfigIsCanonical,
   splitMinutes,
   triggerConfigFor,
   triggerProblem,
@@ -86,6 +87,18 @@ describe('time-elapsed trigger settings', () => {
     expect(fresh.repeat).toBe(false)
     fresh.repeat = true
     expect(triggerConfigFor('time_elapsed', fresh).repeat_every_minutes).toBe(1440)
+  })
+
+  it('tells a saved config in the shape it saves from one it would reshape', () => {
+    const canonical = (config: RuleTriggerConfig) => savedConfigIsCanonical('time_elapsed', config)
+    expect(canonical({ clock_name: 'since_created', minutes: 60, repeat_every_minutes: null })).toBe(true)
+    // Key order doesn't matter.
+    expect(canonical({ repeat_every_minutes: 120, minutes: 60, clock_name: 'since_created' })).toBe(true)
+    expect(canonical({ clock_name: 'since_created', minutes: 60 })).toBe(false)
+    expect(canonical({ clock_name: 'since_created', minutes: 60, repeat_every_minutes: 'often' } as never)).toBe(false)
+    expect(canonical({ clock_name: 'since_created', minutes: 60, repeat_every_minutes: null, reply_kind: 'any' })).toBe(false)
+    // Other triggers aren't reshaped here.
+    expect(savedConfigIsCanonical('ticket_replied', {})).toBe(true)
   })
 
   it('reads a clock it does not offer as no clock', () => {
