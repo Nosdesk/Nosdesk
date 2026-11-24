@@ -27,7 +27,10 @@ use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
 use backend::repository::{
     asset_groups, asset_record_types, assets as asset_repo, site_settings, workflow_states,
 };
-use backend::schema::{asset_disposals, asset_lifecycle_events, ticket_assets, tickets};
+use backend::schema::{
+    asset_disposals, asset_group_assignments, asset_lifecycle_events, asset_records, ticket_assets,
+    tickets,
+};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::run_in_workspace;
 
@@ -793,4 +796,107 @@ async fn a_token_that_cant_write_tickets_links_none() {
         call_scoped(&f, f.agent, "assets:write", Method::POST, &uri, Some(ask)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(read_asset(&f, old).status, "retired");
+}
+
+#[actix_web::test]
+async fn the_copy_keeps_the_new_assets_archived_group_memberships() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let old = asset(&f, "CAM-014");
+    let new = asset(&f, "CAM-031");
+    let studio = group(&f, "Studio cameras", &[old]);
+    let retired_group = group(&f, "Old fleet", &[new]);
+    in_ws(&f, |c| asset_groups::archive_group(c, retired_group));
+    let rid = record(&f, old, "replaced", Some(new)).await;
+
+    let (status, body) = carry(&f, old, rid, json!({ "copy_assignment": true })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["assignment"]["groups_added"],
+        json!([studio]),
+        "{body}"
+    );
+    let mut memberships: Vec<i32> = in_ws(&f, |c| {
+        asset_group_assignments::table
+            .filter(asset_group_assignments::asset_id.eq(new))
+            .select(asset_group_assignments::group_id)
+            .load(c)
+    });
+    memberships.sort_unstable();
+    let mut expected = vec![studio, retired_group];
+    expected.sort_unstable();
+    assert_eq!(
+        memberships, expected,
+        "the archived group's membership stays"
+    );
+}
+
+/// Move `asset` into repair through the status change, opening a repair
+/// record; that record's id.
+async fn into_repair(f: &Fixture, asset: i32) -> i32 {
+    let (status, body) = call(
+        f,
+        f.agent,
+        Method::POST,
+        &format!("/api/assets/{asset}/lifecycle"),
+        Some(json!({ "to_status": "in_repair", "record": { "summary": "Sent to Camera Clinic" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    body["metadata"]["record_id"].as_i64().expect("record id") as i32
+}
+
+fn completed_on(f: &Fixture, record: i32) -> Option<chrono::NaiveDate> {
+    in_ws(f, |c| {
+        asset_records::table
+            .find(record)
+            .select(asset_records::completed_on)
+            .first(c)
+    })
+}
+
+#[actix_web::test]
+async fn leaving_repair_completes_the_one_open_repair_record() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let old = asset(&f, "CAM-014");
+    let new = asset(&f, "CAM-031");
+    let open = into_repair(&f, old).await;
+    let rid = record(&f, old, "replaced", Some(new)).await;
+
+    let (status, body) = carry(&f, old, rid, json!({ "move_old_to": "retired" })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["old_asset"]["completed_record_id"], open, "{body}");
+    assert!(completed_on(&f, open).is_some());
+    assert_eq!(read_asset(&f, old).status, "retired");
+}
+
+#[actix_web::test]
+async fn leaving_repair_with_several_open_records_completes_none() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let old = asset(&f, "CAM-014");
+    let new = asset(&f, "CAM-031");
+    let first = into_repair(&f, old).await;
+    let (status, body) = call(
+        &f,
+        f.agent,
+        Method::POST,
+        &format!("/api/assets/{old}/records"),
+        Some(json!({ "record_type": "repair", "summary": "Second fault", "occurred_on": "2025-03-04" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let second = body["record"]["id"].as_i64().expect("record id") as i32;
+    let rid = record(&f, old, "replaced", Some(new)).await;
+
+    let (status, body) = carry(&f, old, rid, json!({ "move_old_to": "in_stock" })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["old_asset"]["completed_record_id"].is_null(), "{body}");
+    assert!(completed_on(&f, first).is_none());
+    assert!(completed_on(&f, second).is_none());
+    assert_eq!(read_asset(&f, old).status, "in_stock");
 }

@@ -284,6 +284,75 @@ pub fn set_groups_for_asset(
     })
 }
 
+/// Add an asset to `group_ids`, keeping every membership it has, archived
+/// groups' included. Only live groups of this workspace are added. Emits one
+/// `asset.groups_changed` when anything was added. Returns the ids added,
+/// sorted.
+pub fn add_groups_to_asset(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    group_ids: &[i32],
+    actor_uuid: Option<Uuid>,
+) -> QueryResult<Vec<i32>> {
+    conn.transaction::<Vec<i32>, diesel::result::Error, _>(|conn| {
+        let _asset: Asset = assets::table.find(asset_id).first(conn)?;
+        let live: Vec<i32> = asset_groups::table
+            .filter(asset_groups::id.eq_any(group_ids))
+            .filter(asset_groups::archived_at.is_null())
+            .select(asset_groups::id)
+            .load(conn)?;
+        let new_rows: Vec<NewAssetGroupAssignment> = live
+            .iter()
+            .map(|&group_id| NewAssetGroupAssignment {
+                group_id,
+                asset_id,
+                added_by: actor_uuid,
+            })
+            .collect();
+        let mut added: Vec<i32> = diesel::insert_into(asset_group_assignments::table)
+            .values(&new_rows)
+            .on_conflict((
+                asset_group_assignments::group_id,
+                asset_group_assignments::asset_id,
+            ))
+            .do_nothing()
+            .returning(asset_group_assignments::group_id)
+            .get_results(conn)?;
+        if added.is_empty() {
+            return Ok(added);
+        }
+        added.sort_unstable();
+        // The asset's live groups after the add, as a replace reports them.
+        let mut current: Vec<i32> = asset_group_assignments::table
+            .inner_join(
+                asset_groups::table.on(asset_groups::id.eq(asset_group_assignments::group_id)),
+            )
+            .filter(asset_group_assignments::asset_id.eq(asset_id))
+            .filter(asset_groups::archived_at.is_null())
+            .select(asset_group_assignments::group_id)
+            .load(conn)?;
+        current.sort_unstable();
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Asset,
+                aggregate_id: asset_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "asset.groups_changed",
+                data: json!({
+                    "id": asset_id,
+                    "group_ids": current,
+                    "added": added,
+                    "removed": [],
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(added)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

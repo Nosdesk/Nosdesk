@@ -7,9 +7,10 @@
 //! - the old asset's open tickets are linked to the new one as well
 //!   ([`tickets::add_device_to_ticket`]); the old links stay;
 //! - its holder, managed by, location and groups are copied to the new one
-//!   ([`assets::update_device`] and [`asset_groups::set_groups_for_asset`]);
+//!   ([`assets::update_device`] and [`asset_groups::add_groups_to_asset`]);
 //! - the old asset moves to retired, in stock or disposed
-//!   ([`asset_lifecycle::transition`]).
+//!   ([`asset_lifecycle::transition`]), completing the one open record of
+//!   the stay it leaves.
 //!
 //! Nothing runs unless asked. Everything asked runs in one transaction, so
 //! a refusal by any part leaves every part undone. A retry adds no second
@@ -18,7 +19,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use diesel::prelude::*;
-use diesel::result::Error;
+use diesel::result::{DatabaseErrorKind, Error};
 use serde::Serialize;
 
 use crate::db::DbConnection;
@@ -26,9 +27,13 @@ use crate::models::{
     Asset, AssetLifecycleEvent, AssetRecord, AssetStatus, AssetUpdate, OutcomeCategory,
     WorkflowStateCategory,
 };
-use crate::repository::asset_lifecycle::{self, DisposalInput, TransitionError, TransitionInput};
+use crate::repository::asset_lifecycle::{
+    self, CompleteRecordInput, DisposalInput, TransitionError, TransitionInput,
+};
 use crate::repository::ticket_visibility::{self, VisibilityContext};
-use crate::repository::{asset_groups, asset_record_types as types_repo, assets, tickets};
+use crate::repository::{
+    asset_groups, asset_record_types as types_repo, asset_records as records_repo, assets, tickets,
+};
 use crate::schema::{asset_records, ticket_assets, tickets as tickets_table, workflow_states};
 
 /// The statuses the old asset may move to.
@@ -81,6 +86,8 @@ pub struct OldAssetMoved {
     /// The lifecycle event the move wrote; `None` when the asset was
     /// already in the status.
     pub event_id: Option<i32>,
+    /// The open record of the stay the move ended, completed with it.
+    pub completed_record_id: Option<i32>,
 }
 
 /// What a carry-over did, a part for each one asked for.
@@ -173,7 +180,7 @@ pub fn carry_over(
             None
         };
         let old_asset = match input.move_old_to {
-            Some(m) => Some(move_old(conn, &old, m, actor)?),
+            Some(m) => Some(move_old(conn, &old, record.id, m, actor)?),
             None => None,
         };
 
@@ -235,9 +242,16 @@ fn link_open_tickets(
     for ticket_id in open {
         if on_new.contains(&ticket_id) {
             carried.already_linked.push(ticket_id);
-        } else {
-            tickets::add_device_to_ticket(conn, ticket_id, new_id)?;
-            carried.linked.push(ticket_id);
+            continue;
+        }
+        // Linked from elsewhere since the read: the link's own savepoint
+        // rolls back, and the link is there all the same.
+        match tickets::add_device_to_ticket(conn, ticket_id, new_id) {
+            Ok(_) => carried.linked.push(ticket_id),
+            Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                carried.already_linked.push(ticket_id)
+            }
+            Err(e) => return Err(e),
         }
     }
     Ok(carried)
@@ -292,11 +306,14 @@ fn copy_assignment(
         .into_iter()
         .map(|g| g.id)
         .collect();
-    let groups_added: Vec<i32> = old_groups.difference(&new_groups).copied().collect();
-    if !groups_added.is_empty() {
-        let all: Vec<i32> = new_groups.union(&old_groups).copied().collect();
-        asset_groups::set_groups_for_asset(conn, new.id, &all, actor)?;
-    }
+    // Added only: the new asset keeps every membership it has, archived
+    // groups' included.
+    let missing: Vec<i32> = old_groups.difference(&new_groups).copied().collect();
+    let groups_added = if missing.is_empty() {
+        missing
+    } else {
+        asset_groups::add_groups_to_asset(conn, new.id, &missing, actor)?
+    };
 
     Ok(AssignmentCopied {
         copied,
@@ -306,10 +323,14 @@ fn copy_assignment(
 }
 
 /// Move the old asset through the normal transition. One already in the
-/// status stays there.
+/// status stays there. Leaving a status whose stay has one open record
+/// (other than the replacing one) completes it, as the status change
+/// offers by default; with several open, which one ended is a person's
+/// call, so all stay open.
 fn move_old(
     conn: &mut DbConnection,
     old: &Asset,
+    replacing_record: i32,
     to: MoveOld,
     actor: Option<uuid::Uuid>,
 ) -> Result<OldAssetMoved, ReplacementError> {
@@ -318,8 +339,18 @@ fn move_old(
         return Ok(OldAssetMoved {
             status,
             event_id: None,
+            completed_record_id: None,
         });
     }
+    let open: Vec<i32> = records_repo::open_for_leaving(conn, old.id, &old.status)?
+        .into_iter()
+        .map(|r| r.id)
+        .filter(|id| *id != replacing_record)
+        .collect();
+    let completing = match open.as_slice() {
+        [only] => Some(*only),
+        _ => None,
+    };
     let (_, event): (Asset, AssetLifecycleEvent) = asset_lifecycle::transition(
         conn,
         TransitionInput {
@@ -331,11 +362,15 @@ fn move_old(
             actor_uuid: actor,
             disposal: to.disposal,
             record: None,
-            complete_record: None,
+            complete_record: completing.map(|id| CompleteRecordInput {
+                record_id: Some(id),
+                ..Default::default()
+            }),
         },
     )?;
     Ok(OldAssetMoved {
         status,
         event_id: Some(event.id),
+        completed_record_id: completing,
     })
 }
