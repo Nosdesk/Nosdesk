@@ -68,6 +68,9 @@ pub struct SearchService {
     /// doc). Users are a global identity, so the membership set has to
     /// be looked up at index time rather than read off the model.
     pool: Pool,
+    /// The incremental indexing queue (`indexing_tasks`), started by the
+    /// first write that needs it.
+    queue: indexing_tasks::Queue,
 }
 
 /// Clears a flag when dropped.
@@ -138,6 +141,7 @@ impl SearchService {
             is_rebuilding: AtomicBool::new(false),
             reindex_slots: workspace_reindex::ReindexSlots::default(),
             pool: pool.clone(),
+            queue: indexing_tasks::Queue::default(),
         };
 
         // Auto-populate if the index is empty. The indexer reads

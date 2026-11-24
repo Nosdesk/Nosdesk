@@ -77,19 +77,20 @@ fn parse_query(raw: &str) -> Result<ListQuery, String> {
             .parse::<i32>()
             .map_err(|_| format!("{key} must be an id"))
     };
-    for (key, value) in url::form_urlencoded::parse(raw.as_bytes()) {
-        let value = value.trim();
+    for (key, raw_value) in url::form_urlencoded::parse(raw.as_bytes()) {
+        let value = raw_value.trim();
         if value.is_empty() {
             continue;
         }
         match key.as_ref() {
+            // As sent: Postgres folds vendors on both sides alike.
+            "vendor" => out.vendors.push(raw_value.into_owned()),
             "q" => out.q = Some(value.to_string()),
             "type" => out.types.push(value.to_string()),
             "status" => match value {
                 "open" | "completed" => out.status.push(value.to_string()),
                 _ => return Err("status must be open or completed".into()),
             },
-            "vendor" => out.vendors.push(value.to_string()),
             "asset" => out.assets.push(id("asset", value)?),
             "record" => out.records.push(id("record", value)?),
             "from" => out.from = Some(day("from", value)?),
@@ -393,10 +394,10 @@ mod tests {
 
     #[test]
     fn filters_repeat_and_blank_ones_are_skipped() {
-        let q = parse_query("type=repair&type=7&vendor=Acme%2C+Pty&vendor=&asset=3&status=open")
+        let q = parse_query("type=repair&type=7&vendor=Acme%2C+Pty+&vendor=&asset=3&status=open")
             .expect("reads");
         assert_eq!(q.types, vec!["repair", "7"]);
-        assert_eq!(q.vendors, vec!["Acme, Pty"]);
+        assert_eq!(q.vendors, vec!["Acme, Pty "], "vendors stay as sent");
         assert_eq!(q.assets, vec![3]);
         assert_eq!(q.status, vec!["open"]);
         assert!(q.descending);

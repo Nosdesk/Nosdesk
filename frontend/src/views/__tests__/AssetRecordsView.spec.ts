@@ -24,7 +24,15 @@ vi.mock('@/services/activeWorkspace', async (importOriginal) => ({
   activeWorkspaceSlug: () => null,
 }))
 
+const sync = vi.hoisted(() => ({ handler: null as null | ((actions: unknown[]) => void) }))
+vi.mock('@/composables/useSyncActions', () => ({
+  useSyncActions: (handler: (actions: unknown[]) => void) => {
+    sync.handler = handler
+  },
+}))
+
 import AssetRecordsView from '@/views/AssetRecordsView.vue'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 
 function row(id: number, vendor: string | null, group?: string): AssetRecordListRow {
   return {
@@ -179,5 +187,41 @@ describe('AssetRecordsView, when the query fails', () => {
     await mountAt('/assets/records?vendor=Dell')
     expect(wrapper!.text()).toContain('from must not be after to')
     expect(wrapper!.find('[data-records-summary]').exists()).toBe(false)
+  })
+})
+
+describe('AssetRecordsView, once a list is loaded', () => {
+  it('keeps its rows when Show more fails, and says so in a toast', async () => {
+    records.listAll.mockResolvedValueOnce(list()).mockRejectedValueOnce(new Error('Bad gateway'))
+    await mountAt('/assets/records')
+    const more = wrapper!.findAll('button').find((b) => b.text().includes('asset-records-show-more'))
+    await more!.trigger('click')
+    await flushPromises()
+
+    expect(records.listAll).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100 }))
+    expect(wrapper!.find('[data-records-summary]').exists()).toBe(true)
+    expect(wrapper!.text()).toContain('Work 2')
+    expect(useToastStore().toasts.some((t) => t.type === 'error')).toBe(true)
+  })
+
+  it('refetches for a change to an asset it names, not for any asset', async () => {
+    vi.useFakeTimers()
+    try {
+      records.listAll.mockResolvedValue(list())
+      await mountAt('/assets/records')
+      const calls = records.listAll.mock.calls.length
+
+      sync.handler!([{ aggregate: 'asset', aggregate_id: '999', data: {} }])
+      await vi.runAllTimersAsync()
+      await flushPromises()
+      expect(records.listAll.mock.calls.length).toBe(calls)
+
+      sync.handler!([{ aggregate: 'asset', aggregate_id: '7', data: {} }])
+      await vi.runAllTimersAsync()
+      await flushPromises()
+      expect(records.listAll.mock.calls.length).toBeGreaterThan(calls)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -114,12 +114,23 @@ const loadingMore = computed(() => listQuery.asyncStatus.value === 'loading' && 
  *  chrome renders and the body waits. */
 const firstLoad = computed(() => listQuery.data.value === undefined || facetsQuery.data.value === undefined)
 const hasAny = computed(() => (facetsQuery.data.value?.total ?? 0) > 0)
-/** The current query failed (a refused filter, say): say so rather than
- *  keep the last list under the new pills. */
+/** The current query has nothing of its own to show because it failed (a
+ *  refused filter, say): say so rather than keep the last list under the
+ *  new pills. A failed Show more or refetch keeps its list and says so in a
+ *  toast instead. */
 const loadError = computed(() =>
-  listQuery.status.value === 'error' && listQuery.error.value
+  listQuery.status.value === 'error' &&
+  listQuery.error.value &&
+  (listQuery.data.value === undefined || listQuery.isPlaceholderData.value)
     ? extractErrorMessage(listQuery.error.value, t('asset-records-load-failed'))
     : null,
+)
+watch(
+  () => listQuery.error.value,
+  (error) => {
+    if (!error || listQuery.data.value === undefined || listQuery.isPlaceholderData.value) return
+    toasts.error(extractErrorMessage(error, t('asset-records-load-failed')))
+  },
 )
 
 /** The workspace currency, which totals put last (on the Cost edge). */
@@ -131,17 +142,32 @@ const costLabel = (cost: AssetRecordListRow['cost']) => (cost ? formatMoney(cost
 
 async function loadMore() {
   if (listQuery.asyncStatus.value === 'loading') return
-  await listQuery.loadNextPage()
+  // A failure lands in the query's error, which the toast above reports.
+  await listQuery.loadNextPage().catch(() => undefined)
 }
 
 // Records written anywhere (the asset page, an import, a rule) refetch
-// the list and the filters' choices, and so does an asset renamed or
-// retagged, which the rows name.
+// the list and the filters' choices, and so does a change to an asset the
+// rows or the asset filter name (renamed, retagged). Other assets' changes,
+// an MDM sync's bursts among them, leave the list alone.
 const cache = useWorkspaceQueryCache()
-useSyncActions(() => void cache.invalidateQueries({ key: [...assetRecordKeys.list] }), {
-  aggregates: ['asset_record', 'asset'],
-  debounceMs: 250,
-})
+function namesAsset(id: string): boolean {
+  return (
+    records.value.some((r) => String(r.asset.id) === id) ||
+    (facetsQuery.data.value?.assets ?? []).some((a) => String(a.asset.id) === id)
+  )
+}
+useSyncActions(
+  (actions) => {
+    if (actions.some((a) => a.aggregate === 'asset_record' || namesAsset(a.aggregate_id))) {
+      void cache.invalidateQueries({ key: [...assetRecordKeys.list] })
+    }
+  },
+  {
+    aggregates: ['asset_record', 'asset'],
+    debounceMs: 250,
+  },
+)
 
 // --- Grouping ---------------------------------------------------------
 
