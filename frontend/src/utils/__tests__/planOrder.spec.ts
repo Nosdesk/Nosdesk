@@ -80,10 +80,10 @@ describe('the order inside a day', () => {
 describe("the agenda's sections", () => {
   const TODAY = DAY
   const cards = [
-    // Due before today: Overdue, whatever its plan day.
+    // Due before today and planned before today: Overdue.
     job(1, { due_date: '2026-11-20T00:00:00' }, 'low'),
     job(2, { due_date: '2026-11-22T00:00:00', due_time: '09:00:00' }),
-    job(3, { start_date: TODAY + 'T00:00:00', start_time: '08:00:00', due_date: '2026-11-23T00:00:00' }),
+    job(3, { start_date: '2026-11-19T00:00:00', start_time: '08:00:00', due_date: '2026-11-23T00:00:00' }),
     // Today.
     job(4, { due_time: '10:00:00' }),
     job(5),
@@ -94,6 +94,11 @@ describe("the agenda's sections", () => {
     // No date.
     job(9, { due_date: null }, 'high'),
     job(10, { due_date: null, rank: 'V' }),
+    // Planned for today with a passed deadline: today's list, not Overdue.
+    job(13, { start_date: TODAY + 'T00:00:00', start_time: '09:00:00', due_date: '2026-11-21T00:00:00' }),
+    job(14, { start_date: TODAY + 'T00:00:00', due_date: '2026-11-21T00:00:00' }, 'low'),
+    // Planned for a later day with a passed deadline: that day's list.
+    job(15, { start_date: '2026-11-25T00:00:00', due_date: '2026-11-21T00:00:00' }),
     // Another day.
     job(11, { due_date: '2026-11-25T00:00:00' }),
     job(12, { start_date: '2026-11-25T00:00:00', due_date: '2026-11-30T00:00:00' }),
@@ -102,25 +107,28 @@ describe("the agenda's sections", () => {
   it('shows today with Overdue above and No date below, each job once', () => {
     const plan = agendaFor(cards, TODAY, TODAY)
     expect(ids(plan.overdue)).toEqual([1, 2, 3])
-    expect(ids(plan.booked)).toEqual([4])
-    expect(ids(plan.anyTime)).toEqual([8, 6, 5, 7])
+    expect(ids(plan.booked)).toEqual([13, 4])
+    expect(ids(plan.anyTime)).toEqual([8, 6, 14, 5, 7])
     expect(ids(plan.undated)).toEqual([10, 9])
     const all = [...plan.overdue, ...plan.booked, ...plan.anyTime, ...plan.undated]
     expect(new Set(ids(all)).size).toBe(all.length)
   })
 
-  it('counts a job as overdue by its due day, not its plan day', () => {
+  it('counts a job as overdue only when its deadline and its plan day have both passed', () => {
     const plan = agendaFor(cards, TODAY, TODAY)
     expect(ids(plan.overdue)).not.toContain(6)
     expect(ids(plan.overdue)).not.toContain(7)
-    expect(ids(plan.booked)).not.toContain(3)
+    expect(ids(plan.overdue)).not.toContain(13)
+    expect(ids(plan.overdue)).not.toContain(14)
+    expect(ids(plan.overdue)).not.toContain(15)
+    expect(separateDueDay(cards.find((c) => c.id === 14)!)).toBe('2026-11-21')
   })
 
   it('shows only the day itself on any other day', () => {
     const tomorrow = agendaFor(cards, '2026-11-25', TODAY)
     expect(tomorrow.overdue).toEqual([])
     expect(tomorrow.undated).toEqual([])
-    expect(ids([...tomorrow.booked, ...tomorrow.anyTime])).toEqual([11, 12])
+    expect(ids([...tomorrow.booked, ...tomorrow.anyTime])).toEqual([11, 12, 15])
     const past = agendaFor(cards, '2026-11-22', TODAY)
     expect(past.overdue).toEqual([])
     expect(ids(past.booked)).toEqual([2])

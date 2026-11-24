@@ -99,8 +99,8 @@ const moveKeys = computed(() =>
   !props.fixed && !time.value ? 'Alt+Shift+ArrowUp Alt+Shift+ArrowDown' : undefined,
 )
 
+/** Keys on the title, the row's open control. */
 function onKeydown(event: KeyboardEvent): void {
-  if (event.target !== event.currentTarget) return
   if (event.key === 'Enter' || event.key === ' ') {
     // The row's own: the list's keys stand down on a handled event.
     event.preventDefault()
@@ -116,19 +116,14 @@ function onKeydown(event: KeyboardEvent): void {
 <template>
   <li
     :data-row="card.id"
-    tabindex="0"
-    role="button"
-    :aria-current="selected ? 'true' : undefined"
-    :aria-keyshortcuts="moveKeys"
-    class="plan-row plan-row-hold group relative flex items-start gap-3 border-b border-subtle/40 px-4 py-2.5 cursor-pointer transition-colors focus:outline-none focus-visible:bg-surface-hover"
+    class="plan-row plan-row-hold group relative flex items-start gap-3 border-b border-subtle/40 px-4 py-2.5 cursor-pointer transition-colors has-[[data-row-open]:focus-visible]:bg-surface-hover"
     :class="[
       selected ? 'bg-accent/5 hover:bg-accent/10' : 'hover:bg-surface-hover',
       lifted && 'opacity-40',
     ]"
     @pointerdown="!fixed && emit('row-down', $event)"
-    @click="onClick"
+    @click="fixed && emit('open')"
     @contextmenu.prevent="emit('menu', $event)"
-    @keydown="onKeydown"
   >
     <!-- Gutter: the time of a booked job, the grip of any other. -->
     <div class="flex h-5 w-14 shrink-0 items-center">
@@ -170,10 +165,20 @@ function onKeydown(event: KeyboardEvent): void {
          details are one fixed-width group, so beside the title they form
          columns down the list; under it they start on the title's line. -->
     <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-4 gap-y-0.5">
-      <span
-        class="min-w-0 flex-1 basis-64 truncate text-sm leading-5 font-medium text-primary"
+      <!-- The title is the row's open control: it takes the focus, the
+           keys and a screen reader's click. A pointer's press on it still
+           drags the row (`data-row-press`). -->
+      <button
+        type="button"
+        data-row-open
+        data-row-press
+        class="min-w-0 flex-1 basis-64 truncate text-left text-sm leading-5 font-medium text-primary focus:outline-none"
         :title="card.title"
-      >{{ card.title }}</span>
+        :aria-current="selected ? 'true' : undefined"
+        :aria-keyshortcuts="moveKeys"
+        @click.stop="onClick"
+        @keydown="onKeydown"
+      >{{ card.title }}</button>
       <span class="flex min-w-0 shrink grow-0 basis-56 items-baseline gap-3 text-xs leading-5 text-tertiary">
         <span class="w-11 shrink-0 font-mono text-2xs tabular-nums">#{{ card.number }}</span>
         <span class="min-w-0 flex-1 truncate">{{ requester }}</span>

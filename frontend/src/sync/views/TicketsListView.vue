@@ -831,11 +831,11 @@ function onKey(e: KeyboardEvent): void {
   // is actually visible.
   // A key a row already handled (the agenda's Enter and Alt+Shift+Arrow)
   // is not also a selection move, and a key on a control (a button, a
-  // link, a menu item) is that control's. A focused agenda row is a
-  // button that still takes the arrows.
+  // link, a menu item) is that control's. An agenda row's title is its
+  // open control and still takes the arrows.
   if (!previewShowing.value || inField || e.defaultPrevented) return
   const control = t?.closest('button, a, select, [role="button"], [role="menuitem"]')
-  if (control && !control.hasAttribute('data-row')) return
+  if (control && !control.hasAttribute('data-row-open')) return
   const agenda = agendaActive.value
   if (e.key === 'ArrowDown' || e.key === 'j') {
     e.preventDefault()

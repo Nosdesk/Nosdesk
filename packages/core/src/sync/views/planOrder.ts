@@ -87,7 +87,8 @@ export interface AgendaPlan extends DayPlan {
  * What the agenda shows for `day`. Every day shows its own Booked and
  * Any time jobs. Today also keeps the open work that would otherwise
  * drop out of sight, as My day's due buckets did: Overdue (a due day
- * before today, in due order) above the day, and No date below it. A job
+ * before today, on a job not planned for today or later; in due order)
+ * above the day, and No date below it. A job
  * planned for an earlier day that isn't overdue yet (started Monday, due
  * Friday) is today's work: it joins Any time, its old time left behind.
  * Each job lands in one section. `cards` is the view's set, already
@@ -102,7 +103,9 @@ export function agendaFor(cards: readonly CardData[], day: Day, today: Day): Age
   for (const card of cards) {
     const due = dueDay(card)
     const plan = planDay(card)
-    if (due != null && due < today) overdue.push(card)
+    // Planned for today or later, a job is on that day's list even past
+    // its deadline (its row says "due Mon" in the danger color).
+    if (due != null && due < today && (plan == null || plan < today)) overdue.push(card)
     else if (plan == null) undated.push(card)
     else if (plan === today) (planTime(card) != null ? booked : anyTime).push(card)
     else if (plan < today) anyTime.push(card)

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  bookPatch,
   formatWallTime,
   loadHours,
   loadMinutes,
@@ -24,6 +25,26 @@ describe('the plan time', () => {
     expect(planTime(both)).toBeNull()
     expect(planTimePatch(both, '09:00:00')).toEqual({ start_time: '09:00:00' })
     expect(planTimePatch(due, null)).toEqual({ due_time: null })
+  })
+
+  it('books a job on its own day with the time alone', () => {
+    const due = { due_date: '2026-11-24T00:00:00' }
+    expect(bookPatch(due, '2026-11-24', '09:00:00')).toEqual({ due_time: '09:00:00' })
+    const started = { start_date: '2026-11-24T00:00:00', due_date: '2026-11-27T00:00:00' }
+    expect(bookPatch(started, '2026-11-24', '09:00:00')).toEqual({ start_time: '09:00:00' })
+  })
+
+  it('books a job carried in from an earlier day by moving the date that supplies its day', () => {
+    const carried = {
+      start_date: '2026-11-20T00:00:00',
+      start_time: '08:00:00',
+      due_date: '2026-11-27T00:00:00',
+      rank: 'V',
+    }
+    const patch = bookPatch(carried, '2026-11-24', '10:30:00')
+    expect(patch).toEqual({ start_date: '2026-11-24T00:00:00', start_time: '10:30:00' })
+    // The server clears the rank on the move; the stores mirror that.
+    expect(planPatchEffects(carried, patch)).toEqual({ rank: null })
   })
 
   it('converts between a wall-clock time and minutes, clamped to the day', () => {

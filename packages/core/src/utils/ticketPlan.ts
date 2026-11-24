@@ -46,6 +46,20 @@ export function planTimePatch(
   return planField(ticket) === 'start' ? { start_time: time } : { due_time: time }
 }
 
+/** The patch that books a job on `day` at `time`. On its own plan day
+ *  that is the time alone; from another day (a job carried in from an
+ *  earlier one) it also moves the date that supplies the plan day, so
+ *  the time lands on `day`. */
+export function bookPatch(
+  ticket: TicketPlanFields,
+  day: string,
+  time: string,
+): TicketPlanFields {
+  if (planDay(ticket) === day) return planTimePatch(ticket, time)
+  const date = `${day}T00:00:00`
+  return planField(ticket) === 'start' ? { start_date: date, start_time: time } : { due_date: date, due_time: time }
+}
+
 /** `HH:MM:SS` or `HH:MM` to minutes after midnight. */
 export function toMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number)

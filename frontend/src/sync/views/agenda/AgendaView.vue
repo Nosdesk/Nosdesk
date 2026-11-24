@@ -33,6 +33,7 @@ import TimePopover from '@/components/planning/TimePopover.vue'
 import type { PopoverAnchor } from '@/composables/popoverAnchor'
 import { daysBetweenDays, formatDay, planDay, type Day } from '@nosdesk/core/utils/ticketDates'
 import {
+  bookPatch,
   loadHours,
   loadMinutes,
   planTime,
@@ -162,9 +163,10 @@ function onDrop(drop: RowDrop): void {
     return
   }
   // Into Booked: the job takes the time the slot suggests, and the time
-  // field opens on it to confirm or change.
+  // field opens on it to confirm or change. A job carried in from an
+  // earlier day moves onto this one with it, in the same write.
   const others = props.plan.booked.filter((c) => c.id !== drop.id)
-  setTime(drop.id, `${prefillTime(others, drop.slot, card)}:00`)
+  emit('patch', drop.id, bookPatch(card, day.value, `${prefillTime(others, drop.slot, card)}:00`))
   void nextTick(() => (timeFor.value = drop.id))
 }
 
@@ -180,7 +182,7 @@ function moveBy(id: number, by: -1 | 1): void {
   const slot = index + by
   if (slot < 0 || slot >= props.plan.anyTime.length) return
   place(id, slot)
-  void nextTick(() => root.value?.querySelector<HTMLElement>(`[data-row="${id}"]`)?.focus())
+  void nextTick(() => root.value?.querySelector<HTMLElement>(`[data-row="${id}"] [data-row-open]`)?.focus())
 }
 
 const dragged = computed(() => (reorder.draggedId.value != null ? byId(reorder.draggedId.value) : undefined))
@@ -279,7 +281,7 @@ function onMenuSelect(action: string): void {
 
       <section v-if="plan.overdue.length > 0" data-section="overdue" :aria-label="$t('tickets-due-overdue')">
         <h3 class="px-4 pt-3 pb-1.5 text-xs font-medium text-tertiary">{{ $t('tickets-due-overdue') }}</h3>
-        <ul role="presentation" class="flex flex-col border-t border-subtle/40">
+        <ul class="flex flex-col border-t border-subtle/40">
           <AgendaRow
             v-for="card in plan.overdue"
             :key="card.id"
@@ -303,7 +305,7 @@ function onMenuSelect(action: string): void {
       <template v-else>
         <section data-lane="booked" :aria-label="$t('plan-section-booked')">
           <h3 class="px-4 pt-3 pb-1.5 text-xs font-medium text-tertiary">{{ $t('plan-section-booked') }}</h3>
-          <ul role="presentation" class="flex flex-col border-t border-subtle/40">
+          <ul class="flex flex-col border-t border-subtle/40">
             <AgendaRow
               v-for="card in plan.booked"
               :key="card.id"
@@ -324,7 +326,7 @@ function onMenuSelect(action: string): void {
 
         <section data-lane="any" :aria-label="$t('plan-section-any-time')">
           <h3 class="px-4 pt-4 pb-1.5 text-xs font-medium text-tertiary">{{ $t('plan-section-any-time') }}</h3>
-          <ul role="presentation" class="flex flex-col border-t border-subtle/40">
+          <ul class="flex flex-col border-t border-subtle/40">
             <template v-for="card in plan.anyTime" :key="card.id">
               <li
                 v-if="card.id === firstUnplacedId"
@@ -352,7 +354,7 @@ function onMenuSelect(action: string): void {
 
       <section v-if="plan.undated.length > 0" data-section="undated" :aria-label="$t('tickets-due-none')">
         <h3 class="px-4 pt-4 pb-1.5 text-xs font-medium text-tertiary">{{ $t('tickets-due-none') }}</h3>
-        <ul role="presentation" class="flex flex-col border-t border-subtle/40">
+        <ul class="flex flex-col border-t border-subtle/40">
           <AgendaRow
             v-for="card in plan.undated"
             :key="card.id"
