@@ -52,7 +52,8 @@ useSyncActions(
       void invalidateLoans();
     }
   },
-  { aggregates: ['asset_loan'], debounceMs: 250 },
+  // A status change moves the "since" date; a loan moves both.
+  { aggregates: ['asset_loan', 'asset_lifecycle_event'], debounceMs: 250 },
 );
 
 // The newest status change says since when the asset has had its current

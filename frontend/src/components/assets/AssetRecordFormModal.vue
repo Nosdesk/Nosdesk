@@ -360,9 +360,9 @@ const derived = computed<{ source: 'loan' | 'current' | 'none'; text: string }>(
 
 // --- Options ----------------------------------------------------------
 
-/** People a picker offers: the first page by name, with the one already
+/** People a picker offers: the first page by name (the server's largest), with the one already
  *  chosen kept even when it falls outside that page. */
-const PEOPLE_PAGE = 200
+const PEOPLE_PAGE = 100
 const techniciansQuery = useWorkspaceQuery({
   key: ['asset-record-form', 'people', 'assignee'],
   query: () => fetchEligibleUsers('assignee', '', PEOPLE_PAGE),
@@ -397,7 +397,7 @@ const ticketOptions = computed(() => {
 
 /** Assets a replacement can point at: the first page by name, this one
  *  left out. */
-const ASSETS_PAGE = 200
+const ASSETS_PAGE = 100
 const replacementsQuery = useWorkspaceQuery({
   key: () => ['asset-record-form', 'replacements', props.asset.id],
   query: () => getPaginatedAssetsExcluding({ page: 1, pageSize: ASSETS_PAGE, excludeIds: [props.asset.id] }),

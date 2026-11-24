@@ -13,6 +13,8 @@ import type { AssetLifecycleEvent, AssetLoan } from '@nosdesk/core/types/asset'
 const api = vi.hoisted(() => ({
   loans: [] as AssetLoan[],
   events: [] as AssetLifecycleEvent[],
+  eventReads: 0,
+  sync: null as null | { handler: (actions: unknown[]) => void; aggregates?: string[] },
 }))
 vi.mock('@nosdesk/core/services/assetLoanService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@nosdesk/core/services/assetLoanService')>()
@@ -20,9 +22,21 @@ vi.mock('@nosdesk/core/services/assetLoanService', async (importOriginal) => {
 })
 vi.mock('@nosdesk/core/services/assetLifecycleService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@nosdesk/core/services/assetLifecycleService')>()
-  return { ...actual, assetLifecycleService: { list: async () => api.events } }
+  return {
+    ...actual,
+    assetLifecycleService: {
+      list: async () => {
+        api.eventReads += 1
+        return api.events
+      },
+    },
+  }
 })
-vi.mock('@/composables/useSyncActions', () => ({ useSyncActions: () => {} }))
+vi.mock('@/composables/useSyncActions', () => ({
+  useSyncActions: (handler: (actions: unknown[]) => void, options: { aggregates?: string[] }) => {
+    api.sync = { handler, aggregates: options.aggregates }
+  },
+}))
 vi.mock('@/composables/useUsersDirectory', () => ({
   useUsersDirectory: () => ({ getUserHandle: () => ({ user: { value: { name: 'Ada' } } }) }),
 }))
@@ -44,6 +58,8 @@ afterEach(() => {
   wrapper = null
   api.loans = []
   api.events = []
+  api.eventReads = 0
+  api.sync = null
 })
 
 async function mountHeader(props: { status: string; canEdit?: boolean }) {
@@ -107,6 +123,18 @@ describe('AssetStateHeader', () => {
     ]
     const w = await mountHeader({ status: 'in_repair' })
     expect(w.text()).toContain('asset-state-since')
+  })
+
+  it('reads the status changes again when one lands for this asset', async () => {
+    await mountHeader({ status: 'in_service' })
+    expect(api.sync?.aggregates).toContain('asset_lifecycle_event')
+    const before = api.eventReads
+    api.sync?.handler([{ aggregate: 'asset_lifecycle_event', data: { asset_id: 8 } }])
+    await flushPromises()
+    expect(api.eventReads).toBe(before)
+    api.sync?.handler([{ aggregate: 'asset_lifecycle_event', data: { asset_id: 7 } }])
+    await flushPromises()
+    expect(api.eventReads).toBe(before + 1)
   })
 
   it('shows the state without actions to someone who cannot edit', async () => {
