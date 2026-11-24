@@ -113,6 +113,9 @@ describe('useRuleStepText', () => {
       'Opened no new records',
     )
     expect(done({ kind: 'open_asset_record', asset_ids: [4, 5] })).toBe('Opened 2 records')
+    expect(done({ kind: 'open_asset_record', asset_ids: [], replacement_asset_ids: [6] })).toBe(
+      'Opened no new records',
+    )
     expect(done({ kind: 'complete_asset_records', completed_record_ids: [], created_asset_ids: [] })).toBe(
       'Found no open records to complete',
     )

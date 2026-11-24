@@ -17,12 +17,17 @@ import FormInput from '@/components/common/FormInput.vue';
 import { catalogueOutcomeName, recordTypeName } from '@/components/admin/assetRecordTypes/recordTypeForm';
 import type { AssetRecordType } from '@nosdesk/core/types/asset';
 
-const props = defineProps<{
-  kind: 'open_asset_record' | 'complete_asset_records';
-  config: Record<string, unknown> | undefined;
-  /** The workspace's record types, archived ones too. */
-  types: AssetRecordType[];
-}>();
+const props = withDefaults(
+  defineProps<{
+    kind: 'open_asset_record' | 'complete_asset_records';
+    config: Record<string, unknown> | undefined;
+    /** The workspace's record types, archived ones too. */
+    types: AssetRecordType[];
+    /** Whether `types` has loaded, so an empty list means there are none. */
+    loaded?: boolean;
+  }>(),
+  { loaded: true },
+);
 
 const emit = defineEmits<{
   (e: 'update', field: string, value: unknown): void;
@@ -36,7 +41,7 @@ const slug = computed(() => String(props.config?.record_type ?? ''));
 const outcome = computed(() => String(props.config?.outcome ?? ''));
 const creates = computed(() => props.config?.create_if_none === true);
 const chosen = computed(() => props.types.find((x) => x.slug === slug.value) ?? null);
-const noTypes = computed(() => !props.types.some((x) => !x.archived_at));
+const noTypes = computed(() => props.loaded && !props.types.some((x) => !x.archived_at));
 
 const typeOptions = computed(() => {
   const offered = props.types.filter((x) => !x.archived_at || x.slug === slug.value);

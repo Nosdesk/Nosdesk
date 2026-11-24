@@ -245,6 +245,16 @@ describe('AssetRecordStepForm with no record types', () => {
     expect(hint.find('a').attributes('href')).toBe('/admin/asset-record-types')
   })
 
+  it('says nothing about it while the types load', () => {
+    wrapper = mountWithProviders(AssetRecordStepForm, {
+      kind: 'open_asset_record',
+      config: { record_type: '' },
+      types: [],
+      loaded: false,
+    })
+    expect(wrapper.find('[data-test="record-step-no-types"]').exists()).toBe(false)
+  })
+
   it('says nothing about it once there is a live type', () => {
     wrapper = mountWithProviders(AssetRecordStepForm, {
       kind: 'open_asset_record',

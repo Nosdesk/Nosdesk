@@ -215,7 +215,11 @@ export function useRuleStepText(options: {
       }
       case 'open_asset_record': {
         const count = countOf(entry.asset_ids)
-        if (count + countOf(entry.already_open_asset_ids) + countOf(entry.not_for_kind_asset_ids) === 0) {
+        const passed =
+          countOf(entry.already_open_asset_ids) +
+          countOf(entry.not_for_kind_asset_ids) +
+          countOf(entry.replacement_asset_ids)
+        if (count + passed === 0) {
           return t('admin-rules-activity-did-assets-none')
         }
         return t('admin-rules-activity-did-open-records', { count })

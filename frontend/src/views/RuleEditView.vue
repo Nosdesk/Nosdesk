@@ -980,6 +980,7 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
                 :kind="action.kind"
                 :config="action.config"
                 :types="recordTypes.types.value"
+                :loaded="recordTypes.query.data.value !== undefined"
                 @update="(field, value) => updateConfigField(i, field, value)"
               />
 

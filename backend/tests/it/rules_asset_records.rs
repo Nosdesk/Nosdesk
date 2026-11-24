@@ -667,31 +667,51 @@ async fn an_archived_type_is_refused_at_save_and_fails_the_step() {
         })
     );
 
-    // A live rule, and then the type is archived.
+    // Live rules, an open record, and then the type is archived.
     let ticket_id = ticket(&s, 0);
     let camera = asset(&s, "Camera 14", None);
     link(&s, ticket_id, camera);
     let id = manual_rule(&s, open.clone());
+    apply(&s, id, ticket_id).expect("open a record");
+    let complete = json!([{ "kind": "complete_asset_records", "config": { "record_type": "repair", "outcome": "repaired" } }]);
+    let create = json!([{ "kind": "complete_asset_records", "config": { "record_type": "repair", "outcome": "repaired", "create_if_none": true } }]);
+    let completer = manual_rule(&s, complete.clone());
+    let creator = manual_rule(&s, create.clone());
+    let other_ticket = ticket(&s, 0);
+    link(&s, other_ticket, camera);
     with_actor_context(&mut s.pool.get().expect("conn"), &admin(&s.ws), |c| {
         types_repo::archive(c, type_id(&s, "repair"))
             .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
     })
     .expect("archive the type");
-    match apply(&s, id, ticket_id) {
-        Err(ApplyError::ActionFailed { index, message }) => {
-            assert_eq!(index, 1);
-            assert!(message.contains("archived"), "{message}");
+    // Writing a new record of it fails the step and writes nothing.
+    for (rule_id, on) in [(id, other_ticket), (creator, other_ticket)] {
+        match apply(&s, rule_id, on) {
+            Err(ApplyError::ActionFailed { index, message }) => {
+                assert_eq!(index, 1);
+                assert!(message.contains("archived"), "{message}");
+            }
+            other => panic!("expected the step to fail, got {other:?}"),
         }
-        other => panic!("expected the step to fail, got {other:?}"),
     }
-    assert!(records(&s).is_empty());
+    assert_eq!(records(&s).len(), 1);
+    for actions in [open.clone(), create.clone()] {
+        assert_eq!(
+            record_problem(&s, actions),
+            Some(StepRecordTypeProblem::Archived {
+                step: 1,
+                slug: "repair".to_string()
+            })
+        );
+    }
+    // Completing the open records of it still runs, and still saves.
+    assert_eq!(record_problem(&s, complete.clone()), None);
+    let taken = step(&apply(&s, completer, ticket_id).expect("complete"), 0);
     assert_eq!(
-        record_problem(&s, open.clone()),
-        Some(StepRecordTypeProblem::Archived {
-            step: 1,
-            slug: "repair".to_string()
-        })
+        ids(&taken["completed_record_ids"]),
+        vec![records(&s)[0].id as i64]
     );
+    assert_eq!(records(&s)[0].outcome.as_deref(), Some("repaired"));
 
     // Over the API: a save is refused with its code, and so is going live.
     let saved = crate::rules_in_workspace::as_admin(
@@ -794,4 +814,194 @@ fn rule_records_reach_webhooks() {
     assert_eq!(updated["id"], record.id);
     assert_eq!(updated["outcome"], "repaired");
     assert_eq!(updated["rule_id"], opener, "the record stays the opener's");
+}
+
+/// A record dated from the ticket's creation rarely knows who held the
+/// asset or where it was, so a completion that writes one refuses a type
+/// requiring either; one that only completes records doesn't.
+#[test]
+fn a_backdated_record_refuses_a_type_requiring_holder_or_location() {
+    let s = setup();
+    let complete = |create: bool| json!([{ "kind": "complete_asset_records", "config": { "record_type": "repair", "outcome": "repaired", "create_if_none": create } }]);
+    for field in ["holder", "location"] {
+        set_type(&s, "repair", Some(json!({ field: "required" })), None);
+        assert_eq!(
+            record_problem(&s, complete(true)),
+            Some(StepRecordTypeProblem::Requires {
+                step: 1,
+                field: field.to_string()
+            }),
+            "{field}"
+        );
+        assert_eq!(record_problem(&s, complete(false)), None, "{field}");
+        // Opening dates the record today, when the asset's holder and
+        // location are known, so it is checked per asset when it runs.
+        assert_eq!(
+            record_problem(
+                &s,
+                json!([{ "kind": "open_asset_record", "config": { "record_type": "repair" } }])
+            ),
+            None,
+            "{field}"
+        );
+    }
+}
+
+/// A type that no longer has the step's outcome fails the step rather than
+/// leaving every record open.
+#[test]
+fn a_type_without_the_outcome_fails_the_completion() {
+    let s = setup();
+    let ticket_id = ticket(&s, 0);
+    let camera = asset(&s, "Camera 14", None);
+    link(&s, ticket_id, camera);
+    let opener = manual_rule(
+        &s,
+        json!([{ "kind": "open_asset_record", "config": { "record_type": "repair" } }]),
+    );
+    apply(&s, opener, ticket_id).expect("open");
+    let id = manual_rule(
+        &s,
+        json!([{ "kind": "complete_asset_records", "config": { "record_type": "repair", "outcome": "repaired" } }]),
+    );
+    diesel::update(asset_record_types::table.find(type_id(&s, "repair")))
+        .set(
+            asset_record_types::outcomes
+                .eq(json!([{ "key": "fixed", "category": "done", "label": "Fixed" }])),
+        )
+        .execute(&mut s.admin_pool.get().expect("conn"))
+        .expect("rename the outcome");
+    match apply(&s, id, ticket_id) {
+        Err(ApplyError::ActionFailed { index, message }) => {
+            assert_eq!(index, 1);
+            assert!(message.contains("no outcome \"repaired\""), "{message}");
+        }
+        other => panic!("expected the step to fail, got {other:?}"),
+    }
+    assert_eq!(records(&s)[0].completed_on, None);
+}
+
+/// After a carry-over links the ticket to the asset that replaced the one
+/// worked on, neither step writes a record on the replacement: opening
+/// again passes it over, and so does a completion writing records where
+/// there are none, in a dry run as when it runs.
+#[test]
+fn the_replacement_a_carry_over_links_gets_no_record() {
+    use backend::models::{PlatformRole, WorkspaceRole};
+    use backend::repository::asset_records::{self as records_repo, NewRecord, WorkDate};
+    use backend::repository::asset_replacement::{self, CarryOver};
+    use backend::repository::ticket_visibility::VisibilityContext;
+
+    let s = setup();
+    let ticket_id = ticket(&s, 2);
+    let old = asset(&s, "Camera 14", None);
+    let new = asset(&s, "Camera 31", None);
+    link(&s, ticket_id, old);
+    let opener = manual_rule(
+        &s,
+        json!([{ "kind": "open_asset_record", "config": { "record_type": "repair" } }]),
+    );
+    apply(&s, opener, ticket_id).expect("open on the old camera");
+
+    // The old camera was swapped under warranty, recorded on the ticket, and
+    // its open tickets carried over to the new one.
+    with_actor_context(&mut s.pool.get().expect("conn"), &admin(&s.ws), |c| {
+        let replaced = records_repo::create(
+            c,
+            NewRecord {
+                asset_id: old,
+                record_type_id: type_id(&s, "repair"),
+                summary: Some("Swapped under warranty".to_string()),
+                notes: None,
+                occurred: WorkDate::Day(today()),
+                completed: Some(WorkDate::Day(today())),
+                outcome: Some("replaced".to_string()),
+                vendor: None,
+                performed_by_uuid: None,
+                reference: None,
+                cost: None,
+                ticket_id: Some(ticket_id),
+                replacement_asset_id: Some(new),
+                snapshot: None,
+                attributes: json!({}),
+                source: backend::models::RecordSource::Manual,
+                source_ref: None,
+                import_job_id: None,
+                rule_id: None,
+                lifecycle_event_id: None,
+                recorded_by: Some(s.ws.admin_uuid),
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))?;
+        asset_replacement::carry_over(
+            c,
+            old,
+            replaced.record.id,
+            CarryOver {
+                link_open_tickets: true,
+                ..Default::default()
+            },
+            &VisibilityContext::new(
+                s.ws.admin_uuid,
+                PlatformRole::User,
+                Some(WorkspaceRole::Admin),
+            ),
+            Some(s.ws.admin_uuid),
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("record the replacement and carry the ticket over");
+    let linked: Vec<i32> =
+        with_actor_context(&mut s.pool.get().expect("conn"), &admin(&s.ws), |c| {
+            tickets::get_devices_for_ticket(c, ticket_id)
+        })
+        .expect("linked assets")
+        .iter()
+        .map(|a| a.id)
+        .collect();
+    assert!(
+        linked.contains(&new),
+        "the carry-over links the ticket to the new camera"
+    );
+    let before = records(&s).len();
+
+    let taken = step(&apply(&s, opener, ticket_id).expect("open again"), 0);
+    assert!(ids(&taken["asset_ids"]).is_empty());
+    assert_eq!(ids(&taken["already_open_asset_ids"]), vec![old as i64]);
+    assert_eq!(ids(&taken["replacement_asset_ids"]), vec![new as i64]);
+    assert_eq!(records(&s).len(), before);
+
+    let create = json!([{ "kind": "complete_asset_records", "config": { "record_type": "repair", "outcome": "repaired", "create_if_none": true } }]);
+    let shadow_rule = rule(
+        &s,
+        RuleTriggerKind::TicketUpdated,
+        RuleState::DryRun,
+        create.clone(),
+    );
+    let mut actor = ActorContext::system(format!("rules_engine:{shadow_rule}"))
+        .with_workspace(s.ws.workspace_id);
+    actor.correlation_id = Some(Uuid::now_v7());
+    let shadow = rules::run_rule_on_ticket(
+        &mut s.pool.get().expect("conn"),
+        ApplyContext {
+            shadow: true,
+            ..ApplyContext::new(&actor, shadow_rule, ticket_id, ApplySource::Event)
+        },
+    )
+    .expect("shadow run");
+    let would = step(&shadow, 0);
+    assert_eq!(ids(&would["replacement_asset_ids"]), vec![new as i64]);
+    assert!(ids(&would["created_asset_ids"]).is_empty());
+
+    let creator = manual_rule(&s, create);
+    let taken = step(&apply(&s, creator, ticket_id).expect("complete"), 0);
+    assert_eq!(ids(&taken["replacement_asset_ids"]), vec![new as i64]);
+    assert!(ids(&taken["created_record_ids"]).is_empty());
+    assert_eq!(
+        ids(&taken["completed_record_ids"]).len(),
+        1,
+        "the old camera's open record"
+    );
+    assert_eq!(records(&s).len(), before);
+    assert!(records(&s).iter().all(|r| r.asset_id != new));
 }

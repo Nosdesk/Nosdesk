@@ -45,6 +45,7 @@ vi.mock('@/composables/useAssetTimeline', async () => {
   const { computed } = await import('vue')
   return {
     useAssetRecordTypes: (enabled: () => boolean) => ({
+      query: { data: computed(() => ({ types: [] })) },
       types: computed(() => {
         recordTypesEnabled.calls.push(enabled())
         return [
@@ -432,6 +433,7 @@ describe('RuleEditView', () => {
     const forms = w.findAllComponents(AssetRecordStepForm)
     expect(forms.map((f) => f.props('kind'))).toEqual(['open_asset_record', 'complete_asset_records'])
     expect(forms[0].props('types').map((x: { slug: string }) => x.slug)).toEqual(['repair'])
+    expect(forms[0].props('loaded')).toBe(true)
     expect(recordTypesEnabled.calls.at(-1)).toBe(true)
 
     button('admin-rule-editor-save')!.click()

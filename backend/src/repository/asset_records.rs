@@ -329,20 +329,23 @@ pub fn list_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Vec
         .load(conn)
 }
 
-/// The records linked to ticket `ticket_id`, of type `record_type_id` when
-/// one is given, lowest id first.
+/// The records linked to ticket `ticket_id`, lowest id first. With
+/// `lock`, each is locked `FOR NO KEY UPDATE`, as an edit locks it, so none
+/// changes before the caller writes.
+// sync-audit-only: read-only (takes row locks, writes nothing)
 pub fn for_ticket(
     conn: &mut DbConnection,
     ticket_id: i32,
-    record_type_id: Option<i32>,
+    lock: bool,
 ) -> QueryResult<Vec<AssetRecord>> {
-    let mut query = asset_records::table
+    let query = asset_records::table
         .filter(asset_records::ticket_id.eq(ticket_id))
-        .into_boxed();
-    if let Some(type_id) = record_type_id {
-        query = query.filter(asset_records::record_type_id.eq(type_id));
+        .order(asset_records::id.asc());
+    if lock {
+        query.for_no_key_update().load(conn)
+    } else {
+        query.load(conn)
     }
-    query.order(asset_records::id.asc()).load(conn)
 }
 
 /// Which of an asset's records a move out of `status` completes: those of
