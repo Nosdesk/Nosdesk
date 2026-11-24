@@ -265,6 +265,59 @@ pub fn last_fires(
     .load(conn)
 }
 
+/// A rule's last run on a ticket that wasn't a skip or a shadow run, with
+/// what its steps did.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct LastRun {
+    #[diesel(sql_type = Integer)]
+    pub rule_id: i32,
+    #[diesel(sql_type = Integer)]
+    pub ticket_id: i32,
+    #[diesel(sql_type = Timestamptz)]
+    pub applied_at: DateTime<Utc>,
+    #[diesel(sql_type = Nullable<diesel::sql_types::Jsonb>)]
+    pub actions_taken: Option<serde_json::Value>,
+}
+
+impl LastRun {
+    /// The tags its `add_tags` steps put on the ticket.
+    pub fn tags_added(&self) -> Vec<i32> {
+        self.actions_taken
+            .as_ref()
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|step| step.get("kind").and_then(serde_json::Value::as_str) == Some("add_tags"))
+            .filter_map(|step| step.get("tag_ids_added")?.as_array().cloned())
+            .flatten()
+            .filter_map(|id| id.as_i64().and_then(|id| i32::try_from(id).ok()))
+            .collect()
+    }
+}
+
+// sync-audit-only: read-only
+/// Each of `rule_ids`' last run on each of `ticket_ids` that wasn't a skip
+/// or a shadow run.
+pub fn last_runs(
+    conn: &mut DbConnection,
+    rule_ids: &[i32],
+    ticket_ids: &[i32],
+) -> QueryResult<Vec<LastRun>> {
+    if rule_ids.is_empty() || ticket_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    diesel::sql_query(
+        "SELECT DISTINCT ON (rule_id, ticket_id) rule_id, ticket_id, applied_at, actions_taken \
+           FROM rule_applications \
+          WHERE rule_id = ANY($1) AND ticket_id = ANY($2) \
+            AND status NOT IN ('skipped_preflight', 'skipped_condition_unmet', 'dry_run') \
+          ORDER BY rule_id, ticket_id, applied_at DESC, id DESC",
+    )
+    .bind::<Array<Integer>, _>(rule_ids)
+    .bind::<Array<Integer>, _>(ticket_ids)
+    .load(conn)
+}
+
 // sync-audit-only: clock queue bookkeeping, no entity sync
 /// Make `rule_id`'s rows on `ticket_id` say `wait` on clock `clock_name`:
 /// one row while the rule waits, none when it doesn't. Writing a row gives up

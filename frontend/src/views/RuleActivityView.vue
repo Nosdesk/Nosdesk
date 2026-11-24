@@ -120,7 +120,8 @@ function summary(app: RuleApplication): string {
 
 /** What the run did, then the steps the agent skipped or the run held, in
  *  plain words. A rule that runs on its own holds the steps that send email
- *  on a ticket flagged as likely spam. */
+ *  on a ticket flagged as likely spam, and a time rule's tags after a
+ *  warning that wasn't sent. */
 function outcomeLines(app: RuleApplication): string[] {
   const lines: string[] = [];
   for (const entry of app.actions_taken ?? []) {
@@ -131,13 +132,16 @@ function outcomeLines(app: RuleApplication): string[] {
     const step = ruleStep(app, entry.index);
     const planned = step ? stepText.planned(step) : null;
     if (!planned) continue;
-    lines.push(
-      entry.reason === 'spam_suspected'
-        ? t('admin-rules-activity-held-spam', { step: planned })
-        : t('admin-rules-activity-skipped', { step: planned }),
-    );
+    lines.push(t(heldKey(entry.reason), { step: planned }));
   }
   return lines;
+}
+
+/** The line for a step a run skipped, by why. */
+function heldKey(reason: unknown): string {
+  if (reason === 'spam_suspected') return 'admin-rules-activity-held-spam';
+  if (reason === 'warning_not_sent') return 'admin-rules-activity-held-warning-unsent';
+  return 'admin-rules-activity-skipped';
 }
 
 function statusLabel(status: RuleApplicationStatus): string {

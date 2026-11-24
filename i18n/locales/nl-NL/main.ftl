@@ -13128,3 +13128,9 @@ asset-records-no-match-title = Geen registraties gevonden
 asset-records-no-match-description = Niets past bij deze zoekopdracht en deze filters.
 # MT: pending native review (nl-NL)
 asset-records-clear-filters = Filters wissen
+# MT: pending native review (nl-NL)
+admin-rules-activity-did-notify-no-channel = Geen e-mail verstuurd, want de mailbox van het ticket staat uit en geen andere mailbox kan het antwoord ontvangen
+# MT: pending native review (nl-NL)
+admin-rules-activity-did-notify-suppressed = Geen e-mail verstuurd, want het adres staat op de onderdrukkingslijst
+# MT: pending native review (nl-NL)
+admin-rules-activity-held-warning-unsent = Niet uitgevoerd, want de e-mail is niet verstuurd: { $step }

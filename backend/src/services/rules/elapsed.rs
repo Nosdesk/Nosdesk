@@ -17,6 +17,19 @@
 //! met, so a rule whose conditions rule most tickets out doesn't refill the
 //! queue with work that would be turned away.
 //!
+//! A time rule that emails the requester is a warning to every later rule
+//! on its clock that closes the ticket (the auto-close warning to the
+//! close): such a rule first fires on a ticket no sooner after the warning
+//! than its threshold is after the warning's. A later rule that doesn't
+//! close keeps its own time. A ticket warned on time is closed on time; one
+//! already past both when they are turned on is warned first and closed
+//! that long after. Whether it was warned is read from the warning's
+//! application rows, so a rebuilt queue holds the close too. A warning that
+//! won't run on the ticket (its conditions aren't met) holds nothing. The
+//! tags a warning adds mark the ticket as warned: they go on only when its
+//! email is sent (`repository::rules`), and come off once its clock starts
+//! again on the open ticket ([`clear_lapsed_warnings`]).
+//!
 //! The fire job ([`fire_due`]) claims due rows across workspaces (`FOR
 //! UPDATE SKIP LOCKED` with a lease, capped per tick and per workspace) and
 //! for each, pinned to its workspace: reads the clock and the conditions
@@ -27,17 +40,21 @@
 //! A failure that may pass leaves no row and tries again with backoff; any
 //! other is recorded as a `failed` application row and counts as the fire.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde_json::{json, Value};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
-use crate::models::{NewRuleApplication, Rule, RuleApplicationStatus, RuleState, RuleTriggerKind};
+use crate::models::{
+    NewRuleApplication, Rule, RuleApplicationStatus, RuleState, RuleTriggerKind,
+    WorkflowStateCategory,
+};
 use crate::repository::rule_elapsed_queue::{self as queue, DueRow, LastFire};
 use crate::repository::rules::{
     self as repo, ApplyContext, ApplyError, ApplySource, OriginatingEvent, SkipCount,
@@ -68,6 +85,11 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct TimeRule {
     pub rule: Rule,
     pub trigger: TimeTrigger,
+    /// Whether it emails the requester, which makes it a warning.
+    warns: bool,
+    /// Whether it closes the ticket, which makes it wait on a warning
+    /// ([`TimeRule::set_closes`]).
+    closes: bool,
 }
 
 impl TimeRule {
@@ -79,29 +101,144 @@ impl TimeRule {
             return None;
         }
         let trigger = clocks::parse_trigger(&rule.trigger_config).ok()?;
-        Some(Self { rule, trigger })
+        let warns = rule
+            .actions
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(repo::step_emails_requester);
+        Some(Self {
+            rule,
+            trigger,
+            warns,
+            closes: false,
+        })
+    }
+
+    /// Read whether the rule closes the ticket: a step moves it to a state
+    /// in a closing category (done or cancelled), by `categories` of state
+    /// id.
+    fn set_closes(&mut self, categories: &HashMap<i32, WorkflowStateCategory>) {
+        self.closes = self
+            .rule
+            .actions
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|step| step.get("kind").and_then(Value::as_str) == Some("set_status"))
+            .filter_map(|step| step.get("config")?.get("workflow_state_id")?.as_i64())
+            .filter_map(|id| categories.get(&i32::try_from(id).ok()?))
+            .any(|category| category.closes_ticket());
     }
 
     fn clock_name(&self) -> &'static str {
         self.trigger.clock.as_str()
     }
 
-    /// When the rule is next due on `ticket`.
-    fn wait(&self, ticket: &ClockInputs, fires: &[LastFire]) -> Option<Wait> {
-        let last = fires
+    /// When the rule last fired on `ticket`, as counts for its state.
+    fn last_fire(&self, ticket_id: i32, fires: &[LastFire]) -> Option<DateTime<Utc>> {
+        fires
             .iter()
-            .find(|f| f.rule_id == self.rule.id && f.ticket_id == ticket.ticket_id)
-            .and_then(|f| f.for_state(self.rule.state));
-        clocks::next_wait(&self.trigger, ticket, last)
+            .find(|f| f.rule_id == self.rule.id && f.ticket_id == ticket_id)
+            .and_then(|f| f.for_state(self.rule.state))
     }
+
+    /// When the rule is next due on `ticket` by its own clock alone.
+    fn wait(&self, ticket: &ClockInputs, fires: &[LastFire]) -> Option<Wait> {
+        clocks::next_wait(
+            &self.trigger,
+            ticket,
+            self.last_fire(ticket.ticket_id, fires),
+        )
+    }
+
+    /// Whether this rule is a warning `later` waits on: it emails the
+    /// requester, on the same clock counting up, once per start and sooner,
+    /// and `later` closes the ticket. A rule that doesn't close keeps its own
+    /// time, so a late reminder doesn't hold an escalation. A live warning
+    /// holds any closing rule; one in dry run holds only a rule in dry run,
+    /// whose shadow runs show what the pair would do.
+    fn warns_before(&self, later: &TimeRule) -> bool {
+        self.warns
+            && later.closes
+            && self.rule.id != later.rule.id
+            && self.trigger.clock == later.trigger.clock
+            && !self.trigger.clock.counts_down()
+            && self.trigger.repeat_every_minutes.is_none()
+            && self.trigger.minutes < later.trigger.minutes
+            && (self.rule.state == RuleState::Live || later.rule.state == RuleState::DryRun)
+    }
+
+    /// Whether the rule's conditions take `facts` after `minutes` on its
+    /// clock. Conditions that can't be read count as met, so the fire
+    /// records why the rule can't run.
+    fn would_run(&self, facts: &TicketFacts, minutes: i64) -> bool {
+        conditions::compile(&self.rule.conditions, RuleTriggerKind::TimeElapsed)
+            .map_or(true, |p| evaluate(&p, facts, minutes))
+    }
+}
+
+/// When `rule` is next due on `ticket`: its own clock's wait, held for each
+/// of `rules` that warns before it ([`TimeRule::warns_before`]) until as
+/// long after that warning as its threshold is after the warning's. A
+/// warning that fired since the clock started holds it from that fire; one
+/// still to come, from when it falls due, or from now when that has passed.
+/// A warning whose conditions `facts` don't meet holds nothing; without
+/// `facts`, one past due holds. Only the rule's first fire per start is
+/// held; a repeat follows its last fire.
+fn due(
+    rule: &TimeRule,
+    rules: &[TimeRule],
+    ticket: &ClockInputs,
+    fires: &[LastFire],
+    facts: Option<&TicketFacts>,
+    now: DateTime<Utc>,
+) -> Option<Wait> {
+    let mut wait = rule.wait(ticket, fires)?;
+    let fired_since = |r: &TimeRule| {
+        r.last_fire(ticket.ticket_id, fires)
+            .filter(|fired| *fired >= wait.started_at)
+    };
+    if fired_since(rule).is_some() {
+        return Some(wait);
+    }
+    for warning in rules.iter().filter(|w| w.warns_before(rule)) {
+        let gap = chrono::Duration::minutes(rule.trigger.minutes - warning.trigger.minutes);
+        let from = match fired_since(warning) {
+            Some(warned) => warned,
+            None => {
+                let Some(pending) = warning.wait(ticket, fires) else {
+                    continue;
+                };
+                if pending.due_at > now {
+                    pending.due_at
+                } else if facts.is_some_and(|f| {
+                    !warning.would_run(f, clocks::minutes_since(pending.started_at, now))
+                }) {
+                    continue;
+                } else {
+                    now
+                }
+            }
+        };
+        wait.due_at = wait.due_at.max(from + gap);
+    }
+    Some(wait)
 }
 
 /// The pinned workspace's time-elapsed rules that wait.
 fn time_rules(conn: &mut DbConnection) -> QueryResult<Vec<TimeRule>> {
-    Ok(repo::event_candidates(conn, RuleTriggerKind::TimeElapsed)?
+    let mut rules: Vec<TimeRule> = repo::event_candidates(conn, RuleTriggerKind::TimeElapsed)?
         .into_iter()
         .filter_map(TimeRule::of)
-        .collect())
+        .collect();
+    if !rules.is_empty() {
+        let categories = crate::repository::workflow_states::categories(conn)?;
+        for rule in &mut rules {
+            rule.set_closes(&categories);
+        }
+    }
+    Ok(rules)
 }
 
 /// How a rule's conditions read a ticket after `minutes` on its clock.
@@ -115,65 +252,136 @@ fn evaluate(predicate: &Predicate, facts: &TicketFacts, minutes: i64) -> bool {
     )
 }
 
-/// Bring `rules`' rows on `ticket_ids` in line with the tickets as they are
-/// now, in the pinned workspace.
+/// Bring the rows on `ticket_ids` of `rules`, or of the one rule `only`
+/// among them, in line with the tickets as they are now, in the pinned
+/// workspace. `rules` are every waiting time rule there, the warnings a
+/// rule waits on among them.
 fn sync_rows(
     conn: &mut DbConnection,
     workspace_id: i32,
     rules: &[TimeRule],
+    only: Option<i32>,
     ticket_ids: &[i32],
 ) -> QueryResult<()> {
-    if rules.is_empty() || ticket_ids.is_empty() {
+    let synced: Vec<&TimeRule> = rules
+        .iter()
+        .filter(|r| only.is_none_or(|id| r.rule.id == id))
+        .collect();
+    if synced.is_empty() || ticket_ids.is_empty() {
         return Ok(());
     }
     let tickets = queue::clock_inputs(conn, ticket_ids)?;
     let rule_ids: Vec<i32> = rules.iter().map(|r| r.rule.id).collect();
     let fires = queue::last_fires(conn, &rule_ids, ticket_ids)?;
     let now = Utc::now();
-    let mut waits: Vec<(i32, &TimeRule, Option<Wait>)> = Vec::new();
-    for ticket in &tickets {
-        for rule in rules {
-            waits.push((ticket.ticket_id, rule, rule.wait(ticket, &fires)));
-        }
-    }
-    // A wait already past due is kept only while the conditions are met.
-    let overdue: Vec<i32> = {
-        let mut ids: Vec<i32> = waits
-            .iter()
-            .filter(|(_, _, w)| w.is_some_and(|w| w.due_at <= now))
-            .map(|(id, _, _)| *id)
-            .collect();
-        ids.dedup();
-        ids
-    };
+    // What a rule past due reads: its own conditions, or a warning's that
+    // holds a later rule.
+    let overdue: Vec<i32> = tickets
+        .iter()
+        .filter(|t| {
+            rules
+                .iter()
+                .any(|r| r.wait(t, &fires).is_some_and(|w| w.due_at <= now))
+        })
+        .map(|t| t.ticket_id)
+        .collect();
     let facts = if overdue.is_empty() {
         Vec::new()
     } else {
         repo::load_ticket_facts(conn, &overdue)?
     };
-    for (ticket_id, rule, wait) in waits {
-        let wait = wait.filter(|w| {
-            if w.due_at > now {
-                return true;
-            }
-            let Some(facts) = facts.iter().find(|f| f.id == ticket_id) else {
-                return false;
+    for ticket in &tickets {
+        let facts = facts.iter().find(|f| f.id == ticket.ticket_id);
+        for rule in &synced {
+            // A wait already past due is kept only while the conditions are
+            // met.
+            let wait = due(rule, rules, ticket, &fires, facts, now).filter(|w| {
+                w.due_at > now
+                    || facts.is_some_and(|f| {
+                        rule.would_run(f, clocks::minutes_since(w.started_at, now))
+                    })
+            });
+            queue::set_wait(
+                conn,
+                workspace_id,
+                ticket.ticket_id,
+                rule.rule.id,
+                rule.clock_name(),
+                wait,
+            )?;
+        }
+    }
+    clear_lapsed_warnings(conn, &synced, &tickets, &fires)
+}
+
+/// Take a warning's tags off each open ticket whose clock has started again
+/// (or stopped) since the warning last ran there: the requester answered,
+/// so the ticket is no longer warned. Only the tags that run added and that
+/// are still on from then come off; a closed ticket keeps them.
+fn clear_lapsed_warnings(
+    conn: &mut DbConnection,
+    rules: &[&TimeRule],
+    tickets: &[ClockInputs],
+    fires: &[LastFire],
+) -> QueryResult<()> {
+    let mut lapsed: Vec<(i32, i32, DateTime<Utc>)> = Vec::new();
+    for ticket in tickets.iter().filter(|t| t.runs_clocks) {
+        for rule in rules
+            .iter()
+            .filter(|r| r.warns && r.rule.state == RuleState::Live)
+            .filter(|r| !r.trigger.clock.counts_down())
+        {
+            let Some(warned) = rule.last_fire(ticket.ticket_id, fires) else {
+                continue;
             };
-            // Conditions that can't be read are queued anyway, so the fire
-            // records why the rule can't run.
-            conditions::compile(&rule.rule.conditions, RuleTriggerKind::TimeElapsed)
-                .map_or(true, |p| {
-                    evaluate(&p, facts, clocks::minutes_since(w.started_at, now))
-                })
-        });
-        queue::set_wait(
+            if rule
+                .trigger
+                .clock
+                .started_at(ticket)
+                .is_none_or(|started| started > warned)
+            {
+                lapsed.push((rule.rule.id, ticket.ticket_id, warned));
+            }
+        }
+    }
+    if lapsed.is_empty() {
+        return Ok(());
+    }
+    let ticket_ids: Vec<i32> = lapsed.iter().map(|(_, t, _)| *t).collect();
+    let tagged = crate::repository::tags::tag_ids_for_tickets(conn, &ticket_ids)?;
+    lapsed.retain(|(_, t, _)| tagged.get(t).is_some_and(|tags| !tags.is_empty()));
+    if lapsed.is_empty() {
+        return Ok(());
+    }
+    let rule_ids: Vec<i32> = lapsed.iter().map(|(r, _, _)| *r).collect();
+    let ticket_ids: Vec<i32> = lapsed.iter().map(|(_, t, _)| *t).collect();
+    let runs = queue::last_runs(conn, &rule_ids, &ticket_ids)?;
+    for (rule_id, ticket_id, warned) in lapsed {
+        // The run judged lapsed, not one that committed since.
+        let Some(run) = runs
+            .iter()
+            .find(|r| r.rule_id == rule_id && r.ticket_id == ticket_id && r.applied_at == warned)
+        else {
+            continue;
+        };
+        let on = &tagged[&ticket_id];
+        let added: Vec<i32> = run
+            .tags_added()
+            .into_iter()
+            .filter(|t| on.contains(t))
+            .collect();
+        let removed = crate::repository::tags::remove_ticket_tags_added_by(
             conn,
-            workspace_id,
             ticket_id,
-            rule.rule.id,
-            rule.clock_name(),
-            wait,
+            &added,
+            run.applied_at,
         )?;
+        if !removed.is_empty() {
+            debug!(
+                rule_id,
+                ticket_id, "time-elapsed rules: a lapsed warning's tags came off"
+            );
+        }
     }
     Ok(())
 }
@@ -186,7 +394,7 @@ pub fn maintain_ticket(
     ticket_id: i32,
 ) -> QueryResult<()> {
     let rules = time_rules(conn)?;
-    sync_rows(conn, workspace_id, &rules, &[ticket_id])
+    sync_rows(conn, workspace_id, &rules, None, &[ticket_id])
 }
 
 /// Rebuild one batch of a rule's rows, in the pinned workspace: the next
@@ -206,12 +414,8 @@ pub fn requeue_batch(
         return Ok(None);
     };
     let ids = queue::candidate_tickets(conn, rule_id, after, BATCH)?;
-    sync_rows(
-        conn,
-        rule.rule.workspace_id,
-        std::slice::from_ref(&rule),
-        &ids,
-    )?;
+    let rules = time_rules(conn)?;
+    sync_rows(conn, rule.rule.workspace_id, &rules, Some(rule_id), &ids)?;
     Ok(if ids.len() as i64 >= BATCH {
         ids.last().copied()
     } else {
@@ -326,6 +530,8 @@ enum Ready {
     NotDue,
     Due {
         rule: TimeRule,
+        /// Every waiting time rule in the workspace: the warnings.
+        rules: Vec<TimeRule>,
         wait: Wait,
         facts: TicketFacts,
     },
@@ -344,7 +550,7 @@ fn try_fire(
     let reader = ActorContext::system("rules_engine").with_workspace(workspace_id);
 
     let ready = with_actor_context(&mut conn, &reader, |c| {
-        let Some(rule) = repo::find(c, row.rule_id)?.and_then(TimeRule::of) else {
+        let Some(mut rule) = repo::find(c, row.rule_id)?.and_then(TimeRule::of) else {
             queue::clear_rule(c, row.rule_id)?;
             return Ok(Ready::NotDue);
         };
@@ -352,11 +558,14 @@ fn try_fire(
             // The ticket is gone, and its rows with it.
             return Ok(Ready::NotDue);
         };
-        let fires = queue::last_fires(c, &[rule.rule.id], &[ticket_id])?;
-        let wait = rule.wait(&ticket, &fires);
-        let due = wait.filter(|w| w.due_at <= Utc::now());
-        let (Some(wait), Some(facts)) = (due, repo::load_ticket_facts(c, &[ticket_id])?.pop())
-        else {
+        let rules = time_rules(c)?;
+        rule.closes = rules.iter().any(|r| r.rule.id == rule.rule.id && r.closes);
+        let rule_ids: Vec<i32> = rules.iter().map(|r| r.rule.id).collect();
+        let fires = queue::last_fires(c, &rule_ids, &[ticket_id])?;
+        let facts = repo::load_ticket_facts(c, &[ticket_id])?.pop();
+        let now = Utc::now();
+        let wait = due(&rule, &rules, &ticket, &fires, facts.as_ref(), now);
+        let (Some(wait), Some(facts)) = (wait.filter(|w| w.due_at <= now), facts) else {
             queue::set_wait(
                 c,
                 workspace_id,
@@ -367,9 +576,20 @@ fn try_fire(
             )?;
             return Ok(Ready::NotDue);
         };
-        Ok::<_, diesel::result::Error>(Ready::Due { rule, wait, facts })
+        Ok::<_, diesel::result::Error>(Ready::Due {
+            rule,
+            rules,
+            wait,
+            facts,
+        })
     })?;
-    let Ready::Due { rule, wait, facts } = ready else {
+    let Ready::Due {
+        rule,
+        rules,
+        wait,
+        facts,
+    } = ready
+    else {
         return Ok(Fired::NotDue);
     };
 
@@ -453,12 +673,15 @@ fn try_fire(
         let Some(ticket) = queue::clock_inputs(c, &[ticket_id])?.pop() else {
             return Ok(false);
         };
-        let fires = queue::last_fires(c, &[rule.rule.id], &[ticket_id])?;
-        let now = Utc::now();
-        let Some(wait) = rule.wait(&ticket, &fires).filter(|w| w.due_at <= now) else {
+        let rule_ids: Vec<i32> = rules.iter().map(|r| r.rule.id).collect();
+        let fires = queue::last_fires(c, &rule_ids, &[ticket_id])?;
+        let Some(facts) = repo::load_ticket_facts(c, &[ticket_id])?.pop() else {
             return Ok(false);
         };
-        let Some(facts) = repo::load_ticket_facts(c, &[ticket_id])?.pop() else {
+        let now = Utc::now();
+        let Some(wait) =
+            due(&rule, &rules, &ticket, &fires, Some(&facts), now).filter(|w| w.due_at <= now)
+        else {
             return Ok(false);
         };
         if !evaluate(
@@ -496,6 +719,10 @@ fn try_fire(
             if !shadow {
                 after_live_run(pool, search, &mut conn, workspace_id, ticket_id, &outcome);
             }
+            // A warning's run moves the rules that wait on it.
+            if let Err(e) = resync(&mut conn, &reader, workspace_id, &rule, ticket_id) {
+                warn!(rule_id = rule.rule.id, ticket_id, error = %e, "time-elapsed rules: clocks not updated after a fire");
+            }
             Ok(Fired::Ran)
         }
         Err(failed) => match failed.error {
@@ -527,7 +754,9 @@ fn try_fire(
     }
 }
 
-/// Recompute one rule's row on one ticket.
+/// Recompute the rows on one ticket after `rule` fired or was turned away
+/// there: every waiting rule's, since a warning's fire moves the rules that
+/// wait on it.
 fn resync(
     conn: &mut DbConnection,
     reader: &ActorContext,
@@ -537,10 +766,13 @@ fn resync(
 ) -> QueryResult<()> {
     with_actor_context(conn, reader, |c| {
         // Read again: the run may have left the rule paused or archived.
-        match repo::find(c, rule.rule.id)?.and_then(TimeRule::of) {
-            Some(rule) => sync_rows(c, workspace_id, std::slice::from_ref(&rule), &[ticket_id]),
-            None => queue::clear_rule(c, rule.rule.id).map(|_| ()),
+        if repo::find(c, rule.rule.id)?
+            .and_then(TimeRule::of)
+            .is_none()
+        {
+            queue::clear_rule(c, rule.rule.id)?;
         }
+        maintain_ticket(c, workspace_id, ticket_id)
     })
 }
 

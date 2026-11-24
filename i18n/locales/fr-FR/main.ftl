@@ -13137,3 +13137,9 @@ asset-records-no-match-title = Aucune intervention ne correspond
 asset-records-no-match-description = Rien ne correspond à cette recherche et à ces filtres.
 # MT: pending native review (fr-FR)
 asset-records-clear-filters = Effacer les filtres
+# MT: pending native review (fr-FR)
+admin-rules-activity-did-notify-no-channel = Aucun e-mail envoyé, car la boîte de réception du ticket est désactivée et aucune autre ne peut recevoir la réponse
+# MT: pending native review (fr-FR)
+admin-rules-activity-did-notify-suppressed = Aucun e-mail envoyé, car l'adresse figure sur la liste de suppression
+# MT: pending native review (fr-FR)
+admin-rules-activity-held-warning-unsent = Non effectué, car l'e-mail n'a pas été envoyé : { $step }

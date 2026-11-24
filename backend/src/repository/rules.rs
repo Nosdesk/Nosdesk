@@ -957,6 +957,17 @@ fn step_sends_email(step: &Value) -> bool {
     }
 }
 
+/// Whether one step emails the ticket's requester: a notify step to them.
+pub fn step_emails_requester(step: &Value) -> bool {
+    step.get("kind").and_then(Value::as_str) == Some("notify")
+        && step
+            .get("config")
+            .and_then(|c| c.get("recipient"))
+            .and_then(Value::as_str)
+            .unwrap_or("requester")
+            == "requester"
+}
+
 /// The reason on an automated run's row when it held its email steps on a
 /// ticket flagged as likely spam.
 pub const SPAM_HOLD_REASON: &str = "The ticket is flagged as likely spam, so the steps that send email were held: answering could confirm the address to whoever sent it";
@@ -1309,6 +1320,10 @@ fn run_locked(
     // applying a rule has looked at the ticket and decides for themselves.
     let hold_email = ctx.source != ApplySource::Manual && ticket.spam_suspected;
     let mut held_email = false;
+    // A time rule's email to the requester is a warning (`elapsed`), and
+    // the tags it adds after that email say the requester was warned: when
+    // the email isn't sent, they aren't added.
+    let mut warning_unsent = false;
 
     for (i, action) in actions.iter().enumerate() {
         // Executors receive `one_based` so any ActionFailed they
@@ -1330,6 +1345,14 @@ fn run_locked(
                 "reason": "spam_suspected"
             }));
             held_email = true;
+            warning_unsent |= ctx.source == ApplySource::Time && step_emails_requester(action);
+            continue;
+        }
+        if warning_unsent && action.get("kind").and_then(Value::as_str) == Some("add_tags") {
+            actions_skipped.push(json!({
+                "index": one_based,
+                "reason": "warning_not_sent"
+            }));
             continue;
         }
         progress.step = Some(one_based);
@@ -1438,6 +1461,9 @@ fn run_locked(
             }
             "notify" => {
                 let mut done = execute_notify(conn, one_based, &ticket, ctx, &rule, &config)?;
+                warning_unsent |= ctx.source == ApplySource::Time
+                    && step_emails_requester(action)
+                    && done.get("skipped").is_some();
                 stamp_step(&mut done, one_based, kind);
                 done
             }
@@ -1826,13 +1852,19 @@ fn notify_address(
 /// `Auto-Submitted: auto-generated` so an auto-responder doesn't answer it.
 /// Its subject carries the ticket's number and it follows the recipient's
 /// earlier mail about the ticket. The requester's copy goes through the
-/// channel an agent's reply would, with its Reply-To, so their answer
-/// threads back onto the ticket.
+/// ticket's mailbox, or with that turned off the workspace's, with its
+/// Reply-To, so their answer threads back onto the ticket
+/// ([`relay::requester_mail_route`]).
 ///
-/// A ticket with no requester, or a requester with no email address, has
-/// no one to tell: the step sends nothing and says why, and the rest of
-/// the rule runs. A named person who can no longer be emailed fails the
-/// step. A shadow run checks the recipient and sends nothing.
+/// A ticket with no requester, a requester with no email address, or one
+/// whose mailbox is off with no other to take the answer, has no one to
+/// tell: the step sends nothing and says why (`skipped`), and the rest of
+/// the rule runs. So does an address on the suppression list, whose email
+/// is recorded as suppressed. A named person who can no longer be emailed
+/// fails the step. A shadow run checks the recipient and the route and
+/// sends nothing.
+///
+/// [`relay::requester_mail_route`]: crate::services::channels::relay::requester_mail_route
 fn execute_notify(
     conn: &mut DbConnection,
     action_index: usize,
@@ -1894,8 +1926,35 @@ fn execute_notify(
     } else {
         json!({ "recipient": "requester" })
     };
+    let unsent = |reason: &str| {
+        let mut out = sent_to.clone();
+        out["skipped"] = json!(reason);
+        out
+    };
+    // The requester's copy goes out the way an agent's reply to them would:
+    // through the ticket's channel, with its Reply-To, so their answer
+    // threads back onto the ticket and restarts its clocks. Anyone else's
+    // is plain mail from the default sender.
+    use crate::services::channels::relay::{self, RequesterMailRoute};
+    let route = if recipient_kind == "requester" {
+        relay::requester_mail_route(conn, ticket)?
+    } else {
+        RequesterMailRoute::Direct
+    };
+    if matches!(route, RequesterMailRoute::NoChannel) {
+        return Ok(unsent("no_channel"));
+    }
     if ctx.shadow {
-        return Ok(sent_to);
+        let suppressed = crate::repository::email_suppressions::is_suppressed(
+            conn,
+            ticket.workspace_id,
+            &to_email,
+        )?;
+        return Ok(if suppressed {
+            unsent("suppressed")
+        } else {
+            sent_to
+        });
     }
 
     let requester = match ticket.requester_uuid {
@@ -1940,36 +1999,26 @@ fn execute_notify(
     let note = outbound::reply_security_note(conn);
     let body = outbound::with_security_note(body, note.as_deref());
     let (in_reply_to, references) = outbound::thread_headers_for(conn, ticket.id, &to_email)?;
-    // The requester's copy goes out the way an agent's reply to them would:
-    // through the ticket's channel, with its Reply-To, so their answer
-    // threads back onto the ticket and restarts its clocks. Without one,
-    // plain mail from the default sender.
-    let route = if recipient_kind == "requester" {
-        crate::services::channels::relay::requester_reply_channel(conn, ticket)?.and_then(
-            |channel| {
-                outbound::reply_routing(conn, &channel)
-                    .map(|(domain, reply_to)| (channel.id, domain, reply_to))
-            },
-        )
-    } else {
-        None
-    };
     let mut headers = json!({ "Auto-Submitted": "auto-generated" });
     let (channel_id, domain) = match route {
-        Some((channel_id, domain, reply_to)) => {
+        RequesterMailRoute::Channel {
+            channel,
+            domain,
+            reply_to,
+        } => {
             if let Some(reply_to) = reply_to {
                 headers["Reply-To"] = json!(reply_to);
             }
-            (Some(channel_id), domain)
+            (Some(channel.id), domain)
         }
-        None => (
+        RequesterMailRoute::Direct | RequesterMailRoute::NoChannel => (
             None,
             crate::utils::email_branding::outbound_email_domain()
                 .unwrap_or_else(|| "nosdesk.local".to_string()),
         ),
     };
     let random: u32 = rand::random();
-    crate::repository::outbound_emails::enqueue_or_suppress(
+    let queued = crate::repository::outbound_emails::enqueue_or_suppress(
         conn,
         crate::models::NewOutboundEmail {
             channel_id,
@@ -1994,6 +2043,9 @@ fn execute_notify(
             mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
         },
     )?;
+    if queued.status == crate::models::outbound_email_status::SUPPRESSED {
+        return Ok(unsent("suppressed"));
+    }
     Ok(sent_to)
 }
 
