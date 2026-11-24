@@ -12848,3 +12848,80 @@ import-remove-webhooks-records = { $count ->
     [one] Les webhooks recevront 1 événement asset.record_deleted.
    *[other] Les webhooks recevront { $count } événements asset.record_deleted.
    }
+# MT: pending native review (fr-FR)
+admin-rule-editor-action-open-asset-record = Ouvrir une intervention sur les ressources liées
+# MT: pending native review (fr-FR)
+admin-rule-editor-action-complete-asset-records = Terminer les interventions du ticket
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-type-label = Type d'intervention
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-type-placeholder = Choisissez un type d'intervention
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-type-any = Tout type
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-summary-label = Résumé
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-summary-hint = Facultatif. Chaque intervention reçoit cette ligne.
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-outcome-label = Résultat
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-outcome-placeholder = Choisissez un résultat
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-create-label = Créer une intervention terminée sur une ressource liée qui n'en a aucune
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-open-hint = Chaque ressource liée au ticket reçoit une intervention ouverte de ce type, datée d'aujourd'hui et liée au ticket. Une ressource qui en a déjà une ouverte depuis ce ticket n'en reçoit pas une deuxième. Le statut de la ressource ne change pas.
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-complete-hint = Les interventions ouvertes du ticket de ce type, ou de tout type ayant ce résultat, sont terminées aujourd'hui avec ce résultat. Une intervention créée là où il n'y en avait aucune commence à la création du ticket et nécessite un type.
+# MT: pending native review (fr-FR)
+admin-rule-editor-step-needs-record-type = Choisissez un type d'intervention.
+# MT: pending native review (fr-FR)
+admin-rule-editor-step-needs-outcome = Choisissez un résultat.
+# MT: pending native review (fr-FR)
+admin-rule-editor-step-needs-record-type-to-create = Choisissez un type d'intervention pour en créer là où il n'y en a aucune.
+# MT: pending native review (fr-FR)
+ticket-actions-step-open-record = Ouvrir une intervention de type { $type } sur chaque ressource liée
+# MT: pending native review (fr-FR)
+ticket-actions-step-open-record-unknown = Ouvrir une intervention sur chaque ressource liée
+# MT: pending native review (fr-FR)
+ticket-actions-step-complete-records = Terminer les interventions ouvertes du ticket de type { $type } avec le résultat { $outcome }
+# MT: pending native review (fr-FR)
+ticket-actions-step-complete-records-create = Terminer les interventions du ticket de type { $type } avec le résultat { $outcome }, en en créant une sur chaque ressource liée qui n'en a aucune
+# MT: pending native review (fr-FR)
+ticket-actions-step-complete-records-any = Terminer les interventions ouvertes du ticket avec le résultat { $outcome }
+# MT: pending native review (fr-FR)
+ticket-actions-step-complete-records-unknown = Terminer les interventions ouvertes du ticket
+# MT: pending native review (fr-FR)
+admin-rules-activity-did-open-records =
+    { $count ->
+        [0] Aucune nouvelle intervention ouverte
+        [one] Une intervention ouverte
+       *[other] { $count } interventions ouvertes
+    }
+# MT: pending native review (fr-FR)
+admin-rules-activity-did-complete-records =
+    { $count ->
+        [0] Aucune intervention ouverte à terminer
+        [one] Une intervention terminée
+       *[other] { $count } interventions terminées
+    }
+# MT: pending native review (fr-FR)
+admin-rules-activity-did-complete-records-wrote =
+    { $created ->
+        [one] Une intervention terminée créée là où il n'y en avait aucune
+       *[other] { $created } interventions terminées créées là où il n'y en avait aucune
+    }
+# MT: pending native review (fr-FR)
+admin-rules-activity-did-complete-records-created =
+    { $count ->
+        [one] Une intervention terminée
+       *[other] { $count } interventions terminées
+    } et { $created ->
+        [one] une créée là où il n'y en avait aucune
+       *[other] { $created } créées là où il n'y en avait aucune
+    }
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-no-types = Cet espace de travail n'a encore aucun type d'intervention.
+# MT: pending native review (fr-FR)
+admin-rule-editor-records-no-types-link = Ajouter des types d'intervention
+# MT: pending native review (fr-FR)
+admin-rules-conflicts-field-asset-record = interventions sur les ressources

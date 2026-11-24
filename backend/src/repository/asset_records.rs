@@ -329,6 +329,25 @@ pub fn list_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Vec
         .load(conn)
 }
 
+/// The records linked to ticket `ticket_id`, lowest id first. With
+/// `lock`, each is locked `FOR NO KEY UPDATE`, as an edit locks it, so none
+/// changes before the caller writes.
+// sync-audit-only: read-only (takes row locks, writes nothing)
+pub fn for_ticket(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    lock: bool,
+) -> QueryResult<Vec<AssetRecord>> {
+    let query = asset_records::table
+        .filter(asset_records::ticket_id.eq(ticket_id))
+        .order(asset_records::id.asc());
+    if lock {
+        query.for_no_key_update().load(conn)
+    } else {
+        query.load(conn)
+    }
+}
+
 /// Which of an asset's records a move out of `status` completes: those of
 /// the live type that opens with `status`, and those a move into `status`
 /// opened, whatever their type (a backfilled repair whose type another one

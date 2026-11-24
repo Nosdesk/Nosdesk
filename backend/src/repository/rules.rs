@@ -181,6 +181,7 @@ fn writes_for_action_kind(kind: &str) -> &'static [&'static str] {
         "assign_assets_to_requester" => &["asset.custody"],
         "lend_assets" => &["asset.loan"],
         "return_requester_assets" => &["asset.custody", "asset.loan"],
+        "open_asset_record" | "complete_asset_records" => &["asset.record"],
         "apply_macro_template" => &[
             "ticket.first_response_at",
             "ticket.updated_at",
@@ -1388,6 +1389,18 @@ fn run_locked(
             }
             "return_requester_assets" => {
                 let mut done = execute_return_assets(conn, one_based, &ticket, ctx, shadow)?;
+                stamp_step(&mut done, one_based, kind);
+                done
+            }
+            "open_asset_record" => {
+                let mut done =
+                    execute_open_record(conn, one_based, &ticket, ctx, &config, shadow)?;
+                stamp_step(&mut done, one_based, kind);
+                done
+            }
+            "complete_asset_records" => {
+                let mut done =
+                    execute_complete_records(conn, one_based, &ticket, ctx, &config, shadow)?;
                 stamp_step(&mut done, one_based, kind);
                 done
             }
@@ -2605,6 +2618,487 @@ fn execute_return_assets(
 }
 
 // =====================================================================
+// Record steps: work records on the ticket's linked assets, opened when the
+// work starts and completed when it ends. They write through the records
+// repository, so each record is checked as a record entered by hand is and
+// sends its own `asset_record.*` sync action (and webhook). A record never
+// moves an asset's status. A step names its record type by slug.
+// =====================================================================
+
+/// The step's record type by `slug`. A step that writes a new record needs
+/// a live type; one that only completes records may name a type archived
+/// since, as an edit may complete a record of one. The rule was saved with
+/// a usable type; one removed or archived since fails the step.
+fn step_record_type(
+    conn: &mut DbConnection,
+    index: usize,
+    slug: &str,
+    writes_new: bool,
+) -> Result<crate::models::AssetRecordType, ApplyError> {
+    match crate::repository::asset_record_types::get_by_slug(conn, slug)? {
+        Some(t) if t.archived_at.is_none() || !writes_new => Ok(t),
+        Some(_) => Err(ApplyError::ActionFailed {
+            index,
+            message: format!("the record type \"{slug}\" is archived"),
+        }),
+        None => Err(ApplyError::ActionFailed {
+            index,
+            message: format!("the record type \"{slug}\" isn't in this workspace"),
+        }),
+    }
+}
+
+fn record_failed(
+    index: usize,
+    asset: &crate::models::Asset,
+    e: crate::repository::asset_records::RecordError,
+) -> ApplyError {
+    use crate::repository::asset_records::RecordError;
+    match e {
+        RecordError::Db(e) => ApplyError::Db(e),
+        other => asset_refused(index, asset, &format!("can't take the record: {other}")),
+    }
+}
+
+/// A text setting of a step, trimmed; `None` when absent or blank.
+fn config_text(config: &Value, key: &str) -> Option<String> {
+    config
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// The ticket's linked assets, lowest id first, each locked `FOR NO KEY
+/// UPDATE` as a status change locks it, so a move into a status that opens
+/// a record can't open one beside the step's.
+fn lock_linked_assets(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<Vec<crate::models::Asset>> {
+    use crate::schema::assets;
+    let ids: Vec<i32> = linked_assets(conn, ticket_id)?
+        .iter()
+        .map(|a| a.id)
+        .collect();
+    assets::table
+        .filter(assets::id.eq_any(&ids))
+        .order(assets::id.asc())
+        .for_no_key_update()
+        .load(conn)
+}
+
+/// The assets a record linked to the ticket names as its replacement. A
+/// carry-over links the ticket to the replacement too, but the work on the
+/// ticket was done on the asset it replaced, so no step writes a record on
+/// one.
+fn replacements_on_ticket(
+    records: &[crate::models::AssetRecord],
+) -> std::collections::HashSet<i32> {
+    records
+        .iter()
+        .filter_map(|r| r.replacement_asset_id)
+        .collect()
+}
+
+/// A record a step writes on `asset`, linked to the ticket and credited to
+/// the rule.
+fn rule_record(
+    asset: &crate::models::Asset,
+    rtype: &crate::models::AssetRecordType,
+    ticket_id: i32,
+    ctx: &ApplyContext,
+    summary: Option<String>,
+    occurred: crate::repository::asset_records::WorkDate,
+    completion: Option<(crate::repository::asset_records::WorkDate, String)>,
+) -> crate::repository::asset_records::NewRecord {
+    let (completed, outcome) = match completion {
+        Some((at, outcome)) => (Some(at), Some(outcome)),
+        None => (None, None),
+    };
+    crate::repository::asset_records::NewRecord {
+        asset_id: asset.id,
+        record_type_id: rtype.id,
+        summary,
+        notes: None,
+        occurred,
+        completed,
+        outcome,
+        vendor: None,
+        performed_by_uuid: None,
+        reference: None,
+        cost: None,
+        ticket_id: Some(ticket_id),
+        replacement_asset_id: None,
+        snapshot: None,
+        attributes: json!({}),
+        source: crate::models::RecordSource::Rule,
+        source_ref: None,
+        import_job_id: None,
+        rule_id: Some(ctx.rule_id),
+        lifecycle_event_id: None,
+        recorded_by: ctx.actor.uuid,
+    }
+}
+
+/// `open_asset_record` action. Each linked asset gets an open record of the
+/// step's type, started now (its day in the workspace's timezone), linked to
+/// the ticket and credited to the rule. An asset that already has an open
+/// record of the type on this ticket is left alone, so applying the rule
+/// again opens nothing twice; so is one whose kind the type isn't offered
+/// for, and one a record on the ticket names as a replacement. The records
+/// are all checked before any is written, so one the type refuses refuses
+/// the step by the asset's name. No linked assets is a no-op.
+fn execute_open_record(
+    conn: &mut DbConnection,
+    index: usize,
+    ticket: &crate::models::Ticket,
+    ctx: &ApplyContext,
+    config: &Value,
+    shadow: bool,
+) -> Result<Value, ApplyError> {
+    use crate::repository::asset_records::{self as records, WorkDate};
+
+    let slug = config_text(config, "record_type").unwrap_or_default();
+    let rtype = step_record_type(conn, index, &slug, true)?;
+    let summary = config_text(config, "summary");
+    let assets = lock_linked_assets(conn, ticket.id)?;
+    let on_ticket = records::for_ticket(conn, ticket.id, false)?;
+    let replacements = replacements_on_ticket(&on_ticket);
+    let open_on: std::collections::HashSet<i32> = on_ticket
+        .iter()
+        .filter(|r| r.record_type_id == rtype.id && r.completed_on.is_none())
+        .map(|r| r.asset_id)
+        .collect();
+    let tz = records::workspace_timezone(conn)?;
+    let now = WorkDate::At(chrono::Utc::now());
+
+    let mut to_open = Vec::new();
+    let mut already_open = Vec::new();
+    let mut not_for_kind = Vec::new();
+    let mut replacement = Vec::new();
+    for asset in &assets {
+        if open_on.contains(&asset.id) {
+            already_open.push(asset.id);
+            continue;
+        }
+        if replacements.contains(&asset.id) {
+            replacement.push(asset.id);
+            continue;
+        }
+        if !rtype.applies_to(&asset.kind) {
+            not_for_kind.push(asset.id);
+            continue;
+        }
+        let input = rule_record(asset, &rtype, ticket.id, ctx, summary.clone(), now, None);
+        records::check_new(conn, &input, asset, &rtype, tz)
+            .map_err(|e| record_failed(index, asset, e))?;
+        to_open.push((asset, input));
+    }
+
+    let mut record_ids = Vec::new();
+    if !shadow {
+        for (asset, input) in to_open.iter().cloned() {
+            let written =
+                records::create(conn, input).map_err(|e| record_failed(index, asset, e))?;
+            record_ids.push(written.record.id);
+        }
+    }
+    Ok(json!({
+        "record_type": rtype.slug,
+        "asset_ids": to_open.iter().map(|(a, _)| a.id).collect::<Vec<_>>(),
+        "record_ids": record_ids,
+        "already_open_asset_ids": already_open,
+        "not_for_kind_asset_ids": not_for_kind,
+        "replacement_asset_ids": replacement,
+    }))
+}
+
+/// `complete_asset_records` action. The open records linked to the ticket,
+/// of the step's type when it names one, complete now with the step's
+/// outcome; a type that no longer has the outcome fails the step. With no
+/// type, a record whose type has no such outcome stays open and is listed.
+/// With `create_if_none`, each linked asset with no record of the type on
+/// this ticket at all gets one already complete, started when the ticket
+/// was created; one that has a record of it, open or complete, gets none, so
+/// applying the rule again writes nothing, and nor does one a record on the
+/// ticket names as a replacement. Everything is checked before anything is
+/// written.
+fn execute_complete_records(
+    conn: &mut DbConnection,
+    index: usize,
+    ticket: &crate::models::Ticket,
+    ctx: &ApplyContext,
+    config: &Value,
+    shadow: bool,
+) -> Result<Value, ApplyError> {
+    use crate::repository::asset_records::{self as records, RecordChanges, WorkDate};
+    use crate::repository::{asset_record_types as types, assets as assets_repo};
+
+    let outcome = config_text(config, "outcome").unwrap_or_default();
+    let create_if_none = config
+        .get("create_if_none")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let rtype = match config_text(config, "record_type") {
+        Some(slug) => Some(step_record_type(conn, index, &slug, create_if_none)?),
+        None => None,
+    };
+    if let Some(t) = &rtype {
+        if t.outcome(&outcome).is_none() {
+            return Err(ApplyError::ActionFailed {
+                index,
+                message: format!(
+                    "the record type \"{}\" has no outcome \"{outcome}\"",
+                    t.slug
+                ),
+            });
+        }
+    }
+    // Locked, so an edit can't change one between the check and the write.
+    let on_ticket = records::for_ticket(conn, ticket.id, true)?;
+    let replacements = replacements_on_ticket(&on_ticket);
+    let of_type: Vec<&crate::models::AssetRecord> = on_ticket
+        .iter()
+        .filter(|r| rtype.as_ref().is_none_or(|t| r.record_type_id == t.id))
+        .collect();
+    let tz = records::workspace_timezone(conn)?;
+    let now = WorkDate::At(chrono::Utc::now());
+
+    let mut to_complete = Vec::new();
+    let mut left_open = Vec::new();
+    for record in of_type.iter().filter(|r| r.completed_on.is_none()) {
+        let asset = assets_repo::get_device_by_id(conn, record.asset_id)?;
+        let record_type = match &rtype {
+            Some(t) => t.clone(),
+            None => types::get(conn, record.record_type_id)?
+                .ok_or(ApplyError::Db(diesel::result::Error::NotFound))?,
+        };
+        if record_type.outcome(&outcome).is_none() {
+            left_open.push(record.id);
+            continue;
+        }
+        let changes = RecordChanges {
+            completed: Some(Some(now)),
+            outcome: Some(Some(outcome.clone())),
+            ..Default::default()
+        };
+        records::check_update(
+            conn,
+            record,
+            changes.clone(),
+            &asset,
+            &record_type,
+            tz,
+            ctx.actor.uuid,
+        )
+        .map_err(|e| record_failed(index, &asset, e))?;
+        to_complete.push((*record, asset, changes));
+    }
+
+    let mut to_create = Vec::new();
+    let mut not_for_kind = Vec::new();
+    let mut replacement = Vec::new();
+    if let (true, Some(rtype)) = (create_if_none, &rtype) {
+        let started = WorkDate::At(ticket.created_at.and_utc());
+        for asset in linked_assets(conn, ticket.id)? {
+            if of_type.iter().any(|r| r.asset_id == asset.id) {
+                continue;
+            }
+            if replacements.contains(&asset.id) {
+                replacement.push(asset.id);
+                continue;
+            }
+            if !rtype.applies_to(&asset.kind) {
+                not_for_kind.push(asset.id);
+                continue;
+            }
+            let input = rule_record(
+                &asset,
+                rtype,
+                ticket.id,
+                ctx,
+                None,
+                started,
+                Some((now, outcome.clone())),
+            );
+            records::check_new(conn, &input, &asset, rtype, tz)
+                .map_err(|e| record_failed(index, &asset, e))?;
+            to_create.push((asset, input));
+        }
+    }
+
+    let mut created_ids = Vec::new();
+    if !shadow {
+        for (record, asset, changes) in &to_complete {
+            records::update(
+                conn,
+                record.id,
+                record.version,
+                changes.clone(),
+                ctx.actor.uuid,
+            )
+            .map_err(|e| record_failed(index, asset, e))?;
+        }
+        for (asset, input) in &to_create {
+            let written =
+                records::create(conn, input.clone()).map_err(|e| record_failed(index, asset, e))?;
+            created_ids.push(written.record.id);
+        }
+    }
+    Ok(json!({
+        "record_type": rtype.as_ref().map(|t| t.slug.clone()),
+        "outcome": outcome,
+        "completed_record_ids": to_complete.iter().map(|(r, _, _)| r.id).collect::<Vec<_>>(),
+        "left_open_record_ids": left_open,
+        "created_asset_ids": to_create.iter().map(|(a, _)| a.id).collect::<Vec<_>>(),
+        "created_record_ids": created_ids,
+        "not_for_kind_asset_ids": not_for_kind,
+        "replacement_asset_ids": replacement,
+    }))
+}
+
+/// A record step whose type can't be written by a rule, checked when the
+/// rule is saved or goes live so that the step doesn't fail when it runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StepRecordTypeProblem {
+    /// The step (one-indexed) names no live record type of the workspace's.
+    Missing { step: usize, slug: String },
+    /// The type is archived.
+    Archived { step: usize, slug: String },
+    /// The type requires a field a rule can't fill: `vendor`, `reference`,
+    /// `cost`, `summary` (on a step without one) or one of its own fields;
+    /// and for a record dated from the ticket's creation, `holder` or
+    /// `location`, which are rarely known for a past day.
+    Requires { step: usize, field: String },
+    /// The outcome isn't one of the type's or, for a step that names no
+    /// type, of any live type's.
+    UnknownOutcome { step: usize, outcome: String },
+}
+
+impl StepRecordTypeProblem {
+    pub fn message(&self) -> String {
+        match self {
+            Self::Missing { step, slug } => format!(
+                "Step {step}: the record type \"{slug}\" isn't in this workspace, so pick another"
+            ),
+            Self::Archived { step, slug } => format!(
+                "Step {step}: the record type \"{slug}\" is archived, so restore it or pick another"
+            ),
+            Self::Requires { step, field } => format!(
+                "Step {step}: the record type requires {field}, which a rule can't fill in, so make it optional or pick another type"
+            ),
+            Self::UnknownOutcome { step, outcome } => format!(
+                "Step {step}: \"{outcome}\" isn't an outcome of the record type, so pick another"
+            ),
+        }
+    }
+}
+
+/// The first record step of `actions` whose type a rule can't write: one
+/// gone, one archived that the step would write a new record of, one
+/// requiring a field the step can't fill, or an outcome the type doesn't
+/// have. A completion only writes a new record with `create_if_none`;
+/// otherwise it fills in only the outcome, which an archived type's records
+/// still take.
+pub fn step_record_type_problem(
+    conn: &mut DbConnection,
+    actions: &Value,
+) -> QueryResult<Option<StepRecordTypeProblem>> {
+    use crate::models::CoreFieldMode;
+    use crate::repository::asset_record_types as types;
+
+    for (i, step) in actions.as_array().into_iter().flatten().enumerate() {
+        let step_no = i + 1;
+        let config = step.get("config").cloned().unwrap_or(Value::Null);
+        let kind = step.get("kind").and_then(Value::as_str);
+        // Whether the step writes new records, whether it gives them a
+        // summary, and whether they are dated in the past.
+        let (writes_new, summary, backdated) = match kind {
+            Some("open_asset_record") => (true, config_text(&config, "summary").is_some(), false),
+            Some("complete_asset_records") => {
+                let creates = config
+                    .get("create_if_none")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                (creates, false, creates)
+            }
+            _ => continue,
+        };
+        let outcome = config_text(&config, "outcome");
+        let Some(slug) = config_text(&config, "record_type") else {
+            // Only a completion may leave the type out: then its outcome
+            // must be one some live type has.
+            if let Some(outcome) = outcome {
+                let known = types::list(conn, false)?
+                    .iter()
+                    .any(|t| t.outcome(&outcome).is_some());
+                if !known {
+                    return Ok(Some(StepRecordTypeProblem::UnknownOutcome {
+                        step: step_no,
+                        outcome,
+                    }));
+                }
+            }
+            continue;
+        };
+        let Some(rtype) = types::get_by_slug(conn, &slug)? else {
+            return Ok(Some(StepRecordTypeProblem::Missing {
+                step: step_no,
+                slug,
+            }));
+        };
+        if writes_new && rtype.archived_at.is_some() {
+            return Ok(Some(StepRecordTypeProblem::Archived {
+                step: step_no,
+                slug,
+            }));
+        }
+        if let Some(outcome) = outcome {
+            if rtype.outcome(&outcome).is_none() {
+                return Ok(Some(StepRecordTypeProblem::UnknownOutcome {
+                    step: step_no,
+                    outcome,
+                }));
+            }
+        }
+        if !writes_new {
+            continue;
+        }
+        let mut required: Vec<String> = ["vendor", "reference", "cost"]
+            .into_iter()
+            .chain((!summary).then_some("summary"))
+            .chain(
+                backdated
+                    .then_some(["holder", "location"])
+                    .into_iter()
+                    .flatten(),
+            )
+            .filter(|f| rtype.core_field(f) == CoreFieldMode::Required)
+            .map(str::to_string)
+            .collect();
+        required.extend(
+            rtype
+                .field_schema
+                .get("required")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_string),
+        );
+        if let Some(field) = required.into_iter().next() {
+            return Ok(Some(StepRecordTypeProblem::Requires {
+                step: step_no,
+                field,
+            }));
+        }
+    }
+    Ok(None)
+}
+
+// =====================================================================
 // Save-time preview (plan, "Save-time mandatory check"): how many recent tickets a rule's
 // conditions match, and the ids a condition tree names.
 // =====================================================================
@@ -2985,8 +3479,8 @@ mod tests {
         assert!(derive_writes_set(&actions).is_empty());
     }
 
-    /// The asset steps write assets and loans and no ticket field, so a
-    /// rule that reads the ticket never sees them as writes it reads.
+    /// The asset steps write assets, loans and records and no ticket field,
+    /// so a rule that reads the ticket never sees them as writes it reads.
     #[test]
     fn asset_actions_write_asset_keys_only() {
         let writes = |kind: &str| flat(derive_writes_set(&json!([{ "kind": kind }])));
@@ -2996,6 +3490,8 @@ mod tests {
             writes("return_requester_assets"),
             vec!["asset.custody", "asset.loan"]
         );
+        assert_eq!(writes("open_asset_record"), vec!["asset.record"]);
+        assert_eq!(writes("complete_asset_records"), vec!["asset.record"]);
     }
 
     #[test]

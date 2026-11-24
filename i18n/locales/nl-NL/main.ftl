@@ -12839,3 +12839,80 @@ import-remove-webhooks-records = { $count ->
     [one] Webhooks ontvangen 1 asset.record_deleted-gebeurtenis.
    *[other] Webhooks ontvangen { $count } asset.record_deleted-gebeurtenissen.
    }
+# MT: pending native review (nl-NL)
+admin-rule-editor-action-open-asset-record = Een registratie openen op de gekoppelde activa
+# MT: pending native review (nl-NL)
+admin-rule-editor-action-complete-asset-records = De registraties van het ticket afronden
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-type-label = Registratietype
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-type-placeholder = Kies een registratietype
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-type-any = Elk type
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-summary-label = Samenvatting
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-summary-hint = Optioneel. Elke registratie krijgt deze regel.
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-outcome-label = Uitkomst
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-outcome-placeholder = Kies een uitkomst
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-create-label = Een afgeronde registratie schrijven op een gekoppeld activum dat er geen heeft
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-open-hint = Elk activum dat aan het ticket is gekoppeld krijgt een open registratie van dit type, met de datum van vandaag en gekoppeld aan het ticket. Een activum dat er al een open heeft vanuit dit ticket krijgt geen tweede. De status van het activum blijft zoals hij is.
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-complete-hint = De open registraties van het ticket van dit type, of van elk type met deze uitkomst, worden vandaag met deze uitkomst afgerond. Een registratie die wordt geschreven waar er geen was, begint bij het aanmaken van het ticket en heeft een type nodig.
+# MT: pending native review (nl-NL)
+admin-rule-editor-step-needs-record-type = Kies een registratietype.
+# MT: pending native review (nl-NL)
+admin-rule-editor-step-needs-outcome = Kies een uitkomst.
+# MT: pending native review (nl-NL)
+admin-rule-editor-step-needs-record-type-to-create = Kies een registratietype om registraties te schrijven waar er geen zijn.
+# MT: pending native review (nl-NL)
+ticket-actions-step-open-record = Een registratie van type { $type } openen op elk gekoppeld activum
+# MT: pending native review (nl-NL)
+ticket-actions-step-open-record-unknown = Een registratie openen op elk gekoppeld activum
+# MT: pending native review (nl-NL)
+ticket-actions-step-complete-records = De open registraties van type { $type } van het ticket afronden als { $outcome }
+# MT: pending native review (nl-NL)
+ticket-actions-step-complete-records-create = De registraties van type { $type } van het ticket afronden als { $outcome }, en er een schrijven op elk gekoppeld activum dat er geen heeft
+# MT: pending native review (nl-NL)
+ticket-actions-step-complete-records-any = De open registraties van het ticket afronden als { $outcome }
+# MT: pending native review (nl-NL)
+ticket-actions-step-complete-records-unknown = De open registraties van het ticket afronden
+# MT: pending native review (nl-NL)
+admin-rules-activity-did-open-records =
+    { $count ->
+        [0] Geen nieuwe registraties geopend
+        [one] Eén registratie geopend
+       *[other] { $count } registraties geopend
+    }
+# MT: pending native review (nl-NL)
+admin-rules-activity-did-complete-records =
+    { $count ->
+        [0] Geen open registraties gevonden om af te ronden
+        [one] Eén registratie afgerond
+       *[other] { $count } registraties afgerond
+    }
+# MT: pending native review (nl-NL)
+admin-rules-activity-did-complete-records-wrote =
+    { $created ->
+        [one] Eén afgeronde registratie geschreven waar er geen was
+       *[other] { $created } afgeronde registraties geschreven waar er geen waren
+    }
+# MT: pending native review (nl-NL)
+admin-rules-activity-did-complete-records-created =
+    { $count ->
+        [one] Eén registratie afgerond
+       *[other] { $count } registraties afgerond
+    } en { $created ->
+        [one] één geschreven waar er geen was
+       *[other] { $created } geschreven waar er geen waren
+    }
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-no-types = Deze werkruimte heeft nog geen registratietypen.
+# MT: pending native review (nl-NL)
+admin-rule-editor-records-no-types-link = Registratietypen toevoegen
+# MT: pending native review (nl-NL)
+admin-rules-conflicts-field-asset-record = registraties van activa

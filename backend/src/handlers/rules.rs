@@ -745,6 +745,9 @@ fn insert_rule(
     {
         return Err(refused(step_person_refused(problem)));
     }
+    if let Some(problem) = rules::step_record_type_problem(conn, &actions)? {
+        return Err(refused(step_record_type_refused(problem)));
+    }
     if trigger_kind == RuleTriggerKind::PluginEvent {
         if let Some(resp) = unknown_plugin_event(conn, &trigger_config)? {
             return Err(refused(resp));
@@ -973,6 +976,11 @@ pub async fn update_rule(
                 problem,
             ))));
         }
+        if let Some(problem) = rules::step_record_type_problem(conn, &effective_actions)? {
+            return Err(UpdateRuleError::Refused(Box::new(
+                step_record_type_refused(problem),
+            )));
+        }
         if let Some(config) = &plugin_config {
             if let Some(resp) = unknown_plugin_event(conn, config)? {
                 return Err(UpdateRuleError::Refused(Box::new(resp)));
@@ -1147,6 +1155,12 @@ pub async fn transition_state(
             )
         }) {
             Ok(Some(problem)) => return Ok(step_person_refused(problem)),
+            Ok(None) => {}
+            Err(e) => return Err(ApiError::Database(e)),
+        }
+        // So may a record type a step names.
+        match tc.run(|conn| rules::step_record_type_problem(conn, &existing.actions)) {
+            Ok(Some(problem)) => return Ok(step_record_type_refused(problem)),
             Ok(None) => {}
             Err(e) => return Err(ApiError::Database(e)),
         }
@@ -1723,6 +1737,8 @@ fn validate_actions(actions: &Value) -> Result<(), String> {
         "assign_assets_to_requester",
         "lend_assets",
         "return_requester_assets",
+        "open_asset_record",
+        "complete_asset_records",
         "notify",
         "stop_processing",
     ];
@@ -1768,6 +1784,11 @@ fn step_person_refused(problem: rules::StepPersonProblem) -> HttpResponse {
             "RULE_NOTIFY_RECIPIENT_INVALID",
         ),
     }
+}
+
+/// 400 for a record step whose type a rule can't write.
+fn step_record_type_refused(problem: rules::StepRecordTypeProblem) -> HttpResponse {
+    errors::bad_request_with_code(problem.message(), "RULE_RECORD_TYPE_INVALID")
 }
 
 /// A step's settings must be complete when the rule is saved, so an agent
@@ -1842,6 +1863,30 @@ fn validate_step_config(kind: &str, config: &Value) -> Result<(), &'static str> 
             let priority = config.get("priority").and_then(Value::as_str).unwrap_or("");
             if crate::models::TicketPriority::parse(priority).is_none() {
                 return Err("pick a priority");
+            }
+        }
+        "open_asset_record" => {
+            if text("record_type").trim().is_empty() {
+                return Err("pick a record type");
+            }
+            if text("summary").trim().chars().count() > 255 {
+                return Err("keep the summary to 255 characters");
+            }
+        }
+        // Without a type the step completes the ticket's open records of
+        // any type, so it has no type to write a new one of.
+        "complete_asset_records" => {
+            if text("outcome").trim().is_empty() {
+                return Err("pick an outcome");
+            }
+            let create = match config.get("create_if_none") {
+                None | Some(Value::Null) => false,
+                Some(v) => v
+                    .as_bool()
+                    .ok_or("set whether to write a record when there is none")?,
+            };
+            if create && text("record_type").trim().is_empty() {
+                return Err("pick a record type to write a record when there is none");
             }
         }
         // The loan's length is optional; without it the loan is open ended.
@@ -2024,6 +2069,45 @@ mod tests {
             let bad =
                 serde_json::json!([{ "kind": "lend_assets", "config": { "due_in_days": days } }]);
             assert!(validate_actions(&bad).is_err(), "{bad} should be refused");
+        }
+    }
+
+    /// A record step names its type; a completion names its outcome, and
+    /// needs a type to write a record when there is none.
+    #[test]
+    fn validate_actions_takes_the_record_steps() {
+        let ok = serde_json::json!([
+            { "kind": "open_asset_record", "config": { "record_type": "repair" } },
+            { "kind": "open_asset_record", "config": { "record_type": "repair", "summary": "Sent to the vendor" } },
+            { "kind": "complete_asset_records", "config": { "outcome": "repaired" } },
+            { "kind": "complete_asset_records", "config": { "record_type": "repair", "outcome": "repaired", "create_if_none": true } },
+            { "kind": "complete_asset_records", "config": { "outcome": "repaired", "create_if_none": false } }
+        ]);
+        assert!(validate_actions(&ok).is_ok());
+        for (bad, why) in [
+            (
+                serde_json::json!({ "kind": "open_asset_record", "config": {} }),
+                "pick a record type",
+            ),
+            (
+                serde_json::json!({ "kind": "open_asset_record", "config": { "record_type": "repair", "summary": "x".repeat(256) } }),
+                "keep the summary to 255 characters",
+            ),
+            (
+                serde_json::json!({ "kind": "complete_asset_records", "config": { "record_type": "repair" } }),
+                "pick an outcome",
+            ),
+            (
+                serde_json::json!({ "kind": "complete_asset_records", "config": { "outcome": "repaired", "create_if_none": true } }),
+                "pick a record type to write a record when there is none",
+            ),
+            (
+                serde_json::json!({ "kind": "complete_asset_records", "config": { "outcome": "repaired", "create_if_none": "yes" } }),
+                "set whether to write a record when there is none",
+            ),
+        ] {
+            let err = validate_actions(&serde_json::json!([bad])).expect_err(why);
+            assert!(err.contains(why), "{err}");
         }
     }
 

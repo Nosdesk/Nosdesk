@@ -21,6 +21,18 @@ vi.mock('@nosdesk/core/stores/tags', () => ({
   useTagsStore: () => ({ findById: (id: number) => (TAGS[id] ? { id, name: TAGS[id] } : null) }),
 }))
 
+vi.mock('@/composables/useAssetTimeline', async () => {
+  const { computed } = await import('vue')
+  return {
+    useAssetRecordTypes: () => ({
+      types: computed(() => [
+        { id: 1, slug: 'repair', label: null, outcomes: [{ key: 'repaired', category: 'done', label: null }] },
+        { id: 2, slug: 'calibration', label: 'Calibration', outcomes: [{ key: 'passed', category: 'done', label: 'In tolerance' }] },
+      ]),
+    }),
+  }
+})
+
 import { useRuleStepText } from '@/composables/useRuleStepText'
 
 const CATALOGUES = { 'en-US': enUS, 'fr-FR': frFR, 'nl-NL': nlNL }
@@ -69,6 +81,64 @@ describe('useRuleStepText', () => {
 
   it('leaves a tag it cannot name unquoted and counted', () => {
     expect(stepText('en-US').planned(addTags({ tag_ids: [99] }))).toBe('Add a tag')
+  })
+
+  it('says what a record step will do, naming the type and outcome', () => {
+    const { planned } = stepText('en-US')
+    const step = (kind: RuleAction['kind'], config: Record<string, unknown>) => planned({ kind, config })
+    expect(step('open_asset_record', { record_type: 'repair' })).toBe(
+      'Open a record of type “Repair” on each linked asset',
+    )
+    expect(step('open_asset_record', { record_type: 'gone' })).toBe('Open a record on each linked asset')
+    expect(step('complete_asset_records', { record_type: 'repair', outcome: 'repaired' })).toBe(
+      "Complete the ticket's open records of type “Repair” as “Repaired”",
+    )
+    expect(step('complete_asset_records', { record_type: 'repair', outcome: 'repaired', create_if_none: true })).toBe(
+      "Complete the ticket's records of type “Repair” as “Repaired”, writing one on each linked asset that has none",
+    )
+    expect(step('complete_asset_records', { record_type: null, outcome: 'passed' })).toBe(
+      "Complete the ticket's open records as “In tolerance”",
+    )
+    expect(step('complete_asset_records', { record_type: 'repair', outcome: 'passed' })).toBe(
+      "Complete the ticket's open records",
+    )
+  })
+
+  it('says what a record step did', () => {
+    const { done } = stepText('en-US')
+    expect(done({ kind: 'open_asset_record', asset_ids: [], already_open_asset_ids: [] })).toBe(
+      'Found no linked assets',
+    )
+    expect(done({ kind: 'open_asset_record', asset_ids: [], already_open_asset_ids: [4] })).toBe(
+      'Opened no new records',
+    )
+    expect(done({ kind: 'open_asset_record', asset_ids: [4, 5] })).toBe('Opened 2 records')
+    expect(done({ kind: 'open_asset_record', asset_ids: [], replacement_asset_ids: [6] })).toBe(
+      'Opened no new records',
+    )
+    expect(done({ kind: 'complete_asset_records', completed_record_ids: [], created_asset_ids: [] })).toBe(
+      'Found no open records to complete',
+    )
+    expect(done({ kind: 'complete_asset_records', completed_record_ids: [7], created_asset_ids: [] })).toBe(
+      'Completed one record',
+    )
+    expect(done({ kind: 'complete_asset_records', completed_record_ids: [], created_asset_ids: [4] })).toBe(
+      'Wrote one completed record where there was none',
+    )
+    expect(done({ kind: 'complete_asset_records', completed_record_ids: [7, 8], created_asset_ids: [4] })).toBe(
+      'Completed 2 records and wrote one where there was none',
+    )
+  })
+
+  it('words the record steps in French and Dutch', () => {
+    const entry = { kind: 'complete_asset_records', completed_record_ids: [7, 8], created_asset_ids: [4] }
+    expect(stepText('fr-FR').done(entry)).toBe(
+      "2 interventions terminées et une créée là où il n'y en avait aucune",
+    )
+    expect(stepText('nl-NL').done(entry)).toBe('2 registraties afgerond en één geschreven waar er geen was')
+    expect(stepText('fr-FR').done({ kind: 'open_asset_record', asset_ids: [], already_open_asset_ids: [4] })).toBe(
+      'Aucune nouvelle intervention ouverte',
+    )
   })
 
   it('says what an asset step will do', () => {

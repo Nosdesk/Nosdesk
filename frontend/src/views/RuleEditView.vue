@@ -13,7 +13,8 @@
  * supported kinds are reply / notify / set_status / assign / unassign /
  * add_tags / remove_tags / set_priority / stop_processing, and the asset
  * steps assign_assets_to_requester / lend_assets /
- * return_requester_assets; apply_macro_template / webhook don't run yet,
+ * return_requester_assets / open_asset_record / complete_asset_records;
+ * apply_macro_template / webhook don't run yet,
  * and the backend refuses to save a rule with one (RULE_VALIDATION). A
  * reply on a rule that runs on its own sends as a chosen agent, the rule's
  * author unless the step names someone else.
@@ -36,6 +37,8 @@ import FormNumber from '@/components/common/FormNumber.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import SegmentedControl from '@/components/common/SegmentedControl.vue';
 import UserPicker from '@/components/ticketComponents/UserPicker.vue';
+import AssetRecordStepForm from '@/components/admin/rules/AssetRecordStepForm.vue';
+import { useAssetRecordTypes } from '@/composables/useAssetTimeline';
 import AssetStepForm from '@/components/admin/rules/AssetStepForm.vue';
 import NotifyStepForm from '@/components/admin/rules/NotifyStepForm.vue';
 import ReplyStepForm from '@/components/admin/rules/ReplyStepForm.vue';
@@ -246,6 +249,10 @@ function setActionKind(index: number, kind: RuleAction['kind']): void {
       case 'lend_assets':
       case 'return_requester_assets':
         return {};
+      case 'open_asset_record':
+        return { record_type: '' };
+      case 'complete_asset_records':
+        return { record_type: null, outcome: '', create_if_none: false };
       case 'stop_processing':
         return {};
       default:
@@ -279,6 +286,11 @@ function stepProblem(action: RuleAction): string | null {
     case 'add_tags':
     case 'remove_tags':
       return Array.isArray(c.tag_ids) && c.tag_ids.length > 0 ? null : 'admin-rule-editor-step-needs-tags';
+    case 'open_asset_record':
+      return c.record_type ? null : 'admin-rule-editor-step-needs-record-type';
+    case 'complete_asset_records':
+      if (!c.outcome) return 'admin-rule-editor-step-needs-outcome';
+      return c.create_if_none === true && !c.record_type ? 'admin-rule-editor-step-needs-record-type-to-create' : null;
     default:
       return null;
   }
@@ -577,6 +589,12 @@ function changedFieldLabel(field: string): string {
 const ASSET_KINDS = ['assign_assets_to_requester', 'lend_assets', 'return_requester_assets'] as const;
 const isAssetKind = (kind: RuleAction['kind']): kind is (typeof ASSET_KINDS)[number] =>
   (ASSET_KINDS as readonly string[]).includes(kind);
+// Steps writing work records on the ticket's linked assets.
+const RECORD_KINDS = ['open_asset_record', 'complete_asset_records'] as const;
+const isRecordKind = (kind: RuleAction['kind']): kind is (typeof RECORD_KINDS)[number] =>
+  (RECORD_KINDS as readonly string[]).includes(kind);
+// The record steps' type and outcome pickers, read once a rule has one.
+const recordTypes = useAssetRecordTypes(() => actions.value.some((a) => isRecordKind(a.kind)));
 
 // stop_processing only means something to rules that run on their own.
 const actionKinds = computed<RuleAction['kind'][]>(() => [
@@ -589,6 +607,7 @@ const actionKinds = computed<RuleAction['kind'][]>(() => [
   'remove_tags',
   'set_priority',
   ...ASSET_KINDS,
+  ...RECORD_KINDS,
   ...(isManual.value ? [] : (['stop_processing'] as const)),
 ]);
 
@@ -602,6 +621,7 @@ const SUPPORTED_KINDS: RuleAction['kind'][] = [
   'remove_tags',
   'set_priority',
   ...ASSET_KINDS,
+  ...RECORD_KINDS,
   'stop_processing',
 ];
 
@@ -952,6 +972,15 @@ const priorityValue = (config: Record<string, unknown> | undefined) => {
                 v-else-if="isAssetKind(action.kind)"
                 :kind="action.kind"
                 :config="action.config"
+                @update="(field, value) => updateConfigField(i, field, value)"
+              />
+
+              <AssetRecordStepForm
+                v-else-if="isRecordKind(action.kind)"
+                :kind="action.kind"
+                :config="action.config"
+                :types="recordTypes.types.value"
+                :loaded="recordTypes.query.data.value !== undefined"
                 @update="(field, value) => updateConfigField(i, field, value)"
               />
 

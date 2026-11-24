@@ -7,7 +7,9 @@
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 
+import { catalogueOutcomeName, recordTypeName } from '@/components/admin/assetRecordTypes/recordTypeForm'
 import { GROUPS_QUERY_KEY } from '@/composables/useAssignmentPickerQueries'
+import { useAssetRecordTypes } from '@/composables/useAssetTimeline'
 import userService from '@/services/userService'
 import { groupService } from '@nosdesk/core/services/groupService'
 import { useTagsStore } from '@nosdesk/core/stores/tags'
@@ -40,11 +42,29 @@ export function useRuleStepText(options: {
     staleTime: 5 * 60 * 1000,
   })
 
+  const recordTypes = useAssetRecordTypes(options.enabled)
+
   const userName = (uuid: unknown): string | null =>
     (usersQuery.data.value ?? []).find((u) => u.uuid === uuid)?.name ?? null
   const teamName = (id: unknown): string | null =>
     (groupsQuery.data.value ?? []).find((g) => g.id === Number(id))?.name ?? null
   const statusName = (id: unknown): string | null => states.findById(Number(id))?.name ?? null
+  const recordType = (slug: unknown) => recordTypes.types.value.find((x) => x.slug === slug) ?? null
+  // A record type, or an outcome of the named type (any type's, for a step
+  // that names none), by name.
+  const typeName = (slug: unknown): string | null => {
+    const type = recordType(slug)
+    return type ? recordTypeName(t, type) : null
+  }
+  const outcomeName = (slug: unknown, key: unknown): string | null => {
+    const named = slug ? recordType(slug) : null
+    const types = named ? [named] : slug ? [] : recordTypes.types.value
+    for (const type of types) {
+      const o = type.outcomes.find((x) => x.key === key)
+      if (o) return o.label ?? catalogueOutcomeName(t, type.slug, String(key))
+    }
+    return null
+  }
   const tagNames = (ids: unknown): string[] | null => {
     if (!Array.isArray(ids)) return null
     const names = ids.map((id) => tags.findById(Number(id))?.name)
@@ -114,6 +134,25 @@ export function useRuleStepText(options: {
       }
       case 'return_requester_assets':
         return t('ticket-actions-step-return-assets')
+      case 'open_asset_record': {
+        const type = typeName(c.record_type)
+        return type
+          ? t('ticket-actions-step-open-record', { type: t('rule-step-quoted-name', { name: type }) })
+          : t('ticket-actions-step-open-record-unknown')
+      }
+      case 'complete_asset_records': {
+        const outcome = outcomeName(c.record_type, c.outcome)
+        const type = c.record_type ? typeName(c.record_type) : null
+        if (!outcome || (c.record_type && !type)) return t('ticket-actions-step-complete-records-unknown')
+        const quoted = {
+          outcome: t('rule-step-quoted-name', { name: outcome }),
+          type: type ? t('rule-step-quoted-name', { name: type }) : '',
+        }
+        if (!type) return t('ticket-actions-step-complete-records-any', quoted)
+        return c.create_if_none === true
+          ? t('ticket-actions-step-complete-records-create', quoted)
+          : t('ticket-actions-step-complete-records', quoted)
+      }
       default:
         return null
     }
@@ -173,6 +212,26 @@ export function useRuleStepText(options: {
         const cleared = countOf(entry.cleared_asset_ids)
         if (loans + cleared === 0) return t('admin-rules-activity-did-return-assets-none')
         return t('admin-rules-activity-did-return-assets', { loans, cleared })
+      }
+      case 'open_asset_record': {
+        const count = countOf(entry.asset_ids)
+        const passed =
+          countOf(entry.already_open_asset_ids) +
+          countOf(entry.not_for_kind_asset_ids) +
+          countOf(entry.replacement_asset_ids)
+        if (count + passed === 0) {
+          return t('admin-rules-activity-did-assets-none')
+        }
+        return t('admin-rules-activity-did-open-records', { count })
+      }
+      // A dry run lists the assets it would write a record on, with no
+      // record ids, so the assets are counted.
+      case 'complete_asset_records': {
+        const count = countOf(entry.completed_record_ids)
+        const created = countOf(entry.created_asset_ids)
+        if (created === 0) return t('admin-rules-activity-did-complete-records', { count })
+        if (count === 0) return t('admin-rules-activity-did-complete-records-wrote', { created })
+        return t('admin-rules-activity-did-complete-records-created', { count, created })
       }
       default:
         return null
