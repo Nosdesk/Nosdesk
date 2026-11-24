@@ -13,6 +13,11 @@
  * had it then, the time of day) open from one line of links at the foot.
  * An edit sends only what changed, so a time or a cost nobody touched
  * keeps its precision.
+ *
+ * A save that newly names a replacement asset turns the form into one more
+ * step: what follows the equipment to the new asset (its open tickets, who
+ * holds it and where, and the old asset's status). Nothing moves unless
+ * ticked; Skip, or closing, keeps the record and moves nothing.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -33,13 +38,17 @@ import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { useAssetRecordTypes, useAssetTimelineInvalidate } from '@/composables/useAssetTimeline'
 import { useWorkspaceQuery, useWorkspaceQueryCache } from '@/queries/workspaceQuery'
 import { fetchEligibleUsers } from '@/services/eligibleUsers'
-import { getPaginatedAssetsExcluding } from '@/services/assetService'
+import { getAssetById, getPaginatedAssetsExcluding } from '@/services/assetService'
+import { coarseStatusBucket } from '@nosdesk/core/types/workflow'
 import { getDateConfig } from '@nosdesk/core/utils/dateUtils'
 import { currencyName, readAmountInput, type AmountInputError } from '@nosdesk/core/utils/money'
 import {
   assetRecordKeys,
   assetRecordService,
+  REPLACED_ASSET_STATUSES,
   type CreateAssetRecordBody,
+  type ReplacedAssetStatus,
+  type ReplacementCarryOverBody,
   type UpdateAssetRecordBody,
 } from '@nosdesk/core/services/assetRecordService'
 import type {
@@ -51,6 +60,7 @@ import type {
   AssetTimelineTicket,
 } from '@nosdesk/core/types/asset'
 import AssetRecordTypeFields from './AssetRecordTypeFields.vue'
+import AssetDisposalFields, { disposalBody, emptyDisposal, type DisposalDraft } from './AssetDisposalFields.vue'
 import {
   agoText,
   clockOf,
@@ -66,7 +76,19 @@ import {
 
 const props = defineProps<{
   show: boolean
-  asset: Pick<Asset, 'id' | 'name' | 'asset_tag' | 'status' | 'kind' | 'purchase_date' | 'location' | 'primary_user_uuid'>
+  asset: Pick<
+    Asset,
+    | 'id'
+    | 'name'
+    | 'asset_tag'
+    | 'status'
+    | 'kind'
+    | 'purchase_date'
+    | 'location'
+    | 'primary_user_uuid'
+    | 'managed_by_user_uuid'
+    | 'asset_groups'
+  >
   /** The record to edit; absent to add one. */
   record?: AssetRecord | null
   /** Open an in-progress record on its completion. */
@@ -80,6 +102,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   saved: [write: AssetRecordWrite, files: File[], addAnother: boolean]
+  /** The carry-overs ran; the toast is the parent's. */
+  carried: [replacement: Pick<Asset, 'id' | 'name' | 'asset_tag'>]
 }>()
 
 const fluent = useFluent()
@@ -626,11 +650,9 @@ async function submit() {
       })
     }
     const another = form.addAnother && !props.record
-    emit('saved', write, files.value, another)
-    if (another) {
-      // Entering a stack of past work: keep the type, vendor and date.
-      reset({ type: form.type, day: form.day, vendor: form.vendor })
-    }
+    const saved = { write, files: files.value, another }
+    if (newlyReplaced(write)) await openCarry(saved)
+    else finish(saved)
   } catch (e) {
     const status = (e as { response?: { status?: number } }).response?.status
     errorMessage.value =
@@ -642,12 +664,167 @@ async function submit() {
   }
 }
 
+/** Hand the saved record to the parent, which closes the form or, when
+ *  adding another, gets it back empty. */
+function finish(saved: Saved) {
+  carry.saved = null
+  emit('saved', saved.write, saved.files, saved.another)
+  if (saved.another) {
+    // Entering a stack of past work: keep the type, vendor and date.
+    reset({ type: form.type, day: form.day, vendor: form.vendor })
+  }
+}
+
+// --- Carry-overs to the replacement -------------------------------------
+
+interface Saved {
+  write: AssetRecordWrite
+  files: File[]
+  another: boolean
+}
+
+/** The save named a replacement the record didn't name before. */
+function newlyReplaced(write: AssetRecordWrite): boolean {
+  const next = write.record.replacement_asset_id
+  return next !== null && next !== (props.record?.replacement_asset_id ?? null)
+}
+
+const carry = reactive({
+  /** The save waiting on this step; the step shows while it is set. */
+  saved: null as Saved | null,
+  /** The new asset, once read. */
+  replacement: null as Asset | null,
+  replacementId: 0,
+  tickets: false,
+  assignment: false,
+  move: false,
+  moveTo: 'retired' as ReplacedAssetStatus,
+  disposal: emptyDisposal() as DisposalDraft,
+  running: false,
+  error: '',
+})
+const carrying = computed(() => carry.saved !== null)
+
+/** The old asset's open tickets, as the timeline lists them. */
+const openTickets = computed(() =>
+  props.tickets.filter((ticket) => !ticket.state || coarseStatusBucket(ticket.state.category) !== 'closed'),
+)
+
+const replacementLabel = computed(() => {
+  const r = carry.replacement
+  return r ? (r.asset_tag ?? r.name) : `#${carry.replacementId}`
+})
+
+/** What the old asset has to copy, said as the new asset would take it. A
+ *  synced asset's holder and location are the sync's. */
+const copyable = computed(() => {
+  const old = props.asset
+  const synced = !!carry.replacement?.external_sync_source
+  const items: string[] = []
+  const holder = synced ? null : person(old.primary_user_uuid)
+  if (holder) items.push(holder)
+  const manager = person(old.managed_by_user_uuid)
+  if (manager) items.push(t('asset-record-carry-managed-by', { name: manager }))
+  const location = synced ? '' : (old.location ?? '').trim()
+  if (location) items.push(location)
+  const groups = old.asset_groups ?? []
+  if (groups.length === 1) items.push(groups[0].name)
+  else if (groups.length > 1) items.push(t('asset-record-carry-groups', { count: groups.length }))
+  return items
+})
+
+/** The new asset already has some of what would copy. */
+const replacementAssigned = computed(() => {
+  const r = carry.replacement
+  return (
+    !!r &&
+    (!!r.primary_user_uuid || !!r.managed_by_user_uuid || !!r.location?.trim() || (r.asset_groups?.length ?? 0) > 0)
+  )
+})
+
+const moveOptions = computed(() =>
+  REPLACED_ASSET_STATUSES.filter((s) => s !== props.asset.status).map((s) => ({
+    value: s,
+    label: assetStatusLabel(t, s),
+  })),
+)
+
+async function openCarry(saved: Saved) {
+  const id = saved.write.record.replacement_asset_id as number
+  Object.assign(carry, {
+    saved,
+    replacement: null,
+    replacementId: id,
+    tickets: openTickets.value.length > 0,
+    assignment: false,
+    move: false,
+    moveTo: moveOptions.value[0]?.value ?? 'retired',
+    disposal: emptyDisposal(),
+    running: false,
+    error: '',
+  })
+  try {
+    carry.replacement = await getAssetById(id)
+  } catch {
+    // Without the new asset, nothing says it has none of these: leave the
+    // copy unticked.
+    return
+  }
+  // Ticked only when the new asset has none of what would copy.
+  carry.assignment = copyable.value.length > 0 && !replacementAssigned.value
+}
+
+const carryBody = computed<ReplacementCarryOverBody>(() => {
+  const out: ReplacementCarryOverBody = {}
+  if (carry.tickets && openTickets.value.length > 0) out.link_open_tickets = true
+  if (carry.assignment && copyable.value.length > 0) out.copy_assignment = true
+  if (carry.move) {
+    out.move_old_to = carry.moveTo
+    if (carry.moveTo === 'disposed') out.disposal = disposalBody(carry.disposal)
+  }
+  return out
+})
+const carriesAnything = computed(() => Object.keys(carryBody.value).length > 0)
+
+async function applyCarry() {
+  const saved = carry.saved
+  if (!saved || !carriesAnything.value) return
+  carry.running = true
+  carry.error = ''
+  try {
+    await assetRecordService.carryOver(props.asset.id, saved.write.record.id, carryBody.value)
+    // The sync rows refresh both timelines; this makes it certain.
+    void invalidateTimeline(props.asset.id)
+    void invalidateTimeline(carry.replacementId)
+    emit('carried', carry.replacement ?? { id: carry.replacementId, name: replacementLabel.value, asset_tag: null })
+    finish(saved)
+  } catch (e) {
+    carry.error = extractErrorMessage(e, t('asset-record-carry-error'))
+  } finally {
+    carry.running = false
+  }
+}
+
+function skipCarry() {
+  if (carry.saved) finish(carry.saved)
+}
+
+/** Closing the step keeps the record and moves nothing. */
+function close() {
+  skipCarry()
+  emit('close')
+}
+
 // Fill the form each time it opens. Last, so everything `body()` reads
 // is set up.
 watch(
   () => [props.show, props.record] as const,
   ([open]) => {
-    if (!open) return
+    if (!open) {
+      // Closed from outside mid-step: the record is saved all the same.
+      if (carry.saved) finish(carry.saved)
+      return
+    }
     if (props.record) fill(props.record)
     else reset()
   },
@@ -674,6 +851,7 @@ onBeforeUnmount(() => shortQuery?.removeEventListener('change', onShort))
 const assetLabel = computed(() => props.asset.asset_tag ?? props.asset.name)
 const statusName = computed(() => assetStatusLabel(t, props.asset.status))
 const title = computed(() => {
+  if (carrying.value) return t('asset-record-carry-title', { asset: replacementLabel.value })
   if (props.completing && type.value) {
     return t('asset-record-form-title-complete', { type: typeName(t, type.value) })
   }
@@ -681,7 +859,9 @@ const title = computed(() => {
   return t('asset-record-form-title-new', { asset: assetLabel.value })
 })
 const reassurance = computed(() =>
-  t('asset-record-form-status-unchanged', { asset: assetLabel.value, status: statusName.value }),
+  carrying.value
+    ? t('asset-record-carry-description', { old: assetLabel.value, asset: replacementLabel.value })
+    : t('asset-record-form-status-unchanged', { asset: assetLabel.value, status: statusName.value }),
 )
 </script>
 
@@ -692,9 +872,91 @@ const reassurance = computed(() =>
     :description="reassurance"
     size="sm"
     content-class="record-form-panel"
-    @close="emit('close')"
+    @close="close"
   >
-    <form class="grid grid-cols-2 gap-x-3 gap-y-3" novalidate @submit.prevent="submit">
+    <!-- After the save: what follows the equipment to its replacement. One
+         row per carry-over, its checkbox, what it does and to what. -->
+    <div v-if="carrying" class="grid grid-cols-2 gap-x-3 gap-y-3" data-testid="carry-step">
+      <div class="col-span-2 flex items-start gap-2">
+        <Checkbox
+          id="carry-tickets"
+          v-model="carry.tickets"
+          size="sm"
+          class="mt-0.5"
+          :disabled="openTickets.length === 0"
+          :aria-label="t('asset-record-carry-tickets')"
+        />
+        <label for="carry-tickets" class="min-w-0 flex flex-col" :class="openTickets.length === 0 ? 'opacity-50' : 'cursor-pointer'">
+          <span class="text-sm leading-5 text-primary">{{ t('asset-record-carry-tickets') }}</span>
+          <span class="text-xs leading-5 text-secondary" data-testid="carry-tickets-detail">
+            {{ t('asset-record-carry-tickets-detail', { count: openTickets.length, old: assetLabel, asset: replacementLabel }) }}
+          </span>
+        </label>
+      </div>
+
+      <div class="col-span-2 flex items-start gap-2">
+        <Checkbox
+          id="carry-assignment"
+          v-model="carry.assignment"
+          size="sm"
+          class="mt-0.5"
+          :disabled="copyable.length === 0"
+          :aria-label="t('asset-record-carry-assignment')"
+        />
+        <label for="carry-assignment" class="min-w-0 flex flex-col" :class="copyable.length === 0 ? 'opacity-50' : 'cursor-pointer'">
+          <span class="text-sm leading-5 text-primary">{{ t('asset-record-carry-assignment') }}</span>
+          <span class="text-xs leading-5 text-secondary [overflow-wrap:anywhere]" data-testid="carry-assignment-detail">
+            {{ copyable.length > 0 ? copyable.join(', ') : t('asset-record-carry-assignment-none', { old: assetLabel }) }}
+          </span>
+          <span v-if="copyable.length > 0 && replacementAssigned" class="text-xs leading-5 text-tertiary">
+            {{ t('asset-record-carry-assignment-replaces', { asset: replacementLabel }) }}
+          </span>
+          <span v-if="carry.replacement?.external_sync_source" class="text-xs leading-5 text-tertiary">
+            {{ t('asset-record-carry-assignment-synced', { asset: replacementLabel }) }}
+          </span>
+        </label>
+      </div>
+
+      <div class="col-span-2 flex items-start gap-2">
+        <Checkbox
+          id="carry-move"
+          v-model="carry.move"
+          size="sm"
+          class="mt-0.5"
+          :disabled="moveOptions.length === 0"
+          :aria-label="t('asset-record-carry-move', { old: assetLabel })"
+        />
+        <label for="carry-move" class="min-w-0 flex flex-col cursor-pointer">
+          <span class="text-sm leading-5 text-primary">{{ t('asset-record-carry-move', { old: assetLabel }) }}</span>
+          <span class="text-xs leading-5 text-secondary">{{ t('asset-record-carry-move-detail', { status: statusName }) }}</span>
+        </label>
+      </div>
+      <template v-if="carry.move">
+        <BaseDropdown
+          :model-value="carry.moveTo"
+          :options="moveOptions"
+          size="sm"
+          :label="t('asset-record-carry-move-to')"
+          @update:model-value="carry.moveTo = String($event) as ReplacedAssetStatus"
+        />
+        <AssetDisposalFields
+          v-if="carry.moveTo === 'disposed'"
+          v-model="carry.disposal"
+          size="sm"
+          wide-class="col-span-2"
+        />
+      </template>
+
+      <p v-if="carry.error" class="col-span-2 text-xs leading-5 text-status-error" role="alert">{{ carry.error }}</p>
+      <div v-if="short" class="col-span-2 border-t border-subtle pt-3 flex items-center justify-end gap-2">
+        <Button variant="secondary" size="sm" @click="skipCarry">{{ t('asset-record-carry-skip') }}</Button>
+        <Button size="sm" :loading="carry.running" :disabled="!carriesAnything" @click="applyCarry">
+          {{ t('asset-record-carry-apply') }}
+        </Button>
+      </div>
+    </div>
+
+    <form v-else class="grid grid-cols-2 gap-x-3 gap-y-3" novalidate @submit.prevent="submit">
       <!-- The first record in a workspace: the built-in types, in place.
            One tap adds the type and picks it. -->
       <div v-if="typesLoaded && offeredTypes.length === 0" class="col-span-2 flex flex-col gap-2">
@@ -942,7 +1204,13 @@ const reassurance = computed(() =>
          Cancel shows from the dialog width up. On a short screen (a phone
          on its side) the row joins the end of the form instead. -->
     <template v-if="!short" #footer>
-      <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
+      <div v-if="carrying" class="flex items-center justify-end gap-2">
+        <Button variant="secondary" size="sm" @click="skipCarry">{{ t('asset-record-carry-skip') }}</Button>
+        <Button size="sm" :loading="carry.running" :disabled="!carriesAnything" @click="applyCarry">
+          {{ t('asset-record-carry-apply') }}
+        </Button>
+      </div>
+      <div v-else class="flex flex-wrap items-center gap-x-2 gap-y-2">
         <div class="flex-1 min-w-0">
           <Checkbox
             v-if="!editing && form.type"

@@ -15,10 +15,9 @@
  */
 import { computed, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
-import { useQuery, useQueryCache } from '@pinia/colada';
+import { useQueryCache } from '@pinia/colada';
 import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import { readAmountInput, type AmountInputError } from '@nosdesk/core/utils/money';
-import Autocomplete from '@/components/common/Autocomplete.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -26,6 +25,11 @@ import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
 import DynamicAttributeForm, { type Schema } from '@/components/assets/DynamicAttributeForm.vue';
+import AssetDisposalFields, {
+  disposalBody,
+  emptyDisposal,
+  type DisposalDraft,
+} from '@/components/assets/AssetDisposalFields.vue';
 import Modal from '@/components/Modal.vue';
 import {
   assetLifecycleKeys,
@@ -59,17 +63,6 @@ const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const queryCache = useQueryCache();
 const workspaceCache = useWorkspaceQueryCache();
-
-// Prior ITAD vendors for the disposal-form suggestions (cached
-// workspace-wide; a new vendor can still be typed).
-const itadVendorsQuery = useQuery({
-  key: () => assetLifecycleKeys.itadVendors,
-  query: () => assetLifecycleService.listItadVendors(),
-  enabled: () => props.show,
-});
-const itadVendors = computed<string[]>(() =>
-  Array.isArray(itadVendorsQuery.data.value) ? itadVendorsQuery.data.value : [],
-);
 
 /** The record types a move opens or completes, archived ones too (an open
  *  record can have one), with the workspace currency for a cost. */
@@ -202,10 +195,7 @@ const repairVendor = ref('');
 const repairRma = ref('');
 const repairOffsite = ref(false);
 const repairExpectedReturn = ref('');
-const sanitizationMethod = ref('clear');
-const dataBearing = ref(true);
-const itadVendor = ref('');
-const disposalNotes = ref('');
+const disposal = ref<DisposalDraft>(emptyDisposal());
 const openRecord = ref(true);
 const recordSummary = ref('');
 const recordVendor = ref('');
@@ -293,13 +283,6 @@ const recordChoiceOptions = computed(() =>
   openRecords.value.map((record) => ({ value: record.id, label: recordChoiceLabel(record) })),
 );
 
-const sanitizationOptions = computed(() =>
-  ['clear', 'purge', 'destroy', 'none'].map((m) => ({
-    value: m,
-    label: t(`asset-disposal-method-${m}`),
-  })),
-);
-
 function resetForm() {
   toStatus.value = statusOptions.value[0] ?? '';
   reason.value = '';
@@ -308,10 +291,7 @@ function resetForm() {
   repairRma.value = '';
   repairOffsite.value = false;
   repairExpectedReturn.value = '';
-  sanitizationMethod.value = 'clear';
-  dataBearing.value = true;
-  itadVendor.value = '';
-  disposalNotes.value = '';
+  disposal.value = emptyDisposal();
   openRecord.value = true;
   recordSummary.value = '';
   recordVendor.value = '';
@@ -395,12 +375,7 @@ function buildMetadata(): Record<string, unknown> {
 
 function buildDisposal() {
   if (toStatus.value !== 'disposed') return undefined;
-  return {
-    sanitization_method: sanitizationMethod.value,
-    data_bearing: dataBearing.value,
-    itad_vendor: itadVendor.value.trim() || null,
-    notes: disposalNotes.value.trim() || null,
-  };
+  return disposalBody(disposal.value);
 }
 
 function parseTicketId(): number | null {
@@ -584,29 +559,7 @@ async function submitTransition() {
         />
       </template>
 
-      <template v-if="toStatus === 'disposed'">
-        <BaseDropdown
-          :model-value="sanitizationMethod"
-          :options="sanitizationOptions"
-          :label="$t('asset-disposal-method')"
-          size="sm"
-          @update:model-value="sanitizationMethod = String($event)"
-        />
-        <Checkbox
-          v-model="dataBearing"
-          :label="$t('asset-disposal-data-bearing')"
-        />
-        <Autocomplete
-          v-model="itadVendor"
-          :options="itadVendors"
-          :label="$t('asset-disposal-itad-vendor')"
-        />
-        <FormTextarea
-          v-model="disposalNotes"
-          :label="$t('asset-disposal-notes')"
-          :rows="2"
-        />
-      </template>
+      <AssetDisposalFields v-if="toStatus === 'disposed'" v-model="disposal" :enabled="show" />
 
       <p v-if="errorMessage" class="text-sm text-status-error">{{ errorMessage }}</p>
     </div>

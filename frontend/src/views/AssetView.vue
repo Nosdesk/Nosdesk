@@ -1023,6 +1023,7 @@ useSyncActions(
               :can-edit="canChangeLifecycle"
               :me="auth.user?.uuid ?? null"
               :is-admin="auth.isAdmin"
+              @asset-changed="invalidateAsset"
             />
 
             <SectionCard v-if="device.quantity != null" content-padding="p-4">

@@ -12675,3 +12675,47 @@ asset-timeline-ticket-closed = Fermé le { $date }
 asset-timeline-ticket-untitled = Ticket
 # MT: pending native review (fr-FR)
 asset-timeline-year-totals = { $records }, { $costs }
+# MT: pending native review (fr-FR)
+asset-record-carry-title = Reporter sur { $asset }
+# MT: pending native review (fr-FR)
+asset-record-carry-description = L'intervention est enregistrée. Choisissez ce qui passe de { $old } à { $asset } ; rien ne change sans case cochée.
+# MT: pending native review (fr-FR)
+asset-record-carry-tickets = Lier les tickets ouverts
+# MT: pending native review (fr-FR)
+asset-record-carry-tickets-detail = { $count ->
+    [0] { $old } n'a aucun ticket ouvert
+    [one] Un ticket ouvert est aussi lié à { $asset } et reste sur { $old }
+   *[other] { $count } tickets ouverts sont aussi liés à { $asset } et restent sur { $old }
+}
+# MT: pending native review (fr-FR)
+asset-record-carry-assignment = Copier l'utilisateur, le responsable, l'emplacement et les groupes
+# MT: pending native review (fr-FR)
+asset-record-carry-assignment-none = { $old } n'a ni utilisateur, ni responsable, ni emplacement, ni groupe
+# MT: pending native review (fr-FR)
+asset-record-carry-assignment-replaces = Remplace ce que { $asset } a maintenant ; ses propres groupes restent
+# MT: pending native review (fr-FR)
+asset-record-carry-assignment-synced = { $asset } est synchronisé : son utilisateur et son emplacement restent ceux de la synchronisation
+# MT: pending native review (fr-FR)
+asset-record-carry-managed-by = géré par { $name }
+# MT: pending native review (fr-FR)
+asset-record-carry-groups = { $count } groupes
+# MT: pending native review (fr-FR)
+asset-record-carry-move = Changer le statut de { $old }
+# MT: pending native review (fr-FR)
+asset-record-carry-move-detail = Statut actuel : { $status }
+# MT: pending native review (fr-FR)
+asset-record-carry-move-to = Nouveau statut
+# MT: pending native review (fr-FR)
+asset-record-carry-skip = Ignorer
+# MT: pending native review (fr-FR)
+asset-record-carry-apply = Reporter
+# MT: pending native review (fr-FR)
+asset-record-carry-done = Reporté sur { $asset }
+# MT: pending native review (fr-FR)
+asset-record-carry-error = Le report a échoué. L'intervention est enregistrée.
+# MT: pending native review (fr-FR)
+asset-record-serial-offer = Remplacer le numéro de série de cet actif par { $serial }
+# MT: pending native review (fr-FR)
+asset-record-serial-updated = Numéro de série remplacé par { $serial }
+# MT: pending native review (fr-FR)
+asset-record-serial-failed = Impossible de modifier le numéro de série
