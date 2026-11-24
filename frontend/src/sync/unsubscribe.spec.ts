@@ -114,8 +114,8 @@ const server = vi.hoisted(() => ({
   requests: [] as string[],
   xid8: 10,
   held: null as null | (() => void),
-  /** The next delta answers `resync_required`. */
-  resync: false,
+  /** The next delta reports the workspace's data replaced (a new epoch). */
+  replaced: false,
 }))
 
 vi.mock('./idb', () => fake.idb)
@@ -156,15 +156,15 @@ vi.mock('@/services/authFetch', () => ({
       return new Response(body)
     }
     if (url.startsWith('/sync/delta')) {
-      const resync_required = server.resync
-      server.resync = false
+      const replaced = server.replaced
+      server.replaced = false
       return new Response(
         JSON.stringify({
           actions: [],
           last_xid8: 10,
           last_sync_id: 100,
           has_more: false,
-          resync_required,
+          ...(replaced ? { workspace_epoch: 'e2' } : {}),
         }),
       )
     }
@@ -488,7 +488,7 @@ describe('a resync', () => {
     await subscribe(TICKET)
     server.rows[PROJECT] = [{ __model__: 'ticket', id: 12, title: 'Scanner' }]
     server.requests = []
-    server.resync = true
+    server.replaced = true
     // During the wipe, a view lets the ticket go and another takes the project.
     fake.onWipe = () => {
       void unsubscribe(TICKET)

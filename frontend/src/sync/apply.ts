@@ -222,6 +222,10 @@ export function applyActions(actions: SyncAction[]): void {
   }
 }
 
+/** How many notified-ahead sync ids to remember (see
+ * LifecycleState.notifiedAhead). */
+const NOTIFIED_AHEAD_CAP = 5_000
+
 /** SSE handler: applies actions, advances the cursor, persists. */
 export function applySseFrame(actions: SyncAction[], lastXid8: number, lastSyncId: number): void {
   applyActions(actions)
@@ -231,8 +235,15 @@ export function applySseFrame(actions: SyncAction[], lastXid8: number, lastSyncI
   // (see LifecycleState.caughtUp). The catch-up re-delivers these events.
   // The same while a `keepCursor` bootstrap streams: its rows may land after
   // these and be older, and the delta closing it re-applies these after them.
-  if (!state.caughtUp || cursorHeld()) {
-    for (const action of actions) state.notifiedAhead.add(action.sync_id)
+  // Nor while the cursor is expired: only the resync's snapshot sets it.
+  if (!state.caughtUp || cursorHeld() || state.cursorExpired) {
+    const ahead = state.notifiedAhead
+    for (const action of actions) ahead.add(action.sync_id)
+    // Bounded: while no delta gets through to empty it, forget the oldest.
+    for (const old of ahead) {
+      if (ahead.size <= NOTIFIED_AHEAD_CAP) break
+      ahead.delete(old)
+    }
     notifySyncActions(actions)
     return
   }

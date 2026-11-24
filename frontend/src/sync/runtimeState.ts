@@ -62,6 +62,14 @@ export interface LifecycleState {
    * delta that later replays them applies them again but tells observers
    * only once. Emptied once a delta has caught up with no hold active. */
   notifiedAhead: Set<number>
+  /** Set when the server said the cursor is past what it can replay (or the
+   * workspace's data was replaced), until a snapshot sets a new one. No delta
+   * is asked for from such a cursor: the poll retries the resync instead,
+   * and a cursor hold's closing replay is skipped. */
+  cursorExpired: boolean
+  /** Bumped by a resync and a tear-down. A bootstrap streaming under an
+   * older generation read a snapshot from before them and stops. */
+  streamGeneration: number
 }
 
 export const state: LifecycleState = {
@@ -78,6 +86,8 @@ export const state: LifecycleState = {
   cursorHolds: new Set(),
   bootstrapping: new Map(),
   notifiedAhead: new Set(),
+  cursorExpired: false,
+  streamGeneration: 0,
 }
 
 /** Whether a `keepCursor` bootstrap is streaming (see `cursorHolds`). */

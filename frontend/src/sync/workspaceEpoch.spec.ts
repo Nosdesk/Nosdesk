@@ -104,7 +104,13 @@ vi.mock('@/services/authFetch', () => ({
       ]
       return new Response(lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
     }
-    if (url.startsWith('/sync/delta')) return new Response(JSON.stringify(server.delta))
+    if (url.startsWith('/sync/delta')) {
+      // A page is served once; the next delta, from the cursor it or a
+      // snapshot left, has nothing new under the same epoch.
+      const page = server.delta
+      server.delta = emptyDelta({ workspace_epoch: page.workspace_epoch })
+      return new Response(JSON.stringify(page))
+    }
     return new Response(null, { status: 404 })
   }),
 }))
@@ -249,11 +255,11 @@ describe('while running', () => {
     expect(pool.has('ticket', 1)).toBe(true)
   })
 
-  it('resyncs an aged-out cursor without touching document caches', async () => {
+  it('resyncs an aged-out cursor over the cache, without wiping it or document caches', async () => {
     await running('e1')
     server.delta = emptyDelta({ workspace_epoch: 'e1', resync_required: true })
     await pullDelta()
-    expect(fake.wipes).toEqual([DB])
+    expect(fake.wipes).toEqual([])
     expect(purgeAllCollabDocs).not.toHaveBeenCalled()
     expect(server.bootstraps).toBe(2)
   })
