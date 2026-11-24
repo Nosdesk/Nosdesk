@@ -105,38 +105,6 @@ export function uniqueKey(base: string, taken: Iterable<string>): string {
   return `${root}_${n}`;
 }
 
-type Schema = Record<string, unknown>;
-
-function propertiesOf(schema: Schema): Record<string, unknown> {
-  const props = schema.properties;
-  return props && typeof props === 'object' && !Array.isArray(props)
-    ? (props as Record<string, unknown>)
-    : {};
-}
-
-/**
- * The schema with `properties` rebuilt in `order`. The server stores the
- * schema as jsonb, which sorts object keys, so the display order lives in
- * `field_order`; the field builder reads order from key insertion. Keys the
- * order leaves out keep their place after the ordered ones.
- */
-export function inFieldOrder(schema: Schema, order: string[]): Schema {
-  const props = propertiesOf(schema);
-  const ordered: Record<string, unknown> = {};
-  for (const key of order) {
-    if (key in props) ordered[key] = props[key];
-  }
-  for (const [key, value] of Object.entries(props)) {
-    if (!(key in ordered)) ordered[key] = value;
-  }
-  return { ...schema, properties: ordered };
-}
-
-/** The order to save: the builder's property order. */
-export function fieldOrderOf(schema: Schema): string[] {
-  return Object.keys(propertiesOf(schema));
-}
-
 /** JSON with object keys sorted, so two schemas compare equal whatever
  *  order their keys were written in. */
 export function canonicalJson(value: unknown): string {

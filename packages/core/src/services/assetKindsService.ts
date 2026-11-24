@@ -33,6 +33,9 @@ export interface AssetKind {
   sort_order: number
   is_builtin: boolean
   category: AssetKindCategory
+  /** The attribute keys in display order (jsonb keeps no key order).
+   *  Absent from a 1.1 server; lay a schema out with `inFieldOrder`. */
+  field_order?: string[]
   created_at: string
   updated_at: string
   created_by: string | null
@@ -44,6 +47,9 @@ export interface CreateAssetKindBody {
   description?: string | null
   icon?: string | null
   attribute_schema?: Record<string, unknown>
+  /** Keys it leaves out follow in key order; omitted on an update, the
+   *  stored order carries over. */
+  field_order?: string[]
   sort_order?: number
   category?: AssetKindCategory
 }
@@ -54,6 +60,9 @@ export interface UpdateAssetKindBody {
   description?: string | null
   icon?: string | null
   attribute_schema?: Record<string, unknown>
+  /** Keys it leaves out follow in key order; omitted on an update, the
+   *  stored order carries over. */
+  field_order?: string[]
   sort_order?: number
   category?: AssetKindCategory
 }

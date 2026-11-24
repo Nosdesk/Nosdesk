@@ -205,6 +205,7 @@ diesel::table! {
         #[max_length = 16]
         category -> Varchar,
         workspace_id -> Int4,
+        field_order -> Array<Nullable<Text>>,
     }
 }
 
@@ -2058,6 +2059,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+        field_order -> Array<Nullable<Text>>,
     }
 }
 

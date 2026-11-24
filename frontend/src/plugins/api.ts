@@ -14,6 +14,7 @@ import pluginService from '@nosdesk/core/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket, updateTicket, deleteTicket } from '@nosdesk/core/services/ticketService';
 import { getAssetById, getAssets, getPaginatedAssets, updateAsset } from '@/services/assetService';
 import { assetKindsService } from '@nosdesk/core/services/assetKindsService';
+import { fieldOrderOf, inFieldOrder } from '@/components/assetKindComponents/attributeSchema';
 import { convertToAuthenticatedPath } from '@/services/fileService';
 import userService from '@/services/userService';
 import { useAuthStore } from '@/stores/auth';
@@ -390,6 +391,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
             icon: k.icon,
             category: k.category,
             attributeSchema: k.attribute_schema,
+            fieldOrder: fieldOrderOf(inFieldOrder(k.attribute_schema, k.field_order)),
             sortOrder: k.sort_order,
             isBuiltin: k.is_builtin,
           }));

@@ -37,6 +37,7 @@ import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { RouterLink } from 'vue-router';
 import AttributeEditor from '@/components/assetKindComponents/AttributeEditor.vue';
+import { fieldOrderOf, inFieldOrder } from '@/components/assetKindComponents/attributeSchema';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
 
@@ -103,7 +104,7 @@ watch(
       icon: row.icon ?? '',
       sort_order: row.sort_order,
       category: row.category,
-      attribute_schema: JSON.stringify(row.attribute_schema, null, 2),
+      attribute_schema: JSON.stringify(inFieldOrder(row.attribute_schema, row.field_order), null, 2),
     };
     hasHydrated.value = true;
   },
@@ -273,6 +274,7 @@ async function submit(force = false): Promise<void> {
         sort_order: form.value.sort_order,
         category: form.value.category,
         attribute_schema: schema,
+        field_order: fieldOrderOf(schema),
       };
       await assetKindsService.create(body);
       toast.success(t('admin-asset-kinds-created'));
@@ -286,6 +288,7 @@ async function submit(force = false): Promise<void> {
           sort_order: form.value.sort_order,
           category: form.value.category,
           attribute_schema: schema,
+          field_order: fieldOrderOf(schema),
         },
         force ? { force: true } : undefined,
       );

@@ -25,7 +25,11 @@ const listKinds = vi.fn(async () => [
     label: 'Vehicle',
     description: null,
     icon: null,
-    attribute_schema: { type: 'object', properties: { bay: { type: 'integer' } } },
+    attribute_schema: {
+      type: 'object',
+      properties: { bay: { type: 'integer' }, axle: { type: 'string' }, cab: { type: 'string' } },
+    },
+    field_order: ['cab', 'bay'],
     sort_order: 40,
     is_builtin: true,
     category: 'physical',
@@ -120,7 +124,7 @@ describe('plugin asset reads', () => {
     })
   })
 
-  it('lists kinds with their attribute schemas', async () => {
+  it('lists kinds with their attribute schemas and field order', async () => {
     const kinds = await createPluginAPI(reader).assets.kinds()
     expect(kinds).toEqual([
       {
@@ -130,7 +134,11 @@ describe('plugin asset reads', () => {
         description: null,
         icon: null,
         category: 'physical',
-        attributeSchema: { type: 'object', properties: { bay: { type: 'integer' } } },
+        attributeSchema: {
+          type: 'object',
+          properties: { bay: { type: 'integer' }, axle: { type: 'string' }, cab: { type: 'string' } },
+        },
+        fieldOrder: ['cab', 'bay', 'axle'],
         sortOrder: 40,
         isBuiltin: true,
       },

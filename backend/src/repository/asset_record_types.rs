@@ -34,6 +34,7 @@ use crate::models::{
 };
 use crate::schema::{asset_kinds, asset_record_types, asset_records, assets};
 use crate::services::assets::record_catalogue;
+use crate::services::custom_fields::order::{normalise_order, stored_order};
 use crate::services::custom_fields::schema::{
     validate_attributes, validate_schema, AttributeSchemaError,
 };
@@ -264,28 +265,6 @@ pub fn invalid_records(
     Ok((count, samples))
 }
 
-/// `order` as a permutation of the schema's property names: unknown and
-/// repeated names dropped, missing ones appended.
-fn normalise_order(schema: &Value, order: &[String]) -> Vec<String> {
-    let keys: Vec<String> = schema
-        .get("properties")
-        .and_then(Value::as_object)
-        .map(|p| p.keys().cloned().collect())
-        .unwrap_or_default();
-    let mut seen = HashSet::new();
-    let mut out: Vec<String> = order
-        .iter()
-        .filter(|k| keys.contains(k) && seen.insert(k.as_str().to_string()))
-        .cloned()
-        .collect();
-    for key in keys {
-        if !out.contains(&key) {
-            out.push(key);
-        }
-    }
-    out
-}
-
 fn check_core_fields(core_fields: &Value) -> Result<(), RecordTypeError> {
     let map = core_fields
         .as_object()
@@ -506,7 +485,7 @@ pub fn update(
             let order = changes
                 .field_order
                 .clone()
-                .unwrap_or_else(|| current.field_order.iter().flatten().cloned().collect());
+                .unwrap_or_else(|| stored_order(&current.field_order));
             Some(normalise_order(&schema, &order))
         } else {
             None

@@ -67,6 +67,7 @@ use crate::repository::workspaces as workspace_repo;
 use crate::services::assets::kinds::{validate_attributes, AttributeError};
 use crate::services::assets::model_stamp::stamp_default_attributes;
 use crate::services::assets::SYNC_OWNED_ATTRIBUTE_KEYS;
+use crate::services::custom_fields::order::{normalise_order, stored_order};
 
 use super::catalog::Catalog;
 use super::csv_parser::ParsedCsv;
@@ -351,8 +352,8 @@ fn required_keys(schema: &Value) -> HashSet<String> {
 }
 
 /// The template's header row for `kind` (a slug, or `None` for core
-/// columns only): the core columns, then the kind's attributes sorted by
-/// their title. `None` when no kind has that slug.
+/// columns only): the core columns, then the kind's attributes in its
+/// field order. `None` when no kind has that slug.
 pub fn template_headers(
     conn: &mut DbConnection,
     kind: Option<&str>,
@@ -365,21 +366,17 @@ pub fn template_headers(
         return Ok(Some(headers));
     };
     let kinds = kind_repo::list_kinds(conn)?;
-    if !kinds.iter().any(|k| k.slug == kind) {
+    let Some(this) = kinds.iter().find(|k| k.slug == kind) else {
         return Ok(None);
-    }
-    let mut own: Vec<(String, String)> = attribute_defs(&kinds)
+    };
+    let order = normalise_order(&this.attribute_schema, &stored_order(&this.field_order));
+    let position = |key: &str| order.iter().position(|k| k == key).unwrap_or(usize::MAX);
+    let mut own: Vec<(usize, String)> = attribute_defs(&kinds)
         .into_iter()
-        .filter_map(|def| {
-            let title = title_of(&def.key, def.prop(kind)?);
-            Some((title, def.id))
-        })
+        .filter(|def| def.prop(kind).is_some())
+        .map(|def| (position(&def.key), def.id))
         .collect();
-    own.sort_by(|a, b| {
-        a.0.to_lowercase()
-            .cmp(&b.0.to_lowercase())
-            .then_with(|| a.1.cmp(&b.1))
-    });
+    own.sort();
     headers.extend(own.into_iter().map(|(_, id)| id));
     Ok(Some(headers))
 }

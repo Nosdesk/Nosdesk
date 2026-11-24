@@ -836,13 +836,22 @@ async fn a_synced_asset_takes_attributes_only() {
 }
 
 /// The template for a kind lists the core columns, then the kind's own
-/// attributes sorted by title, leaving out the ones a sync feeds; a header
-/// that reads as a formula is guarded. An unknown kind is refused.
+/// attributes in its field order (key order where it has none), leaving out
+/// the ones a sync feeds; a header that reads as a formula is guarded. An
+/// unknown kind is refused.
 #[actix_web::test]
 async fn the_template_lists_a_kinds_attributes() {
     let db = TestDb::new();
     let pool = db.pool_with_size(4);
     let ws = workspace(&pool);
+    diesel::sql_query(
+        "UPDATE asset_kinds SET field_order = \
+             ARRAY['rego', 'fuel', 'odometer', 'location', 'serviced', 'insured', '@tare', 'hostname'] \
+         WHERE workspace_id = $1 AND slug = 'vehicle'",
+    )
+    .bind::<Integer, _>(ws.workspace_id)
+    .execute(&mut pool.get().expect("conn"))
+    .expect("order the vehicle's fields");
 
     let (status, body) = call_import_route(
         &pool,
@@ -857,7 +866,7 @@ async fn the_template_lists_a_kinds_attributes() {
         text,
         "\u{FEFF}name,kind,asset_tag,serial_number,status,manufacturer,model,location,primary_user,\
          purchase_date,groups,notes,quantity,unit,low_stock_threshold,\
-         condition,attr:location,fuel,insured,serviced,odometer,rego,'@tare\n"
+         rego,fuel,odometer,attr:location,serviced,insured,'@tare,condition\n"
     );
 
     let (status, body) = call_import_route(

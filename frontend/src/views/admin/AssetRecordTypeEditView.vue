@@ -29,6 +29,7 @@ import Icon from '@/components/common/Icon.vue';
 import SegmentedControl from '@/components/common/SegmentedControl.vue';
 import type { IconName } from '@/components/common/icons';
 import AttributeEditor from '@/components/assetKindComponents/AttributeEditor.vue';
+import { fieldOrderOf, inFieldOrder } from '@/components/assetKindComponents/attributeSchema';
 import RecordOutcomesEditor from '@/components/admin/assetRecordTypes/RecordOutcomesEditor.vue';
 import {
   CORE_FIELDS,
@@ -36,9 +37,7 @@ import {
   RECORD_TYPE_ICONS,
   canonicalJson,
   compactCoreFields,
-  fieldOrderOf,
   iconLabel,
-  inFieldOrder,
   keyFrom,
   outcomeRows,
   outcomesFromRows,

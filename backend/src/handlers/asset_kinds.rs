@@ -4,7 +4,8 @@
 //! - `GET    /api/admin/asset-kinds/{id}`  fetches one.
 //! - `POST   /api/admin/asset-kinds`       creates a non-builtin kind.
 //! - `PUT    /api/admin/asset-kinds/{id}`  edits a kind's
-//!   label, description, icon, sort_order, or attribute_schema.
+//!   label, description, icon, sort_order, attribute_schema or
+//!   field_order (the attributes' display order).
 //!   Slug and is_builtin are immutable post-creation so existing
 //!   asset rows keep resolving.
 //! - `DELETE /api/admin/asset-kinds/{id}`  deletes a non-builtin
@@ -81,6 +82,10 @@ pub struct CreateBody {
     pub sort_order: i32,
     #[serde(default = "default_category")]
     pub category: String,
+    /// The attribute keys in display order; keys it leaves out follow in
+    /// key order.
+    #[serde(default)]
+    pub field_order: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,6 +102,8 @@ pub struct UpdateBody {
     pub attribute_schema: Option<Value>,
     pub sort_order: Option<i32>,
     pub category: Option<String>,
+    /// Absent with a new schema, the stored order carries over.
+    pub field_order: Option<Vec<String>>,
 }
 
 fn default_schema() -> Value {
@@ -223,6 +230,7 @@ pub async fn create(
         is_builtin: false,
         created_by,
         category: body.category,
+        field_order: body.field_order,
     };
 
     match tc.run(|conn| repo::create_kind(conn, new_kind)) {
@@ -343,6 +351,7 @@ pub async fn update(
         attribute_schema: body.attribute_schema,
         sort_order: body.sort_order,
         category: body.category,
+        field_order: body.field_order,
         updated_at: None,
     };
 
