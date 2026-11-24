@@ -521,10 +521,28 @@ async function reveal(record: AssetRecord) {
 
 const updatingSerial = ref(false)
 
-/** The record's asset is this one, and its serial is Nosdesk's to change:
- *  a synced asset's serial is the sync's. */
+/** The newest of this asset's loaded records that received a serial: an
+ *  older one's serial may since have been replaced again. */
+const newestSerialRecord = computed(() => {
+  for (const e of entries.value) {
+    if (e.source !== 'record' || e.data.asset_id !== props.asset.id) continue
+    const received = e.data.attributes.serial_received
+    if (typeof received === 'string' && received.trim()) return e.data.id
+  }
+  return null
+})
+
+/** The record's asset is this one, its serial is Nosdesk's to change (a
+ *  synced asset's is the sync's), the unit came back under this tag (no
+ *  replacement asset), and no later record received another serial. */
 function serialEditable(record: AssetRecord): boolean {
-  return props.canEdit && record.asset_id === props.asset.id && !props.asset.external_sync_source
+  return (
+    props.canEdit &&
+    record.asset_id === props.asset.id &&
+    !props.asset.external_sync_source &&
+    record.replacement_asset_id === null &&
+    newestSerialRecord.value === record.id
+  )
 }
 
 /** Make the serial a record received the asset's own, as an edit of the
@@ -548,9 +566,10 @@ function onCarried(replacement: Pick<Asset, 'id' | 'name' | 'asset_tag'>) {
   toasts.success(t('asset-record-carry-done', { asset: replacement.asset_tag ?? replacement.name }))
 }
 
-async function onSaved(write: AssetRecordWrite, files: File[], addAnother: boolean) {
+async function onSaved(write: AssetRecordWrite, files: File[], addAnother: boolean, carrying: boolean) {
   const wasEdit = !!form.record
-  if (!addAnother) form.show = false
+  // On the carry-over step the form stays open, and closes itself after.
+  if (!addAnother && !carrying) form.show = false
   if (files.length > 0) {
     try {
       await assetMediaService.upload(props.asset.id, files, write.record.id)
@@ -567,7 +586,8 @@ async function onSaved(write: AssetRecordWrite, files: File[], addAnother: boole
   const name = typeName(t, typeOf(write.record.record_type), write.record.record_type)
   const status = assetStatusLabel(t, props.asset.status)
   const asset = props.asset.asset_tag ?? props.asset.name
-  const notes: string[] = [t('asset-record-saved-status', { asset, status })]
+  // The carry-over step may still move the asset, and says so itself.
+  const notes: string[] = carrying ? [] : [t('asset-record-saved-status', { asset, status })]
   for (const warning of write.warnings) {
     if (warning.code === 'before_purchase') {
       notes.push(t('asset-record-warning-before-purchase', { date: formatDay(warning.purchase_date) }))
@@ -581,7 +601,7 @@ async function onSaved(write: AssetRecordWrite, files: File[], addAnother: boole
       : t('asset-record-saved-new', { type: name, date: formatDay(write.record.occurred_on) }),
     notes.join(' '),
   )
-  if (!addAnother) void reveal(write.record)
+  if (!addAnother && !carrying) void reveal(write.record)
 }
 
 const viewingTitle = computed(() => {

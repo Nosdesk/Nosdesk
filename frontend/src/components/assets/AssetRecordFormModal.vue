@@ -16,8 +16,9 @@
  *
  * A save that newly names a replacement asset turns the form into one more
  * step: what follows the equipment to the new asset (its open tickets, who
- * holds it and where, and the old asset's status). Nothing moves unless
- * ticked; Skip, or closing, keeps the record and moves nothing.
+ * holds it and where, and the old asset's status). The record is handed
+ * on as saved before the step shows, so its files upload whatever happens
+ * next. Nothing moves unless ticked; Skip, or closing, moves nothing.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -101,7 +102,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  saved: [write: AssetRecordWrite, files: File[], addAnother: boolean]
+  /** `carrying`: the form stays open on the carry-over step. */
+  saved: [write: AssetRecordWrite, files: File[], addAnother: boolean, carrying: boolean]
   /** The carry-overs ran; the toast is the parent's. */
   carried: [replacement: Pick<Asset, 'id' | 'name' | 'asset_tag'>]
 }>()
@@ -650,9 +652,10 @@ async function submit() {
       })
     }
     const another = form.addAnother && !props.record
-    const saved = { write, files: files.value, another }
-    if (newlyReplaced(write)) await openCarry(saved)
-    else finish(saved)
+    const carrying = newlyReplaced(write)
+    emit('saved', write, files.value, another, carrying)
+    if (carrying) await openCarry({ write, another })
+    else if (another) addAnother()
   } catch (e) {
     const status = (e as { response?: { status?: number } }).response?.status
     errorMessage.value =
@@ -664,22 +667,17 @@ async function submit() {
   }
 }
 
-/** Hand the saved record to the parent, which closes the form or, when
- *  adding another, gets it back empty. */
-function finish(saved: Saved) {
-  carry.saved = null
-  emit('saved', saved.write, saved.files, saved.another)
-  if (saved.another) {
-    // Entering a stack of past work: keep the type, vendor and date.
-    reset({ type: form.type, day: form.day, vendor: form.vendor })
-  }
+/** Entering a stack of past work: the form again, keeping the type,
+ *  vendor and date. */
+function addAnother() {
+  reset({ type: form.type, day: form.day, vendor: form.vendor })
 }
 
 // --- Carry-overs to the replacement -------------------------------------
 
-interface Saved {
+/** The save the carry-over step follows. */
+interface Step {
   write: AssetRecordWrite
-  files: File[]
   another: boolean
 }
 
@@ -690,8 +688,8 @@ function newlyReplaced(write: AssetRecordWrite): boolean {
 }
 
 const carry = reactive({
-  /** The save waiting on this step; the step shows while it is set. */
-  saved: null as Saved | null,
+  /** The save this step follows; the step shows while it is set. */
+  step: null as Step | null,
   /** The new asset, once read. */
   replacement: null as Asset | null,
   replacementId: 0,
@@ -703,7 +701,7 @@ const carry = reactive({
   running: false,
   error: '',
 })
-const carrying = computed(() => carry.saved !== null)
+const carrying = computed(() => carry.step !== null)
 
 /** The old asset's open tickets, as the timeline lists them. */
 const openTickets = computed(() =>
@@ -742,6 +740,17 @@ const replacementAssigned = computed(() => {
   )
 })
 
+/** Why the old asset can't move from here: disposal is final, and a loan
+ *  is ended by returning it. The move would be refused, and every other
+ *  ticked carry-over with it. */
+const moveBlocked = computed(() => {
+  if (props.asset.status === 'disposed') return t('asset-record-carry-move-disposed', { old: assetLabel.value })
+  if (props.loans.some((loan) => !loan.returned_at)) {
+    return t('asset-record-carry-move-on-loan', { old: assetLabel.value })
+  }
+  return null
+})
+
 const moveOptions = computed(() =>
   REPLACED_ASSET_STATUSES.filter((s) => s !== props.asset.status).map((s) => ({
     value: s,
@@ -749,10 +758,10 @@ const moveOptions = computed(() =>
   })),
 )
 
-async function openCarry(saved: Saved) {
-  const id = saved.write.record.replacement_asset_id as number
+async function openCarry(step: Step) {
+  const id = step.write.record.replacement_asset_id as number
   Object.assign(carry, {
-    saved,
+    step,
     replacement: null,
     replacementId: id,
     tickets: openTickets.value.length > 0,
@@ -778,7 +787,7 @@ const carryBody = computed<ReplacementCarryOverBody>(() => {
   const out: ReplacementCarryOverBody = {}
   if (carry.tickets && openTickets.value.length > 0) out.link_open_tickets = true
   if (carry.assignment && copyable.value.length > 0) out.copy_assignment = true
-  if (carry.move) {
+  if (carry.move && !moveBlocked.value) {
     out.move_old_to = carry.moveTo
     if (carry.moveTo === 'disposed') out.disposal = disposalBody(carry.disposal)
   }
@@ -787,31 +796,42 @@ const carryBody = computed<ReplacementCarryOverBody>(() => {
 const carriesAnything = computed(() => Object.keys(carryBody.value).length > 0)
 
 async function applyCarry() {
-  const saved = carry.saved
-  if (!saved || !carriesAnything.value) return
+  const step = carry.step
+  if (!step || !carriesAnything.value) return
+  const replacement = carry.replacement ?? { id: carry.replacementId, name: replacementLabel.value, asset_tag: null }
   carry.running = true
   carry.error = ''
   try {
-    await assetRecordService.carryOver(props.asset.id, saved.write.record.id, carryBody.value)
+    await assetRecordService.carryOver(props.asset.id, step.write.record.id, carryBody.value)
     // The sync rows refresh both timelines; this makes it certain.
     void invalidateTimeline(props.asset.id)
-    void invalidateTimeline(carry.replacementId)
-    emit('carried', carry.replacement ?? { id: carry.replacementId, name: replacementLabel.value, asset_tag: null })
-    finish(saved)
+    void invalidateTimeline(replacement.id)
+    // Said even when the step was closed meanwhile: the work was done.
+    emit('carried', replacement)
+    endCarry(step)
   } catch (e) {
-    carry.error = extractErrorMessage(e, t('asset-record-carry-error'))
+    if (carry.step === step) carry.error = extractErrorMessage(e, t('asset-record-carry-error'))
   } finally {
     carry.running = false
   }
 }
 
-function skipCarry() {
-  if (carry.saved) finish(carry.saved)
+/** The step is over: the form closes, or comes back empty to add another.
+ *  A step already closed stays closed. */
+function endCarry(step: Step | null) {
+  if (!step || carry.step !== step) return
+  carry.step = null
+  if (step.another) addAnother()
+  else emit('close')
 }
 
-/** Closing the step keeps the record and moves nothing. */
+function skipCarry() {
+  endCarry(carry.step)
+}
+
+/** Closing, on the step too: the record is saved, nothing more moves. */
 function close() {
-  skipCarry()
+  carry.step = null
   emit('close')
 }
 
@@ -821,8 +841,7 @@ watch(
   () => [props.show, props.record] as const,
   ([open]) => {
     if (!open) {
-      // Closed from outside mid-step: the record is saved all the same.
-      if (carry.saved) finish(carry.saved)
+      carry.step = null
       return
     }
     if (props.record) fill(props.record)
@@ -923,15 +942,17 @@ const reassurance = computed(() =>
           v-model="carry.move"
           size="sm"
           class="mt-0.5"
-          :disabled="moveOptions.length === 0"
+          :disabled="!!moveBlocked || moveOptions.length === 0"
           :aria-label="t('asset-record-carry-move', { old: assetLabel })"
         />
-        <label for="carry-move" class="min-w-0 flex flex-col cursor-pointer">
+        <label for="carry-move" class="min-w-0 flex flex-col" :class="moveBlocked ? 'opacity-50' : 'cursor-pointer'">
           <span class="text-sm leading-5 text-primary">{{ t('asset-record-carry-move', { old: assetLabel }) }}</span>
-          <span class="text-xs leading-5 text-secondary">{{ t('asset-record-carry-move-detail', { status: statusName }) }}</span>
+          <span class="text-xs leading-5 text-secondary" data-testid="carry-move-detail">
+            {{ moveBlocked ?? t('asset-record-carry-move-detail', { status: statusName }) }}
+          </span>
         </label>
       </div>
-      <template v-if="carry.move">
+      <template v-if="carry.move && !moveBlocked">
         <BaseDropdown
           :model-value="carry.moveTo"
           :options="moveOptions"

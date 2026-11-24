@@ -12706,6 +12706,10 @@ asset-record-carry-move-detail = Statut actuel : { $status }
 # MT: pending native review (fr-FR)
 asset-record-carry-move-to = Nouveau statut
 # MT: pending native review (fr-FR)
+asset-record-carry-move-disposed = { $old } est mis au rebut, ce qui est définitif
+# MT: pending native review (fr-FR)
+asset-record-carry-move-on-loan = { $old } est en prêt ; c'est le retour du prêt qui le déplace
+# MT: pending native review (fr-FR)
 asset-record-carry-skip = Ignorer
 # MT: pending native review (fr-FR)
 asset-record-carry-apply = Reporter

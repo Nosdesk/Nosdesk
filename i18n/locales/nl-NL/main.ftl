@@ -12697,6 +12697,10 @@ asset-record-carry-move-detail = Huidige status: { $status }
 # MT: pending native review (nl-NL)
 asset-record-carry-move-to = Nieuwe status
 # MT: pending native review (nl-NL)
+asset-record-carry-move-disposed = { $old } is afgevoerd, en dat is definitief
+# MT: pending native review (nl-NL)
+asset-record-carry-move-on-loan = { $old } is uitgeleend; het terugbrengen van de lening verplaatst het
+# MT: pending native review (nl-NL)
 asset-record-carry-skip = Overslaan
 # MT: pending native review (nl-NL)
 asset-record-carry-apply = Overzetten

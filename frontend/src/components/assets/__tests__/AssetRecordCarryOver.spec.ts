@@ -299,7 +299,10 @@ describe('the carry-over step', () => {
     expect(w.find('[data-testid="carry-step"]').exists()).toBe(true)
     expect(w.get('[data-title]').text()).toBe('asset-record-carry-title')
     expect(assets.getAssetById).toHaveBeenCalledWith(31)
-    expect(w.emitted('saved')).toBeUndefined()
+    // The save is handed on at once, saying the form stays on the step.
+    expect(w.emitted('saved')).toHaveLength(1)
+    expect(w.emitted('saved')![0][3]).toBe(true)
+    expect(w.emitted('close')).toBeUndefined()
 
     expect(checked(w, TICKETS_BOX)).toBe(true)
     // Two of the three linked tickets are open.
@@ -331,6 +334,7 @@ describe('the carry-over step', () => {
 
     expect(records.carryOver).not.toHaveBeenCalled()
     expect(w.emitted('saved')).toHaveLength(1)
+    expect(w.emitted('close')).toHaveLength(1)
     expect(w.find('[data-testid="carry-step"]').exists()).toBe(false)
   })
 
@@ -353,7 +357,7 @@ describe('the carry-over step', () => {
 
     expect(records.update).toHaveBeenCalledWith(14, 40, expect.objectContaining({ replacement_asset_id: 31 }))
     expect(w.find('[data-testid="carry-step"]').exists()).toBe(true)
-    expect(w.emitted('saved')).toBeUndefined()
+    expect(w.emitted('saved')![0][3]).toBe(true)
   })
 
   it('sends only what is ticked', async () => {
@@ -365,6 +369,53 @@ describe('the carry-over step', () => {
     expect(records.carryOver).toHaveBeenCalledWith(14, 40, { link_open_tickets: true })
     expect(w.emitted('carried')).toHaveLength(1)
     expect(w.emitted('saved')).toHaveLength(1)
+    expect(w.emitted('close')).toHaveLength(1)
+  })
+
+  it('hands the save on once when closed while the carry-over is under way', async () => {
+    let answer: (value: unknown) => void = () => {}
+    records.carryOver.mockImplementation(() => new Promise((resolve) => (answer = resolve)))
+    const w = await open()
+    await saveReplaced(w)
+    await press(w, 'asset-record-carry-apply')
+    await w.get('[data-close]').trigger('click')
+    await flushPromises()
+    answer({})
+    await flushPromises()
+
+    expect(w.emitted('saved')).toHaveLength(1)
+    expect(w.emitted('close')).toHaveLength(1)
+    // The work was done all the same, so the parent hears of it.
+    expect(w.emitted('carried')).toHaveLength(1)
+  })
+
+  it('hands the files on before the step, so leaving mid-step loses none', async () => {
+    const w = await open()
+    const file = new File(['report'], 'report.pdf', { type: 'application/pdf' })
+    const picker = w.get('input[type="file"]')
+    Object.defineProperty(picker.element, 'files', { value: [file], configurable: true })
+    await picker.trigger('change')
+    await saveReplaced(w)
+
+    expect(w.find('[data-testid="carry-step"]').exists()).toBe(true)
+    expect(w.emitted('saved')![0][1]).toEqual([file])
+    w.unmount()
+    wrapper = null
+    expect(records.carryOver).not.toHaveBeenCalled()
+  })
+
+  it('offers no move from a disposed asset or one out on loan', async () => {
+    const w = await open({ asset: { ...OLD, status: 'disposed' } })
+    await saveReplaced(w)
+    expect((field(w, MOVE_BOX).element as HTMLInputElement).disabled).toBe(true)
+    expect(w.get('[data-testid="carry-move-detail"]').text()).toBe('asset-record-carry-move-disposed')
+    w.unmount()
+
+    const loan = { id: 1, asset_id: 14, borrower_user_uuid: 'sam', loaned_at: '2025-08-01T00:00:00Z', returned_at: null }
+    const v = await open({ asset: { ...OLD, status: 'on_loan' }, loans: [loan] })
+    await saveReplaced(v)
+    expect((field(v, MOVE_BOX).element as HTMLInputElement).disabled).toBe(true)
+    expect(v.get('[data-testid="carry-move-detail"]').text()).toBe('asset-record-carry-move-on-loan')
   })
 
   it('reveals the disposal fields for Disposed and sends them', async () => {
