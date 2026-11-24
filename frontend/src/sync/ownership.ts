@@ -3,6 +3,7 @@
  * in step with its groups' watermarks.
  */
 import * as pool from '@nosdesk/core/sync/pool'
+import * as idb from './idb'
 import type { SyncAggregate } from '@nosdesk/core/sync/types'
 
 /**
@@ -25,6 +26,33 @@ export const SNAPSHOT_BACKED: ReadonlySet<SyncAggregate> = new Set<SyncAggregate
   'ticket_asset',
   'linked_ticket',
 ])
+
+function onlyLocal(owners: ReadonlySet<string>): boolean {
+  for (const o of owners) if (o !== pool.LOCAL_OWNER) return false
+  return true
+}
+
+/**
+ * Take `groups` off the pool as `stripGroups` does, and delete the cached
+ * copies of the rows no other cached owner keeps, when the copy is owned by
+ * `groups` alone (see idb.deleteModelsOwnedOnlyBy). Without this, a group
+ * that gets a watermark back before the next hydrate would revive a cached
+ * row its new snapshot no longer carries: the strip walks only the pool. The
+ * delete is issued before this returns. Returns the rows removed from the
+ * pool.
+ */
+export function stripGroupsAndCache(
+  handle: idb.IdbHandle | null,
+  groups: ReadonlySet<string>,
+): { removed: Array<[SyncAggregate, string]>; cached: Promise<void> } {
+  const uncached: Array<[SyncAggregate, string]> = []
+  const removed = stripGroups(groups, uncached)
+  const cached =
+    handle && uncached.length > 0
+      ? idb.deleteModelsOwnedOnlyBy(handle, uncached, groups)
+      : Promise.resolve()
+  return { removed, cached }
+}
 
 /** Whether `group` is a workspace group, whose snapshot strips `legacy`. */
 export function isWorkspaceGroup(group: string): boolean {
@@ -52,9 +80,14 @@ export function ownersOnHydrate(
 /**
  * Take `groups` off every pooled row of a snapshot-backed aggregate and
  * remove the rows left with no owners. Returns the removed rows' keys for the
- * caller to drop from the cache, or leave to the next hydrate.
+ * caller to drop from the cache, or leave to the next hydrate. Rows that lost
+ * a group and kept only owners the cache never records (`local`) are
+ * appended to `uncached`, when given, with the removed ones.
  */
-export function stripGroups(groups: ReadonlySet<string>): Array<[SyncAggregate, string]> {
+export function stripGroups(
+  groups: ReadonlySet<string>,
+  uncached?: Array<[SyncAggregate, string]>,
+): Array<[SyncAggregate, string]> {
   const removed: Array<[SyncAggregate, string]> = []
   if (groups.size === 0) return removed
   for (const aggregate of SNAPSHOT_BACKED) {
@@ -67,6 +100,9 @@ export function stripGroups(groups: ReadonlySet<string>): Array<[SyncAggregate, 
       if (left === 0) {
         pool.remove(aggregate, id)
         removed.push([aggregate, id])
+        uncached?.push([aggregate, id])
+      } else if (uncached && onlyLocal(pool.ownersOf(aggregate, id))) {
+        uncached.push([aggregate, id])
       }
     }
   }

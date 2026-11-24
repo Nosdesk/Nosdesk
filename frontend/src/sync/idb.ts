@@ -210,6 +210,38 @@ export function deleteModels(
   })
 }
 
+/**
+ * Delete each of these rows whose cached owners are all in `groups`, in one
+ * transaction; leave the rest. The cache is shared by every tab of the
+ * workspace, so a row one tab let go may be cached by another under a group
+ * of its own, and only the stored owners say so. Rows cached without owners
+ * (`legacy`) are left too. The transaction is created before this returns,
+ * so a write issued after the call lands after it.
+ */
+export function deleteModelsOwnedOnlyBy(
+  handle: IdbHandle,
+  keys: ReadonlyArray<readonly [SyncAggregate, string]>,
+  groups: ReadonlySet<string>,
+): Promise<void> {
+  if (keys.length === 0 || groups.size === 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const tx = handle.db.transaction(STORE_MODELS, 'readwrite')
+    const store = tx.objectStore(STORE_MODELS)
+    for (const [aggregate, id] of keys) {
+      const req = store.get([aggregate, id])
+      req.onsuccess = () => {
+        const owners = (req.result as ModelRow | undefined)?.owners
+        if (owners && owners.length > 0 && owners.every((o) => groups.has(o))) {
+          store.delete([aggregate, id])
+        }
+      }
+    }
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error ?? new DOMException('Transaction aborted', 'AbortError'))
+  })
+}
+
 // -------------------- transactions -----------------
 
 export function putTransaction(handle: IdbHandle, tx: PushTransaction & { createdAt: number; inverse?: Record<string, unknown> }): Promise<void> {

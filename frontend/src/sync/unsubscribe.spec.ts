@@ -21,11 +21,20 @@ const fake = vi.hoisted(() => {
   const set = (key: string) => async (h: { name: string }, v: unknown) => {
     meta(h).set(key, v)
   }
+  type Row = { aggregate: string; id: string; owners?: string[] }
   const store = {
+    /** The cache as the next hydrate reads it, by `aggregate:id`. */
+    rows: new Map<string, Row>(),
     /** Every row written, in order. */
-    put: [] as Array<{ aggregate: string; id: string; owners?: string[] }>,
+    put: [] as Row[],
     /** Every key deleted, as `aggregate:id`. */
     deleted: [] as string[],
+  }
+  const drop = (keys: Array<[string, string]>) => {
+    for (const [a, id] of keys) {
+      store.rows.delete(`${a}:${id}`)
+      store.deleted.push(`${a}:${id}`)
+    }
   }
   return {
     dbs,
@@ -44,15 +53,24 @@ const fake = vi.hoisted(() => {
         fake.onWipe = null
         during?.()
       },
-      putModels: async (_h: unknown, rows: Array<{ aggregate: string; id: string; owners?: string[] }>) => {
+      putModels: async (_h: unknown, rows: Row[]) => {
         store.put.push(...rows)
+        for (const r of rows) store.rows.set(`${r.aggregate}:${r.id}`, r)
       },
-      loadModels: async () => [],
-      deleteModel: async (_h: unknown, aggregate: string, id: string) => {
-        store.deleted.push(`${aggregate}:${id}`)
-      },
-      deleteModels: async (_h: unknown, keys: Array<[string, string]>) => {
-        store.deleted.push(...keys.map(([a, id]) => `${a}:${id}`))
+      loadModels: async () => [...store.rows.values()],
+      deleteModel: async (_h: unknown, aggregate: string, id: string) => drop([[aggregate, id]]),
+      deleteModels: async (_h: unknown, keys: Array<[string, string]>) => drop(keys),
+      deleteModelsOwnedOnlyBy: async (
+        _h: unknown,
+        keys: Array<[string, string]>,
+        groups: ReadonlySet<string>,
+      ) => {
+        drop(
+          keys.filter(([a, id]) => {
+            const owners = store.rows.get(`${a}:${id}`)?.owners
+            return !!owners && owners.length > 0 && owners.every((o) => groups.has(o))
+          }),
+        )
       },
       putTransaction: async () => {},
       deleteTransaction: async () => {},
@@ -179,6 +197,7 @@ async function reachHold(): Promise<() => void> {
 beforeEach(async () => {
   fake.dbs.clear()
   fake.dbs.set(DB, new Map<string, unknown>([['schema_hash', 'h']]))
+  fake.store.rows.clear()
   fake.store.put = []
   fake.store.deleted = []
   server.rows = {
@@ -210,13 +229,13 @@ describe('unsubscribe', () => {
     expect(pool.getSubscribedGroups().has(TICKET)).toBe(false)
   })
 
-  it('removes the rows only the group owned from the pool, and leaves the cache to hydrate', async () => {
+  it('removes the rows only the group owned, from the pool and from the cache', async () => {
     await subscribe(TICKET)
     expect(owners('comment', 40)).toEqual([TICKET])
 
     await unsubscribe(TICKET)
     expect(pool.has('comment', 40)).toBe(false)
-    expect(fake.store.deleted).toEqual([])
+    expect(fake.store.rows.has('comment:40')).toBe(false)
   })
 
   it('keeps a row another group owns, without rewriting its cached copy', async () => {
@@ -228,6 +247,42 @@ describe('unsubscribe', () => {
     expect(pool.get('ticket', 9)).toMatchObject({ title: 'Printer' })
     expect(owners('ticket', 9)).toEqual([WORKSPACE])
     expect(fake.store.put).toEqual([])
+    expect(fake.store.rows.get('ticket:9')?.owners?.sort()).toEqual([WORKSPACE, TICKET].sort())
+  })
+
+  it('keeps a cached row another group also owns there', async () => {
+    await subscribe(TICKET)
+    // Cached since under another group too (another tab's project board).
+    fake.store.rows.set('comment:40', { aggregate: 'comment', id: '40', owners: [TICKET, PROJECT] })
+
+    await unsubscribe(TICKET)
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(fake.store.rows.get('comment:40')?.owners).toEqual([TICKET, PROJECT])
+  })
+
+  it('keeps a row another tab cached under its own group', async () => {
+    await subscribe(TICKET)
+    fake.store.rows.set('comment:40', { aggregate: 'comment', id: '40', owners: [PROJECT] })
+
+    await unsubscribe(TICKET)
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(fake.store.rows.get('comment:40')?.owners).toEqual([PROJECT])
+  })
+
+  it('does not bring back a row deleted while the group was let go, after it is taken again', async () => {
+    await subscribe(TICKET)
+    await unsubscribe(TICKET)
+    // Comment 40 is deleted while nothing here follows ticket 9.
+    server.rows[TICKET] = [{ __model__: 'ticket', id: 9, title: 'Printer' }]
+    await subscribe(TICKET)
+    expect(marks()![TICKET]).toBeDefined()
+    expect(pool.has('comment', 40)).toBe(false)
+
+    // The next launch hydrates from the cache.
+    await tearDown()
+    await hydrate('u1', 'h', '', 'acme', '')
+    expect(pool.has('ticket', 9)).toBe(true)
+    expect(pool.has('comment', 40)).toBe(false)
   })
 
   it('leaves the group out of the next delta request', async () => {
@@ -436,5 +491,37 @@ describe('a resync', () => {
     expect(groups.sort()).toEqual([WORKSPACE, PROJECT].sort())
     expect(pool.has('comment', 40)).toBe(false)
     expect(owners('ticket', 12)).toEqual([WORKSPACE, PROJECT].sort())
+  })
+})
+
+describe('the torn prune', () => {
+  it('drops the cached rows the torn group alone owned, and keeps the shared ones', async () => {
+    await tearDown()
+    // Last session had ticket 3 open: its watermark survives into this launch.
+    fake.dbs.get(DB)!.set('group_watermarks', { [WORKSPACE]: 5, 'ticket:3': 5 })
+    fake.store.rows.set('comment:41', {
+      aggregate: 'comment',
+      id: '41',
+      schema_version: 1,
+      data: { id: 41, ticket_id: 3 },
+      owners: ['ticket:3'],
+    } as never)
+    fake.store.rows.set('comment:42', {
+      aggregate: 'comment',
+      id: '42',
+      schema_version: 1,
+      data: { id: 42, ticket_id: 3 },
+      // Also cached by another tab under a group this one never held.
+      owners: ['ticket:3', 'project:8'],
+    } as never)
+    await hydrate('u1', 'h', '', 'acme', '')
+    expect(pool.has('comment', 41)).toBe(true)
+
+    // Only the workspace is subscribed when this session first moves the cursor.
+    await subscribe(WORKSPACE)
+    expect(pool.has('comment', 41)).toBe(false)
+    expect(fake.store.rows.has('comment:41')).toBe(false)
+    expect(pool.has('comment', 42)).toBe(false)
+    expect(fake.store.rows.get('comment:42')?.owners).toEqual(['ticket:3', 'project:8'])
   })
 })

@@ -34,7 +34,7 @@ import {
   resetWatermarkPrune,
 } from './warm'
 import { followAssetVisibility, reconcileByOwner } from './reconcile'
-import { isWorkspaceGroup, ownersOnHydrate, SNAPSHOT_BACKED, stripGroups } from './ownership'
+import { isWorkspaceGroup, ownersOnHydrate, SNAPSHOT_BACKED, stripGroupsAndCache } from './ownership'
 import { cancelGroupReleases } from './useGroupSubscription'
 import { applyActions, cachedOwners, rowKey } from './apply'
 import { referenceFetcher } from './referenceFetchers'
@@ -386,12 +386,12 @@ export async function subscribe(group: string): Promise<void> {
  * Unsubscribe from a sync group. It leaves the group list every delta sends,
  * its watermark goes, and it comes off the owners of every pooled row; a row
  * it owned alone leaves the pool, and a row another group still owns stays.
- * Cached rows are left for the next hydrate, which drops the owners that hold
- * no watermark: the cache is shared with other tabs, which may still hold the
- * same rows under groups of their own. A bootstrap for the group still in
- * flight stops stamping it and neither strips nor watermarks it when it ends
- * (see runBootstrap). The workspace group is never unsubscribed: it backs the
- * lists for the session.
+ * The cached copy of a row it owned alone goes too, when the cache says the
+ * group alone owns it; other cached rows are left for the next hydrate, since
+ * other tabs share the cache (see stripGroupsAndCache). A bootstrap for the
+ * group still in flight stops stamping it and neither strips nor watermarks
+ * it when it ends (see runBootstrap). The workspace group is never
+ * unsubscribed: it backs the lists for the session.
  */
 export async function unsubscribe(group: string): Promise<void> {
   if (isWorkspaceGroup(group)) {
@@ -399,15 +399,15 @@ export async function unsubscribe(group: string): Promise<void> {
     return
   }
   if (!pool.unsubscribe(group)) return
-  stripGroups(new Set([group]))
   const handle = state.handle
+  // Both issued before any await, so a quick re-subscribe's watermark and
+  // snapshot rows are written after these, not undone by them.
+  const { cached } = stripGroupsAndCache(handle, new Set([group]))
   if (!handle) return
-  // Queued before any await, so a quick re-subscribe's watermark is written
-  // after this drop, not undone by it.
   try {
-    await dropGroupWatermarks(handle, [group])
+    await Promise.all([dropGroupWatermarks(handle, [group]), cached])
   } catch (error) {
-    logger.warn('sync: dropping an unsubscribed group watermark failed', { group, error })
+    logger.warn('sync: caching an unsubscribe failed', { group, error })
   }
 }
 

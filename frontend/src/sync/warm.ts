@@ -7,7 +7,7 @@ import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import { state } from './runtimeState'
 import { MODEL_VERSIONS_TAG } from './schemaVersions'
-import { stripGroups } from './ownership'
+import { stripGroupsAndCache } from './ownership'
 
 /**
  * Split groups into warm (cached snapshot a delta can bring current) and cold
@@ -100,8 +100,9 @@ export function dropGroupWatermarks(handle: idb.IdbHandle, groups: Iterable<stri
  * cursor but kept the stale watermark would revive the torn cache as warm.
  *
  * A group that loses its watermark loses its rows at the same moment: it is
- * stripped from every pooled row's owners, and a row it owned alone goes.
- * Their cached copies are left for the next hydrate, which drops rows no
+ * stripped from every pooled row's owners, and a row it owned alone goes,
+ * with its cached copy when the cache says the torn groups alone own it.
+ * Other cached copies are left for the next hydrate, which drops rows no
  * watermarked group owns (another tab may still be using them). A bootstrap
  * runs this before its strip, so a row owned by a torn group and by a group
  * whose snapshot no longer carries it goes in the same pass.
@@ -118,9 +119,14 @@ export async function pruneTornWatermarks(): Promise<void> {
   if (dropped.length > 0) {
     logger.info('sync: pruning watermarks for unsubscribed groups', { dropped })
     await dropGroupWatermarks(state.handle, dropped)
-    const removed = stripGroups(new Set(dropped))
+    const { removed, cached } = stripGroupsAndCache(state.handle, new Set(dropped))
     if (removed.length > 0) {
       logger.info('sync: dropped rows owned only by pruned groups', { removed: removed.length })
+    }
+    try {
+      await cached
+    } catch (error) {
+      logger.warn('sync: dropping cached rows of pruned groups failed', { error })
     }
   }
 }
