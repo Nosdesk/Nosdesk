@@ -4,7 +4,10 @@
 //! until when, against which ticket). Issuing and returning a loan also
 //! keep `assets.status` in step (`on_loan` <-> the pre-loan status) and
 //! write an `asset_lifecycle_events` row, so the status timeline stays
-//! unified with repair / retire. Every write emits a sync action.
+//! unified with repair / retire. Both take the asset's row lock first and
+//! move the status through
+//! [`asset_lifecycle::move_for_loan`](crate::repository::asset_lifecycle::move_for_loan),
+//! so a loan can't race a transition. Every write emits a sync action.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use diesel::prelude::*;
@@ -15,17 +18,13 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
-    Asset, AssetLifecycleEvent, AssetLoan, AssetLoanChange, NewAssetLifecycleEvent, NewAssetLoan,
-    SyncAggregate, SyncOp,
+    Asset, AssetLoan, AssetLoanChange, AssetStatus, NewAssetLoan, SyncAggregate, SyncOp,
 };
-use crate::repository::assets as assets_repo;
-use crate::schema::{asset_lifecycle_events, asset_loans, assets};
+use crate::repository::asset_lifecycle::{self, LoanMove, MoveError};
+use crate::schema::{asset_loans, assets};
+use crate::services::assets::status_rules::{MoveRefused, RefusalCode};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
-
-/// Statuses an asset can be loaned out from. A device already in repair,
-/// retired, lost, disposed, or out on another loan is not loanable.
-pub const LOANABLE_FROM: &[&str] = &["in_service", "in_stock"];
 
 /// Inputs to issue a loan. `status_before` is read from the live asset by
 /// [`issue`], not trusted from the caller.
@@ -48,6 +47,8 @@ pub enum LoanError {
     /// Asset is in a status it can't be loaned from (carries the status).
     NotLoanable(String),
     AlreadyOnLoan,
+    /// The status rules refuse the ledger's move, beyond the two above.
+    Refused(MoveRefused),
     /// Borrower or ticket reference doesn't resolve (FK violation).
     InvalidReference,
     LoanNotFound,
@@ -58,6 +59,24 @@ pub enum LoanError {
 impl From<DieselError> for LoanError {
     fn from(e: DieselError) -> Self {
         LoanError::Db(e)
+    }
+}
+
+/// A refused ledger move as the loan error callers already know.
+fn loan_refusal(asset: &Asset, r: MoveRefused) -> LoanError {
+    match r.code {
+        RefusalCode::NotLoanable => LoanError::NotLoanable(asset.status.clone()),
+        RefusalCode::SameStatus if r.to == crate::models::AssetStatus::OnLoan => {
+            LoanError::AlreadyOnLoan
+        }
+        _ => LoanError::Refused(r),
+    }
+}
+
+fn loan_move_error(asset: &Asset, e: MoveError) -> LoanError {
+    match e {
+        MoveError::Refused(r) => loan_refusal(asset, r),
+        MoveError::Db(e) => LoanError::Db(e),
     }
 }
 
@@ -107,55 +126,6 @@ fn loan_emit(loan: &AssetLoan, op: SyncOp, event_type: &'static str) -> SyncEmit
         groups: loan_groups(loan),
         causation_id: None,
     }
-}
-
-/// Write the lifecycle log row for a loan status move and emit it,
-/// referencing the loan so the timeline can deep-link to it.
-#[allow(clippy::too_many_arguments)]
-fn log_lifecycle(
-    conn: &mut DbConnection,
-    asset_id: i32,
-    from_status: &str,
-    to_status: &str,
-    ticket_id: Option<i32>,
-    loan_id: i32,
-    actor_uuid: Option<Uuid>,
-    reason: Option<&str>,
-) -> QueryResult<()> {
-    let event: AssetLifecycleEvent = diesel::insert_into(asset_lifecycle_events::table)
-        .values(&NewAssetLifecycleEvent {
-            asset_id,
-            from_status: Some(from_status.to_string()),
-            to_status: to_status.to_string(),
-            reason: reason.map(str::to_string),
-            ticket_id,
-            metadata: json!({ "loan_id": loan_id }),
-            actor_uuid,
-        })
-        .get_result(conn)?;
-    emit::record(
-        conn,
-        SyncEmit {
-            aggregate: SyncAggregate::AssetLifecycleEvent,
-            aggregate_id: event.id.to_string(),
-            op: SyncOp::Insert,
-            event_type: "asset_lifecycle_event.created",
-            data: json!({
-                "id": event.id,
-                "asset_id": event.asset_id,
-                "from_status": event.from_status,
-                "to_status": event.to_status,
-                "reason": event.reason,
-                "ticket_id": event.ticket_id,
-                "metadata": event.metadata,
-                "actor_uuid": event.actor_uuid,
-                "occurred_at": event.occurred_at,
-            }),
-            groups: groups::workspace(),
-            causation_id: None,
-        },
-    )?;
-    Ok(())
 }
 
 pub fn list_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Vec<AssetLoan>> {
@@ -339,24 +309,21 @@ pub fn mark_due_soon_notified_batch(
 
 /// Issue a loan: an asset enters a borrower's custody. Sets the asset
 /// `on_loan`, logs the transition, and emits the loan + asset + lifecycle
-/// sync events, atomically.
+/// sync events, atomically. Only a loanable status lends
+/// ([`status_rules::flags`](crate::services::assets::status_rules::flags)).
 pub fn issue(conn: &mut DbConnection, input: IssueLoan) -> Result<AssetLoan, LoanError> {
     conn.transaction::<AssetLoan, LoanError, _>(|conn| {
-        let asset: Asset = assets::table
-            .find(input.asset_id)
-            .first(conn)
+        // Locked, so a transition (a disposal, say) can't move the asset
+        // between the check and the write.
+        let asset: Asset = asset_lifecycle::lock(conn, input.asset_id)
             .optional()?
             .ok_or(LoanError::AssetNotFound)?;
 
         // An already-loaned asset gets the clear "already on loan" error
         // rather than the generic not-loanable one; the unique index below
         // is the race-safe backstop for concurrent issues.
-        if asset.status == "on_loan" {
-            return Err(LoanError::AlreadyOnLoan);
-        }
-        if !LOANABLE_FROM.contains(&asset.status.as_str()) {
-            return Err(LoanError::NotLoanable(asset.status));
-        }
+        asset_lifecycle::check_for_loan(&asset, &LoanMove::Issue)
+            .map_err(|r| loan_refusal(&asset, r))?;
 
         // The partial unique index `(workspace_id, asset_id) WHERE
         // returned_at IS NULL` is the race-safe guard; map its violation to
@@ -397,25 +364,26 @@ pub fn issue(conn: &mut DbConnection, input: IssueLoan) -> Result<AssetLoan, Loa
             Err(e) => return Err(LoanError::Db(e)),
         };
 
-        assets_repo::set_status(conn, input.asset_id, "on_loan")?;
-
-        log_lifecycle(
+        asset_lifecycle::move_for_loan(
             conn,
-            loan.asset_id,
-            &loan.status_before,
-            "on_loan",
-            loan.ticket_id,
+            &asset,
+            LoanMove::Issue,
             loan.id,
+            loan.ticket_id,
             loan.actor_uuid,
             None,
-        )?;
+        )
+        .map_err(|e| loan_move_error(&asset, e))?;
         emit::record(conn, loan_emit(&loan, SyncOp::Insert, "asset_loan.issued"))?;
         Ok(loan)
     })
 }
 
 /// Return a loan: stamps `returned_at`, reverts the asset to its pre-loan
-/// status, logs the transition, and emits the updates.
+/// status, logs the transition, and emits the updates. An asset no longer on
+/// loan (it drifted, or was disposed before the ledger refused that) keeps
+/// its status: the loan is closed and the return shows on the asset's
+/// timeline as the loan's.
 pub fn return_loan(
     conn: &mut DbConnection,
     asset_id: i32,
@@ -433,9 +401,11 @@ pub fn return_loan(
         notes,
         None,
     )
+    .map(|(loan, _)| loan)
 }
 
-/// [`return_loan`], with a reason recorded on the lifecycle event.
+/// [`return_loan`], with a reason recorded on the lifecycle event. Also
+/// whether the asset's status moved back (false when it wasn't on loan).
 pub fn return_loan_logged(
     conn: &mut DbConnection,
     asset_id: i32,
@@ -444,8 +414,12 @@ pub fn return_loan_logged(
     returned_by: Option<Uuid>,
     notes: Option<String>,
     reason: Option<&str>,
-) -> Result<AssetLoan, LoanError> {
-    conn.transaction::<AssetLoan, LoanError, _>(|conn| {
+) -> Result<(AssetLoan, bool), LoanError> {
+    conn.transaction::<(AssetLoan, bool), LoanError, _>(|conn| {
+        // The asset first, as an issue and a transition lock it.
+        let asset: Asset = asset_lifecycle::lock(conn, asset_id)
+            .optional()?
+            .ok_or(LoanError::LoanNotFound)?;
         let loan: AssetLoan = asset_loans::table
             .find(loan_id)
             .filter(asset_loans::asset_id.eq(asset_id))
@@ -465,23 +439,29 @@ pub fn return_loan_logged(
             })
             .get_result(conn)?;
 
-        assets_repo::set_status(conn, asset_id, &loan.status_before)?;
-
-        log_lifecycle(
-            conn,
-            asset_id,
-            "on_loan",
-            &loan.status_before,
-            loan.ticket_id,
-            loan.id,
-            returned_by,
-            reason,
-        )?;
+        // Back to the recorded status when the asset is on loan and the
+        // ledger recorded one of the nine; otherwise the status stays.
+        let back = AssetStatus::from_str_opt(&loan.status_before)
+            .map(|to| LoanMove::Return { to })
+            .filter(|back| asset_lifecycle::check_for_loan(&asset, back).is_ok());
+        let moved = back.is_some();
+        if let Some(back) = back {
+            asset_lifecycle::move_for_loan(
+                conn,
+                &asset,
+                back,
+                loan.id,
+                loan.ticket_id,
+                returned_by,
+                reason,
+            )
+            .map_err(|e| loan_move_error(&asset, e))?;
+        }
         emit::record(
             conn,
             loan_emit(&updated_loan, SyncOp::Update, "asset_loan.updated"),
         )?;
-        Ok(updated_loan)
+        Ok((updated_loan, moved))
     })
 }
 
@@ -545,7 +525,8 @@ fn in_workspace<T>(
 
 /// Return every active loan of a user about to be purged, in every workspace,
 /// through the normal return path: the asset goes back to its pre-loan status
-/// with a lifecycle event and sync actions. The borrower then goes NULL through
+/// with a lifecycle event and sync actions, or keeps its status when it is
+/// no longer on loan. The borrower then goes NULL through
 /// the `ON DELETE SET NULL` key when the user row is deleted, so the ledger
 /// outlives the account. Called by
 /// [`purge_user`](crate::repository::users::purge_user) on a bypass
@@ -684,6 +665,20 @@ mod tests {
             .unwrap();
         let err = issue(&mut conn, issue_input(a.id, borrower.uuid)).unwrap_err();
         assert!(matches!(err, LoanError::NotLoanable(s) if s == "in_repair"));
+    }
+
+    #[test]
+    fn a_status_outside_the_nine_is_not_loanable() {
+        let mut conn = setup_test_connection();
+        let borrower = TestFixtures::create_user(&mut conn, "borrower", "user");
+        let a = asset(&mut conn, "Loaner-stray");
+        diesel::update(assets::table.find(a.id))
+            .set(assets::status.eq("broken"))
+            .execute(&mut conn)
+            .unwrap();
+        let err = issue(&mut conn, issue_input(a.id, borrower.uuid)).unwrap_err();
+        assert!(matches!(err, LoanError::NotLoanable(s) if s == "broken"));
+        assert!(active_for_asset(&mut conn, a.id).unwrap().is_none());
     }
 
     #[test]

@@ -6125,6 +6125,17 @@ asset-status-retired = Retired
 asset-status-lost = Lost
 asset-status-disposed = Disposed
 asset-status-unknown = Unknown
+# Why a status change is refused. $status is a status name.
+asset-move-refused-same-status = Asset is already in the requested status
+asset-move-refused-terminal = Disposed assets can't change status; disposal is final
+asset-move-refused-loan-owned = Asset is out on loan; return the loan to change its status
+asset-move-refused-needs-active-loan = On-loan status is set by issuing a loan; there is no active loan to restore
+asset-move-refused-not-loanable = An asset that is { $status } can't be lent
+asset-move-refused-not-on-loan = Asset isn't on loan, so the loan can't be returned
+asset-move-refused-needs-disposal = Disposing an asset requires a disposal record
+asset-move-refused-disposal-not-allowed = A disposal record is only accepted when disposing an asset
+asset-move-refused-start-only = { $status } is only set when an asset is created; an asset can't move back to it
+asset-move-refused-start-on-loan = An asset can't be created on loan; lend it after creating it
 
 # Asset lifecycle panel.
 asset-lifecycle-heading = Status history

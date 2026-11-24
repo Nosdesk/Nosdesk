@@ -68,11 +68,14 @@ pub struct Asset {
     pub managed_by_user_uuid: Option<Uuid>,
 }
 
-/// Canonical asset lifecycle states. Stored as snake_case strings in
+/// The fixed asset status categories. Stored as snake_case strings in
 /// `assets.status` and validated here rather than by a DB CHECK, so
-/// adding a state is a code change, not a migration. State-specific
-/// data (repair vendor / RMA / offsite, loan recipient / due-back)
-/// lives in `asset_lifecycle_events.metadata`, never in new columns.
+/// adding a category is a code change, not a migration. Code branches on
+/// them (loans, disposal, rule steps, record types), and which moves
+/// between them are allowed is `services::assets::status_rules`.
+/// State-specific data (repair vendor / RMA / offsite, loan recipient /
+/// due-back) lives in `asset_lifecycle_events.metadata`, never in new
+/// columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetStatus {
@@ -88,6 +91,19 @@ pub enum AssetStatus {
 }
 
 impl AssetStatus {
+    /// Every category, in the order pickers list them.
+    pub const ALL: [AssetStatus; 9] = [
+        Self::InService,
+        Self::InStock,
+        Self::OnOrder,
+        Self::InTransit,
+        Self::InRepair,
+        Self::OnLoan,
+        Self::Retired,
+        Self::Lost,
+        Self::Disposed,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::InService => "in_service",

@@ -90,6 +90,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/assets/itad-vendors",
             web::get().to(crate::handlers::asset_lifecycle::list_itad_vendors),
         )
+        .route(
+            "/assets/statuses",
+            web::get().to(crate::handlers::asset_lifecycle::list_statuses),
+        )
         // Asset records and their types. Literal segments; the numeric
         // `{id:\d+}` routes below can't absorb them.
         .route(
@@ -1598,11 +1602,23 @@ pub async fn get_user_devices(
     }
 }
 
-/// Create a new device (technician or admin only)
+/// `POST /assets`: the asset's fields, and the status it starts in.
+#[derive(Debug, Deserialize)]
+pub struct CreateAssetBody {
+    #[serde(flatten)]
+    pub asset: NewAsset,
+    /// A status key; omitted, `in_service`. Any status a new asset may start
+    /// in (not `on_loan` or `disposed`, which a loan and a disposal set).
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+/// Create a new device (technician or admin only). A status other than the
+/// default writes the asset's first lifecycle event, from no status.
 pub async fn create_device(
     mut tc: TenantConn,
     auth: AuthContext,
-    device: web::Json<NewAsset>,
+    body: web::Json<CreateAssetBody>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if !auth.can_handle_tickets() {
@@ -1611,7 +1627,21 @@ pub async fn create_device(
         );
     }
 
-    let new_device = device.into_inner();
+    let CreateAssetBody {
+        asset: new_device,
+        status,
+    } = body.into_inner();
+    let status = match status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        None => None,
+        Some(raw) => match crate::models::AssetStatus::from_str_opt(raw) {
+            None => return errors::bad_request(format!("Unknown asset status '{raw}'")),
+            Some(s) if s.as_str() == crate::models::AssetStatus::default_str() => None,
+            Some(s) => match crate::services::assets::status_rules::check_initial(s) {
+                Ok(()) => Some(s),
+                Err(r) => return crate::handlers::asset_lifecycle::refusal_response(r),
+            },
+        },
+    };
 
     // Validate kind/attributes coherence. Mirror the tickets-style
     // nested Result pattern so the inner validator's HttpResponse
@@ -1626,8 +1656,20 @@ pub async fn create_device(
         Err(_) => return errors::internal("Failed to validate asset"),
     }
 
-    let result = tc.run(|conn| {
-        let device = repository::create_device(conn, new_device)?;
+    let actor = auth.user_uuid;
+    use crate::repository::asset_lifecycle::{self as lifecycle, MoveError};
+    let result = tc.run_result(|conn| -> Result<_, MoveError> {
+        let device = match status {
+            None => repository::create_device(conn, new_device)?,
+            Some(status) => {
+                let first = lifecycle::FirstEvent {
+                    reason: None,
+                    metadata: json!({}),
+                    actor_uuid: Some(actor),
+                };
+                lifecycle::create(conn, new_device, None, status, Some(first))?.0
+            }
+        };
         let user = device
             .primary_user_uuid
             .as_ref()
@@ -1647,7 +1689,8 @@ pub async fn create_device(
             // repository write emits `asset.created`); no discrete SSE.
             HttpResponse::Created().json(device_response)
         }
-        Err(e) => {
+        Err(MoveError::Refused(r)) => crate::handlers::asset_lifecycle::refusal_response(r),
+        Err(MoveError::Db(e)) => {
             error!(error = ?e, "Database error creating device");
             errors::internal("Failed to create device")
         }

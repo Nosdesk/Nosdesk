@@ -21,7 +21,7 @@ use crate::middleware::token_scope::claims_may_call;
 use crate::models::{AssetStatus, Claims};
 use crate::repository::asset_lifecycle::DisposalInput;
 use crate::repository::asset_replacement::{
-    self as repo, CarryOver, MoveOld, ReplacementError, OLD_ASSET_STATUSES,
+    self as repo, old_asset_statuses, CarryOver, MoveOld, ReplacementError,
 };
 use crate::repository::assets as assets_repo;
 use crate::repository::ticket_visibility::VisibilityContext;
@@ -72,7 +72,7 @@ pub async fn carry_over(
 
     let move_old_to = match body.move_old_to.as_deref().filter(|s| !s.is_empty()) {
         Some(raw) => {
-            match AssetStatus::from_str_opt(raw).filter(|s| OLD_ASSET_STATUSES.contains(s)) {
+            match AssetStatus::from_str_opt(raw).filter(|s| old_asset_statuses().contains(s)) {
                 Some(status) => Some(MoveOld {
                     status,
                     disposal: body.disposal.as_ref().map(|d| DisposalInput {
@@ -86,7 +86,11 @@ pub async fn carry_over(
                 None => {
                     return errors::bad_request(format!(
                         "move_old_to must be one of: {}",
-                        OLD_ASSET_STATUSES.map(AssetStatus::as_str).join(", ")
+                        old_asset_statuses()
+                            .into_iter()
+                            .map(AssetStatus::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ))
                 }
             }

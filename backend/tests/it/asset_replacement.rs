@@ -900,3 +900,51 @@ async fn leaving_repair_with_several_open_records_completes_none() {
     assert!(completed_on(&f, second).is_none());
     assert_eq!(read_asset(&f, old).status, "in_stock");
 }
+
+/// An old asset out on loan stays there: the loan owns it until it is
+/// returned, so the carry-over's move is refused by the status rules and the
+/// call undoes every part.
+#[actix_web::test]
+async fn an_old_asset_on_loan_moves_only_after_its_return() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let old = asset(&f, "CAM-014");
+    let new = asset(&f, "CAM-031");
+    let rid = record(&f, old, "replaced", Some(new)).await;
+    let loan = in_ws(&f, |c| {
+        backend::repository::asset_loans::issue(
+            c,
+            backend::repository::asset_loans::IssueLoan {
+                asset_id: old,
+                borrower_user_uuid: f.ws.member_uuid,
+                loaned_at: None,
+                due_back: None,
+                ticket_id: None,
+                notes: None,
+                actor_uuid: None,
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    });
+
+    let (status, body) = carry(&f, old, rid, json!({ "move_old_to": "retired" })).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["code"], "loan_owned", "{body}");
+    assert_eq!(read_asset(&f, old).status, "on_loan");
+
+    in_ws(&f, |c| {
+        backend::repository::asset_loans::return_loan(
+            c,
+            old,
+            loan.id,
+            chrono::Utc::now(),
+            None,
+            None,
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    });
+    let (status, body) = carry(&f, old, rid, json!({ "move_old_to": "retired" })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(read_asset(&f, old).status, "retired");
+}

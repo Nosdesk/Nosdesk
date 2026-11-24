@@ -668,8 +668,29 @@ pub fn create_device(conn: &mut DbConnection, new_device: NewAsset) -> QueryResu
 /// The asset is created with the link, so one `asset.created` carries it.
 pub fn create_device_linked(
     conn: &mut DbConnection,
+    new_device: NewAsset,
+    model_id: Option<i32>,
+) -> QueryResult<Asset> {
+    insert_device(conn, new_device, model_id, None)
+}
+
+/// [`create_device_linked`] in `status` rather than the column default.
+/// Only [`asset_lifecycle::create`](crate::repository::asset_lifecycle::create)
+/// calls it, once the status rules let an asset start there.
+pub(crate) fn create_device_in(
+    conn: &mut DbConnection,
+    new_device: NewAsset,
+    model_id: Option<i32>,
+    status: crate::models::AssetStatus,
+) -> QueryResult<Asset> {
+    insert_device(conn, new_device, model_id, Some(status))
+}
+
+fn insert_device(
+    conn: &mut DbConnection,
     mut new_device: NewAsset,
     model_id: Option<i32>,
+    status: Option<crate::models::AssetStatus>,
 ) -> QueryResult<Asset> {
     new_device.serial_number = normalize_serial(new_device.serial_number);
     // Wrap the INSERT + sync emit in a single transaction so a
@@ -677,9 +698,14 @@ pub fn create_device_linked(
     // without a corresponding sync_actions event.
     // emit::record fires inside emit_asset_event.
     conn.transaction::<Asset, Error, _>(|conn| {
-        let mut device: Asset = diesel::insert_into(assets::table)
-            .values(&new_device)
-            .get_result(conn)?;
+        let mut device: Asset = match status {
+            Some(status) => diesel::insert_into(assets::table)
+                .values((&new_device, assets::status.eq(status.as_str())))
+                .get_result(conn)?,
+            None => diesel::insert_into(assets::table)
+                .values(&new_device)
+                .get_result(conn)?,
+        };
         if let Some(model_id) = model_id {
             device = diesel::update(assets::table.find(device.id))
                 .set(assets::model_id.eq(model_id))
@@ -727,20 +753,6 @@ pub fn set_quantity(
     conn.transaction::<Asset, Error, _>(|conn| {
         let device: Asset = diesel::update(assets::table.find(asset_id))
             .set(assets::quantity.eq(quantity))
-            .get_result(conn)?;
-        emit_asset_event(conn, &device, SyncOp::Update, "asset.updated")?;
-        Ok(device)
-    })
-}
-
-/// Set an asset's lifecycle `status` and send `asset.updated`. A lifecycle
-/// transition and the loan ledger call it inside the transaction that writes
-/// their own row.
-pub fn set_status(conn: &mut DbConnection, asset_id: i32, status: &str) -> QueryResult<Asset> {
-    // emit::record fires inside emit_asset_event.
-    conn.transaction::<Asset, Error, _>(|conn| {
-        let device: Asset = diesel::update(assets::table.find(asset_id))
-            .set(assets::status.eq(status))
             .get_result(conn)?;
         emit_asset_event(conn, &device, SyncOp::Update, "asset.updated")?;
         Ok(device)

@@ -6902,6 +6902,17 @@ asset-status-retired = Retiré
 asset-status-lost = Perdu
 asset-status-disposed = Éliminé
 asset-status-unknown = Inconnu
+# MACHINE TRANSLATION, pending native review
+asset-move-refused-same-status = La ressource a déjà le statut demandé
+asset-move-refused-terminal = Une ressource éliminée ne peut plus changer de statut ; l'élimination est définitive
+asset-move-refused-loan-owned = La ressource est en prêt ; retournez le prêt pour changer son statut
+asset-move-refused-needs-active-loan = Le statut En prêt est défini en émettant un prêt ; aucun prêt actif n'est à rétablir
+asset-move-refused-not-loanable = Une ressource au statut { $status } ne peut pas être prêtée
+asset-move-refused-not-on-loan = La ressource n'est pas en prêt, le prêt ne peut donc pas être retourné
+asset-move-refused-needs-disposal = L'élimination d'une ressource exige un enregistrement d'élimination
+asset-move-refused-disposal-not-allowed = Un enregistrement d'élimination n'est accepté que lors de l'élimination d'une ressource
+asset-move-refused-start-only = Le statut { $status } n'est défini qu'à la création d'une ressource ; une ressource ne peut pas y revenir
+asset-move-refused-start-on-loan = Une ressource ne peut pas être créée en prêt ; prêtez-la après l'avoir créée
 
 asset-lifecycle-heading = Historique des statuts
 asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.

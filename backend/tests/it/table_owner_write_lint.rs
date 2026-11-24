@@ -51,6 +51,12 @@ const OWNERS: &[(&str, &[&str])] = &[
 /// Writes outside a table's owners, as (file, table, reason).
 const ALLOWLIST: &[(&str, &str, &str)] = &[
     (
+        "repository/asset_lifecycle.rs",
+        "assets",
+        "sets `status`, which only moves the status rules allowed may write, and sends \
+         `asset.updated` through the asset repository's emitter",
+    ),
+    (
         "repository/feature_flags.rs",
         "users",
         "sets a person's `feature_flag_overrides`, which the synced user row doesn't carry",

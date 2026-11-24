@@ -10,6 +10,11 @@
 //! into a status a record type opens with opens a record of that type, and
 //! one out of it completes the asset's open record. Callers that don't ask
 //! (rules, imports, loans) write none. A record never moves a status.
+//!
+//! This module is the only writer of `assets.status` after create, and
+//! every write here passes [`status_rules`] first, under the asset's row
+//! lock: a transition ([`transition`]), the loan ledger's issue and return
+//! ([`move_for_loan`]), and a create in a status of its own ([`create`]).
 
 use diesel::prelude::*;
 use diesel::result::Error;
@@ -30,6 +35,7 @@ use crate::repository::asset_records::{
 use crate::repository::assets as assets_repo;
 use crate::schema::{asset_disposals, asset_lifecycle_events, assets};
 use crate::services::assets::record_catalogue;
+use crate::services::assets::status_rules::{self, MoveFacts, MoveRefused, Mover, RefusalCode};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
@@ -60,26 +66,65 @@ pub fn list_for_asset(
 /// Reason on the event an import writes for each asset it creates.
 pub const IMPORTED_REASON: &str = "Imported";
 
-/// Log that an import created `asset`: its first lifecycle event, from no
-/// status to the one it was created with, naming the job in `metadata`.
-/// The asset row isn't touched, so its `updated_at` stays what the import
-/// observed.
-pub fn record_imported(
-    conn: &mut DbConnection,
-    asset: &Asset,
-    actor_uuid: Option<uuid::Uuid>,
-    import_job_id: uuid::Uuid,
-) -> QueryResult<AssetLifecycleEvent> {
-    let event: AssetLifecycleEvent = diesel::insert_into(asset_lifecycle_events::table)
-        .values(&NewAssetLifecycleEvent {
-            asset_id: asset.id,
-            from_status: None,
-            to_status: asset.status.clone(),
+/// The first lifecycle event of a new asset, from no status to the one it
+/// was created in.
+pub struct FirstEvent {
+    pub reason: Option<String>,
+    pub metadata: serde_json::Value,
+    pub actor_uuid: Option<uuid::Uuid>,
+}
+
+impl FirstEvent {
+    /// The event an import writes for each asset it creates, naming the job.
+    pub fn imported(actor_uuid: Option<uuid::Uuid>, import_job_id: uuid::Uuid) -> Self {
+        Self {
             reason: Some(IMPORTED_REASON.to_string()),
-            ticket_id: None,
             metadata: json!({ "import_job_id": import_job_id }),
             actor_uuid,
-        })
+        }
+    }
+}
+
+/// Create an asset in `status`, which must be one an asset may start in,
+/// linked to the catalog model `model_id` when given. With `first`, the
+/// asset's first lifecycle event is written too, from no status. The
+/// insert sends one `asset.created` carrying the status.
+pub fn create(
+    conn: &mut DbConnection,
+    new_asset: crate::models::NewAsset,
+    model_id: Option<i32>,
+    status: AssetStatus,
+    first: Option<FirstEvent>,
+) -> Result<(Asset, Option<AssetLifecycleEvent>), MoveError> {
+    status_rules::check_initial(status)?;
+    conn.transaction::<_, MoveError, _>(|conn| {
+        let asset = assets_repo::create_device_in(conn, new_asset, model_id, status)?;
+        let event = match first {
+            Some(first) => Some(insert_event(
+                conn,
+                NewAssetLifecycleEvent {
+                    asset_id: asset.id,
+                    from_status: None,
+                    to_status: asset.status.clone(),
+                    reason: first.reason,
+                    ticket_id: None,
+                    metadata: first.metadata,
+                    actor_uuid: first.actor_uuid,
+                },
+            )?),
+            None => None,
+        };
+        Ok((asset, event))
+    })
+}
+
+/// Insert a lifecycle event and send `asset_lifecycle_event.created`.
+fn insert_event(
+    conn: &mut DbConnection,
+    event: NewAssetLifecycleEvent,
+) -> QueryResult<AssetLifecycleEvent> {
+    let event: AssetLifecycleEvent = diesel::insert_into(asset_lifecycle_events::table)
+        .values(&event)
         .get_result(conn)?;
     emit::record(
         conn,
@@ -96,8 +141,133 @@ pub fn record_imported(
     Ok(event)
 }
 
-/// Inputs for a single lifecycle transition. `to_status` is assumed
-/// validated by the caller (handler) against `AssetStatus`.
+/// The asset, locked `FOR NO KEY UPDATE` until the transaction ends, so a
+/// concurrent transition or loan can't change its status between a check
+/// and the write.
+pub fn lock(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Asset> {
+    assets::table.find(asset_id).for_no_key_update().first(conn)
+}
+
+/// [`status_rules::check_move`] from a stored status. A value outside the
+/// nine (there is no CHECK) moves as an in-service asset does, and a move
+/// to `in_service` itself is checked from `in_stock`, whose row is the
+/// same, so the value can always be put right.
+pub fn check_from_stored(
+    stored: &str,
+    to: AssetStatus,
+    facts: MoveFacts,
+) -> Result<(), MoveRefused> {
+    let from = match AssetStatus::from_str_opt(stored) {
+        Some(from) => from,
+        None if to == AssetStatus::InService => AssetStatus::InStock,
+        None => AssetStatus::InService,
+    };
+    status_rules::check_move(from, to, facts)
+}
+
+/// Set an asset's `status` and send `asset.updated`. Only the moves in this
+/// module call it, each after [`status_rules`] passed it.
+fn set_status(conn: &mut DbConnection, asset_id: i32, status: AssetStatus) -> QueryResult<Asset> {
+    // emit::record fires inside emit_asset_event.
+    let device: Asset = diesel::update(assets::table.find(asset_id))
+        .set(assets::status.eq(status.as_str()))
+        .get_result(conn)?;
+    assets_repo::emit_asset_event(conn, &device, SyncOp::Update, "asset.updated")?;
+    Ok(device)
+}
+
+/// A loan ledger move.
+pub enum LoanMove {
+    /// A loan was issued: into `on_loan`.
+    Issue,
+    /// A loan was returned: back to the status it recorded.
+    Return { to: AssetStatus },
+}
+
+/// Why a create in a status, or the loan ledger's move, didn't happen.
+#[derive(Debug)]
+pub enum MoveError {
+    Refused(MoveRefused),
+    Db(Error),
+}
+
+impl From<Error> for MoveError {
+    fn from(e: Error) -> Self {
+        MoveError::Db(e)
+    }
+}
+
+impl From<MoveRefused> for MoveError {
+    fn from(e: MoveRefused) -> Self {
+        MoveError::Refused(e)
+    }
+}
+
+/// Whether the loan ledger may make `mv` on `asset`: an issue only from a
+/// loanable status, a return only from `on_loan`. The status it moves to. A
+/// stored status outside the nine is neither, so the ledger never records
+/// one as the status a return goes back to.
+pub fn check_for_loan(asset: &Asset, mv: &LoanMove) -> Result<AssetStatus, MoveRefused> {
+    let (mover, to) = match mv {
+        LoanMove::Issue => (Mover::LoanIssue, AssetStatus::OnLoan),
+        LoanMove::Return { to } => (Mover::LoanReturn, *to),
+    };
+    let Some(from) = AssetStatus::from_str_opt(&asset.status) else {
+        let code = match mover {
+            Mover::LoanIssue => RefusalCode::NotLoanable,
+            _ => RefusalCode::NotOnLoan,
+        };
+        return Err(MoveRefused {
+            code,
+            from: None,
+            to,
+        });
+    };
+    status_rules::check_move(
+        from,
+        to,
+        MoveFacts {
+            mover,
+            active_loan: true,
+            disposal: false,
+        },
+    )?;
+    Ok(to)
+}
+
+/// Move `asset`, locked by the caller with [`lock`], for the loan ledger,
+/// and log the move with the loan in its `metadata`. Checked as the ledger:
+/// an issue only from a loanable status, a return only from `on_loan`.
+#[allow(clippy::too_many_arguments)]
+pub fn move_for_loan(
+    conn: &mut DbConnection,
+    asset: &Asset,
+    mv: LoanMove,
+    loan_id: i32,
+    ticket_id: Option<i32>,
+    actor_uuid: Option<uuid::Uuid>,
+    reason: Option<&str>,
+) -> Result<Asset, MoveError> {
+    let to = check_for_loan(asset, &mv)?;
+    let to_status = to.as_str().to_string();
+    let updated = set_status(conn, asset.id, to)?;
+    insert_event(
+        conn,
+        NewAssetLifecycleEvent {
+            asset_id: asset.id,
+            from_status: Some(asset.status.clone()),
+            to_status,
+            reason: reason.map(str::to_string),
+            ticket_id,
+            metadata: json!({ "loan_id": loan_id }),
+            actor_uuid,
+        },
+    )?;
+    Ok(updated)
+}
+
+/// Inputs for a single lifecycle transition. `to_status` is one of the
+/// `AssetStatus` keys; any other is refused as unknown.
 pub struct TransitionInput {
     pub asset_id: i32,
     pub to_status: String,
@@ -156,20 +326,11 @@ pub struct DisposalInput {
 #[derive(Debug)]
 pub enum TransitionError {
     AssetNotFound,
-    /// The asset is already in the requested status.
-    NoOp,
-    /// `disposed` is terminal: nothing moves an asset out of it.
-    FromDisposed,
-    /// The asset has an active loan; only returning the loan moves it off
-    /// `on_loan`.
-    OnLoanReturnViaLoan,
-    /// `on_loan` as a manual target only restores an asset whose loan is
-    /// still active; otherwise it comes from issuing a loan.
-    OnLoanNeedsActiveLoan,
-    /// A transition to `disposed` must carry the disposal record.
-    DisposalRequired,
-    /// A disposal record was sent with a target other than `disposed`.
-    DisposalNotAllowed,
+    /// The status rules refuse the move ([`status_rules`]). A move to the
+    /// status the asset has is refused as `same_status`.
+    Refused(MoveRefused),
+    /// `to_status` isn't one of the `AssetStatus` keys.
+    UnknownStatus(String),
     /// `sanitization_method` is not one of [`SANITIZATION_METHODS`].
     InvalidSanitizationMethod(String),
     /// A record was asked to be opened, but no live record type opens with
@@ -200,6 +361,12 @@ impl From<Error> for TransitionError {
     }
 }
 
+impl From<MoveRefused> for TransitionError {
+    fn from(e: MoveRefused) -> Self {
+        TransitionError::Refused(e)
+    }
+}
+
 impl From<RecordError> for TransitionError {
     fn from(e: RecordError) -> Self {
         match e {
@@ -209,32 +376,28 @@ impl From<RecordError> for TransitionError {
     }
 }
 
-/// The disposal record must accompany `disposed` and nothing else, and carry
-/// a known sanitization method. Checked before any row is read.
-fn check_disposal(
-    to_status: &str,
-    disposal: Option<&DisposalInput>,
-) -> Result<(), TransitionError> {
-    let to_disposed = to_status == AssetStatus::Disposed.as_str();
+/// A disposal record carries a known sanitization method. Checked before any
+/// row is read; whether the move may carry a record at all is the status
+/// rules' call.
+fn check_sanitization(disposal: Option<&DisposalInput>) -> Result<(), TransitionError> {
     match disposal {
-        None if to_disposed => Err(TransitionError::DisposalRequired),
-        None => Ok(()),
-        Some(_) if !to_disposed => Err(TransitionError::DisposalNotAllowed),
         Some(d) if !SANITIZATION_METHODS.contains(&d.sanitization_method.as_str()) => Err(
             TransitionError::InvalidSanitizationMethod(d.sanitization_method.clone()),
         ),
-        Some(_) => Ok(()),
+        _ => Ok(()),
     }
 }
 
 /// Move an asset to `to_status` and log the transition. Returns the
 /// updated asset and the new event.
 ///
-/// Enforces the status rules: a move to the current status is a no-op;
-/// `disposed` is terminal and needs its disposal record; `on_loan` belongs to
-/// the loan ledger, so an asset with an active loan leaves it only through
+/// Checked by [`status_rules::check_move`] under the asset's row lock: a
+/// move to the current status is refused as `same_status`; `disposed` is
+/// terminal and needs its disposal record; `on_loan` belongs to the loan
+/// ledger, so an asset with an active loan leaves it only through
 /// [`asset_loans::return_loan`](crate::repository::asset_loans::return_loan),
-/// and enters it here only to restore an asset whose loan is still active.
+/// and enters it here only to restore an asset whose loan is still active;
+/// nothing moves back into `on_order`.
 ///
 /// With `complete_record`, the open record the status it leaves opened is
 /// completed; with `record`, a record of the type `to_status` opens with is
@@ -245,31 +408,22 @@ pub fn transition(
     conn: &mut DbConnection,
     input: TransitionInput,
 ) -> Result<(Asset, AssetLifecycleEvent), TransitionError> {
-    check_disposal(&input.to_status, input.disposal.as_ref())?;
+    let to = AssetStatus::from_str_opt(&input.to_status)
+        .ok_or_else(|| TransitionError::UnknownStatus(input.to_status.clone()))?;
+    check_sanitization(input.disposal.as_ref())?;
 
     // emit::record fires for both writes inside this transaction.
     conn.transaction::<(Asset, AssetLifecycleEvent), TransitionError, _>(|conn| {
         // Lock the asset so a concurrent loan issue/return can't change its
         // status between the checks below and the update.
-        let current: Asset = assets::table
-            .find(input.asset_id)
-            .for_no_key_update()
-            .first(conn)?;
+        let current = lock(conn, input.asset_id)?;
         let from_status = current.status.clone();
-
-        if from_status == input.to_status {
-            return Err(TransitionError::NoOp);
-        }
-        if from_status == AssetStatus::Disposed.as_str() {
-            return Err(TransitionError::FromDisposed);
-        }
         let has_active_loan = asset_loans_repo::active_for_asset(conn, input.asset_id)?.is_some();
-        if from_status == AssetStatus::OnLoan.as_str() && has_active_loan {
-            return Err(TransitionError::OnLoanReturnViaLoan);
-        }
-        if input.to_status == AssetStatus::OnLoan.as_str() && !has_active_loan {
-            return Err(TransitionError::OnLoanNeedsActiveLoan);
-        }
+        check_from_stored(
+            &from_status,
+            to,
+            MoveFacts::by_hand(has_active_loan, input.disposal.is_some()),
+        )?;
 
         // The records the move writes, resolved before anything is.
         let completing = match &input.complete_record {
@@ -281,7 +435,7 @@ pub fn transition(
             None => None,
         };
 
-        let updated = assets_repo::set_status(conn, input.asset_id, &input.to_status)?;
+        let updated = set_status(conn, input.asset_id, to)?;
 
         // `record_id` is the server's to write: it names the record this
         // move opened, never one a caller claims.
@@ -529,29 +683,36 @@ mod tests {
     use crate::repository::assets::{create_device, get_device_by_id};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
+    fn refusal(err: TransitionError) -> RefusalCode {
+        match err {
+            TransitionError::Refused(r) => r.code,
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
     fn asset(conn: &mut DbConnection, name: &str) -> Asset {
-        create_device(
-            conn,
-            NewAsset {
-                name: name.to_string(),
-                serial_number: None,
-                manufacturer: None,
-                model: None,
-                location: None,
-                notes: None,
-                primary_user_uuid: None,
-                purchase_date: None,
-                asset_tag: None,
-                kind: "device".to_string(),
-                attributes: json!({}),
-                quantity: None,
-                unit: None,
-                external_sync_source: None,
-                low_stock_threshold: None,
-                created_by: None,
-            },
-        )
-        .unwrap()
+        create_device(conn, new_asset(name)).unwrap()
+    }
+
+    fn new_asset(name: &str) -> NewAsset {
+        NewAsset {
+            name: name.to_string(),
+            serial_number: None,
+            manufacturer: None,
+            model: None,
+            location: None,
+            notes: None,
+            primary_user_uuid: None,
+            purchase_date: None,
+            asset_tag: None,
+            kind: "device".to_string(),
+            attributes: json!({}),
+            quantity: None,
+            unit: None,
+            external_sync_source: None,
+            low_stock_threshold: None,
+            created_by: None,
+        }
     }
 
     fn to(asset_id: i32, status: &str) -> TransitionInput {
@@ -604,7 +765,7 @@ mod tests {
         let mut conn = setup_test_connection();
         let a = asset(&mut conn, "Lifecycle-2");
         let err = transition(&mut conn, to(a.id, "in_service")).unwrap_err();
-        assert!(matches!(err, TransitionError::NoOp));
+        assert_eq!(refusal(err), RefusalCode::SameStatus);
     }
 
     #[test]
@@ -619,7 +780,7 @@ mod tests {
         let mut conn = setup_test_connection();
         let a = asset(&mut conn, "Lifecycle-3");
         let err = transition(&mut conn, to(a.id, "disposed")).unwrap_err();
-        assert!(matches!(err, TransitionError::DisposalRequired));
+        assert_eq!(refusal(err), RefusalCode::NeedsDisposal);
         assert_eq!(status(&mut conn, a.id), "in_service");
     }
 
@@ -641,7 +802,7 @@ mod tests {
             ..to(a.id, "retired")
         };
         let err = transition(&mut conn, input).unwrap_err();
-        assert!(matches!(err, TransitionError::DisposalNotAllowed));
+        assert_eq!(refusal(err), RefusalCode::DisposalNotAllowed);
         assert!(disposal_for_asset(&mut conn, a.id).unwrap().is_none());
     }
 
@@ -650,7 +811,7 @@ mod tests {
         let mut conn = setup_test_connection();
         let a = asset(&mut conn, "Lifecycle-6");
         for method in SANITIZATION_METHODS {
-            assert!(check_disposal("disposed", disposal(method).as_ref()).is_ok());
+            assert!(check_sanitization(disposal(method).as_ref()).is_ok());
         }
         let (_, event) = transition(&mut conn, dispose(a.id, "destroy")).unwrap();
         let record = disposal_for_asset(&mut conn, a.id).unwrap().unwrap();
@@ -659,7 +820,7 @@ mod tests {
 
         for target in ["in_service", "in_stock", "retired", "lost"] {
             let err = transition(&mut conn, to(a.id, target)).unwrap_err();
-            assert!(matches!(err, TransitionError::FromDisposed), "{target}");
+            assert_eq!(refusal(err), RefusalCode::Terminal, "{target}");
         }
         assert_eq!(status(&mut conn, a.id), "disposed");
     }
@@ -685,13 +846,10 @@ mod tests {
 
         for target in ["in_service", "lost"] {
             let err = transition(&mut conn, to(a.id, target)).unwrap_err();
-            assert!(
-                matches!(err, TransitionError::OnLoanReturnViaLoan),
-                "{target}"
-            );
+            assert_eq!(refusal(err), RefusalCode::LoanOwned, "{target}");
         }
         let err = transition(&mut conn, dispose(a.id, "clear")).unwrap_err();
-        assert!(matches!(err, TransitionError::OnLoanReturnViaLoan));
+        assert_eq!(refusal(err), RefusalCode::LoanOwned);
         assert_eq!(status(&mut conn, a.id), "on_loan");
 
         asset_loans::return_loan(&mut conn, a.id, loan.id, chrono::Utc::now(), None, None).unwrap();
@@ -704,7 +862,7 @@ mod tests {
         let mut conn = setup_test_connection();
         let a = asset(&mut conn, "Lifecycle-8");
         let err = transition(&mut conn, to(a.id, "on_loan")).unwrap_err();
-        assert!(matches!(err, TransitionError::OnLoanNeedsActiveLoan));
+        assert_eq!(refusal(err), RefusalCode::NeedsActiveLoan);
     }
 
     #[test]
@@ -719,5 +877,69 @@ mod tests {
             .unwrap();
         let (updated, _) = transition(&mut conn, to(a.id, "in_stock")).unwrap();
         assert_eq!(updated.status, "in_stock");
+    }
+
+    #[test]
+    fn a_new_asset_starts_in_its_status_with_one_event() {
+        let mut conn = setup_test_connection();
+        let mut new = new_asset("Lifecycle-10");
+        new.notes = Some("ordered".to_string());
+        let (a, event) = create(
+            &mut conn,
+            new,
+            None,
+            AssetStatus::OnOrder,
+            Some(FirstEvent {
+                reason: Some("Ordered".to_string()),
+                metadata: json!({}),
+                actor_uuid: None,
+            }),
+        )
+        .unwrap();
+        assert_eq!(a.status, "on_order");
+        let event = event.unwrap();
+        assert_eq!(event.from_status, None);
+        assert_eq!(event.to_status, "on_order");
+        assert_eq!(list_for_asset(&mut conn, a.id).unwrap().len(), 1);
+
+        for status in [AssetStatus::OnLoan, AssetStatus::Disposed] {
+            let err = create(&mut conn, new_asset("Lifecycle-11"), None, status, None).unwrap_err();
+            assert!(matches!(err, MoveError::Refused(_)), "{status:?}");
+        }
+    }
+
+    #[test]
+    fn nothing_moves_back_into_on_order() {
+        use crate::services::assets::status_rules::{Cell, INTO_ON_ORDER};
+        let mut conn = setup_test_connection();
+        let (a, _) = create(
+            &mut conn,
+            new_asset("Lifecycle-12"),
+            None,
+            AssetStatus::OnOrder,
+            None,
+        )
+        .unwrap();
+        transition(&mut conn, to(a.id, "in_stock")).unwrap();
+        let back = transition(&mut conn, to(a.id, "on_order"));
+        if INTO_ON_ORDER == Cell::Allowed {
+            back.unwrap();
+        } else {
+            assert_eq!(refusal(back.unwrap_err()), RefusalCode::StartOnly);
+            assert_eq!(status(&mut conn, a.id), "in_stock");
+        }
+    }
+
+    #[test]
+    fn a_status_outside_the_nine_can_be_put_right() {
+        let mut conn = setup_test_connection();
+        let a = asset(&mut conn, "Lifecycle-13");
+        diesel::update(assets::table.find(a.id))
+            .set(assets::status.eq("broken"))
+            .execute(&mut conn)
+            .unwrap();
+        let (updated, event) = transition(&mut conn, to(a.id, "in_service")).unwrap();
+        assert_eq!(updated.status, "in_service");
+        assert_eq!(event.from_status.as_deref(), Some("broken"));
     }
 }

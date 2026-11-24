@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /**
  * Move an asset to another status, with a reason, an optional ticket and
- * the details the target needs (a repair record, a disposal record). On-loan
- * is owned by the loan ledger, so it is offered only to restore an asset
- * whose loan is still open. Opened from the asset page's state header.
+ * the details the target needs (a repair record, a disposal record). The
+ * statuses offered are the moves the server allows (`GET /assets/statuses`):
+ * on loan only to restore an asset whose loan is still open, nothing back to
+ * on order. A server without that endpoint gets every other status, as
+ * before. Opened from the asset page's state header.
  *
  * Moving into a status a record type opens with (repair, unless an admin
  * pointed another type at it) offers to open a record of that type, ticked;
@@ -37,11 +39,15 @@ import {
   type LifecycleTransitionBody,
 } from '@nosdesk/core/services/assetLifecycleService';
 import { assetRecordKeys, assetRecordService } from '@nosdesk/core/services/assetRecordService';
+import {
+  assetStatusKeys,
+  assetStatusService,
+  manualTargets,
+} from '@nosdesk/core/services/assetStatusService';
 import { useWorkspaceQuery, useWorkspaceQueryCache } from '@/queries/workspaceQuery';
 import { metaForAssetStatus } from '@/utils/assetStatusMeta';
 import { extractErrorMessage } from '@/utils/errors';
 import {
-  ASSET_STATUSES,
   type AssetRecord,
   type AssetRecordCoreField,
   type AssetRecordCoreFieldMode,
@@ -69,6 +75,12 @@ const workspaceCache = useWorkspaceQueryCache();
 const recordTypesQuery = useWorkspaceQuery({
   key: [...assetRecordKeys.types, 'with-archived'],
   query: () => assetRecordService.types(true),
+  enabled: () => props.show,
+});
+/** The moves the server allows; null from a server without the endpoint. */
+const statusesQuery = useWorkspaceQuery({
+  key: [...assetStatusKeys.root],
+  query: () => assetStatusService.list(),
   enabled: () => props.show,
 });
 /** The built-ins, for a type the workspace hasn't added yet. */
@@ -122,9 +134,10 @@ const openRecordsQuery = useWorkspaceQuery({
 });
 const openRecords = computed<AssetRecord[]>(() => openRecordsQuery.data.value?.records ?? []);
 
-/** Whether what the move may write is still loading. */
+/** Whether what the move may write, or where it may go, is still loading. */
 const recordsLoading = computed(
   () =>
+    statusesQuery.status.value === 'pending' ||
     recordTypesQuery.status.value === 'pending' ||
     catalogueQuery.status.value === 'pending' ||
     openRecordsQuery.status.value === 'pending',
@@ -249,12 +262,12 @@ const costError = computed(() =>
 );
 
 const statusOptions = computed(() =>
-  ASSET_STATUSES.filter((s) => {
-    if (s === props.currentStatus) return false;
-    if (s === 'on_loan') return props.hasActiveLoan;
-    return true;
-  }),
+  manualTargets(statusesQuery.data.value ?? null, props.currentStatus, props.hasActiveLoan),
 );
+// The targets arrive after the dialog opens: keep the pick one of them.
+watch(statusOptions, (options) => {
+  if (!toStatus.value || !options.includes(toStatus.value)) toStatus.value = options[0] ?? '';
+});
 const statusDropdownOptions = computed(() =>
   statusOptions.value.map((status) => ({
     value: status,

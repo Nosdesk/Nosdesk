@@ -55,6 +55,7 @@ fn map_loan_err(asset_id: i32, e: LoanError) -> HttpResponse {
         }
         LoanError::AlreadyOnLoan => errors::conflict("Asset is already out on loan"),
         LoanError::AlreadyReturned => errors::conflict("Loan has already been returned"),
+        LoanError::Refused(r) => crate::handlers::asset_lifecycle::refusal_response(r),
         LoanError::InvalidReference => errors::bad_request("Unknown borrower or ticket"),
         LoanError::Db(err) => {
             error!(asset_id, error = ?err, "asset loan operation failed");
