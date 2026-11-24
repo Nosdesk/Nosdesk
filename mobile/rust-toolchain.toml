@@ -1,0 +1,10 @@
+# Toolchain pin for local app builds. `tauri ios build` runs cargo through
+# Xcode, which ignores RUSTUP_TOOLCHAIN, so without this file a phone build
+# uses whatever the machine's default toolchain is. CI installs the same
+# version in `mobile-release.yml`.
+#
+# Bump in lockstep with `backend/rust-toolchain.toml` and the `toolchain:`
+# lines in `.github/workflows/mobile-release.yml`.
+[toolchain]
+channel = "1.100.0"
+profile = "default"

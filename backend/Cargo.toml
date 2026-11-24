@@ -68,7 +68,6 @@ futures = "0.3"
 jsonwebtoken = { version = "11.0.0", features = ["aws_lc_rs"] }
 bcrypt = "0.19.3"  # Legacy hashing - kept for existing recovery codes hashed before the argon2 migration; password hashing also still uses it
 argon2 = "0.6"     # MFA recovery code hashing (and future password migration target); OWASP-recommended memory-hard KDF
-actix-web-httpauth = "0.8.2"
 regex = "1.11.0"
 clap = { version = "4.5", features = ["derive"] }  # nosdesk-cli
 libc = "0.2"                                       # db: OpenSSL without its exit-time cleanup (utils::openssl_exit)
@@ -104,7 +103,6 @@ log = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-actix-web = "0.7"
-mockall = { version = "0.13.0", optional = true }
 actix-service = "2.0.2"
 derive_more = "2.1.1"
 rand = "0.10.1"             # Random number generation for auth state
@@ -115,7 +113,6 @@ querystring = "1.1.0"       # Query string parsing
 
 # Add yrs for Yjs/CRDT support in Rust
 yrs = { version = "0.26", features = ["sync"] }
-lib0 = "0.16.10"
 bytes = "1.5.0"
 
 # Add base64 for encoding/decoding binary data
@@ -285,7 +282,6 @@ sha2 = "0.10"
 actix-test = "0.1"
 awc = "3"
 futures-util = "0.3"
-mockall = "0.13.0"
 # Certificates for the stand-in TLS Postgres server in the LISTEN connection
 # tests. aws_lc_rs because aws-lc-rs is already in the tree.
 rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
