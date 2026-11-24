@@ -22,7 +22,7 @@ import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/AssetGroups.vue';
 import AssetGroupEditor from '@/components/assets/AssetGroupEditor.vue';
 import AssetMediaPanel from '@/components/assets/AssetMediaPanel.vue';
-import AssetLifecyclePanel from '@/components/assets/AssetLifecyclePanel.vue';
+import AssetTimelineCard from '@/components/assets/AssetTimelineCard.vue';
 import AssetLoanPanel from '@/components/assets/AssetLoanPanel.vue';
 import AssetStateHeader from '@/components/assets/AssetStateHeader.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
@@ -35,11 +35,12 @@ import {
 } from '@/components/assets/assetAttributeSchema';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
-import { deleteAsset, downloadAssetRecordCard, unmanageAsset } from '@/services/assetService';
+import { deleteAsset, unmanageAsset } from '@/services/assetService';
 import { type AssetKind } from '@nosdesk/core/services/assetKindsService';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery';
 import { useSyncActions } from '@/composables/useSyncActions';
+import { useAssetTimelineInvalidate } from '@/composables/useAssetTimeline';
 import { useAssetDetail } from '@/composables/useAssetDetail';
 import { useAuthStore } from '@/stores/auth';
 import type { Asset } from '@nosdesk/core/types/asset';
@@ -545,15 +546,6 @@ async function clearManagedBy() {
   }
 }
 
-async function downloadRecordCard() {
-  if (!device.value) return;
-  try {
-    await downloadAssetRecordCard(device.value.id);
-  } catch (err) {
-    console.error('Error downloading record card:', err);
-  }
-}
-
 const handleDeleteDevice = async () => {
   if (!device.value) return;
   try {
@@ -614,6 +606,7 @@ watch(() => route.params.id, () => {
 });
 
 const auth = useAuthStore();
+const invalidateTimeline = useAssetTimelineInvalidate();
 const canChangeLifecycle = computed(() => auth.isTechnician);
 
 // A status transition from the state header doesn't flow back through
@@ -622,6 +615,7 @@ const canChangeLifecycle = computed(() => auth.isTechnician);
 function onAssetTransitioned(toStatus: string) {
   if (device.value) setAsset({ ...device.value, status: toStatus });
   void invalidateAsset();
+  if (device.value) void invalidateTimeline(device.value.id);
 }
 useSyncActions(
   (actions) => {
@@ -1013,32 +1007,19 @@ useSyncActions(
               />
             </SectionCard>
 
-            <!-- Sub-record panels: loans, status history, usage, media,
+            <!-- Sub-record panels: loans, the timeline, usage, media,
                  plugins. These accrue over an asset's life rather than
                  being creation inputs, so they sit below the property
                  list in the same wide column. The Loans card appears
                  once the asset has been loaned. -->
             <AssetLoanPanel :asset-id="device.id" />
 
-            <SectionCard content-padding="p-4">
-              <template #title>{{ $t('asset-lifecycle-heading') }}</template>
-              <template #headerActions>
-                <button
-                  type="button"
-                  class="p-1 -mr-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-                  :title="$t('asset-detail-record-card')"
-                  :aria-label="$t('asset-detail-record-card')"
-                  @click="downloadRecordCard"
-                >
-                  <Icon name="download" size="sm" />
-                </button>
-              </template>
-              <AssetLifecyclePanel
-                :asset-id="device.id"
-                :current-status="device.status"
-                :can-edit="canChangeLifecycle"
-              />
-            </SectionCard>
+            <AssetTimelineCard
+              :asset="device"
+              :can-edit="canChangeLifecycle"
+              :me="auth.user?.uuid ?? null"
+              :is-admin="auth.isAdmin"
+            />
 
             <SectionCard v-if="device.quantity != null" content-padding="p-4">
               <template #title>{{ $t('asset-usage-history-heading') }}</template>

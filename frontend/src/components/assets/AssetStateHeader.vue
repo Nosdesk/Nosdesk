@@ -2,8 +2,8 @@
 /**
  * The asset page's current state, above the details: the status, who has
  * the asset when it's out on loan and when it's due back, and the actions
- * that change either (Loan out, Return, Change status). The Status history
- * and Loans cards below keep the record of past changes.
+ * that change either (Loan out, Return, Change status). The Timeline and
+ * Loans cards below keep the record of past changes.
  */
 import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
@@ -55,8 +55,8 @@ useSyncActions(
   { aggregates: ['asset_loan'], debounceMs: 250 },
 );
 
-// Shares the Status history card's query: the newest event says since when
-// the asset has had its current status.
+// The newest status change says since when the asset has had its current
+// status.
 const lifecycleQuery = useQuery({
   key: () => assetLifecycleKeys.forAsset(props.assetId),
   query: () => assetLifecycleService.list(props.assetId),

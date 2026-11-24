@@ -12387,3 +12387,291 @@ asset-lifecycle-record-cost-invalid = Saisissez le coût sous forme de nombre
 asset-lifecycle-record-cost-ambiguous = Ce montant peut se lire de deux façons ; écrivez-le sans séparateur de milliers
 # MT: pending native review (fr-FR)
 asset-lifecycle-record-cost-negative = Un coût ne peut pas être négatif
+
+# Chronologie de l'actif, formulaire et fiche d'intervention.
+# MT: pending native review (fr-FR)
+asset-record-ago-days = Il y a { $count } jours
+# MT: pending native review (fr-FR)
+asset-record-ago-months = { $count ->
+    [one] Il y a { $count } mois
+   *[other] Il y a { $count } mois
+}
+# MT: pending native review (fr-FR)
+asset-record-ago-today = Aujourd'hui
+# MT: pending native review (fr-FR)
+asset-record-ago-years = { $count ->
+    [one] Il y a { $count } an
+   *[other] Il y a { $count } ans
+}
+# MT: pending native review (fr-FR)
+asset-record-ago-yesterday = Hier
+# MT: pending native review (fr-FR)
+asset-record-delete = Supprimer
+# MT: pending native review (fr-FR)
+asset-record-delete-failed = L'intervention n'a pas pu être supprimée
+# MT: pending native review (fr-FR)
+asset-record-delete-message = L'intervention est retirée de la chronologie. Cette action est irréversible.
+# MT: pending native review (fr-FR)
+asset-record-delete-message-files = { $count ->
+    [one] L'intervention est retirée de la chronologie. Son fichier reste sur l'actif.
+   *[other] L'intervention est retirée de la chronologie. Ses { $count } fichiers restent sur l'actif.
+}
+# MT: pending native review (fr-FR)
+asset-record-delete-title = Supprimer cette intervention ?
+# MT: pending native review (fr-FR)
+asset-record-deleted = Intervention supprimée
+# MT: pending native review (fr-FR)
+asset-record-detail-completed = Terminée
+# MT: pending native review (fr-FR)
+asset-record-detail-edited-label = Modifiée
+# MT: pending native review (fr-FR)
+asset-record-detail-files-all = Afficher les { $count } fichiers
+# MT: pending native review (fr-FR)
+asset-record-detail-files-fewer = Afficher moins
+# MT: pending native review (fr-FR)
+asset-record-detail-holder = Qui l'avait alors
+# MT: pending native review (fr-FR)
+asset-record-detail-location = Où il se trouvait alors
+# MT: pending native review (fr-FR)
+asset-record-detail-recorded-label = Enregistrée
+# MT: pending native review (fr-FR)
+asset-record-detail-recorded-value-by = { $date } par { $name }
+# MT: pending native review (fr-FR)
+asset-record-detail-snapshot-current = tel qu'au moment de l'enregistrement
+# MT: pending native review (fr-FR)
+asset-record-detail-snapshot-loan = d'après le prêt de l'époque
+# MT: pending native review (fr-FR)
+asset-record-detail-source-api = Ajoutée via l'API
+# MT: pending native review (fr-FR)
+asset-record-detail-source-backfill = Reprise d'un changement de statut antérieur
+# MT: pending native review (fr-FR)
+asset-record-detail-source-import = Importée depuis un tableur
+# MT: pending native review (fr-FR)
+asset-record-detail-source-rule = Ajoutée par une règle
+# MT: pending native review (fr-FR)
+asset-record-detail-source-transition = Ouverte lors d'un changement de statut
+# MT: pending native review (fr-FR)
+asset-record-detail-span-days = { $count ->
+    [one] { $count } jour plus tard
+   *[other] { $count } jours plus tard
+}
+# MT: pending native review (fr-FR)
+asset-record-detail-started = Commencée
+# MT: pending native review (fr-FR)
+asset-record-detail-title = { $type }, { $date }
+# MT: pending native review (fr-FR)
+asset-record-detail-type = Type
+# MT: pending native review (fr-FR)
+asset-record-detail-work-done = Travaux effectués
+# MT: pending native review (fr-FR)
+asset-record-edit = Modifier
+# MT: pending native review (fr-FR)
+asset-record-files-failed = L'intervention est enregistrée, mais ses fichiers n'ont pas pu être envoyés
+# MT: pending native review (fr-FR)
+asset-record-form-add = Ajouter :
+# MT: pending native review (fr-FR)
+asset-record-form-add-another = En ajouter une autre ensuite
+# MT: pending native review (fr-FR)
+asset-record-form-add-files = des fichiers
+# MT: pending native review (fr-FR)
+asset-record-form-add-holder = qui l'avait alors
+# MT: pending native review (fr-FR)
+asset-record-form-add-notes = des notes
+# MT: pending native review (fr-FR)
+asset-record-form-add-technician = notre technicien
+# MT: pending native review (fr-FR)
+asset-record-form-add-ticket = un ticket
+# MT: pending native review (fr-FR)
+asset-record-form-add-time = l'heure
+# MT: pending native review (fr-FR)
+asset-record-form-backdated = { $ago }. Elle figurera dans la chronologie au { $date } et apparaîtra comme enregistrée aujourd'hui par vous.
+# MT: pending native review (fr-FR)
+asset-record-form-before-purchase = Cette date précède la date d'achat ({ $date }). Vous pouvez tout de même enregistrer.
+# MT: pending native review (fr-FR)
+asset-record-form-cancel = Annuler
+# MT: pending native review (fr-FR)
+asset-record-form-completed = Terminée le
+# MT: pending native review (fr-FR)
+asset-record-form-conflict = Quelqu'un d'autre a modifié cette intervention pendant que vous l'aviez ouverte. Fermez-la et rouvrez-la pour voir sa modification.
+# MT: pending native review (fr-FR)
+asset-record-form-currency-unset = Aucune devise n'est définie pour l'espace de travail ; { $code } est utilisée.
+# MT: pending native review (fr-FR)
+asset-record-form-error = L'intervention n'a pas pu être enregistrée.
+# MT: pending native review (fr-FR)
+asset-record-form-files = Fichiers
+# MT: pending native review (fr-FR)
+asset-record-form-files-remove = Retirer { $name }
+# MT: pending native review (fr-FR)
+asset-record-form-finished = Terminée
+# MT: pending native review (fr-FR)
+asset-record-form-in-progress = Toujours en cours
+# MT: pending native review (fr-FR)
+asset-record-form-list-hint = Séparez les éléments par des virgules.
+# MT: pending native review (fr-FR)
+asset-record-form-none = Aucun
+# MT: pending native review (fr-FR)
+asset-record-form-notes = Notes
+# MT: pending native review (fr-FR)
+asset-record-form-outcome-none = Sans résultat
+# MT: pending native review (fr-FR)
+asset-record-form-remove = Retirer
+# MT: pending native review (fr-FR)
+asset-record-form-replacement = Remplacé par
+# MT: pending native review (fr-FR)
+asset-record-form-replacement-hint = Choisissez l'actif qui a pris le relais. Laissez vide si le prestataire a échangé l'unité sous le même numéro d'inventaire.
+# MT: pending native review (fr-FR)
+asset-record-form-replacement-none = Même numéro d'inventaire, ou absent de Nosdesk
+# MT: pending native review (fr-FR)
+asset-record-form-required = Obligatoire pour ce type d'intervention.
+# MT: pending native review (fr-FR)
+asset-record-form-required-day = Saisissez la date des travaux.
+# MT: pending native review (fr-FR)
+asset-record-form-required-type = Choisissez le type de travaux.
+# MT: pending native review (fr-FR)
+asset-record-form-save = Enregistrer
+# MT: pending native review (fr-FR)
+asset-record-form-save-new = Enregistrer l'intervention
+# MT: pending native review (fr-FR)
+asset-record-form-snapshot-current-both = Chez { $name }, à { $location }, comme aujourd'hui.
+# MT: pending native review (fr-FR)
+asset-record-form-snapshot-current-holder = Chez { $name }, comme aujourd'hui.
+# MT: pending native review (fr-FR)
+asset-record-form-snapshot-current-location = À { $location }, comme aujourd'hui.
+# MT: pending native review (fr-FR)
+asset-record-form-snapshot-loan = Prêté à { $name } le { $date }.
+# MT: pending native review (fr-FR)
+asset-record-form-snapshot-none = Qui l'avait le { $date } ? Inconnu.
+# MT: pending native review (fr-FR)
+asset-record-form-status-unchanged = S'ajoute à l'historique de { $asset }. Son statut reste { $status }.
+# MT: pending native review (fr-FR)
+asset-record-form-summary-placeholder = Par exemple, monture d'objectif remplacée
+# MT: pending native review (fr-FR)
+asset-record-form-technician = Notre technicien
+# MT: pending native review (fr-FR)
+asset-record-form-time = Heure
+# MT: pending native review (fr-FR)
+asset-record-form-title-complete = Terminer : { $type }
+# MT: pending native review (fr-FR)
+asset-record-form-title-edit = Modifier l'intervention
+# MT: pending native review (fr-FR)
+asset-record-form-title-new = Nouvelle intervention pour { $asset }
+# MT: pending native review (fr-FR)
+asset-record-form-type = Quel type de travaux ?
+# MT: pending native review (fr-FR)
+asset-record-form-type-first-run = Cet espace de travail n'a encore aucun type d'intervention. Choisissez-en un pour l'ajouter et continuer.
+# MT: pending native review (fr-FR)
+asset-record-form-type-first-run-hint = Un administrateur peut les renommer, modifier leurs champs et ajouter vos propres types dans les Paramètres.
+# MT: pending native review (fr-FR)
+asset-record-form-type-more-hint = Ajouter depuis le catalogue :
+# MT: pending native review (fr-FR)
+asset-record-form-type-short = Type
+# MT: pending native review (fr-FR)
+asset-record-form-type-use = Utiliser
+# MT: pending native review (fr-FR)
+asset-record-form-when-short = Travaux effectués le
+# MT: pending native review (fr-FR)
+asset-record-saved-edit = Intervention { $type } enregistrée
+# MT: pending native review (fr-FR)
+asset-record-saved-new = { $type } enregistrée au { $date }
+# MT: pending native review (fr-FR)
+asset-record-saved-status = { $asset } reste { $status }.
+# MT: pending native review (fr-FR)
+asset-record-value-no = Non
+# MT: pending native review (fr-FR)
+asset-record-value-yes = Oui
+# MT: pending native review (fr-FR)
+asset-record-warning-before-purchase = Elle est datée d'avant la date d'achat ({ $date }).
+# MT: pending native review (fr-FR)
+asset-record-warning-completed-long-after = Elle a été terminée plus de cinq ans après son début.
+# MT: pending native review (fr-FR)
+asset-timeline-add = Ajouter une intervention
+# MT: pending native review (fr-FR)
+asset-timeline-complete = Terminer
+# MT: pending native review (fr-FR)
+asset-timeline-empty-description = Ajoutez réparations, inspections et entretiens au fil de l'eau, aussi anciens soient-ils. Chacun prend la date à laquelle les travaux ont été faits.
+# MT: pending native review (fr-FR)
+asset-timeline-empty-title = Aucuns travaux enregistrés
+# MT: pending native review (fr-FR)
+asset-timeline-expected-back = Retour prévu le { $date }
+# MT: pending native review (fr-FR)
+asset-timeline-fact = { $label } : { $value }
+# MT: pending native review (fr-FR)
+asset-timeline-files = { $count ->
+    [one] { $count } fichier
+   *[other] { $count } fichiers
+}
+# MT: pending native review (fr-FR)
+asset-timeline-filter-all = Tout
+# MT: pending native review (fr-FR)
+asset-timeline-filter-aria = Afficher : { $value }
+# MT: pending native review (fr-FR)
+asset-timeline-filter-label = Afficher
+# MT: pending native review (fr-FR)
+asset-timeline-filter-loans = Prêts
+# MT: pending native review (fr-FR)
+asset-timeline-filter-records = Interventions
+# MT: pending native review (fr-FR)
+asset-timeline-filter-status = Statut
+# MT: pending native review (fr-FR)
+asset-timeline-filter-tickets = Tickets
+# MT: pending native review (fr-FR)
+asset-timeline-heading = Chronologie
+# MT: pending native review (fr-FR)
+asset-timeline-imported-fact = importée le { $date }
+# MT: pending native review (fr-FR)
+asset-timeline-in-progress = En cours
+# MT: pending native review (fr-FR)
+asset-timeline-include-predecessor = Inclure l'historique de { $name }
+# MT: pending native review (fr-FR)
+asset-timeline-loan-lent = Prêté à { $name }
+# MT: pending native review (fr-FR)
+asset-timeline-loan-lent-due = Prêté à { $name }, retour prévu le { $date }
+# MT: pending native review (fr-FR)
+asset-timeline-loan-returned = Rendu par { $name }
+# MT: pending native review (fr-FR)
+asset-timeline-marker-added = Ajouté à Nosdesk
+# MT: pending native review (fr-FR)
+asset-timeline-marker-purchased = Acheté
+# MT: pending native review (fr-FR)
+asset-timeline-more = Plus
+# MT: pending native review (fr-FR)
+asset-timeline-moved-to = passé à { $status }
+# MT: pending native review (fr-FR)
+asset-timeline-nothing-matches = Rien pour ce filtre.
+# MT: pending native review (fr-FR)
+asset-timeline-record-fallback = Intervention
+# MT: pending native review (fr-FR)
+asset-timeline-recorded-fact = enregistrée le { $date }
+# MT: pending native review (fr-FR)
+asset-timeline-records-count = { $count ->
+    [one] { $count } intervention
+   *[other] { $count } interventions
+}
+# MT: pending native review (fr-FR)
+asset-timeline-replaced-by = Remplacé par { $name }
+# MT: pending native review (fr-FR)
+asset-timeline-replaced-by-fact = remplacé par { $name }
+# MT: pending native review (fr-FR)
+asset-timeline-replacement-gone = un actif supprimé
+# MT: pending native review (fr-FR)
+asset-timeline-replaces = Remplace { $name }
+# MT: pending native review (fr-FR)
+asset-timeline-sentence = { $records }.
+# MT: pending native review (fr-FR)
+asset-timeline-sentence-cost = { $records }, { $costs } au total.
+# MT: pending native review (fr-FR)
+asset-timeline-sentence-cost-last = { $records }, { $costs } au total. Derniers travaux le { $date }.
+# MT: pending native review (fr-FR)
+asset-timeline-sentence-last = { $records }. Derniers travaux le { $date }.
+# MT: pending native review (fr-FR)
+asset-timeline-show-older-than = Afficher les entrées avant { $date }
+# MT: pending native review (fr-FR)
+asset-timeline-someone = quelqu'un
+# MT: pending native review (fr-FR)
+asset-timeline-status-moved = Passé à { $status }
+# MT: pending native review (fr-FR)
+asset-timeline-ticket-closed = Fermé le { $date }
+# MT: pending native review (fr-FR)
+asset-timeline-ticket-untitled = Ticket
+# MT: pending native review (fr-FR)
+asset-timeline-year-totals = { $records }, { $costs }
