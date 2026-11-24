@@ -277,17 +277,38 @@ pub struct LastRun {
     pub applied_at: DateTime<Utc>,
     #[diesel(sql_type = Nullable<diesel::sql_types::Jsonb>)]
     pub actions_taken: Option<serde_json::Value>,
+    #[diesel(sql_type = Nullable<diesel::sql_types::Uuid>)]
+    pub correlation_id: Option<Uuid>,
 }
 
 impl LastRun {
-    /// The tags its `add_tags` steps put on the ticket.
-    pub fn tags_added(&self) -> Vec<i32> {
-        self.actions_taken
+    /// The tags its `add_tags` steps after its email to the requester put on
+    /// the ticket: those that say the requester was warned. None when no
+    /// such email went out.
+    pub fn tags_added_after_warning(&self) -> Vec<i32> {
+        use serde_json::Value;
+        let steps: &[Value] = self
+            .actions_taken
             .as_ref()
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|step| step.get("kind").and_then(serde_json::Value::as_str) == Some("add_tags"))
+            .and_then(Value::as_array)
+            .map_or(&[], Vec::as_slice);
+        let index = |step: &Value| step.get("index").and_then(Value::as_i64);
+        let Some(warned) = steps
+            .iter()
+            .filter(|step| {
+                step.get("kind").and_then(Value::as_str) == Some("notify")
+                    && step.get("recipient").and_then(Value::as_str) == Some("requester")
+                    && step.get("skipped").is_none()
+            })
+            .filter_map(index)
+            .min()
+        else {
+            return Vec::new();
+        };
+        steps
+            .iter()
+            .filter(|step| step.get("kind").and_then(Value::as_str) == Some("add_tags"))
+            .filter(|step| index(step).is_some_and(|i| i > warned))
             .filter_map(|step| step.get("tag_ids_added")?.as_array().cloned())
             .flatten()
             .filter_map(|id| id.as_i64().and_then(|id| i32::try_from(id).ok()))
@@ -307,7 +328,8 @@ pub fn last_runs(
         return Ok(Vec::new());
     }
     diesel::sql_query(
-        "SELECT DISTINCT ON (rule_id, ticket_id) rule_id, ticket_id, applied_at, actions_taken \
+        "SELECT DISTINCT ON (rule_id, ticket_id) rule_id, ticket_id, applied_at, actions_taken, \
+                correlation_id \
            FROM rule_applications \
           WHERE rule_id = ANY($1) AND ticket_id = ANY($2) \
             AND status NOT IN ('skipped_preflight', 'skipped_condition_unmet', 'dry_run') \
@@ -316,6 +338,30 @@ pub fn last_runs(
     .bind::<Array<Integer>, _>(rule_ids)
     .bind::<Array<Integer>, _>(ticket_ids)
     .load(conn)
+}
+
+#[derive(QueryableByName)]
+struct Until {
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    until: Option<DateTime<Utc>>,
+}
+
+// sync-audit-only: read-only
+/// When the last change to `ticket_id` that the run with `correlation_id`
+/// (and the chain of events it set off) recorded happened, if any did.
+pub fn changed_by_run_until(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    correlation_id: Uuid,
+) -> QueryResult<Option<DateTime<Utc>>> {
+    Ok(diesel::sql_query(
+        "SELECT max(occurred_at) AS until FROM sync_actions \
+          WHERE aggregate = 'ticket' AND aggregate_id = $1 AND correlation_id = $2",
+    )
+    .bind::<Text, _>(ticket_id.to_string())
+    .bind::<diesel::sql_types::Uuid, _>(correlation_id)
+    .get_result::<Until>(conn)?
+    .until)
 }
 
 // sync-audit-only: clock queue bookkeeping, no entity sync

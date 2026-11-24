@@ -1336,6 +1336,245 @@ async fn a_warning_holds_no_rule_that_doesnt_close() {
     );
 }
 
+/// A live time rule in `ws` on `clock` at `minutes`, its clocks queued.
+fn time_rule(h: &Harness, ws: &WorkspaceSeed, clock: &str, minutes: i64, actions: Value) -> i32 {
+    use crate::rules_event_triggers::Spec;
+    use backend::models::RuleTriggerKind as Trigger;
+    let id = h.rule(
+        ws,
+        Spec {
+            trigger_config: json!({
+                "clock_name": clock,
+                "minutes": minutes,
+                "repeat_every_minutes": null,
+            }),
+            ..Spec::live(Trigger::TimeElapsed, actions)
+        },
+    );
+    elapsed::requeue_rule(&h.pool, ws.workspace_id, id).expect("requeue");
+    id
+}
+
+fn notify_requester() -> Value {
+    json!({ "kind": "notify", "config": {
+        "recipient": "requester", "subject": "About your request", "body": "Reply to keep it open."
+    } })
+}
+
+fn add_tag(tag: i32) -> Value {
+    json!({ "kind": "add_tags", "config": { "tag_ids": [tag] } })
+}
+
+/// Only a warning before a close marks the ticket as warned. A rule that
+/// emails the requester with no close after it tags the ticket whether or
+/// not the email went out, and the tag stays when the requester writes. A
+/// warning's tags before its email stay too; those after it come off.
+#[actix_web::test]
+async fn only_a_warning_before_a_close_marks_the_ticket_warned() {
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let (a, b) = (&h.seeded.a, &h.seeded.b);
+
+    // No close on the clock, and the requester has no address.
+    let missed = h.tag(a, "sla-missed");
+    time_rule(
+        &h,
+        a,
+        "awaiting_requester",
+        24 * 60,
+        json!([notify_requester(), add_tag(missed)]),
+    );
+    let ticket = h.ticket(a, "Still on it");
+    reply_days_ago(&h, a, ticket, a.admin_uuid, 2);
+    h.drain().await;
+    assert_eq!(elapsed::fire_due(&h.pool, None).expect("fire"), 1);
+    assert!(mail(&h, a, ticket).is_empty(), "no address");
+    assert_eq!(h.tags(a, ticket), vec![missed], "tagged all the same");
+    h.reply(a, ticket, a.member_uuid);
+    h.drain().await;
+    assert_eq!(h.tags(a, ticket), vec![missed], "kept on the reply");
+
+    // A warning before a close: the tag before its email stays.
+    email(&h, b.member_uuid, "requester@example.com");
+    let seen = h.tag(b, "seen");
+    let warned = h.tag(b, "warned");
+    let done = first_in(&h, b, WorkflowStateCategory::Done);
+    time_rule(
+        &h,
+        b,
+        "awaiting_requester",
+        43200,
+        json!([{ "kind": "set_status", "config": { "workflow_state_id": done } }]),
+    );
+    time_rule(
+        &h,
+        b,
+        "awaiting_requester",
+        38880,
+        json!([add_tag(seen), notify_requester(), add_tag(warned)]),
+    );
+    let ticket = h.ticket(b, "Printer jammed");
+    reply_days_ago(&h, b, ticket, b.admin_uuid, 28);
+    h.drain().await;
+    elapsed::fire_due(&h.pool, None).expect("fire");
+    assert_eq!(mail(&h, b, ticket).len(), 1);
+    let mut both = vec![seen, warned];
+    both.sort();
+    assert_eq!(h.tags(b, ticket), both);
+    h.reply(b, ticket, b.member_uuid);
+    h.drain().await;
+    assert_eq!(
+        h.tags(b, ticket),
+        vec![seen],
+        "only the warned tag came off"
+    );
+}
+
+/// The close waits on its nearest warning only: a one-day nudge on the same
+/// clock, fired late on a backlog ticket, doesn't hold it for 29 days.
+#[actix_web::test]
+async fn the_close_waits_on_its_nearest_warning() {
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let ticket = h.ticket(a, "Old request");
+    reply_days_ago(&h, a, ticket, a.admin_uuid, 40);
+    let done = first_in(&h, a, WorkflowStateCategory::Done);
+    let close = time_rule(
+        &h,
+        a,
+        "awaiting_requester",
+        43200,
+        json!([{ "kind": "set_status", "config": { "workflow_state_id": done } }]),
+    );
+    let warn = time_rule(
+        &h,
+        a,
+        "awaiting_requester",
+        38880,
+        json!([notify_requester()]),
+    );
+    let nudge = time_rule(
+        &h,
+        a,
+        "awaiting_requester",
+        24 * 60,
+        json!([notify_requester()]),
+    );
+
+    elapsed::fire_due(&h.pool, None).expect("fire");
+    assert_eq!(h.applications(a, nudge).len(), 1, "nudged");
+    let warned_at = h.applications(a, warn)[0].applied_at;
+    assert_eq!(mail(&h, a, ticket).len(), 2);
+    assert_eq!(
+        wait_on(&h, a, ticket, close).expect("waiting").3,
+        warned_at + chrono::Duration::days(3)
+    );
+}
+
+/// A warning paused after it warned still holds the close from its run, and
+/// its tag still comes off when the requester answers.
+#[actix_web::test]
+async fn a_warning_paused_after_it_warned_still_holds_the_close() {
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let ticket = h.ticket(a, "Old request");
+    reply_days_ago(&h, a, ticket, a.admin_uuid, 40);
+    let (close, warn) = turn_on_auto_close(&h, a, &[ticket]).await;
+    elapsed::fire_due(&h.pool, None).expect("fire");
+    let warned_at = h.applications(a, warn)[0].applied_at;
+    let warned_tag = tag_id(&h, a, "auto-close-warned");
+    assert!(h.tags(a, ticket).contains(&warned_tag));
+
+    let resp = call(
+        &h.pool,
+        a,
+        a.admin_uuid,
+        "en-US",
+        http_test::TestRequest::patch()
+            .uri(&format!("/api/rules/{warn}/state"))
+            .set_json(json!({ "state": "paused" })),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK, "paused");
+    h.drain().await;
+    elapsed::requeue_rule(&h.pool, a.workspace_id, close).expect("requeue");
+    assert_eq!(
+        wait_on(&h, a, ticket, close).expect("waiting").3,
+        warned_at + chrono::Duration::days(3),
+        "still held"
+    );
+    assert_eq!(elapsed::fire_due(&h.pool, None).expect("fire"), 0);
+
+    h.reply(a, ticket, a.member_uuid);
+    h.drain().await;
+    assert!(!h.tags(a, ticket).contains(&warned_tag), "came off");
+}
+
+/// A warning whose own step starts its clock again (it moves the ticket to
+/// another open state) keeps its tag: only a later restart takes it off.
+#[actix_web::test]
+async fn a_warning_that_restarts_its_own_clock_keeps_its_tag() {
+    use backend::schema::tickets;
+    common::ensure_test_keyring();
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let ticket = h.ticket(a, "Waiting on a part");
+    diesel::update(tickets::table.find(ticket))
+        .set(tickets::created_at.eq(Utc::now() - chrono::Duration::hours(3)))
+        .execute(&mut h.db.conn())
+        .expect("backdate the ticket");
+    let first = state_of(&h, a, ticket);
+    let active = first_in(&h, a, WorkflowStateCategory::Active);
+    assert_ne!(first, active);
+    let done = first_in(&h, a, WorkflowStateCategory::Done);
+    let warned = h.tag(a, "warned");
+    time_rule(
+        &h,
+        a,
+        "since_status_change",
+        120,
+        json!([{ "kind": "set_status", "config": { "workflow_state_id": done } }]),
+    );
+    let warn = time_rule(
+        &h,
+        a,
+        "since_status_change",
+        60,
+        json!([
+            notify_requester(),
+            { "kind": "set_status", "config": { "workflow_state_id": active } },
+            add_tag(warned),
+        ]),
+    );
+
+    elapsed::fire_due(&h.pool, None).expect("fire");
+    assert_eq!(h.applications(a, warn).len(), 1, "warned");
+    assert_eq!(state_of(&h, a, ticket), active);
+    h.drain().await;
+    assert_eq!(
+        h.tags(a, ticket),
+        vec![warned],
+        "kept through its own restart"
+    );
+
+    // Someone else moves it on: the clock starts again, and the tag comes off.
+    h.update(
+        a,
+        ticket,
+        backend::models::TicketUpdate {
+            workflow_state_id: Some(first),
+            ..Default::default()
+        },
+    );
+    h.drain().await;
+    assert!(h.tags(a, ticket).is_empty(), "came off");
+}
+
 /// An IMAP mailbox in `ws` polling `address`, turned on or off.
 fn mailbox(h: &Harness, ws: &WorkspaceSeed, address: &str, enabled: bool) -> i32 {
     h.as_admin(ws, |c| {

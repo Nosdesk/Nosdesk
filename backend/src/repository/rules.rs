@@ -600,6 +600,10 @@ pub struct ApplyContext<'a> {
     /// its clock here, so two fires of one due clock run it once. `false`
     /// ends the run with [`ApplyError::NoLongerDue`], which leaves no row.
     pub recheck: Option<&'a dyn Fn(&mut DbConnection) -> QueryResult<bool>>,
+    /// The run is a time rule's warning before a rule that closes the
+    /// ticket (`elapsed`): its tags after its email to the requester say the
+    /// requester was warned, so they go on only when that email is sent.
+    pub warning: bool,
 }
 
 /// A run's place in a chain of events: the event the chain started from
@@ -636,6 +640,7 @@ impl<'a> ApplyContext<'a> {
             retries: false,
             automated_source: false,
             recheck: None,
+            warning: false,
         }
     }
 }
@@ -1092,6 +1097,18 @@ pub fn event_candidates(conn: &mut DbConnection, kind: RuleTriggerKind) -> Query
         .load(conn)
 }
 
+/// The pinned workspace's time-elapsed rules that aren't archived, in any
+/// state: those that wait, and those (paused, a draft) whose past runs
+/// still count, such as a warning paused after it warned.
+pub fn time_elapsed_rules(conn: &mut DbConnection) -> QueryResult<Vec<Rule>> {
+    use crate::schema::rules::dsl;
+    dsl::rules
+        .filter(dsl::archived_at.is_null())
+        .filter(dsl::trigger_kind.eq(RuleTriggerKind::TimeElapsed))
+        .order((dsl::priority.asc(), dsl::id.asc()))
+        .load(conn)
+}
+
 /// The `sync_id` of the ticket's newest `ticket.created`: the one its
 /// workspace saw (a guest ticket records another when it is confirmed).
 pub fn created_event(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Option<i64>> {
@@ -1320,9 +1337,8 @@ fn run_locked(
     // applying a rule has looked at the ticket and decides for themselves.
     let hold_email = ctx.source != ApplySource::Manual && ticket.spam_suspected;
     let mut held_email = false;
-    // A time rule's email to the requester is a warning (`elapsed`), and
-    // the tags it adds after that email say the requester was warned: when
-    // the email isn't sent, they aren't added.
+    // A warning's tags after its email to the requester say the requester
+    // was warned: when the email isn't sent, they aren't added.
     let mut warning_unsent = false;
 
     for (i, action) in actions.iter().enumerate() {
@@ -1345,7 +1361,7 @@ fn run_locked(
                 "reason": "spam_suspected"
             }));
             held_email = true;
-            warning_unsent |= ctx.source == ApplySource::Time && step_emails_requester(action);
+            warning_unsent |= ctx.warning && step_emails_requester(action);
             continue;
         }
         if warning_unsent && action.get("kind").and_then(Value::as_str) == Some("add_tags") {
@@ -1461,9 +1477,8 @@ fn run_locked(
             }
             "notify" => {
                 let mut done = execute_notify(conn, one_based, &ticket, ctx, &rule, &config)?;
-                warning_unsent |= ctx.source == ApplySource::Time
-                    && step_emails_requester(action)
-                    && done.get("skipped").is_some();
+                warning_unsent |=
+                    ctx.warning && step_emails_requester(action) && done.get("skipped").is_some();
                 stamp_step(&mut done, one_based, kind);
                 done
             }
