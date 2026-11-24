@@ -577,6 +577,7 @@ pub struct RecordSummary {
     pub by_year: std::collections::BTreeMap<i32, RecordTotals>,
 }
 
+// sync-audit-only: read-only (one grouped SELECT)
 /// An asset's records summed in one grouped read, of one type when
 /// `record_type_id` is given.
 pub fn summary(
