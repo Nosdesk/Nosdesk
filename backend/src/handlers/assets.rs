@@ -255,6 +255,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/assets/{id:\\d+}/records",
             web::post().to(crate::handlers::asset_records::create),
         )
+        // The literal before `{record_id}`, which only takes digits anyway.
+        .route(
+            "/assets/{id:\\d+}/records/summary",
+            web::get().to(crate::handlers::asset_records::summary),
+        )
         .route(
             "/assets/{id:\\d+}/records/{record_id:\\d+}",
             web::get().to(crate::handlers::asset_records::get),

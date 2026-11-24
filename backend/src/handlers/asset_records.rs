@@ -6,6 +6,8 @@
 //! - `GET | PATCH | DELETE /api/assets/{id}/records/{record_id}`.
 //! - `PUT    /api/assets/{id}/records/{record_id}/media`: which of the
 //!   asset's files are the record's.
+//! - `GET    /api/assets/{id}/records/summary`: counts and costs per
+//!   currency, per type and per year.
 //! - `GET    /api/assets/record-vendors`: vendors already written, for
 //!   suggestions.
 //!
@@ -894,6 +896,95 @@ pub async fn vendors(
         Ok(vendors) => HttpResponse::Ok().json(vendors),
         Err(r) => respond(r),
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SummaryQuery {
+    /// A type's slug or id.
+    pub record_type: Option<String>,
+}
+
+/// Costs per currency, largest first: `[{ currency, amount, amount_minor }]`.
+fn costs_json(totals: &repo::RecordTotals) -> Value {
+    let mut costs: Vec<(&String, &i64)> = totals.costs.iter().collect();
+    costs.sort_by(|(a_code, a), (b_code, b)| b.cmp(a).then_with(|| a_code.cmp(b_code)));
+    Value::Array(
+        costs
+            .into_iter()
+            .map(|(code, minor)| {
+                json!({
+                    "currency": code,
+                    "amount": money::format_minor(*minor, code).ok(),
+                    "amount_minor": minor,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn totals_json(totals: &repo::RecordTotals) -> Value {
+    json!({ "count": totals.count, "costs": costs_json(totals) })
+}
+
+/// `GET /api/assets/{id}/records/summary?record_type=`: what the asset's
+/// records add up to. Costs are summed per currency and never converted;
+/// `by_year` counts completed work only.
+pub async fn summary(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<i32>,
+    query: web::Query<SummaryQuery>,
+) -> HttpResponse {
+    let asset_id = path.into_inner();
+    let query = query.into_inner();
+    let result = tc.run_result(|conn| {
+        require_staff(&auth)?;
+        require_asset(conn, asset_id)?;
+        let record_type_id = match query.record_type.as_deref().filter(|t| !t.is_empty()) {
+            Some(raw) => match resolve_type(conn, &TypeRef::Slug(raw.to_string())) {
+                Ok(t) => Some(t.id),
+                // No such type: no records of it.
+                Err(Refusal::Record(RecordError::RecordTypeNotFound)) => {
+                    return Ok(summary_json(&repo::RecordSummary::default(), &[]))
+                }
+                Err(e) => return Err(e),
+            },
+            None => None,
+        };
+        let summary = repo::summary(conn, asset_id, record_type_id)?;
+        let types = types_repo::list(conn, true)?;
+        Ok(summary_json(&summary, &types))
+    });
+    match result {
+        Ok(body) => HttpResponse::Ok().json(body),
+        Err(r) => respond(r),
+    }
+}
+
+fn summary_json(summary: &repo::RecordSummary, types: &[AssetRecordType]) -> Value {
+    let slug = |id: i32| types.iter().find(|t| t.id == id).map(|t| t.slug.clone());
+    let mut by_type: Vec<(Option<String>, i64)> = summary
+        .by_type
+        .iter()
+        .map(|(id, n)| (slug(*id), *n))
+        .collect();
+    by_type.sort_by(|(a_slug, a), (b_slug, b)| b.cmp(a).then_with(|| a_slug.cmp(b_slug)));
+    let by_year: serde_json::Map<String, Value> = summary
+        .by_year
+        .iter()
+        .map(|(year, totals)| (year.to_string(), totals_json(totals)))
+        .collect();
+    json!({
+        "count": summary.all.count,
+        "costs": costs_json(&summary.all),
+        "last_on": summary.last_on,
+        "open": summary.open,
+        "by_type": by_type
+            .into_iter()
+            .map(|(record_type, count)| json!({ "record_type": record_type, "count": count }))
+            .collect::<Vec<_>>(),
+        "by_year": by_year,
+    })
 }
 
 #[cfg(test)]

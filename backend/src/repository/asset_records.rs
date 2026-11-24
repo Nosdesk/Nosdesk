@@ -543,6 +543,101 @@ pub fn vendor_suggestions(
         .collect())
 }
 
+/// Counts and costs for some of an asset's records: costs summed per
+/// currency and never converted.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RecordTotals {
+    pub count: i64,
+    /// Minor units per currency code.
+    pub costs: std::collections::BTreeMap<String, i64>,
+}
+
+impl RecordTotals {
+    fn add(&mut self, count: i64, cost: Option<(&str, i64)>) {
+        self.count += count;
+        if let Some((code, minor)) = cost {
+            let sum = self.costs.entry(code.to_string()).or_insert(0);
+            *sum = sum.saturating_add(minor);
+        }
+    }
+}
+
+/// What an asset's records add up to, for the timeline's summary line.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RecordSummary {
+    /// Every record, open ones included.
+    pub all: RecordTotals,
+    /// The day the newest completed work was completed.
+    pub last_on: Option<NaiveDate>,
+    pub open: i64,
+    /// Records per type id, open ones included.
+    pub by_type: std::collections::BTreeMap<i32, i64>,
+    /// Completed records per calendar year of `occurred_on`: open work sits
+    /// above the years, so it isn't counted in one.
+    pub by_year: std::collections::BTreeMap<i32, RecordTotals>,
+}
+
+/// An asset's records summed in one grouped read, of one type when
+/// `record_type_id` is given.
+pub fn summary(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    record_type_id: Option<i32>,
+) -> QueryResult<RecordSummary> {
+    use diesel::sql_types::{BigInt, Bool, Date, Integer, Nullable, Text};
+
+    #[derive(QueryableByName)]
+    struct Group {
+        #[diesel(sql_type = Integer)]
+        record_type_id: i32,
+        #[diesel(sql_type = Bool)]
+        open: bool,
+        #[diesel(sql_type = Integer)]
+        year: i32,
+        #[diesel(sql_type = Nullable<Text>)]
+        currency: Option<String>,
+        #[diesel(sql_type = BigInt)]
+        records: i64,
+        #[diesel(sql_type = Nullable<BigInt>)]
+        cost_minor: Option<i64>,
+        #[diesel(sql_type = Nullable<Date>)]
+        last_on: Option<NaiveDate>,
+    }
+
+    let groups: Vec<Group> = diesel::sql_query(
+        "SELECT record_type_id, \
+                completed_on IS NULL AS open, \
+                EXTRACT(YEAR FROM occurred_on)::int4 AS year, \
+                cost_currency::text AS currency, \
+                COUNT(*)::int8 AS records, \
+                SUM(cost_minor)::int8 AS cost_minor, \
+                MAX(completed_on) AS last_on \
+         FROM asset_records \
+         WHERE asset_id = $1 AND ($2::int4 IS NULL OR record_type_id = $2) \
+         GROUP BY 1, 2, 3, 4",
+    )
+    .bind::<Integer, _>(asset_id)
+    .bind::<Nullable<Integer>, _>(record_type_id)
+    .load(conn)?;
+
+    let mut out = RecordSummary::default();
+    for g in groups {
+        let cost = match (g.currency.as_deref(), g.cost_minor) {
+            (Some(code), Some(minor)) => Some((code, minor)),
+            _ => None,
+        };
+        out.all.add(g.records, cost);
+        *out.by_type.entry(g.record_type_id).or_insert(0) += g.records;
+        if g.open {
+            out.open += g.records;
+            continue;
+        }
+        out.by_year.entry(g.year).or_default().add(g.records, cost);
+        out.last_on = out.last_on.max(g.last_on);
+    }
+    Ok(out)
+}
+
 /// Whether `user` may be named as who did the work: someone who can work
 /// tickets in the workspace the connection is pinned to, with an account
 /// that isn't deleted.

@@ -524,6 +524,7 @@ async fn assets_config_routes_registered() {
             ("POST", "/assets/1/loans/1/return"),
             ("GET", "/assets/1/records"),
             ("POST", "/assets/1/records"),
+            ("GET", "/assets/1/records/summary"),
             ("GET", "/assets/1/records/1"),
             ("PATCH", "/assets/1/records/1"),
             ("DELETE", "/assets/1/records/1"),
