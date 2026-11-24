@@ -297,45 +297,7 @@ impl WebhookService {
         let tasks: Vec<DeliveryTask> = crate::sync::session::background_run(
             pool,
             "background:webhook_process_retries",
-            |conn| {
-                let pending = webhook_repo::get_pending_retries(conn)?;
-                let mut out = Vec::with_capacity(pending.len());
-                for delivery in pending {
-                    match webhook_repo::get_webhook_by_id(conn, delivery.webhook_id) {
-                        Ok(webhook) if webhook.enabled => {
-                            out.push(DeliveryTask {
-                                webhook_id: webhook.id,
-                                workspace_id: webhook.workspace_id,
-                                webhook_url: webhook.url,
-                                webhook_secret: webhook.secret,
-                                webhook_headers: webhook.headers,
-                                payload: WebhookPayload {
-                                    id: delivery.uuid,
-                                    event_type: delivery.event_type,
-                                    timestamp: Utc::now(),
-                                    data: delivery.payload,
-                                },
-                                attempt: delivery.attempt_number + 1,
-                                // Reuse this delivery row rather than inserting a
-                                // new one per retry (retry-storm fix).
-                                delivery_id: Some(delivery.id),
-                            });
-                        }
-                        Ok(_) => {
-                            // Webhook is now disabled; skip.
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                delivery_id = delivery.id,
-                                webhook_id = delivery.webhook_id,
-                                error = %e,
-                                "Webhook not found for retry"
-                            );
-                        }
-                    }
-                }
-                Ok::<_, diesel::result::Error>(out)
-            },
+            Self::retry_tasks,
         )
         .map_err(|e| format!("DB error: {e}"))?;
 
@@ -357,6 +319,59 @@ impl WebhookService {
         }
 
         Ok(())
+    }
+
+    /// The deliveries due a retry, each as a task that sends its stored
+    /// envelope again unchanged: the same id, event, timestamp and data, so
+    /// a consumer can tell a retry from a new event. Split out so tests can
+    /// drive it; assumes a bypass context, as `background_run` provides.
+    pub fn retry_tasks(
+        conn: &mut crate::db::DbConnection,
+    ) -> diesel::QueryResult<Vec<DeliveryTask>> {
+        let pending = webhook_repo::get_pending_retries(conn)?;
+        let mut out = Vec::with_capacity(pending.len());
+        for delivery in pending {
+            let payload: WebhookPayload = match serde_json::from_value(delivery.payload) {
+                Ok(payload) => payload,
+                Err(e) => {
+                    tracing::error!(
+                        delivery_id = delivery.id,
+                        webhook_id = delivery.webhook_id,
+                        error = %e,
+                        "Stored webhook payload is not an envelope; not retried"
+                    );
+                    continue;
+                }
+            };
+            match webhook_repo::get_webhook_by_id(conn, delivery.webhook_id) {
+                Ok(webhook) if webhook.enabled => {
+                    out.push(DeliveryTask {
+                        webhook_id: webhook.id,
+                        workspace_id: webhook.workspace_id,
+                        webhook_url: webhook.url,
+                        webhook_secret: webhook.secret,
+                        webhook_headers: webhook.headers,
+                        payload,
+                        attempt: delivery.attempt_number + 1,
+                        // Reuse this delivery row rather than inserting a
+                        // new one per retry (retry-storm fix).
+                        delivery_id: Some(delivery.id),
+                    });
+                }
+                Ok(_) => {
+                    // Webhook is now disabled; skip.
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        delivery_id = delivery.id,
+                        webhook_id = delivery.webhook_id,
+                        error = %e,
+                        "Webhook not found for retry"
+                    );
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Send a test event to a webhook. Takes the caller's already-resolved

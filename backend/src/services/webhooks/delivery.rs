@@ -51,6 +51,12 @@ pub struct DeliveryTask {
     pub delivery_id: Option<i32>,
 }
 
+/// The request body for `payload`: what is sent and what the signature
+/// covers.
+pub fn request_body(payload: &WebhookPayload) -> serde_json::Result<String> {
+    serde_json::to_string(payload)
+}
+
 /// Worker that processes webhook delivery tasks
 pub struct WebhookDeliveryWorker {
     pool: Pool,
@@ -88,8 +94,8 @@ impl WebhookDeliveryWorker {
 
     /// Deliver a single webhook
     async fn deliver(&self, task: DeliveryTask) -> Result<(), String> {
-        let payload_json = serde_json::to_string(&task.payload)
-            .map_err(|e| format!("Failed to serialize payload: {e}"))?;
+        let payload_json =
+            request_body(&task.payload).map_err(|e| format!("Failed to serialize payload: {e}"))?;
 
         // Generate signature
         let signature = sign_payload(&payload_json, &task.webhook_secret);

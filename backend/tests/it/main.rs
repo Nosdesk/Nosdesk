@@ -234,6 +234,7 @@ mod users_bulk_delete;
 mod webhook_audit_redaction;
 mod webhook_delivery_in_workspace;
 mod webhook_outbox_durability;
+mod webhook_retry_envelope;
 mod workflow_state_restore;
 mod workflow_states_per_workspace;
 mod workspace_branding;

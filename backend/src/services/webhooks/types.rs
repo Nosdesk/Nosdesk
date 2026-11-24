@@ -2,7 +2,7 @@
 //!
 //! Event type mapping between SSE events and webhook event strings.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Webhook event types that map to SSE events
@@ -171,8 +171,9 @@ impl WebhookEventType {
     }
 }
 
-/// Webhook payload envelope sent to external endpoints
-#[derive(Debug, Clone, Serialize)]
+/// Webhook payload envelope sent to external endpoints. A delivery row
+/// stores it whole, and a retry sends that stored envelope again.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookPayload {
     pub id: Uuid,
     pub event_type: String,
