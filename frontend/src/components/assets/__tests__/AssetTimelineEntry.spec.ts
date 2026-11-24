@@ -12,6 +12,7 @@ import '@/test/mountWithProviders'
 // the gutter mark for the state an entry moved the asset into, and a
 // disposal said on its status change.
 
+vi.mock('@/composables/useTicketNumberLookup', () => ({ numberForTicketId: (id: number) => id + 1000 }))
 vi.mock('@/composables/useUsersDirectory', () => ({
   useUsersDirectory: () => ({
     getUserHandle: (uuid: string) => ({
@@ -109,6 +110,8 @@ asset-status-disposed = Disposed
 asset-disposal-method = Sanitization method
 asset-disposal-method-destroy = Destroy
 asset-disposal-data-bearing = Data-bearing
+asset-lifecycle-timeline-imported = Imported as { $to }
+asset-status-in-stock = In stock
 `
 
 function render(props: Record<string, unknown>) {
@@ -219,5 +222,78 @@ describe('AssetTimelineEntry', () => {
     expect(w.text()).toContain('Sanitization method: Destroy')
     expect(w.text()).toContain('Data-bearing')
     expect(w.text()).toContain('Green Recyclers')
+  })
+
+  it('moves the cost of open work to the facts so Complete keeps the edge', () => {
+    const w = render({
+      entry: recordEntry({ completed_on: null, outcome: null }),
+      type: INSPECTION,
+      canEdit: true,
+    })
+    expect(w.findAll('button').some((b) => b.text() === 'asset-timeline-complete')).toBe(true)
+    expect(w.get('p.tl-text').text()).toContain('A$38.50')
+  })
+
+  function statusEntry(extra: Record<string, unknown>): AssetTimelineEntry {
+    return {
+      key: 'status:4',
+      source: 'status',
+      asset_id: 14,
+      day: '2025-08-21',
+      at: '2025-08-21T01:00:00Z',
+      recorded_at: '2025-08-21T01:00:00Z',
+      recorded_by: 'dev',
+      actor_uuid: 'dev',
+      data: {
+        id: 4,
+        asset_id: 14,
+        from_status: 'in_service',
+        to_status: 'in_repair',
+        reason: 'No SDI output',
+        metadata: {},
+        actor_uuid: 'dev',
+        ticket_id: 7,
+        occurred_at: '2025-08-21T01:00:00Z',
+        disposal: null,
+        ...extra,
+      },
+    } as AssetTimelineEntry
+  }
+
+  it('names who moved it and links its ticket for staff only', () => {
+    const staff = render({ entry: statusEntry({}), canEdit: true })
+    expect(staff.text()).toContain('Dev Malhotra')
+    const link = staff.findComponent(RouterLinkStub)
+    expect(link.props('to')).toBe('/tickets/1007')
+    expect(link.text()).toBe('#1007')
+
+    const member = render({ entry: statusEntry({}) })
+    expect(member.text()).not.toContain('Dev Malhotra')
+    expect(member.findComponent(RouterLinkStub).exists()).toBe(false)
+  })
+
+  it('says an import created the asset', () => {
+    const w = render({
+      entry: statusEntry({ from_status: null, to_status: 'in_stock', metadata: { import_job_id: 'j-1' } }),
+      canEdit: true,
+    })
+    expect(w.text()).toContain('Imported as In stock')
+    const marker = render({
+      entry: {
+        key: 'marker:added:14',
+        source: 'marker',
+        kind: 'added',
+        asset_id: 14,
+        day: '2019-03-14',
+        at: '2019-03-14T00:00:00Z',
+        recorded_at: '2019-03-14T00:00:00Z',
+        recorded_by: null,
+        actor_uuid: null,
+        data: {},
+      },
+      movedTo: 'in_stock',
+      importedTo: 'in_stock',
+    })
+    expect(marker.text()).toContain('Imported as In stock')
   })
 })

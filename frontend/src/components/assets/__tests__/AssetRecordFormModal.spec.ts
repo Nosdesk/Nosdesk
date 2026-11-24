@@ -136,7 +136,7 @@ const ASSET = {
   kind: 'device',
   purchase_date: '2024-01-01',
   location: 'Studio A',
-  primary_user_uuid: null,
+  primary_user_uuid: 'sam' as string | null,
 }
 
 function savedRecord(overrides: Partial<AssetRecord> = {}): AssetRecord {
@@ -225,7 +225,12 @@ const COST = 'admin-asset-record-types-core-cost'
 const saved = getDateConfig()
 beforeEach(() => {
   setDateConfig({ defaultTimezone: 'Australia/Sydney', defaultLocale: 'en-US' })
-  records.types.mockResolvedValue({ types: [REPAIR, INSPECTION], currency: 'AUD', suggested_currency: 'AUD' })
+  records.types.mockResolvedValue({
+    types: [REPAIR, INSPECTION],
+    currency: 'AUD',
+    suggested_currency: 'AUD',
+    timezone: 'Australia/Sydney',
+  })
   records.catalogue.mockResolvedValue([])
   records.vendors.mockResolvedValue(['Sony'])
   records.create.mockImplementation(async () => ({ record: savedRecord(), warnings: [] }))
@@ -233,6 +238,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   wrapper?.unmount()
   wrapper = null
   setDateConfig(saved)
@@ -340,5 +346,119 @@ describe('AssetRecordFormModal', () => {
     expect(sent.completed_on).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(sent).not.toHaveProperty('occurred_at')
     expect(sent).not.toHaveProperty('summary')
+  })
+
+  describe('in the workspace zone, not the viewer\'s', () => {
+    // A viewer in Sydney working in a UTC workspace.
+    beforeEach(() => {
+      setDateConfig({ defaultTimezone: 'Australia/Sydney' })
+      records.types.mockResolvedValue({
+        types: [REPAIR, INSPECTION],
+        currency: 'AUD',
+        suggested_currency: 'AUD',
+        timezone: 'UTC',
+      })
+    })
+
+    it('files a timed record under the day typed', async () => {
+      const w = await open()
+      await set(w, TYPE, 'repair')
+      await set(w, DAY, '2026-11-24')
+      await w.findAll('button').find((b) => b.text() === 'asset-record-form-add-time')!.trigger('click')
+      await flushPromises()
+      await set(w, 'asset-record-form-time', '09:00')
+      await save(w)
+      expect(records.create.mock.calls[0][1].occurred_at).toBe('2026-11-24T09:00:00.000Z')
+    })
+
+    it('keeps the day when only the time is edited', async () => {
+      const timed = savedRecord({ occurred_on: '2026-11-24', occurred_at: '2026-11-24T09:00:00Z' })
+      const w = await open({ record: timed })
+      expect((field(w, DAY).element as HTMLInputElement).value).toBe('2026-11-24')
+      expect((field(w, 'asset-record-form-time').element as HTMLInputElement).value).toBe('09:00')
+      await set(w, 'asset-record-form-time', '10:30')
+      await save(w)
+      expect(records.update.mock.calls[0][2]).toEqual({
+        expected_version: 3,
+        occurred_at: '2026-11-24T10:30:00.000Z',
+      })
+    })
+
+    it('never defaults a completion to before the work', async () => {
+      // 20:00 UTC on 24 Nov is already 25 Nov in Sydney, the workspace's
+      // zone here; the viewer's UTC calendar still says 24 Nov.
+      setDateConfig({ defaultTimezone: 'UTC' })
+      records.types.mockResolvedValue({
+        types: [REPAIR],
+        currency: 'AUD',
+        suggested_currency: 'AUD',
+        timezone: 'Australia/Sydney',
+      })
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-11-24T20:00:00Z'))
+      const openWork = savedRecord({
+        occurred_on: '2026-11-25',
+        occurred_at: null,
+        completed_on: null,
+        completed_at: null,
+        outcome: null,
+        cost: null,
+      })
+      const w = await open({ record: openWork, completing: true })
+      await save(w)
+      expect(records.update.mock.calls[0][2].completed_on).toBe('2026-11-25')
+    })
+  })
+
+  it('leaves who had it to the server unless someone changes it', async () => {
+    setDateConfig({ defaultTimezone: 'UTC' })
+    const w = await open()
+    await set(w, TYPE, 'repair')
+    await set(w, DAY, new Date().toISOString().slice(0, 10))
+    await w.findAll('button').find((b) => b.text() === 'asset-record-form-add-holder')!.trigger('click')
+    await flushPromises()
+    // Prefilled with what the server would derive, and still said.
+    expect((field(w, 'asset-record-detail-holder').element as HTMLSelectElement).value).toBe('sam')
+    expect((field(w, 'asset-record-detail-location').element as HTMLInputElement).value).toBe('Studio A')
+    expect(w.text()).toContain('asset-record-form-snapshot-current-both')
+    await save(w)
+    expect(records.create.mock.calls[0][1]).not.toHaveProperty('holder_uuid')
+    expect(records.create.mock.calls[0][1]).not.toHaveProperty('location')
+
+    await set(w, 'asset-record-detail-location', 'Studio B')
+    await save(w)
+    expect(records.create.mock.calls[1][1]).toMatchObject({ holder_uuid: 'sam', location: 'Studio B' })
+  })
+
+  it('clears the outcome and fields of the old type on an edit too', async () => {
+    const w = await open({ record: savedRecord() })
+    await set(w, TYPE, 'inspection')
+    await save(w)
+    const sent = records.update.mock.calls[0][2]
+    expect(sent).toMatchObject({ record_type: 'inspection', outcome: null, attributes: {} })
+  })
+
+  it('leaves out the fields a type hides and asks for the ones it requires', async () => {
+    const strict = type('firmware_update', 3, {}, ['updated'])
+    strict.core_fields = { cost: 'hidden', summary: 'hidden', ticket: 'required', location: 'required' }
+    records.types.mockResolvedValue({ types: [strict], currency: 'AUD', suggested_currency: 'AUD', timezone: 'UTC' })
+    const w = await open()
+    await set(w, DAY, '2025-08-21')
+    expect(has(w, COST)).toBe(false)
+    // The required fields are open without asking.
+    expect(has(w, 'admin-asset-record-types-core-ticket')).toBe(true)
+    expect(has(w, 'asset-record-detail-location')).toBe(true)
+    await save(w)
+    expect(records.create).not.toHaveBeenCalled()
+    expect(w.get('[data-error="asset-record-detail-location"]').text()).toBe('asset-record-form-required')
+
+    await set(w, 'asset-record-detail-location', 'Rack 4')
+    await w.setProps({ tickets: [{ id: 9, number: 1009, title: 'Firmware' }] })
+    await set(w, 'admin-asset-record-types-core-ticket', '9')
+    await save(w)
+    const sent = records.create.mock.calls[0][1]
+    expect(sent).not.toHaveProperty('summary')
+    expect(sent).not.toHaveProperty('cost')
+    expect(sent).toMatchObject({ ticket_id: 9, location: 'Rack 4' })
   })
 })

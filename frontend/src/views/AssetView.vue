@@ -1014,7 +1014,11 @@ useSyncActions(
                  once the asset has been loaned. -->
             <AssetLoanPanel :asset-id="device.id" />
 
+            <!-- Keyed by asset: the view stays mounted from one asset to the
+                 next, and the card's open record, form and filter belong
+                 to the asset they were opened on. -->
             <AssetTimelineCard
+              :key="device.id"
               :asset="device"
               :can-edit="canChangeLifecycle"
               :me="auth.user?.uuid ?? null"

@@ -28,7 +28,8 @@ import Icon from '@/components/common/Icon.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import { formatMoney } from '@nosdesk/core/utils/money'
-import { ticketRoute } from '@nosdesk/core/utils/ticketRoutes'
+import { ticketRoute, ticketRouteById } from '@nosdesk/core/utils/ticketRoutes'
+import { numberForTicketId } from '@/composables/useTicketNumberLookup'
 import type { Asset, AssetRecordType, AssetTimelineEntry, AssetTimelineTicket } from '@nosdesk/core/types/asset'
 import {
   dayOf,
@@ -63,6 +64,9 @@ const props = defineProps<{
    *  the entry's mark. A record or a loan carries it when the status
    *  change is folded into it. */
   movedTo?: string | null
+  /** On the "Added to Nosdesk" marker: the state an import created the
+   *  asset in, when the arrival was an import. */
+  importedTo?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -96,6 +100,10 @@ const title = computed(() => {
     case 'record':
       return e.data.summary ?? typeName(t, props.type, e.data.record_type)
     case 'status':
+      // The event an import writes for each asset it creates.
+      if (!e.data.from_status && typeof e.data.metadata?.import_job_id === 'string') {
+        return t('asset-lifecycle-timeline-imported', { to: assetStatusLabel(t, e.data.to_status) })
+      }
       return t('asset-timeline-status-moved', { status: assetStatusLabel(t, e.data.to_status) })
     case 'loan': {
       const name = person(e.data.borrower_user_uuid) ?? t('asset-timeline-someone')
@@ -114,7 +122,10 @@ const title = computed(() => {
         : t('asset-timeline-replaced-by', { name })
     }
     default:
-      return e.kind === 'purchased' ? t('asset-timeline-marker-purchased') : t('asset-timeline-marker-added')
+      if (e.kind === 'purchased') return t('asset-timeline-marker-purchased')
+      return props.importedTo
+        ? t('asset-lifecycle-timeline-imported', { to: assetStatusLabel(t, props.importedTo) })
+        : t('asset-timeline-marker-added')
   }
 })
 
@@ -157,6 +168,9 @@ const facts = computed<Fact[]>(() => {
     const doneBy = r.vendor ?? person(r.performed_by_uuid)
     if (doneBy) out.push({ key: 'by', text: doneBy })
     if (r.reference) out.push({ key: 'reference', text: r.reference })
+    if (r.cost && isOpen.value && props.canEdit) {
+      out.push({ key: 'cost', text: formatMoney(r.cost.amount, r.cost.currency) })
+    }
     for (const reading of readings(props.type, r)) out.push({ key: `reading-${reading}`, text: reading })
     const ticket = props.ticket
     if (ticket?.number !== undefined) {
@@ -187,6 +201,20 @@ const facts = computed<Fact[]>(() => {
     }
   } else if (e.source === 'status') {
     if (e.data.reason) out.push({ key: 'reason', text: e.data.reason })
+    // Who moved it and the ticket it was moved for: staff only.
+    if (props.canEdit) {
+      const actor = person(e.data.actor_uuid)
+      if (actor) out.push({ key: 'actor', text: actor })
+      const ticketId = e.data.ticket_id
+      if (ticketId) {
+        const number = numberForTicketId(ticketId)
+        out.push({
+          key: 'ticket',
+          text: `#${number ?? ticketId}`,
+          to: number !== undefined ? ticketRoute(number) : ticketRouteById(ticketId),
+        })
+      }
+    }
     // The disposal written with the move, said on it.
     const disposal = e.data.disposal
     if (disposal) {
@@ -224,7 +252,10 @@ const mark = computed(() => {
   return { icon: meta.icon, colorClass: meta.colorClass, label: t(meta.labelKey) }
 })
 
-const hasAside = computed(() => cost.value !== null || (isOpen.value && !!props.canEdit))
+/** Open work a viewer can complete: Complete takes the right edge, and a
+ *  cost moves to the facts. */
+const completable = computed(() => isOpen.value && !!props.canEdit)
+const hasAside = computed(() => cost.value !== null || completable.value)
 
 const dateText = computed(() => formatDay(props.entry.day, 'monthDay'))
 /** The full date, and the time when it is known, for the date's tooltip. */
@@ -294,7 +325,7 @@ const TONE: Record<NonNullable<Fact['tone']>, string> = {
 
       <!-- The right edge: what it cost, or the one thing to do. -->
       <div v-if="hasAside" class="text-sm leading-5 whitespace-nowrap text-right">
-        <span v-if="cost" class="tabular-nums text-primary">{{ cost }}</span>
+        <span v-if="!completable" class="tabular-nums text-primary">{{ cost }}</span>
         <button
           v-else-if="record"
           type="button"

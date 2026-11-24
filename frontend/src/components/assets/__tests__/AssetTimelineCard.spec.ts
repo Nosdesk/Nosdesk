@@ -406,4 +406,15 @@ describe('AssetTimelineCard', () => {
     // The timeline is read again with the new record in it.
     expect(timeline.page.mock.calls.length).toBeGreaterThan(1)
   })
+
+  it('offers Complete only on this asset\'s own open work', async () => {
+    const predecessor = recordEntry(
+      record(30, 'repair', { asset_id: 31, summary: 'Old camera repair', completed_on: null, outcome: null }),
+    )
+    const predecessorEntry = { ...predecessor, asset_id: 31 }
+    timeline.page.mockImplementation(async () => ({ entries: [...ENTRIES, predecessorEntry], next_cursor: null }))
+    const w = await mountCard()
+    expect(row(w, 'record:30').exists()).toBe(true)
+    expect(row(w, 'record:30').findAll('button').map((b) => b.text())).not.toContain('asset-timeline-complete')
+  })
 })

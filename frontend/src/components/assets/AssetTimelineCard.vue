@@ -118,7 +118,11 @@ const loaded = timeline.loaded
 const hasMore = timeline.hasMore
 const loadingMore = timeline.loadingMore
 const loadMore = timeline.loadMore
-const refreshAll = useAssetTimelineSync(assetId)
+// Records on the assets this one replaced, shown with "include history",
+// and records naming this asset as their replacement, refresh it too.
+const refreshAll = useAssetTimelineSync(assetId, () =>
+  withPredecessors.value ? predecessors.value.map((p) => p.id) : [],
+)
 
 const openRecords = useAssetOpenRecords(assetId, () => props.canEdit)
 const summaryAll = useAssetRecordSummary(assetId, '', () => props.canEdit)
@@ -275,6 +279,8 @@ function together(a: string | null, b: string | null): boolean {
 const moves = computed(() => {
   const marks = new Map<string, string>()
   const folded = new Set<string>()
+  /** The arrival marker of an imported asset, and the state it came in. */
+  const imported = new Map<string, string>()
   const own = entries.value.filter((e) => e.asset_id === props.asset.id)
   for (const e of entries.value) {
     if (e.source !== 'status') continue
@@ -293,6 +299,9 @@ const moves = computed(() => {
     if (teller) {
       marks.set(teller, e.data.to_status)
       folded.add(e.key)
+      if (arrival && teller === arrival.key && typeof e.data.metadata?.import_job_id === 'string') {
+        imported.set(teller, e.data.to_status)
+      }
     }
   }
   // A loan puts the asset On loan by definition, whether or not the page
@@ -300,7 +309,7 @@ const moves = computed(() => {
   for (const e of entries.value) {
     if (e.source === 'loan' && e.kind === 'lent' && !marks.has(e.key)) marks.set(e.key, 'on_loan')
   }
-  return { marks, folded }
+  return { marks, folded, imported }
 })
 
 /** The asset that replaced this one, on the record that says so. */
@@ -336,7 +345,10 @@ function rowOf(entry: AssetTimelineEntry): Row {
 }
 
 function costsText(totals: AssetRecordTotals): string {
-  const amounts = totals.costs.map((c) => formatMoney(c.amount, c.currency))
+  // A code the server couldn't format comes as minor units alone.
+  const amounts = totals.costs.map((c) =>
+    c.amount !== null ? formatMoney(c.amount, c.currency) : `${c.amount_minor} ${c.currency}`,
+  )
   return new Intl.ListFormat(getDateConfig().defaultLocale, { style: 'long', type: 'conjunction' }).format(amounts)
 }
 
@@ -446,7 +458,8 @@ function openAdd() {
 }
 
 async function openEdit(id: number, completing = false) {
-  const record = await findRecord(id)
+  // Read fresh, so an edit starts from the current version.
+  const record = await assetRecordService.get(props.asset.id, id).catch(() => findRecord(id))
   if (!record) return
   closeRecord()
   form.record = record
@@ -678,7 +691,8 @@ defineExpose({ openAdd, openRecord, reload })
               :hide-type="!!recordType"
               :ticket="row.entry.source === 'record' ? ticketOf(row.entry.data) : null"
               :moved-to="moves.marks.get(row.entry.key) ?? null"
-              :can-edit="canEdit"
+              :imported-to="moves.imported.get(row.entry.key) ?? null"
+              :can-edit="canEdit && row.entry.asset_id === asset.id"
               :highlighted="highlightKey === row.entry.key"
               @open="openRecord"
             />

@@ -20,15 +20,21 @@ export function formatDay(day: string, preset: DatePreset = 'date'): string {
   return formatDate(`${day}T12:00:00Z`, preset, 'UTC')
 }
 
-/** The clock time of a moment, in the workspace timezone. */
+/** The clock time of a moment, in the viewer's timezone. */
 export function formatClock(at: string): string {
   return formatTime(at)
 }
 
-/** The day of a moment in the workspace timezone, as `YYYY-MM-DD`. */
-export function dayOf(moment: string | Date): string {
+/** The zone the viewer reads dates in. The record form passes the
+ *  workspace's own zone instead, which the server reads a record's day in. */
+function viewerZone(): string {
+  return getDateConfig().defaultTimezone
+}
+
+/** The day of a moment in `zone`, as `YYYY-MM-DD`. */
+export function dayOf(moment: string | Date, zone: string = viewerZone()): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: getDateConfig().defaultTimezone,
+    timeZone: zone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -37,15 +43,15 @@ export function dayOf(moment: string | Date): string {
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
-export function todayDay(): string {
-  return dayOf(new Date())
+export function todayDay(zone: string = viewerZone()): string {
+  return dayOf(new Date(), zone)
 }
 
-/** A moment's wall-clock time (`HH:mm`) in the workspace timezone. */
-export function clockOf(at: string | null): string {
+/** A moment's wall-clock time (`HH:mm`) in `zone`. */
+export function clockOf(at: string | null, zone: string = viewerZone()): string {
   if (!at) return ''
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: getDateConfig().defaultTimezone,
+    timeZone: zone,
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
@@ -54,9 +60,9 @@ export function clockOf(at: string | null): string {
   return `${get('hour')}:${get('minute')}`
 }
 
-/** A day and a wall-clock time in the workspace timezone, as an instant. */
-export function momentOf(day: string, clock: string): string {
-  return toZoned(parseDateTime(`${day}T${clock}`), getDateConfig().defaultTimezone).toAbsoluteString()
+/** A day and a wall-clock time in `zone`, as an instant. */
+export function momentOf(day: string, clock: string, zone: string = viewerZone()): string {
+  return toZoned(parseDateTime(`${day}T${clock}`), zone).toAbsoluteString()
 }
 
 /** Whole days from one calendar day to another. */
@@ -71,8 +77,8 @@ export function recordedLater(entry: Pick<AssetTimelineEntry, 'day' | 'recorded_
 }
 
 /** How long ago a day was, in the largest unit that reads well. */
-export function agoText(t: Translate, day: string): string {
-  const days = daysBetweenDays(day, todayDay())
+export function agoText(t: Translate, day: string, today: string = todayDay()): string {
+  const days = daysBetweenDays(day, today)
   if (days <= 0) return t('asset-record-ago-today')
   if (days === 1) return t('asset-record-ago-yesterday')
   if (days < 60) return t('asset-record-ago-days', { count: days })

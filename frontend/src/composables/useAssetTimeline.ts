@@ -55,8 +55,10 @@ export function useAssetTimelinePages(
   const hasMore = computed(() => query.hasNextPage.value)
   const loaded = computed(() => query.data.value !== undefined)
   const loadingMore = computed(() => query.asyncStatus.value === 'loading' && loaded.value)
+  /** Load the next page, after any fetch already under way. */
   async function loadMore() {
-    if (!hasMore.value || query.asyncStatus.value === 'loading') return
+    if (query.asyncStatus.value === 'loading') await query.refresh()
+    if (!hasMore.value) return
     await query.loadNextPage()
   }
   return { query, entries, hasMore, loaded, loadingMore, loadMore }
@@ -119,17 +121,33 @@ export function useAssetRecordTypes(enabled: MaybeRefOrGetter<boolean>) {
   const types = computed<AssetRecordType[]>(() => query.data.value?.types ?? [])
   const currency = computed(() => query.data.value?.currency ?? null)
   const suggestedCurrency = computed(() => query.data.value?.suggested_currency ?? null)
-  return { query, types, currency, suggestedCurrency }
+  /** The workspace timezone, which the server reads a record's day in. */
+  const timezone = computed(() => query.data.value?.timezone ?? null)
+  return { query, types, currency, suggestedCurrency, timezone }
 }
 
 /** Refetch the asset's timeline when a record, status change, loan, ticket
- *  link or file of it changes, coalesced over 250 ms. */
-export function useAssetTimelineSync(assetId: MaybeRefOrGetter<number>) {
+ *  link or file of it changes, coalesced over 250 ms. So does a change on
+ *  one of `related` (predecessors in view), or a record that names this
+ *  asset as its replacement. */
+export function useAssetTimelineSync(
+  assetId: MaybeRefOrGetter<number>,
+  related: MaybeRefOrGetter<number[]> = [],
+) {
   const invalidate = useAssetTimelineInvalidate()
   useSyncActions(
     (actions) => {
       const id = toValue(assetId)
-      const touches = actions.some((a) => (a.data as { asset_id?: number } | null)?.asset_id === id)
+      const others = toValue(related)
+      const touches = actions.some((a) => {
+        const data = a.data as { asset_id?: number; replacement_asset_id?: number | null } | null
+        if (!data) return false
+        return (
+          data.asset_id === id ||
+          data.replacement_asset_id === id ||
+          (data.asset_id !== undefined && others.includes(data.asset_id))
+        )
+      })
       if (touches) void invalidate(id)
     },
     {

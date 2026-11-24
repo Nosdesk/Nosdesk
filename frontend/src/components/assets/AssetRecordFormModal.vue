@@ -14,7 +14,7 @@
  * An edit sends only what changed, so a time or a cost nobody touched
  * keeps its precision.
  */
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Modal from '@/components/Modal.vue'
 import Autocomplete from '@/components/common/Autocomplete.vue'
@@ -30,7 +30,7 @@ import TimePicker from '@/components/common/TimePicker.vue'
 import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import { extractErrorMessage } from '@/utils/errors'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
-import { useAssetRecordTypes } from '@/composables/useAssetTimeline'
+import { useAssetRecordTypes, useAssetTimelineInvalidate } from '@/composables/useAssetTimeline'
 import { useWorkspaceQuery, useWorkspaceQueryCache } from '@/queries/workspaceQuery'
 import { fetchEligibleUsers } from '@/services/eligibleUsers'
 import { getPaginatedAssetsExcluding } from '@/services/assetService'
@@ -86,6 +86,7 @@ const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const { getUserHandle } = useUsersDirectory()
 const workspaceCache = useWorkspaceQueryCache()
+const invalidateTimeline = useAssetTimelineInvalidate()
 
 // --- What the workspace offers ---------------------------------------
 
@@ -93,6 +94,9 @@ const recordTypes = useAssetRecordTypes(() => props.show)
 const types = recordTypes.types
 const currency = recordTypes.currency
 const suggestedCurrency = recordTypes.suggestedCurrency
+/** Days and times on a record are the workspace's, as the server reads
+ *  them, whatever zone the viewer is in. */
+const zone = computed(() => recordTypes.timezone.value ?? getDateConfig().defaultTimezone)
 const catalogueQuery = useWorkspaceQuery({
   key: [...assetRecordKeys.catalogue],
   query: () => assetRecordService.catalogue(),
@@ -135,9 +139,8 @@ const form = reactive({
   cost: '',
   ticket: '' as string,
   attributes: {} as Record<string, unknown>,
-  /** Holder and location as entered; untouched means the server derives
-   *  them from the asset's loans. */
-  snapshotEntered: false,
+  /** Holder and location as entered. Sent only when changed from what the
+   *  section opened with; otherwise the server derives them. */
   holder: '' as string,
   location: '',
   notes: '',
@@ -153,7 +156,23 @@ function openExtras(record?: AssetRecord | null) {
   extra.notes = !!record?.notes
   extra.ticket = !!record?.ticket_id || needs('ticket')
   extra.technician = !!record?.performed_by_uuid
-  extra.holder = record?.snapshot_source === 'entered'
+  extra.holder = false
+  snapshotStart.value = null
+  if (record?.snapshot_source === 'entered' || needs('holder') || needs('location')) openHolder()
+}
+
+/** What "Who had it then" opened with, to send it only once changed. */
+const snapshotStart = ref<{ holder: string; location: string } | null>(null)
+
+/** Open "Who had it then", prefilled with what the server would derive
+ *  (or the record's own values), so leaving it untouched changes nothing. */
+function openHolder() {
+  if (!extra.holder && !form.holder && !form.location) {
+    form.holder = derived.value.holder ?? ''
+    form.location = derived.value.location ?? ''
+  }
+  extra.holder = true
+  if (!snapshotStart.value) snapshotStart.value = { holder: form.holder, location: form.location.trim() }
 }
 
 const files = ref<File[]>([])
@@ -192,7 +211,6 @@ function reset(keep?: { type: string | null; day: string; vendor: string }) {
     cost: '',
     ticket: '',
     attributes: {},
-    snapshotEntered: false,
     holder: '',
     location: '',
     notes: '',
@@ -203,7 +221,15 @@ function reset(keep?: { type: string | null; day: string; vendor: string }) {
   triedSubmit.value = false
   baseline.value = null
   seededCost.value = ''
+  holdTypeWatch()
   openExtras()
+}
+
+/** Filling the form sets its type; that isn't someone changing it. */
+let filling = false
+function holdTypeWatch() {
+  filling = true
+  void nextTick(() => (filling = false))
 }
 
 /** A stored amount (`"1250.50"`) as the reader's locale writes it, without
@@ -217,13 +243,18 @@ function localAmount(amount: string): string {
 }
 
 function fill(record: AssetRecord) {
+  holdTypeWatch()
+  // Completing today, or on the day of the work if that is later in the
+  // workspace's calendar.
+  const today = todayDay(zone.value)
+  const completeOn = today < record.occurred_on ? record.occurred_on : today
   Object.assign(form, {
     type: record.record_type,
-    day: record.occurred_on,
-    time: clockOf(record.occurred_at),
+    day: record.occurred_at ? dayOf(record.occurred_at, zone.value) : record.occurred_on,
+    time: clockOf(record.occurred_at, zone.value),
     withTime: !!record.occurred_at,
     finished: record.completed_on || props.completing ? 'done' : 'open',
-    completedDay: record.completed_on ?? (props.completing ? todayDay() : ''),
+    completedDay: record.completed_on ?? (props.completing ? completeOn : ''),
     completedTouched: true,
     outcome: record.outcome,
     summary: record.summary ?? '',
@@ -233,7 +264,6 @@ function fill(record: AssetRecord) {
     cost: record.cost ? localAmount(record.cost.amount) : '',
     ticket: record.ticket_id ? String(record.ticket_id) : '',
     attributes: { ...record.attributes },
-    snapshotEntered: record.snapshot_source === 'entered',
     holder: record.holder_uuid ?? '',
     location: record.location ?? '',
     notes: record.notes ?? '',
@@ -262,15 +292,16 @@ watch(
 )
 
 // A type change keeps what still fits: the outcome and the type's own
-// fields belong to the old type.
+// fields belong to the old type. Fields the new type requires open.
 watch(
   () => form.type,
   (next, previous) => {
-    if (previous && next !== previous && !props.record) {
+    if (previous && next !== previous && !filling) {
       form.outcome = null
       form.attributes = {}
     }
     if (needs('ticket')) extra.ticket = true
+    if (needs('holder') || needs('location')) openHolder()
   },
 )
 
@@ -293,7 +324,7 @@ async function addFromCatalogue(slug: string) {
 
 // --- When -------------------------------------------------------------
 
-const today = computed(() => todayDay())
+const today = computed(() => todayDay(zone.value))
 /** One day of slack for timezones; later than that is refused. */
 const latestDay = computed(() => {
   const d = new Date(`${today.value}T12:00:00Z`)
@@ -306,7 +337,7 @@ const daysAgo = computed(() => (form.day ? daysBetweenDays(form.day, today.value
  *  will sit, and that it is stamped as entered today. */
 const backdatedNote = computed(() => {
   if (!form.day || daysAgo.value < 2 || editing.value) return null
-  return t('asset-record-form-backdated', { ago: agoText(t, form.day), date: formatDay(form.day) })
+  return t('asset-record-form-backdated', { ago: agoText(t, form.day, today.value), date: formatDay(form.day) })
 })
 const beforePurchase = computed(() => {
   const purchased = props.asset.purchase_date
@@ -326,13 +357,21 @@ function person(uuid: string | null | undefined): string | null {
   return uuid ? (getUserHandle(uuid).user.value?.name ?? null) : null
 }
 
+interface Derived {
+  source: 'loan' | 'current' | 'none'
+  text: string
+  holder: string | null
+  location: string | null
+}
+
 /** What the server will derive for the day, shown before saving so nobody
  *  has to guess. */
-const derived = computed<{ source: 'loan' | 'current' | 'none'; text: string }>(() => {
+const derived = computed<Derived>(() => {
   const day = form.day
-  if (!day) return { source: 'none', text: '' }
+  const none = { holder: null, location: null }
+  if (!day) return { source: 'none', text: '', ...none }
   const loan = props.loans.find(
-    (l) => dayOf(l.loaned_at) <= day && (!l.returned_at || dayOf(l.returned_at) >= day),
+    (l) => dayOf(l.loaned_at, zone.value) <= day && (!l.returned_at || dayOf(l.returned_at, zone.value) >= day),
   )
   const date = formatDay(day)
   if (loan) {
@@ -342,20 +381,22 @@ const derived = computed<{ source: 'loan' | 'current' | 'none'; text: string }>(
         name: person(loan.borrower_user_uuid) ?? t('asset-timeline-someone'),
         date,
       }),
+      holder: loan.borrower_user_uuid,
+      location: null,
     }
   }
   if (daysAgo.value <= 1) {
-    const holder = person(props.asset.primary_user_uuid)
-    const location = props.asset.location
+    const uuid = props.asset.primary_user_uuid ?? null
+    const holder = person(uuid)
+    const location = props.asset.location ?? null
+    const current = { source: 'current' as const, holder: uuid, location }
     if (holder && location) {
-      return { source: 'current', text: t('asset-record-form-snapshot-current-both', { name: holder, location }) }
+      return { ...current, text: t('asset-record-form-snapshot-current-both', { name: holder, location }) }
     }
-    if (holder) return { source: 'current', text: t('asset-record-form-snapshot-current-holder', { name: holder }) }
-    if (location) {
-      return { source: 'current', text: t('asset-record-form-snapshot-current-location', { location }) }
-    }
+    if (holder) return { ...current, text: t('asset-record-form-snapshot-current-holder', { name: holder }) }
+    if (location) return { ...current, text: t('asset-record-form-snapshot-current-location', { location }) }
   }
-  return { source: 'none', text: t('asset-record-form-snapshot-none', { date }) }
+  return { source: 'none', text: t('asset-record-form-snapshot-none', { date }), ...none }
 })
 
 // --- Options ----------------------------------------------------------
@@ -505,6 +546,9 @@ const missing = computed(() => {
     out.cost = t(COST_ERRORS[costInput.value.error])
   }
   if (needs('outcome') && !isOpen.value && !form.outcome) out.outcome = t('asset-record-form-required')
+  if (needs('ticket') && !form.ticket) out.ticket = t('asset-record-form-required')
+  if (needs('holder') && !form.holder) out.holder = t('asset-record-form-required')
+  if (needs('location') && !form.location.trim()) out.location = t('asset-record-form-required')
   return out
 })
 const error = (key: keyof typeof missing.value) => (triedSubmit.value ? missing.value[key] : undefined)
@@ -523,7 +567,7 @@ function body(): CreateAssetRecordBody {
     record_type: form.type as string,
     summary: form.summary.trim() || null,
     notes: form.notes.trim() || null,
-    ...(timed ? { occurred_at: momentOf(form.day, form.time) } : { occurred_on: form.day }),
+    ...(timed ? { occurred_at: momentOf(form.day, form.time, zone.value) } : { occurred_on: form.day }),
     completed_on: isOpen.value ? null : form.completedDay || form.day,
     outcome: isOpen.value ? null : form.outcome,
     vendor: form.vendor.trim() || null,
@@ -535,10 +579,22 @@ function body(): CreateAssetRecordBody {
       form.replacement && (outcomeIsReplaced.value || !type.value) ? Number(form.replacement) : null,
     attributes: form.attributes,
   }
-  if (form.snapshotEntered) {
+  const start = snapshotStart.value
+  if (extra.holder && start && (form.holder !== start.holder || form.location.trim() !== start.location)) {
     out.holder_uuid = form.holder || null
     out.location = form.location.trim() || null
   }
+  // A field the type hides isn't the form's to write.
+  const hidden: [AssetRecordCoreField, keyof CreateAssetRecordBody][] = [
+    ['summary', 'summary'],
+    ['vendor', 'vendor'],
+    ['reference', 'reference'],
+    ['outcome', 'outcome'],
+    ['ticket', 'ticket_id'],
+    ['holder', 'holder_uuid'],
+    ['location', 'location'],
+  ]
+  for (const [field, key] of hidden) if (!shows(field)) delete out[key]
   return out
 }
 
@@ -550,7 +606,7 @@ function changes(record: AssetRecord): UpdateAssetRecordBody {
   for (const [key, value] of Object.entries(next)) {
     if (JSON.stringify(value) !== JSON.stringify(before[key])) out[key] = value
   }
-  if (form.cost !== seededCost.value) out.cost = costBody()
+  if (form.cost !== seededCost.value && shows('cost')) out.cost = costBody()
   return out as unknown as UpdateAssetRecordBody
 }
 
@@ -564,7 +620,10 @@ async function submit() {
     if (props.record) {
       write = await assetRecordService.update(props.asset.id, props.record.id, changes(props.record))
     } else {
-      write = await assetRecordService.create(props.asset.id, { ...body(), cost: costBody() })
+      write = await assetRecordService.create(props.asset.id, {
+        ...body(),
+        ...(shows('cost') ? { cost: costBody() } : {}),
+      })
     }
     const another = form.addAnother && !props.record
     emit('saved', write, files.value, another)
@@ -576,6 +635,8 @@ async function submit() {
     const status = (e as { response?: { status?: number } }).response?.status
     errorMessage.value =
       status === 409 ? t('asset-record-form-conflict') : extractErrorMessage(e, t('asset-record-form-error'))
+    // Someone else's change: reopening the record reads it fresh.
+    if (status === 409) void invalidateTimeline(props.asset.id)
   } finally {
     submitting.value = false
   }
@@ -592,6 +653,11 @@ watch(
   },
   { immediate: true },
 )
+// The workspace zone arrives with the types: an edit opened before then
+// reads its day and time again in it.
+watch(zone, () => {
+  if (props.show && props.record) fill(props.record)
+})
 
 // A phone on its side: under 500px of height the footer joins the form.
 const short = ref(false)
@@ -698,7 +764,7 @@ const reassurance = computed(() =>
         <p v-if="error('day')" class="col-span-2 -mt-1.5 text-xs leading-5 text-status-error">{{ error('day') }}</p>
         <p v-else-if="beforePurchase" class="col-span-2 -mt-1.5 text-xs leading-5 text-status-warning">{{ beforePurchase }}</p>
         <p v-else-if="backdatedNote" class="col-span-2 -mt-1.5 text-xs leading-5 text-tertiary">{{ backdatedNote }}</p>
-        <p v-if="derived.source === 'loan' && !extra.holder" class="col-span-2 -mt-1.5 text-xs leading-5 text-tertiary">{{ derived.text }}</p>
+        <p v-if="derived.text && (extra.holder || derived.source === 'loan')" class="col-span-2 -mt-1.5 text-xs leading-5 text-tertiary">{{ derived.text }}</p>
         <TimePicker
           v-if="form.withTime"
           v-model="form.time"
@@ -781,6 +847,7 @@ const reassurance = computed(() =>
           :options="ticketOptions"
           size="sm"
           :label="t('admin-asset-record-types-core-ticket')"
+          :error="error('ticket')"
           @update:model-value="form.ticket = String($event)"
         />
         <template v-if="extra.holder">
@@ -790,6 +857,7 @@ const reassurance = computed(() =>
             :options="holderOptions"
             size="sm"
             :label="t('asset-record-detail-holder')"
+            :error="error('holder')"
             @update:model-value="form.holder = String($event)"
           />
           <FormInput
@@ -797,6 +865,7 @@ const reassurance = computed(() =>
             v-model="form.location"
             size="sm"
             :label="t('asset-record-detail-location')"
+            :error="error('location')"
           />
         </template>
         <FormTextarea
@@ -841,7 +910,7 @@ const reassurance = computed(() =>
           </template>
           <template v-if="!extra.holder && (shows('holder') || shows('location'))">
             <span aria-hidden="true"> · </span>
-            <button type="button" :class="LINK" @click="() => { extra.holder = true; form.snapshotEntered = true }">{{ t('asset-record-form-add-holder') }}</button>
+            <button type="button" :class="LINK" @click="openHolder">{{ t('asset-record-form-add-holder') }}</button>
           </template>
           <template v-if="!form.withTime">
             <span aria-hidden="true"> · </span>
