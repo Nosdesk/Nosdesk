@@ -44,7 +44,7 @@
  * <style> block) before that floor is reached.
  *
  * Under the Manual sort, ungrouped, rows can be dragged into an order:
- * a drop writes ranks (`ranksForDrop`), a line shows where it lands, and
+ * a drop writes ranks (`dropRanks`), a line shows where it lands, and
  * a rule marks where the hand-placed order ends.
  */
 import { computed, ref } from 'vue'
@@ -58,8 +58,7 @@ import type { useColumnLayout } from '@/composables/useColumnLayout'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import type { TicketGroupBucket as GroupBucket } from '@/composables/useTicketsGrouping'
 import type { BulkSelection } from '@/composables/useBulkSelection'
-import { useRowReorder } from '@/sync/views/useRowReorder'
-import { ranksForDrop } from '@nosdesk/core/sync/views/planOrder'
+import { dropRanks, useRowReorder } from '@/sync/views/useRowReorder'
 
 const props = defineProps<{
   cards: CardData[]
@@ -152,7 +151,7 @@ const draggable = computed<boolean>(() => !!props.manual && !grouped.value)
 const reorder = useRowReorder({
   root: () => container.value,
   onDrop: ({ id, slot }) => {
-    for (const write of ranksForDrop(props.cards, id, slot)) emit('patch', write.id, { rank: write.rank })
+    for (const write of dropRanks(props.cards, id, slot)) emit('patch', write.id, { rank: write.rank })
   },
   onClick: (id) => onRowClick(id),
 })

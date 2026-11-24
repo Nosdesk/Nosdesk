@@ -13000,3 +13000,5 @@ views-display-menu-sort-manual = Handmatig
 tickets-column-size = Omvang
 # MT: pending native review (nl-NL)
 tickets-column-size-description = Hoe groot de taak is: klein, middel of groot
+# MT: pending native review (nl-NL)
+plan-drop-too-many = Hiermee zouden meer dan { $count } taken met de hand worden geplaatst. Zet hem dichter bij de taken die al geplaatst zijn.

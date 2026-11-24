@@ -23,6 +23,7 @@ import { priorityRank } from '../../constants/ticketOptions'
 import { parseDate } from '../../utils/dateUtils'
 import { dueDay, planDay, type Day } from '../../utils/ticketDates'
 import { planTime, toHhmm, toMinutes } from '../../utils/ticketPlan'
+import { compareDueOrder, dueOrderKey } from './dueOrder'
 
 /** The sort field of the hand-placed order. */
 export const MANUAL_SORT = 'rank'
@@ -76,45 +77,42 @@ export function planFor(cards: readonly CardData[], day: Day): DayPlan {
 }
 
 export interface AgendaPlan extends DayPlan {
-  /** Today only: jobs whose plan day has passed, oldest day first. */
+  /** Today only: jobs whose due day has passed, in due order. */
   overdue: CardData[]
-  /** Today only: jobs with no plan day at all. */
+  /** Today only: jobs with no date at all. */
   undated: CardData[]
-}
-
-/** Jobs from earlier days: by plan day, then as a day orders them (timed
- *  first by time, then placed by rank, then by priority and age). */
-export function compareOverdue(a: CardData, b: CardData): number {
-  const da = planDay(a) ?? ''
-  const db = planDay(b) ?? ''
-  if (da !== db) return da < db ? -1 : 1
-  const ta = planTime(a)
-  const tb = planTime(b)
-  if (ta != null || tb != null) {
-    if (ta == null) return 1
-    if (tb == null) return -1
-    if (ta !== tb) return ta < tb ? -1 : 1
-  }
-  return compareAnyTime(a, b)
 }
 
 /**
  * What the agenda shows for `day`. Every day shows its own Booked and
  * Any time jobs. Today also keeps the open work that would otherwise
- * drop out of sight, as My day's due buckets did: Overdue (a plan day
- * before today) above the day, and No date below it. `cards` is the
- * view's set, already narrowed to open jobs.
+ * drop out of sight, as My day's due buckets did: Overdue (a due day
+ * before today, in due order) above the day, and No date below it. A job
+ * planned for an earlier day that isn't overdue yet (started Monday, due
+ * Friday) is today's work: it joins Any time, its old time left behind.
+ * Each job lands in one section. `cards` is the view's set, already
+ * narrowed to open jobs.
  */
 export function agendaFor(cards: readonly CardData[], day: Day, today: Day): AgendaPlan {
-  const plan = planFor(cards, day)
-  if (day !== today) return { ...plan, overdue: [], undated: [] }
+  if (day !== today) return { ...planFor(cards, day), overdue: [], undated: [] }
+  const overdue: CardData[] = []
+  const booked: CardData[] = []
+  const anyTime: CardData[] = []
+  const undated: CardData[] = []
+  for (const card of cards) {
+    const due = dueDay(card)
+    const plan = planDay(card)
+    if (due != null && due < today) overdue.push(card)
+    else if (plan == null) undated.push(card)
+    else if (plan === today) (planTime(card) != null ? booked : anyTime).push(card)
+    else if (plan < today) anyTime.push(card)
+  }
+  const dueOrder = (a: CardData, b: CardData) => compareDueOrder(dueOrderKey(a), dueOrderKey(b))
   return {
-    ...plan,
-    overdue: cards.filter((c) => {
-      const d = planDay(c)
-      return d != null && d < today
-    }).sort(compareOverdue),
-    undated: cards.filter((c) => planDay(c) == null).sort(compareAnyTime),
+    overdue: overdue.sort(dueOrder),
+    booked: booked.sort(compareBooked),
+    anyTime: anyTime.sort(compareAnyTime),
+    undated: undated.sort(compareAnyTime),
   }
 }
 
@@ -158,52 +156,137 @@ export function separateDueDay(card: CardData): Day | null {
 // Rank keys
 // ---------------------------------------------------------------
 
-// Digits and letters in ASCII order, so keys compare byte by byte.
+// Digits and letters in ASCII order, so keys compare byte by byte. A key
+// reads as a base-62 fraction (`V` is 0.V); byte order refines that
+// number's order, so a key numerically between two others also sorts
+// between them.
 const DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+const BASE = BigInt(DIGITS.length)
+const ZERO = BigInt(0)
+const ONE = BigInt(1)
 
-/** A key strictly between `before` and `after`; null is an open end.
- *  Never ends in the lowest digit, so there is always room below it. */
-export function rankBetween(before: string | null, after: string | null): string {
-  const lo = before ?? ''
-  let hi = after
-  let out = ''
-  for (let i = 0; i < 64; i++) {
-    const a = i < lo.length ? DIGITS.indexOf(lo[i]) : 0
-    const b = hi != null && i < hi.length ? DIGITS.indexOf(hi[i]) : DIGITS.length
-    if (b - a > 1) return out + DIGITS[(a + b) >> 1]
-    out += DIGITS[a]
-    if (b !== a) hi = null
+/** The server's longest key (`ticket_plan::MAX_RANK_LEN`). */
+export const MAX_RANK_LENGTH = 128
+
+/** The most unplaced jobs one drop will place by hand. Past it the drop
+ *  writes nothing and the person is told why. */
+export const MAX_PLACED_BY_DROP = 50
+
+/** `key` as an integer of `length` digits: padded with zeros, or cut. */
+function toInt(key: string, length: number): bigint {
+  let n = ZERO
+  for (let i = 0; i < length; i++) {
+    const d = i < key.length ? DIGITS.indexOf(key[i]) : 0
+    n = n * BASE + BigInt(Math.max(0, d))
   }
-  return out + 'V'
+  return n
 }
 
-/** The rank writes a drop makes: the moved job takes a key between its
- *  new neighbours, and any unplaced job above it takes one too, in the
- *  order shown, so the list reads the same after the write as before.
- *  `slot` is the index among the other jobs, the moved one left out. */
+function toKey(n: bigint, length: number): string {
+  let out = ''
+  for (let i = 0; i < length; i++) {
+    out = DIGITS[Number(n % BASE)] + out
+    n /= BASE
+  }
+  return out
+}
+
+/**
+ * `count` keys strictly between `before` and `after` (null is an open
+ * end), in order and spread evenly, so later drops between them find room
+ * without the keys growing much: a few hundred fit in three characters.
+ * Each carries a random last digit (never `0`), so two people placing a
+ * job between the same neighbours rarely write the same key; the ticket
+ * id breaks any tie that is left. Null when there is no room: the ends
+ * are equal or out of order, or the keys would pass the server's length.
+ */
+export function ranksBetween(
+  before: string | null,
+  after: string | null,
+  count: number,
+  random: () => number = Math.random,
+): string[] | null {
+  if (count <= 0) return []
+  const lo = before ?? ''
+  // The shortest length with room. Cut to it, `before` rounds down and a
+  // key starts at least one step above that, so it stays above `before`;
+  // a cut `after` is at most `after`, so keys below it stay below.
+  for (let length = 1; length < MAX_RANK_LENGTH; length++) {
+    const low = toInt(lo, length)
+    const high = after == null ? toInt('1', length + 1) : toInt(after, length)
+    if (high - low <= BigInt(count)) {
+      // No room at this length. A longer one only helps while the ends
+      // differ somewhere further along.
+      if (after != null && toInt(after, MAX_RANK_LENGTH) <= toInt(lo, MAX_RANK_LENGTH)) return null
+      continue
+    }
+    const span = high - low
+    const slots = BigInt(count + 1)
+    const keys: string[] = []
+    for (let i = 1; i <= count; i++) {
+      const n = low + (span * BigInt(i)) / slots
+      keys.push(toKey(n, length) + DIGITS[1 + Math.floor(random() * (DIGITS.length - 1))])
+    }
+    return keys
+  }
+  return null
+}
+
+/** One key strictly between `before` and `after`, or null when there is
+ *  no room between them. */
+export function rankBetween(
+  before: string | null,
+  after: string | null,
+  random: () => number = Math.random,
+): string | null {
+  return ranksBetween(before, after, 1, random)?.[0] ?? null
+}
+
+export interface RankWrite {
+  id: number
+  rank: string
+}
+
+/**
+ * The rank writes a drop makes. `order` is the list as shown (placed jobs
+ * by rank, then unplaced ones), and `slot` the drop's index among the
+ * jobs other than the moved one. The moved job takes a key between its
+ * new neighbours, and any unplaced job above it takes one too, in the
+ * order shown, so the list reads the same after the write as before.
+ * When the neighbours leave no room (equal keys, say), the jobs below
+ * the drop are keyed again until one sorts after the new keys.
+ *
+ * Null when the drop would place more than `MAX_PLACED_BY_DROP` jobs.
+ */
 export function ranksForDrop(
   order: readonly CardData[],
   movedId: number,
   slot: number,
-): { id: number; rank: string }[] {
+  random: () => number = Math.random,
+): RankWrite[] | null {
   const moved = order.find((c) => c.id === movedId)
   if (!moved) return []
   const rest = order.filter((c) => c.id !== movedId)
   const index = Math.max(0, Math.min(slot, rest.length))
   const next = [...rest.slice(0, index), moved, ...rest.slice(index)]
-  // The first placed key below the drop bounds every new one.
-  const ceiling = next.slice(index + 1).find((c) => c.rank != null)?.rank ?? null
-  const writes: { id: number; rank: string }[] = []
-  let prev: string | null = null
-  for (let i = 0; i <= index; i++) {
-    const card = next[i]
-    if (card.id === movedId || card.rank == null) {
-      const rank = rankBetween(prev, ceiling)
-      writes.push({ id: card.id, rank })
-      prev = rank
-    } else {
-      prev = card.rank
-    }
+
+  // Above the drop, the placed jobs keep their keys; the unplaced ones
+  // after the last of them need one, then the moved job.
+  let lastPlaced = -1
+  for (let i = 0; i < index; i++) if (next[i].rank != null) lastPlaced = i
+  const before = lastPlaced >= 0 ? (next[lastPlaced].rank as string) : null
+  const keyed = next.slice(lastPlaced + 1, index + 1)
+
+  // Below it, the first placed key bounds the new ones (unplaced jobs
+  // sort after every key). When it leaves no room, that job is keyed
+  // again too, and so on down.
+  for (let j = index + 1; ; j++) {
+    const after = j < next.length && next[j].rank != null ? (next[j].rank as string) : null
+    if (keyed.length > MAX_PLACED_BY_DROP) return null
+    const keys = ranksBetween(before, after, keyed.length, random)
+    if (keys) return keyed.map((card, i) => ({ id: card.id, rank: keys[i] }))
+    // Even an open end has no room: the key above is at the length limit.
+    if (after == null) return []
+    keyed.push(next[j])
   }
-  return writes
 }

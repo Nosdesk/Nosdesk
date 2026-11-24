@@ -73,9 +73,10 @@ function dueChip(card: CardData): { label: string; overdue: boolean; title: stri
   }
 }
 
-function onRowClick(id: number): void {
-  // Under Manual the list's drag helper tells a click from a drag.
-  if (!props.draggable) emit('open', id)
+function onRowClick(id: number, event: MouseEvent): void {
+  // Under Manual the list's drag helper tells a pointer's click from a
+  // drag; a click with no pointer (keyboard, screen reader) still opens.
+  if (!props.draggable || event.detail === 0) emit('open', id)
 }
 
 function onContextMenu(id: number, event: MouseEvent): void {
@@ -114,7 +115,7 @@ function onContextMenu(id: number, event: MouseEvent): void {
         type="button"
         data-row-press
         class="w-full text-left flex flex-col gap-1 px-3 py-3 hover:bg-surface-hover active:bg-surface-alt transition-colors"
-        @click="onRowClick(card.id)"
+        @click="onRowClick(card.id, $event)"
         @contextmenu="onContextMenu(card.id, $event)"
       >
         <!-- Top line: id + title. Title takes whatever width

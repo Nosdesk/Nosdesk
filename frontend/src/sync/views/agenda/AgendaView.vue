@@ -2,14 +2,16 @@
 /**
  * My day as the `agenda` view shape: one day, read as a sequence.
  *
- *   Overdue   today only: open jobs from an earlier day
+ *   Overdue   today only: open jobs whose due day has passed
  *   Booked    jobs with a time, in time order
- *   Any time  the rest: placed by hand first, then by priority
- *   No date   today only: open jobs with no day at all
+ *   Any time  the rest: placed by hand first, then by priority; on
+ *             today, also jobs planned for an earlier day and not yet
+ *             overdue
+ *   No date   today only: open jobs with no date at all
  *
  * Overdue and No date keep in sight what My day listed before it had
- * an order; they are not part of the day's order, so their rows don't
- * drag. Moving them onto the day comes with "Move to today".
+ * an order. They are not part of the day's order, so their rows don't
+ * drag; giving one a day is done on the ticket.
  *
  * One column, at most 720px wide, on the list area's left edge. The day
  * is the title; the load ("11 jobs, about 8.5 h") follows it. Dragging
@@ -29,7 +31,7 @@ import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import type { MenuItem } from '@/components/common/MenuList.vue'
 import TimePopover from '@/components/planning/TimePopover.vue'
 import type { PopoverAnchor } from '@/composables/popoverAnchor'
-import { daysBetweenDays, formatDay, type Day } from '@nosdesk/core/utils/ticketDates'
+import { daysBetweenDays, formatDay, planDay, type Day } from '@nosdesk/core/utils/ticketDates'
 import {
   loadHours,
   loadMinutes,
@@ -40,9 +42,9 @@ import {
   sizeOf,
   type Size,
 } from '@nosdesk/core/utils/ticketPlan'
-import { overlaps, prefillTime, ranksForDrop, type AgendaPlan } from '@nosdesk/core/sync/views/planOrder'
+import { overlaps, prefillTime, type AgendaPlan } from '@nosdesk/core/sync/views/planOrder'
 import type { CardData } from '@nosdesk/core/sync/views/types'
-import { useRowReorder, type RowDrop } from '../useRowReorder'
+import { dropRanks, useRowReorder, type RowDrop } from '../useRowReorder'
 import AgendaRow from './AgendaRow.vue'
 
 const props = defineProps<{
@@ -105,6 +107,13 @@ const byId = (id: number) =>
   props.plan.overdue.find((c) => c.id === id) ??
   props.plan.undated.find((c) => c.id === id)
 
+/** A job in Any time from an earlier plan day: today's work, but its
+ *  time belongs to that day, so it takes no time here. */
+const isCarried = (card: CardData) => {
+  const d = planDay(card)
+  return d != null && d < day.value
+}
+
 /** Overdue and No date rows: outside the day's order. */
 const isFixed = (id: number) =>
   props.plan.overdue.some((c) => c.id === id) || props.plan.undated.some((c) => c.id === id)
@@ -135,10 +144,12 @@ function place(id: number, slot: number): void {
   if (!card) return
   const anyTime = props.plan.anyTime
   const order = anyTime.some((c) => c.id === id) ? anyTime : [...anyTime, card]
-  for (const write of ranksForDrop(order, id, slot)) {
+  for (const write of dropRanks(order, id, slot)) {
     const patch: Partial<CardData> = { rank: write.rank }
     // Out of Booked: the drop clears the time it had.
-    if (write.id === id && planTime(card) != null) Object.assign(patch, planTimePatch(card, null))
+    if (write.id === id && props.plan.booked.some((c) => c.id === id)) {
+      Object.assign(patch, planTimePatch(card, null))
+    }
     emit('patch', write.id, patch)
   }
 }
@@ -179,9 +190,13 @@ const dragged = computed(() => (reorder.draggedId.value != null ? byId(reorder.d
 const menu = ref<{ id: number; x: number; y: number } | null>(null)
 const menuOpen = ref(false)
 
+/** The pointer that pressed last anywhere in the day, fixed rows too. */
+const lastPointer = ref('mouse')
+
 function openMenu(id: number, event: MouseEvent): void {
   // A long press on a phone lands here too; there it picks the row up.
-  if (reorder.settling.value || reorder.lastPointerType() !== 'mouse') return
+  const pointer = (event as PointerEvent).pointerType || lastPointer.value
+  if (reorder.settling.value || pointer !== 'mouse') return
   menu.value = { id, x: event.clientX, y: event.clientY }
   menuOpen.value = true
   emit('menu-open', id)
@@ -192,12 +207,14 @@ const PLAN_ACTIONS = new Set(['time', 'clear-time', 'top', 'size-none', ...SIZES
 const menuItems = computed<MenuItem[]>(() => {
   const card = menu.value ? byId(menu.value.id) : undefined
   if (!card) return []
-  const timed = planTime(card) != null
+  const carried = isCarried(card)
+  // A carried job's time belongs to its old day: here it has none.
+  const timed = planTime(card) != null && !carried
   const size = sizeOf(card.estimate_minutes)
   const undated = props.plan.undated.some((c) => c.id === card.id)
   const items: MenuItem[] = []
-  // A time needs a day, and only the day's own jobs have a place in it.
-  if (!undated) {
+  // A time needs a day, and only the day's own jobs have a time on it.
+  if (!undated && !carried) {
     items.push({ id: 'time', label: fluent.$t(timed ? 'plan-menu-change-time' : 'plan-menu-set-time'), icon: 'clock' })
   }
   if (timed) items.push({ id: 'clear-time', label: fluent.$t('plan-menu-clear-time') })
@@ -235,7 +252,12 @@ function onMenuSelect(action: string): void {
 </script>
 
 <template>
-  <div ref="root" class="min-h-0 overflow-y-auto overscroll-contain bg-surface" data-agenda>
+  <div
+    ref="root"
+    class="min-h-0 overflow-y-auto overscroll-contain bg-surface"
+    data-agenda
+    @pointerdown.capture="lastPointer = $event.pointerType"
+  >
     <div class="flex w-full max-w-[45rem] flex-col pb-8">
       <!-- The day, its load, and the way to another day. -->
       <header class="flex items-start gap-2 px-4 pt-4 pb-1">
@@ -257,7 +279,7 @@ function onMenuSelect(action: string): void {
 
       <section v-if="plan.overdue.length > 0" data-section="overdue" :aria-label="$t('tickets-due-overdue')">
         <h3 class="px-4 pt-3 pb-1.5 text-xs font-medium text-tertiary">{{ $t('tickets-due-overdue') }}</h3>
-        <ul class="flex flex-col border-t border-subtle/40">
+        <ul role="presentation" class="flex flex-col border-t border-subtle/40">
           <AgendaRow
             v-for="card in plan.overdue"
             :key="card.id"
@@ -281,7 +303,7 @@ function onMenuSelect(action: string): void {
       <template v-else>
         <section data-lane="booked" :aria-label="$t('plan-section-booked')">
           <h3 class="px-4 pt-3 pb-1.5 text-xs font-medium text-tertiary">{{ $t('plan-section-booked') }}</h3>
-          <ul class="flex flex-col border-t border-subtle/40">
+          <ul role="presentation" class="flex flex-col border-t border-subtle/40">
             <AgendaRow
               v-for="card in plan.booked"
               :key="card.id"
@@ -302,7 +324,7 @@ function onMenuSelect(action: string): void {
 
         <section data-lane="any" :aria-label="$t('plan-section-any-time')">
           <h3 class="px-4 pt-4 pb-1.5 text-xs font-medium text-tertiary">{{ $t('plan-section-any-time') }}</h3>
-          <ul class="flex flex-col border-t border-subtle/40">
+          <ul role="presentation" class="flex flex-col border-t border-subtle/40">
             <template v-for="card in plan.anyTime" :key="card.id">
               <li
                 v-if="card.id === firstUnplacedId"
@@ -315,6 +337,7 @@ function onMenuSelect(action: string): void {
                 :today="today"
                 :selected="selectedId === card.id"
                 :lifted="reorder.draggedId.value === card.id"
+                :timeless="isCarried(card)"
                 @row-down="(e) => reorder.onRowDown(card.id, e)"
                 @grip-down="(e) => reorder.onGripDown(card.id, e)"
                 @open="emit('open', card.id)"
@@ -329,7 +352,7 @@ function onMenuSelect(action: string): void {
 
       <section v-if="plan.undated.length > 0" data-section="undated" :aria-label="$t('tickets-due-none')">
         <h3 class="px-4 pt-4 pb-1.5 text-xs font-medium text-tertiary">{{ $t('tickets-due-none') }}</h3>
-        <ul class="flex flex-col border-t border-subtle/40">
+        <ul role="presentation" class="flex flex-col border-t border-subtle/40">
           <AgendaRow
             v-for="card in plan.undated"
             :key="card.id"

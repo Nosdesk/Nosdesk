@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   agendaFor,
   compareAnyTime,
+  MAX_PLACED_BY_DROP,
+  ranksBetween,
   compareBooked,
   overlaps,
   planFor,
@@ -78,38 +80,50 @@ describe('the order inside a day', () => {
 describe("the agenda's sections", () => {
   const TODAY = DAY
   const cards = [
+    // Due before today: Overdue, whatever its plan day.
     job(1, { due_date: '2026-11-20T00:00:00' }, 'low'),
     job(2, { due_date: '2026-11-22T00:00:00', due_time: '09:00:00' }),
-    job(3, { start_date: '2026-11-23T00:00:00', due_date: '2026-11-30T00:00:00' }, 'urgent'),
+    job(3, { start_date: TODAY + 'T00:00:00', start_time: '08:00:00', due_date: '2026-11-23T00:00:00' }),
+    // Today.
     job(4, { due_time: '10:00:00' }),
     job(5),
-    job(6, { due_date: null }, 'high'),
-    job(7, { due_date: null, rank: 'V' }),
-    job(8, { due_date: '2026-11-25T00:00:00' }),
-    job(9, { start_date: '2026-11-25T00:00:00', due_date: '2026-11-20T00:00:00' }),
+    // Started earlier, not overdue: today's Any time, its old time left behind.
+    job(6, { start_date: '2026-11-20T00:00:00', start_time: '09:00:00', due_date: '2026-11-27T00:00:00' }, 'high'),
+    job(7, { start_date: '2026-11-21T00:00:00', due_date: null }),
+    job(8, { start_date: '2026-11-21T00:00:00', due_date: TODAY + 'T00:00:00' }, 'urgent'),
+    // No date.
+    job(9, { due_date: null }, 'high'),
+    job(10, { due_date: null, rank: 'V' }),
+    // Another day.
+    job(11, { due_date: '2026-11-25T00:00:00' }),
+    job(12, { start_date: '2026-11-25T00:00:00', due_date: '2026-11-30T00:00:00' }),
   ]
 
-  it('shows today with Overdue above and No date below', () => {
+  it('shows today with Overdue above and No date below, each job once', () => {
     const plan = agendaFor(cards, TODAY, TODAY)
     expect(ids(plan.overdue)).toEqual([1, 2, 3])
     expect(ids(plan.booked)).toEqual([4])
-    expect(ids(plan.anyTime)).toEqual([5])
-    expect(ids(plan.undated)).toEqual([7, 6])
+    expect(ids(plan.anyTime)).toEqual([8, 6, 5, 7])
+    expect(ids(plan.undated)).toEqual([10, 9])
+    const all = [...plan.overdue, ...plan.booked, ...plan.anyTime, ...plan.undated]
+    expect(new Set(ids(all)).size).toBe(all.length)
   })
 
-  it('reads overdue by the plan day, so a job booked ahead of a passed deadline is not overdue', () => {
+  it('counts a job as overdue by its due day, not its plan day', () => {
     const plan = agendaFor(cards, TODAY, TODAY)
-    expect(ids(plan.overdue)).not.toContain(9)
-    expect(ids(agendaFor(cards, '2026-11-25', TODAY).anyTime)).toEqual([8, 9])
+    expect(ids(plan.overdue)).not.toContain(6)
+    expect(ids(plan.overdue)).not.toContain(7)
+    expect(ids(plan.booked)).not.toContain(3)
   })
 
   it('shows only the day itself on any other day', () => {
-    for (const day of ['2026-11-25', '2026-11-22']) {
-      const plan = agendaFor(cards, day, TODAY)
-      expect(plan.overdue).toEqual([])
-      expect(plan.undated).toEqual([])
-    }
-    expect(ids(agendaFor(cards, '2026-11-22', TODAY).booked)).toEqual([2])
+    const tomorrow = agendaFor(cards, '2026-11-25', TODAY)
+    expect(tomorrow.overdue).toEqual([])
+    expect(tomorrow.undated).toEqual([])
+    expect(ids([...tomorrow.booked, ...tomorrow.anyTime])).toEqual([11, 12])
+    const past = agendaFor(cards, '2026-11-22', TODAY)
+    expect(past.overdue).toEqual([])
+    expect(ids(past.booked)).toEqual([2])
   })
 })
 
@@ -147,25 +161,52 @@ describe('rank keys', () => {
       ['0V', '1'],
       ['zz', null],
       [null, '01'],
+      ['a0', 'a1'],
+      [null, 'a0'],
+      [null, '001'],
     ]
     for (const [lo, hi] of cases) {
       const key = rankBetween(lo, hi)
-      if (lo != null) expect(key > lo).toBe(true)
-      if (hi != null) expect(key < hi).toBe(true)
-      expect(key.endsWith('0')).toBe(false)
+      expect(key).not.toBeNull()
+      if (lo != null) expect(key! > lo).toBe(true)
+      if (hi != null) expect(key! < hi).toBe(true)
+      expect(key!.endsWith('0')).toBe(false)
       expect(key).toMatch(VALID_RANK)
     }
+  })
+
+  it('says when there is no room: equal ends, ends out of order, or nothing below', () => {
+    expect(rankBetween('V', 'V')).toBeNull()
+    expect(rankBetween('k', 'V')).toBeNull()
+    expect(rankBetween(null, '0')).toBeNull()
+    expect(rankBetween(null, '00')).toBeNull()
+    expect(rankBetween('a', 'a0')).toBeNull()
+  })
+
+  it('gives two people placing between the same neighbours different keys', () => {
+    const keys = new Set(Array.from({ length: 20 }, () => rankBetween(null, null)))
+    expect(keys.size).toBeGreaterThan(1)
   })
 
   it('keeps finding room when jobs are dropped into the same gap again and again', () => {
     let lo = 'V'
     const hi = 'W'
     for (let i = 0; i < 200; i++) {
-      const key = rankBetween(lo, hi)
+      const key = rankBetween(lo, hi)!
       expect(key > lo && key < hi).toBe(true)
       expect(key).toMatch(VALID_RANK)
       lo = key
     }
+  })
+
+  it('spreads many keys evenly and short, each above the one before', () => {
+    const keys = ranksBetween(null, null, 500)!
+    expect(keys).toHaveLength(500)
+    for (let i = 1; i < keys.length; i++) expect(keys[i] > keys[i - 1]).toBe(true)
+    expect(Math.max(...keys.map((k) => k.length))).toBeLessThanOrEqual(3)
+    const between = ranksBetween('F', 'G', 500)!
+    for (let i = 1; i < between.length; i++) expect(between[i] > between[i - 1]).toBe(true)
+    expect(between[0] > 'F' && between[499] < 'G').toBe(true)
   })
 })
 
@@ -181,16 +222,15 @@ describe('the writes a drop makes', () => {
 
   it('writes one rank for a drop among placed jobs', () => {
     const order = [job(1, { rank: 'F' }), job(2, { rank: 'V' }), job(3, { rank: 'k' })]
-    const writes = ranksForDrop(order, 3, 1)
-    expect(writes).toHaveLength(1)
-    expect(writes[0].id).toBe(3)
+    const writes = ranksForDrop(order, 3, 1)!
+    expect(writes.map((w) => w.id)).toEqual([3])
     expect(writes[0].rank > 'F' && writes[0].rank < 'V').toBe(true)
     expect(after(order, writes)).toEqual([1, 3, 2])
   })
 
   it('places the unplaced jobs above the drop too, in the order shown', () => {
     const order = [job(1, { rank: 'V' }), job(2, {}, 'urgent'), job(3, {}, 'high'), job(4, {}, 'low')]
-    const writes = ranksForDrop(order, 4, 2)
+    const writes = ranksForDrop(order, 4, 2)!
     expect(writes.map((w) => w.id)).toEqual([2, 4])
     expect(after(order, writes)).toEqual([1, 2, 4, 3])
     for (const w of writes) expect(w.rank).toMatch(VALID_RANK)
@@ -198,9 +238,37 @@ describe('the writes a drop makes', () => {
 
   it('places a job at the top of an untouched day with one write', () => {
     const order = [job(1, {}, 'urgent'), job(2, {}, 'high'), job(3, {}, 'low')]
-    const writes = ranksForDrop(order, 3, 0)
+    const writes = ranksForDrop(order, 3, 0)!
     expect(writes.map((w) => w.id)).toEqual([3])
     expect(after(order, writes)).toEqual([3, 1, 2])
+  })
+
+  it('keys the jobs below again when the neighbours tie', () => {
+    const order = [job(1, { rank: 'V' }), job(2, { rank: 'V' }), job(3, { rank: 'k' }), job(9)]
+    const writes = ranksForDrop(order, 9, 1)!
+    expect(writes.map((w) => w.id)).toEqual([9, 2])
+    expect(after(order, writes)).toEqual([1, 9, 2, 3])
+  })
+
+  it('finds room under a key with nothing below it', () => {
+    const order = [job(1, { rank: '0' }), job(2, { rank: 'V' }), job(9)]
+    const writes = ranksForDrop(order, 9, 0)!
+    expect(writes.map((w) => w.id)).toEqual([9, 1])
+    expect(after(order, writes)).toEqual([9, 1, 2])
+  })
+
+  it('places a long run of unplaced jobs with keys that only go up', () => {
+    const order = Array.from({ length: MAX_PLACED_BY_DROP }, (_, i) => job(i + 1))
+    const writes = ranksForDrop(order, MAX_PLACED_BY_DROP, MAX_PLACED_BY_DROP - 1)!
+    expect(writes).toHaveLength(MAX_PLACED_BY_DROP)
+    for (let i = 1; i < writes.length; i++) expect(writes[i].rank > writes[i - 1].rank).toBe(true)
+    expect(after(order, writes)).toEqual(ids(order))
+  })
+
+  it('refuses a drop that would place more jobs than one drop may', () => {
+    const order = Array.from({ length: 500 }, (_, i) => job(i + 1))
+    expect(ranksForDrop(order, 500, 499)).toBeNull()
+    expect(ranksForDrop(order, 500, 0)).toEqual([{ id: 500, rank: expect.stringMatching(VALID_RANK) }])
   })
 
   it('writes nothing for a job that is not in the list', () => {

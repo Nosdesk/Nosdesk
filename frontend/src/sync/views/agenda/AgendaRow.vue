@@ -36,6 +36,9 @@ const props = defineProps<{
   /** A job outside the day's order (Overdue, No date): no grip, and its
    *  deadline shows even when it is the plan day. */
   fixed?: boolean
+  /** Shown without its time (a job carried in from an earlier day, whose
+   *  time belongs to that day). */
+  timeless?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -51,11 +54,18 @@ const emit = defineEmits<{
 const fluent = useFluent()
 const { getUserHandle } = useUsersDirectory()
 
-const time = computed(() => planTime(props.card))
+const time = computed(() => (props.timeless ? null : planTime(props.card)))
 const timeLabel = computed(() => (time.value ? formatWallTime(time.value) : ''))
 const requester = computed(() =>
   props.card.requester_uuid ? (getUserHandle(props.card.requester_uuid).user.value?.name ?? '') : '',
 )
+
+/** A click with no pointer behind it (a screen reader's, or one sent
+ *  from the keyboard) opens the job; a pointer's click is the drag
+ *  helper's to tell from a drag, except on a fixed row. */
+function onClick(event: MouseEvent): void {
+  if (props.fixed || event.detail === 0) emit('open')
+}
 
 /** "due Fri", only when the deadline is another day than the plan day
  *  (any day, on a fixed row); in the danger color once that day has
@@ -84,9 +94,14 @@ const overlapTitle = computed(() =>
     : '',
 )
 
+/** The keys that move an Any time row, for assistive tech. */
+const moveKeys = computed(() =>
+  !props.fixed && !time.value ? 'Alt+Shift+ArrowUp Alt+Shift+ArrowDown' : undefined,
+)
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.target !== event.currentTarget) return
-  if (event.key === 'Enter') {
+  if (event.key === 'Enter' || event.key === ' ') {
     // The row's own: the list's keys stand down on a handled event.
     event.preventDefault()
     emit('open')
@@ -102,13 +117,16 @@ function onKeydown(event: KeyboardEvent): void {
   <li
     :data-row="card.id"
     tabindex="0"
+    role="button"
+    :aria-current="selected ? 'true' : undefined"
+    :aria-keyshortcuts="moveKeys"
     class="plan-row plan-row-hold group relative flex items-start gap-3 border-b border-subtle/40 px-4 py-2.5 cursor-pointer transition-colors focus:outline-none focus-visible:bg-surface-hover"
     :class="[
       selected ? 'bg-accent/5 hover:bg-accent/10' : 'hover:bg-surface-hover',
       lifted && 'opacity-40',
     ]"
     @pointerdown="!fixed && emit('row-down', $event)"
-    @click="fixed && emit('open')"
+    @click="onClick"
     @contextmenu.prevent="emit('menu', $event)"
     @keydown="onKeydown"
   >

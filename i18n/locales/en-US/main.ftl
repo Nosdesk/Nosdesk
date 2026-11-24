@@ -11292,3 +11292,4 @@ plan-menu-aria = Plan #{ $number }
 views-display-menu-sort-manual = Manual
 tickets-column-size = Size
 tickets-column-size-description = How big the job is: small, medium or big
+plan-drop-too-many = That drop would place more than { $count } jobs by hand. Drop it nearer the jobs already placed.

@@ -8,6 +8,10 @@
 // elements inside it. Rows do not move during the drag; the line shows
 // where the drop lands.
 import { computed, reactive, ref, watch } from 'vue'
+import { useToastStore } from '@nosdesk/core/stores/toast'
+import { MAX_PLACED_BY_DROP, ranksForDrop, type RankWrite } from '@nosdesk/core/sync/views/planOrder'
+import type { CardData } from '@nosdesk/core/sync/views/types'
+import { translate } from '@/i18n'
 import { useDragDrop } from './drag'
 
 export interface DropLine {
@@ -54,6 +58,17 @@ export function insertionAt(
         ? others[others.length - 1].bottom
         : laneBottom
   return { slot, same: from === slot, edge }
+}
+
+/** The rank writes for a drop (`ranksForDrop`). A drop that would place
+ *  too many unplaced jobs by hand writes nothing and says why. */
+export function dropRanks(order: readonly CardData[], movedId: number, slot: number): RankWrite[] {
+  const writes = ranksForDrop(order, movedId, slot)
+  if (writes) return writes
+  useToastStore().warning(
+    translate('plan-drop-too-many', { count: MAX_PLACED_BY_DROP }, 'Too many jobs to place by hand'),
+  )
+  return []
 }
 
 export function useRowReorder(options: {

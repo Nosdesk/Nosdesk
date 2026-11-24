@@ -287,8 +287,8 @@ const buckets = grouping.buckets(sortedCards)
 // ---------------------------------------------------------------
 // Agenda (My day): one day of the filtered tickets, Booked then Any
 // time, with Overdue above and No date below on today. The day lives
-// here so the preview's selection and its arrow keys follow the jobs on
-// screen. A day left on today moves on at midnight with it.
+// here so the preview's arrow keys follow the jobs on screen. A day left
+// on today moves on at midnight with it.
 // ---------------------------------------------------------------
 const today = useToday()
 const agendaActive = computed<boolean>(
@@ -300,22 +300,17 @@ watch(today, (next, prev) => {
 })
 const agendaPlan = computed(() => agendaFor(afterChipFilter.value, agendaDay.value, today.value))
 
-/** The tickets on screen, in their order: the day's jobs on the agenda,
- *  else the sorted list. */
-const shownCards = computed<CardData[]>(() =>
-  agendaActive.value
-    ? [
-        ...agendaPlan.value.overdue,
-        ...agendaPlan.value.booked,
-        ...agendaPlan.value.anyTime,
-        ...agendaPlan.value.undated,
-      ]
-    : sortedCards.value,
-)
+/** The agenda's jobs on screen, in their order. */
+const agendaCards = computed<CardData[]>(() => [
+  ...agendaPlan.value.overdue,
+  ...agendaPlan.value.booked,
+  ...agendaPlan.value.anyTime,
+  ...agendaPlan.value.undated,
+])
 
 const { segments } = useTicketsSummary(afterViewFilter)
 
-const selection = useTicketSelection(shownCards)
+const selection = useTicketSelection(sortedCards)
 
 // ---------------------------------------------------------------
 // Bulk selection (multi-row checkbox model). Coexists with the
@@ -422,25 +417,47 @@ const isWideViewport = ref<boolean>(true)
 }
 const splitViewActive = computed(() => splitView.enabled.value && isWideViewport.value)
 
-/** The agenda shows the preview beside the day once a job is picked,
- *  whether or not the list's split view is on: picking a job is how the
- *  day opens one. Closing it clears the pick. */
+/**
+ * The agenda's preview: its own pick, apart from the list's split view
+ * and selection. Picking a job opens the preview beside the day, and
+ * closing it (the pane, the header toggle, Escape) clears the pick and
+ * touches no list setting. The picked job stays in the preview while it
+ * is edited off the shown day or out of the view; it is looked up in the
+ * whole pool, not in the day.
+ */
+const agendaPickId = ref<number | null>(null)
+const agendaPickCard = computed<CardData | null>(() =>
+  agendaPickId.value == null ? null : (allCards.value.find((c) => c.id === agendaPickId.value) ?? null),
+)
 const agendaPreviewShowing = computed(
-  () => agendaActive.value && isWideViewport.value && selection.selectedId.value != null,
+  () => agendaActive.value && isWideViewport.value && agendaPickCard.value != null,
 )
 const previewShowing = computed(() =>
   agendaActive.value ? agendaPreviewShowing.value : splitViewActive.value,
 )
 
 function openFromAgenda(id: number): void {
-  if (isWideViewport.value) selection.setSelected(id)
+  if (isWideViewport.value) agendaPickId.value = id
   else open(id)
 }
 
+function closeAgendaPreview(): void {
+  agendaPickId.value = null
+}
+
+/** Arrow keys on the agenda: the next or previous job on screen, or the
+ *  first one when the pick has left the day. */
+function moveAgendaPick(by: 1 | -1): void {
+  const cards = agendaCards.value
+  if (cards.length === 0) return
+  const index = cards.findIndex((c) => c.id === agendaPickId.value)
+  const next = index < 0 ? 0 : Math.max(0, Math.min(cards.length - 1, index + by))
+  agendaPickId.value = cards[next].id
+}
+
 function toggleSplitView(): void {
-  if (agendaActive.value && agendaPreviewShowing.value) {
-    splitView.setEnabled(false)
-    selection.clearSelected()
+  if (agendaActive.value) {
+    agendaPickId.value = agendaPreviewShowing.value ? null : (agendaCards.value[0]?.id ?? null)
     return
   }
   splitView.toggle()
@@ -470,14 +487,15 @@ function patchPlan(id: number, patch: Partial<CardData>): void {
 watch(
   splitViewActive,
   (on) => {
-    if (on) selection.selectFirstIfNone()
-    else selection.clearSelected()
+    // The agenda keeps its own pick; the list's waits until it shows.
+    if (on && !agendaActive.value) selection.selectFirstIfNone()
+    else if (!on) selection.clearSelected()
   },
   { immediate: true },
 )
-watch(shownCards, () => {
+watch(sortedCards, () => {
   selection.reconcile()
-  if (splitViewActive.value) selection.selectFirstIfNone()
+  if (splitViewActive.value && !agendaActive.value) selection.selectFirstIfNone()
 })
 
 // Cache-first: the ticket pool is rehydrated from IndexedDB before this view
@@ -812,27 +830,36 @@ function onKey(e: KeyboardEvent): void {
   // selected-row arrow keys only makes sense when the preview pane
   // is actually visible.
   // A key a row already handled (the agenda's Enter and Alt+Shift+Arrow)
-  // is not also a selection move.
+  // is not also a selection move, and a key on a control (a button, a
+  // link, a menu item) is that control's. A focused agenda row is a
+  // button that still takes the arrows.
   if (!previewShowing.value || inField || e.defaultPrevented) return
+  const control = t?.closest('button, a, select, [role="button"], [role="menuitem"]')
+  if (control && !control.hasAttribute('data-row')) return
+  const agenda = agendaActive.value
   if (e.key === 'ArrowDown' || e.key === 'j') {
     e.preventDefault()
-    selection.move(1)
+    if (agenda) moveAgendaPick(1)
+    else selection.move(1)
     return
   }
   if (e.key === 'ArrowUp' || e.key === 'k') {
     e.preventDefault()
-    selection.move(-1)
+    if (agenda) moveAgendaPick(-1)
+    else selection.move(-1)
     return
   }
   if (e.key === 'Enter') {
-    if (selection.selectedId.value != null) {
+    const id = agenda ? agendaPickId.value : selection.selectedId.value
+    if (id != null) {
       e.preventDefault()
-      open(selection.selectedId.value)
+      open(id)
     }
     return
   }
   if (e.key === 'Escape') {
-    selection.clearSelected()
+    if (agenda) closeAgendaPreview()
+    else selection.clearSelected()
     return
   }
 }
@@ -1162,7 +1189,7 @@ function startPaneResize(event: PointerEvent): void {
         class="min-w-0 flex-[1_1_45rem] border-subtle xl:max-w-[45rem] xl:border-r"
         :plan="agendaPlan"
         :today="today"
-        :selected-id="agendaPreviewShowing ? selection.selectedId.value : null"
+        :selected-id="agendaPreviewShowing ? agendaPickId : null"
         :extra-menu-items="agendaContextMenuItems"
         @open="openFromAgenda"
         @patch="patchPlan"
@@ -1175,9 +1202,9 @@ function startPaneResize(event: PointerEvent): void {
       >
         <TicketPreviewPane
           class="w-full"
-          :card="selection.selectedCard.value"
+          :card="agendaPickCard"
           @open="open"
-          @close="toggleSplitView"
+          @close="closeAgendaPreview"
         />
       </div>
     </div>

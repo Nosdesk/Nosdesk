@@ -13009,3 +13009,5 @@ views-display-menu-sort-manual = Manuel
 tickets-column-size = Taille
 # MT: pending native review (fr-FR)
 tickets-column-size-description = La taille de la tâche : petite, moyenne ou grande
+# MT: pending native review (fr-FR)
+plan-drop-too-many = Ce dépôt placerait plus de { $count } tâches à la main. Déposez-la plus près des tâches déjà placées.

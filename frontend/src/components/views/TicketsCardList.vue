@@ -45,8 +45,7 @@ import { useToday } from '@/composables/useToday'
 import type { TicketGroupBucket } from '@/composables/useTicketsGrouping'
 import { computed, ref } from 'vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
-import { useRowReorder } from '@/sync/views/useRowReorder'
-import { ranksForDrop } from '@nosdesk/core/sync/views/planOrder'
+import { dropRanks, useRowReorder } from '@/sync/views/useRowReorder'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 
 const props = withDefaults(defineProps<{
@@ -79,7 +78,7 @@ const draggable = computed<boolean>(() => props.manual && props.buckets.length =
 const reorder = useRowReorder({
   root: () => rootEl.value,
   onDrop: ({ id, slot }) => {
-    for (const write of ranksForDrop(props.cards, id, slot)) emit('patch', write.id, { rank: write.rank })
+    for (const write of dropRanks(props.cards, id, slot)) emit('patch', write.id, { rank: write.rank })
   },
   onClick: (id) => emit('open', id),
 })
