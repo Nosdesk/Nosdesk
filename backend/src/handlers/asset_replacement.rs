@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 
-use actix_web::http::StatusCode;
-use actix_web::{web, HttpResponse};
+use actix_web::http::{Method, StatusCode};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
@@ -17,7 +17,8 @@ use crate::errors;
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::asset_lifecycle::{map_transition_err, DisposalBody};
 use crate::handlers::asset_records::{require_staff, respond};
-use crate::models::AssetStatus;
+use crate::middleware::token_scope::claims_may_call;
+use crate::models::{AssetStatus, Claims};
 use crate::repository::asset_lifecycle::DisposalInput;
 use crate::repository::asset_replacement::{
     self as repo, CarryOver, MoveOld, ReplacementError, OLD_ASSET_STATUSES,
@@ -43,9 +44,19 @@ pub struct CarryOverBody {
     pub disposal: Option<DisposalBody>,
 }
 
+/// Whether the request's credential may link assets to tickets, as the
+/// ticket side's own link route asks. Sessions and unnarrowed tokens may;
+/// an API token narrowed to `assets:write` may not.
+fn writes_ticket_links(req: &HttpRequest) -> bool {
+    req.extensions()
+        .get::<Claims>()
+        .is_some_and(|c| claims_may_call(c, &Method::POST, "/api/tickets/1/assets/1"))
+}
+
 pub async fn carry_over(
     mut tc: TenantConn,
     auth: AuthContext,
+    req: HttpRequest,
     path: web::Path<(i32, i32)>,
     body: web::Json<CarryOverBody>,
     search: Option<web::Data<Arc<SearchService>>>,
@@ -55,6 +66,9 @@ pub async fn carry_over(
     }
     let (asset_id, record_id) = path.into_inner();
     let body = body.into_inner();
+    if body.link_open_tickets && !writes_ticket_links(&req) {
+        return errors::forbidden("Linking tickets needs a credential that can write tickets");
+    }
 
     let move_old_to = match body.move_old_to.as_deref().filter(|s| !s.is_empty()) {
         Some(raw) => {

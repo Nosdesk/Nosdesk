@@ -127,12 +127,25 @@ async fn call(
     uri: &str,
     body: Option<Value>,
 ) -> (StatusCode, Value) {
+    call_scoped(f, viewer, "full", method, uri, body).await
+}
+
+/// [`call`] with a credential of `scope`, as an API token narrowed to it
+/// carries.
+async fn call_scoped(
+    f: &Fixture,
+    viewer: Uuid,
+    scope: &str,
+    method: Method,
+    uri: &str,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
     let claims = Claims {
         sub: viewer.to_string(),
         name: "Viewer".to_string(),
         email: format!("{viewer}@example.com"),
         platform_role: "user".to_string(),
-        scope: "full".to_string(),
+        scope: scope.to_string(),
         sid: None,
         workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
@@ -754,4 +767,30 @@ async fn the_new_assets_timeline_reads_the_old_ones_history() {
         .iter()
         .any(|e| e["source"] == "status" && e["asset_id"] == old);
     assert!(moved, "the old asset's move shows too: {merged}");
+}
+
+#[actix_web::test]
+async fn a_token_that_cant_write_tickets_links_none() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let old = asset(&f, "CAM-014");
+    let new = asset(&f, "CAM-031");
+    ticket(&f, "No SDI", WorkflowStateCategory::Active, false, &[old]);
+    let rid = record(&f, old, "replaced", Some(new)).await;
+    let uri = format!("/api/assets/{old}/records/{rid}/replacement");
+
+    let ask = json!({ "link_open_tickets": true, "move_old_to": "retired" });
+    let (status, body) =
+        call_scoped(&f, f.agent, "assets:write", Method::POST, &uri, Some(ask)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(tickets_of(&f, new), Vec::<i32>::new());
+    assert_eq!(read_asset(&f, old).status, "in_service");
+
+    // What is the assets' own runs.
+    let ask = json!({ "move_old_to": "retired" });
+    let (status, body) =
+        call_scoped(&f, f.agent, "assets:write", Method::POST, &uri, Some(ask)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(read_asset(&f, old).status, "retired");
 }
