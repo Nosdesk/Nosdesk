@@ -54,6 +54,8 @@ export async function partitionWarmGroups(
   // delta keeps current until the new snapshot strips them.
   const stale: string[] = []
   for (const g of groups) {
+    if (watermarks[g] != null) sessionMarks.set(g, watermarks[g])
+    else sessionMarks.delete(g)
     if (isFreshWatermark(watermarks[g], maxAge, now)) {
       warm.push(g)
     } else {
@@ -105,15 +107,29 @@ export function noteSnapshotMaxAge(secs: number | undefined): void {
   }
 }
 
-/** Of `groups`, those holding a watermark that is no longer fresh. A group
- * without one is cold already, or its first snapshot is still streaming. */
-export async function staleWatermarkedGroups(groups: readonly string[]): Promise<string[]> {
-  const handle = state.handle
-  if (!handle || groups.length === 0) return []
-  const watermarks = (await serialized(() => idb.getGroupWatermarks(handle))) ?? {}
+/**
+ * Each group's watermark as this session knows it: read at its warm split,
+ * then as this session records and drops them. Not the cached map, which
+ * other tabs write too: another tab's fresh snapshot stripped its own pool,
+ * not this one, so this session's age is what says this pool is stale.
+ */
+const sessionMarks = new Map<string, idb.StoredWatermark>()
+
+/** Forget this session's watermarks (tear-down, or a wiped cache). */
+export function resetSessionMarks(): void {
+  sessionMarks.clear()
+}
+
+/** Of `groups`, those this session holds a watermark for that is no longer
+ * fresh. A group without one is cold already, or its first snapshot is still
+ * streaming. */
+export function staleWatermarkedGroups(groups: readonly string[]): string[] {
   const maxAge = snapshotMaxAgeSecs()
   const now = Date.now()
-  return groups.filter((g) => watermarks[g] != null && !isFreshWatermark(watermarks[g], maxAge, now))
+  return groups.filter((g) => {
+    const mark = sessionMarks.get(g)
+    return mark != null && !isFreshWatermark(mark, maxAge, now)
+  })
 }
 
 /**
@@ -138,6 +154,7 @@ export function recordGroupWatermarks(
 ): Promise<void> {
   if (groups.length === 0) return Promise.resolve()
   const mark: idb.GroupWatermark = { xid8, at: Date.now() }
+  for (const g of groups) sessionMarks.set(g, mark)
   return serialized(() => idb.setGroupWatermarks(handle, [...groups], mark))
 }
 
@@ -146,6 +163,7 @@ export function recordGroupWatermarks(
 export function dropGroupWatermarks(handle: idb.IdbHandle, groups: Iterable<string>): Promise<void> {
   const dropped = new Set(groups)
   if (dropped.size === 0) return Promise.resolve()
+  for (const g of dropped) sessionMarks.delete(g)
   return serialized(async () => {
     const marks = (await idb.getGroupWatermarks(handle)) ?? {}
     const kept: Record<string, idb.StoredWatermark> = {}

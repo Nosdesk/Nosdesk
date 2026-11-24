@@ -8,7 +8,7 @@ import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import { noteServerEcho } from './optimisticCreates'
 import { notifySyncActions } from '@nosdesk/core/sync/observers'
-import { state } from './runtimeState'
+import { cursorHeld, state } from './runtimeState'
 import { SCHEMA_VERSIONS } from './schemaVersions'
 import { dropGroupWatermarks, pruneTornWatermarks } from './warm'
 import { stripGroups } from './ownership'
@@ -229,7 +229,9 @@ export function applySseFrame(actions: SyncAction[], lastXid8: number, lastSyncI
   // the cursor holds at its cached value: jumping it to the frame's "now"
   // would make the in-flight catch-up delta skip the whole offline span
   // (see LifecycleState.caughtUp). The catch-up re-delivers these events.
-  if (!state.caughtUp) {
+  // The same while a `keepCursor` bootstrap streams: its rows may land after
+  // these and be older, and the delta closing it re-applies these after them.
+  if (!state.caughtUp || cursorHeld()) {
     notifySyncActions(actions)
     return
   }

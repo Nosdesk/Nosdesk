@@ -4,7 +4,8 @@
  * device's clock from when the snapshot completed. A watermark from before
  * ages were kept is stale. A stale group paints from the cache and catches
  * up by delta first, so its new snapshot holds the cursor and strips what
- * lingered; while the app runs, the tab becoming visible does the same.
+ * lingered; while the app runs, the tab becoming visible does the same. Live
+ * events that land while such a snapshot streams are replayed over it.
  */
 import { ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -46,7 +47,18 @@ const fake = vi.hoisted(() => {
       loadModels: async () => [...rows.values()],
       deleteModel: async (_h: unknown, aggregate: string, id: string) => drop([[aggregate, id]]),
       deleteModels: async (_h: unknown, keys: Array<[string, string]>) => drop(keys),
-      deleteModelsOwnedOnlyBy: async () => {},
+      deleteModelsOwnedOnlyBy: async (
+        _h: unknown,
+        keys: Array<[string, string]>,
+        groups: ReadonlySet<string>,
+      ) => {
+        drop(
+          keys.filter(([a, id]) => {
+            const owners = rows.get(`${a}:${id}`)?.owners
+            return !!owners && owners.length > 0 && owners.every((o) => groups.has(o))
+          }),
+        )
+      },
       putTransaction: async () => {},
       deleteTransaction: async () => {},
       loadTransactions: async () => [],
@@ -84,9 +96,20 @@ const server = vi.hoisted(() => ({
   rows: {} as Record<string, Array<Record<string, unknown>>>,
   maxAge: undefined as number | undefined,
   requests: [] as string[],
-  /** Bootstraps grant no group (access was taken away). */
-  grantsNone: false,
+  /** Groups bootstraps no longer grant (access was taken away). */
+  denied: [] as string[],
+  /** How many of the next deltas, and of the next bootstraps, fail. */
+  failDeltas: 0,
+  failBootstraps: 0,
+  /** Live events the feed holds; a delta serves those past its cursor and
+   * ends at the newest (20 when none is). */
+  actions: [] as Array<Record<string, unknown> & { xid8: number }>,
+  /** A stream waiting at a HOLD line; call it to go on. */
+  held: null as null | (() => void),
 }))
+
+/** A point in a snapshot stream where it waits for `server.held()`. */
+const HOLD = { __hold__: true } as const
 
 vi.mock('./idb', () => fake.idb)
 vi.mock('./queue', () => ({ setIdbHandle: () => {}, flush: async () => {} }))
@@ -105,31 +128,62 @@ vi.mock('@/services/authFetch', () => ({
     const groups = (params.get('groups') ?? '').split(',')
     const maxAge = server.maxAge === undefined ? {} : { snapshot_max_age_secs: server.maxAge }
     if (url.startsWith('/sync/bootstrap')) {
+      if (server.failBootstraps > 0) {
+        server.failBootstraps--
+        return new Response(null, { status: 503 })
+      }
       const end = { last_xid8: 30, last_sync_id: 300 }
       const lines = [
         {
           __meta__: {
             server_schema: 'h',
             ...end,
-            groups_granted: server.grantsNone ? [] : groups,
+            groups_granted: groups.filter((g) => !server.denied.includes(g)),
             ...maxAge,
           },
         },
         ...groups.flatMap((g) => server.rows[g] ?? []),
         { __end__: end },
       ]
-      return new Response(lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+      const encoder = new TextEncoder()
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          for (const line of lines) {
+            if ('__hold__' in line) {
+              await new Promise<void>((resolve) => (server.held = resolve))
+              continue
+            }
+            controller.enqueue(encoder.encode(JSON.stringify(line) + '\n'))
+          }
+          controller.close()
+        },
+      })
+      return new Response(body)
     }
     if (url.startsWith('/sync/delta')) {
+      if (server.failDeltas > 0) {
+        server.failDeltas--
+        return new Response(null, { status: 503 })
+      }
+      const from = Number(params.get('from_xid8') ?? 0)
+      const actions = server.actions.filter((a) => a.xid8 > from)
+      const last = Math.max(20, ...actions.map((a) => a.xid8))
       return new Response(
-        JSON.stringify({ actions: [], last_xid8: 20, last_sync_id: 200, has_more: false, ...maxAge }),
+        JSON.stringify({
+          actions,
+          last_xid8: last,
+          last_sync_id: last * 10,
+          has_more: false,
+          ...maxAge,
+        }),
       )
     }
     return new Response(null, { status: 404 })
   }),
 }))
 
-const { hydrate, subscribe, tearDown, refreshStaleSnapshots } = await import('./lifecycle')
+const { hydrate, subscribe, tearDown, refreshStaleSnapshots, pullDelta, applySseFrame } =
+  await import('./lifecycle')
 
 const WORKSPACE = 'workspace:6'
 const DB = 'test:u1:h:acme'
@@ -166,8 +220,37 @@ async function launch(): Promise<void> {
   await subscribe(WORKSPACE)
 }
 
+/** Resolves once a stream reaches a HOLD; the result lets it go on. */
+async function reachHold(): Promise<() => void> {
+  await vi.waitFor(() => {
+    if (!server.held) throw new Error('stream not held yet')
+  })
+  const release = server.held!
+  server.held = null
+  return release
+}
+
+/** A ticket event as the feed carries it. */
+function ticketEvent(
+  xid8: number,
+  op: 'U' | 'D',
+  data: Record<string, unknown>,
+): Record<string, unknown> & { xid8: number } {
+  return {
+    xid8,
+    sync_id: xid8 * 10,
+    aggregate: 'ticket',
+    aggregate_id: String(data.id),
+    op,
+    event_type: op === 'D' ? 'ticket.deleted' : 'ticket.updated',
+    schema_version: 1,
+    data,
+    groups: [WORKSPACE],
+  }
+}
+
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'performance'] })
   vi.setSystemTime(NOW)
   fake.dbs.clear()
   fake.dbs.set(DB, new Map<string, unknown>([['schema_hash', 'h']]))
@@ -175,7 +258,11 @@ beforeEach(() => {
   server.rows = { [WORKSPACE]: [{ __model__: 'ticket', id: 1, title: 'Ticket 1' }] }
   server.maxAge = undefined
   server.requests = []
-  server.grantsNone = false
+  server.denied = []
+  server.failDeltas = 0
+  server.failBootstraps = 0
+  server.actions = []
+  server.held = null
 })
 
 afterEach(async () => {
@@ -244,6 +331,67 @@ describe('a launch', () => {
   })
 })
 
+describe('a launch whose catch-up delta fails', () => {
+  it('still holds the cursor through the stale snapshot', async () => {
+    lastSession(10)
+    server.failDeltas = 1
+    await launch()
+
+    expect(bootstraps()).toHaveLength(1)
+    // Never the snapshot's 30: that would skip the events in between.
+    expect(pool.getLastXid8()).toBe(20)
+    expect(meta().get('last_xid8')).toBe(20)
+    expect(pool.has('ticket', 2)).toBe(false)
+  })
+})
+
+describe('an upgrade from 1.1', () => {
+  it('paints the cache, catches up, snapshots once, and is warm the launch after', async () => {
+    // What 1.1 left: a real cursor, rows without owners, a bare xid8.
+    const m = meta()
+    m.set('last_xid8', 10)
+    m.set('last_sync_id', 100)
+    m.set('model_versions_tag', MODEL_VERSIONS_TAG)
+    m.set('group_watermarks', { [WORKSPACE]: 10 })
+    fake.rows.set('ticket:1', {
+      aggregate: 'ticket',
+      id: '1',
+      schema_version: 1,
+      data: { id: 1, title: 'Ticket 1' },
+    })
+    fake.rows.set('ticket:2', {
+      aggregate: 'ticket',
+      id: '2',
+      schema_version: 1,
+      data: { id: 2, title: 'Deleted under 1.1' },
+    })
+
+    await hydrate('u1', 'h', '', 'acme', '')
+    expect([...pool.ownersOf('ticket', 2)]).toEqual([pool.LEGACY_OWNER])
+    await subscribe(WORKSPACE)
+
+    expect(server.requests.map((u) => u.split('?')[0])).toEqual([
+      '/sync/delta',
+      '/sync/bootstrap',
+      '/sync/delta',
+    ])
+    expect([...pool.ownersOf('ticket', 1)]).toEqual([WORKSPACE])
+    expect(pool.has('ticket', 2)).toBe(false)
+    expect(fake.rows.get('ticket:1')?.owners).toEqual([WORKSPACE])
+    expect(fake.rows.has('ticket:2')).toBe(false)
+    expect(meta().get('group_watermarks')).toEqual({ [WORKSPACE]: { xid8: 30, at: NOW } })
+    expect(meta().get('last_xid8')).toBe(20)
+
+    await tearDown()
+    server.requests = []
+    vi.setSystemTime(NOW + HOUR)
+    await hydrate('u1', 'h', '', 'acme', '')
+    await subscribe(WORKSPACE)
+    expect(bootstraps()).toEqual([])
+    expect(pool.get('ticket', 1)).toMatchObject({ title: 'Ticket 1' })
+  })
+})
+
 describe('while running', () => {
   function becomeVisible(): void {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
@@ -257,32 +405,125 @@ describe('while running', () => {
 
     vi.setSystemTime(NOW + 24 * HOUR)
     becomeVisible()
-    // vi.waitFor moves the faked clock along as it polls.
+    // Each client waits a random while first, up to half a minute.
+    await vi.advanceTimersByTimeAsync(30_000)
+    await vi.waitFor(() => expect(bootstraps()).toHaveLength(1))
     await vi.waitFor(() =>
       expect(meta().get('group_watermarks')).toEqual({
         [WORKSPACE]: { xid8: 30, at: expect.toSatisfy((at: number) => at >= NOW + 24 * HOUR) },
       }),
     )
 
-    expect(bootstraps()).toHaveLength(1)
     expect(pool.has('ticket', 2)).toBe(false)
     expect(pool.has('ticket', 1)).toBe(true)
     expect(pool.getLastXid8()).toBe(20)
     expect(meta().get('last_xid8')).toBe(20)
   })
 
-  it('waits before trying again a group the server no longer grants', async () => {
+  it('replays the live events that land while the snapshot streams over its rows', async () => {
+    lastSession({ xid8: 10, at: NOW - HOUR })
+    for (const id of [5, 6]) {
+      fake.rows.set(`ticket:${id}`, {
+        aggregate: 'ticket',
+        id: String(id),
+        schema_version: 1,
+        data: { id, title: `Ticket ${id}`, status: 'open' },
+        owners: [WORKSPACE],
+      })
+    }
+    await launch()
+
+    // The snapshot was read before ticket 5 was closed and ticket 6 deleted.
+    server.rows[WORKSPACE] = [
+      { __model__: 'ticket', id: 1, title: 'Ticket 1' },
+      HOLD,
+      { __model__: 'ticket', id: 5, title: 'Ticket 5', status: 'open' },
+      { __model__: 'ticket', id: 6, title: 'Ticket 6' },
+    ]
+    vi.setSystemTime(NOW + 25 * HOUR)
+    const refreshing = refreshStaleSnapshots(0)
+    const release = await reachHold()
+
+    const close = ticketEvent(25, 'U', { id: 5, title: 'Ticket 5', status: 'closed' })
+    const remove = ticketEvent(26, 'D', { id: 6 })
+    server.actions = [close, remove]
+    // The close arrives by SSE: its row applies, the cursor holds.
+    applySseFrame([close as never], 25, 250)
+    expect(pool.get('ticket', 5)).toMatchObject({ status: 'closed' })
+    expect(pool.getLastXid8()).toBe(20)
+    // The poll waits for the snapshot, so the delete comes with the replay.
+    server.requests = []
+    expect(await pullDelta()).toBe(false)
+    expect(server.requests).toEqual([])
+
+    release()
+    await refreshing
+
+    expect(pool.get('ticket', 5)).toMatchObject({ status: 'closed' })
+    expect(pool.has('ticket', 6)).toBe(false)
+    expect((fake.rows.get('ticket:5')?.data as Record<string, unknown>).status).toBe('closed')
+    expect(fake.rows.has('ticket:6')).toBe(false)
+    expect(pool.getLastXid8()).toBe(26)
+    expect(meta().get('last_xid8')).toBe(26)
+  })
+
+  it('does not start a second snapshot of a group whose launch snapshot is still streaming', async () => {
+    lastSession(10)
+    server.rows[WORKSPACE] = [HOLD, { __model__: 'ticket', id: 1, title: 'Ticket 1' }]
+    await hydrate('u1', 'h', '', 'acme', '')
+    const launching = subscribe(WORKSPACE)
+    const release = await reachHold()
+
+    await refreshStaleSnapshots(0)
+    expect(bootstraps()).toHaveLength(1)
+    release()
+    await launching
+    expect(bootstraps()).toHaveLength(1)
+  })
+
+  it('drops the snapshot of a group the server no longer grants', async () => {
+    lastSession({ xid8: 10, at: NOW - HOUR })
+    meta().set('group_watermarks', {
+      [WORKSPACE]: { xid8: 10, at: NOW - HOUR },
+      'ticket:9': { xid8: 10, at: NOW - HOUR },
+    })
+    fake.rows.set('comment:40', {
+      aggregate: 'comment',
+      id: '40',
+      schema_version: 1,
+      data: { id: 40, ticket_id: 9 },
+      owners: ['ticket:9'],
+    })
+    await hydrate('u1', 'h', '', 'acme', '')
+    await Promise.all([subscribe(WORKSPACE), subscribe('ticket:9')])
+    expect(pool.has('comment', 40)).toBe(true)
+
+    server.denied = ['ticket:9']
+    vi.setSystemTime(NOW + 25 * HOUR)
+    await refreshStaleSnapshots(0)
+
+    expect(pool.has('comment', 40)).toBe(false)
+    expect(fake.rows.has('comment:40')).toBe(false)
+    expect(Object.keys(meta().get('group_watermarks') as object)).toEqual([WORKSPACE])
+    // Nothing is left to take again.
+    vi.advanceTimersByTime(60 * 60_000)
+    server.requests = []
+    await refreshStaleSnapshots(0)
+    expect(bootstraps()).toEqual([])
+  })
+
+  it('waits before trying again a snapshot that failed', async () => {
     lastSession({ xid8: 10, at: NOW - HOUR })
     await launch()
-    server.grantsNone = true
+    server.failBootstraps = 2
 
     vi.setSystemTime(NOW + 24 * HOUR)
-    await refreshStaleSnapshots()
-    await refreshStaleSnapshots()
+    await refreshStaleSnapshots(0)
+    await refreshStaleSnapshots(0)
     expect(bootstraps()).toHaveLength(1)
 
-    vi.setSystemTime(NOW + 24 * HOUR + 10 * 60_000)
-    await refreshStaleSnapshots()
+    vi.advanceTimersByTime(10 * 60_000)
+    await refreshStaleSnapshots(0)
     expect(bootstraps()).toHaveLength(2)
   })
 
@@ -291,8 +532,20 @@ describe('while running', () => {
     await launch()
 
     vi.setSystemTime(NOW + 10 * HOUR)
-    await refreshStaleSnapshots()
+    await refreshStaleSnapshots(0)
     expect(bootstraps()).toEqual([])
+  })
+
+  it("judges by this session's snapshot, not one another tab took since", async () => {
+    lastSession({ xid8: 10, at: NOW - HOUR })
+    await launch()
+    vi.setSystemTime(NOW + 24 * HOUR)
+    // Another tab of the workspace just snapshotted it.
+    meta().set('group_watermarks', { [WORKSPACE]: { xid8: 40, at: NOW + 24 * HOUR } })
+
+    await refreshStaleSnapshots(0)
+    expect(bootstraps()).toHaveLength(1)
+    expect(pool.has('ticket', 2)).toBe(false)
   })
 
   it('judges by the max age the server sends with a delta, and keeps it for the next launch', async () => {
@@ -301,7 +554,7 @@ describe('while running', () => {
     await launch()
     expect(meta().get('snapshot_max_age_secs')).toBe(60)
 
-    await refreshStaleSnapshots()
+    await refreshStaleSnapshots(0)
     expect(bootstraps()).toHaveLength(1)
     expect(pool.has('ticket', 2)).toBe(false)
   })

@@ -48,6 +48,15 @@ export interface LifecycleState {
    * again (0: never), as the server last sent it; null until a server has,
    * which a 1.1 server never does (see snapshotMaxAgeSecs). */
   snapshotMaxAgeSecs: number | null
+  /** One token per bootstrap streaming on the `keepCursor` path. While any
+   * is held, live events apply their rows but leave the cursor alone, so the
+   * delta that closes the bootstrap replays them over its rows. A tear-down
+   * replaces the set, so a late release can't touch the next workspace's. */
+  cursorHolds: Set<object>
+  /** Groups a bootstrap is pending or streaming for, with how many. A
+   * refresh skips them rather than start a second snapshot. Replaced on
+   * tear-down like `cursorHolds`. */
+  bootstrapping: Map<string, number>
 }
 
 export const state: LifecycleState = {
@@ -61,6 +70,13 @@ export const state: LifecycleState = {
   workspaceEpoch: '',
   instanceId: '',
   snapshotMaxAgeSecs: null,
+  cursorHolds: new Set(),
+  bootstrapping: new Map(),
+}
+
+/** Whether a `keepCursor` bootstrap is streaming (see `cursorHolds`). */
+export function cursorHeld(): boolean {
+  return state.cursorHolds.size > 0
 }
 
 /** Memory-only counts as hydrated (it still bootstraps and serves; only
