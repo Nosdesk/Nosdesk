@@ -11634,6 +11634,7 @@ onboarding-complete-import = Een werkruimte uit een andere Nosdesk overbrengen
 # MACHINE TRANSLATION, pending native review
 onboarding-complete-import-note = Brengt de tickets, personen en instellingen uit een export over naar deze werkruimte. Dit werkt alleen zolang de werkruimte nog leeg is.
 
-# E-mailkanaal: oudere e-mail komt alleen binnen als daarom gevraagd wordt, en stil (machine, nog na te kijken door moedertaalspreker).
+# E-mailkanaal: oudere e-mail komt alleen binnen als daarom gevraagd wordt, zonder ontvangstbevestiging (machine, nog na te kijken door moedertaalspreker).
 admin-channels-email-field-backlog-since-label = Ook e-mail binnenhalen sinds
-admin-channels-email-field-backlog-since-hint = Laat dit leeg om alleen e-mail te ontvangen die vanaf nu binnenkomt. E-mail van voor de koppeling van het kanaal komt stil binnen, zonder ontvangstbevestiging en zonder regels.
+# MT: pending native review (nl-NL)
+admin-channels-email-field-backlog-since-hint = Laat dit leeg om alleen e-mail te ontvangen die vanaf nu binnenkomt. E-mail van voor de koppeling van het kanaal krijgt geen automatische ontvangstbevestiging.

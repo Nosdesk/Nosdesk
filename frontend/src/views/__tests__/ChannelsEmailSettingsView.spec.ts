@@ -86,7 +86,7 @@ async function type(placeholder: string, value: string) {
 const backlogField = () => wrapper!.find('[data-test="backlog-since"]')
 
 describe('ChannelsEmailSettingsView older mail', () => {
-  it('explains that older mail comes in quietly and only up to today', async () => {
+  it('explains that older mail goes unacknowledged and only up to today', async () => {
     await mountView()
     expect(backlogField().text()).toContain('admin-channels-email-field-backlog-since-label')
     expect(backlogField().text()).toContain('admin-channels-email-field-backlog-since-hint')
