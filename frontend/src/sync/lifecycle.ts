@@ -24,7 +24,17 @@ import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabiliti
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
 import { authFetch } from '@/services/authFetch'
 import { workspaceReadyRef } from '@/services/activeWorkspace'
-import { canFetchWorkspace, cursorHeld, isHydrated, setCaughtUp, state } from './runtimeState'
+import {
+  announceSyncSettle,
+  canFetchWorkspace,
+  cursorHeld,
+  isHydrated,
+  nextSyncSettle,
+  setCaughtUp,
+  settleCursorWaiters,
+  state,
+  whenCursorSettles,
+} from './runtimeState'
 import { MODEL_VERSIONS_TAG, SCHEMA_VERSIONS } from './schemaVersions'
 import {
   dropAllGroupWatermarks,
@@ -80,6 +90,7 @@ async function bringGroupsCurrent(groups: string[]): Promise<void> {
   // Read before any await: a group let go while the partition and catch-up
   // run is no longer the bootstrap's to stream (see runBootstrap).
   const subscribedAt = pool.currentSubscriptionTick()
+  if (!(await afterResync())) return
   const { warm, cold, stale } = await partitionWarmGroups(groups)
   // Cached rows the cursor tracks: the bootstrap below must not jump the
   // cursor past their events, whether or not the delta catch-up got through.
@@ -106,6 +117,21 @@ async function bringGroupsCurrent(groups: string[]): Promise<void> {
   })
 }
 
+/**
+ * Wait out a resync in flight (the cursor is expired until its snapshot sets
+ * a new one). No other bootstrap may set the cursor, or snapshot from before
+ * the resync's, meanwhile: a group taken during it is brought current after.
+ * False when the cursor is still expired afterwards (that resync failed, and
+ * the next one snapshots every subscribed group) or the runtime was torn
+ * down.
+ */
+async function afterResync(): Promise<boolean> {
+  if (!state.cursorExpired) return true
+  const epoch = pool.currentEpoch()
+  await whenCursorSettles()
+  return !state.cursorExpired && pool.currentEpoch() === epoch && canFetchWorkspace()
+}
+
 /** Run `work` with `groups` marked as being bootstrapped (see
  * LifecycleState.bootstrapping). */
 async function whileBootstrapping<T>(groups: readonly string[], work: () => Promise<T>): Promise<T> {
@@ -119,6 +145,7 @@ async function whileBootstrapping<T>(groups: readonly string[], work: () => Prom
       if (left > 0) pending.set(g, left)
       else pending.delete(g)
     }
+    announceSyncSettle()
   }
 }
 
@@ -470,6 +497,64 @@ export async function refreshStaleSnapshots(jitterMs = staleRefreshJitterMs()): 
   }
 }
 
+/** The resnapshot running now, if any, and whether a signal is still owed a
+ * snapshot (see resnapshotSubscribedGroups). Cleared on tear-down. */
+let resnapshotRun: object | null = null
+let resnapshotOwed = false
+
+/** Whether a snapshot under way may predate an access change: a resync, or
+ * any bootstrap, is still running, or the cursor is expired. */
+function snapshotsInFlight(): boolean {
+  return state.resyncing || state.cursorExpired || state.bootstrapping.size > 0
+}
+
+/**
+ * The server says what the viewer may see changed (`resnapshot` on a delta):
+ * snapshot every subscribed group again, so the strip drops rows no longer
+ * theirs and the snapshot brings rows they may now see. On the `keepCursor`
+ * path: the cursor is still good, so it holds while the snapshot streams and
+ * the closing delta replays from it.
+ *
+ * The signal is never dropped. It often arrives on the delta closing a
+ * bootstrap or a resync (the poll waits while the cursor is held), whose
+ * snapshot was read before the change; so it waits until no resync and no
+ * bootstrap is running, then snapshots every subscribed group. One runs at a
+ * time; signals meanwhile owe one more run after it, not one each. Its own
+ * closing delta starts past the change, so it does not flag it again.
+ */
+export async function resnapshotSubscribedGroups(): Promise<void> {
+  resnapshotOwed = true
+  if (resnapshotRun) return
+  const run = {}
+  resnapshotRun = run
+  const epoch = pool.currentEpoch()
+  const current = () => resnapshotRun === run && pool.currentEpoch() === epoch
+  try {
+    while (resnapshotOwed && current()) {
+      while (snapshotsInFlight()) {
+        await nextSyncSettle()
+        if (!current()) return
+      }
+      // Still owed when the workspace can't be fetched now; the next signal
+      // (or tear-down) settles it.
+      if (!canFetchWorkspace()) return
+      resnapshotOwed = false
+      // Read with the groups, before any await (see runBootstrap's `stillOurs`).
+      const subscribedAt = pool.currentSubscriptionTick()
+      const groups = Array.from(pool.getSubscribedGroups())
+      if (groups.length === 0) return
+      logger.info('sync: what this viewer may see changed; snapshotting their groups again', {
+        groups,
+      })
+      await runBootstrap(groups, { subscribedAt })
+    }
+  } catch (error) {
+    logger.warn('sync: snapshotting groups again after an access change failed', { error })
+  } finally {
+    if (resnapshotRun === run) resnapshotRun = null
+  }
+}
+
 function onVisibilityChange(): void {
   if (document.visibilityState === 'visible') void refreshStaleSnapshots()
 }
@@ -619,12 +704,17 @@ async function resyncFromScratch(newWorkspaceEpoch?: string): Promise<void> {
     logger.error('sync: resync failed; will retry on a later poll', { error: e })
   } finally {
     state.resyncing = false
+    // Failed or not, what waited on it decides for itself now.
+    settleCursorWaiters()
+    announceSyncSettle()
   }
 }
 
 /**
  * A retention gap: drop every watermark (in step with this session's), and
  * the rows of aggregates no snapshot carries, from the pool and the cache.
+ * The cached cursor goes to 0 too: a launch after a resync that never ended
+ * must snapshot from scratch, not ask for a delta from the expired cursor.
  */
 async function forgetSnapshots(): Promise<void> {
   const unreconciled: Array<[SyncAggregate, string]> = []
@@ -638,6 +728,8 @@ async function forgetSnapshots(): Promise<void> {
   if (!state.handle) return
   await Promise.all([
     dropAllGroupWatermarks(state.handle),
+    idb.setLastXid8(state.handle, 0),
+    idb.setLastSyncId(state.handle, 0),
     idb.deleteModels(
       state.handle,
       unreconciled.filter(([aggregate]) => SCHEMA_VERSIONS[aggregate] != null),
@@ -696,15 +788,15 @@ export async function pullDelta(): Promise<boolean> {
   // A `keepCursor` bootstrap is streaming and the cursor holds for it; the
   // delta that closes it replays from there (see LifecycleState.cursorHolds).
   if (cursorHeld()) return false
-  // Nothing can be replayed from an expired cursor: take the snapshot again.
-  if (state.cursorExpired) {
-    await resyncFromScratch()
-    return false
-  }
   const groups = Array.from(pool.getSubscribedGroups())
   if (groups.length === 0) {
     // No delta will replay what SSE told observers about early.
     state.notifiedAhead.clear()
+    return false
+  }
+  // Nothing can be replayed from an expired cursor: take the snapshot again.
+  if (state.cursorExpired) {
+    await resyncFromScratch()
     return false
   }
   const from = pool.getLastSyncId()
@@ -775,6 +867,9 @@ export async function pullDelta(): Promise<boolean> {
     // After the cursor is stored: bringing assets back re-reads the snapshot,
     // which moves the cursor on itself.
     await followAssetVisibility(body.capabilities?.assets_visible, 'delta')
+    // Not awaited: a page the resnapshot's own closing delta reads must not
+    // wait on the resnapshot.
+    if (body.resnapshot) void resnapshotSubscribedGroups()
     return body.has_more
   } catch (e) {
     logger.warn('sync delta network error', { error: e })
@@ -807,6 +902,14 @@ export async function runBootstrap(groups: string[], options: BootstrapOptions =
   // memory-only mode the persistence writes below are individually skipped, but
   // the fetch + pool.upsert still run so views populate.
   if (!canFetchWorkspace()) return
+  // A group unsubscribed after `since`, even if subscribed again since, is no
+  // longer this bootstrap's: it is not requested, its rows stop being stamped
+  // with it, and `__end__` neither strips nor watermarks it. A re-subscribe
+  // runs its own bootstrap. Read before any await.
+  const since = subscribedAt ?? pool.currentSubscriptionTick()
+  const stillOurs = (g: string) => !pool.unsubscribedSince(g, since)
+  // Only the resync's own snapshot runs while the cursor is expired.
+  if (!resetCursor && !(await afterResync())) return
   // A group added to a session that is caught up (opening a ticket) leaves
   // the cursor where it is. Its snapshot ends at the server's horizon, which
   // can be past events for the other groups that nothing has delivered yet;
@@ -814,12 +917,6 @@ export async function runBootstrap(groups: string[], options: BootstrapOptions =
   // `holdCursor` asks the same of a launch whose cached groups a delta
   // could not yet bring current: the cursor must not jump past their events.
   const keepCursor = !resetCursor && (state.caughtUp || holdCursor) && pool.getLastXid8() > 0
-  // A group unsubscribed after `since`, even if subscribed again since, is no
-  // longer this bootstrap's: it is not requested, its rows stop being stamped
-  // with it, and `__end__` neither strips nor watermarks it. A re-subscribe
-  // runs its own bootstrap.
-  const since = subscribedAt ?? pool.currentSubscriptionTick()
-  const stillOurs = (g: string) => !pool.unsubscribedSince(g, since)
   groups = groups.filter(stillOurs)
   if (groups.length === 0) return
   // While it streams, live events apply their rows but leave the cursor
@@ -1103,7 +1200,10 @@ async function readBootstrap(
             // available (memory-only keeps the cursor in the pool for delta polls).
             pool.setCursor(bootstrapMeta.last_xid8, bootstrapMeta.last_sync_id)
             // An expired cursor is replaced: the closing replay runs from here.
-            if (resetCursor) state.cursorExpired = false
+            if (resetCursor) {
+              state.cursorExpired = false
+              settleCursorWaiters()
+            }
           }
           if (state.handle) {
             if (!keepCursor) {
@@ -1139,6 +1239,8 @@ export async function tearDown(): Promise<void> {
   stopDeltaPollFallback()
   unwatchSnapshotAge()
   refreshRun = null
+  resnapshotRun = null
+  resnapshotOwed = false
   staleRefreshTriedAt.clear()
   resetSessionMarks()
   // A pending grace unsubscribe belongs to this workspace; it must not fire
@@ -1162,6 +1264,8 @@ export async function tearDown(): Promise<void> {
   state.bootstrapping = new Map()
   state.notifiedAhead = new Set()
   state.cursorExpired = false
+  settleCursorWaiters()
+  announceSyncSettle()
   state.streamGeneration++
   setCaughtUp(false)
   resetWatermarkPrune()

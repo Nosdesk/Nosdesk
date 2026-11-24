@@ -86,9 +86,9 @@ const fake = vi.hoisted(() => {
 const HOLD = { __hold__: true } as const
 
 /**
- * The server: each group's snapshot rows (ending at xid8 30), the live events
- * its feed holds, and every request it served. A delta from a cursor below
- * `floor` is past retention.
+ * The server: each group's snapshot rows, the live events its feed holds, and
+ * every request it served. Snapshots end at xid8 30, then 31 and on. A delta
+ * from a cursor below `floor` is past retention.
  */
 const server = vi.hoisted(() => ({
   rows: {} as Record<string, Array<Record<string, unknown>>>,
@@ -98,6 +98,7 @@ const server = vi.hoisted(() => ({
   failBootstraps: 0,
   requests: [] as string[],
   held: null as null | (() => void),
+  nextEnd: 30,
 }))
 
 vi.mock('./idb', () => fake.idb)
@@ -121,7 +122,8 @@ vi.mock('@/services/authFetch', () => ({
         server.failBootstraps--
         return new Response(null, { status: 503 })
       }
-      const end = { last_xid8: 30, last_sync_id: 300 }
+      const x = server.nextEnd++
+      const end = { last_xid8: x, last_sync_id: x * 10 }
       const lines = [
         { __meta__: { server_schema: 'h', ...end, groups_granted: groups } },
         ...groups.flatMap((g) => server.rows[g] ?? []),
@@ -166,7 +168,8 @@ vi.mock('@/services/authFetch', () => ({
   }),
 }))
 
-const { hydrate, subscribe, tearDown, pullDelta, applySseFrame } = await import('./lifecycle')
+const { hydrate, subscribe, unsubscribe, tearDown, pullDelta, applySseFrame } =
+  await import('./lifecycle')
 const { state } = await import('./runtimeState')
 
 const WORKSPACE = 'workspace:6'
@@ -192,18 +195,21 @@ function cache(aggregate: string, id: number, data: Record<string, unknown>, own
 
 /** Last session: tickets 1 and 5 still on the server, ticket 2 deleted while
  * away, a cycle; the workspace watermarked fresh, the cursor at 20. */
-async function warmLaunch(): Promise<void> {
+async function warmLaunch(groups: string[] = []): Promise<void> {
   const m = meta()
   m.set('last_xid8', 20)
   m.set('last_sync_id', 200)
   m.set('model_versions_tag', MODEL_VERSIONS_TAG)
-  m.set('group_watermarks', { [WORKSPACE]: { xid8: 20, at: NOW - 60_000 } })
+  m.set(
+    'group_watermarks',
+    Object.fromEntries([WORKSPACE, ...groups].map((g) => [g, { xid8: 20, at: NOW - 60_000 }])),
+  )
   cache('ticket', 1, { title: 'Ticket 1', status: 'open' }, [WORKSPACE])
   cache('ticket', 2, { title: 'Deleted while away' }, [WORKSPACE])
   cache('ticket', 5, { title: 'Ticket 5' }, [WORKSPACE])
   cache('cycle', 3, { name: 'Sprint', project_id: 7 }, [WORKSPACE])
   await hydrate('u1', 'h', '', 'acme', '')
-  await subscribe(WORKSPACE)
+  await Promise.all([WORKSPACE, ...groups].map((g) => subscribe(g)))
   expect(bootstraps()).toEqual([])
   server.requests = []
 }
@@ -251,6 +257,7 @@ beforeEach(() => {
   server.failBootstraps = 0
   server.requests = []
   server.held = null
+  server.nextEnd = 30
 })
 
 afterEach(async () => {
@@ -356,6 +363,97 @@ describe('a retention resync', () => {
     expect(pool.has('ticket', 2)).toBe(false)
     expect(pool.getLastXid8()).toBe(30)
     expect(meta().get('workspace_epoch')).toBe('e2')
+  })
+})
+
+describe('views coming and going during a resync', () => {
+  it('brings a group taken during a retention resync current after it, not before', async () => {
+    await warmLaunch()
+    server.rows[WORKSPACE] = [HOLD, ...server.rows[WORKSPACE]!]
+    server.rows['ticket:9'] = [{ __model__: 'comment', id: 40, ticket_id: 9 }]
+    server.floor = 25
+    const resyncing = pullDelta()
+    const release = await reachHold()
+
+    const opening = subscribe('ticket:9')
+    // Time enough for its bootstrap to go out, were it not waiting.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(bootstraps()).toHaveLength(1)
+
+    release()
+    await Promise.all([resyncing, opening])
+    expect(bootstraps()).toHaveLength(2)
+    expect(pool.has('comment', 40)).toBe(true)
+    // The resync set the cursor; the ticket's snapshot held it.
+    expect(pool.getLastXid8()).toBe(30)
+    expect(meta().get('last_xid8')).toBe(30)
+    expect(Object.keys(meta().get('group_watermarks') as object).sort()).toEqual(
+      [WORKSPACE, 'ticket:9'].sort(),
+    )
+  })
+
+  it('takes nothing of a group let go during a retention resync', async () => {
+    cache('comment', 40, { ticket_id: 9 }, ['ticket:9'])
+    await warmLaunch(['ticket:9'])
+    expect(pool.has('comment', 40)).toBe(true)
+    server.rows['ticket:9'] = [HOLD, { __model__: 'comment', id: 41, ticket_id: 9 }]
+    server.floor = 25
+    const resyncing = pullDelta()
+    const release = await reachHold()
+
+    await unsubscribe('ticket:9')
+    release()
+    await resyncing
+    expect(pool.has('comment', 40)).toBe(false)
+    // Streamed after the ticket went, it is stamped only by the workspace (as
+    // any row of a shared snapshot is), whose next snapshot strips it.
+    expect([...pool.ownersOf('comment', 41)]).toEqual([WORKSPACE])
+    expect(Object.keys(meta().get('group_watermarks') as object)).toEqual([WORKSPACE])
+    expect(pool.getLastXid8()).toBe(30)
+  })
+
+  it('keeps the cursor the epoch resync sets when a ticket opens while it streams', async () => {
+    await warmLaunch()
+    server.rows[WORKSPACE] = [HOLD, ...server.rows[WORKSPACE]!]
+    server.rows['ticket:9'] = [{ __model__: 'comment', id: 40, ticket_id: 9 }]
+    server.floor = 25
+    server.epoch = 'e2'
+    const resyncing = pullDelta()
+    const release = await reachHold()
+    expect(fake.wipes).toEqual([DB])
+
+    const opening = subscribe('ticket:9')
+    await Promise.resolve()
+    expect(bootstraps()).toHaveLength(1)
+    release()
+    await Promise.all([resyncing, opening])
+
+    // The ticket's snapshot (ending at 31) ran after the resync's (30) and
+    // held the cursor, so nothing the workspace did after 30 is skipped.
+    expect(bootstraps()).toHaveLength(2)
+    expect(pool.getLastXid8()).toBe(30)
+    expect(meta().get('last_xid8')).toBe(30)
+    expect(pool.has('comment', 40)).toBe(true)
+  })
+
+  it('snapshots from scratch on the launch after a retention resync that never ended', async () => {
+    await warmLaunch()
+    server.rows[WORKSPACE] = [HOLD, ...server.rows[WORKSPACE]!]
+    server.floor = 25
+    void pullDelta()
+    await reachHold()
+    // The tab closes mid-stream.
+    await tearDown()
+    expect(meta().get('last_xid8')).toBe(0)
+
+    server.rows[WORKSPACE] = server.rows[WORKSPACE]!.filter((l) => !('__hold__' in l))
+    server.requests = []
+    await hydrate('u1', 'h', '', 'acme', '')
+    await subscribe(WORKSPACE)
+    expect(server.requests[0]).toMatch(/^\/sync\/bootstrap/)
+    expect(deltaCursors()).not.toContain(20)
+    expect(pool.getLastXid8()).toBe(31)
+    expect(pool.has('ticket', 2)).toBe(false)
   })
 })
 
