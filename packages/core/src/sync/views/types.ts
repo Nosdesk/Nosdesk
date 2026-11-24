@@ -132,6 +132,7 @@ export interface CardData {
 export type ViewShape =
   | KanbanViewShape
   | ListViewShape
+  | AgendaViewShape
   | CalendarViewShape
   | GanttViewShape
   | ScrumViewShape
@@ -173,6 +174,14 @@ export interface ListViewShape extends ViewShapeBase {
     sortable?: boolean
   }[]
   row_height: 'compact' | 'comfortable'
+}
+
+/** One day of work, read as a sequence (My day): the jobs planned for
+ * the day, Booked by time and then Any time in hand-placed order
+ * (`planOrder.ts`). It keeps a list's columns, which the list uses when
+ * the view falls through to All Active. */
+export interface AgendaViewShape extends Omit<ListViewShape, 'type'> {
+  type: 'agenda'
 }
 
 export interface CalendarViewShape extends ViewShapeBase {

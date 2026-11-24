@@ -12,6 +12,7 @@ import {
   toCalendarDateString,
 } from '@nosdesk/core/utils/dateMath'
 import { formatDate, parseDate } from '@nosdesk/core/utils/dateUtils'
+import { sizeOf, type Size } from '@nosdesk/core/utils/ticketPlan'
 import { buildDashboardTicketDrillDown } from '@/utils/dashboardTicketDrillDown'
 
 /** Whose completions the heatmap shows. */
@@ -25,7 +26,7 @@ export interface HeatmapTicket {
   assignee_uuid: string | null
   closed_at?: string | null
   closed_by?: string | null
-  /** Planned length; no such field yet, so every job weighs as medium. */
+  /** Planned length in minutes; null for an unsized job. */
   estimate_minutes?: number | null
 }
 
@@ -82,13 +83,17 @@ export function completedDay(ticket: HeatmapTicket, tz: string): string | null {
 /** Weight per size: small 1, medium 2, big 4. */
 export const SIZE_WEIGHTS = { small: 1, medium: 2, big: 4 } as const
 
-/** A job's weight from its planned minutes (up to an hour is small, up
- *  to four hours medium, more is big); an unsized job weighs as medium. */
+const WEIGHT_OF_SIZE: Record<Size, number> = {
+  s: SIZE_WEIGHTS.small,
+  m: SIZE_WEIGHTS.medium,
+  l: SIZE_WEIGHTS.big,
+}
+
+/** A job's weight from its size (`sizeOf`: up to an hour is small, up to
+ *  four hours medium, more is big); an unsized job weighs as medium. */
 export function jobWeight(estimateMinutes?: number | null): number {
-  if (estimateMinutes == null) return SIZE_WEIGHTS.medium
-  if (estimateMinutes <= 60) return SIZE_WEIGHTS.small
-  if (estimateMinutes <= 240) return SIZE_WEIGHTS.medium
-  return SIZE_WEIGHTS.big
+  const size = sizeOf(estimateMinutes)
+  return size ? WEIGHT_OF_SIZE[size] : SIZE_WEIGHTS.medium
 }
 
 /** Boundaries used until there are enough active days for quartiles. */

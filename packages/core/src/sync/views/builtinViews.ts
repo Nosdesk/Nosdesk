@@ -8,7 +8,7 @@
  * can replace `BUILTIN_VIEWS` with a fetch + cache without
  * touching consumers.
  */
-import type { CalendarViewShape, FilterState, ListViewShape } from './types'
+import type { AgendaViewShape, CalendarViewShape, FilterState, ListViewShape } from './types'
 import { TERMINAL_CATEGORIES } from '../../types/workflow'
 
 export interface BuiltInView {
@@ -35,9 +35,9 @@ export interface BuiltInView {
    * without re-creating the constants module. */
   nameKey: string
   descriptionKey: string
-  /** Built-ins ship list and calendar shapes today. The TicketsList
+  /** Built-ins ship list, agenda and calendar shapes. The TicketsList
    * view branches on `shape.type` to pick the renderer. */
-  shape: ListViewShape | CalendarViewShape
+  shape: ListViewShape | AgendaViewShape | CalendarViewShape
   filter: FilterState
 }
 
@@ -116,21 +116,22 @@ export const MY_OPEN_VIEW: BuiltInView = {
   },
 }
 
-/** The day's work: your open tickets, grouped by when they are due
- * (Overdue, Today, Tomorrow, This week, Later, No date) and in due
- * order inside each group. Grouping by due is this view's default
- * because its shape groups on `due_date`. The Due column takes
- * Updated's place, so the row is no wider than the other built-ins.
- * Listed second, after My Open, which stays the landing view. It took
- * My Active's place: same tickets, so `?view=my-active` opens it. */
+/** The day's work: your open tickets planned for one day, as an agenda
+ * (`planOrder.ts`): Booked jobs by time, then Any time jobs in the order
+ * you placed them, the rest by priority. A ticket's plan day is its start
+ * date, else its due date. The shape keeps a list's columns (Due in
+ * Updated's place) for when the view falls through to All Active. Listed
+ * second, after My Open, which stays the landing view. It took My
+ * Active's place: same tickets, so `?view=my-active` opens it. */
 export const MY_DAY_VIEW: BuiltInView = {
   id: 'my-day',
   name: 'My day',
-  description: 'Your open tickets by the day they are due',
+  description: 'Your open tickets planned for the day',
   nameKey: 'builtin-view-my-day-name',
   descriptionKey: 'builtin-view-my-day-description',
   shape: {
     ...baseListShape,
+    type: 'agenda',
     group_by: { primary: 'due_date' },
     sort: [{ field: 'due_date', dir: 'asc' }],
     visible_card_fields: baseListShape.visible_card_fields.map((f) =>

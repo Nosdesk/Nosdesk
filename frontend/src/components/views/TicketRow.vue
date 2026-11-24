@@ -25,6 +25,7 @@ import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserCell from '@/components/views/UserCell.vue'
 import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
+import SizeChip from '@/components/planning/SizeChip.vue'
 import { priorityForBadge, priorityLabel } from '@/utils/priorityHelpers'
 import { deriveSlaState } from '@/composables/useSlaState'
 import {
@@ -32,6 +33,7 @@ import {
   formatDateTime,
 } from '@nosdesk/core/utils/dateUtils'
 import { dueDay, formatCompactDay, formatDay } from '@nosdesk/core/utils/ticketDates'
+import { formatWallTime } from '@nosdesk/core/utils/ticketPlan'
 import type { ListColumn } from '@nosdesk/core/sync/views/ticketColumns'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 
@@ -59,6 +61,13 @@ const props = defineProps<{
    * glyph) so the user can keep adding to the selection without
    * having to hover each row to find the checkbox. */
   bulkActive?: boolean
+  /** The list is in Manual order: a press on the row can pick it up. */
+  draggable?: boolean
+  /** Being dragged: it stays in place, dimmed, until the drop. */
+  lifted?: boolean
+  /** The last hand-placed row in Manual order: its bottom edge is the
+   *  rule above the rows still in priority order. */
+  ruleBelow?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -70,6 +79,10 @@ const emit = defineEmits<{
    * range-select via shiftKey; we just forward the modifier so
    * the parent knows whether to extend or single-toggle. */
   (e: 'toggle-bulk', id: number, shiftKey: boolean): void
+  /** A press that may start a drag (Manual order only). */
+  (e: 'row-down', id: number, event: PointerEvent): void
+  /** A plan field set from the row (the size chip). */
+  (e: 'patch', id: number, patch: Partial<CardData>): void
 }>()
 
 function onContextMenu(event: MouseEvent): void {
@@ -91,15 +104,18 @@ function relativeTime(iso: string): string {
 }
 
 /** The due day as written, never shifted by the viewer's zone (a
- * zone west of UTC used to show the day before). */
+ * zone west of UTC used to show the day before), and its time when it
+ * has one: "24 Nov, 2:30 pm". */
 function dueLabel(card: CardData): string {
   const day = dueDay(card)
-  return day ? formatCompactDay(day) : '-'
+  if (!day) return '-'
+  return card.due_time ? `${formatCompactDay(day)}, ${formatWallTime(card.due_time)}` : formatCompactDay(day)
 }
 
 function dueTitle(card: CardData): string {
   const day = dueDay(card)
-  return day ? formatDay(day) : fluent.$t('views-ticket-row-no-due-date')
+  if (!day) return fluent.$t('views-ticket-row-no-due-date')
+  return card.due_time ? `${formatDay(day)}, ${formatWallTime(card.due_time)}` : formatDay(day)
 }
 
 function slaToneClass(card: CardData): string {
@@ -139,9 +155,12 @@ function recurrenceLabel(rule: string | null | undefined): string {
 
 <template>
   <tr
-    class="cursor-pointer transition-colors group relative"
+    :data-row="card.id"
+    class="plan-row cursor-pointer transition-colors group relative"
     :class="[
       rowClass,
+      draggable && 'plan-row-hold',
+      lifted && 'opacity-40',
       bulkSelected
         ? 'bg-accent/10 hover:bg-accent/15'
         : selected
@@ -151,6 +170,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
     @click="emit('click', card.id)"
     @dblclick="emit('open', card.id)"
     @contextmenu="onContextMenu"
+    @pointerdown="draggable && emit('row-down', card.id, $event)"
   >
     <!--
       Leading state cell. Always-present 24px-wide indicator that
@@ -183,8 +203,10 @@ function recurrenceLabel(rule: string | null | undefined): string {
       went.
     -->
     <td
-      class="col-state border-b border-subtle/40 align-middle p-0 cursor-pointer"
+      class="col-state border-b align-middle p-0 cursor-pointer"
+      :class="ruleBelow ? 'border-strong' : 'border-subtle/40'"
       style="width: 24px; min-width: 24px; max-width: 24px"
+      data-no-drag
       @click="onLeadingClick"
     >
       <!-- Two visual modes:
@@ -231,8 +253,9 @@ function recurrenceLabel(rule: string | null | undefined): string {
     <td
       v-for="col in visibleColumns"
       :key="col.id"
-      class="border-b border-subtle/40 align-middle relative"
+      class="border-b align-middle relative"
       :class="[
+        ruleBelow ? 'border-strong' : 'border-subtle/40',
         `col-${col.id}`,
         cellPadding,
         col.align === 'center' && 'text-center',
@@ -342,10 +365,18 @@ function recurrenceLabel(rule: string | null | undefined): string {
 
       <template v-else-if="col.id === 'due_date'">
         <span
-          class="text-2xs tabular-nums"
+          class="block truncate text-2xs tabular-nums"
           :class="card.due_date ? 'text-secondary' : 'text-tertiary'"
           :title="dueTitle(card)"
         >{{ dueLabel(card) }}</span>
+      </template>
+
+      <template v-else-if="col.id === 'size'">
+        <SizeChip
+          :minutes="card.estimate_minutes"
+          :number="card.number"
+          @update="(minutes) => emit('patch', card.id, { estimate_minutes: minutes })"
+        />
       </template>
 
       <template v-else-if="col.id === 'last_activity'">

@@ -38,6 +38,7 @@ import type { ViewTabItem } from '@/components/views/TicketsViewTabs.vue'
 import type { IconName } from '@/components/common/icons'
 import type { SavedView } from '@/services/savedViewsService'
 import type {
+  AgendaViewShape,
   CalendarViewShape,
   FilterState,
   ListViewShape,
@@ -48,7 +49,7 @@ export interface ResolvedView {
   id: string
   name: string
   description: string
-  shape: ListViewShape | CalendarViewShape
+  shape: ListViewShape | AgendaViewShape | CalendarViewShape
   filter: FilterState
   source: 'builtin' | 'saved'
   uuid?: string
@@ -111,7 +112,7 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
       id: view.uuid,
       name: view.name,
       description: view.scope === 'private' ? 'Private view' : 'Workspace view',
-      shape: view.shape as ListViewShape | CalendarViewShape,
+      shape: view.shape as ListViewShape | AgendaViewShape | CalendarViewShape,
       filter: view.filter,
       source: 'saved',
       uuid: view.uuid,
@@ -125,7 +126,7 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
   const savedViews = computed<SavedView[]>(() =>
     savedViewsRef.value.filter((v) => {
       const shapeType = (v.shape as ViewShape | null)?.type
-      return shapeType === 'list' || shapeType === 'calendar'
+      return shapeType === 'list' || shapeType === 'agenda' || shapeType === 'calendar'
     }),
   )
 

@@ -8920,7 +8920,7 @@ builtin-view-overdue-name = En retard
 builtin-view-overdue-description = Tickets actifs dont l'échéance est dépassée
 # Traduction automatique, en attente de relecture par un locuteur natif.
 builtin-view-my-day-name = Ma journée
-builtin-view-my-day-description = Vos tickets ouverts selon le jour de leur échéance
+builtin-view-my-day-description = Vos tickets ouverts prévus pour la journée
 views-display-menu-sort = Tri
 views-display-menu-sort-due = Échéance
 views-display-menu-sort-priority = Priorité
@@ -12925,3 +12925,89 @@ admin-rule-editor-records-no-types = Cet espace de travail n'a encore aucun type
 admin-rule-editor-records-no-types-link = Ajouter des types d'intervention
 # MT: pending native review (fr-FR)
 admin-rules-conflicts-field-asset-record = interventions sur les ressources
+# MT: pending native review (fr-FR)
+plan-day-previous = Jour précédent
+# MT: pending native review (fr-FR)
+plan-day-next = Jour suivant
+# MT: pending native review (fr-FR)
+plan-day-today = Aujourd'hui
+# MT: pending native review (fr-FR)
+plan-day-load =
+    { $count ->
+        [one] 1 tâche
+       *[other] { $count } tâches
+    }
+# MT: pending native review (fr-FR)
+plan-day-load-sized =
+    { $count ->
+        [one] 1 tâche, environ { $hours } h
+       *[other] { $count } tâches, environ { $hours } h
+    }
+# MT: pending native review (fr-FR)
+plan-section-booked = Planifiées
+# MT: pending native review (fr-FR)
+plan-section-any-time = À tout moment
+# MT: pending native review (fr-FR)
+plan-day-empty = Rien de prévu pour ce jour.
+# MT: pending native review (fr-FR)
+plan-row-due = échéance { $day }
+# MT: pending native review (fr-FR)
+plan-row-time-aria = Heure de #{ $number } : { $time }
+# MT: pending native review (fr-FR)
+plan-row-move-aria = Déplacer #{ $number }
+# MT: pending native review (fr-FR)
+plan-row-overlap = Commence avant la fin prévue de #{ $number } à { $time }
+# MT: pending native review (fr-FR)
+plan-size-label = Taille
+# MT: pending native review (fr-FR)
+plan-size-s = Petite
+# MT: pending native review (fr-FR)
+plan-size-m = Moyenne
+# MT: pending native review (fr-FR)
+plan-size-l = Grande
+# MT: pending native review (fr-FR)
+plan-size-none = Aucune taille
+# MT: pending native review (fr-FR)
+plan-size-letter-s = P
+# MT: pending native review (fr-FR)
+plan-size-letter-m = M
+# MT: pending native review (fr-FR)
+plan-size-letter-l = G
+# MT: pending native review (fr-FR)
+plan-size-length-s = 30 min
+# MT: pending native review (fr-FR)
+plan-size-length-m = 2 h
+# MT: pending native review (fr-FR)
+plan-size-length-l = 6 h
+# MT: pending native review (fr-FR)
+plan-size-aria = Taille de #{ $number } : { $size }
+# MT: pending native review (fr-FR)
+plan-size-set-aria = Définir une taille pour #{ $number }
+# MT: pending native review (fr-FR)
+plan-time-title = Heure
+# MT: pending native review (fr-FR)
+plan-time-start-title = Heure de début
+# MT: pending native review (fr-FR)
+plan-time-due-title = Heure d'échéance
+# MT: pending native review (fr-FR)
+plan-time-clear = Effacer
+# MT: pending native review (fr-FR)
+plan-time-add = Ajouter une heure
+# MT: pending native review (fr-FR)
+plan-menu-set-time = Définir l'heure
+# MT: pending native review (fr-FR)
+plan-menu-change-time = Modifier l'heure
+# MT: pending native review (fr-FR)
+plan-menu-clear-time = Effacer l'heure
+# MT: pending native review (fr-FR)
+plan-menu-move-top = Placer en haut
+# MT: pending native review (fr-FR)
+plan-menu-aria = Planifier #{ $number }
+# MT: pending native review (fr-FR)
+views-display-menu-sort-manual = Manuel
+# MT: pending native review (fr-FR)
+tickets-column-size = Taille
+# MT: pending native review (fr-FR)
+tickets-column-size-description = La taille de la tâche : petite, moyenne ou grande
+# MT: pending native review (fr-FR)
+plan-drop-too-many = Ce dépôt placerait plus de { $count } tâches à la main. Déposez-la plus près des tâches déjà placées.

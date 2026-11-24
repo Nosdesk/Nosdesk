@@ -2105,3 +2105,40 @@ html[data-theme="red-horizon"] body,
 }
 
 .ProseMirror-focused .ProseMirror-gapcursor { display: block; }
+
+/* Work planning rows (My day, the list's Manual sort). `.plan-row` is a
+   row that reveals its planning controls on hover; `.plan-row-hold` is
+   one that can be picked up by holding it, so it takes no text selection
+   and no iOS callout while the hold timer runs. */
+.plan-row-hold {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* The grip shows on hover where there is a hover, and stays visible
+   where there is not (a phone), because there it is the only sign the
+   row can be moved. */
+.plan-grip {
+  opacity: 0;
+  touch-action: none;
+}
+.plan-row:hover .plan-grip,
+.plan-row:focus-within .plan-grip {
+  opacity: 1;
+}
+@media (hover: none) {
+  .plan-grip {
+    opacity: 1;
+  }
+}
+
+/* The unsized chip: offered on hover, never shown at rest. */
+.plan-size-empty {
+  opacity: 0;
+}
+.plan-row:hover .plan-size-empty,
+.plan-size-empty:focus-visible,
+.plan-size-empty[aria-expanded='true'] {
+  opacity: 1;
+}

@@ -4,11 +4,15 @@
  * both places they appear: the Display menu on desktop, and the top
  * of the filter sheet on a phone (where the Display menu is hidden).
  * Same chip-grid and segmented styles the Display menu already uses
- * for grouping and density.
+ * for grouping and density. Sort sits on Grouping's three columns, so
+ * the two grids share their column lines. Manual (the hand-placed
+ * order) has no direction, so the direction control is off while it is
+ * the sort; it keeps its place, and nothing in the menu moves.
  */
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { SORT_OPTIONS, type SortDir } from '@/composables/useTicketsSort'
+import { MANUAL_SORT } from '@nosdesk/core/sync/views/planOrder'
 import type { GroupBy } from '@/composables/useTicketsGrouping'
 
 const props = defineProps<{
@@ -33,6 +37,8 @@ const dirOptions = computed<ReadonlyArray<{ value: SortDir; label: string }>>(()
   { value: 'desc', label: fluent.$t('views-display-menu-sort-desc') },
 ])
 
+const manual = computed(() => props.sortField === MANUAL_SORT)
+
 const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(() => [
   { value: 'none', label: fluent.$t('views-display-menu-group-none') },
   { value: 'status', label: fluent.$t('views-display-menu-group-status') },
@@ -53,12 +59,12 @@ function pickField(field: string, dir: SortDir): void {
 
 <template>
   <!-- Sort -->
-  <section class="px-3 pb-2">
+  <section class="px-3 pb-2" data-sort-section>
     <h3 class="text-3xs uppercase tracking-wide font-semibold text-tertiary mb-1.5">
       {{ $t('views-display-menu-sort') }}
     </h3>
     <div class="flex flex-col gap-1.5">
-      <div class="grid grid-cols-4 gap-1">
+      <div class="grid grid-cols-3 gap-1">
         <button
           v-for="opt in sortOptions"
           :key="opt.field"
@@ -72,19 +78,22 @@ function pickField(field: string, dir: SortDir): void {
         >{{ opt.label }}</button>
       </div>
       <div
-        class="inline-flex w-full items-center rounded-md border border-subtle overflow-hidden"
+        class="inline-flex w-full items-center rounded-md border border-subtle overflow-hidden transition-opacity"
+        :class="manual && 'opacity-40'"
         role="group"
         :aria-label="$t('views-display-menu-sort-direction-aria')"
+        :aria-disabled="manual || undefined"
       >
         <button
           v-for="opt in dirOptions"
           :key="opt.value"
           type="button"
           class="flex-1 text-2xs px-2 py-1 transition-colors"
-          :class="sortDir === opt.value
+          :class="!manual && sortDir === opt.value
             ? 'bg-accent/10 text-accent font-medium'
-            : 'text-secondary hover:bg-surface-hover'"
-          :aria-pressed="sortDir === opt.value"
+            : manual ? 'text-secondary' : 'text-secondary hover:bg-surface-hover'"
+          :aria-pressed="!manual && sortDir === opt.value"
+          :disabled="manual"
           @click.stop="emit('set-sort', sortField, opt.value)"
         >{{ opt.label }}</button>
       </div>

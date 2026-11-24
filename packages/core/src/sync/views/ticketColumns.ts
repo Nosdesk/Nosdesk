@@ -29,6 +29,7 @@ export type ColumnId =
   | 'kb_gap'
   | 'devices'
   | 'recurrence'
+  | 'size'
 
 export interface ListColumn {
   /** Stable id used in storage and shape.columns. */
@@ -84,6 +85,9 @@ export function rowMemoKey(card: CardData): unknown[] {
     card.category_id,
     card.cycle_id,
     card.due_date,
+    card.due_time,
+    card.rank,
+    card.estimate_minutes,
     card.last_activity_at,
     card.kb_gap_signal,
     card.sla?.target_at,
@@ -210,7 +214,8 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     id: 'due_date',
     label: 'Due',
     labelKey: 'tickets-column-due-date',
-    defaultWidthPx: 96,
+    // Room for a day and a time: "24 Nov, 10:30 am".
+    defaultWidthPx: 120,
     minWidthPx: 72,
     maxWidthPx: 160,
     defaultVisible: false,
@@ -296,6 +301,19 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     align: 'center',
     description: 'Recurring ticket marker',
     descriptionKey: 'tickets-column-recurrence-description',
+  },
+  {
+    id: 'size',
+    label: 'Size',
+    labelKey: 'tickets-column-size',
+    defaultWidthPx: 56,
+    minWidthPx: 48,
+    maxWidthPx: 96,
+    defaultVisible: false,
+    sortKey: null,
+    align: 'center',
+    description: 'How big the job is: small, medium or big',
+    descriptionKey: 'tickets-column-size-description',
   },
 ] as const
 

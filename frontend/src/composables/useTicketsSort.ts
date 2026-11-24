@@ -14,6 +14,7 @@ import type { CardData } from '@nosdesk/core/sync/views/types'
 import { comparePriority } from '@nosdesk/core/constants/ticketOptions'
 import { parseDate } from '@nosdesk/core/utils/dateUtils'
 import { compareDueOrder, dueOrderKey } from '@nosdesk/core/sync/views/dueOrder'
+import { compareManual, MANUAL_SORT } from '@nosdesk/core/sync/views/planOrder'
 
 export type SortDir = 'asc' | 'desc'
 
@@ -24,6 +25,7 @@ export const SORT_OPTIONS: ReadonlyArray<{ field: string; labelKey: string; dir:
   { field: 'priority', labelKey: 'views-display-menu-sort-priority', dir: 'desc' },
   { field: 'last_activity_at', labelKey: 'views-display-menu-sort-updated', dir: 'desc' },
   { field: 'created_at', labelKey: 'views-display-menu-sort-created', dir: 'desc' },
+  { field: MANUAL_SORT, labelKey: 'views-display-menu-sort-manual', dir: 'asc' },
 ]
 
 const STORAGE_PREFIX = 'tickets-sort:'
@@ -75,7 +77,8 @@ function sortKeyOf(card: CardData, field: string): string | number | null {
  * Order cards by one field. Cards with no value (no due date, no
  * category) go last in both directions, so flipping a column never
  * buries the rows that have one under the blanks. Due breaks ties
- * by priority, then age (see `dueOrder.ts`); other fields keep the
+ * by priority, then age (see `dueOrder.ts`). Manual is the hand-placed
+ * order (`planOrder.ts`) and has no direction. Other fields keep the
  * input order on a tie.
  */
 export function sortCards(
@@ -88,6 +91,7 @@ export function sortCards(
   if (field === 'priority') {
     return [...cards].sort((a, b) => comparePriority(a.priority, b.priority) * sign)
   }
+  if (field === MANUAL_SORT) return [...cards].sort(compareManual)
   if (field === 'due_date') {
     const keyed = cards.map((card) => ({ card, key: dueOrderKey(card) }))
     keyed.sort((a, b) => compareDueOrder(a.key, b.key, dir))

@@ -33,7 +33,8 @@ import ProjectChip from "@/components/ticketComponents/ProjectChip.vue";
 import LinkedTicketChip from "@/components/ticketComponents/LinkedTicketChip.vue";
 import { useTicketDocs } from "@/composables/usePageTicketLinks";
 import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
-import DatePicker from "@/components/common/DatePicker.vue";
+import DateTimeField from "@/components/planning/DateTimeField.vue";
+import SizeField from "@/components/planning/SizeField.vue";
 import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger } from "reka-ui";
 import type { Asset } from "@nosdesk/core/types/asset";
 import type { CommentWithAttachments } from "@nosdesk/core/types/comment";
@@ -46,6 +47,7 @@ import { useWorkspaceCapabilities } from "@/composables/useWorkspaceCapabilities
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
 import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@nosdesk/core/utils/dateUtils";
 import { dueDay, formatDay, startDay } from "@nosdesk/core/utils/ticketDates";
+import { formatWallTime } from "@nosdesk/core/utils/ticketPlan";
 import { useUsersDirectory } from "@/composables/useUsersDirectory";
 import { ticketSourceLabelKey } from "@/utils/ticketSource";
 
@@ -121,6 +123,11 @@ const props = defineProps<{
     due_date?: string | null;
     /** Optional planning start for the gantt timeline, or null. */
     start_date?: string | null;
+    /** The times on the due and start dates (`HH:MM:SS`), or null. */
+    due_time?: string | null;
+    start_time?: string | null;
+    /** How long the job takes, in minutes, or null when not sized. */
+    estimate_minutes?: number | null;
     /** RFC 5545 RRULE string for recurring tickets, or null. */
     recurrence_rule?: string | null;
     /** Actor uuids — populated by the detail handler. The
@@ -200,6 +207,11 @@ const emit = defineEmits<{
   /** Naive midnight datetime or null when cleared (same convention
    *  as dueDate). */
   (e: "update:startDate", value: string | null): void;
+  /** `HH:MM:SS` on the due or start date, or null to clear. */
+  (e: "update:dueTime", value: string | null): void;
+  (e: "update:startTime", value: string | null): void;
+  /** Size in minutes, or null for none. */
+  (e: "update:estimate", value: number | null): void;
   /** RRULE string or null when cleared. */
   (e: "update:recurrenceRule", value: string | null): void;
   /** Resolution notes — empty string normalises to null upstream
@@ -321,31 +333,12 @@ const categoryLabel = computed(() => {
  * therefore write a naive midnight datetime (`<day>T00:00:00`, no
  * tz suffix) and read back its date part as written (`dueDay`), which
  * round-trips the exact picked day with no timezone-driven
- * off-by-one. Empty string from the picker clears the due date. */
-const dueDateValue = computed<string>({
-  get: () => dueDay(props.ticket) ?? '',
-  set: (value: string) => {
-    if (!value) {
-      emit('update:dueDate', null);
-      return;
-    }
-    emit('update:dueDate', `${value}T00:00:00`);
-  },
-});
-
-/** Same floating-calendar-day convention as dueDateValue. The start
- * date is the gantt's planning field; unset means the timeline falls
- * back to the ticket's created date. */
-const startDateValue = computed<string>({
-  get: () => startDay(props.ticket) ?? '',
-  set: (value: string) => {
-    if (!value) {
-      emit('update:startDate', null);
-      return;
-    }
-    emit('update:startDate', `${value}T00:00:00`);
-  },
-});
+ * off-by-one. A cleared day clears the date, and its time with it.
+ * The start date is the gantt's planning field and takes the same
+ * convention. */
+function midnight(day: string | null): string | null {
+  return day ? `${day}T00:00:00` : null;
+}
 
 /** Recurrence preset that maps to a known RRULE string. The picker
  * exposes a small list rather than the full RFC; an admin who
@@ -385,11 +378,13 @@ const schedulingPreview = computed<string>(() => {
   const parts: string[] = [];
   const start = startDay(props.ticket);
   const due = dueDay(props.ticket);
+  const withTime = (day: string, time: string | null | undefined) =>
+    time ? `${formatDay(day, 'monthDay')}, ${formatWallTime(time)}` : formatDay(day, 'monthDay');
   if (start) {
-    parts.push(t('ticket-detail-scheduling-start-prefix', { date: formatDay(start, 'monthDay') }));
+    parts.push(t('ticket-detail-scheduling-start-prefix', { date: withTime(start, props.ticket.start_time) }));
   }
   if (due) {
-    parts.push(t('ticket-detail-scheduling-due-prefix', { date: formatDay(due, 'monthDay') }));
+    parts.push(t('ticket-detail-scheduling-due-prefix', { date: withTime(due, props.ticket.due_time) }));
   }
   const rule = props.ticket.recurrence_rule;
   if (rule) {
@@ -1019,26 +1014,27 @@ watchEffect(async () => {
           <!-- Cluster B — Triage. Operational state used for triage. -->
           <div class="flex flex-col gap-2">
 
-          <!-- Status and Priority Section -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <!-- Status. Flat treatment per sidebar convention: the
-                 CustomDropdown trigger already carries its own
-                 hover-tint + rounded corners + status chip; the
-                 previous outer card was redundant chrome that read
-                 as form-mode in what's really a property display.
-                 Same call for Priority and Category below. -->
-            <div class="flex flex-col gap-1">
-              <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('ticket-detail-prop-status') }}</h3>
-              <CustomDropdown
-                :value="workflowDropdownValue"
-                :options="workflowDropdownOptions"
-                type="status"
-                :disabled="readonly"
-                @update:value="handleStatusDropdownChange"
-                class="w-full"
-              />
-            </div>
+          <!-- Status on its own row, then Priority and Size side by
+               side: three dropdowns in a two-column grid would leave
+               an orphan cell. Flat treatment per sidebar convention:
+               the CustomDropdown trigger already carries its own
+               hover-tint + rounded corners + status chip; an outer
+               card would be redundant chrome that reads as form-mode
+               in what's really a property display. Same call for
+               Priority, Size and Category below. -->
+          <div class="flex flex-col gap-1">
+            <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('ticket-detail-prop-status') }}</h3>
+            <CustomDropdown
+              :value="workflowDropdownValue"
+              :options="workflowDropdownOptions"
+              type="status"
+              :disabled="readonly"
+              @update:value="handleStatusDropdownChange"
+              class="w-full"
+            />
+          </div>
 
+          <div class="grid grid-cols-2 gap-3">
             <!-- Priority -->
             <div class="flex flex-col gap-1">
               <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('ticket-detail-prop-priority') }}</h3>
@@ -1049,6 +1045,16 @@ watchEffect(async () => {
                 :disabled="readonly"
                 @update:value="(v: string) => emit('update:selectedPriority', v as TicketPriority)"
                 class="w-full"
+              />
+            </div>
+
+            <!-- Size: how long the job takes, from the size presets. -->
+            <div class="flex flex-col gap-1">
+              <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('plan-size-label') }}</h3>
+              <SizeField
+                :minutes="ticket.estimate_minutes"
+                :disabled="readonly"
+                @update="(minutes) => emit('update:estimate', minutes)"
               />
             </div>
           </div>
@@ -1188,22 +1194,16 @@ watchEffect(async () => {
                 <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">
                   {{ t('ticket-detail-scheduling-start-date') }}
                 </h3>
-                <div class="flex items-center gap-2">
-                  <DatePicker
-                    v-model="startDateValue"
-                    :disabled="readonly"
-                    size="sm"
-                    block
-                    :aria-label="t('ticket-detail-scheduling-start-date')"
-                  />
-                  <IconButton
-                    v-if="ticket.start_date && !readonly"
-                    size="sm"
-                    icon="close"
-                    :label="t('ticket-detail-scheduling-clear-start')"
-                    @click="emit('update:startDate', null)"
-                  />
-                </div>
+                <DateTimeField
+                  :date="startDay(ticket) ?? ''"
+                  :time="ticket.start_time"
+                  :label="t('ticket-detail-scheduling-start-date')"
+                  :time-title="t('plan-time-start-title')"
+                  :clear-label="t('ticket-detail-scheduling-clear-start')"
+                  :disabled="readonly"
+                  @update:date="(day) => emit('update:startDate', midnight(day))"
+                  @update:time="(time) => emit('update:startTime', time)"
+                />
               </div>
 
               <!-- Due date: picker + ghost clear button. The clear
@@ -1213,22 +1213,16 @@ watchEffect(async () => {
                 <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">
                   {{ t('ticket-detail-scheduling-due-date') }}
                 </h3>
-                <div class="flex items-center gap-2">
-                  <DatePicker
-                    v-model="dueDateValue"
-                    :disabled="readonly"
-                    size="sm"
-                    block
-                    :aria-label="t('ticket-detail-scheduling-due-date')"
-                  />
-                  <IconButton
-                    v-if="ticket.due_date && !readonly"
-                    size="sm"
-                    icon="close"
-                    :label="t('ticket-detail-scheduling-clear-due')"
-                    @click="emit('update:dueDate', null)"
-                  />
-                </div>
+                <DateTimeField
+                  :date="dueDay(ticket) ?? ''"
+                  :time="ticket.due_time"
+                  :label="t('ticket-detail-scheduling-due-date')"
+                  :time-title="t('plan-time-due-title')"
+                  :clear-label="t('ticket-detail-scheduling-clear-due')"
+                  :disabled="readonly"
+                  @update:date="(day) => emit('update:dueDate', midnight(day))"
+                  @update:time="(time) => emit('update:dueTime', time)"
+                />
               </div>
 
               <!-- Recurrence: dropdown + optional hint folded into

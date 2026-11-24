@@ -6,12 +6,15 @@
  * for the table — no extra fetch). Triage fields (title, status,
  * priority, assignee, due date) are editable inline via the same
  * pickers the ticket detail sidebar uses; writes go through the
- * sync store so the table row updates optimistically.
+ * sync store so the table row updates optimistically. The plan sits
+ * in Properties: the start and due dates, each with its time, and the
+ * size.
  *
  * Visual structure:
  *   - Top strip: id breadcrumb + close + open shortcuts
  *   - Title block: editable title + priority / SLA pills
- *   - PROPERTIES section: status, people, due date, cycle, category
+ *   - PROPERTIES section: people, start and due date, size, cycle,
+ *     category
  *   - SLA section (when present): time bar + target time
  *   - ACTIVITY section: created + last activity
  *   - DEVICES section (when present): leading device + count
@@ -19,7 +22,8 @@
 import { computed, onMounted, ref, toRef, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
-import DatePicker from '@/components/common/DatePicker.vue'
+import DateTimeField from '@/components/planning/DateTimeField.vue'
+import SizeField from '@/components/planning/SizeField.vue'
 import CustomDropdown from '@/components/ticketComponents/CustomDropdown.vue'
 import UserPicker from '@/components/ticketComponents/UserPicker.vue'
 import UserCell from '@/components/views/UserCell.vue'
@@ -35,7 +39,7 @@ import {
   formatCleanRelativeTime,
   formatDateTime,
 } from '@nosdesk/core/utils/dateUtils'
-import { dueDay } from '@nosdesk/core/utils/ticketDates'
+import { dueDay, startDay } from '@nosdesk/core/utils/ticketDates'
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 import {
   buildPriorityDropdownOptions,
@@ -96,15 +100,8 @@ const workflowDropdownValue = computed(() =>
 
 const selectedPriority = computed(() => props.card?.priority ?? 'none')
 
-const dueDateValue = computed({
-  get(): string {
-    return (props.card && dueDay(props.card)) ?? ''
-  },
-  set(value: string) {
-    if (!props.card) return
-    void updateDueDate(value ? `${value}T00:00:00` : null)
-  },
-})
+/** A day from a picker as the stored value: midnight, no zone. */
+const midnight = (day: string | null) => (day ? `${day}T00:00:00` : null)
 
 function relativeOrAbsolute(iso: string): string {
   return formatCleanRelativeTime(iso)
@@ -177,9 +174,10 @@ async function updateAssignee(uuid: string): Promise<void> {
   })
 }
 
-async function updateDueDate(iso: string | null): Promise<void> {
+/** A plan write: a date, its time, or the size. */
+async function updatePlan(patch: Partial<CardData>): Promise<void> {
   if (!props.card) return
-  await ticketsStore.patchKanbanFields(props.card.id, { due_date: iso })
+  await ticketsStore.patchPlan(props.card.id, patch)
 }
 </script>
 
@@ -341,16 +339,44 @@ async function updateDueDate(iso: string | null): Promise<void> {
               <div class="preview-row flex items-center gap-2 min-h-7">
                 <span class="preview-label flex items-center gap-1.5 w-22 shrink-0 text-tertiary">
                   <Icon name="calendar" size="xs" />
+                  {{ $t('ticket-detail-scheduling-start-date') }}
+                </span>
+                <DateTimeField
+                  class="preview-value preview-field-picker flex-1 min-w-0"
+                  :date="startDay(card) ?? ''"
+                  :time="card.start_time"
+                  :label="$t('ticket-detail-scheduling-start-date')"
+                  :time-title="$t('plan-time-start-title')"
+                  @update:date="(day) => updatePlan({ start_date: midnight(day) })"
+                  @update:time="(time) => updatePlan({ start_time: time })"
+                />
+              </div>
+              <div class="preview-row flex items-center gap-2 min-h-7">
+                <span class="preview-label flex items-center gap-1.5 w-22 shrink-0 text-tertiary">
+                  <Icon name="calendar" size="xs" />
                   {{ $t('views-ticket-preview-due-date') }}
                 </span>
-                <div class="preview-value preview-field-picker flex-1 min-w-0">
-                  <DatePicker
-                    v-model="dueDateValue"
-                    size="sm"
-                    block
-                    :aria-label="$t('views-ticket-preview-due-date')"
-                  />
-                </div>
+                <DateTimeField
+                  class="preview-value preview-field-picker flex-1 min-w-0"
+                  :date="dueDay(card) ?? ''"
+                  :time="card.due_time"
+                  :label="$t('views-ticket-preview-due-date')"
+                  :time-title="$t('plan-time-due-title')"
+                  @update:date="(day) => updatePlan({ due_date: midnight(day) })"
+                  @update:time="(time) => updatePlan({ due_time: time })"
+                />
+              </div>
+              <div class="preview-row flex items-center gap-2 min-h-7">
+                <span class="preview-label flex items-center gap-1.5 w-22 shrink-0 text-tertiary">
+                  <Icon name="clock" class="w-3 h-3" />
+                  {{ $t('plan-size-label') }}
+                </span>
+                <SizeField
+                  compact
+                  class="preview-value"
+                  :minutes="card.estimate_minutes"
+                  @update="(minutes) => updatePlan({ estimate_minutes: minutes })"
+                />
               </div>
               <div v-if="card.cycle_id != null" class="preview-row flex items-center gap-2 min-h-7">
                 <span class="preview-label flex items-center gap-1.5 w-22 shrink-0 text-tertiary">

@@ -31,6 +31,7 @@ defineEmits<{
   (e: 'open', id: number): void
   (e: 'contextmenu', id: number, event: MouseEvent): void
   (e: 'toggle-bulk', id: number, shiftKey: boolean): void
+  (e: 'patch', id: number, patch: Partial<CardData>): void
 }>()
 </script>
 
@@ -59,5 +60,6 @@ defineEmits<{
     @open="(id: number) => $emit('open', id)"
     @contextmenu="(id: number, event: MouseEvent) => $emit('contextmenu', id, event)"
     @toggle-bulk="(id: number, shiftKey: boolean) => $emit('toggle-bulk', id, shiftKey)"
+    @patch="(id: number, patch: Partial<CardData>) => $emit('patch', id, patch)"
   />
 </template>
