@@ -12922,15 +12922,17 @@ plan-day-next = Volgende dag
 # MT: pending native review (nl-NL)
 plan-day-today = Vandaag
 # MT: pending native review (nl-NL)
-plan-day-load = { $count ->
-    [one] 1 taak
-   *[other] { $count } taken
-}
+plan-day-load =
+    { $count ->
+        [one] 1 taak
+       *[other] { $count } taken
+    }
 # MT: pending native review (nl-NL)
-plan-day-load-sized = { $count ->
-    [one] 1 taak, ongeveer { $hours } u
-   *[other] { $count } taken, ongeveer { $hours } u
-}
+plan-day-load-sized =
+    { $count ->
+        [one] 1 taak, ongeveer { $hours } u
+       *[other] { $count } taken, ongeveer { $hours } u
+    }
 # MT: pending native review (nl-NL)
 plan-section-booked = Ingepland
 # MT: pending native review (nl-NL)

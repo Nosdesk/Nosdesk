@@ -12931,15 +12931,17 @@ plan-day-next = Jour suivant
 # MT: pending native review (fr-FR)
 plan-day-today = Aujourd'hui
 # MT: pending native review (fr-FR)
-plan-day-load = { $count ->
-    [one] 1 tâche
-   *[other] { $count } tâches
-}
+plan-day-load =
+    { $count ->
+        [one] 1 tâche
+       *[other] { $count } tâches
+    }
 # MT: pending native review (fr-FR)
-plan-day-load-sized = { $count ->
-    [one] 1 tâche, environ { $hours } h
-   *[other] { $count } tâches, environ { $hours } h
-}
+plan-day-load-sized =
+    { $count ->
+        [one] 1 tâche, environ { $hours } h
+       *[other] { $count } tâches, environ { $hours } h
+    }
 # MT: pending native review (fr-FR)
 plan-section-booked = Planifiées
 # MT: pending native review (fr-FR)

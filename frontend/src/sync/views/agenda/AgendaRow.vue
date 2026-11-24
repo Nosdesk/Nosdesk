@@ -82,7 +82,11 @@ const overlapTitle = computed(() =>
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.target !== event.currentTarget) return
-  if (event.key === 'Enter') emit('open')
+  if (event.key === 'Enter') {
+    // The row's own: the list's keys stand down on a handled event.
+    event.preventDefault()
+    emit('open')
+  }
   if (event.altKey && event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
     event.preventDefault()
     emit('move', event.key === 'ArrowUp' ? -1 : 1)

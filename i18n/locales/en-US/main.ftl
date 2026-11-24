@@ -11248,14 +11248,16 @@ admin-rules-conflicts-field-asset-record = asset records
 plan-day-previous = Previous day
 plan-day-next = Next day
 plan-day-today = Today
-plan-day-load = { $count ->
-    [one] 1 job
-   *[other] { $count } jobs
-}
-plan-day-load-sized = { $count ->
-    [one] 1 job, about { $hours } h
-   *[other] { $count } jobs, about { $hours } h
-}
+plan-day-load =
+    { $count ->
+        [one] 1 job
+       *[other] { $count } jobs
+    }
+plan-day-load-sized =
+    { $count ->
+        [one] 1 job, about { $hours } h
+       *[other] { $count } jobs, about { $hours } h
+    }
 plan-section-booked = Booked
 plan-section-any-time = Any time
 plan-day-empty = Nothing planned for this day.

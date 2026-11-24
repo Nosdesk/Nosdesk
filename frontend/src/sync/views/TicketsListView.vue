@@ -806,7 +806,9 @@ function onKey(e: KeyboardEvent): void {
   // Use the viewport-aware splitViewActive — keyboard nav for
   // selected-row arrow keys only makes sense when the preview pane
   // is actually visible.
-  if (!previewShowing.value || inField) return
+  // A key a row already handled (the agenda's Enter and Alt+Shift+Arrow)
+  // is not also a selection move.
+  if (!previewShowing.value || inField || e.defaultPrevented) return
   if (e.key === 'ArrowDown' || e.key === 'j') {
     e.preventDefault()
     selection.move(1)
