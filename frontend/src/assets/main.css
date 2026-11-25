@@ -497,21 +497,43 @@
 /* Larger text on a phone. Controls were laid out for the designed size;
    once the text is larger than designed (`data-text-grown`, set from
    `--text-scale` by useTextScale.ts) a phone lets the ones that would clip
-   grow. In a layer below the utilities, so a component's own classes win:
+   grow:
 
    - a button or link held to a fixed height (`h-5` to `h-10`) grows with
-     its label: `min-height: max-content` outweighs a fixed height, and
-     `min-h-0` on the element opts out;
+     its label. Its height lets go (`height: auto`; WebKit ignores an
+     intrinsic `min-height` such as `max-content`) and its fixed height
+     stays as its least, unless it sets a `min-h-*` of its own, which
+     then holds (a touch floor stays a floor). `min-h-0` or
+     `data-fixed-height` on the element opts out. In the utilities layer
+     with a higher specificity than `h-*`, so it beats the fixed height;
    - text cut to a line or clamped keeps its cut unless it opts in to
      reading whole, with `grown-wrap` (beside `truncate`) or
      `grown-unclamp` (beside `line-clamp-*`), below.
 
    "A phone" is under 48rem wide, or a touch screen under 30rem tall (a
    phone on its side), as for the phone baseline above. */
-@layer components {
+@layer utilities {
   @media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
-    :root[data-text-grown] :is(button, a, [role='button']):is(.h-5, .h-6, .h-7, .h-8, .h-9, .h-10) {
-      min-height: max-content;
+    :root[data-text-grown] :is(button, a, [role='button']):is(.h-5, .h-6, .h-7, .h-8, .h-9, .h-10):not(.min-h-0, [data-fixed-height]) {
+      height: auto;
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-5:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 5);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-6:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 6);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-7:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 7);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-8:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 8);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-9:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 9);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-10:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 10);
     }
   }
 }
@@ -543,12 +565,16 @@
   }
 }
 
-/* A row of fixed height that is not a control (a toolbar, a section
-   header) grows to fit its content at larger text, and keeps its fixed
-   height at the default size. */
-@utility grown-fit {
-  :root[data-text-grown] & {
-    min-height: max-content;
+/* Opt in: a row of fixed height that is not a control (a toolbar, a
+   section header) grows to fit its content at larger text on a phone,
+   with its fixed height as its least: `h-10 grown-fit-10`. It keeps its
+   fixed height at the default size. */
+@utility grown-fit-* {
+  @media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+    :root[data-text-grown] & {
+      height: auto;
+      min-height: calc(var(--spacing) * --value(integer));
+    }
   }
 }
 

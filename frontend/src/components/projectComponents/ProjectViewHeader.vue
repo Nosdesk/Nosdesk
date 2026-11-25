@@ -94,7 +94,7 @@ async function confirmDelete(): Promise<void> {
 </script>
 
 <template>
-  <header class="flex items-center justify-between gap-3 px-3 sm:px-6 h-10 grown-fit shrink-0 border-b border-subtle bg-app">
+  <header class="flex items-center justify-between gap-3 px-3 sm:px-6 h-10 grown-fit-10 shrink-0 border-b border-subtle bg-app">
     <!-- Left: project meta. The project name itself lives in the main
          site header (PageHeader), inline-editable there. -->
     <div v-if="project" class="flex items-center gap-2 min-w-0">

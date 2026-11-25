@@ -169,7 +169,7 @@ const onDragEnd = () => {
   <!-- @container: row extras (description, freshness) key off the card's own
        width, so the ledger degrades gracefully in a narrow main column. -->
   <section class="@container bg-surface rounded-xl border border-default overflow-hidden">
-    <header class="flex items-center gap-2 px-3 h-9 grown-fit border-b border-default bg-surface-alt">
+    <header class="flex items-center gap-2 px-3 h-9 grown-fit-9 border-b border-default bg-surface-alt">
       <h2 class="text-xs-plus font-semibold text-primary tracking-tight truncate flex-1">
         {{ $t('docs-index-library-heading') }}
       </h2>
