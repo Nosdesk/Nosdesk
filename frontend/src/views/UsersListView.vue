@@ -508,7 +508,9 @@ function formatPurgeAt(deletedAt: string): string {
       @retry="listView.page.handleRetry"
     >
       <template #view-tabs>
-        <div class="flex items-center gap-2">
+        <!-- The two toggles wrap onto a second line when larger text
+             leaves no room for both. -->
+        <div class="flex flex-wrap items-center gap-2">
           <!-- Primary: the People population split (staff Team vs end-user
                Requesters), for staff; it drives the backend filter, which
                doesn't apply to anyone else. -->

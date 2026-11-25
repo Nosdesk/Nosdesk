@@ -225,7 +225,7 @@ async function sendReply(): Promise<void> {
         </p>
       </section>
 
-      <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] items-start">
+      <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] items-start">
         <div class="flex flex-col gap-4 min-w-0">
           <h2 class="sr-only">{{ t('portal-thread-title') }}</h2>
           <ol class="flex flex-col">
