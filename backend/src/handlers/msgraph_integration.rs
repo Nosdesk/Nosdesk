@@ -4285,10 +4285,17 @@ async fn sync_group_membership(
 
     let new_member_uuids: HashSet<_> = user_mappings.into_iter().map(|(_, uuid)| uuid).collect();
 
-    // Calculate additions and removals
-    let to_add: Vec<_> = new_member_uuids
+    // Calculate additions and removals. The Microsoft identity is global, so
+    // only someone seated in this workspace joins its group: anyone else
+    // would become one of its people through the group.
+    let candidates: Vec<_> = new_member_uuids
         .difference(&current_local_set)
         .cloned()
+        .collect();
+    let seated = crate::repository::workspaces::active_members_among(conn, &candidates)?;
+    let to_add: Vec<_> = candidates
+        .into_iter()
+        .filter(|u| seated.contains(u))
         .collect();
     let to_remove: Vec<_> = current_local_set
         .difference(&new_member_uuids)
@@ -4331,7 +4338,7 @@ async fn sync_group_membership(
 ///
 /// This function processes incremental membership changes instead of fetching
 /// all members. It's much more efficient for subsequent syncs.
-async fn apply_delta_group_membership(
+pub async fn apply_delta_group_membership(
     conn: &mut DbConnection,
     local_group_id: i32,
     members_added: &[MicrosoftGraphGroupMember],
@@ -4339,12 +4346,16 @@ async fn apply_delta_group_membership(
 ) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
     let mut changes = 0;
 
-    // Process added members (users only for now)
+    // Process added members (users only for now). Only someone seated in
+    // this workspace joins its group (the Microsoft identity is global).
     let user_members_added: Vec<_> = members_added.iter().filter(|m| m.is_user()).collect();
     if !user_members_added.is_empty() {
         let external_ids: Vec<&str> = user_members_added.iter().map(|m| m.id.as_str()).collect();
-        let user_mappings =
+        let mut user_mappings =
             identity_repo::get_user_uuids_by_external_ids(&external_ids, "microsoft", conn)?;
+        let uuids: Vec<uuid::Uuid> = user_mappings.iter().map(|(_, u)| *u).collect();
+        let seated = crate::repository::workspaces::active_members_among(conn, &uuids)?;
+        user_mappings.retain(|(_, u)| seated.contains(u));
 
         // Read current membership once; `add_user_to_group` is idempotent, so
         // this only avoids a redundant insert-txn per already-present member.

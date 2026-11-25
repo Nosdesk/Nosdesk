@@ -7,9 +7,10 @@
 //! identity; the LDAP provisioner in B doesn't link it either. For an account
 //! both hold, B's directory names the person in B and leaves the account's
 //! name alone. The address writers the Microsoft sync uses touch only their
-//! own rows, the portal's add-participant says nothing about the account an
-//! address reached, and `user.*` webhooks carry no platform role or dashboard
-//! layout.
+//! own rows, a directory group in B takes in no one only A holds, the
+//! portal's add-participant says nothing about the account an address
+//! reached, and `user.*` webhooks and other members' sync rows carry no
+//! platform role or dashboard layout.
 
 use actix_web::dev::Service;
 use actix_web::test as http_test;
@@ -21,11 +22,14 @@ use uuid::Uuid;
 use backend::db::DbConnection;
 use backend::extractors::WorkspaceContext;
 use backend::handlers::msgraph_integration::{
-    process_microsoft_user_no_photos, MicrosoftGraphUser, UserSyncStats,
+    apply_delta_group_membership, process_microsoft_user_no_photos, MicrosoftGraphGroupMember,
+    MicrosoftGraphUser, UserSyncStats,
 };
 use backend::handlers::portal::PortalContext;
 use backend::middleware::RequestContext;
-use backend::models::{NewTicket, NewUserAuthIdentity, NewUserEmail, UserAuthIdentity};
+use backend::models::{
+    NewTicket, NewUserAuthIdentity, NewUserEmail, SyncAggregate, UserAuthIdentity,
+};
 use backend::repository::user_auth_identities as identity_repo;
 use backend::repository::user_emails as emails_repo;
 use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
@@ -38,7 +42,9 @@ use backend::services::webhooks::WebhookService;
 use backend::sync::actor::ActorContext;
 use backend::sync::session::{
     elevate_session_role, reset_session_role, run_in_workspace, with_actor_bypass_context,
+    with_actor_context,
 };
+use backend::sync::visibility::{asset_keys_for, project_row, SyncViewer};
 
 use crate::common::{self, TestPool, TwoWorkspaces};
 
@@ -371,6 +377,46 @@ fn graph_sync_still_renames_an_account_only_its_workspace_holds() {
 }
 
 #[test]
+fn a_directory_group_in_b_takes_in_no_one_only_a_holds() {
+    let fx = Fixture::new();
+    let victim = fx.account("Victim In A", &[fx.a()]);
+    let colleague = fx.account("Colleague In B", &[fx.b()]);
+    let victim_person = directory_person("Victim", &[&victim.primary]);
+    let colleague_person = directory_person("Colleague", &[&colleague.primary]);
+    fx.microsoft_identity(victim.uuid, &victim_person);
+    fx.microsoft_identity(colleague.uuid, &colleague_person);
+    let member = |p: &MicrosoftGraphUser| -> MicrosoftGraphGroupMember {
+        serde_json::from_value(json!({ "@odata.type": "#microsoft.graph.user", "id": p.id }))
+            .expect("group member")
+    };
+
+    let members = fx.as_graph_sync(fx.b(), |c| {
+        let (group, _) = backend::repository::groups::upsert_external_group(
+            c,
+            "directory-group",
+            "microsoft",
+            "Staff",
+            None,
+            None,
+            false,
+            true,
+        )
+        .expect("group");
+        futures::executor::block_on(apply_delta_group_membership(
+            c,
+            group.id,
+            &[member(&victim_person), member(&colleague_person)],
+            &[],
+        ))
+        .expect("apply membership");
+        backend::repository::groups::get_member_uuids_for_group(c, group.id).expect("members")
+    });
+
+    assert_eq!(members, vec![colleague.uuid], "only B's own member joins");
+    assert_eq!(fx.seats(victim.uuid), vec![fx.a()]);
+}
+
+#[test]
 fn ldap_provisioning_in_b_does_not_link_an_account_seated_only_in_a() {
     let fx = Fixture::new();
     let victim = fx.account("Victim In A", &[fx.a()]);
@@ -586,7 +632,7 @@ async fn add_participant_says_nothing_about_the_account_an_address_reached() {
 }
 
 #[test]
-fn user_webhooks_carry_no_platform_role_or_dashboard_layout() {
+fn user_webhooks_and_other_members_sync_rows_carry_no_platform_role_or_dashboard_layout() {
     let fx = Fixture::new();
     let a = fx.a();
     let person = fx.account("Webhook Person", &[a]);
@@ -634,6 +680,31 @@ fn user_webhooks_carry_no_platform_role_or_dashboard_layout() {
     });
     assert!(recorded.get("platform_role").is_some(), "{recorded}");
     assert!(recorded.get("dashboard_layout").is_some(), "{recorded}");
+
+    // Another member's sessions get the row without them (the sync read
+    // paths project it), and the person's own keep it.
+    let as_viewer = |viewer: Uuid| -> Value {
+        let mut conn = fx.pool.get().expect("conn");
+        with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &ActorContext::user(viewer, None).with_workspace(a),
+            |c| {
+                let me = backend::repository::users::get_user_by_uuid(&viewer, c)?;
+                let viewer = SyncViewer::resolve(c, &me);
+                let keys = asset_keys_for(c, &viewer, std::iter::once(Some(SyncAggregate::User)));
+                let mut data = recorded.clone();
+                project_row(&viewer, Some(SyncAggregate::User), &mut data, &keys);
+                Ok(data)
+            },
+        )
+        .expect("project")
+    };
+    for other in [fx.ws.a.admin_uuid, fx.ws.a.member_uuid] {
+        let seen = as_viewer(other);
+        assert!(seen.get("platform_role").is_none(), "{seen}");
+        assert!(seen.get("dashboard_layout").is_none(), "{seen}");
+    }
+    assert!(as_viewer(person.uuid).get("dashboard_layout").is_some());
 
     loop {
         let mut conn = fx.pool.get().expect("conn");
