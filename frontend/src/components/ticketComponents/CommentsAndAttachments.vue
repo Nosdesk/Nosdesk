@@ -642,7 +642,9 @@ const handlePastedFiles = async (files: File[]) => {
                     v-if="!readonly"
                     class="print:hidden relative p-3 transition-colors"
                     :class="[
-                        isInternal ? 'bg-status-warning-bg/40' : 'bg-surface',
+                        // On a phone the form itself carries the amber, over the
+                        // plain surface, so text on it is measured against one fill.
+                        isInternal ? 'bg-status-warning-bg/40 max-sm:bg-surface' : 'bg-surface',
                         props.comments.length > 0 ? 'border-b border-default' : ''
                     ]"
                     @dragenter="handleDragEnter"
@@ -672,7 +674,7 @@ const handlePastedFiles = async (files: File[]) => {
                     <form
                         @submit.prevent="addComment"
                         class="flex flex-col gap-2 max-sm:gap-0 max-sm:rounded-xl max-sm:border max-sm:px-1 max-sm:pt-2 max-sm:focus-within:ring-2 max-sm:focus-within:ring-accent"
-                        :class="isInternal ? 'max-sm:border-[var(--color-status-warning-ui)] max-sm:bg-status-warning-muted' : 'max-sm:border-field max-sm:bg-surface'"
+                        :class="isInternal ? 'reply-internal max-sm:border-[var(--color-status-warning-ui)] max-sm:bg-status-warning-muted/40' : 'max-sm:border-field max-sm:bg-surface'"
                         :data-audience-state="isInternal ? 'internal' : 'public'"
                         data-composer
                     >
@@ -902,7 +904,7 @@ const handlePastedFiles = async (files: File[]) => {
                             >
                                 <span
                                     class="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2"
-                                    :class="isInternal ? 'border border-status-warning/50 bg-status-warning-muted font-medium text-status-warning' : 'text-secondary'"
+                                    :class="isInternal ? 'border border-[var(--color-status-warning-ui)] bg-surface font-medium text-status-warning' : 'text-secondary'"
                                 >
                                     <Icon :name="isInternal ? 'lock' : 'eye'" size="sm" class="shrink-0" />
                                     <!-- A toggle named "Internal note", pressed for a
@@ -1383,6 +1385,12 @@ const handlePastedFiles = async (files: File[]) => {
     .reply-field :deep(.ProseMirror) {
         padding: 0 0.625rem;
         line-height: 1.5;
+    }
+    /* The tertiary grey falls under 4.5:1 on the amber in some dark themes
+       (textContrast.spec.ts); the placeholder takes the secondary colour. */
+    .reply-internal .reply-field :deep(.ProseMirror[data-placeholder]::before),
+    .reply-internal .reply-field :deep(.simple-editor-content:empty::before) {
+        color: var(--color-secondary);
     }
 }
 

@@ -39,7 +39,10 @@ const emit = defineEmits<{ (e: 'update:modelValue', index: number): void }>()
       @update:model-value="(value) => value && emit('update:modelValue', value[0])"
     >
       <SliderTrack class="relative h-1 flex-1 rounded-full bg-surface-alt">
-        <SliderRange class="absolute h-full rounded-full" :class="following ? 'bg-strong' : 'bg-accent'" />
+        <!-- The range and thumb hold 3:1 on the track and the surface in every
+             theme: the secondary grey while following, the accent's UI
+             colour once the size is the person's own. -->
+        <SliderRange class="absolute h-full rounded-full" :class="following ? 'bg-secondary' : 'bg-[var(--color-accent-ui)]'" />
         <span
           v-for="(stop, i) in TEXT_SIZE_STOPS"
           :key="stop"
@@ -50,7 +53,7 @@ const emit = defineEmits<{ (e: 'update:modelValue', index: number): void }>()
       </SliderTrack>
       <SliderThumb
         class="block h-7 w-7 rounded-full border-2 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-        :class="following ? 'border-strong bg-surface' : 'border-accent bg-accent'"
+        :class="following ? 'border-secondary bg-surface' : 'border-accent bg-[var(--color-accent-ui)]'"
         :aria-label="label"
         :aria-valuetext="valueText"
         :aria-describedby="describedBy"

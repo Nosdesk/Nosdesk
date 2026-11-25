@@ -305,3 +305,42 @@ describe('Red Horizon button overrides', () => {
     }
   })
 })
+
+// An internal note's reply form on a phone: the warning tint at 40% over
+// the surface. Typed text, the placeholder and the tools (secondary) and
+// the pressed audience chip (warning text on the surface, in a warning
+// edge) sit on it.
+describe('the internal note form', () => {
+  const cases = themes.map(([id, theme]) => {
+    const { colors, text, ui } = resolveTheme(theme)
+    const surface = parse(colors.surface)
+    const muted = parse(colors.warningMuted, surface)
+    const fill = muted.map((v, i) => v * 0.4 + surface[i] * 0.6) as Rgb
+    return { id, colors, text, ui, surface, fill }
+  })
+
+  it.each(cases)('$id: primary and secondary text reach 4.5:1 on the amber', ({ colors, fill }) => {
+    expect(contrast(parse(colors.primary, fill), fill)).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(parse(colors.secondary, fill), fill)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // The pressed audience chip is the plain surface inside a warning edge.
+  it.each(cases)('$id: the pressed audience label reaches 4.5:1 and its edge 3:1', ({ text, ui, surface, fill }) => {
+    expect(contrast(parse(text['status-warning'], surface), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(parse(ui['status-warning']), fill)).toBeGreaterThanOrEqual(3)
+  })
+})
+
+// Settings > Appearance > Text size: the slider's range and thumb edge
+// (secondary while following the device, the accent's UI colour once the
+// size is the person's own) hold 3:1 on the track and the surface.
+describe('the text size slider', () => {
+  it.each(themes)('%s: range and thumb reach 3:1 on the track and the surface', (_id, theme) => {
+    const { colors, accentUi } = resolveTheme(theme)
+    const { surface, surfaceAlt } = backgrounds(theme)
+    for (const mark of [parse(colors.secondary, surface), parse(accentUi)]) {
+      expect(contrast(mark, surfaceAlt)).toBeGreaterThanOrEqual(3)
+      expect(contrast(mark, surface)).toBeGreaterThanOrEqual(3)
+    }
+  })
+})
