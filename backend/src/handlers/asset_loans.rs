@@ -146,6 +146,14 @@ pub async fn issue(
     }
     let asset_id = path.into_inner();
     let body = body.into_inner();
+    // The borrower is one of this workspace's people; a stranger reads as an
+    // unknown borrower, as a uuid no account has does.
+    let borrower = body.borrower_user_uuid;
+    match tc.run(|conn| crate::repository::directory::is_person_here(conn, borrower)) {
+        Ok(true) => {}
+        Ok(false) => return map_loan_err(asset_id, LoanError::InvalidReference),
+        Err(e) => return map_loan_err(asset_id, LoanError::Db(e)),
+    }
     let input = IssueLoan {
         asset_id,
         borrower_user_uuid: body.borrower_user_uuid,

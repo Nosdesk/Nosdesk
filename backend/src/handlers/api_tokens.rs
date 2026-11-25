@@ -140,8 +140,12 @@ pub async fn create_api_token(
         // permissive for the target — the more restrictive interpretation).
         let caller_role = crate::repository::user_helpers::workspace_role(conn, created_by)
             .unwrap_or(WorkspaceRole::Member);
-        let target_role = crate::repository::user_helpers::workspace_role(conn, user_uuid)
-            .unwrap_or(WorkspaceRole::Member);
+        // The token's holder has a seat here. Accounts are shared across
+        // workspaces, so one with none reads as no such user.
+        let Some(target_role) = crate::repository::user_helpers::workspace_role(conn, user_uuid)
+        else {
+            return Ok(Outcome::TargetUserNotFound);
+        };
         if target_role > caller_role {
             return Ok(Outcome::TargetRoleExceedsCaller);
         }

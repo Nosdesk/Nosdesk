@@ -183,6 +183,29 @@ pub fn is_person(conn: &mut DbConnection, workspace_id: i32, user_uuid: Uuid) ->
     Ok(people_among(conn, workspace_id, &[user_uuid])?.contains(&user_uuid))
 }
 
+/// [`is_person`] in the workspace the connection is pinned to; `false` when
+/// nothing is pinned. For a write that names someone the workspace must
+/// already know (an asset's user or manager, a borrower, a contact).
+pub fn is_person_here(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<bool> {
+    match crate::sync::session::current_workspace_id(conn)? {
+        Some(workspace_id) => is_person(conn, workspace_id, user_uuid),
+        None => Ok(false),
+    }
+}
+
+/// Whether `user_uuid` holds an active seat in the workspace the connection
+/// is pinned to; `false` when nothing is pinned. For a write that gives
+/// someone standing here now (a group, an API token), where a former member
+/// or a contact the workspace only knows of won't do.
+pub fn is_active_member_here(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<bool> {
+    match crate::sync::session::current_workspace_id(conn)? {
+        Some(workspace_id) => {
+            Ok(crate::repository::workspaces::membership(conn, workspace_id, user_uuid)?.is_some())
+        }
+        None => Ok(false),
+    }
+}
+
 /// The one of the pinned workspace's people whose account is named exactly
 /// `name`, the first by uuid when several share it; `None` when nothing is
 /// pinned. Nobody outside the workspace is found, so a name says nothing
