@@ -23,6 +23,7 @@ import { logger } from '@nosdesk/core/utils/logger';
 import type { Plugin } from '@nosdesk/core/types/plugin';
 import type { UserAddress } from '@nosdesk/core/services/userContactService';
 import { useThemeStore } from '@/stores/theme';
+import { useTextScale } from '@/composables/useTextScale';
 import type { PluginSlotContext } from '../context';
 import { snapshotPluginTheme } from '../theme';
 import { usePluginLayout } from '../layout';
@@ -65,6 +66,7 @@ watch(iframeHeight, (px) => emit('contentHeight', px));
 const pinnedHeight = computed(() => iframeHeight.value);
 
 const themeStore = useThemeStore();
+const textScale = useTextScale();
 const layout = usePluginLayout();
 
 // The host design tokens for the plugin sandbox, read fresh so they reflect the
@@ -228,7 +230,7 @@ watch(
   { deep: true },
 );
 
-// Re-push the design tokens when the host theme or accent changes. `flush: 'post'`
+// Re-push the design tokens when the host theme, accent or text size changes. `flush: 'post'`
 // so the DOM has the new theme applied before `snapshotPluginTheme` reads the
 // resolved values off `:root`.
 watch(
@@ -236,6 +238,7 @@ watch(
     () => themeStore.isDarkMode,
     () => themeStore.effectiveTheme?.meta?.id,
     () => themeStore.accentColorOverride,
+    textScale,
   ],
   () => {
     const win = frameRef.value?.contentWindow;
