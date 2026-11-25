@@ -1,7 +1,7 @@
 import type { Theme, ThemeColors } from '../types'
 import { lightTheme } from '../base/light'
 import { darkTheme } from '../base/dark'
-import { contrast, parseColour, readableOn, type Rgb } from './readable'
+import { contrast, isColour, parseColour, readableOn, toHex, type Rgb } from './readable'
 import { createNoncedStyleElement } from '@/utils/cspNonce'
 
 /**
@@ -79,7 +79,42 @@ export interface ResolvedTheme {
   fieldBorder: string
 }
 
+/**
+ * Never throws: a theme that fails to resolve would leave the app with
+ * no colours at all. A workspace accent the parser cannot read (the
+ * backend accepts `#f60`, and colours arrive from outside) is dropped in
+ * favour of the theme's own, with a warning; anything else that goes
+ * wrong falls back to the theme's colours as written.
+ */
 export function resolveTheme(theme: Theme, accentOverride?: string): ResolvedTheme {
+  let accent: string | undefined
+  if (accentOverride) {
+    if (isColour(accentOverride)) {
+      // One form for the arithmetic below: `#rrggbb`, a translucent
+      // accent laid over the surface it is seen on.
+      const surface = isColour(theme.colors.surface) ? parseColour(theme.colors.surface) : undefined
+      accent = toHex(parseColour(accentOverride, surface))
+    } else {
+      console.warn(`[theme] ignoring unreadable workspace accent ${JSON.stringify(accentOverride)}`)
+    }
+  }
+  try {
+    return resolveColours(theme, accent)
+  } catch (error) {
+    console.warn(`[theme] could not derive colours for ${theme.meta.id}; using them as written`, error)
+    const colors = { ...theme.colors }
+    const text = Object.fromEntries(TEXT_COLOURS.map(([name, key]) => [name, colors[key] as string]))
+    return {
+      colors,
+      onAccent: colors.accentForeground ?? '#000000',
+      text: { ...text, 'status-merged': (theme.meta.isDark ? MERGED.dark : MERGED.light).fill } as ResolvedTheme['text'],
+      accentUi: colors.accent,
+      fieldBorder: colors.strong,
+    }
+  }
+}
+
+function resolveColours(theme: Theme, accentOverride?: string): ResolvedTheme {
   const colors = { ...theme.colors }
 
   // Apply accent color override if provided

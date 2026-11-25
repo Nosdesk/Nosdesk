@@ -14,15 +14,38 @@
 
 export type Rgb = [number, number, number]
 
-/** `#rrggbb` or `rgba(r, g, b, a)` as sRGB in 0..1, a translucent colour
- *  laid over `under` (white when not given). */
+/** `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` or `rgb()`/`rgba()` as sRGB in
+ *  0..1, a translucent colour laid over `under` (white when not given).
+ *  Throws on anything else; `isColour` asks first. */
 export function parseColour(colour: string, under: Rgb = [1, 1, 1]): Rgb {
-  const hex = /^#([0-9a-f]{6})$/i.exec(colour.trim())
-  if (hex) return [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16) / 255) as Rgb
-  const rgba = /^rgba?\(([^)]+)\)$/.exec(colour.trim())
-  if (!rgba) throw new Error(`unreadable colour ${colour}`)
-  const [r, g, b, a = 1] = rgba[1].split(',').map((v) => Number(v.trim()))
-  return [r / 255, g / 255, b / 255].map((v, i) => v * a + under[i] * (1 - a)) as Rgb
+  const text = colour.trim()
+  const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(text)
+  if (hex) {
+    const digits = hex[1].length <= 4 ? [...hex[1]].map((d) => d + d).join('') : hex[1]
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(digits.slice(i, i + 2), 16) / 255)
+    const a = digits.length === 8 ? parseInt(digits.slice(6, 8), 16) / 255 : 1
+    return [r, g, b].map((v, i) => v * a + under[i] * (1 - a)) as Rgb
+  }
+  const rgba = /^rgba?\(([^)]+)\)$/.exec(text)
+  if (rgba) {
+    const parts = rgba[1].split(/[\s,/]+/).filter(Boolean).map((v) => (v.endsWith('%') ? Number(v.slice(0, -1)) / 100 : Number(v)))
+    const [r, g, b, a = 1] = parts
+    if (parts.length >= 3 && parts.length <= 4 && parts.every((v) => Number.isFinite(v))) {
+      return [r / 255, g / 255, b / 255].map((v, i) => v * a + under[i] * (1 - a)) as Rgb
+    }
+  }
+  throw new Error(`unreadable colour ${colour}`)
+}
+
+/** Whether `parseColour` can read this. */
+export function isColour(colour: unknown): colour is string {
+  if (typeof colour !== 'string') return false
+  try {
+    parseColour(colour)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function toHex(rgb: Rgb): string {
