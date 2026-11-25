@@ -25,15 +25,16 @@ down a ladder, stopping at the first step that works:
   2. Reflow. Fixed pixel widths are capped to the frame and table cells may
      wrap (`body[data-reflow]`), so a 600px column reads like any other text.
   3. Shrink to fit. If something still cannot wrap (a table of whole words),
-     the zoom comes down until it fits, but never past the point where 14px
-     type would show under 12px.
+     the zoom comes down until it fits, but never past the point where the
+     email's smallest visible text would show under 12px (text the sender
+     set under 12px is never shrunk further).
   4. Pan. Past that floor the email keeps its floor size and scrolls sideways
      inside its own frame.
 
 When step 3 or 4 left the email under the reader's size it is `fitted`, and
 the reader gets one switch: "Show at my text size" (and pan) or "Fit to
 width". A phone's comment puts it on the comment's head line (the parent
-owns `fullSize` and hears `fitted`); otherwise it sits under the email.
+owns `size` and hears `fitted`); otherwise it sits under the email.
 -->
 <template>
   <div class="flex flex-col gap-1">
@@ -82,7 +83,7 @@ owns `fullSize` and hears `fitted`); otherwise it sits under the email.
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useBoldText, useTextScale } from '@/composables/useTextScale'
+import { useTextScale } from '@/composables/useTextScale'
 import { fitEmailZoom } from '@/utils/textScale'
 import { useFluent } from 'fluent-vue'
 import DOMPurify from 'dompurify'
@@ -104,10 +105,12 @@ const props = defineProps<{
   /** A phone's comment: the body at reading size (16px at the designed
    *  size) rather than 14px. */
   reading?: boolean
-  /** Show at the reader's size and pan instead of shrinking to fit. Owned
-   *  by the parent when it puts the switch on the comment's head line; left
-   *  unset, the email keeps its own switch under the frame. */
-  fullSize?: boolean
+  /** At the reader's size and panning (`full`) or shrunk to fit (`fit`).
+   *  Set by a parent that puts the switch on the comment's head line; left
+   *  unset, the email keeps its own switch under the frame. A string, not a
+   *  boolean, so "unset" survives Vue's boolean prop casting. */
+  size?: 'full' | 'fit'
+
 }>()
 
 const emit = defineEmits<{
@@ -124,10 +127,9 @@ const expanded = ref(false)
 const fitted = ref(false)
 /** The switch under the frame, when the parent does not own it. */
 const localFull = ref(false)
-const ownSwitch = computed(() => props.fullSize === undefined)
-const showingFull = computed(() => props.fullSize ?? localFull.value)
+const ownSwitch = computed(() => props.size === undefined)
+const showingFull = computed(() => (props.size ? props.size === 'full' : localFull.value))
 const textScale = useTextScale()
-const boldText = useBoldText()
 /** Two observers: one tracks the iframe element so we re-fit on
  *  column-width changes; one tracks the body so lazy images / web
  *  fonts settling re-trigger the height read. */
@@ -237,8 +239,9 @@ const srcdoc = computed(() => {
     color: #1f2937;
     /* Holds floats, so the body's box is the email's height. */
     display: flow-root;
-    word-wrap: break-word;
-    overflow-wrap: anywhere;
+    /* Breaks only a word longer than its line, so a table of whole words
+       overflows and the ladder shrinks it instead of stacking letters. */
+    overflow-wrap: break-word;
     /* zoom is set from the parent when the email natural width
        exceeds the iframe; reset on toggle / new content. */
     transform-origin: top left;
@@ -261,7 +264,7 @@ const srcdoc = computed(() => {
     box-sizing: border-box;
   }
   body[data-reflow] :where(table) { width: auto !important; }
-  body[data-reflow] :where(td, th, div, p, center)[style*="width"] { width: auto !important; }
+  body[data-reflow] :where([data-reflow-width], td[width], th[width]) { width: auto !important; }
   body[data-reflow] :where(td, th) { white-space: normal !important; }
   a { color: #2563eb; text-decoration: underline; }
   blockquote {
@@ -308,11 +311,10 @@ function adjustLayout() {
   }
 
   docBody.style.fontSize = props.reading ? '16px' : ''
-  // Bold Text reaches the app through the weight tokens, which stop at the
-  // frame: text the sender gave no weight moves up one step here too.
-  docBody.style.fontWeight = boldText.value ? '500' : ''
   root.style.overflowX = 'hidden'
   delete docBody.dataset.reflow
+  setBodyZoom(docBody, 1)
+  const smallest = smallestTextPx(docBody)
 
   // Tolerance: sub-pixel rounding can leave scrollWidth a hair over
   // clientWidth on a body that fits.
@@ -324,14 +326,18 @@ function adjustLayout() {
   setBodyZoom(docBody, zoom)
   let held = false
   if (overflows()) {
-    // 2. Reflow.
+    // 2. Reflow: a width the sender declared inline gives way, and nothing
+    // else they styled does (a max-width or a border width stays).
+    for (const el of docBody.querySelectorAll<HTMLElement>('[style]')) {
+      if (el.style.width) el.setAttribute('data-reflow-width', '')
+    }
     docBody.dataset.reflow = ''
     if (overflows()) {
       // 3. Shrink to fit, down to the floor; 4. pan past it. The reader
       // can ask for their own size and pan instead.
       held = true
       if (!showingFull.value) {
-        zoom = fitEmailZoom(zoom, overflow())
+        zoom = fitEmailZoom(zoom, overflow(), smallest)
         setBodyZoom(docBody, zoom)
       }
       if (overflows()) root.style.overflowX = 'auto'
@@ -349,6 +355,26 @@ function adjustLayout() {
   if (next > 0 && next !== measuredHeight.value) measuredHeight.value = next
 
   attachObservers(f, docBody)
+}
+
+/**
+ * The smallest text the email shows, in px at zoom 1: elements with text of
+ * their own that are visible. Sizes under 6px are the tricks mail uses to
+ * hide a preheader, not text anyone reads, and are left out.
+ */
+function smallestTextPx(body: HTMLElement): number {
+  const view = body.ownerDocument.defaultView
+  if (!view) return 14
+  let smallest = Infinity
+  for (const el of body.querySelectorAll<HTMLElement>('*')) {
+    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent?.trim())) continue
+    if (el.getClientRects().length === 0) continue
+    const style = view.getComputedStyle(el)
+    if (style.visibility === 'hidden' || style.opacity === '0') continue
+    const px = parseFloat(style.fontSize)
+    if (px >= 6 && px < smallest) smallest = px
+  }
+  return Number.isFinite(smallest) ? smallest : 14
 }
 
 /**
@@ -410,9 +436,9 @@ watch(
   },
 )
 
-// The reader's size, Bold Text, the reading size and the switch all
+// The reader's size, the reading size and the switch all
 // change the layout; the height cap does not.
-watch([textScale, boldText, showingFull, () => props.reading], () => adjustLayout(), { flush: 'post' })
+watch([textScale, showingFull, () => props.reading], () => adjustLayout(), { flush: 'post' })
 
 onBeforeUnmount(() => {
   if (pending) cancelAnimationFrame(pending)

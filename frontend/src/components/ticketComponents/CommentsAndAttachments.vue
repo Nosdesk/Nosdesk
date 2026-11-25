@@ -1131,7 +1131,7 @@ const handlePastedFiles = async (files: File[]) => {
                                 <CommentContent
                                     v-if="hasRealContent(comment)"
                                     reading
-                                    :email-full-size="fullEmails.has(comment.id)"
+                                    :email-size="fullEmails.has(comment.id) ? 'full' : 'fit'"
                                     @email-fitted="(fitted) => setFittedEmail(comment.id, fitted)"
                                     :content="comment.content"
                                     :content-format="comment.content_format"

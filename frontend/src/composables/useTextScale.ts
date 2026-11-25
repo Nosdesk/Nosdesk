@@ -6,15 +6,12 @@
  * reads it back from the root's computed style, so anything that has to size
  * itself in script (the reply field's line count, an email's frame) agrees
  * with the CSS by construction. It follows changes to the root's inline style
- * and attributes, which is where both inputs are written, and reports the
- * device's Bold Text (`data-bold-text`) for documents the weight tokens do not
- * reach, such as an email's frame.
+ * and attributes, which is where both inputs are written.
  */
 import { readonly, ref, type Ref } from 'vue'
 import { clampScale } from '@/utils/textScale'
 
 const scale = ref(1)
-const bold = ref(false)
 let observer: MutationObserver | null = null
 
 /** The root's `--text-scale`. Where the property is not registered (Safari
@@ -34,11 +31,10 @@ function watchRoot(): void {
   const read = () => {
     const next = readTextScale(root)
     if (next !== scale.value) scale.value = next
-    bold.value = root.hasAttribute('data-bold-text')
   }
   read()
   observer = new MutationObserver(read)
-  observer.observe(root, { attributes: true, attributeFilter: ['style', 'class', 'data-bold-text'] })
+  observer.observe(root, { attributes: true, attributeFilter: ['style', 'class'] })
 }
 
 export function useTextScale(): Readonly<Ref<number>> {
@@ -46,8 +42,3 @@ export function useTextScale(): Readonly<Ref<number>> {
   return readonly(scale)
 }
 
-/** Whether the device's Bold Text is on (`data-bold-text` on the root). */
-export function useBoldText(): Readonly<Ref<boolean>> {
-  watchRoot()
-  return readonly(bold)
-}
