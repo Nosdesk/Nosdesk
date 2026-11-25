@@ -264,7 +264,7 @@ const optionClasses = (option: DropdownOption) => [
                 auto-focus
                 :placeholder="resolvedSearchPlaceholder"
                 :aria-label="resolvedSearchPlaceholder"
-                class="w-full pl-7 pr-2 py-1.5 bg-surface-alt text-primary rounded border border-default focus:ring-1 focus:ring-accent focus:outline-none text-sm"
+                class="w-full pl-7 pr-2 py-1.5 bg-surface-alt text-primary rounded border border-default focus:ring-1 focus:ring-accent focus:outline-none text-sm pointer-coarse:text-base"
               />
             </div>
           </div>

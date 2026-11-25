@@ -560,6 +560,13 @@ defineExpose({ focus, clear });
   overflow-y: auto;
 }
 
+/* Under 16px, iOS zooms the page when the editor takes focus. */
+@media (pointer: coarse) {
+  .simple-editor {
+    font-size: var(--text-base);
+  }
+}
+
 .simple-editor :deep(.ProseMirror) {
   padding: 0.5rem 0.75rem;
   outline: none;

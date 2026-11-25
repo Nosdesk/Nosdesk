@@ -144,7 +144,7 @@ const stepperClasses = computed(() => [
           'flex-1 min-w-0 bg-transparent text-primary placeholder-tertiary text-center tabular-nums',
           'focus:outline-none',
           'disabled:cursor-not-allowed',
-          size === 'sm' ? 'px-2 py-1.5 text-sm' : 'px-3 py-2',
+          size === 'sm' ? 'px-2 py-1.5 text-sm pointer-coarse:text-base' : 'px-3 py-2',
         ]"
         v-bind="{ ...$attrs, class: undefined }"
       />

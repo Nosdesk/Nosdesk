@@ -24,6 +24,11 @@ export function useVisualViewport(active: Ref<boolean>) {
     raf = 0;
     const vv = window.visualViewport;
     if (!vv) return;
+    // Pinch zoom shrinks and pans the visual viewport too, which this sum
+    // cannot tell from a keyboard, so a docked bar would jump up the
+    // screen. While zoomed, hold the last value; it is measured again once
+    // the page is back at scale 1.
+    if (vv.scale > 1.01) return;
     let kb = Math.round(window.innerHeight - vv.height - vv.offsetTop);
     // Clamp jitter and the iOS 26 bug where the inset doesn't fully reset on
     // dismiss (~24px residual, WebKit #297779).

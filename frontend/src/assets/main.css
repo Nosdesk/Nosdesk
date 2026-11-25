@@ -55,6 +55,43 @@
     cursor: not-allowed;
     opacity: 0.5;
   }
+
+  /* Text fields on touch are at least body size. iOS zooms the page into
+     a field under 16px when it takes focus, and with pinch zoom allowed
+     that zoom stays until the person pinches back out. Two parts,
+     because a utility class beats anything in this layer:
+
+     - A field with no size of its own inherits one; `max(1rem, 1em)`
+       keeps the inherited size when it is larger.
+     - An input, textarea or select sized by a utility (`text-sm`)
+       reads the size token at the element, so the small tokens are
+       redeclared there as body size. Larger sizes are left alone.
+       Not on a contenteditable: custom properties inherit, and the
+       headings, code and chips inside an editor must keep the sizes
+       the posted comment shows them at.
+
+     The primitives also say `pointer-coarse:text-base` themselves; this
+     is the floor under every raw field. `scripts/check-touch-inputs.mjs`
+     guards the ways around it (scoped CSS, inline styles, arbitrary
+     sizes, a small size on a contenteditable itself). */
+  @media (pointer: coarse) {
+    input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'], [type='button'], [type='submit'], [type='reset'], [type='image'], [type='hidden']),
+    textarea,
+    select,
+    [contenteditable]:not([contenteditable='false']) {
+      font-size: max(1rem, 1em);
+    }
+    input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'], [type='button'], [type='submit'], [type='reset'], [type='image'], [type='hidden']),
+    textarea,
+    select {
+      --text-4xs: var(--text-base);
+      --text-3xs: var(--text-base);
+      --text-2xs: var(--text-base);
+      --text-xs: var(--text-base);
+      --text-xs-plus: var(--text-base);
+      --text-sm: var(--text-base);
+    }
+  }
 }
 
 /* ============================================
