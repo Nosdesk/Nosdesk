@@ -22,8 +22,8 @@ async function setupTauriPlatform(): Promise<void> {
   ])
   // The server (cloud or self-hosted) comes from the persisted choice / the
   // connect screen, not a build constant. bootstrapMobile resolves it. The
-  // phone's text settings are read alongside, so the first screen already
-  // draws at the user's text size.
+  // phone's text settings are read alongside, so the first screen already has
+  // them.
   await Promise.all([
     bootstrapMobile({
       // OS keychain (iOS Keychain / macOS) for the refresh token, so the session
