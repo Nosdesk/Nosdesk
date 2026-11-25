@@ -83,14 +83,14 @@ const STALE_CLAIM_SECS: f64 = 300.0;
 /// How long a fire waits for the ticket's lock before trying again later.
 const LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// A time-elapsed rule that isn't archived, with settings it can run on. It
-/// waits on its clock while live or in dry run; a paused or draft rule's
-/// past runs still count, such as a warning paused after it warned. A rule
-/// saved before its settings were checked waits on nothing.
+/// A time-elapsed rule with settings it can run on. It waits on its clock
+/// while live or in dry run and not archived; a paused, draft or deleted
+/// rule's past runs still count, such as a warning deleted after it warned.
+/// A rule saved before its settings were checked waits on nothing.
 pub struct TimeRule {
     pub rule: Rule,
     pub trigger: TimeTrigger,
-    /// Whether it waits on its clock: live or in dry run.
+    /// Whether it waits on its clock: live or in dry run, and not archived.
     waits: bool,
     /// Whether it emails the requester, which can make it a warning.
     emails_requester: bool,
@@ -105,10 +105,9 @@ impl TimeRule {
         Self::parse(rule).filter(|r| r.waits)
     }
 
-    /// The rule when it is a time-elapsed rule that isn't archived, in any
-    /// state.
+    /// The rule when it is a time-elapsed rule, in any state.
     fn parse(rule: Rule) -> Option<Self> {
-        if rule.trigger_kind != RuleTriggerKind::TimeElapsed || rule.archived_at.is_some() {
+        if rule.trigger_kind != RuleTriggerKind::TimeElapsed {
             return None;
         }
         let trigger = clocks::parse_trigger(&rule.trigger_config).ok()?;
@@ -118,7 +117,8 @@ impl TimeRule {
             .into_iter()
             .flatten()
             .any(repo::step_emails_requester);
-        let waits = matches!(rule.state, RuleState::Live | RuleState::DryRun);
+        let waits =
+            rule.archived_at.is_none() && matches!(rule.state, RuleState::Live | RuleState::DryRun);
         Some(Self {
             rule,
             trigger,
@@ -179,11 +179,20 @@ impl TimeRule {
             && self.trigger.minutes < later.trigger.minutes
     }
 
-    /// Whether this rule is a warning at all: one of `rules` that waits
-    /// closes the ticket after it. Only a warning's tags mark the ticket as
-    /// warned.
+    /// Whether this rule, firing now, is a warning: the nearest still to
+    /// come before one of `rules` that waits and closes the ticket, as
+    /// [`due`] picks it. Only a warning's tags mark the ticket as warned; its
+    /// run records that it was one, so the tags come off on the same terms
+    /// they went on.
     fn is_warning(&self, rules: &[TimeRule]) -> bool {
-        rules.iter().any(|r| r.waits && self.warns_before(r))
+        rules.iter().filter(|close| close.waits).any(|close| {
+            self.warns_before(close)
+                && !rules.iter().any(|nearer| {
+                    nearer.warns_before(close)
+                        && nearer.still_to_warn(close)
+                        && nearer.trigger.minutes > self.trigger.minutes
+                })
+        })
     }
 
     /// Whether this rule, not yet fired since its clock started, is still
@@ -353,12 +362,13 @@ fn sync_rows(
 
 /// Take a warning's tags off each open ticket whose clock has started again
 /// (or stopped) since the warning last ran there: the requester answered,
-/// so the ticket is no longer warned. A warning paused or put in dry run
-/// since it warned counts too. Only the tags that run added after its email
-/// to the requester, and that are still on from then, come off; a closed
+/// so the ticket is no longer warned. Only a run recorded as a warning
+/// counts ([`TimeRule::is_warning`] when it fired), whatever the rule's or
+/// its close's state now. Only the tags that run added after its email to
+/// the requester, and that are still on from then, come off; a closed
 /// ticket keeps them, and so does one whose clock the warning's own run
 /// started again (a step that changed its status or assignee). Among
-/// `rules`, the warnings, or the one rule `only`.
+/// `rules`, or the one rule `only`.
 fn clear_lapsed_warnings(
     conn: &mut DbConnection,
     rules: &[TimeRule],
@@ -368,7 +378,8 @@ fn clear_lapsed_warnings(
 ) -> QueryResult<()> {
     let warnings: Vec<&TimeRule> = rules
         .iter()
-        .filter(|r| only.is_none_or(|id| r.rule.id == id) && r.is_warning(rules))
+        .filter(|r| only.is_none_or(|id| r.rule.id == id))
+        .filter(|r| r.emails_requester && !r.trigger.clock.counts_down())
         .collect();
     let mut lapsed: Vec<(i32, i32, DateTime<Utc>, Option<DateTime<Utc>>)> = Vec::new();
     for ticket in tickets.iter().filter(|t| t.runs_clocks) {
@@ -400,10 +411,12 @@ fn clear_lapsed_warnings(
     let runs = queue::last_runs(conn, &rule_ids, &ticket_ids)?;
     for (rule_id, ticket_id, warned, started) in lapsed {
         // The run judged lapsed, not one that committed since.
-        let Some(run) = runs
-            .iter()
-            .find(|r| r.rule_id == rule_id && r.ticket_id == ticket_id && r.applied_at == warned)
-        else {
+        let Some(run) = runs.iter().find(|r| {
+            r.rule_id == rule_id
+                && r.ticket_id == ticket_id
+                && r.applied_at == warned
+                && r.was_warning()
+        }) else {
             continue;
         };
         let on = &tagged[&ticket_id];
@@ -415,12 +428,10 @@ fn clear_lapsed_warnings(
         if added.is_empty() {
             continue;
         }
-        // A clock the warning's own run started again: its changes are
-        // recorded a moment after the run's start.
+        // A clock the warning's own run started again: the change it
+        // started from is the run's.
         if let (Some(started), Some(correlation_id)) = (started, run.correlation_id) {
-            if queue::changed_by_run_until(conn, ticket_id, correlation_id)?
-                .is_some_and(|until| started <= until)
-            {
+            if queue::changed_by_run_at(conn, ticket_id, correlation_id, started)? {
                 continue;
             }
         }
@@ -660,11 +671,14 @@ fn try_fire(
     actor.correlation_id = Some(fire_id);
     let now = Utc::now();
     let minutes = clocks::minutes_since(wait.started_at, now);
+    // A warning's run says so, so its tags come off the way they went on.
+    let warning = rule.is_warning(&rules);
     let mut evaluation = json!({
         "trigger": RuleTriggerKind::TimeElapsed.as_str(),
         "clock": rule.clock_name(),
         "clock_started_at": wait.started_at,
         "minutes_since": minutes,
+        "warning": warning,
     });
     let originating = OriginatingEvent {
         id: fire_id,
@@ -764,7 +778,7 @@ fn try_fire(
     let retries = row.attempts < MAX_ATTEMPTS;
     let ctx = ApplyContext {
         shadow,
-        warning: rule.is_warning(&rules),
+        warning,
         originating_event: Some(originating),
         condition_evaluation: Some(evaluation),
         observer,

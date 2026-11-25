@@ -1097,13 +1097,12 @@ pub fn event_candidates(conn: &mut DbConnection, kind: RuleTriggerKind) -> Query
         .load(conn)
 }
 
-/// The pinned workspace's time-elapsed rules that aren't archived, in any
-/// state: those that wait, and those (paused, a draft) whose past runs
-/// still count, such as a warning paused after it warned.
+/// The pinned workspace's time-elapsed rules in any state, archived ones
+/// included: those that wait, and those (paused, a draft, deleted) whose
+/// past runs still count, such as a warning deleted after it warned.
 pub fn time_elapsed_rules(conn: &mut DbConnection) -> QueryResult<Vec<Rule>> {
     use crate::schema::rules::dsl;
     dsl::rules
-        .filter(dsl::archived_at.is_null())
         .filter(dsl::trigger_kind.eq(RuleTriggerKind::TimeElapsed))
         .order((dsl::priority.asc(), dsl::id.asc()))
         .load(conn)

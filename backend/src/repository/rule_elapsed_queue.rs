@@ -279,9 +279,21 @@ pub struct LastRun {
     pub actions_taken: Option<serde_json::Value>,
     #[diesel(sql_type = Nullable<diesel::sql_types::Uuid>)]
     pub correlation_id: Option<Uuid>,
+    #[diesel(sql_type = Nullable<diesel::sql_types::Jsonb>)]
+    pub condition_evaluation: Option<serde_json::Value>,
 }
 
 impl LastRun {
+    /// Whether the run was a warning before a close, as the clock recorded
+    /// it when it fired the rule (`condition_evaluation.warning`).
+    pub fn was_warning(&self) -> bool {
+        self.condition_evaluation
+            .as_ref()
+            .and_then(|e| e.get("warning"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    }
+
     /// The tags its `add_tags` steps after its email to the requester put on
     /// the ticket: those that say the requester was warned. None when no
     /// such email went out.
@@ -329,7 +341,7 @@ pub fn last_runs(
     }
     diesel::sql_query(
         "SELECT DISTINCT ON (rule_id, ticket_id) rule_id, ticket_id, applied_at, actions_taken, \
-                correlation_id \
+                correlation_id, condition_evaluation \
            FROM rule_applications \
           WHERE rule_id = ANY($1) AND ticket_id = ANY($2) \
             AND status NOT IN ('skipped_preflight', 'skipped_condition_unmet', 'dry_run') \
@@ -341,27 +353,31 @@ pub fn last_runs(
 }
 
 #[derive(QueryableByName)]
-struct Until {
-    #[diesel(sql_type = Nullable<Timestamptz>)]
-    until: Option<DateTime<Utc>>,
+struct Exists {
+    #[diesel(sql_type = Bool)]
+    exists: bool,
 }
 
 // sync-audit-only: read-only
-/// When the last change to `ticket_id` that the run with `correlation_id`
-/// (and the chain of events it set off) recorded happened, if any did.
-pub fn changed_by_run_until(
+/// Whether the change to `ticket_id` that happened at `at` was recorded by
+/// the run with `correlation_id` (or a chain of events it set off): a clock
+/// that started then was started by that run.
+pub fn changed_by_run_at(
     conn: &mut DbConnection,
     ticket_id: i32,
     correlation_id: Uuid,
-) -> QueryResult<Option<DateTime<Utc>>> {
+    at: DateTime<Utc>,
+) -> QueryResult<bool> {
     Ok(diesel::sql_query(
-        "SELECT max(occurred_at) AS until FROM sync_actions \
-          WHERE aggregate = 'ticket' AND aggregate_id = $1 AND correlation_id = $2",
+        "SELECT EXISTS (SELECT 1 FROM sync_actions \
+          WHERE aggregate = 'ticket' AND aggregate_id = $1 AND correlation_id = $2 \
+            AND occurred_at = $3) AS exists",
     )
     .bind::<Text, _>(ticket_id.to_string())
     .bind::<diesel::sql_types::Uuid, _>(correlation_id)
-    .get_result::<Until>(conn)?
-    .until)
+    .bind::<Timestamptz, _>(at)
+    .get_result::<Exists>(conn)?
+    .exists)
 }
 
 // sync-audit-only: clock queue bookkeeping, no entity sync
