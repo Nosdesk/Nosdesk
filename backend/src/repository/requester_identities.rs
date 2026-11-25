@@ -7,7 +7,8 @@
 //! 1. an account already linked to any of those keys in this workspace;
 //! 2. otherwise the email the provider asserts, only at a domain the admin
 //!    listed and never when the provider marks it unverified: it links the
-//!    account with that address, or creates a requester;
+//!    account with that address if no other workspace has ever seated it, or
+//!    creates a requester;
 //! 3. otherwise a refusal.
 //!
 //! The keys not yet linked are then linked to the account, so the next sign-in
@@ -58,6 +59,9 @@ pub struct Assertion<'a> {
 pub enum Refused {
     /// No email at a listed domain (or the provider marked it unverified).
     Domain,
+    /// The email belongs to an account another workspace holds or held: the
+    /// workspace's provider can't vouch for it, so it isn't linked.
+    AccountElsewhere,
 }
 
 // sync-audit-only: links identities, provisions the requester and seat through their own audited repository writes
@@ -103,10 +107,30 @@ pub fn resolve(
                 .map(str::to_string)
                 .or_else(|| crate::utils::name_from_email(email))
                 .unwrap_or_else(|| email.to_string());
-            crate::repository::user_helpers::find_or_provision_requester(email, &name, conn, None)?
-                .uuid
+            let user = crate::repository::user_helpers::find_or_provision_requester(
+                email, &name, conn, None,
+            )?
+            .uuid;
+            // A listed domain is the admin's word, not proof they own it: an
+            // account another workspace seats (or seated) isn't this
+            // provider's to sign in as.
+            use crate::repository::workspaces::{directory_reach, DirectoryReach};
+            if !matches!(
+                directory_reach(conn, workspace_id, user)?,
+                DirectoryReach::Own | DirectoryReach::Unseated
+            ) {
+                return Ok(Err(Refused::AccountElsewhere));
+            }
+            user
         }
     };
+    // Verifying the address is a global write: only for an account no other
+    // workspace seats or seated.
+    let verify = matches!(
+        crate::repository::workspaces::directory_reach(conn, workspace_id, user)?,
+        crate::repository::workspaces::DirectoryReach::Own
+            | crate::repository::workspaces::DirectoryReach::Unseated
+    );
 
     // Link the keys nobody holds yet (a key held by someone else stays theirs).
     for (key, holder) in assertion.keys.iter().zip(&linked) {
@@ -135,7 +159,9 @@ pub fn resolve(
         "member",
         crate::repository::workspaces::SeatWriteAuthority::Product,
     )?;
-    crate::repository::user_emails::mark_primary_verified(conn, &user)?;
+    if verify {
+        crate::repository::user_emails::mark_primary_verified(conn, &user)?;
+    }
     Ok(Ok(user))
 }
 

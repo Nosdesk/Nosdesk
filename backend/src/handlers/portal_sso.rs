@@ -338,7 +338,8 @@ pub async fn sso_callback(
     );
     let user_uuid = match resolved {
         Ok(Ok(u)) => u,
-        Ok(Err(Refused::Domain)) => return Ok(back_to_login("domain")),
+        // The page says the account can't sign in here, either way.
+        Ok(Err(Refused::Domain | Refused::AccountElsewhere)) => return Ok(back_to_login("domain")),
         Err(e) => {
             tracing::error!(error = ?e, "portal sso: resolving the person failed");
             return Ok(back_to_login("failed"));

@@ -1,8 +1,10 @@
-//! Hosted: LDAP directory sync isn't offered. A hosted workspace's directory
-//! would link and rename accounts other customers hold, so every `/ldap` route
-//! refuses the workspace's own owner with `ldap.self_hosted_only`, before
-//! reading or writing anything, and the nightly reconcile skips a settings row
-//! left from before.
+//! Hosted: neither directory sync is offered. A hosted workspace's LDAP
+//! directory would link and rename accounts other customers hold, and the
+//! Microsoft Graph sync runs on the operator's own Entra app, so every `/ldap`
+//! route refuses the workspace's own owner with `ldap.self_hosted_only` and
+//! every `/integrations/graph` route with `msgraph.self_hosted_only`, before
+//! reading or writing anything, and the nightly LDAP reconcile skips a
+//! settings row left from before.
 //!
 //! Part of the hosted binary rather than `tests/it`: the deployment mode is
 //! process-wide environment.
@@ -196,4 +198,89 @@ async fn the_nightly_reconcile_skips_a_hosted_settings_row() {
     )
     .expect("count runs");
     assert_eq!(runs, 0, "no sync ran");
+}
+
+#[actix_web::test]
+async fn hosted_owners_are_refused_every_graph_route() {
+    crate::hosted_env();
+    common::ensure_test_keyring();
+    let test_db = common::TestDb::new();
+    let pool = test_db.pool_with_size(4);
+    let (workspace_id, owner) = {
+        let mut conn = pool.get().expect("conn");
+        let ws = common::mint_workspace(&mut conn, "hosted-graph", "Hosted Graph");
+        let owner = common::insert_plain_user(&mut conn, "Hosted Owner");
+        (ws, owner)
+    };
+    run_in_workspace(&pool, REF, workspace_id, |c| {
+        add_membership(
+            c,
+            workspace_id,
+            owner,
+            "owner",
+            SeatWriteAuthority::ControlPlane,
+        )
+    })
+    .expect("owner seat");
+
+    let now = chrono::Utc::now().timestamp();
+    let claims = Claims {
+        sub: owner.to_string(),
+        name: "Owner".to_string(),
+        email: "owner@example.com".to_string(),
+        platform_role: "user".to_string(),
+        scope: "full".to_string(),
+        sid: None,
+        workspace_uuid: None,
+        exp: (now + 3600) as usize,
+        iat: now as usize,
+        file_path: None,
+    };
+    let workspace = WorkspaceContext {
+        workspace_id,
+        workspace_uuid: Uuid::now_v7(),
+        slug: "hosted-graph".into(),
+        name: "Hosted Graph".into(),
+        organisation_id: None,
+        custom_domain: None,
+    };
+    let corr = Uuid::now_v7();
+    let actor = ActorContext::user(owner, Some(corr)).with_workspace(workspace_id);
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(workspace.clone());
+                req.extensions_mut().insert(claims.clone());
+                req.extensions_mut()
+                    .insert(RequestContext::new(corr, actor.clone()));
+                srv.call(req)
+            })
+            .configure(backend::handlers::msgraph_integration::config),
+    )
+    .await;
+
+    let requests = [
+        TestRequest::get().uri("/integrations/graph/config"),
+        TestRequest::get().uri("/integrations/graph/status"),
+        TestRequest::post().uri("/integrations/graph/test"),
+        TestRequest::post()
+            .uri("/integrations/graph/sync")
+            .set_json(json!({ "entities": ["users"], "use_delta": false })),
+        TestRequest::get().uri("/integrations/graph/progress/1"),
+        TestRequest::get().uri("/integrations/graph/active-syncs"),
+        TestRequest::get().uri("/integrations/graph/last-sync"),
+        TestRequest::post().uri("/integrations/graph/cancel/1"),
+        TestRequest::get().uri("/integrations/graph/entra-object-id/device-1"),
+    ];
+    for req in requests {
+        let req = req.to_request();
+        let path = req.path().to_string();
+        let resp = http_test::call_service(&app, req).await;
+        let status = resp.status();
+        let body: serde_json::Value =
+            serde_json::from_slice(&http_test::read_body(resp).await).unwrap_or_default();
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {body}");
+        assert_eq!(body["code"], "msgraph.self_hosted_only", "{path}: {body}");
+    }
 }

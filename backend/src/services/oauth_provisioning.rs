@@ -204,26 +204,33 @@ pub fn resolve_user_by_identity_or_email(
             );
             Ok(None)
         }
-        Ok(None) => match users_repo::get_user_by_email(email, conn) {
+        // A directory identity matches the address in any case and on any of
+        // an account's addresses (a case variant of someone's address would
+        // otherwise be created beside it); a login identity, the primary one.
+        Ok(None) => match match identity_workspace_id {
+            Some(_) => user_emails::find_user_by_any_email(conn, email),
+            None => users_repo::get_user_by_email(email, conn),
+        } {
             Ok(user) => {
                 // A directory speaks for its own workspace's people: its
-                // identity links only to an account seated there. Anyone
-                // else's account holding the address is left alone, and the
-                // entry isn't provisioned (the address is taken).
+                // identity, which signs in as the account, links only to an
+                // account that workspace holds alone. Anyone else's account
+                // holding the address is left alone, and the entry isn't
+                // provisioned (the address is taken).
                 if let Some(ws) = identity_workspace_id {
                     let reach = workspaces::directory_reach(conn, ws, user.uuid)
                         .map_err(|e| format!("directory link: reading seats: {e:?}"))?;
-                    if !reach.seated_here() {
+                    if !reach.owns_account() {
                         warn!(
                             workspace_id = ws,
                             user_uuid = %user.uuid,
                             source = %iss,
                             "directory link refused: the address belongs to an account \
-                             that isn't a member of this workspace"
+                             this workspace doesn't hold alone"
                         );
                         return Err(format!(
                             "directory identity not linked: the address belongs to an account \
-                             that isn't a member of workspace {ws}"
+                             workspace {ws} doesn't hold alone"
                         ));
                     }
                 }
@@ -307,6 +314,12 @@ pub fn find_or_create_projected_user(
         password_hash,
         metadata,
     } = input;
+    // A directory's address is stored lowercase, as every lookup compares
+    // addresses case-insensitively.
+    let email = match identity_workspace_id {
+        Some(_) => email.trim().to_lowercase(),
+        None => email,
+    };
 
     // --- 1-2. resolve an existing user (by identity, then email-link) ---
     // --- 3. none matched -> create a fresh user + identity + email ---
@@ -328,14 +341,23 @@ pub fn find_or_create_projected_user(
             // being lost. Only `real_name` counts, never the display name's
             // handle fallback, and never a value that is the user's handle or
             // address. Goes through `update_user` so the sync event fires.
-            // A directory renames only an account no other workspace holds;
-            // for one another workspace holds, the name is this workspace's.
-            let shared_with_others = match identity_workspace_id {
-                Some(ws) => !workspaces::directory_reach(conn, ws, user.uuid)
-                    .map_err(|e| format!("reproject rename: reading seats: {e:?}"))?
-                    .owns_account(),
-                None => false,
+            // A directory renames only an account its workspace holds alone;
+            // for one another workspace also holds, the name is this
+            // workspace's, and one only other workspaces hold isn't touched.
+            let reach = match identity_workspace_id {
+                Some(ws) => Some(
+                    workspaces::directory_reach(conn, ws, user.uuid)
+                        .map_err(|e| format!("reproject: reading seats: {e:?}"))?,
+                ),
+                None => None,
             };
+            if reach == Some(workspaces::DirectoryReach::Foreign) {
+                return Err(format!(
+                    "directory identity {iss}/{sub} names an account another workspace holds"
+                ));
+            }
+            let shared_with_others = reach == Some(workspaces::DirectoryReach::Shared);
+            let may_rename = reach.is_none_or(|r| r.owns_account());
             match real_name.as_ref() {
                 Some(new_name)
                     if shared_with_others
@@ -352,7 +374,7 @@ pub fn find_or_create_projected_user(
                     ProjectionOutcome::Existed(user)
                 }
                 Some(new_name)
-                    if !shared_with_others
+                    if may_rename
                         && *new_name != user.name
                         && is_real_name(
                             new_name,

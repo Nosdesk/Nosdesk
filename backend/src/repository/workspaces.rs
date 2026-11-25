@@ -377,49 +377,86 @@ pub fn workspace_ids_of_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryR
     }
 }
 
+/// The workspaces holding any membership row for `user_uuid`, active or
+/// removed, whatever workspace the connection is pinned to. A removed seat
+/// still means that workspace knows the person: for a write that would change
+/// something global about them, it counts.
+///
+/// Reads through the bypass role inside a savepoint that is then rolled back,
+/// like [`workspace_ids_of_user`].
+pub fn workspace_ids_with_any_seat(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+) -> QueryResult<Vec<i32>> {
+    let mut ids = None;
+    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
+        let actor =
+            crate::sync::actor::ActorContext::system("repository:workspace_ids_with_any_seat");
+        // cross-tenant: which workspaces hold any seat row for a person, for a directory sync deciding whether it may write their global account; ids only, and rolled back with the savepoint.
+        let read = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            workspace_members::table
+                .filter(workspace_members::user_uuid.eq(user_uuid))
+                .select(workspace_members::workspace_id)
+                .distinct()
+                .order(workspace_members::workspace_id.asc())
+                .load::<i32>(conn)
+        })?;
+        ids = Some(read);
+        Err(DieselError::RollbackTransaction)
+    });
+    match (ids, outcome) {
+        (Some(ids), _) => Ok(ids),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(DieselError::NotFound),
+    }
+}
+
 /// Where an existing account stands for a directory sync running in one
 /// workspace. The account is global: its name, addresses, photo and sign-in
 /// identities reach every workspace that holds it, so one workspace's
-/// directory may speak for them only when no other workspace holds it.
+/// directory may speak for them only when no other workspace has ever held a
+/// seat for them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirectoryReach {
-    /// No active seat anywhere: an account an earlier run created without a
-    /// membership, or someone removed from the only workspace that had them.
+    /// No active seat here and no seat row in any other workspace: an account
+    /// an earlier run created without a membership, or someone removed from
+    /// this workspace who was never anywhere else.
     Unseated,
-    /// Active seats elsewhere and none here. The sync leaves it alone.
+    /// A seat row (active or removed) in another workspace and no active seat
+    /// here. The sync leaves it alone.
     Foreign,
-    /// Seated here and also elsewhere, or owned by a Nosdesk account (hosted
-    /// staff). The sync keeps this workspace's own profile, not the account.
+    /// An active seat here and a seat row elsewhere, or owned by a Nosdesk
+    /// account (hosted staff). The sync may keep this workspace's own profile
+    /// fields, never the account or a sign-in identity.
     Shared,
-    /// Seated here and nowhere else.
+    /// An active seat here and no seat row anywhere else.
     Own,
 }
 
 impl DirectoryReach {
-    /// The account holds an active seat in the syncing workspace, so the sync
-    /// may link a directory identity to it.
+    /// The account holds an active seat in the syncing workspace.
     pub fn seated_here(self) -> bool {
         matches!(self, Self::Shared | Self::Own)
     }
 
-    /// No other workspace holds the account, so the sync may write its name,
-    /// addresses and photo.
+    /// The account is this workspace's alone, so its directory may link a
+    /// sign-in identity to it and write its name, addresses and photo.
     pub fn owns_account(self) -> bool {
-        matches!(self, Self::Own | Self::Unseated)
+        self == Self::Own
     }
 }
 
 /// [`DirectoryReach`] of `user_uuid` for a directory sync in `workspace_id`.
 /// Works on a pinned runtime connection and on an elevated one: the seat here
 /// is read by workspace id, the seats elsewhere through
-/// [`workspace_ids_of_user`].
+/// [`workspace_ids_with_any_seat`].
 pub fn directory_reach(
     conn: &mut DbConnection,
     workspace_id: i32,
     user_uuid: Uuid,
 ) -> QueryResult<DirectoryReach> {
     let here = membership(conn, workspace_id, user_uuid)?.is_some();
-    let elsewhere = workspace_ids_of_user(conn, user_uuid)?
+    let elsewhere = workspace_ids_with_any_seat(conn, user_uuid)?
         .into_iter()
         .any(|id| id != workspace_id);
     Ok(match (here, elsewhere) {

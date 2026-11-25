@@ -22,8 +22,8 @@ use uuid::Uuid;
 use backend::db::DbConnection;
 use backend::extractors::WorkspaceContext;
 use backend::handlers::msgraph_integration::{
-    apply_delta_group_membership, process_microsoft_user_no_photos, MicrosoftGraphGroupMember,
-    MicrosoftGraphUser, UserSyncStats,
+    apply_delta_group_membership, photo_sync_candidates, process_microsoft_user_no_photos,
+    revoke_removed_directory_people, MicrosoftGraphGroupMember, MicrosoftGraphUser, UserSyncStats,
 };
 use backend::handlers::portal::PortalContext;
 use backend::middleware::RequestContext;
@@ -126,6 +126,66 @@ impl Fixture {
             primary,
             secondary,
         }
+    }
+
+    fn remove(&self, workspace_id: i32, user: Uuid) {
+        run_in_workspace(&self.pool, REF, workspace_id, |c| {
+            backend::repository::workspaces::remove_membership(
+                c,
+                workspace_id,
+                user,
+                SeatWriteAuthority::ControlPlane,
+            )
+        })
+        .expect("remove");
+    }
+
+    /// An LDAP identity for `user` in `workspace_id`, as a sync before the
+    /// link rule could have left it.
+    fn ldap_identity(&self, workspace_id: i32, user: Uuid, external_id: &str) {
+        run_in_workspace(&self.pool, REF, workspace_id, |c| {
+            identity_repo::create_identity(
+                NewUserAuthIdentity {
+                    user_uuid: user,
+                    provider_type: "ldap".to_string(),
+                    external_id: external_id.to_string(),
+                    email: None,
+                    metadata: None,
+                    password_hash: None,
+                    workspace_id: Some(workspace_id),
+                },
+                c,
+            )
+        })
+        .expect("ldap identity");
+    }
+
+    fn session(&self, user: Uuid) {
+        self.read(|c| {
+            backend::repository::active_sessions::create_session(
+                c,
+                backend::models::NewActiveSession {
+                    user_uuid: user,
+                    device_name: None,
+                    ip_address: None,
+                    user_agent: None,
+                    location: None,
+                    expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
+                    oidc_id_token: None,
+                    confirmed_at: None,
+                    provider_amr: None,
+                },
+            )
+        });
+    }
+
+    fn sessions(&self, user: Uuid) -> i64 {
+        self.read(|c| {
+            backend::schema::active_sessions::table
+                .filter(backend::schema::active_sessions::user_uuid.eq(user))
+                .count()
+                .get_result(c)
+        })
     }
 
     fn name_of(&self, user: Uuid) -> String {
@@ -430,18 +490,22 @@ fn ldap_provisioning_in_b_does_not_link_an_account_seated_only_in_a() {
 }
 
 #[test]
-fn ldap_names_an_account_another_workspace_holds_only_locally() {
+fn ldap_links_no_account_another_workspace_also_holds_and_names_one_already_linked_locally() {
     let fx = Fixture::new();
     let shared = fx.account("Shared Person", &[fx.a(), fx.b()]);
 
-    // First run links the entry to B's member; the second re-projects it.
-    for name in ["Name From B", "Name From B Again"] {
-        let user = fx
-            .ldap_provision(fx.b(), "dir-entry-2", &shared.primary, name)
-            .expect("provisioned");
-        assert_eq!(user, shared.uuid);
-    }
+    // A new entry with the shared person's address isn't linked: the
+    // identity would sign in as an account A holds too.
+    let outcome = fx.ldap_provision(fx.b(), "dir-entry-2", &shared.primary, "Name From B");
+    assert!(outcome.is_err(), "{outcome:?}");
+    assert!(fx.identities(shared.uuid).is_empty(), "no ldap identity");
 
+    // An entry linked before this rule re-projects into B's profile only.
+    fx.ldap_identity(fx.b(), shared.uuid, "dir-entry-2");
+    let user = fx
+        .ldap_provision(fx.b(), "dir-entry-2", &shared.primary, "Name From B")
+        .expect("re-projected");
+    assert_eq!(user, shared.uuid);
     assert_eq!(
         fx.name_of(shared.uuid),
         shared.name,
@@ -449,12 +513,205 @@ fn ldap_names_an_account_another_workspace_holds_only_locally() {
     );
     assert_eq!(
         fx.local_name(fx.b(), shared.uuid).as_deref(),
-        Some("Name From B Again")
+        Some("Name From B")
+    );
+}
+
+#[test]
+fn ldap_signs_in_only_an_account_its_workspace_holds_alone() {
+    let fx = Fixture::new();
+    let own = fx.account("Own Person", &[fx.b()]);
+    let shared = fx.account("Shared Person", &[fx.a(), fx.b()]);
+    // Removed from A, still in B: A held them, so B's directory can't vouch.
+    let formerly_a = fx.account("Formerly In A", &[fx.a(), fx.b()]);
+    fx.remove(fx.a(), formerly_a.uuid);
+
+    let permitted = |user: Uuid| {
+        let mut conn = fx.pool.get().expect("conn");
+        let actor = ActorContext::system(REF).with_workspace(fx.b());
+        with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+            Ok(backend::handlers::auth::ldap_sign_in_permitted(
+                c,
+                fx.b(),
+                user,
+            ))
+        })
+        .expect("decide")
+    };
+    assert!(permitted(own.uuid));
+    assert!(!permitted(shared.uuid));
+    assert!(!permitted(formerly_a.uuid));
+}
+
+#[test]
+fn graph_sync_links_no_account_another_workspace_also_holds() {
+    let fx = Fixture::new();
+    let shared = fx.account("Shared Person", &[fx.a(), fx.b()]);
+    let person = directory_person("Name From B", &[&shared.primary]);
+
+    let stats = fx.graph_sync(fx.b(), &person, None);
+
+    assert_eq!(stats.identities_linked, 0);
+    assert!(
+        stats.errors.iter().any(|e| e.starts_with("Skipped")),
+        "{:?}",
+        stats.errors
+    );
+    assert!(
+        fx.identities(shared.uuid).is_empty(),
+        "no microsoft identity"
+    );
+}
+
+#[test]
+fn graph_sync_links_only_by_a_verified_address() {
+    let fx = Fixture::new();
+    let own = fx.account("Own Person", &[fx.b()]);
+    // Only the unverified secondary address matches.
+    let person = directory_person("Own Person", &[&own.secondary.to_uppercase()]);
+
+    let stats = fx.graph_sync(fx.b(), &person, None);
+
+    assert_eq!(stats.identities_linked + stats.new_users_created, 0);
+    assert!(fx.identities(own.uuid).is_empty());
+}
+
+#[test]
+fn graph_sync_treats_a_seat_removed_elsewhere_as_another_workspaces_account() {
+    let fx = Fixture::new();
+    let formerly_a = fx.account("Formerly In A", &[fx.a(), fx.b()]);
+    fx.remove(fx.a(), formerly_a.uuid);
+    let person = directory_person("Name From B", &[&formerly_a.primary]);
+    let identity = fx.microsoft_identity(formerly_a.uuid, &person);
+
+    fx.graph_sync(fx.b(), &person, Some(identity));
+
+    assert_eq!(fx.name_of(formerly_a.uuid), formerly_a.name, "not renamed");
+    assert_eq!(
+        fx.local_name(fx.b(), formerly_a.uuid).as_deref(),
+        Some("Name From B")
+    );
+}
+
+#[test]
+fn graph_sync_doesnt_seat_an_account_no_workspace_seats() {
+    let fx = Fixture::new();
+    let orphan = fx.account("Orphan", &[]);
+    let person = directory_person("Name From B", &[&orphan.primary]);
+    let identity = fx.microsoft_identity(orphan.uuid, &person);
+
+    let stats = fx.graph_sync(fx.b(), &person, Some(identity));
+
+    assert!(fx.seats(orphan.uuid).is_empty(), "not seated");
+    assert_eq!(fx.name_of(orphan.uuid), orphan.name, "not renamed");
+    assert!(
+        stats.errors.iter().any(|e| e.starts_with("Skipped")),
+        "{:?}",
+        stats.errors
+    );
+}
+
+#[test]
+fn the_photo_pass_takes_only_the_workspaces_own_people() {
+    let fx = Fixture::new();
+    let own = fx.account("Own Person", &[fx.b()]);
+    let shared = fx.account("Shared Person", &[fx.a(), fx.b()]);
+    let in_a = fx.account("In A", &[fx.a()]);
+    for account in [&own, &shared, &in_a] {
+        fx.microsoft_identity(account.uuid, &directory_person("P", &[&account.primary]));
+    }
+
+    // The photo pass's own pooled connection.
+    let candidates =
+        photo_sync_candidates(&mut fx.pool.get().expect("conn"), fx.b()).expect("candidates");
+
+    let people: Vec<Uuid> = candidates.into_iter().map(|(u, _)| u).collect();
+    assert_eq!(people, vec![own.uuid]);
+}
+
+#[test]
+fn an_entra_removal_revokes_only_the_workspaces_own_people() {
+    let fx = Fixture::new();
+    let own = fx.account("Own Person", &[fx.b()]);
+    let shared = fx.account("Shared Person", &[fx.a(), fx.b()]);
+    let own_person = directory_person("Own", &[&own.primary]);
+    let shared_person = directory_person("Shared", &[&shared.primary]);
+    fx.microsoft_identity(own.uuid, &own_person);
+    fx.microsoft_identity(shared.uuid, &shared_person);
+    for user in [own.uuid, shared.uuid] {
+        fx.session(user);
+    }
+
+    fx.as_graph_sync(fx.b(), |c| {
+        revoke_removed_directory_people(
+            c,
+            0,
+            fx.b(),
+            &[own_person.id.clone(), shared_person.id.clone()],
+        )
+    });
+
+    assert_eq!(
+        fx.sessions(own.uuid),
+        0,
+        "the workspace's own person is signed out"
     );
     assert_eq!(
-        fx.identities(shared.uuid),
-        vec![("ldap".to_string(), Some(fx.b()))]
+        fx.sessions(shared.uuid),
+        1,
+        "A's person keeps their session"
     );
+}
+
+#[test]
+fn requester_sso_links_no_account_another_workspace_seats() {
+    use backend::repository::requester_identities::{resolve, Assertion, IdentityKey, Refused};
+    let fx = Fixture::new();
+    let shared = fx.account("Shared Person", &[fx.a(), fx.b()]);
+    let in_a = fx.account("In A", &[fx.a()]);
+    // Unverified primaries, so a verification flip would show.
+    fx.read(|c| {
+        diesel::update(
+            user_emails::table.filter(
+                user_emails::email.eq_any(vec![shared.primary.clone(), in_a.primary.clone()]),
+            ),
+        )
+        .set(user_emails::is_verified.eq(false))
+        .execute(c)
+    });
+    let domains = vec!["victim.test".to_string()];
+
+    for (account, key) in [(&shared, "sub-shared"), (&in_a, "sub-a")] {
+        let keys = [IdentityKey {
+            provider_type: "oidc:https://idp.example".to_string(),
+            external_id: key.to_string(),
+        }];
+        let outcome = run_in_workspace(&fx.pool, REF, fx.b(), |c| {
+            resolve(
+                c,
+                fx.b(),
+                &domains,
+                &Assertion {
+                    keys: &keys,
+                    email: Some(&account.primary),
+                    email_verified: Some(true),
+                    name: Some("Someone"),
+                    via: "test",
+                },
+            )
+        })
+        .expect("resolve");
+        assert_eq!(outcome, Err(Refused::AccountElsewhere), "{}", account.name);
+        assert!(fx.identities(account.uuid).is_empty(), "{}", account.name);
+        assert!(
+            fx.addresses(account.uuid)
+                .iter()
+                .all(|(_, primary, verified, _)| !primary || !verified),
+            "{}: the primary address stays unverified",
+            account.name
+        );
+    }
+    assert_eq!(fx.seats(in_a.uuid), vec![fx.a()], "not seated in B");
 }
 
 #[test]
@@ -497,6 +754,71 @@ fn adding_addresses_leaves_another_accounts_row_alone() {
         before,
         "the other account's address stays unverified and theirs"
     );
+}
+
+#[test]
+fn adding_addresses_matches_them_case_insensitively() {
+    let fx = Fixture::new();
+    let other = fx.account("Other", &[fx.a()]);
+    let mine = fx.account("Mine", &[fx.b()]);
+    let other_before = fx.addresses(other.uuid);
+    let mine_before = fx.addresses(mine.uuid);
+
+    let stored = fx.read(|c| {
+        emails_repo::add_multiple_emails(
+            c,
+            &mine.uuid,
+            vec![
+                (
+                    other.primary.to_uppercase(),
+                    "work".to_string(),
+                    true,
+                    "microsoft".to_string(),
+                ),
+                (
+                    mine.secondary.to_uppercase(),
+                    "work".to_string(),
+                    true,
+                    "microsoft".to_string(),
+                ),
+            ],
+        )
+    });
+
+    assert_eq!(stored.len(), 1, "only their own address is refreshed");
+    assert_eq!(
+        fx.addresses(other.uuid),
+        other_before,
+        "no case variant added"
+    );
+    let mine_after = fx.addresses(mine.uuid);
+    assert_eq!(
+        mine_after.len(),
+        mine_before.len(),
+        "no duplicate in another case"
+    );
+    assert!(mine_after
+        .iter()
+        .any(|(email, _, verified, _)| *email == mine.secondary && *verified));
+
+    // Cleanup compares case-insensitively too.
+    let synced = format!("Synced-{}@Victim.test", Uuid::new_v4().simple());
+    fx.read(|c| {
+        emails_repo::add_multiple_emails(
+            c,
+            &mine.uuid,
+            vec![(
+                synced.clone(),
+                "work".to_string(),
+                true,
+                "microsoft".to_string(),
+            )],
+        )
+    });
+    let removed = fx.read(|c| {
+        emails_repo::cleanup_obsolete_emails(c, &mine.uuid, &[synced.to_uppercase()], "microsoft")
+    });
+    assert_eq!(removed, 0, "a listed address in another case stays");
 }
 
 #[test]

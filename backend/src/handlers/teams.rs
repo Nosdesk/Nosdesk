@@ -146,7 +146,7 @@ pub async fn exchange_session(
     let user_uuid = match resolved {
         Ok(Ok(u)) => u,
         Ok(Err(_)) => {
-            tracing::info!("teams: token refused (no email at a listed domain)");
+            tracing::info!("teams: token refused (no email at a listed domain, or an account another workspace holds)");
             // The tab says so: it's for the admin to fix, not a retry.
             return crate::errors::unauthorized_with_code(
                 "Your account isn't set up for this help portal",

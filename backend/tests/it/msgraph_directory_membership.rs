@@ -1,7 +1,7 @@
 //! The Microsoft directory sync makes the people it brings in members of the
 //! workspace it runs for. A new account gets its membership and `user.created`
 //! there and nowhere else; a person an earlier run created without one is
-//! repaired the next time the sync visits them. The sync runs elevated past
+//! skipped and listed, not seated. The sync runs elevated past
 //! row security and pinned to its workspace, as `sync_users` does.
 
 use diesel::prelude::*;
@@ -161,35 +161,29 @@ fn a_person_the_sync_creates_joins_only_the_workspace_it_runs_for() {
 }
 
 #[test]
-fn a_linked_person_without_a_membership_is_repaired_by_the_next_run() {
+fn a_linked_person_no_workspace_seats_is_skipped_not_seated() {
     let db = common::TestDb::new();
     let pool = db.pool_with_size(2);
     let ws = common::seed_two_workspaces(&mut pool.get().expect("conn"));
     let (a, b) = (ws.a.workspace_id, ws.b.workspace_id);
 
+    // The identity can't move to a fresh account, and seating this one on the
+    // directory's word alone could bring back someone a workspace removed.
     let person = directory_person("Earlier Directory Person");
     let (user, identity) = bare_linked_account(&pool, a, &person);
+
+    let stats = sync_person(&pool, a, &person, Some(identity));
+    assert_eq!(stats.existing_users_updated, 0);
+    assert!(
+        stats.errors.iter().any(|e| e.starts_with("Skipped")),
+        "listed for the admin: {:?}",
+        stats.errors
+    );
     assert!(memberships(&pool, a, user).is_empty());
-
-    let stats = sync_person(&pool, a, &person, Some(identity.clone()));
-    assert_eq!(stats.existing_users_updated, 1);
-    assert_eq!(memberships(&pool, a, user), vec![(a, "member".to_string())]);
-    let joined = user_events(&pool, a, user);
     assert!(
-        joined.contains(&("user.updated".to_string(), a)),
-        "the repair tells A's clients: {joined:?}"
+        user_events(&pool, a, user).is_empty(),
+        "nothing reaches A or B ({b})"
     );
-    assert!(
-        joined.iter().all(|(_, w)| *w == a),
-        "nothing reaches B ({b}): {joined:?}"
-    );
-
-    // A second run finds the membership in place and sends nothing for it:
-    // only the profile refresh every run makes (`update_user`) is new.
-    sync_person(&pool, a, &person, Some(identity));
-    let again = user_events(&pool, a, user);
-    assert_eq!(again[..joined.len()], joined[..]);
-    assert_eq!(again[joined.len()..], [("user.updated".to_string(), a)]);
 }
 
 #[test]
