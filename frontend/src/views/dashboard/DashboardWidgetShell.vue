@@ -413,7 +413,9 @@ function sizeCodeToSpan(code: string): WidgetSpan | null {
   <article
     ref="articleEl"
     :class="[
-      'bg-surface rounded-xl border border-default overflow-hidden flex h-full relative transition-shadow',
+      // On the one-column grid (under xl) the card is as tall as its
+      // content, so a header or footer that larger text wraps stays inside.
+      'bg-surface rounded-xl border border-default overflow-hidden flex h-full max-xl:h-auto relative transition-shadow',
       editMode
         ? 'ring-1 ring-accent/30 hover:ring-accent/40 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none'
         : '',

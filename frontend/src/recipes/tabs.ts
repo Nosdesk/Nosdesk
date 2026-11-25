@@ -18,7 +18,8 @@ export const tabsList = cva('flex items-center', {
   variants: {
     variant: {
       underline: 'relative gap-1 border-b border-default',
-      pill: 'gap-0.5 rounded-md bg-surface-alt p-0.5',
+      // Wraps onto a second row when its tabs no longer fit (larger text).
+      pill: 'flex-wrap max-w-full gap-0.5 rounded-md bg-surface-alt p-0.5',
     },
   },
   defaultVariants: { variant: 'underline' },

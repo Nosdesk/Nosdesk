@@ -500,7 +500,8 @@
    a phone lets them grow instead of clipping:
 
    - a fixed height on a button or link becomes its least height, and its
-     label may wrap rather than run past the screen;
+     label (a fixed-height one, or one held to a line) may wrap rather than
+     run past the screen;
    - text cut to one line (`truncate`) or clamped (`line-clamp-*`) wraps
      whole, since the people who raise the text size are the ones a cut
      costs most. Only a word longer than its line (an address) breaks. A
@@ -528,8 +529,10 @@
     -webkit-line-clamp: none;
     line-clamp: none;
   }
-  :root[data-text-grown] :is(button, a, [role='button']):is(.h-5, .h-6, .h-7, .h-8, .h-9, .h-10) {
+  :root[data-text-grown] :is(button, a, [role='button']):is(.h-5, .h-6, .h-7, .h-8, .h-9, .h-10),
+  :root[data-text-grown] :is(button, a, [role='button']).whitespace-nowrap {
     height: auto;
+    max-width: 100%;
     white-space: normal;
     overflow-wrap: break-word;
   }
