@@ -30,6 +30,7 @@ mod admin_workspace_members;
 mod admin_workspaces;
 mod analytics_breakdown_labels;
 mod analytics_kpi_summary;
+mod api_token_holder_seat;
 mod api_token_role_ceiling;
 mod app_portal_handoff;
 mod approval_timeouts;

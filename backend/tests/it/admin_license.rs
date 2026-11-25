@@ -51,8 +51,10 @@ async fn licence_and_push_mode_round_trip() {
     backend::sync::system_meta::ensure_instance_id(&mut pool.get().expect("conn"))
         .expect("instance id");
     let admin = mint_user(&mut pool.get().expect("conn"), "Admin", "platform_admin");
+    common::seat(&mut pool.get().expect("conn"), 1, admin.uuid, "owner");
     let admin_token = common::mint_api_token(&mut pool.get().expect("conn"), &admin, "admin");
     let member = mint_user(&mut pool.get().expect("conn"), "Member", "user");
+    common::seat(&mut pool.get().expect("conn"), 1, member.uuid, "member");
     let member_token = common::mint_api_token(&mut pool.get().expect("conn"), &member, "member");
 
     let resolved = push_mode::resolve(None, None).expect("resolve");

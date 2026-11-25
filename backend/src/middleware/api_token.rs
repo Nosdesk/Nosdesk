@@ -146,6 +146,10 @@ pub fn try_bearer_auth(
             // Same answer as an unknown token, so a probe can't tell a
             // promoted holder from a revoked token; the log says which.
             match refusal {
+                CeilingRefusal::HolderNotMember => warn!(
+                    token_uuid = %api_token.uuid,
+                    "API token refused: its holder has no seat in its workspace"
+                ),
                 CeilingRefusal::MakerNotAdmin => warn!(
                     token_uuid = %api_token.uuid,
                     "API token refused: its maker is no longer an admin of its workspace"
@@ -230,6 +234,35 @@ pub fn try_bearer_auth(
     Ok(Some(claims))
 }
 
+/// Whether `path` is a route that reads or changes an account rather than a
+/// workspace's records: the caller's workspaces, sign-in identities,
+/// addresses, credentials and their own global profile. Accounts are shared
+/// across workspaces, and an API token is one workspace's automation, so it
+/// never reaches them; only a signed-in session does. `holder` is the
+/// token's user, whose own profile a `PUT /users/{uuid}` would rewrite.
+fn is_account_route(method: &actix_web::http::Method, path: &str, holder: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/") else {
+        return false;
+    };
+    let segments: Vec<&str> = rest.trim_end_matches('/').split('/').collect();
+    match segments.as_slice() {
+        ["me", "workspaces"] => true,
+        ["users", "auth-identities", ..] => true,
+        ["users", user] => method == actix_web::http::Method::PUT && *user == holder,
+        ["users", _, sub, ..] => matches!(
+            *sub,
+            "emails"
+                | "auth-identities"
+                | "security-info"
+                | "image"
+                | "reset-password"
+                | "disable-mfa"
+                | "passkeys"
+        ),
+        _ => false,
+    }
+}
+
 /// On a request authenticated with an API token (not a signed-in session):
 /// which token. API tokens can't manage API tokens, or a token could mint
 /// itself a successor that escapes its ceiling and its maker.
@@ -244,8 +277,11 @@ pub struct ApiTokenRequest {
 /// still an admin of its workspace: the maker holds its secret. Refusing it
 /// here, the one place an API token authenticates, keeps every route, sync
 /// stream and collab or SSE connection token from seeing a higher role. A
-/// token made for oneself follows one's own role. Runs inside the lookup's
-/// bypass transaction, since the request has no workspace pin yet.
+/// token made for oneself follows one's own role. Either way its holder must
+/// hold a seat in the token's workspace: accounts are shared across
+/// workspaces, and a token for someone with no seat there would act as an
+/// account that workspace doesn't own. Runs inside the lookup's bypass
+/// transaction, since the request has no workspace pin yet.
 fn ceiling_refusal(
     conn: &mut crate::db::DbConnection,
     token: &crate::models::ApiToken,
@@ -254,6 +290,9 @@ fn ceiling_refusal(
     use crate::models::{PlatformRole, WorkspaceRole};
     use crate::repository::workspaces::membership;
 
+    if membership(conn, token.workspace_id, token.user_uuid)?.is_none() {
+        return Ok(Some(CeilingRefusal::HolderNotMember));
+    }
     if token.created_by == token.user_uuid {
         return Ok(None);
     }
@@ -295,6 +334,7 @@ fn ceiling_refusal(
 
 /// Why [`ceiling_refusal`] refused a token, for the log line.
 enum CeilingRefusal {
+    HolderNotMember,
     MakerNotAdmin,
     RoleAboveCeiling,
     PlatformRoleChanged,
@@ -350,6 +390,12 @@ pub(crate) async fn authenticate<B: MessageBody>(
                     &req, &mut conn, &claims, bound,
                 )?;
                 drop(conn);
+                if is_account_route(req.method(), req.path(), &claims.sub) {
+                    warn!(path = %req.path(), "API token refused on an account route");
+                    return Err(crate::errors::forbidden_error(
+                        "API tokens can't manage accounts",
+                    ));
+                }
                 return finalize(req, next, claims, false).await;
             }
             // `nsk_` on a cookie-only route: ignore it and fall through to the

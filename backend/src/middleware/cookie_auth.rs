@@ -57,14 +57,12 @@ pub enum WorkspaceCarrier<'a> {
     /// Membership alone is not enough, so an admin of both A and B cannot point
     /// A's token at B.
     ///
-    /// A request that names no workspace resolves to `None`, exactly as
-    /// `RequestOrigin` does, and is left to the caller's [`UnresolvedPolicy`].
-    /// Using the binding as a selection here was tried and reverted: the same
-    /// unresolved case covers a platform admin's cross-workspace call to
-    /// `/api/admin/workspaces/{id}/members` (under `dual_auth_middleware`,
-    /// `startup.rs`), which has no workspace to be a member of. Pinning the
-    /// binding there turns a never-gated request into a gated one and 403s a
-    /// legitimate call.
+    /// A request that names no workspace runs in the bound one, pinned and
+    /// membership-gated like any other. A token is a workspace's automation,
+    /// never an unscoped principal: left unscoped, it would act as its holder's
+    /// account wherever row security doesn't reach. A platform admin's token
+    /// still reaches the operator routes, from the workspace it was made in
+    /// (its holder must hold a seat there; see `ceiling_refusal`).
     ApiToken {
         bound_workspace: uuid::Uuid,
         req: &'a ServiceRequest,
@@ -166,9 +164,9 @@ fn resolve_carrier(
                     }
                     Ok(Some(ctx))
                 }
-                // Nothing named a workspace, so there is nothing to compare the
-                // binding against. Not a selection; see the carrier doc.
-                None => Ok(None),
+                // Nothing named a workspace: the token's own (see the carrier
+                // doc).
+                None => resolve_provided_uuid(conn, bound_workspace).map(Some),
             }
         }
         WorkspaceCarrier::ConnectionToken {
@@ -265,11 +263,9 @@ pub fn enforce_api_token_workspace(
             bound_workspace,
             req,
         },
-        // AllowRlsBackstop, the same as REST and for the same reason: a request
-        // that names no workspace is an apex or platform route (a platform
-        // admin's cross-workspace call, say), and the binding is a ceiling on
-        // which workspace a token may act in, not a selection of one.
-        UnresolvedPolicy::AllowRlsBackstop,
+        // Never reached: an API token always resolves to its bound workspace
+        // (`resolve_carrier`), so nothing is left unscoped.
+        UnresolvedPolicy::Deny,
     )? {
         // Publish the resolved context, as the cookie/session gate does, so the
         // handler's `TenantConn` pins the same workspace.

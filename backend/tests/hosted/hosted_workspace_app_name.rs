@@ -76,7 +76,7 @@ async fn hosted_workspaces_are_named_after_the_workspace() {
     let runtime = test_db.runtime_pool(4);
 
     let admin = mint_platform_admin(&mut pool.get().expect("conn"));
-    let admin_token = common::mint_api_token(&mut pool.get().expect("conn"), &admin, "admin");
+    let admin_token = common::session_bearer(&pool, &admin);
     let platform_token = common::mint_platform_jwt("platform:provision", 300);
 
     let pool_for_app = runtime.clone();

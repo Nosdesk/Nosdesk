@@ -65,15 +65,12 @@ async fn workspace_member_lifecycle_contract() {
 
     // Cast of characters.
     let admin = mint_user(&mut pool.get().expect("conn"), "PlatformAdmin", "admin");
-    let admin_token =
-        crate::common::mint_api_token(&mut pool.get().expect("conn"), &admin, "admin-session");
+    let admin_token = crate::common::session_bearer(&pool, &admin);
     let regular = mint_user(&mut pool.get().expect("conn"), "Regular", "user");
-    let regular_token =
-        crate::common::mint_api_token(&mut pool.get().expect("conn"), &regular, "user-session");
+    let regular_token = crate::common::session_bearer(&pool, &regular);
     let alice = mint_user(&mut pool.get().expect("conn"), "Alice", "user");
     let bob = mint_user(&mut pool.get().expect("conn"), "Bob", "user");
-    let alice_token =
-        crate::common::mint_api_token(&mut pool.get().expect("conn"), &alice, "alice");
+    let alice_token = crate::common::session_bearer(&pool, &alice);
 
     // Two workspaces so the /me/workspaces list has something to filter.
     let ws_acme =
@@ -288,8 +285,7 @@ async fn self_hosted_me_workspaces_never_carries_billing() {
     let pool = test_db.pool_with_size(4);
 
     let owner = mint_user(&mut pool.get().expect("conn"), "Owner", "user");
-    let owner_token =
-        crate::common::mint_api_token(&mut pool.get().expect("conn"), &owner, "owner-session");
+    let owner_token = crate::common::session_bearer(&pool, &owner);
     let ws = crate::common::mint_workspace(&mut pool.get().expect("conn"), "billing-sh", "Acme");
     {
         let mut conn = pool.get().expect("conn");
