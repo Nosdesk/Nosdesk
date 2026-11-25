@@ -14,8 +14,8 @@ describe('ToggleSwitch', () => {
   it('is a switch named by its label and described by its description', async () => {
     wrapper = mountWithProviders(ToggleSwitch, {
       modelValue: true,
-      label: 'Compact view',
-      description: 'Tighter rows',
+      label: 'Color blind friendly mode',
+      description: 'Shapes as well as color',
     })
     await nextTick()
     const sw = wrapper.get('[role="switch"]')
@@ -24,14 +24,14 @@ describe('ToggleSwitch', () => {
     const label = wrapper.get('label')
     expect(label.attributes('for')).toBe(sw.attributes('id'))
     const desc = wrapper.get(`#${sw.attributes('aria-describedby')}`)
-    expect(desc.text()).toBe('Tighter rows')
+    expect(desc.text()).toBe('Shapes as well as color')
   })
 
   it('toggles on click, on Space and through the label, once each', async () => {
     const updates: boolean[] = []
     wrapper = mountWithProviders(ToggleSwitch, {
       modelValue: false,
-      label: 'Compact view',
+      label: 'Color blind friendly mode',
       'onUpdate:modelValue': (v: boolean) => updates.push(v),
     })
     await nextTick()

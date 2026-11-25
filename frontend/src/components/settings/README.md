@@ -12,7 +12,7 @@ This directory contains the modular settings components for the ProfileSettingsV
 
 ### `AppearanceSettings.vue`
 - Theme selection (light/dark mode)
-- Display options (compact view toggle)
+- Accessibility options (color blind friendly mode)
 - Integration with the theme store
 
 ### `NotificationSettings.vue`

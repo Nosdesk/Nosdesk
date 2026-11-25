@@ -6876,8 +6876,8 @@ help-card-signin-desc = Already have an account?
 help-card-signin-desc-portal = See your requests. We'll email you a sign-in link.
 
 # Settings: appearance pane (AppearanceSettings) — theme picker,
-# device-only sync toggle, accessibility (colorblind-safe shapes),
-# and compact-view density toggle. Strings are flat status text;
+# device-only sync toggle and accessibility (colorblind-safe shapes).
+# Strings are flat status text;
 # any pluralisation in this block is handled by Fluent selectors.
 settings-appearance-title = Appearance
 settings-appearance-theme-heading = Theme
