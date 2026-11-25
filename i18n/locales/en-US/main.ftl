@@ -10808,7 +10808,10 @@ admin-rules-activity-did-notify-person = Emailed { $name }
 admin-rules-activity-did-notify-person-unknown = Emailed a specific person
 admin-rules-activity-did-notify-no-requester = Sent no email, as the ticket has no requester
 admin-rules-activity-did-notify-no-email = Sent no email, as the requester has no email address
+admin-rules-activity-did-notify-no-channel = Sent no email, as the ticket's mailbox is turned off and no other mailbox can take the answer
+admin-rules-activity-did-notify-suppressed = Sent no email, as the address is on the suppression list
 admin-rules-activity-held-spam = Held, as the ticket may be spam: { $step }
+admin-rules-activity-held-warning-unsent = Not done, as the email wasn't sent: { $step }
 
 # Rules: plugin event triggers.
 admin-rules-trigger-plugin-event = On a plugin event

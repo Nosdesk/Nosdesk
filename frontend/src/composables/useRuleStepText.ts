@@ -168,11 +168,14 @@ export function useRuleStepText(options: {
         if (visibility === 'public') return t('admin-rules-activity-did-reply')
         return t('admin-rules-activity-did-message')
       }
-      // A notify step with no one to email (no requester, or one with no
-      // address) sent nothing and says why.
+      // A notify step with no one to email (no requester, one with no
+      // address or none on the suppression list, or no mailbox to take the
+      // answer) sent nothing and says why.
       case 'notify': {
         if (entry.skipped === 'no_requester') return t('admin-rules-activity-did-notify-no-requester')
         if (entry.skipped === 'no_email') return t('admin-rules-activity-did-notify-no-email')
+        if (entry.skipped === 'no_channel') return t('admin-rules-activity-did-notify-no-channel')
+        if (entry.skipped === 'suppressed') return t('admin-rules-activity-did-notify-suppressed')
         if (entry.recipient !== 'user') return t('admin-rules-activity-did-notify-requester')
         const name = userName(entry.user_uuid)
         return name ? t('admin-rules-activity-did-notify-person', { name }) : t('admin-rules-activity-did-notify-person-unknown')

@@ -192,6 +192,12 @@ describe('useRuleStepText', () => {
     expect(done({ kind: 'notify', recipient: 'requester', skipped: 'no_email' })).toBe(
       'Sent no email, as the requester has no email address',
     )
+    expect(done({ kind: 'notify', recipient: 'requester', skipped: 'no_channel' })).toBe(
+      "Sent no email, as the ticket's mailbox is turned off and no other mailbox can take the answer",
+    )
+    expect(done({ kind: 'notify', recipient: 'requester', skipped: 'suppressed' })).toBe(
+      'Sent no email, as the address is on the suppression list',
+    )
   })
 
   it('reads the notify step in French and Dutch', () => {

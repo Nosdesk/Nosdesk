@@ -150,4 +150,33 @@ describe('RuleActivityView', () => {
     const lines = wrapper.findAll('li li').map((li) => li.text())
     expect(lines).toEqual(['admin-rules-activity-did-add-tags', 'admin-rules-activity-held-spam'])
   })
+
+  it("says a time rule's tags weren't added when its warning wasn't sent", async () => {
+    rules.listApplications.mockResolvedValue([
+      {
+        ...RUN,
+        id: 10,
+        actor_uuid: null,
+        actor_kind: 'system',
+        actions_taken: [{ index: 4, kind: 'reply', comment_id: 31 }],
+        actions_skipped: [{ index: 3, reason: 'warning_not_sent' }],
+      },
+    ])
+    rules.list.mockResolvedValue([RULE])
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/rules/:id', name: 'admin-rules-edit', component: { template: '<div />' } },
+        { path: '/tickets/:number', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/')
+    wrapper = mountWithProviders(RuleActivityView, {}, {}, [[PiniaColada, {}] as never, router])
+    await flushPromises()
+    await wrapper.get('li > button[aria-expanded]').trigger('click')
+    await flushPromises()
+    const lines = wrapper.findAll('li li').map((li) => li.text())
+    expect(lines).toEqual(['admin-rules-activity-did-note', 'admin-rules-activity-held-warning-unsent'])
+  })
 })

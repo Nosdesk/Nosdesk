@@ -185,3 +185,54 @@ pub fn set_tags_for_ticket(
         Ok(sorted)
     })
 }
+
+/// Take `tag_ids` off a ticket where they were put on no later than
+/// `added_by`, leaving one put on again since, and every other tag, as it
+/// is. Emits `ticket.tags_changed` like [`set_tags_for_ticket`] when any
+/// came off. Returns the tags taken off.
+pub fn remove_ticket_tags_added_by(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    tag_ids: &[i32],
+    added_by: chrono::DateTime<chrono::Utc>,
+) -> QueryResult<Vec<i32>> {
+    if tag_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    conn.transaction::<Vec<i32>, diesel::result::Error, _>(|conn| {
+        let ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
+        let mut removed: Vec<i32> = diesel::delete(
+            ticket_tags::table
+                .filter(ticket_tags::ticket_id.eq(ticket_id))
+                .filter(ticket_tags::tag_id.eq_any(tag_ids))
+                .filter(ticket_tags::created_at.le(added_by)),
+        )
+        .returning(ticket_tags::tag_id)
+        .get_results(conn)?;
+        if removed.is_empty() {
+            return Ok(removed);
+        }
+        removed.sort_unstable();
+        let remaining = tag_ids_for_ticket(conn, ticket_id)?;
+        let groups = groups::for_ticket(conn, &ticket)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Ticket,
+                aggregate_id: ticket_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "ticket.tags_changed",
+                data: json!({
+                    "id": ticket_id,
+                    "tag_ids": remaining,
+                    "added": [],
+                    "removed": removed,
+                    "changed_fields": [crate::models::TAG_IDS_FIELD],
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(removed)
+    })
+}

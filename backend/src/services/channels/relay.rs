@@ -237,20 +237,63 @@ pub fn reply_email_recipients(
     Ok(out)
 }
 
-/// The channel mail to `ticket`'s requester goes out through, as an agent's
-/// public reply does: its origin channel, or with none, the workspace's
-/// email channel. `None` when the origin channel is disabled or the
-/// workspace has no email channel to reply through: plain mail from the
-/// default sender. For mail that isn't a comment, such as a rule's notify
-/// step, so the requester's answer threads back onto the ticket.
-pub fn requester_reply_channel(
+/// How mail to a ticket's requester that isn't a comment goes out
+/// ([`requester_mail_route`]).
+#[derive(Debug)]
+pub enum RequesterMailRoute {
+    /// Through this channel, which routes their answer back onto the ticket:
+    /// its Message-ID domain and Reply-To ([`super::outbound::reply_routing`]).
+    Channel {
+        channel: Channel,
+        domain: String,
+        reply_to: Option<String>,
+    },
+    /// As plain mail from the default sender: the ticket didn't come in
+    /// through a mailbox and the workspace has none to reply through.
+    Direct,
+    /// Not at all: the mailbox the ticket came in through is turned off or
+    /// can't route an answer back, and the workspace has no other that can.
+    NoChannel,
+}
+
+/// How mail to `ticket`'s requester goes out, for mail that isn't a
+/// comment, such as a rule's notify step, so their answer threads back onto
+/// the ticket: through its origin channel while that is on and routes an
+/// answer back, else through the workspace's email channel, as an agent's
+/// public reply on a ticket with no origin channel does. A ticket that came
+/// in through a mailbox that can no longer take the answer, in a workspace
+/// with no other, gets nothing: plain mail would bring the answer nowhere.
+pub fn requester_mail_route(
     conn: &mut DbConnection,
     ticket: &Ticket,
-) -> Result<Option<Channel>, diesel::result::Error> {
-    match ticket.origin_channel_id {
-        Some(channel_id) => Ok(Some(channels_repo::find(conn, channel_id)?).filter(|c| c.enabled)),
-        None => workspace_reply_channel(conn),
+) -> Result<RequesterMailRoute, diesel::result::Error> {
+    let origin = match ticket.origin_channel_id {
+        Some(channel_id) => Some(channels_repo::find(conn, channel_id)?),
+        None => None,
+    };
+    let through = |conn: &mut DbConnection, channel: Channel| {
+        super::outbound::reply_routing(conn, &channel).map(|(domain, reply_to)| {
+            RequesterMailRoute::Channel {
+                channel,
+                domain,
+                reply_to,
+            }
+        })
+    };
+    if let Some(channel) = origin.clone().filter(|c| c.enabled) {
+        if let Some(route) = through(conn, channel) {
+            return Ok(route);
+        }
     }
+    let fallback = match workspace_reply_channel(conn)? {
+        Some(channel) => through(conn, channel),
+        None => None,
+    };
+    Ok(match (fallback, origin) {
+        (Some(route), _) => route,
+        (None, Some(_)) => RequesterMailRoute::NoChannel,
+        (None, None) => RequesterMailRoute::Direct,
+    })
 }
 
 /// The email channel a ticket with no origin channel replies through: the

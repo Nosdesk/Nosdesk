@@ -265,6 +265,121 @@ pub fn last_fires(
     .load(conn)
 }
 
+/// A rule's last run on a ticket that wasn't a skip or a shadow run, with
+/// what its steps did.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct LastRun {
+    #[diesel(sql_type = Integer)]
+    pub rule_id: i32,
+    #[diesel(sql_type = Integer)]
+    pub ticket_id: i32,
+    #[diesel(sql_type = Timestamptz)]
+    pub applied_at: DateTime<Utc>,
+    #[diesel(sql_type = Nullable<diesel::sql_types::Jsonb>)]
+    pub actions_taken: Option<serde_json::Value>,
+    #[diesel(sql_type = Nullable<diesel::sql_types::Uuid>)]
+    pub correlation_id: Option<Uuid>,
+    #[diesel(sql_type = Nullable<diesel::sql_types::Jsonb>)]
+    pub condition_evaluation: Option<serde_json::Value>,
+}
+
+impl LastRun {
+    /// Whether the run was a warning before a close, as the clock recorded
+    /// it when it fired the rule (`condition_evaluation.warning`).
+    pub fn was_warning(&self) -> bool {
+        self.condition_evaluation
+            .as_ref()
+            .and_then(|e| e.get("warning"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    }
+
+    /// The tags its `add_tags` steps after its email to the requester put on
+    /// the ticket: those that say the requester was warned. None when no
+    /// such email went out.
+    pub fn tags_added_after_warning(&self) -> Vec<i32> {
+        use serde_json::Value;
+        let steps: &[Value] = self
+            .actions_taken
+            .as_ref()
+            .and_then(Value::as_array)
+            .map_or(&[], Vec::as_slice);
+        let index = |step: &Value| step.get("index").and_then(Value::as_i64);
+        let Some(warned) = steps
+            .iter()
+            .filter(|step| {
+                step.get("kind").and_then(Value::as_str) == Some("notify")
+                    && step.get("recipient").and_then(Value::as_str) == Some("requester")
+                    && step.get("skipped").is_none()
+            })
+            .filter_map(index)
+            .min()
+        else {
+            return Vec::new();
+        };
+        steps
+            .iter()
+            .filter(|step| step.get("kind").and_then(Value::as_str) == Some("add_tags"))
+            .filter(|step| index(step).is_some_and(|i| i > warned))
+            .filter_map(|step| step.get("tag_ids_added")?.as_array().cloned())
+            .flatten()
+            .filter_map(|id| id.as_i64().and_then(|id| i32::try_from(id).ok()))
+            .collect()
+    }
+}
+
+// sync-audit-only: read-only
+/// Each of `rule_ids`' last run on each of `ticket_ids` that wasn't a skip
+/// or a shadow run.
+pub fn last_runs(
+    conn: &mut DbConnection,
+    rule_ids: &[i32],
+    ticket_ids: &[i32],
+) -> QueryResult<Vec<LastRun>> {
+    if rule_ids.is_empty() || ticket_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    diesel::sql_query(
+        "SELECT DISTINCT ON (rule_id, ticket_id) rule_id, ticket_id, applied_at, actions_taken, \
+                correlation_id, condition_evaluation \
+           FROM rule_applications \
+          WHERE rule_id = ANY($1) AND ticket_id = ANY($2) \
+            AND status NOT IN ('skipped_preflight', 'skipped_condition_unmet', 'dry_run') \
+          ORDER BY rule_id, ticket_id, applied_at DESC, id DESC",
+    )
+    .bind::<Array<Integer>, _>(rule_ids)
+    .bind::<Array<Integer>, _>(ticket_ids)
+    .load(conn)
+}
+
+#[derive(QueryableByName)]
+struct Exists {
+    #[diesel(sql_type = Bool)]
+    exists: bool,
+}
+
+// sync-audit-only: read-only
+/// Whether the change to `ticket_id` that happened at `at` was recorded by
+/// the run with `correlation_id` (or a chain of events it set off): a clock
+/// that started then was started by that run.
+pub fn changed_by_run_at(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    correlation_id: Uuid,
+    at: DateTime<Utc>,
+) -> QueryResult<bool> {
+    Ok(diesel::sql_query(
+        "SELECT EXISTS (SELECT 1 FROM sync_actions \
+          WHERE aggregate = 'ticket' AND aggregate_id = $1 AND correlation_id = $2 \
+            AND occurred_at = $3) AS exists",
+    )
+    .bind::<Text, _>(ticket_id.to_string())
+    .bind::<diesel::sql_types::Uuid, _>(correlation_id)
+    .bind::<Timestamptz, _>(at)
+    .get_result::<Exists>(conn)?
+    .exists)
+}
+
 // sync-audit-only: clock queue bookkeeping, no entity sync
 /// Make `rule_id`'s rows on `ticket_id` say `wait` on clock `clock_name`:
 /// one row while the rule waits, none when it doesn't. Writing a row gives up
