@@ -34,6 +34,8 @@ import {
 import { useToastStore, type Toast } from '@nosdesk/core/stores/toast';
 import { ticketPath as ticketPathOf } from '@/utils/ticketNumbers';
 import Icon from '@/components/common/Icon.vue';
+import { useMobileDetection } from '@/composables/useMobileDetection';
+import { useTextScale } from '@/composables/useTextScale';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
@@ -41,7 +43,15 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 const toastStore = useToastStore();
 const router = useRouter();
 
-const toasts = computed(() => toastStore.visibleToasts);
+// At larger text on a phone the newest two only, and from 150% the newest
+// one (the store lists newest first), so the stack never fills the screen.
+// The others mount, and start their timers, as those close.
+const textScale = useTextScale();
+const { isMobile: phone } = useMobileDetection('md');
+const toasts = computed(() => {
+  if (!phone.value || textScale.value <= 1.001) return toastStore.visibleToasts;
+  return toastStore.visibleToasts.slice(0, textScale.value >= 1.5 ? 1 : 2);
+});
 
 // Exit animation length; the store entry outlives the close by this much.
 const EXIT_MS = 250;
@@ -67,7 +77,9 @@ const getToastClasses = (type: Toast['type']) => {
   // Opaque `bg-surface` base across every type: type is conveyed via the
   // coloured border + ring + icon, not via background tint.
   const base =
-    'toast pointer-events-auto w-full max-w-sm rounded-lg bg-surface shadow-lg ring-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-accent';
+    // `shrink-0`: a toast keeps its whole height, never squeezed by its
+    // neighbours.
+    'toast pointer-events-auto w-full max-w-sm shrink-0 rounded-lg bg-surface shadow-lg ring-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
   switch (type) {
     case 'success':
@@ -254,13 +266,12 @@ const invokeAction = (toast: Toast, event: Event) => {
     </ToastRoot>
 
     <!-- Newest on top: the viewport lists toasts in mount order, so the
-         column runs in reverse. Named region; F8 focuses it. It never
-         takes more than 60% of the screen: older toasts at larger text
-         sizes are cut off below, and still time out. -->
+         column runs in reverse. Named region; F8 focuses it. At larger
+         text on a phone it holds the newest one or two (`toasts`). -->
     <ToastPortal to="#overlays">
       <ToastViewport
         :label="(hotkey: string) => t('toast-region-label', { hotkey })"
-        class="print:hidden pointer-events-none fixed top-0 right-0 flex flex-col-reverse items-end gap-3 px-4 sm:px-6 z-overlay w-full max-w-sm max-h-[60dvh] overflow-hidden pt-[max(1.5rem,calc(env(safe-area-inset-top)+0.75rem))] list-none m-0 outline-none"
+        class="print:hidden pointer-events-none fixed top-0 right-0 flex flex-col-reverse items-end gap-3 px-4 sm:px-6 z-overlay w-full max-w-sm pt-[max(1.5rem,calc(env(safe-area-inset-top)+0.75rem))] list-none m-0 outline-none"
       />
     </ToastPortal>
   </ToastProvider>
@@ -324,3 +335,4 @@ const invokeAction = (toast: Toast, event: Event) => {
   }
 }
 </style>
+
