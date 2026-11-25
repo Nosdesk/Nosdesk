@@ -515,6 +515,14 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
   font-size: 14px;
 }
 
+/* The segments are editable: under 16px, iOS zooms the page on focus. */
+@media (pointer: coarse) {
+  .date-picker__field--sm,
+  .date-picker__field--md {
+    font-size: var(--text-base);
+  }
+}
+
 .date-picker__field--range {
   min-width: 15rem;
 }

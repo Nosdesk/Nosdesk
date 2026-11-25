@@ -64,13 +64,13 @@ const isOpen = ref(false);
 const sizeClasses = computed(() => {
   switch (props.size) {
     case 'xs':
-      return { input: 'px-1.5 py-0.5 text-sm', option: 'px-3 py-1.5' };
+      return { input: 'px-1.5 py-0.5 text-sm pointer-coarse:text-base', option: 'px-3 py-1.5' };
     case 'sm':
-      return { input: 'px-3 py-1.5 text-sm', option: 'px-3 py-2' };
+      return { input: 'px-3 py-1.5 text-sm pointer-coarse:text-base', option: 'px-3 py-2' };
     case 'lg':
       return { input: 'px-4 py-3.5 text-base', option: 'px-4 py-3' };
     default:
-      return { input: 'px-4 py-3 text-sm', option: 'px-4 py-2.5' };
+      return { input: 'px-4 py-3 text-sm pointer-coarse:text-base', option: 'px-4 py-2.5' };
   }
 });
 

@@ -1177,7 +1177,7 @@ function affectedDevicesTooltip(card: CardData): string {
             v-model="quickAddTitle"
             type="text"
             enterkeyhint="done"
-            class="w-full min-h-[44px] rounded-lg border border-default bg-surface px-3 text-[15px] text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
+            class="w-full min-h-[44px] rounded-lg border border-default bg-surface px-3 text-base text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
             :placeholder="projectId != null ? t('kanban-composer-placeholder') : t('kanban-quick-add-placeholder')"
           />
         </div>

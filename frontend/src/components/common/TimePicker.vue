@@ -206,6 +206,14 @@ function segmentAttrs(part: SegmentPart): Record<string, string> {
   font-size: 14px;
 }
 
+/* The segments are editable: under 16px, iOS zooms the page on focus. */
+@media (pointer: coarse) {
+  .time-picker__field--sm,
+  .time-picker__field--md {
+    font-size: var(--text-base);
+  }
+}
+
 .time-picker__field:focus-within {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 2px var(--color-accent-muted);
