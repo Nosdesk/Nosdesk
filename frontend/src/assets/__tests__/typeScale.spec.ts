@@ -22,7 +22,7 @@ function block(header: RegExp): Map<string, string> {
 }
 
 const theme = block(/^@theme \{/m)
-const sizes = [...theme].filter(([name]) => /^--text-[\w-]+$/.test(name) && !name.includes('--', 2))
+const sizes = [...theme].filter(([name]) => /^--text-[\w-]+$/.test(name) && !name.includes('--', 2) && !name.startsWith('--text-color-'))
 
 /** The rem a body-relative size works out to at scale 1. */
 function remAtOne(value: string): number {

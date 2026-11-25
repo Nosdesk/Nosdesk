@@ -108,7 +108,7 @@ async function confirmDelete(): Promise<void> {
           maxlength="120"
           required
           autofocus
-          class="w-full px-3 py-2 bg-surface border border-default rounded-lg text-sm text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          class="w-full px-3 py-2 bg-surface border border-field rounded-lg text-sm text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
         />
       </div>
 

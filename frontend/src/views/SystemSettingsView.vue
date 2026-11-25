@@ -67,7 +67,7 @@
           <!-- Show errors if any -->
           <div v-if="cleanupResults.success && (cleanupResults.stats?.errors?.length ?? 0) > 0" class="mt-3">
             <details class="text-sm">
-              <summary class="cursor-pointer text-status-warning hover:text-status-warning/80">
+              <summary class="cursor-pointer text-status-warning hover:underline">
                 {{ $t('admin-system-cleanup-view-errors', { count: cleanupResults.stats?.errors?.length ?? 0 }) }}
               </summary>
               <div class="mt-2 pl-4 border-l-2 border-status-warning/50 text-secondary">

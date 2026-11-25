@@ -511,7 +511,7 @@ watch(
                                         <Icon name="warning" size="md" class="text-status-warning flex-shrink-0 mt-0.5" />
                                         <div class="flex flex-col gap-1">
                                             <span class="text-sm font-medium text-status-warning">{{ $t('user-profile-smtp-warning-title') }}</span>
-                                            <span class="text-xs text-status-warning/80">{{ $t('user-profile-smtp-warning-body') }}</span>
+                                            <span class="text-xs text-status-warning">{{ $t('user-profile-smtp-warning-body') }}</span>
                                         </div>
                                     </div>
 

@@ -861,7 +861,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
             <button
               type="button"
               @click="confirmRegenerateSecret"
-              class="text-xs text-status-warning hover:text-status-warning/80"
+              class="text-xs text-status-warning hover:underline"
             >
               {{ $t('admin-webhooks-form-secret-regenerate') }}
             </button>

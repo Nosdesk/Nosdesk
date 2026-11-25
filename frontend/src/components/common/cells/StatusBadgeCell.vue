@@ -79,7 +79,7 @@ const getStatusClasses = (value: string, type: string) => {
         return `${baseClasses} bg-accent-muted text-accent border-accent/30`
       case 'audit_reviewer':
       case 'owner':
-        return `${baseClasses} bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30`
+        return `${baseClasses} bg-status-merged-muted text-status-merged border-status-merged/30`
       default:
         return `${baseClasses} bg-surface-alt text-secondary border-default`
     }

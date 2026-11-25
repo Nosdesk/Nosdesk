@@ -800,7 +800,7 @@ const getRoleDisplayName = (role: string) => {
 }
 
 .name-input-field :deep(.relative > input:focus) {
-    border-color: var(--color-accent);
+    border-color: var(--color-accent-ui);
 }
 
 /* Developer easter-egg badge. Mirrors the muted-bg + token-text shape of

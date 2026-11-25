@@ -728,7 +728,7 @@ const cancelDelete = () => {
                     <Icon name="clock" size="md" class="text-status-warning flex-shrink-0" />
                     <div class="flex flex-col gap-1">
                       <p class="text-sm font-medium text-status-warning">{{ t('user-settings-invitation-pending') }}</p>
-                      <p class="text-xs text-status-warning/80">
+                      <p class="text-xs text-status-warning">
                         {{ targetUser.name }} has not yet set up their account. You can resend the invitation email with a new setup link.
                       </p>
                     </div>
@@ -889,8 +889,8 @@ const cancelDelete = () => {
               <p class="font-medium text-status-error">
                 {{ t('user-settings-delete-modal-warning', { name: currentUser?.name ?? '' }) }}
               </p>
-              <p class="text-sm text-status-error/80">{{ t('user-settings-delete-modal-removes') }}</p>
-              <ul class="list-disc list-inside text-sm text-status-error/80 flex flex-col gap-1">
+              <p class="text-sm text-status-error">{{ t('user-settings-delete-modal-removes') }}</p>
+              <ul class="list-disc list-inside text-sm text-status-error flex flex-col gap-1">
                 <li>{{ t('user-settings-delete-item-profile') }}</li>
                 <li>{{ t('user-settings-delete-item-tickets') }}</li>
                 <li>{{ t('user-settings-delete-item-comments') }}</li>

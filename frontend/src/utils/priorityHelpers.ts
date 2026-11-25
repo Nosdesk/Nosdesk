@@ -45,8 +45,8 @@ export function buildPriorityDropdownOptions(
  * high tickets visually pop in the table. Returns null for
  * everything else (no tint applied). */
 const INLINE_PRIORITY_CLASS: Record<Priority, string | null> = {
-  urgent: 'text-rose-500',
-  high: 'text-orange-500',
+  urgent: 'text-status-error',
+  high: 'text-status-warning',
   medium: null,
   low: null,
   none: null,
@@ -60,8 +60,8 @@ export function inlinePriorityClass(p: Priority): string | null {
  * pane. Heavier styling than the inline tint — meant to read as
  * "this whole pill is the priority indicator." */
 const PRIORITY_TONE_CLASS: Record<Priority, string> = {
-  urgent: 'text-rose-600 dark:text-rose-400',
-  high: 'text-orange-600 dark:text-orange-400',
+  urgent: 'text-status-error',
+  high: 'text-status-warning',
   medium: 'text-secondary',
   low: 'text-secondary',
   none: 'text-secondary',

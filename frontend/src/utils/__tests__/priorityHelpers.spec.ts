@@ -22,8 +22,9 @@ describe('priorities', () => {
   })
 
   it('give urgent its own colours', () => {
-    expect(inlinePriorityClass('urgent')).toBe('text-rose-500')
-    expect(priorityToneClass('urgent')).toContain('rose')
+    expect(inlinePriorityClass('urgent')).toBe('text-status-error')
+    expect(priorityToneClass('urgent')).toBe('text-status-error')
+    expect(priorityToneClass('high')).toBe('text-status-warning')
     expect(inlinePriorityClass('none')).toBeNull()
   })
 })

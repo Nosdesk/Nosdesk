@@ -374,7 +374,7 @@ const deleteModalTitle = computed(() =>
           <div class="flex items-center gap-2 flex-wrap">
             <span v-if="collection.is_system" class="text-xs px-2 py-0.5 rounded-full bg-surface-alt text-tertiary">{{ $t('collection-badge-system') }}</span>
             <span v-if="!collection.is_public" class="text-xs px-2 py-0.5 rounded-full bg-status-warning/10 text-status-warning">{{ $t('collection-badge-restricted') }}</span>
-            <span v-else class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">{{ $t('collection-badge-public') }}</span>
+            <span v-else class="text-xs px-2 py-0.5 rounded-full bg-status-success-muted text-status-success">{{ $t('collection-badge-public') }}</span>
             <span
               v-for="group in collection.visible_to_groups"
               :key="'g-' + group.id"
@@ -385,7 +385,7 @@ const deleteModalTitle = computed(() =>
             <span
               v-for="user in collection.visible_to_users"
               :key="'u-' + user.uuid"
-              class="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400"
+              class="text-xs px-2 py-0.5 rounded-full bg-status-info-muted text-status-info"
             >
               {{ user.name }}
             </span>
@@ -447,7 +447,7 @@ const deleteModalTitle = computed(() =>
               <span
                 v-for="user in (override.users || [])"
                 :key="'u-' + user.uuid"
-                class="text-3xs px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 flex-shrink-0"
+                class="text-3xs px-1.5 py-0.5 rounded-full bg-status-info-muted text-status-info flex-shrink-0"
               >
                 {{ user.name }}
               </span>

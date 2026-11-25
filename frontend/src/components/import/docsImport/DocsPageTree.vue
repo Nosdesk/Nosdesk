@@ -337,7 +337,7 @@ watch(items, (list) => {
             <span v-else-if="tickState(row.node!) === 'mixed'" class="w-2 h-0.5 rounded bg-current pointer-events-none" />
           </span>
 
-          <Icon :name="icon(row.node!)" size="sm" class="shrink-0" :class="dimmed(row.node!) ? 'text-tertiary opacity-60' : 'text-tertiary'" />
+          <Icon :name="icon(row.node!)" size="sm" class="shrink-0 text-tertiary" />
 
           <span class="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
             <label
@@ -345,7 +345,7 @@ watch(items, (list) => {
               :for="`docs-tick-${row.node!.page.index}`"
               class="text-sm min-w-0 break-words cursor-pointer"
               :class="[
-                dimmed(row.node!) ? 'text-tertiary opacity-60' : 'text-primary',
+                dimmed(row.node!) ? 'text-tertiary' : 'text-primary',
                 !leftOut(row.node!) && isOff(row.node!, off) ? 'line-through decoration-strong' : '',
               ]"
               data-test="docs-tree-title"
@@ -436,7 +436,7 @@ watch(items, (list) => {
   }
 }
 .docs-chk:has(input:focus-visible) {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-accent-ui);
   outline-offset: 2px;
 }
 </style>

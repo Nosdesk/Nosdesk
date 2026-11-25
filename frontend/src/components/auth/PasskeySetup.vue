@@ -214,7 +214,7 @@ onMounted(() => {
           <input
             v-model="passkeyName"
             type="text"
-            class="w-full px-3 py-2 bg-surface text-primary rounded-lg border border-default focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none transition-colors"
+            class="w-full px-3 py-2 bg-surface text-primary rounded-lg border border-field focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none transition-colors"
             :placeholder="$t('auth-passkey-setup-name-placeholder')"
             maxlength="100"
           />

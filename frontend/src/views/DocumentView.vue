@@ -960,7 +960,7 @@ usePageTitle({
         <Icon name="faceFrown" size="2xl" class="text-tertiary mb-2" />
         <h2 class="text-xl font-semibold text-primary">{{ $t('doc-detail-not-found-title') }}</h2>
         <p class="text-secondary max-w-md">{{ $t('doc-detail-not-found-body') }}</p>
-        <RouterLink to="/documentation" class="mt-4 text-accent hover:text-accent/80">
+        <RouterLink to="/documentation" class="mt-4 text-accent hover:underline">
           {{ $t('doc-detail-not-found-link') }}
         </RouterLink>
       </div>

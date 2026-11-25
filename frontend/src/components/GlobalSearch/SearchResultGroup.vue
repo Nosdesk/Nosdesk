@@ -47,11 +47,11 @@ const groupLabel = computed(() => {
       <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
         {{ groupLabel }}
       </span>
-      <span class="text-3xs text-tertiary/60 tabular-nums">
+      <span class="text-3xs text-tertiary tabular-nums">
         {{ results.length }}
       </span>
       <span
-        class="ml-auto text-3xs text-tertiary/60 opacity-0 group-hover/header:opacity-100 transition-opacity"
+        class="ml-auto text-3xs text-tertiary opacity-0 group-hover/header:opacity-100 transition-opacity"
       >
         {{ t('search-global-group-scope-hint') }}
       </span>

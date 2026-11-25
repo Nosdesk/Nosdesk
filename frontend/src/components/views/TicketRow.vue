@@ -288,17 +288,17 @@ function recurrenceLabel(rule: string | null | undefined): string {
           >↻</span>
           <span
             v-if="card.sla?.breached"
-            class="text-3xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
+            class="text-3xs font-semibold uppercase tracking-wide text-status-error shrink-0"
             :title="$t('views-ticket-row-sla-breached-tooltip')"
           >{{ $t('views-ticket-row-sla-badge') }}</span>
           <span
             v-if="card.spam_suspected"
-            class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
+            class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-status-warning-muted text-status-warning shrink-0"
             :title="$t('views-ticket-row-spam-tooltip')"
           >{{ $t('views-ticket-row-spam-badge') }}</span>
           <span
             v-if="card.approval_state === 'pending'"
-            class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
+            class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-status-warning-muted text-status-warning shrink-0"
             :title="$t('views-ticket-row-approval-tooltip')"
           >{{ $t('views-ticket-row-approval-badge') }}</span>
         </div>
@@ -411,7 +411,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
           v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
           class="text-3xs font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
           :class="card.kb_gap_signal === 'strong'
-            ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+            ? 'bg-status-warning-muted text-status-warning'
             : 'bg-surface-hover text-secondary'"
           :title="$t('views-ticket-row-kb-gap-tooltip', { signal: card.kb_gap_signal })"
         >{{ $t('views-ticket-row-kb-badge') }}</span>
@@ -433,7 +433,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       <template v-else-if="col.id === 'recurrence'">
         <span
           v-if="card.recurrence_rule"
-          class="text-3xs font-medium rounded px-1.5 py-0.5 bg-violet-500/15 text-violet-700 dark:text-violet-300"
+          class="text-3xs font-medium rounded px-1.5 py-0.5 bg-status-merged-muted text-status-merged"
           :title="card.recurrence_rule"
         >{{ recurrenceLabel(card.recurrence_rule) }}</span>
         <span v-else class="text-xs text-tertiary">-</span>

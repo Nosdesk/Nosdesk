@@ -34,7 +34,7 @@ export const gruvboxLightTheme: Theme = {
 
     // Accent (Gruvbox aqua)
     accent: '#427b58',
-    accentHover: '#689d6a',
+    accentHover: '#38714f', // a step darker, so the white label holds 4.5:1 while hovered
     accentMuted: 'rgba(66, 123, 88, 0.15)',
 
     // Status

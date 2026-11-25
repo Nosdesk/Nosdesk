@@ -34,7 +34,7 @@ export const solarizedLightTheme: Theme = {
 
     // Accent (Solarized blue)
     accent: '#268bd2',
-    accentHover: '#1a6da3',
+    accentHover: '#3496de', // a step lighter, so the black label holds 4.5:1 while hovered
     accentMuted: 'rgba(38, 139, 210, 0.15)',
 
     // Status colors

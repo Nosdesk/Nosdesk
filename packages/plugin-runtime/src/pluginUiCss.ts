@@ -61,7 +61,7 @@ body {
 *::-webkit-scrollbar-thumb:hover { background: var(--nd-text-tertiary, #9ca3af); }
 *::-webkit-scrollbar-track { background: transparent; }
 
-a { color: var(--nd-accent, #FF6B1A); }
+a { color: var(--nd-accent-text, #a03d01); }
 
 /* Buttons: the app's button recipe (frontend/src/recipes/button.ts), md
    size. The default \`.nd-btn\` is the app's secondary button: surface-alt fill
@@ -304,7 +304,7 @@ label:has(> :disabled) { cursor: not-allowed; }
 }
 .nd-help, .nd-error { margin: 0; font-size: 12px; line-height: 16px; }
 .nd-help { color: var(--nd-text-tertiary, #6b7280); }
-.nd-error { color: var(--nd-error, #EF4444); }
+.nd-error { color: var(--nd-error-text, #b7041c); }
 .nd-input[aria-invalid="true"], .nd-textarea[aria-invalid="true"], .nd-select[aria-invalid="true"] {
   border-color: var(--nd-error, #EF4444);
 }
@@ -348,31 +348,31 @@ label:has(> :disabled) { cursor: not-allowed; }
   background: color-mix(in srgb, var(--nd-accent, #FF6B1A) 15%, transparent);
   border-color: rgba(255, 107, 26, 0.3);
   border-color: color-mix(in srgb, var(--nd-accent, #FF6B1A) 30%, transparent);
-  color: var(--nd-accent, #FF6B1A);
+  color: var(--nd-accent-text, #a03d01);
 }
 .nd-badge--success {
   background: var(--nd-success-muted, rgba(0, 201, 81, 0.15));
   border-color: rgba(0, 201, 81, 0.3);
   border-color: color-mix(in srgb, var(--nd-success, #00C951) 30%, transparent);
-  color: var(--nd-success, #00C951);
+  color: var(--nd-success-text, #026e29);
 }
 .nd-badge--warning {
   background: var(--nd-warning-muted, rgba(245, 158, 11, 0.15));
   border-color: rgba(245, 158, 11, 0.3);
   border-color: color-mix(in srgb, var(--nd-warning, #F59E0B) 30%, transparent);
-  color: var(--nd-warning, #F59E0B);
+  color: var(--nd-warning-text, #875501);
 }
 .nd-badge--error {
   background: var(--nd-error-muted, rgba(239, 68, 68, 0.15));
   border-color: rgba(239, 68, 68, 0.3);
   border-color: color-mix(in srgb, var(--nd-error, #EF4444) 30%, transparent);
-  color: var(--nd-error, #EF4444);
+  color: var(--nd-error-text, #b7041c);
 }
 .nd-badge--info {
   background: var(--nd-info-muted, rgba(59, 130, 246, 0.15));
   border-color: rgba(59, 130, 246, 0.3);
   border-color: color-mix(in srgb, var(--nd-info, #3B82F6) 30%, transparent);
-  color: var(--nd-info, #3B82F6);
+  color: var(--nd-info-text, #0755c5);
 }
 
 /* Table: the app's DataTable at its default (compact) density, as on the

@@ -52,7 +52,7 @@ describe('deriveSlaState', () => {
     )
     expect(state?.breached).toBe(true)
     expect(state?.statusLabel).toBe('Breached')
-    expect(state?.toneClass).toContain('rose')
+    expect(state?.toneClass).toBe('text-status-error')
     expect(state?.compactLabel).toBe('3h')
   })
 })

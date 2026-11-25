@@ -101,7 +101,7 @@ const fullTime = computed(() =>
       </template>
       <span
         v-if="!compact && author?.name && fullTime"
-        class="hidden sm:inline text-2xs text-tertiary/60 shrink-0"
+        class="hidden sm:inline text-2xs text-tertiary shrink-0"
         aria-hidden="true"
       >·</span>
       <span

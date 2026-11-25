@@ -675,7 +675,7 @@ const handleOidcLogoutClick = async () => {
                 required
                 autocomplete="one-time-code"
                 placeholder="000000"
-                class="w-full px-4 py-3 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-xl tracking-[0.5em] font-mono"
+                class="w-full px-4 py-3 bg-surface border border-field rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-xl tracking-[0.5em] font-mono"
                 maxlength="8"
                 @input="handleMfaInput"
                 @paste="handleMfaPaste"
@@ -745,7 +745,7 @@ const handleOidcLogoutClick = async () => {
                 required
                 autocomplete="off"
                 :placeholder="$t('login-recovery-code-placeholder')"
-                class="w-full px-4 py-3 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-lg tracking-widest font-mono uppercase"
+                class="w-full px-4 py-3 bg-surface border border-field rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-lg tracking-widest font-mono uppercase"
                 maxlength="8"
               />
               <p class="text-xs text-tertiary text-center">

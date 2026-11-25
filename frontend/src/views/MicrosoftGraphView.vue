@@ -799,7 +799,7 @@ onMounted(async () => {
                   <li v-for="error in result.errors.slice(0, 3)" :key="error" class="pl-2 border-l-2 border-status-error/50">
                     {{ error }}
                   </li>
-                  <li v-if="result.errors.length > 3" class="text-status-error/70 italic pl-2">
+                  <li v-if="result.errors.length > 3" class="text-status-error italic pl-2">
                     {{ $t('admin-msgraph-results-more-errors', { count: result.errors.length - 3 }) }}
                   </li>
                 </ul>

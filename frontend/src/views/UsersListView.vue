@@ -694,7 +694,7 @@ function formatPurgeAt(deletedAt: string): string {
                 :class="{
                   'bg-status-error-muted text-status-error': effectiveRole(item) === 'admin',
                   'bg-accent-muted text-accent': effectiveRole(item) === 'technician',
-                  'bg-purple-500/10 text-purple-700 dark:text-purple-400': effectiveRole(item) === 'audit_reviewer',
+                  'bg-status-merged-muted text-status-merged': effectiveRole(item) === 'audit_reviewer',
                   'bg-surface-alt text-secondary': effectiveRole(item) === 'user',
                 }"
               >

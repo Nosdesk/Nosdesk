@@ -41,10 +41,10 @@ async function markNotSpam() {
 
 <template>
   <div
-    class="flex items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+    class="flex items-center gap-3 rounded-lg border border-status-warning/40 bg-status-warning-muted px-3 py-2 text-sm"
   >
-    <Icon name="warning" size="sm" class="text-amber-600 dark:text-amber-400 flex-shrink-0" />
-    <span class="flex-1 text-amber-800 dark:text-amber-200">{{ t('ticket-spam-banner-text') }}</span>
+    <Icon name="warning" size="sm" class="text-status-warning flex-shrink-0" />
+    <span class="flex-1 text-primary">{{ t('ticket-spam-banner-text') }}</span>
     <button
       type="button"
       class="px-2 py-1 rounded text-xs border border-default hover:bg-hover disabled:opacity-50"

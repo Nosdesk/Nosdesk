@@ -289,7 +289,7 @@ function handleProjectContextMenuSelect(actionId: string): void {
         {{ option.label }}
         <span
           class="text-xs tabular-nums"
-          :class="statusFilter === option.value ? 'text-accent/70' : 'text-tertiary'"
+          :class="statusFilter === option.value ? 'text-accent' : 'text-tertiary'"
         >{{ statusCounts[option.value] ?? 0 }}</span>
       </button>
 

@@ -740,7 +740,7 @@ onScopeDispose(() => restoreScroll?.());
                   />
                   <span class="tabular-nums">
                     {{ t('search-global-results-count', { count: totalResults }) }}
-                    <span class="text-tertiary/60">·</span>
+                    <span class="text-tertiary">·</span>
                     {{ t('search-global-results-took', { ms: searchTookMs }) }}
                   </span>
                 </div>

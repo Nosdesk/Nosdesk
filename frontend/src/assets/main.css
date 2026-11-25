@@ -48,7 +48,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   :where(button, [role='button']):focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-accent-ui);
     outline-offset: 2px;
   }
   :where(button):disabled {
@@ -318,6 +318,37 @@
   --color-chart-6: #D55E00;
   --color-chart-7: #CC79A7;
   --color-chart-8: #6B7280;
+
+  /* Text set in a status, priority or accent colour reads the text
+     version of that colour: the same hue, moved in lightness until it
+     holds 4.5:1 on every background and on its own tint. The theme
+     store derives them per theme (themes/utils/readable.ts); the
+     values in the `theme` layer below are the base light and dark
+     ones for the first paint. `bg-*`, `border-*` and the rest keep the
+     fill colour. */
+  --text-color-status-success: var(--color-status-success-text);
+  --text-color-status-error: var(--color-status-error-text);
+  --text-color-status-warning: var(--color-status-warning-text);
+  --text-color-status-info: var(--color-status-info-text);
+  --text-color-status-open: var(--color-status-open-text);
+  --text-color-status-in-progress: var(--color-status-in-progress-text);
+  --text-color-status-closed: var(--color-status-closed-text);
+  --text-color-priority-high: var(--color-priority-high-text);
+  --text-color-priority-medium: var(--color-priority-medium-text);
+  --text-color-priority-low: var(--color-priority-low-text);
+  --text-color-accent: var(--color-accent-text);
+  --text-color-accent-hover: var(--color-accent-hover-text);
+
+  /* Where the accent marks focus or state instead of filling (rings,
+     outlines, selected borders) it reads `--color-accent-ui`, 3:1 on
+     every background (WCAG 1.4.11). Text fields rest on
+     `border-field`, 3:1 on the backgrounds they sit on. Both are
+     derived per theme like the text versions above. */
+  --ring-color-accent: var(--color-accent-ui);
+  --outline-color-accent: var(--color-accent-ui);
+  --border-color-accent: var(--color-accent-ui);
+  --border-color-field: var(--color-field-border);
+  --text-color-status-merged: var(--color-status-merged-text);
 }
 
 /* ============================================
@@ -496,6 +527,24 @@
     --color-priority-low: #10B981;
     --color-priority-low-muted: rgba(16, 185, 129, 0.15);
 
+    /* Text versions of the status, priority and accent colours,
+       mirroring resolveTheme (themes/utils/cssInjector.ts). */
+    --color-status-success-text: #026e29;
+    --color-status-error-text: #b7041c;
+    --color-status-warning-text: #875501;
+    --color-status-info-text: #0755c5;
+    --color-status-open-text: #875501;
+    --color-status-in-progress-text: #0755c5;
+    --color-status-closed-text: #036b49;
+    --color-priority-high-text: #b7041c;
+    --color-priority-medium-text: #875501;
+    --color-priority-low-text: #036b49;
+    --color-accent-text: #a03d01;
+    --color-accent-hover-text: #a33a02;
+    --color-accent-ui: #dc5704;
+    --color-field-border: #898d92;
+    --color-status-merged-text: #4b46cf;
+
     /* Legacy support */
     --color-bg-app: var(--color-app);
     --color-bg-surface: var(--color-surface);
@@ -579,6 +628,23 @@
     --color-priority-low: #34D399;
     --color-priority-low-muted: rgba(52, 211, 153, 0.2);
 
+    /* Text versions, mirroring resolveTheme for the dark theme. */
+    --color-status-success-text: #00c951;
+    --color-status-error-text: #ff6e67;
+    --color-status-warning-text: #f59e0b;
+    --color-status-info-text: #66a0ff;
+    --color-status-open-text: #fbbf24;
+    --color-status-in-progress-text: #67abff;
+    --color-status-closed-text: #34d399;
+    --color-priority-high-text: #fe7d7c;
+    --color-priority-medium-text: #fbbf24;
+    --color-priority-low-text: #34d399;
+    --color-accent-text: #ff7d42;
+    --color-accent-hover-text: #fe7e36;
+    --color-accent-ui: #ff6b1a;
+    --color-field-border: #60646b;
+    --color-status-merged-text: #919dff;
+
     /* Shadows */
     --shadow-inset-dark: rgba(0, 0, 0, 0.3);
     --shadow-inset-light: rgba(255, 255, 255, 0.1);
@@ -608,7 +674,7 @@
 .comment-prose li > :last-child { margin-bottom: 0; }
 .comment-prose strong { font-weight: var(--font-weight-semibold); }
 .comment-prose em { font-style: italic; }
-.comment-prose a { color: var(--color-accent); text-decoration: underline; }
+.comment-prose a { color: var(--color-accent-text); text-decoration: underline; }
 .comment-prose :is(h1, h2, h3, h4, h5, h6) {
   margin: 0.75rem 0 0.375rem;
   font-weight: var(--font-weight-semibold);
@@ -701,8 +767,8 @@
 
   /* Accent color utilities */
   .bg-accent { background-color: var(--color-accent); }
-  .text-accent { color: var(--color-accent); }
-  .border-accent { border-color: var(--color-accent); }
+  .text-accent { color: var(--color-accent-text); }
+  .border-accent { border-color: var(--color-accent-ui); }
   .bg-accent-hover { background-color: var(--color-accent-hover); }
   .bg-accent-muted { background-color: var(--color-accent-muted); }
   /* Theme-aware on-accent text colour. Use this (not `text-black`
@@ -712,7 +778,7 @@
      light, and explicitly white for themes whose accent is dark
      (epaper, gruvbox-dark) so labels don't disappear. */
   .text-on-accent { color: var(--color-on-accent); }
-  .focus\:ring-accent:focus { --tw-ring-color: var(--color-accent); }
+  .focus\:ring-accent:focus { --tw-ring-color: var(--color-accent-ui); }
 
   /* Brand color utilities */
   .bg-brand-blue { background-color: var(--color-brand-blue); }
@@ -724,54 +790,54 @@
 
   /* Status color utilities */
   .bg-status-success { background-color: var(--color-status-success); }
-  .text-status-success { color: var(--color-status-success); }
+  .text-status-success { color: var(--color-status-success-text); }
   .border-status-success { border-color: var(--color-status-success); }
   .bg-status-success-muted { background-color: var(--color-status-success-muted); }
 
   .bg-status-error { background-color: var(--color-status-error); }
-  .text-status-error { color: var(--color-status-error); }
+  .text-status-error { color: var(--color-status-error-text); }
   .border-status-error { border-color: var(--color-status-error); }
   .bg-status-error-muted { background-color: var(--color-status-error-muted); }
 
   .bg-status-warning { background-color: var(--color-status-warning); }
-  .text-status-warning { color: var(--color-status-warning); }
+  .text-status-warning { color: var(--color-status-warning-text); }
   .border-status-warning { border-color: var(--color-status-warning); }
   .bg-status-warning-muted { background-color: var(--color-status-warning-muted); }
 
   .bg-status-info { background-color: var(--color-status-info); }
-  .text-status-info { color: var(--color-status-info); }
+  .text-status-info { color: var(--color-status-info-text); }
   .border-status-info { border-color: var(--color-status-info); }
   .bg-status-info-muted { background-color: var(--color-status-info-muted); }
 
   /* Ticket status utilities */
   .bg-status-open { background-color: var(--color-status-open); }
-  .text-status-open { color: var(--color-status-open); }
+  .text-status-open { color: var(--color-status-open-text); }
   .border-status-open { border-color: var(--color-status-open); }
   .bg-status-open-muted { background-color: var(--color-status-open-muted); }
 
   .bg-status-in-progress { background-color: var(--color-status-in-progress); }
-  .text-status-in-progress { color: var(--color-status-in-progress); }
+  .text-status-in-progress { color: var(--color-status-in-progress-text); }
   .border-status-in-progress { border-color: var(--color-status-in-progress); }
   .bg-status-in-progress-muted { background-color: var(--color-status-in-progress-muted); }
 
   .bg-status-closed { background-color: var(--color-status-closed); }
-  .text-status-closed { color: var(--color-status-closed); }
+  .text-status-closed { color: var(--color-status-closed-text); }
   .border-status-closed { border-color: var(--color-status-closed); }
   .bg-status-closed-muted { background-color: var(--color-status-closed-muted); }
 
   /* Priority utilities */
   .bg-priority-high { background-color: var(--color-priority-high); }
-  .text-priority-high { color: var(--color-priority-high); }
+  .text-priority-high { color: var(--color-priority-high-text); }
   .border-priority-high { border-color: var(--color-priority-high); }
   .bg-priority-high-muted { background-color: var(--color-priority-high-muted); }
 
   .bg-priority-medium { background-color: var(--color-priority-medium); }
-  .text-priority-medium { color: var(--color-priority-medium); }
+  .text-priority-medium { color: var(--color-priority-medium-text); }
   .border-priority-medium { border-color: var(--color-priority-medium); }
   .bg-priority-medium-muted { background-color: var(--color-priority-medium-muted); }
 
   .bg-priority-low { background-color: var(--color-priority-low); }
-  .text-priority-low { color: var(--color-priority-low); }
+  .text-priority-low { color: var(--color-priority-low-text); }
   .border-priority-low { border-color: var(--color-priority-low); }
   .bg-priority-low-muted { background-color: var(--color-priority-low-muted); }
 
@@ -1985,7 +2051,7 @@ html[data-theme="red-horizon"] body,
   margin: 0 0.0625em;
   border-radius: 9999px;
   background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   font-weight: var(--font-weight-medium);
   font-size: inherit;
   line-height: 1;
@@ -2050,7 +2116,7 @@ html[data-theme="red-horizon"] body,
 }
 
 .ticket-link-card:hover {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   background: var(--color-surface-hover);
 }
 
@@ -2226,7 +2292,7 @@ html[data-theme="red-horizon"] body,
 }
 
 .ProseMirror .pm-table.is-all-selected table {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-accent-ui);
   outline-offset: -1px;
 }
 

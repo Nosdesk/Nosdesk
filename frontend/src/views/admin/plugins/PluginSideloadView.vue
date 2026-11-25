@@ -180,7 +180,7 @@ const installButtonLabel = computed(() =>
       <Icon name="warning" size="md" class="mt-0.5 flex-shrink-0" />
       <div class="flex flex-col gap-1">
         <p class="font-medium">{{ t('plugin-sideload-warning-title') }}</p>
-        <p class="text-status-warning/90">
+        <p class="text-status-warning">
           {{ t('plugin-sideload-warning-prefix') }}
           <RouterLink to="/admin/plugins/registry" class="underline hover:no-underline">
             {{ t('plugin-sideload-warning-link') }}

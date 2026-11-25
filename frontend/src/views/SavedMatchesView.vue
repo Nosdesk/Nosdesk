@@ -508,7 +508,7 @@ const linkClass = 'text-accent hover:underline focus:outline-none focus-visible:
   color: var(--color-secondary);
 }
 .mx-tbl td.dst.off {
-  color: var(--color-status-warning);
+  color: var(--color-status-warning-text);
 }
 .mx-tbl td.dst.none {
   font-weight: var(--font-weight-normal);

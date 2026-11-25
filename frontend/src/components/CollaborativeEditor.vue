@@ -2588,7 +2588,7 @@ defineExpose({
 }
 
 .toolbar-button.active {
-    color: var(--color-accent);
+    color: var(--color-accent-text);
 }
 
 .toolbar-divider {
@@ -2653,7 +2653,7 @@ defineExpose({
     background-color: var(--color-surface);
     border: 0;
     border-left: 1px solid var(--color-default);
-    color: var(--color-accent);
+    color: var(--color-accent-text);
     font: inherit;
     font-size: var(--text-sm);
     font-weight: var(--font-weight-medium);
@@ -2709,7 +2709,7 @@ defineExpose({
 }
 
 .connection-status-disconnected {
-    color: var(--color-status-error);
+    color: var(--color-status-error-text);
     background-color: var(--color-status-error-bg, rgba(239, 68, 68, 0.15));
     border: 1px solid var(--color-status-error-border, rgba(239, 68, 68, 0.3));
 }
@@ -2817,7 +2817,7 @@ defineExpose({
     margin: 0 0.0625em;
     border-radius: 9999px;
     background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
-    color: var(--color-accent);
+    color: var(--color-accent-text);
     font-weight: var(--font-weight-medium);
     font-size: inherit;
     line-height: 1;
@@ -2932,7 +2932,7 @@ defineExpose({
 
 /* Style for the editor container when active and there are users connected */
 .collaboration-active {
-    border: 1px solid var(--color-accent);
+    border: 1px solid var(--color-accent-ui);
     border-radius: 0.5rem;
 }
 
@@ -3185,7 +3185,7 @@ defineExpose({
 }
 
 .ProseMirror a {
-    color: var(--color-accent);
+    color: var(--color-accent-text);
     text-decoration: underline;
 }
 
@@ -3201,7 +3201,7 @@ defineExpose({
     padding: 10px 12px;
     margin: 8px 0;
     background: var(--color-surface-alt);
-    border: 2px dashed var(--color-accent);
+    border: 2px dashed var(--color-accent-ui);
     border-radius: 6px;
     font-size: var(--text-xs-plus);
     line-height: 1.4;
@@ -3232,7 +3232,7 @@ defineExpose({
 
 .ProseMirror .ticket-drop-preview-id {
     font-weight: var(--font-weight-semibold);
-    color: var(--color-accent);
+    color: var(--color-accent-text);
     font-family: var(--font-mono, monospace);
     font-size: var(--text-xs);
     flex-shrink: 0;
@@ -3361,7 +3361,7 @@ defineExpose({
 }
 
 .ProseMirror .ticket-link-card:hover {
-    border-color: var(--color-accent);
+    border-color: var(--color-accent-ui);
     background: var(--color-surface-hover);
 }
 
@@ -3479,7 +3479,7 @@ defineExpose({
 }
 
 .embedded-doc-header:hover .embedded-doc-title {
-    color: var(--color-accent);
+    color: var(--color-accent-text);
 }
 
 .embedded-doc-header:hover .embedded-doc-open {
@@ -3505,7 +3505,7 @@ defineExpose({
 }
 
 .embedded-doc-open:hover {
-    color: var(--color-accent);
+    color: var(--color-accent-text);
 }
 
 .embedded-doc-loader {
@@ -3902,7 +3902,7 @@ defineExpose({
 }
 
 .pm-table.is-all-selected .pm-table__corner {
-    color: var(--color-accent);
+    color: var(--color-accent-text);
     opacity: 1;
 }
 
@@ -3934,7 +3934,7 @@ defineExpose({
 
 .pm-table__ui .pm-table__insert:hover {
     background-color: var(--color-accent);
-    border-color: var(--color-accent);
+    border-color: var(--color-accent-ui);
     color: var(--color-on-accent);
 }
 
@@ -3997,12 +3997,12 @@ defineExpose({
 
 .pm-table__ui .pm-table__addbar:hover {
     opacity: 1;
-    color: var(--color-accent);
+    color: var(--color-accent-text);
 }
 
 .pm-table__addbar:hover::before {
     opacity: 1;
-    border-color: var(--color-accent);
+    border-color: var(--color-accent-ui);
     background-color: var(--color-accent-muted);
 }
 
@@ -4127,7 +4127,7 @@ defineExpose({
 }
 
 .toolbar .toolbar-button--table[aria-expanded="true"] {
-    color: var(--color-accent);
+    color: var(--color-accent-text);
     background-color: var(--color-accent-muted);
 }
 
@@ -4223,7 +4223,7 @@ defineExpose({
 }
 
 .pm-image.is-selected img {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-accent-ui);
     outline-offset: 1px;
     border-radius: 2px;
 }
@@ -4234,7 +4234,7 @@ defineExpose({
     width: 10px;
     height: 10px;
     background: var(--color-surface);
-    border: 1.5px solid var(--color-accent);
+    border: 1.5px solid var(--color-accent-ui);
     border-radius: 50%;
     touch-action: none;
     z-index: 2;
@@ -4308,7 +4308,7 @@ defineExpose({
 }
 .pm-image__tool.is-active {
     background: var(--color-accent-muted);
-    color: var(--color-accent);
+    color: var(--color-accent-text);
 }
 
 .pm-image__toolsep {

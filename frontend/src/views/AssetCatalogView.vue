@@ -291,7 +291,7 @@ async function confirmDelete() {
           @click="manufacturerFilter = 'all'"
         >
           {{ $t('asset-catalog-filter-all') }}
-          <span class="text-xs tabular-nums" :class="manufacturerFilter === 'all' ? 'text-accent/70' : 'text-tertiary'">{{ models.length }}</span>
+          <span class="text-xs tabular-nums" :class="manufacturerFilter === 'all' ? 'text-accent' : 'text-tertiary'">{{ models.length }}</span>
         </button>
         <button
           v-for="m in manufacturers"
@@ -302,7 +302,7 @@ async function confirmDelete() {
           @click="manufacturerFilter = m.id"
         >
           {{ m.name }}
-          <span class="text-xs tabular-nums" :class="manufacturerFilter === m.id ? 'text-accent/70' : 'text-tertiary'">{{ modelCount(m.id) }}</span>
+          <span class="text-xs tabular-nums" :class="manufacturerFilter === m.id ? 'text-accent' : 'text-tertiary'">{{ modelCount(m.id) }}</span>
         </button>
       </div>
       <Button variant="secondary" size="sm" icon="settings" @click="manageOpen = true">

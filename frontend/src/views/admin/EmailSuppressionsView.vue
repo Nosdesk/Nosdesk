@@ -130,8 +130,8 @@ async function confirmRemove() {
 }
 
 const reasonTone: Record<string, string> = {
-    hard_bounce: 'bg-red-500/10 text-red-700 dark:text-red-400',
-    manual: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
+    hard_bounce: 'bg-status-error-muted text-status-error',
+    manual: 'bg-status-info-muted text-status-info',
 };
 
 function toneFor(reason: string): string {
@@ -173,13 +173,13 @@ function formatDateTime(iso: string): string {
                     type="email"
                     :placeholder="$t('admin-suppressions-add-email-placeholder')"
                     required
-                    class="h-9 px-2 rounded border border-default bg-input text-primary text-sm flex-1"
+                    class="h-9 px-2 rounded border border-field bg-input text-primary text-sm flex-1"
                 />
                 <input
                     v-model="newNote"
                     type="text"
                     :placeholder="$t('admin-suppressions-add-note-placeholder')"
-                    class="h-9 px-2 rounded border border-default bg-input text-primary text-sm flex-1"
+                    class="h-9 px-2 rounded border border-field bg-input text-primary text-sm flex-1"
                 />
                 <Button
                   type="submit"

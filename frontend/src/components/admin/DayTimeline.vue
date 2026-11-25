@@ -461,7 +461,7 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
 }
 
 .day-timeline__bar:focus-visible {
-  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent-ui);
 }
 
 .day-timeline__bar--invalid {
@@ -538,7 +538,7 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
 }
 
 .day-timeline__remove:hover {
-  color: var(--color-status-error);
+  color: var(--color-status-error-text);
   border-color: var(--color-status-error);
 }
 </style>

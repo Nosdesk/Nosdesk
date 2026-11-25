@@ -411,7 +411,7 @@ function confirm() {
             autocapitalize="off"
             spellcheck="false"
             :placeholder="workspace"
-            class="w-full px-3 py-2 text-sm rounded-lg border border-strong bg-surface text-primary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+            class="w-full px-3 py-2 text-sm rounded-lg border border-field bg-surface text-primary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
             data-test="workspace-confirm-name"
             @keydown.enter="confirm"
           />

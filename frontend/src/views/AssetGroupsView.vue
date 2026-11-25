@@ -208,7 +208,7 @@ async function restore(group: AssetGroupSummary): Promise<void> {
             @click="statusFilter = tab.value"
           >
             {{ tab.label }}
-            <span class="text-xs tabular-nums" :class="statusFilter === tab.value ? 'text-accent/70' : 'text-tertiary'">{{ tab.count }}</span>
+            <span class="text-xs tabular-nums" :class="statusFilter === tab.value ? 'text-accent' : 'text-tertiary'">{{ tab.count }}</span>
           </button>
         </div>
         <Button size="sm" icon="add" @click="openCreate">

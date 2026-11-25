@@ -209,7 +209,7 @@ const onDragEnd = () => {
               v-if="collection.restricted"
               class="shrink-0 inline-flex items-center gap-1 self-center text-2xs text-tertiary border border-subtle rounded-md px-1.5 py-px bg-surface-alt"
             >
-              <Icon name="lock" size="xs" class="text-status-warning/80" aria-hidden="true" />
+              <Icon name="lock" size="xs" class="text-status-warning" aria-hidden="true" />
               {{ audienceLabel(collection) }}
             </span>
             <span

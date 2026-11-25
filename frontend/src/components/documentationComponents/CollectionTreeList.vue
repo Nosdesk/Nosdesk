@@ -162,7 +162,7 @@ const hasOverride = (node: TreeNode) => props.overridePageIds?.has(node.id) ?? f
             <!-- Draft badge -->
             <span
               v-if="item.value.status === 'draft'"
-              class="flex-shrink-0 text-4xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium ml-1.5"
+              class="flex-shrink-0 text-4xs px-1.5 py-0.5 rounded-full bg-status-warning-muted text-status-warning font-medium ml-1.5"
             >
               {{ $t('docs-collection-tree-item-draft') }}
             </span>

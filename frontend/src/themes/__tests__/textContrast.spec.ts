@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { themeRegistry, type Theme } from '@/themes'
 import { lightTheme } from '@/themes/base/light'
 import { darkTheme } from '@/themes/base/dark'
-import { overdueColor } from '@/themes/utils/cssInjector'
+import { overdueColor, resolveTheme, TEXT_COLOURS } from '@/themes/utils/cssInjector'
 
 type Rgb = [number, number, number]
 
@@ -56,7 +56,8 @@ describe('text colours', () => {
   )
 
   it.each(cases)('$id: $token reaches 4.5:1 on $on', ({ theme, token, background }) => {
-    expect(contrast(parse(theme.colors[token]), background)).toBeGreaterThanOrEqual(4.5)
+    // A translucent text colour is laid over the background it is read on.
+    expect(contrast(parse(theme.colors[token], background), background)).toBeGreaterThanOrEqual(4.5)
   })
 
   it.each(themes)('%s: primary, secondary and tertiary keep their order on the surface', (_id, theme) => {
@@ -88,14 +89,106 @@ describe('text colours', () => {
 describe('the overdue text colour', () => {
   it.each(themes)('reaches 4.5:1 on the surface and the hover fill in %s', (_id, theme) => {
     const { surface, surfaceHover } = backgrounds(theme)
-    const overdue = parse(overdueColor(theme))
-    expect(contrast(overdue, surface)).toBeGreaterThanOrEqual(4.5)
-    expect(contrast(overdue, surfaceHover)).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(parse(overdueColor(theme), surface), surface)).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(parse(overdueColor(theme), surfaceHover), surfaceHover)).toBeGreaterThanOrEqual(4.5)
   })
 
   it('falls back to the base light or dark value, which the stylesheet defaults to as well', () => {
     const values = [...css.matchAll(/--color-overdue: (#[0-9a-f]{6});/gi)].map((m) => m[1].toLowerCase())
     expect(values).toEqual([lightTheme.colors.overdue, lightTheme.colors.overdue, darkTheme.colors.overdue])
     expect(overdueColor({ ...darkTheme, colors: { ...darkTheme.colors, overdue: undefined } })).toBe(darkTheme.colors.overdue)
+  })
+})
+
+// Status, priority and accent colours are fills first. As text they read
+// the derived `--color-<name>-text` (resolveTheme), which `text-status-*`,
+// `text-priority-*` and `text-accent` resolve to.
+describe('status, priority and accent text', () => {
+  /** Every background, then the colour's own tint over each of them. */
+  function fillsFor(colors: Theme['colors'], tint: string): Array<[string, Rgb]> {
+    const plain = Object.entries(backgrounds({ colors } as Theme))
+    return [...plain, ...plain.map(([on, under]) => [`its tint over ${on}`, parse(tint, under)] as [string, Rgb])]
+  }
+
+  const cases = themes.flatMap(([id, theme]) => {
+    const { colors, text } = resolveTheme(theme)
+    return TEXT_COLOURS.flatMap(([name, , muted]) =>
+      fillsFor(colors, colors[muted] as string).map(([on, fill]) => ({ id, name, on, value: text[name], fill })),
+    )
+  })
+
+  it.each(cases)('$id: text-$name reaches 4.5:1 on $on', ({ value, fill }) => {
+    expect(contrast(parse(value), fill)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // A workspace's own accent replaces the theme's and gets a text
+  // version of its own. (Pure white is left out: on a dark theme its
+  // own 20% tint leaves no lighter colour to move to.)
+  const accents = ['#FFD400', '#00C951', '#2C80FF', '#FF66B3', '#7C3AED', '#111111']
+  it.each(themes.flatMap(([id, theme]) => accents.map((accent) => ({ id, theme, accent }))))(
+    '$id with the workspace accent $accent: accent text reaches 4.5:1 everywhere it sits',
+    ({ theme, accent }) => {
+      const { colors, text } = resolveTheme(theme, accent)
+      for (const [, fill] of fillsFor(colors, colors.accentMuted)) {
+        expect(contrast(parse(text.accent), fill)).toBeGreaterThanOrEqual(4.5)
+      }
+    },
+  )
+
+  it.each(themes)('%s: the label on the accent reaches 4.5:1 on the accent and on its hover fill', (_id, theme) => {
+    const { colors, onAccent } = resolveTheme(theme)
+    expect(contrast(parse(onAccent), parse(colors.accent))).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(parse(onAccent), parse(colors.accentHover))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it.each(TEXT_COLOURS.map(([name]) => name))('--color-%s-text in the stylesheet defaults is the base light and dark value', (name) => {
+    const values = [...css.matchAll(new RegExp(`--color-${name}-text: (#[0-9a-f]{6});`, 'gi'))].map((m) => m[1].toLowerCase())
+    expect(values).toEqual([resolveTheme(lightTheme).text[name], resolveTheme(darkTheme).text[name]])
+  })
+
+  // Merged has no theme token, so its text version is the stylesheet's.
+  it('merged text reaches 4.5:1 in the base light and dark themes', () => {
+    const values = [...css.matchAll(/--color-status-merged-text: (#[0-9a-f]{6});/gi)].map((m) => m[1])
+    const tints = [...css.matchAll(/--color-status-merged-muted: (rgba\([^)]+\));/gi)].map((m) => m[1])
+    expect(values).toHaveLength(2)
+    for (const [i, theme] of [lightTheme, darkTheme].entries()) {
+      for (const [, fill] of fillsFor(theme.colors, tints[i + 1] ?? tints[i])) {
+        expect(contrast(parse(values[i]), fill)).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
+})
+
+// Non-text contrast (WCAG 1.4.11): what marks focus or state, and the
+// edge of a text field, at 3:1 against what is around it.
+describe('focus, state and field edges', () => {
+  it.each(themes)('%s: the accent as a ring, outline or border reaches 3:1 on every background', (_id, theme) => {
+    const { colors, accentUi } = resolveTheme(theme)
+    for (const fill of Object.values(backgrounds({ colors } as Theme))) {
+      expect(contrast(parse(accentUi), fill)).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it.each(themes)('%s: a text field\'s resting border reaches 3:1 on the app, the surface and the alternate surface', (_id, theme) => {
+    const { colors, fieldBorder } = resolveTheme(theme)
+    const { app, surface, surfaceAlt } = backgrounds({ colors } as Theme)
+    for (const fill of [app, surface, surfaceAlt]) {
+      expect(contrast(parse(fieldBorder), fill)).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it.each(['#FFD400', '#00C951', '#2C80FF', '#FF66B3'])('a workspace accent %s gets a ring colour at 3:1 in every theme', (accent) => {
+    for (const [, theme] of themes) {
+      const { colors, accentUi } = resolveTheme(theme, accent)
+      for (const fill of Object.values(backgrounds({ colors } as Theme))) {
+        expect(contrast(parse(accentUi), fill)).toBeGreaterThanOrEqual(3)
+      }
+    }
+  })
+
+  it.each(['accent-ui', 'field-border'] as const)('--color-%s in the stylesheet defaults is the base light and dark value', (name) => {
+    const key = name === 'accent-ui' ? 'accentUi' : 'fieldBorder'
+    const values = [...css.matchAll(new RegExp(`--color-${name}: (#[0-9a-f]{6});`, 'gi'))].map((m) => m[1].toLowerCase())
+    expect(values).toEqual([resolveTheme(lightTheme)[key], resolveTheme(darkTheme)[key]])
   })
 })

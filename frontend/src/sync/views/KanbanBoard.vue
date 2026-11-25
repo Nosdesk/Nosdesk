@@ -831,8 +831,8 @@ function hasPills(card: CardData): boolean {
 function slaIconTone(card: CardData): string {
   const sla = card.sla
   if (!sla) return ''
-  if (sla.breached) return 'text-rose-600 dark:text-rose-400'
-  if (sla.pill_color === 'amber') return 'text-amber-600 dark:text-amber-400'
+  if (sla.breached) return 'text-status-error'
+  if (sla.pill_color === 'amber') return 'text-status-warning'
   return 'text-tertiary'
 }
 
@@ -855,7 +855,7 @@ function kbGapClass(signal: 'weak' | 'strong'): string {
   // weak is a quieter slate that still reads as a flag without
   // colliding with the urgent priority indicator.
   return signal === 'strong'
-    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+    ? 'bg-status-warning-muted text-status-warning'
     : 'bg-surface-hover text-secondary'
 }
 
@@ -986,7 +986,7 @@ function affectedDevicesTooltip(card: CardData): string {
                     <span class="flex-1">{{ card.title }}</span>
                     <span
                       v-if="card.approval_state === 'pending'"
-                      class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0 self-start"
+                      class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-status-warning-muted text-status-warning shrink-0 self-start"
                       :title="t('views-ticket-row-approval-tooltip')"
                     >{{ t('views-ticket-row-approval-badge') }}</span>
                   </h4>
@@ -1177,7 +1177,7 @@ function affectedDevicesTooltip(card: CardData): string {
             v-model="quickAddTitle"
             type="text"
             enterkeyhint="done"
-            class="w-full min-h-[44px] rounded-lg border border-default bg-surface px-3 text-base text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
+            class="w-full min-h-[44px] rounded-lg border border-field bg-surface px-3 text-base text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
             :placeholder="projectId != null ? t('kanban-composer-placeholder') : t('kanban-quick-add-placeholder')"
           />
         </div>

@@ -218,7 +218,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
 }
 
 .doc-card:hover .doc-card-title h3 {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 .doc-card-description {
@@ -316,7 +316,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
 
 /* Focus state */
 .doc-card:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-accent-ui);
   outline-offset: 2px;
 }
 
@@ -377,7 +377,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
   }
 
   .doc-card:hover {
-    border-color: var(--color-accent);
+    border-color: var(--color-accent-ui);
   }
 }
 

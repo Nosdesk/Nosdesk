@@ -71,7 +71,7 @@ const truncatedDescription = computed(() => {
 }
 
 .doc-child-card:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-accent-ui);
   outline-offset: 1px;
 }
 
@@ -100,7 +100,7 @@ const truncatedDescription = computed(() => {
 }
 
 .doc-child-card:hover .child-title {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 .child-description {

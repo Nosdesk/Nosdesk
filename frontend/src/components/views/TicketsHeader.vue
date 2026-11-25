@@ -237,8 +237,8 @@ function textValueForKey(key: string): string {
 }
 
 const toneClass = computed<(tone: 'default' | 'amber' | 'red') => string>(() => (tone) => {
-  if (tone === 'red') return 'text-rose-600 dark:text-rose-400 font-medium'
-  if (tone === 'amber') return 'text-amber-600 dark:text-amber-400'
+  if (tone === 'red') return 'text-status-error font-medium'
+  if (tone === 'amber') return 'text-status-warning'
   return 'text-tertiary'
 })
 
@@ -323,7 +323,7 @@ defineExpose({ openAddFilter })
         <template v-for="(seg, i) in summarySegments" :key="i">
           <span
             v-if="i > 0"
-            class="text-tertiary/40"
+            class="text-tertiary"
             aria-hidden="true"
           >·</span>
           <span :class="toneClass(seg.tone)">{{ seg.label }}</span>
@@ -477,7 +477,7 @@ defineExpose({ openAddFilter })
         <template v-for="(seg, i) in summarySegments" :key="i">
           <span
             v-if="i > 0"
-            class="text-tertiary/40"
+            class="text-tertiary"
             aria-hidden="true"
           >·</span>
           <span :class="toneClass(seg.tone)">{{ seg.label }}</span>

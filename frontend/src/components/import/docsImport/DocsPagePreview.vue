@@ -220,7 +220,7 @@ const OUTCOME: Record<RowOutcome, { key: string; tone: StatusPillTone }> = {
 .docs-preview__editor :deep(.ProseMirror ol) { list-style-type: decimal; }
 .docs-preview__editor :deep(.ProseMirror li) { margin-bottom: 0.5rem; line-height: 1.6; }
 .docs-preview__editor :deep(.ProseMirror li p) { margin: 0.25rem 0; }
-.docs-preview__editor :deep(.ProseMirror a) { color: var(--color-accent); text-decoration: underline; }
+.docs-preview__editor :deep(.ProseMirror a) { color: var(--color-accent-text); text-decoration: underline; }
 .docs-preview__editor :deep(.ProseMirror strong) { font-weight: var(--font-weight-semibold); }
 .docs-preview__editor :deep(.ProseMirror hr) { border: 0; border-top: 1px solid var(--color-default); margin: 1.5rem 0; }
 .docs-preview__editor :deep(.embedded-document-block) { padding: 0.5rem 0.75rem; margin: 0.5rem 0; border: 1px solid var(--color-default); border-radius: 0.5rem; background: var(--color-surface-alt); font-size: var(--text-sm); }
@@ -236,16 +236,16 @@ const OUTCOME: Record<RowOutcome, { key: string; tone: StatusPillTone }> = {
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   background: var(--color-surface);
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-accent-ui);
   border-radius: 9999px;
   padding: 1px 7px;
   line-height: 1.4;
   white-space: nowrap;
   pointer-events: none;
 }
-.docs-preview__editor :deep(.docs-preview-note.is-warn::after) { color: var(--color-status-warning); border-color: var(--color-status-warning); }
+.docs-preview__editor :deep(.docs-preview-note.is-warn::after) { color: var(--color-status-warning-text); border-color: var(--color-status-warning); }
 
 /* An image that isn't stored yet. */
 .docs-preview__editor :deep(.docs-preview-img) {
@@ -270,5 +270,5 @@ const OUTCOME: Record<RowOutcome, { key: string; tone: StatusPillTone }> = {
 .docs-preview__editor :deep(.docs-preview-img__meta) { font-size: var(--text-2xs); color: var(--color-tertiary); }
 .docs-preview__editor :deep(.docs-preview-img.is-problem) { border-color: color-mix(in srgb, var(--color-status-error) 30%, transparent); background: var(--color-status-error-muted); }
 .docs-preview__editor :deep(.docs-preview-img.is-problem svg),
-.docs-preview__editor :deep(.docs-preview-img.is-problem .docs-preview-img__meta) { color: var(--color-status-error); }
+.docs-preview__editor :deep(.docs-preview-img.is-problem .docs-preview-img__meta) { color: var(--color-status-error-text); }
 </style>

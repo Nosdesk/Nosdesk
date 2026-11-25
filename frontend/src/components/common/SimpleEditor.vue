@@ -555,7 +555,7 @@ defineExpose({ focus, clear });
   font-size: var(--text-sm);
   color: var(--color-primary);
   background-color: var(--color-surface);
-  border: 1px solid var(--color-default);
+  border: 1px solid var(--color-field-border);
   border-radius: 0.5rem;
   overflow-y: auto;
 }
@@ -582,7 +582,7 @@ defineExpose({ focus, clear });
 
 .simple-editor:focus-within {
   outline: none;
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
 
@@ -619,7 +619,7 @@ defineExpose({ focus, clear });
   padding: 10px 12px;
   margin: 8px 0;
   background: var(--color-surface-alt);
-  border: 2px dashed var(--color-accent);
+  border: 2px dashed var(--color-accent-ui);
   border-radius: 6px;
   font-size: var(--text-xs-plus);
   line-height: 1.4;
@@ -650,7 +650,7 @@ defineExpose({ focus, clear });
 
 .simple-editor :deep(.ticket-drop-preview-id) {
   font-weight: var(--font-weight-semibold);
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   font-family: var(--font-mono, monospace);
   font-size: var(--text-xs);
   flex-shrink: 0;

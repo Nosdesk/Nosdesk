@@ -1,6 +1,7 @@
-import type { Theme } from '../types'
+import type { Theme, ThemeColors } from '../types'
 import { lightTheme } from '../base/light'
 import { darkTheme } from '../base/dark'
+import { contrast, parseColour, readableOn, type Rgb } from './readable'
 import { createNoncedStyleElement } from '@/utils/cspNonce'
 
 /**
@@ -20,9 +21,57 @@ export function overdueColor(theme: Theme): string {
 }
 
 /**
- * Converts theme colors to CSS variables and injects them into the DOM
+ * The colours that carry meaning as text, each with the tint it sits on
+ * in chips. `text-status-error`, `text-accent` and the rest read the
+ * `--color-<name>-text` version of each (see `--text-color-*` in
+ * main.css), derived here per theme.
  */
-export function applyTheme(theme: Theme, accentOverride?: string): void {
+export const TEXT_COLOURS = [
+  ['status-success', 'success', 'successMuted'],
+  ['status-error', 'error', 'errorMuted'],
+  ['status-warning', 'warning', 'warningMuted'],
+  ['status-info', 'info', 'infoMuted'],
+  ['status-open', 'statusOpen', 'statusOpenMuted'],
+  ['status-in-progress', 'statusInProgress', 'statusInProgressMuted'],
+  ['status-closed', 'statusClosed', 'statusClosedMuted'],
+  ['priority-high', 'priorityHigh', 'priorityHighMuted'],
+  ['priority-medium', 'priorityMedium', 'priorityMediumMuted'],
+  ['priority-low', 'priorityLow', 'priorityLowMuted'],
+  ['accent', 'accent', 'accentMuted'],
+  ['accent-hover', 'accentHover', 'accentMuted'],
+] as const satisfies ReadonlyArray<readonly [string, keyof ThemeColors, keyof ThemeColors]>
+
+/** The backgrounds text sits on: the app, the surface, the alternate
+ *  surface and the hover fill, the translucent ones laid over the
+ *  surface where rows and cards draw them. */
+export function themeBackgrounds(colors: ThemeColors): Record<'app' | 'surface' | 'surfaceAlt' | 'surfaceHover', Rgb> {
+  const surface = parseColour(colors.surface)
+  return {
+    app: parseColour(colors.app),
+    surface,
+    surfaceAlt: parseColour(colors.surfaceAlt, surface),
+    surfaceHover: parseColour(colors.surfaceHover, surface),
+  }
+}
+
+/** A theme's colours as they render: the workspace accent applied, the
+ *  label colour on the accent picked, and the text versions derived. */
+export interface ResolvedTheme {
+  colors: ThemeColors
+  onAccent: string
+  /** `--color-<name>-text` by name, 4.5:1 on every background and on
+   *  its own tint laid over each of them. */
+  text: Record<(typeof TEXT_COLOURS)[number][0], string>
+  /** The accent where it marks state or focus rather than filling: focus
+   *  rings, outlines, selected borders. 3:1 on every background (WCAG
+   *  1.4.11); `ring-accent`, `outline-accent` and `border-accent` read it. */
+  accentUi: string
+  /** A text field's resting border, 3:1 on the app, the surface and the
+   *  alternate surface, so the field's edge can be found (`border-field`). */
+  fieldBorder: string
+}
+
+export function resolveTheme(theme: Theme, accentOverride?: string): ResolvedTheme {
   const colors = { ...theme.colors }
 
   // Apply accent color override if provided
@@ -38,13 +87,36 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
 
   // On-accent foreground: text colour rendered on `bg-accent`
   // (button labels, badges). If the theme didn't pin one, pick
-  // black or white via WCAG luminance against the actual accent
-  // fill. This makes the choice Just Work for any accent value,
-  // including workspace-branding overrides — and keeps themes
-  // whose accent is dark (e.g. epaper's `#000000`) from rendering
+  // black or white by WCAG contrast against the actual accent
+  // fill and its hover fill. This makes the choice Just Work for any
+  // accent value, including workspace-branding overrides — and keeps
+  // themes whose accent is dark (e.g. epaper's `#000000`) from rendering
   // invisible black-on-black labels, which was the symptom that
   // surfaced this whole token.
-  const onAccent = colors.accentForeground ?? pickAccentForeground(colors.accent)
+  const onAccent = colors.accentForeground ?? pickAccentForeground(colors.accent, colors.accentHover)
+
+  const backgrounds = Object.values(themeBackgrounds(colors))
+  const text = Object.fromEntries(
+    TEXT_COLOURS.map(([name, key, muted]) => {
+      const tint = colors[muted] as string
+      const fills = [...backgrounds, ...backgrounds.map((under) => parseColour(tint, under))]
+      return [name, readableOn(colors[key] as string, fills, 4.5, theme.meta.isDark)]
+    }),
+  ) as ResolvedTheme['text']
+
+  const ui = (colour: string, fills: Rgb[]) => readableOn(colour, fills, 3, theme.meta.isDark)
+  const { surfaceHover: _hover, ...still } = themeBackgrounds(colors)
+  const accentUi = ui(colors.accent, backgrounds)
+  const fieldBorder = ui(colors.strong, Object.values(still))
+
+  return { colors, onAccent, text, accentUi, fieldBorder }
+}
+
+/**
+ * Converts theme colors to CSS variables and injects them into the DOM
+ */
+export function applyTheme(theme: Theme, accentOverride?: string): void {
+  const { colors, onAccent, text, accentUi, fieldBorder } = resolveTheme(theme, accentOverride)
 
   // Build CSS variables
   const cssVars = `
@@ -70,6 +142,8 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
   --color-accent-hover: ${colors.accentHover};
   --color-accent-muted: ${colors.accentMuted};
   --color-on-accent: ${onAccent};
+  --color-accent-ui: ${accentUi};
+  --color-field-border: ${fieldBorder};
 
   /* Status colors */
   --color-status-success: ${colors.success};
@@ -97,6 +171,9 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
   --color-priority-medium-muted: ${colors.priorityMediumMuted};
   --color-priority-low: ${colors.priorityLow};
   --color-priority-low-muted: ${colors.priorityLowMuted};
+
+  /* Text versions of the colours above (resolveTheme) */
+${Object.entries(text).map(([name, value]) => `  --color-${name}-text: ${value};`).join('\n')}
 
   /* Shadows */
   --shadow-inset-dark: ${colors.shadowDark};
@@ -147,35 +224,23 @@ ${colors.syntax ? Object.entries(colors.syntax).map(([key, value]) => `
 
 /**
  * Pick `#000000` or `#ffffff` for text rendered on top of `accent`,
- * choosing whichever scores higher WCAG contrast against the
- * accent fill. Uses the standard WCAG 2.x relative-luminance
- * formula (sRGB → linear via the per-channel piecewise transform,
- * then weighted sum), then compares the resulting (L+0.05)/0.05
- * (black contrast) to 1.05/(L+0.05) (white contrast).
+ * whichever holds the higher WCAG contrast on both the accent fill and
+ * its hover fill (a button keeps its label while hovered).
  *
  * The brand orange `#FF6B1A` scores 7.4:1 with black vs 2.85:1
  * with white — picks black. Epaper's `#000000` accent scores
- * 21:1 with white vs undefined-but-zero with black — picks
- * white. Slate's cyan `#06B6D4` scores 9.2:1 black vs 2.3:1
- * white — black. So on. Every theme's accent gets an AA-passing
- * foreground without per-theme bookkeeping.
+ * 21:1 with white — picks white. Every theme's accent gets an
+ * AA-passing foreground without per-theme bookkeeping.
  */
-function pickAccentForeground(accent: string): string {
-  const hex = accent.replace('#', '')
-  if (hex.length !== 6) return '#000000' // bail to default on malformed input
-
-  const toLinear = (c: number) => {
-    const cs = c / 255
-    return cs <= 0.03928 ? cs / 12.92 : Math.pow((cs + 0.055) / 1.055, 2.4)
+function pickAccentForeground(accent: string, hover: string): string {
+  let fills: Rgb[]
+  try {
+    fills = [parseColour(accent), parseColour(hover)]
+  } catch {
+    return '#000000' // bail to default on malformed input
   }
-  const r = toLinear(parseInt(hex.slice(0, 2), 16))
-  const g = toLinear(parseInt(hex.slice(2, 4), 16))
-  const b = toLinear(parseInt(hex.slice(4, 6), 16))
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-  const whiteContrast = 1.05 / (luminance + 0.05)
-  const blackContrast = (luminance + 0.05) / 0.05
-  return whiteContrast > blackContrast ? '#ffffff' : '#000000'
+  const worst = (fg: Rgb) => Math.min(...fills.map((fill) => contrast(fg, fill)))
+  return worst([1, 1, 1]) > worst([0, 0, 0]) ? '#ffffff' : '#000000'
 }
 
 /**

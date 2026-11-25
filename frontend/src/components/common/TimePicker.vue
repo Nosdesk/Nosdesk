@@ -215,7 +215,7 @@ function segmentAttrs(part: SegmentPart): Record<string, string> {
 }
 
 .time-picker__field:focus-within {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   box-shadow: 0 0 0 2px var(--color-accent-muted);
 }
 

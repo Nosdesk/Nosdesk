@@ -528,7 +528,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 }
 
 .date-picker__field:focus-within {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   box-shadow: 0 0 0 2px var(--color-accent-muted);
 }
 
@@ -593,7 +593,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 
 .date-picker__trigger:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1px var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent-ui);
 }
 
 .date-picker__trigger:disabled {
@@ -641,7 +641,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 
 .date-picker__nav:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1px var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent-ui);
 }
 
 .date-picker__nav:disabled {
@@ -704,7 +704,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 }
 
 .date-picker__day:focus-visible {
-  box-shadow: 0 0 0 1px var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent-ui);
 }
 
 .date-picker__day[data-outside-view] {
@@ -713,7 +713,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 }
 
 .date-picker__day[data-today] {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   color: var(--color-primary);
   font-weight: var(--font-weight-semibold);
 }
@@ -739,7 +739,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 .date-picker__popover--range .date-picker__day[data-highlighted-end]:hover {
   background-color: var(--color-accent);
   color: var(--color-on-accent);
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   border-radius: 0.25rem;
   font-weight: var(--font-weight-semibold);
 }

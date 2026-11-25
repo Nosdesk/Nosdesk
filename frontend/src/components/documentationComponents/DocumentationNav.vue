@@ -1249,7 +1249,7 @@ defineExpose({ reloadSidebar });
             :class="{ 'rotate-90': isStarredExpanded }"
           />
         </span>
-        <span class="flex-shrink-0 ml-0.5 text-amber-500 inline-flex">
+        <span class="flex-shrink-0 ml-0.5 text-status-warning inline-flex">
           <Icon name="star" />
         </span>
         <span class="flex-1 truncate min-w-0 ml-1 font-medium">{{ $t('docs-nav-starred') }}</span>
@@ -1346,7 +1346,7 @@ defineExpose({ reloadSidebar });
             v-if="renamingCollectionId === collection.id"
             ref="renameInputRef"
             v-model="renameInput"
-            class="flex-1 min-w-0 ml-1 bg-surface border border-default rounded px-1 py-0 text-xs text-primary outline-none focus:border-accent"
+            class="flex-1 min-w-0 ml-1 bg-surface border border-field rounded px-1 py-0 text-xs text-primary outline-none focus:border-accent"
             @keydown.enter="commitCollectionRename"
             @keydown.escape="cancelCollectionRename"
             @blur="commitCollectionRename"

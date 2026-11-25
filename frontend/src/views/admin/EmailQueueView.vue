@@ -176,14 +176,14 @@ function statusLabel(s: string): string {
 function statusTone(s: string): string {
   switch (s) {
     case 'sent':
-      return 'bg-green-500/10 text-green-700 dark:text-green-400';
+      return 'bg-status-success-muted text-status-success';
     case 'pending':
     case 'sending':
-      return 'bg-blue-500/10 text-blue-700 dark:text-blue-400';
+      return 'bg-status-info-muted text-status-info';
     case 'failed':
-      return 'bg-amber-500/10 text-amber-700 dark:text-amber-400';
+      return 'bg-status-warning-muted text-status-warning';
     case 'dead':
-      return 'bg-red-500/10 text-red-700 dark:text-red-400';
+      return 'bg-status-error-muted text-status-error';
     case 'suppressed':
       return 'bg-default text-secondary';
     default:
@@ -282,7 +282,7 @@ const deadTotal = computed(
           v-model="ticketFilter"
           type="text"
           :placeholder="$t('admin-email-queue-filter-ticket-placeholder')"
-          class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-24"
+          class="h-9 px-2 rounded border border-field bg-input text-primary text-sm w-24"
         />
       </label>
       <label class="flex flex-col gap-1 text-xs text-secondary">
@@ -291,7 +291,7 @@ const deadTotal = computed(
           v-model="domainFilter"
           type="text"
           :placeholder="$t('admin-email-queue-filter-domain-placeholder')"
-          class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-56"
+          class="h-9 px-2 rounded border border-field bg-input text-primary text-sm w-56"
         />
       </label>
       <button
@@ -347,7 +347,7 @@ const deadTotal = computed(
                the upstream diagnostic so a hover reveals "why". -->
           <span
             v-if="row.bounced_at"
-            class="text-3xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-red-500/10 text-red-700 dark:text-red-400"
+            class="text-3xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-status-error-muted text-status-error"
             :title="row.bounce_diagnostic
               ? t('admin-email-queue-bounced-with-diagnostic', { diagnostic: row.bounce_diagnostic })
               : t('admin-email-queue-bounced-no-diagnostic')"
@@ -413,7 +413,7 @@ const deadTotal = computed(
             <dt v-if="row.last_smtp_code" class="text-secondary">{{ $t('admin-email-queue-field-smtp-code') }}</dt>
             <dd v-if="row.last_smtp_code" class="font-mono">{{ row.last_smtp_code }}</dd>
             <dt v-if="row.last_error" class="text-secondary">{{ $t('admin-email-queue-field-last-error') }}</dt>
-            <dd v-if="row.last_error" class="font-mono text-amber-700 dark:text-amber-400">
+            <dd v-if="row.last_error" class="font-mono text-status-warning">
               {{ row.last_error }}
             </dd>
             <dt v-if="row.bounced_at" class="text-secondary">{{ $t('admin-email-queue-field-bounced-at') }}</dt>
@@ -421,7 +421,7 @@ const deadTotal = computed(
             <dt v-if="row.bounce_recipient" class="text-secondary">{{ $t('admin-email-queue-field-bounce-recipient') }}</dt>
             <dd v-if="row.bounce_recipient" class="font-mono">{{ row.bounce_recipient }}</dd>
             <dt v-if="row.bounce_diagnostic" class="text-secondary">{{ $t('admin-email-queue-field-bounce-reason') }}</dt>
-            <dd v-if="row.bounce_diagnostic" class="font-mono text-red-700 dark:text-red-400">
+            <dd v-if="row.bounce_diagnostic" class="font-mono text-status-error">
               {{ row.bounce_diagnostic }}
             </dd>
           </dl>

@@ -127,12 +127,12 @@ watch(renderedHtml, () => {
 }
 
 .markdown-content :deep(a) {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   text-decoration: underline;
 }
 
 .markdown-content :deep(a:hover) {
-  color: var(--color-accent-hover);
+  color: var(--color-accent-hover-text);
 }
 
 .markdown-content :deep(code) {

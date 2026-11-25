@@ -390,7 +390,7 @@ onMounted(() => {
 .error-banner {
   padding: 0.75rem 1rem;
   font-size: var(--text-sm);
-  color: var(--color-status-error);
+  color: var(--color-status-error-text);
   background-color: color-mix(in srgb, var(--color-status-error) 10%, transparent);
   border-radius: 0.5rem;
   margin: 1rem;

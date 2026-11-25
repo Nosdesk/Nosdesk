@@ -62,6 +62,11 @@ const CONTRACT_CLASSES = [
 // Every `--nd-*` name the host pushes: the TOKEN_MAP keys and the metric
 // tokens in frontend/src/plugins/theme.ts. The kit may reference only these.
 const HOST_TOKENS = new Set([
+  'accent-text',
+  'success-text',
+  'error-text',
+  'warning-text',
+  'info-text',
   'surface',
   'surface-alt',
   'surface-hover',

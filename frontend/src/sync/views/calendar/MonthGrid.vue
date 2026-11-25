@@ -194,11 +194,11 @@ function onMore(day: Day, event: MouseEvent): void {
           :aria-label="label(cell.day)"
           :aria-current="cell.today ? 'date' : undefined"
           :aria-expanded="cell.shown.length + cell.more + cell.overlays > 0 ? activeDay === cell.day : undefined"
-          class="flex min-w-0 flex-col overflow-hidden border-r border-subtle px-2 pb-1 transition-colors last:border-r-0 focus:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-accent)]"
+          class="flex min-w-0 flex-col overflow-hidden border-r border-subtle px-2 pb-1 transition-colors last:border-r-0 focus:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-accent-ui)]"
           :class="[
             w < cells.length - 1 && 'border-b',
             dropDay === cell.day
-              ? 'bg-accent/10 shadow-[inset_0_0_0_2px_var(--color-accent)]'
+              ? 'bg-accent/10 shadow-[inset_0_0_0_2px_var(--color-accent-ui)]'
               : activeDay === cell.day && 'bg-surface-hover/60',
           ]"
           @click="onCellClick(cell.day, $event)"
