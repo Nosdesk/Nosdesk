@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { themeRegistry, type Theme } from '@/themes'
 import { lightTheme } from '@/themes/base/light'
 import { darkTheme } from '@/themes/base/dark'
-import { MERGED, overdueColor, resolveTheme, TEXT_COLOURS, UI_COLOURS } from '@/themes/utils/cssInjector'
+import { MERGED, overdueColor, resolveTheme, SOLID_COLOURS, TEXT_COLOURS, UI_COLOURS } from '@/themes/utils/cssInjector'
 
 type Rgb = [number, number, number]
 
@@ -185,10 +185,37 @@ describe('status, priority and accent text', () => {
     },
   )
 
-  it.each(themes)('%s: the label on the accent reaches 4.5:1 on the accent and on its hover fill', (_id, theme) => {
+  /** A fill as a filled button shows it: at rest, and at `hover:opacity-90`
+   *  over the surface and the app background. */
+  function filled(theme: Theme, fill: string): Rgb[] {
+    const { surface, app } = backgrounds(theme)
+    const f = parse(fill)
+    return [f, ...[surface, app].map((under) => f.map((v, i) => v * 0.9 + under[i] * 0.1) as Rgb)]
+  }
+
+  // Primary buttons hover to `bg-accent-hover`, not a faded accent.
+  it.each(themes)('%s: the label on the accent reaches 4.5:1 on the accent and its hover fill', (_id, theme) => {
     const { colors, onAccent } = resolveTheme(theme)
-    expect(contrast(parse(onAccent), parse(colors.accent))).toBeGreaterThanOrEqual(4.5)
-    expect(contrast(parse(onAccent), parse(colors.accentHover))).toBeGreaterThanOrEqual(4.5)
+    for (const fill of [parse(colors.accent), parse(colors.accentHover)]) {
+      expect(contrast(parse(onAccent), fill)).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  // Danger, warning, success and info buttons and filled badges.
+  const solidCases = themes.flatMap(([id, theme]) => SOLID_COLOURS.map(([name]) => ({ id, theme, name })))
+  it.each(solidCases)('$id: the label on bg-$name-solid reaches 4.5:1 at rest and at 90%', ({ theme, name }) => {
+    const { solid } = resolveTheme(theme)
+    for (const fill of filled(theme, solid[name].fill)) {
+      expect(contrast(parse(solid[name].label), fill)).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it.each(SOLID_COLOURS.map(([name]) => name))('--color-%s-solid and its label in the stylesheet are the base light and dark values', (name) => {
+    const fills = [...css.matchAll(new RegExp(`--color-${name}-solid: (#[0-9a-f]{6});`, 'gi'))].map((m) => m[1].toLowerCase())
+    const labels = [...css.matchAll(new RegExp(`--color-on-${name}: (#[0-9a-f]{6});`, 'gi'))].map((m) => m[1].toLowerCase())
+    const [light, dark] = [resolveTheme(lightTheme).solid[name], resolveTheme(darkTheme).solid[name]]
+    expect(fills).toEqual([light.fill, light.fill, dark.fill])
+    expect(labels).toEqual([light.label, light.label, dark.label])
   })
 
   it.each([...TEXT_COLOURS.map(([name]) => name), 'status-merged' as const])('--color-%s-text in the stylesheet defaults is the base light and dark value', (name) => {

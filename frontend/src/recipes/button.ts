@@ -45,11 +45,11 @@ export const button = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-accent text-on-accent hover:opacity-90',
+        primary: 'bg-accent text-on-accent hover:bg-accent-hover',
         secondary: 'bg-surface-alt text-primary border border-default hover:bg-surface-hover',
-        danger: 'bg-status-error text-white hover:opacity-90',
-        warning: 'bg-status-warning text-white hover:opacity-90',
-        success: 'bg-status-success text-white hover:opacity-90',
+        danger: 'bg-status-error-solid text-on-status-error hover:opacity-90',
+        warning: 'bg-status-warning-solid text-on-status-warning hover:opacity-90',
+        success: 'bg-status-success-solid text-on-status-success hover:opacity-90',
         ghost: 'text-secondary hover:text-primary hover:bg-surface-hover',
         'ghost-danger': 'text-status-error hover:bg-status-error/10',
       },

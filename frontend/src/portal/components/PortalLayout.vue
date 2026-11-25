@@ -150,7 +150,7 @@ async function onSignOut(): Promise<void> {
             {{ section.label }}
             <span
               v-if="section.count"
-              class="min-w-5 h-5 px-1.5 rounded-full bg-accent text-white text-xs font-medium inline-flex items-center justify-center"
+              class="min-w-5 h-5 px-1.5 rounded-full bg-accent text-on-accent text-xs font-medium inline-flex items-center justify-center"
             >
               {{ section.count }}
             </span>
@@ -266,7 +266,7 @@ async function onSignOut(): Promise<void> {
           {{ section.label }}
           <span
             v-if="section.count"
-            class="absolute top-1.5 left-1/2 ml-2 min-w-4 h-4 px-1 rounded-full bg-accent text-white text-3xs font-medium inline-flex items-center justify-center"
+            class="absolute top-1.5 left-1/2 ml-2 min-w-4 h-4 px-1 rounded-full bg-accent text-on-accent text-3xs font-medium inline-flex items-center justify-center"
           >
             {{ section.count }}
           </span>

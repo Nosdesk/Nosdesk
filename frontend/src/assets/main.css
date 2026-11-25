@@ -266,6 +266,15 @@
   --color-status-warning-muted: rgba(245, 158, 11, 0.15);
   --color-status-info: #3B82F6;
   --color-status-info-muted: rgba(59, 130, 246, 0.15);
+  /* Filled status buttons and badges and the label on them (resolveTheme). */
+  --color-status-success-solid: #00c951;
+  --color-on-status-success: #000000;
+  --color-status-error-solid: #d4252d;
+  --color-on-status-error: #ffffff;
+  --color-status-warning-solid: #f59e0b;
+  --color-on-status-warning: #000000;
+  --color-status-info-solid: #1c64d5;
+  --color-on-status-info: #ffffff;
   /* Text for work past its deadline: the late title and its count.
      Rose 700: 6.3:1 on the surface and 5.1:1 on the hover fill; themes
      set their own (`ThemeColors.overdue`). */
@@ -607,6 +616,14 @@
     --color-status-merged-ui: #5e60eb;
     --color-accent-ui: #c74e00;
     --color-field-border: #898d92;
+    --color-status-success-solid: #00c951;
+    --color-on-status-success: #000000;
+    --color-status-error-solid: #d4252d;
+    --color-on-status-error: #ffffff;
+    --color-status-warning-solid: #f59e0b;
+    --color-on-status-warning: #000000;
+    --color-status-info-solid: #1c64d5;
+    --color-on-status-info: #ffffff;
 
     /* Legacy support */
     --color-bg-app: var(--color-app);
@@ -719,6 +736,14 @@
     --color-status-merged-ui: #818cf8;
     --color-accent-ui: #ff6b1a;
     --color-field-border: #60646b;
+    --color-status-success-solid: #00c951;
+    --color-on-status-success: #000000;
+    --color-status-error-solid: #df3337;
+    --color-on-status-error: #ffffff;
+    --color-status-warning-solid: #f59e0b;
+    --color-on-status-warning: #000000;
+    --color-status-info-solid: #2b72e5;
+    --color-on-status-info: #ffffff;
 
     /* Shadows */
     --shadow-inset-dark: rgba(0, 0, 0, 0.3);

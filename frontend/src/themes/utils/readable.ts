@@ -122,3 +122,40 @@ export function readableOn(colour: string, fills: Rgb[], ratio: number, lighten:
   }
   return lighten ? '#ffffff' : '#000000'
 }
+
+/**
+ * A fill that a black or white label reads on at `ratio`: `colour` with
+ * its lightness moved away from the label, hue kept, until the label
+ * holds on the fill and on the fill at 90% over each of `under` (a
+ * button's `hover:opacity-90`). A white label is kept while the fill
+ * needs to darken by no more than 0.1 in OKLCH lightness (a red button
+ * stays a red button with a white label); past that, whichever label
+ * needs the smaller move (an amber warning button takes a black label
+ * instead of turning brown).
+ */
+export function solidFor(colour: string, under: Rgb[], ratio: number): { fill: string; label: string } {
+  const start = parseColour(colour)
+  const [L, C, h] = toOklch(start)
+  const holds = (fill: string, label: Rgb) => {
+    const f = parseColour(fill)
+    const shades = [f, ...under.map((u) => f.map((v, i) => v * 0.9 + u[i] * 0.1) as Rgb)]
+    return shades.every((shade) => contrast(label, shade) >= ratio)
+  }
+  const tries: Array<{ label: string; rgb: Rgb; lighten: boolean }> = [
+    { label: '#ffffff', rgb: [1, 1, 1], lighten: false },
+    { label: '#000000', rgb: [0, 0, 0], lighten: true },
+  ]
+  const found = tries.map((t) => {
+    for (let step = 0; step <= 400; step++) {
+      const next = t.lighten ? L + step * 0.0025 : L - step * 0.0025
+      if (next < 0 || next > 1) break
+      const fill = step === 0 ? toHex(start) : toHex(inGamut(next, C, h))
+      if (holds(fill, t.rgb)) return { fill, label: t.label, steps: step }
+    }
+    return null
+  })
+  const [white, black] = found
+  if (white && white.steps <= 40) return { fill: white.fill, label: white.label }
+  const best = [white, black].filter((f) => f !== null).sort((a, b) => a!.steps - b!.steps)[0]
+  return best ? { fill: best.fill, label: best.label } : { fill: '#000000', label: '#ffffff' }
+}

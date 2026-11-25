@@ -1,7 +1,7 @@
 import type { Theme, ThemeColors } from '../types'
 import { lightTheme } from '../base/light'
 import { darkTheme } from '../base/dark'
-import { contrast, isColour, parseColour, readableOn, toHex, type Rgb } from './readable'
+import { contrast, isColour, parseColour, readableOn, solidFor, toHex, type Rgb } from './readable'
 import { createNoncedStyleElement } from '@/utils/cspNonce'
 
 /**
@@ -45,6 +45,15 @@ export const TEXT_COLOURS = [
   ['accent-hover', 'accentHover', null],
   ['accent-on-tint', 'accent', 'accentMuted'],
 ] as const satisfies ReadonlyArray<readonly [string, keyof ThemeColors, keyof ThemeColors | null]>
+
+/** The status colours that also fill buttons and badges with a label on
+ *  them (`bg-status-error-solid text-on-status-error`). */
+export const SOLID_COLOURS = [
+  ['status-success', 'success'],
+  ['status-error', 'error'],
+  ['status-warning', 'warning'],
+  ['status-info', 'info'],
+] as const satisfies ReadonlyArray<readonly [string, keyof ThemeColors]>
 
 /** The status and priority colours that also mark icons and glyphs.
  *  `text-<name>-ui` is the colour at 3:1 (WCAG 1.4.11), lighter than its
@@ -108,6 +117,10 @@ export interface ResolvedTheme {
    *  rings, outlines, selected borders, icons. 3:1 on every background
    *  and accent tint (WCAG 1.4.11); `ring-accent`, `outline-accent` and `border-accent` read it. */
   accentUi: string
+  /** Filled status buttons and badges: the fill (the status colour, moved
+   *  in lightness only if it must) and the black or white label on it,
+   *  4.5:1 at rest and at `hover:opacity-90`. */
+  solid: Record<(typeof SOLID_COLOURS)[number][0], { fill: string; label: string }>
   /** A text field's resting border, 3:1 on the app, the surface and the
    *  alternate surface, so the field's edge can be found (`border-field`). */
   fieldBorder: string
@@ -145,6 +158,9 @@ export function resolveTheme(theme: Theme, accentOverride?: string): ResolvedThe
       text: { ...text, 'status-merged': mergedFill } as ResolvedTheme['text'],
       ui: { ...text, 'status-merged': mergedFill } as ResolvedTheme['ui'],
       accentUi: colors.accent,
+      solid: Object.fromEntries(
+        SOLID_COLOURS.map(([name, key]) => [name, { fill: colors[key] as string, label: '#ffffff' }]),
+      ) as ResolvedTheme['solid'],
       fieldBorder: colors.strong,
     }
   }
@@ -197,15 +213,19 @@ function resolveColours(theme: Theme, accentOverride?: string): ResolvedTheme {
   // Icons and selected states sit on accent tints too.
   const accentUi = derive(colors.accent, colors.accentMuted, 3)
   const fieldBorder = readableOn(colors.strong, Object.values(still), 3, theme.meta.isDark)
+  const { surface, app } = themeBackgrounds(colors)
+  const solid = Object.fromEntries(
+    SOLID_COLOURS.map(([name, key]) => [name, solidFor(colors[key] as string, [surface, app], 4.5)]),
+  ) as ResolvedTheme['solid']
 
-  return { colors, onAccent, text, ui, accentUi, fieldBorder }
+  return { colors, onAccent, text, ui, accentUi, solid, fieldBorder }
 }
 
 /**
  * Converts theme colors to CSS variables and injects them into the DOM
  */
 export function applyTheme(theme: Theme, accentOverride?: string): void {
-  const { colors, onAccent, text, ui, accentUi, fieldBorder } = resolveTheme(theme, accentOverride)
+  const { colors, onAccent, text, ui, accentUi, solid, fieldBorder } = resolveTheme(theme, accentOverride)
 
   // Build CSS variables
   const cssVars = `
@@ -264,6 +284,7 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
   /* Text versions of the colours above (resolveTheme) */
 ${Object.entries(text).map(([name, value]) => `  --color-${name}-text: ${value};`).join('\n')}
 ${Object.entries(ui).map(([name, value]) => `  --color-${name}-ui: ${value};`).join('\n')}
+${Object.entries(solid).map(([name, { fill, label }]) => `  --color-${name}-solid: ${fill};\n  --color-on-${name}: ${label};`).join('\n')}
 
   /* Shadows */
   --shadow-inset-dark: ${colors.shadowDark};

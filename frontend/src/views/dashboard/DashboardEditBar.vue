@@ -133,7 +133,7 @@ function doReset() {
       :class="[
         'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-opacity',
         store.isDirty
-          ? 'bg-accent text-on-accent hover:opacity-90'
+          ? 'bg-accent text-on-accent hover:bg-accent-hover'
           : 'border border-default bg-surface text-secondary hover:bg-surface-hover',
       ]"
       :disabled="store.saving"
