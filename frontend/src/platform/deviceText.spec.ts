@@ -106,11 +106,6 @@ describe('initDeviceText in the app, not following', () => {
     ;(globalThis as { isTauri?: boolean }).isTauri = true
   })
 
-  it('is the default', async () => {
-    const { FOLLOW_DEVICE_TEXT } = await freshModule()
-    expect(FOLLOW_DEVICE_TEXT).toBe(false)
-  })
-
   it('reads and exposes the settings without touching the page or the webview', async () => {
     native.getDeviceText.mockResolvedValue({ scale: 19 / 17, bold: true })
     const { initDeviceText, deviceText } = await freshModule()
@@ -127,6 +122,11 @@ describe('initDeviceText in the app, not following', () => {
 describe('initDeviceText in the app, following', () => {
   beforeEach(() => {
     ;(globalThis as { isTauri?: boolean }).isTauri = true
+  })
+
+  it('is the default', async () => {
+    const { FOLLOW_DEVICE_TEXT } = await freshModule()
+    expect(FOLLOW_DEVICE_TEXT).toBe(true)
   })
 
   it('takes over from the webview, then applies the settings before it resolves', async () => {
