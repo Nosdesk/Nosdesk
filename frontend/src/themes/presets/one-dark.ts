@@ -42,6 +42,7 @@ export const oneDarkTheme: Theme = {
     successMuted: 'rgba(152, 195, 121, 0.2)',
     error: '#e06c75',
     errorMuted: 'rgba(224, 108, 117, 0.2)',
+    overdue: '#e9969d', // red, lifted to 6.8:1 on surface, 4.7:1 on hover
     warning: '#e5c07b',
     warningMuted: 'rgba(229, 192, 123, 0.2)',
     info: '#61afef',

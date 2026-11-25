@@ -44,6 +44,7 @@ export const lightTheme: Theme = {
     successMuted: 'rgba(0, 201, 81, 0.15)',
     error: '#EF4444',
     errorMuted: 'rgba(239, 68, 68, 0.15)',
+    overdue: '#be123c', // rose 700: 6.3:1 on surface, 5.1:1 on hover
     warning: '#F59E0B',
     warningMuted: 'rgba(245, 158, 11, 0.15)',
     info: '#3B82F6',

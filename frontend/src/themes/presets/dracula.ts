@@ -42,6 +42,7 @@ export const draculaTheme: Theme = {
     successMuted: 'rgba(80, 250, 123, 0.2)',
     error: '#ff5555',
     errorMuted: 'rgba(255, 85, 85, 0.2)',
+    overdue: '#ffaeae', // Red, lifted to 5.2:1 on surface, 4.6:1 on hover
     warning: '#f1fa8c',
     warningMuted: 'rgba(241, 250, 140, 0.2)',
     info: '#8be9fd',

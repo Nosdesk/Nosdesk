@@ -46,6 +46,10 @@ export interface ThemeColors {
   warningMuted: string
   info: string
   infoMuted: string
+  /** Text for work past its deadline (a late title, the overdue
+   *  count). At least 4.5:1 on `surface` and on `surfaceHover`.
+   *  Optional: a theme without one takes the base light or dark value. */
+  overdue?: string
 
   // Ticket/workflow status colors
   statusOpen: string

@@ -42,6 +42,7 @@ export const gruvboxLightTheme: Theme = {
     successMuted: 'rgba(121, 116, 14, 0.15)',
     error: '#9d0006',
     errorMuted: 'rgba(157, 0, 6, 0.15)',
+    overdue: '#9d0006', // faded red: 7.8:1 on surface, 5.0:1 on hover
     warning: '#b57614',
     warningMuted: 'rgba(181, 118, 20, 0.15)',
     info: '#076678',
@@ -122,6 +123,7 @@ export const gruvboxDarkTheme: Theme = {
     successMuted: 'rgba(184, 187, 38, 0.2)',
     error: '#fb4934',
     errorMuted: 'rgba(251, 73, 52, 0.2)',
+    overdue: '#fed0ca', // bright red, lifted to 4.7:1 on the light hover
     warning: '#fabd2f',
     warningMuted: 'rgba(250, 189, 47, 0.2)',
     info: '#83a598',

@@ -6,7 +6,7 @@
  * opens, the list under the month on a narrow screen, and the jobs with
  * no date.
  */
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import type { DayJobs } from '@nosdesk/core/sync/views/calendar'
 import type { Day } from '@nosdesk/core/utils/ticketDates'
@@ -48,14 +48,23 @@ const room = ref(props.limit ?? Infinity)
 const rows = computed(() => (props.day.jobs.length > room.value ? props.day.jobs.slice(0, room.value) : props.day.jobs))
 const hidden = computed(() => props.day.jobs.length - rows.value.length)
 
-function showMore(): void {
+const list = ref<HTMLElement | null>(null)
+
+/** Bring in the next rows and move the focus to the first of them: the
+ *  button may leave with the last batch, and focus must not fall out of
+ *  the list (or the popover holding it). */
+async function showMore(): Promise<void> {
+  const first = props.day.jobs[rows.value.length]
   room.value += props.limit ?? Infinity
+  if (!first) return
+  await nextTick()
+  list.value?.querySelector<HTMLElement>(`[data-row="${first.id}"] [data-row-open]`)?.focus()
 }
 </script>
 
 <template>
   <div class="flex flex-col">
-    <ul v-if="day.jobs.length" class="flex flex-col border-t border-subtle/40">
+    <ul v-if="day.jobs.length" ref="list" class="flex flex-col border-t border-subtle/40">
       <DayJobRow
         v-for="card in rows"
         :key="card.id"

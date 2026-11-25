@@ -184,6 +184,15 @@ watch(
 
 let observer: IntersectionObserver | null = null
 
+// An end can open or close with no change to the days on screen (a job
+// dated just past the last one): the marks are watched again, once they
+// are in the page, so one already in view still brings the day in.
+watch(
+  () => [view.value.moreAhead, view.value.moreEarlier],
+  () => observe(),
+  { flush: 'post' },
+)
+
 function observe(): void {
   observer?.disconnect()
   if (!scroller.value || typeof IntersectionObserver === 'undefined') return

@@ -42,6 +42,7 @@ export const solarizedLightTheme: Theme = {
     successMuted: 'rgba(133, 153, 0, 0.15)',
     error: '#dc322f',     // red
     errorMuted: 'rgba(220, 50, 47, 0.15)',
+    overdue: '#b2211e', // red, darkened to 5.5:1 on surface, 4.6:1 on hover
     warning: '#b58900',   // yellow
     warningMuted: 'rgba(181, 137, 0, 0.15)',
     info: '#2aa198',      // cyan
@@ -123,6 +124,7 @@ export const solarizedDarkTheme: Theme = {
     successMuted: 'rgba(133, 153, 0, 0.25)',
     error: '#dc322f',     // red
     errorMuted: 'rgba(220, 50, 47, 0.25)',
+    overdue: '#f0a6a5', // red, lifted to 6.6:1 on surface, 4.7:1 on hover
     warning: '#b58900',   // yellow
     warningMuted: 'rgba(181, 137, 0, 0.25)',
     info: '#2aa198',      // cyan

@@ -1,4 +1,6 @@
 import type { Theme } from '../types'
+import { lightTheme } from '../base/light'
+import { darkTheme } from '../base/dark'
 import { createNoncedStyleElement } from '@/utils/cspNonce'
 
 /**
@@ -9,6 +11,13 @@ import { createNoncedStyleElement } from '@/utils/cspNonce'
  */
 
 const STYLE_ID = 'theme-variables'
+
+/** The overdue text colour a theme renders with: its own, else the base
+ *  light or dark one. */
+export function overdueColor(theme: Theme): string {
+  const base = theme.meta.isDark ? darkTheme : lightTheme
+  return theme.colors.overdue ?? base.colors.overdue ?? ''
+}
 
 /**
  * Converts theme colors to CSS variables and injects them into the DOM
@@ -71,6 +80,7 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
   --color-status-warning-muted: ${colors.warningMuted};
   --color-status-info: ${colors.info};
   --color-status-info-muted: ${colors.infoMuted};
+  --color-overdue: ${overdueColor(theme)};
 
   /* Ticket status colors */
   --color-status-open: ${colors.statusOpen};

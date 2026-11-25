@@ -53,6 +53,7 @@ export const darkTheme: Theme = {
     successMuted: 'rgba(0, 201, 81, 0.2)',
     error: '#EF4444',
     errorMuted: 'rgba(239, 68, 68, 0.2)',
+    overdue: '#fb7185', // rose 400: 7.1:1 on surface, 6.2:1 on hover
     warning: '#F59E0B',
     warningMuted: 'rgba(245, 158, 11, 0.2)',
     info: '#3B82F6',

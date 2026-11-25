@@ -42,6 +42,7 @@ export const catppuccinLatteTheme: Theme = {
     successMuted: 'rgba(64, 160, 43, 0.15)',
     error: '#d20f39',
     errorMuted: 'rgba(210, 15, 57, 0.15)',
+    overdue: '#ae0c2f', // Red, darkened to 6.0:1 on surface, 4.7:1 on hover
     warning: '#df8e1d',
     warningMuted: 'rgba(223, 142, 29, 0.15)',
     info: '#1e66f5',
@@ -122,6 +123,7 @@ export const catppuccinMochaTheme: Theme = {
     successMuted: 'rgba(166, 227, 161, 0.2)',
     error: '#f38ba8',
     errorMuted: 'rgba(243, 139, 168, 0.2)',
+    overdue: '#faccd9', // Red, lifted to 4.7:1 on the light hover
     warning: '#f9e2af',
     warningMuted: 'rgba(249, 226, 175, 0.2)',
     info: '#89b4fa',

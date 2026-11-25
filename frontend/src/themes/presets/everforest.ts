@@ -122,6 +122,7 @@ export const everforestDarkTheme: Theme = {
     successMuted: 'rgba(167, 192, 128, 0.2)',
     error: '#e67e80',
     errorMuted: 'rgba(230, 126, 128, 0.2)',
+    overdue: '#f1b6b7', // red, lifted to 6.2:1 on surface, 4.6:1 on hover
     warning: '#dbbc7f',
     warningMuted: 'rgba(219, 188, 127, 0.2)',
     info: '#7fbbb3',
