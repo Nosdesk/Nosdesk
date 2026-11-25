@@ -19,6 +19,7 @@ mod hosted_admin_workspaces_gate;
 mod hosted_docs_export;
 mod hosted_file_access;
 mod hosted_guest_confirm;
+mod hosted_ldap_refused;
 mod hosted_person_settings;
 mod hosted_portal_requester;
 mod hosted_scheduler_status;

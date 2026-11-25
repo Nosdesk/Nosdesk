@@ -1488,8 +1488,6 @@ admin-nav-plugins-title = Plug-ins
 admin-nav-plugins-description = Beheer geïnstalleerde plug-ins en integraties
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Synchroniseer gebruikers en groepen vanuit een LDAP- of Active Directory-server
-# MT: pending native review (nl-NL)
-admin-nav-ldap-description-cloud = Synchroniseer gebruikers en groepen vanaf een LDAPS-server die bereikbaar is via internet
 admin-nav-data-import-title = Gegevensimport
 # MT: pending native review (nl-NL)
 admin-nav-data-import-description = Importeer uit spreadsheets, documentatie-exports of een andere Nosdesk, en synchroniseer met een directory
@@ -2029,8 +2027,6 @@ admin-data-import-csv-description = Activa, gebruikers en tickets uit een .csv- 
 admin-data-import-ad-title = LDAP / Active Directory
 # MT: pending native review (nl-NL)
 admin-data-import-ad-description = Gebruikers en groepen uit Active Directory of een andere LDAP-directory.
-# MT: pending native review (nl-NL)
-admin-data-import-ad-description-cloud = Gebruikers en groepen uit Active Directory of een andere LDAP-directory. Vereist een LDAPS-server die bereikbaar is via internet.
 
 # Beheer: Authenticatieproviders.
 admin-auth-providers-title = Authenticatieproviders
@@ -10139,6 +10135,12 @@ teams-tab-consent-body = Microsoft vraagt u één keer akkoord te gaan voordat h
 teams-tab-consent-action = Aanmelden
 teams-tab-not-set-up-title = Uw account is hier niet ingesteld
 teams-tab-not-set-up-body = Uw Microsoft-account kan zich niet aanmelden bij dit hulpportaal. Vraag het uw IT-team.
+# MT: pending native review (nl-NL)
+portal-sso-error-staff-elsewhere = Dit account hoort bij een supportteam elders in Nosdesk en kan hier dus niet op deze manier aanmelden. Vul hieronder je e-mailadres in.
+# MT: pending native review (nl-NL)
+teams-tab-staff-elsewhere-title = Meld u op een andere manier aan
+# MT: pending native review (nl-NL)
+teams-tab-staff-elsewhere-body = Uw account hoort bij een supportteam elders in Nosdesk en kan zich daarom niet vanuit Teams aanmelden bij dit hulpportaal. Open het portaal in uw browser.
 teams-tab-failed-title = We konden u niet aanmelden
 teams-tab-failed-body = Probeer het zo opnieuw.
 teams-tab-retry = Opnieuw proberen

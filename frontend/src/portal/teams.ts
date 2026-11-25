@@ -34,6 +34,8 @@ export type TeamsProblem =
   | 'consent'
   /** Signed in with Microsoft, but no account here (domain not listed). */
   | 'not-set-up'
+  /** The account is on another workspace's team: not this tab's to sign in. */
+  | 'staff-elsewhere'
   | 'failed'
 
 /** The last sign-in's problem, for the status screen. */
@@ -118,7 +120,9 @@ async function exchange(token: string): Promise<TeamsProblem | null> {
   if (!res) return 'failed'
   if (!res.ok) {
     const body = await res.json().catch(() => null)
-    return body?.code === 'teams_domain' ? 'not-set-up' : 'failed'
+    if (body?.code === 'teams_domain') return 'not-set-up'
+    if (body?.code === 'teams_staff_elsewhere') return 'staff-elsewhere'
+    return 'failed'
   }
   const data = (await res.json()) as { access_token?: string }
   bearer = data.access_token ?? null

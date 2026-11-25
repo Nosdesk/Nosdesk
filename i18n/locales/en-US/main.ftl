@@ -1431,7 +1431,6 @@ admin-nav-data-import-title = Data Import
 admin-nav-data-import-description = Import from spreadsheets, documentation exports or another Nosdesk, and sync with a directory
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Sync users and groups from an LDAP or Active Directory server
-admin-nav-ldap-description-cloud = Sync users and groups from an LDAPS server reachable from the internet
 admin-nav-audit-log-title = Audit Log
 admin-nav-audit-log-description = Forensic record of who changed what, drawn from per-table triggers
 admin-nav-branding-title = Branding
@@ -1922,7 +1921,6 @@ admin-data-import-csv-title = Spreadsheet
 admin-data-import-csv-description = Assets, users and tickets from a .csv or .xlsx file.
 admin-data-import-ad-title = LDAP / Active Directory
 admin-data-import-ad-description = Users and groups from Active Directory or another LDAP directory.
-admin-data-import-ad-description-cloud = Users and groups from Active Directory or another LDAP directory. Needs an LDAPS server reachable from the internet.
 
 # Admin: Authentication Providers (AuthProvidersView).
 admin-auth-providers-title = Authentication Providers
@@ -9140,6 +9138,9 @@ teams-tab-consent-body = Microsoft asks you to agree once before the help portal
 teams-tab-consent-action = Sign in
 teams-tab-not-set-up-title = Your account isn't set up here
 teams-tab-not-set-up-body = Your Microsoft account can't sign in to this help portal. Ask your IT team.
+portal-sso-error-staff-elsewhere = That account is on a support team elsewhere in Nosdesk, so it can't sign in here this way. Enter your email below instead.
+teams-tab-staff-elsewhere-title = Sign in another way
+teams-tab-staff-elsewhere-body = Your account is on a support team elsewhere in Nosdesk, so it can't sign in to this help portal from Teams. Open the portal in your browser instead.
 teams-tab-failed-title = We couldn't sign you in
 teams-tab-failed-body = Try again in a moment.
 teams-tab-retry = Try again

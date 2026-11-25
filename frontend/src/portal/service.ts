@@ -264,13 +264,13 @@ export async function searchHelpArticles(q: string): Promise<ArticleHit[]> {
   return data
 }
 
-/** The requester adds someone to their request by email. */
-export async function addParticipant(id: number, email: string): Promise<PortalParticipant[]> {
-  const { data } = await portalApi.post<{ participants: PortalParticipant[] }>(
-    `/tickets/${id}/participants`,
-    { email },
-  )
-  return data.participants
+/** The requester adds someone to their request by email. The answer names
+ *  only the address and whether it was added; refetch the request for its
+ *  people. */
+export async function addParticipant(id: number, email: string): Promise<void> {
+  await portalApi.post<{ email: string; added: boolean }>(`/tickets/${id}/participants`, {
+    email,
+  })
 }
 
 /** Remove someone from a request (or leave it yourself). */

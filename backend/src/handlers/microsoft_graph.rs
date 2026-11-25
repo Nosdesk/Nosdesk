@@ -188,6 +188,16 @@ pub async fn process_graph_request(
     req: HttpRequest,
     request_data: web::Json<MicrosoftGraphRequest>,
 ) -> Result<HttpResponse, ApiError> {
+    // The proxy runs on the instance's own Entra app, which on hosted is the
+    // operator's: no customer workspace reaches it there. Every route (the
+    // list routes below come through here) refuses before reading anything.
+    if crate::middleware::workspace_context::is_hosted() {
+        return Ok(crate::errors::forbidden_with_code(
+            "Microsoft Graph is available on self-hosted Nosdesk only.",
+            "msgraph.self_hosted_only",
+        ));
+    }
+
     // Get database connection
     let _conn = helpers::db_conn(&db_pool)?;
 

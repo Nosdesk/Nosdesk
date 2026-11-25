@@ -28,6 +28,11 @@ use crate::sync::session::{pin_session_actor, reset_session_role};
 /// which runs the same sync on a pinned runtime connection. Resets the
 /// connection's GUCs before returning it to the pool.
 pub async fn run_scheduled_reconcile(pool: &Pool) -> Result<()> {
+    // Hosted has no LDAP (the routes refuse it there), so a settings row left
+    // from before that is never synced.
+    if crate::middleware::workspace_context::is_hosted() {
+        return Ok(());
+    }
     let workspace_id = BOOTSTRAP_WORKSPACE_ID;
     let mut conn = pool.get().context("ldap reconcile: db conn")?;
 

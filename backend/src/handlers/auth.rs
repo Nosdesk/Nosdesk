@@ -808,6 +808,29 @@ pub(crate) fn hosted_local_auth_disabled() -> bool {
     !crate::middleware::workspace_context::local_credentials_permitted()
 }
 
+/// Whether a directory bind in `workspace_id` may sign in as `user_uuid`: only
+/// for an account that workspace holds alone. The directory is the
+/// workspace's own, so its admin can bind as anyone it lists; an account with
+/// a seat in another workspace, past or present, is someone else's to vouch
+/// for, and its session would reach them there too. Fails closed.
+pub fn ldap_sign_in_permitted(conn: &mut DbConnection, workspace_id: i32, user_uuid: Uuid) -> bool {
+    match repository::workspaces::directory_reach(conn, workspace_id, user_uuid) {
+        Ok(reach) if reach.owns_account() => true,
+        Ok(_) => {
+            warn!(
+                workspace_id,
+                user_uuid = %user_uuid,
+                "ldap sign-in refused: the account isn't this workspace's alone"
+            );
+            false
+        }
+        Err(e) => {
+            error!(error = %e, workspace_id, "ldap sign-in: reading seats failed");
+            false
+        }
+    }
+}
+
 // Authentication handlers
 /// Try LDAP authentication for the request's workspace when local password auth
 /// missed. Returns the resolved user on a successful directory bind, or `None`
@@ -885,7 +908,10 @@ async fn try_ldap_login(
                 metadata: None,
             };
             match crate::services::oauth_provisioning::find_or_create_projected_user(conn, input) {
-                Ok(outcome) => Some(outcome.into_user()),
+                Ok(outcome) => {
+                    let user = outcome.into_user();
+                    ldap_sign_in_permitted(conn, workspace_id, user.uuid).then_some(user)
+                }
                 Err(e) => {
                     error!(error = %e, workspace_id, "ldap user provisioning failed");
                     None

@@ -7,7 +7,8 @@
 //! 1. an account already linked to any of those keys in this workspace;
 //! 2. otherwise the email the provider asserts, only at a domain the admin
 //!    listed and never when the provider marks it unverified: it links the
-//!    account with that address, or creates a requester;
+//!    account with that address if no other workspace has ever seated it, or
+//!    creates a requester;
 //! 3. otherwise a refusal.
 //!
 //! The keys not yet linked are then linked to the account, so the next sign-in
@@ -58,6 +59,9 @@ pub struct Assertion<'a> {
 pub enum Refused {
     /// No email at a listed domain (or the provider marked it unverified).
     Domain,
+    /// The account holds or held a staff seat in another workspace: a team
+    /// member there isn't this workspace's provider to sign in as.
+    StaffElsewhere,
 }
 
 // sync-audit-only: links identities, provisions the requester and seat through their own audited repository writes
@@ -107,6 +111,18 @@ pub fn resolve(
                 .uuid
         }
     };
+    // A listed domain is the admin's word, not proof they own it. Someone who
+    // is or was on another workspace's team isn't this provider's to sign in
+    // as, whether found by email or by a key linked earlier. A requester
+    // elsewhere is (they write to more than one help desk), but the provider
+    // speaks only for this workspace: their account, and its verified
+    // addresses, aren't its to change.
+    if crate::repository::workspaces::staff_seat_elsewhere(conn, workspace_id, user)? {
+        return Ok(Err(Refused::StaffElsewhere));
+    }
+    let verify = crate::repository::workspaces::workspace_ids_with_any_seat(conn, user)?
+        .iter()
+        .all(|id| *id == workspace_id);
 
     // Link the keys nobody holds yet (a key held by someone else stays theirs).
     for (key, holder) in assertion.keys.iter().zip(&linked) {
@@ -135,7 +151,9 @@ pub fn resolve(
         "member",
         crate::repository::workspaces::SeatWriteAuthority::Product,
     )?;
-    crate::repository::user_emails::mark_primary_verified(conn, &user)?;
+    if verify {
+        crate::repository::user_emails::mark_primary_verified(conn, &user)?;
+    }
     Ok(Ok(user))
 }
 
