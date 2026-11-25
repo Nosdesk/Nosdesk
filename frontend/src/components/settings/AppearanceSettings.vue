@@ -9,6 +9,7 @@ import ThemeCard from '@/components/settings/ThemeCard.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import Icon from '@/components/common/Icon.vue'
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue'
+import TextSizeSetting from '@/components/settings/TextSizeSetting.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import userService from '@/services/userService'
 
@@ -233,6 +234,11 @@ const handleDeviceLocalThemeToggle = () => {
             <span class="text-sm text-status-error">{{ t('settings-appearance-red-horizon-easter-egg') }}</span>
           </div>
         </Transition>
+      </div>
+
+      <!-- Text size (self mode only): kept on this device. -->
+      <div v-if="!isAdminMode" class="pt-4 border-t border-default">
+        <TextSizeSetting />
       </div>
 
       <!-- Accessibility Options (self mode only) -->

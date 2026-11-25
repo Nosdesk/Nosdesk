@@ -5,6 +5,7 @@ import { createPinia } from 'pinia'
 import { PiniaColada } from '@pinia/colada'
 
 import { configurePlatform } from '@/platform'
+import { initTextSize } from '@/platform/textSize'
 import { vSafeHtml } from '@/directives/vSafeHtml'
 import { createI18n as createI18nPlugin, localeReady } from '@/i18n'
 import { useThemeStore } from '@/stores/theme'
@@ -31,6 +32,8 @@ async function bootstrap(): Promise<void> {
   // The shared stores and services (branding, theme) reach the backend through
   // the core seams, so configure them as the agent app does.
   await configurePlatform()
+  // The text size kept on this device, before the first screen draws.
+  initTextSize()
 
   const app = createApp(App)
   app.provide(IN_PORTAL, true)

@@ -6894,6 +6894,48 @@ settings-appearance-section-automatic = Automatic
 settings-appearance-section-light = Light Themes
 settings-appearance-section-dark = Dark Themes
 settings-appearance-red-horizon-easter-egg = Why would you do this to them 😭
+## Settings > Appearance > Text size, kept on this device. $platform is
+## ios, android or web; a browser has no device switch. The -bold forms are
+## used while the phone's Bold Text is on, which the app always follows.
+settings-text-size-heading = Text size
+settings-text-size-value = { $percent }%
+settings-text-size-device-label = Use device text size
+settings-text-size-device-default = { $platform ->
+    [ios] Nosdesk follows the text size set on this iPhone.
+    [android] Nosdesk follows the font size set on this phone.
+   *[web] Nosdesk follows the text size set in this browser.
+}
+settings-text-size-device-larger = { $platform ->
+    [ios] This iPhone is set to larger text, and Nosdesk follows it.
+    [android] This phone is set to a larger font, and Nosdesk follows it.
+   *[web] This browser is set to larger text, and Nosdesk follows it.
+}
+settings-text-size-device-capped = { $platform ->
+    [ios] This iPhone is set to its largest text. Nosdesk follows it up to 200%. Pinch to zoom for more.
+    [android] This phone is set to its largest font. Nosdesk follows it up to 200%. Pinch to zoom for more.
+   *[web] This browser is set to very large text. Nosdesk follows it up to 200%. Zoom the page for more.
+}
+settings-text-size-own = Your own size, kept on this device.
+settings-text-size-device-default-bold = { $platform ->
+    [ios] Nosdesk follows the text size and Bold Text set on this iPhone.
+   *[android] Nosdesk follows the font size and bold text set on this phone.
+}
+settings-text-size-device-larger-bold = { $platform ->
+    [ios] This iPhone is set to larger, bold text, and Nosdesk follows it.
+   *[android] This phone is set to a larger, bold font, and Nosdesk follows it.
+}
+settings-text-size-device-capped-bold = { $platform ->
+    [ios] This iPhone is set to its largest text, in bold. Nosdesk follows it up to 200%. Pinch to zoom for more.
+   *[android] This phone is set to its largest font, in bold. Nosdesk follows it up to 200%. Pinch to zoom for more.
+}
+settings-text-size-own-bold = { $platform ->
+    [ios] Your own size, kept on this device. Bold Text still follows this iPhone.
+   *[android] Your own size, kept on this device. Bold text still follows this phone.
+}
+# The sample above the slider: a ticket row and the start of a reply.
+settings-text-size-sample-title = Level 2 printer offline after the power cut
+settings-text-size-sample-state = In progress
+settings-text-size-sample-reply = Thanks Priya. SC 542 is a fuser fault, so this one needs the supplier. I have logged a call and pointed Accounts at the Level 3 printer for today.
 settings-appearance-accessibility-heading = Accessibility
 settings-appearance-accessibility-description = Improve readability and visual distinction
 settings-appearance-colorblind-label = Color blind friendly mode

@@ -13194,3 +13194,55 @@ ticket-comments-placeholder-short-public = Répondre
 ticket-comments-placeholder-short-internal = Note interne
 # MT: pending native review (fr-FR)
 ticket-comments-via-email = par e-mail
+# MT: pending native review (fr-FR)
+settings-text-size-heading = Taille du texte
+# MT: pending native review (fr-FR)
+settings-text-size-value = { $percent } %
+# MT: pending native review (fr-FR)
+settings-text-size-device-label = Utiliser la taille de texte de l'appareil
+# MT: pending native review (fr-FR)
+settings-text-size-device-default = { $platform ->
+    [ios] Nosdesk suit la taille de texte réglée sur cet iPhone.
+    [android] Nosdesk suit la taille de police réglée sur ce téléphone.
+   *[web] Nosdesk suit la taille de texte réglée dans ce navigateur.
+}
+# MT: pending native review (fr-FR)
+settings-text-size-device-larger = { $platform ->
+    [ios] Cet iPhone utilise un texte plus grand, et Nosdesk le suit.
+    [android] Ce téléphone utilise une police plus grande, et Nosdesk le suit.
+   *[web] Ce navigateur utilise un texte plus grand, et Nosdesk le suit.
+}
+# MT: pending native review (fr-FR)
+settings-text-size-device-capped = { $platform ->
+    [ios] Cet iPhone utilise son plus grand texte. Nosdesk le suit jusqu'à 200 %. Pincez pour zoomer davantage.
+    [android] Ce téléphone utilise sa plus grande police. Nosdesk le suit jusqu'à 200 %. Pincez pour zoomer davantage.
+   *[web] Ce navigateur utilise un texte très grand. Nosdesk le suit jusqu'à 200 %. Zoomez la page pour aller plus loin.
+}
+# MT: pending native review (fr-FR)
+settings-text-size-own = Votre propre taille, conservée sur cet appareil.
+# MT: pending native review (fr-FR)
+settings-text-size-device-default-bold = { $platform ->
+    [ios] Nosdesk suit la taille de texte et le texte en gras réglés sur cet iPhone.
+   *[android] Nosdesk suit la taille de police et le texte en gras réglés sur ce téléphone.
+}
+# MT: pending native review (fr-FR)
+settings-text-size-device-larger-bold = { $platform ->
+    [ios] Cet iPhone utilise un texte plus grand et en gras, et Nosdesk le suit.
+   *[android] Ce téléphone utilise une police plus grande et en gras, et Nosdesk le suit.
+}
+# MT: pending native review (fr-FR)
+settings-text-size-device-capped-bold = { $platform ->
+    [ios] Cet iPhone utilise son plus grand texte, en gras. Nosdesk le suit jusqu'à 200 %. Pincez pour zoomer davantage.
+   *[android] Ce téléphone utilise sa plus grande police, en gras. Nosdesk le suit jusqu'à 200 %. Pincez pour zoomer davantage.
+}
+# MT: pending native review (fr-FR)
+settings-text-size-own-bold = { $platform ->
+    [ios] Votre propre taille, conservée sur cet appareil. Le texte en gras suit toujours cet iPhone.
+   *[android] Votre propre taille, conservée sur cet appareil. Le texte en gras suit toujours ce téléphone.
+}
+# MT: pending native review (fr-FR)
+settings-text-size-sample-title = Imprimante du niveau 2 hors ligne après la coupure de courant
+# MT: pending native review (fr-FR)
+settings-text-size-sample-state = En cours
+# MT: pending native review (fr-FR)
+settings-text-size-sample-reply = Merci Priya. SC 542 est un défaut de l'unité de fusion, il faut donc le fournisseur. J'ai ouvert un appel et orienté la comptabilité vers l'imprimante du niveau 3 pour aujourd'hui.
