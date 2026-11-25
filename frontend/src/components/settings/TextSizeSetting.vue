@@ -98,6 +98,7 @@ const sample = computed<CardData>(() => ({
       :following="followsDevice"
       :label="$t('settings-text-size-heading')"
       :value-text="$t('settings-text-size-value', { percent })"
+      :described-by="`${id}-status`"
       @update:model-value="(index) => chooseTextSize(TEXT_SIZE_STOPS[index])"
     />
 
@@ -118,7 +119,7 @@ const sample = computed<CardData>(() => ({
       </div>
       <!-- Under both, at the full width, so at 200% it is not squeezed into
            the column the switch leaves. -->
-      <p :id="`${id}-status`" class="text-xs text-tertiary" data-text-size-status>
+      <p :id="`${id}-status`" class="text-xs text-tertiary" aria-live="polite" data-text-size-status>
         {{ $t(status, { platform }) }}
       </p>
     </div>

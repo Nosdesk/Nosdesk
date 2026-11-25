@@ -20,6 +20,8 @@ defineProps<{
   following: boolean
   label: string
   valueText: string
+  /** The element that describes the size in force (the status sentence). */
+  describedBy?: string
 }>()
 
 const emit = defineEmits<{ (e: 'update:modelValue', index: number): void }>()
@@ -51,6 +53,7 @@ const emit = defineEmits<{ (e: 'update:modelValue', index: number): void }>()
         :class="following ? 'border-strong bg-surface' : 'border-accent bg-accent'"
         :aria-label="label"
         :aria-valuetext="valueText"
+        :aria-describedby="describedBy"
       />
     </SliderRoot>
     <span class="w-5 shrink-0 text-center text-2xl leading-none font-medium text-tertiary" aria-hidden="true">A</span>

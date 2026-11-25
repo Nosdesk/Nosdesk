@@ -894,6 +894,8 @@ const handlePastedFiles = async (files: File[]) => {
                             <button
                                 type="button"
                                 class="sm:hidden inline-flex min-h-11 min-w-0 items-center text-left text-xs"
+                                :aria-label="$t('ticket-comments-internal-note')"
+                                :aria-pressed="isInternal"
                                 :title="isInternal ? $t('ticket-comments-internal-note-title') : $t('ticket-comments-public-reply-title')"
                                 data-audience
                                 @click="isInternal = !isInternal"
@@ -903,9 +905,9 @@ const handlePastedFiles = async (files: File[]) => {
                                     :class="isInternal ? 'border border-status-warning/50 bg-status-warning-muted font-medium text-status-warning' : 'text-secondary'"
                                 >
                                     <Icon :name="isInternal ? 'lock' : 'eye'" size="sm" class="shrink-0" />
-                                    <!-- Named for what it sets, then the current
-                                         choice, which is also what it shows. -->
-                                    <span><span class="sr-only">{{ $t('ticket-comments-visibility-group') }}: </span>{{ isInternal ? $t('ticket-comments-internal-note') : $t('ticket-comments-public-reply') }}</span>
+                                    <!-- A toggle named "Internal note", pressed for a
+                                         note; the face says the current choice. -->
+                                    <span>{{ isInternal ? $t('ticket-comments-internal-note') : $t('ticket-comments-public-reply') }}</span>
                                 </span>
                             </button>
 
@@ -921,7 +923,8 @@ const handlePastedFiles = async (files: File[]) => {
                                 type="submit"
                                 :disabled="!canSubmit"
                                 :class="[
-                                    'h-9 w-9 rounded-md transition-colors flex items-center justify-center flex-shrink-0 max-sm:mx-1',
+                                    // On a phone the target reaches 44px past the 36px fill.
+                                    'h-9 w-9 rounded-md transition-colors flex items-center justify-center flex-shrink-0 max-sm:mx-1 max-sm:relative max-sm:before:absolute max-sm:before:-inset-1',
                                     !canSubmit
                                         ? 'bg-surface-hover text-tertiary cursor-not-allowed'
                                         : isInternal
