@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The largest scale reported. 2.0 is the 200% that WCAG 1.4.4 asks text to
-/// reach; pinch zoom covers anything past it.
+/// reach; the larger accessibility sizes report 2.0 too.
 pub const MAX_SCALE: f64 = 2.0;
 
 /// The smallest scale reported. Below the smallest setting either platform

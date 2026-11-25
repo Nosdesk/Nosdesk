@@ -57,4 +57,11 @@ impl<R: Runtime> DeviceText<R> {
       .map(TextSettings::sanitized)
       .map_err(Into::into)
   }
+
+  pub fn follow(&self) -> crate::Result<()> {
+    self
+      .0
+      .run_mobile_plugin::<()>("follow", ())
+      .map_err(Into::into)
+  }
 }

@@ -23,6 +23,15 @@ export function getDeviceText(): Promise<DeviceTextSettings> {
   return invoke<DeviceTextSettings>('plugin:device-text|get')
 }
 
+/**
+ * The web layer applies the scale itself from now on. Android stops its
+ * WebView scaling text as well, for this and every later WebView; iOS has
+ * nothing to stop.
+ */
+export function followDeviceText(): Promise<void> {
+  return invoke<void>('plugin:device-text|follow')
+}
+
 /** Calls `handler` whenever the user changes either setting while the app runs. */
 export function onDeviceTextChange(
   handler: (settings: DeviceTextSettings) => void,

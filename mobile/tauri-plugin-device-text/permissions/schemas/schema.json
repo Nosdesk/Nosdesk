@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the follow command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-follow",
+          "markdownDescription": "Enables the follow command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the follow command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-follow",
+          "markdownDescription": "Denies the follow command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get",
@@ -307,10 +319,10 @@
           "markdownDescription": "Denies the get command without any pre-configured scope."
         },
         {
-          "description": "Allows the app to read the device text size and Bold Text settings\n#### This default permission set includes:\n\n- `allow-get`",
+          "description": "Allows the app to read the device text size and Bold Text settings, and to take over text scaling from the webview\n#### This default permission set includes:\n\n- `allow-get`\n- `allow-follow`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the app to read the device text size and Bold Text settings\n#### This default permission set includes:\n\n- `allow-get`"
+          "markdownDescription": "Allows the app to read the device text size and Bold Text settings, and to take over text scaling from the webview\n#### This default permission set includes:\n\n- `allow-get`\n- `allow-follow`"
         }
       ]
     }

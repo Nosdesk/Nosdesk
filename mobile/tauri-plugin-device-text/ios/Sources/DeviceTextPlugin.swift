@@ -19,29 +19,33 @@ class EventHandlerArgs: Decodable {
 /// the request as WONTFIX), so the app reads it here and the web layer applies
 /// it. `scale` is the body text size at the user's setting divided by the body
 /// size at the default (Large, 17pt): xLarge is 19/17, AX1 is 28/17. It is capped
-/// at 2.0, the 200% WCAG asks for; pinch zoom covers the rest.
+/// at 2.0, the 200% WCAG asks for, so AX3 and larger all report 2.0.
 ///
-/// The size comes from `UIApplication.preferredContentSizeCategory`, which
-/// includes a per-app size set from Control Center's Text Size control.
+/// The size comes from the web view's trait collection, which carries a per-app
+/// size set from Control Center's Text Size control. A change notification
+/// carries the new size itself, since the traits may not have caught up yet.
 class DeviceTextPlugin: Plugin {
   /// Body text at the default content size category, Large.
   private static let defaultBodySize = 17.0
   private static let maxScale = 2.0
 
   // Main thread only.
+  private weak var webview: WKWebView?
   private var handler: Channel?
   private var lastSent: TextSettings?
   private var observers: [NSObjectProtocol] = []
 
   @objc public override func load(webview: WKWebView) {
+    self.webview = webview
     let center = NotificationCenter.default
     for name in [
       UIContentSizeCategory.didChangeNotification,
       UIAccessibility.boldTextStatusDidChangeNotification,
     ] {
       observers.append(
-        center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-          self?.sendIfChanged()
+        center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+          let notified = note.userInfo?[UIContentSizeCategory.newValueUserInfoKey]
+          self?.sendIfChanged(category: notified as? UIContentSizeCategory)
         })
     }
   }
@@ -51,7 +55,7 @@ class DeviceTextPlugin: Plugin {
     let args = try invoke.parseArgs(EventHandlerArgs.self)
     DispatchQueue.main.async {
       self.handler = args.handler
-      self.lastSent = DeviceTextPlugin.current()
+      self.lastSent = self.current()
     }
     invoke.resolve()
   }
@@ -59,25 +63,35 @@ class DeviceTextPlugin: Plugin {
   @objc public func get(_ invoke: Invoke) {
     // Commands run on Tauri's IPC queue; UIKit wants the main thread.
     DispatchQueue.main.async {
-      invoke.resolve(DeviceTextPlugin.current())
+      invoke.resolve(self.current())
     }
+  }
+
+  /// WKWebView has no text scaling of its own to switch off.
+  @objc public func follow(_ invoke: Invoke) {
+    invoke.resolve()
   }
 
   /// Both notifications can fire for one change, and Bold Text can post with
   /// nothing different, so only a real change is sent.
-  private func sendIfChanged() {
-    let settings = DeviceTextPlugin.current()
+  private func sendIfChanged(category: UIContentSizeCategory?) {
+    let settings = current(category: category)
     guard settings != lastSent, let handler = handler else { return }
     lastSent = settings
     try? handler.send(settings)
   }
 
-  private static func current() -> TextSettings {
-    let category = UIApplication.shared.preferredContentSizeCategory
+  private func current(category notified: UIContentSizeCategory? = nil) -> TextSettings {
+    var category = UIApplication.shared.preferredContentSizeCategory
+    if let known = notified ?? webview?.traitCollection.preferredContentSizeCategory,
+      known != .unspecified
+    {
+      category = known
+    }
     let traits = UITraitCollection(preferredContentSizeCategory: category)
     let body = Double(UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).pointSize)
     return TextSettings(
-      scale: min(body / defaultBodySize, maxScale),
+      scale: min(body / DeviceTextPlugin.defaultBodySize, DeviceTextPlugin.maxScale),
       bold: UIAccessibility.isBoldTextEnabled
     )
   }

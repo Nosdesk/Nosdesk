@@ -21,4 +21,8 @@ impl<R: Runtime> DeviceText<R> {
   pub fn get(&self) -> crate::Result<TextSettings> {
     Ok(TextSettings::default())
   }
+
+  pub fn follow(&self) -> crate::Result<()> {
+    Ok(())
+  }
 }
