@@ -10144,6 +10144,12 @@ teams-tab-consent-body = Microsoft vous demande d'accepter une fois avant que le
 teams-tab-consent-action = Se connecter
 teams-tab-not-set-up-title = Votre compte n'est pas configuré ici
 teams-tab-not-set-up-body = Votre compte Microsoft ne peut pas se connecter à ce portail d'assistance. Contactez votre équipe informatique.
+# MT: pending native review (fr-FR)
+portal-sso-error-staff-elsewhere = Ce compte fait partie d'une équipe d'assistance ailleurs dans Nosdesk, il ne peut donc pas se connecter ici de cette façon. Saisissez plutôt votre e-mail ci-dessous.
+# MT: pending native review (fr-FR)
+teams-tab-staff-elsewhere-title = Connectez-vous autrement
+# MT: pending native review (fr-FR)
+teams-tab-staff-elsewhere-body = Votre compte fait partie d'une équipe d'assistance ailleurs dans Nosdesk, il ne peut donc pas se connecter à ce portail d'assistance depuis Teams. Ouvrez plutôt le portail dans votre navigateur.
 teams-tab-failed-title = Nous n'avons pas pu vous connecter
 teams-tab-failed-body = Réessayez dans un instant.
 teams-tab-retry = Réessayer

@@ -59,9 +59,9 @@ pub struct Assertion<'a> {
 pub enum Refused {
     /// No email at a listed domain (or the provider marked it unverified).
     Domain,
-    /// The email belongs to an account another workspace holds or held: the
-    /// workspace's provider can't vouch for it, so it isn't linked.
-    AccountElsewhere,
+    /// The account holds or held a staff seat in another workspace: a team
+    /// member there isn't this workspace's provider to sign in as.
+    StaffElsewhere,
 }
 
 // sync-audit-only: links identities, provisions the requester and seat through their own audited repository writes
@@ -107,30 +107,22 @@ pub fn resolve(
                 .map(str::to_string)
                 .or_else(|| crate::utils::name_from_email(email))
                 .unwrap_or_else(|| email.to_string());
-            let user = crate::repository::user_helpers::find_or_provision_requester(
-                email, &name, conn, None,
-            )?
-            .uuid;
-            // A listed domain is the admin's word, not proof they own it: an
-            // account another workspace seats (or seated) isn't this
-            // provider's to sign in as.
-            use crate::repository::workspaces::{directory_reach, DirectoryReach};
-            if !matches!(
-                directory_reach(conn, workspace_id, user)?,
-                DirectoryReach::Own | DirectoryReach::Unseated
-            ) {
-                return Ok(Err(Refused::AccountElsewhere));
-            }
-            user
+            crate::repository::user_helpers::find_or_provision_requester(email, &name, conn, None)?
+                .uuid
         }
     };
-    // Verifying the address is a global write: only for an account no other
-    // workspace seats or seated.
-    let verify = matches!(
-        crate::repository::workspaces::directory_reach(conn, workspace_id, user)?,
-        crate::repository::workspaces::DirectoryReach::Own
-            | crate::repository::workspaces::DirectoryReach::Unseated
-    );
+    // A listed domain is the admin's word, not proof they own it. Someone who
+    // is or was on another workspace's team isn't this provider's to sign in
+    // as, whether found by email or by a key linked earlier. A requester
+    // elsewhere is (they write to more than one help desk), but the provider
+    // speaks only for this workspace: their account, and its verified
+    // addresses, aren't its to change.
+    if crate::repository::workspaces::staff_seat_elsewhere(conn, workspace_id, user)? {
+        return Ok(Err(Refused::StaffElsewhere));
+    }
+    let verify = crate::repository::workspaces::workspace_ids_with_any_seat(conn, user)?
+        .iter()
+        .all(|id| *id == workspace_id);
 
     // Link the keys nobody holds yet (a key held by someone else stays theirs).
     for (key, holder) in assertion.keys.iter().zip(&linked) {

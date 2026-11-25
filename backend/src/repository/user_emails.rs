@@ -36,14 +36,15 @@ diesel::define_sql_function! {
     fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text;
 }
 
-/// The row holding `email`, compared case-insensitively: addresses are unique
-/// by their exact text, but every lookup matches them case-insensitively, so a
-/// case variant of someone's address would resolve to them.
-fn holder_row(conn: &mut DbConnection, email: &str) -> QueryResult<Option<UserEmail>> {
+/// Every row holding `email`, compared case-insensitively: addresses are
+/// unique by their exact text, but every lookup matches them
+/// case-insensitively, so case variants held by two accounts both answer.
+/// Served by the `lower(email)` index.
+pub fn holders_of(conn: &mut DbConnection, email: &str) -> QueryResult<Vec<UserEmail>> {
     user_emails::table
-        .filter(user_emails::email.ilike(super::escape_like(email)))
-        .first(conn)
-        .optional()
+        .filter(lower(user_emails::email).eq(email.trim().to_lowercase()))
+        .order(user_emails::id.asc())
+        .load(conn)
 }
 
 // sync-pending-wire: needs sync aggregate wiring
@@ -69,8 +70,11 @@ pub fn add_multiple_emails(
         if email.is_empty() {
             continue;
         }
-        match holder_row(conn, &email)? {
-            Some(row) if row.user_uuid == *user_uuid => stored.push(
+        let held = holders_of(conn, &email)?;
+        match held.first() {
+            // Another account holds it, in some case.
+            Some(_) if held.iter().any(|r| r.user_uuid != *user_uuid) => {}
+            Some(row) => stored.push(
                 diesel::update(user_emails::table.find(row.id))
                     .set((
                         user_emails::is_verified.eq(verified),
@@ -78,8 +82,6 @@ pub fn add_multiple_emails(
                     ))
                     .get_result::<UserEmail>(conn)?,
             ),
-            // Another account's address.
-            Some(_) => {}
             None => {
                 let row = diesel::insert_into(user_emails::table)
                     .values(&NewUserEmail {
@@ -113,9 +115,11 @@ pub fn address_holders(
 ) -> QueryResult<Vec<(Uuid, bool)>> {
     let mut out = Vec::new();
     for email in emails {
-        if let Some(row) = holder_row(conn, email.trim())? {
-            out.push((row.user_uuid, row.is_verified));
-        }
+        out.extend(
+            holders_of(conn, email)?
+                .into_iter()
+                .map(|row| (row.user_uuid, row.is_verified)),
+        );
     }
     Ok(out)
 }

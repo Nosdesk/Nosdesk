@@ -204,11 +204,10 @@ pub fn resolve_user_by_identity_or_email(
             );
             Ok(None)
         }
-        // A directory identity matches the address in any case and on any of
-        // an account's addresses (a case variant of someone's address would
-        // otherwise be created beside it); a login identity, the primary one.
+        // A directory identity matches the address in any case; a login
+        // identity, the primary one.
         Ok(None) => match match identity_workspace_id {
-            Some(_) => user_emails::find_user_by_any_email(conn, email),
+            Some(_) => directory_address_holder(conn, email)?,
             None => users_repo::get_user_by_email(email, conn),
         } {
             Ok(user) => {
@@ -274,6 +273,36 @@ pub fn resolve_user_by_identity_or_email(
         },
         Err(e) => Err(format!("find_user_by_identity: {e:?}")),
     }
+}
+
+/// The account a directory's address links to, compared case-insensitively:
+/// `NotFound` when no account holds it (the entry is created), the account
+/// when its row for the address is verified or primary. Anything else refuses
+/// the entry: the address held by more than one account in different cases,
+/// or only as an unverified address someone added (which anyone can add to
+/// their own account, so it proves nothing).
+fn directory_address_holder(
+    conn: &mut DbConnection,
+    email: &str,
+) -> Result<Result<User, DieselError>, String> {
+    let rows = user_emails::holders_of(conn, email)
+        .map_err(|e| format!("directory link: reading the address: {e:?}"))?;
+    let Some(first) = rows.first() else {
+        return Ok(Err(DieselError::NotFound));
+    };
+    if rows.iter().any(|r| r.user_uuid != first.user_uuid) {
+        return Err(
+            "directory identity not linked: the address matches more than one account".into(),
+        );
+    }
+    if !rows.iter().any(|r| r.is_verified || r.is_primary) {
+        return Err(
+            "directory identity not linked: the address is only an unverified address of an \
+             account"
+                .into(),
+        );
+    }
+    Ok(users_repo::get_user_by_uuid(&first.user_uuid, conn))
 }
 
 /// Whether `name` is a person's name to rename a user to, rather than what a

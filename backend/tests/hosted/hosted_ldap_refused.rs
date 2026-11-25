@@ -1,8 +1,8 @@
 //! Hosted: neither directory sync is offered. A hosted workspace's LDAP
 //! directory would link and rename accounts other customers hold, and the
-//! Microsoft Graph sync runs on the operator's own Entra app, so every `/ldap`
-//! route refuses the workspace's own owner with `ldap.self_hosted_only` and
-//! every `/integrations/graph` route with `msgraph.self_hosted_only`, before
+//! Microsoft Graph sync and proxy run on the operator's own Entra app, so every
+//! `/ldap` route refuses the workspace's own owner with `ldap.self_hosted_only`
+//! and every Graph route with `msgraph.self_hosted_only`, before
 //! reading or writing anything, and the nightly LDAP reconcile skips a
 //! settings row left from before.
 //!
@@ -256,7 +256,8 @@ async fn hosted_owners_are_refused_every_graph_route() {
                     .insert(RequestContext::new(corr, actor.clone()));
                 srv.call(req)
             })
-            .configure(backend::handlers::msgraph_integration::config),
+            .configure(backend::handlers::msgraph_integration::config)
+            .configure(backend::handlers::microsoft_graph::config),
     )
     .await;
 
@@ -272,6 +273,17 @@ async fn hosted_owners_are_refused_every_graph_route() {
         TestRequest::get().uri("/integrations/graph/last-sync"),
         TestRequest::post().uri("/integrations/graph/cancel/1"),
         TestRequest::get().uri("/integrations/graph/entra-object-id/device-1"),
+        // The Graph proxy.
+        TestRequest::post()
+            .uri("/auth/microsoft/graph")
+            .set_json(json!({ "endpoint": "/users" })),
+        TestRequest::post()
+            .uri("/msgraph/request")
+            .set_json(json!({ "endpoint": "/users" })),
+        TestRequest::get().uri("/msgraph/users"),
+        TestRequest::get().uri("/msgraph/devices"),
+        TestRequest::get().uri("/msgraph/groups"),
+        TestRequest::get().uri("/msgraph/directory-objects"),
     ];
     for req in requests {
         let req = req.to_request();

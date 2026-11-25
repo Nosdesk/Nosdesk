@@ -377,39 +377,67 @@ pub fn workspace_ids_of_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryR
     }
 }
 
-/// The workspaces holding any membership row for `user_uuid`, active or
-/// removed, whatever workspace the connection is pinned to. A removed seat
-/// still means that workspace knows the person: for a write that would change
-/// something global about them, it counts.
+/// Every membership row for `user_uuid`, active or removed, as (workspace,
+/// role), whatever workspace the connection is pinned to. A removed seat still
+/// means that workspace knows the person: for a write that would change
+/// something global about them, it counts. An archived workspace doesn't (it
+/// is on its way out, as the workspace switcher treats it).
 ///
 /// Reads through the bypass role inside a savepoint that is then rolled back,
 /// like [`workspace_ids_of_user`].
+pub fn seat_rows_of_user(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+) -> QueryResult<Vec<(i32, String)>> {
+    let mut rows = None;
+    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
+        let actor = crate::sync::actor::ActorContext::system("repository:seat_rows_of_user");
+        // cross-tenant: which workspaces hold a seat row for a person, and in what role, for a directory sync or requester sign-in deciding whether it may vouch for their global account; ids and roles only, and rolled back with the savepoint.
+        let read = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            // members-any-status: a removed seat elsewhere still means another workspace knew the person, which is what the directory rules ask
+            workspace_members::table
+                .inner_join(
+                    workspaces::table.on(workspaces::id.eq(workspace_members::workspace_id)),
+                )
+                .filter(workspace_members::user_uuid.eq(user_uuid))
+                .filter(workspaces::archived_at.is_null())
+                .select((workspace_members::workspace_id, workspace_members::role))
+                .order(workspace_members::workspace_id.asc())
+                .load::<(i32, String)>(conn)
+        })?;
+        rows = Some(read);
+        Err(DieselError::RollbackTransaction)
+    });
+    match (rows, outcome) {
+        (Some(rows), _) => Ok(rows),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(DieselError::NotFound),
+    }
+}
+
+/// The workspaces of [`seat_rows_of_user`].
 pub fn workspace_ids_with_any_seat(
     conn: &mut DbConnection,
     user_uuid: Uuid,
 ) -> QueryResult<Vec<i32>> {
-    let mut ids = None;
-    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
-        let actor =
-            crate::sync::actor::ActorContext::system("repository:workspace_ids_with_any_seat");
-        // cross-tenant: which workspaces hold any seat row for a person, for a directory sync deciding whether it may write their global account; ids only, and rolled back with the savepoint.
-        let read = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
-            // members-any-status: a removed seat elsewhere still means another workspace knew the person, which is what the directory rules ask
-            workspace_members::table
-                .filter(workspace_members::user_uuid.eq(user_uuid))
-                .select(workspace_members::workspace_id)
-                .distinct()
-                .order(workspace_members::workspace_id.asc())
-                .load::<i32>(conn)
-        })?;
-        ids = Some(read);
-        Err(DieselError::RollbackTransaction)
-    });
-    match (ids, outcome) {
-        (Some(ids), _) => Ok(ids),
-        (None, Err(e)) => Err(e),
-        (None, Ok(())) => Err(DieselError::NotFound),
-    }
+    let mut ids: Vec<i32> = seat_rows_of_user(conn, user_uuid)?
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    ids.dedup();
+    Ok(ids)
+}
+
+/// Whether `user_uuid` holds or held a staff seat (owner, admin, agent) in a
+/// live workspace other than `workspace_id`.
+pub fn staff_seat_elsewhere(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<bool> {
+    Ok(seat_rows_of_user(conn, user_uuid)?
+        .iter()
+        .any(|(id, role)| *id != workspace_id && STAFF_ROLES.contains(&role.as_str())))
 }
 
 /// Where an existing account stands for a directory sync running in one

@@ -3209,11 +3209,11 @@ fn create_directory_user(
 }
 
 /// Where `user`, whom the run in `workspace_id` found by their Microsoft
-/// identity, stands for it. `None` for an account not seated here, which the
-/// run leaves alone and lists as skipped. That includes an account no
-/// workspace seats: the identity can't move to a fresh account (it is unique),
-/// and seating one on the directory's word alone would bring back someone a
-/// workspace removed, or whose workspace is gone.
+/// identity, stands for it. An account no live workspace has any seat row for,
+/// active or removed, is one an earlier run created without a membership: it
+/// is seated here first and is then this workspace's own. `None` for an
+/// account still not seated here (someone removed from this workspace, or one
+/// another workspace holds), which the run leaves alone and lists as skipped.
 fn identity_reach(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -3221,7 +3221,19 @@ fn identity_reach(
     ms_user: &MicrosoftGraphUser,
     stats: &mut UserSyncStats,
 ) -> Result<Option<DirectoryReach>, crate::services::msgraph::MsGraphSyncError> {
-    let reach = directory_reach(conn, workspace_id, user.uuid)?;
+    let mut reach = directory_reach(conn, workspace_id, user.uuid)?;
+    if reach == DirectoryReach::Unseated
+        && user.deleted_at.is_none()
+        && crate::repository::workspaces::workspace_ids_with_any_seat(conn, user.uuid)?.is_empty()
+    {
+        crate::repository::workspaces::ensure_membership(
+            conn,
+            workspace_id,
+            user.uuid,
+            DIRECTORY_MEMBER_ROLE.as_str(),
+        )?;
+        reach = directory_reach(conn, workspace_id, user.uuid)?;
+    }
     match reach {
         DirectoryReach::Own | DirectoryReach::Shared => Ok(Some(reach)),
         DirectoryReach::Unseated => {

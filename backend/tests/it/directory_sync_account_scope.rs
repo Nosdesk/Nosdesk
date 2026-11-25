@@ -594,21 +594,132 @@ fn graph_sync_treats_a_seat_removed_elsewhere_as_another_workspaces_account() {
 }
 
 #[test]
-fn graph_sync_doesnt_seat_an_account_no_workspace_seats() {
+fn graph_sync_doesnt_reseat_someone_removed_from_its_workspace() {
     let fx = Fixture::new();
-    let orphan = fx.account("Orphan", &[]);
-    let person = directory_person("Name From B", &[&orphan.primary]);
-    let identity = fx.microsoft_identity(orphan.uuid, &person);
+    let removed = fx.account("Removed From B", &[fx.b()]);
+    fx.remove(fx.b(), removed.uuid);
+    let person = directory_person("Name From B", &[&removed.primary]);
+    let identity = fx.microsoft_identity(removed.uuid, &person);
 
     let stats = fx.graph_sync(fx.b(), &person, Some(identity));
 
-    assert!(fx.seats(orphan.uuid).is_empty(), "not seated");
-    assert_eq!(fx.name_of(orphan.uuid), orphan.name, "not renamed");
+    assert!(fx.seats(removed.uuid).is_empty(), "still removed");
+    assert_eq!(fx.name_of(removed.uuid), removed.name, "not renamed");
     assert!(
         stats.errors.iter().any(|e| e.starts_with("Skipped")),
         "{:?}",
         stats.errors
     );
+}
+
+#[test]
+fn an_archived_workspace_doesnt_hold_anyone() {
+    let fx = Fixture::new();
+    let person_acct = fx.account("Moved On", &[fx.a(), fx.b()]);
+    fx.read(|c| backend::repository::workspaces::archive_workspace(c, fx.a()));
+    let person = directory_person("Directory Name", &[&person_acct.primary]);
+    let identity = fx.microsoft_identity(person_acct.uuid, &person);
+
+    fx.graph_sync(fx.b(), &person, Some(identity));
+    assert_eq!(
+        fx.name_of(person_acct.uuid),
+        "Directory Name",
+        "B's own now"
+    );
+
+    let mut conn = fx.pool.get().expect("conn");
+    let actor = ActorContext::system(REF).with_workspace(fx.b());
+    let permitted = with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+        Ok(backend::handlers::auth::ldap_sign_in_permitted(
+            c,
+            fx.b(),
+            person_acct.uuid,
+        ))
+    })
+    .expect("decide");
+    assert!(permitted);
+}
+
+#[test]
+fn ldap_links_only_through_a_verified_or_primary_address() {
+    let fx = Fixture::new();
+    let colleague = fx.account("Colleague", &[fx.b()]);
+    // A member adds the colleague's address to their own account, unverified.
+    let impostor = fx.account("Impostor", &[fx.b()]);
+    let colleague_alias = format!("alias-{}@victim.test", Uuid::new_v4().simple());
+    fx.read(|c| {
+        diesel::insert_into(user_emails::table)
+            .values(&NewUserEmail {
+                user_uuid: impostor.uuid,
+                email: colleague_alias.clone(),
+                email_type: "work".to_string(),
+                is_primary: false,
+                is_verified: false,
+                source: None,
+            })
+            .execute(c)
+    });
+
+    let outcome = fx.ldap_provision(fx.b(), "colleague-entry", &colleague_alias, "Colleague");
+
+    assert!(outcome.is_err(), "{outcome:?}");
+    assert!(
+        fx.identities(impostor.uuid).is_empty(),
+        "no identity for the impostor"
+    );
+    assert_eq!(fx.name_of(impostor.uuid), impostor.name, "not renamed");
+    let _ = colleague;
+}
+
+#[test]
+fn an_address_two_accounts_hold_in_different_cases_links_neither() {
+    let fx = Fixture::new();
+    let first = fx.account("First", &[fx.b()]);
+    let second = fx.account("Second", &[fx.b()]);
+    let shared_address = format!("shared-{}@victim.test", Uuid::new_v4().simple());
+    fx.read(|c| {
+        for (user, email) in [
+            (first.uuid, shared_address.clone()),
+            (second.uuid, shared_address.to_uppercase()),
+        ] {
+            diesel::insert_into(user_emails::table)
+                .values(&NewUserEmail {
+                    user_uuid: user,
+                    email,
+                    email_type: "work".to_string(),
+                    is_primary: false,
+                    is_verified: true,
+                    source: None,
+                })
+                .execute(c)?;
+        }
+        Ok(())
+    });
+
+    let stats = fx.graph_sync(fx.b(), &directory_person("Who", &[&shared_address]), None);
+    assert_eq!(stats.identities_linked + stats.new_users_created, 0);
+    assert!(fx.identities(first.uuid).is_empty() && fx.identities(second.uuid).is_empty());
+
+    let outcome = fx.ldap_provision(fx.b(), "who-entry", &shared_address, "Who");
+    assert!(outcome.is_err(), "{outcome:?}");
+}
+
+#[test]
+fn step_up_offers_the_directory_password_only_for_the_workspaces_own_account() {
+    let fx = Fixture::new();
+    let own = fx.account("Own Person", &[fx.b()]);
+    let shared = fx.account("Shared Person", &[fx.a(), fx.b()]);
+    fx.ldap_identity(fx.b(), own.uuid, "own-entry");
+    fx.ldap_identity(fx.b(), shared.uuid, "shared-entry");
+
+    let offers_password = |user: Uuid| {
+        let mut conn = fx.pool.get().expect("conn");
+        let account = backend::repository::users::get_user_by_uuid(&user, &mut conn).expect("user");
+        let (methods, _) = backend::services::step_up::methods(&mut conn, &account);
+        methods.contains(&backend::services::step_up::Method::Password)
+    };
+    assert!(offers_password(own.uuid));
+    assert!(!offers_password(shared.uuid));
 }
 
 #[test]
@@ -664,54 +775,93 @@ fn an_entra_removal_revokes_only_the_workspaces_own_people() {
 }
 
 #[test]
-fn requester_sso_links_no_account_another_workspace_seats() {
+fn requester_sso_signs_in_a_requester_from_elsewhere_but_no_staff_from_elsewhere() {
     use backend::repository::requester_identities::{resolve, Assertion, IdentityKey, Refused};
     let fx = Fixture::new();
-    let shared = fx.account("Shared Person", &[fx.a(), fx.b()]);
-    let in_a = fx.account("In A", &[fx.a()]);
+    // A requester who wrote to both help desks, and an agent of A.
+    let requester = fx.account("Requester Both", &[fx.a(), fx.b()]);
+    let agent_in_a = fx.account("Agent In A", &[fx.b()]);
+    run_in_workspace(&fx.pool, REF, fx.a(), |c| {
+        add_membership(
+            c,
+            fx.a(),
+            agent_in_a.uuid,
+            "agent",
+            SeatWriteAuthority::ControlPlane,
+        )
+    })
+    .expect("agent seat");
     // Unverified primaries, so a verification flip would show.
     fx.read(|c| {
-        diesel::update(
-            user_emails::table.filter(
-                user_emails::email.eq_any(vec![shared.primary.clone(), in_a.primary.clone()]),
-            ),
-        )
+        diesel::update(user_emails::table.filter(
+            user_emails::email.eq_any(vec![requester.primary.clone(), agent_in_a.primary.clone()]),
+        ))
         .set(user_emails::is_verified.eq(false))
         .execute(c)
     });
     let domains = vec!["victim.test".to_string()];
-
-    for (account, key) in [(&shared, "sub-shared"), (&in_a, "sub-a")] {
+    let sign_in = |email: &str, sub: &str| {
         let keys = [IdentityKey {
             provider_type: "oidc:https://idp.example".to_string(),
-            external_id: key.to_string(),
+            external_id: sub.to_string(),
         }];
-        let outcome = run_in_workspace(&fx.pool, REF, fx.b(), |c| {
+        run_in_workspace(&fx.pool, REF, fx.b(), |c| {
             resolve(
                 c,
                 fx.b(),
                 &domains,
                 &Assertion {
                     keys: &keys,
-                    email: Some(&account.primary),
+                    email: Some(email),
                     email_verified: Some(true),
                     name: Some("Someone"),
                     via: "test",
                 },
             )
         })
-        .expect("resolve");
-        assert_eq!(outcome, Err(Refused::AccountElsewhere), "{}", account.name);
-        assert!(fx.identities(account.uuid).is_empty(), "{}", account.name);
-        assert!(
-            fx.addresses(account.uuid)
-                .iter()
-                .all(|(_, primary, verified, _)| !primary || !verified),
-            "{}: the primary address stays unverified",
-            account.name
-        );
-    }
-    assert_eq!(fx.seats(in_a.uuid), vec![fx.a()], "not seated in B");
+        .expect("resolve")
+    };
+    let primary_verified = |acct: &Account| {
+        fx.addresses(acct.uuid)
+            .iter()
+            .any(|(_, primary, verified, _)| *primary && *verified)
+    };
+
+    assert_eq!(
+        sign_in(&requester.primary, "sub-requester"),
+        Ok(requester.uuid)
+    );
+    assert!(
+        !primary_verified(&requester),
+        "the global address isn't verified"
+    );
+
+    assert_eq!(
+        sign_in(&agent_in_a.primary, "sub-agent"),
+        Err(Refused::StaffElsewhere)
+    );
+    assert!(fx.identities(agent_in_a.uuid).is_empty(), "not linked");
+    assert!(!primary_verified(&agent_in_a));
+
+    // A key linked before the rule no longer signs in as A's agent.
+    fx.read(|c| {
+        identity_repo::create_identity(
+            NewUserAuthIdentity {
+                user_uuid: agent_in_a.uuid,
+                provider_type: "oidc:https://idp.example".to_string(),
+                external_id: "sub-agent-old".to_string(),
+                email: None,
+                metadata: None,
+                password_hash: None,
+                workspace_id: Some(fx.b()),
+            },
+            c,
+        )
+    });
+    assert_eq!(
+        sign_in(&agent_in_a.primary, "sub-agent-old"),
+        Err(Refused::StaffElsewhere)
+    );
 }
 
 #[test]

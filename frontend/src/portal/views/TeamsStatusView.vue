@@ -32,6 +32,8 @@ const copy = computed(() => {
       return { title: t('teams-tab-consent-title'), body: t('teams-tab-consent-body') }
     case 'not-set-up':
       return { title: t('teams-tab-not-set-up-title'), body: t('teams-tab-not-set-up-body') }
+    case 'staff-elsewhere':
+      return { title: t('teams-tab-staff-elsewhere-title'), body: t('teams-tab-staff-elsewhere-body') }
     default:
       return { title: t('teams-tab-failed-title'), body: t('teams-tab-failed-body') }
   }
