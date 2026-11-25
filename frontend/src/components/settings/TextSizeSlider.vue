@@ -11,10 +11,11 @@
  * takes the size over (see `TextSizeSetting.vue`).
  */
 import { SliderRange, SliderRoot, SliderThumb, SliderTrack } from 'reka-ui'
-import { TEXT_SIZE_STOPS } from '@/utils/textScale'
 
 defineProps<{
-  /** Index into `TEXT_SIZE_STOPS`. */
+  /** The stops, in percent. */
+  stops: readonly number[]
+  /** Index into `stops`. */
   modelValue: number
   /** The device is setting the size. */
   following: boolean
@@ -34,7 +35,7 @@ const emit = defineEmits<{ (e: 'update:modelValue', index: number): void }>()
       class="relative flex h-11 min-w-0 flex-1 touch-none items-center select-none"
       :model-value="[modelValue]"
       :min="0"
-      :max="TEXT_SIZE_STOPS.length - 1"
+      :max="stops.length - 1"
       :step="1"
       @update:model-value="(value) => value && emit('update:modelValue', value[0])"
     >
@@ -44,10 +45,10 @@ const emit = defineEmits<{ (e: 'update:modelValue', index: number): void }>()
              colour once the size is the person's own. -->
         <SliderRange class="absolute h-full rounded-full" :class="following ? 'bg-secondary' : 'bg-[var(--color-accent-ui)]'" />
         <span
-          v-for="(stop, i) in TEXT_SIZE_STOPS"
+          v-for="(stop, i) in stops"
           :key="stop"
           class="absolute top-1/2 h-2 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-strong"
-          :style="{ left: `${(i / (TEXT_SIZE_STOPS.length - 1)) * 100}%` }"
+          :style="{ left: `${(i / (stops.length - 1)) * 100}%` }"
           aria-hidden="true"
         />
       </SliderTrack>

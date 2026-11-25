@@ -31,8 +31,9 @@ import {
   setFollowDeviceText,
   textSizePercent,
   textSizePlatform,
+  textSizeStops,
 } from '@/platform/textSize'
-import { TEXT_SIZE_STOPS, nearestStop } from '@/utils/textScale'
+import { nearestStop } from '@/utils/textScale'
 import { todayIn } from '@nosdesk/core/utils/ticketDates'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 
@@ -42,7 +43,8 @@ const id = useId()
 const platform = textSizePlatform()
 const showSwitch = canFollowDevice()
 const percent = textSizePercent
-const stop = computed(() => nearestStop(percent.value))
+const stops = textSizeStops()
+const stop = computed(() => Math.min(nearestStop(percent.value), stops.length - 1))
 const bold = computed(() => platform !== 'web' && !!deviceText.value?.bold)
 
 /** What sets the size, in one sentence. */
@@ -94,12 +96,13 @@ const sample = computed<CardData>(() => ({
     </div>
 
     <TextSizeSlider
+      :stops="stops"
       :model-value="stop"
       :following="followsDevice"
       :label="$t('settings-text-size-heading')"
       :value-text="$t('settings-text-size-value', { percent })"
       :described-by="`${id}-status`"
-      @update:model-value="(index) => chooseTextSize(TEXT_SIZE_STOPS[index])"
+      @update:model-value="(index) => chooseTextSize(stops[index])"
     />
 
     <div class="flex flex-col gap-1">

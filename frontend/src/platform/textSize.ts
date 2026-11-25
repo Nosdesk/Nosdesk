@@ -61,12 +61,23 @@ export const textSizePercent = computed(() =>
   Math.round(composeScale(followsDevice.value, deviceText.value?.scale ?? 1, state.percent) * 100),
 )
 
+/**
+ * The stops a person can choose here. In a browser they end at 150%: the
+ * desktop layouts are checked to that size, and a browser's own zoom and
+ * text setting go further. The apps follow the device to 200%, so their
+ * slider does too.
+ */
+export function textSizeStops(): readonly number[] {
+  return canFollowDevice() ? TEXT_SIZE_STOPS : TEXT_SIZE_STOPS.filter((stop) => stop <= 150)
+}
+
 function isStop(value: unknown): value is number {
-  return typeof value === 'number' && (TEXT_SIZE_STOPS as readonly number[]).includes(value)
+  return typeof value === 'number' && textSizeStops().includes(value)
 }
 
 function isOwnPercent(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 100 && value <= 200
+  const most = textSizeStops().at(-1) ?? 100
+  return typeof value === 'number' && Number.isFinite(value) && value >= 100 && value <= most
 }
 
 function load(): void {

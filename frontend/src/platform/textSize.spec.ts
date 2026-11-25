@@ -67,6 +67,17 @@ describe('text size in a browser', () => {
     expect(userScale()).toBe('')
   })
 
+  it('stops at 150% in a browser', async () => {
+    const size = await load()
+    expect(size.textSizeStops()).toEqual([100, 112, 125, 150])
+    size.chooseTextSize(175)
+    expect(userScale()).toBe('')
+    localStorage.setItem('textSize', JSON.stringify({ follow: false, percent: 200 }))
+    const again = await load()
+    again.initTextSize()
+    expect(userScale()).toBe('')
+  })
+
   it('ignores a size out of range and storage that throws', async () => {
     localStorage.setItem('textSize', JSON.stringify({ follow: false, percent: 400 }))
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
