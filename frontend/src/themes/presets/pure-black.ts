@@ -29,7 +29,7 @@ export const pureBlackTheme: Theme = {
     // Text - high contrast white
     primary: '#ffffff',
     secondary: '#b3b3b3',
-    tertiary: '#808080',
+    tertiary: '#848484', // lifted to 4.7:1 on hover, 5.6:1 on surface
 
     // Accent — brand orange (#FF6B1A family). Hover steps UP to
     // primary-400 (#FF7A2D) so the lift is visible against the

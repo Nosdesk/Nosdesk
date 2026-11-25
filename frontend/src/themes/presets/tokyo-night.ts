@@ -30,7 +30,7 @@ export const tokyoNightTheme: Theme = {
     // Text
     primary: '#c0caf5',
     secondary: '#a9b1d6',
-    tertiary: '#565f89',
+    tertiary: '#8b96c3', // lifted to 4.6:1 on hover, 5.0:1 on surface
 
     // Accent (Tokyo Night blue)
     accent: '#7aa2f7',

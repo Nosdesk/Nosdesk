@@ -30,7 +30,7 @@ export const redHorizonTheme: Theme = {
     // Text - reddish-orange for that warm plasma glow
     primary: '#ff8844',      // Bright reddish-orange - main text
     secondary: '#dd6622',    // Medium burnt orange
-    tertiary: '#aa4400',     // Dim reddish-orange
+    tertiary: '#c85f2a',     // Dim reddish-orange, lifted to 4.6:1 on hover, 5.0:1 on surface
 
     // Accent - vivid red-orange
     accent: '#ff6622',

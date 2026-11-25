@@ -29,8 +29,8 @@ export const solarizedLightTheme: Theme = {
 
     // Text (dark content tones)
     primary: '#073642',   // base02
-    secondary: '#586e75', // base01
-    tertiary: '#657b83',  // base00
+    secondary: '#41565d', // base01, lifted to 5.3:1 on hover, 6.3:1 on surface
+    tertiary: '#4a5f67', // base00, lifted to 4.6:1 on hover, 5.5:1 on surface
 
     // Accent (Solarized blue)
     accent: '#268bd2',
@@ -112,7 +112,7 @@ export const solarizedDarkTheme: Theme = {
     // Text (light content tones)
     primary: '#fdf6e3',   // base3
     secondary: '#eee8d5', // base2
-    tertiary: '#93a1a1',  // base1
+    tertiary: '#acbbbb', // base1, lifted to 4.6:1 on hover, 6.5:1 on surface
 
     // Accent (Solarized blue)
     accent: '#268bd2',

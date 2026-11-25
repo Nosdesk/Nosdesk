@@ -29,7 +29,7 @@ export const lightTheme: Theme = {
     // Text
     primary: '#1f2937',
     secondary: '#4b5563',
-    tertiary: '#6b7280',
+    tertiary: '#5f6672', // lifted to 4.7:1 on hover, 5.8:1 on surface
 
     // Accent — brand orange (#FF6B1A family). Can be overridden by
     // workspace branding. On light backgrounds, hover steps DOWN to

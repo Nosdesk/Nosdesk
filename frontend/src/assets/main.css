@@ -160,7 +160,7 @@
 
   --color-primary: #1f2937;
   --color-secondary: #4b5563;
-  --color-tertiary: #6b7280;
+  --color-tertiary: #5f6672;
 
   /* Accent colors — brand orange (#FF6B1A family). Hover steps DOWN
      to primary-600 for light backgrounds; the theme store overrides
@@ -313,7 +313,7 @@
     /* Text colors */
     --color-primary: #1f2937;
     --color-secondary: #4b5563;
-    --color-tertiary: #6b7280;
+    --color-tertiary: #5f6672;
 
     /* Accent colors — brand orange (#FF6B1A family); see @theme block
        above. Light-mode hover steps DOWN for darker fill. */

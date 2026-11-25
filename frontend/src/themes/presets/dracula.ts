@@ -30,7 +30,7 @@ export const draculaTheme: Theme = {
     // Text
     primary: '#f8f8f2',
     secondary: '#e2e2dc',
-    tertiary: '#6272a4',
+    tertiary: '#afc2f9', // lifted to 4.6:1 on hover, 5.2:1 on surface
 
     // Accent (Dracula purple)
     accent: '#bd93f9',

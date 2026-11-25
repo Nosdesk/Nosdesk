@@ -20,7 +20,7 @@ export const oneDarkTheme: Theme = {
     app: '#282c34',
     surface: '#21252b',
     surfaceAlt: '#2c313a',
-    surfaceHover: '#3a3f4b',
+    surfaceHover: '#2d323e', // eased toward surface so text holds 4.5:1 on it
 
     // Borders
     default: '#3a3f4b',
@@ -29,8 +29,8 @@ export const oneDarkTheme: Theme = {
 
     // Text
     primary: '#abb2bf',
-    secondary: '#9da5b4',
-    tertiary: '#636d83',
+    secondary: '#9fa7b6', // lifted to 5.3:1 on hover, 6.4:1 on surface
+    tertiary: '#919bb3', // lifted to 4.6:1 on hover, 5.5:1 on surface
 
     // Accent (One Dark blue)
     accent: '#61afef',

@@ -28,7 +28,7 @@ export const nossalDarkTheme: Theme = {
     // Text
     primary: '#f5f0ed',
     secondary: '#d4ccc7',
-    tertiary: '#857B78',
+    tertiary: '#a79c99', // lifted to 4.6:1 on hover, 6.0:1 on surface
 
     // Accent - Nossal orange
     accent: '#F37929',

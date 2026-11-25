@@ -42,7 +42,7 @@ export const slateTheme: Theme = {
     // Text
     primary: '#f9fafb',
     secondary: '#cbd5e1',
-    tertiary: '#94a3b8',
+    tertiary: '#9fafc4', // lifted to 4.6:1 on the alternate surface, 6.6:1 on surface
 
     // Accent — cyan teal (Tailwind cyan-500 family), deliberately
     // diverging from the brand orange. Cool-on-cool with the slate
