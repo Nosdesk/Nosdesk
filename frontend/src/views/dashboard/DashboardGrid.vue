@@ -325,7 +325,9 @@ function widgetStyle(entry: LayoutEntry, originalIndex: number) {
     })
   }
   if (!store.editMode) {
-    styles.push({ '--dash-max-h': `${rowSpanOf(entry) * DASH_ROW_UNIT_REM}rem` })
+    // The cap grows with the text scale, so a card whose header and
+    // numbers grew at larger text on a phone is not cut off under the next.
+    styles.push({ '--dash-max-h': `calc(${rowSpanOf(entry) * DASH_ROW_UNIT_REM}rem * var(--text-scale, 1))` })
   }
   return styles
 }
