@@ -102,8 +102,9 @@ fn serve(stream: std::net::TcpStream, seen: &Mutex<Vec<String>>) -> std::io::Res
 /// A workspace with an IMAP channel and a pipeline whose acknowledgements
 /// reach the sink.
 pub struct Inbox {
-    /// Holds the sandbox database for the test's lifetime.
-    pub _db: TestDb,
+    /// Holds the sandbox database for the test's lifetime, when the inbox
+    /// made it.
+    pub _db: Option<TestDb>,
     pub pool: TestPool,
     pub ws: WorkspaceSeed,
     pub channel: Channel,
@@ -115,12 +116,12 @@ impl Inbox {
     pub fn new() -> Self {
         let db = TestDb::new();
         let ws = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn")).a;
-        Self::in_workspace(db, ws)
+        let pool = db.runtime_pool(4);
+        Self::on(Some(db), pool, ws)
     }
 
-    /// The IMAP channel in `ws` of `db`, already seeded.
-    pub fn in_workspace(db: TestDb, ws: WorkspaceSeed) -> Self {
-        let pool = db.runtime_pool(4);
+    /// An IMAP channel in `ws`, reached through `pool`.
+    pub fn on(db: Option<TestDb>, pool: TestPool, ws: WorkspaceSeed) -> Self {
         let sink = Sink::start();
         let mail = Arc::new(EmailService::new(EmailConfig {
             smtp_host: "127.0.0.1".into(),
