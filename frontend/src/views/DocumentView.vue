@@ -770,8 +770,13 @@ usePageTitle({
         boundary, so any indicator flashes and hurts more than it
         helps. Render nothing — the header + nav stay visible and the
         body fills in when data arrives.
+
+        Moving to another page keeps the one on screen mounted down to its
+        breadcrumb and title while the next loads, and drops the rest: on a
+        phone the title lives in the page (PageTitleSlot), and unmounting it
+        would drop the old title into the app bar until the load lands.
       -->
-      <div v-if="isLoading" />
+      <div v-if="isLoading && !document" />
 
       <!-- Document Content View -->
       <div v-else-if="document" class="w-full min-w-0 flex">
@@ -793,7 +798,7 @@ usePageTitle({
               <PageTitleSlot class="-mx-1.5 mb-2" />
 
               <!-- Title (desktop). -->
-              <div class="mb-4 hidden sm:block">
+              <div v-if="!isLoading" class="mb-4 hidden sm:block">
                 <h1
                   ref="titleElementRef"
                   contenteditable="true"
@@ -806,7 +811,7 @@ usePageTitle({
               </div>
 
               <!-- Metadata bar -->
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 sm:pt-4 sm:border-t border-subtle">
+              <div v-if="!isLoading" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 sm:pt-4 sm:border-t border-subtle">
                 <!-- Metadata -->
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-tertiary">
                   <!-- Status Badge. The draft chip yields to the draft strip
@@ -900,7 +905,7 @@ usePageTitle({
 
             <!-- Editor + linked tickets share a column gap so the
                  footer doesn't sit flush against the prose surface. -->
-            <div class="flex flex-col gap-3">
+            <div v-if="!isLoading" class="flex flex-col gap-3">
               <!-- Edge to edge on a phone: the editor's own 1rem padding is
                    the gutter. -->
               <div class="-mx-4 sm:mx-0 flex flex-col">
@@ -932,7 +937,7 @@ usePageTitle({
              sheet on phone. Mounted whenever there's a current
              page so toggling open doesn't refetch revisions. -->
         <RevisionHistory
-          v-if="currentPageId"
+          v-if="currentPageId && !isLoading"
           :open="showRevisionHistory"
           type="documentation"
           :document-id="Number(currentPageId)"
@@ -949,7 +954,7 @@ usePageTitle({
              current page so toggling open/close doesn't unmount
              the contributors fetch state. -->
         <DocumentInsightsPanel
-          v-if="currentPageId"
+          v-if="currentPageId && !isLoading"
           :open="showInsights"
           :page-id="Number(currentPageId)"
           :created-at="document?.created_at ?? null"
