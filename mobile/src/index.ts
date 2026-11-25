@@ -15,6 +15,7 @@ export { loginWithOidc, logoutViaOidc } from './oidc'
 export { registerForPush, unregisterForPush, getPendingNotificationRoute } from './push'
 export { getInitialDeepLink, onDeepLink, openInBrowser } from './deepLink'
 export { shareFile, type ShareResult } from './share'
+export { osPlatform } from './osPlatform'
 export {
   getStoredServer,
   clearStoredServer,

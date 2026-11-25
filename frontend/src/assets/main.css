@@ -313,9 +313,15 @@
 
    The factor is a token so it can be tuned in one place after looking
    at it on real hardware. */
+/* `--device-text-scale` is the phone's own text size in the iOS app
+   (platform/textSize.ts), and 1 everywhere else. It multiplies in like the
+   touch factor, so it changes size, not breakpoints. */
+:root {
+  font-size: calc(100% * var(--device-text-scale, 1));
+}
 @media (pointer: coarse) and (width >= 48rem) {
   :root {
-    font-size: calc(100% * var(--root-scale-touch, 1.125));
+    font-size: calc(100% * var(--root-scale-touch, 1.125) * var(--device-text-scale, 1));
   }
 }
 

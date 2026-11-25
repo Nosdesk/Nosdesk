@@ -16,7 +16,11 @@ async function setupWebPlatform(): Promise<void> {
 }
 
 async function setupTauriPlatform(): Promise<void> {
-  const { bootstrapMobile, tauriSecureStore } = await import('@nosdesk/mobile')
+  const [{ bootstrapMobile, tauriSecureStore, osPlatform }, { followDeviceTextSize }] =
+    await Promise.all([import('@nosdesk/mobile'), import('./textSize')])
+  // The iPhone's text size, set before the app mounts (the launch splash
+  // still covers the window), so the first screen is already at size.
+  followDeviceTextSize(osPlatform())
   // The server (cloud or self-hosted) comes from the persisted choice / the
   // connect screen, not a build constant. bootstrapMobile resolves it.
   await bootstrapMobile({

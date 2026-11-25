@@ -18,6 +18,7 @@ vi.mock('@nosdesk/mobile', async () => {
   const { configureServer, setSecureStore } = await import('@nosdesk/mobile/transport')
   return {
     tauriSecureStore: () => ({}),
+    osPlatform: () => 'ios',
     bootstrapMobile: async () => {
       setSecureStore({ load: async () => 'refresh-1', save: vi.fn(async () => {}), clear: vi.fn(async () => {}) })
       await configureServer('https://help.example.com')
