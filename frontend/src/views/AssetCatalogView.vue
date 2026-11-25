@@ -378,8 +378,8 @@ async function confirmDelete() {
           @click="openModelEdit(m)"
         >
           <div class="min-w-0">
-            <div class="text-sm font-medium text-primary truncate">{{ m.name }}</div>
-            <div class="text-xs text-tertiary mt-0.5 truncate">
+            <div class="text-sm font-medium text-primary truncate grown-wrap">{{ m.name }}</div>
+            <div class="text-xs text-tertiary mt-0.5 truncate grown-wrap">
               {{ manufacturerName(m.manufacturer_id) }} · {{ kindLabel(m.kind) }}<template v-if="m.part_number"> · {{ m.part_number }}</template>
             </div>
           </div>

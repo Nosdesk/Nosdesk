@@ -460,7 +460,7 @@ function sizeCodeToSpan(code: string): WidgetSpan | null {
       ]"
       @pointerdown="onHeaderPointerDown"
     >
-      <h2 class="min-w-0 text-xs-plus font-semibold text-primary truncate tracking-tight">{{ title }}</h2>
+      <h2 class="min-w-0 text-xs-plus font-semibold text-primary truncate grown-wrap tracking-tight">{{ title }}</h2>
 
       <!-- Optional inline count badge next to the title (e.g. "12"
            assigned tickets). Renders as a pill: h-5, rounded, mono

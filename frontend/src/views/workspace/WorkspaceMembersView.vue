@@ -509,7 +509,7 @@ function manageTeamInControlPlane() {
                competing columns left roughly 160px for the name on a
                375px phone, which truncated most real names. -->
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-            <div class="truncate text-sm font-medium text-primary">
+            <div class="truncate grown-wrap text-sm font-medium text-primary">
               {{ item.name }}
               <span v-if="item.isYou" class="font-normal text-tertiary">
                 {{ $t('workspace-members-you') }}
@@ -524,7 +524,7 @@ function manageTeamInControlPlane() {
                 :disabled="isSaving"
                 @change="changeRole(item, $event)"
               />
-              <span v-if="item.email" class="truncate text-tertiary">{{ item.email }}</span>
+              <span v-if="item.email" class="truncate grown-wrap text-tertiary">{{ item.email }}</span>
               <StatusBadgeCell
                 v-if="item.status === 'pending'"
                 type="membership"

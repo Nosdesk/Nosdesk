@@ -510,7 +510,7 @@ const dataCellPadding = computed(() =>
         <div
           v-for="(item, index) in section.items"
           :key="String(fieldValue(item, itemIdField))"
-          class="flex cursor-pointer items-start gap-3 border-t border-default bg-app px-4 py-3 transition-colors first:border-t-0 hover:bg-surface-hover"
+          class="flex min-w-0 cursor-pointer items-start gap-3 border-t border-default bg-app px-4 py-3 transition-colors first:border-t-0 hover:bg-surface-hover"
           :class="loading && 'opacity-60 pointer-events-none'"
           data-table-card
           @click="emit('row-click', item)"
@@ -523,7 +523,7 @@ const dataCellPadding = computed(() =>
             />
           </div>
           <div class="flex min-w-0 flex-1 flex-col gap-1">
-            <div v-if="cardColumns[0]" class="min-w-0 text-sm font-medium text-primary">
+            <div v-if="cardColumns[0]" class="min-w-0 text-sm font-medium text-primary [overflow-wrap:anywhere]">
               <slot
                 :name="`cell-${cardColumns[0].field}`"
                 :item="item"
@@ -531,7 +531,7 @@ const dataCellPadding = computed(() =>
                 :index="index"
                 :column="cardColumns[0]"
               >
-                <span class="text-primary">{{ fieldValue(item, cardColumns[0].field) }}</span>
+                <span class="min-w-0 text-primary [overflow-wrap:anywhere]">{{ fieldValue(item, cardColumns[0].field) }}</span>
               </slot>
             </div>
             <dl class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
@@ -541,7 +541,7 @@ const dataCellPadding = computed(() =>
                 class="flex min-w-0 max-w-full items-center gap-1.5"
               >
                 <dt v-if="column.label" class="text-tertiary whitespace-nowrap">{{ column.label }}</dt>
-                <dd class="flex min-w-0 items-center text-secondary">
+                <dd class="flex min-w-0 items-center text-secondary [overflow-wrap:anywhere]">
                   <slot
                     :name="`cell-${column.field}`"
                     :item="item"
@@ -549,7 +549,7 @@ const dataCellPadding = computed(() =>
                     :index="index"
                     :column="column"
                   >
-                    <span>{{ fieldValue(item, column.field) }}</span>
+                    <span class="min-w-0 [overflow-wrap:anywhere]">{{ fieldValue(item, column.field) }}</span>
                   </slot>
                 </dd>
               </div>
@@ -582,12 +582,15 @@ const dataCellPadding = computed(() =>
 }
 
 /* A cell written for the table truncates to its column; in a card it has
-   the line to itself, so it wraps instead of cutting. */
+   the line to itself, so it wraps instead of cutting, and a long token (an
+   address, a hostname, a serial) breaks anywhere rather than widen the
+   page. */
 .data-table-cards :deep(.truncate) {
   overflow: visible;
   white-space: normal;
   text-overflow: clip;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 /* Custom scrollbar styling */

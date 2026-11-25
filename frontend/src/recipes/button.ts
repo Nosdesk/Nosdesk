@@ -39,7 +39,9 @@ import { cva, type VariantProps } from 'class-variance-authority';
 
 export const button = cva(
   [
-    'inline-flex items-center justify-center whitespace-nowrap font-medium rounded-lg transition-colors',
+    // `grown-wrap`: at larger text on a phone a long label wraps inside the
+    // button instead of running past the screen (main.css).
+    'inline-flex items-center justify-center whitespace-nowrap grown-wrap font-medium rounded-lg transition-colors',
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
   ],
   {

@@ -976,7 +976,7 @@ function affectedDevicesTooltip(card: CardData): string {
                      tooltip — the colour does the talking; full
                      countdown text lives in the detail view. -->
                 <div class="flex items-start justify-between gap-1.5 mb-1">
-                  <h4 class="text-xs-plus font-medium text-primary line-clamp-2 flex-1 inline-flex items-baseline gap-1">
+                  <h4 class="text-xs-plus font-medium text-primary line-clamp-2 grown-unclamp flex-1 inline-flex items-baseline gap-1">
                     <span
                       v-if="card.recurrence_rule"
                       class="text-tertiary text-xs shrink-0"

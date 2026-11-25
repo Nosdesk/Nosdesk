@@ -162,7 +162,7 @@ function legendClass(level: number): string {
 
         <template #footer>
             <div class="flex flex-1 min-w-0 items-center justify-between gap-2">
-                <p class="text-3xs text-tertiary tabular-nums truncate min-w-0">
+                <p class="text-3xs text-tertiary tabular-nums truncate grown-wrap min-w-0">
                     {{ $t('ticket-heatmap-days-with-activity', { count: daysWithActivity }) }}
                 </p>
 

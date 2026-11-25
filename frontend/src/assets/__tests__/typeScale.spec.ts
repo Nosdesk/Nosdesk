@@ -68,7 +68,7 @@ describe('the type scale', () => {
   })
 
   it('lifts every size under 12px to 12px on a phone, and moves nothing down', () => {
-    const phone = block(/^@media screen and \(width < 48rem\) \{/m)
+    const phone = block(/^@media screen and \(width < 48rem\), screen and \(pointer: coarse\) and \(height < 30rem\) \{/m)
     for (const name of small) {
       const lifted = phone.get(name)
       const atOne = lifted ? remAtOne(lifted) : remAtOne(theme.get(name)!)

@@ -687,10 +687,10 @@ function formatPurgeAt(deletedAt: string): string {
             class="flex-shrink-0"
           />
           <div class="flex-1 min-w-0">
-            <div class="text-sm text-primary font-medium truncate">{{ item.name }}</div>
+            <div class="text-sm text-primary font-medium truncate grown-wrap">{{ item.name }}</div>
             <div v-if="isStaff" class="flex flex-wrap items-center gap-2 mt-1 text-xs">
               <NosdeskAccountChip v-if="isIdentityExternallyManaged(item)" />
-              <span v-if="item.email" class="text-tertiary truncate max-w-[200px]">{{ item.email }}</span>
+              <span v-if="item.email" class="text-tertiary truncate grown-wrap max-w-[200px]">{{ item.email }}</span>
               <span
                 class="inline-flex items-center px-1.5 py-0.5 rounded font-medium capitalize"
                 :class="{

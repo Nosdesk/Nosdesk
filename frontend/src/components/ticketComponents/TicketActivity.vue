@@ -661,7 +661,7 @@ const hiddenRowCount = computed(() =>
             />
             <span
               v-else
-              class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-4xs mt-0.5 shrink-0"
+              class="type-fixed inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-4xs mt-0.5 shrink-0"
               :title="actorFor(item.events[0]).title ?? undefined"
             >sys</span>
 
@@ -737,13 +737,13 @@ const hiddenRowCount = computed(() =>
           >@</span>
           <span
             v-else-if="actorFor(item.events[0]).kind === 'portal'"
-            class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-4xs mt-0.5 shrink-0"
+            class="type-fixed inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-4xs mt-0.5 shrink-0"
             :title="actorFor(item.events[0]).title ?? undefined"
             :aria-label="t('ticket-activity-actor-portal-aria')"
           >www</span>
           <span
             v-else
-            class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-4xs mt-0.5 shrink-0"
+            class="type-fixed inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-4xs mt-0.5 shrink-0"
             :title="actorFor(item.events[0]).title ?? undefined"
           >sys</span>
 

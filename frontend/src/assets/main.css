@@ -478,9 +478,11 @@
    and nothing is under 12px. Reading text (`base`), `sm-plus` (already
    15px) and the headings, which hang off `base`, do not move. From
    48rem up a touch device gets the 1.125 root scale below instead,
-   which lands in the same place (14px becomes 15.75px). Screens only:
-   a printed page is narrower than 48rem too. */
-@media screen and (width < 48rem) {
+   which lands in the same place (14px becomes 15.75px). A touch screen
+   under 30rem tall is a phone on its side, and takes the phone step
+   rather than the tablet scale. Screens only: a printed page is narrower
+   than 48rem too. */
+@media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
   :root {
     --text-5xs: calc(0.75rem * var(--text-scale));
     --text-4xs: calc(0.75rem * var(--text-scale));
@@ -492,56 +494,53 @@
   }
 }
 
-/* Larger text on a phone. Hundreds of controls and labels were laid out
-   for the designed size: a button held to a fixed height, a name cut to one
-   line with an ellipsis, a description clamped to a line or two. At the
-   designed size they stay exactly as they are. Once the text is larger than
-   designed (`data-text-grown`, set from `--text-scale` by useTextScale.ts),
-   a phone lets them grow instead of clipping:
+/* Larger text on a phone. Controls were laid out for the designed size;
+   once the text is larger than designed (`data-text-grown`, set from
+   `--text-scale` by useTextScale.ts) a phone lets the ones that would clip
+   grow. In a layer below the utilities, so a component's own classes win:
 
-   - a fixed height on a button or link becomes its least height, and its
-     label (a fixed-height one, or one held to a line) may wrap rather than
-     run past the screen;
-   - text cut to one line (`truncate`) or clamped (`line-clamp-*`) wraps
-     whole, since the people who raise the text size are the ones a cut
-     costs most. Only a word longer than its line (an address) breaks. A
-     clamp that is the point (a sample of two lines) carries
-     `data-keep-clamp`;
-   - a row that spreads its ends apart (`justify-between`, a label and its
-     action) wraps the action under the label once the two cannot share a
-     line. A row with a growing middle (`flex-1`) still never wraps.
+   - a button or link held to a fixed height (`h-5` to `h-10`) grows with
+     its label: `min-height: max-content` outweighs a fixed height, and
+     `min-h-0` on the element opts out;
+   - text cut to a line or clamped keeps its cut unless it opts in to
+     reading whole, with `grown-wrap` (beside `truncate`) or
+     `grown-unclamp` (beside `line-clamp-*`), below.
 
-   Desktop and tablet layouts keep their columns and their truncation. */
-@media screen and (width < 48rem) {
-  :root[data-text-grown] .truncate {
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-    overflow-wrap: break-word;
+   "A phone" is under 48rem wide, or a touch screen under 30rem tall (a
+   phone on its side), as for the phone baseline above. */
+@layer components {
+  @media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+    :root[data-text-grown] :is(button, a, [role='button']):is(.h-5, .h-6, .h-7, .h-8, .h-9, .h-10) {
+      min-height: max-content;
+    }
   }
-  :root[data-text-grown] .flex.justify-between {
-    flex-wrap: wrap;
-    row-gap: 0.5rem;
+}
+
+/* Opt in: this text reads whole at larger text on a phone. A long token
+   (an address, a hostname, a serial) breaks anywhere rather than widen
+   the page. */
+@utility grown-wrap {
+  @media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+    :root[data-text-grown] & {
+      overflow: visible;
+      text-overflow: clip;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      min-width: 0;
+    }
   }
-  :root[data-text-grown] :is(.line-clamp-1, .line-clamp-2, .line-clamp-3):not([data-keep-clamp]) {
-    display: block;
-    overflow: visible;
-    -webkit-line-clamp: none;
-    line-clamp: none;
+}
+
+/* Opt in: this clamp lets go at larger text on a phone. */
+@utility grown-unclamp {
+  @media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+    :root[data-text-grown] & {
+      display: block;
+      overflow: visible;
+      -webkit-line-clamp: none;
+      line-clamp: none;
+    }
   }
-  :root[data-text-grown] :is(button, a, [role='button']):is(.h-5, .h-6, .h-7, .h-8, .h-9, .h-10),
-  :root[data-text-grown] :is(button, a, [role='button']).whitespace-nowrap {
-    height: auto;
-    max-width: 100%;
-    white-space: normal;
-    overflow-wrap: break-word;
-  }
-  :root[data-text-grown] :is(button, a, [role='button']).h-5 { min-height: calc(var(--spacing) * 5); }
-  :root[data-text-grown] :is(button, a, [role='button']).h-6 { min-height: calc(var(--spacing) * 6); }
-  :root[data-text-grown] :is(button, a, [role='button']).h-7 { min-height: calc(var(--spacing) * 7); }
-  :root[data-text-grown] :is(button, a, [role='button']).h-8 { min-height: calc(var(--spacing) * 8); }
-  :root[data-text-grown] :is(button, a, [role='button']).h-9 { min-height: calc(var(--spacing) * 9); }
-  :root[data-text-grown] :is(button, a, [role='button']).h-10 { min-height: calc(var(--spacing) * 10); }
 }
 
 /* Something drawn at a fixed size that holds text of its own, such as
@@ -616,7 +615,7 @@
 
    The factor is a token so it can be tuned in one place after looking
    at it on real hardware. */
-@media (pointer: coarse) and (width >= 48rem) {
+@media (pointer: coarse) and (width >= 48rem) and (height >= 30rem) {
   :root {
     font-size: calc(100% * var(--root-scale-touch, 1.125));
   }
