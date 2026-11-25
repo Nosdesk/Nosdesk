@@ -160,11 +160,11 @@
   --leading-6: calc(1.5rem * var(--text-scale));
   --leading-7: calc(1.75rem * var(--text-scale));
 
-  /* Weights. iOS and Android Bold Text will set `data-bold-text` on
-     the root (through the native shell), and a `:root[data-bold-text]`
-     rule, which lands with the readable screens, remaps these four.
-     Every weight in the app already reads them, so nothing else will
-     need to change for it. `check-type-tokens.mjs` refuses literal
+  /* Weights. iOS and Android Bold Text set `data-bold-text` on the
+     root (through the native shell), and `:root[data-bold-text]`
+     (after this block) moves each of these four up one step. Every
+     weight in the app reads them, including body and #app, so nothing
+     else changes for it. `check-type-tokens.mjs` refuses literal
      weights. Values are Tailwind's own. */
   --font-weight-normal: 400;
   --font-weight-medium: 500;
@@ -432,6 +432,31 @@
   :root {
     --text-scale: 1;
   }
+}
+
+/* Bold Text (iOS, and Android's "Bold text"), honoured. A web view does
+   not pick the setting up by itself: the app's face is Inter, not the
+   system font, so nothing would get heavier. The native shell sets
+   `data-bold-text` on the root and every weight moves up one step:
+
+     regular  400 -> 500   comments, details, grey secondary text
+     medium   500 -> 600   row titles, names, chips, numbers at the floor
+     semibold 600 -> 700   headings, the ticket title
+     bold     700 -> 800   the rare strong emphasis
+
+   Because every step moves together, the order of emphasis stays the
+   designed one. Two steps (regular to semibold) read as too heavy on a
+   page of comments. Inter ships as a variable font (100 to 900), so
+   each step is a real weight, not a synthesised one. The monospace
+   stack's faces either carry these weights (SF Mono, Cascadia) or
+   round to their regular and bold faces (Consolas), so it is never
+   emboldened twice either. Colour, size and spacing do not change:
+   heavier text is a little wider, and rows answer that by wrapping. */
+:root[data-bold-text] {
+  --font-weight-normal: 500;
+  --font-weight-medium: 600;
+  --font-weight-semibold: 700;
+  --font-weight-bold: 800;
 }
 
 /* The phone baseline. A phone is read close up, and 14px body text
