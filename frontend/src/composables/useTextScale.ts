@@ -31,10 +31,23 @@ function watchRoot(): void {
   const read = () => {
     const next = readTextScale(root)
     if (next !== scale.value) scale.value = next
+    // `data-text-grown` while the text is larger than designed: main.css
+    // lets a phone's fixed-height controls and cut-off text grow then, and
+    // leaves the designed size exactly as it was.
+    root.toggleAttribute(TEXT_GROWN_ATTRIBUTE, next > 1.001)
   }
   read()
   observer = new MutationObserver(read)
   observer.observe(root, { attributes: true, attributeFilter: ['style', 'class'] })
+}
+
+export const TEXT_GROWN_ATTRIBUTE = 'data-text-grown'
+
+/** Follow the text scale from startup, so `data-text-grown` is set before the
+ *  first screen draws and kept current. Call once, after the text size is
+ *  applied. */
+export function watchTextScale(): void {
+  watchRoot()
 }
 
 export function useTextScale(): Readonly<Ref<number>> {

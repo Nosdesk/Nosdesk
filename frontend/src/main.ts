@@ -1,6 +1,7 @@
 import './assets/main.css'
 import { configurePlatform } from './platform'
 import { initTextSize } from './platform/textSize'
+import { watchTextScale } from './composables/useTextScale'
 import { initServerGate } from './platform/serverGate'
 
 import { interceptConsole } from './utils/remoteLogger'
@@ -41,6 +42,7 @@ async function bootstrap() {
   await configurePlatform()
   // The text size kept on this device, before the first screen draws.
   initTextSize()
+  watchTextScale()
 
   // Native app: decide whether the first-run "choose your server" screen is
   // needed before the app renders (no-op on the web).
