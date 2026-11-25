@@ -73,6 +73,7 @@ mod cross_tenant_workspace_lookup;
 mod csp_reports_platform_only;
 mod csrf_origin_check;
 mod directory_scoping;
+mod directory_sync_account_scope;
 mod directory_sync_workspace_scope;
 mod documentation_audience_lint;
 mod documentation_export_acl;

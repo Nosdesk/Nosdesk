@@ -225,6 +225,10 @@ impl Fixture {
                 .service(
                     web::scope("/api/portal")
                         .route(
+                            "/tickets/{id}",
+                            web::get().to(backend::handlers::portal::get_my_ticket),
+                        )
+                        .route(
                             "/tickets/{id}/participants",
                             web::post().to(backend::handlers::portal::add_participant),
                         )
@@ -430,9 +434,19 @@ async fn portal_participants_need_a_visible_ticket() {
     assert_eq!(remove(fx.theirs.id, fx.requester.uuid).await, 404);
     assert_eq!(remove(MISSING, fx.requester.uuid).await, 404);
 
-    // Their own ticket works as before.
+    // Their own ticket works as before. The answer names only the address.
     let mut resp = add(fx.mine.id).await.expect("send");
     assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.expect("json");
+    assert_eq!(
+        body,
+        json!({ "email": "colleague@example.com", "added": true })
+    );
+    let mut resp = awc::Client::new()
+        .get(srv.url(&format!("/api/portal/tickets/{}", fx.mine.id)))
+        .send()
+        .await
+        .expect("send");
     let body: serde_json::Value = resp.json().await.expect("json");
     let added = body["participants"]
         .as_array()
@@ -476,25 +490,32 @@ async fn a_participant_from_another_workspace_joins_under_the_address_name() {
             .post(srv.url(&format!("/api/portal/tickets/{}/participants", fx.mine.id)))
             .send_json(&json!({ "email": email }))
     };
-    let names = |body: serde_json::Value| -> Vec<String> {
+    // The request's people, as its detail shows them.
+    let names = || async {
+        let mut resp = awc::Client::new()
+            .get(srv.url(&format!("/api/portal/tickets/{}", fx.mine.id)))
+            .send()
+            .await
+            .expect("send");
+        let body: serde_json::Value = resp.json().await.expect("json");
         body["participants"]
             .as_array()
             .expect("participants")
             .iter()
             .filter_map(|p| p["name"].as_str().map(str::to_string))
-            .collect()
+            .collect::<Vec<String>>()
     };
 
-    let mut resp = add("ceo@elsewhere.example").await.expect("send");
+    let resp = add("ceo@elsewhere.example").await.expect("send");
     assert_eq!(resp.status(), 200);
-    let shown = names(resp.json().await.expect("json"));
+    let shown = names().await;
     assert!(shown.contains(&"ceo".to_string()), "{shown:?}");
     assert!(!shown.contains(&"Real Name".to_string()), "{shown:?}");
 
     // Someone already in this workspace keeps the name it knows them by.
-    let mut resp = add("colleague@here.example").await.expect("send");
+    let resp = add("colleague@here.example").await.expect("send");
     assert_eq!(resp.status(), 200);
-    let shown = names(resp.json().await.expect("json"));
+    let shown = names().await;
     assert!(shown.contains(&"Colleague Name".to_string()), "{shown:?}");
     assert!(!shown.contains(&"Real Name".to_string()), "{shown:?}");
 }

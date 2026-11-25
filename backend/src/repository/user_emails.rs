@@ -32,80 +32,139 @@ pub fn find_user_by_any_email(
         .first::<crate::models::User>(conn)
 }
 
+diesel::define_sql_function! {
+    fn lower(x: diesel::sql_types::Text) -> diesel::sql_types::Text;
+}
+
+/// Every row holding `email`, compared case-insensitively: addresses are
+/// unique by their exact text, but every lookup matches them
+/// case-insensitively, so case variants held by two accounts both answer.
+/// Served by the `lower(email)` index.
+pub fn holders_of(conn: &mut DbConnection, email: &str) -> QueryResult<Vec<UserEmail>> {
+    user_emails::table
+        .filter(lower(user_emails::email).eq(email.trim().to_lowercase()))
+        .order(user_emails::id.asc())
+        .load(conn)
+}
+
 // sync-pending-wire: needs sync aggregate wiring
-/// Add multiple emails for a user (used during Microsoft Graph sync)
+/// Add multiple emails for a user (used during Microsoft Graph sync), stored
+/// lowercase. An address the user already holds, in any case, has its
+/// verified flag refreshed; one another account holds, in any case, is left
+/// as it is and not returned. A new address becomes the primary one only for
+/// a user who has none.
 pub fn add_multiple_emails(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
     emails: Vec<(String, String, bool, String)>, // (email, type, verified, source)
 ) -> Result<Vec<UserEmail>, diesel::result::Error> {
-    let new_emails: Vec<NewUserEmail> = emails
-        .into_iter()
-        .enumerate()
-        .map(|(i, (email, email_type, verified, source))| NewUserEmail {
-            user_uuid: *user_uuid,
-            email,
-            email_type,
-            is_primary: i == 0, // First email is primary
-            is_verified: verified,
-            source: Some(source),
-        })
-        .collect();
-
-    if new_emails.is_empty() {
-        return Ok(Vec::new());
+    let mut has_primary = user_emails::table
+        .filter(user_emails::user_uuid.eq(user_uuid))
+        .filter(user_emails::is_primary.eq(true))
+        .count()
+        .get_result::<i64>(conn)?
+        > 0;
+    let mut stored = Vec::new();
+    for (email, email_type, verified, source) in emails {
+        let email = email.trim().to_lowercase();
+        if email.is_empty() {
+            continue;
+        }
+        let held = holders_of(conn, &email)?;
+        match held.first() {
+            // Another account holds it, in some case.
+            Some(_) if held.iter().any(|r| r.user_uuid != *user_uuid) => {}
+            Some(row) => stored.push(
+                diesel::update(user_emails::table.find(row.id))
+                    .set((
+                        user_emails::is_verified.eq(verified),
+                        user_emails::updated_at.eq(Utc::now().naive_utc()),
+                    ))
+                    .get_result::<UserEmail>(conn)?,
+            ),
+            None => {
+                let row = diesel::insert_into(user_emails::table)
+                    .values(&NewUserEmail {
+                        user_uuid: *user_uuid,
+                        email,
+                        email_type,
+                        is_primary: !has_primary,
+                        is_verified: verified,
+                        source: Some(source),
+                    })
+                    .on_conflict(user_emails::email)
+                    .do_nothing()
+                    .get_result::<UserEmail>(conn)
+                    .optional()?;
+                if let Some(row) = row {
+                    has_primary |= row.is_primary;
+                    stored.push(row);
+                }
+            }
+        }
     }
+    Ok(stored)
+}
 
-    diesel::insert_into(user_emails::table)
-        .values(&new_emails)
-        .on_conflict(user_emails::email)
-        .do_update()
-        .set((
-            user_emails::is_verified.eq(diesel::dsl::sql("EXCLUDED.is_verified")),
-            user_emails::updated_at.eq(Utc::now().naive_utc()),
-        ))
-        .get_results(conn)
+/// Every holder of any of `emails`, compared case-insensitively, with whether
+/// that row is verified. For a directory sync deciding whether a person it
+/// lists is an account it may link, a stranger's, or new.
+pub fn address_holders(
+    conn: &mut DbConnection,
+    emails: &[String],
+) -> QueryResult<Vec<(Uuid, bool)>> {
+    let mut out = Vec::new();
+    for email in emails {
+        out.extend(
+            holders_of(conn, email)?
+                .into_iter()
+                .map(|row| (row.user_uuid, row.is_verified)),
+        );
+    }
+    Ok(out)
 }
 
 // sync-pending-wire: needs sync aggregate wiring
-/// Remove emails for a user that are no longer present in the source system
+/// Remove the user's addresses that `source` added and no longer lists
+/// (compared case-insensitively). An address from anywhere else (added by
+/// hand, by another provider) stays.
 pub fn cleanup_obsolete_emails(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
     current_emails: &[String],
-    _source: &str, // Source parameter kept for compatibility
+    source: &str,
 ) -> Result<usize, diesel::result::Error> {
+    let current: Vec<String> = current_emails
+        .iter()
+        .map(|e| e.trim().to_lowercase())
+        .collect();
     diesel::delete(
         user_emails::table
             .filter(user_emails::user_uuid.eq(user_uuid))
-            .filter(user_emails::email.ne_all(current_emails))
+            .filter(user_emails::source.eq(source))
+            .filter(lower(user_emails::email).ne_all(current))
             .filter(user_emails::is_primary.eq(false)), // Never delete primary emails
     )
     .execute(conn)
 }
 
-/// Check if any of the provided emails belong to an existing user (case-insensitive)
-pub fn find_user_by_any_of_emails(
+// sync-pending-wire: needs sync aggregate wiring
+/// Remove every non-primary address of the user that `keep` doesn't list,
+/// whatever added it. For the control plane, which owns a hosted account's
+/// whole verified set; a directory sync cleans up only its own rows
+/// ([`cleanup_obsolete_emails`]).
+pub fn remove_unlisted_addresses(
     conn: &mut DbConnection,
-    emails: &[String],
-) -> Result<Option<crate::models::User>, diesel::result::Error> {
-    use crate::schema::users;
-
-    if emails.is_empty() {
-        return Ok(None);
-    }
-
-    // Normalize emails to lowercase for case-insensitive matching
-    let normalized_emails: Vec<String> = emails.iter().map(|e| e.to_lowercase()).collect();
-
-    let result = users::table
-        .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.eq_any(&normalized_emails))
-        .select(users::all_columns)
-        .first::<crate::models::User>(conn)
-        .optional()?;
-
-    Ok(result)
+    user_uuid: &Uuid,
+    keep: &[String],
+) -> Result<usize, diesel::result::Error> {
+    diesel::delete(
+        user_emails::table
+            .filter(user_emails::user_uuid.eq(user_uuid))
+            .filter(user_emails::email.ne_all(keep))
+            .filter(user_emails::is_primary.eq(false)),
+    )
+    .execute(conn)
 }
 
 /// Look up a single email row by its numeric id.

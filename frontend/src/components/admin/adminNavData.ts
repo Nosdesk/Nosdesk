@@ -209,10 +209,10 @@ export const adminNavGroups: AdminNavGroup[] = [
       {
         titleKey: 'admin-nav-ldap-title',
         descriptionKey: 'admin-nav-ldap-description',
-        hostedDescriptionKey: 'admin-nav-ldap-description-cloud',
         icon: 'directory',
         route: '/admin/ldap',
-        keywords: ['ldap', 'active directory', 'directory', 'ad', 'sync', 'sso', 'entra', 'openldap']
+        keywords: ['ldap', 'active directory', 'directory', 'ad', 'sync', 'sso', 'entra', 'openldap'],
+        selfHostedOnly: true
       },
     ]
   },

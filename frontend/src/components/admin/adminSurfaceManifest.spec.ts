@@ -76,8 +76,8 @@ describe('the LDAP nav item', () => {
       isHosted,
     }).flatMap(g => g.items).find(i => i.route === '/admin/ldap')
 
-  it('stays on Cloud, saying the server must be reachable from the internet', () => {
-    expect(ldap(true)?.descriptionKey).toBe('admin-nav-ldap-description-cloud')
+  it('is left out on Cloud, which has no LDAP directory sync', () => {
+    expect(ldap(true)).toBeUndefined()
   })
 
   it('keeps its own description on self-hosted', () => {

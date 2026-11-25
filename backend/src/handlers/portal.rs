@@ -2022,7 +2022,8 @@ pub async fn reply_to_my_ticket(
 const MAX_PARTICIPANTS: usize = 10;
 
 /// Someone on a request, as the portal shows them. `email` only for the
-/// requester, who added them.
+/// requester, who added them, and only for someone this workspace doesn't
+/// know by a name of its own (see [`participants_of`]).
 #[derive(Serialize)]
 pub struct Participant {
     pub uuid: Uuid,
@@ -2054,15 +2055,17 @@ fn participants_of(
         let Ok(user) = crate::repository::users::find_active_by_uuid(&uuid, conn) else {
             continue;
         };
+        let local_name = personas.remove(&uuid).and_then(|p| p.display_name);
+        // Someone added from outside the workspace was given a name here, and
+        // their account's primary address is one the requester may never
+        // have typed (they may have added a secondary one), so it isn't shown.
+        let email = (show_emails && (uuid == viewer || local_name.is_none()))
+            .then(|| user_helpers::get_primary_email(&uuid, conn))
+            .flatten();
         out.push(Participant {
             uuid,
-            name: personas
-                .remove(&uuid)
-                .and_then(|p| p.display_name)
-                .unwrap_or(user.name),
-            email: show_emails
-                .then(|| user_helpers::get_primary_email(&uuid, conn))
-                .flatten(),
+            name: local_name.unwrap_or(user.name),
+            email,
             is_requester: ticket.requester_uuid == Some(uuid),
         });
     }
@@ -2078,7 +2081,9 @@ pub struct AddParticipantRequest {
 /// by email. They join the workspace as a requester if they're new, can see
 /// the request in their portal, get the team's replies by email, and are told
 /// they were added. 404 for anyone but the requester, and for a ticket the
-/// caller can't see or that doesn't exist.
+/// caller can't see or that doesn't exist. The answer is the address the
+/// requester typed and whether it was added: nothing about the account it
+/// reached, which may be one this workspace didn't know.
 pub async fn add_participant(
     mut tc: TenantConn,
     portal: PortalContext,
@@ -2092,6 +2097,7 @@ pub async fn add_participant(
         return errors::bad_request("Enter a valid email address");
     }
     let email_service = crate::utils::email::EmailService::from_env().ok();
+    let typed = email.clone();
     let result = tc.run(move |conn| {
         let vis = portal.visibility(conn)?;
         if !can_view_ticket(conn, &vis, ticket_id)? {
@@ -2146,10 +2152,10 @@ pub async fn add_participant(
                 tell_participant_added(conn, svc, &ticket, person.uuid, &email, &adder);
             }
         }
-        Ok(Ok(participants_of(conn, &ticket, requester)?))
+        Ok(Ok(added))
     });
     match result {
-        Ok(Ok(people)) => HttpResponse::Ok().json(json!({ "participants": people })),
+        Ok(Ok(added)) => HttpResponse::Ok().json(json!({ "email": typed, "added": added })),
         Ok(Err(resp)) => resp,
         Err(diesel::result::Error::NotFound) => errors::not_found("Ticket not found"),
         Err(e) => {

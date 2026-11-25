@@ -121,13 +121,12 @@ describe('DataImportView: groups and tiles', () => {
     expect(wrapper!.text()).not.toContain('admin-data-import-status-coming-soon')
   })
 
-  it('on Cloud, leaves out Microsoft and says LDAP needs a server on the internet', async () => {
+  it('on Cloud, offers no directory sync', async () => {
     env.hosted = true
     await mountHub()
     expect(tiles('once')).toEqual(['hub-nosdesk-export', 'hub-documentation', 'hub-spreadsheet'])
-    expect(tiles('sync')).toEqual(['hub-directory'])
+    expect(wrapper!.find('[data-test="hub-group-sync"]').exists()).toBe(false)
     expect(wrapper!.text()).not.toContain('admin-data-import-microsoft-title')
-    expect(tile('hub-directory').attributes('href')).toBe('/admin/ldap')
-    expect(tile('hub-directory').text()).toContain('admin-data-import-ad-description-cloud')
+    expect(wrapper!.text()).not.toContain('admin-data-import-ad-title')
   })
 })
