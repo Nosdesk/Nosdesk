@@ -53,7 +53,7 @@ fn tab_provider(pool: &Pool, workspace_id: i32) -> Option<WorkspaceIdentityProvi
         pool,
         "background:teams_provider",
         workspace_id,
-        |conn| providers::get(conn),
+        providers::get,
     )
     .ok()
     .flatten()

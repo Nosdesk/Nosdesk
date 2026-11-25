@@ -394,6 +394,7 @@ pub fn workspace_ids_with_any_seat(
             crate::sync::actor::ActorContext::system("repository:workspace_ids_with_any_seat");
         // cross-tenant: which workspaces hold any seat row for a person, for a directory sync deciding whether it may write their global account; ids only, and rolled back with the savepoint.
         let read = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            // members-any-status: a removed seat elsewhere still means another workspace knew the person, which is what the directory rules ask
             workspace_members::table
                 .filter(workspace_members::user_uuid.eq(user_uuid))
                 .select(workspace_members::workspace_id)
