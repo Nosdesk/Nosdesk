@@ -683,3 +683,188 @@ async fn a_status_moved_since_the_check_is_refused_with_the_fresh_plan() {
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].from_status.as_deref(), Some("in_stock"));
 }
+
+/// A named status of `category`, made in the workspace: its id.
+fn seed_named(pool: &TestPool, ws: &WorkspaceSeed, category: &str, slug: &str, label: &str) -> i32 {
+    diesel::sql_query(
+        "INSERT INTO asset_statuses (category, slug, label, workspace_id)
+         VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind::<Text, _>(category)
+    .bind::<Text, _>(slug)
+    .bind::<Text, _>(label)
+    .bind::<Integer, _>(ws.workspace_id)
+    .get_result::<IdRow>(&mut pool.get().expect("conn"))
+    .expect("seed named status")
+    .id
+}
+
+/// Put `asset` in `status` and named status `named`, past the rules.
+fn set_named(pool: &TestPool, asset: i32, status: &str, named: Option<i32>) {
+    diesel::sql_query("UPDATE assets SET status = $1, status_id = $2 WHERE id = $3")
+        .bind::<Text, _>(status)
+        .bind::<Nullable<Integer>, _>(named)
+        .bind::<Integer, _>(asset)
+        .execute(&mut pool.get().expect("conn"))
+        .expect("set named status");
+}
+
+#[derive(QueryableByName)]
+struct NamedRow {
+    #[diesel(sql_type = Text)]
+    status: String,
+    #[diesel(sql_type = Nullable<Integer>)]
+    status_id: Option<i32>,
+}
+
+/// The asset's category and named status.
+fn named_of(pool: &TestPool, tag: &str) -> (String, Option<i32>) {
+    let row: NamedRow =
+        diesel::sql_query("SELECT status, status_id FROM assets WHERE asset_tag = $1")
+            .bind::<Text, _>(tag)
+            .get_result(&mut pool.get().expect("conn"))
+            .expect("read the status");
+    (row.status, row.status_id)
+}
+
+/// A Status cell names a named status by its name or slug: an existing
+/// asset moves to it, a new one starts in it. A name that is also another
+/// category's is refused naming both, and the named statuses are offered
+/// as values beside the categories.
+#[actix_web::test]
+async fn a_status_cell_names_a_named_status_and_a_shared_name_is_refused() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    let vendor = seed_named(&pool, &ws, "in_repair", "at_vendor", "At vendor");
+    seed_named(&pool, &ws, "retired", "written_off", "Lost");
+    seed_asset(&pool, &ws, "N-1", "in_service", false);
+
+    let job = checked(
+        &pool,
+        &ws,
+        &file(&[("N-1", "At vendor"), ("N-2", "at_vendor"), ("N-3", "Lost")]),
+        MAPPING,
+        options(),
+    )
+    .await;
+    assert_eq!(
+        errors(&job),
+        vec![(
+            4,
+            Some("status".to_string()),
+            "'lost' names more than one status: Lost (in Retired), Lost".to_string()
+        )],
+        "{job}"
+    );
+    let id = id_of(&job);
+    let view = get_values(&pool, &ws, &id).await;
+    let choice = status_column(&view)["choices"]
+        .as_array()
+        .expect("choices")
+        .iter()
+        .find(|c| c["value"] == "at_vendor")
+        .cloned()
+        .unwrap_or_else(|| panic!("no named choice in {view}"));
+    assert_eq!(choice["label"], "At vendor");
+    assert_eq!(choice["detail"], "In repair");
+
+    let planned = rows(&pool, &ws, &id).await;
+    assert_eq!(
+        row_result(&planned, 2)["fields_written"]["status"],
+        serde_json::json!({ "before": "in_service", "after": "At vendor" })
+    );
+    commit(&pool, &ws, &id).await;
+    assert_eq!(
+        named_of(&pool, "N-1"),
+        ("in_repair".to_string(), Some(vendor))
+    );
+    assert_eq!(
+        named_of(&pool, "N-2"),
+        ("in_repair".to_string(), Some(vendor))
+    );
+}
+
+/// The export's `status_label` column names the named status beside the
+/// category key, so an unmodified export re-imports with no change, and a
+/// blank one puts the plain category back.
+#[actix_web::test]
+async fn the_exports_status_label_round_trips() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    let vendor = seed_named(&pool, &ws, "in_repair", "at_vendor", "At vendor");
+    for tag in ["L-1", "L-2"] {
+        let id = seed_asset(&pool, &ws, tag, "in_repair", false);
+        set_named(&pool, id, "in_repair", Some(vendor));
+    }
+    let job = checked(
+        &pool,
+        &ws,
+        "Name,Tag,Status,status_label\nL-1,L-1,in_repair,At vendor\nL-2,L-2,in_repair,\n",
+        &[
+            ("Name", "name"),
+            ("Tag", "asset_tag"),
+            ("Status", "status"),
+            ("status_label", "status_label"),
+        ],
+        options(),
+    )
+    .await;
+    assert_eq!(errors(&job), vec![], "{job}");
+    assert_eq!(job["summary"]["unchanged"], 1, "{job}");
+    assert_eq!(job["summary"]["would_update"], 1, "{job}");
+    commit(&pool, &ws, &id_of(&job)).await;
+    assert_eq!(
+        named_of(&pool, "L-1"),
+        ("in_repair".to_string(), Some(vendor))
+    );
+    assert_eq!(named_of(&pool, "L-2"), ("in_repair".to_string(), None));
+}
+
+/// Restore previous values writes a named status's name in the Status cell,
+/// so a restore puts the named status back.
+#[actix_web::test]
+async fn restore_puts_a_named_status_back() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    let vendor = seed_named(&pool, &ws, "in_repair", "at_vendor", "At vendor");
+    let id_asset = seed_asset(&pool, &ws, "P-1", "in_repair", false);
+    set_named(&pool, id_asset, "in_repair", Some(vendor));
+
+    let job = checked(
+        &pool,
+        &ws,
+        &file(&[("P-1", "in_service")]),
+        MAPPING,
+        options(),
+    )
+    .await;
+    assert_eq!(errors(&job), vec![], "{job}");
+    let source = id_of(&job);
+    commit(&pool, &ws, &source).await;
+    assert_eq!(named_of(&pool, "P-1"), ("in_service".to_string(), None));
+
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        TestRequest::post().uri(&format!("/api/admin/import/{source}/restore")),
+    )
+    .await;
+    let draft = json(&body);
+    assert_eq!(status, StatusCode::CREATED, "{draft}");
+    assert_eq!(draft["summary"]["rows_with_errors"], 0, "{draft}");
+    let restore = id_of(&draft);
+    let planned = rows(&pool, &ws, &restore).await;
+    assert_eq!(
+        row_result(&planned, 2)["fields_written"]["status"],
+        serde_json::json!({ "before": "in_service", "after": "At vendor" })
+    );
+    commit(&pool, &ws, &restore).await;
+    assert_eq!(
+        named_of(&pool, "P-1"),
+        ("in_repair".to_string(), Some(vendor))
+    );
+}

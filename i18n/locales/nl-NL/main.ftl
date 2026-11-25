@@ -5356,6 +5356,8 @@ import-field-assets-serial-number = Serienummer
 # MT: pending native review (nl-NL)
 import-field-assets-status = Status
 # MT: pending native review (nl-NL)
+import-field-assets-status-label = Statusnaam
+# MT: pending native review (nl-NL)
 import-field-assets-location = Locatie
 # MT: pending native review (nl-NL)
 import-field-assets-notes = Notities
@@ -6903,6 +6905,9 @@ asset-move-refused-needs-disposal = Voor het afvoeren van een item is een afvoer
 asset-move-refused-disposal-not-allowed = Een afvoerregistratie wordt alleen geaccepteerd bij het afvoeren van een item
 asset-move-refused-start-only = De status { $status } wordt alleen gezet bij het aanmaken van een item; een item kan er niet naar terug
 asset-move-refused-start-on-loan = Een item kan niet worden aangemaakt als uitgeleend; leen het uit nadat het is aangemaakt
+asset-move-refused-wrong-category = Die benoemde status hoort niet bij { $status }
+asset-move-refused-status-archived = Die benoemde status is gearchiveerd; herstel hem om er items naartoe te verplaatsen
+asset-move-refused-status-not-for-kind = Die benoemde status wordt niet aangeboden voor dit soort item
 
 asset-lifecycle-heading = Statusgeschiedenis
 asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.

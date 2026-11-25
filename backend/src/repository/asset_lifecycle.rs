@@ -15,6 +15,12 @@
 //! every write here passes [`status_rules`] first, under the asset's row
 //! lock: a transition ([`transition`]), the loan ledger's issue and return
 //! ([`move_for_loan`]), and a create in a status of its own ([`create`]).
+//!
+//! `assets.status_id`, the workspace's named status inside the category,
+//! is written with `status` in the same statement, and each event records
+//! both sides (`from_status_id`, `to_status_id`). A move between two named
+//! statuses of one category is a relabel: it writes an event and nothing
+//! else, never a record.
 
 use diesel::prelude::*;
 use diesel::result::Error;
@@ -32,10 +38,13 @@ use crate::repository::asset_record_types::{self as record_types_repo, RecordTyp
 use crate::repository::asset_records::{
     self as records_repo, Cost, NewRecord, RecordChanges, RecordError, WorkDate,
 };
+use crate::repository::asset_statuses as named_repo;
 use crate::repository::assets as assets_repo;
 use crate::schema::{asset_disposals, asset_lifecycle_events, assets};
 use crate::services::assets::record_catalogue;
-use crate::services::assets::status_rules::{self, MoveFacts, MoveRefused, Mover, RefusalCode};
+use crate::services::assets::status_rules::{
+    self, MoveFacts, MoveRefused, Mover, Named, NamedMove, RefusalCode,
+};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
@@ -45,6 +54,8 @@ fn event_sync_payload(row: &AssetLifecycleEvent) -> serde_json::Value {
         "asset_id": row.asset_id,
         "from_status": row.from_status,
         "to_status": row.to_status,
+        "from_status_id": row.from_status_id,
+        "to_status_id": row.to_status_id,
         "reason": row.reason,
         "ticket_id": row.ticket_id,
         "metadata": row.metadata,
@@ -96,9 +107,26 @@ pub fn create(
     status: AssetStatus,
     first: Option<FirstEvent>,
 ) -> Result<(Asset, Option<AssetLifecycleEvent>), MoveError> {
-    status_rules::check_initial(status)?;
+    create_named(conn, new_asset, model_id, status, None, first)
+}
+
+/// [`create`] in named status `status_id` of `status`, which must be live
+/// and offered for the asset's kind.
+pub fn create_named(
+    conn: &mut DbConnection,
+    new_asset: crate::models::NewAsset,
+    model_id: Option<i32>,
+    status: AssetStatus,
+    status_id: Option<i32>,
+    first: Option<FirstEvent>,
+) -> Result<(Asset, Option<AssetLifecycleEvent>), MoveError> {
     conn.transaction::<_, MoveError, _>(|conn| {
-        let asset = assets_repo::create_device_in(conn, new_asset, model_id, status)?;
+        let named = match status_id {
+            Some(id) => Some(named_repo::get(conn, id)?.ok_or(MoveError::UnknownNamedStatus(id))?),
+            None => None,
+        };
+        status_rules::check_named_initial(status, named.as_ref().map(Named::of), &new_asset.kind)?;
+        let asset = assets_repo::create_device_in(conn, new_asset, model_id, status, status_id)?;
         let event = match first {
             Some(first) => Some(insert_event(
                 conn,
@@ -110,6 +138,8 @@ pub fn create(
                     ticket_id: None,
                     metadata: first.metadata,
                     actor_uuid: first.actor_uuid,
+                    from_status_id: None,
+                    to_status_id: asset.status_id,
                 },
             )?),
             None => None,
@@ -157,20 +187,52 @@ pub fn check_from_stored(
     to: AssetStatus,
     facts: MoveFacts,
 ) -> Result<(), MoveRefused> {
-    let from = match AssetStatus::from_str_opt(stored) {
+    status_rules::check_move(stored_category(stored, to), to, facts)
+}
+
+/// The category a stored status moves from, as [`check_from_stored`] reads
+/// it.
+fn stored_category(stored: &str, to: AssetStatus) -> AssetStatus {
+    match AssetStatus::from_str_opt(stored) {
         Some(from) => from,
         None if to == AssetStatus::InService => AssetStatus::InStock,
         None => AssetStatus::InService,
-    };
-    status_rules::check_move(from, to, facts)
+    }
 }
 
-/// Set an asset's `status` and send `asset.updated`. Only the moves in this
-/// module call it, each after [`status_rules`] passed it.
-fn set_status(conn: &mut DbConnection, asset_id: i32, status: AssetStatus) -> QueryResult<Asset> {
+/// [`status_rules::check_named_move`] for `asset` as stored, read as
+/// [`check_from_stored`] reads it.
+pub fn check_named_from_stored(
+    asset: &Asset,
+    to: AssetStatus,
+    named: Option<&crate::models::AssetNamedStatus>,
+    facts: MoveFacts,
+) -> Result<NamedMove, MoveRefused> {
+    status_rules::check_named_move(
+        stored_category(&asset.status, to),
+        asset.status_id,
+        to,
+        named.map(Named::of),
+        &asset.kind,
+        facts,
+    )
+}
+
+/// Set an asset's `status` and named status (`None`: plain) together, and
+/// send `asset.updated`. Only the moves in this module call it, each after
+/// [`status_rules`] passed it.
+fn set_status(
+    conn: &mut DbConnection,
+    asset_id: i32,
+    status: AssetStatus,
+    status_id: Option<i32>,
+) -> QueryResult<Asset> {
     // emit::record fires inside emit_asset_event.
     let device: Asset = diesel::update(assets::table.find(asset_id))
-        .set(assets::status.eq(status.as_str()))
+        .set((
+            assets::status.eq(status.as_str()),
+            assets::status_id.eq(status_id),
+        ))
         .get_result(conn)?;
     assets_repo::emit_asset_event(conn, &device, SyncOp::Update, "asset.updated")?;
     Ok(device)
@@ -180,14 +242,17 @@ fn set_status(conn: &mut DbConnection, asset_id: i32, status: AssetStatus) -> Qu
 pub enum LoanMove {
     /// A loan was issued: into `on_loan`.
     Issue,
-    /// A loan was returned: back to the status it recorded.
-    Return { to: AssetStatus },
+    /// A loan was returned: back to the status, and named status, it
+    /// recorded.
+    Return { to: AssetStatus, to_id: Option<i32> },
 }
 
 /// Why a create in a status, or the loan ledger's move, didn't happen.
 #[derive(Debug)]
 pub enum MoveError {
     Refused(MoveRefused),
+    /// The named status the create names doesn't exist.
+    UnknownNamedStatus(i32),
     Db(Error),
 }
 
@@ -210,7 +275,7 @@ impl From<MoveRefused> for MoveError {
 pub fn check_for_loan(asset: &Asset, mv: &LoanMove) -> Result<AssetStatus, MoveRefused> {
     let (mover, to) = match mv {
         LoanMove::Issue => (Mover::LoanIssue, AssetStatus::OnLoan),
-        LoanMove::Return { to } => (Mover::LoanReturn, *to),
+        LoanMove::Return { to, .. } => (Mover::LoanReturn, *to),
     };
     let Some(from) = AssetStatus::from_str_opt(&asset.status) else {
         let code = match mover {
@@ -237,7 +302,10 @@ pub fn check_for_loan(asset: &Asset, mv: &LoanMove) -> Result<AssetStatus, MoveR
 
 /// Move `asset`, locked by the caller with [`lock`], for the loan ledger,
 /// and log the move with the loan in its `metadata`. Checked as the ledger:
-/// an issue only from a loanable status, a return only from `on_loan`.
+/// an issue only from a loanable status, a return only from `on_loan`. An
+/// issue leaves the named status for plain `on_loan`; a return puts back the
+/// one the loan recorded, archived or not, since the ledger restores what it
+/// took rather than choosing a new status.
 #[allow(clippy::too_many_arguments)]
 pub fn move_for_loan(
     conn: &mut DbConnection,
@@ -249,8 +317,12 @@ pub fn move_for_loan(
     reason: Option<&str>,
 ) -> Result<Asset, MoveError> {
     let to = check_for_loan(asset, &mv)?;
+    let to_id = match mv {
+        LoanMove::Issue => None,
+        LoanMove::Return { to_id, .. } => to_id,
+    };
     let to_status = to.as_str().to_string();
-    let updated = set_status(conn, asset.id, to)?;
+    let updated = set_status(conn, asset.id, to, to_id)?;
     insert_event(
         conn,
         NewAssetLifecycleEvent {
@@ -261,6 +333,8 @@ pub fn move_for_loan(
             ticket_id,
             metadata: json!({ "loan_id": loan_id }),
             actor_uuid,
+            from_status_id: asset.status_id,
+            to_status_id: to_id,
         },
     )?;
     Ok(updated)
@@ -271,6 +345,9 @@ pub fn move_for_loan(
 pub struct TransitionInput {
     pub asset_id: i32,
     pub to_status: String,
+    /// The named status inside `to_status` to move to; `None` is the plain
+    /// category.
+    pub to_status_id: Option<i32>,
     pub reason: Option<String>,
     pub ticket_id: Option<i32>,
     pub metadata: serde_json::Value,
@@ -331,6 +408,11 @@ pub enum TransitionError {
     Refused(MoveRefused),
     /// `to_status` isn't one of the `AssetStatus` keys.
     UnknownStatus(String),
+    /// `to_status_id` names no status of the workspace.
+    UnknownNamedStatus(i32),
+    /// A record was asked to be opened or completed on a move within one
+    /// category, which writes no record.
+    RecordOnRelabel,
     /// `sanitization_method` is not one of [`SANITIZATION_METHODS`].
     InvalidSanitizationMethod(String),
     /// A record was asked to be opened, but no live record type opens with
@@ -388,8 +470,8 @@ fn check_sanitization(disposal: Option<&DisposalInput>) -> Result<(), Transition
     }
 }
 
-/// Move an asset to `to_status` and log the transition. Returns the
-/// updated asset and the new event.
+/// Move an asset to `to_status`, and named status `to_status_id` inside it,
+/// and log the transition. Returns the updated asset and the new event.
 ///
 /// Checked by [`status_rules::check_move`] under the asset's row lock: a
 /// move to the current status is refused as `same_status`; `disposed` is
@@ -397,7 +479,11 @@ fn check_sanitization(disposal: Option<&DisposalInput>) -> Result<(), Transition
 /// ledger, so an asset with an active loan leaves it only through
 /// [`asset_loans::return_loan`](crate::repository::asset_loans::return_loan),
 /// and enters it here only to restore an asset whose loan is still active;
-/// nothing moves back into `on_order`.
+/// nothing moves back into `on_order`. A named target must be of
+/// `to_status`, live and offered for the asset's kind; a move to another
+/// named status of the asset's category is a relabel, allowed in every
+/// category, that writes no record (`record` or `complete_record` refuse
+/// it).
 ///
 /// With `complete_record`, the open record the status it leaves opened is
 /// completed; with `record`, a record of the type `to_status` opens with is
@@ -414,16 +500,28 @@ pub fn transition(
 
     // emit::record fires for both writes inside this transaction.
     conn.transaction::<(Asset, AssetLifecycleEvent), TransitionError, _>(|conn| {
+        let named = match input.to_status_id {
+            Some(id) => {
+                Some(named_repo::get(conn, id)?.ok_or(TransitionError::UnknownNamedStatus(id))?)
+            }
+            None => None,
+        };
         // Lock the asset so a concurrent loan issue/return can't change its
         // status between the checks below and the update.
         let current = lock(conn, input.asset_id)?;
         let from_status = current.status.clone();
         let has_active_loan = asset_loans_repo::active_for_asset(conn, input.asset_id)?.is_some();
-        check_from_stored(
-            &from_status,
+        let change = check_named_from_stored(
+            &current,
             to,
+            named.as_ref(),
             MoveFacts::by_hand(has_active_loan, input.disposal.is_some()),
         )?;
+        if change == NamedMove::Within
+            && (input.record.is_some() || input.complete_record.is_some())
+        {
+            return Err(TransitionError::RecordOnRelabel);
+        }
 
         // The records the move writes, resolved before anything is.
         let completing = match &input.complete_record {
@@ -435,7 +533,7 @@ pub fn transition(
             None => None,
         };
 
-        let updated = set_status(conn, input.asset_id, to)?;
+        let updated = set_status(conn, input.asset_id, to, input.to_status_id)?;
 
         // `record_id` is the server's to write: it names the record this
         // move opened, never one a caller claims.
@@ -456,6 +554,8 @@ pub fn transition(
                 ticket_id: input.ticket_id,
                 metadata,
                 actor_uuid: input.actor_uuid,
+                from_status_id: current.status_id,
+                to_status_id: input.to_status_id,
             })
             .get_result(conn)?;
 
@@ -719,6 +819,7 @@ mod tests {
         TransitionInput {
             asset_id,
             to_status: status.to_string(),
+            to_status_id: None,
             reason: None,
             ticket_id: None,
             metadata: json!({}),

@@ -45,7 +45,10 @@ export interface CompleteRecordBody {
 }
 
 export interface LifecycleTransitionBody {
+  /** The category; may be left out when `to_status_id` names the status. */
   to_status: string;
+  /** A named status inside `to_status`; left out, the plain category. */
+  to_status_id?: number | null;
   reason?: string | null;
   ticket_id?: number | null;
   metadata?: Record<string, unknown>;

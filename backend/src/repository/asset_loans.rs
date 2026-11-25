@@ -77,6 +77,8 @@ fn loan_move_error(asset: &Asset, e: MoveError) -> LoanError {
     match e {
         MoveError::Refused(r) => loan_refusal(asset, r),
         MoveError::Db(e) => LoanError::Db(e),
+        // The ledger's moves name no status of their own choosing.
+        MoveError::UnknownNamedStatus(_) => LoanError::Db(DieselError::NotFound),
     }
 }
 
@@ -351,6 +353,7 @@ pub fn issue(conn: &mut DbConnection, input: IssueLoan) -> Result<AssetLoan, Loa
                 status_before: asset.status.clone(),
                 notes: input.notes,
                 actor_uuid: input.actor_uuid,
+                status_id_before: asset.status_id,
             })
             .get_result(conn)
         {
@@ -442,7 +445,10 @@ pub fn return_loan_logged(
         // Back to the recorded status when the asset is on loan and the
         // ledger recorded one of the nine; otherwise the status stays.
         let back = AssetStatus::from_str_opt(&loan.status_before)
-            .map(|to| LoanMove::Return { to })
+            .map(|to| LoanMove::Return {
+                to,
+                to_id: loan.status_id_before,
+            })
             .filter(|back| asset_lifecycle::check_for_loan(&asset, back).is_ok());
         let moved = back.is_some();
         if let Some(back) = back {

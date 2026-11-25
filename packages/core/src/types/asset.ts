@@ -48,6 +48,10 @@ export interface Asset {
    *  `in_service`. Changed via the lifecycle transition endpoint,
    *  not a plain asset edit. */
   status: string;
+  /** The workspace's named status inside `status` (`AssetNamedStatus.id`);
+   *  null or absent is the plain category, which reads as the category's
+   *  default named status when the workspace has one. */
+  status_id?: number | null;
   primary_user_uuid?: string | null;
   /** The accountable "managed by" custodian, distinct from
    *  primary_user_uuid (the "used by" holder). */
@@ -150,6 +154,11 @@ export interface AssetLifecycleEvent {
   asset_id: number;
   from_status?: string | null;
   to_status: string;
+  /** The named statuses inside `from_status` and `to_status`; null is the
+   *  plain category. A change of named status within one category has the
+   *  same `from_status` and `to_status`. */
+  from_status_id?: number | null;
+  to_status_id?: number | null;
   reason?: string | null;
   ticket_id?: number | null;
   metadata: Record<string, unknown>;
@@ -187,6 +196,9 @@ export interface AssetLoan {
   notes?: string | null;
   actor_uuid?: string | null;
   returned_by_uuid?: string | null;
+  /** The named status the return puts back, inside the status the loan
+   *  left. */
+  status_id_before?: number | null;
 }
 
 /** A manufacturer (make) in the asset model catalog. */

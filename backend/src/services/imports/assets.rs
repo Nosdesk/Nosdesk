@@ -55,8 +55,8 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
-    Asset, AssetGroup, AssetKind, AssetLifecycleEvent, AssetModel, AssetStatus, AssetUpdate,
-    Manufacturer, NewAsset, NewAssetGroup, NewAssetModel, NewManufacturer,
+    Asset, AssetGroup, AssetKind, AssetLifecycleEvent, AssetModel, AssetNamedStatus, AssetStatus,
+    AssetUpdate, Manufacturer, NewAsset, NewAssetGroup, NewAssetModel, NewManufacturer,
 };
 use crate::repository::asset_groups as group_repo;
 use crate::repository::asset_kinds as kind_repo;
@@ -65,12 +65,13 @@ use crate::repository::asset_lifecycle::{
 };
 use crate::repository::asset_loans as asset_loans_repo;
 use crate::repository::asset_models as model_repo;
+use crate::repository::asset_statuses as named_status_repo;
 use crate::repository::assets as asset_repo;
 use crate::repository::manufacturers as manufacturer_repo;
 use crate::repository::workspaces as workspace_repo;
 use crate::services::assets::kinds::{validate_attributes, AttributeError};
 use crate::services::assets::model_stamp::stamp_default_attributes;
-use crate::services::assets::status_rules::{self, MoveFacts, MoveRefused};
+use crate::services::assets::status_rules::{self, MoveFacts, MoveRefused, Named};
 use crate::services::assets::SYNC_OWNED_ATTRIBUTE_KEYS;
 use crate::services::custom_fields::order::{normalise_order, stored_order};
 use crate::services::custom_fields::references;
@@ -103,10 +104,12 @@ pub const IMPORT_HEADERS: &[&str] = &[
     "low_stock_threshold",
 ];
 
-/// Columns appended on export only. The importer ignores `attributes`,
-/// and an unchanged `status` writes nothing, so re-importing an unmodified
-/// export is a no-op upsert on the shared columns.
-pub const EXPORT_EXTRA_HEADERS: &[&str] = &["status", "attributes"];
+/// Columns appended on export only. The importer ignores `attributes`, and
+/// an unchanged `status` writes nothing, so re-importing an unmodified
+/// export is a no-op upsert on the shared columns. `status_label` names the
+/// asset's named status (blank for the plain category), which the importer
+/// reads beside `status`.
+pub const EXPORT_EXTRA_HEADERS: &[&str] = &["status", "attributes", "status_label"];
 
 /// Every status in picker order, with its label.
 const STATUSES: &[(AssetStatus, &str)] = &[
@@ -141,6 +144,65 @@ fn read_status(cell: &str) -> Option<AssetStatus> {
             values::loose(status.as_str()) == wanted || values::loose(label) == wanted
         })
         .map(|(status, _)| *status)
+}
+
+/// Where a status cell puts an asset: a category, and the workspace's named
+/// status inside it (`None`: the plain category).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StatusTo {
+    category: AssetStatus,
+    named: Option<i32>,
+}
+
+/// A status cell as the status it names: a live named status by label or
+/// slug, or a category by key or label, ignoring case, spacing, `_` and
+/// `-`. A cell that names two (a named status and another category, or two
+/// named statuses) is refused, naming both.
+fn read_status_cell(cell: &str, named: &[AssetNamedStatus]) -> Result<StatusTo, String> {
+    let wanted = values::loose(cell);
+    let category = read_status(cell);
+    let hits: Vec<(&AssetNamedStatus, AssetStatus)> = named
+        .iter()
+        .filter(|s| s.archived_at.is_none())
+        .filter(|s| values::loose(&s.label) == wanted || values::loose(&s.slug) == wanted)
+        .filter_map(|s| s.category().map(|c| (s, c)))
+        .collect();
+    match (hits.as_slice(), category) {
+        ([], Some(category)) => Ok(StatusTo {
+            category,
+            named: None,
+        }),
+        ([], None) => Err(format!("'{cell}' isn't a status")),
+        // A named status of the category the cell also names is that one.
+        ([(one, of)], category) if category.is_none_or(|c| c == *of) => Ok(StatusTo {
+            category: *of,
+            named: Some(one.id),
+        }),
+        (many, category) => {
+            let mut names: Vec<String> = many
+                .iter()
+                .map(|(s, of)| format!("{} (in {})", s.label, status_label(of.as_str())))
+                .collect();
+            names.extend(
+                category
+                    .filter(|c| many.iter().all(|(_, of)| of != c))
+                    .map(|c| status_label(c.as_str()).to_string()),
+            );
+            Err(format!(
+                "'{cell}' names more than one status: {}",
+                names.join(", ")
+            ))
+        }
+    }
+}
+
+/// A category's name as the importer lists it, or the key itself for one
+/// outside the nine.
+fn status_label(key: &str) -> &str {
+    STATUSES
+        .iter()
+        .find(|(status, _)| status.as_str() == key)
+        .map_or(key, |(_, label)| *label)
 }
 
 /// The template's columns before a kind's attributes, in order. An
@@ -436,6 +498,9 @@ impl Importer for AssetImporter {
                     .map(|(status, _)| status.as_str().to_string())
                     .collect(),
             ),
+            // The export's named status beside the `status` key; blank is the
+            // plain category.
+            FieldSpec::fixed(t, "status_label", "Status name", Core, Text, false),
             FieldSpec::fixed(t, "location", "Location", Core, Text, false),
             FieldSpec::fixed(t, "notes", "Notes", Core, Text, false),
             FieldSpec::fixed(t, "quantity", "Quantity", Core, Number, false),
@@ -510,18 +575,27 @@ impl Importer for AssetImporter {
         field: &FieldSpec,
     ) -> Result<Option<Vec<Choice>>, diesel::result::Error> {
         if field.id == "status" {
-            return Ok(Some(
-                STATUSES
-                    .iter()
-                    .map(|(status, label)| {
-                        let mut choice = Choice::new(status.as_str(), *label);
-                        if set_after_import(*status) {
-                            choice.disabled = Some(STATUS_SET_AFTER_IMPORT.to_string());
-                        }
-                        choice
-                    })
-                    .collect(),
-            ));
+            let mut choices: Vec<Choice> = STATUSES
+                .iter()
+                .map(|(status, label)| {
+                    let mut choice = Choice::new(status.as_str(), *label);
+                    if set_after_import(*status) {
+                        choice.disabled = Some(STATUS_SET_AFTER_IMPORT.to_string());
+                    }
+                    choice
+                })
+                .collect();
+            // The workspace's live named statuses, by slug, each telling its
+            // category.
+            for named in named_status_repo::list(conn, false)? {
+                let mut choice = Choice::new(named.slug.clone(), named.label.clone());
+                choice.detail = Some(status_label(&named.category).to_string());
+                if named.category().is_none_or(set_after_import) {
+                    choice.disabled = Some(STATUS_SET_AFTER_IMPORT.to_string());
+                }
+                choices.push(choice);
+            }
+            return Ok(Some(choices));
         }
         if field.id != "kind" {
             return Ok(values::enum_choices(field));
@@ -746,7 +820,9 @@ impl Importer for AssetImporter {
                                     "status".to_string(),
                                     FieldChange {
                                         before: None,
-                                        after: Some(to.as_str().to_string()),
+                                        after: Some(
+                                            lookups.status_text(to.category.as_str(), to.named),
+                                        ),
                                     },
                                 );
                             }
@@ -829,12 +905,16 @@ impl Importer for AssetImporter {
             let mut first_event = None;
             let (outcome, written) = match planned.action {
                 RowAction::Create => {
-                    let status = planned.status_to.unwrap_or(AssetStatus::InService);
-                    let created = asset_lifecycle_repo::create(
+                    let status = planned.status_to.unwrap_or(StatusTo {
+                        category: AssetStatus::InService,
+                        named: None,
+                    });
+                    let created = asset_lifecycle_repo::create_named(
                         conn,
                         build_new_asset(row, &planned, &texts, ctx.actor, mark),
                         texts.link,
-                        status,
+                        status.category,
+                        status.named,
                         Some(FirstEvent::imported(ctx.actor, ctx.job_id)),
                     );
                     let created = match created {
@@ -846,6 +926,9 @@ impl Importer for AssetImporter {
                             return Err(status_refused(row_num, &trimmed(row, "name"), r))
                         }
                         Err(MoveError::Db(e)) => Err(e),
+                        Err(MoveError::UnknownNamedStatus(_)) => {
+                            Err(diesel::result::Error::NotFound)
+                        }
                     };
                     (RowOutcome::Create, created)
                 }
@@ -1074,7 +1157,10 @@ fn field_values(asset: &Asset, lookups: &Lookups) -> BTreeMap<String, Option<Str
     let mut out: BTreeMap<String, Option<String>> = [
         ("name", Some(asset.name.clone())),
         ("kind", Some(asset.kind.clone())),
-        ("status", Some(asset.status.clone())),
+        (
+            "status",
+            Some(lookups.status_text(&asset.status, asset.status_id)),
+        ),
         ("asset_tag", text(&asset.asset_tag)),
         ("serial_number", text(&asset.serial_number)),
         ("manufacturer", text(&asset.manufacturer)),
@@ -1171,7 +1257,7 @@ struct RowWrites<'a> {
     primary_user: Option<Uuid>,
     /// The asset's attributes with the row's merged in, when it writes any.
     attributes: Option<&'a Value>,
-    status_to: Option<AssetStatus>,
+    status_to: Option<StatusTo>,
     groups: &'a [GroupPick],
 }
 
@@ -1231,7 +1317,10 @@ fn update_changes(
         }
     }
     if let Some(to) = writes.status_to {
-        change("status", Some(to.as_str().to_string()));
+        change(
+            "status",
+            Some(lookups.status_text(to.category.as_str(), to.named)),
+        );
     }
     for (field, current) in [
         ("quantity", &asset.quantity),
@@ -1410,7 +1499,7 @@ struct PlannedRow {
     /// The status the commit moves the asset to through the lifecycle
     /// rules, when the row's status differs from the asset's (a new asset
     /// starts in service).
-    status_to: Option<AssetStatus>,
+    status_to: Option<StatusTo>,
     /// A synced asset's row writes its attributes or groups, not only its
     /// status.
     synced_writes: bool,
@@ -1448,6 +1537,8 @@ struct Lookups {
     currency: Option<String>,
     /// The people, assets and groups a reference attribute may name.
     known: crate::services::custom_fields::references::Known,
+    /// The workspace's named statuses, archived ones too.
+    statuses: Vec<AssetNamedStatus>,
 }
 
 struct KindInfo {
@@ -1551,7 +1642,16 @@ impl Lookups {
                 asset_kinds: asset_repo::all_kinds_by_id(conn)?,
                 groups: people_groups.values().flatten().copied().collect(),
             },
+            statuses: named_status_repo::list(conn, true)?,
         })
+    }
+
+    /// A status as an import file writes it: a named status's label, else
+    /// the category key.
+    fn status_text(&self, category: &str, named: Option<i32>) -> String {
+        named
+            .and_then(|id| self.statuses.iter().find(|s| s.id == id))
+            .map_or_else(|| category.to_string(), |s| s.label.clone())
     }
 
     /// The field id of an attribute key.
@@ -1802,13 +1902,6 @@ fn plan_row(
     // The catalog: the manufacturer, the model matched under it, and the
     // location's spelling.
     let existing = target.and_then(|id| lookups.existing.get(&id));
-    let status_to = match plan_status(row, existing, lookups) {
-        Ok(to) => to,
-        Err(message) => {
-            error("status", message);
-            None
-        }
-    };
     let maker = pick_maker(row, lookups, options);
     if let MakerPick::Ambiguous(message) = &maker {
         error("manufacturer", message.clone());
@@ -1873,6 +1966,15 @@ fn plan_row(
             _ => {}
         }
         found
+    };
+
+    // The status, for the kind the asset has after the row.
+    let status_to = match plan_status(row, existing, kind.as_deref().unwrap_or_default(), lookups) {
+        Ok(to) => to,
+        Err(message) => {
+            error("status", message);
+            None
+        }
     };
 
     // A model the import creates needs a manufacturer, and a kind whose
@@ -2089,29 +2191,75 @@ fn plan_row(
     }
 }
 
-/// The status a row puts its asset in, asked of the status rules the commit
-/// asks ([`status_rules::check_initial`] for a new asset, a move by hand for
-/// an existing one): `None` for a blank cell, the status the asset already
-/// has, or in service on a new asset. The error is the rules' refusal,
-/// naming the asset.
+/// The status a row puts its asset of kind `kind` in, asked of the status
+/// rules the commit asks ([`status_rules::check_named_initial`] for a new
+/// asset, a move by hand for an existing one): `None` for a blank cell, the
+/// status the asset already has, or plain in service on a new asset. The
+/// error is the rules' refusal, naming the asset.
+///
+/// The cell names a category or a named status. Beside a category, a
+/// `status_label` column (the export's) names the named status inside it,
+/// blank for the plain category; without that column a category is plain.
 fn plan_status(
     row: &HashMap<String, String>,
     existing: Option<&Asset>,
+    kind: &str,
     lookups: &Lookups,
-) -> Result<Option<AssetStatus>, String> {
+) -> Result<Option<StatusTo>, String> {
     let cell = trimmed(row, "status");
     if cell.is_empty() {
         return Ok(None);
     }
-    let to = read_status(&cell).ok_or_else(|| format!("'{cell}' isn't a status"))?;
+    let mut to = read_status_cell(&cell, &lookups.statuses)?;
+    let label = trimmed(row, "status_label");
+    if to.named.is_none() && !label.is_empty() {
+        // The asset's own status first, then a live one: an archived status
+        // keeps its name, and a live one may have taken it since.
+        let mut found: Vec<&AssetNamedStatus> = lookups
+            .statuses
+            .iter()
+            .filter(|s| {
+                s.category == to.category.as_str()
+                    && values::loose(&s.label) == values::loose(&label)
+            })
+            .collect();
+        found.sort_by_key(|s| {
+            (
+                existing.is_none_or(|a| a.status_id != Some(s.id)),
+                s.archived_at.is_some(),
+            )
+        });
+        let found = found.first();
+        match found {
+            Some(named) => to.named = Some(named.id),
+            None => {
+                return Err(format!(
+                    "'{label}' isn't a status of {}",
+                    status_label(to.category.as_str())
+                ))
+            }
+        }
+    }
+    let named = to
+        .named
+        .and_then(|id| lookups.statuses.iter().find(|s| s.id == id))
+        .map(Named::of);
     let checked = match existing {
-        None if to.as_str() == AssetStatus::default_str() => return Ok(None),
-        None => status_rules::check_initial(to),
-        Some(asset) => asset_lifecycle_repo::check_from_stored(
-            &asset.status,
-            to,
+        None if to.category.as_str() == AssetStatus::default_str() && to.named.is_none() => {
+            return Ok(None)
+        }
+        None => status_rules::check_named_initial(to.category, named, kind),
+        Some(asset) => asset_lifecycle_repo::check_named_from_stored(
+            &Asset {
+                kind: kind.to_string(),
+                ..asset.clone()
+            },
+            to.category,
+            to.named
+                .and_then(|id| lookups.statuses.iter().find(|s| s.id == id)),
             MoveFacts::by_hand(lookups.on_loan.contains(&asset.id), false),
-        ),
+        )
+        .map(|_| ()),
     };
     match checked {
         Ok(()) => Ok(Some(to)),
@@ -2142,13 +2290,14 @@ fn status_refused(row: usize, name: &str, r: MoveRefused) -> CommitError {
 fn move_status(
     conn: &mut DbConnection,
     asset: Asset,
-    to: AssetStatus,
+    to: StatusTo,
     ctx: &ImportContext,
     row: usize,
 ) -> Result<(Asset, Option<AssetLifecycleEvent>), CommitError> {
     let input = asset_lifecycle_repo::TransitionInput {
         asset_id: asset.id,
-        to_status: to.as_str().to_string(),
+        to_status: to.category.as_str().to_string(),
+        to_status_id: to.named,
         reason: Some(asset_lifecycle_repo::IMPORTED_REASON.to_string()),
         ticket_id: None,
         metadata: serde_json::json!({ "import_job_id": ctx.job_id }),
@@ -2180,6 +2329,8 @@ fn move_status(
         // so none of these can happen.
         Err(
             TransitionError::UnknownStatus(_)
+            | TransitionError::UnknownNamedStatus(_)
+            | TransitionError::RecordOnRelabel
             | TransitionError::InvalidSanitizationMethod(_)
             | TransitionError::NoRecordType { .. }
             | TransitionError::NoOpenRecord
@@ -2188,7 +2339,7 @@ fn move_status(
             | TransitionError::Record(_),
         ) => Err(refused(format!(
             "{name}: its status can't change to {}",
-            to.as_str()
+            to.category.as_str()
         ))),
     }
 }
@@ -3514,9 +3665,9 @@ fn opt_string_field(value: &Option<String>) -> String {
     value.as_deref().unwrap_or("").to_string()
 }
 
-/// One CSV data row for an asset. Column order matches
-/// `export_header_row`.
-fn asset_export_row(asset: &Asset) -> Vec<String> {
+/// One CSV data row for an asset, its named status's name from
+/// `status_labels`. Column order matches `export_header_row`.
+fn asset_export_row(asset: &Asset, status_labels: &HashMap<i32, String>) -> Vec<String> {
     [
         asset.name.clone(),
         asset.kind.clone(),
@@ -3531,6 +3682,10 @@ fn asset_export_row(asset: &Asset) -> Vec<String> {
         opt_decimal_string(&asset.low_stock_threshold),
         asset.status.clone(),
         asset.attributes.to_string(),
+        asset
+            .status_id
+            .and_then(|id| status_labels.get(&id).cloned())
+            .unwrap_or_default(),
     ]
     .into_iter()
     .map(csv_formula_safe)
@@ -3551,13 +3706,16 @@ fn export_header_row() -> Vec<&'static str> {
 /// v1 buffers the full export in memory (`Vec<u8>`), same tradeoff
 /// as the import pipeline. Streaming can replace this if workspace
 /// asset counts outgrow RAM.
-pub fn write_assets_csv(assets: &[Asset]) -> Result<Vec<u8>, csv::Error> {
+pub fn write_assets_csv(
+    assets: &[Asset],
+    status_labels: &HashMap<i32, String>,
+) -> Result<Vec<u8>, csv::Error> {
     let mut buf = Vec::new();
     {
         let mut wtr = csv::Writer::from_writer(&mut buf);
         wtr.write_record(export_header_row())?;
         for asset in assets {
-            wtr.write_record(asset_export_row(asset))?;
+            wtr.write_record(asset_export_row(asset, status_labels))?;
         }
         wtr.flush()?;
     }
@@ -3962,6 +4120,7 @@ mod export_tests {
             status: "in_service".to_string(),
             model_id: None,
             managed_by_user_uuid: None,
+            status_id: None,
         }
     }
 
@@ -3979,12 +4138,31 @@ mod export_tests {
 
     #[test]
     fn export_csv_headers_match_importer_plus_extras() {
-        let csv = write_assets_csv(&[sample_asset()]).unwrap();
+        let csv = write_assets_csv(&[sample_asset()], &HashMap::new()).unwrap();
         let text = String::from_utf8(csv).unwrap();
         let header = text.lines().next().unwrap();
         assert_eq!(
             header,
-            "name,kind,asset_tag,serial_number,manufacturer,model,location,notes,quantity,unit,low_stock_threshold,status,attributes"
+            "name,kind,asset_tag,serial_number,manufacturer,model,location,notes,quantity,unit,low_stock_threshold,status,attributes,status_label"
+        );
+    }
+
+    #[test]
+    fn export_names_the_named_status_after_the_category() {
+        let mut named = sample_asset();
+        named.status = "in_repair".to_string();
+        named.status_id = Some(7);
+        let labels = HashMap::from([(7, "At vendor".to_string())]);
+        let csv = write_assets_csv(&[sample_asset(), named], &labels).unwrap();
+        let rows: Vec<csv::StringRecord> = csv::Reader::from_reader(csv.as_slice())
+            .records()
+            .map(Result::unwrap)
+            .collect();
+        let last = |r: &csv::StringRecord| (r[11].to_string(), r[13].to_string());
+        assert_eq!(last(&rows[0]), ("in_service".to_string(), String::new()));
+        assert_eq!(
+            last(&rows[1]),
+            ("in_repair".to_string(), "At vendor".to_string())
         );
     }
 
@@ -4003,6 +4181,8 @@ mod export_tests {
             actor_uuid: None,
             occurred_at,
             workspace_id: 1,
+            from_status_id: None,
+            to_status_id: None,
         };
         let csv = write_history_csv(&[asset], &[event]).unwrap();
         let text = String::from_utf8(csv).unwrap();
@@ -4032,6 +4212,8 @@ mod export_tests {
             actor_uuid: None,
             occurred_at: "2024-02-01T00:00:00Z".parse().unwrap(),
             workspace_id: 1,
+            from_status_id: None,
+            to_status_id: None,
         };
         let events: Vec<_> = ["+cmd", "-1+1", "@SUM(1)", "=1"]
             .into_iter()
@@ -4052,7 +4234,7 @@ mod export_tests {
         let mut asset = sample_asset();
         asset.name = "=SUM(A1)".to_string();
         asset.notes = Some("+cmd".to_string());
-        let csv = write_assets_csv(&[asset]).unwrap();
+        let csv = write_assets_csv(&[asset], &HashMap::new()).unwrap();
         let text = String::from_utf8(csv).unwrap();
         let row = text.lines().nth(1).unwrap();
         assert!(row.starts_with("'=SUM(A1)"));

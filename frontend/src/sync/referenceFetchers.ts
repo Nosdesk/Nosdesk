@@ -145,6 +145,7 @@ function toAssetCacheRow(asset: import('@nosdesk/core/types/asset').Asset): Reco
     asset_tag: asset.asset_tag ?? null,
     location: asset.location ?? null,
     status: asset.status,
+    status_id: asset.status_id ?? null,
     primary_user_uuid: asset.primary_user_uuid ?? null,
     managed_by_user_uuid: asset.managed_by_user_uuid ?? null,
     attributes: asset.attributes ?? {},

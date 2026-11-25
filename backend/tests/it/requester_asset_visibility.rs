@@ -863,6 +863,7 @@ async fn lifecycle_reasons_actors_and_metadata_stay_with_staff() {
             backend::repository::asset_lifecycle::TransitionInput {
                 asset_id: f.asset,
                 to_status: "in_repair".to_string(),
+                to_status_id: None,
                 reason: Some(REASON.to_string()),
                 ticket_id: Some(f.ticket),
                 metadata: json!({ "vendor": VENDOR, "rma": "RMA-42" }),
@@ -965,6 +966,7 @@ async fn disposal_notes_vendor_and_actor_stay_with_staff() {
             backend::repository::asset_lifecycle::TransitionInput {
                 asset_id: f.asset,
                 to_status: "disposed".to_string(),
+                to_status_id: None,
                 reason: None,
                 ticket_id: None,
                 metadata: json!({}),

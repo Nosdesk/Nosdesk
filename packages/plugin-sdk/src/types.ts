@@ -84,6 +84,9 @@ export interface PluginAssetQuery {
   group?: number | number[];
   /** Lifecycle status(es): `in_service`, `in_repair`, and so on. */
   status?: string | string[];
+  /** Named status id(s), as `assets.statuses()` lists them. A category's
+   * default also matches its plain assets. Since API 1.2. */
+  statusId?: number | number[];
   /** A column (`name`, `serial_number`, `model`, `location`, `status`,
    * `created_at`, `updated_at`, `quantity`), `borrower` (open loan's
    * borrower name), `last_status_change` (newest lifecycle event) or
@@ -132,6 +135,30 @@ export interface PluginAssetGroup {
   name: string;
   /** The group's colour as the app stores it (a CSS colour), or null. */
   color: string | null;
+}
+
+/** A workspace's own name for an asset status, as `assets.statuses()` lists
+ * it. An asset holds it as `status_id`, inside its `status` (the category);
+ * an asset with no `status_id` reads as its category's default named status
+ * when the workspace has one. */
+export interface PluginAssetStatus {
+  id: number;
+  /** The category: `in_service`, `in_repair`, and so on. */
+  category: string;
+  /** Stable key; never changes. */
+  slug: string;
+  label: string;
+  description: string | null;
+  /** `#rrggbb`, or null for the category's color. */
+  color: string | null;
+  /** Order within the category. */
+  position: number;
+  /** The category's name in this workspace. */
+  isDefault: boolean;
+  /** Asset kind slugs offered the status; null for every kind. */
+  appliesToKinds: string[] | null;
+  /** Archived statuses stay on the assets that hold them. */
+  archived: boolean;
 }
 
 /** A plugin storage entry with its version, for `storage.compareAndSet`.
@@ -287,6 +314,10 @@ export interface HostApi {
      * since API 1.2. A user who isn't an agent or admin gets an empty list
      * unless the workspace shows assets to requesters. */
     groups(): Promise<PluginAssetGroup[]>;
+    /** The workspace's named statuses in picker order, archived ones too
+     * (`asset:read`), since API 1.2. Empty when the workspace has named none,
+     * or when assets aren't shown to the acting user. */
+    statuses(): Promise<PluginAssetStatus[]>;
     /** Patch an asset (`asset:write`). Acts as the current user. */
     update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
   };

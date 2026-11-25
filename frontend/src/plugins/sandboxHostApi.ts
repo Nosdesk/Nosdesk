@@ -43,6 +43,7 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
       query: (params) => inproc.assets.query(params),
       kinds: () => inproc.assets.kinds(),
       groups: () => inproc.assets.groups(),
+      statuses: () => inproc.assets.statuses(),
       update: (id, patch) => inproc.assets.update(id, patch),
     },
     users: {

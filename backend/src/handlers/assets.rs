@@ -405,6 +405,9 @@ pub struct PaginationParams {
     search: Option<String>,
     /// Comma-separated lifecycle statuses (`in_service`, `in_repair`, …).
     status: Option<String>,
+    /// Comma-separated named status ids; a category's default also matches
+    /// its plain assets.
+    status_id: Option<String>,
     warranty: Option<String>,
     location: Option<String>,
     /// Comma-separated native asset-group ids; matches assets in ANY of them.
@@ -430,6 +433,7 @@ pub struct AssetExportQuery {
     format: Option<String>,
     search: Option<String>,
     status: Option<String>,
+    status_id: Option<String>,
     warranty: Option<String>,
     location: Option<String>,
     groups: Option<String>,
@@ -490,6 +494,8 @@ pub struct AssetResponse {
     /// Staff only: left out for anyone else (see `assets_for_viewer`).
     pub notes: Option<String>,
     pub status: String,
+    /// The named status inside `status`; null is the plain category.
+    pub status_id: Option<i32>,
     pub primary_user_uuid: Option<String>,
     pub managed_by_user_uuid: Option<String>,
     pub created_at: String,
@@ -578,6 +584,7 @@ impl AssetResponse {
             location: device.location,
             notes: device.notes,
             status: device.status,
+            status_id: device.status_id,
             primary_user_uuid: device
                 .primary_user_uuid
                 .map(|uuid| utils::uuid_to_string(&uuid)),
@@ -902,6 +909,7 @@ pub async fn asset_grouping_dataset(
             warranty: query.warranty.as_deref(),
             location: query.location.as_deref(),
             status: query.status.as_deref(),
+            status_id: query.status_id.as_deref(),
             groups: query.groups.as_deref(),
             low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
             ids: ids.as_deref(),
@@ -1114,6 +1122,7 @@ pub async fn export_assets(
         let filters = repository::assets::AssetListFilters {
             search: query.search.as_deref(),
             status: query.status.as_deref(),
+            status_id: query.status_id.as_deref(),
             warranty: query.warranty.as_deref(),
             location: query.location.as_deref(),
             groups: query.groups.as_deref(),
@@ -1184,11 +1193,22 @@ pub async fn export_assets(
         ExportExtra::Records { .. } => "asset-records",
         ExportExtra::Timeline(_) => "asset-timeline",
     };
+    // The snapshot's `status_label` column names each named status.
+    let status_labels: HashMap<i32, String> = match &extra {
+        ExportExtra::None => match tc.run(|conn| repository::asset_statuses::list(conn, true)) {
+            Ok(statuses) => statuses.into_iter().map(|s| (s.id, s.label)).collect(),
+            Err(e) => {
+                error!(error = ?e, "Database error exporting assets");
+                return errors::internal("Failed to export assets");
+            }
+        },
+        _ => HashMap::new(),
+    };
     let by_id: HashMap<i32, &Asset> = rows.iter().map(|a| (a.id, a)).collect();
     let json = format == "json";
     let built: Result<Vec<u8>, String> = match extra {
         ExportExtra::None if json => serde_json::to_vec(&rows).map_err(|e| e.to_string()),
-        ExportExtra::None => write_assets_csv(&rows).map_err(|e| e.to_string()),
+        ExportExtra::None => write_assets_csv(&rows, &status_labels).map_err(|e| e.to_string()),
         ExportExtra::History(events) if json => {
             serde_json::to_vec(&build_history_rows(&rows, &events)).map_err(|e| e.to_string())
         }
@@ -1542,6 +1562,7 @@ pub async fn get_paginated_devices(
             sort_direction,
             search,
             status,
+            query.status_id.as_deref(),
             warranty,
             location,
             groups,
@@ -1691,10 +1712,14 @@ pub struct CreateAssetBody {
     /// in (not `on_loan` or `disposed`, which a loan and a disposal set).
     #[serde(default)]
     pub status: Option<String>,
+    /// A named status to start in, inside `status` when both are given.
+    #[serde(default)]
+    pub status_id: Option<i32>,
 }
 
 /// Create a new device (technician or admin only). A status other than the
-/// default writes the asset's first lifecycle event, from no status.
+/// default, or a named status, writes the asset's first lifecycle event,
+/// from no status.
 pub async fn create_device(
     mut tc: TenantConn,
     auth: AuthContext,
@@ -1710,12 +1735,18 @@ pub async fn create_device(
     let CreateAssetBody {
         asset: mut new_device,
         status,
+        status_id,
     } = body.into_inner();
     let status = match status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         None => None,
         Some(raw) => match crate::models::AssetStatus::from_str_opt(raw) {
             None => return errors::bad_request(format!("Unknown asset status '{raw}'")),
-            Some(s) if s.as_str() == crate::models::AssetStatus::default_str() => None,
+            Some(s)
+                if status_id.is_none()
+                    && s.as_str() == crate::models::AssetStatus::default_str() =>
+            {
+                None
+            }
             Some(s) => match crate::services::assets::status_rules::check_initial(s) {
                 Ok(()) => Some(s),
                 Err(r) => return crate::handlers::asset_lifecycle::refusal_response(r),
@@ -1739,15 +1770,26 @@ pub async fn create_device(
     let actor = auth.user_uuid;
     use crate::repository::asset_lifecycle::{self as lifecycle, MoveError};
     let result = tc.run_result(|conn| -> Result<_, MoveError> {
-        let device = match status {
-            None => repository::create_device(conn, new_device)?,
-            Some(status) => {
+        let device = match (status, status_id) {
+            (None, None) => repository::create_device(conn, new_device)?,
+            (status, status_id) => {
+                let status = match (status, status_id) {
+                    (Some(status), _) => status,
+                    // A named status alone names its category too; one of
+                    // another category's is refused by the create.
+                    (None, id) => {
+                        let id = id.unwrap_or_default();
+                        repository::asset_statuses::get(conn, id)?
+                            .and_then(|s| s.category())
+                            .ok_or(MoveError::UnknownNamedStatus(id))?
+                    }
+                };
                 let first = lifecycle::FirstEvent {
                     reason: None,
                     metadata: json!({}),
                     actor_uuid: Some(actor),
                 };
-                lifecycle::create(conn, new_device, None, status, Some(first))?.0
+                lifecycle::create_named(conn, new_device, None, status, status_id, Some(first))?.0
             }
         };
         let user = device
@@ -1770,6 +1812,9 @@ pub async fn create_device(
             HttpResponse::Created().json(device_response)
         }
         Err(MoveError::Refused(r)) => crate::handlers::asset_lifecycle::refusal_response(r),
+        Err(MoveError::UnknownNamedStatus(id)) => {
+            errors::bad_request(format!("Unknown asset status id {id}"))
+        }
         Err(MoveError::Db(e)) => {
             error!(error = ?e, "Database error creating device");
             errors::internal("Failed to create device")

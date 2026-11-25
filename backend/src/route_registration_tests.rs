@@ -960,6 +960,24 @@ async fn asset_record_types_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn asset_statuses_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::asset_statuses::config,
+        &[
+            ("GET", "/admin/asset-statuses"),
+            ("POST", "/admin/asset-statuses"),
+            ("PUT", "/admin/asset-statuses/order"),
+            ("GET", "/admin/asset-statuses/1"),
+            ("PUT", "/admin/asset-statuses/1"),
+            ("DELETE", "/admin/asset-statuses/1"),
+            ("POST", "/admin/asset-statuses/1/archive"),
+            ("POST", "/admin/asset-statuses/1/restore"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn imports_config_routes_registered() {
     assert_config_registers(
         crate::handlers::imports::config,

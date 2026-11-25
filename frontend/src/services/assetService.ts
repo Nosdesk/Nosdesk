@@ -19,6 +19,9 @@ const requestManager = new RequestManager();
 export interface AssetPaginationParams extends PaginationParams {
   /** Comma-separated lifecycle statuses (e.g. `in_service,in_repair`). */
   status?: string;
+  /** Comma-separated named status ids; a category's default also matches
+   *  its plain assets. */
+  status_id?: string;
   warranty?: string;
   location?: string;
   /** Comma-separated native asset-group ids; matches assets in ANY of them. */

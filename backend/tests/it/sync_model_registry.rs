@@ -357,6 +357,68 @@ fn asset_payload_fields_match_the_manifest() {
     assert_eq!(keys(&emitted), expected, "the asset.created row's data");
 }
 
+/// A lifecycle event as it lands in `sync_actions` has exactly the
+/// manifest's fields, the named statuses on each side included.
+#[test]
+fn lifecycle_event_payload_fields_match_the_manifest() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let reference = "test:sync_model_registry";
+
+    let event = run_in_workspace(&pool, reference, seeded.a.workspace_id, |c| {
+        backend::repository::asset_lifecycle::create(
+            c,
+            NewAsset {
+                name: "Event manifest check".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: None,
+                purchase_date: None,
+                asset_tag: None,
+                kind: "device".to_string(),
+                attributes: serde_json::json!({}),
+                quantity: None,
+                unit: None,
+                external_sync_source: None,
+                low_stock_threshold: None,
+                created_by: None,
+            },
+            None,
+            backend::models::AssetStatus::InStock,
+            Some(backend::repository::asset_lifecycle::FirstEvent {
+                reason: None,
+                metadata: serde_json::json!({}),
+                actor_uuid: None,
+            }),
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("create an asset with its first event")
+    .1
+    .expect("the first event");
+
+    let mut conn = pool.get().expect("conn");
+    let emitted: serde_json::Value =
+        with_actor_bypass_context(&mut conn, &ActorContext::system(reference), |c| {
+            sync_actions::table
+                .filter(sync_actions::aggregate_id.eq(event.id.to_string()))
+                .filter(sync_actions::event_type.eq("asset_lifecycle_event.created"))
+                .select(sync_actions::data)
+                .first(c)
+        })
+        .expect("the asset_lifecycle_event.created row");
+    let expected: BTreeSet<String> = load_manifest("asset_lifecycle_event")
+        .fields
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(keys(&emitted), expected);
+}
+
 /// The app's lazy fetch builds pool rows with the manifest's fields, the
 /// same as bootstrap and the live stream.
 #[test]

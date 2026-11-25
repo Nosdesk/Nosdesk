@@ -41,6 +41,7 @@ mod asset_kinds_picker;
 mod asset_list_loan_lifecycle;
 mod asset_media_documents;
 mod asset_model_kind;
+mod asset_named_statuses;
 mod asset_record_types_admin;
 mod asset_record_types_catalogue;
 mod asset_records_api;

@@ -15,6 +15,7 @@ import { getTicketById, getTickets, addCommentToTicket, updateTicket, deleteTick
 import { getAssetById, getAssets, getPaginatedAssets, updateAsset } from '@/services/assetService';
 import { assetKindsService } from '@nosdesk/core/services/assetKindsService';
 import { fieldOrderOf, inFieldOrder } from '@/components/assetKindComponents/attributeSchema';
+import { assetStatusService } from '@nosdesk/core/services/assetStatusService';
 import { convertToAuthenticatedPath } from '@/services/fileService';
 import userService from '@/services/userService';
 import { useAuthStore } from '@/stores/auth';
@@ -39,6 +40,7 @@ import type {
   PluginAssetPage,
   PluginAssetKind,
   PluginAssetGroup,
+  PluginAssetStatus,
   PluginStorageEntry,
   PluginUser,
   PluginUiApi,
@@ -363,6 +365,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
               kind: csv(params.kind),
               groups: csv(params.group),
               status: csv(params.status),
+              status_id: csv(params.statusId),
               sortField: params.sortBy,
               sortDirection: params.sortOrder,
             },
@@ -408,6 +411,28 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         // The store swallows a failed load and keeps its last list.
         if (store.error) throw upstream('failed to list asset groups', store.error);
         return groups.map((g) => ({ id: g.id, name: g.name, color: g.color ?? null }));
+      },
+      async statuses(): Promise<PluginAssetStatus[]> {
+        if (!hasPermission('asset:read')) denied('asset:read');
+        let catalogue;
+        try {
+          catalogue = await assetStatusService.list();
+        } catch (error) {
+          throw upstream('failed to list asset statuses', error);
+        }
+        // A server older than named statuses has none.
+        return (catalogue?.statuses ?? []).map((s) => ({
+          id: s.id,
+          category: s.category,
+          slug: s.slug,
+          label: s.label,
+          description: s.description,
+          color: s.color,
+          position: s.position,
+          isDefault: s.is_default,
+          appliesToKinds: s.applies_to_kinds,
+          archived: s.archived,
+        }));
       },
       async update(id: number, patch: PluginAssetPatch): Promise<Asset | null> {
         if (!hasPermission('asset:write')) denied('asset:write');
@@ -928,6 +953,7 @@ export interface PluginAPI {
     query(params?: PluginAssetQuery): Promise<PluginAssetPage>;
     kinds(): Promise<PluginAssetKind[]>;
     groups(): Promise<PluginAssetGroup[]>;
+    statuses(): Promise<PluginAssetStatus[]>;
     update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
   };
 

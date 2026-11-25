@@ -40,6 +40,7 @@ pub fn asset_sync_payload(device: &Asset) -> serde_json::Value {
         "asset_tag": device.asset_tag,
         "location": device.location,
         "status": device.status,
+        "status_id": device.status_id,
         "primary_user_uuid": device.primary_user_uuid,
         "managed_by_user_uuid": device.managed_by_user_uuid,
         "attributes": device.attributes,
@@ -300,12 +301,64 @@ fn filter_kinds<'a>(query: AssetBoxedQuery<'a>, kinds: Option<&str>) -> AssetBox
     }
 }
 
+/// The `status_id=` filter: comma-separated named status ids, an asset
+/// matching ANY. A live default also matches the plain assets of its
+/// category, which read as it.
+pub struct StatusIdFilter {
+    ids: Vec<i32>,
+    plain_categories: Vec<String>,
+}
+
+/// [`StatusIdFilter`] from the query value; `None` when it names nothing.
+pub fn status_id_filter(
+    conn: &mut DbConnection,
+    csv: Option<&str>,
+) -> QueryResult<Option<StatusIdFilter>> {
+    let ids: Vec<i32> = csv
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|s| s.trim().parse::<i32>().ok())
+        .collect();
+    if ids.is_empty() {
+        return Ok(None);
+    }
+    let plain_categories = crate::repository::asset_statuses::by_ids(conn, &ids)?
+        .into_values()
+        .filter(|s| s.is_default && s.archived_at.is_none())
+        .map(|s| s.category)
+        .collect();
+    Ok(Some(StatusIdFilter {
+        ids,
+        plain_categories,
+    }))
+}
+
+/// Restrict to assets [`StatusIdFilter`] matches.
+fn filter_status_ids<'a>(
+    query: AssetBoxedQuery<'a>,
+    filter: Option<&StatusIdFilter>,
+) -> AssetBoxedQuery<'a> {
+    let Some(filter) = filter else {
+        return query;
+    };
+    query.filter(
+        assets::status_id
+            .eq_any(filter.ids.clone())
+            .or(assets::status_id
+                .is_null()
+                .and(assets::status.eq_any(filter.plain_categories.clone()))
+                .nullable()),
+    )
+}
+
 /// Filter inputs shared by the paginated list and CSV export.
 pub struct AssetListFilters<'a> {
     pub search: Option<&'a str>,
     pub warranty: Option<&'a str>,
     pub location: Option<&'a str>,
     pub status: Option<&'a str>,
+    /// Named status ids ([`StatusIdFilter`]).
+    pub status_id: Option<&'a str>,
     pub groups: Option<&'a str>,
     pub low_stock_only: bool,
     /// Only these assets (an import's records, `?import=`).
@@ -338,6 +391,8 @@ pub fn list_for_export(
     if let Some(ids) = filters.ids {
         query = query.filter(assets::id.eq_any(ids));
     }
+    let status_ids = status_id_filter(conn, filters.status_id)?;
+    query = filter_status_ids(query, status_ids.as_ref());
     query.order(assets::name.asc()).load(conn)
 }
 
@@ -350,6 +405,7 @@ pub fn get_paginated_devices(
     sort_direction: Option<String>,
     search: Option<String>,
     status: Option<String>,
+    status_id: Option<&str>,
     warranty: Option<String>,
     location: Option<String>,
     groups: Option<String>,
@@ -359,6 +415,7 @@ pub fn get_paginated_devices(
     visible: &VisibleAttributes,
 ) -> Result<(Vec<AssetListRow>, i64), Error> {
     let warranty_kinds = visible.kinds_showing("warranty_status");
+    let status_ids = status_id_filter(conn, status_id)?;
     // manufacturer slot is `None`: there is no manufacturer-filter
     // consumer yet. The former `?type=` param fed this slot, which
     // silently filtered on `manufacturer`; that dead pathway is gone.
@@ -374,6 +431,7 @@ pub fn get_paginated_devices(
         warranty_kinds.clone(),
     );
     let mut total = filter_kinds(total, kind.as_deref());
+    total = filter_status_ids(total, status_ids.as_ref());
     if let Some(ids) = ids {
         total = total.filter(assets::id.eq_any(ids));
     }
@@ -391,6 +449,7 @@ pub fn get_paginated_devices(
         warranty_kinds,
     );
     query = filter_kinds(query, kind.as_deref());
+    query = filter_status_ids(query, status_ids.as_ref());
     if let Some(ids) = ids {
         query = query.filter(assets::id.eq_any(ids));
     }
@@ -479,8 +538,8 @@ const CURRENT_LOAN_JSON: &str = concat!(
 /// NULL. Newest by `(occurred_at, id)`; `idx_asset_lifecycle_events_asset`
 /// (asset_id, occurred_at DESC) serves the probe.
 const LATEST_LIFECYCLE_JSON: &str = concat!(
-    "(SELECT to_jsonb(e) FROM (SELECT ev.from_status, ev.to_status, ev.reason, \
-     ev.occurred_at, ev.actor_uuid, ",
+    "(SELECT to_jsonb(e) FROM (SELECT ev.from_status, ev.to_status, ev.from_status_id, \
+     ev.to_status_id, ev.reason, ev.occurred_at, ev.actor_uuid, ",
     persona_name_sql!("ev.actor_uuid", "ev.workspace_id"),
     " AS actor_name FROM asset_lifecycle_events ev WHERE ev.asset_id = assets.id \
      ORDER BY ev.occurred_at DESC, ev.id DESC LIMIT 1) e)"
@@ -774,23 +833,25 @@ pub fn create_device_linked(
     insert_device(conn, new_device, model_id, None)
 }
 
-/// [`create_device_linked`] in `status` rather than the column default.
-/// Only [`asset_lifecycle::create`](crate::repository::asset_lifecycle::create)
+/// [`create_device_linked`] in `status`, and named status `status_id`
+/// inside it, rather than the column default. Only
+/// [`asset_lifecycle::create`](crate::repository::asset_lifecycle::create)
 /// calls it, once the status rules let an asset start there.
 pub(crate) fn create_device_in(
     conn: &mut DbConnection,
     new_device: NewAsset,
     model_id: Option<i32>,
     status: crate::models::AssetStatus,
+    status_id: Option<i32>,
 ) -> QueryResult<Asset> {
-    insert_device(conn, new_device, model_id, Some(status))
+    insert_device(conn, new_device, model_id, Some((status, status_id)))
 }
 
 fn insert_device(
     conn: &mut DbConnection,
     mut new_device: NewAsset,
     model_id: Option<i32>,
-    status: Option<crate::models::AssetStatus>,
+    status: Option<(crate::models::AssetStatus, Option<i32>)>,
 ) -> QueryResult<Asset> {
     new_device.serial_number = normalize_serial(new_device.serial_number);
     // Wrap the INSERT + sync emit in a single transaction so a
@@ -799,8 +860,12 @@ fn insert_device(
     // emit::record fires inside emit_asset_event.
     conn.transaction::<Asset, Error, _>(|conn| {
         let mut device: Asset = match status {
-            Some(status) => diesel::insert_into(assets::table)
-                .values((&new_device, assets::status.eq(status.as_str())))
+            Some((status, status_id)) => diesel::insert_into(assets::table)
+                .values((
+                    &new_device,
+                    assets::status.eq(status.as_str()),
+                    assets::status_id.eq(status_id),
+                ))
                 .get_result(conn)?,
             None => diesel::insert_into(assets::table)
                 .values(&new_device)

@@ -38,6 +38,9 @@ pub struct CarryOverBody {
     /// Move the old asset to `retired`, `in_stock` or `disposed`.
     #[serde(default)]
     pub move_old_to: Option<String>,
+    /// A named status inside `move_old_to`.
+    #[serde(default)]
+    pub move_old_status_id: Option<i32>,
     /// The disposal record a move to `disposed` needs, as the status change
     /// takes it.
     #[serde(default)]
@@ -75,6 +78,7 @@ pub async fn carry_over(
             match AssetStatus::from_str_opt(raw).filter(|s| old_asset_statuses().contains(s)) {
                 Some(status) => Some(MoveOld {
                     status,
+                    status_id: body.move_old_status_id,
                     disposal: body.disposal.as_ref().map(|d| DisposalInput {
                         sanitization_method: d.sanitization_method.clone(),
                         data_bearing: d.data_bearing,
@@ -94,6 +98,9 @@ pub async fn carry_over(
                     ))
                 }
             }
+        }
+        None if body.move_old_status_id.is_some() => {
+            return errors::bad_request("move_old_status_id needs move_old_to")
         }
         None if body.disposal.is_some() => {
             return errors::bad_request(

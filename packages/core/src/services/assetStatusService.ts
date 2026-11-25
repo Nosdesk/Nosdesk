@@ -32,10 +32,32 @@ export interface AssetStatusCategory {
   targets?: AssetStatusTarget[];
 }
 
+/** A workspace's own name for a status, inside one category. An asset holds
+ *  it as `status_id`; a plain asset (`status_id` null) reads as its
+ *  category's default named status when there is one. */
+export interface AssetNamedStatus {
+  id: number;
+  category: AssetStatus;
+  /** Stable key for imports, the API and plugins. */
+  slug: string;
+  label: string;
+  description: string | null;
+  /** `#rrggbb`, or null for the category's color. */
+  color: string | null;
+  /** Order within the category. */
+  position: number;
+  /** The category's name in this workspace. */
+  is_default: boolean;
+  /** Kind slugs offered the status; null for every kind. */
+  applies_to_kinds: string[] | null;
+  /** Archived: kept on the assets that hold it, left out of pickers. */
+  archived: boolean;
+}
+
 export interface AssetStatusCatalogue {
   categories: AssetStatusCategory[];
-  /** The workspace's named statuses; none yet. */
-  statuses: unknown[];
+  /** The workspace's named statuses in picker order, archived ones too. */
+  statuses: AssetNamedStatus[];
 }
 
 export const assetStatusService = {

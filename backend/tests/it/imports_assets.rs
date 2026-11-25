@@ -561,7 +561,8 @@ fn a_synced_asset_takes_no_column_from_the_file() {
             .load(&mut *conn)
             .expect("load assets")
     };
-    let csv = backend::services::imports::assets::write_assets_csv(&exported).expect("export");
+    let csv = backend::services::imports::assets::write_assets_csv(&exported, &Default::default())
+        .expect("export");
     let file = tempfile::NamedTempFile::new().expect("temp csv");
     std::fs::write(file.path(), csv).expect("write csv");
     let reimport = csv_parser::parse_file(file.path()).expect("parse");
@@ -686,7 +687,8 @@ fn an_export_imports_back_through_the_formula_guard() {
             .load(&mut *conn)
             .expect("load asset")
     };
-    let csv = backend::services::imports::assets::write_assets_csv(&exported).expect("export");
+    let csv = backend::services::imports::assets::write_assets_csv(&exported, &Default::default())
+        .expect("export");
     let text = String::from_utf8(csv).expect("utf-8");
     assert!(text.contains("'=SUM(A1)"), "{text}");
 
