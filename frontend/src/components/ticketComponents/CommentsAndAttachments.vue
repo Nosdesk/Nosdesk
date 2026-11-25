@@ -672,7 +672,7 @@ const handlePastedFiles = async (files: File[]) => {
                     <form
                         @submit.prevent="addComment"
                         class="flex flex-col gap-2 max-sm:gap-0 max-sm:rounded-xl max-sm:border max-sm:px-1 max-sm:pt-2 max-sm:focus-within:ring-2 max-sm:focus-within:ring-accent"
-                        :class="isInternal ? 'max-sm:border-status-warning-ui max-sm:bg-status-warning-muted' : 'max-sm:border-field max-sm:bg-surface'"
+                        :class="isInternal ? 'max-sm:border-[var(--color-status-warning-ui)] max-sm:bg-status-warning-muted' : 'max-sm:border-field max-sm:bg-surface'"
                         :data-audience-state="isInternal ? 'internal' : 'public'"
                         data-composer
                     >
