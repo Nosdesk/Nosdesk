@@ -468,8 +468,8 @@ const linkClass = 'text-accent hover:underline focus:outline-none focus-visible:
   border-bottom: 1px solid var(--color-default);
   padding: 0.4375rem 0.75rem;
   text-align: left;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
   color: var(--color-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -488,7 +488,7 @@ const linkClass = 'text-accent hover:underline focus:outline-none focus-visible:
 }
 .mx-tbl td.src {
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: var(--text-xs-plus);
   color: var(--color-primary);
   background: var(--color-subtle);
 }
@@ -500,28 +500,28 @@ const linkClass = 'text-accent hover:underline focus:outline-none focus-visible:
   padding-right: 0;
 }
 .mx-tbl td.dst {
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   color: var(--color-primary);
 }
 .mx-tbl td.dst.discard {
-  font-weight: 400;
+  font-weight: var(--font-weight-normal);
   color: var(--color-secondary);
 }
 .mx-tbl td.dst.off {
   color: var(--color-status-warning);
 }
 .mx-tbl td.dst.none {
-  font-weight: 400;
+  font-weight: var(--font-weight-normal);
   color: var(--color-tertiary);
 }
 .mx-tbl td.dst .note {
   margin-left: 0.375rem;
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-normal);
   color: var(--color-tertiary);
 }
 .mx-tbl td.who {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-tertiary);
 }
 .mx-tbl td.act {
@@ -548,8 +548,8 @@ const linkClass = 'text-accent hover:underline focus:outline-none focus-visible:
   border-top: 1px solid var(--color-default);
   background: var(--color-surface);
   text-align: left;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-xs-plus);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-primary);
 }
 .mx-tbl tbody:first-of-type tr.mx-sec th {
@@ -557,7 +557,7 @@ const linkClass = 'text-accent hover:underline focus:outline-none focus-visible:
 }
 .mx-tbl tr.mx-sec th .n {
   margin-left: 0.375rem;
-  font-weight: 400;
+  font-weight: var(--font-weight-normal);
   color: var(--color-tertiary);
 }
 .mx-tbl tr.mx-sub th {
@@ -565,8 +565,8 @@ const linkClass = 'text-accent hover:underline focus:outline-none focus-visible:
   border-top: 1px solid var(--color-default);
   background: var(--color-surface);
   text-align: left;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
   color: var(--color-secondary);
 }
 .mx-tbl tr.mx-sub th::before {

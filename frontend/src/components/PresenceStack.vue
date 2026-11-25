@@ -102,7 +102,7 @@ const overflowTitle = computed(() =>
     <div
       v-if="extraCount > 0"
       key="overflow"
-      class="h-6 w-6 rounded-full bg-surface-alt ring-2 ring-surface flex items-center justify-center text-[0.625rem] font-medium text-secondary"
+      class="h-6 w-6 rounded-full bg-surface-alt ring-2 ring-surface type-fixed flex items-center justify-center text-3xs font-medium text-secondary"
       :title="overflowTitle"
     >
       +{{ extraCount }}

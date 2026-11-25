@@ -23,8 +23,8 @@ const shown = computed(() => props.uuids.slice(0, props.max))
 const overflow = computed(() => Math.max(0, props.uuids.length - props.max))
 
 const chipSize: Record<Size, string> = {
-  xxs: 'h-4 w-4 text-[0.5rem]',
-  xs: 'h-5 w-5 text-[0.5625rem]',
+  xxs: 'h-4 w-4 text-5xs',
+  xs: 'h-5 w-5 text-4xs',
   sm: 'h-6 w-6 text-xs',
 }
 </script>
@@ -36,7 +36,7 @@ const chipSize: Record<Size, string> = {
     </div>
     <div
       v-if="overflow > 0"
-      class="inline-flex items-center justify-center rounded-full ring-2 ring-surface bg-surface-alt text-tertiary font-medium"
+      class="type-fixed inline-flex items-center justify-center rounded-full ring-2 ring-surface bg-surface-alt text-tertiary font-medium"
       :class="chipSize[size]"
     >
       +{{ overflow }}

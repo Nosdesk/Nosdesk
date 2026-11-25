@@ -112,8 +112,8 @@ const getBackgroundColor = (name: string) => {
 // proportionally with the document root rather than being fixed pixels.
 const sizeClasses = computed(() => {
   const sizes = {
-    xxs: { base: 'h-4 w-4', text: 'text-[0.5rem]' },
-    xs: { base: 'h-5 w-5', text: 'text-[0.5625rem]' },
+    xxs: { base: 'h-4 w-4', text: 'text-5xs' },
+    xs: { base: 'h-5 w-5', text: 'text-4xs' },
     sm: { base: 'h-6 w-6', text: 'text-xs' },
     md: { base: 'h-8 w-8', text: 'text-sm' },
     lg: { base: 'h-9 w-9', text: 'text-base' },
@@ -126,7 +126,7 @@ const sizeClasses = computed(() => {
 const nameTextClasses = computed(() => {
   const base = 'text-primary truncate'
   switch (props.size) {
-    case 'xs': return `${base} text-[0.625rem]`
+    case 'xs': return `${base} text-3xs`
     case 'sm': return `${base} text-xs`
     case 'lg': return `${base} text-sm`
     case 'full': return `${base} text-xl`
@@ -215,7 +215,7 @@ const onImgMount = (el: unknown) => {
           v-else
           key="initials"
           :class="[sizeClasses.text, { invisible: photoShown }]"
-          class="w-full h-full rounded-full flex items-center justify-center font-medium text-white"
+          class="type-fixed w-full h-full rounded-full flex items-center justify-center font-medium text-white"
           :style="{ backgroundColor: getBackgroundColor(displayName) }"
           :aria-hidden="hasPhoto ? 'true' : undefined"
         >

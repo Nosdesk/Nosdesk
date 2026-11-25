@@ -756,7 +756,7 @@ const inProgress = (record: AssetRecordListRow) => (record.completed_on === null
       <div v-if="viewing" class="flex flex-col gap-3">
         <RouterLink
           :to="`/assets/${viewing.asset.id}`"
-          class="group flex items-baseline gap-2 text-[0.8125rem] leading-5"
+          class="group flex items-baseline gap-2 text-xs-plus leading-5"
           data-record-asset
         >
           <span v-if="viewing.asset.asset_tag" class="shrink-0 font-mono text-primary">{{ viewing.asset.asset_tag }}</span>

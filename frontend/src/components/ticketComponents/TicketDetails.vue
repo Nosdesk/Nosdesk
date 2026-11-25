@@ -1541,14 +1541,14 @@ watchEffect(async () => {
   .print-ticket-id {
     font-family: ui-monospace, monospace;
     font-size: 11pt;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: #666;
     white-space: nowrap;
   }
 
   .print-ticket-title {
     font-size: 14pt;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: #000;
     margin: 0;
     flex: 1;
@@ -1580,7 +1580,7 @@ watchEffect(async () => {
 
   .print-meta-label {
     font-size: 7.5pt;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     text-transform: uppercase;
     letter-spacing: 0.4pt;
     color: #666;
@@ -1602,7 +1602,7 @@ watchEffect(async () => {
     align-self: flex-start;
     display: inline-block;
     font-size: 9pt;
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     padding: 1.5pt 5pt;
     border: 1px solid currentColor;
     border-radius: 3pt;

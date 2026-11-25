@@ -9,7 +9,7 @@
  * on a touch screen instead.
  *
  * `main.css` sets the floor: under `(pointer: coarse)` a field takes
- * `max(1rem, 1em)` and the small `--text-*` tokens are redeclared on it as
+ * `max(var(--text-base), 1em)` and the small `--text-*` tokens are redeclared on it as
  * body size, so `text-sm` on an <input> renders 16px there. What gets around
  * the floor, and what this script refuses:
  *

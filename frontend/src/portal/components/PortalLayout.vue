@@ -238,7 +238,7 @@ async function onSignOut(): Promise<void> {
           v-for="section in sections.slice(0, 1)"
           :key="section.to"
           :to="section.to"
-          class="flex-1 flex flex-col items-center justify-center gap-0.5 text-[0.6875rem]"
+          class="flex-1 flex flex-col items-center justify-center gap-0.5 text-2xs"
           :class="isActive(section.to) ? 'text-accent' : 'text-secondary'"
           :aria-current="isActive(section.to) ? 'page' : undefined"
         >
@@ -248,7 +248,7 @@ async function onSignOut(): Promise<void> {
         <RouterLink
           v-if="!linkSession"
           to="/tickets/new"
-          class="flex-1 flex flex-col items-center justify-center gap-0.5 text-[0.6875rem]"
+          class="flex-1 flex flex-col items-center justify-center gap-0.5 text-2xs"
           :class="route.path === '/tickets/new' ? 'text-accent' : 'text-secondary'"
         >
           <Icon name="add" size="md" />
@@ -258,7 +258,7 @@ async function onSignOut(): Promise<void> {
           v-for="section in sections.slice(1)"
           :key="section.to"
           :to="section.to"
-          class="relative flex-1 flex flex-col items-center justify-center gap-0.5 text-[0.6875rem]"
+          class="relative flex-1 flex flex-col items-center justify-center gap-0.5 text-2xs"
           :class="isActive(section.to) ? 'text-accent' : 'text-secondary'"
           :aria-current="isActive(section.to) ? 'page' : undefined"
         >
@@ -266,7 +266,7 @@ async function onSignOut(): Promise<void> {
           {{ section.label }}
           <span
             v-if="section.count"
-            class="absolute top-1.5 left-1/2 ml-2 min-w-4 h-4 px-1 rounded-full bg-accent text-white text-[0.625rem] font-medium inline-flex items-center justify-center"
+            class="absolute top-1.5 left-1/2 ml-2 min-w-4 h-4 px-1 rounded-full bg-accent text-white text-3xs font-medium inline-flex items-center justify-center"
           >
             {{ section.count }}
           </span>

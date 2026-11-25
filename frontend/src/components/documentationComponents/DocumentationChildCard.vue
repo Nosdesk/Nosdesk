@@ -76,7 +76,7 @@ const truncatedDescription = computed(() => {
 }
 
 .child-icon {
-  font-size: 1.125rem;
+  font-size: var(--text-lg);
   flex-shrink: 0;
   line-height: 1;
 }
@@ -90,8 +90,8 @@ const truncatedDescription = computed(() => {
 }
 
 .child-title {
-  font-size: 0.8125rem;
-  font-weight: 500;
+  font-size: var(--text-xs-plus);
+  font-weight: var(--font-weight-medium);
   color: var(--color-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -104,7 +104,7 @@ const truncatedDescription = computed(() => {
 }
 
 .child-description {
-  font-size: 0.6875rem;
+  font-size: var(--text-2xs);
   color: var(--color-tertiary);
   white-space: nowrap;
   overflow: hidden;

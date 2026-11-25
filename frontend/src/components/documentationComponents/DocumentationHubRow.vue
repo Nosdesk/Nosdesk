@@ -94,7 +94,7 @@ const fullTime = computed(() =>
         <span class="sr-only" :class="{ 'sm:hidden': !compact }">{{ author.name }}</span>
         <span
           v-if="!compact"
-          class="hidden sm:inline truncate max-w-[8rem] text-2xs leading-none text-tertiary"
+          class="hidden sm:inline truncate max-w-[8rem] text-2xs leading-tight text-tertiary"
         >
           {{ author.name }}
         </span>

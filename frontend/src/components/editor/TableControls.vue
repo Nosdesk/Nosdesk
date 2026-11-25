@@ -364,8 +364,8 @@ function onMore(event: MouseEvent) {
   border-radius: 0.375rem;
   background: none;
   font: inherit;
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
   color: var(--color-secondary);
   white-space: nowrap;
   cursor: pointer;

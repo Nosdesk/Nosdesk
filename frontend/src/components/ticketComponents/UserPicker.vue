@@ -400,7 +400,7 @@ const inputPlaceholder = computed(
             </ComboboxItem>
           </ComboboxGroup>
 
-          <div v-if="!hasRows && !picker.isLoading.value" class="px-3 py-6 text-center text-[12px] text-tertiary">
+          <div v-if="!hasRows && !picker.isLoading.value" class="px-3 py-6 text-center text-xs text-tertiary">
             {{ emptyHint() }}
           </div>
           <div v-if="picker.isLoading.value && !hasRows" class="px-3 py-6 flex items-center justify-center">

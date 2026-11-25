@@ -202,17 +202,17 @@ const OUTCOME: Record<RowOutcome, { key: string; tone: StatusPillTone }> = {
   white-space: pre-wrap;
   word-wrap: break-word;
   color: var(--color-primary);
-  font-size: max(1rem, 16px);
+  font-size: max(var(--text-base), 16px);
   line-height: 1.5;
 }
 .docs-preview__editor :deep(.ProseMirror > :first-child) { margin-top: 0; }
 .docs-preview__editor :deep(.ProseMirror p) { margin: 0.5rem 0; line-height: 1.6; }
-.docs-preview__editor :deep(.ProseMirror h1) { font-size: 2rem; font-weight: 700; margin: 1rem 0; border-bottom: 1px solid var(--color-default); padding-bottom: 0.5rem; line-height: 1.2; }
-.docs-preview__editor :deep(.ProseMirror h2) { font-size: 1.5rem; font-weight: 700; margin: 1.5rem 0 1rem; line-height: 1.3; }
-.docs-preview__editor :deep(.ProseMirror h3) { font-size: 1.25rem; font-weight: 600; margin: 1.5rem 0 1rem; line-height: 1.4; }
-.docs-preview__editor :deep(.ProseMirror :is(h4, h5, h6)) { font-size: 1.0625rem; font-weight: 600; margin: 1.25rem 0 0.75rem; }
+.docs-preview__editor :deep(.ProseMirror h1) { font-size: calc(var(--text-base) + 1rem); font-weight: var(--font-weight-bold); margin: 1rem 0; border-bottom: 1px solid var(--color-default); padding-bottom: 0.5rem; line-height: 1.2; }
+.docs-preview__editor :deep(.ProseMirror h2) { font-size: var(--text-2xl); font-weight: var(--font-weight-bold); margin: 1.5rem 0 1rem; line-height: 1.3; }
+.docs-preview__editor :deep(.ProseMirror h3) { font-size: var(--text-xl); font-weight: var(--font-weight-semibold); margin: 1.5rem 0 1rem; line-height: 1.4; }
+.docs-preview__editor :deep(.ProseMirror :is(h4, h5, h6)) { font-size: calc(var(--text-base) + 0.0625rem); font-weight: var(--font-weight-semibold); margin: 1.25rem 0 0.75rem; }
 .docs-preview__editor :deep(.ProseMirror blockquote) { border-left: 3px solid var(--color-strong); padding: 0.5rem 1rem; margin: 1rem 0; color: var(--color-secondary); background: var(--color-surface-alt); border-radius: 0.375rem; }
-.docs-preview__editor :deep(.ProseMirror pre) { background: var(--color-app); padding: 0.75rem; border-radius: 0.5rem; margin: 1rem 0; border: 1px solid var(--color-subtle); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; overflow-x: auto; }
+.docs-preview__editor :deep(.ProseMirror pre) { background: var(--color-app); padding: 0.75rem; border-radius: 0.5rem; margin: 1rem 0; border: 1px solid var(--color-subtle); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: var(--text-sm); overflow-x: auto; }
 .docs-preview__editor :deep(.ProseMirror pre code) { background: transparent; padding: 0; display: block; white-space: pre-wrap; word-break: break-word; }
 .docs-preview__editor :deep(.ProseMirror code) { background: var(--color-surface-alt); padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875em; }
 .docs-preview__editor :deep(.ProseMirror :is(ul, ol)) { padding-left: 1.5rem; margin: 1rem 0; }
@@ -221,9 +221,9 @@ const OUTCOME: Record<RowOutcome, { key: string; tone: StatusPillTone }> = {
 .docs-preview__editor :deep(.ProseMirror li) { margin-bottom: 0.5rem; line-height: 1.6; }
 .docs-preview__editor :deep(.ProseMirror li p) { margin: 0.25rem 0; }
 .docs-preview__editor :deep(.ProseMirror a) { color: var(--color-accent); text-decoration: underline; }
-.docs-preview__editor :deep(.ProseMirror strong) { font-weight: 600; }
+.docs-preview__editor :deep(.ProseMirror strong) { font-weight: var(--font-weight-semibold); }
 .docs-preview__editor :deep(.ProseMirror hr) { border: 0; border-top: 1px solid var(--color-default); margin: 1.5rem 0; }
-.docs-preview__editor :deep(.embedded-document-block) { padding: 0.5rem 0.75rem; margin: 0.5rem 0; border: 1px solid var(--color-default); border-radius: 0.5rem; background: var(--color-surface-alt); font-size: 0.875rem; }
+.docs-preview__editor :deep(.embedded-document-block) { padding: 0.5rem 0.75rem; margin: 0.5rem 0; border: 1px solid var(--color-default); border-radius: 0.5rem; background: var(--color-surface-alt); font-size: var(--text-sm); }
 
 /* Where the conversion changed the page. */
 .docs-preview__editor :deep(.docs-preview-note) { position: relative; margin-top: 1.25rem; }
@@ -232,8 +232,8 @@ const OUTCOME: Record<RowOutcome, { key: string; tone: StatusPillTone }> = {
   position: absolute;
   top: -9px;
   right: 8px;
-  font-size: 0.625rem;
-  font-weight: 600;
+  font-size: var(--text-3xs);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-accent);
@@ -259,15 +259,15 @@ const OUTCOME: Record<RowOutcome, { key: string; tone: StatusPillTone }> = {
   border-radius: 8px;
   background: var(--color-surface-alt);
   color: var(--color-secondary);
-  font-size: 0.8125rem;
+  font-size: var(--text-xs-plus);
   vertical-align: top;
   line-height: 1.3;
   white-space: normal;
 }
 .docs-preview__editor :deep(.docs-preview-img svg) { width: 20px; height: 20px; flex-shrink: 0; color: var(--color-tertiary); }
 .docs-preview__editor :deep(.docs-preview-img__text) { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.docs-preview__editor :deep(.docs-preview-img__name) { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.75rem; color: var(--color-primary); overflow-wrap: anywhere; }
-.docs-preview__editor :deep(.docs-preview-img__meta) { font-size: 0.6875rem; color: var(--color-tertiary); }
+.docs-preview__editor :deep(.docs-preview-img__name) { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: var(--text-xs); color: var(--color-primary); overflow-wrap: anywhere; }
+.docs-preview__editor :deep(.docs-preview-img__meta) { font-size: var(--text-2xs); color: var(--color-tertiary); }
 .docs-preview__editor :deep(.docs-preview-img.is-problem) { border-color: color-mix(in srgb, var(--color-status-error) 30%, transparent); background: var(--color-status-error-muted); }
 .docs-preview__editor :deep(.docs-preview-img.is-problem svg),
 .docs-preview__editor :deep(.docs-preview-img.is-problem .docs-preview-img__meta) { color: var(--color-status-error); }

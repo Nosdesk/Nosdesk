@@ -61,7 +61,7 @@
      that zoom stays until the person pinches back out. Two parts,
      because a utility class beats anything in this layer:
 
-     - A field with no size of its own inherits one; `max(1rem, 1em)`
+     - A field with no size of its own inherits one; `max(var(--text-base), 1em)`
        keeps the inherited size when it is larger.
      - An input, textarea or select sized by a utility (`text-sm`)
        reads the size token at the element, so the small tokens are
@@ -79,17 +79,19 @@
     textarea,
     select,
     [contenteditable]:not([contenteditable='false']) {
-      font-size: max(1rem, 1em);
+      font-size: max(var(--text-base), 1em);
     }
     input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'], [type='button'], [type='submit'], [type='reset'], [type='image'], [type='hidden']),
     textarea,
     select {
+      --text-5xs: var(--text-base);
       --text-4xs: var(--text-base);
       --text-3xs: var(--text-base);
       --text-2xs: var(--text-base);
       --text-xs: var(--text-base);
       --text-xs-plus: var(--text-base);
       --text-sm: var(--text-base);
+      --text-sm-plus: var(--text-base);
     }
   }
 }
@@ -111,46 +113,81 @@
   --container-8xl: 90rem;
 
   /* ===========================================================
-     Sub-xs type scale.
+     Type scale: one number, `--text-scale`.
      -----------------------------------------------------------
-     These four sizes were previously written as arbitrary values
-     (`text-[11px]` and friends) at ~348 call sites. Arbitrary px
-     bypasses every scaling mechanism there is: it ignores the root
-     font size, so a user who raises their browser or OS text size
-     gets nothing from it (WCAG 1.4.4 asks for text to scale to
-     200%), and it renders far smaller on a high-density tablet
-     than the same markup does on a desktop monitor.
-     Expressed in rem, one root-level change scales all of them
-     coherently. Borders and hairlines stay in px on purpose --
-     those should NOT grow with type.
-     No `--line-height` is defined: the arbitrary values these
-     replace set font-size only, so adding one would change
-     rendering rather than preserve it.
+     Every size is a role token here, in rem, multiplied by
+     `--text-scale` (set below the @theme block). Raising the scale
+     grows text and nothing else: spacing, icons, borders and
+     breakpoints stay put, so larger text takes room from the line
+     rather than from the page. The root font size is left at the
+     browser default, so a browser text setting still reaches rem.
+
+     - Reading size and smaller (`5xs` to `base`) take the whole
+       scale.
+     - Headings keep the lead they have over body text in pixels:
+       `lg` is body + 2px, `xl` + 4px, `2xl` + 8px, `3xl` + 14px,
+       `4xl` + 20px. A ratio would push headings into banners at
+       200%; half rate would let body text overtake `lg`. This curve
+       cannot cross.
+     - Phones (under 48rem) lift the small sizes one step at scale 1
+       (`main.css`, after this block), with 12px as the floor.
+
+     `2xs` to `5xs` and `xs-plus` were arbitrary px values once
+     (about 350 call sites). They define no line height: the values
+     they replaced set font-size only, so text using them inherits a
+     ratio from its parent, which follows the scale.
      ----------------------------------------------------------- */
-  --text-2xs: 0.6875rem; /* 11px */
-  --text-3xs: 0.625rem; /* 10px */
-  --text-4xs: 0.5625rem; /* 9px */
-  /* Sits between Tailwind's xs (12px) and sm (14px); no conventional
-     name exists for that gap, hence the explicit one. */
-  --text-xs-plus: 0.8125rem; /* 13px */
+  --text-5xs: calc(0.5rem * var(--text-scale)); /* 8px, avatar initials */
+  --text-4xs: calc(0.5625rem * var(--text-scale)); /* 9px */
+  --text-3xs: calc(0.625rem * var(--text-scale)); /* 10px */
+  --text-2xs: calc(0.6875rem * var(--text-scale)); /* 11px */
+  --text-xs: calc(0.75rem * var(--text-scale)); /* 12px */
+  /* Between Tailwind's xs (12px) and sm (14px), and sm and base. */
+  --text-xs-plus: calc(0.8125rem * var(--text-scale)); /* 13px */
+  --text-sm: calc(0.875rem * var(--text-scale)); /* 14px */
+  --text-sm-plus: calc(0.9375rem * var(--text-scale)); /* 15px */
+  --text-base: calc(1rem * var(--text-scale)); /* 16px, reading text */
+  --text-lg: calc(1rem * var(--text-scale) + 0.125rem); /* 18px */
+  --text-xl: calc(1rem * var(--text-scale) + 0.25rem); /* 20px */
+  --text-2xl: calc(1rem * var(--text-scale) + 0.5rem); /* 24px */
+  --text-3xl: calc(1rem * var(--text-scale) + 0.875rem); /* 30px */
+  --text-4xl: calc(1rem * var(--text-scale) + 1.25rem); /* 36px */
+
+  /* The numbered leadings are lengths, not ratios, so they would hold
+     still while the text in them grows. Scaled here; identical at 1. */
+  --leading-4: calc(1rem * var(--text-scale));
+  --leading-5: calc(1.25rem * var(--text-scale));
+  --leading-6: calc(1.5rem * var(--text-scale));
+  --leading-7: calc(1.75rem * var(--text-scale));
+
+  /* Weights. iOS and Android Bold Text set `data-bold-text` on the
+     root (through the native shell), and a `:root[data-bold-text]`
+     rule remaps these four; every weight in the app reads them, so
+     nothing else needs to change for it. `check-type-tokens.mjs`
+     refuses literal weights. Values are Tailwind's own. */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
 
   /* ===========================================================
      Metric type scale (dashboard KPI numerals + embedded stats).
      Distinct from the heading scale so KPI numbers can dominate a
      dashboard while page titles stay supporting; aligned to parent
-     plan decision 11 (32-40px primary number, 14px label).
+     plan decision 11 (32-40px primary number, 14px label). Numerals
+     keep the heading lead over body text, like the headings above.
      ----------------------------------------------------------- */
-  --text-metric-sm: 20px;
-  --text-metric-sm--line-height: 28px;
-  --text-metric-sm--font-weight: 600;
+  --text-metric-sm: calc(1rem * var(--text-scale) + 0.25rem); /* 20px */
+  --text-metric-sm--line-height: 1.4;
+  --text-metric-sm--font-weight: var(--font-weight-semibold);
   --text-metric-sm--letter-spacing: -0.015em;
-  --text-metric-md: 32px;
-  --text-metric-md--line-height: 36px;
-  --text-metric-md--font-weight: 600;
+  --text-metric-md: calc(1rem * var(--text-scale) + 1rem); /* 32px */
+  --text-metric-md--line-height: 1.125;
+  --text-metric-md--font-weight: var(--font-weight-semibold);
   --text-metric-md--letter-spacing: -0.022em;
-  --text-metric-lg: 36px;
-  --text-metric-lg--line-height: 40px;
-  --text-metric-lg--font-weight: 600;
+  --text-metric-lg: calc(1rem * var(--text-scale) + 1.25rem); /* 36px */
+  --text-metric-lg--line-height: calc(40 / 36);
+  --text-metric-lg--font-weight: var(--font-weight-semibold);
   --text-metric-lg--letter-spacing: -0.025em;
 
   /* Reka UI surfaces animate from their `data-state` attribute
@@ -281,6 +318,73 @@
   --color-chart-6: #D55E00;
   --color-chart-7: #CC79A7;
   --color-chart-8: #6B7280;
+}
+
+/* ============================================
+   Text size
+   ============================================
+   `--text-scale` is the one number the type tokens multiply by, held
+   to 1 to 2 (200% is WCAG 1.4.4's mark; pinch zoom covers the rest,
+   and a device set smaller than its default keeps the designed size).
+   Two inputs, both set on the root element (<html>):
+
+   - `--device-text-scale`: the platform's text size as a factor of
+     its default, written by the native shell (iOS Dynamic Type,
+     Android font scale). Unset on the web, where the browser's own
+     text setting already reaches rem.
+   - `--user-text-scale`: Settings > Appearance > Text size, when the
+     person picks a size instead of following the device. Unset while
+     following it.
+
+   The tokens resolve on the root, so setting either variable on an
+   element further down changes nothing; a preview that shows another
+   size redeclares the tokens it uses. */
+:root {
+  --text-scale: clamp(1, var(--user-text-scale, var(--device-text-scale, 1)), 2);
+}
+
+/* The phone baseline. A phone is read close up, and 14px body text
+   sits under Apple's 17pt body and Material's 16sp, so under 48rem the
+   small sizes move up one step at scale 1: 14/13/12 become 15/14/13,
+   and nothing is under 12px. Reading text (`base`), `sm-plus` (already
+   15px) and the headings, which hang off `base`, do not move. From
+   48rem up a touch device gets the 1.125 root scale below instead,
+   which lands in the same place (14px becomes 15.75px). Screens only:
+   a printed page is narrower than 48rem too. */
+@media screen and (width < 48rem) {
+  :root {
+    --text-5xs: calc(0.75rem * var(--text-scale));
+    --text-4xs: calc(0.75rem * var(--text-scale));
+    --text-3xs: calc(0.75rem * var(--text-scale));
+    --text-2xs: calc(0.75rem * var(--text-scale));
+    --text-xs: calc(0.8125rem * var(--text-scale));
+    --text-xs-plus: calc(0.875rem * var(--text-scale));
+    --text-sm: calc(0.9375rem * var(--text-scale));
+  }
+}
+
+/* Something drawn at a fixed size that holds text of its own, such as
+   an avatar and its initials: the tokens inside it are the unscaled
+   desktop ones, so the initials keep fitting their circle at any text
+   size and on a phone. */
+.type-fixed {
+  --text-5xs: 0.5rem;
+  --text-4xs: 0.5625rem;
+  --text-3xs: 0.625rem;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-xs-plus: 0.8125rem;
+  --text-sm: 0.875rem;
+  --text-sm-plus: 0.9375rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+  --text-metric-sm: 1.25rem;
+  --text-metric-md: 2rem;
+  --text-metric-lg: 2.25rem;
 }
 
 /* ============================================
@@ -502,19 +606,19 @@
 .comment-prose p { margin: 0 0 0.5rem; }
 .comment-prose > :last-child,
 .comment-prose li > :last-child { margin-bottom: 0; }
-.comment-prose strong { font-weight: 600; }
+.comment-prose strong { font-weight: var(--font-weight-semibold); }
 .comment-prose em { font-style: italic; }
 .comment-prose a { color: var(--color-accent); text-decoration: underline; }
 .comment-prose :is(h1, h2, h3, h4, h5, h6) {
   margin: 0.75rem 0 0.375rem;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: 1.35;
 }
 .comment-prose > :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 0; }
-.comment-prose h1 { font-size: 1.25rem; font-weight: 700; }
-.comment-prose h2 { font-size: 1.125rem; }
-.comment-prose h3 { font-size: 1rem; }
-.comment-prose :is(h4, h5, h6) { font-size: 0.875rem; }
+.comment-prose h1 { font-size: var(--text-xl); font-weight: var(--font-weight-bold); }
+.comment-prose h2 { font-size: var(--text-lg); }
+.comment-prose h3 { font-size: var(--text-base); }
+.comment-prose :is(h4, h5, h6) { font-size: var(--text-sm); }
 .comment-prose :is(ul, ol) { padding-left: 1.25rem; margin: 0.5rem 0; }
 .comment-prose ul { list-style-type: disc; }
 .comment-prose ul ul { list-style-type: circle; }
@@ -544,7 +648,7 @@
   overflow-x: auto;
   margin: 0.5rem 0;
 }
-.comment-prose pre code { background-color: transparent; padding: 0; font-size: 0.8125rem; }
+.comment-prose pre code { background-color: transparent; padding: 0; font-size: var(--text-xs-plus); }
 .comment-prose hr { border: 0; border-top: 1px solid var(--color-default); margin: 0.75rem 0; }
 
 /* ============================================
@@ -694,13 +798,14 @@ html, body {
 
 body {
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-weight: var(--font-weight-normal);
   background-color: var(--background-color);
   color: var(--text-primary);
 }
 
 #app {
   height: 100%;
-  font-weight: normal;
+  font-weight: var(--font-weight-normal);
 }
 
 a {
@@ -856,7 +961,7 @@ html[data-theme="red-horizon"] body,
 [data-theme="red-horizon"] h4,
 [data-theme="red-horizon"] h5,
 [data-theme="red-horizon"] h6 {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -1797,7 +1902,7 @@ html[data-theme="red-horizon"] body,
 
   th {
     background: #f3f4f6 !important;
-    font-weight: 600 !important;
+    font-weight: var(--font-weight-semibold) !important;
   }
 
   /* Blockquotes */
@@ -1881,7 +1986,7 @@ html[data-theme="red-horizon"] body,
   border-radius: 9999px;
   background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
   color: var(--color-accent);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   font-size: inherit;
   line-height: 1;
   vertical-align: text-bottom;
@@ -1919,7 +2024,7 @@ html[data-theme="red-horizon"] body,
   justify-content: center;
   color: white;
   font-size: 0.5em;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .mention-name {
@@ -1936,7 +2041,7 @@ html[data-theme="red-horizon"] body,
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border-subtle);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.3;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -1958,16 +2063,16 @@ html[data-theme="red-horizon"] body,
 }
 
 .ticket-link-id {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-tertiary, #888);
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   flex-shrink: 0;
 }
 
 .ticket-link-title {
   color: var(--color-text-primary, #fff);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1979,10 +2084,10 @@ html[data-theme="red-horizon"] body,
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--text-3xs);
   padding: 1px 6px;
   border-radius: 3px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   text-transform: capitalize;
   flex-shrink: 0;
   white-space: nowrap;
@@ -2061,7 +2166,7 @@ html[data-theme="red-horizon"] body,
   table-layout: fixed;
   width: 100%;
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: var(--text-sm-plus);
   line-height: 1.45;
 }
 
@@ -2078,7 +2183,7 @@ html[data-theme="red-horizon"] body,
 
 .ProseMirror .table-scroll th {
   background-color: var(--color-surface-alt);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .ProseMirror .table-scroll :is(th, td) > * { margin-top: 0; margin-bottom: 0; }
@@ -2086,7 +2191,7 @@ html[data-theme="red-horizon"] body,
 .ProseMirror .table-scroll :is(th, td) > * + * { margin-top: 0.35rem; }
 .ProseMirror .table-scroll :is(th, td) :is(ul, ol) { margin: 0.1rem 0 0; padding-left: 1.1rem; }
 .ProseMirror .table-scroll :is(th, td) li { margin-bottom: 0.15rem; line-height: 1.45; }
-.ProseMirror .table-scroll :is(th, td) pre { margin: 0.25rem 0 0; padding: 0.4rem 0.5rem; font-size: 0.8125rem; }
+.ProseMirror .table-scroll :is(th, td) pre { margin: 0.25rem 0 0; padding: 0.4rem 0.5rem; font-size: var(--text-xs-plus); }
 
 .ProseMirror .table-scroll .align-left { text-align: left; }
 .ProseMirror .table-scroll .align-center { text-align: center; }
@@ -2098,7 +2203,7 @@ html[data-theme="red-horizon"] body,
 @media not all and (pointer: fine) {
   .ProseMirror .table-scroll > table {
     table-layout: auto;
-    font-size: 1rem;
+    font-size: var(--text-base);
   }
   .ProseMirror .table-scroll :is(th, td) { min-width: 72px; }
   .ProseMirror .table-scroll :is(th, td) code { white-space: nowrap; }

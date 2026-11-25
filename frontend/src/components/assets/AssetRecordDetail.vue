@@ -292,8 +292,8 @@ const TONE = { state: 'font-medium', failed: 'text-status-error' } as const
   grid-template-columns: minmax(5.5rem, max-content) minmax(0, 1fr);
   column-gap: 1rem;
   row-gap: 0.375rem;
-  font-size: 0.8125rem;
-  line-height: 1.25rem;
+  font-size: var(--text-xs-plus);
+  line-height: var(--leading-5);
 }
 .record-list > dt {
   color: var(--color-tertiary);

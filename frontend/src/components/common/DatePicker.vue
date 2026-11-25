@@ -506,13 +506,13 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 
 .date-picker__field--sm {
   padding: 0.25rem 0.25rem 0.25rem 0.5rem;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.4;
 }
 
 .date-picker__field--md {
   padding: 0.5rem 0.5rem 0.5rem 0.75rem;
-  font-size: 14px;
+  font-size: var(--text-sm);
 }
 
 /* The segments are editable: under 16px, iOS zooms the page on focus. */
@@ -652,8 +652,8 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 .date-picker__title {
   flex: 1;
   text-align: center;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-primary);
   text-transform: capitalize;
 }
@@ -667,8 +667,8 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 .date-picker__weekday {
   padding: 0 0 0.25rem;
   text-align: center;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-3xs);
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-tertiary);
@@ -687,7 +687,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
   justify-content: center;
   border: 1px solid transparent;
   border-radius: 0.25rem;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-secondary);
   cursor: pointer;
@@ -715,7 +715,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 .date-picker__day[data-today] {
   border-color: var(--color-accent);
   color: var(--color-primary);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* Range: the days inside the span (committed, or the live preview
@@ -741,7 +741,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
   color: var(--color-on-accent);
   border-color: var(--color-accent);
   border-radius: 0.25rem;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .date-picker__day[data-disabled],

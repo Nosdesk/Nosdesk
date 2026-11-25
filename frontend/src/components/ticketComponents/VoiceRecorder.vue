@@ -533,14 +533,14 @@ onUnmounted(() => {
 }
 
 .recording-label {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
   color: var(--color-primary);
 }
 
 .recording-time {
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
   font-family: ui-monospace, monospace;
   color: var(--color-secondary);
   background: var(--color-surface);
@@ -577,8 +577,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.375rem;
   padding: 0.5rem 0.875rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
   color: var(--color-secondary);
   background: transparent;
   border: 1px solid var(--color-default);
@@ -598,8 +598,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.375rem;
   padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
   color: white;
   background: var(--color-accent);
   border: none;
@@ -627,7 +627,7 @@ onUnmounted(() => {
 }
 
 .transcription-text {
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--color-secondary);
   font-style: italic;
   line-height: 1.4;

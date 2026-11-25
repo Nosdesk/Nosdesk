@@ -552,7 +552,7 @@ defineExpose({ focus, clear });
 
 .simple-editor {
   width: 100%;
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   color: var(--color-primary);
   background-color: var(--color-surface);
   border: 1px solid var(--color-default);
@@ -621,7 +621,7 @@ defineExpose({ focus, clear });
   background: var(--color-surface-alt);
   border: 2px dashed var(--color-accent);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--text-xs-plus);
   line-height: 1.4;
   width: 100%;
   max-width: 100%;
@@ -649,16 +649,16 @@ defineExpose({ focus, clear });
 }
 
 .simple-editor :deep(.ticket-drop-preview-id) {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--color-accent);
   font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-size: var(--text-xs);
   flex-shrink: 0;
 }
 
 .simple-editor :deep(.ticket-drop-preview-title) {
   color: var(--color-text-primary, #fff);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -670,7 +670,7 @@ defineExpose({ focus, clear });
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .simple-editor :deep(.ticket-drop-preview-person) {
@@ -685,10 +685,10 @@ defineExpose({ focus, clear });
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   padding: 2px 8px;
   border-radius: 4px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   text-transform: capitalize;
 }
 
@@ -711,10 +711,10 @@ defineExpose({ focus, clear });
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   padding: 2px 8px;
   border-radius: 4px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .simple-editor :deep(.ticket-drop-preview-priority-high) {

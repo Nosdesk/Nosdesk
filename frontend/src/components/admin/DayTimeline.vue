@@ -428,7 +428,7 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
   top: 50%;
   left: 4px;
   transform: translateY(-50%);
-  font-size: 9px;
+  font-size: var(--text-4xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-tertiary);
   opacity: 0.6;
@@ -445,8 +445,8 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-3xs);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
   color: var(--color-on-accent);
   overflow: hidden;

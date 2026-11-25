@@ -1311,7 +1311,7 @@ const handlePastedFiles = async (files: File[]) => {
     }
 
     .print-comment-author {
-        font-weight: 600;
+        font-weight: var(--font-weight-semibold);
         color: #000;
     }
 

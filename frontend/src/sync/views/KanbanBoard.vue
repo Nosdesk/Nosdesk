@@ -918,7 +918,7 @@ function affectedDevicesTooltip(card: CardData): string {
               :class="paletteForColor(lane.defaultState.color).solid"
               aria-hidden="true"
             />
-            <h3 class="text-xs font-semibold text-primary truncate leading-none">
+            <h3 class="text-xs font-semibold text-primary truncate leading-tight">
               {{ lane.label }}
             </h3>
           </div>
@@ -1186,7 +1186,7 @@ function affectedDevicesTooltip(card: CardData): string {
           <button
             v-if="quickAddCanCreate"
             type="button"
-            class="w-full flex items-center gap-2 px-3 min-h-[52px] text-left text-[15px] text-primary border-b border-subtle active:bg-surface-hover"
+            class="w-full flex items-center gap-2 px-3 min-h-[52px] text-left text-sm text-primary border-b border-subtle active:bg-surface-hover"
             @click="sheetCreate"
           >
             <span class="text-accent shrink-0 text-lg leading-none">+</span>
@@ -1208,7 +1208,7 @@ function affectedDevicesTooltip(card: CardData): string {
             @click="sheetAddExisting(match.id)"
           >
             <span class="text-tertiary tabular-nums shrink-0 text-xs-plus">#{{ ticketNumber(match) }}</span>
-            <span class="flex-1 min-w-0 truncate text-[15px] text-primary">{{ match.title }}</span>
+            <span class="flex-1 min-w-0 truncate text-sm text-primary">{{ match.title }}</span>
             <PriorityIndicator
               v-if="match.priority && match.priority !== 'none'"
               :priority="(match.priority === 'urgent' ? 'high' : match.priority) as 'low' | 'medium' | 'high'"

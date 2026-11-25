@@ -2578,7 +2578,7 @@ defineExpose({
     border-radius: 0.375rem; /* rounded-md */
     color: var(--color-secondary);
     cursor: pointer;
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     transition: all 0.2s;
 }
 
@@ -2655,8 +2655,8 @@ defineExpose({
     border-left: 1px solid var(--color-default);
     color: var(--color-accent);
     font: inherit;
-    font-size: 0.875rem;
-    font-weight: 500;
+    font-size: var(--text-sm);
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
 }
 
@@ -2694,8 +2694,8 @@ defineExpose({
 
 .connection-status-connecting,
 .connection-status-disconnected {
-    font-size: 0.75rem;
-    font-weight: 500;
+    font-size: var(--text-xs);
+    font-weight: var(--font-weight-medium);
     flex-shrink: 0;
     white-space: nowrap;
     padding: 0.25rem 0.625rem;
@@ -2746,7 +2746,7 @@ defineExpose({
 }
 
 .outdated-editor-label {
-    font-size: 0.8125rem;
+    font-size: var(--text-xs-plus);
     color: var(--color-primary);
 }
 
@@ -2767,14 +2767,14 @@ defineExpose({
 }
 
 .revision-overlay-label {
-    font-size: 0.8125rem;
+    font-size: var(--text-xs-plus);
     color: var(--color-secondary);
 }
 
 .revision-overlay-exit {
     margin-left: auto;
     padding: 0.25rem 0.625rem;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs-plus);
     color: var(--color-primary);
     background-color: var(--color-surface);
     border: 1px solid var(--color-default);
@@ -2818,7 +2818,7 @@ defineExpose({
     border-radius: 9999px;
     background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
     color: var(--color-accent);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     font-size: inherit;
     line-height: 1;
     vertical-align: text-bottom;
@@ -2856,7 +2856,7 @@ defineExpose({
     justify-content: center;
     color: white;
     font-size: 0.5em;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 .ProseMirror .mention-name {
@@ -2869,7 +2869,7 @@ defineExpose({
     border-radius: 0 0 0.5rem 0.5rem;
     color: var(--color-primary);
     font-family: var(--font-sans, 'Inter', ui-sans-serif, system-ui, sans-serif);
-    font-size: 1rem;
+    font-size: var(--text-base);
     line-height: 1.5;
     min-height: 200px;
     height: auto;
@@ -2888,7 +2888,7 @@ defineExpose({
     min-height: 1.5em;
     /* Prevent iOS Safari from zooming when focusing on the editor */
     /* Font size must be at least 16px to prevent auto-zoom on iOS */
-    font-size: max(1rem, 16px);
+    font-size: max(var(--text-base), 16px);
     /* Prevent double-tap zoom on touch devices */
     touch-action: manipulation;
 }
@@ -2958,8 +2958,8 @@ defineExpose({
 }
 
 .ProseMirror h1 {
-    font-size: 2rem;
-    font-weight: 700;
+    font-size: calc(var(--text-base) + 1rem);
+    font-weight: var(--font-weight-bold);
     margin-top: 1rem;
     margin-bottom: 1rem;
     border-bottom: 1px solid var(--color-default);
@@ -2968,16 +2968,16 @@ defineExpose({
 }
 
 .ProseMirror h2 {
-    font-size: 1.5rem;
-    font-weight: 700;
+    font-size: var(--text-2xl);
+    font-weight: var(--font-weight-bold);
     margin-top: 1.5rem;
     margin-bottom: 1rem;
     line-height: 1.3;
 }
 
 .ProseMirror h3 {
-    font-size: 1.25rem;
-    font-weight: 600;
+    font-size: var(--text-xl);
+    font-weight: var(--font-weight-semibold);
     margin-top: 1.5rem;
     margin-bottom: 1rem;
     line-height: 1.4;
@@ -3021,7 +3021,7 @@ defineExpose({
     padding: 0.25rem 0.5rem;
     background-color: var(--color-surface-alt);
     color: var(--color-secondary);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     border-bottom-left-radius: 0.25rem;
     font-family: var(--font-sans, 'Inter', ui-sans-serif, system-ui, sans-serif);
 }
@@ -3114,7 +3114,7 @@ defineExpose({
 }
 
 .ProseMirror pre code .hljs-strong {
-    font-weight: bold;
+    font-weight: var(--font-weight-bold);
 }
 
 .ProseMirror pre code .hljs-link {
@@ -3203,7 +3203,7 @@ defineExpose({
     background: var(--color-surface-alt);
     border: 2px dashed var(--color-accent);
     border-radius: 6px;
-    font-size: 13px;
+    font-size: var(--text-xs-plus);
     line-height: 1.4;
     width: 100%;
     max-width: 100%;
@@ -3231,16 +3231,16 @@ defineExpose({
 }
 
 .ProseMirror .ticket-drop-preview-id {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--color-accent);
     font-family: var(--font-mono, monospace);
-    font-size: 12px;
+    font-size: var(--text-xs);
     flex-shrink: 0;
 }
 
 .ProseMirror .ticket-drop-preview-title {
     color: var(--color-text-primary, #fff);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3252,7 +3252,7 @@ defineExpose({
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 
 .ProseMirror .ticket-drop-preview-person {
@@ -3268,10 +3268,10 @@ defineExpose({
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     padding: 2px 8px;
     border-radius: 4px;
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     text-transform: capitalize;
 }
 
@@ -3295,10 +3295,10 @@ defineExpose({
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     padding: 2px 8px;
     border-radius: 4px;
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
 }
 
 .ProseMirror .ticket-drop-preview-priority-high {
@@ -3352,7 +3352,7 @@ defineExpose({
     background: var(--color-surface-alt);
     border: 1px solid var(--color-border-subtle);
     border-radius: 4px;
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.3;
     cursor: pointer;
     transition: border-color 0.15s ease, background 0.15s ease;
@@ -3374,16 +3374,16 @@ defineExpose({
 }
 
 .ProseMirror .ticket-link-id {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--color-text-tertiary, #888);
     font-family: var(--font-mono, monospace);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     flex-shrink: 0;
 }
 
 .ProseMirror .ticket-link-title {
     color: var(--color-text-primary, #fff);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3396,10 +3396,10 @@ defineExpose({
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 10px;
+    font-size: var(--text-3xs);
     padding: 1px 6px;
     border-radius: 3px;
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     text-transform: capitalize;
     flex-shrink: 0;
     white-space: nowrap;
@@ -3472,7 +3472,7 @@ defineExpose({
     align-items: center;
     gap: 4px;
     padding: 0 8px;
-    font-size: 10px;
+    font-size: var(--text-3xs);
     color: var(--color-text-tertiary, #888);
     cursor: pointer;
     user-select: none;
@@ -3487,7 +3487,7 @@ defineExpose({
 }
 
 .embedded-doc-title {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     overflow: hidden;
@@ -3550,7 +3550,7 @@ defineExpose({
 }
 
 .ProseMirror strong {
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
     color: var(--color-primary);
 }
 
@@ -3626,7 +3626,7 @@ defineExpose({
     color: #fff;
     font-family: var(--font-sans, 'Inter', ui-sans-serif, system-ui, sans-serif);
     font-size: 0.75em;
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     line-height: 1.4;
     white-space: nowrap;
     max-width: 12em;
@@ -4122,8 +4122,8 @@ defineExpose({
 }
 
 .toolbar-button-label {
-    font-size: 0.8125rem;
-    font-weight: 500;
+    font-size: var(--text-xs-plus);
+    font-weight: var(--font-weight-medium);
 }
 
 .toolbar .toolbar-button--table[aria-expanded="true"] {
@@ -4156,7 +4156,7 @@ defineExpose({
     border: 1px dashed var(--color-default);
     border-radius: 0.5rem;
     color: var(--color-secondary);
-    font-size: 0.875rem;
+    font-size: var(--text-sm);
     margin: 0.25rem 0;
 }
 
@@ -4256,7 +4256,7 @@ defineExpose({
     border-radius: 4px;
     background: rgba(0, 0, 0, 0.65);
     color: #fff;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     line-height: 1.2;
     font-variant-numeric: tabular-nums;
     pointer-events: none;

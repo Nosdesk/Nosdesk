@@ -197,13 +197,13 @@ function segmentAttrs(part: SegmentPart): Record<string, string> {
 
 .time-picker__field--sm {
   padding: 0.25rem 0.5rem;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.4;
 }
 
 .time-picker__field--md {
   padding: 0.5rem 0.75rem;
-  font-size: 14px;
+  font-size: var(--text-sm);
 }
 
 /* The segments are editable: under 16px, iOS zooms the page on focus. */
