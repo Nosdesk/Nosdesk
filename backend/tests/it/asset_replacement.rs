@@ -948,3 +948,124 @@ async fn an_old_asset_on_loan_moves_only_after_its_return() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(read_asset(&f, old).status, "retired");
 }
+
+/// A named status `label` of `category`, made in workspace A: its id.
+fn named_status(f: &Fixture, category: &str, slug: &str, label: &str) -> i32 {
+    in_ws(f, |c| {
+        backend::repository::asset_statuses::create(
+            c,
+            backend::repository::asset_statuses::NewStatusInput {
+                category: category.to_string(),
+                slug: slug.to_string(),
+                label: label.to_string(),
+                description: None,
+                color: None,
+                position: 0,
+                is_default: false,
+                applies_to_kinds: None,
+                created_by: None,
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .id
+}
+
+/// The carry-over names a status inside the old asset's target: of that
+/// category or refused, a no-op for an asset already there when it names
+/// none, and a relabel that carries no disposal record.
+#[actix_web::test]
+async fn the_old_asset_moves_to_a_named_status_of_its_target() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    add_repair(&f).await;
+    let shelf = named_status(&f, "in_stock", "spares_shelf", "Spares shelf");
+    let scrapped = named_status(&f, "disposed", "scrapped_on_site", "Scrapped on site");
+    let new = asset(&f, "CAM-041");
+
+    // A named status of the target category.
+    let old = asset(&f, "CAM-042");
+    let rid = record(&f, old, "replaced", Some(new)).await;
+    let ask = json!({ "move_old_to": "in_stock", "move_old_status_id": shelf });
+    let (code, body) = carry(&f, old, rid, ask.clone()).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    assert_eq!(body["old_asset"]["status_id"], shelf, "{body}");
+    let moved = read_asset(&f, old);
+    assert_eq!(
+        (moved.status.as_str(), moved.status_id),
+        ("in_stock", Some(shelf))
+    );
+    let (code, body) = carry(&f, old, rid, ask).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    assert!(
+        body["old_asset"]["event_id"].is_null(),
+        "already there: {body}"
+    );
+
+    // One of another category.
+    let other = asset(&f, "CAM-043");
+    let rid = record(&f, other, "replaced", Some(new)).await;
+    let (code, body) = carry(
+        &f,
+        other,
+        rid,
+        json!({ "move_old_to": "retired", "move_old_status_id": shelf }),
+    )
+    .await;
+    assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "wrong_category", "{body}");
+    assert_eq!(read_asset(&f, other).status, "in_service");
+
+    // Already in the category with a named status, and none asked: kept.
+    let kept = asset(&f, "CAM-044");
+    in_ws(&f, |c| {
+        backend::repository::asset_lifecycle::transition(
+            c,
+            backend::repository::asset_lifecycle::TransitionInput {
+                asset_id: kept,
+                to_status: "in_stock".to_string(),
+                to_status_id: Some(shelf),
+                reason: None,
+                ticket_id: None,
+                metadata: json!({}),
+                actor_uuid: None,
+                disposal: None,
+                record: None,
+                complete_record: None,
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    });
+    let rid = record(&f, kept, "replaced", Some(new)).await;
+    let (code, body) = carry(&f, kept, rid, json!({ "move_old_to": "in_stock" })).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    assert!(body["old_asset"]["event_id"].is_null(), "{body}");
+    assert_eq!(body["old_asset"]["status_id"], shelf, "{body}");
+    assert_eq!(read_asset(&f, kept).status_id, Some(shelf));
+
+    // Disposed already: a relabel carries no disposal record.
+    let gone = asset(&f, "CAM-045");
+    let rid = record(&f, gone, "replaced", Some(new)).await;
+    let disposal = json!({ "sanitization_method": "destroy", "data_bearing": false });
+    let (code, body) = carry(
+        &f,
+        gone,
+        rid,
+        json!({ "move_old_to": "disposed", "disposal": disposal }),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    let (code, body) = carry(
+        &f,
+        gone,
+        rid,
+        json!({ "move_old_to": "disposed", "move_old_status_id": scrapped,
+                "disposal": disposal }),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "disposal_not_allowed", "{body}");
+    let gone = read_asset(&f, gone);
+    assert_eq!((gone.status.as_str(), gone.status_id), ("disposed", None));
+}

@@ -1165,6 +1165,10 @@ pub struct FieldSpec {
     /// reported on Review.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required_for: Option<Vec<String>>,
+    /// The importer's rows carry the field only when a column is mapped to
+    /// it, so a blank cell (mapped) reads apart from no column at all.
+    #[serde(skip)]
+    pub only_when_mapped: bool,
 }
 
 impl FieldSpec {
@@ -1194,6 +1198,7 @@ impl FieldSpec {
             enum_labels: None,
             format: None,
             required_for: None,
+            only_when_mapped: false,
         }
     }
 
@@ -1204,6 +1209,12 @@ impl FieldSpec {
 
     pub fn with_format(mut self, format: &str) -> Self {
         self.format = Some(format.to_string());
+        self
+    }
+
+    /// Carried in the importer's rows only when a column is mapped to it.
+    pub fn only_when_mapped(mut self) -> Self {
+        self.only_when_mapped = true;
         self
     }
 }

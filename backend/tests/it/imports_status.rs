@@ -778,9 +778,14 @@ async fn a_status_cell_names_a_named_status_and_one_two_answer_to_is_refused() {
     assert_eq!(choice["detail"], "In repair");
 
     let planned = rows(&pool, &ws, &id).await;
+    let written = &row_result(&planned, 2)["fields_written"];
     assert_eq!(
-        row_result(&planned, 2)["fields_written"]["status"],
-        serde_json::json!({ "before": "in_service", "after": "At vendor" })
+        written["status"],
+        serde_json::json!({ "before": "in_service", "after": "in_repair" })
+    );
+    assert_eq!(
+        written["status_label"],
+        serde_json::json!({ "before": null, "after": "At vendor" })
     );
     commit(&pool, &ws, &id).await;
     assert_eq!(
@@ -866,13 +871,121 @@ async fn restore_puts_a_named_status_back() {
     assert_eq!(draft["summary"]["rows_with_errors"], 0, "{draft}");
     let restore = id_of(&draft);
     let planned = rows(&pool, &ws, &restore).await;
+    let written = &row_result(&planned, 2)["fields_written"];
     assert_eq!(
-        row_result(&planned, 2)["fields_written"]["status"],
-        serde_json::json!({ "before": "in_service", "after": "At vendor" })
+        written["status"],
+        serde_json::json!({ "before": "in_service", "after": "in_repair" })
+    );
+    assert_eq!(
+        written["status_label"],
+        serde_json::json!({ "before": null, "after": "At vendor" })
     );
     commit(&pool, &ws, &restore).await;
     assert_eq!(
         named_of(&pool, "P-1"),
         ("in_repair".to_string(), Some(vendor))
     );
+}
+
+/// A restore that puts a plain status back over a named one carries a blank
+/// `status_label`, so the name goes; one whose named status was archived
+/// since is a row error, not a move somewhere else.
+#[actix_web::test]
+async fn restore_puts_a_plain_status_back_and_refuses_an_archived_one() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    let vendor = seed_named(&pool, &ws, "in_repair", "at_vendor", "At vendor");
+    let spare = seed_named(&pool, &ws, "in_stock", "spare", "Spare");
+    seed_asset(&pool, &ws, "Q-1", "in_repair", false);
+    let gone = seed_asset(&pool, &ws, "Q-2", "in_stock", false);
+    set_named(&pool, gone, "in_stock", Some(spare));
+
+    let job = checked(
+        &pool,
+        &ws,
+        "Name,Tag,Status,status_label\nQ-1,Q-1,in_repair,At vendor\nQ-2,Q-2,in_service,\n",
+        &[
+            ("Name", "name"),
+            ("Tag", "asset_tag"),
+            ("Status", "status"),
+            ("status_label", "status_label"),
+        ],
+        options(),
+    )
+    .await;
+    assert_eq!(errors(&job), vec![], "{job}");
+    let source = id_of(&job);
+    commit(&pool, &ws, &source).await;
+    assert_eq!(
+        named_of(&pool, "Q-1"),
+        ("in_repair".to_string(), Some(vendor))
+    );
+    diesel::sql_query("UPDATE asset_statuses SET archived_at = now() WHERE id = $1")
+        .bind::<Integer, _>(spare)
+        .execute(&mut pool.get().expect("conn"))
+        .expect("archive");
+
+    let (status, body) = call_import_route(
+        &pool,
+        &ws,
+        ws.admin_uuid,
+        TestRequest::post().uri(&format!("/api/admin/import/{source}/restore")),
+    )
+    .await;
+    let draft = json(&body);
+    assert_eq!(status, StatusCode::CREATED, "{draft}");
+    let restore = id_of(&draft);
+    let planned = rows(&pool, &ws, &restore).await;
+    assert_eq!(
+        row_result(&planned, 2)["fields_written"]["status_label"],
+        serde_json::json!({ "before": "At vendor", "after": null })
+    );
+    assert!(
+        errors(&draft)
+            .iter()
+            .any(|(row, column, _)| *row == 3 && column.as_deref() == Some("status")),
+        "{draft}"
+    );
+    commit(&pool, &ws, &restore).await;
+    assert_eq!(named_of(&pool, "Q-1"), ("in_repair".to_string(), None));
+    assert_eq!(named_of(&pool, "Q-2"), ("in_service".to_string(), None));
+}
+
+/// Without a `status_label` column, a bare category leaves an asset already
+/// in it as it is, named status included; another category moves it.
+#[actix_web::test]
+async fn a_bare_category_keeps_the_named_status_of_an_asset_already_in_it() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = import_workspace(&pool);
+    let vendor = seed_named(&pool, &ws, "in_repair", "at_vendor", "At vendor");
+    for tag in ["K-1", "K-2", "K-3"] {
+        let id = seed_asset(&pool, &ws, tag, "in_repair", false);
+        set_named(&pool, id, "in_repair", Some(vendor));
+    }
+    let job = checked(
+        &pool,
+        &ws,
+        &file(&[
+            ("K-1", "in_repair"),
+            ("K-2", "In repair"),
+            ("K-3", "in_stock"),
+        ]),
+        MAPPING,
+        options(),
+    )
+    .await;
+    assert_eq!(errors(&job), vec![], "{job}");
+    assert_eq!(job["summary"]["unchanged"], 2, "{job}");
+    commit(&pool, &ws, &id_of(&job)).await;
+    assert_eq!(
+        named_of(&pool, "K-1"),
+        ("in_repair".to_string(), Some(vendor))
+    );
+    assert_eq!(
+        named_of(&pool, "K-2"),
+        ("in_repair".to_string(), Some(vendor))
+    );
+    assert_eq!(named_of(&pool, "K-3"), ("in_stock".to_string(), None));
 }

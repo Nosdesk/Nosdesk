@@ -122,7 +122,9 @@ pub fn create_named(
 ) -> Result<(Asset, Option<AssetLifecycleEvent>), MoveError> {
     conn.transaction::<_, MoveError, _>(|conn| {
         let named = match status_id {
-            Some(id) => Some(named_repo::get(conn, id)?.ok_or(MoveError::UnknownNamedStatus(id))?),
+            Some(id) => Some(
+                named_repo::get_for_share(conn, id)?.ok_or(MoveError::UnknownNamedStatus(id))?,
+            ),
             None => None,
         };
         status_rules::check_named_initial(status, named.as_ref().map(Named::of), &new_asset.kind)?;
@@ -501,9 +503,10 @@ pub fn transition(
     // emit::record fires for both writes inside this transaction.
     conn.transaction::<(Asset, AssetLifecycleEvent), TransitionError, _>(|conn| {
         let named = match input.to_status_id {
-            Some(id) => {
-                Some(named_repo::get(conn, id)?.ok_or(TransitionError::UnknownNamedStatus(id))?)
-            }
+            Some(id) => Some(
+                named_repo::get_for_share(conn, id)?
+                    .ok_or(TransitionError::UnknownNamedStatus(id))?,
+            ),
             None => None,
         };
         // Lock the asset so a concurrent loan issue/return can't change its

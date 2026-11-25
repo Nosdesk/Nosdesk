@@ -632,9 +632,14 @@ pub fn validate_answers(answers: &ValueAnswers, fields: &[FieldSpec]) -> Result<
 }
 
 /// The grid an importer reads: one column per field, named by its id, in
-/// `fields` order, with the mapped column's cells or blanks. Source row
-/// numbers carry through.
+/// `fields` order, with the mapped column's cells or blanks. A field
+/// carried only when mapped ([`FieldSpec::only_when_mapped`]) has no column
+/// without a mapping. Source row numbers carry through.
 pub fn apply_mapping(grid: &ParsedCsv, mapping: &ColumnMapping, fields: &[FieldSpec]) -> ParsedCsv {
+    let fields: Vec<&FieldSpec> = fields
+        .iter()
+        .filter(|f| !f.only_when_mapped || mapping.contains_key(&f.id))
+        .collect();
     let sources: Vec<Option<usize>> = fields.iter().map(|f| mapping.get(&f.id).copied()).collect();
     ParsedCsv {
         headers: fields.iter().map(|f| f.id.clone()).collect(),

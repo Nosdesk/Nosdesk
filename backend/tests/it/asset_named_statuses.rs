@@ -274,6 +274,21 @@ async fn admins_manage_named_statuses() {
             "LABEL_TAKEN",
         ),
         (
+            json!({ "category": "in_stock", "slug": "vendor_3", "label": "at-vendor" }),
+            StatusCode::CONFLICT,
+            "LABEL_TAKEN",
+        ),
+        (
+            json!({ "category": "in_stock", "slug": "in_repair_", "label": "Shelf" }),
+            StatusCode::CONFLICT,
+            "SLUG_RESERVED",
+        ),
+        (
+            json!({ "category": "in_stock", "slug": "lost_", "label": "Shelf" }),
+            StatusCode::CONFLICT,
+            "SLUG_RESERVED",
+        ),
+        (
             json!({ "category": "in_stock", "slug": "at_vendor", "label": "Shelf" }),
             StatusCode::CONFLICT,
             "SLUG_TAKEN",
@@ -442,7 +457,27 @@ async fn admins_manage_named_statuses() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{refused}");
     assert_eq!(refused["code"], "IN_USE");
-    assert_eq!(by_id(&statuses(&f).await, vendor)["asset_count"], 1);
+    let listed = by_id(&statuses(&f).await, vendor);
+    assert_eq!(listed["asset_count"], 1, "{listed}");
+    assert_eq!(listed["deletable"], false, "{listed}");
+
+    // Held by history alone, a status shows no asset and still isn't
+    // deletable, as the delete says.
+    let (status, moved) = transition(&f, a, json!({ "to_status": "in_stock" })).await;
+    assert_eq!(status, StatusCode::CREATED, "{moved}");
+    let listed = by_id(&statuses(&f).await, vendor);
+    assert_eq!(listed["asset_count"], 0, "{listed}");
+    assert_eq!(listed["usage_count"], 2, "into it and out of it: {listed}");
+    assert_eq!(listed["deletable"], false, "{listed}");
+    let (status, refused) = admin(
+        &f,
+        Method::DELETE,
+        &format!("/api/admin/asset-statuses/{vendor}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(by_id(&statuses(&f).await, parts)["deletable"], true);
 }
 
 /// A move between named statuses of one category is a relabel: an event
@@ -787,22 +822,36 @@ async fn a_filter_on_the_default_takes_in_the_plain_assets() {
     assert_eq!(page["data"][0]["status_id"], kiosk, "{page}");
 }
 
-/// Everyone who sees assets reads the named statuses, archived ones
-/// flagged; staff alone get the moves; a requester who sees no assets gets
-/// nothing.
+/// Everyone who sees assets reads the named statuses; staff alone get the
+/// moves, the descriptions, the kinds and every archived status, anyone
+/// else an archived one only while an asset holds it; a requester who sees
+/// no assets gets nothing.
 #[actix_web::test]
 async fn requesters_read_the_statuses_without_the_moves() {
     let db = common::TestDb::new();
     let f = seed(&db);
-    let vendor = named(&f, "in_repair", "at_vendor", "At vendor", json!({})).await;
-    let old = named(&f, "in_repair", "old_name", "Old name", json!({})).await;
-    admin(
+    let vendor = named(
         &f,
-        Method::POST,
-        &format!("/api/admin/asset-statuses/{old}/archive"),
-        None,
+        "in_repair",
+        "at_vendor",
+        "At vendor",
+        json!({ "description": "Sent out for repair", "applies_to_kinds": ["device"] }),
     )
     .await;
+    let old = named(&f, "in_repair", "old_name", "Old name", json!({})).await;
+    let held = named(&f, "in_repair", "bench", "On the bench", json!({})).await;
+    let a = asset(&f, "Benched");
+    let (status, moved) = transition(&f, a, json!({ "to_status_id": held })).await;
+    assert_eq!(status, StatusCode::CREATED, "{moved}");
+    for id in [old, held] {
+        admin(
+            &f,
+            Method::POST,
+            &format!("/api/admin/asset-statuses/{id}/archive"),
+            None,
+        )
+        .await;
+    }
 
     let (status, body) = call(
         &f,
@@ -814,9 +863,16 @@ async fn requesters_read_the_statuses_without_the_moves() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let listed = body["statuses"].as_array().expect("statuses");
-    assert_eq!(by_id(listed, vendor)["label"], "At vendor");
-    assert_eq!(by_id(listed, vendor)["archived"], false);
-    assert_eq!(by_id(listed, old)["archived"], true);
+    let shown = by_id(listed, vendor);
+    assert_eq!(shown["label"], "At vendor");
+    assert_eq!(shown["archived"], false);
+    assert!(shown.get("description").is_none(), "{shown}");
+    assert!(shown.get("applies_to_kinds").is_none(), "{shown}");
+    assert_eq!(by_id(listed, held)["archived"], true, "an asset holds it");
+    assert!(
+        listed.iter().all(|s| s["id"] != old),
+        "an archived status nothing holds stays with staff: {body}"
+    );
     assert!(
         body["categories"]
             .as_array()
@@ -828,6 +884,10 @@ async fn requesters_read_the_statuses_without_the_moves() {
 
     let (_, staff) = call(&f, f.agent, Method::GET, "/api/assets/statuses", None).await;
     assert!(staff["categories"][0]["targets"].is_array(), "{staff}");
+    let listed = staff["statuses"].as_array().expect("statuses");
+    assert_eq!(by_id(listed, vendor)["description"], "Sent out for repair");
+    assert_eq!(by_id(listed, vendor)["applies_to_kinds"], json!(["device"]));
+    assert_eq!(by_id(listed, old)["archived"], true);
 
     in_ws(&f, |c| {
         site_settings::update_site_settings(

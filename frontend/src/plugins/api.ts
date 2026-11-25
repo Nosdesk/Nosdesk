@@ -426,11 +426,11 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           category: s.category,
           slug: s.slug,
           label: s.label,
-          description: s.description,
+          description: s.description ?? null,
           color: s.color,
           position: s.position,
           isDefault: s.is_default,
-          appliesToKinds: s.applies_to_kinds,
+          appliesToKinds: s.applies_to_kinds ?? null,
           archived: s.archived,
         }));
       },

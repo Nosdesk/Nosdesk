@@ -169,20 +169,38 @@ pub fn get_by_slug(conn: &mut DbConnection, slug: &str) -> QueryResult<Option<As
         .optional()
 }
 
-/// The live status named `label`, ignoring case.
+/// Status `id`, held `FOR SHARE` until the transaction ends, so a move to
+/// it can't race an edit, an archive or a delete.
+pub fn get_for_share(conn: &mut DbConnection, id: i32) -> QueryResult<Option<AssetNamedStatus>> {
+    asset_statuses::table
+        .find(id)
+        .for_share()
+        .first(conn)
+        .optional()
+}
+
+/// A name as an import cell compares it: lower case, `_` and `-` as
+/// spaces, spacing collapsed.
+pub fn loose_name(s: &str) -> String {
+    s.to_lowercase()
+        .replace(['_', '-'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The live status named `label`, read loosely ([`loose_name`]), as an
+/// import cell would name it.
 pub fn live_by_label(
     conn: &mut DbConnection,
     label: &str,
 ) -> QueryResult<Option<AssetNamedStatus>> {
-    asset_statuses::table
+    let wanted = loose_name(label);
+    Ok(asset_statuses::table
         .filter(asset_statuses::archived_at.is_null())
-        .filter(
-            diesel::dsl::sql::<diesel::sql_types::Bool>("lower(label) = lower(")
-                .bind::<diesel::sql_types::Text, _>(label.trim())
-                .sql(")"),
-        )
-        .first(conn)
-        .optional()
+        .load::<AssetNamedStatus>(conn)?
+        .into_iter()
+        .find(|s| loose_name(&s.label) == wanted))
 }
 
 /// The statuses with these ids, by id.
@@ -209,6 +227,47 @@ pub fn asset_counts(conn: &mut DbConnection) -> QueryResult<Vec<(i32, i64)>> {
         .into_iter()
         .filter_map(|(id, n)| id.map(|id| (id, n)))
         .collect())
+}
+
+/// How many rows hold each status that any hold: assets, lifecycle events
+/// (each side) and loans, as [`usage`] counts one.
+pub fn usage_counts(conn: &mut DbConnection) -> QueryResult<HashMap<i32, i64>> {
+    let mut out: HashMap<i32, i64> = asset_counts(conn)?.into_iter().collect();
+    let mut add = |rows: Vec<(Option<i32>, i64)>| {
+        for (id, n) in rows {
+            if let Some(id) = id {
+                *out.entry(id).or_default() += n;
+            }
+        }
+    };
+    add(asset_lifecycle_events::table
+        .filter(asset_lifecycle_events::from_status_id.is_not_null())
+        .group_by(asset_lifecycle_events::from_status_id)
+        .select((
+            asset_lifecycle_events::from_status_id,
+            diesel::dsl::count_star(),
+        ))
+        .load(conn)?);
+    // An event whose two sides are the same status counts once.
+    add(
+        asset_lifecycle_events::table
+            .filter(asset_lifecycle_events::to_status_id.is_not_null())
+            .filter(asset_lifecycle_events::from_status_id.is_null().or(
+                asset_lifecycle_events::from_status_id.ne(asset_lifecycle_events::to_status_id),
+            ))
+            .group_by(asset_lifecycle_events::to_status_id)
+            .select((
+                asset_lifecycle_events::to_status_id,
+                diesel::dsl::count_star(),
+            ))
+            .load(conn)?,
+    );
+    add(asset_loans::table
+        .filter(asset_loans::status_id_before.is_not_null())
+        .group_by(asset_loans::status_id_before)
+        .select((asset_loans::status_id_before, diesel::dsl::count_star()))
+        .load(conn)?);
+    Ok(out)
 }
 
 /// How many rows hold status `id`: assets, lifecycle events (either side)
@@ -257,15 +316,10 @@ fn check_label(label: Option<String>) -> Result<String, StatusError> {
 /// import file writes a plain asset's status as the key, so a named status
 /// called the same would take its rows.
 fn names_a_category(label: &str) -> bool {
-    let loose = |s: &str| {
-        s.to_lowercase()
-            .replace(['_', '-'], " ")
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    let wanted = loose(label);
-    AssetStatus::ALL.iter().any(|c| loose(c.as_str()) == wanted)
+    let wanted = loose_name(label);
+    AssetStatus::ALL
+        .iter()
+        .any(|c| loose_name(c.as_str()) == wanted)
 }
 
 fn check_color(color: Option<&str>) -> Result<(), StatusError> {
@@ -288,7 +342,7 @@ fn check_kinds(conn: &mut DbConnection, kinds: &[String]) -> Result<(), StatusEr
     }
 }
 
-/// Whether another live status than `except` has `label`, ignoring case.
+/// Whether another live status than `except` has `label`, read loosely.
 fn label_taken(conn: &mut DbConnection, label: &str, except: Option<i32>) -> QueryResult<bool> {
     Ok(live_by_label(conn, label)?.is_some_and(|s| Some(s.id) != except))
 }
@@ -329,7 +383,8 @@ pub fn create(
     if !KEY.is_match(&slug) {
         return Err(StatusError::InvalidKey(slug));
     }
-    if AssetStatus::from_str_opt(&slug).is_some() {
+    // Loosely too: `in_repair_` would answer to an `in_repair` cell.
+    if names_a_category(&slug) {
         return Err(StatusError::SlugReserved);
     }
     let label = check_label(Some(input.label))?;
@@ -560,9 +615,7 @@ fn slug_of(label: &str) -> String {
         }
     }
     let slug = slug.trim_end_matches('_');
-    let slug = if slug.starts_with(|c: char| c.is_ascii_lowercase())
-        && AssetStatus::from_str_opt(slug).is_none()
-    {
+    let slug = if slug.starts_with(|c: char| c.is_ascii_lowercase()) && !names_a_category(slug) {
         slug.to_string()
     } else {
         format!("status_{slug}")
@@ -632,6 +685,10 @@ mod tests {
         assert_eq!(slug_of("3rd party"), "status_3rd_party");
         assert_eq!(slug_of("!!!"), "status");
         assert_eq!(slug_of("In repair"), "status_in_repair");
+        assert!(names_a_category("in__repair"));
+        assert!(names_a_category("lost_"));
+        assert!(names_a_category("in_repair_"));
+        assert!(!names_a_category("lost_and_found"));
     }
 
     #[test]

@@ -41,16 +41,19 @@ export interface AssetNamedStatus {
   /** Stable key for imports, the API and plugins. */
   slug: string;
   label: string;
-  description: string | null;
+  /** Staff only: absent for anyone else. */
+  description?: string | null;
   /** `#rrggbb`, or null for the category's color. */
   color: string | null;
   /** Order within the category. */
   position: number;
   /** The category's name in this workspace. */
   is_default: boolean;
-  /** Kind slugs offered the status; null for every kind. */
-  applies_to_kinds: string[] | null;
-  /** Archived: kept on the assets that hold it, left out of pickers. */
+  /** Kind slugs offered the status; null for every kind. Staff only:
+   *  absent for anyone else. */
+  applies_to_kinds?: string[] | null;
+  /** Archived: kept on the assets that hold it, left out of pickers. Anyone
+   *  but staff gets an archived status only while an asset holds it. */
   archived: boolean;
 }
 

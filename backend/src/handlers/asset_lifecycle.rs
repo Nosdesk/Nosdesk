@@ -431,37 +431,43 @@ struct CategoryView {
     targets: Option<Vec<status_rules::Target>>,
 }
 
-/// A named status as `GET /assets/statuses` lists it.
+/// A named status as `GET /assets/statuses` lists it. The description and
+/// kinds are for staff, who pick statuses; anyone else gets what renders an
+/// asset's status (left out, not null, since a null kinds list means every
+/// kind).
 #[derive(Debug, Serialize)]
 struct NamedView {
     id: i32,
     category: String,
     slug: String,
     label: String,
-    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<Option<String>>,
     color: Option<String>,
     position: i32,
     is_default: bool,
-    applies_to_kinds: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applies_to_kinds: Option<Option<Vec<String>>>,
     /// Archived statuses stay on the assets that hold them: listed, so a
     /// client can name them, and left out of pickers.
     archived: bool,
 }
 
-impl From<crate::models::AssetNamedStatus> for NamedView {
-    fn from(s: crate::models::AssetNamedStatus) -> Self {
+impl NamedView {
+    fn of(s: crate::models::AssetNamedStatus, staff: bool) -> Self {
         Self {
             id: s.id,
             category: s.category,
             slug: s.slug,
             label: s.label,
-            description: s.description,
+            description: staff.then_some(s.description),
             color: s.color,
             position: s.position,
             is_default: s.is_default,
-            applies_to_kinds: s
-                .applies_to_kinds
-                .map(|kinds| kinds.into_iter().flatten().collect()),
+            applies_to_kinds: staff.then(|| {
+                s.applies_to_kinds
+                    .map(|kinds| kinds.into_iter().flatten().collect())
+            }),
             archived: s.archived_at.is_some(),
         }
     }
@@ -470,11 +476,24 @@ impl From<crate::models::AssetNamedStatus> for NamedView {
 /// GET the status categories, in picker order, with their flags and, for
 /// staff, the manual targets of each and what each needs (`disposal`,
 /// `active_loan`, `no_active_loan`); and `statuses`, the workspace's named
-/// statuses in picker order, archived ones too. Open to whoever sees assets.
+/// statuses in picker order, archived ones too. Open to whoever sees assets;
+/// anyone but staff gets an archived status only while an asset holds it.
 pub async fn list_statuses(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    let staff = auth.can_handle_tickets();
     let named = match tc.run(|conn| {
         crate::handlers::assets::require_assets_visible(conn, &auth)?;
-        named_repo::list(conn, true)
+        let named = named_repo::list(conn, true)?;
+        if staff {
+            return Ok(named);
+        }
+        let held: std::collections::HashSet<i32> = named_repo::asset_counts(conn)?
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        Ok(named
+            .into_iter()
+            .filter(|s| s.archived_at.is_none() || held.contains(&s.id))
+            .collect())
     }) {
         Ok(named) => named,
         Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Not found"),
@@ -483,7 +502,6 @@ pub async fn list_statuses(mut tc: TenantConn, auth: AuthContext) -> impl Respon
             return errors::internal("Failed to load asset statuses");
         }
     };
-    let staff = auth.can_handle_tickets();
     let categories: Vec<CategoryView> = AssetStatus::ALL
         .into_iter()
         .map(|key| CategoryView {
@@ -493,7 +511,7 @@ pub async fn list_statuses(mut tc: TenantConn, auth: AuthContext) -> impl Respon
             targets: staff.then(|| status_rules::manual_targets(key)),
         })
         .collect();
-    let statuses: Vec<NamedView> = named.into_iter().map(NamedView::from).collect();
+    let statuses: Vec<NamedView> = named.into_iter().map(|s| NamedView::of(s, staff)).collect();
     HttpResponse::Ok().json(json!({ "categories": categories, "statuses": statuses }))
 }
 

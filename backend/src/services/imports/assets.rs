@@ -154,11 +154,22 @@ struct StatusTo {
     named: Option<i32>,
 }
 
-/// A status cell as the status it names: a live named status by label or
-/// slug, or a category by key or label, ignoring case, spacing, `_` and
-/// `-`. A cell that names two (a named status and another category, or two
-/// named statuses) is refused, naming both.
+/// A status cell as the status it names: a category by its exact key or
+/// name (ignoring case), else a live named status by label or slug, or a
+/// category, ignoring case, spacing, `_` and `-`. A cell that names two (a
+/// named status and another category, or two named statuses) is refused,
+/// naming both.
 fn read_status_cell(cell: &str, named: &[AssetNamedStatus]) -> Result<StatusTo, String> {
+    // A category's own key or name, as an export or a template writes it,
+    // is that category, whatever a named status answers to.
+    if let Some((category, _)) = STATUSES.iter().find(|(status, label)| {
+        cell.trim().eq_ignore_ascii_case(status.as_str()) || cell.trim().eq_ignore_ascii_case(label)
+    }) {
+        return Ok(StatusTo {
+            category: *category,
+            named: None,
+        });
+    }
     let wanted = values::loose(cell);
     let category = read_status(cell);
     let hits: Vec<(&AssetNamedStatus, AssetStatus)> = named
@@ -500,7 +511,8 @@ impl Importer for AssetImporter {
             ),
             // The export's named status beside the `status` key; blank is the
             // plain category.
-            FieldSpec::fixed(t, "status_label", "Status name", Core, Text, false),
+            FieldSpec::fixed(t, "status_label", "Status name", Core, Text, false)
+                .only_when_mapped(),
             FieldSpec::fixed(t, "location", "Location", Core, Text, false),
             FieldSpec::fixed(t, "notes", "Notes", Core, Text, false),
             FieldSpec::fixed(t, "quantity", "Quantity", Core, Number, false),
@@ -816,15 +828,21 @@ impl Importer for AssetImporter {
                         }
                         RowAction::Create => {
                             if let Some(to) = planned.status_to {
-                                result.fields_written.insert(
-                                    "status".to_string(),
-                                    FieldChange {
-                                        before: None,
-                                        after: Some(
-                                            lookups.status_text(to.category.as_str(), to.named),
-                                        ),
-                                    },
-                                );
+                                let created = [
+                                    ("status", Some(to.category.as_str().to_string())),
+                                    ("status_label", lookups.named_label(to.named)),
+                                ];
+                                for (field, after) in created {
+                                    if after.is_some() {
+                                        result.fields_written.insert(
+                                            field.to_string(),
+                                            FieldChange {
+                                                before: None,
+                                                after,
+                                            },
+                                        );
+                                    }
+                                }
                             }
                         }
                         RowAction::Unchanged(_) => {}
@@ -1157,10 +1175,8 @@ fn field_values(asset: &Asset, lookups: &Lookups) -> BTreeMap<String, Option<Str
     let mut out: BTreeMap<String, Option<String>> = [
         ("name", Some(asset.name.clone())),
         ("kind", Some(asset.kind.clone())),
-        (
-            "status",
-            Some(lookups.status_text(&asset.status, asset.status_id)),
-        ),
+        ("status", Some(asset.status.clone())),
+        ("status_label", lookups.named_label(asset.status_id)),
         ("asset_tag", text(&asset.asset_tag)),
         ("serial_number", text(&asset.serial_number)),
         ("manufacturer", text(&asset.manufacturer)),
@@ -1229,7 +1245,7 @@ fn fields_written(
     let old = before.map(|a| field_values(a, lookups)).unwrap_or_default();
     let new = field_values(after, lookups);
     let fields: HashSet<&String> = old.keys().chain(new.keys()).collect();
-    fields
+    let changes = fields
         .into_iter()
         .filter_map(|field| {
             let was = old.get(field).cloned().flatten();
@@ -1244,7 +1260,11 @@ fn fields_written(
                 )
             })
         })
-        .collect()
+        .collect();
+    match before {
+        Some(before) => with_status_beside_its_name(changes, before),
+        None => changes,
+    }
 }
 
 /// What a matched row writes, as the plan knows it.
@@ -1317,10 +1337,8 @@ fn update_changes(
         }
     }
     if let Some(to) = writes.status_to {
-        change(
-            "status",
-            Some(lookups.status_text(to.category.as_str(), to.named)),
-        );
+        change("status", Some(to.category.as_str().to_string()));
+        change("status_label", lookups.named_label(to.named));
     }
     for (field, current) in [
         ("quantity", &asset.quantity),
@@ -1398,6 +1416,25 @@ fn update_changes(
             FieldChange {
                 before: joined(&names),
                 after: joined(&after),
+            },
+        );
+    }
+    with_status_beside_its_name(changes, asset)
+}
+
+/// `changes` with the status beside a change of its named status: a file
+/// of previous values then holds the category its `status_label` belongs
+/// to, and a restore of the name alone isn't a restore of nothing.
+fn with_status_beside_its_name(
+    mut changes: BTreeMap<String, FieldChange>,
+    before: &Asset,
+) -> BTreeMap<String, FieldChange> {
+    if changes.contains_key("status_label") && !changes.contains_key("status") {
+        changes.insert(
+            "status".to_string(),
+            FieldChange {
+                before: Some(before.status.clone()),
+                after: Some(before.status.clone()),
             },
         );
     }
@@ -1646,12 +1683,12 @@ impl Lookups {
         })
     }
 
-    /// A status as an import file writes it: a named status's label, else
-    /// the category key.
-    fn status_text(&self, category: &str, named: Option<i32>) -> String {
+    /// A named status's name as an import file writes it in
+    /// `status_label`; `None` for the plain category.
+    fn named_label(&self, named: Option<i32>) -> Option<String> {
         named
             .and_then(|id| self.statuses.iter().find(|s| s.id == id))
-            .map_or_else(|| category.to_string(), |s| s.label.clone())
+            .map(|s| s.label.clone())
     }
 
     /// The field id of an attribute key.
@@ -2211,7 +2248,15 @@ fn plan_status(
         return Ok(None);
     }
     let mut to = read_status_cell(&cell, &lookups.statuses)?;
-    let label = trimmed(row, "status_label");
+    // Without a `status_label` column a bare category leaves an asset
+    // already in it as it is, its named status included; with one, a blank
+    // cell is the plain category.
+    let Some(label) = row.get("status_label").map(|l| l.trim().to_string()) else {
+        if to.named.is_none() && existing.is_some_and(|a| a.status == to.category.as_str()) {
+            return Ok(None);
+        }
+        return plan_checked(row, existing, kind, lookups, to);
+    };
     if to.named.is_none() && !label.is_empty() {
         // The asset's own status first, then a live one: an archived status
         // keeps its name, and a live one may have taken it since.
@@ -2240,6 +2285,17 @@ fn plan_status(
             }
         }
     }
+    plan_checked(row, existing, kind, lookups, to)
+}
+
+/// [`plan_status`]'s target asked of the status rules.
+fn plan_checked(
+    row: &HashMap<String, String>,
+    existing: Option<&Asset>,
+    kind: &str,
+    lookups: &Lookups,
+    to: StatusTo,
+) -> Result<Option<StatusTo>, String> {
     let named = to
         .named
         .and_then(|id| lookups.statuses.iter().find(|s| s.id == id))
@@ -4145,6 +4201,54 @@ mod export_tests {
             header,
             "name,kind,asset_tag,serial_number,manufacturer,model,location,notes,quantity,unit,low_stock_threshold,status,attributes,status_label"
         );
+    }
+
+    fn named(id: i32, category: &str, slug: &str, label: &str) -> AssetNamedStatus {
+        AssetNamedStatus {
+            id,
+            workspace_id: 1,
+            category: category.to_string(),
+            slug: slug.to_string(),
+            label: label.to_string(),
+            description: None,
+            color: None,
+            position: 0,
+            is_default: false,
+            applies_to_kinds: None,
+            archived_at: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            created_by: None,
+        }
+    }
+
+    #[test]
+    fn a_categorys_own_key_or_name_is_that_category_whatever_answers_to_it() {
+        // Rows the rules refuse today, as an older or hand-written row
+        // might have them.
+        let statuses = [
+            named(1, "retired", "in_repair_x", "in  repair"),
+            named(2, "in_stock", "spare", "Spare"),
+        ];
+        let plain = |category| StatusTo {
+            category,
+            named: None,
+        };
+        for cell in ["in_repair", "In repair", "IN_REPAIR"] {
+            assert_eq!(
+                read_status_cell(cell, &statuses),
+                Ok(plain(AssetStatus::InRepair)),
+                "{cell}"
+            );
+        }
+        assert_eq!(
+            read_status_cell("spare", &statuses),
+            Ok(StatusTo {
+                category: AssetStatus::InStock,
+                named: Some(2),
+            })
+        );
+        assert!(read_status_cell("in - repair", &statuses).is_err());
     }
 
     #[test]

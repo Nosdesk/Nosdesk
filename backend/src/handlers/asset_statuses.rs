@@ -1,7 +1,8 @@
 //! Named asset statuses over REST, for workspace admins, under
-//! `/api/admin/asset-statuses`: list (archived ones too, with how many
-//! assets hold each), get, create, edit, reorder a category, archive,
-//! restore, and delete one nothing holds.
+//! `/api/admin/asset-statuses`: list (archived ones too, each with how many
+//! assets hold it and whether a delete would go through), get, create,
+//! edit, reorder a category, archive, restore, and delete one nothing
+//! holds.
 //!
 //! Everyone who sees assets reads them through `GET /api/assets/statuses`
 //! (`handlers::asset_lifecycle::list_statuses`).
@@ -168,19 +169,41 @@ fn status_error(e: StatusError) -> HttpResponse {
     }
 }
 
-/// A status with how many assets hold it.
-fn with_count(s: &AssetNamedStatus, count: i64) -> Value {
-    let mut out = json!(s);
-    if let Value::Object(map) = &mut out {
-        map.insert("asset_count".into(), json!(count));
-    }
-    out
+/// How many assets hold each status, and how many rows of any kind (assets,
+/// lifecycle events, loans): the count a delete checks.
+struct Counts {
+    assets: HashMap<i32, i64>,
+    usage: HashMap<i32, i64>,
 }
 
-/// The written status with its asset count, read in the same transaction.
+impl Counts {
+    fn load(conn: &mut DbConnection) -> diesel::QueryResult<Self> {
+        Ok(Self {
+            assets: repo::asset_counts(conn)?.into_iter().collect(),
+            usage: repo::usage_counts(conn)?,
+        })
+    }
+
+    /// `s` with `asset_count`, `usage_count` and `deletable`, which a
+    /// delete answers to: a status shown deletable deletes.
+    fn of(&self, s: &AssetNamedStatus) -> Value {
+        let usage = self.usage.get(&s.id).copied().unwrap_or(0);
+        let mut out = json!(s);
+        if let Value::Object(map) = &mut out {
+            map.insert(
+                "asset_count".into(),
+                json!(self.assets.get(&s.id).copied().unwrap_or(0)),
+            );
+            map.insert("usage_count".into(), json!(usage));
+            map.insert("deletable".into(), json!(usage == 0));
+        }
+        out
+    }
+}
+
+/// The written status with its counts, read in the same transaction.
 fn counted(conn: &mut DbConnection, s: AssetNamedStatus) -> Result<Value, StatusError> {
-    let counts: HashMap<i32, i64> = repo::asset_counts(conn)?.into_iter().collect();
-    Ok(with_count(&s, counts.get(&s.id).copied().unwrap_or(0)))
+    Ok(Counts::load(conn)?.of(&s))
 }
 
 fn require_admin(auth: &AuthContext) -> Option<HttpResponse> {
@@ -188,18 +211,14 @@ fn require_admin(auth: &AuthContext) -> Option<HttpResponse> {
 }
 
 /// `GET /api/admin/asset-statuses`: every status in picker order, archived
-/// ones too, each with its `asset_count`.
+/// ones too, each with its `asset_count`, `usage_count` and `deletable`.
 pub async fn admin_list(mut tc: TenantConn, auth: AuthContext) -> HttpResponse {
     if let Some(refused) = require_admin(&auth) {
         return refused;
     }
-    match tc.run(|conn| Ok((repo::list(conn, true)?, repo::asset_counts(conn)?))) {
+    match tc.run(|conn| Ok((repo::list(conn, true)?, Counts::load(conn)?))) {
         Ok((statuses, counts)) => {
-            let counts: HashMap<i32, i64> = counts.into_iter().collect();
-            let out: Vec<Value> = statuses
-                .iter()
-                .map(|s| with_count(s, counts.get(&s.id).copied().unwrap_or(0)))
-                .collect();
+            let out: Vec<Value> = statuses.iter().map(|s| counts.of(s)).collect();
             HttpResponse::Ok().json(out)
         }
         Err(e) => {
@@ -209,7 +228,7 @@ pub async fn admin_list(mut tc: TenantConn, auth: AuthContext) -> HttpResponse {
     }
 }
 
-/// `GET /api/admin/asset-statuses/{id}`, with its `asset_count`.
+/// `GET /api/admin/asset-statuses/{id}`, with its counts.
 pub async fn get(mut tc: TenantConn, auth: AuthContext, path: web::Path<i32>) -> HttpResponse {
     if let Some(refused) = require_admin(&auth) {
         return refused;
@@ -246,13 +265,19 @@ pub async fn create(
         created_by: Some(auth.user_uuid),
     };
     match tc.run_result(|conn| repo::create(conn, input)) {
-        Ok(s) => HttpResponse::Created().json(with_count(&s, 0)),
+        Ok(s) => HttpResponse::Created().json(
+            Counts {
+                assets: HashMap::new(),
+                usage: HashMap::new(),
+            }
+            .of(&s),
+        ),
         Err(e) => status_error(e),
     }
 }
 
 /// `PUT /api/admin/asset-statuses/{id}`, answering with the status and its
-/// `asset_count`.
+/// counts.
 pub async fn update(
     mut tc: TenantConn,
     auth: AuthContext,

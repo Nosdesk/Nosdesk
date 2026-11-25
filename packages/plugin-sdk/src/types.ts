@@ -316,7 +316,9 @@ export interface HostApi {
     groups(): Promise<PluginAssetGroup[]>;
     /** The workspace's named statuses in picker order, archived ones too
      * (`asset:read`), since API 1.2. Empty when the workspace has named none,
-     * or when assets aren't shown to the acting user. */
+     * or when assets aren't shown to the acting user. For a user who isn't an
+     * agent or admin, `description` and `appliesToKinds` are null and an
+     * archived status is listed only while an asset holds it. */
     statuses(): Promise<PluginAssetStatus[]>;
     /** Patch an asset (`asset:write`). Acts as the current user. */
     update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
