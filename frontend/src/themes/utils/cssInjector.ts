@@ -76,14 +76,20 @@ export const MERGED = {
 
 /** The backgrounds text sits on: the app, the surface, the alternate
  *  surface and the hover fill, the translucent ones laid over the
- *  surface where rows and cards draw them. */
-export function themeBackgrounds(colors: ThemeColors): Record<'app' | 'surface' | 'surfaceAlt' | 'surfaceHover', Rgb> {
+ *  surface where rows and cards draw them, and the hover fill over the
+ *  alternate surface. */
+export function themeBackgrounds(
+  colors: ThemeColors,
+): Record<'app' | 'surface' | 'surfaceAlt' | 'surfaceHover' | 'surfaceHoverOnAlt', Rgb> {
   const surface = parseColour(colors.surface)
+  const surfaceAlt = parseColour(colors.surfaceAlt, surface)
   return {
     app: parseColour(colors.app),
     surface,
-    surfaceAlt: parseColour(colors.surfaceAlt, surface),
+    surfaceAlt,
     surfaceHover: parseColour(colors.surfaceHover, surface),
+    // A hovered alternate row: the hover fill laid over the alternate.
+    surfaceHoverOnAlt: parseColour(colors.surfaceHover, surfaceAlt),
   }
 }
 
@@ -187,7 +193,7 @@ function resolveColours(theme: Theme, accentOverride?: string): ResolvedTheme {
     'status-merged': derive(merged.fill, merged.tint, 3),
   } as ResolvedTheme['ui']
 
-  const { surfaceHover: _hover, ...still } = themeBackgrounds(colors)
+  const { surfaceHover: _hover, surfaceHoverOnAlt: _hoverOnAlt, ...still } = themeBackgrounds(colors)
   // Icons and selected states sit on accent tints too.
   const accentUi = derive(colors.accent, colors.accentMuted, 3)
   const fieldBorder = readableOn(colors.strong, Object.values(still), 3, theme.meta.isDark)

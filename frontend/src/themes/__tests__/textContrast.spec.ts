@@ -34,11 +34,14 @@ function contrast(a: Rgb, b: Rgb): number {
  *  which is where rows and cards draw it. */
 function backgrounds(theme: Theme): Record<string, Rgb> {
   const surface = parse(theme.colors.surface)
+  const surfaceAlt = parse(theme.colors.surfaceAlt, surface)
   return {
     app: parse(theme.colors.app),
     surface,
-    surfaceAlt: parse(theme.colors.surfaceAlt, surface),
+    surfaceAlt,
     surfaceHover: parse(theme.colors.surfaceHover, surface),
+    // A hovered alternate row.
+    surfaceHoverOnAlt: parse(theme.colors.surfaceHover, surfaceAlt),
   }
 }
 
@@ -71,9 +74,10 @@ describe('text colours', () => {
   // alternate one. 37 controls fill with surface-alt and hover to
   // surface-hover, so both distances matter.
   it.each(themes)('%s: the hover fill stands 1.15:1 apart from the surface and the alternate surface', (_id, theme) => {
-    const { surface, surfaceAlt, surfaceHover } = backgrounds(theme)
+    const { surface, surfaceAlt, surfaceHover, surfaceHoverOnAlt } = backgrounds(theme)
     expect(contrast(surfaceHover, surface)).toBeGreaterThanOrEqual(1.15)
-    expect(contrast(surfaceHover, surfaceAlt)).toBeGreaterThanOrEqual(1.15)
+    // Laid over the alternate itself, as a hovered alternate row draws it.
+    expect(contrast(surfaceHoverOnAlt, surfaceAlt)).toBeGreaterThanOrEqual(1.15)
   })
 
   // main.css paints the first frame before the theme store injects its
