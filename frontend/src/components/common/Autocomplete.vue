@@ -107,10 +107,10 @@ function onUpdate(value: string | undefined) {
           class="w-full bg-surface-alt border rounded-lg text-primary transition-all duration-200 pr-9"
           :class="[
             sizeClasses.input,
-            error ? 'border-status-error' : 'border-subtle',
+            error ? 'border-status-error' : 'border-field',
             disabled
               ? 'opacity-50 cursor-not-allowed'
-              : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent',
+              : 'focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent',
             isOpen && !disabled ? 'border-accent ring-1 ring-accent' : '',
           ]"
         />

@@ -46,7 +46,7 @@ watch(localSearchQuery, (newValue) => {
       v-model="localSearchQuery"
       type="search"
       :placeholder="resolvedPlaceholder"
-      class="block w-full py-1.5 pl-8 pr-2 text-sm pointer-coarse:text-base rounded-lg bg-surface-alt border border-default text-primary placeholder-tertiary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+      class="block w-full py-1.5 pl-8 pr-2 text-sm pointer-coarse:text-base rounded-lg bg-surface-alt border border-field text-primary placeholder-tertiary transition-colors duration-200 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
     />
   </div>
 </template>

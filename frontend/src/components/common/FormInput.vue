@@ -69,7 +69,7 @@ const describedById = computed(() =>
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent',
         'disabled:opacity-50 disabled:cursor-not-allowed',
         size === 'sm' ? 'px-3 py-1.5 text-sm pointer-coarse:text-base' : 'px-3 py-2',
-        error ? 'border-status-error' : 'border-subtle',
+        error ? 'border-status-error' : 'border-field',
       ]"
       v-bind="{ ...$attrs, class: undefined }"
     />

@@ -493,7 +493,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
   align-items: center;
   gap: 0;
   background-color: var(--color-surface-alt);
-  border: 1px solid var(--color-subtle);
+  border: 1px solid var(--color-field-border);
   border-radius: 0.5rem;
   color: var(--color-primary);
   font-variant-numeric: tabular-nums;

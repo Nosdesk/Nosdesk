@@ -24,7 +24,7 @@ wants anyway.
     <PinInputInput v-for="(_, i) in length" :key="i" :index="i" as-child>
       <input
         :aria-label="fluent.$t('otp-digit-aria', { index: i + 1, count: length })"
-        class="flex-1 min-w-0 max-w-[3.25rem] h-12 sm:h-14 bg-surface-alt border border-subtle rounded-lg text-center text-primary text-lg sm:text-xl font-mono transition-colors focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/50 [&:not(:placeholder-shown)]:border-strong caret-accent"
+        class="flex-1 min-w-0 max-w-[3.25rem] h-12 sm:h-14 bg-surface-alt border border-field rounded-lg text-center text-primary text-lg sm:text-xl font-mono transition-colors focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/50 [&:not(:placeholder-shown)]:border-strong caret-accent"
         placeholder=" "
       />
     </PinInputInput>

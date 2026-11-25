@@ -119,7 +119,7 @@ const stepperClasses = computed(() => [
         'flex items-stretch w-full bg-surface-alt border rounded-lg overflow-hidden transition-colors',
         'focus-within:ring-2 focus-within:ring-accent focus-within:border-accent',
         disabled ? 'opacity-50' : '',
-        error ? 'border-status-error' : 'border-subtle',
+        error ? 'border-status-error' : 'border-field',
       ]"
       @update:model-value="onUpdate"
     >

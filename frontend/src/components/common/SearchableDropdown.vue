@@ -206,10 +206,10 @@ const optionClasses = (option: DropdownOption) => [
         class="w-full bg-surface-alt border rounded-lg text-left flex items-center justify-between transition-all duration-200"
         :class="[
           sizeClasses.button,
-          error || invalid ? 'border-status-error' : 'border-subtle',
+          error || invalid ? 'border-status-error' : 'border-field',
           disabled
             ? 'opacity-50 cursor-not-allowed'
-            : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
+            : 'focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
           isOpen && !disabled ? 'border-accent ring-1 ring-accent' : '',
         ]"
       >
@@ -264,7 +264,7 @@ const optionClasses = (option: DropdownOption) => [
                 auto-focus
                 :placeholder="resolvedSearchPlaceholder"
                 :aria-label="resolvedSearchPlaceholder"
-                class="w-full pl-7 pr-2 py-1.5 bg-surface-alt text-primary rounded border border-default focus:ring-1 focus:ring-accent focus:outline-none text-sm pointer-coarse:text-base"
+                class="w-full pl-7 pr-2 py-1.5 bg-surface-alt text-primary rounded border border-field focus:ring-1 focus:ring-accent focus:outline-none text-sm pointer-coarse:text-base"
               />
             </div>
           </div>
