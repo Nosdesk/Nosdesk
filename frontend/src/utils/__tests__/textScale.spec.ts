@@ -41,19 +41,19 @@ describe('readTextScale', () => {
 })
 
 describe('fitEmailZoom', () => {
-  it('shrinks a wide email to fit while its smallest text stays at 12px or more', () => {
+  it('shrinks a wide email to fit while its body text stays at 12px or more', () => {
     expect(fitEmailZoom(1, 1, 14)).toBe(1)
     // 14px body at 200%: fits at 1.25, and 14 * 1.25 is over 12.
     expect(fitEmailZoom(2, 1.6, 14)).toBe(1.25)
     // 14px body at 100%: the fit (0.67) would show it at 9.3px; held at 12/14.
     expect(fitEmailZoom(1, 1.5, 14)).toBeCloseTo(12 / 14)
-    // A 13px table at 200%: held where it shows at 12px.
-    expect(13 * fitEmailZoom(2, 4, 13)).toBeCloseTo(12)
+    // A 16px body may come down to 12px, and its 10px footer with it.
+    expect(16 * fitEmailZoom(1, 4, 16)).toBeCloseTo(12)
   })
 
-  it('never shrinks text the sender already set under 12px', () => {
+  it('never shrinks body text the sender already set under 12px', () => {
     expect(fitEmailZoom(1, 2, 11)).toBe(1)
-    // 9px at 150% shows at 13.5px: it may come down to 12px, no further.
-    expect(fitEmailZoom(1.5, 3, 9)).toBeCloseTo(12 / 9)
+    // An 11px body at 150% shows at 16.5px: it may come down to 12px.
+    expect(fitEmailZoom(1.5, 3, 11)).toBeCloseTo(12 / 11)
   })
 })

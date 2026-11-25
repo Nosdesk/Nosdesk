@@ -11,9 +11,12 @@ import EmailHtmlBody from '../EmailHtmlBody.vue'
  * follows the zoom the component sets: `natural` CSS px wide as sent, and
  * `reflowed` once the reflow step caps the sender's widths.
  */
-function fakeFrame(frame: HTMLIFrameElement, { natural, reflowed, textPx = 14 }: { natural: number; reflowed: number; textPx?: number }) {
+function fakeFrame(
+  frame: HTMLIFrameElement,
+  { natural, reflowed, textPx = 14, html }: { natural: number; reflowed: number; textPx?: number; html?: string },
+) {
   const doc = document.implementation.createHTMLDocument('')
-  doc.body.innerHTML = `<p style="font-size:${textPx}px">Your service call is booked.</p>`
+  doc.body.innerHTML = html ?? `<p style="font-size:${textPx}px">Your service call is booked.</p>`
   const zoom = () => Number(doc.body.style.zoom || 1)
   const width = () => ('reflow' in doc.body.dataset ? reflowed : natural) * zoom()
   Object.defineProperty(frame, 'contentDocument', { value: doc })
@@ -102,5 +105,25 @@ describe('EmailHtmlBody', () => {
     await load(wrapper, { natural: 900, reflowed: 600 })
     expect(wrapper.find('[data-email-size]').exists()).toBe(false)
     expect(wrapper.emitted('fitted')?.at(-1)).toEqual([true])
+  })
+
+  it('pans with no switch when the body text is already at the floor', async () => {
+    const wrapper = mountEmail()
+    const doc = await load(wrapper, { natural: 900, reflowed: 600, textPx: 11 })
+    expect(doc.body.style.zoom).toBe('')
+    expect(doc.documentElement.style.overflowX).toBe('auto')
+    expect(wrapper.find('[data-email-size]').exists()).toBe(false)
+    expect(wrapper.emitted('fitted')).toBeUndefined()
+  })
+
+  it('frees only declared widths wider than the frame, never an image', async () => {
+    const wrapper = mountEmail()
+    const doc = await load(wrapper, {
+      natural: 600,
+      reflowed: 290,
+      html: `<table width="600"><tr><td style="width:552px"><img src="x.png" style="width:640px"><div style="width:40px"></div><p style="font-size:14px">Hello</p></td></tr></table><div style="width:60%"></div>`,
+    })
+    const marked = [...doc.querySelectorAll('[data-reflow-width]')].map((el) => el.tagName)
+    expect(marked).toEqual(['TABLE', 'TD'])
   })
 })

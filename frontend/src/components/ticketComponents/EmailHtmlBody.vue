@@ -22,17 +22,19 @@ down a ladder, stopping at the first step that works:
      thing that moves type the sender wrote in px, and it keeps their
      proportions. A phone shows the body at reading size (16px, `reading`);
      elsewhere it is 14px. An email that fits stops here, untouched.
-  2. Reflow. Fixed pixel widths are capped to the frame and table cells may
-     wrap (`body[data-reflow]`), so a 600px column reads like any other text.
+  2. Reflow. A width the sender declared wider than the frame (inline, or
+     as a width attribute) gives way, and table cells may wrap
+     (`body[data-reflow]`), so a 600px column reads like any other text.
+     Images, video and anything declared narrower keep their widths.
   3. Shrink to fit. If something still cannot wrap (a table of whole words),
      the zoom comes down until it fits, but never past the point where the
-     email's smallest visible text would show under 12px (text the sender
-     set under 12px is never shrunk further).
+     email's body text (the size most of its words are set in) would show
+     under 12px. Small print may go under 12px with it; body text never.
   4. Pan. Past that floor the email keeps its floor size and scrolls sideways
      inside its own frame.
 
-When step 3 or 4 left the email under the reader's size it is `fitted`, and
-the reader gets one switch: "Show at my text size" (and pan) or "Fit to
+When step 3 left the email under the reader's size it is `fitted`, and the
+reader gets one switch: "Show at my text size" (and pan) or "Fit to
 width". A phone's comment puts it on the comment's head line (the parent
 owns `size` and hears `fitted`); otherwise it sits under the email.
 -->
@@ -263,8 +265,7 @@ const srcdoc = computed(() => {
     min-width: 0 !important;
     box-sizing: border-box;
   }
-  body[data-reflow] :where(table) { width: auto !important; }
-  body[data-reflow] :where([data-reflow-width], td[width], th[width]) { width: auto !important; }
+  body[data-reflow] :where([data-reflow-width]) { width: auto !important; }
   body[data-reflow] :where(td, th) { white-space: normal !important; }
   a { color: #2563eb; text-decoration: underline; }
   blockquote {
@@ -313,8 +314,9 @@ function adjustLayout() {
   docBody.style.fontSize = props.reading ? '16px' : ''
   root.style.overflowX = 'hidden'
   delete docBody.dataset.reflow
+  for (const el of docBody.querySelectorAll('[data-reflow-width]')) el.removeAttribute('data-reflow-width')
   setBodyZoom(docBody, 1)
-  const smallest = smallestTextPx(docBody)
+  const bodyPx = bodyTextPx(docBody)
 
   // Tolerance: sub-pixel rounding can leave scrollWidth a hair over
   // clientWidth on a body that fits.
@@ -326,18 +328,17 @@ function adjustLayout() {
   setBodyZoom(docBody, zoom)
   let held = false
   if (overflows()) {
-    // 2. Reflow: a width the sender declared inline gives way, and nothing
-    // else they styled does (a max-width or a border width stays).
-    for (const el of docBody.querySelectorAll<HTMLElement>('[style]')) {
-      if (el.style.width) el.setAttribute('data-reflow-width', '')
-    }
+    // 2. Reflow: only a declared width wider than the frame gives way.
+    markWideWidths(docBody, root.clientWidth / zoom)
     docBody.dataset.reflow = ''
     if (overflows()) {
-      // 3. Shrink to fit, down to the floor; 4. pan past it. The reader
-      // can ask for their own size and pan instead.
-      held = true
-      if (!showingFull.value) {
-        zoom = fitEmailZoom(zoom, overflow(), smallest)
+      // 3. Shrink to fit, down to the floor; 4. pan past it. Only a real
+      // shrink gives the reader a choice: at the floor already, fitted and
+      // full are the same, so the email pans with no switch.
+      const fit = fitEmailZoom(zoom, overflow(), bodyPx)
+      held = fit < zoom - 0.005
+      if (held && !showingFull.value) {
+        zoom = fit
         setBodyZoom(docBody, zoom)
       }
       if (overflows()) root.style.overflowX = 'auto'
@@ -357,24 +358,53 @@ function adjustLayout() {
   attachObservers(f, docBody)
 }
 
+/** How many text runs the body size is read from; a long thread stops there. */
+const TEXT_SAMPLE = 600
+
 /**
- * The smallest text the email shows, in px at zoom 1: elements with text of
- * their own that are visible. Sizes under 6px are the tricks mail uses to
- * hide a preheader, not text anyone reads, and are left out.
+ * The email's body text size, in px at zoom 1: the size most of its
+ * characters are set in, read from up to `TEXT_SAMPLE` runs of text. Runs
+ * under 6px are the tricks mail uses to hide a preheader and are left out.
  */
-function smallestTextPx(body: HTMLElement): number {
+function bodyTextPx(body: HTMLElement): number {
   const view = body.ownerDocument.defaultView
   if (!view) return 14
-  let smallest = Infinity
-  for (const el of body.querySelectorAll<HTMLElement>('*')) {
-    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent?.trim())) continue
-    if (el.getClientRects().length === 0) continue
-    const style = view.getComputedStyle(el)
-    if (style.visibility === 'hidden' || style.opacity === '0') continue
-    const px = parseFloat(style.fontSize)
-    if (px >= 6 && px < smallest) smallest = px
+  const weights = new Map<number, number>()
+  const sizes = new Map<Element, number>()
+  const walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+  for (let n = 0, node = walker.nextNode(); node && n < TEXT_SAMPLE; node = walker.nextNode()) {
+    const text = node.textContent?.trim().length ?? 0
+    const el = node.parentElement
+    if (!text || !el) continue
+    n++
+    let px = sizes.get(el)
+    if (px === undefined) {
+      px = parseFloat(view.getComputedStyle(el).fontSize)
+      sizes.set(el, px)
+    }
+    if (px >= 6) weights.set(px, (weights.get(px) ?? 0) + text)
   }
-  return Number.isFinite(smallest) ? smallest : 14
+  let best = 14
+  let most = 0
+  for (const [px, weight] of weights) {
+    if (weight > most) {
+      best = px
+      most = weight
+    }
+  }
+  return best
+}
+
+/** Mark the elements (images and video aside) whose declared width, inline or
+ *  as an attribute, is wider than the frame: the reflow step frees those. */
+function markWideWidths(body: HTMLElement, frameWidth: number): void {
+  for (const el of body.querySelectorAll<HTMLElement>('[style*="width"], [width]')) {
+    if (el instanceof HTMLImageElement || el instanceof HTMLVideoElement) continue
+    const inline = /^([\d.]+)px$/.exec(el.style.width)
+    const attribute = /^\d+$/.test(el.getAttribute('width') ?? '') ? Number(el.getAttribute('width')) : NaN
+    const declared = inline ? Number(inline[1]) : attribute
+    if (declared > frameWidth) el.setAttribute('data-reflow-width', '')
+  }
 }
 
 /**
