@@ -267,6 +267,7 @@ pub async fn accept_invitation(
         &search_service,
         &user,
         Completion::PasswordSet,
+        None,
     )?;
 
     // Log security event for invitation acceptance
@@ -326,6 +327,14 @@ pub async fn confirm_guest_submission(
     }
 
     let user = repository::get_user_by_uuid(&token.user_uuid, &mut conn).map_err(|_| invalid())?;
+    // The workspace whose form sent the confirmation. A reused account can
+    // hold seats in several, and its held request is in this one.
+    let submitted_in = token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("workspace_id"))
+        .and_then(serde_json::Value::as_i64)
+        .and_then(|id| i32::try_from(id).ok());
 
     let released = complete_verification(
         &db_pool,
@@ -333,6 +342,7 @@ pub async fn confirm_guest_submission(
         &search_service,
         &user,
         Completion::GuestConfirmed,
+        submitted_in,
     )?;
 
     if let Err(e) = repository::reset_tokens::validate_and_consume_token(
@@ -415,29 +425,36 @@ fn complete_verification(
     search_service: &web::Data<Arc<SearchService>>,
     user: &crate::models::User,
     completion: Completion,
+    workspace: Option<i32>,
 ) -> Result<Vec<ReleasedTicket>, ApiError> {
     // Pre-session (token-verified) flow: resolve the audit workspace once
-    // from the user's primary membership, then thread it through the audited
+    // (the one a guest confirmation names, else the user's primary
+    // membership), then thread it through the audited
     // writes below (users.password_changed_at and the ticket release). The
     // lookup reads workspace_members (RLS-isolated) and is cross-tenant here
     // (token-verified, no request workspace pinned), so it runs elevated;
     // otherwise the runtime role reads no membership and the accept 500s.
     // Fail loud if the user genuinely has no membership.
-    let workspace_id =
-        // cross-tenant: pre-session workspace resolution: only the invited user is known here.
-        match crate::sync::session::background_run(db_pool, "background:invitation_accept", |c| {
-            crate::repository::workspaces::primary_workspace_for_user(c, user.uuid)
-        }) {
-            Ok(ws) => ws,
-            Err(e) => {
-                error!(
-                    user_uuid = %user.uuid,
-                    error = ?e,
-                    "Failed to resolve primary workspace for invitation accept"
-                );
-                return Err(ApiError::Internal("Failed to complete invitation".into()));
-            }
-        };
+    let resolved = match workspace {
+        Some(ws) => Ok(ws),
+        None => {
+            // cross-tenant: pre-session workspace resolution: only the invited user is known here.
+            crate::sync::session::background_run(db_pool, "background:invitation_accept", |c| {
+                crate::repository::workspaces::primary_workspace_for_user(c, user.uuid)
+            })
+        }
+    };
+    let workspace_id = match resolved {
+        Ok(ws) => ws,
+        Err(e) => {
+            error!(
+                user_uuid = %user.uuid,
+                error = ?e,
+                "Failed to resolve primary workspace for invitation accept"
+            );
+            return Err(ApiError::Internal("Failed to complete invitation".into()));
+        }
+    };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
 
     // Update password_changed_at timestamp in users table

@@ -24,7 +24,10 @@ use backend::repository::workspaces::{add_membership, find_by_id, SeatWriteAutho
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 
-fn context_of(conn: &mut backend::db::DbConnection, workspace_id: i32) -> WorkspaceContext {
+pub(crate) fn context_of(
+    conn: &mut backend::db::DbConnection,
+    workspace_id: i32,
+) -> WorkspaceContext {
     let ws = find_by_id(conn, workspace_id)
         .expect("workspace lookup")
         .expect("workspace exists");
@@ -630,7 +633,10 @@ fn seed_ticket(
     .expect("ticket")
 }
 
-fn link_server(pool: &crate::common::TestPool, ctx: WorkspaceContext) -> actix_test::TestServer {
+pub(crate) fn link_server(
+    pool: &crate::common::TestPool,
+    ctx: WorkspaceContext,
+) -> actix_test::TestServer {
     use actix_web::dev::Service;
     use actix_web::{web, App};
     let pool = pool.clone();

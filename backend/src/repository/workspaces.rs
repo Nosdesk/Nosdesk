@@ -528,6 +528,106 @@ pub fn ensure_membership(
     Ok(role)
 }
 
+/// Give a requester a `member` seat in `workspace_id` when they hold one in
+/// another workspace and have no row here; returns whether it granted one.
+/// Accounts are shared across workspaces, so an address a guest form or mailbox
+/// reuses may belong to someone who only ever wrote to another workspace, and
+/// without a seat here their portal links and sign-in refuse them.
+///
+/// Nothing else is seated. Any row here is left as it is: an active one keeps
+/// its role, and one an admin removed stays removed (their mail still opens a
+/// ticket, but nothing signs them back in). "No row" alone is not "never a
+/// member": before memberships were soft-removed, removal deleted the row, so
+/// an account with no active seat anywhere else may be someone removed here
+/// back then. A deleted account is left alone too.
+///
+/// The insert is `ON CONFLICT DO NOTHING`, so a racing grant or removal wins
+/// and an existing row is never rewritten (or re-audited); `user.updated` goes
+/// out only when a row was written.
+pub fn join_as_requester(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<bool> {
+    use crate::schema::users;
+    let deleted_at: Option<Option<DateTime<Utc>>> = users::table
+        .find(user_uuid)
+        .select(users::deleted_at)
+        .first(conn)
+        .optional()?;
+    if !matches!(deleted_at, Some(None)) {
+        return Ok(false);
+    }
+    // members-any-status: a removed seat must stay removed, so it counts as held
+    let held = workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .select(workspace_members::user_uuid)
+        .first::<Uuid>(conn)
+        .optional()?
+        .is_some();
+    if held || !member_elsewhere(conn, workspace_id, user_uuid)? {
+        return Ok(false);
+    }
+    let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
+    let rows = diesel::sql_query(
+        "INSERT INTO workspace_members (workspace_id, user_uuid, role, accepted_at) \
+         VALUES ($1, $2, 'member', now()) \
+         ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
+    )
+    .bind::<diesel::sql_types::Integer, _>(workspace_id)
+    .bind::<diesel::sql_types::Uuid, _>(user_uuid)
+    .execute(conn)?;
+    if rows == 0 {
+        return Ok(false);
+    }
+    crate::repository::documentation::emit_if_access_changed(
+        conn,
+        workspace_id,
+        user_uuid,
+        &access,
+    )?;
+    // emit::record fires inside the user writer's emit_user_event.
+    crate::repository::users::emit_user_updated_in(conn, workspace_id, user_uuid)?;
+    Ok(true)
+}
+
+/// Whether `user_uuid` holds an active seat in a live workspace other than
+/// `workspace_id`. Row security would show only the pinned workspace, so this
+/// reads through the bypass role inside a savepoint that is then rolled back,
+/// as [`workspace_ids_of_user`] does.
+fn member_elsewhere(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<bool> {
+    let mut found = None;
+    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
+        let actor = crate::sync::actor::ActorContext::system("repository:member_elsewhere");
+        // cross-tenant: whether a requester holds a seat in another workspace, to decide if a reused account may join this one; a yes or no only, rolled back with the savepoint.
+        let read = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            diesel::select(diesel::dsl::exists(
+                workspace_members::table
+                    .inner_join(
+                        workspaces::table.on(workspaces::id.eq(workspace_members::workspace_id)),
+                    )
+                    .filter(workspace_members::user_uuid.eq(user_uuid))
+                    .filter(workspace_members::workspace_id.ne(workspace_id))
+                    .filter(workspace_members::removed_at.is_null())
+                    .filter(workspaces::archived_at.is_null()),
+            ))
+            .get_result::<bool>(conn)
+        })?;
+        found = Some(read);
+        Err(DieselError::RollbackTransaction)
+    });
+    match (found, outcome) {
+        (Some(found), _) => Ok(found),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(DieselError::NotFound),
+    }
+}
+
 /// Send `user.updated` in `workspace_id` when the person's active role there
 /// is no longer `before`. The upserts always return a row, so a no-op can't be
 /// told from a grant by the write alone; `ensure_membership` runs on every

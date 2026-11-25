@@ -454,6 +454,19 @@ pub async fn process_event(
             let (sender, forwarded_by_uuid) =
                 resolve_identity(channel, &msg, &sender_email, conn, ctx)?;
             let sender_uuid = sender.uuid;
+            // Accounts are shared across workspaces: one that only ever wrote
+            // to another workspace gets its requester seat here, or its View
+            // request link and portal sign-in refuse it. Best effort, in a
+            // savepoint so a failure here can't abort the ingest.
+            if let Err(e) = conn.transaction(|c| {
+                crate::repository::workspaces::join_as_requester(
+                    c,
+                    channel.workspace_id,
+                    sender_uuid,
+                )
+            }) {
+                tracing::warn!(error = ?e, user_uuid = %sender_uuid, "inbound: could not seat the requester");
+            }
 
             // existing_ticket_id may point at a ticket that no longer exists or
             // lives in another workspace (RLS-hidden under the channel's pin).
