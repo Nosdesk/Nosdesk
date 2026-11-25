@@ -160,11 +160,12 @@
   --leading-6: calc(1.5rem * var(--text-scale));
   --leading-7: calc(1.75rem * var(--text-scale));
 
-  /* Weights. iOS and Android Bold Text set `data-bold-text` on the
-     root (through the native shell), and a `:root[data-bold-text]`
-     rule remaps these four; every weight in the app reads them, so
-     nothing else needs to change for it. `check-type-tokens.mjs`
-     refuses literal weights. Values are Tailwind's own. */
+  /* Weights. iOS and Android Bold Text will set `data-bold-text` on
+     the root (through the native shell), and a `:root[data-bold-text]`
+     rule, which lands with the readable screens, remaps these four.
+     Every weight in the app already reads them, so nothing else will
+     need to change for it. `check-type-tokens.mjs` refuses literal
+     weights. Values are Tailwind's own. */
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -370,8 +371,23 @@
    The tokens resolve on the root, so setting either variable on an
    element further down changes nothing; a preview that shows another
    size redeclares the tokens it uses. */
+/* Registered as a number so a bad input (`--user-text-scale: large`)
+   falls back to 1 instead of leaving every size token invalid. The two
+   inputs stay unregistered: a registered property always has a value,
+   and the fallback chain below needs "unset" to mean unset. */
+@property --text-scale {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
 :root {
   --text-scale: clamp(1, var(--user-text-scale, var(--device-text-scale, 1)), 2);
+}
+/* Paper has no text setting; print at the designed size. */
+@media print {
+  :root {
+    --text-scale: 1;
+  }
 }
 
 /* The phone baseline. A phone is read close up, and 14px body text
@@ -864,6 +880,8 @@ html, body {
 
 body {
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Text with no size of its own, and every `em` size, follows the scale. */
+  font-size: var(--text-base);
   font-weight: var(--font-weight-normal);
   background-color: var(--background-color);
   color: var(--text-primary);

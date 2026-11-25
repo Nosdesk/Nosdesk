@@ -40,6 +40,21 @@ describe('the type scale', () => {
     )
   })
 
+  it('registers --text-scale as a number that falls back to 1', () => {
+    expect(css).toMatch(/@property --text-scale \{\s*syntax: '<number>';\s*inherits: true;\s*initial-value: 1;\s*\}/)
+    // The inputs stay unregistered, or their fallbacks would never apply.
+    expect(css).not.toMatch(/@property --(user|device)-text-scale/)
+  })
+
+  it('prints at the designed size', () => {
+    expect(block(/^@media print \{\n {2}:root \{\n {4}--text-scale/m)).toBeDefined()
+    expect(css).toMatch(/@media print \{\s*:root \{\s*--text-scale: 1;/)
+  })
+
+  it('sizes the body from the scale, so unclassed text and em sizes follow it', () => {
+    expect(css).toMatch(/^body \{[^}]*font-size: var\(--text-base\);/m)
+  })
+
   it('multiplies every size by --text-scale', () => {
     expect(sizes.length).toBeGreaterThan(10)
     for (const [, value] of sizes) expect(() => remAtOne(value)).not.toThrow()
