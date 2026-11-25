@@ -156,4 +156,48 @@ describe('a notification toast in the mobile app', () => {
     const img = document.querySelector<HTMLImageElement>('#overlays img, img')
     expect(img?.getAttribute('src')).toBe('nosdesk-asset://localhost/uploads/users/thumbs/ana.webp')
   })
+
+  describe('at larger text on a phone', () => {
+    async function grow(scale: string) {
+      Object.defineProperty(window, 'innerWidth', { value: 400, configurable: true })
+      window.dispatchEvent(new Event('resize'))
+      vi.advanceTimersByTime(200)
+      document.documentElement.style.setProperty('--user-text-scale', scale)
+      await settle()
+    }
+    afterEach(() => {
+      document.documentElement.style.removeProperty('--user-text-scale')
+      Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true })
+      window.dispatchEvent(new Event('resize'))
+      vi.advanceTimersByTime(200)
+    })
+    const shown = () => [...document.querySelectorAll('#overlays li')].map((li) => li.textContent ?? '')
+
+    it('always shows the newest error, even when newer toasts fill the room', async () => {
+      await grow('1.5')
+      const store = useToastStore()
+      store.error('Could not save')
+      vi.advanceTimersByTime(1)
+      store.success('Saved one')
+      vi.advanceTimersByTime(1)
+      store.info('Assigned')
+      await settle()
+      const titles = shown()
+      expect(titles).toHaveLength(1)
+      expect(titles[0]).toContain('Could not save')
+    })
+
+    it('lets a held-back Undo expire on time instead of surfacing late', async () => {
+      await grow('1.5')
+      const store = useToastStore()
+      store.success('Moved', undefined, { label: 'Undo', handler: () => {} })
+      vi.advanceTimersByTime(5)
+      store.info('Assigned')
+      await settle()
+      expect(shown().join()).not.toContain('Moved')
+      vi.advanceTimersByTime(60_000)
+      await settle()
+      expect(store.toasts.some((toast) => toast.title === 'Moved')).toBe(false)
+    })
+  })
 })

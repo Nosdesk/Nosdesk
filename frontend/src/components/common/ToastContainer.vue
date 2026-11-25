@@ -18,7 +18,7 @@ until then.
 -->
 <script setup lang="ts">
 import AssetImg from '@/components/common/AssetImg.vue';
-import { computed, reactive } from 'vue';
+import { computed, onBeforeUnmount, reactive, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import {
@@ -45,12 +45,47 @@ const router = useRouter();
 
 // At larger text on a phone the newest two only, and from 150% the newest
 // one (the store lists newest first), so the stack never fills the screen.
-// The others mount, and start their timers, as those close.
+// The newest error always has a place: a failure is not left waiting behind
+// a success. A toast held back keeps its own clock (`timerDuration`,
+// `expireHeld`), so it never surfaces after its time, an Undo least of all.
 const textScale = useTextScale();
 const { isMobile: phone } = useMobileDetection('md');
 const toasts = computed(() => {
-  if (!phone.value || textScale.value <= 1.001) return toastStore.visibleToasts;
-  return toastStore.visibleToasts.slice(0, textScale.value >= 1.5 ? 1 : 2);
+  const all = toastStore.visibleToasts.filter((toast) => remaining(toast) > 0);
+  if (!phone.value || textScale.value <= 1.001) return all;
+  const shown = all.slice(0, textScale.value >= 1.5 ? 1 : 2);
+  const error = all.find((toast) => toast.type === 'error');
+  if (error && !shown.includes(error)) shown[shown.length - 1] = error;
+  return shown;
+});
+
+/** What is left of a toast's time, from when it was raised (not shown). */
+function remaining(toast: Toast): number {
+  return toast.duration > 0 ? toast.createdAt + toast.duration - Date.now() : Number.POSITIVE_INFINITY;
+}
+
+/** A toast held back still ends on time: it leaves the store when its
+ *  time is up, shown or not. */
+const expiries = new Map<string, ReturnType<typeof setTimeout>>();
+watch(
+  () => toastStore.visibleToasts.map((toast) => toast.id),
+  () => {
+    for (const toast of toastStore.visibleToasts) {
+      if (toast.duration <= 0 || expiries.has(toast.id)) continue;
+      expiries.set(
+        toast.id,
+        setTimeout(() => {
+          expiries.delete(toast.id);
+          if (!toasts.value.some((shown) => shown.id === toast.id)) toastStore.removeToast(toast.id);
+        }, Math.max(0, remaining(toast))),
+      );
+    }
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => {
+  for (const timer of expiries.values()) clearTimeout(timer);
+  expiries.clear();
 });
 
 // Exit animation length; the store entry outlives the close by this much.
@@ -71,7 +106,8 @@ const announceType = (type: Toast['type']) =>
   type === 'error' || type === 'notification' ? 'foreground' : 'background';
 
 // Reka reports 0 as "already elapsed"; persistent means no timer.
-const timerDuration = (toast: Toast) => (toast.duration > 0 ? toast.duration : Number.POSITIVE_INFINITY);
+// From when the toast was raised, so one shown late runs only what is left.
+const timerDuration = (toast: Toast) => Math.max(0, remaining(toast));
 
 const getToastClasses = (type: Toast['type']) => {
   // Opaque `bg-surface` base across every type: type is conveyed via the
