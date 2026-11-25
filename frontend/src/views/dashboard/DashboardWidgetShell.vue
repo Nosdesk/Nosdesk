@@ -452,12 +452,13 @@ function sizeCodeToSpan(code: string): WidgetSpan | null {
          so they still work without snagging the drag. -->
     <header
       :class="[
-        'flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt flex-shrink-0',
+        // 36px; on a phone it grows with a title that larger text wraps.
+        'flex items-center gap-2 px-3 h-9 max-md:h-auto max-md:min-h-9 max-md:py-1.5 border-b border-default bg-surface-alt flex-shrink-0',
         editMode ? 'cursor-grab active:cursor-grabbing touch-none' : '',
       ]"
       @pointerdown="onHeaderPointerDown"
     >
-      <h2 class="text-xs-plus font-semibold text-primary truncate tracking-tight">{{ title }}</h2>
+      <h2 class="min-w-0 text-xs-plus font-semibold text-primary truncate tracking-tight">{{ title }}</h2>
 
       <!-- Optional inline count badge next to the title (e.g. "12"
            assigned tickets). Renders as a pill: h-5, rounded, mono

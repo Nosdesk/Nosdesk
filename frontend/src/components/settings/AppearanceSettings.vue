@@ -177,12 +177,15 @@ const handleDeviceLocalThemeToggle = () => {
           @update:modelValue="handleDeviceLocalThemeToggle"
         />
 
+        <!-- On a phone each grid below asks for columns of at least 6.2
+             of the name's ems (and 6.5rem): three at the designed size, two
+             from about 150%, and the names wrap instead of cutting. -->
         <!-- System Theme Option -->
         <div>
           <h4 class="text-xs font-medium text-tertiary uppercase tracking-wider mb-2">
             {{ t('settings-appearance-section-automatic') }}
           </h4>
-          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 max-sm:grid-cols-[repeat(auto-fill,minmax(max(6.5rem,calc(var(--text-xs)*6.2)),1fr))]">
             <ThemeCard
               :is-system="true"
               :selected="selectedTheme === 'system'"
@@ -197,7 +200,7 @@ const handleDeviceLocalThemeToggle = () => {
           <h4 class="text-xs font-medium text-tertiary uppercase tracking-wider mb-2">
             {{ t('settings-appearance-section-light') }}
           </h4>
-          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 max-sm:grid-cols-[repeat(auto-fill,minmax(max(6.5rem,calc(var(--text-xs)*6.2)),1fr))]">
             <ThemeCard
               v-for="theme in themeStore.lightThemes"
               :key="theme.meta.id"
@@ -214,7 +217,7 @@ const handleDeviceLocalThemeToggle = () => {
           <h4 class="text-xs font-medium text-tertiary uppercase tracking-wider mb-2">
             {{ t('settings-appearance-section-dark') }}
           </h4>
-          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 max-sm:grid-cols-[repeat(auto-fill,minmax(max(6.5rem,calc(var(--text-xs)*6.2)),1fr))]">
             <ThemeCard
               v-for="theme in themeStore.darkThemes"
               :key="theme.meta.id"

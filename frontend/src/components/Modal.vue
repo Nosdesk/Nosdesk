@@ -477,6 +477,14 @@ function onOpenAutoFocus(event: Event) {
   background: color-mix(in srgb, var(--color-surface-alt) 50%, transparent);
 }
 
+/* Action rows written in place (a `justify-end` or `justify-between` row
+   of buttons, in the body or the footer) wrap instead of running off the
+   panel once larger text widens their buttons. */
+.modal-panel :deep(.flex.justify-end),
+.modal-panel :deep(.flex.justify-between:has(> button)) {
+  flex-wrap: wrap;
+}
+
 /* Shared action-row layout for footer slots. */
 .modal-footer :deep(.modal-actions) {
   display: flex;

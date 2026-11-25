@@ -63,7 +63,7 @@ const colors = getPreviewColors()
   >
     <!-- Preview Box -->
     <div
-      class="w-full aspect-[4/3] rounded-md overflow-hidden border border-subtle shadow-sm"
+      class="w-full aspect-[4/3] rounded-md overflow-hidden border border-subtle shadow-sm max-sm:max-h-32"
       :class="{ 'crt-effect': showCrtEffect }"
     >
       <!-- System Theme - Split Preview -->
@@ -126,7 +126,7 @@ const colors = getPreviewColors()
 
     <!-- Theme Name -->
     <span
-      class="text-xs font-medium truncate max-w-full"
+      class="text-xs font-medium max-w-full text-center break-words sm:truncate"
       :class="selected ? 'text-accent' : 'text-secondary group-hover:text-primary'"
     >
       {{ isSystem ? t('settings-appearance-card-system-name') : theme?.meta.name }}

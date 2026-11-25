@@ -52,7 +52,7 @@ function onUpdate(value: unknown): void {
       <button
         type="button"
         class="inline-flex items-center justify-center rounded font-medium whitespace-nowrap shrink-0 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent text-secondary hover:text-primary hover:bg-surface/60 data-[state=checked]:bg-surface data-[state=checked]:text-primary data-[state=checked]:shadow-sm"
-        :class="size === 'sm' ? 'h-6 px-2 text-xs' : 'h-7 px-2.5 text-sm'"
+        :class="size === 'sm' ? 'min-h-6 px-2 text-xs' : 'min-h-7 px-2.5 text-sm'"
       >
         {{ opt.label }}
       </button>

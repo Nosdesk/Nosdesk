@@ -91,7 +91,7 @@ const sample = computed<CardData>(() => ({
     <div class="overflow-hidden rounded-lg border border-default bg-surface" aria-hidden="true" inert>
       <TicketsCardRows :cards="[sample]" :today="today" />
       <div class="border-t border-subtle px-4 py-3">
-        <p class="line-clamp-2 text-base leading-relaxed text-primary">{{ $t('settings-text-size-sample-reply') }}</p>
+        <p class="line-clamp-2 text-base leading-relaxed text-primary" data-keep-clamp>{{ $t('settings-text-size-sample-reply') }}</p>
       </div>
     </div>
 

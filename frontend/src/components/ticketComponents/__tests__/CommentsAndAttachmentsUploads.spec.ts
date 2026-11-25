@@ -239,3 +239,20 @@ describe('the reply composer', () => {
     expect(calls[1].form.get('transcription')).toBe('Printer is jammed')
   })
 })
+
+describe('the phone audience toggle', () => {
+  it('is named Internal and pressed for an internal note, and turns the form amber', async () => {
+    const w = mountComposer()
+    const toggle = () => w.find('[data-audience]')
+    expect(toggle().attributes('aria-pressed')).toBe('false')
+    expect(toggle().attributes('aria-label')).toBe('ticket-comments-internal-note')
+    expect(w.find('[data-composer]').attributes('data-audience-state')).toBe('public')
+
+    await toggle().trigger('click')
+    expect(toggle().attributes('aria-pressed')).toBe('true')
+    expect(toggle().attributes('aria-label')).toBe('ticket-comments-internal-note')
+    expect(w.find('[data-composer]').attributes('data-audience-state')).toBe('internal')
+    expect(w.find('[data-composer]').classes()).toContain('reply-internal')
+    w.unmount()
+  })
+})

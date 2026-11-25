@@ -157,72 +157,77 @@ const invokeAction = (toast: Toast, event: Event) => {
             <Icon v-else-if="toast.type === 'notification'" name="bell" size="md" />
           </div>
 
-          <!-- Content -->
-          <div class="flex-1 pt-0.5 min-w-0">
-            <ToastTitle as="p" class="text-sm font-medium text-primary break-words">
-              {{ toast.title }}
-            </ToastTitle>
-            <ToastDescription
-              v-if="toast.message"
-              as="p"
-              class="mt-1 text-sm text-secondary break-words"
-            >
-              {{ toast.message }}
-            </ToastDescription>
-
-            <!-- Actor info for notifications -->
-            <div v-if="toast.notification?.actorName" class="mt-2 flex items-center gap-2">
-              <AssetImg
-                v-if="toast.notification.actorAvatar"
-                :src="toast.notification.actorAvatar"
-                alt=""
-                class="h-5 w-5 rounded-full object-cover"
-              />
-              <div
-                v-else
-                class="h-5 w-5 rounded-full bg-accent/20 flex items-center justify-center"
-                aria-hidden="true"
+          <!-- Content and its action wrap as one group: the action sits
+               beside the message while the message keeps twelve of its own
+               ems, and moves under it at larger text sizes, so the words
+               are never squeezed into breaking. -->
+          <div class="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2">
+            <div class="min-w-0 flex-1 basis-[12em] pt-0.5 text-sm">
+              <ToastTitle as="p" class="text-sm font-medium text-primary break-words">
+                {{ toast.title }}
+              </ToastTitle>
+              <ToastDescription
+                v-if="toast.message"
+                as="p"
+                class="mt-1 text-sm text-secondary break-words"
               >
-                <span class="text-xs text-accent font-medium">
-                  {{ toast.notification.actorName.charAt(0).toUpperCase() }}
+                {{ toast.message }}
+              </ToastDescription>
+
+              <!-- Actor info for notifications -->
+              <div v-if="toast.notification?.actorName" class="mt-2 flex items-center gap-2">
+                <AssetImg
+                  v-if="toast.notification.actorAvatar"
+                  :src="toast.notification.actorAvatar"
+                  alt=""
+                  class="h-5 w-5 rounded-full object-cover"
+                />
+                <div
+                  v-else
+                  class="h-5 w-5 rounded-full bg-accent/20 flex items-center justify-center"
+                  aria-hidden="true"
+                >
+                  <span class="text-xs text-accent font-medium">
+                    {{ toast.notification.actorName.charAt(0).toUpperCase() }}
+                  </span>
+                </div>
+                <span class="text-xs text-tertiary truncate">
+                  {{ toast.notification.actorName }}
                 </span>
               </div>
-              <span class="text-xs text-tertiary truncate">
-                {{ toast.notification.actorName }}
-              </span>
+
+              <!-- View link for notifications; Reka closes the toast on it. -->
+              <ToastAction
+                v-if="ticketPath(toast)"
+                as-child
+                :alt-text="t('toast-action-alt', { label: t('toast-notification-view'), hotkey: 'F8' })"
+              >
+                <RouterLink
+                  :to="ticketPath(toast)!"
+                  class="mt-2 inline-block text-xs text-accent font-medium hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {{ t('toast-notification-view') }}
+                </RouterLink>
+              </ToastAction>
             </div>
 
-            <!-- View link for notifications; Reka closes the toast on it. -->
+            <!-- Inline action button (e.g. Undo). Sits between the
+                 message and the dismiss button so it reads as part of
+                 the toast, not chrome. -->
             <ToastAction
-              v-if="ticketPath(toast)"
+              v-if="toast.action"
               as-child
-              :alt-text="t('toast-action-alt', { label: t('toast-notification-view'), hotkey: 'F8' })"
+              :alt-text="t('toast-action-alt', { label: toast.action.label, hotkey: 'F8' })"
             >
-              <RouterLink
-                :to="ticketPath(toast)!"
-                class="mt-2 inline-block text-xs text-accent font-medium hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              <button
+                type="button"
+                class="flex-shrink-0 inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent-on-tint rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
+                @click="invokeAction(toast, $event)"
               >
-                {{ t('toast-notification-view') }}
-              </RouterLink>
+                {{ toast.action.label }}
+              </button>
             </ToastAction>
           </div>
-
-          <!-- Inline action button (e.g. Undo). Sits between the
-               message and the dismiss button so it reads as part of
-               the toast, not chrome. -->
-          <ToastAction
-            v-if="toast.action"
-            as-child
-            :alt-text="t('toast-action-alt', { label: toast.action.label, hotkey: 'F8' })"
-          >
-            <button
-              type="button"
-              class="flex-shrink-0 inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent-on-tint rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
-              @click="invokeAction(toast, $event)"
-            >
-              {{ toast.action.label }}
-            </button>
-          </ToastAction>
 
           <!-- Close button -->
           <ToastClose v-if="toast.dismissible" as-child>
@@ -249,11 +254,13 @@ const invokeAction = (toast: Toast, event: Event) => {
     </ToastRoot>
 
     <!-- Newest on top: the viewport lists toasts in mount order, so the
-         column runs in reverse. Named region; F8 focuses it. -->
+         column runs in reverse. Named region; F8 focuses it. It never
+         takes more than 60% of the screen: older toasts at larger text
+         sizes are cut off below, and still time out. -->
     <ToastPortal to="#overlays">
       <ToastViewport
         :label="(hotkey: string) => t('toast-region-label', { hotkey })"
-        class="print:hidden pointer-events-none fixed top-0 right-0 flex flex-col-reverse items-end gap-3 px-4 sm:px-6 z-overlay w-full max-w-sm pt-[max(1.5rem,calc(env(safe-area-inset-top)+0.75rem))] list-none m-0 outline-none"
+        class="print:hidden pointer-events-none fixed top-0 right-0 flex flex-col-reverse items-end gap-3 px-4 sm:px-6 z-overlay w-full max-w-sm max-h-[60dvh] overflow-hidden pt-[max(1.5rem,calc(env(safe-area-inset-top)+0.75rem))] list-none m-0 outline-none"
       />
     </ToastPortal>
   </ToastProvider>
