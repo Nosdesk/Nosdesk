@@ -291,8 +291,14 @@ pub async fn set_user_profile_fields(
     params: web::Path<Uuid>,
     body: web::Json<serde_json::Value>,
     auth: AuthContext,
+    req: actix_web::HttpRequest,
 ) -> impl Responder {
     let user_uuid = params.into_inner();
+    // A token someone else made for this person doesn't speak for them on
+    // their own profile (their name and avatar here among it).
+    if auth.user_uuid == user_uuid && crate::extractors::is_token_made_for_someone_else(&req) {
+        return errors::forbidden(crate::extractors::SESSION_ONLY);
+    }
     if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
         return errors::forbidden("You can only edit your own profile");
     }

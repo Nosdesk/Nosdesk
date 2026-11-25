@@ -6,6 +6,7 @@ pub mod auth_context;
 mod platform_auth;
 mod platform_conn;
 mod scoped_storage;
+mod session_only;
 mod sync_context;
 mod tenant_conn;
 mod ticket_access;
@@ -16,6 +17,9 @@ pub use platform_auth::{platform_auth_middleware, PlatformAuth};
 #[allow(unused_imports)]
 pub use platform_conn::PlatformConn;
 pub use scoped_storage::ScopedStorage;
+pub use session_only::{
+    is_api_token, is_token_made_for_someone_else, refuse_api_token, SessionOnly, SESSION_ONLY,
+};
 pub use sync_context::SyncContext;
 #[allow(unused_imports)]
 pub use tenant_conn::TenantConn;

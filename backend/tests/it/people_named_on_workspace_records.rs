@@ -313,7 +313,7 @@ async fn an_api_token_is_made_for_someone_with_a_seat_here() {
     assert_eq!(named, 0);
 
     let (status, body) = f
-        .send(Method::POST, "/api/admin/api-tokens", mint(f.a.member_uuid))
+        .send(Method::POST, "/api/admin/api-tokens", mint(f.a.admin_uuid))
         .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
 }

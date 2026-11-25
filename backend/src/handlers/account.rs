@@ -220,7 +220,9 @@ pub async fn upload_image(
     req: HttpRequest,
 ) -> Result<impl Responder, ApiError> {
     let uuid = caller_uuid(&req)?;
+    // `/api/account` is cookie-only, so this is a signed-in session.
     Ok(crate::handlers::users::upload_user_image(
+        crate::extractors::SessionOnly,
         web::Path::from(uuid.to_string()),
         payload,
         tc,

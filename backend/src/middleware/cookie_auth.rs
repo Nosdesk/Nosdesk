@@ -61,8 +61,9 @@ pub enum WorkspaceCarrier<'a> {
     /// membership-gated like any other. A token is a workspace's automation,
     /// never an unscoped principal: left unscoped, it would act as its holder's
     /// account wherever row security doesn't reach. A platform admin's token
-    /// still reaches the operator routes, from the workspace it was made in
-    /// (its holder must hold a seat there; see `ceiling_refusal`).
+    /// still manages every workspace through `/api/admin/workspaces/*`, from
+    /// the workspace it was made in (its holder must hold a seat there; see
+    /// `ceiling_refusal`).
     ApiToken {
         bound_workspace: uuid::Uuid,
         req: &'a ServiceRequest,

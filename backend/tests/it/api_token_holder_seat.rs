@@ -1,8 +1,8 @@
 //! An API token is one workspace's automation. Its holder holds a seat in the
 //! workspace it was minted in, or it authenticates nothing; a request that
 //! names no workspace runs in that one, pinned and gated, never as an
-//! unscoped principal; and it never reaches the routes that read or change
-//! an account (accounts are shared across workspaces).
+//! unscoped principal. (That it never reaches an account is
+//! `tests/api_token_account_routes.rs`, on the real route tree.)
 
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use actix_web::middleware::from_fn;
 use actix_web::test as http_test;
 use actix_web::{web, App};
 use diesel::prelude::*;
-use serde_json::{json, Value};
+use serde_json::Value;
 use uuid::Uuid;
 
 use backend::middleware::api_token::dual_auth_middleware;
@@ -82,9 +82,7 @@ impl Fixture {
                 .service(
                     web::scope("/api")
                         .wrap(from_fn(dual_auth_middleware))
-                        .configure(backend::handlers::tickets::config)
-                        .configure(backend::handlers::admin_workspaces::config)
-                        .configure(backend::handlers::users::config),
+                        .configure(backend::handlers::tickets::config),
                 ),
         )
         .await;
@@ -155,55 +153,4 @@ async fn a_token_naming_no_workspace_runs_in_its_own() {
         )
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-}
-
-/// A token never reads or changes an account: the holder's workspaces, their
-/// addresses, their own global profile.
-#[actix_web::test]
-async fn a_token_cannot_reach_account_routes() {
-    let f = Fixture::new();
-    let holder = f.a.admin_uuid;
-    let token = f.token(holder, holder);
-
-    for (what, req) in [
-        (
-            "workspaces",
-            http_test::TestRequest::get().uri("/api/me/workspaces"),
-        ),
-        (
-            "emails",
-            http_test::TestRequest::get().uri(&format!("/api/users/{holder}/emails")),
-        ),
-        (
-            "add an email",
-            http_test::TestRequest::post()
-                .uri(&format!("/api/users/{holder}/emails"))
-                .set_json(json!({ "email": "second@example.com" })),
-        ),
-        (
-            "workspaces, encoded",
-            http_test::TestRequest::get().uri("/api/me/%77orkspaces"),
-        ),
-        (
-            "profile, upper-case uuid",
-            http_test::TestRequest::put()
-                .uri(&format!("/api/users/{}", holder.to_string().to_uppercase()))
-                .set_json(json!({ "name": "Renamed by a token" })),
-        ),
-        (
-            "profile",
-            http_test::TestRequest::put()
-                .uri(&format!("/api/users/{holder}"))
-                .set_json(json!({ "name": "Renamed by a token" })),
-        ),
-    ] {
-        let (status, body) = f.call(&token, req).await;
-        assert_eq!(status, StatusCode::FORBIDDEN, "{what}: {body}");
-    }
-
-    // The same token still works the workspace's records.
-    let (status, body) = f
-        .call(&token, http_test::TestRequest::get().uri("/api/tickets"))
-        .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
 }

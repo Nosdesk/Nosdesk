@@ -226,58 +226,32 @@ pub fn try_bearer_auth(
     );
 
     // Mark the request as made with an API token, for the routes a token may
-    // not use (managing API tokens).
+    // not use (managing API tokens; the account routes, which take
+    // `extractors::SessionOnly`).
     req.extensions_mut().insert(ApiTokenRequest {
         token_uuid: api_token.uuid,
+        made_for_someone_else: api_token.created_by != api_token.user_uuid,
     });
 
     Ok(Some(claims))
 }
 
-/// Whether `path` is a route that reads or changes an account rather than a
-/// workspace's records: the caller's workspaces, sign-in identities,
-/// addresses, credentials and their own global profile. Accounts are shared
-/// across workspaces, and an API token is one workspace's automation, so it
-/// never reaches them; only a signed-in session does. `holder` is the
-/// token's user, whose own account a `PUT` or `DELETE /users/{uuid}` would
-/// change; a uuid is compared parsed, so any spelling of it matches.
-fn is_account_route(method: &actix_web::http::Method, path: &str, holder: &str) -> bool {
-    use actix_web::http::Method;
-    let Some(rest) = path.strip_prefix("/api/") else {
-        return false;
-    };
-    let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
-    let is_holder = |user: &str| {
-        matches!(
-            (uuid::Uuid::parse_str(user), uuid::Uuid::parse_str(holder)),
-            (Ok(a), Ok(b)) if a == b
-        )
-    };
-    match segments.as_slice() {
-        ["me", "workspaces", ..] => true,
-        ["users", "auth-identities", ..] => true,
-        ["users", user] => (method == Method::PUT || method == Method::DELETE) && is_holder(user),
-        ["users", _, sub, ..] => matches!(
-            *sub,
-            "emails"
-                | "with-emails"
-                | "auth-identities"
-                | "security-info"
-                | "image"
-                | "reset-password"
-                | "disable-mfa"
-                | "passkeys"
-        ),
-        _ => false,
-    }
-}
-
 /// On a request authenticated with an API token (not a signed-in session):
 /// which token. API tokens can't manage API tokens, or a token could mint
-/// itself a successor that escapes its ceiling and its maker.
+/// itself a successor that escapes its ceiling and its maker; nor can they
+/// reach an account (`extractors::SessionOnly`).
+///
+/// A token is one workspace's automation: it acts only in the workspace it
+/// was minted in, for a holder seated there. A platform admin's token is the
+/// exception in reach, not in binding: through `/api/admin/workspaces/*` it
+/// still manages every workspace on the instance, as the operator console
+/// does, while every other route stays in the token's own workspace.
 #[derive(Debug, Clone, Copy)]
 pub struct ApiTokenRequest {
     pub token_uuid: uuid::Uuid,
+    /// Made by someone other than its holder (an admin's automation acting
+    /// as them), so it doesn't speak for the holder on their own profile.
+    pub made_for_someone_else: bool,
 }
 
 /// Why a token may no longer act for its holder, or `None` when it may. One
@@ -399,15 +373,6 @@ pub(crate) async fn authenticate<B: MessageBody>(
                     &req, &mut conn, &claims, bound,
                 )?;
                 drop(conn);
-                // The path the router matches (percent-decoded the way it
-                // decodes), not the raw one, so an encoded spelling can't
-                // slip past.
-                if is_account_route(req.method(), req.match_info().as_str(), &claims.sub) {
-                    warn!(path = %req.path(), "API token refused on an account route");
-                    return Err(crate::errors::forbidden_error(
-                        "API tokens can't manage accounts",
-                    ));
-                }
                 return finalize(req, next, claims, false).await;
             }
             // `nsk_` on a cookie-only route: ignore it and fall through to the
@@ -644,58 +609,7 @@ struct FileTokenQuery {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_account_route, same_file_path};
-
-    #[test]
-    fn account_routes_match_however_the_holder_is_spelled() {
-        use actix_web::http::Method;
-        let holder = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
-        for user in [
-            holder,
-            "0190A1B2-C3D4-7E5F-8A9B-0C1D2E3F4A5B",
-            "0190a1b2c3d47e5f8a9b0c1d2e3f4a5b",
-        ] {
-            assert!(is_account_route(
-                &Method::PUT,
-                &format!("/api/users/{user}"),
-                holder
-            ));
-            assert!(is_account_route(
-                &Method::DELETE,
-                &format!("/api/users/{user}/"),
-                holder
-            ));
-        }
-        assert!(is_account_route(&Method::GET, "/api/me/workspaces", holder));
-        assert!(is_account_route(
-            &Method::GET,
-            "/api//me//workspaces/",
-            holder
-        ));
-        assert!(is_account_route(
-            &Method::POST,
-            &format!("/api/users/{holder}/emails"),
-            holder
-        ));
-        assert!(is_account_route(
-            &Method::GET,
-            "/api/users/auth-identities",
-            holder
-        ));
-        // Someone else's record, and the workspace's own routes, are not.
-        let other = "0190a1b2-c3d4-7e5f-8a9b-000000000000";
-        assert!(!is_account_route(
-            &Method::PUT,
-            &format!("/api/users/{other}"),
-            holder
-        ));
-        assert!(!is_account_route(
-            &Method::GET,
-            &format!("/api/users/{holder}"),
-            holder
-        ));
-        assert!(!is_account_route(&Method::GET, "/api/tickets", holder));
-    }
+    use super::same_file_path;
 
     #[test]
     fn a_file_path_matches_however_it_is_encoded() {

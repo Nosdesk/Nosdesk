@@ -355,6 +355,13 @@ async fn the_workspace_s_own_people_can_be_made_requesters() {
 /// An agent of their own (trial) workspace forwards "a customer's" mail to
 /// B, which owes them no trust: they are the requester, and the person the
 /// forward names is not.
+///
+/// A guard, not a reproduction: it passed before the check named
+/// `channel.workspace_id`. The ingest transaction's `set_actor` drops the
+/// elevated connection to the runtime role and pins B, so row security
+/// already confined the role read to B there; no path reaches that read
+/// elevated, which is what would have returned A's role. The explicit
+/// workspace keeps it right if that ever changes.
 #[actix_web::test]
 async fn a_forward_from_staff_of_another_workspace_is_ordinary_mail() {
     let f = Fixture::new();

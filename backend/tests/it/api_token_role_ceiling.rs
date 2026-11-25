@@ -40,6 +40,18 @@ async fn mint(
     minter: Uuid,
     target: Uuid,
 ) -> String {
+    let (status, body) = mint_response(pool, seed, minter, target).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    body["token"].as_str().expect("token").to_string()
+}
+
+/// The admin route's answer to minting a token for `target` as `minter`.
+async fn mint_response(
+    pool: &common::TestPool,
+    seed: &common::WorkspaceSeed,
+    minter: Uuid,
+    target: Uuid,
+) -> (StatusCode, serde_json::Value) {
     let workspace = workspace_context(seed);
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
@@ -77,9 +89,12 @@ async fn mint(
             .to_request(),
     )
     .await;
-    assert_eq!(resp.status(), StatusCode::CREATED);
-    let body: serde_json::Value = http_test::read_body_json(resp).await;
-    body["token"].as_str().expect("token").to_string()
+    let status = resp.status();
+    let bytes = http_test::read_body(resp).await;
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+    )
 }
 
 /// The response status, or the status of the error the auth middleware
@@ -184,12 +199,14 @@ async fn a_token_made_for_an_agent_stops_when_they_are_promoted() {
             .expect("unlimited seats");
     }
 
-    // Made for a requester, a token reaches no agent route at all: the agent
-    // surface is for staff.
-    let token = mint(&pool, &a, a.admin_uuid, a.member_uuid).await;
-    let [admin, _, collab] = statuses(&pool, &a, &token).await;
-    assert_eq!(admin, StatusCode::FORBIDDEN);
-    assert_eq!(collab, StatusCode::FORBIDDEN);
+    // A token for a requester would reach no agent route at all (the agent
+    // surface is for staff), so none is made.
+    let (status, body) = mint_response(&pool, &a, a.admin_uuid, a.member_uuid).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(
+        body["error"],
+        "API tokens are for agents and admins of this workspace"
+    );
 
     set_role(&pool, &a, a.member_uuid, "agent");
     let token = mint(&pool, &a, a.admin_uuid, a.member_uuid).await;
@@ -217,7 +234,13 @@ async fn a_token_made_for_someone_else_stops_with_its_maker_or_a_platform_role()
     let pool = db.runtime_pool(4);
     let a = seeded.a.clone();
 
+    // Staff seats in both workspaces without a seat cap in the way.
+    diesel::sql_query("UPDATE workspaces SET seat_limit = NULL")
+        .execute(&mut db.conn())
+        .expect("unlimited seats");
+
     // The maker leaves the workspace.
+    set_role(&pool, &a, a.member_uuid, "agent");
     let token = mint(&pool, &a, a.admin_uuid, a.member_uuid).await;
     assert_ne!(
         statuses(&pool, &a, &token).await[2],
@@ -234,6 +257,7 @@ async fn a_token_made_for_someone_else_stops_with_its_maker_or_a_platform_role()
 
     // A platform role the token wasn't made with (workspace B's pair).
     let b = seeded.b.clone();
+    set_role(&pool, &b, b.member_uuid, "agent");
     let token = mint(&pool, &b, b.admin_uuid, b.member_uuid).await;
     diesel::sql_query("UPDATE users SET platform_role = 'platform_admin' WHERE uuid = $1")
         .bind::<diesel::sql_types::Uuid, _>(b.member_uuid)
