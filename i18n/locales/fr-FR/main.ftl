@@ -8084,7 +8084,6 @@ tickets-project-info-status-archived = archivé
 tickets-email-html-iframe-title = Corps de l'e-mail
 tickets-email-html-show-less = Réduire
 tickets-email-html-show-full = Afficher l'e-mail complet
-tickets-email-html-scaled = Mis à l'échelle ({ $pct } %)
 
 # Header + nav polish
 nav-logo-alt = Logo Nosdesk
@@ -13246,3 +13245,7 @@ settings-text-size-sample-title = Imprimante du niveau 2 hors ligne après la co
 settings-text-size-sample-state = En cours
 # MT: pending native review (fr-FR)
 settings-text-size-sample-reply = Merci Priya. SC 542 est un défaut de l'unité de fusion, il faut donc le fournisseur. J'ai ouvert un appel et orienté la comptabilité vers l'imprimante du niveau 3 pour aujourd'hui.
+# MT: pending native review (fr-FR)
+tickets-email-html-full-size = Afficher à ma taille de texte
+# MT: pending native review (fr-FR)
+tickets-email-html-fit-width = Ajuster à la largeur

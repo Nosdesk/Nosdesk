@@ -15,16 +15,25 @@ Why an iframe rather than `v-html` + DOMPurify alone:
     sandbox we don't want tracking-pixel-ish behaviours like
     `<meta http-equiv="refresh">` slipping through.
 
-Width handling: marketing-style emails routinely ship 600-700px
-fixed-width tables, `width="600"` images, and inline `width: 600px`
-styles. The iframe's reset stylesheet caps embedded content with
-`max-width: 100%`, which absorbs the common cases at zero cost.
-For emails that still overflow after that — typically nested tables
-with explicit pixel widths — we fall back to a CSS `zoom` shrink
-so the whole layout fits the iframe rather than producing a
-horizontal scrollbar. The "Show full email" button switches that
-shrink off and lets the user scroll horizontally if a faithful
-render is more useful than a fitting one.
+Size and width: the email is shown at the reader's text size, and goes
+down a ladder, stopping at the first step that works:
+
+  1. As sent, zoomed by the text scale (`--text-scale`). Zoom is the only
+     thing that moves type the sender wrote in px, and it keeps their
+     proportions. A phone shows the body at reading size (16px, `reading`);
+     elsewhere it is 14px. An email that fits stops here, untouched.
+  2. Reflow. Fixed pixel widths are capped to the frame and table cells may
+     wrap (`body[data-reflow]`), so a 600px column reads like any other text.
+  3. Shrink to fit. If something still cannot wrap (a table of whole words),
+     the zoom comes down until it fits, but never past the point where 14px
+     type would show under 12px.
+  4. Pan. Past that floor the email keeps its floor size and scrolls sideways
+     inside its own frame.
+
+When step 3 or 4 left the email under the reader's size it is `fitted`, and
+the reader gets one switch: "Show at my text size" (and pan) or "Fit to
+width". A phone's comment puts it on the comment's head line (the parent
+owns `fullSize` and hears `fitted`); otherwise it sits under the email.
 -->
 <template>
   <div class="flex flex-col gap-1">
@@ -49,7 +58,7 @@ render is more useful than a fitting one.
       referrerpolicy="no-referrer"
       @load="adjustLayout"
     />
-    <div v-if="hasOverflowed || canExpand" class="flex items-center gap-3">
+    <div v-if="canExpand || (fitted && ownSwitch)" class="flex flex-wrap items-center gap-x-3">
       <button
         v-if="canExpand"
         type="button"
@@ -58,15 +67,23 @@ render is more useful than a fitting one.
       >
         {{ expanded ? t('tickets-email-html-show-less') : t('tickets-email-html-show-full') }}
       </button>
-      <span v-if="hasOverflowed && !expanded" class="text-2xs text-tertiary">
-        {{ t('tickets-email-html-scaled', { pct: Math.round(activeScale * 100) }) }}
-      </span>
+      <button
+        v-if="fitted && ownSwitch"
+        type="button"
+        class="text-xs text-tertiary hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info rounded px-1 py-0.5"
+        data-email-size
+        @click="localFull = !localFull"
+      >
+        {{ showingFull ? t('tickets-email-html-fit-width') : t('tickets-email-html-full-size') }}
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useBoldText, useTextScale } from '@/composables/useTextScale'
+import { fitEmailZoom } from '@/utils/textScale'
 import { useFluent } from 'fluent-vue'
 import DOMPurify from 'dompurify'
 
@@ -84,6 +101,18 @@ const props = defineProps<{
    * comments (pre-Pass-2 ingest) keep their belt-and-braces.
    */
   preSanitised?: boolean
+  /** A phone's comment: the body at reading size (16px at the designed
+   *  size) rather than 14px. */
+  reading?: boolean
+  /** Show at the reader's size and pan instead of shrinking to fit. Owned
+   *  by the parent when it puts the switch on the comment's head line; left
+   *  unset, the email keeps its own switch under the frame. */
+  fullSize?: boolean
+}>()
+
+const emit = defineEmits<{
+  /** Whether the email had to be held under the reader's text size. */
+  (e: 'fitted', fitted: boolean): void
 }>()
 
 const frame = ref<HTMLIFrameElement | null>(null)
@@ -91,8 +120,14 @@ const frame = ref<HTMLIFrameElement | null>(null)
 const measuredHeight = ref(120)
 /** User toggled the iframe to its full measured height. */
 const expanded = ref(false)
-/** Last computed shrink factor, 0-1. `1` means no scaling needed. */
-const activeScale = ref(1)
+/** Held under the reader's text size to fit (steps 3 and 4). */
+const fitted = ref(false)
+/** The switch under the frame, when the parent does not own it. */
+const localFull = ref(false)
+const ownSwitch = computed(() => props.fullSize === undefined)
+const showingFull = computed(() => props.fullSize ?? localFull.value)
+const textScale = useTextScale()
+const boldText = useBoldText()
 /** Two observers: one tracks the iframe element so we re-fit on
  *  column-width changes; one tracks the body so lazy images / web
  *  fonts settling re-trigger the height read. */
@@ -107,7 +142,6 @@ let bodyObserver: ResizeObserver | null = null
 const COLLAPSED_HEIGHT_PX = 480
 
 const canExpand = computed(() => measuredHeight.value > COLLAPSED_HEIGHT_PX)
-const hasOverflowed = computed(() => activeScale.value < 0.999)
 const heightPx = computed(() => {
   if (expanded.value || !canExpand.value) return `${measuredHeight.value}px`
   return `${COLLAPSED_HEIGHT_PX}px`
@@ -201,6 +235,8 @@ const srcdoc = computed(() => {
     font-size: 14px;
     line-height: 1.55;
     color: #1f2937;
+    /* Holds floats, so the body's box is the email's height. */
+    display: flow-root;
     word-wrap: break-word;
     overflow-wrap: anywhere;
     /* zoom is set from the parent when the email natural width
@@ -217,6 +253,16 @@ const srcdoc = computed(() => {
   }
   body :where(table) { max-width: 100% !important; }
   body :where(table[width]) { width: auto !important; }
+  /* Step 2, only once the email overflows: a width the sender fixed is a
+     wish, not a floor, and a cell may wrap. */
+  body[data-reflow] :where(table, tbody, tr, td, th, div, p, center, section) {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+  }
+  body[data-reflow] :where(table) { width: auto !important; }
+  body[data-reflow] :where(td, th, div, p, center)[style*="width"] { width: auto !important; }
+  body[data-reflow] :where(td, th) { white-space: normal !important; }
   a { color: #2563eb; text-decoration: underline; }
   blockquote {
     margin: 0.5em 0;
@@ -239,11 +285,9 @@ const srcdoc = computed(() => {
 })
 
 /**
- * Read the iframe's content size and apply the right pair of layout
- * adjustments: a `zoom` shrink when the email's natural width still
- * overflows after the CSS caps, and a height set so the iframe element
- * exactly matches its body. Bumps round up by 8px so sub-pixel layout
- * doesn't clip the bottom line.
+ * Lay the email out down the ladder in the header comment, then set the
+ * iframe's height to its content's. Bumps round up by 8px so sub-pixel
+ * layout doesn't clip the bottom line.
  *
  * `allow-same-origin` (without `allow-scripts`) is what makes the
  * `contentDocument` access here legal: the parent can read the
@@ -254,32 +298,50 @@ function adjustLayout() {
   if (!f) return
   const doc = f.contentDocument
   const docBody = doc?.body
-  if (!docBody) return
+  const root = doc?.documentElement
+  if (!docBody || !root) return
+  // A hidden copy (the other breakpoint's layout) has nothing to fit.
+  if (f.clientWidth === 0) return
 
-  // Reset previous zoom before re-measuring; otherwise scrollWidth
-  // is reported in the *post-zoom* coordinate system and the next
-  // shrink ratio is computed against an already-shrunk reference.
-  setBodyZoom(docBody, 1)
+  docBody.style.fontSize = props.reading ? '16px' : ''
+  // Bold Text reaches the app through the weight tokens, which stop at the
+  // frame: text the sender gave no weight moves up one step here too.
+  docBody.style.fontWeight = boldText.value ? '500' : ''
+  root.style.overflowX = 'hidden'
+  delete docBody.dataset.reflow
 
-  const containerWidth = f.clientWidth
-  const naturalWidth = docBody.scrollWidth
-  // Tolerance — sub-pixel rounding can leave scrollWidth a hair over
-  // clientWidth on perfectly-fitting bodies. 4px is below the smallest
-  // visible scrollbar artifact while still catching real overflow.
-  const overflowing = naturalWidth - containerWidth > 4
+  // Tolerance: sub-pixel rounding can leave scrollWidth a hair over
+  // clientWidth on a body that fits.
+  const overflows = () => root.scrollWidth - root.clientWidth > 4
+  const overflow = () => root.scrollWidth / root.clientWidth
 
-  // Scaling is suppressed in expanded mode so users can opt for a
-  // faithful render with horizontal scroll when the shrunk view is
-  // harder to read than the original.
-  if (overflowing && !expanded.value && containerWidth > 0) {
-    const scale = Math.max(0.5, containerWidth / naturalWidth)
-    setBodyZoom(docBody, scale)
-    activeScale.value = scale
-  } else {
-    activeScale.value = 1
+  // 1. As sent, at the reader's size.
+  let zoom = textScale.value
+  setBodyZoom(docBody, zoom)
+  let held = false
+  if (overflows()) {
+    // 2. Reflow.
+    docBody.dataset.reflow = ''
+    if (overflows()) {
+      // 3. Shrink to fit, down to the floor; 4. pan past it. The reader
+      // can ask for their own size and pan instead.
+      held = true
+      if (!showingFull.value) {
+        zoom = fitEmailZoom(zoom, overflow())
+        setBodyZoom(docBody, zoom)
+      }
+      if (overflows()) root.style.overflowX = 'auto'
+    }
+  }
+  if (held !== fitted.value) {
+    fitted.value = held
+    emit('fitted', held)
   }
 
-  const next = Math.ceil(docBody.scrollHeight) + 8
+  // The body's own box, which zoom scales in every engine. The document's
+  // scrollHeight is at least the frame's, so it could never shrink.
+  const pans = root.style.overflowX === 'auto'
+  const next = Math.ceil(docBody.getBoundingClientRect().height) + 8 + (pans ? 12 : 0)
   if (next > 0 && next !== measuredHeight.value) measuredHeight.value = next
 
   attachObservers(f, docBody)
@@ -308,14 +370,25 @@ function setBodyZoom(body: HTMLElement, scale: number) {
   }
 }
 
+/** One layout per frame, however many observers fire: a layout changes the
+ *  body's size, and its own observer must not ask for another at once. */
+let pending = 0
+function scheduleLayout() {
+  if (pending) return
+  pending = requestAnimationFrame(() => {
+    pending = 0
+    adjustLayout()
+  })
+}
+
 function attachObservers(f: HTMLIFrameElement, body: HTMLElement) {
   if (typeof ResizeObserver === 'undefined') return
   if (!frameObserver) {
-    frameObserver = new ResizeObserver(() => adjustLayout())
+    frameObserver = new ResizeObserver(scheduleLayout)
     frameObserver.observe(f)
   }
   if (!bodyObserver) {
-    bodyObserver = new ResizeObserver(() => adjustLayout())
+    bodyObserver = new ResizeObserver(scheduleLayout)
     bodyObserver.observe(body)
   }
 }
@@ -324,8 +397,8 @@ watch(
   () => props.html,
   () => {
     expanded.value = false
+    localFull.value = false
     measuredHeight.value = 120
-    activeScale.value = 1
     frameObserver?.disconnect()
     bodyObserver?.disconnect()
     frameObserver = null
@@ -333,13 +406,12 @@ watch(
   },
 )
 
-watch(expanded, () => {
-  // Toggling expansion changes the policy on whether to scale; re-run
-  // the layout pass so the iframe transitions cleanly.
-  adjustLayout()
-})
+// The reader's size, Bold Text, the reading size and the switch all
+// change the layout; the height cap does not.
+watch([textScale, boldText, showingFull, () => props.reading], () => adjustLayout(), { flush: 'post' })
 
 onBeforeUnmount(() => {
+  if (pending) cancelAnimationFrame(pending)
   frameObserver?.disconnect()
   bodyObserver?.disconnect()
   frameObserver = null

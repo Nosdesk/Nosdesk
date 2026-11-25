@@ -8074,7 +8074,6 @@ tickets-project-info-status-archived = gearchiveerd
 tickets-email-html-iframe-title = E-mailinhoud
 tickets-email-html-show-less = Minder weergeven
 tickets-email-html-show-full = Volledige e-mail weergeven
-tickets-email-html-scaled = Aangepast aan ({ $pct }%)
 
 # Header + nav polish
 nav-logo-alt = Nosdesk-logo
@@ -13237,3 +13236,7 @@ settings-text-size-sample-title = Printer op verdieping 2 offline na de stroomst
 settings-text-size-sample-state = Bezig
 # MT: pending native review (nl-NL)
 settings-text-size-sample-reply = Bedankt Priya. SC 542 is een fout in de fuser, dus hier is de leverancier voor nodig. Ik heb een melding gemaakt en Boekhouding vandaag naar de printer op verdieping 3 gestuurd.
+# MT: pending native review (nl-NL)
+tickets-email-html-full-size = Tonen op mijn tekstgrootte
+# MT: pending native review (nl-NL)
+tickets-email-html-fit-width = Passend maken

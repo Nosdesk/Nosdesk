@@ -4251,7 +4251,6 @@ tickets-project-info-status-archived = archived
 tickets-email-html-iframe-title = Email body
 tickets-email-html-show-less = Show less
 tickets-email-html-show-full = Show full email
-tickets-email-html-scaled = Scaled to fit ({ $pct }%)
 
 # Header + nav polish
 nav-logo-alt = Nosdesk logo

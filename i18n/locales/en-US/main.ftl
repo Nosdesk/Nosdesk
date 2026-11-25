@@ -7324,7 +7324,10 @@ tickets-project-info-status-archived = archived
 tickets-email-html-iframe-title = Email body
 tickets-email-html-show-less = Show less
 tickets-email-html-show-full = Show full email
-tickets-email-html-scaled = Scaled to fit ({ $pct }%)
+# An email that could not fit the frame at the reader's text size was shrunk
+# to fit; these switch between their size (scrolling sideways) and fitted.
+tickets-email-html-full-size = Show at my text size
+tickets-email-html-fit-width = Fit to width
 
 # Header + nav polish
 nav-logo-alt = Nosdesk logo

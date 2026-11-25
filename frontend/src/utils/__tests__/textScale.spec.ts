@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { clampScale, replyFieldLines } from '@/utils/textScale'
+import { EMAIL_ZOOM_FLOOR, clampScale, fitEmailZoom, replyFieldLines } from '@/utils/textScale'
 import { readTextScale } from '@/composables/useTextScale'
 
 describe('clampScale', () => {
@@ -37,5 +37,14 @@ describe('readTextScale', () => {
     expect(readTextScale()).toBe(1.5)
     root.style.setProperty('--user-text-scale', '4')
     expect(readTextScale()).toBe(2)
+  })
+})
+
+describe('fitEmailZoom', () => {
+  it('shrinks a wide email to fit, never past 12px for 14px type', () => {
+    expect(fitEmailZoom(1, 1)).toBe(1)
+    expect(fitEmailZoom(2, 1.6)).toBe(1.25)
+    expect(fitEmailZoom(1, 1.5)).toBe(EMAIL_ZOOM_FLOOR)
+    expect(14 * EMAIL_ZOOM_FLOOR).toBeCloseTo(12)
   })
 })

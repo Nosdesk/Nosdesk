@@ -483,6 +483,23 @@ const { isMobile: phone } = useMobileDetection('sm');
 const textScale = useTextScale();
 const replyLines = computed(() => replyFieldLines(textScale.value));
 
+/** Phone comments whose email is held under the reader's text size to fit,
+ *  and those the reader asked to see at their size. */
+const fittedEmails = ref(new Set<number>());
+const fullEmails = ref(new Set<number>());
+function setFittedEmail(id: number, fitted: boolean): void {
+    if (fittedEmails.value.has(id) === fitted) return;
+    const next = new Set(fittedEmails.value);
+    if (fitted) next.add(id);
+    else next.delete(id);
+    fittedEmails.value = next;
+}
+function toggleFullEmail(id: number): void {
+    const next = new Set(fullEmails.value);
+    if (!next.delete(id)) next.add(id);
+    fullEmails.value = next;
+}
+
 const commentTime = (comment: { id: number; createdAt?: string; created_at: string }): string =>
     comment.id < 0
         ? t("ticket-comments-sending")
@@ -1068,6 +1085,16 @@ const handlePastedFiles = async (files: File[]) => {
                                             class="whitespace-nowrap"
                                             :title="comment.from_address"
                                         >{{ $t('ticket-comments-via-email') }}</span>
+                                        <!-- An email held under the reader's text size
+                                             to fit: the switch to their size (it pans)
+                                             joins this line rather than taking its own. -->
+                                        <button
+                                            v-if="fittedEmails.has(comment.id)"
+                                            type="button"
+                                            class="relative text-left font-medium text-primary underline underline-offset-2 before:absolute before:-inset-x-2 before:-inset-y-3"
+                                            data-email-size
+                                            @click="toggleFullEmail(comment.id)"
+                                        >{{ fullEmails.has(comment.id) ? $t('tickets-email-html-fit-width') : $t('tickets-email-html-full-size') }}</button>
                                     </span>
                                 </div>
                                 <!-- Mobile action buttons (hidden on print) -->
@@ -1102,6 +1129,8 @@ const handlePastedFiles = async (files: File[]) => {
                                 <CommentContent
                                     v-if="hasRealContent(comment)"
                                     reading
+                                    :email-full-size="fullEmails.has(comment.id)"
+                                    @email-fitted="(fitted) => setFittedEmail(comment.id, fitted)"
                                     :content="comment.content"
                                     :content-format="comment.content_format"
                                     :render-kind="comment.render_kind"

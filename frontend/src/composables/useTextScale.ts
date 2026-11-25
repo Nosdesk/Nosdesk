@@ -6,12 +6,15 @@
  * reads it back from the root's computed style, so anything that has to size
  * itself in script (the reply field's line count, an email's frame) agrees
  * with the CSS by construction. It follows changes to the root's inline style
- * and attributes, which is where both inputs are written.
+ * and attributes, which is where both inputs are written, and reports the
+ * device's Bold Text (`data-bold-text`) for documents the weight tokens do not
+ * reach, such as an email's frame.
  */
 import { readonly, ref, type Ref } from 'vue'
 import { clampScale } from '@/utils/textScale'
 
 const scale = ref(1)
+const bold = ref(false)
 let observer: MutationObserver | null = null
 
 /** The root's `--text-scale`. Where the property is not registered (Safari
@@ -25,14 +28,26 @@ export function readTextScale(root: HTMLElement = document.documentElement): num
   return clampScale(Number.isFinite(user) ? user : Number.isFinite(device) ? device : 1)
 }
 
-export function useTextScale(): Readonly<Ref<number>> {
-  if (!observer && typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
-    scale.value = readTextScale()
-    observer = new MutationObserver(() => {
-      const next = readTextScale()
-      if (next !== scale.value) scale.value = next
-    })
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
+function watchRoot(): void {
+  if (observer || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+  const root = document.documentElement
+  const read = () => {
+    const next = readTextScale(root)
+    if (next !== scale.value) scale.value = next
+    bold.value = root.hasAttribute('data-bold-text')
   }
+  read()
+  observer = new MutationObserver(read)
+  observer.observe(root, { attributes: true, attributeFilter: ['style', 'class', 'data-bold-text'] })
+}
+
+export function useTextScale(): Readonly<Ref<number>> {
+  watchRoot()
   return readonly(scale)
+}
+
+/** Whether the device's Bold Text is on (`data-bold-text` on the root). */
+export function useBoldText(): Readonly<Ref<boolean>> {
+  watchRoot()
+  return readonly(bold)
 }

@@ -34,6 +34,9 @@ so a printed ticket carries the full archival record, not the summary.
       v-if="visibleMode === 'iframe'"
       :html="visible"
       :pre-sanitised="htmlIsPreSanitised"
+      :reading="reading"
+      :full-size="emailFullSize"
+      @fitted="(fitted) => emit('email-fitted', fitted)"
     />
     <div
       v-else-if="visibleMode === 'inline-html'"
@@ -61,6 +64,7 @@ so a printed ticket carries the full archival record, not the summary.
           v-if="quotedMode === 'iframe'"
           :html="quoted"
           :pre-sanitised="htmlIsPreSanitised"
+          :reading="reading"
         />
         <div
           v-else-if="quotedMode === 'inline-html'"
@@ -137,6 +141,15 @@ const props = defineProps<{
   /** Reading text: the body at body size (16px at the designed size), as a
    *  phone shows a comment. The compact size otherwise. */
   reading?: boolean;
+  /** The HTML body at the reader's text size, panning, instead of fitted.
+   *  Set by a parent that shows the switch itself (a phone comment's head
+   *  line); unset, the email shows its own. */
+  emailFullSize?: boolean;
+}>();
+
+const emit = defineEmits<{
+  /** The HTML body had to be held under the reader's text size to fit. */
+  (e: 'email-fitted', fitted: boolean): void;
 }>();
 
 const fluent = useFluent();

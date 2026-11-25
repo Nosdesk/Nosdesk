@@ -47,3 +47,13 @@ export function nearestStop(percent: number): number {
   }
   return best
 }
+
+/** An email's least zoom while it is shrunk to fit: its 14px type, the
+ *  common body size in mail, never shows under 12px. */
+export const EMAIL_ZOOM_FLOOR = 12 / 14
+
+/** The zoom that fits an email `overflow` times wider than its frame at
+ *  `zoom`, held at the floor; past it the email pans. */
+export function fitEmailZoom(zoom: number, overflow: number): number {
+  return Math.max(EMAIL_ZOOM_FLOOR, zoom / Math.max(1, overflow))
+}
