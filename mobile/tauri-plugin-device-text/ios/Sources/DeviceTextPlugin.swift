@@ -40,6 +40,9 @@ class DeviceTextPlugin: Plugin {
   /// The size the last content size notification carried. Bold Text's
   /// notification carries none and leaves it as it was.
   private var notifiedCategory: UIContentSizeCategory?
+  /// The web view's size when that notification came. Once the traits move
+  /// away from it, they are newer than the notification and win again.
+  private var traitsWhenNotified: UIContentSizeCategory?
   private var observers: [NSObjectProtocol] = []
 
   @objc public override func load(webview: WKWebView) {
@@ -55,6 +58,7 @@ class DeviceTextPlugin: Plugin {
             note.userInfo?[UIContentSizeCategory.newValueUserInfoKey] as? UIContentSizeCategory
           if let notified = notified, notified != .unspecified {
             self?.notifiedCategory = notified
+            self?.traitsWhenNotified = self?.webview?.traitCollection.preferredContentSizeCategory
           }
           self?.sendIfChanged(category: notified)
         })
@@ -93,8 +97,17 @@ class DeviceTextPlugin: Plugin {
   }
 
   /// The size to report: the one a notification just carried, else the last
-  /// one a notification carried, else the web view's traits, else the app's.
+  /// one a notification carried while the traits have not moved since, else
+  /// the web view's traits, else the app's.
   private func current(category notified: UIContentSizeCategory? = nil) -> TextSettings {
+    // Traits that changed without a notification (or caught up with one)
+    // are the newest word: forget the notified size.
+    if notifiedCategory != nil,
+      webview?.traitCollection.preferredContentSizeCategory != traitsWhenNotified
+    {
+      notifiedCategory = nil
+      traitsWhenNotified = nil
+    }
     var category = UIApplication.shared.preferredContentSizeCategory
     if let known = notified ?? notifiedCategory
       ?? webview?.traitCollection.preferredContentSizeCategory,
