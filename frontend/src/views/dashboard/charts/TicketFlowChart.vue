@@ -28,7 +28,7 @@ import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
 import { useElementSize } from '@/composables/useElementSize'
-import { useAxisFont } from './axisFont'
+import { labelGap, useAxisFont } from './axisFont'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import {
   analyticsService,
@@ -212,8 +212,6 @@ interface XTick {
   anchor: 'start' | 'middle' | 'end'
 }
 
-const MIN_LABEL_GAP = 64
-
 const xLabels = computed<XTick[]>(() => {
   const data = netBuckets.value
   if (data.length === 0 || innerW.value <= 0) return []
@@ -230,12 +228,15 @@ const xLabels = computed<XTick[]>(() => {
     return d.toLocaleDateString(dateStore.locale, { month: 'short', day: 'numeric', timeZone: tz.value })
   }
 
+  // Labels keep apart by the widest of them at the axis size, so fewer
+  // show as the text grows.
+  const gap = labelGap(data.map((_, i) => fmt(i)), axisFont.value)
   const kept: number[] = []
   for (let i = 0; i < n; i += 1) {
-    if (kept.length === 0 || xAt(i) - xAt(kept[kept.length - 1]) >= MIN_LABEL_GAP) kept.push(i)
+    if (kept.length === 0 || xAt(i) - xAt(kept[kept.length - 1]) >= gap) kept.push(i)
   }
   if (kept[kept.length - 1] !== n - 1) {
-    if (kept.length > 0 && xAt(n - 1) - xAt(kept[kept.length - 1]) < MIN_LABEL_GAP) kept.pop()
+    if (kept.length > 0 && xAt(n - 1) - xAt(kept[kept.length - 1]) < gap) kept.pop()
     kept.push(n - 1)
   }
 

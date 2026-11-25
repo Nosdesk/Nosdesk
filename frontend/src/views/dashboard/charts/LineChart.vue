@@ -16,7 +16,7 @@ import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
 import { useElementSize } from '@/composables/useElementSize'
-import { useAxisFont } from './axisFont'
+import { labelGap, useAxisFont } from './axisFont'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import {
   analyticsService,
@@ -221,11 +221,6 @@ const spanDays = computed(() =>
   ),
 )
 
-// Minimum centre-to-centre gap between x labels. Sized for the widest
-// localised label plus breathing room so nothing collides even in a
-// narrow widget, regardless of how dense the buckets are.
-const MIN_LABEL_GAP = 64
-
 const xLabels = computed<XTick[]>(() => {
   const data = buckets.value
   if (data.length === 0 || innerW.value <= 0) return []
@@ -273,15 +268,18 @@ const xLabels = computed<XTick[]>(() => {
   }
 
   // Greedy left-to-right, keeping a candidate only once it clears the
-  // last kept label by the minimum gap.
+  // last kept label by the gap the widest label needs at the axis size
+  // (`labelGap`), so nothing collides in a narrow widget or at a larger
+  // text size, however dense the buckets are.
+  const gap = labelGap(candidates.map(fmt), axisFont.value)
   const kept: number[] = []
   for (const i of candidates) {
-    if (kept.length === 0 || xAt(i) - xAt(kept[kept.length - 1]) >= MIN_LABEL_GAP) kept.push(i)
+    if (kept.length === 0 || xAt(i) - xAt(kept[kept.length - 1]) >= gap) kept.push(i)
   }
   // The fine tiers care about the latest value, so force the final
   // bucket in (dropping the prior label if it would crowd it).
   if (!coarse && kept[kept.length - 1] !== n - 1) {
-    if (kept.length > 0 && xAt(n - 1) - xAt(kept[kept.length - 1]) < MIN_LABEL_GAP) kept.pop()
+    if (kept.length > 0 && xAt(n - 1) - xAt(kept[kept.length - 1]) < gap) kept.pop()
     kept.push(n - 1)
   }
 
