@@ -48,6 +48,8 @@ const router = useRouter();
 // The newest error always has a place: a failure is not left waiting behind
 // a success. A toast held back keeps its own clock (`timerDuration`,
 // `expireHeld`), so it never surfaces after its time, an Undo least of all.
+// Errors win: from 150%, with one place, an error that stays until dismissed
+// holds it, and other toasts raised meanwhile run out unseen.
 const textScale = useTextScale();
 const { isMobile: phone } = useMobileDetection('md');
 const toasts = computed(() => {
