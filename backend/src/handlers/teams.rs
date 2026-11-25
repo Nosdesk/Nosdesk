@@ -53,7 +53,7 @@ fn tab_provider(pool: &Pool, workspace_id: i32) -> Option<WorkspaceIdentityProvi
         pool,
         "background:teams_provider",
         workspace_id,
-        |conn| providers::get(conn),
+        providers::get,
     )
     .ok()
     .flatten()
@@ -145,12 +145,20 @@ pub async fn exchange_session(
     );
     let user_uuid = match resolved {
         Ok(Ok(u)) => u,
-        Ok(Err(_)) => {
+        Ok(Err(crate::repository::requester_identities::Refused::Domain)) => {
             tracing::info!("teams: token refused (no email at a listed domain)");
             // The tab says so: it's for the admin to fix, not a retry.
             return crate::errors::unauthorized_with_code(
                 "Your account isn't set up for this help portal",
                 "teams_domain",
+            );
+        }
+        Ok(Err(crate::repository::requester_identities::Refused::StaffElsewhere)) => {
+            tracing::info!("teams: token refused (a staff account of another workspace)");
+            return crate::errors::unauthorized_with_code(
+                "Your account is on another workspace's team, so it can't sign in to this help \
+                 portal from Teams",
+                "teams_staff_elsewhere",
             );
         }
         Err(e) => {

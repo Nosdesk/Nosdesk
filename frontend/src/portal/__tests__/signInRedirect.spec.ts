@@ -95,6 +95,7 @@ describe('a sign-in the workspace provider could not finish', () => {
     for (const [reason, key] of [
       ['mfa', 'login-error-provider-mfa'],
       ['domain', 'portal-sso-error-domain'],
+      ['staff_elsewhere', 'portal-sso-error-staff-elsewhere'],
       ['failed', 'portal-sso-error'],
     ]) {
       const router = makeRouter()

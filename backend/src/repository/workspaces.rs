@@ -377,6 +377,128 @@ pub fn workspace_ids_of_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryR
     }
 }
 
+/// Every membership row for `user_uuid`, active or removed, as (workspace,
+/// role), whatever workspace the connection is pinned to. A removed seat still
+/// means that workspace knows the person: for a write that would change
+/// something global about them, it counts. An archived workspace doesn't (it
+/// is on its way out, as the workspace switcher treats it).
+///
+/// Reads through the bypass role inside a savepoint that is then rolled back,
+/// like [`workspace_ids_of_user`].
+pub fn seat_rows_of_user(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+) -> QueryResult<Vec<(i32, String)>> {
+    let mut rows = None;
+    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
+        let actor = crate::sync::actor::ActorContext::system("repository:seat_rows_of_user");
+        // cross-tenant: which workspaces hold a seat row for a person, and in what role, for a directory sync or requester sign-in deciding whether it may vouch for their global account; ids and roles only, and rolled back with the savepoint.
+        let read = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            // members-any-status: a removed seat elsewhere still means another workspace knew the person, which is what the directory rules ask
+            workspace_members::table
+                .inner_join(
+                    workspaces::table.on(workspaces::id.eq(workspace_members::workspace_id)),
+                )
+                .filter(workspace_members::user_uuid.eq(user_uuid))
+                .filter(workspaces::archived_at.is_null())
+                .select((workspace_members::workspace_id, workspace_members::role))
+                .order(workspace_members::workspace_id.asc())
+                .load::<(i32, String)>(conn)
+        })?;
+        rows = Some(read);
+        Err(DieselError::RollbackTransaction)
+    });
+    match (rows, outcome) {
+        (Some(rows), _) => Ok(rows),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(DieselError::NotFound),
+    }
+}
+
+/// The workspaces of [`seat_rows_of_user`].
+pub fn workspace_ids_with_any_seat(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+) -> QueryResult<Vec<i32>> {
+    let mut ids: Vec<i32> = seat_rows_of_user(conn, user_uuid)?
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    ids.dedup();
+    Ok(ids)
+}
+
+/// Whether `user_uuid` holds or held a staff seat (owner, admin, agent) in a
+/// live workspace other than `workspace_id`.
+pub fn staff_seat_elsewhere(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<bool> {
+    Ok(seat_rows_of_user(conn, user_uuid)?
+        .iter()
+        .any(|(id, role)| *id != workspace_id && STAFF_ROLES.contains(&role.as_str())))
+}
+
+/// Where an existing account stands for a directory sync running in one
+/// workspace. The account is global: its name, addresses, photo and sign-in
+/// identities reach every workspace that holds it, so one workspace's
+/// directory may speak for them only when no other workspace has ever held a
+/// seat for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectoryReach {
+    /// No active seat here and no seat row in any other workspace: an account
+    /// an earlier run created without a membership, or someone removed from
+    /// this workspace who was never anywhere else.
+    Unseated,
+    /// A seat row (active or removed) in another workspace and no active seat
+    /// here. The sync leaves it alone.
+    Foreign,
+    /// An active seat here and a seat row elsewhere, or owned by a Nosdesk
+    /// account (hosted staff). The sync may keep this workspace's own profile
+    /// fields, never the account or a sign-in identity.
+    Shared,
+    /// An active seat here and no seat row anywhere else.
+    Own,
+}
+
+impl DirectoryReach {
+    /// The account holds an active seat in the syncing workspace.
+    pub fn seated_here(self) -> bool {
+        matches!(self, Self::Shared | Self::Own)
+    }
+
+    /// The account is this workspace's alone, so its directory may link a
+    /// sign-in identity to it and write its name, addresses and photo.
+    pub fn owns_account(self) -> bool {
+        self == Self::Own
+    }
+}
+
+/// [`DirectoryReach`] of `user_uuid` for a directory sync in `workspace_id`.
+/// Works on a pinned runtime connection and on an elevated one: the seat here
+/// is read by workspace id, the seats elsewhere through
+/// [`workspace_ids_with_any_seat`].
+pub fn directory_reach(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<DirectoryReach> {
+    let here = membership(conn, workspace_id, user_uuid)?.is_some();
+    let elsewhere = workspace_ids_with_any_seat(conn, user_uuid)?
+        .into_iter()
+        .any(|id| id != workspace_id);
+    Ok(match (here, elsewhere) {
+        (false, false) => DirectoryReach::Unseated,
+        (false, true) => DirectoryReach::Foreign,
+        (true, true) => DirectoryReach::Shared,
+        (true, false) if nosdesk_account_managed(conn, &[user_uuid]).contains(&user_uuid) => {
+            DirectoryReach::Shared
+        }
+        (true, false) => DirectoryReach::Own,
+    })
+}
+
 /// Outcome of [`add_membership`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum AddMembershipOutcome {
@@ -1218,6 +1340,25 @@ pub fn member_primary_emails(conn: &mut DbConnection) -> QueryResult<Vec<(Uuid, 
         .filter(user_emails::is_primary.eq(true))
         .select((workspace_members::user_uuid, user_emails::email))
         .load(conn)
+}
+
+/// Which of `user_uuids` are active members of the pinned workspace, for
+/// checking a reference to a person.
+pub fn active_members_among(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> QueryResult<std::collections::HashSet<Uuid>> {
+    use crate::schema::users;
+    Ok(workspace_members::table
+        .inner_join(users::table)
+        .filter(workspace_members::workspace_id.eq(super::pinned_workspace()))
+        .filter(workspace_members::removed_at.is_null())
+        .filter(users::deleted_at.is_null())
+        .filter(workspace_members::user_uuid.eq_any(user_uuids))
+        .select(workspace_members::user_uuid)
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
 }
 
 /// Each active member of the pinned workspace with their name and primary

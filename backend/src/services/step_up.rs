@@ -283,13 +283,28 @@ pub fn methods(conn: &mut DbConnection, user: &User) -> (Vec<Method>, Option<Ste
     (methods, provider)
 }
 
-/// The account's LDAP identity: `(workspace_id, external_id)`.
+/// The account's LDAP identity: `(workspace_id, external_id)`, when that
+/// workspace's directory may sign in as the account at all (it holds the
+/// account alone, as for sign-in: `auth::ldap_sign_in_permitted`).
 fn ldap_identity(conn: &mut DbConnection, user_uuid: &Uuid) -> Option<(i32, String)> {
-    repository::user_auth_identities::get_user_identities(user_uuid, conn)
-        .ok()?
-        .into_iter()
-        .find(|i| i.provider_type == "ldap")
-        .and_then(|i| Some((i.workspace_id?, i.external_id)))
+    let (workspace_id, external_id) =
+        repository::user_auth_identities::get_user_identities(user_uuid, conn)
+            .ok()?
+            .into_iter()
+            .find(|i| i.provider_type == "ldap")
+            .and_then(|i| Some((i.workspace_id?, i.external_id)))?;
+    let actor =
+        crate::sync::actor::ActorContext::system("step_up:ldap").with_workspace(workspace_id);
+    let permitted =
+        crate::sync::session::with_actor_context::<_, diesel::result::Error>(conn, &actor, |c| {
+            Ok(crate::handlers::auth::ldap_sign_in_permitted(
+                c,
+                workspace_id,
+                *user_uuid,
+            ))
+        })
+        .unwrap_or(false);
+    permitted.then_some((workspace_id, external_id))
 }
 
 /// Check a credential typed into the step-up dialog. Returns the method it

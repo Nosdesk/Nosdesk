@@ -26,6 +26,7 @@ use crate::repository::sync_history as sync_history_repo;
 use crate::repository::user_auth_identities as identity_repo;
 use crate::repository::user_emails as user_emails_repo;
 use crate::repository::users as user_repo;
+use crate::repository::workspaces::{directory_reach, DirectoryReach};
 use crate::utils;
 
 /// Microsoft Graph integration routes (`/integrations/graph`), mounted inside
@@ -50,6 +51,18 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 web::get().to(get_entra_object_id),
             ),
     );
+}
+
+/// The Microsoft Graph sync runs on the instance's own Entra app, so on
+/// hosted it would sync the operator's directory into a customer workspace.
+/// Every route refuses there, before reading anything.
+fn refused_on_hosted() -> Option<HttpResponse> {
+    crate::middleware::workspace_context::is_hosted().then(|| {
+        crate::errors::forbidden_with_code(
+            "Microsoft Entra ID sync is available on self-hosted Nosdesk only.",
+            "msgraph.self_hosted_only",
+        )
+    })
 }
 
 // Helper function for environment-based auth providers
@@ -721,6 +734,9 @@ pub async fn get_sync_progress_endpoint(
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -745,6 +761,9 @@ pub async fn get_active_syncs(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
 ) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -782,6 +801,9 @@ pub async fn get_last_sync(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
 ) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     let mut conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -848,6 +870,9 @@ pub async fn cancel_sync_session(
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -891,6 +916,9 @@ pub async fn cancel_sync_session(
 
 /// Validate Microsoft Graph configuration
 pub async fn get_config_validation(req: actix_web::HttpRequest) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -949,6 +977,9 @@ pub async fn get_connection_status(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
 ) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -1035,6 +1066,9 @@ pub async fn get_connection_status(
 
 /// Test Microsoft Graph connection
 pub async fn test_connection(req: actix_web::HttpRequest) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -1075,6 +1109,9 @@ pub async fn sync_data(
     ws: crate::extractors::WorkspaceContext,
     request: web::Json<SyncDataRequest>,
 ) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     let mut conn = helpers::db_conn(&db_pool)?;
     // Triggering a full Entra/Intune directory sync (mass record
     // create/update via the integration's credentials) is workspace-
@@ -1410,6 +1447,10 @@ fn check_microsoft_config() -> Result<(), String> {
 /// configured so the job doesn't spam errors on installs that aren't
 /// using the Microsoft integration.
 pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<()> {
+    // Hosted has no Graph sync: BOOTSTRAP_WORKSPACE_ID is a customer's there.
+    if crate::middleware::workspace_context::is_hosted() {
+        return Ok(());
+    }
     if check_microsoft_config().is_err() {
         // Not configured — treat as a clean no-op so the scheduler
         // status registry shows "ok" instead of a noisy error.
@@ -1717,10 +1758,10 @@ async fn sync_users(
         failures: Vec::new(),
     };
 
-    // The workspace this run is pinned to. The people it brings in become
-    // members there: a new account through `create_user_with_email`, which
-    // grants the membership from this same pin, and an existing one through
-    // `ensure_directory_membership`.
+    // The workspace this run is pinned to. The people it creates become
+    // members there through `create_user_with_email`, which grants the
+    // membership from this same pin; an existing account is linked only when
+    // it is already this workspace's alone.
     let workspace_id = match crate::sync::session::current_workspace_id(conn) {
         Ok(Some(workspace_id)) => workspace_id,
         Ok(None) | Err(_) => {
@@ -1801,54 +1842,7 @@ async fn sync_users(
             count = removed_user_ids.len(),
             "Processing removed users from delta response"
         );
-        for removed_id in &removed_user_ids {
-            let Ok(identity) = find_identity_by_provider_user_id(conn, provider_id, removed_id)
-            else {
-                continue;
-            };
-
-            let revoked =
-                crate::repository::active_sessions::revoke_all_sessions(conn, &identity.user_uuid)
-                    .unwrap_or_else(|e| {
-                        warn!(
-                            error = ?e,
-                            user_uuid = %identity.user_uuid,
-                            ms_id = %removed_id,
-                            "Failed to revoke sessions for user removed from Entra ID",
-                        );
-                        0
-                    });
-
-            if let Err(e) = crate::utils::security_events::record_security_event(
-                conn,
-                crate::utils::security_events::SecurityEventInput {
-                    user_uuid: Some(identity.user_uuid),
-                    event_type: "user_removed_via_msgraph",
-                    severity: "warning",
-                    details: Some(serde_json::json!({
-                        "ms_id": removed_id,
-                        "provider_id": provider_id,
-                        "sessions_revoked": revoked,
-                        "action": "access_revoked_user_row_kept",
-                    })),
-                    request: None,
-                },
-            ) {
-                warn!(
-                    error = ?e,
-                    user_uuid = %identity.user_uuid,
-                    ms_id = %removed_id,
-                    "Failed to record security event for Entra ID user removal",
-                );
-            }
-
-            warn!(
-                user_uuid = %identity.user_uuid,
-                ms_id = %removed_id,
-                sessions_revoked = revoked,
-                "Entra ID reported user removed: revoked sessions, kept user row for attribution",
-            );
-        }
+        revoke_removed_directory_people(conn, provider_id, workspace_id, &removed_user_ids);
     }
 
     let total_users = microsoft_users.len();
@@ -2065,7 +2059,7 @@ async fn sync_users(
                         stats.record_failure(
                             crate::services::msgraph::EntityKind::Users,
                             &ms_user.id,
-                            error.into(),
+                            error,
                             1,
                         );
                     }
@@ -2094,7 +2088,7 @@ async fn sync_users(
                         stats.record_failure(
                             crate::services::msgraph::EntityKind::Users,
                             &ms_user.id,
-                            error.into(),
+                            error,
                             1,
                         );
                     }
@@ -2176,6 +2170,81 @@ async fn sync_users(
             status: "cancelled".to_string(),
             errors: stats.errors,
         }
+    }
+}
+
+/// Revoke the sessions of each person the directory reports removed
+/// (`removed_ids`, Entra object ids) and record it, for the run in
+/// `workspace_id`. The account row stays, for attribution. Only an account
+/// this workspace holds alone is touched.
+pub fn revoke_removed_directory_people(
+    conn: &mut DbConnection,
+    provider_id: i32,
+    workspace_id: i32,
+    removed_ids: &[String],
+) {
+    for removed_id in removed_ids {
+        let Ok(identity) = find_identity_by_provider_user_id(conn, provider_id, removed_id) else {
+            continue;
+        };
+        // Only an account this workspace holds alone: another workspace's
+        // person keeps their sessions, and its security log isn't ours.
+        match directory_reach(conn, workspace_id, identity.user_uuid) {
+            Ok(reach) if reach.owns_account() => {}
+            Ok(_) => {
+                info!(
+                    external_id = %removed_id,
+                    "Entra ID reported a user removed whose account another workspace holds; left alone",
+                );
+                continue;
+            }
+            Err(e) => {
+                warn!(error = %e, external_id = %removed_id, "Entra ID removal: reading seats failed");
+                continue;
+            }
+        }
+
+        let revoked =
+            crate::repository::active_sessions::revoke_all_sessions(conn, &identity.user_uuid)
+                .unwrap_or_else(|e| {
+                    warn!(
+                        error = ?e,
+                        user_uuid = %identity.user_uuid,
+                        ms_id = %removed_id,
+                        "Failed to revoke sessions for user removed from Entra ID",
+                    );
+                    0
+                });
+
+        if let Err(e) = crate::utils::security_events::record_security_event(
+            conn,
+            crate::utils::security_events::SecurityEventInput {
+                user_uuid: Some(identity.user_uuid),
+                event_type: "user_removed_via_msgraph",
+                severity: "warning",
+                details: Some(serde_json::json!({
+                    "ms_id": removed_id,
+                    "provider_id": provider_id,
+                    "sessions_revoked": revoked,
+                    "action": "access_revoked_user_row_kept",
+                })),
+                request: None,
+            },
+        ) {
+            warn!(
+                error = ?e,
+                user_uuid = %identity.user_uuid,
+                ms_id = %removed_id,
+                "Failed to record security event for Entra ID user removal",
+            );
+        }
+
+        warn!(
+            user_uuid = %identity.user_uuid,
+            ms_id = %removed_id,
+            sessions_revoked = revoked,
+            "Entra ID reported user removed: revoked sessions, kept user row for attribution",
+        );
     }
 }
 
@@ -2572,26 +2641,26 @@ async fn process_microsoft_user_optimized_v2(
         .await;
     }
 
-    // Step 2: Extract all email addresses from Microsoft Graph user
-    let emails = extract_user_emails(ms_user);
-    let email_addresses: Vec<String> = emails.iter().map(|(email, _, _)| email.clone()).collect();
-
-    // Step 3: Check if any user exists with any of these email addresses
-    if let Ok(Some(existing_user)) =
-        user_emails_repo::find_user_by_any_of_emails(conn, &email_addresses)
-    {
-        // Local user exists but no Microsoft identity - link them
-        return link_existing_user_to_microsoft_optimized(
-            conn,
-            provider_id,
-            workspace_id,
-            ms_user,
-            existing_user,
-            stats,
-            access_token,
-            client,
-        )
-        .await;
+    // Steps 2-3: an account holding any of their addresses is linked, skipped
+    // or, when there is none, a new one is created.
+    match match_by_address(conn, workspace_id, ms_user)? {
+        AddressMatch::Link(existing_user) => {
+            return link_existing_user_to_microsoft_optimized(
+                conn,
+                provider_id,
+                ms_user,
+                existing_user,
+                stats,
+                access_token,
+                client,
+            )
+            .await;
+        }
+        AddressMatch::Skip(why) => {
+            skip_person(stats, ms_user, why);
+            return Ok(());
+        }
+        AddressMatch::New => {}
     }
 
     // Step 4: No existing user found - create new user with Microsoft identity
@@ -2721,7 +2790,19 @@ async fn update_existing_microsoft_user_optimized(
     // DbConflict and infra errors through DbInfra; `?` does the
     // right classification without an intermediate format!.
     let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)?;
-    ensure_directory_membership(conn, workspace_id, &user)?;
+    let Some(reach) = identity_reach(conn, workspace_id, &user, ms_user, stats)? else {
+        return Ok(());
+    };
+    if !reach.owns_account() {
+        // Another workspace holds the account: name them here only, and
+        // leave the account's name, Microsoft id, addresses and photo alone.
+        name_locally(conn, &user, ms_user)?;
+        surface_contact(conn, user.uuid, ms_user)?;
+        let identity_data = serde_json::to_value(ms_user)?;
+        update_identity_data(conn, existing_identity.id, Some(identity_data))?;
+        stats.existing_users_updated += 1;
+        return Ok(());
+    }
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -2860,7 +2941,6 @@ async fn update_existing_microsoft_user_optimized(
 async fn link_existing_user_to_microsoft_optimized(
     conn: &mut DbConnection,
     provider_id: i32,
-    workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_user: User,
     stats: &mut UserSyncStats,
@@ -2886,7 +2966,6 @@ async fn link_existing_user_to_microsoft_optimized(
     };
 
     identity_repo::create_identity(new_identity, conn)?;
-    ensure_directory_membership(conn, workspace_id, &existing_user)?;
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -3129,27 +3208,125 @@ fn create_directory_user(
     Ok((created_user, email_count))
 }
 
-/// Make a directory person the sync already knows a member of the workspace
-/// it runs for, so someone an earlier run created without a membership, or
-/// who joined from another workspace, reaches this one's pool and pickers.
-/// An existing membership keeps its role, a person an admin removed stays
-/// removed, and `ensure_membership` sends `user.updated` only when it granted
-/// one. A deleted account is left alone.
-fn ensure_directory_membership(
+/// Where `user`, whom the run in `workspace_id` found by their Microsoft
+/// identity, stands for it. An account no live workspace has any seat row for,
+/// active or removed, is one an earlier run created without a membership: it
+/// is seated here first and is then this workspace's own. `None` for an
+/// account still not seated here (someone removed from this workspace, or one
+/// another workspace holds), which the run leaves alone and lists as skipped.
+fn identity_reach(
     conn: &mut DbConnection,
     workspace_id: i32,
     user: &User,
-) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
-    if user.deleted_at.is_some() {
-        return Ok(());
+    ms_user: &MicrosoftGraphUser,
+    stats: &mut UserSyncStats,
+) -> Result<Option<DirectoryReach>, crate::services::msgraph::MsGraphSyncError> {
+    let mut reach = directory_reach(conn, workspace_id, user.uuid)?;
+    if reach == DirectoryReach::Unseated
+        && user.deleted_at.is_none()
+        && crate::repository::workspaces::workspace_ids_with_any_seat(conn, user.uuid)?.is_empty()
+    {
+        crate::repository::workspaces::ensure_membership(
+            conn,
+            workspace_id,
+            user.uuid,
+            DIRECTORY_MEMBER_ROLE.as_str(),
+        )?;
+        reach = directory_reach(conn, workspace_id, user.uuid)?;
     }
-    crate::repository::workspaces::ensure_membership(
-        conn,
-        workspace_id,
-        user.uuid,
-        DIRECTORY_MEMBER_ROLE.as_str(),
-    )?;
-    Ok(())
+    match reach {
+        DirectoryReach::Own | DirectoryReach::Shared => Ok(Some(reach)),
+        DirectoryReach::Unseated => {
+            skip_person(
+                stats,
+                ms_user,
+                "their Nosdesk account isn't a member of this workspace",
+            );
+            Ok(None)
+        }
+        DirectoryReach::Foreign => {
+            skip_person(
+                stats,
+                ms_user,
+                "their Nosdesk account belongs to another workspace",
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// What a run does with a directory person who has no Microsoft identity yet.
+enum AddressMatch {
+    /// No account holds any of their addresses.
+    New,
+    /// This workspace's own account holds them, by a verified address.
+    Link(User),
+    /// Someone else's account holds one; why, for the run's list.
+    Skip(&'static str),
+}
+
+/// [`AddressMatch`] for `ms_user` in `workspace_id`, from the accounts
+/// holding any of their addresses (compared case-insensitively). Only an
+/// account this workspace holds alone, by a verified address, is linked: the
+/// link is a sign-in identity that reaches every workspace the account is in.
+fn match_by_address(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    ms_user: &MicrosoftGraphUser,
+) -> Result<AddressMatch, crate::services::msgraph::MsGraphSyncError> {
+    let addresses: Vec<String> = extract_user_emails(ms_user)
+        .into_iter()
+        .map(|(email, _, _)| email)
+        .collect();
+    let holders = user_emails_repo::address_holders(conn, &addresses)?;
+    let Some(&(holder, _)) = holders.first() else {
+        return Ok(AddressMatch::New);
+    };
+    if holders.iter().any(|(u, _)| *u != holder) {
+        return Ok(AddressMatch::Skip(
+            "their addresses belong to more than one Nosdesk account",
+        ));
+    }
+    if !holders.iter().any(|(_, verified)| *verified) {
+        return Ok(AddressMatch::Skip(
+            "their address belongs to a Nosdesk account that hasn't verified it",
+        ));
+    }
+    if !directory_reach(conn, workspace_id, holder)?.owns_account() {
+        return Ok(AddressMatch::Skip(
+            "their address belongs to a Nosdesk account another workspace also holds",
+        ));
+    }
+    Ok(AddressMatch::Link(user_repo::get_user_by_uuid(
+        &holder, conn,
+    )?))
+}
+
+/// List `ms_user` as skipped, saying `why`: the run neither links, seats,
+/// renames nor creates them.
+fn skip_person(stats: &mut UserSyncStats, ms_user: &MicrosoftGraphUser, why: &str) {
+    warn!(
+        external_id = %ms_user.id,
+        "msgraph user sync: skipped a person this workspace can't speak for"
+    );
+    stats
+        .errors
+        .push(format!("Skipped {}: {why}", ms_user.user_principal_name));
+}
+
+/// Give `user` the directory's name in this workspace only, for an account
+/// another workspace also holds.
+fn name_locally(
+    conn: &mut DbConnection,
+    user: &User,
+    ms_user: &MicrosoftGraphUser,
+) -> diesel::QueryResult<()> {
+    match ms_user.display_name.as_deref().map(str::trim) {
+        Some(name) if !name.is_empty() => {
+            crate::repository::user_contact::set_directory_display_name(conn, user.uuid, name)
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Sync devices from Microsoft Graph (Entra ID `/devices`; no Intune pass yet)
@@ -3373,7 +3550,7 @@ async fn sync_devices(
                 stats.record_failure(
                     crate::services::msgraph::EntityKind::Devices,
                     &entra_device.id,
-                    error.into(),
+                    error,
                     1,
                 );
             }
@@ -3684,7 +3861,7 @@ async fn sync_groups(
                             stats.record_failure(
                                 crate::services::msgraph::EntityKind::Groups,
                                 &ms_group.id,
-                                e.into(),
+                                e,
                                 1,
                             );
                         }
@@ -3711,7 +3888,7 @@ async fn sync_groups(
                             stats.record_failure(
                                 crate::services::msgraph::EntityKind::Groups,
                                 &ms_group.id,
-                                e.into(),
+                                e,
                                 1,
                             );
                         }
@@ -3737,7 +3914,7 @@ async fn sync_groups(
                             stats.record_failure(
                                 crate::services::msgraph::EntityKind::Groups,
                                 &ms_group.id,
-                                e.into(),
+                                e,
                                 1,
                             );
                         }
@@ -4124,10 +4301,7 @@ async fn fetch_group_members(
             let body = response.text().await.unwrap_or_default();
             return Err(MsGraphSyncError::from_status(
                 status,
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("graph members fetch body: {body}"),
-                ),
+                std::io::Error::other(format!("graph members fetch body: {body}")),
             ));
         }
 
@@ -4205,10 +4379,17 @@ async fn sync_group_membership(
 
     let new_member_uuids: HashSet<_> = user_mappings.into_iter().map(|(_, uuid)| uuid).collect();
 
-    // Calculate additions and removals
-    let to_add: Vec<_> = new_member_uuids
+    // Calculate additions and removals. The Microsoft identity is global, so
+    // only someone seated in this workspace joins its group: anyone else
+    // would become one of its people through the group.
+    let candidates: Vec<_> = new_member_uuids
         .difference(&current_local_set)
         .cloned()
+        .collect();
+    let seated = crate::repository::workspaces::active_members_among(conn, &candidates)?;
+    let to_add: Vec<_> = candidates
+        .into_iter()
+        .filter(|u| seated.contains(u))
         .collect();
     let to_remove: Vec<_> = current_local_set
         .difference(&new_member_uuids)
@@ -4251,7 +4432,7 @@ async fn sync_group_membership(
 ///
 /// This function processes incremental membership changes instead of fetching
 /// all members. It's much more efficient for subsequent syncs.
-async fn apply_delta_group_membership(
+pub async fn apply_delta_group_membership(
     conn: &mut DbConnection,
     local_group_id: i32,
     members_added: &[MicrosoftGraphGroupMember],
@@ -4259,12 +4440,16 @@ async fn apply_delta_group_membership(
 ) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
     let mut changes = 0;
 
-    // Process added members (users only for now)
+    // Process added members (users only for now). Only someone seated in
+    // this workspace joins its group (the Microsoft identity is global).
     let user_members_added: Vec<_> = members_added.iter().filter(|m| m.is_user()).collect();
     if !user_members_added.is_empty() {
         let external_ids: Vec<&str> = user_members_added.iter().map(|m| m.id.as_str()).collect();
-        let user_mappings =
+        let mut user_mappings =
             identity_repo::get_user_uuids_by_external_ids(&external_ids, "microsoft", conn)?;
+        let uuids: Vec<uuid::Uuid> = user_mappings.iter().map(|(_, u)| *u).collect();
+        let seated = crate::repository::workspaces::active_members_among(conn, &uuids)?;
+        user_mappings.retain(|(_, u)| seated.contains(u));
 
         // Read current membership once; `add_user_to_group` is idempotent, so
         // this only avoids a redundant insert-txn per already-present member.
@@ -5171,6 +5356,9 @@ pub async fn get_entra_object_id(
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -5430,20 +5618,25 @@ pub async fn process_microsoft_user_no_photos(
         .await;
     }
 
-    // No identity: link to an existing user by email, else create.
-    let emails = extract_user_emails(ms_user);
-    if let Some(existing_user) = find_existing_user_by_emails(conn, &emails) {
-        link_existing_user_to_microsoft_no_photos(
-            conn,
-            provider_id,
-            workspace_id,
-            ms_user,
-            existing_user,
-            stats,
-        )
-        .await
-    } else {
-        create_new_user_from_microsoft_no_photos(conn, provider_id, ms_user, stats).await
+    // No identity: link an account holding their addresses, skip, or create.
+    match match_by_address(conn, workspace_id, ms_user)? {
+        AddressMatch::Link(existing_user) => {
+            link_existing_user_to_microsoft_no_photos(
+                conn,
+                provider_id,
+                ms_user,
+                existing_user,
+                stats,
+            )
+            .await
+        }
+        AddressMatch::Skip(why) => {
+            skip_person(stats, ms_user, why);
+            Ok(())
+        }
+        AddressMatch::New => {
+            create_new_user_from_microsoft_no_photos(conn, provider_id, ms_user, stats).await
+        }
     }
 }
 
@@ -5476,8 +5669,12 @@ async fn background_photo_sync_task(
         .get()
         .map_err(|e| format!("Database connection failed: {e}"))?;
 
-    // Find users that need photo sync using SQL query
-    let users_needing_photos = find_users_without_photos(&mut conn, provider_id)?;
+    // The workspace's own people with no photo yet.
+    let users_needing_photos = photo_sync_candidates(&mut conn, workspace_id)
+        .map_err(|e| format!("Failed to find users without photos: {e}"))?
+        .into_iter()
+        .map(|(uuid, external_id)| (0, uuid.to_string(), external_id))
+        .collect::<Vec<(i32, String, String)>>();
 
     let total_users = users_needing_photos.len();
     if total_users == 0 {
@@ -5583,13 +5780,26 @@ async fn update_existing_microsoft_user_no_photos(
     use crate::services::msgraph::MsGraphSyncError;
 
     let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)?;
-    ensure_directory_membership(conn, workspace_id, &user)?;
+    let Some(reach) = identity_reach(conn, workspace_id, &user, ms_user, stats)? else {
+        return Ok(());
+    };
 
     let emails = extract_user_emails(ms_user);
     let _primary_email = emails
         .first()
         .map(|(email, _, _)| email.clone())
         .unwrap_or_else(|| ms_user.user_principal_name.clone());
+
+    if !reach.owns_account() {
+        // Another workspace holds the account: name them here only, and
+        // leave the account's name, Microsoft id and addresses alone.
+        name_locally(conn, &user, ms_user)?;
+        surface_contact(conn, user.uuid, ms_user)?;
+        let identity_data = serde_json::to_value(ms_user)?;
+        update_identity_data(conn, existing_identity.id, Some(identity_data))?;
+        stats.existing_users_updated += 1;
+        return Ok(());
+    }
 
     let updated_name = ms_user.display_name.as_ref().unwrap_or(&user.name);
 
@@ -5642,7 +5852,6 @@ async fn update_existing_microsoft_user_no_photos(
 async fn link_existing_user_to_microsoft_no_photos(
     conn: &mut DbConnection,
     _provider_id: i32,
-    workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_user: User,
     stats: &mut UserSyncStats,
@@ -5662,7 +5871,6 @@ async fn link_existing_user_to_microsoft_no_photos(
     };
 
     identity_repo::create_identity(new_identity, conn)?;
-    ensure_directory_membership(conn, workspace_id, &existing_user)?;
 
     let user_update = crate::models::UserUpdate {
         name: None,
@@ -5699,45 +5907,38 @@ async fn create_new_user_from_microsoft_no_photos(
     Ok(())
 }
 
-/// Find existing user by emails (simplified)
-fn find_existing_user_by_emails(
+/// The people the photo pass in `workspace_id` may give a photo, as (account,
+/// Entra object id): linked to a Microsoft identity, with no photo yet,
+/// seated in the workspace, and held by no other workspace (the photo is the
+/// account's, shown everywhere it is). Reads pinned to the workspace.
+pub fn photo_sync_candidates(
     conn: &mut DbConnection,
-    emails: &[(String, String, bool)],
-) -> Option<User> {
-    for (email, _, _) in emails {
-        if let Ok(user) = user_repo::get_user_by_email(email, conn) {
-            return Some(user);
-        }
-    }
-    None
-}
-
-/// Find users without photos using SQL query (simplified)
-fn find_users_without_photos(
-    conn: &mut DbConnection,
-    _provider_id: i32,
-) -> Result<Vec<(i32, String, String)>, String> {
+    workspace_id: i32,
+) -> diesel::QueryResult<Vec<(Uuid, String)>> {
     use crate::schema::{user_auth_identities, users};
-    use diesel::prelude::*;
 
-    // Query for users without photos and get their data
-    let results: Vec<(uuid::Uuid, String)> = users::table
-        .inner_join(user_auth_identities::table.on(users::uuid.eq(user_auth_identities::user_uuid)))
-        .filter(user_auth_identities::provider_type.eq("microsoft"))
-        .filter(users::avatar_url.is_null())
-        .select((users::uuid, user_auth_identities::external_id))
-        .load(conn)
-        .map_err(|e| format!("Failed to find users without photos: {e}"))?;
-
-    // Convert UUID to String - no longer have an id field, but the function signature expects (i32, String, String)
-    // Return type expects (i32, String, String), but using UUIDs now.
-    // Return (uuid_string, uuid_string, external_id) and update the function signature
-    let converted_results = results
-        .into_iter()
-        .map(|(uuid, external_id)| (0, uuid.to_string(), external_id)) // Using 0 as placeholder for deprecated id
-        .collect();
-
-    Ok(converted_results)
+    let actor = crate::sync::actor::ActorContext::system("background:msgraph_photo_sync")
+        .with_workspace(workspace_id);
+    crate::sync::session::with_actor_context(conn, &actor, |conn| {
+        let linked: Vec<(Uuid, String)> = users::table
+            .inner_join(
+                user_auth_identities::table.on(users::uuid.eq(user_auth_identities::user_uuid)),
+            )
+            .filter(user_auth_identities::provider_type.eq("microsoft"))
+            .filter(users::avatar_url.is_null())
+            .select((users::uuid, user_auth_identities::external_id))
+            .load(conn)?;
+        let uuids: Vec<Uuid> = linked.iter().map(|(u, _)| *u).collect();
+        let members = crate::repository::workspaces::active_members_among(conn, &uuids)?;
+        let mut out = Vec::new();
+        for (uuid, external_id) in linked {
+            if members.contains(&uuid) && directory_reach(conn, workspace_id, uuid)?.owns_account()
+            {
+                out.push((uuid, external_id));
+            }
+        }
+        Ok(out)
+    })
 }
 
 /// Sync user photo by ID (simplified)

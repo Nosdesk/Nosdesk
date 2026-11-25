@@ -197,6 +197,40 @@ pub fn set_display_name_if_unset(
 }
 
 // sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
+/// Set someone's display name in the active workspace from its directory,
+/// creating their profile row if they have none. For a directory sync whose
+/// person's account another workspace also holds, so the directory names them
+/// here without renaming the account. The upsert's conflict target is the
+/// active workspace's row, so an elevated sync writes only that one.
+pub fn set_directory_display_name(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    display_name: &str,
+) -> QueryResult<()> {
+    let current = get_profile(conn, user_uuid)?.and_then(|p| p.display_name);
+    if current.as_deref() == Some(display_name) {
+        return Ok(());
+    }
+    diesel::insert_into(user_profiles::table)
+        .values(NewUserProfile {
+            user_uuid,
+            job_title: None,
+            organization: None,
+            department: None,
+            custom_fields: serde_json::json!({}),
+            directory_synced: true,
+            created_by: None,
+            display_name: Some(display_name.to_string()),
+            avatar_url: None,
+        })
+        .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
+        .do_update()
+        .set(user_profiles::display_name.eq(display_name))
+        .execute(conn)?;
+    Ok(())
+}
+
+// sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
 /// Set (or clear) someone's manager in this workspace, creating their profile
 /// row if they have none.
 pub fn set_manager(
