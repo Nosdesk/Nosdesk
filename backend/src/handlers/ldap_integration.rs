@@ -53,7 +53,7 @@ pub async fn get_ldap_settings(mut tc: TenantConn, auth: AuthContext) -> impl Re
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can view LDAP settings");
     }
-    match tc.run(|conn| repo::get(conn)) {
+    match tc.run(repo::get) {
         Ok(Some(row)) => {
             let has_bind_password = row.encrypted_bind_password.is_some();
             HttpResponse::Ok().json(json!({
@@ -210,7 +210,7 @@ pub async fn test_ldap_connection(mut tc: TenantConn, auth: AuthContext) -> impl
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can test the LDAP connection");
     }
-    let row = match tc.run(|conn| repo::get(conn)) {
+    let row = match tc.run(repo::get) {
         Ok(Some(r)) => r,
         Ok(None) => return errors::unprocessable_entity("Configure LDAP settings before testing"),
         Err(e) => {
@@ -254,7 +254,7 @@ pub async fn discover_ldap_groups(mut tc: TenantConn, auth: AuthContext) -> impl
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can browse LDAP groups");
     }
-    let row = match tc.run(|conn| repo::get(conn)) {
+    let row = match tc.run(repo::get) {
         Ok(Some(r)) => r,
         Ok(None) => {
             return errors::unprocessable_entity("Configure LDAP settings before browsing groups")
@@ -311,7 +311,7 @@ pub async fn preview_ldap(mut tc: TenantConn, auth: AuthContext) -> impl Respond
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can preview an LDAP sync");
     }
-    let row = match tc.run(|conn| repo::get(conn)) {
+    let row = match tc.run(repo::get) {
         Ok(Some(r)) => r,
         Ok(None) => {
             return errors::unprocessable_entity("Configure LDAP settings before previewing")

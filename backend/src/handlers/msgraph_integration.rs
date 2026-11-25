@@ -2066,7 +2066,7 @@ async fn sync_users(
                         stats.record_failure(
                             crate::services::msgraph::EntityKind::Users,
                             &ms_user.id,
-                            error.into(),
+                            error,
                             1,
                         );
                     }
@@ -2095,7 +2095,7 @@ async fn sync_users(
                         stats.record_failure(
                             crate::services::msgraph::EntityKind::Users,
                             &ms_user.id,
-                            error.into(),
+                            error,
                             1,
                         );
                     }
@@ -3456,7 +3456,7 @@ async fn sync_devices(
                 stats.record_failure(
                     crate::services::msgraph::EntityKind::Devices,
                     &entra_device.id,
-                    error.into(),
+                    error,
                     1,
                 );
             }
@@ -3767,7 +3767,7 @@ async fn sync_groups(
                             stats.record_failure(
                                 crate::services::msgraph::EntityKind::Groups,
                                 &ms_group.id,
-                                e.into(),
+                                e,
                                 1,
                             );
                         }
@@ -3794,7 +3794,7 @@ async fn sync_groups(
                             stats.record_failure(
                                 crate::services::msgraph::EntityKind::Groups,
                                 &ms_group.id,
-                                e.into(),
+                                e,
                                 1,
                             );
                         }
@@ -3820,7 +3820,7 @@ async fn sync_groups(
                             stats.record_failure(
                                 crate::services::msgraph::EntityKind::Groups,
                                 &ms_group.id,
-                                e.into(),
+                                e,
                                 1,
                             );
                         }
@@ -4207,10 +4207,7 @@ async fn fetch_group_members(
             let body = response.text().await.unwrap_or_default();
             return Err(MsGraphSyncError::from_status(
                 status,
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("graph members fetch body: {body}"),
-                ),
+                std::io::Error::other(format!("graph members fetch body: {body}")),
             ));
         }
 
