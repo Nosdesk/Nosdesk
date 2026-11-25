@@ -275,3 +275,33 @@ describe('focus, state and field edges', () => {
     expect(values).toEqual([resolveTheme(lightTheme)[key], resolveTheme(darkTheme)[key]])
   })
 })
+
+// Red Horizon repaints accent and danger fills near-black in main.css
+// (`[data-theme="red-horizon"]`), so the labels it sets there are
+// checked against the fills it paints, at rest and hovered.
+describe('Red Horizon button overrides', () => {
+  function rule(selector: string): Record<string, string> {
+    const at = css.indexOf(`${selector} {`)
+    expect(at, selector).toBeGreaterThan(-1)
+    const body = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at)).replace(/\/\*[\s\S]*?\*\//g, '')
+    return Object.fromEntries([...body.matchAll(/([\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].replace('!important', '').trim()]))
+  }
+
+  it('the primary label reaches 4.5:1 on the primary fill and its hover fill', () => {
+    const rest = rule('[data-theme="red-horizon"] .bg-accent')
+    const hover = rule('[data-theme="red-horizon"] .bg-accent:hover')
+    expect(rest.color).toBeDefined()
+    for (const fill of [rest['background-color'], hover['background-color']]) {
+      expect(contrast(parse(rest.color), parse(fill))).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('the danger label reaches 4.5:1 on the danger fill and its hover fill', () => {
+    const redHorizon = themeRegistry.get('red-horizon')!
+    const label = resolveTheme(redHorizon).solid['status-error'].label
+    expect(css).toContain('[data-theme="red-horizon"] .bg-status-error-solid,')
+    for (const selector of ['[data-theme="red-horizon"] .bg-red-500', '[data-theme="red-horizon"] .bg-red-500:hover']) {
+      expect(contrast(parse(label), parse(rule(selector)['background-color']))).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+})

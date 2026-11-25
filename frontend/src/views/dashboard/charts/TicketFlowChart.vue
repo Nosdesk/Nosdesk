@@ -463,7 +463,7 @@ const tooltipStyle = computed(() => {
               :cx="hoverPt.x"
               :cy="hoverPt.y"
               r="4"
-              :class="(hoverInfo?.net ?? 0) >= 0 ? 'text-accent-ui' : 'text-status-success'"
+              :class="(hoverInfo?.net ?? 0) >= 0 ? 'text-accent-ui' : 'text-status-success-ui'"
               fill="currentColor"
             />
           </g>

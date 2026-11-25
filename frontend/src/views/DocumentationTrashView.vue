@@ -102,7 +102,7 @@ usePageTitle({ title: () => t('docs-trash-title') })
                 @click="handlePermanentDelete(page.id)"
                 class="px-3 py-1.5 text-xs rounded-md transition-colors flex items-center gap-1.5"
                 :class="String(confirmingDeleteId) === String(page.id)
-                  ? 'bg-status-error-solid text-on-status-error hover:bg-status-error/90'
+                  ? 'bg-status-error-solid text-on-status-error hover:opacity-90'
                   : 'border border-default text-status-error hover:bg-status-error/10'"
               >
                 <Icon name="trash" />

@@ -18,6 +18,9 @@
  *   - Status, priority or accent text on that colour's own tint heavier
  *     than 20% (`bg-status-error/30 text-status-error`): the text versions
  *     are derived against the muted tint and the 10, 15 and 20% ones.
+ *   - Accent text on an accent tint (`bg-accent/10`, `bg-accent-muted`)
+ *     that is not `text-accent-on-tint`: plain `text-accent` is derived
+ *     for the backgrounds only and is too light on the tint.
  *   - A focus ring mixed into its background (`focus:ring-accent/30`)
  *     with no solid accent border beside it: the only focus indicator
  *     then falls under 3:1 (WCAG 1.4.11).
@@ -55,6 +58,8 @@ function walk(dir, out = []) {
 
 const HEAVY_TINT = /(?<![\w/-])(?:[\w-]+:)*bg-(?:status-[a-z-]+|priority-[a-z]+|accent)\/(\d+)(?![\w-])/g
 const TINTED_TEXT = /(?<![\w:/-])(?:[\w-]+:)*text-(?:status-|priority-|accent)/
+const ACCENT_TINT = /(?<![\w-])(?:[\w-]+:)*bg-accent(?:-muted|\/\d+)(?![\w-])/
+const PLAIN_ACCENT_TEXT = /(?<![\w/-])(?:[\w-]+:)*text-accent(?![\w/-])/
 const FADED_RING = /(?<![\w-])(?:focus|focus-visible|focus-within):ring-accent\/\d+/
 const SOLID_BORDER = /(?<![\w-])(?:focus|focus-visible):border-accent(?![\w/-])/
 
@@ -70,6 +75,9 @@ for (const file of dirs.flatMap((d) => walk(d))) {
   for (const m of source.matchAll(/(["'`])((?:(?!\1)[^\n])*)\1/g)) {
     if (TINTED_TEXT.test(m[2]) && [...m[2].matchAll(HEAVY_TINT)].some((t) => Number(t[1]) > 20)) {
       failures.push(`${rel}:${line(m.index)}: coloured text on its own tint over 20%; use the -muted tint or /20 at most`)
+    }
+    if (ACCENT_TINT.test(m[2]) && PLAIN_ACCENT_TEXT.test(m[2])) {
+      failures.push(`${rel}:${line(m.index)}: accent text on an accent tint; use text-accent-on-tint`)
     }
     if (FADED_RING.test(m[2]) && !SOLID_BORDER.test(m[2])) {
       failures.push(`${rel}:${line(m.index)}: a faded focus ring is the only focus indicator; use ring-accent at full strength`)
