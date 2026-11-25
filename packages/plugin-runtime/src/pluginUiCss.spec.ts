@@ -128,6 +128,12 @@ describe('PLUGIN_UI_CSS', () => {
     expect(coarse).toMatch(/\.nd-switch::after/)
   })
 
+  it('renders text fields at 16px or more on a coarse pointer, so iOS does not zoom into them', () => {
+    const coarse = PLUGIN_UI_CSS.slice(PLUGIN_UI_CSS.indexOf('@media (pointer: coarse)'))
+    expect(coarse).toMatch(/\.nd-input, \.nd-textarea, \.nd-select \{[^}]*font-size: 16px;/)
+    expect(coarse).toMatch(/:where\(input:not\([^)]*\), textarea, select\) \{[^}]*font-size: max\(16px, 1em\);/)
+  })
+
   it('sets the app body size (14px) as the document base', () => {
     expect(PLUGIN_UI_CSS).toMatch(/body \{[^}]*font-size: 14px;/)
   })

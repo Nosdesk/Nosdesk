@@ -608,6 +608,11 @@ label:has(> :disabled) { cursor: not-allowed; }
  * pointer; the kit's controls follow so a plugin gets it without asking. */
 @media (pointer: coarse) {
   .nd-btn, .nd-input, .nd-textarea { min-height: 44px; }
+  /* Text fields at 16px: iOS zooms the page into a smaller field when it
+     takes focus. The raw-element floor has no specificity, so a plugin's
+     own class still wins; it covers fields the plugin left unstyled. */
+  .nd-input, .nd-textarea, .nd-select { font-size: 16px; line-height: 24px; }
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"]), textarea, select) { font-size: max(16px, 1em); }
   .nd-select, .nd-tabs [role="tab"], .nd-table th > button { min-height: 44px; }
   /* Checkbox, radio and switch keep their drawn size; the 44px target comes
      from the label wrapping them (and, for the switch, a transparent hit
