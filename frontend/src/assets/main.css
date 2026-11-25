@@ -226,7 +226,7 @@
   --color-app: #f3f4f6;
   --color-surface: #ffffff;
   --color-surface-alt: #f3f4f6;
-  --color-surface-hover: #f3f4f6;
+  --color-surface-hover: #e1e3e7;
 
   --color-default: #e5e7eb;
   --color-subtle: #f3f4f6;
@@ -234,7 +234,7 @@
 
   --color-primary: #1f2937;
   --color-secondary: #4b5563;
-  --color-tertiary: #5f6672;
+  --color-tertiary: #5d6470;
 
   /* Accent colors — brand orange (#FF6B1A family). Hover steps DOWN
      to primary-600 for light backgrounds; the theme store overrides
@@ -444,7 +444,7 @@
     --color-app: #f3f4f6;
     --color-surface: #ffffff;
     --color-surface-alt: #f3f4f6;
-    --color-surface-hover: #e5e7eb;
+    --color-surface-hover: #e1e3e7;
 
     /* Borders */
     --color-default: #e5e7eb;
@@ -454,7 +454,7 @@
     /* Text colors */
     --color-primary: #1f2937;
     --color-secondary: #4b5563;
-    --color-tertiary: #5f6672;
+    --color-tertiary: #5d6470;
 
     /* Accent colors — brand orange (#FF6B1A family); see @theme block
        above. Light-mode hover steps DOWN for darker fill. */
@@ -529,7 +529,7 @@
     --color-app: #08090a;
     --color-surface: #0e0f11;
     --color-surface-alt: #15171a;
-    --color-surface-hover: #1c1e22;
+    --color-surface-hover: #222529;
 
     /* Borders */
     --color-default: #1f2125;
@@ -539,7 +539,7 @@
     /* Text colors */
     --color-primary: #f7f8f8;
     --color-secondary: #b8bcc0;
-    --color-tertiary: #82878d;
+    --color-tertiary: #888d93;
 
     /* Accent — brand orange (#FF6B1A family). Hover steps UP for
        lift against the dark surface. */

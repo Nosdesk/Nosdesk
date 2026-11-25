@@ -20,7 +20,7 @@ export const redHorizonTheme: Theme = {
     app: '#080200',
     surface: '#0c0400',
     surfaceAlt: '#140a00',
-    surfaceHover: '#1c0e00',
+    surfaceHover: '#291a07', // 1.21:1 from surface, 1.16:1 from the alternate surface
 
     // Borders - dark burnt orange
     default: '#3d1800',
@@ -29,8 +29,8 @@ export const redHorizonTheme: Theme = {
 
     // Text - reddish-orange for that warm plasma glow
     primary: '#ff8844',      // Bright reddish-orange - main text
-    secondary: '#dd6622',    // Medium burnt orange
-    tertiary: '#c85f2a',     // Dim reddish-orange, lifted to 4.6:1 on hover, 5.0:1 on surface
+    secondary: '#e66f2d',    // Medium burnt orange, lifted to 5.4:1 on hover, 6.5:1 on surface
+    tertiary: '#d26834',     // Dim reddish-orange, lifted to 4.6:1 on hover, 5.6:1 on surface
 
     // Accent - vivid red-orange
     accent: '#ff6622',

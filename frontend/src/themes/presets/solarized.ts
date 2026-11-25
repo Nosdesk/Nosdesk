@@ -20,7 +20,7 @@ export const solarizedLightTheme: Theme = {
     app: '#fdf6e3',      // base3
     surface: '#eee8d5',  // base2
     surfaceAlt: '#e4ddc8', // slightly darker
-    surfaceHover: '#ddd6c1',
+    surfaceHover: '#d4cdb9', // 1.30:1 from surface, 1.17:1 from the alternate surface
 
     // Borders
     default: '#93a1a1',  // base1
@@ -29,8 +29,8 @@ export const solarizedLightTheme: Theme = {
 
     // Text (dark content tones)
     primary: '#073642',   // base02
-    secondary: '#41565d', // base01, lifted to 5.3:1 on hover, 6.3:1 on surface
-    tertiary: '#4a5f67', // base00, lifted to 4.6:1 on hover, 5.5:1 on surface
+    secondary: '#3c5057', // base01, lifted to 5.3:1 on hover, 6.9:1 on surface
+    tertiary: '#455961', // base00, lifted to 4.6:1 on hover, 6.0:1 on surface
 
     // Accent (Solarized blue)
     accent: '#268bd2',
@@ -42,7 +42,7 @@ export const solarizedLightTheme: Theme = {
     successMuted: 'rgba(133, 153, 0, 0.15)',
     error: '#dc322f',     // red
     errorMuted: 'rgba(220, 50, 47, 0.15)',
-    overdue: '#b2211e', // red, darkened to 5.5:1 on surface, 4.6:1 on hover
+    overdue: '#ab1817', // red, darkened to 6.0:1 on surface, 4.6:1 on hover
     warning: '#b58900',   // yellow
     warningMuted: 'rgba(181, 137, 0, 0.15)',
     info: '#2aa198',      // cyan

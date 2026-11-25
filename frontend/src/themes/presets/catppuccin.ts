@@ -101,7 +101,7 @@ export const catppuccinMochaTheme: Theme = {
     app: '#1e1e2e',
     surface: '#313244',
     surfaceAlt: '#45475a',
-    surfaceHover: '#474a5f', // eased toward surface so text holds 4.5:1 on it
+    surfaceHover: '#4d5166', // 1.61:1 from surface, 1.17:1 from the alternate surface
 
     // Borders
     default: '#45475a',
@@ -109,9 +109,9 @@ export const catppuccinMochaTheme: Theme = {
     strong: '#6c7086',
 
     // Text
-    primary: '#cdd6f4',
-    secondary: '#c1cae6', // lifted to 5.3:1 on hover, 7.7:1 on surface
-    tertiary: '#b4bcd7', // lifted to 4.6:1 on hover, 6.7:1 on surface
+    primary: '#d7e0fe', // lifted to 6.0:1 on hover, 9.6:1 on surface
+    secondary: '#cbd4f0', // lifted to 5.3:1 on hover, 8.5:1 on surface
+    tertiary: '#bec6e1', // lifted to 4.6:1 on hover, 7.4:1 on surface
 
     // Accent (Catppuccin mauve)
     accent: '#cba6f7',

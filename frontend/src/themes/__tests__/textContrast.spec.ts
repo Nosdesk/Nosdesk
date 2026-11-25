@@ -66,11 +66,21 @@ describe('text colours', () => {
     expect(secondary).toBeGreaterThan(tertiary)
   })
 
+  // A hovered row has to read as hovered on a plain row and on an
+  // alternate one. 37 controls fill with surface-alt and hover to
+  // surface-hover, so both distances matter.
+  it.each(themes)('%s: the hover fill stands 1.15:1 apart from the surface and the alternate surface', (_id, theme) => {
+    const { surface, surfaceAlt, surfaceHover } = backgrounds(theme)
+    expect(contrast(surfaceHover, surface)).toBeGreaterThanOrEqual(1.15)
+    expect(contrast(surfaceHover, surfaceAlt)).toBeGreaterThanOrEqual(1.15)
+  })
+
   // main.css paints the first frame before the theme store injects its
   // variables: `@theme` and `:root` carry the light values, `.dark` the
   // dark ones.
-  it.each(TEXT)('%s in the stylesheet defaults is the base light and dark value', (token) => {
-    const values = [...css.matchAll(new RegExp(`--color-${token}: (#[0-9a-f]{6});`, 'gi'))].map((m) => m[1].toLowerCase())
+  it.each([...TEXT, 'surfaceHover'] as const)('%s in the stylesheet defaults is the base light and dark value', (token) => {
+    const name = token.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
+    const values = [...css.matchAll(new RegExp(`--color-${name}: (#[0-9a-f]{6});`, 'gi'))].map((m) => m[1].toLowerCase())
     expect(values).toEqual([lightTheme.colors[token], lightTheme.colors[token], darkTheme.colors[token]])
   })
 })
