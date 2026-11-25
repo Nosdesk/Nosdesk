@@ -241,16 +241,18 @@ describe('the reply composer', () => {
 })
 
 describe('the phone audience toggle', () => {
-  it('is named Internal and pressed for an internal note, and turns the form amber', async () => {
+  it('is a switch named by its visible label, checked for an internal note, and turns the form amber', async () => {
     const w = mountComposer()
     const toggle = () => w.find('[data-audience]')
-    expect(toggle().attributes('aria-pressed')).toBe('false')
-    expect(toggle().attributes('aria-label')).toBe('ticket-comments-internal-note')
+    expect(toggle().attributes('role')).toBe('switch')
+    expect(toggle().attributes('aria-checked')).toBe('false')
+    expect(toggle().attributes('aria-label')).toBeUndefined()
+    expect(toggle().text()).toBe('ticket-comments-internal-toggle')
     expect(w.find('[data-composer]').attributes('data-audience-state')).toBe('public')
 
     await toggle().trigger('click')
-    expect(toggle().attributes('aria-pressed')).toBe('true')
-    expect(toggle().attributes('aria-label')).toBe('ticket-comments-internal-note')
+    expect(toggle().attributes('aria-checked')).toBe('true')
+    expect(toggle().text()).toBe('ticket-comments-internal-toggle')
     expect(w.find('[data-composer]').attributes('data-audience-state')).toBe('internal')
     expect(w.find('[data-composer]').classes()).toContain('reply-internal')
     w.unmount()

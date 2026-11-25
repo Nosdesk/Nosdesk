@@ -888,28 +888,37 @@ const handlePastedFiles = async (files: File[]) => {
                                 </button>
                             </div>
 
-                            <!-- On a phone the audience is one button that says
-                                 the current choice and flips it: two labels
-                                 side by side push the row onto a second line
-                                 once text grows, and one label fits at 200%
-                                 (it wraps inside the button if it must). -->
+                            <!-- On a phone the audience is one switch, "Internal
+                                 note", with a lock: off, the reply is public (the
+                                 neutral form and its "Reply" placeholder say so);
+                                 on, the switch, its label and the whole form turn
+                                 amber. One label fits the row at 200%. Its name
+                                 is its visible text. -->
                             <button
                                 type="button"
+                                role="switch"
+                                :aria-checked="isInternal"
                                 class="sm:hidden inline-flex min-h-11 min-w-0 items-center text-left text-xs"
-                                :aria-label="$t('ticket-comments-internal-note')"
-                                :aria-pressed="isInternal"
                                 :title="isInternal ? $t('ticket-comments-internal-note-title') : $t('ticket-comments-public-reply-title')"
                                 data-audience
                                 @click="isInternal = !isInternal"
                             >
                                 <span
-                                    class="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2"
-                                    :class="isInternal ? 'border border-[var(--color-status-warning-ui)] bg-surface font-medium text-status-warning' : 'text-secondary'"
+                                    class="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2"
+                                    :class="isInternal ? 'border-[var(--color-status-warning-ui)] bg-surface font-medium text-status-warning' : 'border-transparent text-secondary'"
                                 >
-                                    <Icon :name="isInternal ? 'lock' : 'eye'" size="sm" class="shrink-0" />
-                                    <!-- A toggle named "Internal note", pressed for a
-                                         note; the face says the current choice. -->
-                                    <span>{{ isInternal ? $t('ticket-comments-internal-note') : $t('ticket-comments-public-reply') }}</span>
+                                    <span
+                                        class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full border transition-colors"
+                                        :class="isInternal ? 'border-transparent bg-[var(--color-status-warning-ui)]' : 'border-secondary bg-surface'"
+                                        aria-hidden="true"
+                                    >
+                                        <span
+                                            class="absolute h-2.5 w-2.5 rounded-full transition-transform"
+                                            :class="isInternal ? 'translate-x-3.5 bg-surface' : 'translate-x-0.5 bg-secondary'"
+                                        />
+                                    </span>
+                                    <Icon name="lock" size="sm" class="shrink-0" />
+                                    <span>{{ $t('ticket-comments-internal-toggle') }}</span>
                                 </span>
                             </button>
 
@@ -1086,7 +1095,9 @@ const handlePastedFiles = async (files: File[]) => {
                                         {{ $t('ticket-comments-badge-forwarded') }}
                                     </span>
                                     <span class="flex flex-wrap items-baseline gap-x-2.5 text-xs text-tertiary">
-                                        <time class="whitespace-nowrap tabular-nums" :datetime="comment.created_at">{{ commentTime(comment) }}</time>
+                                        <!-- Breaks at its spaces only when a long date cannot fit (200% on
+                                             a narrow phone). -->
+                                        <time class="tabular-nums" :datetime="comment.created_at">{{ commentTime(comment) }}</time>
                                         <span
                                             v-if="comment.from_address"
                                             class="whitespace-nowrap"

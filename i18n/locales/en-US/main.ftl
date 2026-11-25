@@ -5818,6 +5818,8 @@ ticket-comments-placeholder-short-public = Reply
 ticket-comments-placeholder-short-internal = Internal note
 # How a comment arrived, on its head line on a phone.
 ticket-comments-via-email = by email
+# The phone composer's switch: on, the reply is an internal note.
+ticket-comments-internal-toggle = Internal note
 ticket-comments-record-voice = Record voice note
 ticket-comments-upload-file = Upload file
 ticket-comments-visibility-group = Reply visibility

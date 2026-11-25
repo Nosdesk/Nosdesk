@@ -13256,3 +13256,5 @@ settings-text-size-sample-reply = Merci Priya. SC 542 est un défaut de l'unité
 tickets-email-html-full-size = Afficher à ma taille de texte
 # MT: pending native review (fr-FR)
 tickets-email-html-fit-width = Ajuster à la largeur
+# MT: pending native review (fr-FR)
+ticket-comments-internal-toggle = Note interne

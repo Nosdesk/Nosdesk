@@ -13247,3 +13247,5 @@ settings-text-size-sample-reply = Bedankt Priya. SC 542 is een fout in de fuser,
 tickets-email-html-full-size = Tonen op mijn tekstgrootte
 # MT: pending native review (nl-NL)
 tickets-email-html-fit-width = Passend maken
+# MT: pending native review (nl-NL)
+ticket-comments-internal-toggle = Interne notitie
