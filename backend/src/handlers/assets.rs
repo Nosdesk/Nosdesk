@@ -905,6 +905,8 @@ pub async fn asset_grouping_dataset(
             groups: query.groups.as_deref(),
             low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
             ids: ids.as_deref(),
+            // Staff only.
+            visible: None,
         };
         let devices = repository::assets::list_for_export(conn, filters)?;
         let today = chrono::Utc::now().date_naive();
@@ -1103,11 +1105,6 @@ pub async fn export_assets(
         Err(e) => return e.response(),
     };
     let visible = visible_attributes(&mut tc, &auth);
-    // A warranty status they don't get would be read back through the filter.
-    let warranty = query
-        .warranty
-        .as_deref()
-        .filter(|_| visible.may_order_by("warranty_status"));
 
     let export_result = tc.run(|conn| {
         let ids = match import {
@@ -1117,11 +1114,12 @@ pub async fn export_assets(
         let filters = repository::assets::AssetListFilters {
             search: query.search.as_deref(),
             status: query.status.as_deref(),
-            warranty,
+            warranty: query.warranty.as_deref(),
             location: query.location.as_deref(),
             groups: query.groups.as_deref(),
             low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
             ids: ids.as_deref(),
+            visible: Some(&visible),
         };
         let rows = if assets_hidden_from(conn, &auth) {
             Vec::new()
@@ -1514,19 +1512,11 @@ pub async fn get_paginated_devices(
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
     let keys = visible_attributes(&mut tc, &auth);
-    // An order by a value they don't get would say what it holds.
-    let sort_field = query.sort_field.clone().filter(|field| {
-        field
-            .strip_prefix("attr:")
-            .is_none_or(|key| keys.may_order_by(key))
-    });
+    let sort_field = query.sort_field.clone();
     let sort_direction = query.sort_direction.clone();
     let search = query.search.clone();
     let status = query.status.clone();
-    let warranty = query
-        .warranty
-        .clone()
-        .filter(|_| keys.may_order_by("warranty_status"));
+    let warranty = query.warranty.clone();
     let location = query.location.clone();
     let groups = query.groups.clone();
     let kind = query.kind.clone();
@@ -1558,6 +1548,7 @@ pub async fn get_paginated_devices(
             kind,
             low_stock,
             ids.as_deref(),
+            &keys,
         )?;
         let mut extras = Vec::with_capacity(devices.len());
         let devices: Vec<Asset> = devices

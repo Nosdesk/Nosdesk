@@ -9,6 +9,7 @@ use crate::db::DbConnection;
 use crate::models::*;
 use crate::repository::pinned_workspace;
 use crate::schema::*;
+use crate::services::assets::projection::VisibleAttributes;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
@@ -144,6 +145,7 @@ fn apply_device_filters<'a>(
     status_filter: Option<&'a str>,
     group_filter: Option<&'a str>,
     low_stock_only: bool,
+    warranty_kinds: Option<Vec<String>>,
 ) -> AssetBoxedQuery<'a> {
     if let Some(search_term) = search {
         if !search_term.is_empty() {
@@ -201,6 +203,11 @@ fn apply_device_filters<'a>(
                     .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(values_lower)
                     .sql(")"),
                 );
+                // Only assets whose kind shows the viewer their warranty
+                // status: a value they don't get isn't read back.
+                if let Some(kinds) = warranty_kinds {
+                    query = query.filter(assets::kind.eq_any(kinds));
+                }
             }
         }
     }
@@ -303,6 +310,9 @@ pub struct AssetListFilters<'a> {
     pub low_stock_only: bool,
     /// Only these assets (an import's records, `?import=`).
     pub ids: Option<&'a [i32]>,
+    /// The attributes the viewer gets, which a filter on one reads only
+    /// where it is shown. `None` for staff.
+    pub visible: Option<&'a VisibleAttributes>,
 }
 
 /// Load every asset matching the list filters for CSV export.
@@ -321,6 +331,9 @@ pub fn list_for_export(
         filters.status,
         filters.groups,
         filters.low_stock_only,
+        filters
+            .visible
+            .and_then(|v| v.kinds_showing("warranty_status")),
     );
     if let Some(ids) = filters.ids {
         query = query.filter(assets::id.eq_any(ids));
@@ -343,7 +356,9 @@ pub fn get_paginated_devices(
     kind: Option<String>,
     low_stock_only: bool,
     ids: Option<&[i32]>,
+    visible: &VisibleAttributes,
 ) -> Result<(Vec<AssetListRow>, i64), Error> {
+    let warranty_kinds = visible.kinds_showing("warranty_status");
     // manufacturer slot is `None`: there is no manufacturer-filter
     // consumer yet. The former `?type=` param fed this slot, which
     // silently filtered on `manufacturer`; that dead pathway is gone.
@@ -356,6 +371,7 @@ pub fn get_paginated_devices(
         status.as_deref(),
         groups.as_deref(),
         low_stock_only,
+        warranty_kinds.clone(),
     );
     let mut total = filter_kinds(total, kind.as_deref());
     if let Some(ids) = ids {
@@ -372,6 +388,7 @@ pub fn get_paginated_devices(
         status.as_deref(),
         groups.as_deref(),
         low_stock_only,
+        warranty_kinds,
     );
     query = filter_kinds(query, kind.as_deref());
     if let Some(ids) = ids {
@@ -385,9 +402,14 @@ pub fn get_paginated_devices(
         .as_deref()
         .and_then(|f| f.strip_prefix("attr:"))
         .filter(|key| is_attribute_key(key));
-    if let Some(key) = attribute_sort {
+    // An order by an attribute reads it only on the kinds that show it the
+    // viewer; with none, the list keeps its order by name.
+    let attribute_sort = attribute_sort
+        .map(|key| (key, visible.kinds_showing(key)))
+        .filter(|(_, kinds)| kinds.as_ref().is_none_or(|k| !k.is_empty()));
+    if let Some((key, kinds)) = attribute_sort {
         let money = is_money_attribute(conn, key)?;
-        query = order_by_attribute(query, key, ascending, money);
+        query = order_by_attribute(query, key, ascending, money, kinds);
     } else if let Some(expression) = derived_sort_expression(sort_field.as_deref()) {
         query = order_by_derived(query, expression, ascending);
     } else {
@@ -537,32 +559,47 @@ fn is_money_attribute(conn: &mut DbConnection, key: &str) -> QueryResult<bool> {
 /// numerically, strings (ISO dates included) as text, and booleans false
 /// before true. Money (`{amount, currency}`) would compare its amount as
 /// text, so a money key orders by currency, then amount as a number; totals
-/// are never converted between currencies. Assets without the key sort last
+/// are never converted between currencies. With `kinds`, only assets of
+/// those kinds are ordered by the key (the kinds that show it the viewer);
+/// the rest sort as if they had none. Assets without the key sort last
 /// either way; name breaks ties.
 fn order_by_attribute<'a>(
     query: AssetBoxedQuery<'a>,
     key: &str,
     ascending: bool,
     money: bool,
+    kinds: Option<Vec<String>>,
 ) -> AssetBoxedQuery<'a> {
-    use diesel::sql_types::{Nullable, Numeric, Text};
+    use diesel::sql_types::{Array, Bool, Jsonb, Nullable, Numeric, Text};
     let direction = if ascending {
         " ASC NULLS LAST"
     } else {
         " DESC NULLS LAST"
     };
+    // Each expression reads as `CASE WHEN (every kind OR kind = ANY(kinds))
+    // THEN ... END`, so a value on a kind outside `kinds` is NULL.
+    let every = kinds.is_none();
+    let kinds = kinds.unwrap_or_default();
     if money {
         // Amounts are canonical decimals (`services::custom_fields::money`);
         // the guard keeps a stray value from failing the cast.
         return query
             .order(
-                diesel::dsl::sql::<Nullable<Text>>("(attributes -> ")
+                diesel::dsl::sql::<Nullable<Text>>("CASE WHEN (")
+                    .bind::<Bool, _>(every)
+                    .sql(" OR kind = ANY(")
+                    .bind::<Array<Text>, _>(kinds.clone())
+                    .sql(")) THEN (attributes -> ")
                     .bind::<Text, _>(key.to_string())
-                    .sql(") ->> 'currency'")
+                    .sql(") ->> 'currency' END")
                     .sql(direction),
             )
             .then_order_by(
-                diesel::dsl::sql::<Nullable<Numeric>>("CASE WHEN (attributes -> ")
+                diesel::dsl::sql::<Nullable<Numeric>>("CASE WHEN (")
+                    .bind::<Bool, _>(every)
+                    .sql(" OR kind = ANY(")
+                    .bind::<Array<Text>, _>(kinds)
+                    .sql(")) AND (attributes -> ")
                     .bind::<Text, _>(key.to_string())
                     .sql(") ->> 'amount' ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN ((attributes -> ")
                     .bind::<Text, _>(key.to_string())
@@ -573,8 +610,13 @@ fn order_by_attribute<'a>(
     }
     query
         .order(
-            diesel::dsl::sql::<Nullable<diesel::sql_types::Jsonb>>("attributes -> ")
+            diesel::dsl::sql::<Nullable<Jsonb>>("CASE WHEN (")
+                .bind::<Bool, _>(every)
+                .sql(" OR kind = ANY(")
+                .bind::<Array<Text>, _>(kinds)
+                .sql(")) THEN attributes -> ")
                 .bind::<Text, _>(key.to_string())
+                .sql(" END")
                 .sql(direction),
         )
         .then_order_by(assets::name.asc())
@@ -1025,6 +1067,7 @@ pub fn get_paginated_devices_excluding_ids(
         None,
         None,
         false,
+        None,
     );
     if !exclude_ids.is_empty() {
         count_query = count_query.filter(assets::id.ne_all(exclude_ids));
@@ -1040,6 +1083,7 @@ pub fn get_paginated_devices_excluding_ids(
         None,
         None,
         false,
+        None,
     );
     if !exclude_ids.is_empty() {
         data_query = data_query.filter(assets::id.ne_all(exclude_ids));

@@ -1167,10 +1167,17 @@ async fn staff_only_attributes_reach_staff_only() {
         ids(&get_json(&f, f.agent, expired).await["data"]),
         Vec::<i64>::new()
     );
+    // Agents see it isn't expired; a requester's filter reads only the kinds
+    // that show them the status, which this one doesn't.
+    let active = "/api/assets/paginated?warranty=active";
     assert_eq!(
-        ids(&get_json(&f, f.member, expired).await["data"]),
-        vec![f.asset as i64],
-        "member: the filter is ignored"
+        ids(&get_json(&f, f.agent, active).await["data"]),
+        vec![f.asset as i64]
+    );
+    assert_eq!(
+        ids(&get_json(&f, f.member, active).await["data"]),
+        Vec::<i64>::new(),
+        "member: a status they don't get isn't read"
     );
     let card_os = |rows: &[Value]| -> Value {
         rows.iter()
@@ -1281,4 +1288,66 @@ async fn staff_only_attributes_reach_staff_only() {
         get_json(&f, f.agent, &uri).await["attributes"],
         json!({ "colour": "Teal" })
     );
+}
+
+/// In a workspace with the built-in kinds, most of which declare no
+/// attributes, a requester's warranty filter and attribute sort still work:
+/// they read the kinds that show the key.
+#[actix_web::test]
+async fn a_requesters_warranty_filter_and_sort_work_with_the_built_in_kinds() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let other = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::asset_kinds::seed_defaults_if_empty(c, None)?;
+        backend::repository::assets::update_device(
+            c,
+            f.asset,
+            AssetUpdate {
+                kind: Some("laptop".to_string()),
+                attributes: Some(json!({ "warranty_status": "Expired" })),
+                ..Default::default()
+            },
+        )?;
+        backend::repository::assets::create_device(
+            c,
+            NewAsset {
+                name: "Zed laptop".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: None,
+                purchase_date: None,
+                asset_tag: None,
+                kind: "laptop".to_string(),
+                attributes: json!({ "warranty_status": "Active" }),
+                quantity: None,
+                unit: None,
+                external_sync_source: None,
+                low_stock_threshold: None,
+                created_by: None,
+            },
+        )
+        .map(|a| a.id)
+    })
+    .expect("seed the laptops");
+
+    for (viewer, who) in [(f.member, "member"), (f.agent, "agent")] {
+        let expired = get_json(&f, viewer, "/api/assets/paginated?warranty=expired").await;
+        assert_eq!(ids(&expired["data"]), vec![f.asset as i64], "{who}: filter");
+        assert_eq!(expired["total"], json!(1), "{who}: total");
+        let sorted = get_json(
+            &f,
+            viewer,
+            "/api/assets/paginated?sortField=attr:warranty_status&sortDirection=asc",
+        )
+        .await;
+        assert_eq!(
+            ids(&sorted["data"]),
+            vec![other as i64, f.asset as i64],
+            "{who}: sort"
+        );
+    }
 }

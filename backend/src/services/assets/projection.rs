@@ -103,21 +103,23 @@ impl VisibleAttributes {
         }
     }
 
-    /// Whether this viewer may order or filter assets by `key`: only when
-    /// every kind declares it and none keeps it for staff. Otherwise an order
-    /// or a filter would say what a value they don't get holds (a staff-only
-    /// one, one a kind no longer declares).
-    pub fn may_order_by(&self, key: &str) -> bool {
+    /// The kinds whose assets this viewer gets `key` of, so an order or a
+    /// filter by it reads only those and says nothing of a value they don't
+    /// get (a staff-only one, one a kind no longer declares, one of a kind
+    /// that's gone). `None` for staff: every asset. Empty when the kinds
+    /// can't be read.
+    pub fn kinds_showing(&self, key: &str) -> Option<Vec<String>> {
         match self {
-            Self::Everything => true,
-            Self::Nothing => false,
-            Self::Declared {
-                by_kind,
-                staff_only,
-            } => {
-                !staff_only.contains(key)
-                    && !by_kind.is_empty()
-                    && by_kind.values().all(|shown| shown.contains(key))
+            Self::Everything => None,
+            Self::Nothing => Some(Vec::new()),
+            Self::Declared { by_kind, .. } => {
+                let mut kinds: Vec<String> = by_kind
+                    .iter()
+                    .filter(|(_, shown)| shown.contains(key))
+                    .map(|(slug, _)| slug.clone())
+                    .collect();
+                kinds.sort();
+                Some(kinds)
             }
         }
     }
@@ -211,13 +213,19 @@ mod tests {
         let mut van = json!({ "kind": "van", "attributes": { "cost": "x", "rego": "ABC" } });
         for_viewer(&mut van, &visible());
         assert_eq!(van["attributes"], json!({ "rego": "ABC" }));
-        assert!(!visible().may_order_by("cost"));
-        // Only one kind declares it.
-        assert!(!visible().may_order_by("rego"));
-        let both = json!({ "type": "object", "properties": { "rego": { "type": "string" } } });
-        let declared = VisibleAttributes::from_schemas([("van", &both), ("ute", &both)]);
-        assert!(declared.may_order_by("rego"));
-        assert!(VisibleAttributes::everything().may_order_by("anything"));
+        assert_eq!(visible().kinds_showing("cost"), Some(vec![]));
+        assert_eq!(
+            visible().kinds_showing("rego"),
+            Some(vec!["van".to_string()])
+        );
+        assert_eq!(
+            visible().kinds_showing("colour"),
+            Some(vec!["laptop".to_string()])
+        );
+        assert_eq!(
+            VisibleAttributes::everything().kinds_showing("anything"),
+            None
+        );
         assert!(visible().shows("laptop", "colour"));
         assert!(!visible().shows("laptop", "cost"));
     }
@@ -242,6 +250,9 @@ mod tests {
         assert_eq!(asset["attributes"], attributes);
         for_viewer(&mut asset, &VisibleAttributes::nothing());
         assert_eq!(asset["attributes"], json!({}));
-        assert!(!VisibleAttributes::nothing().may_order_by("colour"));
+        assert_eq!(
+            VisibleAttributes::nothing().kinds_showing("colour"),
+            Some(vec![])
+        );
     }
 }

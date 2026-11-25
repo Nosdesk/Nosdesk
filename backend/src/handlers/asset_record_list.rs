@@ -332,6 +332,8 @@ pub async fn export(mut tc: TenantConn, auth: AuthContext, req: HttpRequest) -> 
                 groups: None,
                 low_stock_only: false,
                 ids: Some(&asset_ids),
+                // Records are staff only.
+                visible: None,
             },
         )?;
         let slug = repository::workspaces::find_by_id(conn, workspace_id)?
