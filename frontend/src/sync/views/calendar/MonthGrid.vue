@@ -14,12 +14,13 @@
  * here, a job past its deadline; a finished job steps back. A day holds
  * the lines its height allows and says how many more there are.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import type { Day } from '@nosdesk/core/utils/ticketDates'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import { planTime } from '@nosdesk/core/utils/ticketPlan'
 import {
+  cellLineCount,
   cellLines,
   dayNumber,
   formatCellTime,
@@ -30,7 +31,6 @@ import {
   weekdayLabel,
   type DayJobs,
   type Month,
-  type WallClock,
 } from '@nosdesk/core/sync/views/calendar'
 import type { CalendarOverlay } from './calendarTypes'
 import { useDayGrid } from './useDayGrid'
@@ -40,7 +40,7 @@ const props = defineProps<{
   weeks: Day[][]
   byDay: ReadonlyMap<Day | null, DayJobs>
   overlaysByDay: ReadonlyMap<Day, CalendarOverlay[]>
-  clock: WallClock
+  today: Day
   locale: string
   /** Jobs lead with their time and can be carried: off when anchored on
    *  a moment. */
@@ -64,10 +64,6 @@ const emit = defineEmits<{
 
 // --- How many lines a day holds ----------------------------------------
 
-// The number row and the job lines, in px: h-7 and leading-5.
-const NUMBER_ROW = 28
-const LINE = 20
-
 // Under this a cell cannot hold a time and enough of a title to tell
 // jobs apart, so the line is all title. The order still puts timed jobs
 // first, and the day's list shows the times.
@@ -77,20 +73,30 @@ const body = ref<HTMLElement | null>(null)
 const lines = ref(4)
 const roomy = ref(true)
 let observer: ResizeObserver | null = null
+let watched: HTMLElement | null = null
 
+/** Measure a day cell, and keep watching one: its height changes with
+ *  the window and with the number of weeks the month takes. */
 function measure(): void {
-  const cell = body.value?.querySelector<HTMLElement>('[data-day]')
+  const cell = body.value?.querySelector<HTMLElement>('[data-day]') ?? null
+  if (cell !== watched) {
+    if (watched) observer?.unobserve(watched)
+    if (cell) observer?.observe(cell)
+    watched = cell
+  }
   if (!cell || !cell.clientHeight) return
-  lines.value = Math.max(2, Math.floor((cell.clientHeight - NUMBER_ROW - 4) / LINE))
+  lines.value = cellLineCount(cell.clientHeight)
   roomy.value = cell.clientWidth >= TIME_FROM
 }
 
 onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined') observer = new ResizeObserver(() => measure())
   measure()
-  if (typeof ResizeObserver === 'undefined') return
-  observer = new ResizeObserver(measure)
-  if (body.value) observer.observe(body.value)
 })
+watch(
+  () => props.weeks,
+  () => void nextTick(measure),
+)
 onBeforeUnmount(() => observer?.disconnect())
 
 interface Cell {
@@ -101,27 +107,31 @@ interface Cell {
   shown: CardData[]
   more: number
   overlays: number
+  /** Every other date on the day is an SLA target. */
+  slaOnly: boolean
 }
 
 const cells = computed<Cell[][]>(() =>
   props.weeks.map((week) =>
     week.map((day) => {
       const { shown, more } = cellLines(jobsOn(props.byDay, day).jobs, lines.value)
+      const overlays = props.overlaysByDay.get(day) ?? []
       return {
         day,
         number: dayNumber(day, props.month, props.locale),
         inMonth: monthOf(day) === props.month,
-        today: day === props.clock.day,
+        today: day === props.today,
         shown,
         more,
-        overlays: props.overlaysByDay.get(day)?.length ?? 0,
+        overlays: overlays.length,
+        slaOnly: overlays.length > 0 && overlays.every((o) => o.kind === 'sla_breach'),
       }
     }),
   ),
 )
 
 function tone(card: CardData): string {
-  if (isLate(card, props.clock)) return 'text-rose-600 dark:text-rose-400'
+  if (isLate(card, props.today)) return 'text-overdue'
   if (isClosed(card)) return 'text-tertiary'
   return 'text-primary'
 }
@@ -149,7 +159,10 @@ function onCellClick(day: Day, event: MouseEvent): void {
 
 function onMore(day: Day, event: MouseEvent): void {
   const cell = (event.currentTarget as HTMLElement).closest<HTMLElement>('[data-day]')
-  if (cell) emit('day', day, cell)
+  if (!cell) return
+  // The cell takes the roving focus first, so Escape returns to it.
+  emit('move', day)
+  emit('day', day, cell)
 }
 </script>
 
@@ -205,7 +218,7 @@ function onMore(day: Day, event: MouseEvent): void {
               class="flex items-center gap-1 text-2xs text-tertiary tabular-nums"
               aria-hidden="true"
               data-overlay-mark
-            ><Icon name="device" size="xs" />{{ cell.overlays }}</span>
+            ><Icon :name="cell.slaOnly ? 'clock' : 'device'" size="xs" />{{ cell.overlays }}</span>
           </div>
 
           <ul class="flex min-w-0 flex-col" role="presentation">

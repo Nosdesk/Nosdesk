@@ -8695,7 +8695,7 @@ calendar-range-label = Bereik
 # MT: pending native review (nl-NL)
 calendar-range-month = Maand
 # MT: pending native review (nl-NL)
-calendar-range-agenda = Agenda
+calendar-range-agenda = Lijst
 # MT: pending native review (nl-NL)
 calendar-month-empty = Niets gepland deze maand
 # MT: pending native review (nl-NL)
@@ -8732,6 +8732,10 @@ calendar-overlay-count =
 calendar-sla-breached = SLA overschreden: { $title }
 # MT: pending native review (nl-NL)
 calendar-sla-target = SLA-doel: { $title }
+# MT: pending native review (nl-NL)
+calendar-warranty-ends = Garantie loopt af: { $device }
+# MT: pending native review (nl-NL)
+calendar-show-more = Nog { $count } tonen
 gantt-today = Vandaag
 gantt-title = Gantt
 # Gantt: zoom, passend maken, niet-geplande tickets (machine, nog na te kijken door moedertaalspreker).

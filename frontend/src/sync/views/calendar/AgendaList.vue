@@ -28,9 +28,7 @@ import {
   dayTitle,
   dayTitleParts,
   jobsOn,
-  windowToReveal,
   type DayJobs,
-  type WallClock,
 } from '@nosdesk/core/sync/views/calendar'
 import type { CalendarOverlay } from './calendarTypes'
 import DayList from './DayList.vue'
@@ -38,7 +36,7 @@ import DayList from './DayList.vue'
 const props = defineProps<{
   byDay: ReadonlyMap<Day | null, DayJobs>
   overlaysByDay: ReadonlyMap<Day, CalendarOverlay[]>
-  clock: WallClock
+  today: Day
   locale: string
   /** Rows show their time and can be carried: off when anchored on a
    *  moment. */
@@ -63,12 +61,16 @@ const fluent = useFluent()
 /** Days brought in per step, counted in days that have something. */
 const STEP = 7
 
-const today = computed(() => props.clock.day)
+const today = computed(() => props.today)
 const days = computed(() => agendaDays(props.byDay.keys(), props.overlaysByDay.keys(), today.value))
 
+/** The day the window is built around: today, or a day the list was sent
+ *  to (the earliest late job), so a jump far back does not bring in every
+ *  day between. */
+const anchor = ref<Day>(props.today)
 const before = ref(STEP)
 const after = ref(STEP)
-const view = computed(() => agendaWindow(days.value, today.value, before.value, after.value))
+const view = computed(() => agendaWindow(days.value, anchor.value, before.value, after.value))
 const firstDay = computed(() => days.value[0])
 const lastDay = computed(() => days.value[days.value.length - 1])
 
@@ -79,23 +81,106 @@ function load(jobs: readonly CardData[]): string {
     : fluent.$t('plan-day-load', { count: jobs.length })
 }
 
-// --- The two ends ------------------------------------------------------
+function centreOn(day: Day): void {
+  anchor.value = day
+  before.value = STEP
+  after.value = STEP
+}
+
+// --- Where the reader is -----------------------------------------------
 
 const scroller = ref<HTMLElement | null>(null)
+const list = ref<HTMLElement | null>(null)
 const startMark = ref<HTMLElement | null>(null)
 const endMark = ref<HTMLElement | null>(null)
 
-/** Bring in more days before, keeping what is on screen where it is. */
-async function growBefore(to: number): Promise<void> {
-  const el = scroller.value
-  if (!el || to <= before.value) return
-  const height = el.scrollHeight
-  const top = el.scrollTop
-  before.value = to
-  await nextTick()
-  el.scrollTop = top + (el.scrollHeight - height)
-  report()
+function sectionOf(day: Day): HTMLElement | null {
+  return scroller.value?.querySelector<HTMLElement>(`section[data-day="${day}"]`) ?? null
 }
+
+/** The section at the top of the screen, found by halving rather than
+ *  reading every section's box. Offsets are the scroller's own. */
+function topSection(): HTMLElement | null {
+  const el = scroller.value
+  if (!el) return null
+  const sections = el.querySelectorAll<HTMLElement>('section[data-day]')
+  const line = el.scrollTop + 1
+  let lo = 0
+  let hi = sections.length - 1
+  let found: HTMLElement | null = null
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    const section = sections[mid]
+    if (section.offsetTop + section.offsetHeight > line) {
+      found = section
+      hi = mid - 1
+    } else {
+      lo = mid + 1
+    }
+  }
+  return found
+}
+
+let frame = 0
+function report(): void {
+  cancelAnimationFrame(frame)
+  frame = requestAnimationFrame(() => {
+    const el = scroller.value
+    if (!el) return
+    const top = topSection()
+    const own = sectionOf(today.value)
+    const inView =
+      own != null &&
+      own.offsetTop < el.scrollTop + el.clientHeight &&
+      own.offsetTop + own.offsetHeight > el.scrollTop + 1
+    emit('position', (top?.dataset.day as Day | undefined) ?? today.value, top == null || inView)
+  })
+}
+
+/** Room under the list so today can reach the top however short the
+ *  days after it are. Written straight to the element, so a resize does
+ *  not wait on a render. */
+function fitTail(): void {
+  const el = scroller.value
+  const inner = list.value
+  if (!el || !inner) return
+  const own = sectionOf(today.value)
+  const room = own ? Math.max(0, own.offsetTop + el.clientHeight - inner.offsetHeight) : 0
+  inner.style.marginBottom = `${room}px`
+}
+
+// --- Holding the reader's place ----------------------------------------
+
+/** Days arriving or leaving above the screen (earlier days coming in,
+ *  another date landing, a job moving) leave the section at the top
+ *  where it was: its place is read before the change and put back
+ *  after it. */
+let hold: { day: Day; offset: number } | null = null
+
+watch(
+  () => view.value.shown.join(),
+  () => {
+    const el = scroller.value
+    const top = topSection()
+    hold = el && top ? { day: top.dataset.day as Day, offset: top.offsetTop - el.scrollTop } : null
+  },
+  { flush: 'pre' },
+)
+watch(
+  () => view.value.shown.join(),
+  () => {
+    const el = scroller.value
+    const held = hold ? sectionOf(hold.day) : null
+    fitTail()
+    if (el && hold && held) el.scrollTop = held.offsetTop - hold.offset
+    hold = null
+    observe()
+    report()
+  },
+  { flush: 'post' },
+)
+
+// --- The two ends ------------------------------------------------------
 
 let observer: IntersectionObserver | null = null
 
@@ -107,7 +192,7 @@ function observe(): void {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue
         if (entry.target === endMark.value && view.value.moreAhead) after.value += STEP
-        if (entry.target === startMark.value && view.value.moreEarlier) void growBefore(before.value + STEP)
+        if (entry.target === startMark.value && view.value.moreEarlier) before.value += STEP
       }
     },
     { root: scroller.value, rootMargin: '240px 0px 240px 0px' },
@@ -116,50 +201,28 @@ function observe(): void {
   if (endMark.value) observer.observe(endMark.value)
 }
 
-// --- Where the reader is -----------------------------------------------
+// --- Going somewhere ---------------------------------------------------
 
-let frame = 0
-function report(): void {
-  cancelAnimationFrame(frame)
-  frame = requestAnimationFrame(() => {
-    const el = scroller.value
-    if (!el) return
-    const box = el.getBoundingClientRect()
-    let top: Day | null = null
-    let todayInView = false
-    for (const section of el.querySelectorAll<HTMLElement>('section[data-day]')) {
-      const rect = section.getBoundingClientRect()
-      if (rect.bottom <= box.top + 1) continue
-      if (rect.top >= box.bottom) break
-      top ??= section.dataset.day as Day
-      if (section.dataset.day === today.value) todayInView = true
-    }
-    emit('position', top ?? today.value, top == null || todayInView)
-  })
-}
-
-/** Room under the list so today can reach the top however short the
- *  days after it are. */
-const tail = ref(0)
-
-function sectionOf(day: Day): HTMLElement | null {
-  return scroller.value?.querySelector<HTMLElement>(`section[data-day="${day}"]`) ?? null
-}
-
-function goToday(smooth = true): void {
+async function goToday(smooth = true): Promise<void> {
+  if (!sectionOf(today.value)) {
+    centreOn(today.value)
+    await nextTick()
+    smooth = false
+  }
   const el = scroller.value
-  const section = sectionOf(today.value)
-  if (!el || !section) return
-  el.scrollTo({ top: section.offsetTop, behavior: smooth ? 'smooth' : 'instant' })
+  const own = sectionOf(today.value)
+  if (!el || !own) return
+  el.scrollTo({ top: own.offsetTop, behavior: smooth ? 'smooth' : 'instant' })
 }
 
 /** Bring a job's day on screen, scroll its row into view under the
- *  day's sticky heading, and put the focus on it. */
+ *  day's sticky heading, and put the focus on it. A day outside the
+ *  window becomes the window's centre. */
 async function reveal(day: Day, id: number): Promise<void> {
-  const next = windowToReveal(days.value, today.value, day, { before: before.value, after: after.value }, STEP)
-  after.value = next.after
-  await growBefore(next.before)
-  await nextTick()
+  if (!sectionOf(day)) {
+    centreOn(day)
+    await nextTick()
+  }
   const el = scroller.value
   const row = el?.querySelector<HTMLElement>(`[data-row="${id}"]`)
   const heading = sectionOf(day)?.querySelector<HTMLElement>('[data-day-heading]')
@@ -173,32 +236,34 @@ async function reveal(day: Day, id: number): Promise<void> {
 
 defineExpose({ goToday, reveal })
 
-onMounted(async () => {
-  const el = scroller.value
-  const list = el?.firstElementChild as HTMLElement | null
-  const section = sectionOf(today.value)
-  if (el && list && section) {
-    tail.value = Math.max(0, section.offsetTop + el.clientHeight - list.offsetHeight)
-    await nextTick()
-    goToday(false)
-  }
+let resize: ResizeObserver | null = null
+
+onMounted(() => {
+  fitTail()
+  void goToday(false)
   observe()
   report()
+  if (typeof ResizeObserver === 'undefined') return
+  resize = new ResizeObserver(() => fitTail())
+  // The window's height, and the list's own: rows coming and going above
+  // today move it, and the room under it with them.
+  if (scroller.value) resize.observe(scroller.value)
+  if (list.value) resize.observe(list.value)
 })
-watch(view, () => void nextTick(observe))
 onBeforeUnmount(() => {
   observer?.disconnect()
+  resize?.disconnect()
   cancelAnimationFrame(frame)
 })
 </script>
 
 <template>
   <div ref="scroller" class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" data-agenda @scroll.passive="report">
-    <div class="flex w-full max-w-[45rem] flex-col pb-8" :style="{ marginBottom: `${tail}px` }">
+    <div ref="list" class="flex w-full max-w-[45rem] flex-col pb-8">
       <!-- Where the list starts. -->
       <div ref="startMark" data-agenda-start>
         <p v-if="!view.moreEarlier && firstDay && firstDay < today" class="px-4 pt-4 text-xs leading-5 text-tertiary">
-          {{ $t('calendar-agenda-start', { day: dayTitle(firstDay, locale) }) }}
+          {{ $t('calendar-agenda-start', { day: dayTitle(firstDay, locale, today) }) }}
         </p>
       </div>
 
@@ -226,7 +291,7 @@ onBeforeUnmount(() => {
               </template>
               <span class="sr-only">, {{ $t('calendar-today') }}</span>
             </template>
-            <template v-else>{{ dayTitle(day, locale) }}</template>
+            <template v-else>{{ dayTitle(day, locale, today) }}</template>
           </h3>
           <p v-if="jobsOn(byDay, day).jobs.length" class="text-xs leading-5 text-secondary tabular-nums">
             {{ load(jobsOn(byDay, day).jobs) }}
@@ -235,7 +300,7 @@ onBeforeUnmount(() => {
         <DayList
           :day="jobsOn(byDay, day)"
           :overlays="overlaysByDay.get(day)"
-          :clock="clock"
+          :today="today"
           :locale="locale"
           :gutter="timed"
           :dragged-id="draggedId"
@@ -250,7 +315,7 @@ onBeforeUnmount(() => {
       <!-- Where the list ends. A list that is only today has said so. -->
       <div ref="endMark" data-agenda-end>
         <p v-if="!view.moreAhead && lastDay && lastDay !== today" class="px-4 pt-5 text-xs leading-5 text-tertiary">
-          {{ $t('calendar-agenda-end', { day: dayTitle(lastDay, locale) }) }}
+          {{ $t('calendar-agenda-end', { day: dayTitle(lastDay, locale, today) }) }}
         </p>
       </div>
 

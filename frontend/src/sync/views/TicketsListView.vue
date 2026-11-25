@@ -961,18 +961,31 @@ const calendarRange = useCalendarRange(activeView)
 const overlayCache = ref<Map<string, CalendarOverlayEntry[]>>(new Map())
 const calendarOverlays = ref<CalendarOverlay[]>([])
 
+/** The label for an entry, worded here where the server sends a kind
+ *  and the device; anything else keeps the server's text. */
+function overlayLabel(e: CalendarOverlayEntry): string {
+  if (e.kind === 'warranty_expiry') return t('calendar-warranty-ends', { device: e.device_name })
+  return e.label
+}
+
 function entryToOverlay(e: CalendarOverlayEntry): CalendarOverlay {
   return {
     id: `${e.kind}:${e.device_id}:${e.date}`,
     date: e.date,
     kind: e.kind,
-    label: e.label,
+    label: overlayLabel(e),
     href: `/assets/${e.device_id}`,
   }
 }
 
+/** The window the calendar last asked for. A slower answer for an
+ *  earlier window (a quick run of month turns, a switch to the agenda)
+ *  arrives after it and is dropped. */
+let overlayKey = ''
+
 async function loadOverlays(start: string, end: string): Promise<void> {
   const key = `${start}..${end}`
+  overlayKey = key
   const cached = overlayCache.value.get(key)
   if (cached) {
     calendarOverlays.value = cached.map(entryToOverlay)
@@ -981,9 +994,9 @@ async function loadOverlays(start: string, end: string): Promise<void> {
   try {
     const rows = await calendarOverlaysService.list(start, end)
     overlayCache.value.set(key, rows)
-    calendarOverlays.value = rows.map(entryToOverlay)
+    if (key === overlayKey) calendarOverlays.value = rows.map(entryToOverlay)
   } catch {
-    calendarOverlays.value = []
+    if (key === overlayKey) calendarOverlays.value = []
   }
 }
 

@@ -8742,6 +8742,10 @@ calendar-overlay-count =
 calendar-sla-breached = SLA dépassé : { $title }
 # MT: pending native review (fr-FR)
 calendar-sla-target = Objectif SLA : { $title }
+# MT: pending native review (fr-FR)
+calendar-warranty-ends = Fin de garantie : { $device }
+# MT: pending native review (fr-FR)
+calendar-show-more = Afficher { $count } de plus
 gantt-today = Aujourd'hui
 gantt-title = Gantt
 # Gantt : zoom, ajustement, tickets non planifiés (machine, à relire par un locuteur natif).

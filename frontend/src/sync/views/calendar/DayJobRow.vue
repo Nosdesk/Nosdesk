@@ -20,12 +20,12 @@ import { priorityForBadge, priorityLabel } from '@/utils/priorityHelpers'
 import { dueChipLabel, formatDay, type Day } from '@nosdesk/core/utils/ticketDates'
 import { formatWallTime, planTime } from '@nosdesk/core/utils/ticketPlan'
 import { separateDueDay } from '@nosdesk/core/sync/views/planOrder'
-import { isClosed, isLate, type WallClock } from '@nosdesk/core/sync/views/calendar'
+import { isClosed, isLate } from '@nosdesk/core/sync/views/calendar'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 
 const props = defineProps<{
   card: CardData
-  clock: WallClock
+  today: Day
   locale: string
   /** The list has a time gutter. */
   gutter: boolean
@@ -45,7 +45,7 @@ const fluent = useFluent()
 const { getUserHandle } = useUsersDirectory()
 
 const time = computed(() => (props.gutter ? planTime(props.card) : null))
-const late = computed(() => isLate(props.card, props.clock))
+const late = computed(() => isLate(props.card, props.today))
 const closed = computed(() => isClosed(props.card))
 const requester = computed(() =>
   props.card.requester_uuid ? (getUserHandle(props.card.requester_uuid).user.value?.name ?? '') : '',
@@ -57,7 +57,7 @@ const due = computed(() => {
   if (!day) return null
   return {
     label: fluent.$t('plan-row-due', {
-      day: dueChipLabel(day, props.clock.day, {
+      day: dueChipLabel(day, props.today, {
         today: fluent.$t('tickets-due-today').toLowerCase(),
         tomorrow: fluent.$t('tickets-due-tomorrow').toLowerCase(),
       }),
@@ -94,21 +94,18 @@ const due = computed(() => {
       <button
         type="button"
         data-row-open
-        class="min-w-0 flex-1 basis-64 text-left text-sm leading-5 focus:outline-none"
-        :class="!closed && 'font-medium'"
+        class="min-w-0 flex-1 basis-64 truncate text-left text-sm leading-5 focus:outline-none"
+        :class="late ? 'font-medium text-overdue' : closed ? 'text-tertiary' : 'font-medium text-primary'"
         :title="card.title"
         @click.stop="emit('open')"
-      ><span v-if="late" class="sr-only">{{ $t('calendar-job-overdue') }}: </span><span
-        class="block truncate"
-        :class="late ? 'text-rose-600 dark:text-rose-400' : closed ? 'text-tertiary' : 'text-primary'"
-      >{{ card.title }}</span></button>
+      ><span v-if="late" class="sr-only">{{ $t('calendar-job-overdue') }}: </span>{{ card.title }}</button>
       <span class="flex min-w-0 shrink grow-0 basis-56 items-baseline gap-3 text-xs leading-5 text-tertiary">
         <span class="w-11 shrink-0 font-mono text-2xs tabular-nums">#{{ card.number }}</span>
         <span class="min-w-0 flex-1 truncate">{{ requester }}</span>
         <span
           v-if="due"
           class="shrink-0"
-          :class="late && 'text-rose-600 dark:text-rose-400'"
+          :class="late && 'text-overdue'"
           :title="due.title"
         >{{ due.label }}</span>
       </span>

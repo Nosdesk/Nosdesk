@@ -4,8 +4,10 @@ import {
   agendaRange,
   agendaWindow,
   anchorDay,
+  cellLineCount,
   cellLines,
   dayNumber,
+  dayTitle,
   dayTitleParts,
   earliestLate,
   formatCellTime,
@@ -16,15 +18,12 @@ import {
   movePatch,
   shiftDayByMonths,
   shiftMonth,
-  wallClock,
-  windowToReveal,
 } from '@nosdesk/core/sync/views/calendar'
 import { planPatchEffects } from '@nosdesk/core/utils/ticketPlan'
 import { planDay } from '@nosdesk/core/utils/ticketDates'
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 
 const TODAY = '2026-11-25'
-const CLOCK = { day: TODAY, time: '10:00' }
 
 function job(id: number, plan: Partial<CardData> = {}, priority: Priority = 'none'): CardData {
   return {
@@ -91,6 +90,23 @@ describe('the month', () => {
     expect(parts.filter((p) => p.number).map((p) => p.text)).toEqual(['25'])
   })
 
+  it('fits the job lines a cell height holds, for months of four, five and six weeks', () => {
+    // The height the month grid shares among its weeks: fewer weeks,
+    // taller cells, more lines.
+    const rows = (weeks: number) => Math.floor(640 / weeks)
+    expect(cellLineCount(rows(4))).toBe(6)
+    expect(cellLineCount(rows(5))).toBe(4)
+    expect(cellLineCount(rows(6))).toBe(3)
+    // Never fewer than two: one job and the rest counted.
+    expect(cellLineCount(40)).toBe(2)
+    for (const weeks of [4, 5, 6]) {
+      const lines = cellLineCount(rows(weeks))
+      // The number row and every line fit, the count line among them.
+      expect(28 + lines * 20 + 4).toBeLessThanOrEqual(rows(weeks))
+      expect(cellLines(Array.from({ length: 9 }, (_, i) => i), lines).shown).toHaveLength(lines - 1)
+    }
+  })
+
   it('fills a cell with the lines it holds and counts the rest on the last line', () => {
     expect(cellLines([1, 2, 3], 4)).toEqual({ shown: [1, 2, 3], more: 0 })
     expect(cellLines([1, 2, 3, 4], 4)).toEqual({ shown: [1, 2, 3, 4], more: 0 })
@@ -141,21 +157,22 @@ describe('the plan day', () => {
 })
 
 describe('late', () => {
-  it('is an open job whose due day has ended or whose due time has passed', () => {
-    expect(isLate(job(1, { due_date: '2026-11-24T00:00:00' }), CLOCK)).toBe(true)
-    expect(isLate(job(2), CLOCK)).toBe(false)
-    expect(isLate(job(3, { due_time: '09:30:00' }), CLOCK)).toBe(true)
-    expect(isLate(job(4, { due_time: '10:30:00' }), CLOCK)).toBe(false)
-    expect(isLate(job(5, { due_date: null }), CLOCK)).toBe(false)
+  it('is an open job whose due day has ended, by the app day rule', () => {
+    expect(isLate(job(1, { due_date: '2026-11-24T00:00:00' }), TODAY)).toBe(true)
+    expect(isLate(job(2), TODAY)).toBe(false)
+    // A due time today shows as text; the job is late from tomorrow.
+    expect(isLate(job(3, { due_time: '00:30:00' }), TODAY)).toBe(false)
+    expect(isLate(job(4, { due_date: '2026-11-24T00:00:00', due_time: '23:00:00' }), TODAY)).toBe(true)
+    expect(isLate(job(5, { due_date: null }), TODAY)).toBe(false)
     const done = job(6, { due_date: '2026-11-20T00:00:00' })
     done.workflow_state = { id: 9, name: 'Done', category: 'done', color: 'green' }
-    expect(isLate(done, CLOCK)).toBe(false)
+    expect(isLate(done, TODAY)).toBe(false)
   })
 
   it('goes by the deadline even when the job is planned for a later day', () => {
     const card = job(1, { due_date: '2026-11-24T00:00:00', start_date: '2026-11-27T00:00:00' })
     expect(planDay(card)).toBe('2026-11-27')
-    expect(isLate(card, CLOCK)).toBe(true)
+    expect(isLate(card, TODAY)).toBe(true)
   })
 
   it('finds the first late job in reading order, inside the days asked for', () => {
@@ -169,12 +186,12 @@ describe('late', () => {
     // #5 closed: not late, so not the target.
     cards[4].workflow_state = { id: 9, name: 'Done', category: 'done', color: 'green' }
     const byDay = jobsByDay(cards, 'due_date')
-    expect(earliestLate(byDay, CLOCK)).toEqual({ day: '2026-10-30', card: cards[1] })
-    expect(earliestLate(byDay, CLOCK, (day) => day.startsWith('2026-11'))).toEqual({
+    expect(earliestLate(byDay, TODAY)).toEqual({ day: '2026-10-30', card: cards[1] })
+    expect(earliestLate(byDay, TODAY, (day) => day.startsWith('2026-11'))).toEqual({
       day: '2026-11-18',
       card: cards[2],
     })
-    expect(earliestLate(byDay, CLOCK, (day) => day.startsWith('2026-12'))).toBeNull()
+    expect(earliestLate(byDay, TODAY, (day) => day.startsWith('2026-12'))).toBeNull()
   })
 })
 
@@ -202,15 +219,14 @@ describe('the agenda', () => {
     expect(agendaWindow(days, TODAY, 0, 1).shown).toEqual([TODAY])
   })
 
-  it('grows the window in steps until a day is in it', () => {
-    const days = ['2026-10-01', '2026-10-05', '2026-11-01', '2026-11-10', TODAY, '2026-12-01', '2027-01-01']
-    const start = { before: 1, after: 1 }
-    expect(windowToReveal(days, TODAY, '2026-11-10', start, 7)).toEqual(start)
-    expect(windowToReveal(days, TODAY, '2026-10-01', start, 2)).toEqual({ before: 5, after: 1 })
-    expect(windowToReveal(days, TODAY, '2027-01-01', start, 7)).toEqual({ before: 1, after: 8 })
-    expect(agendaWindow(days, TODAY, 5, 1).shown[0]).toBe('2026-10-01')
-    // A day the agenda doesn't list leaves the window alone.
-    expect(windowToReveal(days, TODAY, '2026-10-02', start, 7)).toEqual(start)
+  it('centres on a day it is sent to, without the days between it and today', () => {
+    const days = ['2025-01-06', '2025-02-01', '2025-03-01', '2026-10-01', '2026-11-10', TODAY, '2026-12-01']
+    const sent = agendaWindow(days, '2025-02-01', 1, 2)
+    expect(sent.shown).toEqual(['2025-01-06', '2025-02-01', '2025-03-01'])
+    expect(sent.moreEarlier).toBe(false)
+    expect(sent.moreAhead).toBe(true)
+    // Scrolling down brings the rest in, today among them.
+    expect(agendaWindow(days, '2025-02-01', 1, 5).shown).toContain(TODAY)
   })
 
   it('wants other dates from the month of its earliest job to its last, or six months ahead', () => {
@@ -245,10 +261,9 @@ describe('carrying a job to another day', () => {
   })
 })
 
-describe('the wall clock', () => {
-  it('reads the day and time in the planning timezone, not the device', () => {
-    const now = new Date('2026-11-24T22:30:00Z')
-    expect(wallClock('Australia/Sydney', now)).toEqual({ day: '2026-11-25', time: '09:30' })
-    expect(wallClock('America/New_York', now)).toEqual({ day: '2026-11-24', time: '17:30' })
+describe('day titles', () => {
+  it('name the year only for a day in another year than today', () => {
+    expect(dayTitle('2026-11-26', 'en-AU', TODAY)).toBe('Thursday 26 November')
+    expect(dayTitle('2024-06-03', 'en-AU', TODAY)).toBe('Monday 3 June 2024')
   })
 })

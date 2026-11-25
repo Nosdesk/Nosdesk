@@ -7888,6 +7888,8 @@ calendar-overlay-count =
     }
 calendar-sla-breached = SLA breached: { $title }
 calendar-sla-target = SLA target: { $title }
+calendar-warranty-ends = Warranty ends: { $device }
+calendar-show-more = Show { $count } more
 gantt-today = Today
 gantt-title = Gantt
 gantt-zoom-week = Week

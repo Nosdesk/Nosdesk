@@ -9,14 +9,14 @@
  * time by time, then the rest in the day's order (`planOrder.ts`).
  *
  * Days are `YYYY-MM-DD` and formatted in the given locale with no zone
- * shift; "today" and "now" come from the planning timezone
- * (`ticketDates.ts`), never the device's.
+ * shift; "today" comes from the planning timezone (`ticketDates.ts`),
+ * never the device's.
  */
 import { parseDate, startOfWeek, type CalendarDate } from '@internationalized/date'
 import type { CardData } from './types'
 import { compareAnyTime, compareBooked } from './planOrder'
 import { toCalendarDateString } from '../../utils/dateMath'
-import { dueDay, planDay, planningTimezone, type Day } from '../../utils/ticketDates'
+import { dueBucket, planDay, planningTimezone, type Day } from '../../utils/ticketDates'
 import { planField, planTime } from '../../utils/ticketPlan'
 
 /** A month as `YYYY-MM`. */
@@ -71,8 +71,17 @@ function utc(day: Day): Date {
   return new Date(`${day}T00:00:00Z`)
 }
 
+const formatters = new Map<string, Intl.DateTimeFormat>()
+
+/** A formatter for days as written, made once per locale and options. */
 function formatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  return new Intl.DateTimeFormat(locale, { ...options, timeZone: 'UTC' })
+  const key = `${locale}|${JSON.stringify(options)}`
+  let made = formatters.get(key)
+  if (!made) {
+    made = new Intl.DateTimeFormat(locale, { ...options, timeZone: 'UTC' })
+    formatters.set(key, made)
+  }
+  return made
 }
 
 /** "November 2026". */
@@ -81,16 +90,23 @@ export function monthTitle(month: Month, locale: string): string {
 }
 
 const DAY_TITLE: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long' }
+const DAY_TITLE_YEAR: Intl.DateTimeFormatOptions = { ...DAY_TITLE, year: 'numeric' }
 
-/** "Thursday 26 November". */
-export function dayTitle(day: Day, locale: string): string {
-  return formatter(locale, DAY_TITLE).format(utc(day))
+/** With `today`, a day in another year names its year. */
+function dayTitleOptions(day: Day, today?: Day): Intl.DateTimeFormatOptions {
+  return today && day.slice(0, 4) !== today.slice(0, 4) ? DAY_TITLE_YEAR : DAY_TITLE
+}
+
+/** "Thursday 26 November", or "Monday 3 June 2024" in another year than
+ *  `today`'s. */
+export function dayTitle(day: Day, locale: string, today?: Day): string {
+  return formatter(locale, dayTitleOptions(day, today)).format(utc(day))
 }
 
 /** A day's title in pieces, with the day of the month marked, so the
  *  number alone can carry a mark: ["Thursday ", "26", " November"]. */
-export function dayTitleParts(day: Day, locale: string): { text: string; number: boolean }[] {
-  return formatter(locale, DAY_TITLE)
+export function dayTitleParts(day: Day, locale: string, today?: Day): { text: string; number: boolean }[] {
+  return formatter(locale, dayTitleOptions(day, today))
     .formatToParts(utc(day))
     .map((part) => ({ text: part.value, number: part.type === 'day' }))
 }
@@ -178,6 +194,18 @@ export function jobsOn(map: ReadonlyMap<Day | null, DayJobs>, day: Day | null): 
   return map.get(day) ?? EMPTY
 }
 
+// The number row and a job line in a month cell, in px (h-7 and
+// leading-5), and the cell's bottom padding.
+const NUMBER_ROW = 28
+const LINE = 20
+const CELL_PAD = 4
+
+/** How many lines of jobs a month cell of `height` px holds; never fewer
+ *  than two, so a short cell still names one job and the rest. */
+export function cellLineCount(height: number): number {
+  return Math.max(2, Math.floor((height - NUMBER_ROW - CELL_PAD) / LINE))
+}
+
 /** What a month cell that holds `lines` lines shows: as many jobs as fit,
  *  and when they don't all fit, the last line says how many more. */
 export function cellLines<T>(jobs: readonly T[], lines: number): { shown: T[]; more: number } {
@@ -190,52 +218,28 @@ export function cellLines<T>(jobs: readonly T[], lines: number): { shown: T[]; m
 // Done and late
 // ---------------------------------------------------------------
 
-/** Now on the planning timezone's wall clock: a day and `HH:MM`. */
-export interface WallClock {
-  day: Day
-  time: string
-}
-
-export function wallClock(tz: string = planningTimezone(), now: Date = new Date()): WallClock {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(now)
-  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
-  return { day: `${part('year')}-${part('month')}-${part('day')}`, time: `${part('hour')}:${part('minute')}` }
-}
-
 /** Finished or called off: nothing left to do. */
 export function isClosed(card: CardData): boolean {
   return card.workflow_state.category === 'done' || card.workflow_state.category === 'cancelled'
 }
 
-/** Open and past its deadline: the due day has ended, or its due time
- *  has passed today. A job due today with no time is not late until
- *  tomorrow. */
-export function isLate(card: CardData, clock: WallClock): boolean {
-  if (isClosed(card)) return false
-  const due = dueDay(card)
-  if (!due) return false
-  if (due !== clock.day) return due < clock.day
-  return card.due_time != null && card.due_time.slice(0, 5) < clock.time
+/** Open and past its due day, by the rule the rest of the app uses
+ *  (`dueBucket`): a job due today is not late until tomorrow, whatever
+ *  its due time. */
+export function isLate(card: CardData, today: Day): boolean {
+  return !isClosed(card) && dueBucket(card, today) === 'overdue'
 }
 
 /** The first late job in reading order: the earliest day, then that
  *  day's order. Only days that pass `within` are read. */
 export function earliestLate(
   byDay: ReadonlyMap<Day | null, DayJobs>,
-  clock: WallClock,
+  today: Day,
   within: (day: Day) => boolean = () => true,
 ): { day: Day; card: CardData } | null {
   const days = [...byDay.keys()].filter((d): d is Day => d != null && within(d)).sort()
   for (const day of days) {
-    const card = jobsOn(byDay, day).jobs.find((c) => isLate(c, clock))
+    const card = jobsOn(byDay, day).jobs.find((c) => isLate(c, today))
     if (card) return { day, card }
   }
   return null
@@ -263,39 +267,18 @@ export interface AgendaWindow {
   moreAhead: boolean
 }
 
-/** The agenda's days on screen: `before` days before today and `after`
- *  from today on (today counts), each counted in listed days. */
-export function agendaWindow(days: readonly Day[], today: Day, before: number, after: number): AgendaWindow {
-  const earlier = days.filter((day) => day < today)
-  const ahead = days.filter((day) => day >= today)
+/** The agenda's days on screen around `anchor` (today, or a day it was
+ *  sent to): `before` listed days before it, and `after` from it on, the
+ *  anchor counting as one. */
+export function agendaWindow(days: readonly Day[], anchor: Day, before: number, after: number): AgendaWindow {
+  const earlier = days.filter((day) => day < anchor)
+  const ahead = days.filter((day) => day >= anchor)
   const back = Math.max(0, before)
   return {
     shown: [...(back > 0 ? earlier.slice(-back) : []), ...ahead.slice(0, Math.max(0, after))],
     moreEarlier: earlier.length > back,
     moreAhead: ahead.length > after,
   }
-}
-
-/** How many days before and after today the window needs to list `day`,
- *  growing in steps of `step` from where it is. */
-export function windowToReveal(
-  days: readonly Day[],
-  today: Day,
-  day: Day,
-  current: { before: number; after: number },
-  step: number,
-): { before: number; after: number } {
-  const grow = (have: number, need: number) => (need <= have ? have : have + Math.ceil((need - have) / step) * step)
-  if (day < today) {
-    const earlier = days.filter((d) => d < today)
-    const at = earlier.indexOf(day)
-    if (at < 0) return current
-    return { ...current, before: grow(current.before, earlier.length - at) }
-  }
-  const ahead = days.filter((d) => d >= today)
-  const at = ahead.indexOf(day)
-  if (at < 0) return current
-  return { ...current, after: grow(current.after, at + 1) }
 }
 
 // ---------------------------------------------------------------

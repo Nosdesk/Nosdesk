@@ -185,7 +185,7 @@ function onKeydown(event: KeyboardEvent): void {
         <span
           v-if="due"
           class="shrink-0"
-          :class="due.late && 'text-rose-600 dark:text-rose-400'"
+          :class="due.late && 'text-overdue'"
           :title="due.title"
         >{{ due.label }}</span>
       </span>

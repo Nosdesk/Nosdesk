@@ -191,6 +191,9 @@
   --color-status-warning-muted: rgba(245, 158, 11, 0.15);
   --color-status-info: #3B82F6;
   --color-status-info-muted: rgba(59, 130, 246, 0.15);
+  /* Text for work past its deadline: the late title and its count.
+     Rose 600 on white is about 4.7:1; keep it at least that dark. */
+  --color-overdue: #e11d48;
 
   /* Ticket status colors. Visual groups map from WorkflowStateCategory:
        open       <- triage, backlog
@@ -328,6 +331,10 @@
     --color-status-info: #3B82F6;
     --color-status-info-muted: rgba(59, 130, 246, 0.15);
 
+    /* Text for work past its deadline: the late title and its count.
+       Rose 600 on white is about 4.7:1; keep it at least that dark. */
+    --color-overdue: #e11d48;
+
     /* Ticket status colors */
     --color-status-open: #F59E0B;
     --color-status-open-muted: rgba(245, 158, 11, 0.15);
@@ -407,6 +414,9 @@
     --color-status-warning-muted: rgba(245, 158, 11, 0.2);
     --color-status-info: #3B82F6;
     --color-status-info-muted: rgba(59, 130, 246, 0.2);
+
+    /* Text for work past its deadline, lifted for the dark surface. */
+    --color-overdue: #fb7185;
 
     /* Ticket status colors - brighter for dark mode */
     --color-status-open: #FBBF24;
@@ -544,6 +554,7 @@
   .text-primary { color: var(--color-primary); }
   .text-secondary { color: var(--color-secondary); }
   .text-tertiary { color: var(--color-tertiary); }
+  .text-overdue { color: var(--color-overdue); }
 
   /* Accent color utilities */
   .bg-accent { background-color: var(--color-accent); }

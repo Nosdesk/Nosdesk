@@ -30,7 +30,7 @@ import Popover from '@/components/common/Popover.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import type { PopoverAnchor } from '@/composables/popoverAnchor'
-import { useWallClock } from '@/composables/useToday'
+import { useToday } from '@/composables/useToday'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import { planningTimezone, type Day } from '@nosdesk/core/utils/ticketDates'
 import { loadHours, loadMinutes } from '@nosdesk/core/utils/ticketPlan'
@@ -82,7 +82,7 @@ const emit = defineEmits<{
 const range = defineModel<CalendarRange>('range', { default: 'month' })
 
 const fluent = useFluent()
-const clock = useWallClock()
+const today = useToday()
 const dateStore = useDateStore()
 const locale = computed(() => dateStore.locale)
 
@@ -93,15 +93,15 @@ const ranges = computed<{ value: CalendarRange; label: string }[]>(() => [
 
 // --- The month ---------------------------------------------------------
 
-const month = ref<Month>(monthOf(clock.value.day))
+const month = ref<Month>(monthOf(today.value))
 const weeks = computed(() => monthWeeks(month.value, locale.value))
-const offToday = computed(() => month.value !== monthOf(clock.value.day))
+const offToday = computed(() => month.value !== monthOf(today.value))
 
 /** The day in the tab order, and on a narrow screen the day shown. */
-const focusDay = ref<Day>(clock.value.day)
+const focusDay = ref<Day>(today.value)
 
 function restIn(next: Month): Day {
-  return next === monthOf(clock.value.day) ? clock.value.day : `${next}-01`
+  return next === monthOf(today.value) ? today.value : `${next}-01`
 }
 
 function turn(by: number): void {
@@ -111,8 +111,8 @@ function turn(by: number): void {
 }
 
 function goToday(): void {
-  month.value = monthOf(clock.value.day)
-  focusDay.value = clock.value.day
+  month.value = monthOf(today.value)
+  focusDay.value = today.value
   closeLists()
 }
 
@@ -149,7 +149,7 @@ const overlaysByDay = computed(() => {
 /** What the parent fetches other dates for: the weeks on screen, or the
  *  agenda's span. */
 const visibleRange = computed(() => {
-  if (range.value === 'agenda') return agendaRange(byDay.value.keys(), clock.value.day)
+  if (range.value === 'agenda') return agendaRange(byDay.value.keys(), today.value)
   const rows = weeks.value
   return { start: rows[0][0], end: rows[rows.length - 1][6] }
 })
@@ -171,7 +171,7 @@ const inMonth = computed(() =>
 const agenda = ref<InstanceType<typeof AgendaList> | null>(null)
 /** The day at the top of the agenda, which names the month in the
  *  title, and whether today is on screen. */
-const agendaTop = ref<Day>(clock.value.day)
+const agendaTop = ref<Day>(today.value)
 const agendaOnToday = ref(true)
 
 function onAgendaPosition(top: Day, todayInView: boolean): void {
@@ -183,7 +183,7 @@ function onAgendaPosition(top: Day, todayInView: boolean): void {
 const upcoming = computed(() =>
   props.cards.filter((card) => {
     const day = anchorDay(card, props.dateField)
-    return day != null && day >= clock.value.day
+    return day != null && day >= today.value
   }),
 )
 
@@ -195,7 +195,7 @@ const title = computed(() =>
  *  agenda, most of which sit above today. */
 const lateCount = computed(() => {
   const cards = range.value === 'agenda' ? props.cards : inMonth.value
-  return cards.filter((card) => isLate(card, clock.value)).length
+  return cards.filter((card) => isLate(card, today.value)).length
 })
 
 const summary = computed(() => {
@@ -208,7 +208,7 @@ const summary = computed(() => {
 
 watch(range, () => {
   closeLists()
-  agendaTop.value = clock.value.day
+  agendaTop.value = today.value
   agendaOnToday.value = true
 })
 
@@ -223,9 +223,9 @@ function load(jobs: readonly CardData[]): string {
 function dayLabel(day: Day): string {
   const jobs = jobsOn(byDay.value, day).jobs
   const parts = [dayTitle(day, locale.value)]
-  if (day === clock.value.day) parts.push(fluent.$t('calendar-today'))
+  if (day === today.value) parts.push(fluent.$t('calendar-today'))
   if (jobs.length) parts.push(fluent.$t('plan-day-load', { count: jobs.length }))
-  const late = jobs.filter((card) => isLate(card, clock.value)).length
+  const late = jobs.filter((card) => isLate(card, today.value)).length
   if (late) parts.push(fluent.$t('calendar-overdue-count', { count: late }))
   const dates = overlaysByDay.value.get(day)?.length ?? 0
   if (dates) parts.push(fluent.$t('calendar-overlay-count', { count: dates }))
@@ -312,11 +312,11 @@ function focusRowWhenShown(id: number, tries = 10): void {
  *  row, in the month its day's list. */
 async function goLate(): Promise<void> {
   if (range.value === 'agenda') {
-    const target = earliestLate(byDay.value, clock.value)
+    const target = earliestLate(byDay.value, today.value)
     if (target) await agenda.value?.reveal(target.day, target.card.id)
     return
   }
-  const target = earliestLate(byDay.value, clock.value, (day) => monthOf(day) === month.value)
+  const target = earliestLate(byDay.value, today.value, (day) => monthOf(day) === month.value)
   if (!target) return
   focusDay.value = target.day
   closeLists()
@@ -358,6 +358,10 @@ function patch(id: number, value: Partial<CardData>): void {
   emit('patch', id, value)
 }
 
+/** Jobs with no date shown at a time: the calendar view takes every
+ *  ticket, so the list has no natural end. */
+const UNDATED_STEP = 50
+
 const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc(100dvh-2rem))] flex-col overflow-hidden rounded-xl border border-default bg-surface'
 </script>
 
@@ -366,17 +370,19 @@ const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc
     <!-- The month, what is on it, and the way to another month. -->
     <header class="flex shrink-0 items-start gap-2 px-4 pt-4 pb-2">
       <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3">
-        <h2 class="text-lg leading-7 font-semibold text-primary" aria-live="polite">{{ title }}</h2>
+        <!-- Turning the month is announced; scrolling the agenda, which
+             changes the title as it goes, is not. -->
+        <h2 class="text-lg leading-7 font-semibold text-primary" :aria-live="range === 'month' ? 'polite' : undefined">{{ title }}</h2>
         <p class="text-xs leading-5 text-secondary tabular-nums" data-month-load>
           <template v-if="summary.count">{{ $t(range === 'agenda' ? 'calendar-agenda-load' : 'plan-day-load', { count: summary.count }) }}</template>
           <template v-else>{{ summary.empty }}</template>
           <template v-if="lateCount">, <button
             type="button"
-            class="-mx-0.5 rounded px-0.5 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            class="-mx-0.5 rounded px-0.5 text-overdue hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             :aria-label="$t('calendar-overdue-jump', { count: lateCount })"
             data-overdue
             @click="goLate"
-          ><span class="text-rose-600 dark:text-rose-400">{{ $t('calendar-overdue-count', { count: lateCount }) }}</span></button></template>
+          >{{ $t('calendar-overdue-count', { count: lateCount }) }}</button></template>
         </p>
         <!-- The way back, beside what it leaves: it wraps under the
              title with the summary where the line is short, so the
@@ -422,7 +428,7 @@ const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc
       data-calendar-rows
       :by-day="byDay"
       :overlays-by-day="overlaysByDay"
-      :clock="clock"
+      :today="today"
       :locale="locale"
       :timed="timed"
       :drop-day="drag.dropDay.value"
@@ -448,7 +454,8 @@ const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc
           <DayList
             v-if="undatedOpen"
             :day="undated"
-            :clock="clock"
+            :limit="UNDATED_STEP"
+            :today="today"
             :locale="locale"
             empty=""
             @open="open"
@@ -464,7 +471,7 @@ const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc
       :weeks="weeks"
       :by-day="byDay"
       :overlays-by-day="overlaysByDay"
-      :clock="clock"
+      :today="today"
       :locale="locale"
       :timed="timed"
       :focus-day="focusDay"
@@ -486,7 +493,7 @@ const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc
         :month="month"
         :weeks="weeks"
         :by-day="byDay"
-        :clock="clock"
+        :today="today"
         :locale="locale"
         :focus-day="focusDay"
         :selected-day="focusDay"
@@ -506,7 +513,7 @@ const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc
         <DayList
           :day="jobsOn(byDay, focusDay)"
           :overlays="overlaysByDay.get(focusDay)"
-          :clock="clock"
+          :today="today"
           :locale="locale"
           :empty="$t('plan-day-empty')"
           @open="open"
@@ -527,7 +534,8 @@ const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc
         <DayList
           v-if="undatedOpen"
           :day="undated"
-          :clock="clock"
+          :limit="UNDATED_STEP"
+          :today="today"
           :locale="locale"
           empty=""
           @open="open"
@@ -559,7 +567,7 @@ const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc
           class="min-h-0 overflow-y-auto overscroll-contain"
           :day="listJobs"
           :overlays="listOverlays"
-          :clock="clock"
+          :today="today"
           :locale="locale"
           :empty="$t('plan-day-empty')"
           @open="open"
@@ -585,7 +593,8 @@ const POPOVER = 'flex w-[22.5rem] max-w-[calc(100vw-1rem)] max-h-[min(32rem,calc
         <DayList
           class="min-h-0 overflow-y-auto overscroll-contain"
           :day="undated"
-          :clock="clock"
+          :limit="UNDATED_STEP"
+          :today="today"
           :locale="locale"
           empty=""
           @open="open"

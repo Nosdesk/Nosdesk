@@ -4,6 +4,10 @@
  * number and one mark for how much is on it: a short rule that grows
  * with the count, in the overdue color when something on that day is
  * late. Selecting a day shows its jobs under the month.
+ *
+ * Today is its number on the accent fill, as in the wide month and the
+ * agenda; the selected day is a ring, which also shows around today's
+ * fill.
  */
 import { computed, ref } from 'vue'
 import type { Day } from '@nosdesk/core/utils/ticketDates'
@@ -14,7 +18,6 @@ import {
   weekdayLabel,
   type DayJobs,
   type Month,
-  type WallClock,
 } from '@nosdesk/core/sync/views/calendar'
 import { useDayGrid } from './useDayGrid'
 
@@ -22,7 +25,7 @@ const props = defineProps<{
   month: Month
   weeks: Day[][]
   byDay: ReadonlyMap<Day | null, DayJobs>
-  clock: WallClock
+  today: Day
   locale: string
   focusDay: Day
   selectedDay: Day
@@ -45,9 +48,9 @@ const cells = computed(() =>
         day,
         number: Number(day.slice(8)),
         inMonth: monthOf(day) === props.month,
-        today: day === props.clock.day,
+        today: day === props.today,
         count: jobs.length,
-        late: jobs.some((card) => isLate(card, props.clock)),
+        late: jobs.some((card) => isLate(card, props.today)),
       }
     }),
   ),
@@ -85,26 +88,27 @@ const keys = useDayGrid({
         :aria-label="label(cell.day)"
         :aria-current="cell.today ? 'date' : undefined"
         :aria-selected="cell.day === selectedDay"
-        class="group flex h-12 flex-col items-center gap-1 pt-1 focus:outline-none"
+        class="group flex h-12 flex-col items-center gap-1.5 pt-1 focus:outline-none"
         @click="emit('select', cell.day)"
         @keydown="keys.onKeydown"
       >
         <span
-          class="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm tabular-nums transition-colors group-focus-visible:ring-2 group-focus-visible:ring-accent"
-          :class="cell.day === selectedDay
-            ? cell.today
+          class="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm tabular-nums transition-colors group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-accent"
+          :class="[
+            cell.today
               ? 'bg-accent font-semibold text-on-accent'
-              : 'bg-surface-hover font-semibold text-primary'
-            : cell.today
-              ? 'font-semibold text-accent'
-              : cell.inMonth
-                ? 'text-primary'
-                : 'text-tertiary'"
+              : cell.day === selectedDay
+                ? 'font-semibold text-primary'
+                : cell.inMonth
+                  ? 'text-primary'
+                  : 'text-tertiary',
+            cell.day === selectedDay && 'ring-2 ring-offset-1 ring-primary ring-offset-surface',
+          ]"
         >{{ cell.number }}</span>
         <span
           v-if="cell.count"
           class="h-0.5 rounded-full bg-current"
-          :class="cell.late ? 'text-rose-500' : 'text-tertiary'"
+          :class="cell.late ? 'text-overdue' : 'text-tertiary'"
           :style="{ width: `${4 + (Math.min(cell.count, FULL) / FULL) * 20}px` }"
           data-load-mark
         />
