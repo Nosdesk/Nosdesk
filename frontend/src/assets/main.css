@@ -449,9 +449,12 @@
    page of comments. Inter ships as a variable font (100 to 900), so
    each step is a real weight, not a synthesised one. The monospace
    stack's faces either carry these weights (SF Mono, Cascadia) or
-   round to their regular and bold faces (Consolas), so it is never
-   emboldened twice either. Colour, size and spacing do not change:
-   heavier text is a little wider, and rows answer that by wrapping. */
+   round to their regular and bold faces (Consolas), so the browser
+   does not synthesise bold there either. Whether WKWebView also
+   emboldens system faces by itself under Bold Text (the mono fallback,
+   an email's frame) is still to be checked on a device. Colour, size
+   and spacing do not change: heavier text is a little wider, and rows
+   answer that by wrapping. */
 :root[data-bold-text] {
   --font-weight-normal: 500;
   --font-weight-medium: 600;

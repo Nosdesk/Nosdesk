@@ -300,8 +300,12 @@ function adjustLayout() {
   const docBody = doc?.body
   const root = doc?.documentElement
   if (!docBody || !root) return
-  // A hidden copy (the other breakpoint's layout) has nothing to fit.
-  if (f.clientWidth === 0) return
+  // A hidden copy (the other breakpoint's layout) has nothing to fit yet;
+  // its frame observer lays it out once it is shown.
+  if (f.clientWidth === 0) {
+    attachObservers(f, docBody)
+    return
+  }
 
   docBody.style.fontSize = props.reading ? '16px' : ''
   // Bold Text reaches the app through the weight tokens, which stop at the

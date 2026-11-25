@@ -52,10 +52,10 @@ withDefaults(defineProps<Props>(), {
   >
     <!-- Header. Compact pill, mirrors the dashboard widget shell so
          every card with a header reads as the same visual primitive
-         across the app. 36px at the designed size; it grows, and on a
-         phone the title wraps, once larger text needs the room. -->
+         across the app. 36px; on a phone it grows, and the title wraps,
+         once larger text needs the room. -->
     <header
-      class="flex items-center gap-2 px-3 min-h-9 py-1.5 border-b border-default bg-surface-alt flex-shrink-0"
+      class="flex items-center gap-2 px-3 h-9 max-md:h-auto max-md:min-h-9 max-md:py-1.5 border-b border-default bg-surface-alt flex-shrink-0"
       :class="{ 'sticky top-0 z-20': stickyHeader }"
     >
       <!-- Optional leading content (icon, dot indicator). -->

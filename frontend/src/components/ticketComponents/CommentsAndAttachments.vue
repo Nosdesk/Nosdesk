@@ -903,7 +903,9 @@ const handlePastedFiles = async (files: File[]) => {
                                     :class="isInternal ? 'border border-status-warning/50 bg-status-warning-muted font-medium text-status-warning' : 'text-secondary'"
                                 >
                                     <Icon :name="isInternal ? 'lock' : 'eye'" size="sm" class="shrink-0" />
-                                    <span>{{ isInternal ? $t('ticket-comments-internal-note') : $t('ticket-comments-public-reply') }}</span>
+                                    <!-- Named for what it sets, then the current
+                                         choice, which is also what it shows. -->
+                                    <span><span class="sr-only">{{ $t('ticket-comments-visibility-group') }}: </span>{{ isInternal ? $t('ticket-comments-internal-note') : $t('ticket-comments-public-reply') }}</span>
                                 </span>
                             </button>
 
