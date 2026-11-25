@@ -1619,3 +1619,138 @@ async fn a_damaged_archive_is_refused() {
         "a truncated archive doesn't open"
     );
 }
+
+/// Named asset statuses ride the archive as configuration, and everything
+/// that holds one by id (an asset, both sides of an event, a loan's status
+/// to return to, an asset view's filter, a rule step's config) lands on the
+/// target's new ids.
+#[actix_web::test]
+async fn named_asset_statuses_land_on_their_new_ids() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(6);
+    fresh_workspace_ids(&mut pool.get().expect("conn"));
+    let seed = import_workspaces(&pool).a;
+    let ws = seed.workspace_id;
+    let mut conn = pool.get().expect("conn");
+    let vendor = id_in(
+        &mut conn,
+        "INSERT INTO asset_statuses (workspace_id, category, slug, label) \
+         VALUES ($1, 'in_repair', 'at_vendor', 'At vendor') RETURNING id",
+        ws,
+    );
+    let shelf = id_in(
+        &mut conn,
+        "INSERT INTO asset_statuses (workspace_id, category, slug, label, is_default) \
+         VALUES ($1, 'in_stock', 'loaner_shelf', 'Loaner shelf', true) RETURNING id",
+        ws,
+    );
+    let asset = id_in(
+        &mut conn,
+        &format!(
+            "INSERT INTO assets (workspace_id, name, status, status_id) \
+             VALUES ($1, 'Named projector', 'in_repair', {vendor}) RETURNING id"
+        ),
+        ws,
+    );
+    exec(
+        &mut conn,
+        &format!(
+            "INSERT INTO asset_lifecycle_events (workspace_id, asset_id, from_status, to_status, \
+               from_status_id, to_status_id) \
+             VALUES ($1, {asset}, 'in_stock', 'in_repair', {shelf}, {vendor})"
+        ),
+        ws,
+    );
+    exec(
+        &mut conn,
+        &format!(
+            "INSERT INTO asset_loans (workspace_id, asset_id, borrower_user_uuid, status_before, \
+               status_id_before, returned_at) \
+             VALUES ($1, {asset}, '{}', 'in_stock', {shelf}, now())",
+            seed.member_uuid
+        ),
+        ws,
+    );
+    exec(
+        &mut conn,
+        &format!(
+            "INSERT INTO saved_views (workspace_id, scope, name, shape, filter, created_by, dataset) \
+             VALUES ($1, 'workspace', 'With vendors', '{{}}', \
+               jsonb_build_object('status_id', '{vendor},{shelf}'), '{}', 'assets')",
+            seed.admin_uuid
+        ),
+        ws,
+    );
+    exec(
+        &mut conn,
+        &format!(
+            "INSERT INTO rules (workspace_id, name, trigger_kind, actions, state) \
+             VALUES ($1, 'Park at the vendor', 'manual', jsonb_build_array(jsonb_build_object( \
+               'kind', 'move_asset_status', 'config', jsonb_build_object('status_id', {vendor}))), \
+               'draft')"
+        ),
+        ws,
+    );
+    drop(conn);
+
+    let archive = export(&pool, &seed, ws).await;
+    let contents = read_archive(&archive, Some(PASSWORD)).expect("read the archive");
+    let target = fresh_target(&pool);
+    let (applied, _) = import(&pool, &contents, &target).await;
+    assert!(
+        applied.report.refusals.is_empty(),
+        "{:?}",
+        applied.report.refusals
+    );
+    let t = target.id;
+    let value = |sql: &str| text(&pool, sql, t).unwrap_or_else(|| panic!("{sql}: null"));
+    let new_vendor = value(
+        "SELECT id::text AS value FROM asset_statuses WHERE workspace_id = $1 AND slug = 'at_vendor'",
+    );
+    let new_shelf = value(
+        "SELECT id::text AS value FROM asset_statuses \
+         WHERE workspace_id = $1 AND slug = 'loaner_shelf' AND is_default",
+    );
+    assert_ne!(
+        new_vendor,
+        vendor.to_string(),
+        "the target numbers its own rows"
+    );
+    assert_eq!(
+        value(
+            "SELECT status || ':' || status_id AS value FROM assets \
+             WHERE workspace_id = $1 AND name = 'Named projector'"
+        ),
+        format!("in_repair:{new_vendor}")
+    );
+    assert_eq!(
+        value(
+            "SELECT e.from_status_id || ':' || e.to_status_id AS value \
+             FROM asset_lifecycle_events e JOIN assets a ON a.id = e.asset_id \
+             WHERE a.workspace_id = $1 AND a.name = 'Named projector'"
+        ),
+        format!("{new_shelf}:{new_vendor}")
+    );
+    assert_eq!(
+        value(
+            "SELECT l.status_id_before::text AS value FROM asset_loans l \
+             JOIN assets a ON a.id = l.asset_id \
+             WHERE a.workspace_id = $1 AND a.name = 'Named projector'"
+        ),
+        new_shelf
+    );
+    assert_eq!(
+        value(
+            "SELECT filter->>'status_id' AS value FROM saved_views \
+             WHERE workspace_id = $1 AND name = 'With vendors'"
+        ),
+        format!("{new_vendor},{new_shelf}")
+    );
+    assert_eq!(
+        value(
+            "SELECT actions->0->'config'->>'status_id' AS value FROM rules \
+             WHERE workspace_id = $1 AND name = 'Park at the vendor'"
+        ),
+        new_vendor
+    );
+}

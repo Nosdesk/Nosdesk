@@ -30,6 +30,16 @@ use super::{ImportType, MatchBy, RecordId, RowOutcome, RowResult};
 /// never removes them.
 const NOT_RESTORABLE: &[&str] = &["groups"];
 
+/// An asset's status and the named status inside it (`status_label`) go
+/// back together. A blank name goes back too: it is the plain category,
+/// not a field that was blank.
+const STATUS_FIELDS: [&str; 2] = ["status", "status_label"];
+
+/// A field whose blank `before` is a value to put back.
+fn blank_goes_back(field: &str) -> bool {
+    field == "status_label"
+}
+
 /// The file's size, for the detail page's help text.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct PreviousValues {
@@ -64,7 +74,7 @@ impl Layout {
         Self {
             key: key_field(key),
             order: TEMPLATE_CORE_HEADERS,
-            together: &[],
+            together: &STATUS_FIELDS,
         }
     }
 
@@ -141,6 +151,7 @@ pub fn counts(rows: &[RowResult], layout: Layout) -> PreviousValues {
         .map(|r| {
             columns
                 .iter()
+                .filter(|c| !blank_goes_back(c))
                 .filter_map(|c| r.fields_written.get(c))
                 .filter(|change| change.before.as_deref().is_none_or(|v| v.trim().is_empty()))
                 .count()
@@ -194,7 +205,9 @@ pub fn restorable(
             .fields_written
             .iter()
             .filter(|(f, _)| f.as_str() != key && !NOT_RESTORABLE.contains(&f.as_str()))
-            .filter(|(_, c)| c.before.as_deref().is_some_and(|v| !v.trim().is_empty()))
+            .filter(|(f, c)| {
+                blank_goes_back(f) || c.before.as_deref().is_some_and(|v| !v.trim().is_empty())
+            })
             .filter(|(f, _)| importable(f))
             .collect();
         if candidates.is_empty() {

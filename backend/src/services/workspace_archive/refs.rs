@@ -51,6 +51,8 @@ pub enum Entity {
     AssetGroup,
     AssetLoan,
     AssetRecord,
+    /// A named asset status.
+    AssetStatus,
     /// A documentation page by its `id`.
     Page,
     /// A documentation page by its `uuid`.
@@ -81,6 +83,7 @@ impl Entity {
             Entity::AssetGroup => ("asset_groups", "id"),
             Entity::AssetLoan => ("asset_loans", "id"),
             Entity::AssetRecord => ("asset_records", "id"),
+            Entity::AssetStatus => ("asset_statuses", "id"),
             Entity::Page => ("documentation_pages", "id"),
             Entity::PageUuid => ("documentation_pages", "uuid"),
             Entity::CollectionUuid => ("documentation_collections", "uuid"),
@@ -117,6 +120,7 @@ impl Entity {
         Entity::AssetGroup,
         Entity::AssetLoan,
         Entity::AssetRecord,
+        Entity::AssetStatus,
         Entity::Page,
         Entity::PageUuid,
         Entity::CollectionUuid,
@@ -214,11 +218,12 @@ use Kind::{File, Html, Ref};
 
 /// Rule actions (`handlers/rules.rs`, `repository/rules.rs`): `set_status`,
 /// `assign` direct or to a group, `add_tags`/`remove_tags`, a reply's
-/// agent to send as, the person a notify step emails, and a reply's or
-/// notify step's HTML body. `unassign`, `set_priority` and
-/// `stop_processing` carry none.
+/// agent to send as, the person a notify step emails, a reply's or notify
+/// step's HTML body, and the named status an asset step moves to.
+/// `unassign`, `set_priority` and `stop_processing` carry none.
 const RULE_ACTIONS: Shape = Shape::Paths(&[
     ("*.config.workflow_state_id", Ref(E::WorkflowState)),
+    ("*.config.status_id", Ref(E::AssetStatus)),
     ("*.config.user_uuid", Ref(E::User)),
     ("*.config.send_as_uuid", Ref(E::User)),
     ("*.config.group_id", Ref(E::Group)),
@@ -1235,10 +1240,14 @@ fn view_filter(dataset: &str, value: &mut Value, lookup: &dyn Lookup, found: &mu
             }
         }
         "assets" => {
-            if let Some(Value::String(csv)) = filter.get("groups").cloned() {
+            // Comma-separated ids, as the list's query takes them.
+            for (key, entity) in [("groups", E::AssetGroup), ("status_id", E::AssetStatus)] {
+                let Some(Value::String(csv)) = filter.get(key).cloned() else {
+                    continue;
+                };
                 let mut kept = Vec::new();
                 for id in csv.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-                    match map(E::AssetGroup, &Value::String(id.to_string()), lookup) {
+                    match map(entity, &Value::String(id.to_string()), lookup) {
                         Outcome::Kept(Value::String(new)) => kept.push(new),
                         Outcome::Kept(other) => kept.push(other.to_string()),
                         Outcome::NotARef => kept.push(id.to_string()),
@@ -1246,9 +1255,9 @@ fn view_filter(dataset: &str, value: &mut Value, lookup: &dyn Lookup, found: &mu
                     }
                 }
                 if kept.is_empty() {
-                    filter.remove("groups");
+                    filter.remove(key);
                 } else {
-                    filter.insert("groups".into(), Value::String(kept.join(",")));
+                    filter.insert(key.into(), Value::String(kept.join(",")));
                 }
             }
             if let Some(import) = filter.get("import") {

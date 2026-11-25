@@ -704,6 +704,7 @@ async fn requesters_get_the_public_projection_and_no_records() {
             backend::repository::asset_lifecycle::TransitionInput {
                 asset_id: f.asset,
                 to_status: "disposed".to_string(),
+                to_status_id: None,
                 reason: Some("End of life".to_string()),
                 ticket_id: None,
                 metadata: json!({}),

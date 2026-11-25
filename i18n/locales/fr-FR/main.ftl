@@ -5366,6 +5366,8 @@ import-field-assets-serial-number = Numéro de série
 # MT: pending native review (fr-FR)
 import-field-assets-status = Statut
 # MT: pending native review (fr-FR)
+import-field-assets-status-label = Nom du statut
+# MT: pending native review (fr-FR)
 import-field-assets-location = Emplacement
 # MT: pending native review (fr-FR)
 import-field-assets-notes = Notes
@@ -6913,6 +6915,9 @@ asset-move-refused-needs-disposal = L'élimination d'une ressource exige un enre
 asset-move-refused-disposal-not-allowed = Un enregistrement d'élimination n'est accepté que lors de l'élimination d'une ressource
 asset-move-refused-start-only = Le statut { $status } n'est défini qu'à la création d'une ressource ; une ressource ne peut pas y revenir
 asset-move-refused-start-on-loan = Une ressource ne peut pas être créée en prêt ; prêtez-la après l'avoir créée
+asset-move-refused-wrong-category = Ce statut nommé n'appartient pas à { $status }
+asset-move-refused-status-archived = Ce statut nommé est archivé ; restaurez-le pour y déplacer des ressources
+asset-move-refused-status-not-for-kind = Ce statut nommé n'est pas proposé pour ce type de ressource
 
 asset-lifecycle-heading = Historique des statuts
 asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.

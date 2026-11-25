@@ -12,7 +12,11 @@
 //!
 //! `GET /assets/statuses` lists the categories with their flags and, for
 //! staff, the moves the status rules allow out of each, so a client offers
-//! what the server would accept.
+//! what the server would accept; and the workspace's named statuses, for
+//! everyone who sees assets, since assets carry them.
+//!
+//! A transition names its target by category (`to_status`), by named status
+//! (`to_status_id`) or both, which must agree.
 
 use actix_web::http::StatusCode;
 use actix_web::{web, HttpResponse, Responder};
@@ -31,13 +35,20 @@ use crate::repository::{
         self as repo, CompleteRecordInput, DisposalInput, RecordInput, TransitionError,
         TransitionInput,
     },
-    assets as assets_repo,
+    asset_statuses as named_repo, assets as assets_repo,
 };
 use crate::services::assets::status_rules::{self, MoveRefused, RefusalCode};
 
 #[derive(Debug, Deserialize)]
 pub struct TransitionBody {
-    pub to_status: String,
+    /// The category to move to. May be left out when `to_status_id` names
+    /// the status; given both, they must agree.
+    #[serde(default)]
+    pub to_status: Option<String>,
+    /// The named status to move to. Left out, the move goes to the plain
+    /// category.
+    #[serde(default)]
+    pub to_status_id: Option<i32>,
     pub reason: Option<String>,
     /// Ticket that captured the context for this move (e.g. the
     /// repair ticket describing the fault).
@@ -211,8 +222,14 @@ pub async fn create_transition(
     let asset_id = path.into_inner();
     let body = body.into_inner();
 
-    if !AssetStatus::is_valid(&body.to_status) {
-        return errors::bad_request(format!("Unknown asset status '{}'", body.to_status));
+    match body.to_status.as_deref() {
+        Some(status) if !AssetStatus::is_valid(status) => {
+            return errors::bad_request(format!("Unknown asset status '{status}'"));
+        }
+        None if body.to_status_id.is_none() => {
+            return errors::bad_request("to_status or to_status_id is required");
+        }
+        _ => {}
     }
 
     // A move that writes a record names it in the metadata, which needs an
@@ -229,6 +246,17 @@ pub async fn create_transition(
     // disposal record) and the record rules are checked by the repository
     // inside the transaction.
     let result = tc.run_result(|conn| -> Result<_, Refused> {
+        // A named status alone names its category too.
+        let to_status = match body.to_status {
+            Some(status) => status,
+            None => {
+                // One of the two is there, checked before the transaction.
+                let id = body.to_status_id.unwrap_or_default();
+                named_repo::get(conn, id)?
+                    .ok_or(TransitionError::UnknownNamedStatus(id))?
+                    .category
+            }
+        };
         let record = match body.record {
             Some(r) => {
                 // The people and ticket a record names, as a record written
@@ -273,7 +301,8 @@ pub async fn create_transition(
             conn,
             TransitionInput {
                 asset_id,
-                to_status: body.to_status.clone(),
+                to_status,
+                to_status_id: body.to_status_id,
                 reason: body.reason.clone(),
                 ticket_id: body.ticket_id,
                 metadata,
@@ -317,6 +346,15 @@ pub(crate) fn map_transition_err(asset_id: i32, e: TransitionError) -> HttpRespo
         TransitionError::UnknownStatus(status) => {
             errors::bad_request(format!("Unknown asset status '{status}'"))
         }
+        TransitionError::UnknownNamedStatus(id) => {
+            errors::bad_request(format!("Unknown asset status id {id}"))
+        }
+        TransitionError::RecordOnRelabel => errors::with_fields(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "RECORD_ON_RELABEL",
+            "A move within one status category writes no record",
+            json!({}),
+        ),
         TransitionError::InvalidSanitizationMethod(method) => errors::bad_request(format!(
             "Unknown sanitization method '{method}'; expected one of: {}",
             SANITIZATION_METHODS.join(", ")
@@ -366,8 +404,11 @@ pub(crate) fn refusal_response(r: MoveRefused) -> HttpResponse {
         | RefusalCode::LoanOwned
         | RefusalCode::NeedsActiveLoan
         | RefusalCode::NotLoanable
-        | RefusalCode::NotOnLoan => StatusCode::CONFLICT,
-        RefusalCode::StartOnly => StatusCode::UNPROCESSABLE_ENTITY,
+        | RefusalCode::NotOnLoan
+        | RefusalCode::StatusArchived => StatusCode::CONFLICT,
+        RefusalCode::StartOnly | RefusalCode::WrongCategory | RefusalCode::StatusNotForKind => {
+            StatusCode::UNPROCESSABLE_ENTITY
+        }
     };
     errors::with_fields(
         status,
@@ -390,20 +431,77 @@ struct CategoryView {
     targets: Option<Vec<status_rules::Target>>,
 }
 
-/// GET the status categories, in picker order, with their flags and, for
-/// staff, the manual targets of each and what each needs (`disposal`,
-/// `active_loan`, `no_active_loan`). `statuses` lists the workspace's named
-/// statuses; none exist yet. Open to whoever sees assets.
-pub async fn list_statuses(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    match tc.run(|conn| crate::handlers::assets::require_assets_visible(conn, &auth)) {
-        Ok(()) => {}
-        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Not found"),
-        Err(e) => {
-            error!(error = ?e, "failed to check asset visibility");
-            return errors::internal("Failed to load asset statuses");
+/// A named status as `GET /assets/statuses` lists it. The description and
+/// kinds are for staff, who pick statuses; anyone else gets what renders an
+/// asset's status (left out, not null, since a null kinds list means every
+/// kind).
+#[derive(Debug, Serialize)]
+struct NamedView {
+    id: i32,
+    category: String,
+    slug: String,
+    label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<Option<String>>,
+    color: Option<String>,
+    position: i32,
+    is_default: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applies_to_kinds: Option<Option<Vec<String>>>,
+    /// Archived statuses stay on the assets that hold them: listed, so a
+    /// client can name them, and left out of pickers.
+    archived: bool,
+}
+
+impl NamedView {
+    fn of(s: crate::models::AssetNamedStatus, staff: bool) -> Self {
+        Self {
+            id: s.id,
+            category: s.category,
+            slug: s.slug,
+            label: s.label,
+            description: staff.then_some(s.description),
+            color: s.color,
+            position: s.position,
+            is_default: s.is_default,
+            applies_to_kinds: staff.then(|| {
+                s.applies_to_kinds
+                    .map(|kinds| kinds.into_iter().flatten().collect())
+            }),
+            archived: s.archived_at.is_some(),
         }
     }
+}
+
+/// GET the status categories, in picker order, with their flags and, for
+/// staff, the manual targets of each and what each needs (`disposal`,
+/// `active_loan`, `no_active_loan`); and `statuses`, the workspace's named
+/// statuses in picker order, archived ones too. Open to whoever sees assets;
+/// anyone but staff gets an archived status only while an asset holds it.
+pub async fn list_statuses(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     let staff = auth.can_handle_tickets();
+    let named = match tc.run(|conn| {
+        crate::handlers::assets::require_assets_visible(conn, &auth)?;
+        let named = named_repo::list(conn, true)?;
+        if staff {
+            return Ok(named);
+        }
+        let held: std::collections::HashSet<i32> = named_repo::asset_counts(conn)?
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        Ok(named
+            .into_iter()
+            .filter(|s| s.archived_at.is_none() || held.contains(&s.id))
+            .collect())
+    }) {
+        Ok(named) => named,
+        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Not found"),
+        Err(e) => {
+            error!(error = ?e, "failed to list asset statuses");
+            return errors::internal("Failed to load asset statuses");
+        }
+    };
     let categories: Vec<CategoryView> = AssetStatus::ALL
         .into_iter()
         .map(|key| CategoryView {
@@ -413,7 +511,8 @@ pub async fn list_statuses(mut tc: TenantConn, auth: AuthContext) -> impl Respon
             targets: staff.then(|| status_rules::manual_targets(key)),
         })
         .collect();
-    HttpResponse::Ok().json(json!({ "categories": categories, "statuses": [] }))
+    let statuses: Vec<NamedView> = named.into_iter().map(|s| NamedView::of(s, staff)).collect();
+    HttpResponse::Ok().json(json!({ "categories": categories, "statuses": statuses }))
 }
 
 /// GET the disposal record for an asset (`None` -> 404). Read on demand for the

@@ -329,6 +329,7 @@ pub async fn export(mut tc: TenantConn, auth: AuthContext, req: HttpRequest) -> 
                 warranty: None,
                 location: None,
                 status: None,
+                status_id: None,
                 groups: None,
                 low_stock_only: false,
                 ids: Some(&asset_ids),

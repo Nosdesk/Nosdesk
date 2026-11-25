@@ -56,6 +56,7 @@ fn disposed_asset(pool: &TestPool, workspace_id: i32, actor: Option<Uuid>) -> (i
             TransitionInput {
                 asset_id: asset.id,
                 to_status: "disposed".to_string(),
+                to_status_id: None,
                 reason: None,
                 ticket_id: None,
                 metadata: serde_json::json!({}),

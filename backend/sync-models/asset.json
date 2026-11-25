@@ -12,6 +12,7 @@
     "asset_tag": { "rust": "Option<String>", "ts": "string | null" },
     "location": { "rust": "Option<String>", "ts": "string | null" },
     "status": { "rust": "String", "ts": "string" },
+    "status_id": { "rust": "Option<i32>", "ts": "number | null" },
     "primary_user_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
     "managed_by_user_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
     "attributes": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },

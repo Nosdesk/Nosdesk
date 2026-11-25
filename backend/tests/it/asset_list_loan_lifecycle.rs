@@ -394,6 +394,8 @@ async fn a_requester_sees_who_has_it_but_not_why_it_changed() {
         &json!({
             "from_status": "in_repair",
             "to_status": "in_service",
+            "from_status_id": null,
+            "to_status_id": null,
             "occurred_at": event["occurred_at"],
             "reason": null,
             "actor_uuid": null,

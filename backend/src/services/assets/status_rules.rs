@@ -11,6 +11,13 @@
 //! The matrix is data ([`Matrix`]); [`FIXED`] is the one every path uses. A
 //! workspace layer can narrow it later by wrapping [`FIXED`] and refusing
 //! more cells, never by allowing one it refuses.
+//!
+//! A workspace names statuses inside the categories. A move to a named
+//! status ([`check_named_move`]) is the category move plus three checks on
+//! the target: it is of the category named, not archived, and offered for
+//! the asset's kind. A change of named status within one category is always
+//! allowed by the matrix, `disposed` and `on_loan` included: it relabels the
+//! asset and changes no behavior.
 
 use serde::Serialize;
 
@@ -45,6 +52,13 @@ pub enum RefusalCode {
     StartOnly,
     /// A new asset can't start on loan; it is lent once it exists.
     StartOnLoan,
+    /// The named status isn't of the category the move names.
+    WrongCategory,
+    /// The named status is archived: assets holding it keep it, and nothing
+    /// moves to it.
+    StatusArchived,
+    /// The named status isn't offered for the asset's kind.
+    StatusNotForKind,
 }
 
 impl RefusalCode {
@@ -60,6 +74,9 @@ impl RefusalCode {
             Self::DisposalNotAllowed => "disposal_not_allowed",
             Self::StartOnly => "start_only",
             Self::StartOnLoan => "start_on_loan",
+            Self::WrongCategory => "wrong_category",
+            Self::StatusArchived => "status_archived",
+            Self::StatusNotForKind => "status_not_for_kind",
         }
     }
 
@@ -76,6 +93,9 @@ impl RefusalCode {
             Self::DisposalNotAllowed => "asset-move-refused-disposal-not-allowed",
             Self::StartOnly => "asset-move-refused-start-only",
             Self::StartOnLoan => "asset-move-refused-start-on-loan",
+            Self::WrongCategory => "asset-move-refused-wrong-category",
+            Self::StatusArchived => "asset-move-refused-status-archived",
+            Self::StatusNotForKind => "asset-move-refused-status-not-for-kind",
         }
     }
 }
@@ -290,6 +310,122 @@ pub fn check_move_in(
         Cell::WithActiveLoan if facts.active_loan => Ok(()),
         Cell::WithActiveLoan => refuse(RefusalCode::NeedsActiveLoan),
         Cell::Allowed => Ok(()),
+    }
+}
+
+/// A named status as the rules read it, loaded by the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Named<'a> {
+    pub id: i32,
+    /// `None` for a stored category outside the nine.
+    pub category: Option<AssetStatus>,
+    pub archived: bool,
+    /// Kind slugs offered the status; `None` means every kind.
+    pub kinds: Option<&'a [Option<String>]>,
+}
+
+impl<'a> Named<'a> {
+    /// The rules' view of `status`.
+    pub fn of(status: &'a crate::models::AssetNamedStatus) -> Self {
+        Self {
+            id: status.id,
+            category: status.category(),
+            archived: status.archived_at.is_some(),
+            kinds: status.applies_to_kinds.as_deref(),
+        }
+    }
+
+    fn applies_to(&self, kind: &str) -> bool {
+        self.kinds
+            .is_none_or(|kinds| kinds.iter().flatten().any(|k| k == kind))
+    }
+}
+
+/// What an allowed move to a named status comes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NamedMove {
+    /// Into another category: the matrix allowed it.
+    Category,
+    /// To another named status of the same category, or back to the plain
+    /// category: a relabel that opens, completes and returns nothing.
+    Within,
+}
+
+/// Whether an asset of kind `kind` in category `from`, holding named status
+/// `from_id` (`None`: plain), may move to category `to` and named status
+/// `named` (`None`: plain). The order is fixed: a named status of another
+/// category, then the same category and named status (`same_status`, so a
+/// bulk caller reads it as unchanged), then the matrix for a move between
+/// categories (a relabel within one is always allowed, but carries no
+/// disposal record), then the target's archive state and kinds.
+pub fn check_named_move(
+    from: AssetStatus,
+    from_id: Option<i32>,
+    to: AssetStatus,
+    named: Option<Named<'_>>,
+    kind: &str,
+    facts: MoveFacts,
+) -> Result<NamedMove, MoveRefused> {
+    let refuse = |code| {
+        Err(MoveRefused {
+            code,
+            from: Some(from),
+            to,
+        })
+    };
+    if named.is_some_and(|n| n.category != Some(to)) {
+        return refuse(RefusalCode::WrongCategory);
+    }
+    let to_id = named.map(|n| n.id);
+    let change = if from == to {
+        if from_id == to_id {
+            return refuse(RefusalCode::SameStatus);
+        }
+        if facts.mover != Mover::Hand {
+            return refuse(RefusalCode::SameStatus);
+        }
+        if facts.disposal {
+            return refuse(RefusalCode::DisposalNotAllowed);
+        }
+        NamedMove::Within
+    } else {
+        check_move(from, to, facts)?;
+        NamedMove::Category
+    };
+    if let Some(named) = named {
+        if named.archived {
+            return refuse(RefusalCode::StatusArchived);
+        }
+        if !named.applies_to(kind) {
+            return refuse(RefusalCode::StatusNotForKind);
+        }
+    }
+    Ok(change)
+}
+
+/// Whether a new asset of kind `kind` may start in category `category` and
+/// named status `named`: [`check_initial`], then the target checks of
+/// [`check_named_move`].
+pub fn check_named_initial(
+    category: AssetStatus,
+    named: Option<Named<'_>>,
+    kind: &str,
+) -> Result<(), MoveRefused> {
+    let refuse = |code| {
+        Err(MoveRefused {
+            code,
+            from: None,
+            to: category,
+        })
+    };
+    if named.is_some_and(|n| n.category != Some(category)) {
+        return refuse(RefusalCode::WrongCategory);
+    }
+    check_initial(category)?;
+    match named {
+        Some(n) if n.archived => refuse(RefusalCode::StatusArchived),
+        Some(n) if !n.applies_to(kind) => refuse(RefusalCode::StatusNotForKind),
+        _ => Ok(()),
     }
 }
 
@@ -578,6 +714,9 @@ mod tests {
             RefusalCode::DisposalNotAllowed,
             RefusalCode::StartOnly,
             RefusalCode::StartOnLoan,
+            RefusalCode::WrongCategory,
+            RefusalCode::StatusArchived,
+            RefusalCode::StatusNotForKind,
         ];
         for code in codes {
             let message = MoveRefused {
@@ -599,5 +738,124 @@ mod tests {
             "{}",
             start_only.message()
         );
+    }
+
+    fn named(id: i32, category: AssetStatus) -> Named<'static> {
+        Named {
+            id,
+            category: Some(category),
+            archived: false,
+            kinds: None,
+        }
+    }
+
+    #[test]
+    fn a_relabel_within_a_category_is_allowed_in_every_category() {
+        let hand = MoveFacts::by_hand(true, false);
+        for category in AssetStatus::ALL {
+            let to = named(7, category);
+            assert_eq!(
+                check_named_move(category, None, category, Some(to), "laptop", hand),
+                Ok(NamedMove::Within),
+                "{category:?}"
+            );
+            assert_eq!(
+                check_named_move(category, Some(7), category, None, "laptop", hand),
+                Ok(NamedMove::Within),
+                "{category:?} back to plain"
+            );
+            let same = check_named_move(category, Some(7), category, Some(to), "laptop", hand);
+            assert_eq!(same.unwrap_err().code, RefusalCode::SameStatus);
+            let plain = check_named_move(category, None, category, None, "laptop", hand);
+            assert_eq!(plain.unwrap_err().code, RefusalCode::SameStatus);
+        }
+    }
+
+    #[test]
+    fn named_refusals_come_in_a_fixed_order() {
+        let code = |from, from_id, to, n: Option<Named<'_>>, disposal| {
+            check_named_move(
+                from,
+                from_id,
+                to,
+                n,
+                "laptop",
+                MoveFacts::by_hand(false, disposal),
+            )
+            .unwrap_err()
+            .code
+        };
+        let archived = Named {
+            archived: true,
+            ..named(3, InRepair)
+        };
+        let kinds = [Some("vehicle".to_string())];
+        let vans = Named {
+            kinds: Some(&kinds),
+            ..named(4, InRepair)
+        };
+        // Another category's status beats everything.
+        assert_eq!(
+            code(InRepair, Some(3), InStock, Some(archived), false),
+            RefusalCode::WrongCategory
+        );
+        // The same status, archived or not, is unchanged.
+        assert_eq!(
+            code(InRepair, Some(3), InRepair, Some(archived), false),
+            RefusalCode::SameStatus
+        );
+        // The matrix beats the target's own checks.
+        assert_eq!(
+            code(Disposed, None, InRepair, Some(archived), false),
+            RefusalCode::Terminal
+        );
+        // A relabel carries no disposal record.
+        assert_eq!(
+            code(InRepair, None, InRepair, Some(vans), true),
+            RefusalCode::DisposalNotAllowed
+        );
+        assert_eq!(
+            code(InService, None, InRepair, Some(archived), false),
+            RefusalCode::StatusArchived
+        );
+        assert_eq!(
+            code(InService, None, InRepair, Some(vans), false),
+            RefusalCode::StatusNotForKind
+        );
+        assert_eq!(
+            code(InRepair, None, InRepair, Some(vans), false),
+            RefusalCode::StatusNotForKind
+        );
+        // The ledger never relabels.
+        let issue = MoveFacts {
+            mover: Mover::LoanIssue,
+            active_loan: false,
+            disposal: false,
+        };
+        assert_eq!(
+            check_named_move(OnLoan, Some(2), OnLoan, None, "laptop", issue)
+                .unwrap_err()
+                .code,
+            RefusalCode::SameStatus
+        );
+    }
+
+    #[test]
+    fn a_new_asset_starts_in_a_named_status_of_its_category() {
+        assert!(check_named_initial(InStock, Some(named(1, InStock)), "laptop").is_ok());
+        let code = |category, n| check_named_initial(category, n, "laptop").unwrap_err().code;
+        assert_eq!(
+            code(InStock, Some(named(1, InService))),
+            RefusalCode::WrongCategory
+        );
+        assert_eq!(
+            code(OnLoan, Some(named(1, OnLoan))),
+            RefusalCode::StartOnLoan
+        );
+        let archived = Named {
+            archived: true,
+            ..named(1, InStock)
+        };
+        assert_eq!(code(InStock, Some(archived)), RefusalCode::StatusArchived);
     }
 }

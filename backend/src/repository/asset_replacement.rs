@@ -50,6 +50,9 @@ pub fn old_asset_statuses() -> Vec<AssetStatus> {
 /// `disposed` carries.
 pub struct MoveOld {
     pub status: AssetStatus,
+    /// A named status inside `status`; `None` leaves an asset already in
+    /// the category as it is and moves one from another category to plain.
+    pub status_id: Option<i32>,
     pub disposal: Option<DisposalInput>,
 }
 
@@ -86,6 +89,7 @@ pub struct AssignmentCopied {
 #[derive(Debug, Serialize)]
 pub struct OldAssetMoved {
     pub status: String,
+    pub status_id: Option<i32>,
     /// The lifecycle event the move wrote; `None` when the asset was
     /// already in the status.
     pub event_id: Option<i32>,
@@ -336,7 +340,8 @@ fn copy_assignment(
 /// status stays there. Leaving a status whose stay has one open record
 /// (other than the replacing one) completes it, as the status change
 /// offers by default; with several open, which one ended is a person's
-/// call, so all stay open.
+/// call, so all stay open. A named status of the category the asset is in
+/// relabels it and completes nothing.
 fn move_old(
     conn: &mut DbConnection,
     old: &Asset,
@@ -345,18 +350,24 @@ fn move_old(
     actor: Option<uuid::Uuid>,
 ) -> Result<OldAssetMoved, ReplacementError> {
     let status = to.status.as_str().to_string();
-    if old.status == status {
+    let same_category = old.status == status;
+    if same_category && to.status_id.is_none_or(|id| old.status_id == Some(id)) {
         return Ok(OldAssetMoved {
             status,
+            status_id: old.status_id,
             event_id: None,
             completed_record_id: None,
         });
     }
-    let open: Vec<i32> = records_repo::open_for_leaving(conn, old.id, &old.status)?
-        .into_iter()
-        .map(|r| r.id)
-        .filter(|id| *id != replacing_record)
-        .collect();
+    let open: Vec<i32> = if same_category {
+        Vec::new()
+    } else {
+        records_repo::open_for_leaving(conn, old.id, &old.status)?
+            .into_iter()
+            .map(|r| r.id)
+            .filter(|id| *id != replacing_record)
+            .collect()
+    };
     let completing = match open.as_slice() {
         [only] => Some(*only),
         _ => None,
@@ -366,6 +377,7 @@ fn move_old(
         TransitionInput {
             asset_id: old.id,
             to_status: status.clone(),
+            to_status_id: to.status_id,
             reason: None,
             ticket_id: None,
             metadata: serde_json::json!({}),
@@ -380,6 +392,7 @@ fn move_old(
     )?;
     Ok(OldAssetMoved {
         status,
+        status_id: event.to_status_id,
         event_id: Some(event.id),
         completed_record_id: completing,
     })

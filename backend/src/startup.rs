@@ -1271,6 +1271,10 @@ pub fn configure_app(
                     // picker and catalogue live under /assets.
                     .configure(crate::handlers::asset_record_types::config)
 
+                    // Named asset statuses: workspace-admin CRUD. Everyone
+                    // who sees assets reads them at /assets/statuses.
+                    .configure(crate::handlers::asset_statuses::config)
+
                     // Bulk CSV import — admin-only. The template
                     // route is declared before /{id} so the literal
                     // "template" path segment doesn't get matched

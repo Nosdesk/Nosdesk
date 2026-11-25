@@ -2443,8 +2443,14 @@ fn transition_failed(
             asset,
             &format!("can't change to the unknown status {status}"),
         ),
+        TransitionError::UnknownNamedStatus(id) => asset_refused(
+            index,
+            asset,
+            &format!("can't change to the unknown status #{id}"),
+        ),
         // A rule's move carries no disposal and opens or completes no record.
-        TransitionError::InvalidSanitizationMethod(_)
+        TransitionError::RecordOnRelabel
+        | TransitionError::InvalidSanitizationMethod(_)
         | TransitionError::NoRecordType { .. }
         | TransitionError::NoOpenRecord
         | TransitionError::RecordChoiceRequired { .. }
@@ -2509,6 +2515,7 @@ fn move_asset(
         crate::repository::asset_lifecycle::TransitionInput {
             asset_id: asset.id,
             to_status: to_status.to_string(),
+            to_status_id: None,
             reason: Some(reason.to_string()),
             ticket_id: Some(ticket_id),
             metadata: json!({ "rule_id": ctx.rule_id }),
@@ -2721,7 +2728,10 @@ fn execute_return_assets(
             crate::models::AssetStatus::from_str_opt(&loan.status_before).is_some_and(|to| {
                 crate::repository::asset_lifecycle::check_for_loan(
                     &asset,
-                    &crate::repository::asset_lifecycle::LoanMove::Return { to },
+                    &crate::repository::asset_lifecycle::LoanMove::Return {
+                        to,
+                        to_id: loan.status_id_before,
+                    },
                 )
                 .is_ok()
             })

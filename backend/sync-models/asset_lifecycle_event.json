@@ -7,6 +7,8 @@
     "asset_id": { "rust": "i32", "ts": "number" },
     "from_status": { "rust": "Option<String>", "ts": "string | null" },
     "to_status": { "rust": "String", "ts": "string" },
+    "from_status_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "to_status_id": { "rust": "Option<i32>", "ts": "number | null" },
     "reason": { "rust": "Option<String>", "ts": "string | null" },
     "ticket_id": { "rust": "Option<i32>", "ts": "number | null" },
     "metadata": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },

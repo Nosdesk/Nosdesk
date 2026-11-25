@@ -1028,6 +1028,12 @@ impl Read<'_> {
     }
 }
 
+/// Whether `event` disposed of its asset: a move into `disposed`, not a
+/// change of named status within it.
+fn disposes(event: &AssetLifecycleEvent) -> bool {
+    event.to_status == "disposed" && event.from_status.as_deref() != Some("disposed")
+}
+
 /// Fold each disposal into the status entry that disposed of its asset and,
 /// for staff, name the records each transition opened.
 fn attach_status_details(
@@ -1040,7 +1046,7 @@ fn attach_status_details(
     for entry in entries.iter() {
         if let EntryData::Status { event, .. } = &entry.data {
             event_ids.push(event.id);
-            if event.to_status == "disposed" {
+            if disposes(event) {
                 disposed_assets.push(event.asset_id);
             }
         }
@@ -1074,7 +1080,7 @@ fn attach_status_details(
         else {
             continue;
         };
-        if event.to_status == "disposed" {
+        if disposes(event) {
             // The disposal written with this transition, else the asset's
             // (disposal is final, so there is one).
             *disposal = disposals

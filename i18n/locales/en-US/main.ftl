@@ -4658,6 +4658,7 @@ import-field-assets-kind = Kind
 import-field-assets-asset-tag = Asset tag
 import-field-assets-serial-number = Serial number
 import-field-assets-status = Status
+import-field-assets-status-label = Status name
 import-field-assets-location = Location
 import-field-assets-notes = Notes
 import-field-assets-quantity = Quantity
@@ -6136,6 +6137,9 @@ asset-move-refused-needs-disposal = Disposing an asset requires a disposal recor
 asset-move-refused-disposal-not-allowed = A disposal record is only accepted when disposing an asset
 asset-move-refused-start-only = { $status } is only set when an asset is created; an asset can't move back to it
 asset-move-refused-start-on-loan = An asset can't be created on loan; lend it after creating it
+asset-move-refused-wrong-category = That named status isn't one of { $status }
+asset-move-refused-status-archived = That named status is archived; restore it to move assets to it
+asset-move-refused-status-not-for-kind = That named status isn't offered for this kind of asset
 
 # Asset lifecycle panel.
 asset-lifecycle-heading = Status history

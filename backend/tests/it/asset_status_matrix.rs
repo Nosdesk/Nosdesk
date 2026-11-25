@@ -123,6 +123,7 @@ fn to(id: i32, status: &str) -> TransitionInput {
     TransitionInput {
         asset_id: id,
         to_status: status.to_string(),
+        to_status_id: None,
         reason: None,
         ticket_id: None,
         metadata: json!({}),

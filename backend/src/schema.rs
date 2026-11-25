@@ -223,6 +223,8 @@ diesel::table! {
         actor_uuid -> Nullable<Uuid>,
         occurred_at -> Timestamptz,
         workspace_id -> Int4,
+        from_status_id -> Nullable<Int4>,
+        to_status_id -> Nullable<Int4>,
     }
 }
 
@@ -245,6 +247,7 @@ diesel::table! {
         workspace_id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        status_id_before -> Nullable<Int4>,
     }
 }
 
@@ -371,6 +374,29 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_statuses (id) {
+        id -> Int4,
+        workspace_id -> Int4,
+        #[max_length = 32]
+        category -> Varchar,
+        #[max_length = 64]
+        slug -> Varchar,
+        #[max_length = 64]
+        label -> Varchar,
+        description -> Nullable<Text>,
+        #[max_length = 7]
+        color -> Nullable<Varchar>,
+        position -> Int4,
+        is_default -> Bool,
+        applies_to_kinds -> Nullable<Array<Nullable<Text>>>,
+        archived_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     asset_usage_log (id) {
         id -> Int8,
         asset_id -> Int4,
@@ -422,6 +448,7 @@ diesel::table! {
         status -> Varchar,
         model_id -> Nullable<Int4>,
         managed_by_user_uuid -> Nullable<Uuid>,
+        status_id -> Nullable<Int4>,
     }
 }
 
@@ -2579,6 +2606,8 @@ diesel::joinable!(asset_models -> workspaces (workspace_id));
 diesel::joinable!(asset_record_types -> users (created_by));
 diesel::joinable!(asset_record_types -> workspaces (workspace_id));
 diesel::joinable!(asset_records -> workspaces (workspace_id));
+diesel::joinable!(asset_statuses -> users (created_by));
+diesel::joinable!(asset_statuses -> workspaces (workspace_id));
 diesel::joinable!(asset_usage_log -> users (recorded_by));
 diesel::joinable!(asset_usage_log -> workspaces (workspace_id));
 diesel::joinable!(assets -> workspaces (workspace_id));
@@ -2756,6 +2785,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     asset_models,
     asset_record_types,
     asset_records,
+    asset_statuses,
     asset_usage_log,
     assets,
     attachments,

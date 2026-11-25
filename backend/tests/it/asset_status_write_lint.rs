@@ -1,4 +1,5 @@
-//! Lint: `assets.status` is written only where the status rules are asked.
+//! Lint: `assets.status`, and the named status inside it (`status_id`), is
+//! written only where the status rules are asked.
 //!
 //! Every move of an asset's status goes through
 //! `services::assets::status_rules`: `asset_lifecycle::transition`, the loan
@@ -9,10 +10,11 @@
 //! would skip the matrix, which is how the loan ledger once came to set a
 //! status without the row lock. This finds, outside test code:
 //!
-//! - Diesel's `assets::status.eq(..)` (a `.set(..)` or an insert tuple), but
-//!   not one inside `.filter(..)`, which reads;
-//! - SQL that updates `assets` and sets `status`, or inserts into `assets`
-//!   naming `status`.
+//! - Diesel's `assets::status.eq(..)` or `assets::status_id.eq(..)` (a
+//!   `.set(..)` or an insert tuple), but not one inside `.filter(..)`, which
+//!   reads;
+//! - SQL that updates `assets` and sets `status` or `status_id`, or inserts
+//!   into `assets` naming either.
 //!
 //! Out of its reach, as for the other table lints: the restores that copy
 //! every table generically, which put rows back as they were saved.
@@ -33,13 +35,15 @@ use crate::lint_source::{mask, rust_sources, test_only_files, test_regions};
 const WRITERS: &[(&str, usize, &str)] = &[
     (
         "repository/asset_lifecycle.rs",
-        1,
-        "`set_status`, called only by the moves that asked the status rules",
+        2,
+        "`set_status` (status and status_id together), called only by the moves that asked \
+         the status rules",
     ),
     (
         "repository/assets.rs",
-        1,
-        "`create_device_in` inserts an asset in a status `asset_lifecycle::create` checked",
+        2,
+        "`create_device_in` inserts an asset in a status (and named status) \
+         `asset_lifecycle::create_named` checked",
     ),
 ];
 
@@ -48,7 +52,8 @@ fn status_writes(src: &str) -> Vec<(usize, String)> {
     let code = mask(src, true);
     let sql = mask(src, false);
     let skipped = test_regions(&code);
-    let diesel = Regex::new(r"\bassets\s*::\s*status\s*\.\s*eq\s*\(").expect("diesel pattern");
+    let diesel =
+        Regex::new(r"\bassets\s*::\s*status(?:_id)?\s*\.\s*eq\s*\(").expect("diesel pattern");
     let filter = Regex::new(r"\.\s*filter\s*\(\s*$").expect("filter pattern");
     // An UPDATE's SET list (up to its WHERE) or an INSERT's column list.
     let update = Regex::new(
@@ -58,8 +63,8 @@ fn status_writes(src: &str) -> Vec<(usize, String)> {
     let insert = Regex::new(r#"(?is)\binsert\s+into\s+(?:public\.)?"?assets"?\s*\(([^)]*)\)"#)
         .expect("insert pattern");
     let where_clause = Regex::new(r"(?is)\bwhere\b.*").expect("where pattern");
-    let sets_status = Regex::new(r"(?i)\bstatus\s*=").expect("set pattern");
-    let names_status = Regex::new(r"(?i)\bstatus\b").expect("column pattern");
+    let sets_status = Regex::new(r"(?i)\bstatus(?:_id)?\s*=").expect("set pattern");
+    let names_status = Regex::new(r"(?i)\bstatus(?:_id)?\b").expect("column pattern");
     let sql_writes = update
         .captures_iter(&sql)
         .filter(|c| sets_status.is_match(&where_clause.replace(&c[1], "")))
@@ -105,7 +110,7 @@ fn asset_status_is_written_only_behind_the_status_rules() {
             .map_or(0, |(_, count, _)| *count);
         if writes.len() != expected {
             stray.push(format!(
-                "{rel}: {} writes of assets.status, {expected} expected:\n    {}",
+                "{rel}: {} writes of assets.status or status_id, {expected} expected:\n    {}",
                 writes.len(),
                 writes
                     .iter()
@@ -123,9 +128,9 @@ fn asset_status_is_written_only_behind_the_status_rules() {
     }
     assert!(
         stray.is_empty(),
-        "assets.status is written outside the status rules; move the asset through \
-         asset_lifecycle (transition, move_for_loan, create), or list the file in WRITERS \
-         with a reason:\n  {}",
+        "assets.status or status_id is written outside the status rules; move the asset \
+         through asset_lifecycle (transition, move_for_loan, create), or list the file in \
+         WRITERS with a reason:\n  {}",
         stray.join("\n  ")
     );
 }
@@ -141,6 +146,8 @@ fn the_lint_sees_every_spelling_and_skips_reads_and_test_code() {
         r#"diesel::sql_query("UPDATE assets SET status = $1 WHERE id = $2")"#,
         r#"sql_query("update public.assets a set updated_at = now(), status = 'lost'")"#,
         r#"sql_query("INSERT INTO assets (name, kind, status) VALUES ($1, $2, $3)")"#,
+        "diesel::update(t).set(assets::status_id.eq(Some(3)))",
+        r#"sql_query("UPDATE assets SET status_id = NULL WHERE id = $1")"#,
     ];
     for code in caught {
         assert_eq!(status_writes(code).len(), 1, "should catch: {code}");
@@ -148,6 +155,7 @@ fn the_lint_sees_every_spelling_and_skips_reads_and_test_code() {
     let ignored = [
         "assets::table.filter(assets::status.eq(\"on_loan\")).load(conn)",
         "query.filter(assets::status.eq_any(values))",
+        "query.filter(assets::status_id.eq_any(ids))",
         "query.order(assets::status.asc())",
         "diesel::update(tickets::table).set(tickets::status.eq(s))",
         r#"sql_query("UPDATE assets SET name = $1 WHERE status = 'lost'")"#,

@@ -215,6 +215,10 @@ pub const WORKSPACE_TABLES: &[Table] = &[
     // Configuration like the kinds, though added from a catalogue rather than
     // seeded: a target holding a type it added still takes the archive's.
     t("asset_record_types", Replace),
+    // A workspace's names for its asset statuses, as the kinds are; assets,
+    // their events and loans hold them by id, remapped through the
+    // two-column keys.
+    t("asset_statuses", Replace),
     t("site_settings", Replace),
     t("user_field_schema", Replace),
     t("workspace_notification_defaults", Replace),

@@ -66,6 +66,10 @@ pub struct Asset {
     /// The accountable "managed by" custodian, distinct from the holder
     /// (`primary_user_uuid`, "used by"). NULL when unassigned.
     pub managed_by_user_uuid: Option<Uuid>,
+    /// The workspace's named status inside `status`, an `asset_statuses`
+    /// id. NULL is the plain category. Written with `status`, by the
+    /// lifecycle moves only.
+    pub status_id: Option<i32>,
 }
 
 /// The fixed asset status categories. Stored as snake_case strings in
@@ -500,6 +504,11 @@ pub struct AssetLifecycleEvent {
     pub actor_uuid: Option<Uuid>,
     pub occurred_at: chrono::DateTime<chrono::Utc>,
     pub workspace_id: i32,
+    /// The named statuses inside `from_status` and `to_status`; NULL is
+    /// the plain category. A move between two named statuses of one
+    /// category has `from_status == to_status` and different ids.
+    pub from_status_id: Option<i32>,
+    pub to_status_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
@@ -512,6 +521,8 @@ pub struct NewAssetLifecycleEvent {
     pub ticket_id: Option<i32>,
     pub metadata: serde_json::Value,
     pub actor_uuid: Option<Uuid>,
+    pub from_status_id: Option<i32>,
+    pub to_status_id: Option<i32>,
 }
 
 /// A disposal record (design doc: asset-lifecycle-export; NIST SP 800-88
@@ -569,6 +580,10 @@ pub struct AssetCurrentLoan {
 pub struct AssetLatestLifecycle {
     pub from_status: Option<String>,
     pub to_status: String,
+    #[serde(default)]
+    pub from_status_id: Option<i32>,
+    #[serde(default)]
+    pub to_status_id: Option<i32>,
     pub reason: Option<String>,
     pub occurred_at: chrono::DateTime<chrono::Utc>,
     pub actor_uuid: Option<Uuid>,
@@ -612,6 +627,8 @@ pub struct AssetLoan {
     pub workspace_id: i32,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// The named status inside `status_before`, restored with it.
+    pub status_id_before: Option<i32>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -625,6 +642,7 @@ pub struct NewAssetLoan {
     pub status_before: String,
     pub notes: Option<String>,
     pub actor_uuid: Option<Uuid>,
+    pub status_id_before: Option<i32>,
 }
 
 /// Partial update for a loan. Outer `Option` = "leave unchanged"; inner
