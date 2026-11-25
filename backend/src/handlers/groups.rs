@@ -272,6 +272,7 @@ enum SetMembersOutcome {
     Ok(crate::models::GroupWithMembers),
     NotFound,
     ExternallyManaged,
+    UnknownUser,
 }
 
 /// Set members of a group (replaces existing members)
@@ -307,6 +308,13 @@ pub async fn set_group_members(
         if group.external_source.is_some() {
             return Ok(SetMembersOutcome::ExternallyManaged);
         }
+        // Members hold a seat here: accounts are shared across workspaces, so
+        // a uuid alone could name anyone in the deployment.
+        for member in &member_uuids {
+            if !crate::repository::directory::is_active_member_here(conn, *member)? {
+                return Ok(SetMembersOutcome::UnknownUser);
+            }
+        }
 
         repository::groups::set_group_members(conn, group_id, member_uuids, created_by)?;
         let updated = repository::groups::get_group_with_members(conn, group_id)?;
@@ -317,6 +325,7 @@ pub async fn set_group_members(
         Ok(SetMembersOutcome::Ok(g)) => Ok(HttpResponse::Ok().json(g)),
         Ok(SetMembersOutcome::NotFound) => Err(ApiError::NotFoundMsg("Group not found".into())),
         Ok(SetMembersOutcome::ExternallyManaged) => Err(ApiError::BadRequest("Cannot modify membership: This group is synced from an external source. Membership is managed externally and updated during sync.".into())),
+        Ok(SetMembersOutcome::UnknownUser) => Err(ApiError::BadRequest("Unknown user".into())),
         Err(_) => Err(ApiError::Internal("Failed to set group members".into())),
     }
 }
@@ -384,13 +393,21 @@ pub async fn set_user_groups(
     let group_ids = body.group_ids.clone();
 
     let result = tc.run(|conn| {
+        // Joining a group takes a seat here; clearing a former member's
+        // groups doesn't.
+        if !group_ids.is_empty()
+            && !crate::repository::directory::is_active_member_here(conn, user_uuid)?
+        {
+            return Ok(None);
+        }
         repository::groups::set_user_groups(conn, user_uuid, group_ids, created_by)?;
         let updated = repository::groups::get_groups_for_user(conn, &user_uuid)?;
-        Ok::<_, diesel::result::Error>(updated)
+        Ok::<_, diesel::result::Error>(Some(updated))
     });
 
     match result {
-        Ok(groups) => Ok(HttpResponse::Ok().json(groups)),
+        Ok(Some(groups)) => Ok(HttpResponse::Ok().json(groups)),
+        Ok(None) => Err(ApiError::BadRequest("Unknown user".into())),
         Err(_) => Err(ApiError::Internal("Failed to set user groups".into())),
     }
 }

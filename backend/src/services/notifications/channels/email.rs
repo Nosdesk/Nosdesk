@@ -580,7 +580,9 @@ pub(crate) fn recipient_link_base(
 ) -> Option<(String, bool)> {
     let ws = crate::repository::workspaces::find_by_id(conn, workspace_id).ok()??;
     let recipient_is_agent = crate::repository::users::find_active_by_uuid(&recipient, conn)
-        .map(|u| crate::repository::user_helpers::user_can_handle_tickets(conn, &u))
+        .map(|u| {
+            crate::repository::user_helpers::user_can_handle_tickets_in(conn, workspace_id, &u)
+        })
         .unwrap_or(false);
     let base = notification_link_base(
         crate::middleware::workspace_context::selection_resolution_enabled(),

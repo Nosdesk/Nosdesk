@@ -806,6 +806,7 @@ struct MyWorkspaceBilling {
 }
 
 pub async fn list_my_workspaces(
+    _session: crate::extractors::SessionOnly,
     req: HttpRequest,
     mut pc: PlatformConn,
 ) -> Result<HttpResponse, ApiError> {

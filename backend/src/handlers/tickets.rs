@@ -201,9 +201,12 @@ fn resolve_assignee(
     if let Ok(uuid) = Uuid::parse_str(assignee_str) {
         return Ok(uuid);
     }
-    crate::repository::users::get_user_by_name(assignee_str, conn)
+    // A name finds only the workspace's own people.
+    crate::repository::directory::find_person_by_name_here(conn, assignee_str)
+        .ok()
+        .flatten()
         .map(|user| user.uuid)
-        .map_err(|_| {
+        .ok_or_else(|| {
             ApiError::BadRequest("User not found: The specified assignee does not exist".into())
         })
 }
@@ -664,6 +667,13 @@ pub async fn create_ticket(
         })?;
     }
 
+    // Filed for someone else: one of this workspace's people.
+    if let Some(requester_uuid) = new_ticket.requester_uuid.filter(|r| *r != auth.user_uuid) {
+        tc.run_result(|conn| {
+            crate::repository::tickets::ensure_requester_here(conn, requester_uuid)
+        })?;
+    }
+
     match tc.run(|conn| repository::create_ticket(conn, new_ticket)) {
         Ok(mut ticket) => {
             // The assignment rules pick an assignee when it has none.
@@ -998,7 +1008,9 @@ pub async fn update_ticket_partial(
         ticket_update.spam_suspected = Some(false);
     }
 
-    // Handle requester (can be name, UUID, or empty string for unassign)
+    // Handle requester (can be name, UUID, or empty string for unassign).
+    // The shared save refuses a uuid that isn't one of the workspace's people,
+    // and a name finds only them.
     if let Some(requester_str) = body.get("requester").and_then(|v| v.as_str()) {
         if requester_str.is_empty() {
             // Empty string means unassign
@@ -1008,9 +1020,11 @@ pub async fn update_ticket_partial(
             ticket_update.requester_uuid = Some(Some(uuid));
         } else {
             // Try to look up by name
-            match tc.run(|conn| crate::repository::users::get_user_by_name(requester_str, conn)) {
-                Ok(user) => ticket_update.requester_uuid = Some(Some(user.uuid)),
-                Err(_) => {
+            match tc.run(|conn| {
+                crate::repository::directory::find_person_by_name_here(conn, requester_str)
+            }) {
+                Ok(Some(user)) => ticket_update.requester_uuid = Some(Some(user.uuid)),
+                Ok(None) | Err(_) => {
                     warn!(name = %requester_str, "Could not find user by name");
                 }
             }

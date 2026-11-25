@@ -142,6 +142,7 @@ async fn boot_wires_state_and_routes() {
     // This drives the real route tree, so it guards the /api/files scope wiring
     // itself — the bug was these routes living outside any scope-wrapped scope.
     let user = common::insert_user(&mut pool.get().expect("conn"), "Files Scope Probe");
+    common::seat(&mut pool.get().expect("conn"), 1, user.uuid, "owner");
     let narrowed = common::mint_scoped_api_token(
         &mut pool.get().expect("conn"),
         &user,

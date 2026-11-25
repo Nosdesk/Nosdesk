@@ -22,7 +22,8 @@ use crate::services::custom_fields::schema as field_schema;
 use actix_web::http::StatusCode;
 
 /// Contact-access gate shared by every handler in this module, read and write:
-/// self, workspace-admin, OR an agent acting on a REQUESTER (a `member`) of
+/// self, a workspace admin acting on one of the workspace's people
+/// (`repository::directory`), OR an agent acting on a REQUESTER (a `member`) of
 /// this workspace. Agents log and manage customers, but never touch another
 /// staff member's contact details (that stays self-or-admin). Returns the
 /// forbidden response to early-return, or None when authorized.
@@ -36,8 +37,19 @@ fn guard_contact_access(
     tc: &mut TenantConn,
     user_uuid: Uuid,
 ) -> Option<HttpResponse> {
-    if auth.user_uuid == user_uuid || auth.is_workspace_admin() {
+    if auth.user_uuid == user_uuid {
         return None;
+    }
+    // An admin manages any of this workspace's people, and no one else:
+    // accounts are shared, and a write here makes a stranger one of them.
+    if auth.is_workspace_admin() {
+        if let Some(ws_id) = tc.workspace_id() {
+            if let Ok(true) =
+                tc.run(|conn| crate::repository::directory::is_person(conn, ws_id, user_uuid))
+            {
+                return None;
+            }
+        }
     }
     // Agent-or-above may edit a requester (member) of their own workspace. The
     // membership read is RLS-scoped to the pinned workspace, so it can only see
@@ -253,10 +265,20 @@ pub async fn set_user_profile_fields(
     params: web::Path<Uuid>,
     body: web::Json<serde_json::Value>,
     auth: AuthContext,
+    req: actix_web::HttpRequest,
 ) -> impl Responder {
     let user_uuid = params.into_inner();
+    // A token someone else made for this person doesn't speak for them on
+    // their own profile (their name and avatar here among it).
+    if auth.user_uuid == user_uuid && crate::extractors::is_token_made_for_someone_else(&req) {
+        return errors::forbidden(crate::extractors::SESSION_ONLY);
+    }
     if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
         return errors::forbidden("You can only edit your own profile");
+    }
+    // An admin's edit is to one of this workspace's people.
+    if let Some(denied) = guard_contact_access(&auth, &mut tc, user_uuid) {
+        return denied;
     }
     let body = body.into_inner();
     // The per-workspace name and avatar are the person's own: only they set
