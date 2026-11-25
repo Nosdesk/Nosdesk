@@ -143,34 +143,37 @@ fn api_token_is_refused_outside_the_workspace_it_was_minted_in() {
         assert_eq!(status_of(&err), 403);
     }
 
-    // No origin and no selection: nothing to compare the binding against, so
-    // the request stays unscoped and RLS is the backstop, exactly as it was
-    // before the binding existed. The binding must NOT act as a selection here:
-    // this same case is a platform admin's cross-workspace call, which has no
-    // workspace to be a member of, and pinning the binding would 403 it.
+    // No origin and no selection: the request runs in the bound workspace,
+    // pinned and gated like any other. A token is never an unscoped principal.
     {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default().to_srv_request();
         enforce_api_token_workspace(&req, &mut conn, &token_claims(owner_uuid, a_uuid), a_uuid)
-            .expect("an unresolved workspace must fall through, not be gated");
-        assert!(
-            req.extensions().get::<WorkspaceContext>().is_none(),
-            "the binding must not select a workspace the request never named"
+            .expect("an unnamed workspace runs in the bound one");
+        let published = req
+            .extensions()
+            .get::<WorkspaceContext>()
+            .map(|w| w.workspace_id);
+        assert_eq!(
+            published,
+            Some(a_id),
+            "the binding is the request's workspace"
         );
     }
 
-    // The same unresolved call by someone who is not a member of the bound
-    // workspace also falls through, which is the regression this shape avoids.
+    // The same unnamed call by someone who is not a member of the bound
+    // workspace is refused by the gate, as it is at the bound workspace.
     {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default().to_srv_request();
-        enforce_api_token_workspace(
+        let err = enforce_api_token_workspace(
             &req,
             &mut conn,
             &token_claims(outsider_uuid, a_uuid),
             a_uuid,
         )
-        .expect("a platform-admin style cross-workspace call must not be gated");
+        .expect_err("a non-member must be refused when nothing names a workspace");
+        assert_eq!(status_of(&err), 403);
     }
 
     // --- Selection header (single-origin agent app) ---

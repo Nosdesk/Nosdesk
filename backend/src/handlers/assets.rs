@@ -1775,6 +1775,13 @@ pub async fn create_device(
         Err(_) => return errors::internal("Failed to validate asset"),
     }
 
+    // The asset's user is one of this workspace's people.
+    if let Some(user) = new_device.primary_user_uuid {
+        if let Some(refused) = refuse_unknown_person(&mut tc, user) {
+            return refused;
+        }
+    }
+
     let actor = auth.user_uuid;
     use crate::repository::asset_lifecycle::{self as lifecycle, MoveError};
     let result = tc.run_result(|conn| -> Result<_, MoveError> {
@@ -1905,6 +1912,17 @@ fn overlay_user_attributes(
     serde_json::Value::Object(merged)
 }
 
+/// Refuse `user` unless they are one of this workspace's people. Accounts
+/// are shared across workspaces, so a uuid alone could name anyone in the
+/// deployment; a stranger reads as an unknown user, as a uuid no account has.
+fn refuse_unknown_person(tc: &mut TenantConn, user: Uuid) -> Option<HttpResponse> {
+    match tc.run(|conn| crate::repository::directory::is_person_here(conn, user)) {
+        Ok(true) => None,
+        Ok(false) => Some(errors::bad_request("Unknown user")),
+        Err(_) => Some(errors::internal("Failed to check the user")),
+    }
+}
+
 /// Update a device (technician or admin only)
 pub async fn update_device(
     mut tc: TenantConn,
@@ -1958,6 +1976,24 @@ pub async fn update_device(
     } else {
         device_update.into_inner()
     };
+
+    // The asset's user and manager are this workspace's people.
+    for (new, old) in [
+        (
+            update_data.primary_user_uuid,
+            existing_device.primary_user_uuid,
+        ),
+        (
+            update_data.managed_by_user_uuid,
+            existing_device.managed_by_user_uuid,
+        ),
+    ] {
+        if let Some(Some(user)) = new.filter(|n| *n != old) {
+            if let Some(refused) = refuse_unknown_person(&mut tc, user) {
+                return refused;
+            }
+        }
+    }
 
     // Model assignment goes through POST /assets/{id}/model, which stamps
     // the manufacturer/model/kind/specs. Never let model_id ride the

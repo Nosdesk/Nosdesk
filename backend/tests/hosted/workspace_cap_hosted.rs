@@ -51,8 +51,7 @@ async fn hosted_mode_does_not_bypass_the_workspace_cap() {
     let pool = test_db.pool_with_size(4);
 
     let admin = mint_platform_admin(&mut pool.get().expect("conn"), "PlatformAdmin");
-    let admin_token =
-        common::mint_api_token(&mut pool.get().expect("conn"), &admin, "admin-session");
+    let admin_token = common::session_bearer(&pool, &admin);
 
     let pool_for_app = pool.clone();
     let srv = actix_test::start(move || {

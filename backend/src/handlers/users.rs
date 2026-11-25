@@ -1347,6 +1347,10 @@ pub async fn delete_user(
 
     let (claims, user_uuid_parsed, target_user) =
         require_lifecycle_target(&req, &pool, &mut conn, uuid.as_str())?;
+    // One's own account answers only a signed-in session.
+    if claims.sub == user_uuid_parsed.to_string() && crate::extractors::is_api_token(&req) {
+        return Err(ApiError::Forbidden(crate::extractors::SESSION_ONLY.into()));
+    }
 
     if claims.sub == uuid.as_str() {
         return Err(ApiError::BadRequest(
@@ -1541,6 +1545,7 @@ pub async fn purge_user_now(
 
 // Get user's authentication identities
 pub async fn get_user_auth_identities(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
@@ -1583,6 +1588,7 @@ pub async fn get_user_auth_identities(
 
 // Get user's authentication identities by UUID
 pub async fn get_user_auth_identities_by_uuid(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>, // User UUID
@@ -1630,6 +1636,7 @@ pub async fn get_user_auth_identities_by_uuid(
 
 // Delete a user authentication identity
 pub async fn delete_user_auth_identity(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<i32>, // Auth identity ID
@@ -1701,6 +1708,7 @@ pub async fn delete_user_auth_identity(
 
 // Delete a user authentication identity by UUID
 pub async fn delete_user_auth_identity_by_uuid(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<(String, i32)>, // (User UUID, Auth identity ID)
@@ -1773,6 +1781,7 @@ pub async fn delete_user_auth_identity_by_uuid(
 
 // Upload user profile images (avatar or banner)
 pub async fn upload_user_image(
+    _session: crate::extractors::SessionOnly,
     uuid: web::Path<String>,
     mut payload: Multipart,
     mut tc: TenantConn,
@@ -2303,6 +2312,13 @@ pub async fn update_user_by_uuid(
         Ok(uuid) => uuid,
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
+    // One's own account (name, avatar, preferences) answers only a signed-in
+    // session.
+    if claims.sub == user_uuid_parsed.to_string() {
+        if let Err(e) = crate::extractors::refuse_api_token(&req) {
+            return e.error_response();
+        }
+    }
 
     // Yourself, a platform admin, or a workspace admin who may change this
     // person's account (`account_edit_decision`). That admin edits the account
@@ -2669,6 +2685,7 @@ pub async fn update_user_by_uuid(
 
 /// Get user email addresses
 pub async fn get_user_emails(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>, // User UUID
@@ -2711,6 +2728,7 @@ pub async fn get_user_emails(
 
 /// Add a new email address for a user
 pub async fn add_user_email(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     ws: WorkspaceContext,
@@ -2810,6 +2828,7 @@ pub async fn add_user_email(
 
 /// Update an email address (set as primary)
 pub async fn update_user_email(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<(String, i32)>,
@@ -2924,6 +2943,7 @@ pub async fn update_user_email(
 /// is not something a caller should be able to probe for, and the honest
 /// alternative leaks it.
 pub async fn resend_user_email_verification(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     ws: WorkspaceContext,
@@ -3024,6 +3044,7 @@ pub async fn resend_user_email_verification(
 
 /// Delete an email address
 pub async fn delete_user_email(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<(String, i32)>,
@@ -3227,6 +3248,7 @@ pub async fn resend_invitation(
 
 /// Get user with all email addresses
 pub async fn get_user_with_emails(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>, // User UUID
@@ -3319,8 +3341,9 @@ pub async fn get_user_profile_bundle(
     // `user_emails`, and for someone in several workspaces the set holds
     // addresses other workspaces know them by; a workspace admin sees neither.
     // Strip the group rather than 403 the whole bundle so the others still load.
+    // An API token never reads an account's addresses (`SessionOnly`).
     let account = account_decision_for(&req, &pool, &auth, user_uuid_parsed)?;
-    if account.is_err() {
+    if account.is_err() || crate::extractors::is_api_token(&req) {
         groups.remove(&crate::repository::user_profile::ProfileGroup::Emails);
     }
 
@@ -3666,6 +3689,7 @@ pub async fn bulk_users(
 /// Get security info for a user (admin or self)
 /// Returns MFA status, passkey list, and auth identities
 pub async fn get_user_security_info(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>,
@@ -3755,6 +3779,7 @@ pub struct AdminResetPasswordRequest {
 }
 
 pub async fn admin_reset_user_password(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>,
@@ -3824,6 +3849,7 @@ pub async fn admin_reset_user_password(
 
 /// Admin-only: disable MFA for a user
 pub async fn admin_disable_user_mfa(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>,
@@ -3867,6 +3893,7 @@ pub async fn admin_disable_user_mfa(
 
 /// Admin-only: delete a passkey for a user
 pub async fn admin_delete_user_passkey(
+    _session: crate::extractors::SessionOnly,
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<(String, String)>, // (user_uuid, credential_id)

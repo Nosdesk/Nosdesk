@@ -464,6 +464,43 @@ pub fn insert_user(conn: &mut PgConnection, name: &str) -> backend::models::User
         .expect("insert user")
 }
 
+/// Seat `user` in `workspace_id` with `role` (an active membership). An API
+/// token authenticates only while its holder holds a seat in the workspace it
+/// was minted in, so a token fixture for an operator seats them first, as a
+/// real install does (the bootstrap admin owns workspace 1).
+pub fn seat(conn: &mut PgConnection, workspace_id: i32, user: Uuid, role: &str) {
+    diesel::sql_query(
+        "INSERT INTO workspace_members (workspace_id, user_uuid, role) VALUES ($1, $2, $3) \
+         ON CONFLICT (workspace_id, user_uuid) DO UPDATE SET role = EXCLUDED.role, removed_at = NULL",
+    )
+    .bind::<diesel::sql_types::Integer, _>(workspace_id)
+    .bind::<diesel::sql_types::Uuid, _>(user)
+    .bind::<diesel::sql_types::Text, _>(role)
+    .execute(conn)
+    .expect("seat the user");
+}
+
+/// A signed-in session for `user`, as a bearer: for the account routes an API
+/// token never reaches (`/api/me/workspaces`, a person's own addresses).
+pub fn session_bearer(pool: &TestPool, user: &backend::models::User) -> String {
+    let session = backend::repository::active_sessions::create_session(
+        &mut pool.get().expect("conn"),
+        backend::models::NewActiveSession {
+            user_uuid: user.uuid,
+            device_name: Some("test-session".into()),
+            ip_address: None,
+            user_agent: Some("nosdesk-test".into()),
+            location: None,
+            expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
+            oidc_id_token: None,
+            confirmed_at: None,
+            provider_amr: None,
+        },
+    )
+    .expect("create session");
+    backend::utils::jwt::JwtUtils::create_token(user, &session.session_id).expect("mint JWT")
+}
+
 /// Mint a full-scope user-bound `api_tokens` row directly. Returns the raw
 /// token string for use in the Authorization header.
 pub fn mint_api_token(conn: &mut PgConnection, user: &backend::models::User, name: &str) -> String {

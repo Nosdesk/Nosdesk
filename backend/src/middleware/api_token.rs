@@ -146,6 +146,10 @@ pub fn try_bearer_auth(
             // Same answer as an unknown token, so a probe can't tell a
             // promoted holder from a revoked token; the log says which.
             match refusal {
+                CeilingRefusal::HolderNotMember => warn!(
+                    token_uuid = %api_token.uuid,
+                    "API token refused: its holder has no seat in its workspace"
+                ),
                 CeilingRefusal::MakerNotAdmin => warn!(
                     token_uuid = %api_token.uuid,
                     "API token refused: its maker is no longer an admin of its workspace"
@@ -222,9 +226,11 @@ pub fn try_bearer_auth(
     );
 
     // Mark the request as made with an API token, for the routes a token may
-    // not use (managing API tokens).
+    // not use (managing API tokens; the account routes, which take
+    // `extractors::SessionOnly`).
     req.extensions_mut().insert(ApiTokenRequest {
         token_uuid: api_token.uuid,
+        made_for_someone_else: api_token.created_by != api_token.user_uuid,
     });
 
     Ok(Some(claims))
@@ -232,10 +238,20 @@ pub fn try_bearer_auth(
 
 /// On a request authenticated with an API token (not a signed-in session):
 /// which token. API tokens can't manage API tokens, or a token could mint
-/// itself a successor that escapes its ceiling and its maker.
+/// itself a successor that escapes its ceiling and its maker; nor can they
+/// reach an account (`extractors::SessionOnly`).
+///
+/// A token is one workspace's automation: it acts only in the workspace it
+/// was minted in, for a holder seated there. A platform admin's token is the
+/// exception in reach, not in binding: through `/api/admin/workspaces/*` it
+/// still manages every workspace on the instance, as the operator console
+/// does, while every other route stays in the token's own workspace.
 #[derive(Debug, Clone, Copy)]
 pub struct ApiTokenRequest {
     pub token_uuid: uuid::Uuid,
+    /// Made by someone other than its holder (an admin's automation acting
+    /// as them), so it doesn't speak for the holder on their own profile.
+    pub made_for_someone_else: bool,
 }
 
 /// Why a token may no longer act for its holder, or `None` when it may. One
@@ -244,8 +260,11 @@ pub struct ApiTokenRequest {
 /// still an admin of its workspace: the maker holds its secret. Refusing it
 /// here, the one place an API token authenticates, keeps every route, sync
 /// stream and collab or SSE connection token from seeing a higher role. A
-/// token made for oneself follows one's own role. Runs inside the lookup's
-/// bypass transaction, since the request has no workspace pin yet.
+/// token made for oneself follows one's own role. Either way its holder must
+/// hold a seat in the token's workspace: accounts are shared across
+/// workspaces, and a token for someone with no seat there would act as an
+/// account that workspace doesn't own. Runs inside the lookup's bypass
+/// transaction, since the request has no workspace pin yet.
 fn ceiling_refusal(
     conn: &mut crate::db::DbConnection,
     token: &crate::models::ApiToken,
@@ -254,6 +273,9 @@ fn ceiling_refusal(
     use crate::models::{PlatformRole, WorkspaceRole};
     use crate::repository::workspaces::membership;
 
+    if membership(conn, token.workspace_id, token.user_uuid)?.is_none() {
+        return Ok(Some(CeilingRefusal::HolderNotMember));
+    }
     if token.created_by == token.user_uuid {
         return Ok(None);
     }
@@ -295,6 +317,7 @@ fn ceiling_refusal(
 
 /// Why [`ceiling_refusal`] refused a token, for the log line.
 enum CeilingRefusal {
+    HolderNotMember,
     MakerNotAdmin,
     RoleAboveCeiling,
     PlatformRoleChanged,
