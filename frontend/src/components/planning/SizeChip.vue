@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /**
- * A job's size on a row: one letter in a fixed square, so the letters
- * stack into a column down the right edge of a list. An unsized job
+ * A job's size on a row: one letter in a square, so the letters stack
+ * into a column down the right edge of a list. The square is cut in em
+ * with 20px as its least, so the letter grows with the text size
+ * without leaving its box. An unsized job
  * shows nothing at rest and a dashed square on hover (`.plan-size-empty`
  * in main.css): sizing is offered, never nagged. Selecting it opens the
  * size menu.
@@ -28,7 +30,7 @@ const size = computed(() => sizeOf(props.minutes))
   <button
     ref="el"
     type="button"
-    class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-2xs font-medium leading-none transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    class="inline-flex h-[max(1.25rem,1.7em)] w-[max(1.25rem,1.7em)] shrink-0 items-center justify-center rounded text-2xs font-medium leading-none transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     :class="size
       ? 'border border-default text-secondary hover:border-strong hover:text-primary'
       : 'plan-size-empty border border-dashed border-strong text-tertiary'"

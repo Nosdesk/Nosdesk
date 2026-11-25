@@ -13179,3 +13179,9 @@ admin-rules-activity-did-notify-no-channel = Geen e-mail verstuurd, want de mail
 admin-rules-activity-did-notify-suppressed = Geen e-mail verstuurd, want het adres staat op de onderdrukkingslijst
 # MT: pending native review (nl-NL)
 admin-rules-activity-held-warning-unsent = Niet uitgevoerd, want de e-mail is niet verstuurd: { $step }
+# MT: pending native review (nl-NL)
+ticket-comments-placeholder-short-public = Beantwoorden
+# MT: pending native review (nl-NL)
+ticket-comments-placeholder-short-internal = Interne notitie
+# MT: pending native review (nl-NL)
+ticket-comments-via-email = per e-mail

@@ -911,7 +911,11 @@ watchEffect(async () => {
             </span>
           </div>
 
-          <!-- Assignment Section. Container query rather than the
+          <!-- Assignment Section. On a phone (and with Priority and
+               Size below) the pair is a grid of columns at least nine
+               and a quarter of the text's ems wide: two at the designed
+               size and one stop up, one from 125%, so a column never
+               squeezes its name. Container query rather than the
                viewport `sm:` breakpoint so the two-column pairing
                only kicks in when the sidebar itself is wide enough,
                not when the browser window happens to be wide. A
@@ -919,7 +923,7 @@ watchEffect(async () => {
                now stacks Requester above Assignee even on a 1440px
                viewport. Matches the @container pattern already used
                by TicketsTable. -->
-          <div class="@container grid grid-cols-1 @sm:grid-cols-2 gap-3">
+          <div class="@container grid grid-cols-1 md:@sm:grid-cols-2 max-md:grid-cols-[repeat(auto-fit,minmax(calc(var(--text-sm)*9.25),1fr))] gap-3">
             <!-- Requester -->
             <div class="group/req flex flex-col gap-1">
               <div class="flex items-center justify-between">
@@ -1034,7 +1038,7 @@ watchEffect(async () => {
             />
           </div>
 
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-2 max-md:grid-cols-[repeat(auto-fit,minmax(calc(var(--text-sm)*9.25),1fr))] gap-3">
             <!-- Priority -->
             <div class="flex flex-col gap-1">
               <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('ticket-detail-prop-priority') }}</h3>
@@ -1434,14 +1438,14 @@ watchEffect(async () => {
                its own missing-data state, so the avatar slot stays
                quiet but the line still reads. The outer container
                keeps `-mx-2 px-2` so the border-t spans the visual
-               row width. `whitespace-nowrap` per line stops the
-               timestamp from wrapping mid-time at narrow widths. -->
+               row width. Each timestamp stays whole; on a phone the
+               line wraps like a sentence instead of cutting the name. -->
           <div class="pt-3 border-t border-default flex flex-col gap-1 -mx-2 px-2">
             <!-- Created row. Relative time scans instantly during
                  triage; the absolute timestamp lives in the line's
                  `title` for forensic reads on hover. -->
             <div
-              class="flex items-center gap-1.5 text-2xs text-tertiary whitespace-nowrap"
+              class="flex items-center gap-1.5 text-2xs text-tertiary whitespace-nowrap max-md:flex-wrap max-md:whitespace-normal"
               :title="createdDate"
             >
               <UserAvatar
@@ -1451,28 +1455,28 @@ watchEffect(async () => {
                 :show-name="false"
                 :clickable="true"
               />
-              <span class="truncate">{{ createdByName
+              <span class="md:truncate max-md:[overflow-wrap:anywhere]">{{ createdByName
                 ? t('ticket-detail-audit-created-by', { name: createdByName })
                 : t('ticket-detail-audit-created') }}</span>
               <span aria-hidden="true">·</span>
-              <span class="tabular-nums">{{ createdRelative }}</span>
+              <span class="tabular-nums whitespace-nowrap">{{ createdRelative }}</span>
             </div>
 
             <!-- Updated row. No actor data available today
                  (would need a `modified_by` column to byline). -->
             <div
-              class="flex items-center gap-1.5 text-2xs text-tertiary whitespace-nowrap"
+              class="flex items-center gap-1.5 text-2xs text-tertiary whitespace-nowrap max-md:flex-wrap max-md:whitespace-normal"
               :title="modifiedDate"
             >
               <span>{{ t('ticket-detail-audit-modified') }}</span>
               <span aria-hidden="true">·</span>
-              <span class="tabular-nums">{{ modifiedRelative }}</span>
+              <span class="tabular-nums whitespace-nowrap">{{ modifiedRelative }}</span>
             </div>
 
             <!-- Closed row (only for terminal-state tickets). -->
             <div
               v-if="ticket.closed_at"
-              class="flex items-center gap-1.5 text-2xs text-tertiary whitespace-nowrap"
+              class="flex items-center gap-1.5 text-2xs text-tertiary whitespace-nowrap max-md:flex-wrap max-md:whitespace-normal"
               :title="closedDateLabel"
             >
               <UserAvatar
@@ -1482,11 +1486,11 @@ watchEffect(async () => {
                 :show-name="false"
                 :clickable="true"
               />
-              <span class="truncate">{{ closedByName
+              <span class="md:truncate max-md:[overflow-wrap:anywhere]">{{ closedByName
                 ? t('ticket-detail-audit-closed-by', { name: closedByName })
                 : t('ticket-detail-audit-closed') }}</span>
               <span aria-hidden="true">·</span>
-              <span class="tabular-nums">{{ closedRelative }}</span>
+              <span class="tabular-nums whitespace-nowrap">{{ closedRelative }}</span>
             </div>
           </div>
         </div>

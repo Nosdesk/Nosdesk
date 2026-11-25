@@ -21,6 +21,9 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
 import CommentContent from "@/components/ticketComponents/CommentContent.vue";
 import { sanitiseHtml } from "@/composables/useSanitise";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
+import { useMobileDetection } from "@/composables/useMobileDetection";
+import { useTextScale } from "@/composables/useTextScale";
+import { replyFieldLines } from "@/utils/textScale";
 import uploadService from "@/services/uploadService";
 import { resendClientId, useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
 import { useTicketUiStore, type StagedAttachment } from "@nosdesk/core/stores/ticketUi";
@@ -469,6 +472,17 @@ const formattedDate = (dateString: string): string => {
 
 // A reply the server hasn't confirmed yet still has its temporary negative id.
 // It shows "Sending…" in place of its time, so nobody takes it as saved.
+/** The composer's tools. On a phone they are bare 44px targets, so the
+ *  whole row (three tools, the audience and send) fits on one line at every
+ *  text size. */
+const COMPOSER_TOOL =
+    "h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center max-sm:h-11 max-sm:w-11 max-sm:shrink-0 max-sm:px-0 max-sm:border-0 max-sm:bg-transparent! max-sm:rounded-lg";
+
+/** The phone layout (under `sm`, where the comments go flat). */
+const { isMobile: phone } = useMobileDetection('sm');
+const textScale = useTextScale();
+const replyLines = computed(() => replyFieldLines(textScale.value));
+
 const commentTime = (comment: { id: number; createdAt?: string; created_at: string }): string =>
     comment.id < 0
         ? t("ticket-comments-sending")
@@ -633,15 +647,29 @@ const handlePastedFiles = async (files: File[]) => {
                         </div>
                     </div>
 
+                    <!-- On a phone the field and its controls are one bordered
+                         form, and an internal note turns the whole of it
+                         amber: a note sent as a public reply is the costly
+                         mistake, so Internal is unmistakable and a public
+                         reply is the quiet state. -->
                     <form
                         @submit.prevent="addComment"
-                        class="flex flex-col gap-2"
+                        class="flex flex-col gap-2 max-sm:gap-0 max-sm:rounded-xl max-sm:border max-sm:px-1 max-sm:pt-2 max-sm:focus-within:ring-2 max-sm:focus-within:ring-accent"
+                        :class="isInternal ? 'max-sm:border-status-warning-ui max-sm:bg-status-warning-muted' : 'max-sm:border-field max-sm:bg-surface'"
+                        :data-audience-state="isInternal ? 'internal' : 'public'"
+                        data-composer
                     >
+                        <!-- Reading text on a phone (16px at the designed
+                             size, which also stops iOS zooming into it),
+                             growing with what is typed to `replyLines`. -->
                         <SimpleEditor
                             v-model="newCommentContent"
-                            :placeholder="isInternal ? $t('ticket-comments-placeholder-internal') : $t('ticket-comments-placeholder-public')"
-                            min-height="60px"
-                            max-height="200px"
+                            class="reply-field"
+                            :placeholder="phone
+                                ? (isInternal ? $t('ticket-comments-placeholder-short-internal') : $t('ticket-comments-placeholder-short-public'))
+                                : (isInternal ? $t('ticket-comments-placeholder-internal') : $t('ticket-comments-placeholder-public'))"
+                            :min-height="phone ? 'calc(var(--text-base) * 3)' : '60px'"
+                            :max-height="phone ? `calc(var(--text-base) * ${1.5 * replyLines})` : '200px'"
                             @submit="addComment"
                             @paste-files="handlePastedFiles"
                         />
@@ -778,13 +806,12 @@ const handlePastedFiles = async (files: File[]) => {
                           right-side group stays grouped because the
                           spacer collapses first.
                         -->
-                        <div class="flex flex-wrap items-center gap-2">
+                        <div class="flex flex-wrap items-center gap-2 max-sm:flex-nowrap max-sm:gap-0">
                             <!-- Voice Recording Button -->
                             <button
                                 type="button"
                                 @click="startVoiceRecording"
-                                class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
-                                :class="{ 'text-error': showRecordingInterface }"
+                                :class="[COMPOSER_TOOL, { 'text-error': showRecordingInterface }]"
                                 :aria-label="$t('ticket-comments-record-voice')"
                                 :title="$t('ticket-comments-record-voice')"
                             >
@@ -794,7 +821,7 @@ const handlePastedFiles = async (files: File[]) => {
                             <button
                                 type="button"
                                 @click="triggerFileUpload"
-                                class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
+                                :class="COMPOSER_TOOL"
                                 :aria-label="$t('ticket-comments-upload-file')"
                                 :title="$t('ticket-comments-upload-file')"
                             >
@@ -810,7 +837,7 @@ const handlePastedFiles = async (files: File[]) => {
 
                             <!-- Public reply / Internal note segmented control -->
                             <div
-                                class="flex items-stretch h-9 rounded-md bg-surface-alt border border-default p-0.5 text-xs font-medium"
+                                class="flex items-stretch h-9 rounded-md bg-surface-alt border border-default p-0.5 text-xs font-medium max-sm:hidden"
                                 role="group"
                                 :aria-label="$t('ticket-comments-visibility-group')"
                             >
@@ -842,6 +869,27 @@ const handlePastedFiles = async (files: File[]) => {
                                 </button>
                             </div>
 
+                            <!-- On a phone the audience is one button that says
+                                 the current choice and flips it: two labels
+                                 side by side push the row onto a second line
+                                 once text grows, and one label fits at 200%
+                                 (it wraps inside the button if it must). -->
+                            <button
+                                type="button"
+                                class="sm:hidden inline-flex min-h-11 min-w-0 items-center text-left text-xs"
+                                :title="isInternal ? $t('ticket-comments-internal-note-title') : $t('ticket-comments-public-reply-title')"
+                                data-audience
+                                @click="isInternal = !isInternal"
+                            >
+                                <span
+                                    class="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2"
+                                    :class="isInternal ? 'border border-status-warning/50 bg-status-warning-muted font-medium text-status-warning' : 'text-secondary'"
+                                >
+                                    <Icon :name="isInternal ? 'lock' : 'eye'" size="sm" class="shrink-0" />
+                                    <span>{{ isInternal ? $t('ticket-comments-internal-note') : $t('ticket-comments-public-reply') }}</span>
+                                </span>
+                            </button>
+
                             <!-- Pushes the submit to the right edge. -->
                             <div class="flex-1"></div>
 
@@ -854,7 +902,7 @@ const handlePastedFiles = async (files: File[]) => {
                                 type="submit"
                                 :disabled="!canSubmit"
                                 :class="[
-                                    'h-9 w-9 rounded-md transition-colors flex items-center justify-center flex-shrink-0',
+                                    'h-9 w-9 rounded-md transition-colors flex items-center justify-center flex-shrink-0 max-sm:mx-1',
                                     !canSubmit
                                         ? 'bg-surface-hover text-tertiary cursor-not-allowed'
                                         : isInternal
@@ -902,9 +950,12 @@ const handlePastedFiles = async (files: File[]) => {
                 </div>
 
                 <!-- List of Comments - Screen layout -->
+                <!-- On a phone the comments are flat: no bubble, a rule
+                     between them, and the body across the card's full
+                     measure, because the body is what is read. -->
                 <div
                     v-if="props.comments.length > 0"
-                    class="print:hidden flex flex-col gap-3 px-2 py-3"
+                    class="print:hidden flex flex-col gap-3 px-2 py-3 max-sm:gap-0 max-sm:px-0 max-sm:py-0"
                 >
                     <!-- Visibility pivot: hidden when the ticket has
                          no internal notes yet (nothing to filter).
@@ -912,7 +963,7 @@ const handlePastedFiles = async (files: File[]) => {
                          the filter is engaged. -->
                     <div
                         v-if="internalCommentCount > 0"
-                        class="flex items-center gap-1 text-xs"
+                        class="flex flex-wrap items-center gap-1 text-xs max-sm:px-2 max-sm:py-2"
                         role="group"
                         :aria-label="$t('ticket-comments-filter-group')"
                     >
@@ -956,13 +1007,13 @@ const handlePastedFiles = async (files: File[]) => {
                     <div
                         v-for="comment in filteredComments"
                         :key="comment.id"
-                        class="group relative overflow-hidden flex flex-col gap-1.5 px-3 py-2 rounded-lg transition-colors"
+                        class="group relative overflow-hidden flex flex-col gap-1.5 px-3 py-2 rounded-lg transition-colors max-sm:gap-2.5 max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0 max-sm:py-4 max-sm:first:border-t-0"
                         :class="[
                             props.recentlyAddedCommentIds?.has(comment.id)
                                 ? 'bg-accent/10 border border-accent/40'
                                 : comment.is_internal
                                     ? 'bg-status-warning-muted/40 border border-subtle'
-                                    : 'bg-surface-alt border border-subtle',
+                                    : 'bg-surface-alt border border-subtle max-sm:bg-transparent!',
                         ]"
                     >
                         <!-- Internal-note marker: the same active-indicator bar
@@ -977,42 +1028,50 @@ const handlePastedFiles = async (files: File[]) => {
                         <!-- Mobile: Compact header with avatar, name, date, and actions inline -->
                         <!-- Desktop: Avatar on left, content beside it -->
                         <div class="flex flex-col sm:flex-row gap-2">
-                            <!-- Header row: avatar, name/date, actions -->
-                            <div class="flex items-center gap-2 sm:hidden">
-                                <UserAvatar
-                                    :uuid="comment.user?.uuid || comment.user_uuid"
-                                    :fallbackName="comment.user?.name"
-                                    :fallbackAvatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
-                                    :showName="false"
-                                    size="sm"
-                                    class="flex-shrink-0"
-                                />
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex items-center gap-1.5 min-w-0">
-                                        <span class="text-sm text-primary font-medium truncate leading-tight">
-                                            {{ comment.user?.name || comment.user_uuid }}
-                                        </span>
+                            <!-- Phone head: one line that wraps. Who, then the
+                                 badges, when and how it arrived; the name
+                                 wraps if it must, and the time and "by email"
+                                 are whole items that move under it together.
+                                 The avatar grows as a glyph does. -->
+                            <div class="flex items-start gap-2.5 sm:hidden">
+                                <span class="type-glyph">
+                                    <UserAvatar
+                                        :uuid="comment.user?.uuid || comment.user_uuid"
+                                        :fallbackName="comment.user?.name"
+                                        :fallbackAvatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
+                                        :showName="false"
+                                        size="sm"
+                                    />
+                                </span>
+                                <div class="flex min-h-[calc(2rem*var(--glyph-scale))] min-w-0 flex-1 flex-wrap content-center items-baseline gap-x-2.5">
+                                    <span class="text-sm text-primary font-medium [overflow-wrap:anywhere]">
+                                        {{ comment.user?.name || comment.user_uuid }}
+                                    </span>
+                                    <span
+                                        v-if="comment.is_internal"
+                                        class="inline-flex items-center gap-1 self-center px-1 py-0.5 rounded text-2xs font-medium bg-status-warning-muted text-status-warning whitespace-nowrap"
+                                    >
+                                        <Icon name="lock" size="xs" />
+                                        {{ $t('ticket-comments-badge-internal') }}
+                                    </span>
+                                    <span
+                                        v-if="comment.channel_metadata?.forwarded_by_user_uuid"
+                                        class="inline-flex items-center self-center px-1 py-0.5 rounded text-2xs font-medium bg-accent-muted text-accent-on-tint whitespace-nowrap"
+                                        :title="$t('ticket-comments-badge-forwarded-title')"
+                                    >
+                                        {{ $t('ticket-comments-badge-forwarded') }}
+                                    </span>
+                                    <span class="flex flex-wrap items-baseline gap-x-2.5 text-xs text-tertiary">
+                                        <time class="whitespace-nowrap tabular-nums" :datetime="comment.created_at">{{ commentTime(comment) }}</time>
                                         <span
-                                            v-if="comment.is_internal"
-                                            class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-2xs font-medium bg-status-warning-muted text-status-warning flex-shrink-0"
-                                        >
-                                            <Icon name="lock" size="xs" />
-                                            {{ $t('ticket-comments-badge-internal') }}
-                                        </span>
-                                        <span
-                                            v-if="comment.channel_metadata?.forwarded_by_user_uuid"
-                                            class="inline-flex items-center px-1 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent-on-tint flex-shrink-0"
-                                            :title="$t('ticket-comments-badge-forwarded-title')"
-                                        >
-                                            {{ $t('ticket-comments-badge-forwarded') }}
-                                        </span>
-                                    </div>
-                                    <span class="text-xs text-tertiary block leading-tight">
-                                        {{ commentTime(comment) }}
+                                            v-if="comment.from_address"
+                                            class="whitespace-nowrap"
+                                            :title="comment.from_address"
+                                        >{{ $t('ticket-comments-via-email') }}</span>
                                     </span>
                                 </div>
                                 <!-- Mobile action buttons (hidden on print) -->
-                                <div class="print:hidden flex items-center gap-1 flex-shrink-0">
+                                <div class="print:hidden -my-1 flex items-center gap-1 flex-shrink-0">
                                     <DownloadLink
                                         v-if="isAudioOnlyComment(comment)"
                                         :href="comment.attachments?.[0]?.url ?? ''"
@@ -1037,8 +1096,12 @@ const handlePastedFiles = async (files: File[]) => {
 
                             <!-- Mobile: Full-width content below header -->
                             <div class="sm:hidden w-full">
+                                <!-- Reading text: 16px at the designed size, the
+                                     size the reply is typed at, so a reply does
+                                     not shrink when it is sent. -->
                                 <CommentContent
                                     v-if="hasRealContent(comment)"
+                                    reading
                                     :content="comment.content"
                                     :content-format="comment.content_format"
                                     :render-kind="comment.render_kind"
@@ -1047,7 +1110,7 @@ const handlePastedFiles = async (files: File[]) => {
                                     :has-raw-source="comment.has_raw_source"
                                     :comment-id="comment.id"
                                 />
-                                <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">
+                                <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-base [overflow-wrap:anywhere]">
                                     {{ getAudioDisplayName(comment.attachments?.[0]?.name ?? '') }}
                                 </p>
                             </div>
@@ -1274,6 +1337,21 @@ const handlePastedFiles = async (files: File[]) => {
 </template>
 
 <style scoped>
+/* On a phone the editor sits flush inside the bordered form, which
+   carries the border, the ground and the focus ring. */
+@media (width < 40rem) {
+    .reply-field :deep(.simple-editor),
+    .reply-field :deep(.simple-editor:focus-within) {
+        border-color: transparent;
+        background-color: transparent;
+        box-shadow: none;
+    }
+    .reply-field :deep(.ProseMirror) {
+        padding: 0 0.625rem;
+        line-height: 1.5;
+    }
+}
+
 @media print {
     .print-comments-container {
         font-size: 9pt;

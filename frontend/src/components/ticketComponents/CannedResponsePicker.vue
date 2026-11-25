@@ -11,13 +11,15 @@ highlighted row) and naming the highlighted row through
 body, case-insensitive, multi-term AND.
 -->
 <template>
-  <div>
+  <!-- On a phone the trigger is a bare 44px tool, like the composer's
+       others, so the composer's controls keep to one row. -->
+  <div class="shrink-0">
     <button
       ref="triggerEl"
       type="button"
       @click="toggleOpen"
       :disabled="loading"
-      class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info transition-colors flex items-center justify-center"
+      class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info transition-colors flex items-center justify-center max-sm:h-11 max-sm:w-11 max-sm:px-0 max-sm:border-0 max-sm:bg-transparent! max-sm:rounded-lg"
       :aria-expanded="isOpen"
       aria-haspopup="dialog"
       :aria-label="$t('ticket-picker-canned-trigger-aria')"

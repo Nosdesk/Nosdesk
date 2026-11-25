@@ -13188,3 +13188,9 @@ admin-rules-activity-did-notify-no-channel = Aucun e-mail envoyé, car la boîte
 admin-rules-activity-did-notify-suppressed = Aucun e-mail envoyé, car l'adresse figure sur la liste de suppression
 # MT: pending native review (fr-FR)
 admin-rules-activity-held-warning-unsent = Non effectué, car l'e-mail n'a pas été envoyé : { $step }
+# MT: pending native review (fr-FR)
+ticket-comments-placeholder-short-public = Répondre
+# MT: pending native review (fr-FR)
+ticket-comments-placeholder-short-internal = Note interne
+# MT: pending native review (fr-FR)
+ticket-comments-via-email = par e-mail

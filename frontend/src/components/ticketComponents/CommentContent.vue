@@ -28,7 +28,7 @@ Deliberately not used in the print path: the print loop in
 so a printed ticket carries the full archival record, not the summary.
 -->
 <template>
-  <div class="flex flex-col gap-1">
+  <div class="flex flex-col gap-1" :class="reading && 'text-base leading-relaxed'">
     <!-- Visible body -->
     <EmailHtmlBody
       v-if="visibleMode === 'iframe'"
@@ -46,7 +46,7 @@ so a printed ticket carries the full archival record, not the summary.
       v-safe-html="visibleTextHtml"
       class="whitespace-pre-wrap break-words text-primary"
     />
-    <MarkdownRenderer v-else :content="visible" class="text-primary" />
+    <MarkdownRenderer v-else :content="visible" class="text-primary" :reading="reading" />
 
     <!-- Quoted history, tucked behind a disclosure -->
     <details v-if="quoted" class="group">
@@ -54,7 +54,7 @@ so a printed ticket carries the full archival record, not the summary.
         <Icon name="chevronRight" size="xs" :class="summaryIconClass" />
         <span>{{ quotedLabel }}</span>
       </summary>
-      <div class="mt-1">
+      <div class="mt-1" :class="reading && 'text-sm'">
         <!-- Quoted never gets its own iframe except on the legacy HTML
              path; rich/simple quoted render as inline sanitised HTML. -->
         <EmailHtmlBody
@@ -134,6 +134,9 @@ const props = defineProps<{
   hasRawSource?: boolean;
   /** Used to build the "Show original message" URL. */
   commentId?: number;
+  /** Reading text: the body at body size (16px at the designed size), as a
+   *  phone shows a comment. The compact size otherwise. */
+  reading?: boolean;
 }>();
 
 const fluent = useFluent();

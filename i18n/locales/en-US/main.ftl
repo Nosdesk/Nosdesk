@@ -5812,6 +5812,12 @@ ticket-comments-drop-files = Drop files here
 ticket-comments-internal-banner = Visible to staff only. Not sent through the ticket's channel.
 ticket-comments-placeholder-public = Reply to the requester... (@ to mention, # for a ticket)
 ticket-comments-placeholder-internal = Add an internal note... (@ to mention, # for a ticket)
+# The reply field's placeholder on a phone, where the long ones above do
+# not fit at larger text sizes.
+ticket-comments-placeholder-short-public = Reply
+ticket-comments-placeholder-short-internal = Internal note
+# How a comment arrived, on its head line on a phone.
+ticket-comments-via-email = by email
 ticket-comments-record-voice = Record voice note
 ticket-comments-upload-file = Upload file
 ticket-comments-visibility-group = Reply visibility

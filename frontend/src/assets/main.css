@@ -478,6 +478,20 @@
   --text-metric-lg: 2.25rem;
 }
 
+/* A glyph that carries meaning by itself beside text (a state or
+   priority mark, an avatar in a comment's head) grows at half the rate
+   of the text, so it stays a mark beside larger words instead of
+   becoming a picture. Icons are sized in rem, so `zoom` is what moves
+   them. Identical at scale 1. */
+:root {
+  --glyph-scale: calc(1 + (var(--text-scale) - 1) * 0.5);
+}
+.type-glyph {
+  display: inline-flex;
+  flex-shrink: 0;
+  zoom: var(--glyph-scale);
+}
+
 /* ============================================
    Root type scale on touch devices
    ============================================
@@ -2461,6 +2475,35 @@ html[data-theme="red-horizon"] body,
 }
 
 /* The unsized chip: offered on hover, never shown at rest. */
+/* A planning row's lead: its gutter (the time, or the grip of a job with
+   none) and its title, as one group that wraps (My day, the calendar's
+   day list). The gutter is five of the detail size's ems plus the space
+   after it, the column the time has always had. Once the title would
+   have less than 14.5 of its own ems beside it (a phone from one stop
+   above the designed size), the time goes above the title, on the line
+   priority and size already hold, and the title takes the row's width. */
+.plan-lead {
+  --plan-gutter: calc(var(--text-xs) * 5 + 0.75rem);
+  --plan-wrap-at: calc(var(--plan-gutter) + var(--text-sm) * 14.5);
+}
+.plan-gutter {
+  flex: 0 0 var(--plan-gutter);
+  padding-right: 0.75rem;
+}
+/* No time: the gutter keeps the column while the times are in one and
+   closes to the grip (or to nothing, with no grip) once they are not,
+   so no row gets a line for a grip alone. */
+.plan-gutter-closing {
+  flex: 0 0 clamp(2rem, (100% - var(--plan-wrap-at)) * 999, var(--plan-gutter));
+  padding-right: 0.75rem;
+}
+.plan-gutter-empty {
+  flex: 0 0 clamp(0px, (100% - var(--plan-wrap-at)) * 999, var(--plan-gutter));
+}
+.plan-title {
+  flex-basis: calc(var(--text-sm) * 14.5);
+}
+
 .plan-size-empty {
   opacity: 0;
 }

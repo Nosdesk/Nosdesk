@@ -390,7 +390,9 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
 <style scoped>
 .day-timeline {
   position: relative;
-  height: 28px;
+  /* 28px at the designed size; taller once the range label inside a bar
+     (`--text-3xs`) would no longer fit its 3px insets. */
+  height: max(28px, calc(var(--text-3xs) * 1.4 + 0.75rem));
   background-color: var(--color-surface-alt);
   border: 1px solid var(--color-subtle);
   border-radius: 0.375rem;
@@ -468,11 +470,15 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
   background-color: var(--color-status-error);
 }
 
+/* A short range at a large text size cannot show its whole label: it
+   ends in an ellipsis rather than a cut glyph, and the bar's title and
+   accessible name carry the full range. */
 .day-timeline__label {
   pointer-events: none;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: clip;
+  text-overflow: ellipsis;
+  min-width: 0;
   padding: 0 8px;
 }
 
