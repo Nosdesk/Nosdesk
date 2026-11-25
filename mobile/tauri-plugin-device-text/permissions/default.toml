@@ -1,0 +1,3 @@
+[default]
+description = "Allows the app to read the device text size and Bold Text settings, and to take over text scaling from the webview"
+permissions = ["allow-get", "allow-follow"]

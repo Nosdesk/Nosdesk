@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-follow"
+description = "Enables the follow command without any pre-configured scope."
+commands.allow = ["follow"]
+
+[[permission]]
+identifier = "deny-follow"
+description = "Denies the follow command without any pre-configured scope."
+commands.deny = ["follow"]
