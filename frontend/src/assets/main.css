@@ -543,6 +543,15 @@
   }
 }
 
+/* A row of fixed height that is not a control (a toolbar, a section
+   header) grows to fit its content at larger text, and keeps its fixed
+   height at the default size. */
+@utility grown-fit {
+  :root[data-text-grown] & {
+    min-height: max-content;
+  }
+}
+
 /* Something drawn at a fixed size that holds text of its own, such as
    an avatar and its initials: the tokens inside it are the unscaled
    desktop ones, so the initials keep fitting their circle at any text

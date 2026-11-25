@@ -1302,6 +1302,16 @@ function affectedDevicesTooltip(card: CardData): string {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* This scoped clamp outranks the layered grown-unclamp utility, so it
+   repeats it: at larger text on a phone a card title reads whole. */
+@media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+  :root[data-text-grown] .line-clamp-2.grown-unclamp {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: none;
+    line-clamp: none;
+  }
+}
 article {
   position: relative;
 }
