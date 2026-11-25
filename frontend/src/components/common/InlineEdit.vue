@@ -15,9 +15,17 @@ model:
   `preview` echoes back through `modelValue` (and a remote update can
   arrive mid-edit); Reka would copy either into the input and clobber
   the draft.
+
+`multiline` is the page title on a phone: the display wraps to as many
+lines as the text needs and the editor is a textarea of the same box, so
+entering the edit moves nothing. The value is still one line: Enter
+submits, and a pasted line break becomes a space. The caret starts at the
+end rather than selecting the title, a plain blur saves (a phone's keyboard
+Done, which Reka's dismiss layers don't see), and when the edit ends the
+heading takes focus back without reopening the editor.
 -->
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
 import { EditableArea, EditableInput, EditablePreview, EditableRoot } from 'reka-ui';
 import { useFluent } from 'fluent-vue';
 
@@ -37,6 +45,14 @@ interface Props {
    * lost to ellipsis, but never grows the row beyond two lines.
    * Unset = unlimited wrap (the previous `truncate: false` default). */
   maxLines?: 1 | 2;
+  /** Wrap without limit and edit in a textarea that grows with the text.
+   *  Overrides `maxLines` and `truncate`. */
+  multiline?: boolean;
+  /** The element the display renders as. `h1` makes it the page heading. */
+  as?: 'div' | 'h1';
+  /** The display's accessible name while the value is empty, in place of
+   *  the placeholder it shows. */
+  emptyLabel?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -46,6 +62,9 @@ const props = withDefaults(defineProps<Props>(), {
   prefix: '',
   showEditHint: true,
   truncate: false,
+  multiline: false,
+  as: 'div',
+  emptyLabel: undefined,
 });
 
 const emit = defineEmits<{
@@ -71,26 +90,131 @@ watch(
   },
 );
 
+// The textarea's text, mirrored into the sizer that gives it its height.
+const draft = ref(props.modelValue);
+const textarea = ref<HTMLTextAreaElement | null>(null);
+const root = useTemplateRef<InstanceType<typeof EditableRoot>>('root');
+const wrapper = useTemplateRef<HTMLElement>('wrapper');
+
+// A long title selected whole is one stray key from gone, and a phone has
+// no Escape, so the multiline editor opens with the caret at the end.
+let caretToEnd = false;
+// Set for the one focus that hands the heading its focus back, which would
+// otherwise reopen the editor (activation on focus).
+let returningFocus = false;
+
 function onState(state: 'edit' | 'submit' | 'cancel') {
   if (state === 'edit') {
     originalValue.value = props.modelValue;
     held.value = props.modelValue;
+    draft.value = props.modelValue;
     isEditing.value = true;
+    caretToEnd = props.multiline;
     return;
   }
   isEditing.value = false;
   held.value = props.modelValue;
   if (state === 'cancel') emit('preview', originalValue.value);
+  if (props.multiline) returnFocus();
+}
+
+// The edit ended with focus still in the field, or nowhere (Enter, Escape,
+// a keyboard dismissed): the heading takes it back and is read again. Focus
+// that went to something else stays there.
+function returnFocus() {
+  const active = document.activeElement;
+  if (active && active !== textarea.value && active !== document.body) return;
+  void nextTick(() => {
+    const heading = wrapper.value?.querySelector<HTMLElement>('[data-inline-edit-display]');
+    if (!heading || isEditing.value) return;
+    returningFocus = true;
+    try {
+      heading.focus({ preventScroll: true });
+    } finally {
+      returningFocus = false;
+    }
+  });
+}
+
+function onFocusinCapture(event: FocusEvent) {
+  if (returningFocus) event.stopPropagation();
+}
+
+// A tap on the heading that already has focus (handed back above) fires no
+// focus, so the tap itself opens the editor.
+function onDisplayClick() {
+  if (props.multiline && props.canEdit && !isEditing.value) root.value?.edit();
+}
+
+function onTextareaFocus(event: FocusEvent) {
+  if (!caretToEnd) return;
+  caretToEnd = false;
+  const field = event.target as HTMLTextAreaElement;
+  field.setSelectionRange(field.value.length, field.value.length);
+}
+
+// Reka submits on a pointer down outside or focus moving elsewhere; a blur
+// to nowhere (iOS's keyboard Done, the keyboard dismissed) gets neither.
+// Removing a focused field blurs it in some engines: an edit whose owner is
+// going away (its subject changed) is dropped, not saved.
+let unmounting = false;
+onBeforeUnmount(() => {
+  unmounting = true;
+});
+function onTextareaBlur(event: FocusEvent) {
+  if (event.relatedTarget === null && isEditing.value && !unmounting) root.value?.submit();
 }
 
 // Reka submits unconditionally; only a real change reaches the parent.
-function onSubmit(value: string) {
+function onSubmit(raw: string) {
+  const value = props.multiline ? oneLine(raw).trim() : raw;
   if (value !== originalValue.value) emit('update:modelValue', value);
 }
+
+// A title is one line of text however many lines it wraps to.
+const oneLine = (text: string) => text.replace(/\s*[\r\n]+\s*/g, ' ');
 
 function onInput(event: Event) {
   emit('preview', (event.target as HTMLInputElement).value);
 }
+
+// A pasted line break becomes a space as it lands. Reka has already read
+// the raw text by the time this runs, so the cleaned text goes round once
+// more as its own input event for Reka to read too.
+function onTextareaInput(event: Event) {
+  const field = event.target as HTMLTextAreaElement;
+  if (/[\r\n]/.test(field.value)) {
+    const caret = oneLine(field.value.slice(0, field.selectionStart)).length;
+    field.value = oneLine(field.value);
+    field.setSelectionRange(caret, caret);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    return;
+  }
+  draft.value = field.value;
+  emit('preview', field.value);
+}
+
+// Enter while an input method is composing picks the candidate. Safari ends
+// the composition before the keydown, which then only shows as keyCode 229.
+const composing = (event: KeyboardEvent) => event.isComposing || event.keyCode === 229;
+
+// Stops a composing Enter on its way down, before Reka's own handler on the
+// field submits.
+function onKeydownCapture(event: KeyboardEvent) {
+  if (event.key === 'Enter' && composing(event)) event.stopPropagation();
+}
+
+// Any other Enter submits (Reka's handler) and never types a line break.
+function onTextareaEnter(event: KeyboardEvent) {
+  if (!composing(event)) event.preventDefault();
+}
+
+// One paragraph style for the wrapped display, the textarea and its sizer,
+// so all three break their lines in the same places. A word longer than
+// the line (a pasted URL, a serial) breaks anywhere instead of widening
+// the page.
+const MULTILINE_TEXT = 'leading-snug whitespace-pre-wrap [overflow-wrap:anywhere]';
+const BOX = 'w-full font-semibold px-1 py-0.5 rounded-lg border-2';
 
 const textSizeClasses = {
   sm: 'text-sm',
@@ -104,7 +228,9 @@ const textSizeClasses = {
 // two lines with ellipsis past that, paired with leading-tight so two
 // lines fit in a header row sized for one.
 const clampClass = computed(() =>
-  props.maxLines === 2
+  props.multiline
+    ? MULTILINE_TEXT
+    : props.maxLines === 2
     ? 'line-clamp-2 leading-tight break-words'
     : props.maxLines === 1 || props.truncate
       ? 'truncate'
@@ -115,7 +241,7 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
 </script>
 
 <template>
-  <div class="flex items-center gap-3 group flex-1 min-w-0">
+  <div ref="wrapper" class="flex items-center gap-3 group flex-1 min-w-0" @focusin.capture="onFocusinCapture">
     <span
       v-if="prefix"
       class="text-tertiary font-medium flex items-center select-none flex-shrink-0"
@@ -125,18 +251,20 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
     </span>
 
     <EditableRoot
+      ref="root"
       :model-value="held"
       :placeholder="resolvedPlaceholder"
       :activation-mode="canEdit ? 'focus' : 'none'"
       submit-mode="both"
-      select-on-focus
+      :select-on-focus="!multiline"
       class="flex-1 relative min-w-0"
       @update:model-value="onSubmit"
       @update:state="onState"
     >
       <EditableArea class="w-full">
         <EditablePreview as-child>
-          <div
+          <component
+            :is="as"
             class="w-full font-semibold px-1 py-0.5 rounded-lg transition-all duration-150 border-2 border-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             :class="[
               textSizeClasses[textSize],
@@ -145,12 +273,40 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
               held ? 'text-primary' : 'text-tertiary italic',
             ]"
             :tabindex="canEdit ? 0 : -1"
-            :title="(maxLines || truncate) && held ? held : undefined"
+            :title="!multiline && (maxLines || truncate) && held ? held : undefined"
+            :aria-label="!held && emptyLabel ? emptyLabel : undefined"
+            data-inline-edit-display
+            @click="onDisplayClick"
           >
             {{ held || resolvedPlaceholder }}
-          </div>
+          </component>
         </EditablePreview>
-        <EditableInput as-child>
+        <!-- The textarea takes its size from a hidden copy of its text in
+             the same grid cell: no measuring, and the same box as the
+             display it replaced. -->
+        <div v-if="multiline" v-show="isEditing" class="grid" @keydown.capture="onKeydownCapture">
+          <div
+            aria-hidden="true"
+            class="invisible col-start-1 row-start-1 border-transparent"
+            :class="[BOX, textSizeClasses[textSize], MULTILINE_TEXT]"
+          >{{ draft || resolvedPlaceholder }}&#8203;</div>
+          <EditableInput as-child>
+            <textarea
+              ref="textarea"
+              rows="1"
+              enterkeyhint="done"
+              autocapitalize="sentences"
+              :aria-label="accessibleName"
+              class="col-start-1 row-start-1 h-full resize-none overflow-hidden bg-surface text-primary focus:outline-none border-accent/50 placeholder:text-tertiary placeholder:italic cursor-text"
+              :class="[BOX, textSizeClasses[textSize], MULTILINE_TEXT]"
+              @keydown.enter="onTextareaEnter"
+              @input="onTextareaInput"
+              @focus="onTextareaFocus"
+              @blur="onTextareaBlur"
+            />
+          </EditableInput>
+        </div>
+        <EditableInput v-else as-child>
           <input
             type="text"
             :aria-label="accessibleName"
@@ -163,7 +319,7 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
 
       <!-- Edit hint, pointer only (the preview's focus ring covers keyboard). -->
       <span
-        v-if="!isEditing && canEdit && showEditHint"
+        v-if="!isEditing && canEdit && showEditHint && !multiline"
         class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none select-none"
         aria-hidden="true"
       >
