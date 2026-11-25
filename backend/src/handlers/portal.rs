@@ -2133,14 +2133,9 @@ pub async fn add_participant(
                 Some(requester),
             )?;
         }
-        // Already a member: a no-op (ON CONFLICT DO NOTHING).
-        crate::repository::workspaces::add_membership(
-            conn,
-            ticket.workspace_id,
-            person.uuid,
-            "member",
-            crate::repository::workspaces::SeatWriteAuthority::Product,
-        )?;
+        // A requester can seat someone known elsewhere, but never give back a
+        // seat the team here removed.
+        crate::repository::workspaces::join_as_requester(conn, ticket.workspace_id, person.uuid)?;
         let added =
             crate::repository::ticket_watchers::add_watcher(conn, ticket_id, person.uuid, false)?;
         if added {
