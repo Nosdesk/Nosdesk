@@ -34,14 +34,14 @@ const HEAT: number[] = Array.from({ length: 7 * 16 }, (_, i) => {
       <text x="60" y="24" font-size="9" font-weight="600" class="text-status-success" fill="currentColor">▲ 8%</text>
       <path
         d="M12,60 L28,53 L44,56 L60,47 L76,51 L92,44 L108,49 L108,62 L12,62 Z"
-        class="text-accent"
+        class="text-accent-ui"
         fill="currentColor"
         opacity="0.16"
       />
       <polyline
         points="12,60 28,53 44,56 60,47 76,51 92,44 108,49"
         fill="none"
-        class="text-accent"
+        class="text-accent-ui"
         stroke="currentColor"
         stroke-width="2"
         stroke-linecap="round"
@@ -71,7 +71,7 @@ const HEAT: number[] = Array.from({ length: 7 * 16 }, (_, i) => {
     <!-- Net-flow: diverging area around a centre axis. -->
     <template v-else-if="kind === 'area'">
       <line x1="8" y1="36" x2="112" y2="36" class="text-default" stroke="currentColor" stroke-width="1" opacity="0.5" />
-      <path d="M8,36 C22,18 34,15 50,26 C58,31 66,34 72,36 L8,36 Z" class="text-accent" fill="currentColor" opacity="0.22" />
+      <path d="M8,36 C22,18 34,15 50,26 C58,31 66,34 72,36 L8,36 Z" class="text-accent-ui" fill="currentColor" opacity="0.22" />
       <path d="M72,36 C84,45 92,51 104,48 C108,47 110,46 112,46 L112,36 Z" class="text-status-success" fill="currentColor" opacity="0.22" />
       <path
         d="M8,36 C22,18 34,15 50,26 C58,31 66,34 72,36 C84,45 92,51 104,48 C108,47 110,46 112,46"
@@ -88,7 +88,7 @@ const HEAT: number[] = Array.from({ length: 7 * 16 }, (_, i) => {
       <g v-for="(row, i) in [{ w: 58, o: 0.85 }, { w: 42, o: 0.6 }, { w: 30, o: 0.45 }, { w: 18, o: 0.35 }]" :key="i">
         <rect x="8" :y="14 + i * 12" width="20" height="6" rx="2" class="text-secondary" fill="currentColor" opacity="0.4" />
         <rect x="34" :y="14 + i * 12" width="62" height="6" rx="3" class="text-default" fill="currentColor" opacity="0.18" />
-        <rect x="34" :y="14 + i * 12" :width="row.w" height="6" rx="3" class="text-accent" fill="currentColor" :opacity="row.o" />
+        <rect x="34" :y="14 + i * 12" :width="row.w" height="6" rx="3" class="text-accent-ui" fill="currentColor" :opacity="row.o" />
         <rect x="100" :y="14 + i * 12" width="12" height="6" rx="2" class="text-tertiary" fill="currentColor" opacity="0.4" />
       </g>
     </template>
@@ -104,7 +104,7 @@ const HEAT: number[] = Array.from({ length: 7 * 16 }, (_, i) => {
           width="5.2"
           height="5.2"
           rx="1.2"
-          class="text-accent"
+          class="text-accent-ui"
           fill="currentColor"
           :opacity="HEAT[(r - 1) * 16 + (c - 1)]"
         />

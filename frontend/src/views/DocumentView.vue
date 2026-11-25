@@ -794,7 +794,7 @@ usePageTitle({
                   contenteditable="true"
                   @blur="updateTitle(($event.target as HTMLElement).textContent || '')"
                   @keydown.enter.prevent="($event.target as HTMLElement).blur()"
-                  class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent/30 rounded px-1 -mx-1"
+                  class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent rounded px-1 -mx-1"
                 >
                   {{ editTitle || document.title || $t('doc-detail-untitled') }}
                 </h1>

@@ -251,7 +251,7 @@ async function updatePlan(patch: Partial<CardData>): Promise<void> {
             <textarea
               v-model="titleDraft"
               rows="2"
-              class="w-full text-lg font-semibold text-primary leading-snug bg-transparent border-0 outline-none resize-none rounded px-0.5 -mx-0.5 focus:ring-1 focus:ring-accent/30 placeholder:text-tertiary"
+              class="w-full text-lg font-semibold text-primary leading-snug bg-transparent border-0 outline-none resize-none rounded px-0.5 -mx-0.5 focus:ring-1 focus:ring-accent placeholder:text-tertiary"
               :placeholder="$t('views-ticket-preview-title-placeholder')"
               @blur="commitTitle"
               @keydown.enter.prevent="($event.target as HTMLTextAreaElement).blur()"

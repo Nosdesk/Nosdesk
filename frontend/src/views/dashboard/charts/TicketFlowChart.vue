@@ -374,7 +374,7 @@ const tooltipStyle = computed(() => {
           <path
             v-if="chart.areaPath"
             :d="chart.areaPath"
-            class="text-accent"
+            class="text-accent-ui"
             fill="currentColor"
             fill-opacity="0.22"
             stroke="none"
@@ -463,7 +463,7 @@ const tooltipStyle = computed(() => {
               :cx="hoverPt.x"
               :cy="hoverPt.y"
               r="4"
-              :class="(hoverInfo?.net ?? 0) >= 0 ? 'text-accent' : 'text-status-success'"
+              :class="(hoverInfo?.net ?? 0) >= 0 ? 'text-accent-ui' : 'text-status-success'"
               fill="currentColor"
             />
           </g>

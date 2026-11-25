@@ -276,7 +276,7 @@ function formatDelta(delta: string): string {
           type="text"
           inputmode="decimal"
           :placeholder="$t('asset-usage-record-quantity-placeholder', { unit: unit ?? '' })"
-          class="flex-1 bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
+          class="flex-1 bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent"
           @keyup.enter="submitRecord('usage')"
         />
         <Button
@@ -302,7 +302,7 @@ function formatDelta(delta: string): string {
         v-model="recordNotes"
         type="text"
         :placeholder="$t('asset-usage-record-notes-placeholder')"
-        class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-xs focus:outline-none focus:ring-2 focus:ring-accent/50"
+        class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-xs focus:outline-none focus:ring-2 focus:ring-accent"
       />
       <p v-if="recordError" class="text-xs text-status-error">{{ recordError }}</p>
     </div>
@@ -321,7 +321,7 @@ function formatDelta(delta: string): string {
           type="text"
           inputmode="decimal"
           :placeholder="$t('asset-audit-record-placeholder', { unit: unit ?? '' })"
-          class="flex-1 bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
+          class="flex-1 bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent"
           @keyup.enter="submitAudit"
         />
         <button
@@ -338,7 +338,7 @@ function formatDelta(delta: string): string {
         v-model="auditNotes"
         type="text"
         :placeholder="$t('asset-audit-record-notes-placeholder')"
-        class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-xs focus:outline-none focus:ring-2 focus:ring-accent/50"
+        class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-xs focus:outline-none focus:ring-2 focus:ring-accent"
       />
       <p v-if="auditError" class="text-xs text-status-error">{{ auditError }}</p>
     </div>

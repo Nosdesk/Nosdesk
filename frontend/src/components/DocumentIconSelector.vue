@@ -82,7 +82,7 @@ function closeDropdown() {
       @click="toggleDropdown"
       @mouseenter="warmPicker"
       @focus="warmPicker"
-      class="flex items-center justify-center rounded-lg transition-all duration-150 hover:bg-surface-hover active:scale-95 focus:outline-none focus:ring-2 focus:ring-accent/50"
+      class="flex items-center justify-center rounded-lg transition-all duration-150 hover:bg-surface-hover active:scale-95 focus:outline-none focus:ring-2 focus:ring-accent"
       :class="sizeClasses"
       :aria-label="$t('doc-icon-selector-trigger-aria')"
       :aria-expanded="showDropdown"

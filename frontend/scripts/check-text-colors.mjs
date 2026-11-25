@@ -15,6 +15,9 @@
  *     every theme, so on a coloured surface or its own tint it can fail.
  *     Use the status tokens (`text-status-warning` on
  *     `bg-status-warning-muted`) or `text-tertiary`.
+ *   - A focus ring mixed into its background (`focus:ring-accent/30`)
+ *     with no solid accent border beside it: the only focus indicator
+ *     then falls under 3:1 (WCAG 1.4.11).
  *
  * Files that let a person pick a colour from a fixed palette are listed
  * in ALLOWED with the reason. Runs in the frontend `lint` script.
@@ -47,6 +50,9 @@ function walk(dir, out = []) {
   return out
 }
 
+const FADED_RING = /(?<![\w-])(?:focus|focus-visible|focus-within):ring-accent\/\d+/
+const SOLID_BORDER = /(?<![\w-])(?:focus|focus-visible):border-accent(?![\w/-])/
+
 const failures = []
 for (const file of dirs.flatMap((d) => walk(d))) {
   const rel = relative(root, file)
@@ -54,6 +60,12 @@ for (const file of dirs.flatMap((d) => walk(d))) {
   const line = (i) => source.slice(0, i).split('\n').length
   for (const m of source.matchAll(DIMMED)) {
     failures.push(`${rel}:${line(m.index)}: ${m[0]} dims text under its contrast; use the token at full strength`)
+  }
+  // A class list is one quoted string; judge each on its own.
+  for (const m of source.matchAll(/(["'`])((?:(?!\1)[^\n])*)\1/g)) {
+    if (FADED_RING.test(m[2]) && !SOLID_BORDER.test(m[2])) {
+      failures.push(`${rel}:${line(m.index)}: a faded focus ring is the only focus indicator; use ring-accent at full strength`)
+    }
   }
   if (ALLOWED[rel]) continue
   for (const m of source.matchAll(PALETTE)) {

@@ -41,6 +41,14 @@ export const TEXT_COLOURS = [
   ['accent-hover', 'accentHover', 'accentMuted'],
 ] as const satisfies ReadonlyArray<readonly [string, keyof ThemeColors, keyof ThemeColors]>
 
+/** Merged has no theme colour of its own: every theme takes the base
+ *  light or dark one (main.css), and its text version is derived here
+ *  against the theme's own backgrounds like the rest. */
+export const MERGED = {
+  light: { fill: '#6366F1', tint: 'rgba(99, 102, 241, 0.15)' },
+  dark: { fill: '#818CF8', tint: 'rgba(129, 140, 248, 0.2)' },
+} as const
+
 /** The backgrounds text sits on: the app, the surface, the alternate
  *  surface and the hover fill, the translucent ones laid over the
  *  surface where rows and cards draw them. */
@@ -61,7 +69,7 @@ export interface ResolvedTheme {
   onAccent: string
   /** `--color-<name>-text` by name, 4.5:1 on every background and on
    *  its own tint laid over each of them. */
-  text: Record<(typeof TEXT_COLOURS)[number][0], string>
+  text: Record<(typeof TEXT_COLOURS)[number][0] | 'status-merged', string>
   /** The accent where it marks state or focus rather than filling: focus
    *  rings, outlines, selected borders. 3:1 on every background (WCAG
    *  1.4.11); `ring-accent`, `outline-accent` and `border-accent` read it. */
@@ -96,13 +104,13 @@ export function resolveTheme(theme: Theme, accentOverride?: string): ResolvedThe
   const onAccent = colors.accentForeground ?? pickAccentForeground(colors.accent, colors.accentHover)
 
   const backgrounds = Object.values(themeBackgrounds(colors))
-  const text = Object.fromEntries(
-    TEXT_COLOURS.map(([name, key, muted]) => {
-      const tint = colors[muted] as string
-      const fills = [...backgrounds, ...backgrounds.map((under) => parseColour(tint, under))]
-      return [name, readableOn(colors[key] as string, fills, 4.5, theme.meta.isDark)]
-    }),
-  ) as ResolvedTheme['text']
+  const readable = (colour: string, tint: string) =>
+    readableOn(colour, [...backgrounds, ...backgrounds.map((under) => parseColour(tint, under))], 4.5, theme.meta.isDark)
+  const merged = theme.meta.isDark ? MERGED.dark : MERGED.light
+  const text = {
+    ...Object.fromEntries(TEXT_COLOURS.map(([name, key, muted]) => [name, readable(colors[key] as string, colors[muted] as string)])),
+    'status-merged': readable(merged.fill, merged.tint),
+  } as ResolvedTheme['text']
 
   const ui = (colour: string, fills: Rgb[]) => readableOn(colour, fills, 3, theme.meta.isDark)
   const { surfaceHover: _hover, ...still } = themeBackgrounds(colors)

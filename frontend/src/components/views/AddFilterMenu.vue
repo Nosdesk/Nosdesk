@@ -281,7 +281,7 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
                 type="text"
                 :value="stageTextValue"
                 :placeholder="textPlaceholder ?? $t('views-add-filter-search-title-placeholder')"
-                class="bg-surface border border-field rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
+                class="bg-surface border border-field rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent transition-colors"
                 @input="onTextInput"
                 @keydown="onTextKeydown"
               />

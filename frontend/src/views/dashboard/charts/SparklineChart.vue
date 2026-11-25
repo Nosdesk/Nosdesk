@@ -93,7 +93,7 @@ const chart = computed(() => {
         stroke-width="1.75"
         stroke-linejoin="round"
         stroke-linecap="round"
-        class="text-accent"
+        class="text-accent-ui"
       />
 
       <circle
@@ -109,7 +109,7 @@ const chart = computed(() => {
         :cx="chart.last.x"
         :cy="chart.last.y"
         r="2"
-        class="text-accent"
+        class="text-accent-ui"
         fill="currentColor"
       />
     </svg>

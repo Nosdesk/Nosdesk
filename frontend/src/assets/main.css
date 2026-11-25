@@ -349,6 +349,24 @@
   --outline-color-accent: var(--color-accent-ui);
   --border-color-accent: var(--color-accent-ui);
   --border-color-field: var(--color-field-border);
+
+  /* Graphics drawn in `currentColor` (status dots, state glyphs, chart
+     series) want the colour itself, not its text version:
+     `text-status-open-fill` is the fill colour, `text-accent-ui` the
+     accent at 3:1. A dot beside its label carries no meaning of its own;
+     a chart series that does uses the 3:1 version. */
+  --text-color-status-success-fill: var(--color-status-success);
+  --text-color-status-error-fill: var(--color-status-error);
+  --text-color-status-warning-fill: var(--color-status-warning);
+  --text-color-status-info-fill: var(--color-status-info);
+  --text-color-status-open-fill: var(--color-status-open);
+  --text-color-status-in-progress-fill: var(--color-status-in-progress);
+  --text-color-status-closed-fill: var(--color-status-closed);
+  --text-color-status-merged-fill: var(--color-status-merged);
+  --text-color-priority-high-fill: var(--color-priority-high);
+  --text-color-priority-medium-fill: var(--color-priority-medium);
+  --text-color-priority-low-fill: var(--color-priority-low);
+  --text-color-accent-ui: var(--color-accent-ui);
   --text-color-status-merged: var(--color-status-merged-text);
 }
 
@@ -1426,10 +1444,9 @@ html[data-theme="red-horizon"] body,
   box-shadow: 0 0 12px rgba(255, 136, 68, 0.5), inset 0 0 25px rgba(120, 50, 0, 0.3);
 }
 
-/* Red Horizon: Secondary/outline buttons */
-[data-theme="red-horizon"] .border-accent {
-  border-color: #502200 !important;
-}
+/* Red Horizon's accent borders (outline buttons, selected and focused
+   controls) take the theme's own `--color-accent-ui`, which holds 3:1
+   on its near-black surfaces; a dim brown here fell to about 1.6:1. */
 
 [data-theme="red-horizon"] .text-accent {
   text-shadow: 0 0 4px rgba(200, 80, 0, 0.4);

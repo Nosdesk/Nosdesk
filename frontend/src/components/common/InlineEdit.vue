@@ -137,7 +137,7 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
       <EditableArea class="w-full">
         <EditablePreview as-child>
           <div
-            class="w-full font-semibold px-1 py-0.5 rounded-lg transition-all duration-150 border-2 border-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="w-full font-semibold px-1 py-0.5 rounded-lg transition-all duration-150 border-2 border-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent"
             :class="[
               textSizeClasses[textSize],
               clampClass,

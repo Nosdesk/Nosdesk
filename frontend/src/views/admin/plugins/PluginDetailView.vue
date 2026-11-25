@@ -382,7 +382,7 @@ const saveButtonLabel = computed(() =>
             v-if="plugin.state === 'installed' || plugin.state === 'disabled'"
             type="button"
             @click="toggle"
-            class="rounded-lg border border-default bg-surface-alt px-3 py-1.5 text-sm text-primary transition-colors hover:bg-surface-hover focus:ring-2 focus:ring-accent/30 focus:outline-none"
+            class="rounded-lg border border-default bg-surface-alt px-3 py-1.5 text-sm text-primary transition-colors hover:bg-surface-hover focus:ring-2 focus:ring-accent focus:outline-none"
           >
             {{ toggleLabel }}
           </button>

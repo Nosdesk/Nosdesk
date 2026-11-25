@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { themeRegistry, type Theme } from '@/themes'
 import { lightTheme } from '@/themes/base/light'
 import { darkTheme } from '@/themes/base/dark'
-import { overdueColor, resolveTheme, TEXT_COLOURS } from '@/themes/utils/cssInjector'
+import { MERGED, overdueColor, resolveTheme, TEXT_COLOURS } from '@/themes/utils/cssInjector'
 
 type Rgb = [number, number, number]
 
@@ -141,21 +141,24 @@ describe('status, priority and accent text', () => {
     expect(contrast(parse(onAccent), parse(colors.accentHover))).toBeGreaterThanOrEqual(4.5)
   })
 
-  it.each(TEXT_COLOURS.map(([name]) => name))('--color-%s-text in the stylesheet defaults is the base light and dark value', (name) => {
+  it.each([...TEXT_COLOURS.map(([name]) => name), 'status-merged' as const])('--color-%s-text in the stylesheet defaults is the base light and dark value', (name) => {
     const values = [...css.matchAll(new RegExp(`--color-${name}-text: (#[0-9a-f]{6});`, 'gi'))].map((m) => m[1].toLowerCase())
     expect(values).toEqual([resolveTheme(lightTheme).text[name], resolveTheme(darkTheme).text[name]])
   })
 
-  // Merged has no theme token, so its text version is the stylesheet's.
-  it('merged text reaches 4.5:1 in the base light and dark themes', () => {
-    const values = [...css.matchAll(/--color-status-merged-text: (#[0-9a-f]{6});/gi)].map((m) => m[1])
-    const tints = [...css.matchAll(/--color-status-merged-muted: (rgba\([^)]+\));/gi)].map((m) => m[1])
-    expect(values).toHaveLength(2)
-    for (const [i, theme] of [lightTheme, darkTheme].entries()) {
-      for (const [, fill] of fillsFor(theme.colors, tints[i + 1] ?? tints[i])) {
-        expect(contrast(parse(values[i]), fill)).toBeGreaterThanOrEqual(4.5)
-      }
+  // Merged has no theme colour, so every theme derives its text version
+  // from the base one against its own backgrounds.
+  it.each(themes)('%s: text-status-merged reaches 4.5:1 on every background and its tint', (_id, theme) => {
+    const { colors, text } = resolveTheme(theme)
+    const merged = theme.meta.isDark ? MERGED.dark : MERGED.light
+    for (const [, fill] of fillsFor(colors, merged.tint)) {
+      expect(contrast(parse(text['status-merged']), fill)).toBeGreaterThanOrEqual(4.5)
     }
+  })
+
+  it('the stylesheet carries the base merged colours the themes derive from', () => {
+    const fills = [...css.matchAll(/--color-status-merged: (#[0-9a-f]{6});/gi)].map((m) => m[1].toLowerCase())
+    expect(fills).toEqual([MERGED.light.fill, MERGED.light.fill, MERGED.dark.fill].map((c) => c.toLowerCase()))
   })
 })
 

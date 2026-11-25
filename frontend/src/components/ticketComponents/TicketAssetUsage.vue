@@ -229,7 +229,7 @@ onMounted(reload);
             type="text"
             inputmode="decimal"
             :placeholder="$t('ticket-asset-usage-quantity-placeholder', { unit: asset.unit ?? '' })"
-            class="flex-1 bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
+            class="flex-1 bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent"
           />
           <IconButton
             variant="primary"
@@ -246,7 +246,7 @@ onMounted(reload);
           v-model="draftFor(asset.id).notes"
           type="text"
           :placeholder="$t('ticket-asset-usage-notes-placeholder')"
-          class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-xs focus:outline-none focus:ring-2 focus:ring-accent/50"
+          class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-xs focus:outline-none focus:ring-2 focus:ring-accent"
         />
       </div>
     </div>

@@ -399,12 +399,12 @@ const xLabels = computed<XTick[]>(() => {
         stroke-width="2"
         stroke-linejoin="round"
         stroke-linecap="round"
-        class="text-accent"
+        class="text-accent-ui"
       />
       <!-- Endpoint marker anchoring the latest value, with a surface
            halo so it reads cleanly over the line + grid. -->
       <circle v-if="chart.last" :cx="chart.last.x" :cy="chart.last.y" r="4" class="text-surface" fill="currentColor" />
-      <circle v-if="chart.last" :cx="chart.last.x" :cy="chart.last.y" r="2.5" class="text-accent" fill="currentColor" />
+      <circle v-if="chart.last" :cx="chart.last.x" :cy="chart.last.y" r="2.5" class="text-accent-ui" fill="currentColor" />
     </svg>
     </div>
     </component>

@@ -347,7 +347,7 @@ const deleteModalTitle = computed(() =>
             <button
               v-if="authStore.isTechnician"
               type="button"
-              class="shrink-0 rounded-lg transition-transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              class="shrink-0 rounded-lg transition-transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               :aria-label="$t('docs-collection-appearance-open-aria')"
               @click="showAppearanceModal = true"
             >
@@ -368,7 +368,7 @@ const deleteModalTitle = computed(() =>
               contenteditable="true"
               @blur="updateName(($event.target as HTMLElement).textContent || '')"
               @keydown.enter.prevent="($event.target as HTMLElement).blur()"
-              class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent/30 rounded px-1 -mx-1 flex-1"
+              class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent rounded px-1 -mx-1 flex-1"
             >{{ collection.name }}</h1>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
