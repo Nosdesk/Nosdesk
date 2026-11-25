@@ -1193,15 +1193,18 @@ pub async fn export_assets(
         ExportExtra::Records { .. } => "asset-records",
         ExportExtra::Timeline(_) => "asset-timeline",
     };
-    // The snapshot's `status_label` column names each named status.
+    // The snapshot's `status_label` column and the timeline's status details
+    // name each named status.
     let status_labels: HashMap<i32, String> = match &extra {
-        ExportExtra::None => match tc.run(|conn| repository::asset_statuses::list(conn, true)) {
-            Ok(statuses) => statuses.into_iter().map(|s| (s.id, s.label)).collect(),
-            Err(e) => {
-                error!(error = ?e, "Database error exporting assets");
-                return errors::internal("Failed to export assets");
+        ExportExtra::None | ExportExtra::Timeline(_) => {
+            match tc.run(|conn| repository::asset_statuses::list(conn, true)) {
+                Ok(statuses) => statuses.into_iter().map(|s| (s.id, s.label)).collect(),
+                Err(e) => {
+                    error!(error = ?e, "Database error exporting assets");
+                    return errors::internal("Failed to export assets");
+                }
             }
-        },
+        }
         _ => HashMap::new(),
     };
     let by_id: HashMap<i32, &Asset> = rows.iter().map(|a| (a.id, a)).collect();
@@ -1238,7 +1241,8 @@ pub async fn export_assets(
             }
         }
         ExportExtra::Timeline(entries) => {
-            let rows = crate::handlers::asset_timeline::export_rows(&entries, &by_id);
+            let rows =
+                crate::handlers::asset_timeline::export_rows(&entries, &by_id, &status_labels);
             if json {
                 serde_json::to_vec(&crate::handlers::asset_timeline::export_rows_json(&rows))
                     .map_err(|e| e.to_string())
@@ -1418,9 +1422,13 @@ pub async fn record_card(
             &repository::asset_timeline::TimelineFilter::default(),
             ticket_details,
         )?;
-        Ok((asset, entries))
+        let labels: HashMap<i32, String> = repository::asset_statuses::list(conn, true)?
+            .into_iter()
+            .map(|s| (s.id, s.label))
+            .collect();
+        Ok((asset, entries, labels))
     });
-    let (asset, entries) = match result {
+    let (asset, entries, labels) = match result {
         Ok(v) => v,
         Err(diesel::result::Error::NotFound) => {
             return errors::not_found_msg(format!("Asset {asset_id} not found"));
@@ -1431,7 +1439,7 @@ pub async fn record_card(
         }
     };
     let by_id = HashMap::from([(asset.id, &asset)]);
-    let rows = crate::handlers::asset_timeline::export_rows(&entries, &by_id);
+    let rows = crate::handlers::asset_timeline::export_rows(&entries, &by_id, &labels);
     let body = match imports_assets::write_timeline_csv(&rows) {
         Ok(bytes) => bytes,
         Err(e) => {

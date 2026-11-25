@@ -113,6 +113,11 @@ fn status_error(e: StatusError) -> HttpResponse {
             "That slug is a status category's key",
             json!({}),
         ),
+        StatusError::LabelReserved => conflict(
+            "LABEL_RESERVED",
+            "That name is a status category's; a plain asset already reads as it",
+            json!({}),
+        ),
         StatusError::LabelRequired => {
             unprocessable("LABEL_REQUIRED", "A status needs a name", json!({}))
         }

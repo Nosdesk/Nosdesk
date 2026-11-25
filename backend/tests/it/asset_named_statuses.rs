@@ -279,6 +279,11 @@ async fn admins_manage_named_statuses() {
             "SLUG_TAKEN",
         ),
         (
+            json!({ "category": "retired", "slug": "write_off", "label": "Lost" }),
+            StatusCode::CONFLICT,
+            "LABEL_RESERVED",
+        ),
+        (
             json!({ "category": "in_stock", "slug": "in_stock", "label": "Shelf" }),
             StatusCode::CONFLICT,
             "SLUG_RESERVED",
@@ -487,6 +492,24 @@ async fn a_change_of_named_status_within_a_category_writes_an_event_and_no_recor
             Some(vendor),
             Some(parts)
         ))
+    );
+
+    // The timeline export names both sides of the relabel.
+    let (status, exported) = call(
+        &f,
+        f.agent,
+        Method::GET,
+        "/api/assets/export?scope=timeline&format=json",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{exported}");
+    assert!(
+        exported.as_array().expect("rows").iter().any(|r| {
+            r["details"]["from_status_label"] == "At vendor"
+                && r["details"]["to_status_label"] == "Awaiting parts"
+        }),
+        "{exported}"
     );
 
     // A relabel completes nothing either, and says so.
@@ -905,4 +928,49 @@ fn both_status_keys_are_pinned() {
             "the archive remaps {table}.{id}"
         );
     }
+}
+
+/// A workspace whose assets, events and loans hold named statuses still
+/// hard-deletes: the keys take no action of their own, so the cascade
+/// removes both sides in one statement.
+#[actix_web::test]
+async fn a_workspace_holding_named_statuses_hard_deletes() {
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let shelf = named(&f, "in_stock", "loaner_pool", "Loaner pool", json!({})).await;
+    let a = asset(&f, "Held to the end");
+    let (status, moved) = transition(&f, a, json!({ "to_status_id": shelf })).await;
+    assert_eq!(status, StatusCode::CREATED, "{moved}");
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        asset_loans::issue(
+            c,
+            IssueLoan {
+                asset_id: a,
+                borrower_user_uuid: f.ws.member_uuid,
+                loaned_at: None,
+                due_back: None,
+                ticket_id: None,
+                notes: None,
+                actor_uuid: None,
+            },
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("lend");
+
+    let mut conn = f.pool.get().expect("conn");
+    let deleted = backend::sync::session::with_actor_bypass_context(
+        &mut conn,
+        &ActorContext::system(REF),
+        |c| {
+            backend::repository::workspaces::archive_workspace(c, f.ws.workspace_id)?;
+            backend::repository::workspaces::hard_delete_workspace(
+                c,
+                f.ws.workspace_id,
+                chrono::Utc::now() + chrono::Duration::hours(1),
+            )
+        },
+    )
+    .expect("hard delete");
+    assert_eq!(deleted, 1);
 }

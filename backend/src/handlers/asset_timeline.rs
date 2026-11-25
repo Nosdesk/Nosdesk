@@ -413,10 +413,14 @@ fn text(v: &Value) -> Option<String> {
     v.as_str().map(str::to_string)
 }
 
-/// Timeline entries as export rows, each with its asset's tag and name.
+/// Timeline entries as export rows, each with its asset's tag and name. A
+/// status change's details name its named statuses from `status_labels`
+/// (`from_status_label`, `to_status_label`), so a change within one
+/// category reads as more than `in_repair` to `in_repair`.
 pub(crate) fn export_rows(
     entries: &[Projected],
     assets: &HashMap<i32, &Asset>,
+    status_labels: &HashMap<i32, String>,
 ) -> Vec<TimelineExportRow> {
     entries
         .iter()
@@ -457,6 +461,16 @@ pub(crate) fn export_rows(
                     row.kind = text(&d["to_status"]);
                     row.summary = text(&d["reason"]);
                     row.ticket_id = d["ticket_id"].as_i64().map(|t| t as i32);
+                    if let Value::Object(details) = &mut row.details {
+                        for side in ["from", "to"] {
+                            let label = d[format!("{side}_status_id")]
+                                .as_i64()
+                                .and_then(|id| status_labels.get(&(id as i32)));
+                            if let Some(label) = label {
+                                details.insert(format!("{side}_status_label"), json!(label));
+                            }
+                        }
+                    }
                 }
                 Source::Replacement => {
                     row.summary = text(&d["other_asset"]["asset_tag"])

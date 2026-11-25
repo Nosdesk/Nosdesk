@@ -58,6 +58,10 @@ pub enum StatusError {
     LabelRequired,
     /// Another live status already has the name.
     LabelTaken,
+    /// The name is a category's (its key or its name, ignoring case,
+    /// spacing, `_` and `-`), which an import cell names as the plain
+    /// category.
+    LabelReserved,
     TooLong {
         field: &'static str,
         max: usize,
@@ -242,7 +246,26 @@ fn check_label(label: Option<String>) -> Result<String, StatusError> {
             max: LABEL_MAX,
         });
     }
+    if names_a_category(&label) {
+        return Err(StatusError::LabelReserved);
+    }
     Ok(label)
+}
+
+/// Whether `label` reads as a category: its key or its name ("In repair"
+/// is `in_repair` with a space), ignoring case, spacing, `_` and `-`. An
+/// import file writes a plain asset's status as the key, so a named status
+/// called the same would take its rows.
+fn names_a_category(label: &str) -> bool {
+    let loose = |s: &str| {
+        s.to_lowercase()
+            .replace(['_', '-'], " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let wanted = loose(label);
+    AssetStatus::ALL.iter().any(|c| loose(c.as_str()) == wanted)
 }
 
 fn check_color(color: Option<&str>) -> Result<(), StatusError> {
@@ -609,6 +632,22 @@ mod tests {
         assert_eq!(slug_of("3rd party"), "status_3rd_party");
         assert_eq!(slug_of("!!!"), "status");
         assert_eq!(slug_of("In repair"), "status_in_repair");
+    }
+
+    #[test]
+    fn a_name_that_reads_as_a_category_is_refused() {
+        for label in ["Lost", "in_repair", "  On-Loan ", "IN SERVICE"] {
+            assert!(
+                matches!(
+                    check_label(Some(label.to_string())),
+                    Err(StatusError::LabelReserved)
+                ),
+                "{label}"
+            );
+        }
+        for label in ["Lost in transit", "Repair bench", "Deployed"] {
+            assert!(check_label(Some(label.to_string())).is_ok(), "{label}");
+        }
         assert!(KEY.is_match(&slug_of(&"x".repeat(200))));
     }
 }

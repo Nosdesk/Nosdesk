@@ -728,22 +728,28 @@ fn named_of(pool: &TestPool, tag: &str) -> (String, Option<i32>) {
 }
 
 /// A Status cell names a named status by its name or slug: an existing
-/// asset moves to it, a new one starts in it. A name that is also another
-/// category's is refused naming both, and the named statuses are offered
-/// as values beside the categories.
+/// asset moves to it, a new one starts in it. A cell two statuses answer
+/// to is refused naming both, and the named statuses are offered as values
+/// beside the categories.
 #[actix_web::test]
-async fn a_status_cell_names_a_named_status_and_a_shared_name_is_refused() {
+async fn a_status_cell_names_a_named_status_and_one_two_answer_to_is_refused() {
     let db = TestDb::new();
     let pool = db.pool_with_size(4);
     let ws = import_workspace(&pool);
     let vendor = seed_named(&pool, &ws, "in_repair", "at_vendor", "At vendor");
-    seed_named(&pool, &ws, "retired", "written_off", "Lost");
+    // One status's slug reads as the other's name.
+    seed_named(&pool, &ws, "in_stock", "spare_shelf", "Shelf");
+    seed_named(&pool, &ws, "retired", "old_spares", "Spare shelf");
     seed_asset(&pool, &ws, "N-1", "in_service", false);
 
     let job = checked(
         &pool,
         &ws,
-        &file(&[("N-1", "At vendor"), ("N-2", "at_vendor"), ("N-3", "Lost")]),
+        &file(&[
+            ("N-1", "At vendor"),
+            ("N-2", "at_vendor"),
+            ("N-3", "Spare shelf"),
+        ]),
         MAPPING,
         options(),
     )
@@ -753,7 +759,9 @@ async fn a_status_cell_names_a_named_status_and_a_shared_name_is_refused() {
         vec![(
             4,
             Some("status".to_string()),
-            "'lost' names more than one status: Lost (in Retired), Lost".to_string()
+            "'spare_shelf' names more than one status: Shelf (in In stock), Spare shelf (in \
+             Retired)"
+                .to_string()
         )],
         "{job}"
     );
