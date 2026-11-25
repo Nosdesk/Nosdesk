@@ -54,7 +54,7 @@ onMounted(async () => {
 
       <template v-else-if="state === 'verified'">
         <div class="w-12 h-12 rounded-full bg-status-success/10 flex items-center justify-center">
-          <Icon name="check" class="h-6 w-6 text-status-success" />
+          <Icon name="check" class="h-6 w-6 text-status-success-ui" />
         </div>
         <h1 class="text-xl font-semibold text-primary">{{ $t('verify-email-success-title') }}</h1>
         <p class="text-secondary text-sm">
@@ -67,7 +67,7 @@ onMounted(async () => {
 
       <template v-else>
         <div class="w-12 h-12 rounded-full bg-status-error/10 flex items-center justify-center">
-          <Icon name="warning" class="h-6 w-6 text-status-error" />
+          <Icon name="warning" class="h-6 w-6 text-status-error-ui" />
         </div>
         <h1 class="text-xl font-semibold text-primary">{{ $t('verify-email-failed-title') }}</h1>
         <p class="text-secondary text-sm">{{ errorMessage }}</p>

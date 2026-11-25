@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { themeRegistry, type Theme } from '@/themes'
 import { lightTheme } from '@/themes/base/light'
 import { darkTheme } from '@/themes/base/dark'
-import { MERGED, overdueColor, resolveTheme, TEXT_COLOURS } from '@/themes/utils/cssInjector'
+import { MERGED, overdueColor, resolveTheme, TEXT_COLOURS, UI_COLOURS } from '@/themes/utils/cssInjector'
 
 type Rgb = [number, number, number]
 
@@ -104,21 +104,64 @@ describe('the overdue text colour', () => {
 // the derived `--color-<name>-text` (resolveTheme), which `text-status-*`,
 // `text-priority-*` and `text-accent` resolve to.
 describe('status, priority and accent text', () => {
-  /** Every background, then the colour's own tint over each of them. */
-  function fillsFor(colors: Theme['colors'], tint: string): Array<[string, Rgb]> {
+  /** Every background, then (for text that sits on tints) the colour's
+   *  muted token and the colour itself at 10, 15 and 20% over each of
+   *  them: chips use `bg-status-error-muted`, and buttons and rows use
+   *  `bg-status-error/20` on hover. */
+  function fillsFor(colors: Theme['colors'], colour: string, tint: string | null): Array<[string, Rgb]> {
     const plain = Object.entries(backgrounds({ colors } as Theme))
-    return [...plain, ...plain.map(([on, under]) => [`its tint over ${on}`, parse(tint, under)] as [string, Rgb])]
+    if (!tint) return plain
+    const solid = parse(colour)
+    return [
+      ...plain,
+      ...plain.flatMap(([on, under]) => [
+        [`its muted tint over ${on}`, parse(tint, under)] as [string, Rgb],
+        ...[0.1, 0.15, 0.2].map((a) => [`it at ${a * 100}% over ${on}`, solid.map((v, i) => v * a + under[i] * (1 - a)) as Rgb] as [string, Rgb]),
+      ]),
+    ]
   }
 
   const cases = themes.flatMap(([id, theme]) => {
     const { colors, text } = resolveTheme(theme)
-    return TEXT_COLOURS.flatMap(([name, , muted]) =>
-      fillsFor(colors, colors[muted] as string).map(([on, fill]) => ({ id, name, on, value: text[name], fill })),
+    return TEXT_COLOURS.flatMap(([name, key, muted]) =>
+      fillsFor(colors, colors[key] as string, muted && (colors[muted] as string)).map(([on, fill]) => ({ id, name, on, value: text[name], fill })),
     )
   })
 
   it.each(cases)('$id: text-$name reaches 4.5:1 on $on', ({ value, fill }) => {
     expect(contrast(parse(value), fill)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // Accent text sits on plain backgrounds, so it takes the lightest
+  // colour that reads there (an orange, not a brown); one step lighter
+  // in OKLCH would not.
+  it.each(themes)('%s: accent text is no darker than it has to be', (_id, theme) => {
+    const { colors, text } = resolveTheme(theme)
+    const plain = Object.values(backgrounds({ colors } as Theme))
+    const worst = Math.min(...plain.map((fill) => contrast(parse(text.accent), fill)))
+    // Already readable as is, or within one 8-bit step of the line.
+    expect(text.accent.toLowerCase() === colors.accent.toLowerCase() || worst < 4.75).toBe(true)
+  })
+
+  // Icons and glyphs that carry meaning: 3:1 (WCAG 1.4.11) on every
+  // background and tint.
+  const uiCases = themes.flatMap(([id, theme]) => {
+    const { colors, ui } = resolveTheme(theme)
+    return [
+      ...UI_COLOURS.flatMap(([name, key, muted]) =>
+        fillsFor(colors, colors[key] as string, colors[muted] as string).map(([on, fill]) => ({ id, name, on, value: ui[name], fill })),
+      ),
+      ...fillsFor(colors, (theme.meta.isDark ? MERGED.dark : MERGED.light).fill, (theme.meta.isDark ? MERGED.dark : MERGED.light).tint)
+        .map(([on, fill]) => ({ id, name: 'status-merged', on, value: ui['status-merged'], fill })),
+    ]
+  })
+  it.each(uiCases)('$id: text-$name-ui reaches 3:1 on $on', ({ value, fill }) => {
+    expect(contrast(parse(value), fill)).toBeGreaterThanOrEqual(3)
+  })
+
+  it.each([...UI_COLOURS.map(([name]) => name), 'status-merged' as const])('--color-%s-ui in the stylesheet defaults is the base light and dark value', (name) => {
+    const values = [...css.matchAll(new RegExp(`--color-${name}-ui: (#[0-9a-f]{6});`, 'gi'))].map((m) => m[1].toLowerCase())
+    expect(values).toEqual([resolveTheme(lightTheme).ui[name], resolveTheme(darkTheme).ui[name]])
   })
 
   // A workspace's own accent replaces the theme's and gets a text
@@ -129,8 +172,11 @@ describe('status, priority and accent text', () => {
     '$id with the workspace accent $accent: accent text reaches 4.5:1 everywhere it sits',
     ({ theme, accent }) => {
       const { colors, text } = resolveTheme(theme, accent)
-      for (const [, fill] of fillsFor(colors, colors.accentMuted)) {
+      for (const [, fill] of fillsFor(colors, colors.accent, null)) {
         expect(contrast(parse(text.accent), fill)).toBeGreaterThanOrEqual(4.5)
+      }
+      for (const [, fill] of fillsFor(colors, colors.accent, colors.accentMuted)) {
+        expect(contrast(parse(text['accent-on-tint']), fill)).toBeGreaterThanOrEqual(4.5)
       }
     },
   )
@@ -151,7 +197,7 @@ describe('status, priority and accent text', () => {
   it.each(themes)('%s: text-status-merged reaches 4.5:1 on every background and its tint', (_id, theme) => {
     const { colors, text } = resolveTheme(theme)
     const merged = theme.meta.isDark ? MERGED.dark : MERGED.light
-    for (const [, fill] of fillsFor(colors, merged.tint)) {
+    for (const [, fill] of fillsFor(colors, merged.fill, merged.tint)) {
       expect(contrast(parse(text['status-merged']), fill)).toBeGreaterThanOrEqual(4.5)
     }
   })
@@ -165,9 +211,12 @@ describe('status, priority and accent text', () => {
 // Non-text contrast (WCAG 1.4.11): what marks focus or state, and the
 // edge of a text field, at 3:1 against what is around it.
 describe('focus, state and field edges', () => {
-  it.each(themes)('%s: the accent as a ring, outline or border reaches 3:1 on every background', (_id, theme) => {
+  it.each(themes)('%s: the accent as a ring, outline, border or icon reaches 3:1 on every background and accent tint', (_id, theme) => {
     const { colors, accentUi } = resolveTheme(theme)
-    for (const fill of Object.values(backgrounds({ colors } as Theme))) {
+    const plain = Object.values(backgrounds({ colors } as Theme))
+    const accent = parse(colors.accent)
+    const tints = plain.flatMap((under) => [parse(colors.accentMuted, under), ...[0.1, 0.15, 0.2].map((a) => accent.map((v, i) => v * a + under[i] * (1 - a)) as Rgb)])
+    for (const fill of [...plain, ...tints]) {
       expect(contrast(parse(accentUi), fill)).toBeGreaterThanOrEqual(3)
     }
   })

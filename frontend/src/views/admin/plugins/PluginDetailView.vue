@@ -442,7 +442,7 @@ const saveButtonLabel = computed(() =>
                 <div
                   class="flex flex-1 items-center gap-2 rounded-lg border border-default bg-surface-alt px-3 py-2"
                 >
-                  <Icon name="shieldCheck" class="flex-shrink-0 text-status-success" />
+                  <Icon name="shieldCheck" class="flex-shrink-0 text-status-success-ui" />
                   <span class="text-sm text-secondary">{{ t('plugin-detail-secret-configured') }}</span>
                 </div>
                 <button

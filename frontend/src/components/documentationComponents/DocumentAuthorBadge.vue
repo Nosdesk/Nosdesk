@@ -114,7 +114,7 @@ async function unverify() {
       v-if="state === 'fresh'"
       name="check"
       size="xs"
-      class="text-status-success"
+      class="text-status-success-ui"
     />
   </button>
 

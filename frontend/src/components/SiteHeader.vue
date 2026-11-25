@@ -295,7 +295,7 @@ const handleCreateClick = () => {
         <template v-else>
           <div class="flex items-center gap-2 min-w-0">
             <!-- PDF icon -->
-            <Icon v-if="props.titleIcon === 'pdf'" name="document" size="lg" class="text-status-error flex-shrink-0" />
+            <Icon v-if="props.titleIcon === 'pdf'" name="document" size="lg" class="text-status-error-ui flex-shrink-0" />
             <h1
               class="text-xl font-semibold text-primary line-clamp-2 leading-tight break-words"
               :title="displayTitle"
@@ -346,7 +346,7 @@ const handleCreateClick = () => {
             <RouterLink
                 to="/inbox"
                 class="relative inline-flex rounded-lg p-2 text-secondary transition-colors hover:bg-surface-hover hover:text-primary focus:outline-none focus:ring-2 focus:ring-accent items-center justify-center"
-                active-class="text-accent bg-accent/10"
+                active-class="text-accent-on-tint bg-accent/10"
                 :aria-label="t('ui-site-header-inbox-aria')"
                 :title="t('ui-site-header-inbox-tooltip')"
             >

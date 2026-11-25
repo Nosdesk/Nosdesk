@@ -578,7 +578,7 @@ function cancel(): void {
                 :class="[
                   'flex items-center justify-center w-9 h-9 rounded-md border transition-colors',
                   form.icon === name
-                    ? 'border-accent bg-accent/10 text-accent'
+                    ? 'border-accent bg-accent/10 text-accent-on-tint'
                     : 'border-default text-secondary hover:text-primary hover:bg-surface-hover',
                 ]"
                 @click="pickIcon(name)"

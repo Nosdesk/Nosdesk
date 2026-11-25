@@ -430,7 +430,7 @@ onMounted(async () => {
           <div class="p-4 flex flex-col gap-3">
             <!-- Header row with icon -->
             <div class="flex items-center gap-3">
-              <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+              <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent-on-tint">
                 <Icon name="microsoft" size="md" />
               </div>
 
@@ -448,7 +448,7 @@ onMounted(async () => {
                     :class="{
                       'bg-status-success/20 text-status-success border-status-success/50': connectionStatus === 'connected',
                       'bg-surface-alt text-tertiary border-default': connectionStatus === 'disconnected',
-                      'bg-accent/20 text-accent border-accent/50': connectionStatus === 'connecting',
+                      'bg-accent/20 text-accent-on-tint border-accent/50': connectionStatus === 'connecting',
                       'bg-status-error/20 text-status-error border-status-error/50': connectionStatus === 'error'
                     }"
                   >
@@ -551,7 +551,7 @@ onMounted(async () => {
           <div class="p-4 flex flex-col gap-3">
             <!-- Header with step indicator and cancel -->
             <div class="flex items-center gap-3">
-              <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+              <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent-on-tint">
                 <Spinner size="md" />
               </div>
 
@@ -562,7 +562,7 @@ onMounted(async () => {
                   <span
                     class="px-1.5 py-0.5 text-xs rounded-full border"
                     :class="{
-                      'bg-accent/20 text-accent border-accent/50': syncProgress.status === 'running' || syncProgress.status === 'starting',
+                      'bg-accent/20 text-accent-on-tint border-accent/50': syncProgress.status === 'running' || syncProgress.status === 'starting',
                       'bg-status-success/20 text-status-success border-status-success/50': syncProgress.status === 'completed',
                       'bg-status-warning/20 text-status-warning border-status-warning/50': syncProgress.status === 'completed_with_errors' || syncProgress.status === 'cancelling',
                       'bg-status-error/20 text-status-error border-status-error/50': syncProgress.status === 'error',
@@ -630,7 +630,7 @@ onMounted(async () => {
               class="flex items-center gap-3 cursor-pointer hover:bg-surface-alt/50 -mx-1 px-1 py-1 rounded-lg transition-colors"
               @click="resumeSync(sync.session_id)"
             >
-              <div class="flex-shrink-0 h-7 w-7 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+              <div class="flex-shrink-0 h-7 w-7 rounded-lg bg-accent/20 flex items-center justify-center text-accent-on-tint">
                 <Spinner />
               </div>
               <div class="flex-1 min-w-0">
@@ -661,7 +661,7 @@ onMounted(async () => {
         >
           <div class="p-4 flex flex-col gap-3">
             <div class="flex items-center gap-3">
-              <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+              <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent-on-tint">
                 <Icon name="clock" size="md" />
               </div>
 
@@ -757,7 +757,7 @@ onMounted(async () => {
         </div>
 
         <!-- Info notice -->
-        <div class="p-3 bg-accent/10 border border-accent/30 rounded-lg text-sm text-accent flex items-start gap-2">
+        <div class="p-3 bg-accent/10 border border-accent/30 rounded-lg text-sm text-accent-on-tint flex items-start gap-2">
           <Icon name="info" class="flex-shrink-0 mt-0.5" />
           <span>{{ $t('admin-msgraph-modal-info') }}</span>
         </div>
@@ -788,9 +788,9 @@ onMounted(async () => {
                   </p>
                 </div>
                 <div class="flex items-center">
-                  <Icon v-if="result.status === 'completed'" name="check" class="text-status-success" />
-                  <Icon v-else-if="result.status === 'completed_with_errors'" name="warning" class="text-status-warning" />
-                  <Icon v-else name="close" class="text-status-error" />
+                  <Icon v-if="result.status === 'completed'" name="check" class="text-status-success-ui" />
+                  <Icon v-else-if="result.status === 'completed_with_errors'" name="warning" class="text-status-warning-ui" />
+                  <Icon v-else name="close" class="text-status-error-ui" />
                 </div>
               </div>
 

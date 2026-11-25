@@ -93,7 +93,7 @@ const skip = () =>
     :aria-label="t('approval-banner-title')"
   >
     <div class="flex items-start gap-2">
-      <Icon name="clock" size="sm" class="mt-0.5 text-status-warning flex-shrink-0" />
+      <Icon name="clock" size="sm" class="mt-0.5 text-status-warning-ui flex-shrink-0" />
       <div class="flex flex-col gap-1 flex-1 min-w-0">
         <span class="font-medium text-primary">{{ t('approval-banner-title') }}</span>
         <p v-if="data?.no_approver" class="text-primary">

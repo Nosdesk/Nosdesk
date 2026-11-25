@@ -244,7 +244,7 @@ const groupTypeDisplay = computed(() => {
               >
                 <div class="flex items-center gap-2.5 sm:gap-3">
                   <div class="flex-shrink-0 w-8 h-8 bg-surface-alt rounded-lg inline-flex items-center justify-center group-hover/item:bg-accent/10 transition-colors">
-                    <Icon name="device" class="shrink-0 text-secondary group-hover/item:text-accent transition-colors" />
+                    <Icon name="device" class="shrink-0 text-secondary group-hover/item:text-accent-ui transition-colors" />
                   </div>
                   <div class="min-w-0 flex-1">
                     <p class="text-sm font-medium text-primary truncate group-hover/item:text-accent transition-colors">

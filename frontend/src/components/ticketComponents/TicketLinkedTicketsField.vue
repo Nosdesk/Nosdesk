@@ -50,7 +50,7 @@ const hasContent = computed(
       v-if="showDropAffordance || isDropTarget"
       class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-2xs font-medium border border-dashed transition-colors"
       :class="isDropTarget
-        ? 'border-accent bg-accent/10 text-accent'
+        ? 'border-accent bg-accent/10 text-accent-on-tint'
         : 'border-accent/40 text-accent'"
     >
       {{ isDropTarget && dragLabel ? dragLabel : t('ticket-field-linked-tickets-drop') }}

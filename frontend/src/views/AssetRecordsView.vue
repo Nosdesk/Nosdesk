@@ -519,7 +519,7 @@ const inProgress = (record: AssetRecordListRow) => (record.completed_on === null
                  says everything that shapes the list. -->
             <div
               v-if="grouped"
-              class="inline-flex items-center h-6 rounded-md border border-accent/40 bg-accent/10 text-accent text-2xs overflow-hidden"
+              class="inline-flex items-center h-6 rounded-md border border-accent/40 bg-accent/10 text-accent-on-tint text-2xs overflow-hidden"
             >
               <span class="inline-flex items-center gap-1 pl-2 pr-1.5">
                 <span class="font-medium">{{ t('list-grouping-trigger') }}:</span>

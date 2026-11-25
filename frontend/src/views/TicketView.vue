@@ -1012,7 +1012,7 @@ const rootEl = ref<HTMLElement | null>(null);
                     <div
                         class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-status-error/20 mb-4"
                     >
-                        <Icon name="warning" size="lg" class="text-status-error" />
+                        <Icon name="warning" size="lg" class="text-status-error-ui" />
                     </div>
                     <h3 class="text-2xl font-medium text-primary mb-2">{{ $t('ticket-detail-delete-confirm-heading') }}</h3>
                     <p class="text-base text-secondary mb-6">

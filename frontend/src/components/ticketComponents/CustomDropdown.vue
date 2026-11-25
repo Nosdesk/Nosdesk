@@ -263,7 +263,7 @@ const glyphSize = computed(() => (props.compact ? 12 : 14))
                   <Icon
                     v-if="option.value === value"
                     name="check"
-                    class="text-accent flex-shrink-0"
+                    class="text-accent-ui flex-shrink-0"
                   />
                 </button>
               </ListboxItem>

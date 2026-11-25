@@ -152,7 +152,7 @@ function onUpdate(value: string | undefined) {
               :class="[
                 sizeClasses.option,
                 opt === modelValue
-                  ? 'bg-accent/10 text-accent'
+                  ? 'bg-accent/10 text-accent-on-tint'
                   : 'hover:bg-surface-hover data-[highlighted]:bg-surface-hover',
               ]"
             >

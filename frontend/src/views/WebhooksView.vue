@@ -696,7 +696,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                 <CheckboxRoot v-for="event in events" :key="event.value" as-child :value="event.value">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface data-[state=checked]:bg-accent/10 data-[state=checked]:text-accent data-[state=unchecked]:bg-surface-alt data-[state=unchecked]:text-secondary data-[state=unchecked]:hover:bg-surface-hover"
+                    class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface data-[state=checked]:bg-accent/10 data-[state=checked]:text-accent-on-tint data-[state=unchecked]:bg-surface-alt data-[state=unchecked]:text-secondary data-[state=unchecked]:hover:bg-surface-hover"
                   >
                     <span class="text-xs">{{ eventLabel(event.value) }}</span>
                   </button>
@@ -767,7 +767,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
     >
       <div class="flex flex-col gap-4">
         <div class="flex items-center gap-2 p-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
-          <Icon name="warning" size="md" class="text-status-warning flex-shrink-0" />
+          <Icon name="warning" size="md" class="text-status-warning-ui flex-shrink-0" />
           <p class="text-sm text-status-warning">{{ $t('admin-webhooks-secret-warning') }}</p>
         </div>
 
@@ -782,7 +782,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
             :title="copiedSecret ? $t('admin-webhooks-secret-copied') : $t('admin-webhooks-secret-copy')"
           >
             <Icon v-if="!copiedSecret" name="copy" />
-            <Icon v-else name="check" class="text-status-success" />
+            <Icon v-else name="check" class="text-status-success-ui" />
           </button>
         </div>
 
@@ -894,7 +894,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
                 <CheckboxRoot v-for="event in events" :key="event.value" as-child :value="event.value">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface data-[state=checked]:bg-accent/10 data-[state=checked]:text-accent data-[state=unchecked]:bg-surface-alt data-[state=unchecked]:text-secondary data-[state=unchecked]:hover:bg-surface-hover"
+                    class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface data-[state=checked]:bg-accent/10 data-[state=checked]:text-accent-on-tint data-[state=unchecked]:bg-surface-alt data-[state=unchecked]:text-secondary data-[state=unchecked]:hover:bg-surface-hover"
                   >
                     <span class="text-xs">{{ eventLabel(event.value) }}</span>
                   </button>

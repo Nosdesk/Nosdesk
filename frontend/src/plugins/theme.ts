@@ -32,6 +32,8 @@ const TOKEN_MAP: Record<string, string> = {
   // on every background and on its own tint. Use these, not `accent` or
   // `error`, for text and badge labels.
   'accent-text': '--color-accent-text',
+  // Accent text on an accent tint (a badge, an active item).
+  'accent-on-tint-text': '--color-accent-on-tint-text',
   'success-text': '--color-status-success-text',
   'error-text': '--color-status-error-text',
   'warning-text': '--color-status-warning-text',

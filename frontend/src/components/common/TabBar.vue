@@ -70,7 +70,7 @@ function onUpdate(value: string | number) {
           <span>{{ item.label }}</span>
           <span
             v-if="item.badge !== undefined && item.badge !== ''"
-            class="rounded-full bg-accent/15 px-1.5 py-0.5 text-2xs font-semibold leading-none text-accent"
+            class="rounded-full bg-accent/15 px-1.5 py-0.5 text-2xs font-semibold leading-none text-accent-on-tint"
           >
             {{ item.badge }}
           </span>

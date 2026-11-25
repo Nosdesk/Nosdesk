@@ -976,7 +976,7 @@ watchEffect(async () => {
                     v-if="canSelfAssign && !selectedAssignee && !readonly"
                     @click="toggleSelfAssign"
                     type="button"
-                    class="text-2xs font-medium px-2 h-6 rounded text-accent hover:bg-accent-muted transition-colors"
+                    class="text-2xs font-medium px-2 h-6 rounded text-accent-on-tint hover:bg-accent-muted transition-colors"
                     :title="t('ticket-detail-claim-title')"
                   >
                     {{ t('ticket-detail-claim') }}
@@ -1272,7 +1272,7 @@ watchEffect(async () => {
             <span class="text-tertiary font-medium">{{ t('ticket-detail-cycle-label') }}</span>
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-2xs font-medium bg-accent-muted text-accent hover:bg-accent/20 transition-colors"
+              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-2xs font-medium bg-accent-muted text-accent-on-tint hover:bg-accent/20 transition-colors"
               :title="t('ticket-detail-cycle-tooltip', { name: ticket.cycle.name, state: ticket.cycle.state })"
               @click="openCycle"
             >

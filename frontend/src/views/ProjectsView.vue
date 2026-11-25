@@ -282,7 +282,7 @@ function handleProjectContextMenuSelect(actionId: string): void {
         type="button"
         class="inline-flex items-center gap-1.5 h-7 min-h-[44px] sm:min-h-0 px-2.5 rounded-md text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         :class="statusFilter === option.value
-          ? 'bg-accent/15 text-accent'
+          ? 'bg-accent/15 text-accent-on-tint'
           : 'text-secondary hover:bg-surface-hover'"
         @click="statusFilter = option.value"
       >

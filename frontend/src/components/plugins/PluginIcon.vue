@@ -66,7 +66,7 @@ const glyphSizes: Record<NonNullable<Props['size']>, 'xs' | 'sm' | 'md' | 'xl'> 
       v-else
       name="puzzle"
       :size="glyphSizes[props.size]"
-      class="text-accent"
+      class="text-accent-ui"
     />
   </div>
 </template>

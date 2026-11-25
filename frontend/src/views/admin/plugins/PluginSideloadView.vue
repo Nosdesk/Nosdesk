@@ -155,7 +155,7 @@ const installButtonLabel = computed(() =>
         @change="handleFileSelect"
       />
       <div v-if="file" class="flex flex-col items-center gap-2">
-        <Icon name="checkCircle" size="xl" class="text-status-success" />
+        <Icon name="checkCircle" size="xl" class="text-status-success-ui" />
         <p class="font-medium text-primary">{{ file.name }}</p>
         <p class="text-xs text-tertiary">{{ formatFileSize(file.size) }}</p>
         <button

@@ -70,7 +70,7 @@ const discOpacity = computed(() =>
     :style="{ opacity: discOpacity }"
   >
     <svg
-      class="h-5 w-5 text-accent"
+      class="h-5 w-5 text-accent-ui"
       :class="{ 'ptr-spin': !isPulling && state !== 'idle' }"
       viewBox="0 0 20 20"
       :style="{
@@ -95,7 +95,7 @@ const discOpacity = computed(() =>
     </svg>
     <!-- The check sits outside the spinning svg so it draws upright. -->
     <svg
-      class="absolute h-5 w-5 text-accent"
+      class="absolute h-5 w-5 text-accent-ui"
       viewBox="0 0 20 20"
       aria-hidden="true"
     >

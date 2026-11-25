@@ -901,7 +901,7 @@ onMounted(() => {
                       <span class="text-sm font-medium text-primary truncate">{{ device.name }}</span>
                       <span
                         v-if="isDeviceExternallySynced(device)"
-                        class="px-1.5 py-0.5 text-xs bg-accent/10 text-accent rounded-full flex items-center gap-1"
+                        class="px-1.5 py-0.5 text-xs bg-accent/10 text-accent-on-tint rounded-full flex items-center gap-1"
                         :title="$t('admin-groups-config-synced-intune-tooltip')"
                       >
                         <Icon name="refresh" size="xs" />
@@ -971,7 +971,7 @@ onMounted(() => {
                       <span class="text-sm font-medium text-primary truncate">{{ availableGroup.name }}</span>
                       <span
                         v-if="availableGroup.external_source"
-                        class="px-1.5 py-0.5 text-xs bg-accent/10 text-accent rounded-full flex items-center gap-1"
+                        class="px-1.5 py-0.5 text-xs bg-accent/10 text-accent-on-tint rounded-full flex items-center gap-1"
                       >
                         <Icon name="refresh" size="xs" />
                         {{ $t('admin-groups-config-synced-badge') }}

@@ -118,7 +118,7 @@ const emit = defineEmits<{
         class="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center"
         :class="item.description ? 'mt-0.5 md:mt-px' : undefined"
       >
-        <Icon v-if="item.checked" name="check" class="w-full h-full text-accent" />
+        <Icon v-if="item.checked" name="check" class="w-full h-full text-accent-ui" />
         <Icon v-else-if="item.icon" :name="item.icon" class="w-full h-full" />
         <AssetImg
           v-else-if="item.iconUrl"

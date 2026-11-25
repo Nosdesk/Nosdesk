@@ -305,7 +305,7 @@ useSyncActions(() => void refetch(), { aggregates: ['ticket'], debounceMs: 300 }
                     <FilterToggle
                         v-model="config.newActivity"
                         :label="$t('user-assigned-tickets-filter-new-activity')"
-                        active-class="bg-accent/15 text-accent"
+                        active-class="bg-accent/15 text-accent-on-tint"
                     >
                         <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <circle cx="12" cy="12" r="4" />

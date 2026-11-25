@@ -350,11 +350,15 @@
   --border-color-accent: var(--color-accent-ui);
   --border-color-field: var(--color-field-border);
 
-  /* Graphics drawn in `currentColor` (status dots, state glyphs, chart
-     series) want the colour itself, not its text version:
-     `text-status-open-fill` is the fill colour, `text-accent-ui` the
-     accent at 3:1. A dot beside its label carries no meaning of its own;
-     a chart series that does uses the 3:1 version. */
+  /* Graphics drawn in `currentColor` want the colour itself, not its
+     text version:
+     - `text-<name>-fill` and `text-accent-fill` are the fill colours:
+       status dots and state glyphs beside their label, and the logo and
+       logotype, which stay the brand orange (logotypes are exempt from
+       WCAG 1.4.3).
+     - `text-<name>-ui` and `text-accent-ui` are the colours at 3:1
+       (WCAG 1.4.11): icons that carry meaning, chart series.
+     - `text-accent-on-tint` is accent text on an accent tint. */
   --text-color-status-success-fill: var(--color-status-success);
   --text-color-status-error-fill: var(--color-status-error);
   --text-color-status-warning-fill: var(--color-status-warning);
@@ -367,6 +371,19 @@
   --text-color-priority-medium-fill: var(--color-priority-medium);
   --text-color-priority-low-fill: var(--color-priority-low);
   --text-color-accent-ui: var(--color-accent-ui);
+  --text-color-accent-on-tint: var(--color-accent-on-tint-text);
+  --text-color-accent-fill: var(--color-accent);
+  --text-color-status-success-ui: var(--color-status-success-ui);
+  --text-color-status-error-ui: var(--color-status-error-ui);
+  --text-color-status-warning-ui: var(--color-status-warning-ui);
+  --text-color-status-info-ui: var(--color-status-info-ui);
+  --text-color-status-open-ui: var(--color-status-open-ui);
+  --text-color-status-in-progress-ui: var(--color-status-in-progress-ui);
+  --text-color-status-closed-ui: var(--color-status-closed-ui);
+  --text-color-priority-high-ui: var(--color-priority-high-ui);
+  --text-color-priority-medium-ui: var(--color-priority-medium-ui);
+  --text-color-priority-low-ui: var(--color-priority-low-ui);
+  --text-color-status-merged-ui: var(--color-status-merged-ui);
   --text-color-status-merged: var(--color-status-merged-text);
 }
 
@@ -563,21 +580,33 @@
 
     /* Text versions of the status, priority and accent colours,
        mirroring resolveTheme (themes/utils/cssInjector.ts). */
-    --color-status-success-text: #026e29;
-    --color-status-error-text: #b7041c;
-    --color-status-warning-text: #875501;
-    --color-status-info-text: #0755c5;
-    --color-status-open-text: #875501;
-    --color-status-in-progress-text: #0755c5;
-    --color-status-closed-text: #036b49;
-    --color-priority-high-text: #b7041c;
-    --color-priority-medium-text: #875501;
-    --color-priority-low-text: #036b49;
-    --color-accent-text: #a03d01;
-    --color-accent-hover-text: #a33a02;
-    --color-accent-ui: #dc5704;
+    --color-status-success-text: #016b28;
+    --color-status-error-text: #af041a;
+    --color-status-warning-text: #845301;
+    --color-status-info-text: #0151c1;
+    --color-status-open-text: #845301;
+    --color-status-in-progress-text: #0151c1;
+    --color-status-closed-text: #046947;
+    --color-priority-high-text: #af041a;
+    --color-priority-medium-text: #845301;
+    --color-priority-low-text: #046947;
+    --color-accent-text: #ae4404;
+    --color-accent-hover-text: #b24002;
+    --color-accent-on-tint-text: #9c3b00;
+    --color-status-merged-text: #4741ca;
+    --color-status-success-ui: #048a36;
+    --color-status-error-ui: #d82b31;
+    --color-status-warning-ui: #a96c06;
+    --color-status-info-ui: #286fe1;
+    --color-status-open-ui: #a96c06;
+    --color-status-in-progress-ui: #286fe1;
+    --color-status-closed-ui: #04875d;
+    --color-priority-high-ui: #d82b31;
+    --color-priority-medium-ui: #a96c06;
+    --color-priority-low-ui: #04875d;
+    --color-status-merged-ui: #5e60eb;
+    --color-accent-ui: #c74e00;
     --color-field-border: #898d92;
-    --color-status-merged-text: #4b46cf;
 
     /* Legacy support */
     --color-bg-app: var(--color-app);
@@ -673,11 +702,23 @@
     --color-priority-high-text: #fe7d7c;
     --color-priority-medium-text: #fbbf24;
     --color-priority-low-text: #34d399;
-    --color-accent-text: #ff7d42;
-    --color-accent-hover-text: #fe7e36;
+    --color-accent-text: #ff6b1a;
+    --color-accent-hover-text: #ff7a2d;
+    --color-accent-on-tint-text: #ff7d42;
+    --color-status-merged-text: #919dff;
+    --color-status-success-ui: #00c951;
+    --color-status-error-ui: #ef4444;
+    --color-status-warning-ui: #f59e0b;
+    --color-status-info-ui: #3b82f6;
+    --color-status-open-ui: #fbbf24;
+    --color-status-in-progress-ui: #60a5fa;
+    --color-status-closed-ui: #34d399;
+    --color-priority-high-ui: #f87171;
+    --color-priority-medium-ui: #fbbf24;
+    --color-priority-low-ui: #34d399;
+    --color-status-merged-ui: #818cf8;
     --color-accent-ui: #ff6b1a;
     --color-field-border: #60646b;
-    --color-status-merged-text: #919dff;
 
     /* Shadows */
     --shadow-inset-dark: rgba(0, 0, 0, 0.3);

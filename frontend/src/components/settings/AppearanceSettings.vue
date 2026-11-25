@@ -150,7 +150,7 @@ const handleDeviceLocalThemeToggle = () => {
 <template>
   <SectionCard content-padding="p-4 sm:p-6">
     <template #leading>
-      <Icon name="paint" class="text-accent flex-shrink-0" />
+      <Icon name="paint" class="text-accent-ui flex-shrink-0" />
     </template>
     <template #title>{{ t('settings-appearance-title') }}</template>
     <template #headerActions>

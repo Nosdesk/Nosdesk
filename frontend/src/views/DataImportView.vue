@@ -129,8 +129,8 @@ const linkAttrs = (item: ImportOption): Record<string, string> => {
 
 const statusBadges = computed<Record<string, { text: string; class: string }>>(() => ({
   'available': { text: t('admin-data-import-status-available'), class: 'bg-status-success/15 text-status-success' },
-  'coming-soon': { text: t('admin-data-import-status-coming-soon'), class: 'bg-accent/15 text-accent' },
-  'beta': { text: t('admin-data-import-status-beta'), class: 'bg-accent/15 text-accent' },
+  'coming-soon': { text: t('admin-data-import-status-coming-soon'), class: 'bg-accent/15 text-accent-on-tint' },
+  'beta': { text: t('admin-data-import-status-beta'), class: 'bg-accent/15 text-accent-on-tint' },
   'new': { text: t('admin-data-import-status-new'), class: 'bg-status-info/15 text-status-info' },
   'support': { text: t('admin-data-import-status-support'), class: 'bg-status-info/15 text-status-info' },
   'owner-only': { text: t('admin-data-import-status-owner-only'), class: 'bg-surface-hover text-tertiary' }
@@ -169,7 +169,7 @@ const statusBadges = computed<Record<string, { text: string; class: string }>>((
               : 'opacity-60'"
           >
             <div
-              class="flex-shrink-0 h-10 w-10 rounded-lg flex items-center justify-center bg-accent/15 text-accent"
+              class="flex-shrink-0 h-10 w-10 rounded-lg flex items-center justify-center bg-accent/15 text-accent-on-tint"
             >
               <Icon :name="item.icon" size="md" />
             </div>

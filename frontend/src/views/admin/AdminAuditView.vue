@@ -435,7 +435,7 @@ function clearFilters() {
           class="h-8 px-3 rounded-full text-sm border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           :class="
             tierFilter === tier.value
-              ? 'bg-accent/10 border-accent text-accent font-medium'
+              ? 'bg-accent/10 border-accent text-accent-on-tint font-medium'
               : 'border-default text-secondary hover:bg-surface-hover'
           "
           :aria-pressed="tierFilter === tier.value"

@@ -176,7 +176,7 @@ const optionClasses = (option: DropdownOption) => [
   'w-full text-left text-primary transition-colors flex items-center gap-3 min-h-[44px] md:min-h-0 outline-none',
   sizeClasses.value.option,
   option.value === props.modelValue
-    ? 'bg-accent/10 text-accent'
+    ? 'bg-accent/10 text-accent-on-tint'
     : 'hover:bg-surface-hover data-[highlighted]:bg-surface-hover',
 ]
 </script>

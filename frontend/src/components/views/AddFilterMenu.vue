@@ -253,7 +253,7 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
                 <Icon
                   v-if="activeSet.has(facet.key)"
                   name="check"
-                  class="w-3 h-3 text-accent"
+                  class="w-3 h-3 text-accent-ui"
                 />
                 <Icon name="chevronRight" class="w-3 h-3 text-tertiary" />
               </MenuItem>

@@ -357,7 +357,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       <template v-else-if="col.id === 'cycle'">
         <span
           v-if="card.cycle_id != null"
-          class="text-2xs text-accent bg-accent/10 rounded px-1.5 py-0.5"
+          class="text-2xs text-accent-on-tint bg-accent/10 rounded px-1.5 py-0.5"
           :title="$t('views-ticket-row-cycle-tooltip')"
         >{{ $t('views-ticket-row-cycle-label', { id: card.cycle_id }) }}</span>
         <span v-else class="text-xs text-tertiary">-</span>

@@ -325,7 +325,7 @@ onUnmounted(() => {
 <template>
   <AuthLayout>
     <template #logo>
-      <LogoIcon class="h-9 w-auto text-accent" :aria-label="$t('nav-logo-alt')" />
+      <LogoIcon class="h-9 w-auto text-accent-fill" :aria-label="$t('nav-logo-alt')" />
     </template>
     <template #pill>{{ $t('auth-hero-pill') }}</template>
 
@@ -362,7 +362,7 @@ onUnmounted(() => {
       >
         <span
           aria-hidden="true"
-          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-muted text-sm font-semibold text-accent"
+          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-muted text-sm font-semibold text-accent-on-tint"
         >
           {{ adminInitials }}
         </span>

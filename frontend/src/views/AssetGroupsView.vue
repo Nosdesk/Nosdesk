@@ -204,7 +204,7 @@ async function restore(group: AssetGroupSummary): Promise<void> {
             :key="tab.value"
             type="button"
             class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0"
-            :class="statusFilter === tab.value ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-surface-hover'"
+            :class="statusFilter === tab.value ? 'bg-accent/15 text-accent-on-tint' : 'text-secondary hover:bg-surface-hover'"
             @click="statusFilter = tab.value"
           >
             {{ tab.label }}

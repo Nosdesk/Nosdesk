@@ -1055,7 +1055,7 @@ function affectedDevicesTooltip(card: CardData): string {
                      will move on the next drag. -->
                 <span
                   v-if="isSelected(card.id) && selectedIds.size > 1"
-                  class="absolute top-1 right-1 text-3xs uppercase tracking-wide font-semibold text-accent bg-accent/10 rounded px-1.5 py-0.5"
+                  class="absolute top-1 right-1 text-3xs uppercase tracking-wide font-semibold text-accent-on-tint bg-accent/10 rounded px-1.5 py-0.5"
                 >
                   {{ selectedIds.size }} selected
                 </span>
@@ -1070,7 +1070,7 @@ function affectedDevicesTooltip(card: CardData): string {
                 class="flex items-center justify-center text-2xs italic border-2 rounded-lg min-h-12 transition-colors"
                 :class="
                   isLaneHovered(sublane.id)
-                    ? 'border-accent bg-accent-muted text-accent font-medium'
+                    ? 'border-accent bg-accent-muted text-accent-on-tint font-medium'
                     : 'border-dashed border-subtle text-transparent'
                 "
               >

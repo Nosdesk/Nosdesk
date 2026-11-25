@@ -563,7 +563,7 @@ onBeforeUnmount(() => {
                   :class="
                     notification.is_read
                       ? 'bg-surface-alt text-tertiary'
-                      : 'bg-accent/10 text-accent'
+                      : 'bg-accent/10 text-accent-on-tint'
                   "
                 >
                   <Icon :name="iconForNotificationType(notification.notification_type)" size="sm" />

@@ -1,7 +1,7 @@
 <template>
   <AuthLayout wide>
     <template #logo>
-      <LogoIcon class="h-9 w-auto text-accent" :aria-label="$t('nav-logo-alt')" />
+      <LogoIcon class="h-9 w-auto text-accent-fill" :aria-label="$t('nav-logo-alt')" />
     </template>
 
     <div class="flex flex-col gap-6">
@@ -31,7 +31,7 @@
           class="flex flex-row items-center gap-3 sm:gap-4 p-4 sm:p-5 bg-surface border border-default rounded-lg hover:bg-surface-hover hover:border-accent transition-colors text-left w-full"
         >
           <div class="flex-shrink-0 h-12 w-12 sm:h-14 sm:w-14 rounded-lg bg-accent/15 flex items-center justify-center">
-            <Icon name="phone" size="lg" class="text-accent" />
+            <Icon name="phone" size="lg" class="text-accent-ui" />
           </div>
           <div class="flex-1 min-w-0">
             <h3 class="text-primary font-medium text-base sm:text-lg">{{ $t('mfa-setup-totp-name') }}</h3>
@@ -46,7 +46,7 @@
           class="flex flex-row items-center gap-3 sm:gap-4 p-4 sm:p-5 bg-surface border border-default rounded-lg hover:bg-surface-hover hover:border-accent transition-colors text-left w-full"
         >
           <div class="flex-shrink-0 h-12 w-12 sm:h-14 sm:w-14 rounded-lg bg-accent/15 flex items-center justify-center">
-            <Icon name="fingerprint" size="lg" class="text-accent" />
+            <Icon name="fingerprint" size="lg" class="text-accent-ui" />
           </div>
           <div class="flex-1 min-w-0">
             <h3 class="text-primary font-medium text-base sm:text-lg">{{ $t('mfa-setup-passkey-name') }}</h3>
@@ -80,7 +80,7 @@
         <div class="bg-surface rounded-xl border border-default p-6">
           <div class="flex flex-col items-center text-center gap-4">
             <div class="w-16 h-16 rounded-full bg-status-success/10 flex items-center justify-center">
-              <Icon name="check" size="lg" class="text-status-success" />
+              <Icon name="check" size="lg" class="text-status-success-ui" />
             </div>
             <div>
               <h3 class="text-lg font-semibold text-primary mb-2">{{ $t('mfa-setup-totp-success-title') }}</h3>
@@ -97,7 +97,7 @@
           class="flex flex-row items-center gap-3 sm:gap-4 p-4 bg-surface border border-default rounded-lg hover:bg-surface-hover hover:border-accent transition-colors text-left w-full"
         >
           <div class="flex-shrink-0 h-12 w-12 rounded-lg bg-accent/15 flex items-center justify-center">
-            <Icon name="fingerprint" size="lg" class="text-accent" />
+            <Icon name="fingerprint" size="lg" class="text-accent-ui" />
           </div>
           <div class="flex-1 min-w-0">
             <h3 class="text-primary font-medium">{{ $t('mfa-setup-add-passkey-title') }}</h3>
@@ -116,7 +116,7 @@
         <div class="bg-surface rounded-xl border border-default p-6">
           <div class="flex flex-col items-center text-center gap-4">
             <div class="w-16 h-16 rounded-full bg-status-success/10 flex items-center justify-center">
-              <Icon name="check" size="lg" class="text-status-success" />
+              <Icon name="check" size="lg" class="text-status-success-ui" />
             </div>
             <div>
               <h3 class="text-lg font-semibold text-primary mb-2">{{ $t('mfa-setup-passkey-success-title') }}</h3>
@@ -133,7 +133,7 @@
           class="flex flex-row items-center gap-3 sm:gap-4 p-4 bg-surface border border-default rounded-lg hover:bg-surface-hover hover:border-accent transition-colors text-left w-full"
         >
           <div class="flex-shrink-0 h-12 w-12 rounded-lg bg-accent/15 flex items-center justify-center">
-            <Icon name="phone" size="lg" class="text-accent" />
+            <Icon name="phone" size="lg" class="text-accent-ui" />
           </div>
           <div class="flex-1 min-w-0">
             <h3 class="text-primary font-medium">{{ $t('mfa-setup-add-totp-title') }}</h3>

@@ -76,7 +76,7 @@ const getStatusClasses = (value: string, type: string) => {
         return `${baseClasses} bg-status-error-muted text-status-error border-status-error/30`
       case 'technician':
       case 'agent':
-        return `${baseClasses} bg-accent-muted text-accent border-accent/30`
+        return `${baseClasses} bg-accent-muted text-accent-on-tint border-accent/30`
       case 'audit_reviewer':
       case 'owner':
         return `${baseClasses} bg-status-merged-muted text-status-merged border-status-merged/30`

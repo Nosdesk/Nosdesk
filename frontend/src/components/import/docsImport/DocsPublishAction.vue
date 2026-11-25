@@ -84,7 +84,7 @@ const who = computed(() => props.collection ?? t('docs-import-publish-these-coll
     role="status"
     data-test="docs-published"
   >
-    <Icon name="checkCircle" size="sm" class="text-status-success shrink-0" />
+    <Icon name="checkCircle" size="sm" class="text-status-success-ui shrink-0" />
     <span>{{ publishedLine(t, result.published, result.left) }}</span>
   </span>
   <Button

@@ -352,9 +352,9 @@ function openWorkspace() {
     >
       <template #body>
         <ul v-if="job.applied_at" class="flex flex-col gap-2 text-sm text-secondary" data-test="workspace-reset-stakes">
-          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error" />
+          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error-ui" />
             <span>{{ $t('workspace-import-reset-removes', { tickets: counts.tickets, pages: counts.pages, assets: counts.assets, people: job.people_created }) }}</span></li>
-          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error" />
+          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error-ui" />
             <span>{{ $t('workspace-import-reset-since') }}</span></li>
           <li class="flex gap-2.5"><Icon name="info" size="sm" class="shrink-0 mt-0.5 text-tertiary" />
             <span>{{ $t('workspace-import-reset-keeps') }}</span></li>

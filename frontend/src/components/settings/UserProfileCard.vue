@@ -475,7 +475,7 @@ const getRoleBadgeClass = (role: string) => {
         case "admin":
             return "bg-status-error/20 text-status-error";
         case "technician":
-            return "bg-accent/20 text-accent";
+            return "bg-accent/20 text-accent-on-tint";
         case "user":
         default:
             return "bg-surface-hover/20 text-secondary";

@@ -206,7 +206,7 @@ const clearUser = () => {
           <span
             class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium flex-shrink-0"
             :class="{
-              'bg-accent/20 text-accent border border-accent/30': effectiveRole(user) === 'admin' || effectiveRole(user) === 'technician',
+              'bg-accent/20 text-accent-on-tint border border-accent/30': effectiveRole(user) === 'admin' || effectiveRole(user) === 'technician',
               'bg-surface-alt text-secondary border border-default': effectiveRole(user) === 'user'
             }"
           >
@@ -218,7 +218,7 @@ const clearUser = () => {
             v-if="currentUserId === user.uuid"
             name="check"
             size="md"
-            class="text-accent flex-shrink-0"
+            class="text-accent-ui flex-shrink-0"
           />
         </button>
         </ListboxItem>

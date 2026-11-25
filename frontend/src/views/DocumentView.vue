@@ -738,7 +738,7 @@ usePageTitle({
           :title="copiedLink ? $t('doc-detail-copied') : $t('doc-detail-copy-link')"
         >
           <Icon v-if="!copiedLink" name="link" size="md" />
-          <Icon v-else name="check" size="md" class="text-status-success" />
+          <Icon v-else name="check" size="md" class="text-status-success-ui" />
         </button>
 
         <!-- Document actions menu -->
@@ -827,7 +827,7 @@ usePageTitle({
                   <button
                     v-if="document.created_by && document.requires_verification && !document.verified_at"
                     type="button"
-                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1"
+                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent-on-tint hover:bg-accent/20 transition-colors flex items-center gap-1"
                     :title="$t('doc-detail-needs-verification-title')"
                     @click="verificationOpen = true"
                   >

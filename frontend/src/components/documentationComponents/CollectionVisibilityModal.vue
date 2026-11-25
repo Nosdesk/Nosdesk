@@ -110,7 +110,7 @@ onMounted(async () => {
 
       <!-- Public indicator -->
       <div v-if="!restricted" class="flex items-center gap-2 p-2.5 rounded-lg bg-status-success/10 border border-status-success/20">
-        <Icon name="globe" class="text-status-success flex-shrink-0" />
+        <Icon name="globe" class="text-status-success-ui flex-shrink-0" />
         <span class="text-xs text-status-success">{{ $t('docs-collection-visibility-public') }}</span>
       </div>
 

@@ -476,7 +476,7 @@ const cancelDelete = () => {
           class="flex items-center gap-2 px-3 py-2 rounded-lg transition-all whitespace-nowrap min-h-[40px]"
           :class="[
             activeTab === tab.id
-              ? 'bg-accent/10 border border-accent text-accent font-medium'
+              ? 'bg-accent/10 border border-accent text-accent-on-tint font-medium'
               : 'bg-surface border border-subtle text-secondary hover:bg-surface-hover hover:text-primary active:scale-95'
           ]"
         >
@@ -495,7 +495,7 @@ const cancelDelete = () => {
         </div>
         <div v-else-if="isManagingOtherUser && targetUser">
           <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-2">
-            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-accent/15 text-accent">
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-accent/15 text-accent-on-tint">
               <Icon name="settings" size="md" />
             </div>
             <div class="min-w-0 flex-1 overflow-hidden">
@@ -537,7 +537,7 @@ const cancelDelete = () => {
                 class="rounded-lg transition-colors duration-200 flex items-center gap-3 relative overflow-hidden px-3 py-2.5"
                 :class="[
                   activeTab === tab.id
-                      ? 'bg-accent/10 border border-accent text-accent font-medium'
+                      ? 'bg-accent/10 border border-accent text-accent-on-tint font-medium'
                       : 'text-secondary hover:bg-surface-hover hover:text-primary border border-transparent'
                 ]"
               >
@@ -652,7 +652,7 @@ const cancelDelete = () => {
             <!-- Admin Role Management Card -->
             <SectionCard v-if="isManagingOtherUser && authStore.isAdmin && targetUser && !identityManaged && !hosted" content-padding="p-4 sm:p-6">
               <template #leading>
-                <Icon name="shieldCheck" class="text-status-warning flex-shrink-0" />
+                <Icon name="shieldCheck" class="text-status-warning-ui flex-shrink-0" />
               </template>
               <template #title>{{ t('user-settings-role-management-title') }}</template>
 
@@ -690,7 +690,7 @@ const cancelDelete = () => {
                           v-if="targetRole === role.value"
                           name="check"
                           size="md"
-                          class="text-accent flex-shrink-0"
+                          class="text-accent-ui flex-shrink-0"
                         />
                       </div>
                       <p class="text-xs text-secondary leading-relaxed">{{ role.description }}</p>
@@ -699,7 +699,7 @@ const cancelDelete = () => {
 
                   <!-- Warning notice -->
                   <div class="flex items-start gap-3 p-3 bg-status-warning/10 border border-status-warning/30 rounded-lg">
-                    <Icon name="info" size="md" class="text-status-warning flex-shrink-0 mt-0.5" />
+                    <Icon name="info" size="md" class="text-status-warning-ui flex-shrink-0 mt-0.5" />
                     <p class="text-sm text-secondary">
                       Role changes take effect immediately. The user may need to refresh their session to see updated permissions.
                     </p>
@@ -725,7 +725,7 @@ const cancelDelete = () => {
                 <div class="flex flex-col gap-4">
                   <!-- Status banner -->
                   <div class="flex items-start gap-3 p-4 bg-status-warning/10 border border-status-warning/30 rounded-lg">
-                    <Icon name="clock" size="md" class="text-status-warning flex-shrink-0" />
+                    <Icon name="clock" size="md" class="text-status-warning-ui flex-shrink-0" />
                     <div class="flex flex-col gap-1">
                       <p class="text-sm font-medium text-status-warning">{{ t('user-settings-invitation-pending') }}</p>
                       <p class="text-xs text-status-warning">
@@ -884,7 +884,7 @@ const cancelDelete = () => {
       <div class="flex flex-col gap-4">
         <div class="bg-status-error/20 border border-status-error/50 rounded-lg p-4">
           <div class="flex gap-3">
-            <Icon name="warning" size="lg" class="text-status-error flex-shrink-0" />
+            <Icon name="warning" size="lg" class="text-status-error-ui flex-shrink-0" />
             <div class="flex flex-col gap-2">
               <p class="font-medium text-status-error">
                 {{ t('user-settings-delete-modal-warning', { name: currentUser?.name ?? '' }) }}

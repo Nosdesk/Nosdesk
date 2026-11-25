@@ -95,7 +95,7 @@ const filteredGroups = computed(() =>
               @click="openIfExternal(item, $event)"
             >
               <div
-                class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center bg-accent/15 text-accent"
+                class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center bg-accent/15 text-accent-on-tint"
               >
                 <Icon :name="item.icon" size="md" />
               </div>

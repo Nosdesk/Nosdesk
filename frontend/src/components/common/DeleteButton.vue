@@ -55,7 +55,7 @@ const confirmDelete = () => {
   <Modal :show="showConfirmModal" :title="t('common-confirm-delete-title')" @close="closeConfirmModal">
     <div class="flex flex-col items-center gap-4">
       <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-status-error/20 mb-4">
-        <Icon name="warning" size="lg" class="text-status-error" />
+        <Icon name="warning" size="lg" class="text-status-error-ui" />
       </div>
 
       <h3 class="text-2xl font-medium text-primary mb-2">{{ t('common-delete-item-aria', { name: props.itemName }) }}</h3>

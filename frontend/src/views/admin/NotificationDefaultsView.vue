@@ -234,7 +234,7 @@ const gridColumns = computed(
           content-padding="p-4 sm:p-6"
         >
           <template #leading>
-            <Icon :name="group.icon" class="text-accent flex-shrink-0" />
+            <Icon :name="group.icon" class="text-accent-ui flex-shrink-0" />
           </template>
           <template #title>{{ group.label }}</template>
 
@@ -281,7 +281,7 @@ const gridColumns = computed(
                       type="button"
                       class="flex items-center justify-center w-7 h-7 rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
                       :class="isLocked(row, channel.code)
-                        ? 'bg-accent/10 border-accent/30 text-accent'
+                        ? 'bg-accent/10 border-accent/30 text-accent-on-tint'
                         : 'border-subtle text-tertiary hover:text-secondary hover:border-default'"
                       :disabled="saving === cellKey(row.notification_type, channel.code)"
                       :aria-pressed="isLocked(row, channel.code)"
@@ -332,7 +332,7 @@ const gridColumns = computed(
                         type="button"
                         class="flex items-center justify-center w-7 h-7 rounded-md border transition-colors"
                         :class="isLocked(row, channel.code)
-                          ? 'bg-accent/10 border-accent/30 text-accent'
+                          ? 'bg-accent/10 border-accent/30 text-accent-on-tint'
                           : 'border-subtle text-tertiary'"
                         :disabled="saving === cellKey(row.notification_type, channel.code)"
                         :aria-pressed="isLocked(row, channel.code)"

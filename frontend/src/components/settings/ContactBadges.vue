@@ -9,7 +9,7 @@ const t = (key: string) => fluent.$t(key);
 <template>
   <span
     v-if="primary"
-    class="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/20 text-accent shrink-0"
+    class="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/20 text-accent-on-tint shrink-0"
   >{{ primaryLabel }}</span>
   <span
     v-if="synced"

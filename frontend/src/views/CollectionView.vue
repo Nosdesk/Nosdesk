@@ -378,7 +378,7 @@ const deleteModalTitle = computed(() =>
             <span
               v-for="group in collection.visible_to_groups"
               :key="'g-' + group.id"
-              class="text-xs px-2 py-0.5 rounded-full bg-accent/10 text-accent"
+              class="text-xs px-2 py-0.5 rounded-full bg-accent/10 text-accent-on-tint"
             >
               {{ group.name }}
             </span>
@@ -440,7 +440,7 @@ const deleteModalTitle = computed(() =>
               <span
                 v-for="group in override.groups"
                 :key="'g-' + group.id"
-                class="text-3xs px-1.5 py-0.5 rounded-full bg-accent/10 text-accent flex-shrink-0"
+                class="text-3xs px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-on-tint flex-shrink-0"
               >
                 {{ group.name }}
               </span>

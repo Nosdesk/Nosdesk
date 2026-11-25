@@ -171,7 +171,7 @@ const hasOverride = (node: TreeNode) => props.overridePageIds?.has(node.id) ?? f
             <Icon
               v-if="hasOverride(item.value)"
               name="lock"
-              class="flex-shrink-0 text-status-warning ml-1"
+              class="flex-shrink-0 text-status-warning-ui ml-1"
               :label="$t('docs-collection-tree-item-override-title')"
             />
           </a>

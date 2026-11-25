@@ -131,7 +131,7 @@ async function onSignOut(): Promise<void> {
           :aria-label="branding.appName"
         >
           <AssetImg v-if="logoUrl" :src="logoUrl" :alt="branding.appName" class="h-6 max-w-[140px] object-contain" />
-          <LogoIcon v-else class="h-6 text-accent" />
+          <LogoIcon v-else class="h-6 text-accent-fill" />
         </RouterLink>
 
         <nav

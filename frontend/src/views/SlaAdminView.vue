@@ -699,7 +699,7 @@ const clockStartOptions = computed(() => [
                     <button
                       v-if="cal.is_default"
                       type="button"
-                      class="text-3xs uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
+                      class="text-3xs uppercase tracking-wide font-semibold text-accent-on-tint border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
                       @click="toggleCalendarDefault(cal)"
                     >
                       {{ $t('admin-sla-default-badge') }}
@@ -828,7 +828,7 @@ const clockStartOptions = computed(() => [
                     <button
                       v-if="p.is_default"
                       type="button"
-                      class="text-3xs uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
+                      class="text-3xs uppercase tracking-wide font-semibold text-accent-on-tint border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
                       @click="togglePolicyDefault(p)"
                     >
                       {{ $t('admin-sla-default-badge') }}
@@ -942,7 +942,7 @@ const clockStartOptions = computed(() => [
           </div>
           <p
             v-if="importSummary"
-            class="text-2xs text-accent bg-accent/10 border border-accent/30 rounded px-2 py-1"
+            class="text-2xs text-accent-on-tint bg-accent/10 border border-accent/30 rounded px-2 py-1"
             role="status"
           >
             {{ importSummary }}
@@ -959,7 +959,7 @@ const clockStartOptions = computed(() => [
               <span class="font-mono tabular-nums text-primary">{{ h.date }}</span>
               <span
                 v-if="h.recurrence === 'annual'"
-                class="text-3xs uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
+                class="text-3xs uppercase tracking-wide font-semibold text-accent-on-tint border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
               >
                 {{ $t('admin-sla-holiday-annual-badge') }}
               </span>

@@ -230,7 +230,7 @@ const optionClasses = (option: DropdownOption<T>) => [
   option.disabled
     ? 'opacity-40 cursor-not-allowed'
     : isChecked(option)
-      ? 'bg-accent/10 text-accent'
+      ? 'bg-accent/10 text-accent-on-tint'
       : 'hover:bg-surface-hover data-[highlighted]:bg-surface-hover',
 ]
 

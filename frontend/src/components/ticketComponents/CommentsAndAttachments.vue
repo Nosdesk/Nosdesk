@@ -574,7 +574,7 @@ const handlePastedFiles = async (files: File[]) => {
                 <!-- Conversion Status Message (hidden on print) -->
                 <div
                     v-if="conversionMessage"
-                    class="print:hidden mx-3 mt-3 bg-accent/20 border border-accent/50 text-accent px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                    class="print:hidden mx-3 mt-3 bg-accent/20 border border-accent/50 text-accent-on-tint px-4 py-2 rounded-lg text-sm flex items-center gap-2"
                 >
                     <svg
                         v-if="conversionMessage.includes('Converting')"
@@ -1001,7 +1001,7 @@ const handlePastedFiles = async (files: File[]) => {
                                         </span>
                                         <span
                                             v-if="comment.channel_metadata?.forwarded_by_user_uuid"
-                                            class="inline-flex items-center px-1 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
+                                            class="inline-flex items-center px-1 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent-on-tint flex-shrink-0"
                                             :title="$t('ticket-comments-badge-forwarded-title')"
                                         >
                                             {{ $t('ticket-comments-badge-forwarded') }}
@@ -1156,7 +1156,7 @@ const handlePastedFiles = async (files: File[]) => {
                                              defeats the point of showing it. -->
                                         <span
                                             v-if="comment.channel_metadata?.forwarded_by_user_uuid"
-                                            class="inline-flex items-center px-1.5 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
+                                            class="inline-flex items-center px-1.5 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent-on-tint flex-shrink-0"
                                             :title="$t('ticket-comments-badge-forwarded-title')"
                                         >
                                             {{ $t('ticket-comments-badge-forwarded') }}

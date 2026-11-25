@@ -267,7 +267,7 @@ const deadTotal = computed(
             class="px-2 py-1 text-xs rounded border"
             :class="
               statusFilter.has(s)
-                ? 'border-accent bg-accent/10 text-accent'
+                ? 'border-accent bg-accent/10 text-accent-on-tint'
                 : 'border-default text-primary hover:bg-hover'
             "
             @click="toggleStatus(s)"

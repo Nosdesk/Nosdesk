@@ -246,7 +246,7 @@ usePageCreateAction(handleCreatePage)
                       :to="`/documentation/gaps/${gap.id}`"
                       class="group flex items-center gap-2 py-1.5 px-1.5 rounded hover:bg-surface-hover transition-colors"
                     >
-                      <Icon name="warning" size="xs" class="shrink-0 text-status-warning" aria-hidden="true" />
+                      <Icon name="warning" size="xs" class="shrink-0 text-status-warning-ui" aria-hidden="true" />
                       <span class="truncate min-w-0 flex-1 text-xs-plus leading-snug text-primary group-hover:text-accent transition-colors">
                         {{ gapTitle(gap) }}
                       </span>

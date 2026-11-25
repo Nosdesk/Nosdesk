@@ -199,7 +199,7 @@ onMounted(() => {
       <div v-else-if="setupStep === 'setup'" class="flex flex-col gap-5">
         <div class="flex flex-col items-center text-center gap-3">
           <div class="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center">
-            <Icon name="fingerprint" size="xl" class="text-accent" />
+            <Icon name="fingerprint" size="xl" class="text-accent-ui" />
           </div>
           <div>
             <h3 class="text-base font-semibold text-primary mb-1">{{ $t('auth-passkey-setup-heading') }}</h3>
@@ -234,7 +234,7 @@ onMounted(() => {
       <div v-else-if="setupStep === 'backup-codes'" class="flex flex-col gap-5">
         <div class="flex flex-col items-center text-center gap-3">
           <div class="w-16 h-16 rounded-full bg-status-warning/10 flex items-center justify-center">
-            <Icon name="warning" size="xl" class="text-status-warning" />
+            <Icon name="warning" size="xl" class="text-status-warning-ui" />
           </div>
           <div>
             <h3 class="text-base font-semibold text-primary mb-1">{{ $t('auth-passkey-setup-backup-codes-title') }}</h3>
@@ -288,7 +288,7 @@ onMounted(() => {
       <div v-else-if="setupStep === 'success'" class="flex flex-col gap-5">
         <div class="flex flex-col items-center text-center gap-3">
           <div class="w-16 h-16 rounded-full bg-status-success/10 flex items-center justify-center">
-            <Icon name="check" size="xl" class="text-status-success" />
+            <Icon name="check" size="xl" class="text-status-success-ui" />
           </div>
           <div>
             <h3 class="text-base font-semibold text-primary mb-1">{{ $t('auth-passkey-setup-success-heading') }}</h3>
@@ -300,7 +300,7 @@ onMounted(() => {
 
         <div class="bg-surface border border-default rounded-lg p-3 sm:p-4">
           <div class="flex flex-row items-start gap-3">
-            <Icon name="shieldCheck" size="md" class="text-status-success mt-0.5 flex-shrink-0" />
+            <Icon name="shieldCheck" size="md" class="text-status-success-ui mt-0.5 flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <h4 class="font-medium text-primary mb-1 text-sm">{{ $t('auth-passkey-setup-success-protected-title') }}</h4>
               <p class="text-xs text-tertiary">

@@ -296,7 +296,7 @@ const getDeviceTypeClass = (device: Asset) => {
     case 'Surface':
       return 'bg-status-info-muted text-status-info border-status-info/30';
     case 'Laptop':
-      return 'bg-accent-muted text-accent border-accent/30';
+      return 'bg-accent-muted text-accent-on-tint border-accent/30';
     case 'Desktop':
       return 'bg-status-success-muted text-status-success border-status-success/30';
     case 'Tablet':
@@ -557,7 +557,7 @@ const formatLastUpdated = (dateString: string): string => {
                   <span v-else class="text-xs text-tertiary">-</span>
                 </td>
                 <td class="px-4 py-3 text-right">
-                  <button type="button" class="text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors">
+                  <button type="button" class="text-accent-on-tint text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors">
                     Select
                   </button>
                 </td>
@@ -584,7 +584,7 @@ const formatLastUpdated = (dateString: string): string => {
       <button
         v-if="!hideCreate"
         type="button"
-        class="flex items-center justify-center gap-2 px-4 py-2 text-sm text-accent hover:bg-accent/10 rounded-lg transition-colors"
+        class="flex items-center justify-center gap-2 px-4 py-2 text-sm text-accent-on-tint hover:bg-accent/10 rounded-lg transition-colors"
         @click="createAndOpenAsset"
       >
         <Icon name="add" />

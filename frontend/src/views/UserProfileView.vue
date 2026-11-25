@@ -412,7 +412,7 @@ watch(
                     v-if="error"
                     class="bg-status-error/10 border border-status-error/30 rounded-xl p-4 flex items-start gap-3"
                 >
-                    <Icon name="warning" size="md" class="text-status-error flex-shrink-0 mt-0.5" />
+                    <Icon name="warning" size="md" class="text-status-error-ui flex-shrink-0 mt-0.5" />
                     <span class="text-status-error text-sm">{{ error }}</span>
                 </div>
 
@@ -424,7 +424,7 @@ watch(
                         <div class="px-6 py-4 bg-surface-alt border-b border-default">
                             <div class="flex items-center gap-3">
                                 <div class="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
-                                    <Icon name="userPlus" size="md" class="text-accent" />
+                                    <Icon name="userPlus" size="md" class="text-accent-ui" />
                                 </div>
                                 <div>
                                     <h1 class="text-lg font-semibold text-primary">{{ $t('user-profile-create-title') }}</h1>
@@ -508,7 +508,7 @@ watch(
                                         v-if="!smtpConfigured"
                                         class="flex items-start gap-3 p-4 bg-status-warning/10 border border-status-warning/20 rounded-lg"
                                     >
-                                        <Icon name="warning" size="md" class="text-status-warning flex-shrink-0 mt-0.5" />
+                                        <Icon name="warning" size="md" class="text-status-warning-ui flex-shrink-0 mt-0.5" />
                                         <div class="flex flex-col gap-1">
                                             <span class="text-sm font-medium text-status-warning">{{ $t('user-profile-smtp-warning-title') }}</span>
                                             <span class="text-xs text-status-warning">{{ $t('user-profile-smtp-warning-body') }}</span>
@@ -533,7 +533,7 @@ watch(
                                                 class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
                                                 :class="sendInvitation ? 'bg-accent/20' : 'bg-surface-hover'"
                                             >
-                                                <Icon name="email" size="md" :class="sendInvitation ? 'text-accent' : 'text-tertiary'" />
+                                                <Icon name="email" size="md" :class="sendInvitation ? 'text-accent-ui' : 'text-tertiary'" />
                                             </div>
                                             <div class="flex-1 min-w-0">
                                                 <span class="font-medium" :class="sendInvitation ? 'text-primary' : 'text-secondary'">{{ $t('user-profile-setup-invite-title') }}</span>
@@ -554,7 +554,7 @@ watch(
                                                 class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
                                                 :class="!sendInvitation ? 'bg-accent/20' : 'bg-surface-hover'"
                                             >
-                                                <Icon name="lock" size="md" :class="!sendInvitation ? 'text-accent' : 'text-tertiary'" />
+                                                <Icon name="lock" size="md" :class="!sendInvitation ? 'text-accent-ui' : 'text-tertiary'" />
                                             </div>
                                             <div class="flex-1 min-w-0">
                                                 <span class="font-medium" :class="!sendInvitation ? 'text-primary' : 'text-secondary'">{{ $t('user-profile-setup-password-title') }}</span>

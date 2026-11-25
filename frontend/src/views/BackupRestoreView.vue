@@ -11,7 +11,7 @@
         <div class="p-3 sm:p-4 flex flex-col gap-3 sm:gap-4">
           <!-- Header row with icon -->
           <div class="flex flex-row items-start gap-3">
-            <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
+            <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent-on-tint">
               <Icon name="upload" size="md" />
             </div>
             <div class="flex-1 min-w-0">
@@ -78,7 +78,7 @@
           <!-- Header -->
           <div class="flex flex-row items-center justify-between gap-3">
             <div class="flex flex-row items-center gap-3 min-w-0">
-              <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
+              <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent-on-tint">
                 <Icon name="archive" size="md" />
               </div>
               <span class="font-medium text-primary text-sm sm:text-base">{{ $t('admin-backup-recent-heading') }}</span>
@@ -161,7 +161,7 @@
         <div class="p-3 sm:p-4 flex flex-col gap-3 sm:gap-4">
           <!-- Header row with icon -->
           <div class="flex flex-row items-start gap-3">
-            <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
+            <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent-on-tint">
               <Icon name="copyMd" size="md" />
             </div>
             <div class="flex-1 min-w-0">

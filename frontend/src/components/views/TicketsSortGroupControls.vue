@@ -71,7 +71,7 @@ function pickField(field: string, dir: SortDir): void {
           type="button"
           class="text-2xs px-2 py-1 rounded transition-colors text-center"
           :class="sortField === opt.field
-            ? 'bg-accent/10 text-accent font-medium'
+            ? 'bg-accent/10 text-accent-on-tint font-medium'
             : 'text-secondary hover:bg-surface-hover'"
           :aria-pressed="sortField === opt.field"
           @click.stop="pickField(opt.field, opt.dir)"
@@ -90,7 +90,7 @@ function pickField(field: string, dir: SortDir): void {
           type="button"
           class="flex-1 text-2xs px-2 py-1 transition-colors"
           :class="!manual && sortDir === opt.value
-            ? 'bg-accent/10 text-accent font-medium'
+            ? 'bg-accent/10 text-accent-on-tint font-medium'
             : manual ? 'text-secondary' : 'text-secondary hover:bg-surface-hover'"
           :aria-pressed="!manual && sortDir === opt.value"
           :disabled="manual"
@@ -112,7 +112,7 @@ function pickField(field: string, dir: SortDir): void {
         type="button"
         class="text-2xs px-2 py-1 rounded transition-colors text-center"
         :class="groupBy === opt.value
-          ? 'bg-accent/10 text-accent font-medium'
+          ? 'bg-accent/10 text-accent-on-tint font-medium'
           : 'text-secondary hover:bg-surface-hover'"
         :aria-pressed="groupBy === opt.value"
         @click.stop="emit('set-group-by', opt.value)"

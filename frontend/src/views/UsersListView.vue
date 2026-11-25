@@ -693,7 +693,7 @@ function formatPurgeAt(deletedAt: string): string {
                 class="inline-flex items-center px-1.5 py-0.5 rounded font-medium capitalize"
                 :class="{
                   'bg-status-error-muted text-status-error': effectiveRole(item) === 'admin',
-                  'bg-accent-muted text-accent': effectiveRole(item) === 'technician',
+                  'bg-accent-muted text-accent-on-tint': effectiveRole(item) === 'technician',
                   'bg-status-merged-muted text-status-merged': effectiveRole(item) === 'audit_reviewer',
                   'bg-surface-alt text-secondary': effectiveRole(item) === 'user',
                 }"

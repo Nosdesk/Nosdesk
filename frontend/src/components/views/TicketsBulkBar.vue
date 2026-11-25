@@ -303,7 +303,7 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
                   <Icon
                     v-if="sharedWorkflowStateId === state.id"
                     name="check"
-                    class="w-3 h-3 text-accent shrink-0"
+                    class="w-3 h-3 text-accent-ui shrink-0"
                   />
                 </button>
               </ListboxItem>
@@ -376,7 +376,7 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
                 <Icon
                   v-if="sharedPriority === opt.value"
                   name="check"
-                  class="w-3 h-3 text-accent shrink-0"
+                  class="w-3 h-3 text-accent-ui shrink-0"
                 />
               </button>
             </ListboxItem>

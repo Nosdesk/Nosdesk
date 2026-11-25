@@ -43,7 +43,7 @@ async function markNotSpam() {
   <div
     class="flex items-center gap-3 rounded-lg border border-status-warning/40 bg-status-warning-muted px-3 py-2 text-sm"
   >
-    <Icon name="warning" size="sm" class="text-status-warning flex-shrink-0" />
+    <Icon name="warning" size="sm" class="text-status-warning-ui flex-shrink-0" />
     <span class="flex-1 text-primary">{{ t('ticket-spam-banner-text') }}</span>
     <button
       type="button"

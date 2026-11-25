@@ -19,7 +19,7 @@
       />
       <LogoIcon
         v-else
-        class="h-10 text-accent"
+        class="h-10 text-accent-fill"
         :aria-label="t('public-layout-logo-aria', { appName })"
       />
     </RequesterLink>

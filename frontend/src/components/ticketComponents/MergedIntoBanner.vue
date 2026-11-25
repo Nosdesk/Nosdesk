@@ -50,7 +50,7 @@ const message = computed(() => {
     <span class="text-secondary">{{ message }}</span>
     <RouterLink
       :to="ticketPath({ id: targetId, number: targetNumber })"
-      class="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-accent hover:bg-accent/10 transition-colors"
+      class="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-accent-on-tint hover:bg-accent/10 transition-colors"
     >
       {{ $t('ticket-merge-banner-open-destination') }}
     </RouterLink>

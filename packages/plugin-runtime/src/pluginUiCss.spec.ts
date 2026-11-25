@@ -63,6 +63,7 @@ const CONTRACT_CLASSES = [
 // tokens in frontend/src/plugins/theme.ts. The kit may reference only these.
 const HOST_TOKENS = new Set([
   'accent-text',
+  'accent-on-tint-text',
   'success-text',
   'error-text',
   'warning-text',

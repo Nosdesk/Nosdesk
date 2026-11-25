@@ -36,7 +36,7 @@ const toneClasses = computed(() => {
     case 'info':
       return 'bg-status-info-muted text-status-info border-status-info/30'
     case 'accent':
-      return 'bg-accent-muted text-accent border-accent/30'
+      return 'bg-accent-muted text-accent-on-tint border-accent/30'
     default:
       return 'bg-surface-hover text-tertiary border-default'
   }

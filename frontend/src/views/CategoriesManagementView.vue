@@ -449,7 +449,7 @@ onMounted(() => {
         </div>
 
         <!-- Info notice -->
-        <div class="bg-accent/10 border border-accent/30 rounded-lg p-3 text-sm text-accent flex items-start gap-2">
+        <div class="bg-accent/10 border border-accent/30 rounded-lg p-3 text-sm text-accent-on-tint flex items-start gap-2">
           <Icon name="info" size="md" class="flex-shrink-0" />
           <span>{{ $t('admin-categories-info') }}</span>
         </div>
@@ -749,7 +749,7 @@ onMounted(() => {
               viewBox="0 0 24 24"
               stroke="currentColor"
               stroke-width="2"
-              :class="categoryForm.icon === icon.name ? 'text-accent' : 'text-secondary'"
+              :class="categoryForm.icon === icon.name ? 'text-accent-ui' : 'text-secondary'"
             >
               <path stroke-linecap="round" stroke-linejoin="round" :d="icon.path" />
             </svg>

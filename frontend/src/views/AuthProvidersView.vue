@@ -107,15 +107,15 @@ const getProviderIcon = (providerType: string): IconName => {
 const getProviderIconBgClass = (providerType: string) => {
   switch (providerType) {
     case 'microsoft':
-      return 'bg-accent/20 text-accent';
+      return 'bg-accent/20 text-accent-on-tint';
     case 'google':
       return 'bg-surface-alt';
     case 'local':
-      return 'bg-accent/20 text-accent';
+      return 'bg-accent/20 text-accent-on-tint';
     case 'oidc':
       return 'bg-status-warning/20 text-status-warning';
     default:
-      return 'bg-accent/20 text-accent';
+      return 'bg-accent/20 text-accent-on-tint';
   }
 };
 
@@ -216,7 +216,7 @@ watch(
               <div class="flex-1 flex items-center gap-2 flex-wrap">
                 <span class="font-medium text-primary">{{ provider.name }}</span>
                 <span v-if="provider.is_default"
-                      class="px-1.5 py-0.5 text-xs bg-accent/20 text-accent rounded-full border border-accent/50">
+                      class="px-1.5 py-0.5 text-xs bg-accent/20 text-accent-on-tint rounded-full border border-accent/50">
                   {{ $t('admin-auth-providers-default-badge') }}
                 </span>
                 <span
@@ -227,7 +227,7 @@ watch(
                 </span>
                 <span
                   v-if="provider.enabled"
-                  class="px-1.5 py-0.5 text-xs rounded-full border bg-accent/20 text-accent border-accent/50"
+                  class="px-1.5 py-0.5 text-xs rounded-full border bg-accent/20 text-accent-on-tint border-accent/50"
                 >
                   {{ $t('admin-auth-providers-enabled') }}
                 </span>

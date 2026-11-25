@@ -298,7 +298,7 @@ const assetScopeOptions = computed(() => [
           v-for="value in modelValue.enumValues ?? []"
           :key="value"
           type="button"
-          class="px-2 py-1 text-xs rounded-md bg-accent/10 text-accent border border-accent/30 flex items-center gap-1 hover:bg-accent/20 transition-colors"
+          class="px-2 py-1 text-xs rounded-md bg-accent/10 text-accent-on-tint border border-accent/30 flex items-center gap-1 hover:bg-accent/20 transition-colors"
           :aria-label="t('asset-kind-attribute-row-enum-remove', { value })"
           @click="removeEnumValue(value)"
         >

@@ -233,7 +233,7 @@ watch(isWatching, (watching) => {
           type="button"
           class="inline-flex items-center gap-1 px-2 h-6 rounded text-2xs font-medium transition-colors"
           :class="isWatching
-            ? 'text-accent hover:bg-accent-muted'
+            ? 'text-accent-on-tint hover:bg-accent-muted'
             : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
           :aria-pressed="isWatching"
           :title="isWatching ? t('ticket-field-watchers-unwatch-title') : t('ticket-field-watchers-watch-title')"
@@ -330,7 +330,7 @@ watch(isWatching, (watching) => {
           <Icon
             v-if="notifyOnInternalNotes"
             name="check"
-            class="w-3.5 h-3.5 text-accent shrink-0"
+            class="w-3.5 h-3.5 text-accent-ui shrink-0"
             aria-hidden="true"
           />
           <span

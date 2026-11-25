@@ -287,7 +287,7 @@ async function confirmDelete() {
         <button
           type="button"
           class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0"
-          :class="manufacturerFilter === 'all' ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-surface-hover'"
+          :class="manufacturerFilter === 'all' ? 'bg-accent/15 text-accent-on-tint' : 'text-secondary hover:bg-surface-hover'"
           @click="manufacturerFilter = 'all'"
         >
           {{ $t('asset-catalog-filter-all') }}
@@ -298,7 +298,7 @@ async function confirmDelete() {
           :key="m.id"
           type="button"
           class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0"
-          :class="manufacturerFilter === m.id ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-surface-hover'"
+          :class="manufacturerFilter === m.id ? 'bg-accent/15 text-accent-on-tint' : 'text-secondary hover:bg-surface-hover'"
           @click="manufacturerFilter = m.id"
         >
           {{ m.name }}

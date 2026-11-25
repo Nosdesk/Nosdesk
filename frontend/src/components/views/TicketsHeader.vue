@@ -379,7 +379,7 @@ defineExpose({ openAddFilter })
         type="button"
         class="hidden md:inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors"
         :class="splitViewEnabled
-          ? 'bg-accent/15 text-accent'
+          ? 'bg-accent/15 text-accent-on-tint'
           : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
         :aria-pressed="splitViewEnabled"
         :title="splitViewEnabled ? 'Hide preview pane' : 'Show preview pane'"

@@ -344,7 +344,7 @@ function confirm() {
     <!-- Needs attention -->
     <SectionCard id="workspace-preview-attention" content-padding="" class="scroll-mt-14">
       <template #leading>
-        <Icon v-if="attention.length" name="warning" size="sm" class="text-status-warning" />
+        <Icon v-if="attention.length" name="warning" size="sm" class="text-status-warning-ui" />
       </template>
       <template #title>
         {{ $t('workspace-import-attention-heading') }}
@@ -386,7 +386,7 @@ function confirm() {
             <span>{{ $t('workspace-import-confirm-off') }}</span></li>
           <li class="flex gap-2.5"><Icon name="info" size="sm" class="shrink-0 mt-0.5 text-tertiary" />
             <span>{{ $t('workspace-import-confirm-reload') }}</span></li>
-          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error" />
+          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error-ui" />
             <span>{{ $t('workspace-import-confirm-reset') }}</span></li>
         </ul>
         <FormInput

@@ -553,7 +553,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
           v-if="isConfigured"
           class="p-4 rounded-lg border flex items-center gap-3 bg-status-success-muted border-status-success/30"
         >
-          <Icon name="checkCircle" size="md" class="text-status-success" />
+          <Icon name="checkCircle" size="md" class="text-status-success-ui" />
           <span class="text-status-success">{{ $t('admin-branding-configured') }}</span>
         </div>
       </div>

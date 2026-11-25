@@ -270,7 +270,7 @@ function openEdit(kind: AssetKind): void {
                     v-html="highlight(kind.slug)"
                   />
                   <span
-                    class="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent"
+                    class="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent-on-tint"
                   >
                     {{ t(`admin-asset-kinds-category-${kind.category}`) }}
                   </span>
@@ -336,7 +336,7 @@ function openEdit(kind: AssetKind): void {
                     v-html="highlight(kind.slug)"
                   />
                   <span
-                    class="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent"
+                    class="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent-on-tint"
                   >
                     {{ t(`admin-asset-kinds-category-${kind.category}`) }}
                   </span>
