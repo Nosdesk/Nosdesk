@@ -56,6 +56,10 @@ pub fn run() {
     // (a PDF from the in-app viewer). src/share_file.rs stages the bytes in the
     // cache first; see ../tauri-plugin-share.
     .plugin(tauri_plugin_share::init())
+    // The phone's text size and Bold Text, reported to the webview at launch
+    // and on change. On Android it also stops the WebView scaling text by
+    // itself; see ../tauri-plugin-device-text.
+    .plugin(tauri_plugin_device_text::init())
     // Authenticated asset proxy: the webview loads workspace-scoped files via
     // the `nosdesk-asset` scheme; Rust forwards them to the API with the bearer
     // and Range header. See src/asset_proxy.rs.

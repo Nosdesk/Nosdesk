@@ -25,6 +25,7 @@
     "os:allow-version",
     "push:default",
     "share:default",
+    "device-text:default",
     "deep-link:default",
     {
       "identifier": "opener:allow-open-url",

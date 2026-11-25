@@ -56,6 +56,10 @@ tauri-plugin-system-bars = { path = "../tauri-plugin-system-bars" }
 # chooser on Android) for a file the webview can't save or print itself (see
 # ../tauri-plugin-share and src/share_file.rs).
 tauri-plugin-share = { path = "../tauri-plugin-share" }
+# The phone's text size and Bold Text settings, which neither webview follows
+# properly on its own (see ../tauri-plugin-device-text and
+# frontend/src/platform/deviceText.ts).
+tauri-plugin-device-text = { path = "../tauri-plugin-device-text" }
 # Decodes the percent-encoded file name header on write_share_file.
 percent-encoding = "2"
 base64 = "0.22"

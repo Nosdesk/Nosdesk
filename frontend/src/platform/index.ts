@@ -16,15 +16,23 @@ async function setupWebPlatform(): Promise<void> {
 }
 
 async function setupTauriPlatform(): Promise<void> {
-  const { bootstrapMobile, tauriSecureStore } = await import('@nosdesk/mobile')
+  const [{ bootstrapMobile, tauriSecureStore }, { initDeviceText }] = await Promise.all([
+    import('@nosdesk/mobile'),
+    import('./deviceText'),
+  ])
   // The server (cloud or self-hosted) comes from the persisted choice / the
-  // connect screen, not a build constant. bootstrapMobile resolves it.
-  await bootstrapMobile({
-    // OS keychain (iOS Keychain / macOS) for the refresh token, so the session
-    // survives a cold app restart.
-    secureStore: tauriSecureStore(),
-    logger: { isProd: import.meta.env.PROD },
-  })
+  // connect screen, not a build constant. bootstrapMobile resolves it. The
+  // phone's text settings are read alongside, so the first screen already
+  // draws at the user's text size.
+  await Promise.all([
+    bootstrapMobile({
+      // OS keychain (iOS Keychain / macOS) for the refresh token, so the session
+      // survives a cold app restart.
+      secureStore: tauriSecureStore(),
+      logger: { isProd: import.meta.env.PROD },
+    }),
+    initDeviceText(),
+  ])
 }
 
 /** Configure the active platform. Call once at startup, before anything else. */

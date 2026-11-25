@@ -1,0 +1,18 @@
+[package]
+name = "tauri-plugin-device-text"
+version = "0.1.0"
+authors = ["Nosdesk"]
+description = "Reports the phone's text size and Bold Text settings to the webview"
+edition = "2021"
+rust-version = "1.77.2"
+exclude = ["/examples", "/dist-js", "/guest-js", "/node_modules"]
+links = "tauri-plugin-device-text"
+
+[dependencies]
+tauri = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
