@@ -97,7 +97,7 @@
               type="button"
               @click="rebuildIndex"
               :disabled="isRebuilding"
-              class="px-3 py-1.5 bg-status-warning/20 text-status-warning border border-status-warning/50 rounded-lg text-sm hover:bg-status-warning/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
+              class="px-3 py-1.5 bg-status-warning/20 text-status-warning border border-status-warning/50 rounded-lg text-sm hover:bg-status-warning/20 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
             >
               <Spinner v-if="isRebuilding" />
               <Icon v-else name="refresh" />

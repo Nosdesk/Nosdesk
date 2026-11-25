@@ -74,7 +74,7 @@ const filteredProjects = computed<Project[]>(() => {
 const getStatusClass = (status: string) => {
   switch (status) {
     case 'active':
-      return 'bg-status-success/30 text-status-success border-status-success/30'
+      return 'bg-status-success-muted text-status-success border-status-success/30'
     case 'completed':
       return 'bg-accent/15 text-accent-on-tint border-accent/30'
     case 'archived':

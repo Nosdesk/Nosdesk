@@ -579,7 +579,7 @@ onMounted(async () => {
                 type="button"
                 v-if="(syncProgress.status === 'running' || syncProgress.status === 'starting') && currentSessionId"
                 @click="cancelSync(currentSessionId!)"
-                class="px-3 py-1.5 bg-status-error/20 text-status-error border border-status-error/50 rounded-lg text-sm hover:bg-status-error/30 font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
+                class="px-3 py-1.5 bg-status-error/20 text-status-error border border-status-error/50 rounded-lg text-sm hover:bg-status-error/20 font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
               >
                 {{ $t('admin-msgraph-cancel') }}
               </button>

@@ -837,7 +837,7 @@ usePageTitle({
                   <button
                     v-else-if="document.is_stale"
                     type="button"
-                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-status-warning-muted text-status-warning hover:bg-status-warning/25 transition-colors flex items-center gap-1 animate-pulse"
+                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-status-warning-muted text-status-warning hover:bg-status-warning/20 transition-colors flex items-center gap-1 animate-pulse"
                     :title="$t('doc-detail-verification-stale-title')"
                     @click="verificationOpen = true"
                   >

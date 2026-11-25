@@ -517,7 +517,7 @@ const cancelDelete = () => {
       </div>
 
       <!-- Error messages only -->
-      <div v-if="error" class="p-3 sm:p-4 bg-status-error/50 text-status-error rounded-lg text-sm sm:text-base border border-status-error/50">
+      <div v-if="error" class="p-3 sm:p-4 bg-status-error-muted text-status-error rounded-lg text-sm sm:text-base border border-status-error/50">
         {{ error }}
       </div>
 

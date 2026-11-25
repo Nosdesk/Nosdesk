@@ -15,6 +15,9 @@
  *     every theme, so on a coloured surface or its own tint it can fail.
  *     Use the status tokens (`text-status-warning` on
  *     `bg-status-warning-muted`) or `text-tertiary`.
+ *   - Status, priority or accent text on that colour's own tint heavier
+ *     than 20% (`bg-status-error/30 text-status-error`): the text versions
+ *     are derived against the muted tint and the 10, 15 and 20% ones.
  *   - A focus ring mixed into its background (`focus:ring-accent/30`)
  *     with no solid accent border beside it: the only focus indicator
  *     then falls under 3:1 (WCAG 1.4.11).
@@ -50,6 +53,8 @@ function walk(dir, out = []) {
   return out
 }
 
+const HEAVY_TINT = /(?<![\w/-])(?:[\w-]+:)*bg-(?:status-[a-z-]+|priority-[a-z]+|accent)\/(\d+)(?![\w-])/g
+const TINTED_TEXT = /(?<![\w:/-])(?:[\w-]+:)*text-(?:status-|priority-|accent)/
 const FADED_RING = /(?<![\w-])(?:focus|focus-visible|focus-within):ring-accent\/\d+/
 const SOLID_BORDER = /(?<![\w-])(?:focus|focus-visible):border-accent(?![\w/-])/
 
@@ -63,6 +68,9 @@ for (const file of dirs.flatMap((d) => walk(d))) {
   }
   // A class list is one quoted string; judge each on its own.
   for (const m of source.matchAll(/(["'`])((?:(?!\1)[^\n])*)\1/g)) {
+    if (TINTED_TEXT.test(m[2]) && [...m[2].matchAll(HEAVY_TINT)].some((t) => Number(t[1]) > 20)) {
+      failures.push(`${rel}:${line(m.index)}: coloured text on its own tint over 20%; use the -muted tint or /20 at most`)
+    }
     if (FADED_RING.test(m[2]) && !SOLID_BORDER.test(m[2])) {
       failures.push(`${rel}:${line(m.index)}: a faded focus ring is the only focus indicator; use ring-accent at full strength`)
     }
