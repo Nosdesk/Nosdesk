@@ -5,6 +5,8 @@ import type {
   AssetMedia,
   AssetRecord,
   AssetRecordCatalogueEntry,
+  AssetRecordFacets,
+  AssetRecordList,
   AssetRecordPage,
   AssetRecordSummary,
   AssetRecordType,
@@ -19,6 +21,11 @@ export const assetRecordKeys = {
   forAsset: (assetId: number) => ['asset-records', assetId] as const,
   summary: (assetId: number, recordType?: string) =>
     ['asset-records', assetId, 'summary', recordType ?? ''] as const,
+  /** The workspace-wide list: every filter and page of it, and its facets. */
+  list: ['asset-records', 'list'] as const,
+  listFiltered: (filter: AssetRecordListFilter) =>
+    ['asset-records', 'list', assetRecordListParams(filter).toString()] as const,
+  facets: ['asset-records', 'list', 'facets'] as const,
   types: ['asset-record-types'] as const,
   catalogue: ['asset-record-types', 'catalogue'] as const,
   vendors: (query: string) => ['asset-record-vendors', query] as const,
@@ -136,7 +143,70 @@ export interface AssetRecordFilter {
   limit?: number;
 }
 
+/** Which of the workspace's records the Records list holds, and how. Each
+ *  list filter matches any of its values; an empty one is not set. */
+export interface AssetRecordListFilter {
+  /** Text in the summary, vendor or reference, or the asset's tag or name. */
+  q?: string;
+  /** Type slugs or ids. */
+  type?: string[];
+  /** `open`, `completed`, or both (every record). */
+  status?: ('open' | 'completed')[];
+  vendor?: string[];
+  /** Asset ids. */
+  asset?: number[];
+  /** Records by id. */
+  record?: number[];
+  /** Work done on or after this day (YYYY-MM-DD). */
+  from?: string;
+  /** Work done on or before this day. */
+  to?: string;
+  sort?: 'date' | 'cost' | 'asset' | 'vendor';
+  dir?: 'asc' | 'desc';
+  /** Rows group by group, with each group's totals. */
+  group?: 'vendor' | 'type' | 'asset' | 'month';
+  offset?: number;
+  limit?: number;
+}
+
+/** `filter` as the list's query string: list filters repeat their key. */
+export function assetRecordListParams(filter: AssetRecordListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  const add = (key: string, value: string | number | undefined | null) => {
+    if (value !== undefined && value !== null && value !== '') params.append(key, String(value));
+  };
+  add('q', filter.q?.trim());
+  for (const value of filter.type ?? []) add('type', value);
+  for (const value of filter.status ?? []) add('status', value);
+  for (const value of filter.vendor ?? []) add('vendor', value);
+  for (const value of filter.asset ?? []) add('asset', value);
+  for (const value of filter.record ?? []) add('record', value);
+  add('from', filter.from);
+  add('to', filter.to);
+  add('sort', filter.sort);
+  add('dir', filter.dir);
+  add('group', filter.group);
+  add('offset', filter.offset);
+  add('limit', filter.limit);
+  return params;
+}
+
 export const assetRecordService = {
+  /** A page of the workspace's records across every asset, and what the
+   *  whole filtered set adds up to. */
+  async listAll(filter: AssetRecordListFilter = {}): Promise<AssetRecordList> {
+    const { data } = await apiClient.get<AssetRecordList>('/assets/records', {
+      params: assetRecordListParams(filter),
+    });
+    return data;
+  },
+
+  /** The vendors and assets the Records list's filters offer. */
+  async facets(): Promise<AssetRecordFacets> {
+    const { data } = await apiClient.get<AssetRecordFacets>('/assets/records/facets');
+    return data;
+  },
+
   async list(assetId: number, filter: AssetRecordFilter = {}): Promise<AssetRecordPage> {
     const { data } = await apiClient.get<AssetRecordPage>(`/assets/${assetId}/records`, {
       params: filter,

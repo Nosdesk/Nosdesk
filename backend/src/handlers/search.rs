@@ -171,13 +171,16 @@ pub async fn search(
             if is_end_user {
                 use crate::repository::ticket_visibility::{self, VisibilityContext};
 
-                // Assets, people and projects are staff views.
+                // Assets, people and projects are staff views. The total
+                // counts only what is left, so it tells nothing of them (an
+                // asset's document holds its records' references).
                 response.results.retain(|r| {
                     matches!(
                         r.entity_type.as_str(),
                         "ticket" | "comment" | "attachment" | "documentation"
                     )
                 });
+                response.total = response.results.len();
 
                 let vis_opt = Some(VisibilityContext::from_auth(&auth));
                 let candidate_ids: Vec<i32> =

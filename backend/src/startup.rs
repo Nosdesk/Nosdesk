@@ -2015,6 +2015,9 @@ pub async fn build_server(
             .expose_headers(vec![
                 "content-disposition",
                 crate::utils::jwt::ACCESS_EXPIRES_IN_HEADER,
+                // How many records a capped asset records export holds.
+                "X-Export-Rows",
+                "X-Export-Total",
             ])
             .supports_credentials()
             .max_age(3600);

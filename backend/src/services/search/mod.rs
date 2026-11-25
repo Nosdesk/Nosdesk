@@ -36,8 +36,9 @@ const INDEX_WRITER_MEMORY_BYTES: usize = 50_000_000;
 /// What the indexed documents hold, beyond the schema's fields. Raise it when
 /// a change to how documents are built needs every existing one rebuilt (an
 /// index written by an older version is recreated, then filled from the
-/// database). 2: attachments on internal notes carry `is_internal`.
-const INDEX_CONTENT_VERSION: u32 = 2;
+/// database). 2: attachments on internal notes carry `is_internal`. 3: an
+/// asset's document carries its records' summaries, vendors and references.
+const INDEX_CONTENT_VERSION: u32 = 3;
 const INDEX_CONTENT_VERSION_FILE: &str = "nosdesk_content_version";
 
 fn index_content_version(index_path: &Path) -> Option<u32> {
@@ -67,6 +68,9 @@ pub struct SearchService {
     /// doc). Users are a global identity, so the membership set has to
     /// be looked up at index time rather than read off the model.
     pool: Pool,
+    /// The incremental indexing queue (`indexing_tasks`), started by the
+    /// first write that needs it.
+    queue: indexing_tasks::Queue,
 }
 
 /// Clears a flag when dropped.
@@ -137,6 +141,7 @@ impl SearchService {
             is_rebuilding: AtomicBool::new(false),
             reindex_slots: workspace_reindex::ReindexSlots::default(),
             pool: pool.clone(),
+            queue: indexing_tasks::Queue::default(),
         };
 
         // Auto-populate if the index is empty. The indexer reads
@@ -259,12 +264,32 @@ impl SearchService {
         self.index_document(&doc)
     }
 
-    /// Index a device
+    /// Index a device, with the text of its records, which it reads. When
+    /// they can't be read the asset is indexed without them rather than not
+    /// at all.
     pub fn index_device(
         &self,
         device: &models::Asset,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let doc = indexer::index_document_from_device(device);
+        let records = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:search_index_device",
+            device.workspace_id,
+            |conn| {
+                crate::repository::asset_record_list::search_text(
+                    conn,
+                    Some(std::slice::from_ref(&device.id)),
+                )
+            },
+        );
+        let records = match records {
+            Ok(mut text) => text.remove(&device.id).unwrap_or_default(),
+            Err(e) => {
+                warn!(asset_id = device.id, error = ?e, "Failed to read an asset's records for its search entry");
+                Vec::new()
+            }
+        };
+        let doc = indexer::index_document_from_device(device, &records);
         self.index_document(&doc)
     }
 

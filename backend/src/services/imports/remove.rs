@@ -519,19 +519,24 @@ pub fn plan_records(
 }
 
 /// Delete the records `plan` found untouched, each through
-/// `asset_records::delete` so sync and the audit trigger see it. The record
-/// types the import added from the catalogue stay. Run inside the
-/// transaction that made `plan` with `lock`.
+/// `asset_records::delete` so sync and the audit trigger see it, noting
+/// their assets in `touched_assets`. The record types the import added from
+/// the catalogue stay. Run inside the transaction that made `plan` with
+/// `lock`.
 pub fn remove_records(
     conn: &mut DbConnection,
     plan: RemovalPlan,
+    touched_assets: &mut Vec<i32>,
 ) -> Result<RemoveResult, DieselError> {
     let mut deleted_ids = Vec::with_capacity(plan.deletable_ids.len());
     for id in &plan.deletable_ids {
-        if record_repo::delete(conn, *id)?.is_some() {
+        if let Some(record) = record_repo::delete(conn, *id)? {
             deleted_ids.push(*id);
+            touched_assets.push(record.asset_id);
         }
     }
+    touched_assets.sort_unstable();
+    touched_assets.dedup();
     Ok(RemoveResult {
         created: plan.created,
         deleted: deleted_ids.len(),

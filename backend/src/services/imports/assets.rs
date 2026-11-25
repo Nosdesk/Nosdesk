@@ -3700,7 +3700,8 @@ pub fn write_cells_csv(headers: &[String], rows: &[Vec<String>]) -> Result<Vec<u
     let mut buf = Vec::new();
     {
         let mut wtr = csv::Writer::from_writer(&mut buf);
-        wtr.write_record(headers)?;
+        // Headers carry type field names an admin wrote, so they're cells too.
+        wtr.write_record(headers.iter().map(|h| csv_formula_safe(h.clone())))?;
         for row in rows {
             wtr.write_record(row.iter().map(|c| csv_formula_safe(c.clone())))?;
         }
@@ -3810,6 +3811,14 @@ mod export_tests {
     use chrono::NaiveDateTime;
     use serde_json::json;
     use std::str::FromStr;
+
+    #[test]
+    fn cells_csv_guards_its_headers_as_well_as_its_cells() {
+        let headers = vec!["asset_tag".to_string(), "=cmd()".to_string()];
+        let rows = vec![vec!["CAM-1".to_string(), "+1".to_string()]];
+        let text = String::from_utf8(write_cells_csv(&headers, &rows).expect("csv")).expect("utf8");
+        assert_eq!(text, "asset_tag,'=cmd()\nCAM-1,'+1\n");
+    }
 
     fn sample_asset() -> Asset {
         Asset {

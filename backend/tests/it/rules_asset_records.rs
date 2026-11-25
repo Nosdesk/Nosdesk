@@ -266,6 +266,11 @@ fn opening_writes_one_open_record_on_each_linked_asset() {
     let taken = step(&done, 0);
     assert_eq!(taken["kind"], "open_asset_record");
     assert_eq!(ids(&taken["asset_ids"]), vec![camera as i64, lens as i64]);
+    assert_eq!(
+        done.record_assets,
+        vec![camera, lens],
+        "whose search entries change"
+    );
     let rows = records(&s);
     assert_eq!(rows.len(), 2);
     assert_eq!(
@@ -305,6 +310,7 @@ fn opening_writes_one_open_record_on_each_linked_asset() {
     let again = apply(&s, id, ticket_id).expect("apply again");
     let taken = step(&again, 0);
     assert!(ids(&taken["asset_ids"]).is_empty());
+    assert!(again.record_assets.is_empty());
     assert_eq!(
         ids(&taken["already_open_asset_ids"]),
         vec![camera as i64, lens as i64]
@@ -476,6 +482,7 @@ fn completing_completes_the_tickets_open_records() {
         open_repairs.iter().map(|&r| r as i64).collect::<Vec<_>>()
     );
     assert!(ids(&taken["created_record_ids"]).is_empty());
+    assert_eq!(done.record_assets, vec![camera, lens]);
     for row in records(&s) {
         if open_repairs.contains(&row.id) {
             assert_eq!(row.completed_on, Some(today()));
@@ -608,6 +615,10 @@ fn a_dry_run_writes_nothing_and_says_what_it_would() {
     .expect("shadow run");
 
     assert_eq!(outcome.application.status, RuleApplicationStatus::DryRun);
+    assert!(
+        outcome.record_assets.is_empty(),
+        "a dry run writes no record"
+    );
     let opened = step(&outcome, 0);
     assert_eq!(ids(&opened["asset_ids"]), vec![camera as i64]);
     assert!(ids(&opened["record_ids"]).is_empty());
@@ -1004,4 +1015,101 @@ fn the_replacement_a_carry_over_links_gets_no_record() {
     );
     assert_eq!(records(&s).len(), before);
     assert!(records(&s).iter().all(|r| r.asset_id != new));
+}
+
+/// A rule applied by hand that opens records reindexes their assets, so the
+/// summary it wrote finds the asset in search.
+#[actix_web::test]
+async fn a_rules_records_reach_their_assets_search_entries() {
+    use actix_web::dev::Service;
+    use actix_web::{web, App, HttpMessage};
+    use backend::extractors::WorkspaceContext;
+    use backend::middleware::RequestContext;
+    use backend::models::Claims;
+    use backend::services::search::{SearchQuery, SearchService};
+    use std::sync::Arc;
+
+    common::ensure_test_keyring();
+    let s = setup();
+    let ticket_id = ticket(&s, 0);
+    let camera = asset(&s, "Camera 14", None);
+    link(&s, ticket_id, camera);
+    let id = manual_rule(
+        &s,
+        json!([{ "kind": "open_asset_record", "config": { "record_type": "repair", "summary": "Sent under RMA-55501" } }]),
+    );
+    // Built before the run: an empty index is filled once, here, without
+    // the record.
+    let index_dir = tempfile::tempdir().expect("index dir");
+    let search = Arc::new(SearchService::new(index_dir.path(), &s.pool).expect("init search"));
+
+    let now = Utc::now().timestamp();
+    let claims = Claims {
+        sub: s.ws.admin_uuid.to_string(),
+        name: "Admin".to_string(),
+        email: "admin@example.com".to_string(),
+        platform_role: "user".to_string(),
+        scope: "full".to_string(),
+        sid: None,
+        workspace_uuid: None,
+        exp: (now + 3600) as usize,
+        iat: now as usize,
+        file_path: None,
+    };
+    let workspace = WorkspaceContext {
+        workspace_id: s.ws.workspace_id,
+        workspace_uuid: s.ws.workspace_uuid,
+        slug: s.ws.slug.clone(),
+        name: s.ws.slug.clone(),
+        organisation_id: None,
+        custom_domain: None,
+    };
+    let corr = Uuid::now_v7();
+    let actor = ActorContext::user(s.ws.admin_uuid, Some(corr)).with_workspace(s.ws.workspace_id);
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(s.pool.clone()))
+            .app_data(web::Data::new(search.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(workspace.clone());
+                req.extensions_mut().insert(claims.clone());
+                req.extensions_mut()
+                    .insert(RequestContext::new(corr, actor.clone()));
+                srv.call(req)
+            })
+            .service(web::scope("/api").configure(backend::handlers::rules::config)),
+    )
+    .await;
+    let applied = http_test::call_service(
+        &app,
+        http_test::TestRequest::post()
+            .uri(&format!("/api/rules/{id}/apply"))
+            .set_json(json!({ "ticket_id": ticket_id }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(applied.status(), StatusCode::OK);
+
+    let query = SearchQuery {
+        q: "RMA-55501".to_string(),
+        limit: 20,
+        types: Some("device".to_string()),
+        sort: None,
+        author: None,
+    };
+    let mut hits = Vec::new();
+    for _ in 0..50 {
+        hits = search
+            .search(&query, true, i64::from(s.ws.workspace_id))
+            .expect("search")
+            .results
+            .into_iter()
+            .map(|r| r.entity_id)
+            .collect();
+        if !hits.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(hits, vec![i64::from(camera)]);
 }

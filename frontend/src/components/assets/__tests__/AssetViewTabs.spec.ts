@@ -27,6 +27,7 @@ vi.mock('@/services/activeWorkspace', () => ({
 }))
 
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
+import { useAuthStore } from '@/stores/auth'
 import {
   installSlugCarrier,
   installWorkspaceGuard,
@@ -41,6 +42,7 @@ function makeRouter(): Router {
     routes: withWorkspaceRouting([
       { path: '/assets/catalog', name: 'asset-catalog', component: page, meta: { requiresAuth: true } },
       { path: '/assets/groups', name: 'asset-groups', component: page, meta: { requiresAuth: true } },
+      { path: '/assets/records', name: 'asset-records', component: page, meta: { requiresAuth: true } },
       { path: '/assets', name: 'assets', component: page, meta: { requiresAuth: true } },
       { path: '/assets/:id', name: 'asset-view', component: page, meta: { requiresAuth: true } },
     ]),
@@ -127,6 +129,20 @@ describe.each(modes)('AssetViewTabs ($mode routing)', ({ mode, prefix }) => {
     await flushPromises()
     expect(router.currentRoute.value.path).toBe(`${prefix}/assets`)
     expect(selected()).toEqual(['asset-tabs-inventory'])
+  })
+
+  it('offers Records to staff only, and lights it on the Records page', async () => {
+    const router = makeRouter()
+    await mountAt(router, `${prefix}/assets`)
+    const labels = () => wrapper!.findAll('[role="tab"]').map((t) => t.text())
+    expect(labels()).not.toContain('asset-tabs-records')
+
+    useAuthStore().user = { uuid: 'u-agent', name: 'Agent', workspace_role: 'agent' } as never
+    await flushPromises()
+    expect(labels()).toContain('asset-tabs-records')
+    await clickTab('asset-tabs-records')
+    expect(router.currentRoute.value.path).toBe(`${prefix}/assets/records`)
+    expect(selected()).toEqual(['asset-tabs-records'])
   })
 
   it('keeps Inventory highlighted on an asset detail page', async () => {

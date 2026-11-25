@@ -406,6 +406,17 @@ const router = createRouter({
       }
     },
     {
+      // Records of work across every asset, a sibling of the inventory,
+      // catalog and groups views. Staff only, as records are.
+      path: '/assets/records',
+      name: 'asset-records',
+      component: () => import('../views/AssetRecordsView.vue'),
+      meta: {
+        requiresAuth: true,
+        titleKey: 'route-title-asset-records',
+      }
+    },
+    {
       path: '/projects/:id',
       name: 'project-detail',
       component: ProjectDetailView,

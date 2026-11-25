@@ -7,6 +7,10 @@ import { RequestManager } from '@nosdesk/core/utils/requestManager';
 import { isCancellation } from '@nosdesk/core/utils/cancellation';
 import { fileNameFromDisposition } from '@nosdesk/core/utils/contentDisposition';
 import { saveFile } from '@/platform';
+import {
+  assetRecordListParams,
+  type AssetRecordListFilter,
+} from '@nosdesk/core/services/assetRecordService';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();
@@ -163,7 +167,7 @@ async function downloadCsv(
   url: string,
   params: URLSearchParams | undefined,
   fallbackName: string,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
   try {
     const response = await apiClient.get(url, { params, responseType: 'blob' });
     const blob = response.data as Blob;
@@ -171,6 +175,7 @@ async function downloadCsv(
       fileNameFromDisposition(response.headers['content-disposition'] as string | undefined) ??
       fallbackName;
     await saveFile(blob, filename);
+    return response.headers as Record<string, unknown>;
   } catch (error) {
     const err = error as { response?: { data?: Blob } };
     if (err.response?.data instanceof Blob) {
@@ -196,6 +201,19 @@ export async function downloadAssetsCsv(
   const params = assetExportParams(filters);
   if (scope) params.set('scope', scope);
   await downloadCsv('/assets/export', params, scope ? `asset-${scope}.csv` : 'assets-export.csv');
+}
+
+/** Download the workspace's records the Records list's filters match, in
+ *  the list's order, in the records import template's columns. The server
+ *  caps one export: `rows` below `total` means it holds the first `rows`. */
+export async function downloadAssetRecordsCsv(
+  filter: AssetRecordListFilter,
+): Promise<{ rows: number; total: number }> {
+  const params = assetRecordListParams({ ...filter, group: undefined, offset: undefined, limit: undefined });
+  const headers = await downloadCsv('/assets/records/export', params, 'asset-records.csv');
+  const rows = Number(headers['x-export-rows'] ?? NaN);
+  const total = Number(headers['x-export-total'] ?? NaN);
+  return Number.isFinite(rows) && Number.isFinite(total) ? { rows, total } : { rows: 0, total: 0 };
 }
 
 /** Download one asset's timeline as a CSV record card, one row per entry

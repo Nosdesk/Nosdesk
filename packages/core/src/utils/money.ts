@@ -16,12 +16,32 @@ const DECIMAL = /^-?\d+(\.\d+)?$/
  * amount or code `Intl` can't take.
  */
 export function formatMoney(amount: string, currency: string, locale?: string): string {
+  return formatAmount(amount, currency, 'symbol', locale)
+}
+
+/**
+ * `amount` in `currency` with the currency's code rather than its symbol:
+ * `AUD 1,250.50` in en-US and en-AU, `1 250,50 AUD` in fr-FR. For totals,
+ * which always say which currency they are in, the workspace's own too,
+ * where a bare `$` could be any dollar.
+ */
+export function formatMoneyWithCode(amount: string, currency: string, locale?: string): string {
+  return formatAmount(amount, currency, 'code', locale)
+}
+
+function formatAmount(
+  amount: string,
+  currency: string,
+  currencyDisplay: 'symbol' | 'code',
+  locale?: string,
+): string {
   const fraction = amount.split('.')[1]?.length ?? 0
   if (!DECIMAL.test(amount)) return `${amount} ${currency}`
   try {
     const format = new Intl.NumberFormat(locale ?? getDateConfig().defaultLocale, {
       style: 'currency',
       currency,
+      currencyDisplay,
       minimumFractionDigits: fraction,
       maximumFractionDigits: fraction,
     })

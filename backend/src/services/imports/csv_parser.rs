@@ -214,7 +214,9 @@ fn parse_str(text: &str) -> Result<ParsedCsv, ParseError> {
         .headers()
         .map_err(ParseError::Csv)?
         .iter()
-        .map(|h| h.trim().to_string())
+        // An export guards its headers as it does its cells (a field key
+        // can start with `-`), so a guarded header reads back as written.
+        .map(|h| strip_formula_guard(h.trim()).trim().to_string())
         .collect();
     if headers.iter().all(String::is_empty) {
         return Err(ParseError::MissingHeader);
@@ -319,6 +321,19 @@ mod tests {
     fn value<'a>(parsed: &'a ParsedCsv, row: usize, header: &str) -> &'a str {
         let i = parsed.headers.iter().position(|h| h == header).unwrap();
         &parsed.rows[row].cells[i]
+    }
+
+    #[test]
+    fn a_guarded_header_reads_back_as_exported() {
+        let headers = vec!["asset_tag".to_string(), "-fault".to_string()];
+        let rows = vec![vec!["CAM-1".to_string(), "-loose mount".to_string()]];
+        let bytes =
+            crate::services::imports::assets::write_cells_csv(&headers, &rows).expect("csv");
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert!(text.starts_with("asset_tag,'-fault"), "{text}");
+        let parsed = parse_str(&text).expect("parse");
+        assert_eq!(parsed.headers, headers);
+        assert_eq!(parsed.rows[0].cells, rows[0]);
     }
 
     #[test]

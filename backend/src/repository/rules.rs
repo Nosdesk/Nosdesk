@@ -660,6 +660,9 @@ pub struct ApplyOutcome {
     /// The rule has a `stop_processing` step that wasn't suppressed, so
     /// no lower-priority rule runs for the same event.
     pub stop_processing: bool,
+    /// The assets whose records the run wrote (opened, completed or
+    /// created), once each: their search entries carry the records' text.
+    pub record_assets: Vec<i32>,
 }
 
 /// Why a run didn't apply.
@@ -1296,6 +1299,7 @@ fn run_locked(
     let mut comment_id: Option<i32> = None;
     let mut actions_executed = 0usize;
     let mut stop_processing = false;
+    let mut record_assets: Vec<i32> = Vec::new();
     let mut actions_taken: Vec<Value> = Vec::with_capacity(actions.len());
     let mut actions_skipped: Vec<Value> = Vec::with_capacity(suppress.len());
     let mut applied_reply_body_override = false;
@@ -1393,14 +1397,28 @@ fn run_locked(
                 done
             }
             "open_asset_record" => {
-                let mut done =
-                    execute_open_record(conn, one_based, &ticket, ctx, &config, shadow)?;
+                let mut done = execute_open_record(
+                    conn,
+                    one_based,
+                    &ticket,
+                    ctx,
+                    &config,
+                    shadow,
+                    &mut record_assets,
+                )?;
                 stamp_step(&mut done, one_based, kind);
                 done
             }
             "complete_asset_records" => {
-                let mut done =
-                    execute_complete_records(conn, one_based, &ticket, ctx, &config, shadow)?;
+                let mut done = execute_complete_records(
+                    conn,
+                    one_based,
+                    &ticket,
+                    ctx,
+                    &config,
+                    shadow,
+                    &mut record_assets,
+                )?;
                 stamp_step(&mut done, one_based, kind);
                 done
             }
@@ -1540,6 +1558,8 @@ fn run_locked(
         )?;
     }
 
+    record_assets.sort_unstable();
+    record_assets.dedup();
     Ok(ApplyOutcome {
         rule: updated_rule,
         application,
@@ -1547,6 +1567,7 @@ fn run_locked(
         actions_executed,
         actions_suppressed: suppress.len(),
         stop_processing,
+        record_assets,
     })
 }
 
@@ -2835,6 +2856,7 @@ fn execute_open_record(
     ctx: &ApplyContext,
     config: &Value,
     shadow: bool,
+    record_assets: &mut Vec<i32>,
 ) -> Result<Value, ApplyError> {
     use crate::repository::asset_records::{self as records, WorkDate};
 
@@ -2881,6 +2903,7 @@ fn execute_open_record(
             let written =
                 records::create(conn, input).map_err(|e| record_failed(index, asset, e))?;
             record_ids.push(written.record.id);
+            record_assets.push(asset.id);
         }
     }
     Ok(json!({
@@ -2910,6 +2933,7 @@ fn execute_complete_records(
     ctx: &ApplyContext,
     config: &Value,
     shadow: bool,
+    record_assets: &mut Vec<i32>,
 ) -> Result<Value, ApplyError> {
     use crate::repository::asset_records::{self as records, RecordChanges, WorkDate};
     use crate::repository::{asset_record_types as types, assets as assets_repo};
@@ -3018,11 +3042,13 @@ fn execute_complete_records(
                 ctx.actor.uuid,
             )
             .map_err(|e| record_failed(index, asset, e))?;
+            record_assets.push(asset.id);
         }
         for (asset, input) in &to_create {
             let written =
                 records::create(conn, input.clone()).map_err(|e| record_failed(index, asset, e))?;
             created_ids.push(written.record.id);
+            record_assets.push(asset.id);
         }
     }
     Ok(json!({
