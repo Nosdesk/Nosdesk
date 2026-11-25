@@ -113,3 +113,139 @@ describe('InlineEdit', () => {
     expect(input().hidden).toBe(true)
   })
 })
+
+describe('InlineEdit multiline (the page title on a phone)', () => {
+  function textarea(): HTMLTextAreaElement {
+    return wrapper!.get('textarea').element as HTMLTextAreaElement
+  }
+
+  async function openArea(): Promise<HTMLTextAreaElement> {
+    const preview = wrapper!.get('[tabindex="0"]').element as HTMLElement
+    preview.focus()
+    await settle()
+    await settle()
+    const el = textarea()
+    expect(el.hidden).toBe(false)
+    expect(document.activeElement).toBe(el)
+    return el
+  }
+
+  function typeArea(el: HTMLTextAreaElement, text: string) {
+    el.value = text
+    el.setSelectionRange(text.length, text.length)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  it('shows the title as an h1 and edits it in a textarea, not an input', async () => {
+    wrapper = mountWithProviders(InlineEdit, { modelValue: 'Printer jam', multiline: true, as: 'h1', placeholder: 'Title' })
+    await nextTick()
+    const heading = wrapper.get('h1')
+    expect(heading.attributes('tabindex')).toBe('0')
+    expect(heading.text()).toBe('Printer jam')
+    expect(wrapper.find('input').exists()).toBe(false)
+    const el = await openArea()
+    expect(el.getAttribute('aria-label')).toBe('Title')
+    expect(el.value).toBe('Printer jam')
+  })
+
+  it('puts the caret at the end instead of selecting the title', async () => {
+    wrapper = mountWithProviders(InlineEdit, { modelValue: 'Printer jam on level 3', multiline: true })
+    await nextTick()
+    const el = await openArea()
+    expect(el.selectionStart).toBe('Printer jam on level 3'.length)
+    expect(el.selectionEnd).toBe('Printer jam on level 3'.length)
+  })
+
+  it('saves on Enter without typing a line break, once and only on a change', async () => {
+    const updates: string[] = []
+    wrapper = mountWithProviders(InlineEdit, {
+      modelValue: 'Printer jam',
+      multiline: true,
+      'onUpdate:modelValue': (v: string) => updates.push(v),
+    })
+    await nextTick()
+    let el = await openArea()
+    let enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    el.dispatchEvent(enter)
+    await settle()
+    expect(enter.defaultPrevented).toBe(true)
+    expect(updates).toEqual([])
+    el = await openArea()
+    typeArea(el, 'Printer jammed')
+    enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    el.dispatchEvent(enter)
+    await settle()
+    expect(enter.defaultPrevented).toBe(true)
+    expect(updates).toEqual(['Printer jammed'])
+    expect(textarea().hidden).toBe(true)
+  })
+
+  it('saves on blur', async () => {
+    const updates: string[] = []
+    wrapper = mountWithProviders(InlineEdit, {
+      modelValue: 'Printer jam',
+      multiline: true,
+      'onUpdate:modelValue': (v: string) => updates.push(v),
+    })
+    await nextTick()
+    const el = await openArea()
+    typeArea(el, 'Printer jam fixed')
+    const elsewhere = document.createElement('button')
+    document.body.appendChild(elsewhere)
+    elsewhere.focus()
+    await settle()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settle()
+    elsewhere.remove()
+    expect(updates).toEqual(['Printer jam fixed'])
+  })
+
+  it('cancels on Escape, restoring the title', async () => {
+    const updates: string[] = []
+    const previews: string[] = []
+    wrapper = mountWithProviders(InlineEdit, {
+      modelValue: 'Printer jam',
+      multiline: true,
+      as: 'h1',
+      'onUpdate:modelValue': (v: string) => updates.push(v),
+      onPreview: (v: string) => previews.push(v),
+    })
+    await nextTick()
+    const el = await openArea()
+    typeArea(el, 'Prin')
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await settle()
+    expect(updates).toEqual([])
+    expect(previews.at(-1)).toBe('Printer jam')
+    expect(wrapper.get('h1').text()).toBe('Printer jam')
+  })
+
+  it('turns a pasted line break into a space, in the field and in what it saves', async () => {
+    const updates: string[] = []
+    const previews: string[] = []
+    wrapper = mountWithProviders(InlineEdit, {
+      modelValue: 'Printer',
+      multiline: true,
+      'onUpdate:modelValue': (v: string) => updates.push(v),
+      onPreview: (v: string) => previews.push(v),
+    })
+    await nextTick()
+    const el = await openArea()
+    typeArea(el, 'Printer jam\r\n  on level 3\n')
+    await settle()
+    expect(el.value).toBe('Printer jam on level 3 ')
+    expect(previews).toEqual(['Printer jam on level 3 '])
+    expect(wrapper.get('[aria-hidden="true"].invisible').text()).toContain('Printer jam on level 3')
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    await settle()
+    expect(updates).toEqual(['Printer jam on level 3 '])
+  })
+
+  it('shows the placeholder for an empty title and opens the editor empty', async () => {
+    wrapper = mountWithProviders(InlineEdit, { modelValue: '', multiline: true, as: 'h1', placeholder: 'Ticket title' })
+    await nextTick()
+    expect(wrapper.get('h1').text()).toBe('Ticket title')
+    const el = await openArea()
+    expect(el.value).toBe('')
+  })
+})

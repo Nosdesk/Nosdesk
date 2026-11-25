@@ -15,9 +15,14 @@ model:
   `preview` echoes back through `modelValue` (and a remote update can
   arrive mid-edit); Reka would copy either into the input and clobber
   the draft.
+
+`multiline` is the page title on a phone: the display wraps to as many
+lines as the text needs and the editor is a textarea of the same box, so
+entering the edit moves nothing. The value is still one line: Enter
+submits, and a pasted line break becomes a space.
 -->
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { EditableArea, EditableInput, EditablePreview, EditableRoot } from 'reka-ui';
 import { useFluent } from 'fluent-vue';
 
@@ -37,6 +42,11 @@ interface Props {
    * lost to ellipsis, but never grows the row beyond two lines.
    * Unset = unlimited wrap (the previous `truncate: false` default). */
   maxLines?: 1 | 2;
+  /** Wrap without limit and edit in a textarea that grows with the text.
+   *  Overrides `maxLines` and `truncate`. */
+  multiline?: boolean;
+  /** The element the display renders as. `h1` makes it the page heading. */
+  as?: 'div' | 'h1';
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -46,6 +56,8 @@ const props = withDefaults(defineProps<Props>(), {
   prefix: '',
   showEditHint: true,
   truncate: false,
+  multiline: false,
+  as: 'div',
 });
 
 const emit = defineEmits<{
@@ -71,11 +83,25 @@ watch(
   },
 );
 
+// The textarea's text, mirrored into the sizer that gives it its height.
+const draft = ref(props.modelValue);
+const textarea = ref<HTMLTextAreaElement | null>(null);
+
 function onState(state: 'edit' | 'submit' | 'cancel') {
   if (state === 'edit') {
     originalValue.value = props.modelValue;
     held.value = props.modelValue;
+    draft.value = props.modelValue;
     isEditing.value = true;
+    // A long title selected whole is one stray key from gone, and a phone
+    // has no Escape. The caret goes to the end instead. Reka focuses the
+    // field on the next tick; this runs after it.
+    if (props.multiline) {
+      void nextTick(() => nextTick(() => {
+        const end = textarea.value?.value.length ?? 0;
+        textarea.value?.setSelectionRange(end, end);
+      }));
+    }
     return;
   }
   isEditing.value = false;
@@ -84,13 +110,46 @@ function onState(state: 'edit' | 'submit' | 'cancel') {
 }
 
 // Reka submits unconditionally; only a real change reaches the parent.
-function onSubmit(value: string) {
+function onSubmit(raw: string) {
+  const value = props.multiline ? oneLine(raw) : raw;
   if (value !== originalValue.value) emit('update:modelValue', value);
 }
+
+// A title is one line of text however many lines it wraps to.
+const oneLine = (text: string) => text.replace(/\s*[\r\n]+\s*/g, ' ');
 
 function onInput(event: Event) {
   emit('preview', (event.target as HTMLInputElement).value);
 }
+
+// A pasted line break becomes a space as it lands. Reka has already read
+// the raw text by the time this runs, so the cleaned text goes round once
+// more as its own input event for Reka to read too.
+function onTextareaInput(event: Event) {
+  const field = event.target as HTMLTextAreaElement;
+  if (/[\r\n]/.test(field.value)) {
+    const caret = oneLine(field.value.slice(0, field.selectionStart)).length;
+    field.value = oneLine(field.value);
+    field.setSelectionRange(caret, caret);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    return;
+  }
+  draft.value = field.value;
+  emit('preview', field.value);
+}
+
+// Enter submits (Reka's handler) and never types a line break, except
+// while an input method is composing, where Enter picks the candidate.
+function onTextareaEnter(event: KeyboardEvent) {
+  if (!event.isComposing) event.preventDefault();
+}
+
+// One paragraph style for the wrapped display, the textarea and its sizer,
+// so all three break their lines in the same places. A word longer than
+// the line (a pasted URL, a serial) breaks anywhere instead of widening
+// the page.
+const MULTILINE_TEXT = 'leading-snug whitespace-pre-wrap [overflow-wrap:anywhere]';
+const BOX = 'w-full font-semibold px-1 py-0.5 rounded-lg border-2';
 
 const textSizeClasses = {
   sm: 'text-sm',
@@ -104,7 +163,9 @@ const textSizeClasses = {
 // two lines with ellipsis past that, paired with leading-tight so two
 // lines fit in a header row sized for one.
 const clampClass = computed(() =>
-  props.maxLines === 2
+  props.multiline
+    ? MULTILINE_TEXT
+    : props.maxLines === 2
     ? 'line-clamp-2 leading-tight break-words'
     : props.maxLines === 1 || props.truncate
       ? 'truncate'
@@ -136,7 +197,8 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
     >
       <EditableArea class="w-full">
         <EditablePreview as-child>
-          <div
+          <component
+            :is="as"
             class="w-full font-semibold px-1 py-0.5 rounded-lg transition-all duration-150 border-2 border-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent"
             :class="[
               textSizeClasses[textSize],
@@ -148,9 +210,32 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
             :title="(maxLines || truncate) && held ? held : undefined"
           >
             {{ held || resolvedPlaceholder }}
-          </div>
+          </component>
         </EditablePreview>
-        <EditableInput as-child>
+        <!-- The textarea takes its size from a hidden copy of its text in
+             the same grid cell: no measuring, and the same box as the
+             display it replaced. -->
+        <div v-if="multiline" v-show="isEditing" class="grid">
+          <div
+            aria-hidden="true"
+            class="invisible col-start-1 row-start-1 border-transparent"
+            :class="[BOX, textSizeClasses[textSize], MULTILINE_TEXT]"
+          >{{ draft || resolvedPlaceholder }}&#8203;</div>
+          <EditableInput as-child>
+            <textarea
+              ref="textarea"
+              rows="1"
+              enterkeyhint="done"
+              autocapitalize="sentences"
+              :aria-label="accessibleName"
+              class="col-start-1 row-start-1 h-full resize-none overflow-hidden bg-surface text-primary focus:outline-none border-accent/50 placeholder:text-tertiary placeholder:italic cursor-text"
+              :class="[BOX, textSizeClasses[textSize], MULTILINE_TEXT]"
+              @keydown.enter="onTextareaEnter"
+              @input="onTextareaInput"
+            />
+          </EditableInput>
+        </div>
+        <EditableInput v-else as-child>
           <input
             type="text"
             :aria-label="accessibleName"
@@ -163,7 +248,7 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
 
       <!-- Edit hint, pointer only (the preview's focus ring covers keyboard). -->
       <span
-        v-if="!isEditing && canEdit && showEditHint"
+        v-if="!isEditing && canEdit && showEditHint && !multiline"
         class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none select-none"
         aria-hidden="true"
       >

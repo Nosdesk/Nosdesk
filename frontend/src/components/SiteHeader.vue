@@ -16,6 +16,8 @@ import Spinner from "./common/Spinner.vue";
 import { useAuthStore } from '@/stores/auth';
 import { useMobileDetection } from '@/composables/useMobileDetection';
 import { HEADER_ACTION_SLOT_ID, headerActionSlotFilled } from '@/composables/useHeaderActionSlot';
+import { pageTitleTarget } from '@/composables/usePageTitleSlot';
+import HeaderTitleCopy from "./HeaderTitleCopy.vue";
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args);
@@ -38,6 +40,15 @@ const showBackArrow = computed(
     // control, so without this a deep link would offer no way back.
     (canGoBack.value || !!route.meta.parent || !!backFallback.value),
 );
+
+// On a phone a detail view's title is the page's heading, not the bar's:
+// the bar's title column is what is left between the back arrow, the ID and
+// the actions (about 170px at a common larger text size, 30 characters in
+// two lines), and the page is the full width. The title below is teleported
+// into the view's PageTitleSlot, so it stays this one component with these
+// handlers, and the bar shows a one-line copy once it has scrolled away. A
+// view with no slot, and everything from `sm` up, keeps the title here.
+const titleOnPage = computed(() => isMobile.value && pageTitleTarget.value !== null);
 
 const authStore = useAuthStore();
 
@@ -228,15 +239,22 @@ const handleCreateClick = () => {
             <!-- Editable ticket title in header: wraps to a second
                  line when long instead of getting lost to ellipsis.
                  maxLines=2 caps the wrap so the header tops out
-                 around ~80px rather than growing unboundedly. -->
-            <HeaderTitle
-              :initialTitle="props.ticket.title || t('ui-site-header-untitled-ticket')"
-              :placeholder-text="t('ui-site-header-ticket-title-placeholder')"
-              :max-lines="2"
-              @update-title="handleUpdateTicketTitle"
-              @update-title-preview="handlePreviewTicketTitle"
-              class="min-w-0 flex-1"
-            />
+                 around ~80px rather than growing unboundedly. On a
+                 phone it is the page's heading instead, and an empty
+                 title shows the placeholder rather than "Untitled"
+                 as text to edit. -->
+            <Teleport :to="pageTitleTarget" :disabled="!titleOnPage">
+              <HeaderTitle
+                :initialTitle="titleOnPage ? props.ticket.title : props.ticket.title || t('ui-site-header-untitled-ticket')"
+                :placeholder-text="t('ui-site-header-ticket-title-placeholder')"
+                :max-lines="2"
+                :page-heading="titleOnPage"
+                @update-title="handleUpdateTicketTitle"
+                @update-title-preview="handlePreviewTicketTitle"
+                class="min-w-0 flex-1"
+              />
+            </Teleport>
+            <HeaderTitleCopy v-if="titleOnPage" :text="props.ticket.title" :fallback="t('ui-site-header-untitled-ticket')" />
           </div>
         </template>
         <template v-else-if="isDeviceView && props.device">
@@ -245,22 +263,29 @@ const handleCreateClick = () => {
             <!-- Editable asset name in header, mirroring the ticket
                  title; falls back to read-only when no save handler is
                  registered (e.g. a sync-owned asset). -->
-            <HeaderTitle
-              v-if="props.deviceTitleEditable"
-              :initialTitle="props.device.name || t('ui-site-header-untitled-asset')"
-              :placeholder-text="t('ui-site-header-asset-title-placeholder')"
-              :max-lines="2"
-              @update-title="handleUpdateDeviceTitle"
-              @update-title-preview="handlePreviewDeviceTitle"
-              class="min-w-0 flex-1"
-            />
-            <h1
-              v-else
-              class="text-xl font-semibold text-primary line-clamp-2 leading-tight break-words flex-1 min-w-0"
-              :title="props.device.name || undefined"
-            >
-              {{ props.device.name || t('ui-site-header-unknown-device') }}
-            </h1>
+            <Teleport :to="pageTitleTarget" :disabled="!titleOnPage">
+              <HeaderTitle
+                v-if="props.deviceTitleEditable"
+                :initialTitle="titleOnPage ? props.device.name : props.device.name || t('ui-site-header-untitled-asset')"
+                :placeholder-text="t('ui-site-header-asset-title-placeholder')"
+                :max-lines="2"
+                :page-heading="titleOnPage"
+                @update-title="handleUpdateDeviceTitle"
+                @update-title-preview="handlePreviewDeviceTitle"
+                class="min-w-0 flex-1"
+              />
+              <!-- Read-only (a synced asset): the same heading, with the
+                   editable title's inset so the two sit on one line. -->
+              <h1
+                v-else
+                class="text-xl font-semibold text-primary flex-1 min-w-0"
+                :class="titleOnPage ? 'leading-snug [overflow-wrap:anywhere] px-1.5 py-1' : 'line-clamp-2 leading-tight break-words'"
+                :title="titleOnPage ? undefined : props.device.name || undefined"
+              >
+                {{ props.device.name || t('ui-site-header-unknown-device') }}
+              </h1>
+            </Teleport>
+            <HeaderTitleCopy v-if="titleOnPage" :text="props.device.name" :fallback="props.deviceTitleEditable ? t('ui-site-header-untitled-asset') : t('ui-site-header-unknown-device')" />
           </div>
         </template>
         <template v-else-if="isDocumentView && props.document">
@@ -270,14 +295,18 @@ const handleCreateClick = () => {
               @update:icon="handleUpdateDocumentIcon"
               class="flex-shrink-0"
             />
-            <HeaderTitle
-              :initialTitle="props.document.title"
-              :placeholder-text="t('ui-site-header-document-title-placeholder')"
-              :max-lines="2"
-              @update-title="handleUpdateDocumentTitle"
-              @update-title-preview="handlePreviewDocumentTitle"
-              class="min-w-0 flex-1"
-            />
+            <Teleport :to="pageTitleTarget" :disabled="!titleOnPage">
+              <HeaderTitle
+                :initialTitle="props.document.title"
+                :placeholder-text="t('ui-site-header-document-title-placeholder')"
+                :max-lines="2"
+                :page-heading="titleOnPage"
+                @update-title="handleUpdateDocumentTitle"
+                @update-title-preview="handlePreviewDocumentTitle"
+                class="min-w-0 flex-1"
+              />
+            </Teleport>
+            <HeaderTitleCopy v-if="titleOnPage" :text="props.document.title" :fallback="t('ui-site-header-untitled')" />
           </div>
         </template>
         <template v-else-if="props.customTitleEditable">

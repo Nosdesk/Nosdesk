@@ -38,6 +38,7 @@ import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { useCollabSessionStore, type ConnectionStatus } from '@/stores/collabSession'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { HEADER_ACTION_SLOT_ID, useHeaderActionSlot } from '@/composables/useHeaderActionSlot'
+import PageTitleSlot from '@/components/PageTitleSlot.vue'
 import { useViewBackFallback } from '@/router/navigation'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 
@@ -786,8 +787,12 @@ usePageTitle({
 
             <!-- Document Header -->
             <div class="mb-4 sm:mb-6">
-              <!-- Title. On a phone the app bar's editable title is the only
-                   one, so this stays desktop. -->
+              <!-- On a phone the title goes here, under the breadcrumb:
+                   SiteHeader teleports its editable title in, and the
+                   desktop title below stays hidden, so there is one. -->
+              <PageTitleSlot class="-mx-1.5 mb-2" />
+
+              <!-- Title (desktop). -->
               <div class="mb-4 hidden sm:block">
                 <h1
                   ref="titleElementRef"

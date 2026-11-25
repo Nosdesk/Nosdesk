@@ -15,10 +15,14 @@ interface Props {
   truncate?: boolean;
   /** Cap display to N lines, ellipsis past that. See InlineEdit. */
   maxLines?: 1 | 2;
+  /** The title as the page's heading on a phone: an `h1` that wraps
+   *  without limit and edits in place. See InlineEdit. */
+  pageHeading?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  truncate: false
+  truncate: false,
+  pageHeading: false,
 });
 const emit = defineEmits(['updateTitle', 'updateTitlePreview']);
 
@@ -55,6 +59,8 @@ const handleTitlePreview = (newValue: string) => {
     text-size="xl"
     :truncate="truncate"
     :max-lines="maxLines"
+    :multiline="pageHeading"
+    :as="pageHeading ? 'h1' : 'div'"
     @update:modelValue="handleTitleUpdate"
     @preview="handleTitlePreview"
   />
