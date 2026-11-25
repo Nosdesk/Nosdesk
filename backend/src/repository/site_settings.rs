@@ -22,6 +22,15 @@ pub(crate) fn ensure_row(conn: &mut DbConnection) -> QueryResult<()> {
     Ok(())
 }
 
+/// The currency an amount written without one is in: the workspace
+/// currency, else the one its default locale suggests.
+pub fn workspace_currency(conn: &mut DbConnection) -> QueryResult<Option<String>> {
+    let settings = get_site_settings(conn)?;
+    Ok(settings.currency_code.or_else(|| {
+        crate::utils::money::suggested_currency(&settings.default_locale).map(str::to_string)
+    }))
+}
+
 /// Get the current workspace's site settings, creating the default row on
 /// first access. Returns exactly one row: RLS scopes the read to the
 /// request's workspace (no hardcoded id), so this no longer collapses every

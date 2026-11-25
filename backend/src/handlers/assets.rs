@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::models::{Asset, AssetGroupRef, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
+use crate::services::assets::projection::{self, VisibleAttributes};
 use crate::services::assets::{
     model_stamp, validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS,
 };
@@ -45,19 +46,45 @@ pub(crate) fn require_assets_visible(
     }
 }
 
-/// Blank the staff-only fields (notes) of raw asset rows for anyone but
-/// staff, by the same rule as `assets_for_viewer`. For responses that embed
-/// [`Asset`] rows: a ticket, a group, a profile, the export.
+/// Blank the staff-only fields (notes, and each attribute the asset's kind
+/// marks `staffOnly` or no longer declares) of raw asset rows for anyone but staff, by the same rule as
+/// `assets_for_viewer`. For responses that embed [`Asset`] rows: a ticket, a
+/// group, a profile, the export.
 pub(crate) fn strip_staff_asset_fields<'a>(
+    conn: &mut crate::db::DbConnection,
     assets: impl IntoIterator<Item = &'a mut Asset>,
     auth: &AuthContext,
 ) {
     if auth.can_handle_tickets() {
         return;
     }
+    let keys = VisibleAttributes::for_viewer(conn, false);
+    strip_staff_asset_rows(assets, auth, &keys);
+}
+
+/// [`strip_staff_asset_fields`] with what the viewer gets already read.
+fn strip_staff_asset_rows<'a>(
+    assets: impl IntoIterator<Item = &'a mut Asset>,
+    auth: &AuthContext,
+    keys: &VisibleAttributes,
+) {
+    if auth.can_handle_tickets() {
+        return;
+    }
     for asset in assets {
         asset.notes = None;
+        projection::row_for_viewer(asset, keys);
     }
+}
+
+/// The attributes `auth` gets: every one for staff, for anyone else those
+/// their asset's kind declares and doesn't mark staff only.
+fn visible_attributes(tc: &mut TenantConn, auth: &AuthContext) -> VisibleAttributes {
+    if auth.can_handle_tickets() {
+        return VisibleAttributes::everything();
+    }
+    tc.run(|conn| Ok::<_, Error>(VisibleAttributes::for_viewer(conn, false)))
+        .unwrap_or_else(|_| VisibleAttributes::nothing())
 }
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -622,10 +649,15 @@ fn resolve_asset_user(u: &User, conn: &mut crate::db::DbConnection) -> UserInfo 
 }
 
 /// Assets as `auth` may see them. Staff get them whole. Anyone else gets no
-/// notes, and the embedded primary user goes through `sync::user_projection`,
-/// as the user routes do: of someone else, the name and avatar. `body` is one
+/// notes, none of the attributes `keys` keeps back (`staff_only_keys`), and
+/// the embedded primary user goes through `sync::user_projection`, as the
+/// user routes do: of someone else, the name and avatar. `body` is one
 /// asset, a list of them, or a page (`data`).
-fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Value {
+fn assets_for_viewer(
+    body: impl Serialize,
+    auth: &AuthContext,
+    keys: &VisibleAttributes,
+) -> serde_json::Value {
     let mut body = serde_json::to_value(body).unwrap_or(serde_json::Value::Null);
     if auth.can_handle_tickets() {
         return body;
@@ -646,6 +678,7 @@ fn assets_for_viewer(body: impl Serialize, auth: &AuthContext) -> serde_json::Va
         if let Some(fields) = asset.as_object_mut() {
             fields.remove("notes");
         }
+        projection::for_viewer(asset, keys);
         if let Some(user) = asset.get_mut("primary_user") {
             crate::sync::user_projection::value_for_viewer(user, viewer);
         }
@@ -773,6 +806,8 @@ pub async fn calendar_overlay(
         id: i32,
         #[diesel(sql_type = diesel::sql_types::Text)]
         name: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        kind: String,
         #[diesel(sql_type = diesel::sql_types::Date)]
         warranty_end_date: NaiveDate,
     }
@@ -782,7 +817,7 @@ pub async fn calendar_overlay(
             return Ok(Vec::new());
         }
         diesel::sql_query(
-            "SELECT id, name, NULLIF(attributes->>'warranty_end_date','')::date AS warranty_end_date \
+            "SELECT id, name, kind, NULLIF(attributes->>'warranty_end_date','')::date AS warranty_end_date \
              FROM assets \
              WHERE NULLIF(attributes->>'warranty_end_date','')::date BETWEEN $1 AND $2",
         )
@@ -790,11 +825,14 @@ pub async fn calendar_overlay(
         .bind::<diesel::sql_types::Date, _>(end)
         .load(conn)
     });
+    // The date is an attribute: only where the viewer's kind shows it.
+    let visible = visible_attributes(&mut tc, &auth);
 
     match rows {
         Ok(rows) => {
             let entries: Vec<CalendarOverlayEntry> = rows
                 .into_iter()
+                .filter(|row| visible.shows(&row.kind, "warranty_end_date"))
                 .map(|row| CalendarOverlayEntry {
                     kind: "warranty_expiry",
                     date: row.warranty_end_date.format("%Y-%m-%d").to_string(),
@@ -867,6 +905,8 @@ pub async fn asset_grouping_dataset(
             groups: query.groups.as_deref(),
             low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
             ids: ids.as_deref(),
+            // Staff only.
+            visible: None,
         };
         let devices = repository::assets::list_for_export(conn, filters)?;
         let today = chrono::Utc::now().date_naive();
@@ -998,7 +1038,11 @@ pub async fn get_all_devices(mut tc: TenantConn, auth: AuthContext) -> impl Resp
     });
 
     match result {
-        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(device_responses, &auth)),
+        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(
+            device_responses,
+            &auth,
+            &visible_attributes(&mut tc, &auth),
+        )),
         Err(e) => {
             error!(error = ?e, "Database error getting all devices");
             errors::internal("Failed to get devices")
@@ -1060,6 +1104,7 @@ pub async fn export_assets(
         Ok(v) => v,
         Err(e) => return e.response(),
     };
+    let visible = visible_attributes(&mut tc, &auth);
 
     let export_result = tc.run(|conn| {
         let ids = match import {
@@ -1074,6 +1119,7 @@ pub async fn export_assets(
             groups: query.groups.as_deref(),
             low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
             ids: ids.as_deref(),
+            visible: Some(&visible),
         };
         let rows = if assets_hidden_from(conn, &auth) {
             Vec::new()
@@ -1126,7 +1172,7 @@ pub async fn export_assets(
         }
     };
     // The CSV keeps its `notes` column, blank, so a re-import still parses.
-    strip_staff_asset_fields(&mut rows, &auth);
+    strip_staff_asset_rows(&mut rows, &auth, &visible);
     // History keeps its columns too, blank where the timeline is staff only.
     if let ExportExtra::History(events) = &mut extra {
         crate::handlers::asset_lifecycle::strip_staff_lifecycle_fields(events, &auth);
@@ -1465,6 +1511,7 @@ pub async fn get_paginated_devices(
 ) -> impl Responder {
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
+    let keys = visible_attributes(&mut tc, &auth);
     let sort_field = query.sort_field.clone();
     let sort_direction = query.sort_direction.clone();
     let search = query.search.clone();
@@ -1501,6 +1548,7 @@ pub async fn get_paginated_devices(
             kind,
             low_stock,
             ids.as_deref(),
+            &keys,
         )?;
         let mut extras = Vec::with_capacity(devices.len());
         let devices: Vec<Asset> = devices
@@ -1544,7 +1592,7 @@ pub async fn get_paginated_devices(
                 page_size,
                 total_pages,
             };
-            HttpResponse::Ok().json(assets_for_viewer(response, &auth))
+            HttpResponse::Ok().json(assets_for_viewer(response, &auth, &keys))
         }
         Err(e) => {
             error!(error = ?e, "Database error getting paginated devices");
@@ -1584,7 +1632,11 @@ pub async fn get_device_by_id(
     });
 
     match result {
-        Ok(device_response) => HttpResponse::Ok().json(assets_for_viewer(device_response, &auth)),
+        Ok(device_response) => HttpResponse::Ok().json(assets_for_viewer(
+            device_response,
+            &auth,
+            &visible_attributes(&mut tc, &auth),
+        )),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
             _ => {
@@ -1618,7 +1670,11 @@ pub async fn get_user_devices(
     });
 
     match result {
-        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(device_responses, &auth)),
+        Ok(device_responses) => HttpResponse::Ok().json(assets_for_viewer(
+            device_responses,
+            &auth,
+            &visible_attributes(&mut tc, &auth),
+        )),
         Err(e) => {
             error!(user_uuid = %user_uuid_str, error = ?e, "Error getting devices for user");
             errors::internal(format!("Failed to get devices for user {user_uuid_str}"))
@@ -1652,7 +1708,7 @@ pub async fn create_device(
     }
 
     let CreateAssetBody {
-        asset: new_device,
+        asset: mut new_device,
         status,
     } = body.into_inner();
     let status = match status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -1672,10 +1728,10 @@ pub async fn create_device(
     // bubbles cleanly while still running inside the txn.
     let kind = new_device.kind.clone();
     let attributes = new_device.attributes.clone();
-    let validation: Result<Result<(), AssetValidationError>, diesel::result::Error> =
-        tc.run(|conn| Ok(validate_for_kind(conn, &kind, &attributes)));
+    let validation: Result<Result<serde_json::Value, AssetValidationError>, diesel::result::Error> =
+        tc.run(|conn| Ok(validate_for_kind(conn, &kind, &attributes, None)));
     match validation {
-        Ok(Ok(())) => {}
+        Ok(Ok(attributes)) => new_device.attributes = attributes,
         Ok(Err(e)) => return asset_validation_response(e),
         Err(_) => return errors::internal("Failed to validate asset"),
     }
@@ -1881,16 +1937,26 @@ pub async fn update_device(
             .attributes
             .clone()
             .unwrap_or_else(|| existing_device.attributes.clone());
-        let validation: Result<Result<(), AssetValidationError>, diesel::result::Error> =
-            tc.run(|conn| {
-                Ok(validate_for_kind(
-                    conn,
-                    &effective_kind,
-                    &effective_attributes,
-                ))
-            });
+        // Under another kind every reference is the new kind's to check.
+        let previous =
+            (effective_kind == existing_device.kind).then_some(&existing_device.attributes);
+        let validation: Result<
+            Result<serde_json::Value, AssetValidationError>,
+            diesel::result::Error,
+        > = tc.run(|conn| {
+            Ok(validate_for_kind(
+                conn,
+                &effective_kind,
+                &effective_attributes,
+                previous,
+            ))
+        });
         match validation {
-            Ok(Ok(())) => {}
+            Ok(Ok(attributes)) => {
+                if update_data.attributes.is_some() {
+                    update_data.attributes = Some(attributes);
+                }
+            }
             Ok(Err(e)) => return asset_validation_response(e),
             Err(_) => return errors::internal("Failed to validate asset"),
         }
@@ -2134,7 +2200,11 @@ pub async fn get_paginated_devices_excluding(
                 total: total_count,
                 total_pages,
             };
-            HttpResponse::Ok().json(assets_for_viewer(response, &auth))
+            HttpResponse::Ok().json(assets_for_viewer(
+                response,
+                &auth,
+                &visible_attributes(&mut tc, &auth),
+            ))
         }
         Err(e) => {
             error!(error = ?e, "Error getting paginated devices");
@@ -2260,15 +2330,23 @@ pub async fn set_asset_model(
             }
         };
 
-    let stamp = model_stamp::stamp(&existing.attributes, &model, &manufacturer.name);
+    let mut stamp = model_stamp::stamp(&existing.attributes, &model, &manufacturer.name);
 
     // The stamped (kind, attributes) pair must be valid, or we'd write an
     // asset that fails its own kind's schema.
     let kind = stamp.kind.clone();
     let attrs_for_validation = stamp.attributes.clone();
-    match tc.run(move |conn| Ok::<_, Error>(validate_for_kind(conn, &kind, &attrs_for_validation)))
-    {
-        Ok(Ok(())) => {}
+    // Under another kind every reference is the new kind's to check.
+    let previous = (stamp.kind == existing.kind).then(|| existing.attributes.clone());
+    match tc.run(move |conn| {
+        Ok::<_, Error>(validate_for_kind(
+            conn,
+            &kind,
+            &attrs_for_validation,
+            previous.as_ref(),
+        ))
+    }) {
+        Ok(Ok(attributes)) => stamp.attributes = attributes,
         Ok(Err(e)) => return asset_validation_response(e),
         Err(_) => return errors::internal("Failed to validate asset"),
     }

@@ -319,7 +319,17 @@ pub async fn set_user_profile_fields(
             }
         }
 
-        // Validate the custom-field values against the effective schema.
+        // Money values take the workspace currency when they name none and
+        // are written canonical; then the values must fit the schema.
+        let currency = crate::repository::site_settings::workspace_currency(conn)?;
+        input.custom_fields = match crate::services::custom_fields::money::normalise_values(
+            &schema,
+            &input.custom_fields,
+            currency.as_deref(),
+        ) {
+            Ok(values) => values,
+            Err(e) => return Ok(Err(format!("Invalid custom fields: {e}"))),
+        };
         if let Err(e) = field_schema::validate_attributes(&schema, &input.custom_fields) {
             return Ok(Err(format!("Invalid custom fields: {e}")));
         }

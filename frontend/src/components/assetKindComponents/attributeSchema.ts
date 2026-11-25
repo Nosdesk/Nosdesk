@@ -75,7 +75,29 @@ export interface AttributeDef {
   /** For `kind: "raw"`: the original JSON object for the property.
    * Lets unrecognised shapes round-trip without loss. */
   raw?: Record<string, unknown>;
+  /** Keywords the builder doesn't edit (`title`, `synced`, `staffOnly`,
+   * `x-allow-custom`, ...), written back as they were so an edit, a move or
+   * a save never drops them. */
+  extras?: Record<string, unknown>;
 }
+
+/** Keywords that mean the same whatever the field's type, so they follow
+ * a field to its new type. */
+export const TYPE_INDEPENDENT_KEYWORDS = ['title', 'synced', 'staffOnly'];
+
+/** Keywords the builder reads into a def; anything else is an extra. */
+const MODELLED_KEYWORDS = new Set([
+  'type',
+  'format',
+  'description',
+  'maxLength',
+  'pattern',
+  'minimum',
+  'maximum',
+  'enum',
+  'items',
+  'assetKind',
+]);
 
 export interface ParsedSchema {
   defs: AttributeDef[];
@@ -135,6 +157,21 @@ export function parseSchema(schema: unknown): ParsedSchema {
 }
 
 function propToDef(
+  name: string,
+  prop: Record<string, unknown>,
+  required: boolean,
+): AttributeDef {
+  const def = modelledDef(name, prop, required);
+  if (def.kind === 'raw') return def;
+  const extras: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(prop)) {
+    if (!MODELLED_KEYWORDS.has(key)) extras[key] = value;
+  }
+  if (Object.keys(extras).length > 0) def.extras = extras;
+  return def;
+}
+
+function modelledDef(
   name: string,
   prop: Record<string, unknown>,
   required: boolean,
@@ -235,6 +272,11 @@ function propToDef(
         description: stringOrUndefined(prop.description),
       };
     }
+    // A format the builder doesn't edit (`group-ref`, later ones) would be
+    // lost as plain text: the field is kept as it is.
+    if (format !== undefined) {
+      return { name, kind: 'raw', required, raw: prop };
+    }
     if (Array.isArray(prop.enum) && prop.enum.every((v) => typeof v === 'string')) {
       return {
         name,
@@ -282,6 +324,11 @@ export function serializeSchema(parsed: ParsedSchema): Record<string, unknown> {
 }
 
 function defToProp(def: AttributeDef): Record<string, unknown> {
+  if (def.kind === 'raw') return def.raw ?? {};
+  return { ...(def.extras ?? {}), ...typedProp(def) };
+}
+
+function typedProp(def: AttributeDef): Record<string, unknown> {
   const base: Record<string, unknown> = {};
   if (def.description) base.description = def.description;
 

@@ -157,6 +157,7 @@ async fn call(
                     .configure(backend::handlers::sync::config)
                     .configure(backend::handlers::asset_settings::config)
                     .configure(backend::handlers::assets::config)
+                    .configure(backend::handlers::search::config)
                     .service(
                         web::resource("/tickets/{id}")
                             .route(web::get().to(backend::handlers::get_ticket))
@@ -1029,5 +1030,324 @@ async fn disposal_notes_vendor_and_actor_stay_with_staff() {
                 "{who}: {uri} and the vendor"
             );
         }
+    }
+}
+
+/// The attributes a kind marks `staffOnly` reach staff only: not a
+/// requester's asset routes, ticket, profile or export, nor their sync
+/// snapshot, delta or live stream, the calendar, a ticket card's OS, the
+/// warranty filter or search. Nor do values the kind no longer declares, or
+/// any value of an asset whose kind is gone. The kind's other attributes
+/// reach them.
+#[actix_web::test]
+async fn staff_only_attributes_reach_staff_only() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    diesel::sql_query(
+        "INSERT INTO asset_kinds (slug, label, attribute_schema, sort_order, is_builtin, category, workspace_id)
+         VALUES ('computer', 'Computer', $1::jsonb, 500, false, 'it', $2)
+         ON CONFLICT (workspace_id, slug) DO UPDATE SET attribute_schema = EXCLUDED.attribute_schema",
+    )
+    .bind::<diesel::sql_types::Text, _>(
+        json!({
+            "type": "object",
+            "properties": {
+                "cost": { "type": "object", "format": "money", "staffOnly": true },
+                "colour": { "type": "string" },
+                "code": { "type": "string", "staffOnly": true },
+                "operating_system": { "type": "string", "staffOnly": true },
+                "warranty_status": { "type": "string", "staffOnly": true },
+                "warranty_end_date": { "type": "string", "format": "date", "staffOnly": true }
+            }
+        })
+        .to_string(),
+    )
+    .bind::<diesel::sql_types::Integer, _>(f.ws.workspace_id)
+    .execute(&mut f.pool.get().expect("conn"))
+    .expect("seed the kind");
+    let attributes = json!({
+        "cost": { "amount": "1999.95", "currency": "AUD" },
+        "colour": "Graphite",
+        "code": "ZQXSECRET",
+        "operating_system": "Windows 11",
+        "warranty_status": "Active",
+        "warranty_end_date": "2030-01-15",
+        "retired_field": "left behind"
+    });
+    run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::update_device(
+            c,
+            f.asset,
+            AssetUpdate {
+                attributes: Some(attributes.clone()),
+                ..Default::default()
+            },
+        )
+    })
+    .expect("set attributes");
+
+    let only_colour = json!({ "colour": "Graphite" });
+    let asset_attributes = |rows: &[Value]| -> Vec<Value> {
+        rows.iter()
+            .filter(|r| r.get("aggregate").or_else(|| r.get("__model__")) == Some(&json!("asset")))
+            .map(|r| r.get("data").unwrap_or(r)["attributes"].clone())
+            .filter(|a| !a.is_null())
+            .collect()
+    };
+
+    for (viewer, who, want) in [
+        (f.member, "member", &only_colour),
+        (f.agent, "agent", &attributes),
+    ] {
+        let one = get_json(&f, viewer, &format!("/api/assets/{}", f.asset)).await;
+        assert_eq!(&one["attributes"], want, "{who}: GET /assets/:id");
+        let page = get_json(&f, viewer, "/api/assets/paginated").await;
+        assert_eq!(&page["data"][0]["attributes"], want, "{who}: paginated");
+        let all = get_json(&f, viewer, "/api/assets").await;
+        assert_eq!(&all[0]["attributes"], want, "{who}: /assets");
+        let ticket = get_json(&f, viewer, &format!("/api/tickets/{}", f.ticket)).await;
+        assert_eq!(&ticket["devices"][0]["attributes"], want, "{who}: ticket");
+        let profile = get_json(
+            &f,
+            viewer,
+            &format!("/api/users/{}/profile?include=devices", f.member),
+        )
+        .await;
+        assert_eq!(&profile["devices"][0]["attributes"], want, "{who}: profile");
+        let (status, export) = call(
+            &f,
+            viewer,
+            Method::GET,
+            "/api/assets/export?format=json",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{who}: export");
+        assert_eq!(
+            export.contains("1999.95"),
+            viewer == f.agent,
+            "{who}: export: {export}"
+        );
+
+        let (_, rows) = bootstrap(&f, viewer).await;
+        assert_eq!(
+            asset_attributes(&rows),
+            vec![want.clone()],
+            "{who}: bootstrap"
+        );
+        let (actions, _) = delta(&f, viewer).await;
+        let seen = asset_attributes(&actions);
+        assert_eq!(seen.last(), Some(want), "{who}: delta");
+        assert!(
+            seen.iter().all(|a| a.get("cost").is_none()) || viewer == f.agent,
+            "{who}: delta"
+        );
+        let streamed = asset_attributes(&stream_rows(&f, viewer).await);
+        assert_eq!(streamed.last(), Some(want), "{who}: live stream");
+        assert!(
+            streamed.iter().all(|a| a.get("cost").is_none()) || viewer == f.agent,
+            "{who}: live stream"
+        );
+    }
+
+    // The calendar's warranty date, the warranty filter and a ticket card's
+    // OS read the attributes directly; a requester gets none of them.
+    let overlay_uri = "/api/assets/calendar-overlay?start=2030-01-01&end=2030-02-01";
+    let in_overlay = |v: &Value| {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .any(|e| e["device_id"] == json!(f.asset))
+    };
+    assert!(in_overlay(&get_json(&f, f.agent, overlay_uri).await));
+    assert!(!in_overlay(&get_json(&f, f.member, overlay_uri).await));
+    let expired = "/api/assets/paginated?warranty=expired";
+    assert_eq!(
+        ids(&get_json(&f, f.agent, expired).await["data"]),
+        Vec::<i64>::new()
+    );
+    // Agents see it isn't expired; a requester's filter reads only the kinds
+    // that show them the status, which this one doesn't.
+    let active = "/api/assets/paginated?warranty=active";
+    assert_eq!(
+        ids(&get_json(&f, f.agent, active).await["data"]),
+        vec![f.asset as i64]
+    );
+    assert_eq!(
+        ids(&get_json(&f, f.member, active).await["data"]),
+        Vec::<i64>::new(),
+        "member: a status they don't get isn't read"
+    );
+    let card_os = |rows: &[Value]| -> Value {
+        rows.iter()
+            .find(|r| r["__model__"] == "ticket" && r["id"] == json!(f.ticket))
+            .map(|r| r["affected_devices"]["first"]["os"].clone())
+            .unwrap_or(Value::Null)
+    };
+    assert_eq!(
+        card_os(&bootstrap(&f, f.agent).await.1),
+        json!("Windows 11")
+    );
+    assert_eq!(card_os(&bootstrap(&f, f.member).await.1), Value::Null);
+
+    // Staff-only values aren't indexed, and a requester's count is of what
+    // they get.
+    let stored = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::get_device_by_id(c, f.asset)
+    })
+    .expect("the asset");
+    f.search.index_device(&stored).expect("index the asset");
+    f.search.commit().expect("commit the index");
+    f.search.reload().expect("read the commit");
+    let found = get_json(&f, f.agent, "/api/search?q=Graphite").await;
+    assert!(
+        found["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .any(|r| r["entity_type"] == "device" && r["entity_id"] == json!(f.asset)),
+        "agent finds the asset: {found}"
+    );
+    let secret = get_json(&f, f.agent, "/api/search?q=ZQXSECRET").await;
+    assert_eq!(secret["total"], json!(0), "{secret}");
+    let member = get_json(&f, f.member, "/api/search?q=Graphite").await;
+    assert_eq!(member["total"], json!(0), "{member}");
+    assert_eq!(member["results"], json!([]));
+
+    // Sorting by it would give its order away: a requester's list keeps
+    // its default order, by name.
+    let dearer = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::create_device(
+            c,
+            NewAsset {
+                name: "Aardvark rig".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: None,
+                purchase_date: None,
+                asset_tag: None,
+                kind: "computer".to_string(),
+                attributes: json!({ "cost": { "amount": "5000.00", "currency": "AUD" } }),
+                quantity: None,
+                unit: None,
+                external_sync_source: None,
+                low_stock_threshold: None,
+                created_by: None,
+            },
+        )
+    })
+    .expect("a dearer asset")
+    .id;
+    let uri = "/api/assets/paginated?sortField=attr:cost&sortDirection=asc";
+    let by_cost = ids(&get_json(&f, f.agent, uri).await["data"]);
+    assert_eq!(
+        by_cost,
+        vec![f.asset as i64, dearer as i64],
+        "agent: by cost"
+    );
+    let by_name = ids(&get_json(&f, f.member, uri).await["data"]);
+    assert_eq!(
+        by_name,
+        vec![dearer as i64, f.asset as i64],
+        "member: by name"
+    );
+
+    // An asset whose kind is gone shows a requester no attributes.
+    let orphan = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::assets::create_device(
+            c,
+            NewAsset {
+                name: "Orphan".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: None,
+                purchase_date: None,
+                asset_tag: None,
+                kind: "kind_since_deleted".to_string(),
+                attributes: json!({ "colour": "Teal" }),
+                quantity: None,
+                unit: None,
+                external_sync_source: None,
+                low_stock_threshold: None,
+                created_by: None,
+            },
+        )
+    })
+    .expect("an orphan")
+    .id;
+    let uri = format!("/api/assets/{orphan}");
+    assert_eq!(get_json(&f, f.member, &uri).await["attributes"], json!({}));
+    assert_eq!(
+        get_json(&f, f.agent, &uri).await["attributes"],
+        json!({ "colour": "Teal" })
+    );
+}
+
+/// In a workspace with the built-in kinds, most of which declare no
+/// attributes, a requester's warranty filter and attribute sort still work:
+/// they read the kinds that show the key.
+#[actix_web::test]
+async fn a_requesters_warranty_filter_and_sort_work_with_the_built_in_kinds() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let f = seed(&db);
+    let other = run_in_workspace(&f.pool, REF, f.ws.workspace_id, |c| {
+        backend::repository::asset_kinds::seed_defaults_if_empty(c, None)?;
+        backend::repository::assets::update_device(
+            c,
+            f.asset,
+            AssetUpdate {
+                kind: Some("laptop".to_string()),
+                attributes: Some(json!({ "warranty_status": "Expired" })),
+                ..Default::default()
+            },
+        )?;
+        backend::repository::assets::create_device(
+            c,
+            NewAsset {
+                name: "Zed laptop".to_string(),
+                serial_number: None,
+                manufacturer: None,
+                model: None,
+                location: None,
+                notes: None,
+                primary_user_uuid: None,
+                purchase_date: None,
+                asset_tag: None,
+                kind: "laptop".to_string(),
+                attributes: json!({ "warranty_status": "Active" }),
+                quantity: None,
+                unit: None,
+                external_sync_source: None,
+                low_stock_threshold: None,
+                created_by: None,
+            },
+        )
+        .map(|a| a.id)
+    })
+    .expect("seed the laptops");
+
+    for (viewer, who) in [(f.member, "member"), (f.agent, "agent")] {
+        let expired = get_json(&f, viewer, "/api/assets/paginated?warranty=expired").await;
+        assert_eq!(ids(&expired["data"]), vec![f.asset as i64], "{who}: filter");
+        assert_eq!(expired["total"], json!(1), "{who}: total");
+        let sorted = get_json(
+            &f,
+            viewer,
+            "/api/assets/paginated?sortField=attr:warranty_status&sortDirection=asc",
+        )
+        .await;
+        assert_eq!(
+            ids(&sorted["data"]),
+            vec![other as i64, f.asset as i64],
+            "{who}: sort"
+        );
     }
 }

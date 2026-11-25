@@ -277,6 +277,8 @@ export type FieldValueType =
   | 'email'
   | 'user'
   | 'asset_ref'
+  | 'money'
+  | 'group'
 
 export interface ImportField {
   id: string

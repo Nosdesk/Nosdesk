@@ -1640,14 +1640,15 @@ pub fn get_devices_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryR
 
 /// Per-ticket affected-devices summary for the kanban / list / calendar
 /// CardData payload. One round trip per bootstrap rather than N. Returns
-/// `(count, first_device_id, first_device_name, first_device_os)` so
+/// `(count, first_device_id, first_device_name, first_device_kind,
+/// first_device_os)` so
 /// the consumer can build the spec'd `affected_devices` shape without
 /// joining devices a second time. Tickets without any device link are
 /// omitted; the consumer defaults those to `null`.
 pub fn devices_summary_for_tickets(
     conn: &mut DbConnection,
     ticket_ids: &[i32],
-) -> QueryResult<std::collections::HashMap<i32, (i64, i32, String, Option<String>)>> {
+) -> QueryResult<std::collections::HashMap<i32, (i64, i32, String, String, Option<String>)>> {
     use diesel::dsl::sql;
     use diesel::sql_types::BigInt;
 
@@ -1669,7 +1670,7 @@ pub fn devices_summary_for_tickets(
     //
     // OS used to live as its own column; Pass B moved it into the
     // attributes JSONB so the select extracts it via JSON path.
-    let firsts: Vec<(i32, i32, String, Option<String>)> = ticket_assets::table
+    let firsts: Vec<(i32, i32, String, String, Option<String>)> = ticket_assets::table
         .inner_join(assets::table)
         .filter(ticket_assets::ticket_id.eq_any(ticket_ids))
         .order((
@@ -1680,6 +1681,7 @@ pub fn devices_summary_for_tickets(
             ticket_assets::ticket_id,
             assets::id,
             assets::name,
+            assets::kind,
             sql::<diesel::sql_types::Nullable<diesel::sql_types::Text>>(
                 "attributes->>'operating_system'",
             ),
@@ -1689,9 +1691,9 @@ pub fn devices_summary_for_tickets(
 
     let mut by_count: std::collections::HashMap<i32, i64> = counts.into_iter().collect();
     let mut out = std::collections::HashMap::new();
-    for (ticket_id, device_id, name, os) in firsts {
+    for (ticket_id, device_id, name, kind, os) in firsts {
         let count = by_count.remove(&ticket_id).unwrap_or(0);
-        out.insert(ticket_id, (count, device_id, name, os));
+        out.insert(ticket_id, (count, device_id, name, kind, os));
     }
     Ok(out)
 }

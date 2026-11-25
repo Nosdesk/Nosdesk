@@ -1120,6 +1120,42 @@ pub fn member_primary_emails(conn: &mut DbConnection) -> QueryResult<Vec<(Uuid, 
         .load(conn)
 }
 
+/// The pinned workspace's active members, for checking the people an
+/// import names.
+pub fn active_member_uuids(
+    conn: &mut DbConnection,
+) -> QueryResult<std::collections::HashSet<Uuid>> {
+    use crate::schema::users;
+    Ok(workspace_members::table
+        .inner_join(users::table)
+        .filter(workspace_members::workspace_id.eq(super::pinned_workspace()))
+        .filter(workspace_members::removed_at.is_null())
+        .filter(users::deleted_at.is_null())
+        .select(workspace_members::user_uuid)
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
+}
+
+/// Which of `user_uuids` are active members of the pinned workspace, for
+/// checking a reference to a person.
+pub fn active_members_among(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> QueryResult<std::collections::HashSet<Uuid>> {
+    use crate::schema::users;
+    Ok(workspace_members::table
+        .inner_join(users::table)
+        .filter(workspace_members::workspace_id.eq(super::pinned_workspace()))
+        .filter(workspace_members::removed_at.is_null())
+        .filter(users::deleted_at.is_null())
+        .filter(workspace_members::user_uuid.eq_any(user_uuids))
+        .select(workspace_members::user_uuid)
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
+}
+
 /// Each active member of the pinned workspace with their name and primary
 /// email, by name: the people an import can assign assets to.
 pub fn member_directory(conn: &mut DbConnection) -> QueryResult<Vec<(Uuid, String, String)>> {

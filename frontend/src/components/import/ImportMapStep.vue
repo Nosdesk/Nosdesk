@@ -145,13 +145,13 @@ const defaultKind = computed(() => stored.default_kind || props.defaultKind || '
 // ---- dates and decimals, as the samples show them ----
 
 const showsDateOrder = computed(() => mapsValueType(rows.value, props.fields, ['date', 'date_time']))
-const showsDecimal = computed(() => mapsValueType(rows.value, props.fields, ['number']))
+const showsDecimal = computed(() => mapsValueType(rows.value, props.fields, ['number', 'money']))
 const detectedDates = computed(() =>
   detectDateOrder(samplesOf(rows.value, props.fields, ['date', 'date_time'])),
 )
 const fileDecimal: DecimalMark = source.value.delimiter === ';' ? ',' : '.'
 const detectedDecimal = computed<DecimalMark>(
-  () => detectDecimal(samplesOf(rows.value, props.fields, ['number'])) ?? fileDecimal,
+  () => detectDecimal(samplesOf(rows.value, props.fields, ['number', 'money'])) ?? fileDecimal,
 )
 /** The admin's own choice; null follows the samples. */
 const chosenDates = ref<DateOrder | null>(props.job.options ? (stored.date_order ?? null) : null)

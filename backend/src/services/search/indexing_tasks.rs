@@ -267,6 +267,14 @@ pub fn spawn_reindex_device(search_service: Arc<SearchService>, device_id: i32) 
     );
 }
 
+/// Re-index devices by id in the background, one queued job each, as after
+/// their kind's schema changes which attributes are staff only.
+pub fn spawn_reindex_devices(search_service: Arc<SearchService>, device_ids: Vec<i32>) {
+    for id in device_ids {
+        spawn_reindex_device(Arc::clone(&search_service), id);
+    }
+}
+
 /// Delete a device from the index in the background
 pub fn spawn_delete_device(search_service: Arc<SearchService>, device_id: i32) {
     spawn_delete_task(

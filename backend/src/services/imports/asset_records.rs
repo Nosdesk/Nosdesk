@@ -2277,6 +2277,12 @@ fn parse_field(
         "boolean" => values::read_boolean(raw)
             .map(Value::Bool)
             .ok_or_else(|| format!("'{raw}' is not yes or no")),
+        "object" => super::assets::money_cell(
+            raw,
+            prop,
+            lookups.currency.as_deref(),
+            options.decimal_mark(),
+        ),
         ty @ ("number" | "integer") => {
             let number = values::parse_decimal(raw, options.decimal_mark())?
                 .ok_or_else(|| format!("'{raw}' is not a number"))?;
@@ -2429,6 +2435,21 @@ fn attribute_error(e: &AttributeError, label: &str, lookups: &Lookups) -> CellEr
         E::BelowMinimum { property, min } => on(property, format!("below the minimum of {min}")),
         E::AboveMaximum { property, max } => on(property, format!("above the maximum of {max}")),
         E::NotMultipleOf { property, step } => on(property, format!("not a multiple of {step}")),
+        E::BadMoney { property, reason } => {
+            on(property, format!("not an amount of money: {reason}"))
+        }
+        E::CurrencyNotAllowed { property, currency } => {
+            on(property, format!("must be in {currency}"))
+        }
+        E::MissingReference { property, value } => on(
+            property,
+            format!("'{value}' doesn't exist in this workspace"),
+        ),
+        E::WrongAssetKind {
+            property,
+            value,
+            kind,
+        } => on(property, format!("asset '{value}' is not a {kind}")),
         E::NotObject => error(None, e.to_string()),
     }
 }

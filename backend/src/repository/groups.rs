@@ -105,6 +105,36 @@ pub fn get_groups_with_member_counts(
     Ok(groups_with_count)
 }
 
+/// Which of `ids` are people groups in the pinned workspace, for checking a
+/// reference to a group.
+pub fn existing_ids(
+    conn: &mut DbConnection,
+    ids: &[i32],
+) -> QueryResult<std::collections::HashSet<i32>> {
+    Ok(groups::table
+        .filter(groups::id.eq_any(ids))
+        .select(groups::id)
+        .load::<i32>(conn)?
+        .into_iter()
+        .collect())
+}
+
+/// People groups in the pinned workspace by lowercased name, for reading a
+/// group a spreadsheet names. A name two groups share lists both.
+pub fn ids_by_name(
+    conn: &mut DbConnection,
+) -> QueryResult<std::collections::HashMap<String, Vec<i32>>> {
+    let rows: Vec<(i32, String)> = groups::table
+        .select((groups::id, groups::name))
+        .order(groups::id.asc())
+        .load(conn)?;
+    let mut out: std::collections::HashMap<String, Vec<i32>> = std::collections::HashMap::new();
+    for (id, name) in rows {
+        out.entry(name.trim().to_lowercase()).or_default().push(id);
+    }
+    Ok(out)
+}
+
 /// Get a group by ID
 pub fn get_group_by_id(conn: &mut DbConnection, group_id: i32) -> QueryResult<Group> {
     groups::table.find(group_id).first(conn)

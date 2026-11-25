@@ -997,3 +997,163 @@ async fn an_open_option_list_takes_any_text() {
         serde_json::json!({ "finish": "Brushed steel" })
     );
 }
+
+/// Money cells read in the job's decimal mark, with or without a code; a
+/// bare amount takes the workspace currency, and the stored amount is
+/// canonical to its currency. A group cell names a people group by name, any
+/// case. What can't be read is a row error.
+#[actix_web::test]
+async fn money_and_group_cells_are_read() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool);
+    seed_kind(
+        &pool,
+        &ws,
+        "rig",
+        "Rig",
+        320,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "cost": { "type": "object", "format": "money", "title": "Cost" },
+                "team": { "type": "string", "format": "group-ref", "title": "Team" }
+            }
+        }),
+    );
+    backend::sync::session::run_in_workspace(
+        &pool,
+        "test:imports_attributes",
+        ws.workspace_id,
+        |c| {
+            backend::repository::site_settings::update_site_settings(
+                c,
+                backend::models::UpdateSiteSettings {
+                    currency_code: Some(Some("AUD".to_string())),
+                    ..Default::default()
+                },
+            )
+        },
+    )
+    .expect("workspace currency");
+    let crew: i32 = diesel::sql_query(
+        "INSERT INTO groups (name, workspace_id) VALUES ('Field crew', $1) RETURNING id",
+    )
+    .bind::<Integer, _>(ws.workspace_id)
+    .get_result::<GroupId>(&mut pool.get().expect("conn"))
+    .expect("seed group")
+    .id;
+
+    let file = "Name,Type,Tag,Cost,Team\n\
+                Rig 1,rig,R-1,\"1 250,5\",field crew\n\
+                Rig 2,rig,R-2,\"USD 7,5\",Field Crew\n\
+                Rig 3,rig,R-3,\"9,00\",Nobody\n\
+                Rig 4,rig,R-4,\"12,345\",\n";
+    let job = checked(
+        &pool,
+        &ws,
+        file,
+        &[
+            ("Name", "name"),
+            ("Type", "kind"),
+            ("Tag", "asset_tag"),
+            ("Cost", "cost"),
+            ("Team", "team"),
+        ],
+        serde_json::json!({ "decimal": "," }),
+    )
+    .await;
+    let found: Vec<(u64, Option<String>)> = errors(&job)
+        .into_iter()
+        .map(|(row, col, _)| (row, col))
+        .collect();
+    assert_eq!(
+        found,
+        vec![(4, Some("team".to_string())), (5, Some("cost".to_string()))],
+        "{job}"
+    );
+
+    commit(&pool, &ws, &id_of(&job)).await;
+    let (_, rig1) = stored(&pool, "R-1").expect("R-1");
+    assert_eq!(
+        rig1,
+        serde_json::json!({
+            "cost": { "amount": "1250.50", "currency": "AUD" },
+            "team": crew.to_string()
+        })
+    );
+    let (_, rig2) = stored(&pool, "R-2").expect("R-2");
+    assert_eq!(
+        rig2["cost"],
+        serde_json::json!({ "amount": "7.50", "currency": "USD" })
+    );
+}
+
+#[derive(QueryableByName)]
+struct GroupId {
+    #[diesel(sql_type = Integer)]
+    id: i32,
+}
+
+/// An asset reference cell must name an asset of the workspace, of the kind
+/// the attribute scopes, as an asset page's save requires; the row error is
+/// on the cell.
+#[actix_web::test]
+async fn asset_reference_cells_name_an_asset_of_their_kind() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    let ws = workspace(&pool);
+    seed_kind(
+        &pool,
+        &ws,
+        "rig",
+        "Rig",
+        320,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "dock": { "type": "string", "format": "asset-ref", "assetKind": "camera", "title": "Dock" },
+                "spare": { "type": "string", "format": "asset-ref", "title": "Spare" }
+            }
+        }),
+    );
+    seed_asset(&pool, &ws, "CAM-1", "camera", serde_json::json!({}), None);
+    seed_asset(
+        &pool,
+        &ws,
+        "VAN-1",
+        "vehicle",
+        serde_json::json!({ "fuel": "Diesel" }),
+        None,
+    );
+    let file = "Name,Type,Tag,Dock,Spare\n\
+                Rig 1,rig,R-1,CAM-1,VAN-1\n\
+                Rig 2,rig,R-2,VAN-1,\n\
+                Rig 3,rig,R-3,,999999\n";
+    let job = checked(
+        &pool,
+        &ws,
+        file,
+        &[
+            ("Name", "name"),
+            ("Type", "kind"),
+            ("Tag", "asset_tag"),
+            ("Dock", "dock"),
+            ("Spare", "spare"),
+        ],
+        serde_json::json!({}),
+    )
+    .await;
+    let found: Vec<(u64, Option<String>)> = errors(&job)
+        .into_iter()
+        .map(|(row, col, _)| (row, col))
+        .collect();
+    assert_eq!(
+        found,
+        vec![
+            (3, Some("dock".to_string())),
+            (4, Some("spare".to_string()))
+        ],
+        "{job}"
+    );
+}

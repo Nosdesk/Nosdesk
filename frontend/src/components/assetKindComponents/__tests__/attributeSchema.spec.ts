@@ -47,6 +47,45 @@ describe('field order', () => {
     expect(fieldOrderOf(inFieldOrder(schema, undefined))).toEqual(['a', 'b', 'c'])
   })
 
+  it('keeps the keywords the builder does not edit through a move and an edit', () => {
+    const stored = {
+      type: 'object',
+      properties: {
+        office_location: { type: 'string', title: 'Office location', synced: true },
+        gender: { type: 'string', title: 'Gender', enum: ['Male', 'Female'], 'x-allow-custom': true },
+        cost_centre: { type: 'string', staffOnly: true, maxLength: 12 },
+      },
+    }
+    const parsed = parseSchema(stored)
+    // Move the last field to the top and edit its length, as the builder does.
+    const [first, second, third] = parsed.defs
+    const moved = serializeSchema({
+      defs: [{ ...third, maxLength: 20 }, first, second],
+      extras: parsed.extras,
+    })
+    const props = moved.properties as Record<string, Record<string, unknown>>
+    expect(Object.keys(props)).toEqual(['cost_centre', 'office_location', 'gender'])
+    expect(props.cost_centre).toEqual({ type: 'string', staffOnly: true, maxLength: 20 })
+    expect(props.office_location).toEqual(stored.properties.office_location)
+    expect(props.gender).toEqual(stored.properties.gender)
+  })
+
+  it('keeps a field whose format it does not edit as it is through a move', () => {
+    const stored = {
+      type: 'object',
+      properties: {
+        team: { type: 'string', format: 'group-ref', title: 'Team' },
+        bay: { type: 'string' },
+      },
+    }
+    const parsed = parseSchema(stored)
+    expect(parsed.defs[0].kind).toBe('raw')
+    const moved = serializeSchema({ defs: [parsed.defs[1], parsed.defs[0]], extras: parsed.extras })
+    const props = moved.properties as Record<string, Record<string, unknown>>
+    expect(Object.keys(props)).toEqual(['bay', 'team'])
+    expect(props.team).toEqual(stored.properties.team)
+  })
+
   it('lays the user field schema out in its field_order and drops the key', () => {
     const fromServer = {
       type: 'object',

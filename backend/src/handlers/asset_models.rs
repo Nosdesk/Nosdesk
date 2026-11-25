@@ -135,14 +135,16 @@ pub async fn create(
     // valid for that kind, or it could never stamp a valid asset.
     let kind = body.kind.clone();
     let attrs = default_attributes.clone();
-    match tc.run(move |conn| Ok::<_, DieselError>(validate_for_kind(conn, &kind, &attrs))) {
-        Ok(Ok(())) => {}
+    let default_attributes = match tc
+        .run(move |conn| Ok::<_, DieselError>(validate_for_kind(conn, &kind, &attrs, None)))
+    {
+        Ok(Ok(attributes)) => attributes,
         Ok(Err(e)) => return validation_err_response(e),
         Err(e) => {
             error!(error = %e, "model validation failed");
             return errors::internal("Failed to validate model");
         }
-    }
+    };
 
     let new = NewAssetModel {
         manufacturer_id: body.manufacturer_id,
@@ -189,7 +191,7 @@ pub async fn update(
 
     // Strip sync-owned keys from any incoming default specs; a model never
     // defaults Intune/Entra telemetry.
-    let stripped_default_attributes = body
+    let mut stripped_default_attributes = body
         .default_attributes
         .as_ref()
         .map(crate::services::assets::strip_sync_owned_keys);
@@ -207,12 +209,20 @@ pub async fn update(
                 return errors::internal("Failed to load asset model");
             }
         };
-        let kind = body.kind.clone().unwrap_or(existing.kind);
+        let kind = body.kind.clone().unwrap_or_else(|| existing.kind.clone());
         let attrs = stripped_default_attributes
             .clone()
-            .unwrap_or(existing.default_attributes);
-        match tc.run(move |conn| Ok::<_, DieselError>(validate_for_kind(conn, &kind, &attrs))) {
-            Ok(Ok(())) => {}
+            .unwrap_or_else(|| existing.default_attributes.clone());
+        // Under another kind every reference is the new kind's to check.
+        let previous = (kind == existing.kind).then_some(existing.default_attributes);
+        match tc.run(move |conn| {
+            Ok::<_, DieselError>(validate_for_kind(conn, &kind, &attrs, previous.as_ref()))
+        }) {
+            Ok(Ok(attributes)) => {
+                if stripped_default_attributes.is_some() {
+                    stripped_default_attributes = Some(attributes);
+                }
+            }
             Ok(Err(e)) => return validation_err_response(e),
             Err(e) => {
                 error!(error = %e, "model validation failed");

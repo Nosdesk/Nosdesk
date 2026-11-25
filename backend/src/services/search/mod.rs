@@ -289,7 +289,33 @@ impl SearchService {
                 Vec::new()
             }
         };
-        let doc = indexer::index_document_from_device(device, &records);
+        // The kind says which attributes are staff only; those aren't
+        // indexed. When it can't be read, no attribute is.
+        let kind = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:search_index_device",
+            device.workspace_id,
+            |conn| {
+                use diesel::OptionalExtension;
+                crate::repository::asset_kinds::get_kind_by_slug(conn, &device.kind).optional()
+            },
+        );
+        let staff_only = match kind {
+            Ok(kind) => kind
+                .map(|k| {
+                    crate::services::assets::projection::staff_only_properties(&k.attribute_schema)
+                })
+                .unwrap_or_default(),
+            Err(e) => {
+                warn!(asset_id = device.id, error = ?e, "Failed to read an asset's kind for its search entry");
+                device
+                    .attributes
+                    .as_object()
+                    .map(|a| a.keys().cloned().collect())
+                    .unwrap_or_default()
+            }
+        };
+        let doc = indexer::index_document_from_device(device, &records, &staff_only);
         self.index_document(&doc)
     }
 

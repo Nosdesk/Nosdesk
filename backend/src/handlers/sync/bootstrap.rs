@@ -326,6 +326,7 @@ fn stream_bootstrap_inner(
             &viewer,
             Some(crate::models::SyncAggregate::User),
             &mut row,
+            &crate::services::assets::projection::VisibleAttributes::everything(),
         );
         row["__model__"] = json!("user");
         send(tx, row)?;
@@ -343,8 +344,24 @@ fn stream_bootstrap_inner(
     } else {
         Vec::new()
     };
+    // Each row as the delta and the live stream give it to this viewer:
+    // without the attributes its kind keeps for staff.
+    let asset_keys = crate::sync::visibility::asset_keys_for(
+        conn,
+        &viewer,
+        asset_rows
+            .first()
+            .map(|_| Some(crate::models::SyncAggregate::Asset))
+            .into_iter(),
+    );
     for asset in asset_rows {
         let mut row = crate::repository::assets::asset_sync_payload(&asset);
+        crate::sync::visibility::project_row(
+            &viewer,
+            Some(crate::models::SyncAggregate::Asset),
+            &mut row,
+            &asset_keys,
+        );
         row["__model__"] = json!("asset");
         send(tx, row)?;
     }
@@ -580,6 +597,12 @@ fn stream_bootstrap_inner(
         crate::repository::knowledge_gaps::open_signal_counts_for_tickets(conn, &ticket_ids)?;
     let device_summaries =
         crate::repository::tickets::devices_summary_for_tickets(conn, &ticket_ids)?;
+    // The card's OS is an attribute: only where the viewer's kind shows it.
+    let device_attributes = if device_summaries.is_empty() {
+        crate::services::assets::projection::VisibleAttributes::everything()
+    } else {
+        crate::services::assets::projection::VisibleAttributes::for_viewer(conn, viewer.sees_all())
+    };
     let cycle_membership = crate::repository::cycles::cycle_ids_for_tickets(conn, &ticket_ids)?;
     // Tag id list per ticket. Same batched-lookup pattern the
     // cycle membership uses; empty Vec when a ticket has no tags.
@@ -611,12 +634,17 @@ fn stream_bootstrap_inner(
             1..=2 => "weak",
             _ => "strong",
         };
-        let affected_devices = device_summaries.get(&t.id).map(|(count, id, name, os)| {
-            json!({
-                "count": count,
-                "first": { "id": id, "name": name, "os": os },
-            })
-        });
+        let affected_devices = device_summaries
+            .get(&t.id)
+            .map(|(count, id, name, kind, os)| {
+                let os = os
+                    .as_ref()
+                    .filter(|_| device_attributes.shows(kind, "operating_system"));
+                json!({
+                    "count": count,
+                    "first": { "id": id, "name": name, "os": os },
+                })
+            });
         // SLA pill: pick the most-specific applicable policy, then
         // resolve the working calendar + holidays it points at.
         // Tickets without a matching policy or calendar render

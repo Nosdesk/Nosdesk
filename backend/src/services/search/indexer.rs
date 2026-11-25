@@ -145,7 +145,13 @@ pub fn index_document_from_attachment(
 /// Create an index document from a device. `records` is the text of the
 /// asset's records (summaries, vendors and references), so an RMA or work
 /// order number finds the asset. Asset hits are staff only, as records are.
-pub fn index_document_from_device(device: &models::Asset, records: &[String]) -> IndexDocument {
+/// `staff_only` names the attributes its kind keeps for staff, which aren't
+/// indexed.
+pub fn index_document_from_device(
+    device: &models::Asset,
+    records: &[String],
+    staff_only: &std::collections::HashSet<String>,
+) -> IndexDocument {
     // The IT-flavoured fields (hostname, OS, etc.) used to live
     // as top-level columns; Pass B moved them into the
     // attributes JSONB. Read through the typed accessors so the
@@ -209,7 +215,10 @@ pub fn index_document_from_device(device: &models::Asset, records: &[String]) ->
     // because they need per-kind interpretation that the search
     // layer shouldn't bake in.
     if let Some(obj) = device.attributes.as_object() {
-        for v in obj.values() {
+        for (key, v) in obj {
+            if staff_only.contains(key) {
+                continue;
+            }
             if let Some(s) = v.as_str() {
                 if !s.is_empty() {
                     metadata_parts.push(s.to_string());
@@ -239,6 +248,21 @@ pub fn index_document_from_device(device: &models::Asset, records: &[String]) ->
         .preview(preview)
         .updated_at(device.updated_at.and_utc().timestamp())
         .workspace_id(device.workspace_id as i64)
+}
+
+/// Each kind's staff-only attribute keys, by `(workspace, slug)`.
+pub fn staff_only_by_kind(
+    kinds: &[models::AssetKind],
+) -> std::collections::HashMap<(i32, String), std::collections::HashSet<String>> {
+    kinds
+        .iter()
+        .map(|k| {
+            (
+                (k.workspace_id, k.slug.clone()),
+                crate::services::assets::projection::staff_only_properties(&k.attribute_schema),
+            )
+        })
+        .collect()
 }
 
 /// Create an index document from a user.
@@ -468,13 +492,18 @@ pub fn rebuild_index(
     // Index all devices, each with its records' text.
     let all_devices: Vec<models::Asset> = assets::table.load(conn)?;
     let record_text = crate::repository::asset_record_list::search_text(conn, None)?;
+    let staff_only = staff_only_by_kind(&crate::schema::asset_kinds::table.load(conn)?);
     info!(count = all_devices.len(), "Indexing devices");
     for device in &all_devices {
         let records = record_text
             .get(&device.id)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let doc = index_document_from_device(device, records);
+        let hidden = staff_only
+            .get(&(device.workspace_id, device.kind.clone()))
+            .cloned()
+            .unwrap_or_default();
+        let doc = index_document_from_device(device, records, &hidden);
         if let Err(e) = add_document_to_index(writer, schema, &doc) {
             warn!(device_id = device.id, error = ?e, "Failed to index device");
         } else {
