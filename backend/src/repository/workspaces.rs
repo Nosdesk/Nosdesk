@@ -528,6 +528,45 @@ pub fn ensure_membership(
     Ok(role)
 }
 
+/// Give a requester a `member` seat in `workspace_id` when they have never had
+/// one there; returns whether it granted one. Accounts are shared across
+/// workspaces, so an address a guest form or mailbox reuses may belong to
+/// someone who only ever wrote to another workspace, and without a seat here
+/// their portal links and sign-in refuse them.
+///
+/// Any existing row is left as it is: an active one keeps its role, and one an
+/// admin removed stays removed (their mail still opens a ticket, as it always
+/// has, but nothing signs them back in). The row is read by workspace, removed
+/// or not, because the inbound pipeline runs as the bypass role.
+pub fn join_as_requester(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<bool> {
+    // members-any-status: a removed seat must stay removed, so it counts as held
+    let held = workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .select(workspace_members::user_uuid)
+        .first::<Uuid>(conn)
+        .optional()?
+        .is_some();
+    if held {
+        return Ok(false);
+    }
+    // A requester seat is never control-plane owned, so Product is not refused.
+    match add_membership(
+        conn,
+        workspace_id,
+        user_uuid,
+        "member",
+        SeatWriteAuthority::Product,
+    )? {
+        AddMembershipOutcome::Added(rows) => Ok(rows > 0),
+        AddMembershipOutcome::ExternallyManaged => Ok(false),
+    }
+}
+
 /// Send `user.updated` in `workspace_id` when the person's active role there
 /// is no longer `before`. The upserts always return a row, so a no-op can't be
 /// told from a grant by the write alone; `ensure_membership` runs on every

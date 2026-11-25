@@ -572,9 +572,10 @@ pub async fn submit_guest_ticket(
     }
 
     let create_result = session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
-        let (user, is_new_guest) = match user_helpers::find_or_create_guest_user(
+        let (user, is_new_guest) = match user_helpers::find_or_create_guest_requester(
             email,
             name,
+            ws.workspace_id,
             conn,
             Some(search_service.get_ref()),
         ) {

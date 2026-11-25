@@ -454,6 +454,14 @@ pub async fn process_event(
             let (sender, forwarded_by_uuid) =
                 resolve_identity(channel, &msg, &sender_email, conn, ctx)?;
             let sender_uuid = sender.uuid;
+            // Accounts are shared across workspaces: one that only ever wrote
+            // to another workspace gets its requester seat here, or its View
+            // request link and portal sign-in refuse it.
+            crate::repository::workspaces::join_as_requester(
+                conn,
+                channel.workspace_id,
+                sender_uuid,
+            )?;
 
             // existing_ticket_id may point at a ticket that no longer exists or
             // lives in another workspace (RLS-hidden under the channel's pin).
