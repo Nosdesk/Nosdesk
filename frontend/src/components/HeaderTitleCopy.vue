@@ -22,7 +22,7 @@ defineProps<{
 <template>
   <span
     aria-hidden="true"
-    class="header-title-copy min-w-0 flex-1 truncate text-base font-semibold"
+    class="header-title-copy min-w-0 flex-1 truncate text-base font-semibold cursor-pointer"
     :class="[text ? 'text-primary' : 'text-tertiary', { 'is-shown': pageTitleAway, 'is-settled': pageTitleSettled }]"
     data-header-title-copy
     @click="scrollToPageTitle"

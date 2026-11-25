@@ -126,6 +126,8 @@ describe('SiteHeader title on a phone', () => {
     setWidth(402)
     await mountPage({ ticket: { id: 7, number: 1482, title: '' } })
     expect(slot().get('h1').text()).toBe('ui-site-header-ticket-title-placeholder')
+    // Heard as untitled, not as the prompt to type one.
+    expect(slot().get('h1').attributes('aria-label')).toBe('ui-site-header-untitled-ticket')
     expect(copy().text()).toBe('ui-site-header-untitled-ticket')
   })
 
@@ -145,5 +147,56 @@ describe('SiteHeader title on a phone', () => {
     expect(headings()).toHaveLength(1)
     expect(slot().get('h1').text()).toBe('Replacing a relief valve')
     expect(header().find('[data-icon-selector]').exists()).toBe(true)
+  })
+
+  it('keeps exactly one focusable title as the window crosses `sm` and back', async () => {
+    const focusable = () => wrapper!.findAll('[tabindex="0"]').filter((n) => n.text() === TITLE)
+    const resizeTo = async (width: number) => {
+      setWidth(width)
+      window.dispatchEvent(new Event('resize'))
+      // useMobileDetection debounces resizes by 150ms.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      await nextTick()
+      await nextTick()
+    }
+    setWidth(402)
+    await mountPage({ ticket: { id: 7, number: 1482, title: TITLE } })
+    expect(focusable()).toHaveLength(1)
+    expect(slot().find('h1').exists()).toBe(true)
+
+    await resizeTo(1024)
+    expect(focusable()).toHaveLength(1)
+    expect(slot().text()).toBe('')
+    expect(header().text()).toContain(TITLE)
+    expect(copy().exists()).toBe(false)
+
+    await resizeTo(402)
+    expect(focusable()).toHaveLength(1)
+    expect(slot().get('h1').text()).toBe(TITLE)
+    expect(copy().exists()).toBe(true)
+  })
+
+  it('drops an edit in progress when the subject changes, so it never saves to the next one', async () => {
+    setWidth(402)
+    const saves: string[] = []
+    await mountPage({
+      document: { id: 'doc-a', title: 'Payroll runbook', icon: 'book' },
+      onUpdateDocumentTitle: (title: string) => saves.push(title),
+    })
+    ;(slot().get('h1').element as HTMLElement).focus()
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    const field = slot().get('textarea').element as HTMLTextAreaElement
+    expect(field.hidden).toBe(false)
+    field.value = 'Payroll runbook, edited'
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+
+    await wrapper!.setProps({ document: { id: 'doc-b', title: 'Leave policy', icon: 'book' } })
+    await nextTick()
+    await nextTick()
+    expect(slot().get('h1').text()).toBe('Leave policy')
+    expect((slot().get('textarea').element as HTMLTextAreaElement).hidden).toBe(true)
+    expect(saves).toEqual([])
   })
 })

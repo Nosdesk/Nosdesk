@@ -25,7 +25,7 @@ Done, which Reka's dismiss layers don't see), and when the edit ends the
 heading takes focus back without reopening the editor.
 -->
 <script setup lang="ts">
-import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
 import { EditableArea, EditableInput, EditablePreview, EditableRoot } from 'reka-ui';
 import { useFluent } from 'fluent-vue';
 
@@ -155,8 +155,14 @@ function onTextareaFocus(event: FocusEvent) {
 
 // Reka submits on a pointer down outside or focus moving elsewhere; a blur
 // to nowhere (iOS's keyboard Done, the keyboard dismissed) gets neither.
+// Removing a focused field blurs it in some engines: an edit whose owner is
+// going away (its subject changed) is dropped, not saved.
+let unmounting = false;
+onBeforeUnmount(() => {
+  unmounting = true;
+});
 function onTextareaBlur(event: FocusEvent) {
-  if (event.relatedTarget === null && isEditing.value) root.value?.submit();
+  if (event.relatedTarget === null && isEditing.value && !unmounting) root.value?.submit();
 }
 
 // Reka submits unconditionally; only a real change reaches the parent.

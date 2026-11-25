@@ -774,7 +774,9 @@ usePageTitle({
         Moving to another page keeps the one on screen mounted down to its
         breadcrumb and title while the next loads, and drops the rest: on a
         phone the title lives in the page (PageTitleSlot), and unmounting it
-        would drop the old title into the app bar until the load lands.
+        would drop the old title into the app bar until the load lands. From
+        `sm` up the breadcrumb hides too, so a desktop still sees a blank
+        page.
       -->
       <div v-if="isLoading && !document" />
 
@@ -784,10 +786,14 @@ usePageTitle({
         <div class="flex-1 min-w-0 flex justify-center">
           <div class="w-full min-w-0 max-w-3xl px-4 sm:px-6 lg:px-8 py-4 sm:py-8 flex flex-col">
             <!-- Breadcrumb -->
+            <!-- While the next page loads, a phone keeps this and the
+                 title below it in place; from `sm` up the page stays blank
+                 as before. -->
             <DocumentationBreadcrumb
               :page-id="document.id || ''"
               :parent-id="document.parent_id || null"
               class="mb-3 sm:mb-4"
+              :class="{ 'sm:hidden': isLoading }"
             />
 
             <!-- Document Header -->

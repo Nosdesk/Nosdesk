@@ -32,6 +32,7 @@ export function scrollToPageTitle(): void {
 /** Register `el` as the slot for as long as the caller is mounted. */
 export function usePageTitleSlot(el: Ref<HTMLElement | null>): void {
   let observer: IntersectionObserver | null = null
+  let resize: ResizeObserver | null = null
   let frame = 0
   // The element this caller registered, so an unmount that lands after the
   // next view's mount leaves that view's slot alone.
@@ -47,7 +48,11 @@ export function usePageTitleSlot(el: Ref<HTMLElement | null>): void {
     // No root: the reading is against the screen, clipped by whatever
     // scrolls the view, so it holds for a view that scrolls itself and for
     // one with a scroller inside it (a document).
-    observer = new IntersectionObserver(([entry]) => {
+    const io = new IntersectionObserver((entries) => {
+      // A slot the header no longer uses has nothing to say about the bar.
+      if (observer !== io || !mine || target.value !== mine) return
+      // Entries queue oldest first; the last is where the slot is now.
+      const entry = entries[entries.length - 1]
       if (!entry) return
       const box = entry.boundingClientRect
       // Out of view above, with nothing of the last line left. A slot with
@@ -60,12 +65,27 @@ export function usePageTitleSlot(el: Ref<HTMLElement | null>): void {
         })
       }
     })
-    observer.observe(mine)
+    observer = io
+    io.observe(mine)
+    // The title arrives after the slot's first reading (and a restored
+    // scroll can have put the empty slot above the screen already), which
+    // crosses no edge, so nothing would be read again. A change of size,
+    // the title arriving or rewrapping, asks for a fresh reading.
+    if (typeof ResizeObserver !== 'undefined') {
+      const slot = mine
+      resize = new ResizeObserver(() => {
+        io.unobserve(slot)
+        io.observe(slot)
+      })
+      resize.observe(slot)
+    }
   })
 
   onBeforeUnmount(() => {
     observer?.disconnect()
     observer = null
+    resize?.disconnect()
+    resize = null
     if (frame) cancelAnimationFrame(frame)
     frame = 0
     if (mine && target.value === mine) {

@@ -10,25 +10,41 @@ import {
 
 // jsdom has no IntersectionObserver: a stub the test reads out by hand.
 type Reading = { isIntersecting: boolean; top: number; height: number }
-let observers: { callback: IntersectionObserverCallback; disconnected: boolean }[] = []
+type ObserverRecord = { callback: IntersectionObserverCallback; disconnected: boolean; calls: string[] }
+let observers: ObserverRecord[] = []
 class StubIntersectionObserver {
-  record: { callback: IntersectionObserverCallback; disconnected: boolean }
+  record: ObserverRecord
   constructor(callback: IntersectionObserverCallback) {
-    this.record = { callback, disconnected: false }
+    this.record = { callback, disconnected: false, calls: [] }
     observers.push(this.record)
   }
-  observe() {}
-  unobserve() {}
+  observe() {
+    this.record.calls.push('observe')
+  }
+  unobserve() {
+    this.record.calls.push('unobserve')
+  }
   disconnect() {
     this.record.disconnected = true
   }
 }
-function read(index: number, reading: Reading) {
-  const entry = {
+// ResizeObserver: the callback, for the test to fire by hand.
+let resized: (() => void)[] = []
+class StubResizeObserver {
+  constructor(callback: ResizeObserverCallback) {
+    resized.push(() => callback([], {} as ResizeObserver))
+  }
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+const entryOf = (reading: Reading) =>
+  ({
     isIntersecting: reading.isIntersecting,
     boundingClientRect: { top: reading.top, height: reading.height },
-  } as unknown as IntersectionObserverEntry
-  observers[index]!.callback([entry], {} as IntersectionObserver)
+  }) as unknown as IntersectionObserverEntry
+function read(index: number, ...readings: Reading[]) {
+  observers[index]!.callback(readings.map(entryOf), {} as IntersectionObserver)
 }
 
 const Slot = defineComponent({
@@ -42,7 +58,9 @@ const Slot = defineComponent({
 let wrappers: VueWrapper[] = []
 beforeEach(() => {
   observers = []
+  resized = []
   vi.stubGlobal('IntersectionObserver', StubIntersectionObserver)
+  vi.stubGlobal('ResizeObserver', StubResizeObserver)
   vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => setTimeout(() => fn(0), 0) as unknown as number)
   vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id))
 })
@@ -96,9 +114,33 @@ describe('usePageTitleSlot', () => {
     expect(pageTitleTarget.value).toBe(second.element)
     expect(pageTitleAway.value).toBe(false)
     read(1, { isIntersecting: false, top: -400, height: 120 })
+    // The first slot's observer no longer speaks for the bar.
+    read(0, { isIntersecting: true, top: 80, height: 120 })
+    expect(pageTitleAway.value).toBe(true)
     first.unmount()
     await nextTick()
     expect(pageTitleTarget.value).toBe(second.element)
+    expect(pageTitleAway.value).toBe(true)
+  })
+
+  it('reads the newest of several queued entries', () => {
+    wrappers.push(mount(Slot))
+    read(0, { isIntersecting: true, top: 80, height: 120 }, { isIntersecting: false, top: -400, height: 120 })
+    expect(pageTitleAway.value).toBe(true)
+    read(0, { isIntersecting: false, top: -400, height: 120 }, { isIntersecting: true, top: 80, height: 120 })
+    expect(pageTitleAway.value).toBe(false)
+  })
+
+  it('asks for a fresh reading when the slot changes size (the title arriving)', () => {
+    wrappers.push(mount(Slot))
+    // Restored above the screen while still empty: not away.
+    read(0, { isIntersecting: false, top: -400, height: 0 })
+    expect(pageTitleAway.value).toBe(false)
+    observers[0]!.calls.length = 0
+    resized[0]!()
+    expect(observers[0]!.calls).toEqual(['unobserve', 'observe'])
+    // The reading a re-observe brings, now with the title in it.
+    read(0, { isIntersecting: false, top: -400, height: 120 })
     expect(pageTitleAway.value).toBe(true)
   })
 })

@@ -243,12 +243,16 @@ const handleCreateClick = () => {
                  phone it is the page's heading instead, and an empty
                  title shows the placeholder rather than "Untitled"
                  as text to edit. -->
+            <!-- Keyed on the subject, so an edit in progress goes with the
+                 subject it was for rather than saving to the next one. -->
             <Teleport :to="pageTitleTarget" :disabled="!titleOnPage">
               <HeaderTitle
+                :key="props.ticket.id"
                 :initialTitle="titleOnPage ? props.ticket.title : props.ticket.title || t('ui-site-header-untitled-ticket')"
                 :placeholder-text="t('ui-site-header-ticket-title-placeholder')"
                 :max-lines="2"
                 :page-heading="titleOnPage"
+                :empty-label="titleOnPage ? t('ui-site-header-untitled-ticket') : undefined"
                 @update-title="handleUpdateTicketTitle"
                 @update-title-preview="handlePreviewTicketTitle"
                 class="min-w-0 flex-1"
@@ -266,10 +270,12 @@ const handleCreateClick = () => {
             <Teleport :to="pageTitleTarget" :disabled="!titleOnPage">
               <HeaderTitle
                 v-if="props.deviceTitleEditable"
+                :key="props.device.id"
                 :initialTitle="titleOnPage ? props.device.name : props.device.name || t('ui-site-header-untitled-asset')"
                 :placeholder-text="t('ui-site-header-asset-title-placeholder')"
                 :max-lines="2"
                 :page-heading="titleOnPage"
+                :empty-label="titleOnPage ? t('ui-site-header-untitled-asset') : undefined"
                 @update-title="handleUpdateDeviceTitle"
                 @update-title-preview="handlePreviewDeviceTitle"
                 class="min-w-0 flex-1"
@@ -297,10 +303,12 @@ const handleCreateClick = () => {
             />
             <Teleport :to="pageTitleTarget" :disabled="!titleOnPage">
               <HeaderTitle
+                :key="props.document.id"
                 :initialTitle="props.document.title"
                 :placeholder-text="t('ui-site-header-document-title-placeholder')"
                 :max-lines="2"
                 :page-heading="titleOnPage"
+                :empty-label="titleOnPage ? t('ui-site-header-untitled') : undefined"
                 @update-title="handleUpdateDocumentTitle"
                 @update-title-preview="handlePreviewDocumentTitle"
                 class="min-w-0 flex-1"

@@ -336,10 +336,15 @@ describe('DocumentView page title slot on a phone', () => {
     expect(pageTitleTarget.value).toBe(slot)
     expect(slot.isConnected).toBe(true)
     expect(wrapper!.text()).not.toContain('doc-detail-status-published')
+    // The breadcrumb stays for the phone and hides from `sm` up, where the
+    // page reads blank while it loads, as it always has.
+    const breadcrumb = () => slot.parentElement!.previousElementSibling!
+    expect(breadcrumb().classList.contains('sm:hidden')).toBe(true)
 
     answer({ id: 6, title: 'Leave policy', slug: 'leave-policy' })
     await flushPromises()
     expect(pageTitleTarget.value).toBe(slot)
     expect(wrapper!.text()).toContain('doc-detail-status-published')
+    expect(breadcrumb().classList.contains('sm:hidden')).toBe(false)
   })
 })

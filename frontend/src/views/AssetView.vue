@@ -595,8 +595,9 @@ watch(loadError, (e) => {
 });
 
 // The asset name lives in the site header (like a ticket title; on a phone
-// the header shows it at the top of the page). It is renamable there only while the asset is editable, so a sync-owned asset
-// shows its name read-only.
+// the header shows it at the top of the page). It is renamable there only
+// while the asset is editable, so a sync-owned asset shows its name
+// read-only.
 const saveDeviceName = async (newName: string) => {
   if (!device.value) return;
   editValues.value.name = newName;
