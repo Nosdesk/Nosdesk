@@ -83,6 +83,7 @@ const HOST_TOKENS = new Set([
   'warning-muted',
   'info',
   'info-muted',
+  'overdue',
   'font-sans',
   'font-mono',
   'radius',

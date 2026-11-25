@@ -42,6 +42,7 @@ export const nordTheme: Theme = {
     successMuted: 'rgba(163, 190, 140, 0.2)',
     error: '#bf616a',
     errorMuted: 'rgba(191, 97, 106, 0.2)',
+    overdue: '#e7c5c8', // Aurora red, lifted to 6.3:1 on surface, 4.6:1 on hover
     warning: '#ebcb8b',
     warningMuted: 'rgba(235, 203, 139, 0.2)',
     info: '#5e81ac',

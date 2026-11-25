@@ -313,7 +313,7 @@ const baseCalendarShape: CalendarViewShape = {
 export const CALENDAR_VIEW: BuiltInView = {
   id: 'calendar',
   name: 'Calendar',
-  description: 'Tickets placed on the day they are due',
+  description: 'Tickets placed on the day they are planned for',
   nameKey: 'builtin-view-calendar-name',
   descriptionKey: 'builtin-view-calendar-description',
   shape: baseCalendarShape,

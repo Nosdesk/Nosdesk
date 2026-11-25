@@ -7861,11 +7861,35 @@ kanban-composer-recent = Recent tickets
 kanban-add-ticket = Add ticket
 kanban-drop-here = Drop here
 calendar-today = Today
-calendar-anchor-label = Anchor
-calendar-anchor-tooltip = Anchor field is set by the saved view; future commits surface the picker.
-calendar-anchor-due-date = Due date
-calendar-anchor-created = Created
-calendar-anchor-last-activity = Last activity
+calendar-previous-month = Previous month
+calendar-next-month = Next month
+calendar-range-label = Range
+calendar-range-month = Month
+calendar-range-agenda = Agenda
+calendar-month-empty = Nothing planned this month
+calendar-agenda-load =
+    { $count ->
+        [one] 1 job from today
+       *[other] { $count } jobs from today
+    }
+calendar-agenda-empty = Nothing planned from today
+calendar-agenda-start = Nothing planned before { $day }.
+calendar-agenda-end = Nothing planned after { $day }.
+calendar-overdue-count = { $count } overdue
+calendar-overdue-jump = { $count } overdue, go to the earliest
+calendar-more = { $count } more
+calendar-job-overdue = overdue
+calendar-undated-button = No date, { $count }
+calendar-undated-title = No date
+calendar-overlay-count =
+    { $count ->
+        [one] 1 other date
+       *[other] { $count } other dates
+    }
+calendar-sla-breached = SLA breached: { $title }
+calendar-sla-target = SLA target: { $title }
+calendar-warranty-ends = Warranty ends: { $device }
+calendar-show-more = Show { $count } more
 gantt-today = Today
 gantt-title = Gantt
 gantt-zoom-week = Week
@@ -8104,7 +8128,7 @@ ticket-list-my-day-nothing-today = Nothing planned for today. Give a ticket a du
 builtin-view-triage-name = Triage
 builtin-view-triage-description = Tickets awaiting initial categorization
 builtin-view-calendar-name = Calendar
-builtin-view-calendar-description = Tickets placed on the day they are due
+builtin-view-calendar-description = Tickets placed on the day they are planned for
 builtin-view-dashboard-created-name = Created
 builtin-view-dashboard-created-description = Tickets created in the dashboard time range
 builtin-view-dashboard-resolved-name = Resolved

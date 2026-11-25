@@ -41,6 +41,7 @@ export const ePaperTheme: Theme = {
     successMuted: '#dddddd',
     error: '#000000',
     errorMuted: '#bbbbbb',
+    overdue: '#a91636', // a deep red that stays dark in greyscale: 7.4:1, 4.6:1 on hover
     warning: '#333333',
     warningMuted: '#cccccc',
     info: '#222222',

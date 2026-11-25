@@ -27,6 +27,7 @@ const TOKEN_MAP: Record<string, string> = {
   'warning-muted': '--color-status-warning-muted',
   info: '--color-status-info',
   'info-muted': '--color-status-info-muted',
+  overdue: '--color-overdue',
   'font-sans': '--font-sans',
   'font-mono': '--font-mono',
 };
