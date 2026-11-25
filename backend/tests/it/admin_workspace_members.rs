@@ -65,7 +65,11 @@ async fn workspace_member_lifecycle_contract() {
 
     // Cast of characters.
     let admin = mint_user(&mut pool.get().expect("conn"), "PlatformAdmin", "admin");
-    let admin_token = crate::common::session_bearer(&pool, &admin);
+    // The operator acts with an API token, from the workspace they were
+    // seated in when it was made (workspace 1), against other workspaces.
+    crate::common::seat(&mut pool.get().expect("conn"), 1, admin.uuid, "owner");
+    let admin_token =
+        crate::common::mint_api_token(&mut pool.get().expect("conn"), &admin, "admin-session");
     let regular = mint_user(&mut pool.get().expect("conn"), "Regular", "user");
     let regular_token = crate::common::session_bearer(&pool, &regular);
     let alice = mint_user(&mut pool.get().expect("conn"), "Alice", "user");

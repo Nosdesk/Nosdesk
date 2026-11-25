@@ -181,6 +181,16 @@ async fn a_token_cannot_reach_account_routes() {
                 .set_json(json!({ "email": "second@example.com" })),
         ),
         (
+            "workspaces, encoded",
+            http_test::TestRequest::get().uri("/api/me/%77orkspaces"),
+        ),
+        (
+            "profile, upper-case uuid",
+            http_test::TestRequest::put()
+                .uri(&format!("/api/users/{}", holder.to_string().to_uppercase()))
+                .set_json(json!({ "name": "Renamed by a token" })),
+        ),
+        (
             "profile",
             http_test::TestRequest::put()
                 .uri(&format!("/api/users/{holder}"))

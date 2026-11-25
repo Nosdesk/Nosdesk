@@ -239,19 +239,28 @@ pub fn try_bearer_auth(
 /// addresses, credentials and their own global profile. Accounts are shared
 /// across workspaces, and an API token is one workspace's automation, so it
 /// never reaches them; only a signed-in session does. `holder` is the
-/// token's user, whose own profile a `PUT /users/{uuid}` would rewrite.
+/// token's user, whose own account a `PUT` or `DELETE /users/{uuid}` would
+/// change; a uuid is compared parsed, so any spelling of it matches.
 fn is_account_route(method: &actix_web::http::Method, path: &str, holder: &str) -> bool {
+    use actix_web::http::Method;
     let Some(rest) = path.strip_prefix("/api/") else {
         return false;
     };
-    let segments: Vec<&str> = rest.trim_end_matches('/').split('/').collect();
+    let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
+    let is_holder = |user: &str| {
+        matches!(
+            (uuid::Uuid::parse_str(user), uuid::Uuid::parse_str(holder)),
+            (Ok(a), Ok(b)) if a == b
+        )
+    };
     match segments.as_slice() {
-        ["me", "workspaces"] => true,
+        ["me", "workspaces", ..] => true,
         ["users", "auth-identities", ..] => true,
-        ["users", user] => method == actix_web::http::Method::PUT && *user == holder,
+        ["users", user] => (method == Method::PUT || method == Method::DELETE) && is_holder(user),
         ["users", _, sub, ..] => matches!(
             *sub,
             "emails"
+                | "with-emails"
                 | "auth-identities"
                 | "security-info"
                 | "image"
@@ -390,7 +399,10 @@ pub(crate) async fn authenticate<B: MessageBody>(
                     &req, &mut conn, &claims, bound,
                 )?;
                 drop(conn);
-                if is_account_route(req.method(), req.path(), &claims.sub) {
+                // The path the router matches (percent-decoded the way it
+                // decodes), not the raw one, so an encoded spelling can't
+                // slip past.
+                if is_account_route(req.method(), req.match_info().as_str(), &claims.sub) {
                     warn!(path = %req.path(), "API token refused on an account route");
                     return Err(crate::errors::forbidden_error(
                         "API tokens can't manage accounts",
@@ -632,7 +644,58 @@ struct FileTokenQuery {
 
 #[cfg(test)]
 mod tests {
-    use super::same_file_path;
+    use super::{is_account_route, same_file_path};
+
+    #[test]
+    fn account_routes_match_however_the_holder_is_spelled() {
+        use actix_web::http::Method;
+        let holder = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+        for user in [
+            holder,
+            "0190A1B2-C3D4-7E5F-8A9B-0C1D2E3F4A5B",
+            "0190a1b2c3d47e5f8a9b0c1d2e3f4a5b",
+        ] {
+            assert!(is_account_route(
+                &Method::PUT,
+                &format!("/api/users/{user}"),
+                holder
+            ));
+            assert!(is_account_route(
+                &Method::DELETE,
+                &format!("/api/users/{user}/"),
+                holder
+            ));
+        }
+        assert!(is_account_route(&Method::GET, "/api/me/workspaces", holder));
+        assert!(is_account_route(
+            &Method::GET,
+            "/api//me//workspaces/",
+            holder
+        ));
+        assert!(is_account_route(
+            &Method::POST,
+            &format!("/api/users/{holder}/emails"),
+            holder
+        ));
+        assert!(is_account_route(
+            &Method::GET,
+            "/api/users/auth-identities",
+            holder
+        ));
+        // Someone else's record, and the workspace's own routes, are not.
+        let other = "0190a1b2-c3d4-7e5f-8a9b-000000000000";
+        assert!(!is_account_route(
+            &Method::PUT,
+            &format!("/api/users/{other}"),
+            holder
+        ));
+        assert!(!is_account_route(
+            &Method::GET,
+            &format!("/api/users/{holder}"),
+            holder
+        ));
+        assert!(!is_account_route(&Method::GET, "/api/tickets", holder));
+    }
 
     #[test]
     fn a_file_path_matches_however_it_is_encoded() {
