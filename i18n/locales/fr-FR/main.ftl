@@ -7711,10 +7711,6 @@ settings-appearance-accessibility-description = Améliorez la lisibilité et la 
 settings-appearance-colorblind-label = Mode adapté au daltonisme
 settings-appearance-colorblind-description-monochrome = Toujours activé pour les thèmes monochromatiques comme E-Paper et Red Horizon
 settings-appearance-colorblind-description-default = Utiliser des formes distinctes pour les indicateurs de statut au lieu de se reposer uniquement sur les couleurs
-settings-appearance-display-heading = Affichage
-settings-appearance-display-description = Ajustez les préférences de mise en page
-settings-appearance-compact-label = Vue compacte
-settings-appearance-compact-description = Réduire l'espacement entre les éléments pour une mise en page plus dense
 settings-appearance-theme-changed = Thème changé pour { $name }
 settings-appearance-theme-changed-device-only = Thème changé pour { $name } (cet appareil uniquement)
 settings-appearance-theme-save-failed = Échec de l'enregistrement du thème
@@ -7725,10 +7721,6 @@ settings-appearance-colorblind-toggled = Mode adapté au daltonisme { $state ->
 settings-appearance-device-local-toggled = Thème propre à l'appareil { $state ->
     [enabled] activé
    *[disabled] désactivé
-}
-settings-appearance-compact-toggled = Vue compacte { $state ->
-    [enabled] activée
-   *[disabled] désactivée
 }
 settings-appearance-system-theme-name = Système
 

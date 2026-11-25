@@ -43,7 +43,6 @@ const selectedTheme = ref<ThemeMode>(
     ? props.targetUserTheme as ThemeMode
     : themeStore.currentTheme
 )
-const compactView = ref(false)
 const isUpdating = ref(false)
 
 // Use computed with getter/setter for two-way binding with store
@@ -145,11 +144,6 @@ const handleColorBlindModeToggle = () => {
 // Handle device local theme toggle
 const handleDeviceLocalThemeToggle = () => {
   emit('success', t('settings-appearance-device-local-toggled', { state: deviceLocalTheme.value ? 'enabled' : 'disabled' }))
-}
-
-// Handle compact view toggle
-const handleCompactViewToggle = () => {
-  emit('success', t('settings-appearance-compact-toggled', { state: compactView.value ? 'enabled' : 'disabled' }))
 }
 </script>
 
@@ -257,22 +251,6 @@ const handleCompactViewToggle = () => {
             : t('settings-appearance-colorblind-description-default')"
           :disabled="isMonochromaticTheme"
           @update:modelValue="handleColorBlindModeToggle"
-        />
-      </div>
-
-      <!-- Display Options (self mode only) -->
-      <div v-if="!isAdminMode" class="flex flex-col gap-4 pt-2 border-t border-default">
-        <div>
-          <h3 class="text-sm font-medium text-primary">{{ t('settings-appearance-display-heading') }}</h3>
-          <p class="text-xs text-tertiary mt-0.5">{{ t('settings-appearance-display-description') }}</p>
-        </div>
-
-        <!-- Compact View Toggle -->
-        <ToggleSwitch
-          v-model="compactView"
-          :label="t('settings-appearance-compact-label')"
-          :description="t('settings-appearance-compact-description')"
-          @update:modelValue="handleCompactViewToggle"
         />
       </div>
     </div>
