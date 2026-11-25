@@ -184,7 +184,7 @@ function segmentAttrs(part: SegmentPart): Record<string, string> {
   align-items: center;
   justify-content: center;
   background-color: var(--color-surface-alt);
-  border: 1px solid var(--color-subtle);
+  border: 1px solid var(--color-field-border);
   border-radius: 0.5rem;
   color: var(--color-primary);
   font-variant-numeric: tabular-nums;
@@ -197,17 +197,25 @@ function segmentAttrs(part: SegmentPart): Record<string, string> {
 
 .time-picker__field--sm {
   padding: 0.25rem 0.5rem;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.4;
 }
 
 .time-picker__field--md {
   padding: 0.5rem 0.75rem;
-  font-size: 14px;
+  font-size: var(--text-sm);
+}
+
+/* The segments are editable: under 16px, iOS zooms the page on focus. */
+@media (pointer: coarse) {
+  .time-picker__field--sm,
+  .time-picker__field--md {
+    font-size: var(--text-base);
+  }
 }
 
 .time-picker__field:focus-within {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   box-shadow: 0 0 0 2px var(--color-accent-muted);
 }
 

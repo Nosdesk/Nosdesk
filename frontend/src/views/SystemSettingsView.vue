@@ -49,8 +49,8 @@
         <!-- Cleanup Results -->
         <div v-if="cleanupResults" class="border-t border-default p-4 bg-surface-alt rounded-b-xl">
           <div class="flex items-center gap-2 mb-3">
-            <Icon v-if="cleanupResults.success" name="checkCircle" class="text-status-success" />
-            <Icon v-else name="warning" class="text-status-error" />
+            <Icon v-if="cleanupResults.success" name="checkCircle" class="text-status-success-ui" />
+            <Icon v-else name="warning" class="text-status-error-ui" />
             <span class="text-sm font-medium" :class="cleanupResults.success ? 'text-status-success' : 'text-status-error'">
               {{ cleanupResults.success ? $t('admin-system-cleanup-success') : $t('admin-system-cleanup-failed') }}
             </span>
@@ -67,7 +67,7 @@
           <!-- Show errors if any -->
           <div v-if="cleanupResults.success && (cleanupResults.stats?.errors?.length ?? 0) > 0" class="mt-3">
             <details class="text-sm">
-              <summary class="cursor-pointer text-status-warning hover:text-status-warning/80">
+              <summary class="cursor-pointer text-status-warning hover:underline">
                 {{ $t('admin-system-cleanup-view-errors', { count: cleanupResults.stats?.errors?.length ?? 0 }) }}
               </summary>
               <div class="mt-2 pl-4 border-l-2 border-status-warning/50 text-secondary">
@@ -89,7 +89,7 @@
       <div v-if="authStore.isPlatformAdmin" class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
         <div class="p-4 flex flex-col gap-3">
           <div class="flex items-center gap-3">
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent-on-tint">
               <Icon name="refresh" size="md" />
             </div>
 
@@ -116,8 +116,8 @@
         <!-- Regeneration Results -->
         <div v-if="thumbnailResults" class="border-t border-default p-4 bg-surface-alt rounded-b-xl">
           <div class="flex items-center gap-2 mb-3">
-            <Icon v-if="thumbnailResults.success" name="checkCircle" class="text-status-success" />
-            <Icon v-else name="warning" class="text-status-error" />
+            <Icon v-if="thumbnailResults.success" name="checkCircle" class="text-status-success-ui" />
+            <Icon v-else name="warning" class="text-status-error-ui" />
             <span class="text-sm font-medium" :class="thumbnailResults.success ? 'text-status-success' : 'text-status-error'">
               {{ thumbnailResults.success ? $t('admin-system-thumbnails-success') : $t('admin-system-thumbnails-failed') }}
             </span>

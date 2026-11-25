@@ -91,7 +91,7 @@ async function submit(): Promise<void> {
     <div class="w-full max-w-sm flex flex-col gap-6">
       <div class="flex flex-col items-center gap-4 text-center">
         <AssetImg v-if="logoUrl" :src="logoUrl" :alt="branding.appName" class="h-10 max-w-[240px] object-contain" />
-        <LogoIcon v-else class="h-10 text-accent" />
+        <LogoIcon v-else class="h-10 text-accent-fill" />
         <div class="flex flex-col gap-1">
           <h1 class="text-xl font-semibold text-primary">{{ t('portal-sign-in-title', { app: branding.appName }) }}</h1>
           <p class="text-sm text-secondary">

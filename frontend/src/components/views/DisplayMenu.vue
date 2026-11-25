@@ -147,7 +147,7 @@ const densityOptions = computed<ReadonlyArray<{ value: Density; label: string }>
               type="button"
               class="flex-1 text-2xs px-2 py-1 transition-colors"
               :class="density === opt.value
-                ? 'bg-accent/10 text-accent font-medium'
+                ? 'bg-accent/10 text-accent-on-tint font-medium'
                 : 'text-secondary hover:bg-surface-hover'"
               :aria-pressed="density === opt.value"
               @click.stop="emit('set-density', opt.value)"

@@ -128,7 +128,7 @@ async function copyAddress() {
           v-model="name"
           type="text"
           :placeholder="t('admin-channels-forwarding-name-placeholder')"
-          class="h-9 px-2 rounded border border-default bg-input text-primary text-sm max-w-sm"
+          class="h-9 px-2 rounded border border-field bg-input text-primary text-sm max-w-sm"
         />
         <Button class="w-fit" :disabled="isCreating" @click="createChannel">
           {{ isCreating ? t('admin-channels-forwarding-creating') : t('admin-channels-forwarding-create-button') }}

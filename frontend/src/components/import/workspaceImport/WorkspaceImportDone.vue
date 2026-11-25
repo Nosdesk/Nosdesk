@@ -352,9 +352,9 @@ function openWorkspace() {
     >
       <template #body>
         <ul v-if="job.applied_at" class="flex flex-col gap-2 text-sm text-secondary" data-test="workspace-reset-stakes">
-          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error" />
+          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error-ui" />
             <span>{{ $t('workspace-import-reset-removes', { tickets: counts.tickets, pages: counts.pages, assets: counts.assets, people: job.people_created }) }}</span></li>
-          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error" />
+          <li class="flex gap-2.5"><Icon name="warning" size="sm" class="shrink-0 mt-0.5 text-status-error-ui" />
             <span>{{ $t('workspace-import-reset-since') }}</span></li>
           <li class="flex gap-2.5"><Icon name="info" size="sm" class="shrink-0 mt-0.5 text-tertiary" />
             <span>{{ $t('workspace-import-reset-keeps') }}</span></li>
@@ -376,7 +376,7 @@ function openWorkspace() {
             autocapitalize="off"
             spellcheck="false"
             :placeholder="workspace"
-            class="w-full px-3 py-2 text-sm rounded-lg border border-strong bg-surface text-primary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+            class="w-full px-3 py-2 text-sm rounded-lg border border-field bg-surface text-primary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
             data-test="workspace-reset-name"
             @keydown.enter="reset"
           />

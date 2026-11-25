@@ -49,7 +49,7 @@ const showBadge = computed(() => props.icon !== 'plus' && !props.loading)
       class="absolute -top-1 -right-1.5 size-3.5 flex items-center justify-center rounded-full bg-surface ring-1 ring-default"
       aria-hidden="true"
     >
-      <svg class="size-2.5 text-accent" viewBox="0 0 10 10" fill="none">
+      <svg class="size-2.5 text-accent-ui" viewBox="0 0 10 10" fill="none">
         <path d="M5 2.5v5M2.5 5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
       </svg>
     </span>

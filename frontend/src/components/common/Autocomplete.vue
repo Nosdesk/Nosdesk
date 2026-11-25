@@ -64,13 +64,13 @@ const isOpen = ref(false);
 const sizeClasses = computed(() => {
   switch (props.size) {
     case 'xs':
-      return { input: 'px-1.5 py-0.5 text-sm', option: 'px-3 py-1.5' };
+      return { input: 'px-1.5 py-0.5 text-sm pointer-coarse:text-base', option: 'px-3 py-1.5' };
     case 'sm':
-      return { input: 'px-3 py-1.5 text-sm', option: 'px-3 py-2' };
+      return { input: 'px-3 py-1.5 text-sm pointer-coarse:text-base', option: 'px-3 py-2' };
     case 'lg':
       return { input: 'px-4 py-3.5 text-base', option: 'px-4 py-3' };
     default:
-      return { input: 'px-4 py-3 text-sm', option: 'px-4 py-2.5' };
+      return { input: 'px-4 py-3 text-sm pointer-coarse:text-base', option: 'px-4 py-2.5' };
   }
 });
 
@@ -107,10 +107,10 @@ function onUpdate(value: string | undefined) {
           class="w-full bg-surface-alt border rounded-lg text-primary transition-all duration-200 pr-9"
           :class="[
             sizeClasses.input,
-            error ? 'border-status-error' : 'border-subtle',
+            error ? 'border-status-error' : 'border-field',
             disabled
               ? 'opacity-50 cursor-not-allowed'
-              : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent',
+              : 'focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent',
             isOpen && !disabled ? 'border-accent ring-1 ring-accent' : '',
           ]"
         />
@@ -152,7 +152,7 @@ function onUpdate(value: string | undefined) {
               :class="[
                 sizeClasses.option,
                 opt === modelValue
-                  ? 'bg-accent/10 text-accent'
+                  ? 'bg-accent/10 text-accent-on-tint'
                   : 'hover:bg-surface-hover data-[highlighted]:bg-surface-hover',
               ]"
             >

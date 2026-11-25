@@ -95,7 +95,7 @@ const filteredGroups = computed(() =>
               @click="openIfExternal(item, $event)"
             >
               <div
-                class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center bg-accent/15 text-accent"
+                class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center bg-accent/15 text-accent-on-tint"
               >
                 <Icon :name="item.icon" size="md" />
               </div>
@@ -128,7 +128,7 @@ const filteredGroups = computed(() =>
           v-model="searchQuery"
           type="text"
           :placeholder="$t('admin-search-placeholder')"
-          class="w-full pl-9 pr-9 py-2.5 text-sm bg-surface text-primary rounded-xl border border-default focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none placeholder:text-tertiary"
+          class="w-full pl-9 pr-9 py-2.5 text-sm bg-surface text-primary rounded-xl border border-field focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none placeholder:text-tertiary"
         />
         <IconButton
             v-if="searchQuery"

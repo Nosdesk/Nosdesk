@@ -976,7 +976,7 @@ watchEffect(async () => {
                     v-if="canSelfAssign && !selectedAssignee && !readonly"
                     @click="toggleSelfAssign"
                     type="button"
-                    class="text-2xs font-medium px-2 h-6 rounded text-accent hover:bg-accent-muted transition-colors"
+                    class="text-2xs font-medium px-2 h-6 rounded text-accent-on-tint hover:bg-accent-muted transition-colors"
                     :title="t('ticket-detail-claim-title')"
                   >
                     {{ t('ticket-detail-claim') }}
@@ -1272,7 +1272,7 @@ watchEffect(async () => {
             <span class="text-tertiary font-medium">{{ t('ticket-detail-cycle-label') }}</span>
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-2xs font-medium bg-accent-muted text-accent hover:bg-accent/20 transition-colors"
+              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-2xs font-medium bg-accent-muted text-accent-on-tint hover:bg-accent/20 transition-colors"
               :title="t('ticket-detail-cycle-tooltip', { name: ticket.cycle.name, state: ticket.cycle.state })"
               @click="openCycle"
             >
@@ -1541,14 +1541,14 @@ watchEffect(async () => {
   .print-ticket-id {
     font-family: ui-monospace, monospace;
     font-size: 11pt;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: #666;
     white-space: nowrap;
   }
 
   .print-ticket-title {
     font-size: 14pt;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: #000;
     margin: 0;
     flex: 1;
@@ -1580,7 +1580,7 @@ watchEffect(async () => {
 
   .print-meta-label {
     font-size: 7.5pt;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     text-transform: uppercase;
     letter-spacing: 0.4pt;
     color: #666;
@@ -1602,7 +1602,7 @@ watchEffect(async () => {
     align-self: flex-start;
     display: inline-block;
     font-size: 9pt;
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     padding: 1.5pt 5pt;
     border: 1px solid currentColor;
     border-radius: 3pt;

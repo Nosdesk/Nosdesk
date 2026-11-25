@@ -7701,10 +7701,6 @@ settings-appearance-accessibility-description = Verbeter de leesbaarheid en het 
 settings-appearance-colorblind-label = Kleurenblindvriendelijke modus
 settings-appearance-colorblind-description-monochrome = Altijd ingeschakeld voor monochromatische thema's zoals E-Paper en Red Horizon
 settings-appearance-colorblind-description-default = Gebruik onderscheidende vormen voor statusindicatoren in plaats van alleen op kleur te vertrouwen
-settings-appearance-display-heading = Weergave
-settings-appearance-display-description = Pas indelingsvoorkeuren aan
-settings-appearance-compact-label = Compacte weergave
-settings-appearance-compact-description = Verminder de ruimte tussen elementen voor een compactere indeling
 settings-appearance-theme-changed = Thema gewijzigd naar { $name }
 settings-appearance-theme-changed-device-only = Thema gewijzigd naar { $name } (alleen op dit apparaat)
 settings-appearance-theme-save-failed = Kan themavoorkeur niet opslaan
@@ -7713,10 +7709,6 @@ settings-appearance-colorblind-toggled = Kleurenblindvriendelijke modus { $state
    *[disabled] uitgeschakeld
 }
 settings-appearance-device-local-toggled = Thema alleen voor dit apparaat { $state ->
-    [enabled] ingeschakeld
-   *[disabled] uitgeschakeld
-}
-settings-appearance-compact-toggled = Compacte weergave { $state ->
     [enabled] ingeschakeld
    *[disabled] uitgeschakeld
 }

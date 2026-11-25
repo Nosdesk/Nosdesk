@@ -222,7 +222,7 @@ usePageCreateAction(handleCreatePage)
             <template #headerActions>
               <span
                 v-if="attentionCount > 0"
-                class="inline-flex items-center h-[18px] px-1.5 rounded-full bg-status-warning-muted text-amber-700 text-2xs font-semibold tabular-nums"
+                class="inline-flex items-center h-[18px] px-1.5 rounded-full bg-status-warning-muted text-status-warning text-2xs font-semibold tabular-nums"
               >
                 {{ attentionCount }}
               </span>
@@ -246,7 +246,7 @@ usePageCreateAction(handleCreatePage)
                       :to="`/documentation/gaps/${gap.id}`"
                       class="group flex items-center gap-2 py-1.5 px-1.5 rounded hover:bg-surface-hover transition-colors"
                     >
-                      <Icon name="warning" size="xs" class="shrink-0 text-status-warning" aria-hidden="true" />
+                      <Icon name="warning" size="xs" class="shrink-0 text-status-warning-ui" aria-hidden="true" />
                       <span class="truncate min-w-0 flex-1 text-xs-plus leading-snug text-primary group-hover:text-accent transition-colors">
                         {{ gapTitle(gap) }}
                       </span>
@@ -280,7 +280,7 @@ usePageCreateAction(handleCreatePage)
                       <span class="truncate min-w-0 flex-1 text-xs-plus leading-snug text-primary group-hover:text-accent transition-colors">
                         {{ page.title }}
                       </span>
-                      <span class="shrink-0 text-2xs text-amber-700 whitespace-nowrap">
+                      <span class="shrink-0 text-2xs text-status-warning whitespace-nowrap">
                         {{ verificationMeta(page) }}
                       </span>
                     </RouterLink>

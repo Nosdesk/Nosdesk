@@ -263,7 +263,7 @@ onMounted(() => {
               v-model="drafts[state.id].name"
               type="text"
               maxlength="64"
-              class="flex-1 min-w-[150px] bg-transparent border border-subtle rounded px-2 py-1 text-sm text-primary focus:border-accent focus:outline-none"
+              class="flex-1 min-w-[150px] bg-transparent border border-field rounded px-2 py-1 text-sm text-primary focus:border-accent focus:outline-none"
               @blur="saveDraft(state)"
               @keydown.enter.prevent="saveDraft(state)"
             />
@@ -277,7 +277,7 @@ onMounted(() => {
             />
             <span
               v-if="state.is_default"
-              class="text-3xs uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
+              class="text-3xs uppercase tracking-wide font-semibold text-accent-on-tint border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
             >
               {{ $t('admin-workflow-states-default-badge') }}
             </span>
@@ -292,7 +292,7 @@ onMounted(() => {
             <button
               type="button"
               class="text-xs transition-colors"
-              :class="state.pauses_sla ? 'text-status-warning hover:text-status-warning/80' : 'text-secondary hover:text-accent'"
+              :class="state.pauses_sla ? 'text-status-warning hover:underline' : 'text-secondary hover:text-accent'"
               :aria-pressed="state.pauses_sla"
               :title="state.pauses_sla ? $t('admin-workflow-states-sla-paused-title') : $t('admin-workflow-states-sla-running-title')"
               @click="togglePause(state)"
@@ -318,7 +318,7 @@ onMounted(() => {
             type="text"
             maxlength="64"
             :placeholder="$t('admin-workflow-states-add-placeholder')"
-            class="flex-1 min-w-[150px] bg-surface border border-subtle rounded px-2 py-1 text-sm text-primary focus:border-accent focus:outline-none"
+            class="flex-1 min-w-[150px] bg-surface border border-field rounded px-2 py-1 text-sm text-primary focus:border-accent focus:outline-none"
             @keydown.enter.prevent="createInCategory(cat)"
           />
           <BaseDropdown

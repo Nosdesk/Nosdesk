@@ -267,7 +267,7 @@ onMounted(async () => {
 <style scoped>
 /* Add styles for animated images (GIF, APNG) */
 .animated-image {
-  border: 2px solid rgb(var(--color-accent) / 0.5);
+  border: 2px solid rgb(var(--color-accent-ui) / 0.5);
 }
 
 /* Animation for the pulse effect */
@@ -287,10 +287,10 @@ onMounted(async () => {
 /* Add a pulsing border animation */
 @keyframes pulse-border {
   0%, 100% {
-    border-color: rgb(var(--color-accent) / 0.8);
+    border-color: rgb(var(--color-accent-ui) / 0.8);
   }
   50% {
-    border-color: rgb(var(--color-accent) / 0.4);
+    border-color: rgb(var(--color-accent-ui) / 0.4);
   }
 }
 </style> 

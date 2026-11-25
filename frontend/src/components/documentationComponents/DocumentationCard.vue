@@ -197,14 +197,14 @@ const formatRelativeDate = (dateStr: string | undefined) => {
 }
 
 .icon-emoji {
-  font-size: 1.25rem;
+  font-size: var(--text-xl);
   line-height: 1;
   flex-shrink: 0;
 }
 
 .doc-card-title h3 {
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-primary);
   line-height: 1.4;
   margin: 0;
@@ -218,11 +218,11 @@ const formatRelativeDate = (dateStr: string | undefined) => {
 }
 
 .doc-card:hover .doc-card-title h3 {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 .doc-card-description {
-  font-size: 0.8125rem;
+  font-size: var(--text-xs-plus);
   color: var(--color-secondary);
   line-height: 1.5;
   margin: 0;
@@ -242,7 +242,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
   margin-top: auto;
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-subtle);
-  font-size: 0.6875rem;
+  font-size: var(--text-2xs);
   color: var(--color-tertiary);
 }
 
@@ -298,10 +298,10 @@ const formatRelativeDate = (dateStr: string | undefined) => {
 }
 
 .children-more {
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--color-tertiary);
   padding: 0.25rem 0.75rem;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 /* Animations */
@@ -316,7 +316,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
 
 /* Focus state */
 .doc-card:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-accent-ui);
   outline-offset: 2px;
 }
 
@@ -377,7 +377,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
   }
 
   .doc-card:hover {
-    border-color: var(--color-accent);
+    border-color: var(--color-accent-ui);
   }
 }
 

@@ -12,7 +12,7 @@
         :alt="appName"
         class="h-10 max-w-[240px] object-contain"
       />
-      <LogoIcon v-else class="h-10 text-accent" :aria-label="`${appName} Logo`" />
+      <LogoIcon v-else class="h-10 text-accent-fill" :aria-label="`${appName} Logo`" />
     </RouterLink>
 
     <div class="w-full max-w-md mx-auto flex flex-col gap-4">
@@ -37,7 +37,7 @@
         class="bg-surface rounded-xl border border-default shadow-sm p-6 sm:p-8 flex flex-col items-center gap-4 text-center"
       >
         <div class="w-12 h-12 rounded-full bg-status-error-muted flex items-center justify-center">
-          <Icon name="warning" size="lg" class="text-status-error" />
+          <Icon name="warning" size="lg" class="text-status-error-ui" />
         </div>
         <div class="flex flex-col gap-1">
           <h2 class="text-lg font-semibold text-primary">{{ invalidTitle }}</h2>
@@ -70,7 +70,7 @@
         class="bg-surface rounded-xl border border-default shadow-sm p-6 sm:p-8 flex flex-col items-center gap-4 text-center"
       >
         <div class="w-12 h-12 rounded-full bg-status-success-muted flex items-center justify-center">
-          <Icon name="checkCircle" size="lg" class="text-status-success" />
+          <Icon name="checkCircle" size="lg" class="text-status-success-ui" />
         </div>
         <div class="flex flex-col gap-1">
           <h2 class="text-lg font-semibold text-primary">{{ successTitleComplete }}</h2>
@@ -84,7 +84,7 @@
         class="bg-surface rounded-xl border border-default shadow-sm p-6 sm:p-8 flex flex-col items-center gap-4 text-center"
       >
         <div class="w-12 h-12 rounded-full bg-status-success-muted flex items-center justify-center">
-          <Icon name="checkCircle" size="lg" class="text-status-success" />
+          <Icon name="checkCircle" size="lg" class="text-status-success-ui" />
         </div>
         <div class="flex flex-col gap-1">
           <h2 class="text-lg font-semibold text-primary">{{ successTitleComplete }}</h2>
@@ -98,7 +98,7 @@
         class="bg-surface rounded-xl border border-default shadow-sm p-6 sm:p-8 flex flex-col items-center gap-4 text-center"
       >
         <div class="w-12 h-12 rounded-full bg-status-success-muted flex items-center justify-center">
-          <Icon name="checkCircle" size="lg" class="text-status-success" />
+          <Icon name="checkCircle" size="lg" class="text-status-success-ui" />
         </div>
         <div class="flex flex-col gap-1">
           <h2 class="text-lg font-semibold text-primary">{{ successTitleComplete }}</h2>
@@ -121,7 +121,7 @@
           v-if="userEmail"
           class="px-5 sm:px-6 py-4 bg-surface-alt border-b border-default flex items-center gap-3"
         >
-          <div class="shrink-0 w-9 h-9 rounded-full bg-accent-muted flex items-center justify-center text-accent font-semibold text-sm">
+          <div class="shrink-0 w-9 h-9 rounded-full bg-accent-muted flex items-center justify-center text-accent-on-tint font-semibold text-sm">
             {{ initials }}
           </div>
           <div class="flex-1 min-w-0 flex flex-col gap-0.5">

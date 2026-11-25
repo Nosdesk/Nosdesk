@@ -70,16 +70,19 @@ const label = computed(() => {
   }
 })
 
+// The glyph sits beside the state's name, so it keeps the state's own
+// colour (the fill), like the workflow state glyphs, rather than the
+// darker text version.
 const toneClass = computed(() => {
   switch (visualGroup.value) {
     case 'open':
-      return 'text-status-open'
+      return 'text-status-open-fill'
     case 'in_progress':
-      return 'text-status-in-progress'
+      return 'text-status-in-progress-fill'
     case 'closed':
-      return 'text-status-closed'
+      return 'text-status-closed-fill'
     case 'merged':
-      return 'text-status-merged'
+      return 'text-status-merged-fill'
     default:
       return 'text-tertiary'
   }

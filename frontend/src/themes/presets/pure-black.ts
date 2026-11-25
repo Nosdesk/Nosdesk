@@ -19,7 +19,7 @@ export const pureBlackTheme: Theme = {
     app: '#000000',
     surface: '#000000',
     surfaceAlt: '#121212',
-    surfaceHover: '#1a1a1a',
+    surfaceHover: '#212121', // 1.30:1 from surface, 1.16:1 from the alternate surface
 
     // Borders - subtle dark grey
     default: '#2a2a2a',
@@ -29,7 +29,7 @@ export const pureBlackTheme: Theme = {
     // Text - high contrast white
     primary: '#ffffff',
     secondary: '#b3b3b3',
-    tertiary: '#808080',
+    tertiary: '#898989', // lifted to 4.6:1 on hover, 6.0:1 on surface
 
     // Accent — brand orange (#FF6B1A family). Hover steps UP to
     // primary-400 (#FF7A2D) so the lift is visible against the

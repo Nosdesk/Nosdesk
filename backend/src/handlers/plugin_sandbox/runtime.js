@@ -498,7 +498,7 @@ body {
 *::-webkit-scrollbar-thumb:hover { background: var(--nd-text-tertiary, #9ca3af); }
 *::-webkit-scrollbar-track { background: transparent; }
 
-a { color: var(--nd-accent, #FF6B1A); }
+a { color: var(--nd-accent-text, #ae4404); }
 
 /* Buttons: the app's button recipe (frontend/src/recipes/button.ts), md
    size. The default \`.nd-btn\` is the app's secondary button: surface-alt fill
@@ -552,7 +552,7 @@ a { color: var(--nd-accent, #FF6B1A); }
   line-height: 20px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.nd-input::placeholder, .nd-textarea::placeholder { color: var(--nd-text-tertiary, #6b7280); opacity: 1; }
+.nd-input::placeholder, .nd-textarea::placeholder { color: var(--nd-text-tertiary, #5d6470); opacity: 1; }
 .nd-input:focus, .nd-textarea:focus { outline: none; }
 .nd-input:focus-visible, .nd-textarea:focus-visible {
   border-color: var(--nd-accent, #FF6B1A);
@@ -580,7 +580,7 @@ a { color: var(--nd-accent, #FF6B1A); }
 }
 
 .nd-label { font-weight: 600; color: var(--nd-text, #1f2937); }
-.nd-muted { color: var(--nd-text-tertiary, #6b7280); }
+.nd-muted { color: var(--nd-text-tertiary, #5d6470); }
 
 /* Button variants, size, focus and disabled. \`.nd-btn--secondary\` spells
    out the default look for markup that wants to name it. */
@@ -631,8 +631,8 @@ a { color: var(--nd-accent, #FF6B1A); }
   -webkit-appearance: none;
   appearance: none;
   background-image:
-    linear-gradient(45deg, transparent calc(50% - 0.8px), var(--nd-text-tertiary, #6b7280) calc(50% - 0.8px), var(--nd-text-tertiary, #6b7280) calc(50% + 0.8px), transparent calc(50% + 0.8px)),
-    linear-gradient(135deg, transparent calc(50% - 0.8px), var(--nd-text-tertiary, #6b7280) calc(50% - 0.8px), var(--nd-text-tertiary, #6b7280) calc(50% + 0.8px), transparent calc(50% + 0.8px));
+    linear-gradient(45deg, transparent calc(50% - 0.8px), var(--nd-text-tertiary, #5d6470) calc(50% - 0.8px), var(--nd-text-tertiary, #5d6470) calc(50% + 0.8px), transparent calc(50% + 0.8px)),
+    linear-gradient(135deg, transparent calc(50% - 0.8px), var(--nd-text-tertiary, #5d6470) calc(50% - 0.8px), var(--nd-text-tertiary, #5d6470) calc(50% + 0.8px), transparent calc(50% + 0.8px));
   background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%;
   background-size: 6px 6px;
   background-repeat: no-repeat;
@@ -735,13 +735,13 @@ label:has(> :disabled) { cursor: not-allowed; }
   font-size: 12px;
   line-height: 16px;
   font-weight: 500;
-  color: var(--nd-text-tertiary, #6b7280);
+  color: var(--nd-text-tertiary, #5d6470);
   text-transform: uppercase;
   letter-spacing: 0.025em;
 }
 .nd-help, .nd-error { margin: 0; font-size: 12px; line-height: 16px; }
-.nd-help { color: var(--nd-text-tertiary, #6b7280); }
-.nd-error { color: var(--nd-error, #EF4444); }
+.nd-help { color: var(--nd-text-tertiary, #5d6470); }
+.nd-error { color: var(--nd-error-text, #af041a); }
 .nd-input[aria-invalid="true"], .nd-textarea[aria-invalid="true"], .nd-select[aria-invalid="true"] {
   border-color: var(--nd-error, #EF4444);
 }
@@ -757,7 +757,7 @@ label:has(> :disabled) { cursor: not-allowed; }
   border: 1px solid var(--nd-border, #e5e7eb);
   border-radius: 9999px;
   background: var(--nd-surface-hover, #e5e7eb);
-  color: var(--nd-text-tertiary, #6b7280);
+  color: var(--nd-text-tertiary, #5d6470);
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
@@ -778,38 +778,38 @@ label:has(> :disabled) { cursor: not-allowed; }
 .nd-badge--neutral {
   background: var(--nd-surface-hover, #e5e7eb);
   border-color: var(--nd-border, #e5e7eb);
-  color: var(--nd-text-tertiary, #6b7280);
+  color: var(--nd-text-tertiary, #5d6470);
 }
 .nd-badge--accent {
   background: rgba(255, 107, 26, 0.15);
   background: color-mix(in srgb, var(--nd-accent, #FF6B1A) 15%, transparent);
   border-color: rgba(255, 107, 26, 0.3);
   border-color: color-mix(in srgb, var(--nd-accent, #FF6B1A) 30%, transparent);
-  color: var(--nd-accent, #FF6B1A);
+  color: var(--nd-accent-on-tint-text, #9c3b00);
 }
 .nd-badge--success {
   background: var(--nd-success-muted, rgba(0, 201, 81, 0.15));
   border-color: rgba(0, 201, 81, 0.3);
   border-color: color-mix(in srgb, var(--nd-success, #00C951) 30%, transparent);
-  color: var(--nd-success, #00C951);
+  color: var(--nd-success-text, #016b28);
 }
 .nd-badge--warning {
   background: var(--nd-warning-muted, rgba(245, 158, 11, 0.15));
   border-color: rgba(245, 158, 11, 0.3);
   border-color: color-mix(in srgb, var(--nd-warning, #F59E0B) 30%, transparent);
-  color: var(--nd-warning, #F59E0B);
+  color: var(--nd-warning-text, #845301);
 }
 .nd-badge--error {
   background: var(--nd-error-muted, rgba(239, 68, 68, 0.15));
   border-color: rgba(239, 68, 68, 0.3);
   border-color: color-mix(in srgb, var(--nd-error, #EF4444) 30%, transparent);
-  color: var(--nd-error, #EF4444);
+  color: var(--nd-error-text, #af041a);
 }
 .nd-badge--info {
   background: var(--nd-info-muted, rgba(59, 130, 246, 0.15));
   border-color: rgba(59, 130, 246, 0.3);
   border-color: color-mix(in srgb, var(--nd-info, #3B82F6) 30%, transparent);
-  color: var(--nd-info, #3B82F6);
+  color: var(--nd-info-text, #0151c1);
 }
 
 /* Table: the app's DataTable at its default (compact) density, as on the
@@ -833,7 +833,7 @@ label:has(> :disabled) { cursor: not-allowed; }
   padding: 2px 8px;
   border-bottom: 1px solid var(--nd-border-subtle, #f3f4f6);
   background: var(--nd-surface, #ffffff);
-  color: var(--nd-text-tertiary, #6b7280);
+  color: var(--nd-text-tertiary, #5d6470);
   font-size: 10px;
   font-weight: 600;
   line-height: 15px;
@@ -992,7 +992,7 @@ label:has(> :disabled) { cursor: not-allowed; }
   justify-content: center;
   gap: 4px;
   padding: 24px 12px;
-  color: var(--nd-text-tertiary, #6b7280);
+  color: var(--nd-text-tertiary, #5d6470);
   font-size: 12px;
   text-align: center;
 }
@@ -1045,6 +1045,11 @@ label:has(> :disabled) { cursor: not-allowed; }
  * pointer; the kit's controls follow so a plugin gets it without asking. */
 @media (pointer: coarse) {
   .nd-btn, .nd-input, .nd-textarea { min-height: 44px; }
+  /* Text fields at 16px: iOS zooms the page into a smaller field when it
+     takes focus. The raw-element floor has no specificity, so a plugin's
+     own class still wins; it covers fields the plugin left unstyled. */
+  .nd-input, .nd-textarea, .nd-select { font-size: 16px; line-height: 24px; }
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"]), textarea, select) { font-size: max(16px, 1em); }
   .nd-select, .nd-tabs [role="tab"], .nd-table th > button { min-height: 44px; }
   /* Checkbox, radio and switch keep their drawn size; the 44px target comes
      from the label wrapping them (and, for the switch, a transparent hit

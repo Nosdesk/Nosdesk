@@ -1159,7 +1159,7 @@ useSyncActions(
     >
       <div class="flex flex-col items-center gap-4">
         <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-status-warning/20">
-          <Icon name="refresh" size="lg" class="text-status-warning" />
+          <Icon name="refresh" size="lg" class="text-status-warning-ui" />
         </div>
         <h3 class="text-xl font-medium text-primary">{{ $t('asset-detail-unmanage-heading') }}</h3>
         <p

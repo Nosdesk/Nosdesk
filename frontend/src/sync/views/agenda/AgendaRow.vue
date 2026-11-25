@@ -126,7 +126,7 @@ function onKeydown(event: KeyboardEvent): void {
     @contextmenu.prevent="emit('menu', $event)"
   >
     <!-- Gutter: the time of a booked job, the grip of any other. -->
-    <div class="flex h-5 w-14 shrink-0 items-center">
+    <div class="flex min-h-5 min-w-[5em] shrink-0 items-center text-xs">
       <button
         v-if="time"
         type="button"

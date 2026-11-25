@@ -95,7 +95,7 @@ withDefaults(defineProps<Props>(), {
 
   .bg-surface-alt :deep(h2) {
     font-size: 10pt !important;
-    font-weight: 600 !important;
+    font-weight: var(--font-weight-semibold) !important;
     margin: 0 !important;
   }
 

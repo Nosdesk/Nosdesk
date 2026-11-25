@@ -63,7 +63,7 @@ function pick(preset: PeriodPreset) {
       ref="triggerRef"
       class="inline-flex min-w-0 items-center h-6 rounded-md border text-2xs overflow-hidden transition-colors"
       :class="active
-        ? 'border-accent/40 bg-accent/10 text-accent'
+        ? 'border-accent/40 bg-accent/10 text-accent-on-tint'
         : open
           ? 'border-default bg-surface-hover text-primary'
           : 'border-subtle text-tertiary hover:text-primary hover:border-default hover:bg-surface-hover'"
@@ -113,7 +113,7 @@ function pick(preset: PeriodPreset) {
           @click.stop="pick(preset)"
         >
           <span class="flex-1 text-primary">{{ t(`asset-records-period-${preset}`) }}</span>
-          <Icon v-if="period === preset" name="check" class="w-3 h-3 text-accent" />
+          <Icon v-if="period === preset" name="check" class="w-3 h-3 text-accent-ui" />
         </MenuItem>
       </div>
       <div class="flex flex-col gap-1.5 px-3 pt-2 pb-3 border-t border-subtle">

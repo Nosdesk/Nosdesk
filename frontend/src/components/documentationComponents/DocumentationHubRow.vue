@@ -94,14 +94,14 @@ const fullTime = computed(() =>
         <span class="sr-only" :class="{ 'sm:hidden': !compact }">{{ author.name }}</span>
         <span
           v-if="!compact"
-          class="hidden sm:inline truncate max-w-[8rem] text-2xs leading-none text-tertiary"
+          class="hidden sm:inline truncate max-w-[8rem] text-2xs leading-tight text-tertiary"
         >
           {{ author.name }}
         </span>
       </template>
       <span
         v-if="!compact && author?.name && fullTime"
-        class="hidden sm:inline text-2xs text-tertiary/60 shrink-0"
+        class="hidden sm:inline text-2xs text-tertiary shrink-0"
         aria-hidden="true"
       >·</span>
       <span

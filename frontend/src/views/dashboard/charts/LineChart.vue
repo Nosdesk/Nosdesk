@@ -16,6 +16,7 @@ import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
 import { useElementSize } from '@/composables/useElementSize'
+import { useAxisFont } from './axisFont'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import {
   analyticsService,
@@ -133,13 +134,13 @@ const isEmpty = computed(() => !loading.value && !hasError.value && buckets.valu
 const containerRef = ref<HTMLElement | null>(null)
 const { width, height } = useElementSize(containerRef)
 
-const PAD_LEFT = 32
+// Axis labels are `text-2xs` and follow the text size; the gutters that
+// hold them grow with them.
+const { axisFont, gutter } = useAxisFont(containerRef, { width, height })
 const PAD_RIGHT = 12
 const PAD_TOP = 12
-const PAD_BOTTOM = 22
-const AXIS_FONT = 11
-const innerW = computed(() => Math.max(0, width.value - PAD_LEFT - PAD_RIGHT))
-const innerH = computed(() => Math.max(0, height.value - PAD_TOP - PAD_BOTTOM))
+const innerW = computed(() => Math.max(0, width.value - gutter(32) - PAD_RIGHT))
+const innerH = computed(() => Math.max(0, height.value - PAD_TOP - gutter(22)))
 const baselineY = computed(() => PAD_TOP + innerH.value)
 
 interface Pt {
@@ -165,7 +166,7 @@ const chart = computed(() => {
   const toPoints = (arr: TimeseriesBucket[]): Pt[] => {
     const step = arr.length > 1 ? w / (arr.length - 1) : 0
     return arr.map((b, i) => ({
-      x: PAD_LEFT + i * step,
+      x: gutter(32) + i * step,
       y: PAD_TOP + h - (b.value / niceMax) * h,
     }))
   }
@@ -232,7 +233,7 @@ const xLabels = computed<XTick[]>(() => {
   const step = n > 1 ? innerW.value / (n - 1) : 0
   // Labels sit on bucket indices, matching how the line points are
   // placed, so each tick lands under the curve it annotates.
-  const xAt = (i: number) => PAD_LEFT + i * step
+  const xAt = (i: number) => gutter(32) + i * step
   const ts = (i: number) => new Date(data[i].ts)
 
   // Pick the tick unit by span. Hourly (today) labels the time of
@@ -317,7 +318,7 @@ const xLabels = computed<XTick[]>(() => {
     <!-- Absolutely-positioned measured box: its size comes from the
          layout (the widget cell), and the SVG fills it without being
          able to push the container taller via its own aspect ratio. -->
-    <div ref="containerRef" class="absolute inset-0">
+    <div ref="containerRef" class="absolute inset-0 text-2xs">
     <svg
       v-if="width > 0 && height > 0"
       :viewBox="`0 0 ${width} ${height}`"
@@ -331,25 +332,25 @@ const xLabels = computed<XTick[]>(() => {
         <line
           v-for="value in chart.yTicks"
           :key="`gridline-${value}`"
-          :x1="PAD_LEFT"
+          :x1="gutter(32)"
           :x2="width - PAD_RIGHT"
           :y1="tickY(value)"
           :y2="tickY(value)"
         />
       </g>
-      <g class="text-tertiary" :font-size="AXIS_FONT">
+      <g class="text-tertiary" :font-size="axisFont">
         <text
           v-for="value in chart.yTicks"
           :key="`ytick-${value}`"
-          :x="PAD_LEFT - 6"
-          :y="tickY(value) + AXIS_FONT / 3"
+          :x="gutter(32) - 6"
+          :y="tickY(value) + axisFont / 3"
           text-anchor="end"
           fill="currentColor"
         >
           {{ Math.round(value) }}
         </text>
       </g>
-      <g class="text-tertiary" :font-size="AXIS_FONT">
+      <g class="text-tertiary" :font-size="axisFont">
         <text
           v-for="(item, i) in xLabels"
           :key="`xlabel-${i}`"
@@ -398,12 +399,12 @@ const xLabels = computed<XTick[]>(() => {
         stroke-width="2"
         stroke-linejoin="round"
         stroke-linecap="round"
-        class="text-accent"
+        class="text-accent-ui"
       />
       <!-- Endpoint marker anchoring the latest value, with a surface
            halo so it reads cleanly over the line + grid. -->
       <circle v-if="chart.last" :cx="chart.last.x" :cy="chart.last.y" r="4" class="text-surface" fill="currentColor" />
-      <circle v-if="chart.last" :cx="chart.last.x" :cy="chart.last.y" r="2.5" class="text-accent" fill="currentColor" />
+      <circle v-if="chart.last" :cx="chart.last.x" :cy="chart.last.y" r="2.5" class="text-accent-ui" fill="currentColor" />
     </svg>
     </div>
     </component>

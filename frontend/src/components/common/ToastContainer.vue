@@ -217,7 +217,7 @@ const invokeAction = (toast: Toast, event: Event) => {
           >
             <button
               type="button"
-              class="flex-shrink-0 inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
+              class="flex-shrink-0 inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent-on-tint rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
               @click="invokeAction(toast, $event)"
             >
               {{ toast.action.label }}

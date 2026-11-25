@@ -428,7 +428,7 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
   top: 50%;
   left: 4px;
   transform: translateY(-50%);
-  font-size: 9px;
+  font-size: var(--text-4xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-tertiary);
   opacity: 0.6;
@@ -445,8 +445,8 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-3xs);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
   color: var(--color-on-accent);
   overflow: hidden;
@@ -461,7 +461,7 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
 }
 
 .day-timeline__bar:focus-visible {
-  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent-ui);
 }
 
 .day-timeline__bar--invalid {
@@ -538,7 +538,7 @@ const HOUR_MARKERS = [0, 6, 12, 18] as const
 }
 
 .day-timeline__remove:hover {
-  color: var(--color-status-error);
+  color: var(--color-status-error-text);
   border-color: var(--color-status-error);
 }
 </style>

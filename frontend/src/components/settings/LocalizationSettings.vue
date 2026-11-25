@@ -182,7 +182,7 @@ const dirty = computed(
 <template>
   <SectionCard content-padding="p-4 sm:p-6">
     <template #leading>
-      <Icon name="language" class="text-accent flex-shrink-0" />
+      <Icon name="language" class="text-accent-ui flex-shrink-0" />
     </template>
     <template #title>{{ $t('settings-localization-title') }}</template>
     <template #headerActions>

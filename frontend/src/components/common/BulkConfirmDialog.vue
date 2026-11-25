@@ -98,7 +98,7 @@ function handleConfirm() {
           type="text"
           autocomplete="off"
           spellcheck="false"
-          class="w-full px-3 py-2 text-sm rounded border border-default bg-surface focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          class="w-full px-3 py-2 text-sm rounded border border-field bg-surface focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
         />
       </label>
     </template>

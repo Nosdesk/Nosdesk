@@ -493,7 +493,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
   align-items: center;
   gap: 0;
   background-color: var(--color-surface-alt);
-  border: 1px solid var(--color-subtle);
+  border: 1px solid var(--color-field-border);
   border-radius: 0.5rem;
   color: var(--color-primary);
   font-variant-numeric: tabular-nums;
@@ -506,13 +506,21 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 
 .date-picker__field--sm {
   padding: 0.25rem 0.25rem 0.25rem 0.5rem;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.4;
 }
 
 .date-picker__field--md {
   padding: 0.5rem 0.5rem 0.5rem 0.75rem;
-  font-size: 14px;
+  font-size: var(--text-sm);
+}
+
+/* The segments are editable: under 16px, iOS zooms the page on focus. */
+@media (pointer: coarse) {
+  .date-picker__field--sm,
+  .date-picker__field--md {
+    font-size: var(--text-base);
+  }
 }
 
 .date-picker__field--range {
@@ -520,7 +528,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 }
 
 .date-picker__field:focus-within {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   box-shadow: 0 0 0 2px var(--color-accent-muted);
 }
 
@@ -585,7 +593,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 
 .date-picker__trigger:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1px var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent-ui);
 }
 
 .date-picker__trigger:disabled {
@@ -633,7 +641,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 
 .date-picker__nav:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1px var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent-ui);
 }
 
 .date-picker__nav:disabled {
@@ -644,8 +652,8 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 .date-picker__title {
   flex: 1;
   text-align: center;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-primary);
   text-transform: capitalize;
 }
@@ -659,8 +667,8 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 .date-picker__weekday {
   padding: 0 0 0.25rem;
   text-align: center;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-3xs);
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-tertiary);
@@ -679,7 +687,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
   justify-content: center;
   border: 1px solid transparent;
   border-radius: 0.25rem;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-secondary);
   cursor: pointer;
@@ -696,7 +704,7 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 }
 
 .date-picker__day:focus-visible {
-  box-shadow: 0 0 0 1px var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent-ui);
 }
 
 .date-picker__day[data-outside-view] {
@@ -705,9 +713,9 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 }
 
 .date-picker__day[data-today] {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   color: var(--color-primary);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* Range: the days inside the span (committed, or the live preview
@@ -731,9 +739,9 @@ function segmentAttrs(part: SegmentPart, end?: 'start' | 'end'): Record<string, 
 .date-picker__popover--range .date-picker__day[data-highlighted-end]:hover {
   background-color: var(--color-accent);
   color: var(--color-on-accent);
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   border-radius: 0.25rem;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .date-picker__day[data-disabled],

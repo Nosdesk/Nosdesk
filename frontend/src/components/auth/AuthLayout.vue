@@ -83,7 +83,7 @@ const heroStyle = computed(() => ({
              two alignment decisions disagreeing on one screen. -->
         <div class="w-fit self-center lg:self-start">
           <slot name="logo">
-            <LogoIcon class="h-9 w-auto text-accent" :aria-label="$t('nav-logo-alt')" />
+            <LogoIcon class="h-9 w-auto text-accent-fill" :aria-label="$t('nav-logo-alt')" />
           </slot>
         </div>
 

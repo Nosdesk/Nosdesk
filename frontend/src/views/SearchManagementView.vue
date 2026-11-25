@@ -11,7 +11,7 @@
         <div class="p-4 flex flex-col gap-3">
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/15 flex items-center justify-center text-accent-on-tint">
               <Icon name="insights" size="md" />
             </div>
             <div class="flex-1">
@@ -97,7 +97,7 @@
               type="button"
               @click="rebuildIndex"
               :disabled="isRebuilding"
-              class="px-3 py-1.5 bg-status-warning/20 text-status-warning border border-status-warning/50 rounded-lg text-sm hover:bg-status-warning/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
+              class="px-3 py-1.5 bg-status-warning/20 text-status-warning border border-status-warning/50 rounded-lg text-sm hover:bg-status-warning/20 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
             >
               <Spinner v-if="isRebuilding" />
               <Icon v-else name="refresh" />
@@ -114,8 +114,8 @@
         <!-- Rebuild Results -->
         <div v-if="rebuildResults" class="border-t border-default p-4 bg-surface-alt">
           <div class="flex items-center gap-2 mb-3">
-            <Icon v-if="rebuildResults.success" name="checkCircle" class="text-status-success" />
-            <Icon v-else name="warning" class="text-status-error" />
+            <Icon v-if="rebuildResults.success" name="checkCircle" class="text-status-success-ui" />
+            <Icon v-else name="warning" class="text-status-error-ui" />
             <span class="text-sm font-medium" :class="rebuildResults.success ? 'text-status-success' : 'text-status-error'">
               {{ rebuildResults.success ? $t('admin-search-mgmt-rebuild-success') : $t('admin-search-mgmt-rebuild-failed') }}
             </span>

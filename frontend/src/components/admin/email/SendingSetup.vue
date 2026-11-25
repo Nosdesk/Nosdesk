@@ -134,7 +134,7 @@ async function sendTest() {
         class="group flex flex-col gap-2 rounded-lg border p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent border-default hover:bg-surface-hover data-[state=checked]:border-accent data-[state=checked]:bg-accent/5"
       >
         <div class="flex items-center gap-2">
-          <Icon :name="opt.icon" size="sm" class="text-tertiary group-data-[state=checked]:text-accent" />
+          <Icon :name="opt.icon" size="sm" class="text-tertiary group-data-[state=checked]:text-accent-ui" />
           <span class="flex-1 text-sm font-medium text-primary">{{ opt.title }}</span>
           <StatusPill
             v-if="active === opt.value"

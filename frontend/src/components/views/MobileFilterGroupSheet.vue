@@ -42,7 +42,7 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
             class="flex items-center justify-between px-3 py-2.5 text-left text-sm transition-colors"
             :class="
               opt.key === listView.grouping.groupBy.value
-                ? 'bg-accent/10 text-accent font-medium'
+                ? 'bg-accent/10 text-accent-on-tint font-medium'
                 : 'text-primary hover:bg-surface-hover'
             "
             @click="listView.grouping.setGroupBy(opt.key)"

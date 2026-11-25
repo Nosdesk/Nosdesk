@@ -70,7 +70,7 @@ const removeAriaLabel = computed(() => props.removeTitle || t('ticket-chip-remov
     padding: 0 !important;
     border-radius: 0 !important;
     font-size: 9.5pt !important;
-    font-weight: 400 !important;
+    font-weight: var(--font-weight-normal) !important;
     max-width: none !important;
   }
 

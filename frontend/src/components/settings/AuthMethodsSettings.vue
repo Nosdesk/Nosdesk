@@ -208,12 +208,12 @@ const getAuthMethodIcon = (type: string) => {
                 </div>
                 <!-- Microsoft Icon (4-square grid pattern) -->
                 <div v-else-if="getAuthMethodIcon(method.type) === 'microsoft'" class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Icon name="microsoft" size="md" class="text-accent" />
+                  <Icon name="microsoft" size="md" class="text-accent-ui" />
                 </div>
                 <div>
                   <div class="text-sm font-medium text-primary">
                     {{ getAuthMethodLabel(method.type) }}
-                    <span v-if="method.isPrimary" class="ml-2 px-2 py-1 bg-accent/20 text-accent rounded text-xs">{{ $t('settings-auth-methods-primary-badge') }}</span>
+                    <span v-if="method.isPrimary" class="ml-2 px-2 py-1 bg-accent/20 text-accent-on-tint rounded text-xs">{{ $t('settings-auth-methods-primary-badge') }}</span>
                   </div>
                   <div v-if="method.identifier" class="text-xs text-tertiary">
                     {{ method.identifier }}<template v-if="method.createdAt"> {{ $t('settings-auth-methods-added-suffix', { date: formatDate(method.createdAt) }) }}</template>
@@ -241,7 +241,7 @@ const getAuthMethodIcon = (type: string) => {
           class="flex items-center gap-3 p-3 bg-surface-alt hover:bg-surface-hover rounded-lg border border-dashed border-subtle hover:border-default transition-colors disabled:opacity-50 w-full"
         >
           <div class="w-8 h-8 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
-            <Icon name="microsoft" class="text-accent" />
+            <Icon name="microsoft" class="text-accent-ui" />
           </div>
           <div class="flex flex-col items-start">
             <span class="text-sm font-medium text-primary">{{ $t('settings-auth-methods-connect-microsoft') }}</span>

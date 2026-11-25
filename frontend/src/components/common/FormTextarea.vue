@@ -244,8 +244,8 @@ function onGripPointerUp(event: PointerEvent): void {
           // content rarely reaches it. Default (`resize: 'none'`)
           // reclaims even this and uses the standard `px-3 py-2`.
           resize === 'none' ? '' : 'pe-3 pb-3',
-          mono ? 'font-mono text-sm' : 'text-sm',
-          error ? 'border-status-error' : 'border-subtle hover:border-default',
+          mono ? 'font-mono text-sm pointer-coarse:text-base' : 'text-sm pointer-coarse:text-base',
+          error ? 'border-status-error' : 'border-field',
         ]"
         v-bind="{ ...$attrs, class: undefined }"
       />

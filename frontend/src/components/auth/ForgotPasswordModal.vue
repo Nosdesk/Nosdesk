@@ -3,7 +3,7 @@
     <!-- Success State -->
     <div v-if="emailSent" class="flex flex-col items-center gap-4 text-center">
       <div class="bg-status-success/20 rounded-full p-3">
-        <Icon name="email" size="xl" class="text-status-success" />
+        <Icon name="email" size="xl" class="text-status-success-ui" />
       </div>
       <div>
         <h3 class="text-lg font-medium text-primary mb-2">{{ $t('forgot-password-success-title') }}</h3>

@@ -18,7 +18,7 @@ export const nossalDarkTheme: Theme = {
     app: '#1a1816',
     surface: '#242120',
     surfaceAlt: '#2e2a28',
-    surfaceHover: '#383432',
+    surfaceHover: '#393533', // 1.32:1 from surface, 1.17:1 from the alternate surface
 
     // Borders - warm grey tones
     default: '#857B78',
@@ -28,7 +28,7 @@ export const nossalDarkTheme: Theme = {
     // Text
     primary: '#f5f0ed',
     secondary: '#d4ccc7',
-    tertiary: '#857B78',
+    tertiary: '#a99e9b', // lifted to 4.7:1 on hover, 6.1:1 on surface
 
     // Accent - Nossal orange
     accent: '#F37929',

@@ -70,7 +70,7 @@ function pick(key: string): void {
       :class="[
         'inline-flex items-center gap-1 text-2xs px-2 h-6 rounded-md border transition-colors',
         isActive
-          ? 'border-accent/40 bg-accent/10 text-accent'
+          ? 'border-accent/40 bg-accent/10 text-accent-on-tint'
           : 'text-tertiary hover:text-primary border-subtle hover:border-default hover:bg-surface-hover',
       ]"
       :aria-expanded="open"
@@ -115,7 +115,7 @@ function pick(key: string): void {
           <Icon
             v-if="opt.key === modelValue"
             name="check"
-            class="w-3 h-3 text-accent"
+            class="w-3 h-3 text-accent-ui"
           />
         </MenuItem>
       </div>

@@ -53,7 +53,7 @@ const densityOptions: ReadonlyArray<{ value: Density; svg: string; labelKey: str
       <RadioGroupItem :value="opt.value" as-child>
         <button
           type="button"
-          class="h-full w-7 flex items-center justify-center transition-colors text-tertiary hover:text-primary hover:bg-surface-hover aria-checked:bg-accent/15 aria-checked:text-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent"
+          class="h-full w-7 flex items-center justify-center transition-colors text-tertiary hover:text-primary hover:bg-surface-hover aria-checked:bg-accent/15 aria-checked:text-accent-on-tint focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent"
           :aria-label="$t(opt.labelKey)"
         >
           <svg

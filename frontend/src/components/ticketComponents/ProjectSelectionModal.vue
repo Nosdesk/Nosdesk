@@ -74,9 +74,9 @@ const filteredProjects = computed<Project[]>(() => {
 const getStatusClass = (status: string) => {
   switch (status) {
     case 'active':
-      return 'bg-status-success/30 text-status-success border-status-success/30'
+      return 'bg-status-success-muted text-status-success border-status-success/30'
     case 'completed':
-      return 'bg-accent/15 text-accent border-accent/30'
+      return 'bg-accent/15 text-accent-on-tint border-accent/30'
     case 'archived':
       return 'bg-surface-alt/30 text-secondary border-subtle/30'
     default:
@@ -210,7 +210,7 @@ const selectProject = (project: Project) => {
                     <button
                       type="button"
                       v-if="!isAdded(project.id)"
-                      class="text-accent hover:text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors"
+                      class="text-accent-on-tint hover:text-accent-on-tint text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors"
                     >
                       {{ t('project-modal-select') }}
                     </button>

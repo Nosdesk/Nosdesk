@@ -96,10 +96,10 @@ const summary = computed(() => {
       <span
         class="relative z-[1] w-6 h-6 rounded-full flex items-center justify-center shrink-0"
         :class="{
-          'bg-accent text-white': step.state === 'done',
+          'bg-accent text-on-accent': step.state === 'done',
           'bg-app ring-2 ring-accent': step.state === 'current',
           'bg-app border-2 border-default': step.state === 'upcoming',
-          'bg-status-error text-white': step.state === 'stopped',
+          'bg-status-error-solid text-on-status-error': step.state === 'stopped',
         }"
         aria-hidden="true"
       >

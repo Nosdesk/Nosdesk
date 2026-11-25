@@ -3,7 +3,7 @@
     <div class="p-4 flex flex-col gap-3">
       <div class="flex items-center gap-3">
         <div
-          class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent"
+          class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent-on-tint"
         >
           <Icon name="archive" size="md" />
         </div>
@@ -37,7 +37,7 @@
             <h3 class="text-xs uppercase tracking-wide text-tertiary font-semibold">{{ t('settings-export-moves-heading') }}</h3>
             <ul class="flex flex-col gap-1 text-secondary">
               <li v-for="key in MOVES" :key="key" class="flex items-start gap-2">
-                <Icon name="check" size="xs" class="mt-1 shrink-0 text-status-success" />
+                <Icon name="check" size="xs" class="mt-1 shrink-0 text-status-success-ui" />
                 <span>{{ t(key) }}</span>
               </li>
             </ul>
@@ -87,7 +87,7 @@
       <!-- Ready -->
       <template v-else-if="isReady">
         <div class="flex items-start gap-2">
-          <Icon name="checkCircle" size="sm" class="text-status-success mt-0.5 flex-shrink-0" />
+          <Icon name="checkCircle" size="sm" class="text-status-success-ui mt-0.5 flex-shrink-0" />
           <div class="flex flex-col gap-0.5 min-w-0">
             <span class="text-sm text-status-success font-medium">
               {{ t('settings-export-status-ready') }}
@@ -115,7 +115,7 @@
 
       <!-- Failed -->
       <div v-else-if="isFailed" class="flex items-start gap-2">
-        <Icon name="warning" size="sm" class="text-status-error mt-0.5 flex-shrink-0" />
+        <Icon name="warning" size="sm" class="text-status-error-ui mt-0.5 flex-shrink-0" />
         <span class="text-sm text-status-error">
           {{ job?.error_message || t('settings-export-status-failed') }}
         </span>

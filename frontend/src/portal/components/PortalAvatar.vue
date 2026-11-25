@@ -15,7 +15,7 @@ const props = withDefaults(
 
 const failed = ref(false)
 const sizeClass = computed(
-  () => ({ sm: 'w-6 h-6 text-[0.625rem]', md: 'w-8 h-8 text-xs', lg: 'w-10 h-10 text-sm' })[props.size],
+  () => ({ sm: 'w-6 h-6 text-3xs', md: 'w-8 h-8 text-xs', lg: 'w-10 h-10 text-sm' })[props.size],
 )
 // UserAvatar's hue: from the first letter.
 const color = computed(() => {
@@ -37,7 +37,7 @@ const color = computed(() => {
   />
   <span
     v-else
-    class="rounded-full shrink-0 inline-flex items-center justify-center font-medium text-white select-none"
+    class="type-fixed rounded-full shrink-0 inline-flex items-center justify-center font-medium text-white select-none"
     :class="sizeClass"
     :style="{ backgroundColor: color }"
     aria-hidden="true"

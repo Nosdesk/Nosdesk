@@ -102,7 +102,7 @@ defineExpose({ focus })
     />
     <button
       type="button"
-      class="px-2 py-1 text-xs rounded-md text-secondary hover:bg-surface-hover aria-pressed:bg-accent/15 aria-pressed:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      class="px-2 py-1 text-xs rounded-md text-secondary hover:bg-surface-hover aria-pressed:bg-accent/15 aria-pressed:text-accent-on-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       :aria-pressed="caseSensitive"
       @click="caseSensitive = !caseSensitive"
     >

@@ -62,7 +62,7 @@ const copy = computed(() => {
     <Icon
       :name="result.ok ? 'checkCircle' : 'xCircle'"
       class="mt-0.5 shrink-0"
-      :class="result.ok ? 'text-status-success' : 'text-status-error'"
+      :class="result.ok ? 'text-status-success-ui' : 'text-status-error-ui'"
     />
     <div class="flex min-w-0 flex-col gap-1">
       <p class="text-sm font-medium text-primary">{{ copy.title }}</p>

@@ -122,7 +122,7 @@ const STATUS_CLASS: Record<Status, string> = {
           class="flex items-center gap-3 p-3 rounded-lg border border-default hover:border-strong text-left transition-colors"
           @click="router.push(ct.route)"
         >
-          <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+          <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent-on-tint">
             <Icon :name="ct.icon" size="md" />
           </div>
           <div class="flex flex-col">
@@ -148,7 +148,7 @@ const STATUS_CLASS: Record<Status, string> = {
           class="flex items-center gap-3 p-4 rounded-xl border border-default bg-surface hover:border-strong text-left transition-colors"
           @click="openChannel(ch)"
         >
-          <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+          <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent-on-tint">
             <Icon :name="typeFor(ch.provider)?.icon ?? 'email'" size="md" />
           </div>
           <div class="flex-1 flex flex-col">

@@ -616,7 +616,7 @@ const handleOidcLogoutClick = async () => {
         :alt="brandingStore.appName + ' Logo'"
         class="h-9 w-auto max-w-[180px] object-contain"
       />
-      <LogoIcon v-else class="h-9 w-auto text-accent" :aria-label="$t('nav-logo-alt')" />
+      <LogoIcon v-else class="h-9 w-auto text-accent-fill" :aria-label="$t('nav-logo-alt')" />
     </template>
 
     <div class="flex flex-col gap-8">
@@ -637,7 +637,7 @@ const handleOidcLogoutClick = async () => {
         <div class="text-center">
           <div class="mb-4">
             <div class="inline-flex items-center justify-center w-12 h-12 bg-accent/10 rounded-full mb-4">
-              <Icon name="lock" size="lg" class="text-accent" />
+              <Icon name="lock" size="lg" class="text-accent-ui" />
             </div>
             <h2 class="text-xl font-semibold text-primary mb-2">
               {{ $t("login-mfa-title") }}
@@ -653,7 +653,7 @@ const handleOidcLogoutClick = async () => {
           v-if="errorMessage"
           class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm flex items-center gap-2"
         >
-          <Icon name="warning" class="text-status-error flex-shrink-0" />
+          <Icon name="warning" class="text-status-error-ui flex-shrink-0" />
           <span>{{ errorMessage }}</span>
         </div>
 
@@ -675,7 +675,7 @@ const handleOidcLogoutClick = async () => {
                 required
                 autocomplete="one-time-code"
                 placeholder="000000"
-                class="w-full px-4 py-3 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-xl tracking-[0.5em] font-mono"
+                class="w-full px-4 py-3 bg-surface border border-field rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-xl tracking-[0.5em] font-mono"
                 maxlength="8"
                 @input="handleMfaInput"
                 @paste="handleMfaPaste"
@@ -745,7 +745,7 @@ const handleOidcLogoutClick = async () => {
                 required
                 autocomplete="off"
                 :placeholder="$t('login-recovery-code-placeholder')"
-                class="w-full px-4 py-3 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-lg tracking-widest font-mono uppercase"
+                class="w-full px-4 py-3 bg-surface border border-field rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-lg tracking-widest font-mono uppercase"
                 maxlength="8"
               />
               <p class="text-xs text-tertiary text-center">

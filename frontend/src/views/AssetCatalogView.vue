@@ -287,22 +287,22 @@ async function confirmDelete() {
         <button
           type="button"
           class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0"
-          :class="manufacturerFilter === 'all' ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-surface-hover'"
+          :class="manufacturerFilter === 'all' ? 'bg-accent/15 text-accent-on-tint' : 'text-secondary hover:bg-surface-hover'"
           @click="manufacturerFilter = 'all'"
         >
           {{ $t('asset-catalog-filter-all') }}
-          <span class="text-xs tabular-nums" :class="manufacturerFilter === 'all' ? 'text-accent/70' : 'text-tertiary'">{{ models.length }}</span>
+          <span class="text-xs tabular-nums" :class="manufacturerFilter === 'all' ? 'text-accent' : 'text-tertiary'">{{ models.length }}</span>
         </button>
         <button
           v-for="m in manufacturers"
           :key="m.id"
           type="button"
           class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0"
-          :class="manufacturerFilter === m.id ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-surface-hover'"
+          :class="manufacturerFilter === m.id ? 'bg-accent/15 text-accent-on-tint' : 'text-secondary hover:bg-surface-hover'"
           @click="manufacturerFilter = m.id"
         >
           {{ m.name }}
-          <span class="text-xs tabular-nums" :class="manufacturerFilter === m.id ? 'text-accent/70' : 'text-tertiary'">{{ modelCount(m.id) }}</span>
+          <span class="text-xs tabular-nums" :class="manufacturerFilter === m.id ? 'text-accent' : 'text-tertiary'">{{ modelCount(m.id) }}</span>
         </button>
       </div>
       <Button variant="secondary" size="sm" icon="settings" @click="manageOpen = true">

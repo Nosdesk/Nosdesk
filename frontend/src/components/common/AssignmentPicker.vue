@@ -134,7 +134,7 @@ const rowClass =
           v-model="searchQuery"
           :placeholder="resolvedPlaceholder"
           :aria-label="resolvedPlaceholder"
-          class="w-full px-3 py-2 text-sm rounded-lg border border-default bg-surface text-primary placeholder:text-tertiary focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent/30"
+          class="w-full px-3 py-2 text-sm rounded-lg border border-default bg-surface text-primary placeholder:text-tertiary focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent/30"
         />
       </ComboboxAnchor>
 

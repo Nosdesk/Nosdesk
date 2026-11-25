@@ -89,7 +89,7 @@ onMounted(async () => {
           :auto-focus="autoFocus"
           :placeholder="$t('views-filter-value-search-placeholder')"
           :aria-label="$t('views-filter-value-search-placeholder')"
-          class="bg-surface border border-subtle rounded-md text-xs pl-7 pr-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
+          class="bg-surface border border-subtle rounded-md text-xs pl-7 pr-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent transition-colors"
         />
       </div>
     </div>

@@ -450,7 +450,7 @@ const gridColumns = computed(
         content-padding="p-4 sm:p-6"
       >
         <template #leading>
-          <Icon :name="group.icon" class="text-accent flex-shrink-0" />
+          <Icon :name="group.icon" class="text-accent-ui flex-shrink-0" />
         </template>
         <template #title>{{ group.label }}</template>
 

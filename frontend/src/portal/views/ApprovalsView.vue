@@ -41,7 +41,7 @@ const approvals = useQuery({ key: ['portal', 'approvals'], query: listMyApproval
         >
           <PortalAvatar :name="a.requester_name ?? ''" size="sm" class="mt-0.5" />
           <span class="flex flex-col gap-1 flex-1 min-w-0">
-            <span class="text-[0.9375rem] font-medium text-primary truncate">{{ a.title }}</span>
+            <span class="text-sm-plus font-medium text-primary truncate">{{ a.title }}</span>
             <span class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-secondary">
               <span>{{ t('portal-approvals-from', { name: a.requester_name ?? '' }) }}</span>
               <span v-if="a.request_type">{{ a.request_type }}</span>

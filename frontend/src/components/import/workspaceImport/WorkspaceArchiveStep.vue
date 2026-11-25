@@ -125,7 +125,7 @@ function onDrop(event: DragEvent) {
 }
 
 const ICON = { ok: 'checkCircle', bad: 'xCircle', todo: 'circleDot' } as const
-const ICON_CLASS = { ok: 'text-status-success', bad: 'text-status-error', wait: 'text-tertiary', todo: 'text-tertiary opacity-50' }
+const ICON_CLASS = { ok: 'text-status-success', bad: 'text-status-error', wait: 'text-tertiary', todo: 'text-tertiary' }
 </script>
 
 <template>
@@ -201,7 +201,7 @@ const ICON_CLASS = { ok: 'text-status-success', bad: 'text-status-error', wait: 
           >
             <span
               class="w-12 h-12 rounded-full flex items-center justify-center"
-              :class="isDragOver ? 'bg-accent/20 text-accent' : 'bg-surface text-tertiary'"
+              :class="isDragOver ? 'bg-accent/20 text-accent-on-tint' : 'bg-surface text-tertiary'"
             >
               <Icon name="archive" size="md" />
             </span>

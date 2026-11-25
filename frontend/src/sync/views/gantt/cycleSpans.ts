@@ -42,7 +42,7 @@ export function datedCycleSpans(cycles: readonly GanttCycle[]): CycleSpan[] {
 /** Strip-label tint by cycle state: active stands out, planned is
  *  neutral, completed is muted. */
 export function cycleStripClass(state: GanttCycle['state']): string {
-  if (state === 'active') return 'bg-accent/15 text-accent border-accent/40'
+  if (state === 'active') return 'bg-accent/15 text-accent-on-tint border-accent/40'
   if (state === 'planned') return 'bg-surface-hover text-secondary border-subtle'
   return 'bg-surface-alt text-tertiary border-subtle'
 }

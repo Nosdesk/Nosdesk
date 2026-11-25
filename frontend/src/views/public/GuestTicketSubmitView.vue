@@ -15,7 +15,7 @@
       class="bg-surface border border-default rounded-xl shadow-sm p-6 sm:p-8 flex flex-col items-center gap-5 text-center"
     >
       <div class="w-12 h-12 rounded-full bg-accent-muted flex items-center justify-center">
-        <Icon name="email" size="lg" class="text-accent" />
+        <Icon name="email" size="lg" class="text-accent-ui" />
       </div>
       <div class="flex flex-col gap-2">
         <h1 class="text-xl font-semibold text-primary">{{ t('guest-submit-verify-title') }}</h1>
@@ -40,7 +40,7 @@
     >
       <div class="flex items-start gap-4">
         <div class="shrink-0 w-10 h-10 rounded-full bg-status-success-muted flex items-center justify-center">
-          <Icon name="check" size="md" class="text-status-success" />
+          <Icon name="check" size="md" class="text-status-success-ui" />
         </div>
         <div class="flex-1 min-w-0 flex flex-col gap-1">
           <h1 class="text-xl font-semibold text-primary">{{ t('guest-submit-success-title') }}</h1>
@@ -103,7 +103,7 @@
         v-if="introMessage"
         class="rounded-lg border border-status-info/30 bg-status-info-muted p-4 flex items-start gap-3"
       >
-        <Icon name="info" size="md" class="text-status-info shrink-0 mt-0.5" />
+        <Icon name="info" size="md" class="text-status-info-ui shrink-0 mt-0.5" />
         <p class="text-sm text-secondary whitespace-pre-line">{{ introMessage }}</p>
       </div>
 

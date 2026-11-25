@@ -349,8 +349,8 @@ function onOpenAutoFocus(event: Event) {
 
 .modal-header__title {
   margin: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
   line-height: 1.25;
   letter-spacing: -0.01em;
   color: var(--color-text-primary);
@@ -361,7 +361,7 @@ function onOpenAutoFocus(event: Event) {
 
 .modal-header__description {
   margin: 0.25rem 0 0;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   line-height: 1.35;
   color: var(--color-text-secondary);
   display: -webkit-box;
@@ -411,12 +411,12 @@ function onOpenAutoFocus(event: Event) {
   }
 
   .modal-header__title {
-    font-size: 0.8125rem;
+    font-size: var(--text-xs-plus);
     line-height: 1;
   }
 
   .modal-header__description {
-    font-size: 0.6875rem;
+    font-size: var(--text-2xs);
   }
 
   .modal-header--described {
@@ -502,8 +502,8 @@ function onOpenAutoFocus(event: Event) {
 .modal-footer :deep(.modal-actions button) {
   min-height: 2.75rem;
   padding-inline: 1rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
   border-radius: 0.5rem;
 }
 

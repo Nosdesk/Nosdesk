@@ -36,7 +36,7 @@ const META: Record<AssetStatus, AssetStatusMeta> = {
   },
   in_transit: {
     labelKey: 'asset-status-in-transit',
-    colorClass: 'bg-accent-muted text-accent border-accent/30',
+    colorClass: 'bg-accent-muted text-accent-on-tint border-accent/30',
     swatchClass: 'bg-cyan-500',
     icon: 'send',
   },
@@ -48,7 +48,7 @@ const META: Record<AssetStatus, AssetStatusMeta> = {
   },
   on_loan: {
     labelKey: 'asset-status-on-loan',
-    colorClass: 'bg-accent-muted text-accent border-accent/30',
+    colorClass: 'bg-accent-muted text-accent-on-tint border-accent/30',
     swatchClass: 'bg-blue-500',
     icon: 'user',
   },

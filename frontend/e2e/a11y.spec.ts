@@ -253,14 +253,14 @@ test.describe('accessibility floor', () => {
 
   test('a switch is named by its label and toggles from the keyboard and the label', async ({ page }) => {
     await gotoAndSettle(page, '/profile/settings/appearance')
-    const sw = page.getByRole('switch', { name: 'Compact view' })
+    const sw = page.getByRole('switch', { name: 'Color blind friendly mode' })
     await expect(sw).toBeVisible()
     const before = await sw.getAttribute('aria-checked')
     await sw.focus()
     await page.keyboard.press('Space')
     await expect(sw).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true')
     // The visible label is a real <label for>, so it toggles the switch too.
-    await page.getByText('Compact view', { exact: true }).click()
+    await page.getByText('Color blind friendly mode', { exact: true }).click()
     await expect(sw).toHaveAttribute('aria-checked', before ?? 'false')
     await expectNoSeriousViolations(page, 'main')
   })

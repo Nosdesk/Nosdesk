@@ -40,15 +40,15 @@ const leftOutCounts = computed(() => props.archived > 0 || props.trash > 0)
           </h3>
           <ul class="flex flex-col gap-1 text-secondary" data-testid="docs-export-included">
             <li class="flex items-start gap-2">
-              <Icon name="check" size="xs" class="mt-1 shrink-0 text-status-success" />
+              <Icon name="check" size="xs" class="mt-1 shrink-0 text-status-success-ui" />
               <span>{{ $t('docs-export-included-pages', { count: pages }) }}</span>
             </li>
             <li class="flex items-start gap-2">
-              <Icon name="check" size="xs" class="mt-1 shrink-0 text-status-success" />
+              <Icon name="check" size="xs" class="mt-1 shrink-0 text-status-success-ui" />
               <span>{{ $t('docs-export-included-structure', { count: collections }) }}</span>
             </li>
             <li class="flex items-start gap-2">
-              <Icon name="check" size="xs" class="mt-1 shrink-0 text-status-success" />
+              <Icon name="check" size="xs" class="mt-1 shrink-0 text-status-success-ui" />
               <span>{{ $t('docs-export-included-images') }}</span>
             </li>
           </ul>

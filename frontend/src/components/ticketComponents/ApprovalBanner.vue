@@ -88,18 +88,18 @@ const skip = () =>
 <template>
   <div
     v-if="state === 'pending'"
-    class="flex flex-col gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm"
+    class="flex flex-col gap-3 rounded-lg border border-status-warning/40 bg-status-warning-muted px-3 py-2.5 text-sm"
     role="region"
     :aria-label="t('approval-banner-title')"
   >
     <div class="flex items-start gap-2">
-      <Icon name="clock" size="sm" class="mt-0.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+      <Icon name="clock" size="sm" class="mt-0.5 text-status-warning-ui flex-shrink-0" />
       <div class="flex flex-col gap-1 flex-1 min-w-0">
-        <span class="font-medium text-amber-900 dark:text-amber-100">{{ t('approval-banner-title') }}</span>
-        <p v-if="data?.no_approver" class="text-amber-800 dark:text-amber-200">
+        <span class="font-medium text-primary">{{ t('approval-banner-title') }}</span>
+        <p v-if="data?.no_approver" class="text-primary">
           {{ t('approval-banner-no-approver') }}
         </p>
-        <ul v-else-if="data" class="flex flex-wrap gap-x-3 gap-y-1 text-amber-800 dark:text-amber-200">
+        <ul v-else-if="data" class="flex flex-wrap gap-x-3 gap-y-1 text-primary">
           <li v-for="a in data.approval.approvers" :key="a.uuid">
             {{ a.name }} <span class="text-xs opacity-80">({{ statusLabel(a.decision) }})</span>
           </li>

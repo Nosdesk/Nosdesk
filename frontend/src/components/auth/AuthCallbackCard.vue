@@ -25,7 +25,7 @@ const logoUrl = computed(() => brandingStore.getLogoUrl(themeStore.isDarkMode))
           :alt="brandingStore.appName"
           class="h-10 max-w-[200px] object-contain"
         />
-        <LogoIcon v-else class="h-10 text-accent" />
+        <LogoIcon v-else class="h-10 text-accent-fill" />
       </div>
 
       <div class="flex flex-col items-center justify-center gap-4">

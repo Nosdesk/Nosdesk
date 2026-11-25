@@ -62,6 +62,12 @@ const CONTRACT_CLASSES = [
 // Every `--nd-*` name the host pushes: the TOKEN_MAP keys and the metric
 // tokens in frontend/src/plugins/theme.ts. The kit may reference only these.
 const HOST_TOKENS = new Set([
+  'accent-text',
+  'accent-on-tint-text',
+  'success-text',
+  'error-text',
+  'warning-text',
+  'info-text',
   'surface',
   'surface-alt',
   'surface-hover',
@@ -126,6 +132,12 @@ describe('PLUGIN_UI_CSS', () => {
     }
     expect(coarse).toMatch(/label:has\(> \.nd-checkbox\)/)
     expect(coarse).toMatch(/\.nd-switch::after/)
+  })
+
+  it('renders text fields at 16px or more on a coarse pointer, so iOS does not zoom into them', () => {
+    const coarse = PLUGIN_UI_CSS.slice(PLUGIN_UI_CSS.indexOf('@media (pointer: coarse)'))
+    expect(coarse).toMatch(/\.nd-input, \.nd-textarea, \.nd-select \{[^}]*font-size: 16px;/)
+    expect(coarse).toMatch(/:where\(input:not\([^)]*\), textarea, select\) \{[^}]*font-size: max\(16px, 1em\);/)
   })
 
   it('sets the app body size (14px) as the document base', () => {

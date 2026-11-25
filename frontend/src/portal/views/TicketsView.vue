@@ -89,7 +89,7 @@ function lastMove(ticket: PortalTicket): string {
           <span class="flex flex-col gap-1 flex-1 min-w-0">
             <span class="flex items-center gap-2 min-w-0">
               <span
-                class="truncate text-[0.9375rem]"
+                class="truncate text-sm-plus"
                 :class="ticket.unread_reply ? 'font-semibold text-primary' : 'font-medium text-primary'"
               >
                 {{ ticket.title }}

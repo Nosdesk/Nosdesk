@@ -253,7 +253,7 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
                 <Icon
                   v-if="activeSet.has(facet.key)"
                   name="check"
-                  class="w-3 h-3 text-accent"
+                  class="w-3 h-3 text-accent-ui"
                 />
                 <Icon name="chevronRight" class="w-3 h-3 text-tertiary" />
               </MenuItem>
@@ -281,7 +281,7 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
                 type="text"
                 :value="stageTextValue"
                 :placeholder="textPlaceholder ?? $t('views-add-filter-search-title-placeholder')"
-                class="bg-surface border border-subtle rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
+                class="bg-surface border border-field rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent transition-colors"
                 @input="onTextInput"
                 @keydown="onTextKeydown"
               />

@@ -20,7 +20,7 @@ export const everforestLightTheme: Theme = {
     app: '#fdf6e3',
     surface: '#fffbef',
     surfaceAlt: '#f4f0d9',
-    surfaceHover: '#e6e2cc',
+    surfaceHover: '#e3dfc9', // 1.30:1 from surface, 1.17:1 from the alternate surface
 
     // Borders
     default: '#e0dcc7',
@@ -28,9 +28,9 @@ export const everforestLightTheme: Theme = {
     strong: '#d4d0bb',
 
     // Text
-    primary: '#5c6a72',
-    secondary: '#708089',
-    tertiary: '#939f91',
+    primary: '#46525a', // lifted to 6.0:1 on hover, 7.8:1 on surface
+    secondary: '#4b5a63', // lifted to 5.3:1 on hover, 6.9:1 on surface
+    tertiary: '#596458', // lifted to 4.6:1 on hover, 6.0:1 on surface
 
     // Accent (Everforest green)
     accent: '#8da101',
@@ -108,9 +108,9 @@ export const everforestDarkTheme: Theme = {
     strong: '#56635f',
 
     // Text
-    primary: '#d3c6aa',
-    secondary: '#a7c080',
-    tertiary: '#859289',
+    primary: '#ebdec1', // lifted to 6.0:1 on hover, 8.1:1 on surface
+    secondary: '#c2dc9a', // lifted to 5.4:1 on hover, 7.2:1 on surface
+    tertiary: '#bac8be', // lifted to 4.6:1 on hover, 6.2:1 on surface
 
     // Accent (Everforest green)
     accent: '#a7c080',

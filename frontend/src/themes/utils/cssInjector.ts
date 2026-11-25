@@ -1,6 +1,7 @@
-import type { Theme } from '../types'
+import type { Theme, ThemeColors } from '../types'
 import { lightTheme } from '../base/light'
 import { darkTheme } from '../base/dark'
+import { contrast, isColour, parseColour, readableOn, solidFor, toHex, type Rgb } from './readable'
 import { createNoncedStyleElement } from '@/utils/cspNonce'
 
 /**
@@ -20,9 +21,152 @@ export function overdueColor(theme: Theme): string {
 }
 
 /**
- * Converts theme colors to CSS variables and injects them into the DOM
+ * The colours that carry meaning as text, each with the tint it sits on
+ * in chips (null: that text sits on plain backgrounds only).
+ * `text-status-error`, `text-accent` and the rest read the
+ * `--color-<name>-text` version of each (see `--text-color-*` in
+ * main.css), derived here per theme. Accent text takes the lightest
+ * colour that reads on the backgrounds, so it stays an orange rather
+ * than a brown; `text-accent-on-tint` is the one for accent text on an
+ * accent tint (an active menu item, an accent chip).
  */
-export function applyTheme(theme: Theme, accentOverride?: string): void {
+export const TEXT_COLOURS = [
+  ['status-success', 'success', 'successMuted'],
+  ['status-error', 'error', 'errorMuted'],
+  ['status-warning', 'warning', 'warningMuted'],
+  ['status-info', 'info', 'infoMuted'],
+  ['status-open', 'statusOpen', 'statusOpenMuted'],
+  ['status-in-progress', 'statusInProgress', 'statusInProgressMuted'],
+  ['status-closed', 'statusClosed', 'statusClosedMuted'],
+  ['priority-high', 'priorityHigh', 'priorityHighMuted'],
+  ['priority-medium', 'priorityMedium', 'priorityMediumMuted'],
+  ['priority-low', 'priorityLow', 'priorityLowMuted'],
+  ['accent', 'accent', null],
+  ['accent-hover', 'accentHover', null],
+  ['accent-on-tint', 'accent', 'accentMuted'],
+] as const satisfies ReadonlyArray<readonly [string, keyof ThemeColors, keyof ThemeColors | null]>
+
+/** The status colours that also fill buttons and badges with a label on
+ *  them (`bg-status-error-solid text-on-status-error`). */
+export const SOLID_COLOURS = [
+  ['status-success', 'success'],
+  ['status-error', 'error'],
+  ['status-warning', 'warning'],
+  ['status-info', 'info'],
+] as const satisfies ReadonlyArray<readonly [string, keyof ThemeColors]>
+
+/** The status and priority colours that also mark icons and glyphs.
+ *  `text-<name>-ui` is the colour at 3:1 (WCAG 1.4.11), lighter than its
+ *  text version, for an icon that carries meaning. */
+export const UI_COLOURS = TEXT_COLOURS.filter(([name]) => !name.startsWith('accent'))
+
+/** The opacities components lay a colour over a background at, besides
+ *  its muted token: `bg-status-error/10`, `/15`, `/20`. Text and icons
+ *  in that colour are held to their ratio on all of them. */
+export const TINT_ALPHAS = [0.1, 0.15, 0.2] as const
+
+/** Every tint of `colour` its own text can sit on: its muted token and
+ *  each of TINT_ALPHAS, laid over each background. */
+export function tintsOf(colour: string, muted: string, backgrounds: Rgb[]): Rgb[] {
+  const solid = parseColour(colour)
+  return backgrounds.flatMap((under) => [
+    parseColour(muted, under),
+    ...TINT_ALPHAS.map((a) => solid.map((v, i) => v * a + under[i] * (1 - a)) as Rgb),
+  ])
+}
+
+/** Merged has no theme colour of its own: every theme takes the base
+ *  light or dark one (main.css), and its text version is derived here
+ *  against the theme's own backgrounds like the rest. */
+export const MERGED = {
+  light: { fill: '#6366F1', tint: 'rgba(99, 102, 241, 0.15)' },
+  dark: { fill: '#818CF8', tint: 'rgba(129, 140, 248, 0.2)' },
+} as const
+
+/** The backgrounds text sits on: the app, the surface, the alternate
+ *  surface and the hover fill, the translucent ones laid over the
+ *  surface where rows and cards draw them, and the hover fill over the
+ *  alternate surface. */
+export function themeBackgrounds(
+  colors: ThemeColors,
+): Record<'app' | 'surface' | 'surfaceAlt' | 'surfaceHover' | 'surfaceHoverOnAlt', Rgb> {
+  const surface = parseColour(colors.surface)
+  const surfaceAlt = parseColour(colors.surfaceAlt, surface)
+  return {
+    app: parseColour(colors.app),
+    surface,
+    surfaceAlt,
+    surfaceHover: parseColour(colors.surfaceHover, surface),
+    // A hovered alternate row: the hover fill laid over the alternate.
+    surfaceHoverOnAlt: parseColour(colors.surfaceHover, surfaceAlt),
+  }
+}
+
+/** A theme's colours as they render: the workspace accent applied, the
+ *  label colour on the accent picked, and the text versions derived. */
+export interface ResolvedTheme {
+  colors: ThemeColors
+  onAccent: string
+  /** `--color-<name>-text` by name, 4.5:1 on every background and on
+   *  its own tint laid over each of them. */
+  text: Record<(typeof TEXT_COLOURS)[number][0] | 'status-merged', string>
+  /** `--color-<name>-ui`: the status and priority colours at 3:1 on every
+   *  background and tint, for icons and glyphs that carry meaning. */
+  ui: Record<(typeof UI_COLOURS)[number][0] | 'status-merged', string>
+  /** The accent where it marks state or focus rather than filling: focus
+   *  rings, outlines, selected borders, icons. 3:1 on every background
+   *  and accent tint (WCAG 1.4.11); `ring-accent`, `outline-accent` and `border-accent` read it. */
+  accentUi: string
+  /** Filled status buttons and badges: the fill (the status colour, moved
+   *  in lightness only if it must) and the black or white label on it,
+   *  4.5:1 at rest and at `hover:opacity-90`. */
+  solid: Record<(typeof SOLID_COLOURS)[number][0], { fill: string; label: string }>
+  /** A text field's resting border, 3:1 on the app, the surface and the
+   *  alternate surface, so the field's edge can be found (`border-field`). */
+  fieldBorder: string
+}
+
+/**
+ * Never throws: a theme that fails to resolve would leave the app with
+ * no colours at all. A workspace accent the parser cannot read (the
+ * backend accepts `#f60`, and colours arrive from outside) is dropped in
+ * favour of the theme's own, with a warning; anything else that goes
+ * wrong falls back to the theme's colours as written.
+ */
+export function resolveTheme(theme: Theme, accentOverride?: string): ResolvedTheme {
+  let accent: string | undefined
+  if (accentOverride) {
+    if (isColour(accentOverride)) {
+      // One form for the arithmetic below: `#rrggbb`, a translucent
+      // accent laid over the surface it is seen on.
+      const surface = isColour(theme.colors.surface) ? parseColour(theme.colors.surface) : undefined
+      accent = toHex(parseColour(accentOverride, surface))
+    } else {
+      console.warn(`[theme] ignoring unreadable workspace accent ${JSON.stringify(accentOverride)}`)
+    }
+  }
+  try {
+    return resolveColours(theme, accent)
+  } catch (error) {
+    console.warn(`[theme] could not derive colours for ${theme.meta.id}; using them as written`, error)
+    const colors = { ...theme.colors }
+    const text = Object.fromEntries(TEXT_COLOURS.map(([name, key]) => [name, colors[key] as string]))
+    const mergedFill = (theme.meta.isDark ? MERGED.dark : MERGED.light).fill
+    return {
+      colors,
+      onAccent: colors.accentForeground ?? '#000000',
+      text: { ...text, 'status-merged': mergedFill } as ResolvedTheme['text'],
+      ui: { ...text, 'status-merged': mergedFill } as ResolvedTheme['ui'],
+      accentUi: colors.accent,
+      solid: Object.fromEntries(
+        SOLID_COLOURS.map(([name, key]) => [name, { fill: colors[key] as string, label: '#ffffff' }]),
+      ) as ResolvedTheme['solid'],
+      fieldBorder: colors.strong,
+    }
+  }
+}
+
+function resolveColours(theme: Theme, accentOverride?: string): ResolvedTheme {
   const colors = { ...theme.colors }
 
   // Apply accent color override if provided
@@ -38,13 +182,50 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
 
   // On-accent foreground: text colour rendered on `bg-accent`
   // (button labels, badges). If the theme didn't pin one, pick
-  // black or white via WCAG luminance against the actual accent
-  // fill. This makes the choice Just Work for any accent value,
-  // including workspace-branding overrides — and keeps themes
-  // whose accent is dark (e.g. epaper's `#000000`) from rendering
+  // black or white by WCAG contrast against the actual accent
+  // fill and its hover fill. This makes the choice Just Work for any
+  // accent value, including workspace-branding overrides — and keeps
+  // themes whose accent is dark (e.g. epaper's `#000000`) from rendering
   // invisible black-on-black labels, which was the symptom that
   // surfaced this whole token.
-  const onAccent = colors.accentForeground ?? pickAccentForeground(colors.accent)
+  const onAccent = colors.accentForeground ?? pickAccentForeground(colors.accent, colors.accentHover)
+
+  const backgrounds = Object.values(themeBackgrounds(colors))
+  const merged = theme.meta.isDark ? MERGED.dark : MERGED.light
+  const fillsFor = (colour: string, muted: string | null) =>
+    muted ? [...backgrounds, ...tintsOf(colour, muted, backgrounds)] : backgrounds
+  const derive = (colour: string, muted: string | null, ratio: number) =>
+    readableOn(colour, fillsFor(colour, muted), ratio, theme.meta.isDark)
+  const text = {
+    ...Object.fromEntries(
+      TEXT_COLOURS.map(([name, key, muted]) => [name, derive(colors[key] as string, muted && (colors[muted] as string), 4.5)]),
+    ),
+    'status-merged': derive(merged.fill, merged.tint, 4.5),
+  } as ResolvedTheme['text']
+  const ui = {
+    ...Object.fromEntries(
+      UI_COLOURS.map(([name, key, muted]) => [name, derive(colors[key] as string, muted && (colors[muted] as string), 3)]),
+    ),
+    'status-merged': derive(merged.fill, merged.tint, 3),
+  } as ResolvedTheme['ui']
+
+  const { surfaceHover: _hover, surfaceHoverOnAlt: _hoverOnAlt, ...still } = themeBackgrounds(colors)
+  // Icons and selected states sit on accent tints too.
+  const accentUi = derive(colors.accent, colors.accentMuted, 3)
+  const fieldBorder = readableOn(colors.strong, Object.values(still), 3, theme.meta.isDark)
+  const { surface, app } = themeBackgrounds(colors)
+  const solid = Object.fromEntries(
+    SOLID_COLOURS.map(([name, key]) => [name, solidFor(colors[key] as string, [surface, app], 4.5)]),
+  ) as ResolvedTheme['solid']
+
+  return { colors, onAccent, text, ui, accentUi, solid, fieldBorder }
+}
+
+/**
+ * Converts theme colors to CSS variables and injects them into the DOM
+ */
+export function applyTheme(theme: Theme, accentOverride?: string): void {
+  const { colors, onAccent, text, ui, accentUi, solid, fieldBorder } = resolveTheme(theme, accentOverride)
 
   // Build CSS variables
   const cssVars = `
@@ -70,6 +251,8 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
   --color-accent-hover: ${colors.accentHover};
   --color-accent-muted: ${colors.accentMuted};
   --color-on-accent: ${onAccent};
+  --color-accent-ui: ${accentUi};
+  --color-field-border: ${fieldBorder};
 
   /* Status colors */
   --color-status-success: ${colors.success};
@@ -97,6 +280,11 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
   --color-priority-medium-muted: ${colors.priorityMediumMuted};
   --color-priority-low: ${colors.priorityLow};
   --color-priority-low-muted: ${colors.priorityLowMuted};
+
+  /* Text versions of the colours above (resolveTheme) */
+${Object.entries(text).map(([name, value]) => `  --color-${name}-text: ${value};`).join('\n')}
+${Object.entries(ui).map(([name, value]) => `  --color-${name}-ui: ${value};`).join('\n')}
+${Object.entries(solid).map(([name, { fill, label }]) => `  --color-${name}-solid: ${fill};\n  --color-on-${name}: ${label};`).join('\n')}
 
   /* Shadows */
   --shadow-inset-dark: ${colors.shadowDark};
@@ -147,35 +335,23 @@ ${colors.syntax ? Object.entries(colors.syntax).map(([key, value]) => `
 
 /**
  * Pick `#000000` or `#ffffff` for text rendered on top of `accent`,
- * choosing whichever scores higher WCAG contrast against the
- * accent fill. Uses the standard WCAG 2.x relative-luminance
- * formula (sRGB → linear via the per-channel piecewise transform,
- * then weighted sum), then compares the resulting (L+0.05)/0.05
- * (black contrast) to 1.05/(L+0.05) (white contrast).
+ * whichever holds the higher WCAG contrast on both the accent fill and
+ * its hover fill (a button keeps its label while hovered).
  *
  * The brand orange `#FF6B1A` scores 7.4:1 with black vs 2.85:1
  * with white — picks black. Epaper's `#000000` accent scores
- * 21:1 with white vs undefined-but-zero with black — picks
- * white. Slate's cyan `#06B6D4` scores 9.2:1 black vs 2.3:1
- * white — black. So on. Every theme's accent gets an AA-passing
- * foreground without per-theme bookkeeping.
+ * 21:1 with white — picks white. Every theme's accent gets an
+ * AA-passing foreground without per-theme bookkeeping.
  */
-function pickAccentForeground(accent: string): string {
-  const hex = accent.replace('#', '')
-  if (hex.length !== 6) return '#000000' // bail to default on malformed input
-
-  const toLinear = (c: number) => {
-    const cs = c / 255
-    return cs <= 0.03928 ? cs / 12.92 : Math.pow((cs + 0.055) / 1.055, 2.4)
+function pickAccentForeground(accent: string, hover: string): string {
+  let fills: Rgb[]
+  try {
+    fills = [parseColour(accent), parseColour(hover)]
+  } catch {
+    return '#000000' // bail to default on malformed input
   }
-  const r = toLinear(parseInt(hex.slice(0, 2), 16))
-  const g = toLinear(parseInt(hex.slice(2, 4), 16))
-  const b = toLinear(parseInt(hex.slice(4, 6), 16))
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-  const whiteContrast = 1.05 / (luminance + 0.05)
-  const blackContrast = (luminance + 0.05) / 0.05
-  return whiteContrast > blackContrast ? '#ffffff' : '#000000'
+  const worst = (fg: Rgb) => Math.min(...fills.map((fill) => contrast(fg, fill)))
+  return worst([1, 1, 1]) > worst([0, 0, 0]) ? '#ffffff' : '#000000'
 }
 
 /**

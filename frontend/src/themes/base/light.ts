@@ -19,7 +19,7 @@ export const lightTheme: Theme = {
     app: '#f3f4f6',
     surface: '#ffffff',
     surfaceAlt: '#f3f4f6',
-    surfaceHover: '#e5e7eb',
+    surfaceHover: '#e1e3e7', // 1.28:1 from surface, 1.17:1 from the alternate surface
 
     // Borders
     default: '#e5e7eb',
@@ -29,7 +29,7 @@ export const lightTheme: Theme = {
     // Text
     primary: '#1f2937',
     secondary: '#4b5563',
-    tertiary: '#6b7280',
+    tertiary: '#5d6470', // lifted to 4.6:1 on hover, 6.0:1 on surface
 
     // Accent — brand orange (#FF6B1A family). Can be overridden by
     // workspace branding. On light backgrounds, hover steps DOWN to

@@ -24,7 +24,7 @@ const display = computed(() => {
 <template>
   <span
     v-if="display"
-    class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-status-error text-white text-xs font-bold leading-none"
+    class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-status-error-solid text-on-status-error text-xs font-bold leading-none"
     :aria-label="`${count} unread`"
   >
     {{ display }}

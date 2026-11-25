@@ -185,7 +185,7 @@ const handleSubmit = () => {
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 stroke-width="2"
-                :class="categoryForm.icon === icon.name ? 'text-accent' : 'text-secondary'"
+                :class="categoryForm.icon === icon.name ? 'text-accent-ui' : 'text-secondary'"
               >
                 <path stroke-linecap="round" stroke-linejoin="round" :d="icon.path" />
               </svg>

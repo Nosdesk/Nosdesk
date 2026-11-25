@@ -137,7 +137,7 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
       <EditableArea class="w-full">
         <EditablePreview as-child>
           <div
-            class="w-full font-semibold px-1 py-0.5 rounded-lg transition-all duration-150 border-2 border-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="w-full font-semibold px-1 py-0.5 rounded-lg transition-all duration-150 border-2 border-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent"
             :class="[
               textSizeClasses[textSize],
               clampClass,
@@ -155,7 +155,7 @@ const accessibleName = computed(() => props.label ?? resolvedPlaceholder.value);
             type="text"
             :aria-label="accessibleName"
             class="w-full bg-surface-hover text-primary font-semibold px-1 py-0.5 rounded-lg focus:bg-surface focus:outline-none transition-all duration-150 border-2 border-transparent focus:border-accent/50 cursor-text"
-            :class="textSizeClasses[textSize]"
+            :class="[textSizeClasses[textSize], textSize === 'sm' && 'pointer-coarse:text-base']"
             @input="onInput"
           />
         </EditableInput>

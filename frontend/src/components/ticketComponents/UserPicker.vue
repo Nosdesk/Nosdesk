@@ -396,11 +396,11 @@ const inputPlaceholder = computed(
                   {{ user.email }}
                 </div>
               </div>
-              <Icon v-if="user.uuid === modelValue" name="check" size="xs" class="text-accent flex-shrink-0" />
+              <Icon v-if="user.uuid === modelValue" name="check" size="xs" class="text-accent-ui flex-shrink-0" />
             </ComboboxItem>
           </ComboboxGroup>
 
-          <div v-if="!hasRows && !picker.isLoading.value" class="px-3 py-6 text-center text-[12px] text-tertiary">
+          <div v-if="!hasRows && !picker.isLoading.value" class="px-3 py-6 text-center text-xs text-tertiary">
             {{ emptyHint() }}
           </div>
           <div v-if="picker.isLoading.value && !hasRows" class="px-3 py-6 flex items-center justify-center">
@@ -472,7 +472,7 @@ const inputPlaceholder = computed(
                   {{ user.email }}
                 </div>
               </div>
-              <Icon v-if="user.uuid === modelValue" name="check" size="sm" class="text-accent flex-shrink-0" />
+              <Icon v-if="user.uuid === modelValue" name="check" size="sm" class="text-accent-ui flex-shrink-0" />
             </ComboboxItem>
           </ComboboxGroup>
           <div v-if="!hasRows && !picker.isLoading.value" class="px-4 py-8 text-center text-sm text-tertiary">

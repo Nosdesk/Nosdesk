@@ -103,7 +103,7 @@ async function confirmDelete(): Promise<void> {
       >{{ $t(`project-actions-status-${project.status}`) }}</span>
       <span
         v-if="subtitle"
-        class="text-xs text-tertiary tabular-nums whitespace-nowrap leading-none truncate"
+        class="text-xs text-tertiary tabular-nums whitespace-nowrap leading-tight truncate"
       >{{ subtitle }}</span>
     </div>
 

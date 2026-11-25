@@ -76,7 +76,7 @@ function onRemove(e: MouseEvent): void {
   <div class="inline-flex">
     <div
       ref="triggerRef"
-      class="inline-flex items-center h-6 rounded-md border border-accent/40 bg-accent/10 text-accent text-2xs overflow-hidden"
+      class="inline-flex items-center h-6 rounded-md border border-accent/40 bg-accent/10 text-accent-on-tint text-2xs overflow-hidden"
     >
       <button
         type="button"
@@ -117,7 +117,7 @@ function onRemove(e: MouseEvent): void {
           type="text"
           :value="textValue ?? ''"
           :placeholder="textPlaceholder ?? $t('views-filter-pill-search-title-placeholder')"
-          class="bg-surface border border-subtle rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
+          class="bg-surface border border-field rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent transition-colors"
           @input="onTextInput"
         />
       </div>

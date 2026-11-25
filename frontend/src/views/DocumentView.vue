@@ -738,7 +738,7 @@ usePageTitle({
           :title="copiedLink ? $t('doc-detail-copied') : $t('doc-detail-copy-link')"
         >
           <Icon v-if="!copiedLink" name="link" size="md" />
-          <Icon v-else name="check" size="md" class="text-status-success" />
+          <Icon v-else name="check" size="md" class="text-status-success-ui" />
         </button>
 
         <!-- Document actions menu -->
@@ -794,7 +794,7 @@ usePageTitle({
                   contenteditable="true"
                   @blur="updateTitle(($event.target as HTMLElement).textContent || '')"
                   @keydown.enter.prevent="($event.target as HTMLElement).blur()"
-                  class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent/30 rounded px-1 -mx-1"
+                  class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent rounded px-1 -mx-1"
                 >
                   {{ editTitle || document.title || $t('doc-detail-untitled') }}
                 </h1>
@@ -827,7 +827,7 @@ usePageTitle({
                   <button
                     v-if="document.created_by && document.requires_verification && !document.verified_at"
                     type="button"
-                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1"
+                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent-on-tint hover:bg-accent/20 transition-colors flex items-center gap-1"
                     :title="$t('doc-detail-needs-verification-title')"
                     @click="verificationOpen = true"
                   >
@@ -837,7 +837,7 @@ usePageTitle({
                   <button
                     v-else-if="document.is_stale"
                     type="button"
-                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-status-warning-muted text-status-warning hover:bg-status-warning/25 transition-colors flex items-center gap-1 animate-pulse"
+                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-status-warning-muted text-status-warning hover:bg-status-warning/20 transition-colors flex items-center gap-1 animate-pulse"
                     :title="$t('doc-detail-verification-stale-title')"
                     @click="verificationOpen = true"
                   >
@@ -960,7 +960,7 @@ usePageTitle({
         <Icon name="faceFrown" size="2xl" class="text-tertiary mb-2" />
         <h2 class="text-xl font-semibold text-primary">{{ $t('doc-detail-not-found-title') }}</h2>
         <p class="text-secondary max-w-md">{{ $t('doc-detail-not-found-body') }}</p>
-        <RouterLink to="/documentation" class="mt-4 text-accent hover:text-accent/80">
+        <RouterLink to="/documentation" class="mt-4 text-accent hover:underline">
           {{ $t('doc-detail-not-found-link') }}
         </RouterLink>
       </div>
@@ -1022,7 +1022,7 @@ usePageTitle({
     <!-- Success message toast -->
     <div
       v-if="showSuccessMessage"
-      class="fixed bottom-4 right-4 bg-status-success text-white px-4 py-2 rounded-md shadow-lg flex items-center gap-2 animate-fadeIn"
+      class="fixed bottom-4 right-4 bg-status-success-solid text-on-status-success px-4 py-2 rounded-md shadow-lg flex items-center gap-2 animate-fadeIn"
     >
       <Icon name="checkCircle" size="md" />
       {{ saveMessage }}

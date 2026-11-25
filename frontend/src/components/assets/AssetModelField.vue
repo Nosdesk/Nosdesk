@@ -209,7 +209,7 @@ async function submitCreate() {
 
     <!-- Linked model -->
     <div v-if="modelId && !picking" class="flex items-center gap-2 flex-wrap">
-      <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-sm font-medium bg-accent/10 text-accent">
+      <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-sm font-medium bg-accent/10 text-accent-on-tint">
         <Icon name="device" size="xs" />
         {{ linkedDisplay || $t('asset-model-none') }}
       </span>

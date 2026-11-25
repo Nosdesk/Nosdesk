@@ -579,7 +579,7 @@ const relayLastSuccess = computed(() => {
                   <th scope="row" class="text-left font-normal text-secondary px-4 py-2.5">{{ row.label }}</th>
                   <td v-for="(cell, i) in [row.now, row.licensed]" :key="i" class="px-4 py-2.5 text-primary">
                     <span class="inline-flex items-center gap-1.5">
-                      <Icon v-if="row.same" name="check" size="sm" class="text-status-success shrink-0" />{{ cell }}
+                      <Icon v-if="row.same" name="check" size="sm" class="text-status-success-ui shrink-0" />{{ cell }}
                     </span>
                   </td>
                 </tr>
@@ -590,7 +590,7 @@ const relayLastSuccess = computed(() => {
             <div v-for="row in compareRows" :key="row.label" class="px-4 py-3 flex flex-col gap-1">
               <dt class="text-secondary">{{ row.label }}</dt>
               <dd v-if="row.same" class="text-primary inline-flex items-center gap-1.5">
-                <Icon name="check" size="sm" class="text-status-success shrink-0" />{{ row.now }}
+                <Icon name="check" size="sm" class="text-status-success-ui shrink-0" />{{ row.now }}
               </dd>
               <template v-else>
                 <dd class="text-tertiary text-xs">{{ $t('admin-license-compare-now') }}: <span class="text-primary text-sm">{{ row.now }}</span></dd>

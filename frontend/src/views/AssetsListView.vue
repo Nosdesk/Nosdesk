@@ -868,7 +868,7 @@ async function exportAssetsCsv(scope?: 'history') {
       <ToolbarButton as-child>
         <button
           type="button"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-accent hover:bg-accent/10 transition-colors whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-accent-on-tint hover:bg-accent/10 transition-colors whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           @click="openRolloutFromSelection"
         >
           <Icon name="send" size="sm" />

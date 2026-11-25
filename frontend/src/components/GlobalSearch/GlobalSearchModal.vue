@@ -446,7 +446,7 @@ onScopeDispose(() => restoreScroll?.());
                     type="button"
                     v-if="activeTypes"
                     @click="clearTypes"
-                    class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
+                    class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-accent/10 text-accent-on-tint border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
                   >
                     {{ scopeLabel(activeTypes) }}
                     <Icon name="close" size="xs" />
@@ -740,7 +740,7 @@ onScopeDispose(() => restoreScroll?.());
                   />
                   <span class="tabular-nums">
                     {{ t('search-global-results-count', { count: totalResults }) }}
-                    <span class="text-tertiary/60">·</span>
+                    <span class="text-tertiary">·</span>
                     {{ t('search-global-results-took', { ms: searchTookMs }) }}
                   </span>
                 </div>

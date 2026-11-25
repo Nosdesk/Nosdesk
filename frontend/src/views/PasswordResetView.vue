@@ -3,7 +3,7 @@
     <div class="flex flex-col gap-6 w-full max-w-md">
       <!-- Header -->
       <div class="flex flex-col gap-2 items-center">
-        <LogoIcon class="h-12 px-4 text-accent" :aria-label="$t('nav-logo-alt')" />
+        <LogoIcon class="h-12 px-4 text-accent-fill" :aria-label="$t('nav-logo-alt')" />
         <h1 class="text-2xl font-bold text-primary mt-4">{{ $t('password-reset-page-title') }}</h1>
         <p class="text-secondary text-center text-sm">
           {{ $t('password-reset-subtitle') }}
@@ -26,7 +26,7 @@
         <div class="p-8">
           <div class="flex flex-col items-center gap-4 text-center">
             <div class="bg-status-success/20 rounded-full p-4">
-              <Icon name="checkCircle" size="2xl" class="text-status-success" />
+              <Icon name="checkCircle" size="2xl" class="text-status-success-ui" />
             </div>
             <div>
               <h2 class="text-xl font-semibold text-primary mb-2">{{ $t('password-reset-success-title') }}</h2>

@@ -29,7 +29,7 @@ defineProps<{
   <!-- Single-select gutter: a fixed box keeps every label column
        aligned whatever the gutter shows. -->
   <span v-else class="w-4 h-4 flex items-center justify-center flex-shrink-0">
-    <Icon v-if="checked" name="check" class="text-accent" />
+    <Icon v-if="checked" name="check" class="text-accent-ui" />
     <span v-else-if="option.tones?.length" aria-hidden="true" class="flex items-center gap-0.5">
       <span
         v-for="(t, i) in option.tones"

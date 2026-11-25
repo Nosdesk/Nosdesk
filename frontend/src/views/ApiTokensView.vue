@@ -336,7 +336,7 @@ const revokeToken = async () => {
             <div class="p-3 sm:p-4 flex items-start gap-3 sm:gap-4">
               <!-- Key icon -->
               <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
-                <Icon name="key" class="sm:h-5 sm:w-5 text-accent" />
+                <Icon name="key" class="sm:h-5 sm:w-5 text-accent-ui" />
               </div>
 
               <!-- Token info -->
@@ -363,7 +363,7 @@ const revokeToken = async () => {
                     :key="i"
                     :class="[
                       'px-1.5 py-0.5 text-xs rounded',
-                      chip.mono ? 'font-mono bg-surface-alt text-secondary' : 'bg-accent/10 text-accent',
+                      chip.mono ? 'font-mono bg-surface-alt text-secondary' : 'bg-accent/10 text-accent-on-tint',
                     ]"
                   >
                     {{ chip.label }}
@@ -577,7 +577,7 @@ const revokeToken = async () => {
     >
       <div class="flex flex-col gap-4">
         <div class="flex items-center gap-2 p-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
-          <Icon name="warning" size="md" class="text-status-warning flex-shrink-0" />
+          <Icon name="warning" size="md" class="text-status-warning-ui flex-shrink-0" />
           <p class="text-sm text-status-warning">{{ $t('admin-api-tokens-created-warning') }}</p>
         </div>
 
@@ -592,7 +592,7 @@ const revokeToken = async () => {
             :title="copiedToken ? $t('admin-api-tokens-copied') : $t('admin-api-tokens-copy-title')"
           >
             <Icon v-if="!copiedToken" name="copy" />
-            <Icon v-else name="check" class="text-status-success" />
+            <Icon v-else name="check" class="text-status-success-ui" />
           </button>
         </div>
 

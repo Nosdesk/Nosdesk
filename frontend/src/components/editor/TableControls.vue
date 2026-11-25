@@ -364,8 +364,8 @@ function onMore(event: MouseEvent) {
   border-radius: 0.375rem;
   background: none;
   font: inherit;
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
   color: var(--color-secondary);
   white-space: nowrap;
   cursor: pointer;
@@ -383,12 +383,12 @@ function onMore(event: MouseEvent) {
 }
 
 .table-selection-bar__button.is-on {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   background-color: var(--color-accent-muted);
 }
 
 .table-selection-bar__button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-accent-ui);
   outline-offset: 1px;
 }
 

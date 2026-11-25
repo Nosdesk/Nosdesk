@@ -145,7 +145,7 @@ defineExpose({ confirm, refresh: stepUp.refresh });
 <template>
   <div class="flex flex-col gap-3">
     <p v-if="confirmed" class="flex items-center gap-1.5 text-sm text-secondary">
-      <Icon name="check" size="sm" class="text-status-success flex-shrink-0" />
+      <Icon name="check" size="sm" class="text-status-success-ui flex-shrink-0" />
       {{ $t('step-up-confirmed') }}
     </p>
 

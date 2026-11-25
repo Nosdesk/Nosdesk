@@ -103,7 +103,7 @@ watch(renderedHtml, () => {
 
 <style scoped>
 .markdown-content {
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   line-height: 1.625;
   color: var(--color-primary);
 }
@@ -118,7 +118,7 @@ watch(renderedHtml, () => {
 
 .markdown-content :deep(strong),
 .markdown-content :deep(b) {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .markdown-content :deep(em),
@@ -127,19 +127,19 @@ watch(renderedHtml, () => {
 }
 
 .markdown-content :deep(a) {
-  color: var(--color-accent);
+  color: var(--color-accent-text);
   text-decoration: underline;
 }
 
 .markdown-content :deep(a:hover) {
-  color: var(--color-accent-hover);
+  color: var(--color-accent-hover-text);
 }
 
 .markdown-content :deep(code) {
   background-color: var(--color-surface-alt);
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -179,7 +179,7 @@ watch(renderedHtml, () => {
 }
 
 .markdown-content :deep(li) {
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   margin-bottom: 0.25rem;
 }
 
@@ -187,7 +187,7 @@ watch(renderedHtml, () => {
 .markdown-content :deep(h2),
 .markdown-content :deep(h3),
 .markdown-content :deep(h4) {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--color-primary);
   margin-bottom: 0.5rem;
   margin-top: 0.75rem;
@@ -201,16 +201,16 @@ watch(renderedHtml, () => {
 }
 
 .markdown-content :deep(h1) {
-  font-size: 1.125rem;
+  font-size: var(--text-lg);
 }
 
 .markdown-content :deep(h2) {
-  font-size: 1rem;
+  font-size: var(--text-base);
 }
 
 .markdown-content :deep(h3),
 .markdown-content :deep(h4) {
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
 }
 
 .markdown-content :deep(hr) {
@@ -235,11 +235,11 @@ watch(renderedHtml, () => {
   border: 1px solid var(--color-default);
   padding: 0.5rem 0.75rem;
   text-align: left;
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
 }
 
 .markdown-content :deep(th) {
   background-color: var(--color-surface-alt);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 </style>

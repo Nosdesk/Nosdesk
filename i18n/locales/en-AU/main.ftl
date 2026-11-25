@@ -3979,10 +3979,6 @@ settings-appearance-accessibility-description = Better readability and visual di
 settings-appearance-colorblind-label = Colour-blind friendly mode
 settings-appearance-colorblind-description-monochrome = Always on for monochromatic themes like E-Paper and Red Horizon
 settings-appearance-colorblind-description-default = Use distinct shapes for status indicators instead of relying on colour alone
-settings-appearance-display-heading = Display
-settings-appearance-display-description = Tweak layout preferences
-settings-appearance-compact-label = Compact view
-settings-appearance-compact-description = Tighten spacing for a denser layout
 settings-appearance-theme-changed = Theme changed to { $name }
 settings-appearance-theme-changed-device-only = Theme changed to { $name } (device only)
 settings-appearance-theme-save-failed = Couldn't save theme preference
@@ -3991,10 +3987,6 @@ settings-appearance-colorblind-toggled = Colour-blind friendly mode { $state ->
    *[disabled] off
 }
 settings-appearance-device-local-toggled = Device-only theme { $state ->
-    [enabled] on
-   *[disabled] off
-}
-settings-appearance-compact-toggled = Compact view { $state ->
     [enabled] on
    *[disabled] off
 }

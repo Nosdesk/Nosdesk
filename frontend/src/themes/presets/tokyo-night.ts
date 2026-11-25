@@ -20,7 +20,7 @@ export const tokyoNightTheme: Theme = {
     app: '#1a1b26',
     surface: '#24283b',
     surfaceAlt: '#1f2335',
-    surfaceHover: '#292e42',
+    surfaceHover: '#2d3347', // 1.16:1 from surface, 1.24:1 from the alternate surface
 
     // Borders
     default: '#3b4261',
@@ -30,7 +30,7 @@ export const tokyoNightTheme: Theme = {
     // Text
     primary: '#c0caf5',
     secondary: '#a9b1d6',
-    tertiary: '#565f89',
+    tertiary: '#909bc9', // lifted to 4.6:1 on hover, 5.4:1 on surface
 
     // Accent (Tokyo Night blue)
     accent: '#7aa2f7',

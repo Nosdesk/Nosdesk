@@ -754,7 +754,7 @@ function goTo(target: Step) {
                 :class="step === s
                   ? 'bg-accent text-on-accent border-accent'
                   : i < stepIndex
-                    ? 'bg-status-success text-on-accent border-status-success'
+                    ? 'bg-status-success-solid text-on-status-success border-status-success'
                     : 'bg-surface-alt text-secondary border-default'"
               >
                 <Icon v-if="i < stepIndex" name="check" size="sm" />
@@ -841,7 +841,7 @@ function goTo(target: Step) {
             >
               <span
                 class="w-12 h-12 rounded-full flex items-center justify-center"
-                :class="isDragOver ? 'bg-accent/20 text-accent' : 'bg-surface text-tertiary'"
+                :class="isDragOver ? 'bg-accent/20 text-accent-on-tint' : 'bg-surface text-tertiary'"
               >
                 <Icon name="archive" size="md" />
               </span>

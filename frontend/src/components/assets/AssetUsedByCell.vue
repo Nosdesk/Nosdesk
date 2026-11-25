@@ -27,7 +27,7 @@ const cell = computed(() =>
 <template>
   <!-- `xs` avatars: a compact row's content box is 24px. -->
   <div v-if="cell.kind === 'loan'" class="flex items-center gap-1.5 min-w-0" :title="cell.title">
-    <Icon v-if="cell.overdue" name="warning" size="xs" class="shrink-0 text-status-error" />
+    <Icon v-if="cell.overdue" name="warning" size="xs" class="shrink-0 text-status-error-ui" />
     <span class="sr-only">{{ cell.title }}</span>
     <UserAvatarCell
       v-if="cell.uuid"

@@ -155,7 +155,7 @@ const installButtonLabel = computed(() =>
         @change="handleFileSelect"
       />
       <div v-if="file" class="flex flex-col items-center gap-2">
-        <Icon name="checkCircle" size="xl" class="text-status-success" />
+        <Icon name="checkCircle" size="xl" class="text-status-success-ui" />
         <p class="font-medium text-primary">{{ file.name }}</p>
         <p class="text-xs text-tertiary">{{ formatFileSize(file.size) }}</p>
         <button
@@ -180,7 +180,7 @@ const installButtonLabel = computed(() =>
       <Icon name="warning" size="md" class="mt-0.5 flex-shrink-0" />
       <div class="flex flex-col gap-1">
         <p class="font-medium">{{ t('plugin-sideload-warning-title') }}</p>
-        <p class="text-status-warning/90">
+        <p class="text-status-warning">
           {{ t('plugin-sideload-warning-prefix') }}
           <RouterLink to="/admin/plugins/registry" class="underline hover:no-underline">
             {{ t('plugin-sideload-warning-link') }}

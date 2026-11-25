@@ -404,7 +404,7 @@ const isOverflowRouteActive = computed(() =>
                 />
                 <LogoIcon
                     v-else-if="!isCollapsed"
-                    class="h-8 text-accent"
+                    class="h-8 text-accent-fill"
                     :aria-label="$t('nav-logo-alt')"
                 />
                 <!-- Favicon/icon when collapsed -->
@@ -416,7 +416,7 @@ const isOverflowRouteActive = computed(() =>
                 />
                 <FaviconIcon
                     v-else
-                    class="text-accent"
+                    class="text-accent-fill"
                     :aria-label="$t('nav-logo-alt-collapsed')"
                 />
             </RouterLink>
@@ -631,7 +631,7 @@ const isOverflowRouteActive = computed(() =>
                 >
                     <Icon
                         :name="isCollapsed ? 'chevronDoubleRight' : 'chevronDoubleLeft'"
-                        class="group-hover:text-accent transition-colors"
+                        class="group-hover:text-accent-ui transition-colors"
                     />
                     <span
                         v-if="!isCollapsed"
@@ -765,7 +765,7 @@ const isOverflowRouteActive = computed(() =>
                             class="flex flex-1 items-center gap-3 px-3 py-3 rounded-lg min-h-[44px] transition-colors motion-safe:active:scale-[0.98]"
                             :class="
                                 isRouteActive(link.to, link.exact)
-                                    ? 'bg-accent/10 text-accent'
+                                    ? 'bg-accent/10 text-accent-on-tint'
                                     : 'text-primary hover:bg-surface-hover'
                             "
                             @click="onSheetRowClick($event, link)"
@@ -784,7 +784,7 @@ const isOverflowRouteActive = computed(() =>
                             class="flex items-center justify-center w-10 h-10 rounded-lg transition-colors"
                             :class="
                                 isPinned(link.to)
-                                    ? 'text-accent hover:bg-accent/10'
+                                    ? 'text-accent-on-tint hover:bg-accent/10'
                                     : remainingSlots === 0
                                         ? 'text-tertiary opacity-50 cursor-not-allowed'
                                         : 'text-secondary hover:bg-surface-hover'

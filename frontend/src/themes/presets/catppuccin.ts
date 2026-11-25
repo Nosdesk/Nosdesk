@@ -28,9 +28,9 @@ export const catppuccinLatteTheme: Theme = {
     strong: '#bcc0cc',
 
     // Text
-    primary: '#4c4f69',
-    secondary: '#5c5f77',
-    tertiary: '#6c6f85',
+    primary: '#43455f', // lifted to 6.0:1 on hover, 7.7:1 on surface
+    secondary: '#4b4d65', // lifted to 5.3:1 on hover, 6.8:1 on surface
+    tertiary: '#54576c', // lifted to 4.6:1 on hover, 5.8:1 on surface
 
     // Accent (Catppuccin mauve)
     accent: '#8839ef',
@@ -101,7 +101,7 @@ export const catppuccinMochaTheme: Theme = {
     app: '#1e1e2e',
     surface: '#313244',
     surfaceAlt: '#45475a',
-    surfaceHover: '#585b70',
+    surfaceHover: '#4d5166', // 1.61:1 from surface, 1.17:1 from the alternate surface
 
     // Borders
     default: '#45475a',
@@ -109,9 +109,9 @@ export const catppuccinMochaTheme: Theme = {
     strong: '#6c7086',
 
     // Text
-    primary: '#cdd6f4',
-    secondary: '#bac2de',
-    tertiary: '#a6adc8',
+    primary: '#d7e0fe', // lifted to 6.0:1 on hover, 9.6:1 on surface
+    secondary: '#cbd4f0', // lifted to 5.3:1 on hover, 8.5:1 on surface
+    tertiary: '#bec6e1', // lifted to 4.6:1 on hover, 7.4:1 on surface
 
     // Accent (Catppuccin mauve)
     accent: '#cba6f7',

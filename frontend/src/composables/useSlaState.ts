@@ -125,7 +125,7 @@ function breachedState(sla: SlaTimer, target: string): SlaState {
   return {
     compactLabel: 'Breached',
     statusLabel: 'Breached',
-    toneClass: 'text-rose-600 dark:text-rose-400',
+    toneClass: 'text-status-error',
     barClass: 'bg-rose-500',
     fraction: 1,
     detail: sla.met_at ? `Met late ${fullDateTime(sla.met_at)} · target ${target}` : `Past target · ${target}`,
@@ -182,7 +182,7 @@ export function deriveSlaState(
     return {
       compactLabel: 'Met',
       statusLabel: 'Met',
-      toneClass: 'text-emerald-600 dark:text-emerald-400',
+      toneClass: 'text-status-success',
       barClass: 'bg-emerald-500',
       fraction: 1,
       detail: `Met ${fullDateTime(sla.met_at)}`,
@@ -199,7 +199,7 @@ export function deriveSlaState(
     return {
       compactLabel: 'Paused',
       statusLabel: 'Paused',
-      toneClass: 'text-zinc-500 dark:text-zinc-400',
+      toneClass: 'text-tertiary',
       barClass: 'bg-zinc-400',
       fraction: 0.5,
       detail: `Target ${target}`,
@@ -227,7 +227,7 @@ export function deriveSlaState(
     return {
       compactLabel: compact,
       statusLabel: 'Breached',
-      toneClass: 'text-rose-600 dark:text-rose-400',
+      toneClass: 'text-status-error',
       barClass: 'bg-rose-500',
       fraction,
       detail,
@@ -248,7 +248,7 @@ export function deriveSlaState(
     return {
       compactLabel: compact,
       statusLabel: 'At risk',
-      toneClass: 'text-amber-600 dark:text-amber-400',
+      toneClass: 'text-status-warning',
       barClass: 'bg-amber-500',
       fraction,
       detail,
@@ -261,7 +261,7 @@ export function deriveSlaState(
   return {
     compactLabel: compact,
     statusLabel: 'On track',
-    toneClass: 'text-emerald-600 dark:text-emerald-400',
+    toneClass: 'text-status-success',
     barClass: 'bg-emerald-500',
     fraction,
     detail,

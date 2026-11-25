@@ -259,7 +259,7 @@ async function handleRevokeAll() {
         >
           <div class="flex items-center gap-4 min-w-0">
             <div class="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
-              <Icon :name="platformIcon(session)" size="md" class="text-accent" />
+              <Icon :name="platformIcon(session)" size="md" class="text-accent-ui" />
             </div>
             <div class="min-w-0">
               <!-- wrap so the badge drops below the name at phone widths

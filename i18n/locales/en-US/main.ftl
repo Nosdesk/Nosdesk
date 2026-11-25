@@ -6876,8 +6876,8 @@ help-card-signin-desc = Already have an account?
 help-card-signin-desc-portal = See your requests. We'll email you a sign-in link.
 
 # Settings: appearance pane (AppearanceSettings) — theme picker,
-# device-only sync toggle, accessibility (colorblind-safe shapes),
-# and compact-view density toggle. Strings are flat status text;
+# device-only sync toggle and accessibility (colorblind-safe shapes).
+# Strings are flat status text;
 # any pluralisation in this block is handled by Fluent selectors.
 settings-appearance-title = Appearance
 settings-appearance-theme-heading = Theme
@@ -6893,10 +6893,6 @@ settings-appearance-accessibility-description = Improve readability and visual d
 settings-appearance-colorblind-label = Color blind friendly mode
 settings-appearance-colorblind-description-monochrome = Always enabled for monochromatic themes like E-Paper and Red Horizon
 settings-appearance-colorblind-description-default = Use distinct shapes for status indicators instead of relying only on colors
-settings-appearance-display-heading = Display
-settings-appearance-display-description = Adjust layout preferences
-settings-appearance-compact-label = Compact view
-settings-appearance-compact-description = Reduce spacing between elements for a denser layout
 settings-appearance-theme-changed = Theme changed to { $name }
 settings-appearance-theme-changed-device-only = Theme changed to { $name } (device only)
 settings-appearance-theme-save-failed = Failed to save theme preference
@@ -6905,10 +6901,6 @@ settings-appearance-colorblind-toggled = Color blind friendly mode { $state ->
    *[disabled] disabled
 }
 settings-appearance-device-local-toggled = Device-only theme { $state ->
-    [enabled] enabled
-   *[disabled] disabled
-}
-settings-appearance-compact-toggled = Compact view { $state ->
     [enabled] enabled
    *[disabled] disabled
 }

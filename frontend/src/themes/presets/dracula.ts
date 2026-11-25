@@ -20,7 +20,7 @@ export const draculaTheme: Theme = {
     app: '#282a36',
     surface: '#44475a',
     surfaceAlt: '#383a4a',
-    surfaceHover: '#4d4f5c',
+    surfaceHover: '#4e515e', // 1.16:1 from surface, 1.42:1 from the alternate surface
 
     // Borders
     default: '#44475a',
@@ -30,7 +30,7 @@ export const draculaTheme: Theme = {
     // Text
     primary: '#f8f8f2',
     secondary: '#e2e2dc',
-    tertiary: '#6272a4',
+    tertiary: '#b2c5fc', // lifted to 4.6:1 on hover, 5.4:1 on surface
 
     // Accent (Dracula purple)
     accent: '#bd93f9',
@@ -42,7 +42,7 @@ export const draculaTheme: Theme = {
     successMuted: 'rgba(80, 250, 123, 0.2)',
     error: '#ff5555',
     errorMuted: 'rgba(255, 85, 85, 0.2)',
-    overdue: '#ffaeae', // Red, lifted to 5.2:1 on surface, 4.6:1 on hover
+    overdue: '#ffb2b1', // Red, lifted to 5.3:1 on surface, 4.6:1 on hover
     warning: '#f1fa8c',
     warningMuted: 'rgba(241, 250, 140, 0.2)',
     info: '#8be9fd',

@@ -44,13 +44,13 @@ const PALETTE: Record<string, BadgePaletteClasses> = {
   // Open-bucket palette: low-effort intake.
   gray: {
     badge: 'bg-status-open-muted text-status-open border border-status-open/30',
-    solid: 'text-status-open bg-current',
+    solid: 'text-status-open-fill bg-current',
   },
   // In-progress palette: active work.
   blue: {
     badge:
       'bg-status-in-progress-muted text-status-in-progress border border-status-in-progress/30',
-    solid: 'text-status-in-progress bg-current',
+    solid: 'text-status-in-progress-fill bg-current',
   },
   // Waiting on review: active work, set apart from blue.
   purple: {
@@ -60,7 +60,7 @@ const PALETTE: Record<string, BadgePaletteClasses> = {
   // Closed palette: terminal completion.
   green: {
     badge: 'bg-status-closed-muted text-status-closed border border-status-closed/30',
-    solid: 'text-status-closed bg-current',
+    solid: 'text-status-closed-fill bg-current',
   },
   // Neutral palette: cancelled / archived.
   subtle: {

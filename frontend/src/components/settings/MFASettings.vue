@@ -823,7 +823,7 @@ defineExpose({
                                             class="px-3 py-1 text-xs rounded transition-all duration-200 flex-shrink-0"
                                             :class="
                                                 secretCopied
-                                                    ? 'bg-status-success text-white cursor-default'
+                                                    ? 'bg-status-success-solid text-on-status-success cursor-default'
                                                     : 'bg-surface-hover text-primary hover:bg-surface cursor-pointer'
                                             "
                                             :title="
@@ -970,7 +970,7 @@ defineExpose({
                     class="flex flex-col gap-4 bg-status-success-muted border border-status-success/20 rounded-xl p-5 sm:p-6"
                 >
                     <div class="flex items-center gap-3">
-                        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-status-success text-white">
+                        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-status-success-solid text-on-status-success">
                             <Icon name="check" size="md" />
                         </div>
                         <h3 class="text-base font-semibold text-status-success">

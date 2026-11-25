@@ -43,7 +43,7 @@ async function unflag() {
     v-if="isFlagged && gap"
     class="rounded-lg border border-status-warning/30 bg-status-warning-muted px-3 py-2 flex items-start gap-2 print:hidden"
   >
-    <Icon name="warning" class="text-status-warning flex-shrink-0 mt-0.5" />
+    <Icon name="warning" class="text-status-warning-ui flex-shrink-0 mt-0.5" />
     <div class="flex-1 min-w-0">
       <p class="text-xs font-medium text-status-warning">
         {{ t('ticket-chip-gap-flagged') }}

@@ -192,7 +192,7 @@ async function updatePlan(patch: Partial<CardData>): Promise<void> {
       class="flex-1 flex flex-col items-center justify-center text-tertiary px-6 text-center"
     >
       <div class="w-12 h-12 rounded-full bg-surface-hover flex items-center justify-center mb-4">
-        <Icon name="document" class="w-5 h-5 text-tertiary/60" />
+        <Icon name="document" class="w-5 h-5 text-tertiary" />
       </div>
       <p class="text-sm font-medium text-secondary mb-2">{{ $t('views-ticket-preview-empty-title') }}</p>
       <p class="text-xs leading-relaxed max-w-[16rem]">
@@ -213,7 +213,7 @@ async function updatePlan(patch: Partial<CardData>): Promise<void> {
           class="flex items-center gap-2 px-4 h-9 border-b border-subtle/60 shrink-0 min-w-0"
         >
           <span class="text-tertiary font-mono text-2xs tabular-nums shrink-0">#{{ card.number }}</span>
-          <span class="text-tertiary/50 shrink-0" aria-hidden="true">·</span>
+          <span class="text-tertiary shrink-0" aria-hidden="true">·</span>
           <div class="min-w-0 flex-1">
             <CustomDropdown
               :value="workflowDropdownValue"
@@ -251,7 +251,7 @@ async function updatePlan(patch: Partial<CardData>): Promise<void> {
             <textarea
               v-model="titleDraft"
               rows="2"
-              class="w-full text-lg font-semibold text-primary leading-snug bg-transparent border-0 outline-none resize-none rounded px-0.5 -mx-0.5 focus:ring-1 focus:ring-accent/30 placeholder:text-tertiary"
+              class="w-full text-lg font-semibold text-primary leading-snug bg-transparent border-0 outline-none resize-none rounded px-0.5 -mx-0.5 focus:ring-1 focus:ring-accent placeholder:text-tertiary"
               :placeholder="$t('views-ticket-preview-title-placeholder')"
               @blur="commitTitle"
               @keydown.enter.prevent="($event.target as HTMLTextAreaElement).blur()"
@@ -286,7 +286,7 @@ async function updatePlan(patch: Partial<CardData>): Promise<void> {
                 v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
                 class="inline-flex items-center gap-1 text-3xs font-semibold uppercase tracking-wide px-1.5 h-6 rounded-md"
                 :class="card.kb_gap_signal === 'strong'
-                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                  ? 'bg-status-warning-muted text-status-warning'
                   : 'bg-surface-hover text-secondary'"
               >
                 <Icon name="warning" class="w-3 h-3" />
@@ -294,7 +294,7 @@ async function updatePlan(patch: Partial<CardData>): Promise<void> {
               </span>
               <span
                 v-if="card.recurrence_rule"
-                class="inline-flex items-center gap-1 text-3xs font-semibold uppercase tracking-wide px-1.5 h-6 rounded-md bg-violet-500/12 text-violet-700 dark:text-violet-300"
+                class="inline-flex items-center gap-1 text-3xs font-semibold uppercase tracking-wide px-1.5 h-6 rounded-md bg-status-merged-muted text-status-merged"
                 :title="card.recurrence_rule"
               >
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" class="w-3 h-3">

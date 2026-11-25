@@ -227,7 +227,7 @@ onMounted(async () => {
           >
             <div class="flex items-center gap-4">
               <div class="flex-shrink-0 w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
-                <Icon name="key" size="md" class="text-accent" />
+                <Icon name="key" size="md" class="text-accent-ui" />
               </div>
               <div>
                 <div class="flex items-center gap-2">
@@ -304,7 +304,7 @@ onMounted(async () => {
           >
             <div class="flex items-center gap-4">
               <div class="flex-shrink-0 w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
-                <Icon name="key" size="md" class="text-accent" />
+                <Icon name="key" size="md" class="text-accent-ui" />
               </div>
               <div>
                 <div class="flex items-center gap-2">

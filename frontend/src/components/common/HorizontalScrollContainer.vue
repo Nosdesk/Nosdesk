@@ -237,7 +237,7 @@ defineExpose({ scrollContainerRef, isDragging, hasDragged })
 }
 
 .scroll-dot:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-accent-ui);
   outline-offset: 2px;
 }
 </style>

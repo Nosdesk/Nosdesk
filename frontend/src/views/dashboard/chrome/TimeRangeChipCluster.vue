@@ -117,7 +117,7 @@ function applyCustom(): void {
         type="button"
         :class="[
           'flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors',
-          preset === p.id ? 'bg-accent-muted text-accent font-medium' : 'text-secondary hover:bg-surface-hover hover:text-primary',
+          preset === p.id ? 'bg-accent-muted text-accent-on-tint font-medium' : 'text-secondary hover:bg-surface-hover hover:text-primary',
         ]"
         @click="pickPreset(p.id)"
       >

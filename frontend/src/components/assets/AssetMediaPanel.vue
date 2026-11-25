@@ -295,7 +295,7 @@ useSyncActions(
       >
         <button
           type="button"
-          class="block w-full h-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          class="block w-full h-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           @click="openLightbox(index)"
         >
           <AssetImg
@@ -383,7 +383,7 @@ useSyncActions(
           <DownloadLink
             :href="item.url"
             :filename="item.name"
-            class="flex-1 min-w-0 flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded"
+            class="flex-1 min-w-0 flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
             :aria-label="$t('asset-media-download-aria', { name: item.name })"
           >
             <span class="text-sm text-primary truncate hover:underline">{{ item.caption || item.name }}</span>

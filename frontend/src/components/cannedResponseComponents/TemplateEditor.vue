@@ -248,8 +248,8 @@ const showPlaceholder = computed(() => props.modelValue === '');
 
 <style scoped>
 .editor-shell:focus-within {
-  border-color: rgb(var(--color-accent) / 0.6);
-  box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.2);
+  border-color: rgb(var(--color-accent-ui) / 0.6);
+  box-shadow: 0 0 0 2px rgb(var(--color-accent-ui) / 0.2);
 }
 .editor-root :deep(p) {
   margin: 0 0 0.5rem;
@@ -288,6 +288,6 @@ const showPlaceholder = computed(() => props.modelValue === '');
 .editor-root :deep(.variable-chip.ProseMirror-selectednode) {
   background-color: rgb(var(--color-accent));
   color: white;
-  box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.35);
+  box-shadow: 0 0 0 2px rgb(var(--color-accent-ui) / 0.35);
 }
 </style>

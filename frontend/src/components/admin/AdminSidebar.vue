@@ -111,7 +111,7 @@ function openIfExternal(item: AdminNavItem, event: MouseEvent) {
             class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors duration-150 relative overflow-hidden text-sm"
             :class="[
               isActive(item.route)
-                ? 'bg-accent/10 border border-accent text-accent font-medium'
+                ? 'bg-accent/10 border border-accent text-accent-on-tint font-medium'
                 : 'text-secondary hover:bg-surface-hover hover:text-primary border border-transparent'
             ]"
           >

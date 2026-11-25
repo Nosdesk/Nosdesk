@@ -119,9 +119,10 @@ function onContextMenu(id: number, event: MouseEvent): void {
         @contextmenu="onContextMenu(card.id, $event)"
       >
         <!-- Top line: id + title. Title takes whatever width
-             remains; truncates on overflow. Its right end leaves room
-             for the size chip, which sits outside the button. -->
-        <div class="flex items-center gap-2 min-w-0 pr-7">
+             remains and wraps rather than truncating, so a larger text
+             size costs a line, not the end of the title. Its right end
+             leaves room for the size chip, which sits outside the button. -->
+        <div class="flex items-baseline gap-2 min-w-0 pr-7">
           <span class="text-2xs font-mono tabular-nums text-tertiary shrink-0">#{{ card.number }}</span>
           <span
             v-if="inlinePriorityClass(card.priority)"
@@ -134,24 +135,13 @@ function onContextMenu(id: number, event: MouseEvent): void {
             class="text-tertiary text-xs leading-none shrink-0"
             :title="$t('ticket-list-recurring-title')"
           >↻</span>
-          <span
-            class="truncate font-medium text-sm text-primary"
-            :title="card.title"
-          >{{ card.title }}</span>
-          <span
-            v-if="card.approval_state === 'pending'"
-            class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
-            :title="$t('views-ticket-row-approval-tooltip')"
-          >{{ $t('views-ticket-row-approval-badge') }}</span>
-          <span
-            v-if="card.sla?.breached"
-            class="ml-auto text-3xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
-            :title="$t('ticket-list-sla-breached-title')"
-          >SLA</span>
+          <span class="min-w-0 flex-1 font-medium text-sm leading-snug text-primary [overflow-wrap:anywhere]">{{ card.title }}</span>
         </div>
 
-        <!-- Detail line: workflow state dot + name, assignee
-             avatar (if any), last activity, due date.
+        <!-- Detail line: workflow state dot + name, the SLA and
+             approval chips, assignee avatar (if any), last activity, due
+             date. The chips live here, not beside the title, so the title
+             keeps the whole top line to wrap in.
              flex-wrap so nothing gets cut on narrow phones. -->
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-tertiary">
           <span class="inline-flex items-center gap-1.5 shrink-0">
@@ -162,6 +152,17 @@ function onContextMenu(id: number, event: MouseEvent): void {
             />
             <span class="text-secondary">{{ card.workflow_state.name }}</span>
           </span>
+
+          <span
+            v-if="card.sla?.breached"
+            class="text-3xs font-semibold uppercase tracking-wide text-status-error shrink-0"
+            :title="$t('ticket-list-sla-breached-title')"
+          >SLA</span>
+          <span
+            v-if="card.approval_state === 'pending'"
+            class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-status-warning-muted text-status-warning shrink-0"
+            :title="$t('views-ticket-row-approval-tooltip')"
+          >{{ $t('views-ticket-row-approval-badge') }}</span>
 
           <span
             v-if="card.assignee_uuid"

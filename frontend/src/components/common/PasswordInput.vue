@@ -27,7 +27,7 @@ callers that lay out their own label.
         :class="[
           'block w-full px-3 py-2 pr-10 border rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed',
           label ? 'bg-surface-alt' : 'bg-surface',
-          error ? 'border-status-error' : label ? 'border-subtle' : 'border-default',
+          error ? 'border-status-error' : 'border-field',
           inputClass
         ]"
       />

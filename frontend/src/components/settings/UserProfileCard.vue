@@ -475,7 +475,7 @@ const getRoleBadgeClass = (role: string) => {
         case "admin":
             return "bg-status-error/20 text-status-error";
         case "technician":
-            return "bg-accent/20 text-accent";
+            return "bg-accent/20 text-accent-on-tint";
         case "user":
         default:
             return "bg-surface-hover/20 text-secondary";
@@ -800,7 +800,7 @@ const getRoleDisplayName = (role: string) => {
 }
 
 .name-input-field :deep(.relative > input:focus) {
-    border-color: var(--color-accent);
+    border-color: var(--color-accent-ui);
 }
 
 /* Developer easter-egg badge. Mirrors the muted-bg + token-text shape of

@@ -50,7 +50,7 @@ function jump(id: string): void {
       :class="[
         'rounded-md px-2 py-1.5 text-left transition-colors',
         activeId === section.id
-          ? 'bg-accent/10 text-accent font-medium'
+          ? 'bg-accent/10 text-accent-on-tint font-medium'
           : 'text-secondary hover:bg-surface-hover hover:text-primary',
       ]"
       :aria-current="activeId === section.id ? 'true' : undefined"

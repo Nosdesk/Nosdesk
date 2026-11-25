@@ -237,8 +237,8 @@ function textValueForKey(key: string): string {
 }
 
 const toneClass = computed<(tone: 'default' | 'amber' | 'red') => string>(() => (tone) => {
-  if (tone === 'red') return 'text-rose-600 dark:text-rose-400 font-medium'
-  if (tone === 'amber') return 'text-amber-600 dark:text-amber-400'
+  if (tone === 'red') return 'text-status-error font-medium'
+  if (tone === 'amber') return 'text-status-warning'
   return 'text-tertiary'
 })
 
@@ -323,7 +323,7 @@ defineExpose({ openAddFilter })
         <template v-for="(seg, i) in summarySegments" :key="i">
           <span
             v-if="i > 0"
-            class="text-tertiary/40"
+            class="text-tertiary"
             aria-hidden="true"
           >·</span>
           <span :class="toneClass(seg.tone)">{{ seg.label }}</span>
@@ -379,7 +379,7 @@ defineExpose({ openAddFilter })
         type="button"
         class="hidden md:inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors"
         :class="splitViewEnabled
-          ? 'bg-accent/15 text-accent'
+          ? 'bg-accent/15 text-accent-on-tint'
           : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
         :aria-pressed="splitViewEnabled"
         :title="splitViewEnabled ? 'Hide preview pane' : 'Show preview pane'"
@@ -477,7 +477,7 @@ defineExpose({ openAddFilter })
         <template v-for="(seg, i) in summarySegments" :key="i">
           <span
             v-if="i > 0"
-            class="text-tertiary/40"
+            class="text-tertiary"
             aria-hidden="true"
           >·</span>
           <span :class="toneClass(seg.tone)">{{ seg.label }}</span>

@@ -574,7 +574,7 @@ const handlePastedFiles = async (files: File[]) => {
                 <!-- Conversion Status Message (hidden on print) -->
                 <div
                     v-if="conversionMessage"
-                    class="print:hidden mx-3 mt-3 bg-accent/20 border border-accent/50 text-accent px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                    class="print:hidden mx-3 mt-3 bg-accent/20 border border-accent/50 text-accent-on-tint px-4 py-2 rounded-lg text-sm flex items-center gap-2"
                 >
                     <svg
                         v-if="conversionMessage.includes('Converting')"
@@ -833,7 +833,7 @@ const handlePastedFiles = async (files: File[]) => {
                                     :class="[
                                         'px-2.5 rounded transition-colors flex items-center justify-center',
                                         isInternal
-                                            ? 'bg-status-warning text-white'
+                                            ? 'bg-status-warning-solid text-on-status-warning'
                                             : 'text-secondary hover:text-primary'
                                     ]"
                                     :title="$t('ticket-comments-internal-note-title')"
@@ -858,13 +858,13 @@ const handlePastedFiles = async (files: File[]) => {
                                     !canSubmit
                                         ? 'bg-surface-hover text-tertiary cursor-not-allowed'
                                         : isInternal
-                                            ? 'bg-status-warning text-white hover:opacity-90'
+                                            ? 'bg-status-warning-solid text-on-status-warning hover:opacity-90'
                                             // `text-on-accent`, not `text-white`: the accent
                                             // foreground is picked per theme by luminance, and
                                             // brand orange resolves to BLACK. White here was
                                             // low-contrast on the default theme and unreadable
                                             // on the light-accent presets (everforest, gruvbox).
-                                            : 'bg-accent text-on-accent hover:opacity-90'
+                                            : 'bg-accent text-on-accent hover:bg-accent-hover'
                                 ]"
                                 :aria-label="isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply')"
                                 :title="submitTitle"
@@ -1001,7 +1001,7 @@ const handlePastedFiles = async (files: File[]) => {
                                         </span>
                                         <span
                                             v-if="comment.channel_metadata?.forwarded_by_user_uuid"
-                                            class="inline-flex items-center px-1 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
+                                            class="inline-flex items-center px-1 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent-on-tint flex-shrink-0"
                                             :title="$t('ticket-comments-badge-forwarded-title')"
                                         >
                                             {{ $t('ticket-comments-badge-forwarded') }}
@@ -1156,7 +1156,7 @@ const handlePastedFiles = async (files: File[]) => {
                                              defeats the point of showing it. -->
                                         <span
                                             v-if="comment.channel_metadata?.forwarded_by_user_uuid"
-                                            class="inline-flex items-center px-1.5 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
+                                            class="inline-flex items-center px-1.5 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent-on-tint flex-shrink-0"
                                             :title="$t('ticket-comments-badge-forwarded-title')"
                                         >
                                             {{ $t('ticket-comments-badge-forwarded') }}
@@ -1311,7 +1311,7 @@ const handlePastedFiles = async (files: File[]) => {
     }
 
     .print-comment-author {
-        font-weight: 600;
+        font-weight: var(--font-weight-semibold);
         color: #000;
     }
 

@@ -41,7 +41,7 @@ const locked = computed(() => props.failure === 'password-cancelled')
       <Icon
         :name="locked ? 'lock' : 'warning'"
         size="lg"
-        :class="locked ? 'text-secondary flex-shrink-0' : 'text-status-error flex-shrink-0'"
+        :class="locked ? 'text-secondary flex-shrink-0' : 'text-status-error-ui flex-shrink-0'"
       />
       <div class="flex flex-col gap-2">
         <h3 class="text-lg font-semibold text-primary">{{ $t(copy.title) }}</h3>

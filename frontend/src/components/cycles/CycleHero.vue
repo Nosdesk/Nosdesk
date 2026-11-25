@@ -171,7 +171,7 @@ function categoryPct(count: number): number {
             v-if="to"
             name="chevronRight"
             size="xs"
-            class="text-tertiary transition-colors group-hover:text-accent"
+            class="text-tertiary transition-colors group-hover:text-accent-ui"
           />
         </div>
       </div>

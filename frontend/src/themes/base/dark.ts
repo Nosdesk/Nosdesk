@@ -25,7 +25,7 @@ export const darkTheme: Theme = {
     app: '#08090a',
     surface: '#0e0f11',
     surfaceAlt: '#15171a',
-    surfaceHover: '#1c1e22',
+    surfaceHover: '#222529', // 1.25:1 from surface, 1.17:1 from the alternate surface
 
     // Borders — graduated greys that read as separators on the
     // near-black bg without competing with the brand orange.
@@ -33,12 +33,11 @@ export const darkTheme: Theme = {
     subtle: '#15171a',
     strong: '#2a2d33',
 
-    // Text — bright primary, stepped-down secondary/tertiary tuned
-    // for AA contrast against #08090a (primary 14.3:1 AAA,
-    // secondary 8.2:1 AAA, tertiary 5.4:1 AA).
+    // Text — bright primary, stepped-down secondary/tertiary, each at
+    // 4.5:1 or more on every background (themes/__tests__/textContrast).
     primary: '#f7f8f8',
     secondary: '#b8bcc0',
-    tertiary: '#82878d',
+    tertiary: '#888d93', // lifted to 4.6:1 on hover, 5.7:1 on surface
 
     // Accent — brand orange (#FF6B1A family). On dark backgrounds,
     // hover steps UP to primary-400 (#FF7A2D) so the lift is

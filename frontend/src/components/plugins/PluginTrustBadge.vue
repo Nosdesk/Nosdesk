@@ -19,7 +19,7 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 const PILL_CLASS: Record<PluginTrustLevel, string> = {
   official: 'bg-status-success/10 text-status-success',
-  verified: 'bg-accent/10 text-accent',
+  verified: 'bg-accent/10 text-accent-on-tint',
   community: 'bg-surface-alt text-secondary',
   local: 'bg-status-info/10 text-status-info',
 };

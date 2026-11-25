@@ -71,7 +71,7 @@ function impactTooltip(gap: { title: string; impactScore: number }): string {
           :to="`/documentation/gaps/${item.id}`"
           class="flex items-start gap-3 px-3 py-2 hover:bg-surface-hover transition-colors"
         >
-          <Icon name="warning" class="text-amber-500 flex-shrink-0 mt-0.5" />
+          <Icon name="warning" class="text-status-warning-ui flex-shrink-0 mt-0.5" />
           <div class="flex-1 min-w-0">
             <p class="text-sm text-primary truncate">
               {{ gapTitle({ title: item.title, subject_page_id: item.subjectPageId }) }}

@@ -48,12 +48,51 @@
     -webkit-tap-highlight-color: transparent;
   }
   :where(button, [role='button']):focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-accent-ui);
     outline-offset: 2px;
   }
   :where(button):disabled {
     cursor: not-allowed;
     opacity: 0.5;
+  }
+
+  /* Text fields on touch are at least body size. iOS zooms the page into
+     a field under 16px when it takes focus, and with pinch zoom allowed
+     that zoom stays until the person pinches back out. Two parts,
+     because a utility class beats anything in this layer:
+
+     - A field with no size of its own inherits one; `max(var(--text-base), 1em)`
+       keeps the inherited size when it is larger.
+     - An input, textarea or select sized by a utility (`text-sm`)
+       reads the size token at the element, so the small tokens are
+       redeclared there as body size. Larger sizes are left alone.
+       Not on a contenteditable: custom properties inherit, and the
+       headings, code and chips inside an editor must keep the sizes
+       the posted comment shows them at.
+
+     The primitives also say `pointer-coarse:text-base` themselves; this
+     is the floor under every raw field. `scripts/check-touch-inputs.mjs`
+     guards the ways around it (scoped CSS, inline styles, arbitrary
+     sizes, a small size on a contenteditable itself). */
+  @media (pointer: coarse) {
+    input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'], [type='button'], [type='submit'], [type='reset'], [type='image'], [type='hidden']),
+    textarea,
+    select,
+    [contenteditable]:not([contenteditable='false']) {
+      font-size: max(var(--text-base), 1em);
+    }
+    input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'], [type='button'], [type='submit'], [type='reset'], [type='image'], [type='hidden']),
+    textarea,
+    select {
+      --text-5xs: var(--text-base);
+      --text-4xs: var(--text-base);
+      --text-3xs: var(--text-base);
+      --text-2xs: var(--text-base);
+      --text-xs: var(--text-base);
+      --text-xs-plus: var(--text-base);
+      --text-sm: var(--text-base);
+      --text-sm-plus: var(--text-base);
+    }
   }
 }
 
@@ -74,46 +113,82 @@
   --container-8xl: 90rem;
 
   /* ===========================================================
-     Sub-xs type scale.
+     Type scale: one number, `--text-scale`.
      -----------------------------------------------------------
-     These four sizes were previously written as arbitrary values
-     (`text-[11px]` and friends) at ~348 call sites. Arbitrary px
-     bypasses every scaling mechanism there is: it ignores the root
-     font size, so a user who raises their browser or OS text size
-     gets nothing from it (WCAG 1.4.4 asks for text to scale to
-     200%), and it renders far smaller on a high-density tablet
-     than the same markup does on a desktop monitor.
-     Expressed in rem, one root-level change scales all of them
-     coherently. Borders and hairlines stay in px on purpose --
-     those should NOT grow with type.
-     No `--line-height` is defined: the arbitrary values these
-     replace set font-size only, so adding one would change
-     rendering rather than preserve it.
+     Every size is a role token here, in rem, multiplied by
+     `--text-scale` (set below the @theme block). Raising the scale
+     grows text and nothing else: spacing, icons, borders and
+     breakpoints stay put, so larger text takes room from the line
+     rather than from the page. The root font size is left at the
+     browser default, so a browser text setting still reaches rem.
+
+     - Reading size and smaller (`5xs` to `base`) take the whole
+       scale.
+     - Headings keep the lead they have over body text in pixels:
+       `lg` is body + 2px, `xl` + 4px, `2xl` + 8px, `3xl` + 14px,
+       `4xl` + 20px. A ratio would push headings into banners at
+       200%; half rate would let body text overtake `lg`. This curve
+       cannot cross.
+     - Phones (under 48rem) lift the small sizes one step at scale 1
+       (`main.css`, after this block), with 12px as the floor.
+
+     `2xs` to `5xs` and `xs-plus` were arbitrary px values once
+     (about 350 call sites). They define no line height: the values
+     they replaced set font-size only, so text using them inherits a
+     ratio from its parent, which follows the scale.
      ----------------------------------------------------------- */
-  --text-2xs: 0.6875rem; /* 11px */
-  --text-3xs: 0.625rem; /* 10px */
-  --text-4xs: 0.5625rem; /* 9px */
-  /* Sits between Tailwind's xs (12px) and sm (14px); no conventional
-     name exists for that gap, hence the explicit one. */
-  --text-xs-plus: 0.8125rem; /* 13px */
+  --text-5xs: calc(0.5rem * var(--text-scale)); /* 8px, avatar initials */
+  --text-4xs: calc(0.5625rem * var(--text-scale)); /* 9px */
+  --text-3xs: calc(0.625rem * var(--text-scale)); /* 10px */
+  --text-2xs: calc(0.6875rem * var(--text-scale)); /* 11px */
+  --text-xs: calc(0.75rem * var(--text-scale)); /* 12px */
+  /* Between Tailwind's xs (12px) and sm (14px), and sm and base. */
+  --text-xs-plus: calc(0.8125rem * var(--text-scale)); /* 13px */
+  --text-sm: calc(0.875rem * var(--text-scale)); /* 14px */
+  --text-sm-plus: calc(0.9375rem * var(--text-scale)); /* 15px */
+  --text-base: calc(1rem * var(--text-scale)); /* 16px, reading text */
+  --text-lg: calc(1rem * var(--text-scale) + 0.125rem); /* 18px */
+  --text-xl: calc(1rem * var(--text-scale) + 0.25rem); /* 20px */
+  --text-2xl: calc(1rem * var(--text-scale) + 0.5rem); /* 24px */
+  --text-3xl: calc(1rem * var(--text-scale) + 0.875rem); /* 30px */
+  --text-4xl: calc(1rem * var(--text-scale) + 1.25rem); /* 36px */
+
+  /* The numbered leadings are lengths, not ratios, so they would hold
+     still while the text in them grows. Scaled here; identical at 1. */
+  --leading-4: calc(1rem * var(--text-scale));
+  --leading-5: calc(1.25rem * var(--text-scale));
+  --leading-6: calc(1.5rem * var(--text-scale));
+  --leading-7: calc(1.75rem * var(--text-scale));
+
+  /* Weights. iOS and Android Bold Text will set `data-bold-text` on
+     the root (through the native shell), and a `:root[data-bold-text]`
+     rule, which lands with the readable screens, remaps these four.
+     Every weight in the app already reads them, so nothing else will
+     need to change for it. `check-type-tokens.mjs` refuses literal
+     weights. Values are Tailwind's own. */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
 
   /* ===========================================================
      Metric type scale (dashboard KPI numerals + embedded stats).
      Distinct from the heading scale so KPI numbers can dominate a
      dashboard while page titles stay supporting; aligned to parent
-     plan decision 11 (32-40px primary number, 14px label).
+     plan decision 11 (32-40px primary number, 14px label). Numerals
+     keep the heading lead over body text, like the headings above.
      ----------------------------------------------------------- */
-  --text-metric-sm: 20px;
-  --text-metric-sm--line-height: 28px;
-  --text-metric-sm--font-weight: 600;
+  --text-metric-sm: calc(1rem * var(--text-scale) + 0.25rem); /* 20px */
+  --text-metric-sm--line-height: 1.4;
+  --text-metric-sm--font-weight: var(--font-weight-semibold);
   --text-metric-sm--letter-spacing: -0.015em;
-  --text-metric-md: 32px;
-  --text-metric-md--line-height: 36px;
-  --text-metric-md--font-weight: 600;
+  --text-metric-md: calc(1rem * var(--text-scale) + 1rem); /* 32px */
+  --text-metric-md--line-height: 1.125;
+  --text-metric-md--font-weight: var(--font-weight-semibold);
   --text-metric-md--letter-spacing: -0.022em;
-  --text-metric-lg: 36px;
-  --text-metric-lg--line-height: 40px;
-  --text-metric-lg--font-weight: 600;
+  --text-metric-lg: calc(1rem * var(--text-scale) + 1.25rem); /* 36px */
+  --text-metric-lg--line-height: calc(40 / 36);
+  --text-metric-lg--font-weight: var(--font-weight-semibold);
   --text-metric-lg--letter-spacing: -0.025em;
 
   /* Reka UI surfaces animate from their `data-state` attribute
@@ -152,7 +227,7 @@
   --color-app: #f3f4f6;
   --color-surface: #ffffff;
   --color-surface-alt: #f3f4f6;
-  --color-surface-hover: #f3f4f6;
+  --color-surface-hover: #e1e3e7;
 
   --color-default: #e5e7eb;
   --color-subtle: #f3f4f6;
@@ -160,7 +235,7 @@
 
   --color-primary: #1f2937;
   --color-secondary: #4b5563;
-  --color-tertiary: #6b7280;
+  --color-tertiary: #5d6470;
 
   /* Accent colors — brand orange (#FF6B1A family). Hover steps DOWN
      to primary-600 for light backgrounds; the theme store overrides
@@ -191,6 +266,15 @@
   --color-status-warning-muted: rgba(245, 158, 11, 0.15);
   --color-status-info: #3B82F6;
   --color-status-info-muted: rgba(59, 130, 246, 0.15);
+  /* Filled status buttons and badges and the label on them (resolveTheme). */
+  --color-status-success-solid: #00c951;
+  --color-on-status-success: #000000;
+  --color-status-error-solid: #d4252d;
+  --color-on-status-error: #ffffff;
+  --color-status-warning-solid: #f59e0b;
+  --color-on-status-warning: #000000;
+  --color-status-info-solid: #1c64d5;
+  --color-on-status-info: #ffffff;
   /* Text for work past its deadline: the late title and its count.
      Rose 700: 6.3:1 on the surface and 5.1:1 on the hover fill; themes
      set their own (`ThemeColors.overdue`). */
@@ -244,6 +328,154 @@
   --color-chart-6: #D55E00;
   --color-chart-7: #CC79A7;
   --color-chart-8: #6B7280;
+
+  /* Text set in a status, priority or accent colour reads the text
+     version of that colour: the same hue, moved in lightness until it
+     holds 4.5:1 on every background and on its own tint. The theme
+     store derives them per theme (themes/utils/readable.ts); the
+     values in the `theme` layer below are the base light and dark
+     ones for the first paint. `bg-*`, `border-*` and the rest keep the
+     fill colour. */
+  --text-color-status-success: var(--color-status-success-text);
+  --text-color-status-error: var(--color-status-error-text);
+  --text-color-status-warning: var(--color-status-warning-text);
+  --text-color-status-info: var(--color-status-info-text);
+  --text-color-status-open: var(--color-status-open-text);
+  --text-color-status-in-progress: var(--color-status-in-progress-text);
+  --text-color-status-closed: var(--color-status-closed-text);
+  --text-color-priority-high: var(--color-priority-high-text);
+  --text-color-priority-medium: var(--color-priority-medium-text);
+  --text-color-priority-low: var(--color-priority-low-text);
+  --text-color-accent: var(--color-accent-text);
+  --text-color-accent-hover: var(--color-accent-hover-text);
+
+  /* Where the accent marks focus or state instead of filling (rings,
+     outlines, selected borders) it reads `--color-accent-ui`, 3:1 on
+     every background (WCAG 1.4.11). Text fields rest on
+     `border-field`, 3:1 on the backgrounds they sit on. Both are
+     derived per theme like the text versions above. */
+  --ring-color-accent: var(--color-accent-ui);
+  --outline-color-accent: var(--color-accent-ui);
+  --border-color-accent: var(--color-accent-ui);
+  --border-color-field: var(--color-field-border);
+
+  /* Graphics drawn in `currentColor` want the colour itself, not its
+     text version:
+     - `text-<name>-fill` and `text-accent-fill` are the fill colours:
+       status dots and state glyphs beside their label, and the logo and
+       logotype, which stay the brand orange (logotypes are exempt from
+       WCAG 1.4.3).
+     - `text-<name>-ui` and `text-accent-ui` are the colours at 3:1
+       (WCAG 1.4.11): icons that carry meaning, chart series.
+     - `text-accent-on-tint` is accent text on an accent tint. */
+  --text-color-status-success-fill: var(--color-status-success);
+  --text-color-status-error-fill: var(--color-status-error);
+  --text-color-status-warning-fill: var(--color-status-warning);
+  --text-color-status-info-fill: var(--color-status-info);
+  --text-color-status-open-fill: var(--color-status-open);
+  --text-color-status-in-progress-fill: var(--color-status-in-progress);
+  --text-color-status-closed-fill: var(--color-status-closed);
+  --text-color-status-merged-fill: var(--color-status-merged);
+  --text-color-priority-high-fill: var(--color-priority-high);
+  --text-color-priority-medium-fill: var(--color-priority-medium);
+  --text-color-priority-low-fill: var(--color-priority-low);
+  --text-color-accent-ui: var(--color-accent-ui);
+  --text-color-accent-on-tint: var(--color-accent-on-tint-text);
+  --text-color-accent-fill: var(--color-accent);
+  --text-color-status-success-ui: var(--color-status-success-ui);
+  --text-color-status-error-ui: var(--color-status-error-ui);
+  --text-color-status-warning-ui: var(--color-status-warning-ui);
+  --text-color-status-info-ui: var(--color-status-info-ui);
+  --text-color-status-open-ui: var(--color-status-open-ui);
+  --text-color-status-in-progress-ui: var(--color-status-in-progress-ui);
+  --text-color-status-closed-ui: var(--color-status-closed-ui);
+  --text-color-priority-high-ui: var(--color-priority-high-ui);
+  --text-color-priority-medium-ui: var(--color-priority-medium-ui);
+  --text-color-priority-low-ui: var(--color-priority-low-ui);
+  --text-color-status-merged-ui: var(--color-status-merged-ui);
+  --text-color-status-merged: var(--color-status-merged-text);
+}
+
+/* ============================================
+   Text size
+   ============================================
+   `--text-scale` is the one number the type tokens multiply by, held
+   to 1 to 2 (200% is WCAG 1.4.4's mark; pinch zoom covers the rest,
+   and a device set smaller than its default keeps the designed size).
+   Two inputs, both set on the root element (<html>):
+
+   - `--device-text-scale`: the platform's text size as a factor of
+     its default, written by the native shell (iOS Dynamic Type,
+     Android font scale). Unset on the web, where the browser's own
+     text setting already reaches rem.
+   - `--user-text-scale`: Settings > Appearance > Text size, when the
+     person picks a size instead of following the device. Unset while
+     following it.
+
+   The tokens resolve on the root, so setting either variable on an
+   element further down changes nothing; a preview that shows another
+   size redeclares the tokens it uses. */
+/* Registered as a number so a bad input (`--user-text-scale: large`)
+   falls back to 1 instead of leaving every size token invalid. The two
+   inputs stay unregistered: a registered property always has a value,
+   and the fallback chain below needs "unset" to mean unset. */
+@property --text-scale {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+:root {
+  --text-scale: clamp(1, var(--user-text-scale, var(--device-text-scale, 1)), 2);
+}
+/* Paper has no text setting; print at the designed size. */
+@media print {
+  :root {
+    --text-scale: 1;
+  }
+}
+
+/* The phone baseline. A phone is read close up, and 14px body text
+   sits under Apple's 17pt body and Material's 16sp, so under 48rem the
+   small sizes move up one step at scale 1: 14/13/12 become 15/14/13,
+   and nothing is under 12px. Reading text (`base`), `sm-plus` (already
+   15px) and the headings, which hang off `base`, do not move. From
+   48rem up a touch device gets the 1.125 root scale below instead,
+   which lands in the same place (14px becomes 15.75px). Screens only:
+   a printed page is narrower than 48rem too. */
+@media screen and (width < 48rem) {
+  :root {
+    --text-5xs: calc(0.75rem * var(--text-scale));
+    --text-4xs: calc(0.75rem * var(--text-scale));
+    --text-3xs: calc(0.75rem * var(--text-scale));
+    --text-2xs: calc(0.75rem * var(--text-scale));
+    --text-xs: calc(0.8125rem * var(--text-scale));
+    --text-xs-plus: calc(0.875rem * var(--text-scale));
+    --text-sm: calc(0.9375rem * var(--text-scale));
+  }
+}
+
+/* Something drawn at a fixed size that holds text of its own, such as
+   an avatar and its initials: the tokens inside it are the unscaled
+   desktop ones, so the initials keep fitting their circle at any text
+   size and on a phone. */
+.type-fixed {
+  --text-5xs: 0.5rem;
+  --text-4xs: 0.5625rem;
+  --text-3xs: 0.625rem;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-xs-plus: 0.8125rem;
+  --text-sm: 0.875rem;
+  --text-sm-plus: 0.9375rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+  --text-metric-sm: 1.25rem;
+  --text-metric-md: 2rem;
+  --text-metric-lg: 2.25rem;
 }
 
 /* ============================================
@@ -303,7 +535,7 @@
     --color-app: #f3f4f6;
     --color-surface: #ffffff;
     --color-surface-alt: #f3f4f6;
-    --color-surface-hover: #e5e7eb;
+    --color-surface-hover: #e1e3e7;
 
     /* Borders */
     --color-default: #e5e7eb;
@@ -313,7 +545,7 @@
     /* Text colors */
     --color-primary: #1f2937;
     --color-secondary: #4b5563;
-    --color-tertiary: #6b7280;
+    --color-tertiary: #5d6470;
 
     /* Accent colors — brand orange (#FF6B1A family); see @theme block
        above. Light-mode hover steps DOWN for darker fill. */
@@ -355,6 +587,44 @@
     --color-priority-low: #10B981;
     --color-priority-low-muted: rgba(16, 185, 129, 0.15);
 
+    /* Text versions of the status, priority and accent colours,
+       mirroring resolveTheme (themes/utils/cssInjector.ts). */
+    --color-status-success-text: #016b28;
+    --color-status-error-text: #af041a;
+    --color-status-warning-text: #845301;
+    --color-status-info-text: #0151c1;
+    --color-status-open-text: #845301;
+    --color-status-in-progress-text: #0151c1;
+    --color-status-closed-text: #046947;
+    --color-priority-high-text: #af041a;
+    --color-priority-medium-text: #845301;
+    --color-priority-low-text: #046947;
+    --color-accent-text: #ae4404;
+    --color-accent-hover-text: #b24002;
+    --color-accent-on-tint-text: #9c3b00;
+    --color-status-merged-text: #4741ca;
+    --color-status-success-ui: #048a36;
+    --color-status-error-ui: #d82b31;
+    --color-status-warning-ui: #a96c06;
+    --color-status-info-ui: #286fe1;
+    --color-status-open-ui: #a96c06;
+    --color-status-in-progress-ui: #286fe1;
+    --color-status-closed-ui: #04875d;
+    --color-priority-high-ui: #d82b31;
+    --color-priority-medium-ui: #a96c06;
+    --color-priority-low-ui: #04875d;
+    --color-status-merged-ui: #5e60eb;
+    --color-accent-ui: #c74e00;
+    --color-field-border: #898d92;
+    --color-status-success-solid: #00c951;
+    --color-on-status-success: #000000;
+    --color-status-error-solid: #d4252d;
+    --color-on-status-error: #ffffff;
+    --color-status-warning-solid: #f59e0b;
+    --color-on-status-warning: #000000;
+    --color-status-info-solid: #1c64d5;
+    --color-on-status-info: #ffffff;
+
     /* Legacy support */
     --color-bg-app: var(--color-app);
     --color-bg-surface: var(--color-surface);
@@ -388,7 +658,7 @@
     --color-app: #08090a;
     --color-surface: #0e0f11;
     --color-surface-alt: #15171a;
-    --color-surface-hover: #1c1e22;
+    --color-surface-hover: #222529;
 
     /* Borders */
     --color-default: #1f2125;
@@ -398,7 +668,7 @@
     /* Text colors */
     --color-primary: #f7f8f8;
     --color-secondary: #b8bcc0;
-    --color-tertiary: #82878d;
+    --color-tertiary: #888d93;
 
     /* Accent — brand orange (#FF6B1A family). Hover steps UP for
        lift against the dark surface. */
@@ -438,6 +708,43 @@
     --color-priority-low: #34D399;
     --color-priority-low-muted: rgba(52, 211, 153, 0.2);
 
+    /* Text versions, mirroring resolveTheme for the dark theme. */
+    --color-status-success-text: #00c951;
+    --color-status-error-text: #ff6e67;
+    --color-status-warning-text: #f59e0b;
+    --color-status-info-text: #66a0ff;
+    --color-status-open-text: #fbbf24;
+    --color-status-in-progress-text: #67abff;
+    --color-status-closed-text: #34d399;
+    --color-priority-high-text: #fe7d7c;
+    --color-priority-medium-text: #fbbf24;
+    --color-priority-low-text: #34d399;
+    --color-accent-text: #ff6b1a;
+    --color-accent-hover-text: #ff7a2d;
+    --color-accent-on-tint-text: #ff7d42;
+    --color-status-merged-text: #919dff;
+    --color-status-success-ui: #00c951;
+    --color-status-error-ui: #ef4444;
+    --color-status-warning-ui: #f59e0b;
+    --color-status-info-ui: #3b82f6;
+    --color-status-open-ui: #fbbf24;
+    --color-status-in-progress-ui: #60a5fa;
+    --color-status-closed-ui: #34d399;
+    --color-priority-high-ui: #f87171;
+    --color-priority-medium-ui: #fbbf24;
+    --color-priority-low-ui: #34d399;
+    --color-status-merged-ui: #818cf8;
+    --color-accent-ui: #ff6b1a;
+    --color-field-border: #60646b;
+    --color-status-success-solid: #00c951;
+    --color-on-status-success: #000000;
+    --color-status-error-solid: #df3337;
+    --color-on-status-error: #ffffff;
+    --color-status-warning-solid: #f59e0b;
+    --color-on-status-warning: #000000;
+    --color-status-info-solid: #2b72e5;
+    --color-on-status-info: #ffffff;
+
     /* Shadows */
     --shadow-inset-dark: rgba(0, 0, 0, 0.3);
     --shadow-inset-light: rgba(255, 255, 255, 0.1);
@@ -465,19 +772,19 @@
 .comment-prose p { margin: 0 0 0.5rem; }
 .comment-prose > :last-child,
 .comment-prose li > :last-child { margin-bottom: 0; }
-.comment-prose strong { font-weight: 600; }
+.comment-prose strong { font-weight: var(--font-weight-semibold); }
 .comment-prose em { font-style: italic; }
-.comment-prose a { color: var(--color-accent); text-decoration: underline; }
+.comment-prose a { color: var(--color-accent-text); text-decoration: underline; }
 .comment-prose :is(h1, h2, h3, h4, h5, h6) {
   margin: 0.75rem 0 0.375rem;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: 1.35;
 }
 .comment-prose > :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 0; }
-.comment-prose h1 { font-size: 1.25rem; font-weight: 700; }
-.comment-prose h2 { font-size: 1.125rem; }
-.comment-prose h3 { font-size: 1rem; }
-.comment-prose :is(h4, h5, h6) { font-size: 0.875rem; }
+.comment-prose h1 { font-size: var(--text-xl); font-weight: var(--font-weight-bold); }
+.comment-prose h2 { font-size: var(--text-lg); }
+.comment-prose h3 { font-size: var(--text-base); }
+.comment-prose :is(h4, h5, h6) { font-size: var(--text-sm); }
 .comment-prose :is(ul, ol) { padding-left: 1.25rem; margin: 0.5rem 0; }
 .comment-prose ul { list-style-type: disc; }
 .comment-prose ul ul { list-style-type: circle; }
@@ -507,7 +814,7 @@
   overflow-x: auto;
   margin: 0.5rem 0;
 }
-.comment-prose pre code { background-color: transparent; padding: 0; font-size: 0.8125rem; }
+.comment-prose pre code { background-color: transparent; padding: 0; font-size: var(--text-xs-plus); }
 .comment-prose hr { border: 0; border-top: 1px solid var(--color-default); margin: 0.75rem 0; }
 
 /* ============================================
@@ -560,8 +867,8 @@
 
   /* Accent color utilities */
   .bg-accent { background-color: var(--color-accent); }
-  .text-accent { color: var(--color-accent); }
-  .border-accent { border-color: var(--color-accent); }
+  .text-accent { color: var(--color-accent-text); }
+  .border-accent { border-color: var(--color-accent-ui); }
   .bg-accent-hover { background-color: var(--color-accent-hover); }
   .bg-accent-muted { background-color: var(--color-accent-muted); }
   /* Theme-aware on-accent text colour. Use this (not `text-black`
@@ -571,7 +878,7 @@
      light, and explicitly white for themes whose accent is dark
      (epaper, gruvbox-dark) so labels don't disappear. */
   .text-on-accent { color: var(--color-on-accent); }
-  .focus\:ring-accent:focus { --tw-ring-color: var(--color-accent); }
+  .focus\:ring-accent:focus { --tw-ring-color: var(--color-accent-ui); }
 
   /* Brand color utilities */
   .bg-brand-blue { background-color: var(--color-brand-blue); }
@@ -583,54 +890,54 @@
 
   /* Status color utilities */
   .bg-status-success { background-color: var(--color-status-success); }
-  .text-status-success { color: var(--color-status-success); }
+  .text-status-success { color: var(--color-status-success-text); }
   .border-status-success { border-color: var(--color-status-success); }
   .bg-status-success-muted { background-color: var(--color-status-success-muted); }
 
   .bg-status-error { background-color: var(--color-status-error); }
-  .text-status-error { color: var(--color-status-error); }
+  .text-status-error { color: var(--color-status-error-text); }
   .border-status-error { border-color: var(--color-status-error); }
   .bg-status-error-muted { background-color: var(--color-status-error-muted); }
 
   .bg-status-warning { background-color: var(--color-status-warning); }
-  .text-status-warning { color: var(--color-status-warning); }
+  .text-status-warning { color: var(--color-status-warning-text); }
   .border-status-warning { border-color: var(--color-status-warning); }
   .bg-status-warning-muted { background-color: var(--color-status-warning-muted); }
 
   .bg-status-info { background-color: var(--color-status-info); }
-  .text-status-info { color: var(--color-status-info); }
+  .text-status-info { color: var(--color-status-info-text); }
   .border-status-info { border-color: var(--color-status-info); }
   .bg-status-info-muted { background-color: var(--color-status-info-muted); }
 
   /* Ticket status utilities */
   .bg-status-open { background-color: var(--color-status-open); }
-  .text-status-open { color: var(--color-status-open); }
+  .text-status-open { color: var(--color-status-open-text); }
   .border-status-open { border-color: var(--color-status-open); }
   .bg-status-open-muted { background-color: var(--color-status-open-muted); }
 
   .bg-status-in-progress { background-color: var(--color-status-in-progress); }
-  .text-status-in-progress { color: var(--color-status-in-progress); }
+  .text-status-in-progress { color: var(--color-status-in-progress-text); }
   .border-status-in-progress { border-color: var(--color-status-in-progress); }
   .bg-status-in-progress-muted { background-color: var(--color-status-in-progress-muted); }
 
   .bg-status-closed { background-color: var(--color-status-closed); }
-  .text-status-closed { color: var(--color-status-closed); }
+  .text-status-closed { color: var(--color-status-closed-text); }
   .border-status-closed { border-color: var(--color-status-closed); }
   .bg-status-closed-muted { background-color: var(--color-status-closed-muted); }
 
   /* Priority utilities */
   .bg-priority-high { background-color: var(--color-priority-high); }
-  .text-priority-high { color: var(--color-priority-high); }
+  .text-priority-high { color: var(--color-priority-high-text); }
   .border-priority-high { border-color: var(--color-priority-high); }
   .bg-priority-high-muted { background-color: var(--color-priority-high-muted); }
 
   .bg-priority-medium { background-color: var(--color-priority-medium); }
-  .text-priority-medium { color: var(--color-priority-medium); }
+  .text-priority-medium { color: var(--color-priority-medium-text); }
   .border-priority-medium { border-color: var(--color-priority-medium); }
   .bg-priority-medium-muted { background-color: var(--color-priority-medium-muted); }
 
   .bg-priority-low { background-color: var(--color-priority-low); }
-  .text-priority-low { color: var(--color-priority-low); }
+  .text-priority-low { color: var(--color-priority-low-text); }
   .border-priority-low { border-color: var(--color-priority-low); }
   .bg-priority-low-muted { background-color: var(--color-priority-low-muted); }
 
@@ -657,13 +964,16 @@ html, body {
 
 body {
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Text with no size of its own, and every `em` size, follows the scale. */
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-normal);
   background-color: var(--background-color);
   color: var(--text-primary);
 }
 
 #app {
   height: 100%;
-  font-weight: normal;
+  font-weight: var(--font-weight-normal);
 }
 
 a {
@@ -819,7 +1129,7 @@ html[data-theme="red-horizon"] body,
 [data-theme="red-horizon"] h4,
 [data-theme="red-horizon"] h5,
 [data-theme="red-horizon"] h6 {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -1177,12 +1487,15 @@ html[data-theme="red-horizon"] body,
 /* Red Horizon: Button styling - reddish-orange text on dark with glow.
    Buttons are hooked by their variant (`data-variant`, stamped by
    Button / LinkButton / IconButton from recipes/button.ts), which is the
-   stable contract; the `.bg-accent` / `.bg-status-error` selectors stay
+   stable contract; the `.bg-accent` / `.bg-status-error(-solid)` selectors stay
    for the non-button surfaces that share the fill and for raw buttons
    not yet on the recipe (scripts/button-baseline.json). */
 [data-theme="red-horizon"] [data-variant="primary"],
 [data-theme="red-horizon"] .bg-accent {
   background-color: #1a0800 !important;
+  /* The label the theme's orange, not the black picked for the bright
+     accent: black on this near-black fill is 1.08:1. */
+  color: #ff8844 !important;
   border: 1px solid #502200 !important;
   box-shadow: 0 0 8px rgba(200, 80, 0, 0.4), inset 0 0 20px rgba(100, 40, 0, 0.2);
 }
@@ -1200,10 +1513,9 @@ html[data-theme="red-horizon"] body,
   box-shadow: 0 0 12px rgba(255, 136, 68, 0.5), inset 0 0 25px rgba(120, 50, 0, 0.3);
 }
 
-/* Red Horizon: Secondary/outline buttons */
-[data-theme="red-horizon"] .border-accent {
-  border-color: #502200 !important;
-}
+/* Red Horizon's accent borders (outline buttons, selected and focused
+   controls) take the theme's own `--color-accent-ui`, which holds 3:1
+   on its near-black surfaces; a dim brown here fell to about 1.6:1. */
 
 [data-theme="red-horizon"] .text-accent {
   text-shadow: 0 0 4px rgba(200, 80, 0, 0.4);
@@ -1212,6 +1524,7 @@ html[data-theme="red-horizon"] body,
 /* Red Horizon: Danger/delete buttons - bright reddish-orange glow */
 [data-theme="red-horizon"] [data-variant="danger"],
 [data-theme="red-horizon"] .bg-status-error,
+[data-theme="red-horizon"] .bg-status-error-solid,
 [data-theme="red-horizon"] .bg-red-600,
 [data-theme="red-horizon"] .bg-red-500 {
   background-color: #2a0800 !important;
@@ -1221,6 +1534,7 @@ html[data-theme="red-horizon"] body,
 
 [data-theme="red-horizon"] [data-variant="danger"]:hover,
 [data-theme="red-horizon"] .bg-status-error:hover,
+[data-theme="red-horizon"] .bg-status-error-solid:hover,
 [data-theme="red-horizon"] .bg-red-600:hover,
 [data-theme="red-horizon"] .bg-red-500:hover {
   background-color: #3a1000 !important;
@@ -1760,7 +2074,7 @@ html[data-theme="red-horizon"] body,
 
   th {
     background: #f3f4f6 !important;
-    font-weight: 600 !important;
+    font-weight: var(--font-weight-semibold) !important;
   }
 
   /* Blockquotes */
@@ -1843,8 +2157,8 @@ html[data-theme="red-horizon"] body,
   margin: 0 0.0625em;
   border-radius: 9999px;
   background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  color: var(--color-accent);
-  font-weight: 500;
+  color: var(--color-accent-text);
+  font-weight: var(--font-weight-medium);
   font-size: inherit;
   line-height: 1;
   vertical-align: text-bottom;
@@ -1882,7 +2196,7 @@ html[data-theme="red-horizon"] body,
   justify-content: center;
   color: white;
   font-size: 0.5em;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .mention-name {
@@ -1899,7 +2213,7 @@ html[data-theme="red-horizon"] body,
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border-subtle);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.3;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -1908,7 +2222,7 @@ html[data-theme="red-horizon"] body,
 }
 
 .ticket-link-card:hover {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
   background: var(--color-surface-hover);
 }
 
@@ -1921,16 +2235,16 @@ html[data-theme="red-horizon"] body,
 }
 
 .ticket-link-id {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-tertiary, #888);
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   flex-shrink: 0;
 }
 
 .ticket-link-title {
   color: var(--color-text-primary, #fff);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1942,10 +2256,10 @@ html[data-theme="red-horizon"] body,
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--text-3xs);
   padding: 1px 6px;
   border-radius: 3px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   text-transform: capitalize;
   flex-shrink: 0;
   white-space: nowrap;
@@ -2024,7 +2338,7 @@ html[data-theme="red-horizon"] body,
   table-layout: fixed;
   width: 100%;
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: var(--text-sm-plus);
   line-height: 1.45;
 }
 
@@ -2041,7 +2355,7 @@ html[data-theme="red-horizon"] body,
 
 .ProseMirror .table-scroll th {
   background-color: var(--color-surface-alt);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .ProseMirror .table-scroll :is(th, td) > * { margin-top: 0; margin-bottom: 0; }
@@ -2049,7 +2363,7 @@ html[data-theme="red-horizon"] body,
 .ProseMirror .table-scroll :is(th, td) > * + * { margin-top: 0.35rem; }
 .ProseMirror .table-scroll :is(th, td) :is(ul, ol) { margin: 0.1rem 0 0; padding-left: 1.1rem; }
 .ProseMirror .table-scroll :is(th, td) li { margin-bottom: 0.15rem; line-height: 1.45; }
-.ProseMirror .table-scroll :is(th, td) pre { margin: 0.25rem 0 0; padding: 0.4rem 0.5rem; font-size: 0.8125rem; }
+.ProseMirror .table-scroll :is(th, td) pre { margin: 0.25rem 0 0; padding: 0.4rem 0.5rem; font-size: var(--text-xs-plus); }
 
 .ProseMirror .table-scroll .align-left { text-align: left; }
 .ProseMirror .table-scroll .align-center { text-align: center; }
@@ -2061,7 +2375,7 @@ html[data-theme="red-horizon"] body,
 @media not all and (pointer: fine) {
   .ProseMirror .table-scroll > table {
     table-layout: auto;
-    font-size: 1rem;
+    font-size: var(--text-base);
   }
   .ProseMirror .table-scroll :is(th, td) { min-width: 72px; }
   .ProseMirror .table-scroll :is(th, td) code { white-space: nowrap; }
@@ -2084,7 +2398,7 @@ html[data-theme="red-horizon"] body,
 }
 
 .ProseMirror .pm-table.is-all-selected table {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-accent-ui);
   outline-offset: -1px;
 }
 

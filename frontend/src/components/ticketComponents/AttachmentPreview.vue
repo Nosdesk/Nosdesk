@@ -717,7 +717,7 @@ const generatePdfThumbnail = async () => {
 
         <!-- Fallback PDF icon when no thumbnail -->
         <div v-else-if="!isPdfThumbnailLoading" class="w-full h-full flex flex-col items-center justify-center bg-surface-hover gap-2">
-          <Icon name="document" size="2xl" class="text-status-error" />
+          <Icon name="document" size="2xl" class="text-status-error-ui" />
           <span class="text-xs text-tertiary uppercase font-medium">{{ $t('ticket-media-attachment-pdf-label') }}</span>
         </div>
 
@@ -726,7 +726,7 @@ const generatePdfThumbnail = async () => {
           class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-surface/90 to-transparent"
         >
           <div class="flex items-center gap-2">
-            <Icon name="document" size="lg" class="text-status-error flex-shrink-0" />
+            <Icon name="document" size="lg" class="text-status-error-ui flex-shrink-0" />
             <span class="text-sm text-primary font-medium truncate">{{ getDisplayName(attachment.name) }}</span>
           </div>
         </div>

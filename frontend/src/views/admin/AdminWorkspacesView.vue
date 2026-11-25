@@ -414,7 +414,7 @@ const deleteTypeToConfirmLabel = computed(() => {
                       <button
                         v-else
                         type="button"
-                        class="p-1.5 text-secondary hover:text-accent hover:bg-accent/10 rounded-md transition-colors"
+                        class="p-1.5 text-secondary hover:text-accent-on-tint hover:bg-accent/10 rounded-md transition-colors"
                         :aria-label="$t('admin-workspaces-restore')"
                         :disabled="isSaving"
                         @click="restoreWorkspace(ws.id)"

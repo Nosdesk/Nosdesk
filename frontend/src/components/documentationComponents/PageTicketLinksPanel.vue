@@ -74,11 +74,11 @@ function categoryClass(category: WorkflowStateCategory | null | undefined): stri
   if (!category) return 'bg-surface-alt text-tertiary'
   switch (coarseStatusBucket(category)) {
     case 'open':
-      return 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
+      return 'bg-status-info-muted text-status-info'
     case 'in-progress':
-      return 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+      return 'bg-status-warning-muted text-status-warning'
     case 'closed':
-      return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+      return 'bg-status-success-muted text-status-success'
     default:
       return 'bg-surface-alt text-tertiary'
   }

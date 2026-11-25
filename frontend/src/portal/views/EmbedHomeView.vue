@@ -54,7 +54,7 @@ const portalUrl = window.location.pathname.replace(/widget\/?$/, '')
         to="/tickets"
         class="flex items-center gap-3 rounded-xl border border-default bg-surface px-4 py-3 hover:bg-surface-hover"
       >
-        <Icon name="inbox" size="sm" class="text-accent" />
+        <Icon name="inbox" size="sm" class="text-accent-ui" />
         <span class="flex flex-col">
           <span class="text-sm font-medium text-primary">{{ t('widget-your-requests') }}</span>
           <span class="text-xs text-secondary">{{ t('widget-your-requests-hint') }}</span>
@@ -64,7 +64,7 @@ const portalUrl = window.location.pathname.replace(/widget\/?$/, '')
         to="/tickets/new"
         class="flex items-center gap-3 rounded-xl border border-default bg-surface px-4 py-3 hover:bg-surface-hover"
       >
-        <Icon name="comment" size="sm" class="text-accent" />
+        <Icon name="comment" size="sm" class="text-accent-ui" />
         <span class="flex flex-col">
           <span class="text-sm font-medium text-primary">{{ t('widget-new-request') }}</span>
           <span class="text-xs text-secondary">{{ t('widget-new-request-hint') }}</span>
@@ -75,7 +75,7 @@ const portalUrl = window.location.pathname.replace(/widget\/?$/, '')
         to="/docs"
         class="flex items-center gap-3 rounded-xl border border-default bg-surface px-4 py-3 hover:bg-surface-hover"
       >
-        <Icon name="book" size="sm" class="text-accent" />
+        <Icon name="book" size="sm" class="text-accent-ui" />
         <span class="flex flex-col">
           <span class="text-sm font-medium text-primary">{{ t('widget-help-articles') }}</span>
           <span class="text-xs text-secondary">{{ t('widget-help-articles-hint') }}</span>
@@ -89,7 +89,7 @@ const portalUrl = window.location.pathname.replace(/widget\/?$/, '')
         to="/docs"
         class="flex items-center gap-3 rounded-xl border border-default bg-surface px-4 py-3 hover:bg-surface-hover"
       >
-        <Icon name="book" size="sm" class="text-accent" />
+        <Icon name="book" size="sm" class="text-accent-ui" />
         <span class="flex flex-col">
           <span class="text-sm font-medium text-primary">{{ t('widget-help-articles') }}</span>
           <span class="text-xs text-secondary">{{ t('widget-help-articles-hint') }}</span>
@@ -100,7 +100,7 @@ const portalUrl = window.location.pathname.replace(/widget\/?$/, '')
         to="/submit-ticket"
         class="flex items-center gap-3 rounded-xl border border-default bg-surface px-4 py-3 hover:bg-surface-hover"
       >
-        <Icon name="comment" size="sm" class="text-accent" />
+        <Icon name="comment" size="sm" class="text-accent-ui" />
         <span class="flex flex-col">
           <span class="text-sm font-medium text-primary">{{ t('widget-new-request') }}</span>
           <span class="text-xs text-secondary">{{ t('widget-new-request-hint') }}</span>

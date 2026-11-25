@@ -166,7 +166,7 @@ function tooltipDetails(day: ContributionDay) {
 .heatmap-cell--interactive:hover {
   transform: scale(1);
   z-index: 1;
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-ui);
 }
 
 .heatmap-level-0 {

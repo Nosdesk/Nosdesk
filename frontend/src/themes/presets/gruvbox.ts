@@ -29,12 +29,12 @@ export const gruvboxLightTheme: Theme = {
 
     // Text
     primary: '#3c3836',
-    secondary: '#504945',
-    tertiary: '#665c54',
+    secondary: '#4d4642', // lifted to 5.4:1 on hover, 8.4:1 on surface
+    tertiary: '#594f48', // lifted to 4.6:1 on hover, 7.2:1 on surface
 
     // Accent (Gruvbox aqua)
     accent: '#427b58',
-    accentHover: '#689d6a',
+    accentHover: '#38714f', // a step darker, so the white label holds 4.5:1 while hovered
     accentMuted: 'rgba(66, 123, 88, 0.15)',
 
     // Status
@@ -101,7 +101,7 @@ export const gruvboxDarkTheme: Theme = {
     app: '#282828',
     surface: '#3c3836',
     surfaceAlt: '#504945',
-    surfaceHover: '#665c54',
+    surfaceHover: '#5c524a', // 1.52:1 from surface, 1.16:1 from the alternate surface
 
     // Borders
     default: '#504945',
@@ -109,9 +109,9 @@ export const gruvboxDarkTheme: Theme = {
     strong: '#7c6f64',
 
     // Text
-    primary: '#ebdbb2',
-    secondary: '#d5c4a1',
-    tertiary: '#a89984',
+    primary: '#f4e4ba', // lifted to 6.0:1 on hover, 9.2:1 on surface
+    secondary: '#e8d7b2', // lifted to 5.4:1 on hover, 8.2:1 on surface
+    tertiary: '#d7c8b1', // lifted to 4.6:1 on hover, 7.1:1 on surface
 
     // Accent (Gruvbox aqua)
     accent: '#8ec07c',
