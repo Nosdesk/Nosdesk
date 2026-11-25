@@ -573,10 +573,19 @@ defineExpose({ focus, clear });
   position: relative;
 }
 
+/* The placeholder and the empty paragraph share one grid cell, so the
+   editor grows to fit a placeholder that wraps (a narrow phone, a larger
+   text size) instead of clipping it under the min-height. */
+.simple-editor :deep(.ProseMirror[data-placeholder]) {
+  display: grid;
+}
+.simple-editor :deep(.ProseMirror[data-placeholder] > *) {
+  grid-area: 1 / 1;
+}
 .simple-editor :deep(.ProseMirror[data-placeholder]::before) {
   content: attr(data-placeholder);
   color: var(--color-tertiary);
-  position: absolute;
+  grid-area: 1 / 1;
   pointer-events: none;
 }
 

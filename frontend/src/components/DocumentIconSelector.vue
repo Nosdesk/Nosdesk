@@ -99,7 +99,7 @@ function closeDropdown() {
       :offset="8"
       :auto-focus="false"
       role="dialog"
-      popover-class="w-80 overflow-hidden"
+      popover-class="w-80 max-w-[calc(100vw-1rem)] overflow-hidden"
       @close="closeDropdown"
     >
       <DocumentIconPickerPanel

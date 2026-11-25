@@ -125,7 +125,7 @@ async function unverify() {
     :offset="6"
     role="dialog"
     :aria-label="$t('docs-author-badge-popover-aria')"
-    popover-class="w-72 rounded-lg border border-default bg-surface shadow-lg p-3 text-xs"
+    popover-class="w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-default bg-surface shadow-lg p-3 text-xs"
     @close="isOpen = false"
   >
     <!-- Authoring -->
