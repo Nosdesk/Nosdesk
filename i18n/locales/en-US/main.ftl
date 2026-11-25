@@ -1431,7 +1431,6 @@ admin-nav-data-import-title = Data Import
 admin-nav-data-import-description = Import from spreadsheets, documentation exports or another Nosdesk, and sync with a directory
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Sync users and groups from an LDAP or Active Directory server
-admin-nav-ldap-description-cloud = Sync users and groups from an LDAPS server reachable from the internet
 admin-nav-audit-log-title = Audit Log
 admin-nav-audit-log-description = Forensic record of who changed what, drawn from per-table triggers
 admin-nav-branding-title = Branding
@@ -1922,7 +1921,6 @@ admin-data-import-csv-title = Spreadsheet
 admin-data-import-csv-description = Assets, users and tickets from a .csv or .xlsx file.
 admin-data-import-ad-title = LDAP / Active Directory
 admin-data-import-ad-description = Users and groups from Active Directory or another LDAP directory.
-admin-data-import-ad-description-cloud = Users and groups from Active Directory or another LDAP directory. Needs an LDAPS server reachable from the internet.
 
 # Admin: Authentication Providers (AuthProvidersView).
 admin-auth-providers-title = Authentication Providers

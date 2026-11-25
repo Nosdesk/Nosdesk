@@ -1488,8 +1488,6 @@ admin-nav-plugins-title = Plug-ins
 admin-nav-plugins-description = Beheer geïnstalleerde plug-ins en integraties
 admin-nav-ldap-title = LDAP / Active Directory
 admin-nav-ldap-description = Synchroniseer gebruikers en groepen vanuit een LDAP- of Active Directory-server
-# MT: pending native review (nl-NL)
-admin-nav-ldap-description-cloud = Synchroniseer gebruikers en groepen vanaf een LDAPS-server die bereikbaar is via internet
 admin-nav-data-import-title = Gegevensimport
 # MT: pending native review (nl-NL)
 admin-nav-data-import-description = Importeer uit spreadsheets, documentatie-exports of een andere Nosdesk, en synchroniseer met een directory
@@ -2029,8 +2027,6 @@ admin-data-import-csv-description = Activa, gebruikers en tickets uit een .csv- 
 admin-data-import-ad-title = LDAP / Active Directory
 # MT: pending native review (nl-NL)
 admin-data-import-ad-description = Gebruikers en groepen uit Active Directory of een andere LDAP-directory.
-# MT: pending native review (nl-NL)
-admin-data-import-ad-description-cloud = Gebruikers en groepen uit Active Directory of een andere LDAP-directory. Vereist een LDAPS-server die bereikbaar is via internet.
 
 # Beheer: Authenticatieproviders.
 admin-auth-providers-title = Authenticatieproviders
