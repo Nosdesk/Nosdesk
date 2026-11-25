@@ -20,6 +20,24 @@ pub struct WebhookService {
     delivery_tx: mpsc::Sender<DeliveryTask>,
 }
 
+/// A sync event's data as it leaves for a workspace's endpoints. A `user.*`
+/// row is the person's whole projection, kept whole in the event log for their
+/// own sessions; an endpoint gets what the workspace's staff see of someone
+/// else (`user_projection`), never the person's platform role or preferences.
+fn outward_data(event_type: &str, data: &serde_json::Value) -> serde_json::Value {
+    let mut data = data.clone();
+    if event_type.starts_with("user.") {
+        crate::sync::user_projection::value_for_viewer(
+            &mut data,
+            crate::sync::user_projection::Viewer {
+                uuid: Uuid::nil(),
+                is_staff: true,
+            },
+        );
+    }
+    data
+}
+
 impl WebhookService {
     /// Create a new WebhookService and start background workers
     pub fn new(pool: Pool) -> Self {
@@ -209,7 +227,7 @@ impl WebhookService {
                     id: Uuid::now_v7(),
                     event_type: event_type_str.to_string(),
                     timestamp: Utc::now(),
-                    data: data.clone(),
+                    data: outward_data(event_type_str, data),
                 };
                 for webhook in subscribers {
                     pending.push((

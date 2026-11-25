@@ -84,30 +84,33 @@ const microsoft: ImportOption = {
   test: 'hub-microsoft',
 };
 
-/** Directory sync has its own page; the card is a shortcut to it. On Cloud
- *  the egress policy admits only a server on the public internet. */
-const directory = computed<ImportOption>(() => ({
+/** Directory sync has its own page; the card is a shortcut to it. LDAP is
+ *  for self-hosted servers only. */
+const directory: ImportOption = {
   titleKey: 'admin-data-import-ad-title',
-  descriptionKey: hosted.value
-    ? 'admin-data-import-ad-description-cloud'
-    : 'admin-data-import-ad-description',
+  descriptionKey: 'admin-data-import-ad-description',
   icon: 'directory',
   route: '/admin/ldap',
   status: 'available',
   test: 'hub-directory',
-}));
+};
 
+/** On Cloud there is no directory sync to offer, so its group is left out. */
 const groups = computed(() => [
   {
     labelKey: 'admin-data-import-group-once',
     test: 'hub-group-once',
     items: [nosdeskExport.value, documentation, spreadsheet],
   },
-  {
-    labelKey: 'admin-data-import-group-sync',
-    test: 'hub-group-sync',
-    items: hosted.value ? [directory.value] : [microsoft, directory.value],
-  },
+  ...(hosted.value
+    ? []
+    : [
+        {
+          labelKey: 'admin-data-import-group-sync',
+          test: 'hub-group-sync',
+          items: [microsoft, directory],
+        },
+      ]),
 ]);
 
 const contactSupportOpen = ref(false);

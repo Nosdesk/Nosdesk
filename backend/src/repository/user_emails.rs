@@ -33,7 +33,9 @@ pub fn find_user_by_any_email(
 }
 
 // sync-pending-wire: needs sync aggregate wiring
-/// Add multiple emails for a user (used during Microsoft Graph sync)
+/// Add multiple emails for a user (used during Microsoft Graph sync). An
+/// address the user already holds has its verified flag refreshed; one another
+/// account holds is left as it is and not returned.
 pub fn add_multiple_emails(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
@@ -56,30 +58,68 @@ pub fn add_multiple_emails(
         return Ok(Vec::new());
     }
 
-    diesel::insert_into(user_emails::table)
+    // Insert the new addresses; an address already on file, this user's or
+    // anyone else's, is skipped here.
+    let mut stored: Vec<UserEmail> = diesel::insert_into(user_emails::table)
         .values(&new_emails)
         .on_conflict(user_emails::email)
-        .do_update()
-        .set((
-            user_emails::is_verified.eq(diesel::dsl::sql("EXCLUDED.is_verified")),
-            user_emails::updated_at.eq(Utc::now().naive_utc()),
-        ))
-        .get_results(conn)
+        .do_nothing()
+        .get_results(conn)?;
+    // Refresh the verified flag on the ones this user already holds.
+    for row in &new_emails {
+        if stored.iter().any(|s| s.email == row.email) {
+            continue;
+        }
+        stored.extend(
+            diesel::update(
+                user_emails::table
+                    .filter(user_emails::email.eq(&row.email))
+                    .filter(user_emails::user_uuid.eq(user_uuid)),
+            )
+            .set((
+                user_emails::is_verified.eq(row.is_verified),
+                user_emails::updated_at.eq(Utc::now().naive_utc()),
+            ))
+            .get_results::<UserEmail>(conn)?,
+        );
+    }
+    Ok(stored)
 }
 
 // sync-pending-wire: needs sync aggregate wiring
-/// Remove emails for a user that are no longer present in the source system
+/// Remove the user's addresses that `source` added and no longer lists. An
+/// address from anywhere else (added by hand, by another provider) stays.
 pub fn cleanup_obsolete_emails(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
     current_emails: &[String],
-    _source: &str, // Source parameter kept for compatibility
+    source: &str,
 ) -> Result<usize, diesel::result::Error> {
     diesel::delete(
         user_emails::table
             .filter(user_emails::user_uuid.eq(user_uuid))
+            .filter(user_emails::source.eq(source))
             .filter(user_emails::email.ne_all(current_emails))
             .filter(user_emails::is_primary.eq(false)), // Never delete primary emails
+    )
+    .execute(conn)
+}
+
+// sync-pending-wire: needs sync aggregate wiring
+/// Remove every non-primary address of the user that `keep` doesn't list,
+/// whatever added it. For the control plane, which owns a hosted account's
+/// whole verified set; a directory sync cleans up only its own rows
+/// ([`cleanup_obsolete_emails`]).
+pub fn remove_unlisted_addresses(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    keep: &[String],
+) -> Result<usize, diesel::result::Error> {
+    diesel::delete(
+        user_emails::table
+            .filter(user_emails::user_uuid.eq(user_uuid))
+            .filter(user_emails::email.ne_all(keep))
+            .filter(user_emails::is_primary.eq(false)),
     )
     .execute(conn)
 }

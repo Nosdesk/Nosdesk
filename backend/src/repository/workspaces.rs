@@ -377,6 +377,62 @@ pub fn workspace_ids_of_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryR
     }
 }
 
+/// Where an existing account stands for a directory sync running in one
+/// workspace. The account is global: its name, addresses, photo and sign-in
+/// identities reach every workspace that holds it, so one workspace's
+/// directory may speak for them only when no other workspace holds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectoryReach {
+    /// No active seat anywhere: an account an earlier run created without a
+    /// membership, or someone removed from the only workspace that had them.
+    Unseated,
+    /// Active seats elsewhere and none here. The sync leaves it alone.
+    Foreign,
+    /// Seated here and also elsewhere, or owned by a Nosdesk account (hosted
+    /// staff). The sync keeps this workspace's own profile, not the account.
+    Shared,
+    /// Seated here and nowhere else.
+    Own,
+}
+
+impl DirectoryReach {
+    /// The account holds an active seat in the syncing workspace, so the sync
+    /// may link a directory identity to it.
+    pub fn seated_here(self) -> bool {
+        matches!(self, Self::Shared | Self::Own)
+    }
+
+    /// No other workspace holds the account, so the sync may write its name,
+    /// addresses and photo.
+    pub fn owns_account(self) -> bool {
+        matches!(self, Self::Own | Self::Unseated)
+    }
+}
+
+/// [`DirectoryReach`] of `user_uuid` for a directory sync in `workspace_id`.
+/// Works on a pinned runtime connection and on an elevated one: the seat here
+/// is read by workspace id, the seats elsewhere through
+/// [`workspace_ids_of_user`].
+pub fn directory_reach(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<DirectoryReach> {
+    let here = membership(conn, workspace_id, user_uuid)?.is_some();
+    let elsewhere = workspace_ids_of_user(conn, user_uuid)?
+        .into_iter()
+        .any(|id| id != workspace_id);
+    Ok(match (here, elsewhere) {
+        (false, false) => DirectoryReach::Unseated,
+        (false, true) => DirectoryReach::Foreign,
+        (true, true) => DirectoryReach::Shared,
+        (true, false) if nosdesk_account_managed(conn, &[user_uuid]).contains(&user_uuid) => {
+            DirectoryReach::Shared
+        }
+        (true, false) => DirectoryReach::Own,
+    })
+}
+
 /// Outcome of [`add_membership`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum AddMembershipOutcome {

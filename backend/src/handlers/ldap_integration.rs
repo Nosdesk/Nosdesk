@@ -33,8 +33,23 @@ pub struct LdapSettingsRequest {
     pub clear_bind_password: bool,
 }
 
+/// LDAP directory sync is for self-hosted installs (a hosted workspace's
+/// directory would link and rename accounts other customers hold), so every
+/// LDAP route refuses on hosted, before reading anything.
+fn refused_on_hosted() -> Option<HttpResponse> {
+    crate::middleware::workspace_context::is_hosted().then(|| {
+        errors::forbidden_with_code(
+            "LDAP directory sync is available on self-hosted Nosdesk only.",
+            "ldap.self_hosted_only",
+        )
+    })
+}
+
 /// GET /ldap/settings — the current workspace's LDAP config (admin).
 pub async fn get_ldap_settings(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if let Some(refused) = refused_on_hosted() {
+        return refused;
+    }
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can view LDAP settings");
     }
@@ -59,6 +74,9 @@ pub async fn get_ldap_settings(mut tc: TenantConn, auth: AuthContext) -> impl Re
 
 /// GET /ldap/presets — provider presets for pick-from-catalog (admin).
 pub async fn get_ldap_presets(auth: AuthContext) -> impl Responder {
+    if let Some(refused) = refused_on_hosted() {
+        return refused;
+    }
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can view LDAP presets");
     }
@@ -68,6 +86,9 @@ pub async fn get_ldap_presets(auth: AuthContext) -> impl Responder {
 /// GET /ldap/sync-history — recent sync runs + cursor state for this workspace
 /// (admin). Backs the "last run / history" panel in the admin UI.
 pub async fn get_ldap_sync_history(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if let Some(refused) = refused_on_hosted() {
+        return refused;
+    }
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can view LDAP sync history");
     }
@@ -105,6 +126,9 @@ pub async fn set_ldap_settings(
     body: web::Json<LdapSettingsRequest>,
     auth: AuthContext,
 ) -> impl Responder {
+    if let Some(refused) = refused_on_hosted() {
+        return refused;
+    }
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can edit LDAP settings");
     }
@@ -180,6 +204,9 @@ pub async fn set_ldap_settings(
 /// POST /ldap/test-connection — connect + service-bind only, reporting the
 /// outcome so an admin can validate the config (admin).
 pub async fn test_ldap_connection(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if let Some(refused) = refused_on_hosted() {
+        return refused;
+    }
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can test the LDAP connection");
     }
@@ -221,6 +248,9 @@ pub async fn test_ldap_connection(mut tc: TenantConn, auth: AuthContext) -> impl
 /// group base DN, for the role-mapping picker (admin). Uses the SAVED config so
 /// it reflects what a sync would actually see; read-only, no provisioning.
 pub async fn discover_ldap_groups(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if let Some(refused) = refused_on_hosted() {
+        return refused;
+    }
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can browse LDAP groups");
     }
@@ -275,6 +305,9 @@ pub async fn discover_ldap_groups(mut tc: TenantConn, auth: AuthContext) -> impl
 /// users a sync would see and the member count of each role-mapped group, so an
 /// admin can review before committing. Read-only.
 pub async fn preview_ldap(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if let Some(refused) = refused_on_hosted() {
+        return refused;
+    }
     if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can preview an LDAP sync");
     }
@@ -342,6 +375,9 @@ pub async fn run_ldap_sync(
     request: HttpRequest,
     auth: AuthContext,
 ) -> Result<HttpResponse, ApiError> {
+    if let Some(refused) = refused_on_hosted() {
+        return Ok(refused);
+    }
     if !auth.is_workspace_admin() {
         return Err(ApiError::Forbidden(
             "Only admins can run an LDAP sync".into(),

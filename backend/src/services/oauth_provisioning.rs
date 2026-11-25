@@ -206,6 +206,27 @@ pub fn resolve_user_by_identity_or_email(
         }
         Ok(None) => match users_repo::get_user_by_email(email, conn) {
             Ok(user) => {
+                // A directory speaks for its own workspace's people: its
+                // identity links only to an account seated there. Anyone
+                // else's account holding the address is left alone, and the
+                // entry isn't provisioned (the address is taken).
+                if let Some(ws) = identity_workspace_id {
+                    let reach = workspaces::directory_reach(conn, ws, user.uuid)
+                        .map_err(|e| format!("directory link: reading seats: {e:?}"))?;
+                    if !reach.seated_here() {
+                        warn!(
+                            workspace_id = ws,
+                            user_uuid = %user.uuid,
+                            source = %iss,
+                            "directory link refused: the address belongs to an account \
+                             that isn't a member of this workspace"
+                        );
+                        return Err(format!(
+                            "directory identity not linked: the address belongs to an account \
+                             that isn't a member of workspace {ws}"
+                        ));
+                    }
+                }
                 let new_identity = NewUserAuthIdentity {
                     user_uuid: user.uuid,
                     provider_type: iss.to_string(),
@@ -307,9 +328,32 @@ pub fn find_or_create_projected_user(
             // being lost. Only `real_name` counts, never the display name's
             // handle fallback, and never a value that is the user's handle or
             // address. Goes through `update_user` so the sync event fires.
+            // A directory renames only an account no other workspace holds;
+            // for one another workspace holds, the name is this workspace's.
+            let shared_with_others = match identity_workspace_id {
+                Some(ws) => !workspaces::directory_reach(conn, ws, user.uuid)
+                    .map_err(|e| format!("reproject rename: reading seats: {e:?}"))?
+                    .owns_account(),
+                None => false,
+            };
             match real_name.as_ref() {
                 Some(new_name)
-                    if *new_name != user.name
+                    if shared_with_others
+                        && is_real_name(
+                            new_name,
+                            &email,
+                            &[username.as_deref(), user.username.as_deref()],
+                        ) =>
+                {
+                    crate::repository::user_contact::set_directory_display_name(
+                        conn, user.uuid, new_name,
+                    )
+                    .map_err(|e| format!("reproject local name: {e:?}"))?;
+                    ProjectionOutcome::Existed(user)
+                }
+                Some(new_name)
+                    if !shared_with_others
+                        && *new_name != user.name
                         && is_real_name(
                             new_name,
                             &email,
@@ -533,9 +577,9 @@ fn reconcile_projected_emails(
         }
     }
 
-    // Drop stale non-primary rows (addresses removed at the control plane); the
-    // primitive never deletes the primary.
-    user_emails::cleanup_obsolete_emails(conn, &user_uuid, &normalized, "control-plane")?;
+    // Drop stale non-primary rows (addresses removed at the control plane),
+    // whichever source added them; the primitive never deletes the primary.
+    user_emails::remove_unlisted_addresses(conn, &user_uuid, &normalized)?;
     Ok(())
 }
 

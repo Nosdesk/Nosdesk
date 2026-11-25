@@ -26,6 +26,7 @@ use crate::repository::sync_history as sync_history_repo;
 use crate::repository::user_auth_identities as identity_repo;
 use crate::repository::user_emails as user_emails_repo;
 use crate::repository::users as user_repo;
+use crate::repository::workspaces::{directory_reach, DirectoryReach};
 use crate::utils;
 
 /// Microsoft Graph integration routes (`/integrations/graph`), mounted inside
@@ -2580,13 +2581,21 @@ async fn process_microsoft_user_optimized_v2(
     if let Ok(Some(existing_user)) =
         user_emails_repo::find_user_by_any_of_emails(conn, &email_addresses)
     {
-        // Local user exists but no Microsoft identity - link them
+        // Local user exists but no Microsoft identity - link them, if they're
+        // seated here. An address another workspace's account holds is taken,
+        // so the person is skipped rather than created.
+        let reach = directory_reach(conn, workspace_id, existing_user.uuid)?;
+        if !reach.seated_here() {
+            skip_foreign_account(stats, ms_user);
+            return Ok(());
+        }
         return link_existing_user_to_microsoft_optimized(
             conn,
             provider_id,
             workspace_id,
             ms_user,
             existing_user,
+            reach,
             stats,
             access_token,
             client,
@@ -2721,7 +2730,19 @@ async fn update_existing_microsoft_user_optimized(
     // DbConflict and infra errors through DbInfra; `?` does the
     // right classification without an intermediate format!.
     let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)?;
-    ensure_directory_membership(conn, workspace_id, &user)?;
+    let Some(reach) = identity_reach(conn, workspace_id, &user, ms_user, stats)? else {
+        return Ok(());
+    };
+    if !reach.owns_account() {
+        // Another workspace holds the account: name them here only, and
+        // leave the account's name, Microsoft id, addresses and photo alone.
+        name_locally(conn, &user, ms_user)?;
+        surface_contact(conn, user.uuid, ms_user)?;
+        let identity_data = serde_json::to_value(ms_user)?;
+        update_identity_data(conn, existing_identity.id, Some(identity_data))?;
+        stats.existing_users_updated += 1;
+        return Ok(());
+    }
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -2863,6 +2884,7 @@ async fn link_existing_user_to_microsoft_optimized(
     workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_user: User,
+    reach: DirectoryReach,
     stats: &mut UserSyncStats,
     access_token: &str,
     client: &reqwest::Client,
@@ -2887,6 +2909,12 @@ async fn link_existing_user_to_microsoft_optimized(
 
     identity_repo::create_identity(new_identity, conn)?;
     ensure_directory_membership(conn, workspace_id, &existing_user)?;
+    if !reach.owns_account() {
+        // Another workspace holds the account: name them here only.
+        name_locally(conn, &existing_user, ms_user)?;
+        stats.identities_linked += 1;
+        return Ok(());
+    }
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -3130,11 +3158,12 @@ fn create_directory_user(
 }
 
 /// Make a directory person the sync already knows a member of the workspace
-/// it runs for, so someone an earlier run created without a membership, or
-/// who joined from another workspace, reaches this one's pool and pickers.
-/// An existing membership keeps its role, a person an admin removed stays
-/// removed, and `ensure_membership` sends `user.updated` only when it granted
-/// one. A deleted account is left alone.
+/// it runs for, so someone an earlier run created without a membership
+/// reaches this one's pool and pickers. Called for an account seated here, or
+/// one no workspace holds ([`identity_reach`]). An existing membership keeps
+/// its role, a person an admin removed stays removed, and `ensure_membership`
+/// sends `user.updated` only when it granted one. A deleted account is left
+/// alone.
 fn ensure_directory_membership(
     conn: &mut DbConnection,
     workspace_id: i32,
@@ -3150,6 +3179,60 @@ fn ensure_directory_membership(
         DIRECTORY_MEMBER_ROLE.as_str(),
     )?;
     Ok(())
+}
+
+/// Where `user`, whom the run in `workspace_id` found by their Microsoft
+/// identity, stands for it. An account no workspace holds is seated here
+/// first: an earlier run created it without a membership. `None` for an
+/// account only other workspaces hold, which the run leaves alone and lists
+/// as skipped.
+fn identity_reach(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user: &User,
+    ms_user: &MicrosoftGraphUser,
+    stats: &mut UserSyncStats,
+) -> Result<Option<DirectoryReach>, crate::services::msgraph::MsGraphSyncError> {
+    let mut reach = directory_reach(conn, workspace_id, user.uuid)?;
+    if reach == DirectoryReach::Unseated {
+        ensure_directory_membership(conn, workspace_id, user)?;
+        reach = directory_reach(conn, workspace_id, user.uuid)?;
+    }
+    if reach == DirectoryReach::Foreign {
+        skip_foreign_account(stats, ms_user);
+        return Ok(None);
+    }
+    Ok(Some(reach))
+}
+
+/// List `ms_user` as skipped: their account, or an account holding one of
+/// their addresses, belongs to other workspaces and not this one, so the run
+/// neither links, seats, renames nor creates them.
+fn skip_foreign_account(stats: &mut UserSyncStats, ms_user: &MicrosoftGraphUser) {
+    warn!(
+        external_id = %ms_user.id,
+        "msgraph user sync: skipped a person whose account isn't a member of this workspace"
+    );
+    stats.errors.push(format!(
+        "Skipped {}: their address belongs to a Nosdesk account that isn't a member of this \
+         workspace",
+        ms_user.user_principal_name
+    ));
+}
+
+/// Give `user` the directory's name in this workspace only, for an account
+/// another workspace also holds.
+fn name_locally(
+    conn: &mut DbConnection,
+    user: &User,
+    ms_user: &MicrosoftGraphUser,
+) -> diesel::QueryResult<()> {
+    match ms_user.display_name.as_deref().map(str::trim) {
+        Some(name) if !name.is_empty() => {
+            crate::repository::user_contact::set_directory_display_name(conn, user.uuid, name)
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Sync devices from Microsoft Graph (Entra ID `/devices`; no Intune pass yet)
@@ -5430,15 +5513,23 @@ pub async fn process_microsoft_user_no_photos(
         .await;
     }
 
-    // No identity: link to an existing user by email, else create.
+    // No identity: link to an existing user by email, else create. Only an
+    // account seated here is linked; an address another workspace's account
+    // holds is taken, so the person is skipped rather than created.
     let emails = extract_user_emails(ms_user);
     if let Some(existing_user) = find_existing_user_by_emails(conn, &emails) {
+        let reach = directory_reach(conn, workspace_id, existing_user.uuid)?;
+        if !reach.seated_here() {
+            skip_foreign_account(stats, ms_user);
+            return Ok(());
+        }
         link_existing_user_to_microsoft_no_photos(
             conn,
             provider_id,
             workspace_id,
             ms_user,
             existing_user,
+            reach,
             stats,
         )
         .await
@@ -5583,13 +5674,26 @@ async fn update_existing_microsoft_user_no_photos(
     use crate::services::msgraph::MsGraphSyncError;
 
     let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)?;
-    ensure_directory_membership(conn, workspace_id, &user)?;
+    let Some(reach) = identity_reach(conn, workspace_id, &user, ms_user, stats)? else {
+        return Ok(());
+    };
 
     let emails = extract_user_emails(ms_user);
     let _primary_email = emails
         .first()
         .map(|(email, _, _)| email.clone())
         .unwrap_or_else(|| ms_user.user_principal_name.clone());
+
+    if !reach.owns_account() {
+        // Another workspace holds the account: name them here only, and
+        // leave the account's name, Microsoft id and addresses alone.
+        name_locally(conn, &user, ms_user)?;
+        surface_contact(conn, user.uuid, ms_user)?;
+        let identity_data = serde_json::to_value(ms_user)?;
+        update_identity_data(conn, existing_identity.id, Some(identity_data))?;
+        stats.existing_users_updated += 1;
+        return Ok(());
+    }
 
     let updated_name = ms_user.display_name.as_ref().unwrap_or(&user.name);
 
@@ -5645,6 +5749,7 @@ async fn link_existing_user_to_microsoft_no_photos(
     workspace_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_user: User,
+    reach: DirectoryReach,
     stats: &mut UserSyncStats,
 ) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
     use crate::services::msgraph::MsGraphSyncError;
@@ -5663,6 +5768,12 @@ async fn link_existing_user_to_microsoft_no_photos(
 
     identity_repo::create_identity(new_identity, conn)?;
     ensure_directory_membership(conn, workspace_id, &existing_user)?;
+    if !reach.owns_account() {
+        // Another workspace holds the account: its Microsoft id isn't this
+        // workspace's to write.
+        stats.identities_linked += 1;
+        return Ok(());
+    }
 
     let user_update = crate::models::UserUpdate {
         name: None,
