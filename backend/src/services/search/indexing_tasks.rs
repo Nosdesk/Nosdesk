@@ -4,11 +4,11 @@
 //! may read the database (an asset's records, a user's memberships) and
 //! takes the index writer's lock, so it belongs on neither an async worker
 //! nor a pool of threads racing each other for that lock. The consumer takes
-//! what has queued up, collapses it to one operation per document (the
-//! newest write, or the delete when there is one, so a stale write can't
-//! bring a deleted document back), applies it in arrival order and commits
-//! once per batch. A 5,000-row import is then one or a few batches, not
-//! 5,000 commits.
+//! what has queued up, collapses it to one operation per document (the last
+//! one queued, a write or a delete, so a page archived then restored ends up
+//! back in the index), applies them in arrival order and commits once per
+//! batch. A 5,000-row import is then one or a few batches, not 5,000
+//! commits. A job that panics is logged and the batch carries on.
 
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -41,23 +41,18 @@ pub(super) struct Job<T> {
 }
 
 /// One operation per document, in the order each document first arrived:
-/// the newest write, unless any of them is a delete, which wins (a document
-/// deleted stays deleted whatever was queued around it).
+/// the last one queued for it, whether a write or a delete. The queue keeps
+/// the order operations were asked for, so the last says what the document
+/// should end as (deleted, or written from the latest state).
 pub(super) fn collapse<T>(jobs: Vec<Job<T>>) -> Vec<Job<T>> {
     let mut order: Vec<(EntityType, String)> = Vec::new();
     let mut latest: HashMap<(&'static str, String), Job<T>> = HashMap::new();
     for job in jobs {
         let id = (job.entity.as_str(), job.key.clone());
-        match latest.get(&id) {
-            None => {
-                order.push((job.entity, job.key.clone()));
-                latest.insert(id, job);
-            }
-            Some(kept) if matches!(kept.op, Op::Delete) => {}
-            Some(_) => {
-                latest.insert(id, job);
-            }
+        if !latest.contains_key(&id) {
+            order.push((job.entity, job.key.clone()));
         }
+        latest.insert(id, job);
     }
     order
         .into_iter()
@@ -112,19 +107,28 @@ fn consume(search_service: Weak<SearchService>, rx: Receiver<Job<IndexFn>>) {
         let Some(svc) = search_service.upgrade() else {
             return;
         };
-        for job in collapse(batch) {
-            let label = job.label;
-            let result = match job.op {
-                Op::Index(write) => write(&svc),
-                Op::Delete => svc.delete_by_key(job.entity, &job.key),
-            };
-            match result {
-                Ok(()) => debug!("{label} completed"),
-                Err(e) => error!(error = ?e, "Failed to {label}"),
-            }
-        }
+        apply_batch(collapse(batch), |job| match job.op {
+            Op::Index(write) => write(&svc),
+            Op::Delete => svc.delete_by_key(job.entity, &job.key),
+        });
         if let Err(e) = svc.commit() {
             error!(error = ?e, "Failed to commit a search indexing batch");
+        }
+    }
+}
+
+/// Apply each job with `apply`, logging a failure or a panic by the
+/// document and going on to the next, so one bad job neither stops the
+/// batch nor takes the queue's thread down.
+fn apply_batch<T>(jobs: Vec<Job<T>>, mut apply: impl FnMut(Job<T>) -> Result<(), BoxError>) {
+    for job in jobs {
+        let label = job.label;
+        let entity = job.entity.as_str();
+        let id = job.key.clone();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| apply(job))) {
+            Ok(Ok(())) => debug!(entity, id = %id, "{label} completed"),
+            Ok(Err(e)) => error!(entity, id = %id, error = ?e, "Failed to {label}"),
+            Err(_) => error!(entity, id = %id, "Search indexing panicked: {label}"),
         }
     }
 }
@@ -415,20 +419,42 @@ mod tests {
     }
 
     #[test]
-    fn a_delete_wins_over_writes_queued_before_or_after_it() {
+    fn the_last_operation_queued_for_a_document_wins() {
         let jobs = vec![
+            // Archived, then restored: the page goes back in.
+            job(EntityType::Documentation, "3", Op::Delete),
+            job(EntityType::Documentation, "3", Op::Index("restored")),
+            // Written, then deleted: it stays out.
             job(EntityType::Asset, "7", Op::Index("before")),
             job(EntityType::Asset, "7", Op::Delete),
-            job(EntityType::Asset, "7", Op::Index("stale read after")),
             job(EntityType::Asset, "9", Op::Delete),
             job(EntityType::Asset, "9", Op::Delete),
         ];
         assert_eq!(
             ops(jobs),
             vec![
+                ("documentation-3".to_string(), "restored"),
                 ("device-7".to_string(), "delete"),
                 ("device-9".to_string(), "delete"),
             ]
         );
+    }
+
+    #[test]
+    fn a_panicking_job_is_logged_and_the_batch_goes_on() {
+        let jobs = vec![
+            job(EntityType::Asset, "1", Op::Index("panics")),
+            job(EntityType::Asset, "2", Op::Index("writes")),
+            job(EntityType::Asset, "3", Op::Delete),
+        ];
+        let mut done = Vec::new();
+        apply_batch(jobs, |j| {
+            if let Op::Index("panics") = j.op {
+                panic!("a job that panics");
+            }
+            done.push(j.key);
+            Ok(())
+        });
+        assert_eq!(done, vec!["2".to_string(), "3".to_string()]);
     }
 }
