@@ -28,6 +28,7 @@ import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
 import { useElementSize } from '@/composables/useElementSize'
+import { useAxisFont } from './axisFont'
 import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import {
   analyticsService,
@@ -151,13 +152,13 @@ const isEmpty = computed(
 const containerRef = ref<HTMLElement | null>(null)
 const { width, height } = useElementSize(containerRef)
 
-const PAD_LEFT = 32
+// Axis labels are `text-2xs` and follow the text size; the gutters that
+// hold them grow with them.
+const { axisFont, gutter } = useAxisFont(containerRef, { width, height })
 const PAD_RIGHT = 12
 const PAD_TOP = 12
-const PAD_BOTTOM = 22
-const AXIS_FONT = 11
-const innerW = computed(() => Math.max(0, width.value - PAD_LEFT - PAD_RIGHT))
-const innerH = computed(() => Math.max(0, height.value - PAD_TOP - PAD_BOTTOM))
+const innerW = computed(() => Math.max(0, width.value - gutter(32) - PAD_RIGHT))
+const innerH = computed(() => Math.max(0, height.value - PAD_TOP - gutter(22)))
 interface Pt {
   x: number
   y: number
@@ -189,7 +190,7 @@ const chart = computed(() => {
   const yOf = scale.value.y
   const step = data.length > 1 ? w / (data.length - 1) : 0
   const pts: Pt[] = data.map((b, i) => ({
-    x: PAD_LEFT + i * step,
+    x: gutter(32) + i * step,
     y: yOf(b.net),
   }))
   // Monotone smoothing to match the other charts. It can't overshoot
@@ -218,7 +219,7 @@ const xLabels = computed<XTick[]>(() => {
   if (data.length === 0 || innerW.value <= 0) return []
   const n = data.length
   const step = n > 1 ? innerW.value / (n - 1) : 0
-  const xAt = (i: number) => PAD_LEFT + i * step
+  const xAt = (i: number) => gutter(32) + i * step
   const ts = (i: number) => new Date(data[i].ts)
 
   const g = displayGrain.value
@@ -264,7 +265,7 @@ function onHoverMove(e: MouseEvent): void {
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
   const x = e.clientX - rect.left
   const step = data.length > 1 ? innerW.value / (data.length - 1) : 0
-  const i = step > 0 ? Math.round((x - PAD_LEFT) / step) : 0
+  const i = step > 0 ? Math.round((x - gutter(32)) / step) : 0
   hoverIndex.value = Math.max(0, Math.min(data.length - 1, i))
   hoverClient.value = { x: e.clientX, y: e.clientY }
 }
@@ -278,7 +279,7 @@ const hoverPt = computed<Pt | null>(() => {
   const data = netBuckets.value
   if (i == null || data.length === 0) return null
   const step = data.length > 1 ? innerW.value / (data.length - 1) : 0
-  return { x: PAD_LEFT + i * step, y: scale.value.y(data[i].net) }
+  return { x: gutter(32) + i * step, y: scale.value.y(data[i].net) }
 })
 
 const hoverInfo = computed(() => {
@@ -350,7 +351,7 @@ const tooltipStyle = computed(() => {
         props.viewUuid ? 'transition-colors hover:bg-surface-hover rounded' : '',
       ]"
     >
-      <div ref="containerRef" class="absolute inset-0" @mousemove="onHoverMove" @mouseleave="onHoverLeave">
+      <div ref="containerRef" class="absolute inset-0 text-2xs" @mousemove="onHoverMove" @mouseleave="onHoverLeave">
         <svg
           v-if="width > 0 && height > 0"
           :viewBox="`0 0 ${width} ${height}`"
@@ -362,10 +363,10 @@ const tooltipStyle = computed(() => {
             <!-- Halves split at the zero axis; the single area path is
                  drawn twice, each clipped to one half, for two-tone fill. -->
             <clipPath :id="clipAboveId">
-              <rect :x="PAD_LEFT" :y="PAD_TOP" :width="innerW" :height="Math.max(0, zeroY - PAD_TOP)" />
+              <rect :x="gutter(32)" :y="PAD_TOP" :width="innerW" :height="Math.max(0, zeroY - PAD_TOP)" />
             </clipPath>
             <clipPath :id="clipBelowId">
-              <rect :x="PAD_LEFT" :y="zeroY" :width="innerW" :height="Math.max(0, PAD_TOP + innerH - zeroY)" />
+              <rect :x="gutter(32)" :y="zeroY" :width="innerW" :height="Math.max(0, PAD_TOP + innerH - zeroY)" />
             </clipPath>
           </defs>
 
@@ -392,19 +393,19 @@ const tooltipStyle = computed(() => {
 
           <!-- Y labels: peak surplus / 0 / peak deficit, at their true
                positions on the data-fit scale. -->
-          <g class="text-tertiary" :font-size="AXIS_FONT">
-            <text v-if="scale.top > 0" :x="PAD_LEFT - 6" :y="PAD_TOP + AXIS_FONT" text-anchor="end" fill="currentColor">
+          <g class="text-tertiary" :font-size="axisFont">
+            <text v-if="scale.top > 0" :x="gutter(32) - 6" :y="PAD_TOP + axisFont" text-anchor="end" fill="currentColor">
               +{{ scale.top }}
             </text>
-            <text :x="PAD_LEFT - 6" :y="zeroY + AXIS_FONT / 3" text-anchor="end" fill="currentColor">0</text>
-            <text v-if="scale.bottom < 0" :x="PAD_LEFT - 6" :y="PAD_TOP + innerH - 2" text-anchor="end" fill="currentColor">
+            <text :x="gutter(32) - 6" :y="zeroY + axisFont / 3" text-anchor="end" fill="currentColor">0</text>
+            <text v-if="scale.bottom < 0" :x="gutter(32) - 6" :y="PAD_TOP + innerH - 2" text-anchor="end" fill="currentColor">
               −{{ Math.abs(scale.bottom) }}
             </text>
           </g>
 
           <!-- The central zero axis, drawn over the fills. -->
           <line
-            :x1="PAD_LEFT"
+            :x1="gutter(32)"
             :x2="width - PAD_RIGHT"
             :y1="zeroY"
             :y2="zeroY"
@@ -428,7 +429,7 @@ const tooltipStyle = computed(() => {
           />
 
           <!-- X labels along the bottom. -->
-          <g class="text-tertiary" :font-size="AXIS_FONT">
+          <g class="text-tertiary" :font-size="axisFont">
             <text
               v-for="(item, i) in xLabels"
               :key="`xlabel-${i}`"
