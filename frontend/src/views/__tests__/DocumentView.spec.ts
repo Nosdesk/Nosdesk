@@ -315,3 +315,36 @@ describe('DocumentView body prefetch', () => {
     expect(seed.prefetchSavedCopy).toHaveBeenCalledWith(PAGE.uuid)
   })
 })
+
+describe('DocumentView page title slot on a phone', () => {
+  it('keeps the slot, and so the title, on the page while the next page loads', async () => {
+    const { pageTitleTarget } = await import('@/composables/usePageTitleSlot')
+    phoneSlot()
+    pool.upsert('documentation_page', ROW.id, { ...ROW })
+    await openPage()
+    const slot = wrapper!.find('[data-page-title]').element
+    expect(pageTitleTarget.value).toBe(slot)
+
+    let answer!: (page: { id: number; title: string; slug: string }) => void
+    docs.getPageByPath.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    docs.getArticleById.mockResolvedValueOnce({ ...PAGE, id: 6, title: 'Leave policy', slug: 'leave-policy' })
+    await router.push('/documentation/leave-policy')
+    await flushPromises()
+
+    // Mid-load: the same slot is still the target, so the header keeps the
+    // title on the page rather than dropping it into the bar.
+    expect(pageTitleTarget.value).toBe(slot)
+    expect(slot.isConnected).toBe(true)
+    expect(wrapper!.text()).not.toContain('doc-detail-status-published')
+    // The breadcrumb stays for the phone and hides from `sm` up, where the
+    // page reads blank while it loads, as it always has.
+    const breadcrumb = () => slot.parentElement!.previousElementSibling!
+    expect(breadcrumb().classList.contains('sm:hidden')).toBe(true)
+
+    answer({ id: 6, title: 'Leave policy', slug: 'leave-policy' })
+    await flushPromises()
+    expect(pageTitleTarget.value).toBe(slot)
+    expect(wrapper!.text()).toContain('doc-detail-status-published')
+    expect(breadcrumb().classList.contains('sm:hidden')).toBe(false)
+  })
+})

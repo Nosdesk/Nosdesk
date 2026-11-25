@@ -6,6 +6,7 @@ import { useFluent } from 'fluent-vue';
 import { usePageTitle } from '@/composables/usePageTitle';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import BackButton from '@/components/common/BackButton.vue';
+import PageTitleSlot from '@/components/PageTitleSlot.vue';
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
@@ -596,9 +597,10 @@ watch(loadError, (e) => {
   if (e) error.value = t('asset-detail-error-load');
 });
 
-// The asset name lives in the site header (like a ticket title). It is
-// renamable there only while the asset is editable, so a sync-owned asset
-// shows its name read-only.
+// The asset name lives in the site header (like a ticket title; on a phone
+// the header shows it at the top of the page). It is renamable there only
+// while the asset is editable, so a sync-owned asset shows its name
+// read-only.
 const saveDeviceName = async (newName: string) => {
   if (!device.value) return;
   editValues.value.name = newName;
@@ -649,9 +651,13 @@ useSyncActions(
 
     <!-- Main content -->
     <div v-else-if="device" class="flex flex-col">
+      <!-- The name, first on the page on a phone (SiteHeader teleports
+           it in; from `sm` up it stays in the header). -->
+      <PageTitleSlot class="mx-2.5 mt-3" />
+
       <!-- Top bar. Shares the content's max width so the back button
            lines up with the body on wide screens. -->
-      <div class="pt-4 px-4 sm:px-6 mx-auto w-full max-w-8xl flex items-center justify-between gap-3">
+      <div class="pt-4 max-sm:pt-1 px-4 sm:px-6 mx-auto w-full max-w-8xl flex items-center justify-between gap-3">
         <BackButton fallbackRoute="/assets" :label="$t('asset-detail-back-to-devices')" compact />
         <div class="flex items-center gap-2">
           <DeleteButton
@@ -667,7 +673,8 @@ useSyncActions(
         <AlertMessage v-if="error" type="error" :message="error" />
 
         <!-- Current state: status, borrower and the actions that change
-             them. The name lives in the site header (like a ticket title). -->
+             them. The name lives in the site header (like a ticket title), or
+             above on a phone. -->
         <AssetStateHeader
           :asset-id="device.id"
           :status="device.status"
