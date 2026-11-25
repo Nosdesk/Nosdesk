@@ -75,7 +75,7 @@ const due = computed(() => {
     @click="emit('open')"
     @pointerdown="emit('row-down', $event)"
   >
-    <span v-if="gutter" class="flex h-5 w-14 shrink-0 items-center text-xs whitespace-nowrap text-secondary tabular-nums">
+    <span v-if="gutter" class="flex min-h-5 min-w-[5em] shrink-0 items-center text-xs whitespace-nowrap text-secondary tabular-nums">
       {{ time ? formatWallTime(time, locale) : '' }}
     </span>
 
