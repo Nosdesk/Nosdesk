@@ -18,6 +18,9 @@ interface Props {
   /** The title as the page's heading on a phone: an `h1` that wraps
    *  without limit and edits in place. See InlineEdit. */
   pageHeading?: boolean;
+  /** What a screen reader hears for an empty title, in place of the
+   *  placeholder shown. See InlineEdit. */
+  emptyLabel?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -61,6 +64,7 @@ const handleTitlePreview = (newValue: string) => {
     :max-lines="maxLines"
     :multiline="pageHeading"
     :as="pageHeading ? 'h1' : 'div'"
+    :empty-label="emptyLabel"
     @update:modelValue="handleTitleUpdate"
     @preview="handleTitlePreview"
   />
