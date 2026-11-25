@@ -47,6 +47,7 @@ import rulesService from "@nosdesk/core/services/rulesService";
 import type { TemplateVars } from "@nosdesk/core/services/cannedResponsesService";
 import { useBrandingStore } from "@/stores/branding";
 import BackButton from "@/components/common/BackButton.vue";
+import PageTitleSlot from "@/components/PageTitleSlot.vue";
 import ResponsiveMenu from "@/components/common/ResponsiveMenu.vue";
 import MenuList, { type MenuItem } from "@/components/common/MenuList.vue";
 import NoticeDialog from "@/components/notices/NoticeDialog.vue";
@@ -610,8 +611,13 @@ const rootEl = ref<HTMLElement | null>(null);
 
         <!-- Ticket content (layout always rendered; skeletons swap to real components) -->
         <div v-else class="flex flex-col">
-            <!-- Navigation and actions bar (hidden on print) -->
-            <div class="print:hidden pt-4 px-4 sm:px-6 flex justify-between items-center">
+            <!-- The title, first on the page on a phone (SiteHeader
+                 teleports it in; from `sm` up it stays in the header). -->
+            <PageTitleSlot class="mx-2.5 mt-3" />
+
+            <!-- Navigation and actions bar (hidden on print). On a phone
+                 the title sits just above it, so it starts closer. -->
+            <div class="print:hidden pt-4 max-sm:pt-1 px-4 sm:px-6 flex justify-between items-center">
                 <div class="flex items-center gap-4">
                     <template v-if="ticket">
                         <BackButton fallbackRoute="/tickets" />
