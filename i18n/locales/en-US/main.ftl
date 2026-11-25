@@ -5812,6 +5812,14 @@ ticket-comments-drop-files = Drop files here
 ticket-comments-internal-banner = Visible to staff only. Not sent through the ticket's channel.
 ticket-comments-placeholder-public = Reply to the requester... (@ to mention, # for a ticket)
 ticket-comments-placeholder-internal = Add an internal note... (@ to mention, # for a ticket)
+# The reply field's placeholder on a phone, where the long ones above do
+# not fit at larger text sizes.
+ticket-comments-placeholder-short-public = Reply
+ticket-comments-placeholder-short-internal = Internal note
+# How a comment arrived, on its head line on a phone.
+ticket-comments-via-email = by email
+# The phone composer's switch: on, the reply is an internal note.
+ticket-comments-internal-toggle = Internal note
 ticket-comments-record-voice = Record voice note
 ticket-comments-upload-file = Upload file
 ticket-comments-visibility-group = Reply visibility
@@ -6888,6 +6896,55 @@ settings-appearance-section-automatic = Automatic
 settings-appearance-section-light = Light Themes
 settings-appearance-section-dark = Dark Themes
 settings-appearance-red-horizon-easter-egg = Why would you do this to them 😭
+## Settings > Appearance > Text size, kept on this device. $platform is
+## ios, ipad, android or web; a browser has no device switch. The -bold forms are
+## used while the phone's Bold Text is on, which the app always follows.
+settings-text-size-heading = Text size
+settings-text-size-value = { $percent }%
+settings-text-size-device-label = Use device text size
+settings-text-size-device-default = { $platform ->
+    [ios] Nosdesk follows the text size set on this iPhone.
+    [ipad] Nosdesk follows the text size set on this iPad.
+    [android] Nosdesk follows the font size set on this phone.
+   *[web] Nosdesk follows the text size set in this browser.
+}
+settings-text-size-device-larger = { $platform ->
+    [ios] This iPhone is set to larger text, and Nosdesk follows it.
+    [ipad] This iPad is set to larger text, and Nosdesk follows it.
+    [android] This phone is set to a larger font, and Nosdesk follows it.
+   *[web] This browser is set to larger text, and Nosdesk follows it.
+}
+settings-text-size-device-capped = { $platform ->
+    [ios] This iPhone is set to its largest text. Nosdesk follows it up to 200%. Pinch to zoom for more.
+    [ipad] This iPad is set to its largest text. Nosdesk follows it up to 200%. Pinch to zoom for more.
+    [android] This phone is set to its largest font. Nosdesk follows it up to 200%. Pinch to zoom for more.
+   *[web] This browser is set to very large text. Nosdesk follows it up to 200%. Zoom the page for more.
+}
+settings-text-size-own = Your own size, kept on this device.
+settings-text-size-device-default-bold = { $platform ->
+    [ios] Nosdesk follows the text size and Bold Text set on this iPhone.
+    [ipad] Nosdesk follows the text size and Bold Text set on this iPad.
+   *[android] Nosdesk follows the font size and bold text set on this phone.
+}
+settings-text-size-device-larger-bold = { $platform ->
+    [ios] This iPhone is set to larger, bold text, and Nosdesk follows it.
+    [ipad] This iPad is set to larger, bold text, and Nosdesk follows it.
+   *[android] This phone is set to a larger, bold font, and Nosdesk follows it.
+}
+settings-text-size-device-capped-bold = { $platform ->
+    [ios] This iPhone is set to its largest text, in bold. Nosdesk follows it up to 200%. Pinch to zoom for more.
+    [ipad] This iPad is set to its largest text, in bold. Nosdesk follows it up to 200%. Pinch to zoom for more.
+   *[android] This phone is set to its largest font, in bold. Nosdesk follows it up to 200%. Pinch to zoom for more.
+}
+settings-text-size-own-bold = { $platform ->
+    [ios] Your own size, kept on this device. Bold Text still follows this iPhone.
+    [ipad] Your own size, kept on this device. Bold Text still follows this iPad.
+   *[android] Your own size, kept on this device. Bold text still follows this phone.
+}
+# The sample above the slider: a ticket row and the start of a reply.
+settings-text-size-sample-title = Level 2 printer offline after the power cut
+settings-text-size-sample-state = In progress
+settings-text-size-sample-reply = Thanks Priya. SC 542 is a fuser fault, so this one needs the supplier. I have logged a call and pointed Accounts at the Level 3 printer for today.
 settings-appearance-accessibility-heading = Accessibility
 settings-appearance-accessibility-description = Improve readability and visual distinction
 settings-appearance-colorblind-label = Color blind friendly mode
@@ -7276,7 +7333,10 @@ tickets-project-info-status-archived = archived
 tickets-email-html-iframe-title = Email body
 tickets-email-html-show-less = Show less
 tickets-email-html-show-full = Show full email
-tickets-email-html-scaled = Scaled to fit ({ $pct }%)
+# An email that could not fit the frame at the reader's text size was shrunk
+# to fit; these switch between their size (scrolling sideways) and fitted.
+tickets-email-html-full-size = Show at my text size
+tickets-email-html-fit-width = Fit to width
 
 # Header + nav polish
 nav-logo-alt = Nosdesk logo

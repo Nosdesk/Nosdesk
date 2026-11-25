@@ -24,3 +24,17 @@ export function useAxisFont(
   })
   return { axisFont, gutter: (designed: number) => Math.round((designed * axisFont.value) / DESIGNED) }
 }
+
+/** Roughly how wide a character of the axis face is, as a share of its size. */
+const CHAR_WIDTH = 0.6
+
+/**
+ * The least centre-to-centre gap between x-axis labels: the designed gap
+ * (`designed` px at an 11px label) grown with the label size, and never less
+ * than the widest label plus one label size of air. A chart then shows fewer
+ * labels as the text grows, instead of overlapping them.
+ */
+export function labelGap(labels: string[], axisFont: number, designed = 64): number {
+  const widest = labels.reduce((most, label) => Math.max(most, label.length), 0)
+  return Math.max((designed * axisFont) / DESIGNED, widest * axisFont * CHAR_WIDTH + axisFont)
+}

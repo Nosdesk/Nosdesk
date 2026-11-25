@@ -28,12 +28,15 @@ Deliberately not used in the print path: the print loop in
 so a printed ticket carries the full archival record, not the summary.
 -->
 <template>
-  <div class="flex flex-col gap-1">
+  <div class="flex flex-col gap-1" :class="reading && 'text-base leading-relaxed'">
     <!-- Visible body -->
     <EmailHtmlBody
       v-if="visibleMode === 'iframe'"
       :html="visible"
       :pre-sanitised="htmlIsPreSanitised"
+      :reading="reading"
+      :size="emailSize"
+      @fitted="(fitted) => emit('email-fitted', fitted)"
     />
     <div
       v-else-if="visibleMode === 'inline-html'"
@@ -46,7 +49,7 @@ so a printed ticket carries the full archival record, not the summary.
       v-safe-html="visibleTextHtml"
       class="whitespace-pre-wrap break-words text-primary"
     />
-    <MarkdownRenderer v-else :content="visible" class="text-primary" />
+    <MarkdownRenderer v-else :content="visible" class="text-primary" :reading="reading" />
 
     <!-- Quoted history, tucked behind a disclosure -->
     <details v-if="quoted" class="group">
@@ -54,13 +57,14 @@ so a printed ticket carries the full archival record, not the summary.
         <Icon name="chevronRight" size="xs" :class="summaryIconClass" />
         <span>{{ quotedLabel }}</span>
       </summary>
-      <div class="mt-1">
+      <div class="mt-1" :class="reading && 'text-sm'">
         <!-- Quoted never gets its own iframe except on the legacy HTML
              path; rich/simple quoted render as inline sanitised HTML. -->
         <EmailHtmlBody
           v-if="quotedMode === 'iframe'"
           :html="quoted"
           :pre-sanitised="htmlIsPreSanitised"
+          :reading="reading"
         />
         <div
           v-else-if="quotedMode === 'inline-html'"
@@ -134,6 +138,18 @@ const props = defineProps<{
   hasRawSource?: boolean;
   /** Used to build the "Show original message" URL. */
   commentId?: number;
+  /** Reading text: the body at body size (16px at the designed size), as a
+   *  phone shows a comment. The compact size otherwise. */
+  reading?: boolean;
+  /** The HTML body at the reader's text size, panning (`full`), or fitted
+   *  (`fit`). Set by a parent that shows the switch itself (a phone
+   *  comment's head line); unset, the email shows its own. */
+  emailSize?: 'full' | 'fit';
+}>();
+
+const emit = defineEmits<{
+  /** The HTML body had to be held under the reader's text size to fit. */
+  (e: 'email-fitted', fitted: boolean): void;
 }>();
 
 const fluent = useFluent();

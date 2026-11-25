@@ -75,49 +75,60 @@ const due = computed(() => {
     @click="emit('open')"
     @pointerdown="emit('row-down', $event)"
   >
-    <span v-if="gutter" class="flex min-h-5 min-w-[5em] shrink-0 items-center text-xs whitespace-nowrap text-secondary tabular-nums">
-      {{ time ? formatWallTime(time, locale) : '' }}
-    </span>
-
-    <span class="flex h-5 shrink-0 items-center">
-      <WorkflowStateGlyph
-        :category="card.workflow_state.category"
-        :color="card.workflow_state.color"
-        :name="card.workflow_state.name"
-      />
-    </span>
-
-    <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-4 gap-y-0.5">
-      <!-- The title is the row's open control. "Overdue" is said before
-           it and kept out of the truncated line: a hidden span at the end
-           of a clipped title sits past the edge and widens the page. -->
-      <button
-        type="button"
-        data-row-open
-        class="min-w-0 flex-1 basis-64 truncate text-left text-sm leading-5 focus:outline-none"
-        :class="late ? 'font-medium text-overdue' : closed ? 'text-tertiary' : 'font-medium text-primary'"
-        :title="card.title"
-        @click.stop="emit('open')"
-      ><span v-if="late" class="sr-only">{{ $t('calendar-job-overdue') }}: </span>{{ card.title }}</button>
-      <span class="flex min-w-0 shrink grow-0 basis-56 items-baseline gap-3 text-xs leading-5 text-tertiary">
-        <span class="w-11 shrink-0 font-mono text-2xs tabular-nums">#{{ card.number }}</span>
-        <span class="min-w-0 flex-1 truncate">{{ requester }}</span>
-        <span
-          v-if="due"
-          class="shrink-0"
-          :class="late && 'text-overdue'"
-          :title="due.title"
-        >{{ due.label }}</span>
+    <!-- Gutter and title wrap as one group (`.plan-lead`, main.css): on a
+         phone at larger text the time goes above the title, and an
+         untimed row's empty gutter closes. -->
+    <div class="plan-lead flex min-w-0 flex-1 items-start" :class="gutter && time && 'flex-wrap'">
+      <span
+        v-if="gutter"
+        class="flex min-h-(--leading-5) shrink-0 items-center text-xs whitespace-nowrap text-secondary tabular-nums"
+        :class="time ? 'plan-gutter' : 'plan-gutter-empty'"
+      >
+        {{ time ? formatWallTime(time, locale) : '' }}
       </span>
+
+      <div class="plan-title flex min-w-0 flex-1 items-start gap-3">
+        <span class="flex h-(--leading-5) shrink-0 items-center">
+          <span class="type-glyph">
+            <WorkflowStateGlyph
+              :category="card.workflow_state.category"
+              :color="card.workflow_state.color"
+              :name="card.workflow_state.name"
+            />
+          </span>
+        </span>
+
+        <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-4 gap-y-0.5">
+          <!-- The title is the row's open control. "Overdue" is said before
+               it and kept out of the truncated line: a hidden span at the end
+               of a clipped title sits past the edge and widens the page. -->
+          <button
+            type="button"
+            data-row-open
+            class="min-w-0 flex-1 basis-64 text-left text-sm leading-5 focus:outline-none max-md:[overflow-wrap:anywhere] md:truncate"
+            :class="late ? 'font-medium text-overdue' : closed ? 'text-tertiary' : 'font-medium text-primary'"
+            :title="card.title"
+            @click.stop="emit('open')"
+          ><span v-if="late" class="sr-only">{{ $t('calendar-job-overdue') }}: </span>{{ card.title }}</button>
+          <span class="flex min-w-0 shrink grow-0 basis-56 items-baseline gap-3 text-xs leading-5 text-tertiary max-md:grow max-md:flex-wrap max-md:gap-y-0">
+            <span class="min-w-11 shrink-0 font-mono text-2xs tabular-nums whitespace-nowrap max-md:font-medium max-md:text-secondary">#{{ card.number }}</span>
+            <span class="min-w-0 flex-1 max-md:flex-[0_1_auto] max-md:[overflow-wrap:anywhere] md:truncate">{{ requester }}</span>
+            <span
+              v-if="due"
+              class="shrink-0 whitespace-nowrap"
+              :class="late && 'text-overdue'"
+              :title="due.title"
+            >{{ due.label }}</span>
+          </span>
+        </div>
+      </div>
     </div>
 
-    <span class="flex h-5 shrink-0 items-center gap-2">
-      <span class="inline-flex w-4 justify-center" :title="priorityLabel(card.priority)">
-        <PriorityIndicator
-          v-if="priorityForBadge(card.priority)"
-          :priority="priorityForBadge(card.priority)!"
-          size="xs"
-        />
+    <span class="flex min-h-(--leading-5) shrink-0 items-center gap-2">
+      <span class="inline-flex min-w-4 justify-center" :title="priorityLabel(card.priority)">
+        <span v-if="priorityForBadge(card.priority)" class="type-glyph">
+          <PriorityIndicator :priority="priorityForBadge(card.priority)!" size="xs" />
+        </span>
       </span>
       <SizeChip
         :minutes="card.estimate_minutes"

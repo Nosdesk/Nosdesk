@@ -325,7 +325,7 @@ const inputPlaceholder = computed(
             aria-haspopup="dialog"
             :aria-expanded="isOpen"
             :aria-label="`${sheetTitle}: ${picker.selectedDisplayName.value || inputPlaceholder}`"
-            class="w-full text-left bg-transparent leading-tight truncate"
+            class="w-full text-left bg-transparent leading-tight truncate grown-wrap"
             :class="[
               compact ? 'text-2xs py-0' : 'text-sm py-1',
               picker.selectedDisplayName.value ? 'text-secondary' : 'text-tertiary',

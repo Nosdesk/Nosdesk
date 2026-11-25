@@ -233,40 +233,40 @@ async function onSignOut(): Promise<void> {
       class="fixed bottom-0 inset-x-0 z-20 sm:hidden bg-surface-alt border-t border-default pb-[env(safe-area-inset-bottom)]"
       :aria-label="t('portal-nav-label')"
     >
-      <div class="flex items-stretch h-14">
+      <div class="flex items-stretch min-h-14">
         <RouterLink
           v-for="section in sections.slice(0, 1)"
           :key="section.to"
           :to="section.to"
-          class="flex-1 flex flex-col items-center justify-center gap-0.5 text-2xs"
+          class="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-center text-2xs"
           :class="isActive(section.to) ? 'text-accent' : 'text-secondary'"
           :aria-current="isActive(section.to) ? 'page' : undefined"
         >
           <Icon :name="section.icon" size="md" />
-          {{ section.label }}
+          <span class="tab-label">{{ section.label }}</span>
         </RouterLink>
         <RouterLink
           v-if="!linkSession"
           to="/tickets/new"
-          class="flex-1 flex flex-col items-center justify-center gap-0.5 text-2xs"
+          class="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-center text-2xs"
           :class="route.path === '/tickets/new' ? 'text-accent' : 'text-secondary'"
         >
           <Icon name="add" size="md" />
-          {{ t('portal-nav-new') }}
+          <span class="tab-label">{{ t('portal-nav-new') }}</span>
         </RouterLink>
         <RouterLink
           v-for="section in sections.slice(1)"
           :key="section.to"
           :to="section.to"
-          class="relative flex-1 flex flex-col items-center justify-center gap-0.5 text-2xs"
+          class="relative flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-center text-2xs"
           :class="isActive(section.to) ? 'text-accent' : 'text-secondary'"
           :aria-current="isActive(section.to) ? 'page' : undefined"
         >
           <Icon :name="section.icon" size="md" />
-          {{ section.label }}
+          <span class="tab-label">{{ section.label }}</span>
           <span
             v-if="section.count"
-            class="absolute top-1.5 left-1/2 ml-2 min-w-4 h-4 px-1 rounded-full bg-accent text-on-accent text-3xs font-medium inline-flex items-center justify-center"
+            class="absolute top-1.5 left-1/2 ml-2 min-w-[max(1rem,1.45em)] min-h-[max(1rem,1.45em)] px-[0.4em] rounded-full bg-accent text-on-accent text-3xs leading-none font-medium inline-flex items-center justify-center"
           >
             {{ section.count }}
           </span>
@@ -275,3 +275,12 @@ async function onSignOut(): Promise<void> {
     </nav>
   </div>
 </template>
+
+<style scoped>
+/* The tab bar's labels grow with the text to 125% and no further, as a
+   phone's own tab bars do: a third of a 360px screen holds a word at that
+   size, not at 200%. The link's name stays the whole label. */
+.tab-label {
+  font-size: calc(var(--text-2xs) / var(--text-scale) * min(var(--text-scale), 1.25));
+}
+</style>

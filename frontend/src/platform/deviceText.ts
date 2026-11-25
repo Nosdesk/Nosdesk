@@ -22,11 +22,14 @@ import { readonly, shallowRef } from 'vue'
 import { isTauriRuntime } from './runtime'
 
 /**
- * Whether the app applies the device text settings. Off until the layouts are
- * ready for larger text: the values are still read and exposed, nothing is
- * written to the page, and Android's WebView keeps scaling text by itself.
+ * Whether the app applies the device text settings. On: the phone screens
+ * reflow up to 200%, Android's WebView stops scaling text by itself, and
+ * Settings > Appearance > Text size can hand the size to the person (who then
+ * overrides `--device-text-scale` with `--user-text-scale`). Bold Text is
+ * always followed. Off, the values are still read and exposed, and nothing is
+ * written to the page.
  */
-export const FOLLOW_DEVICE_TEXT = false
+export const FOLLOW_DEVICE_TEXT = true
 
 export interface DeviceText {
   /** Body text size relative to the platform default, 0.5 to 2, to 4 decimals. */

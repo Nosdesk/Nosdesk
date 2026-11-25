@@ -50,17 +50,18 @@ withDefaults(defineProps<Props>(), {
     class="bg-surface rounded-xl border border-default flex flex-col"
     :class="{ 'overflow-hidden': clipContent }"
   >
-    <!-- Header. Fixed-height compact pill, mirrors the dashboard
-         widget shell so every card with a header reads as the same
-         visual primitive across the app. -->
+    <!-- Header. Compact pill, mirrors the dashboard widget shell so
+         every card with a header reads as the same visual primitive
+         across the app. 36px; on a phone it grows, and the title wraps,
+         once larger text needs the room. -->
     <header
-      class="flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt flex-shrink-0"
+      class="flex items-center gap-2 px-3 h-9 max-md:h-auto max-md:min-h-9 max-md:py-1.5 border-b border-default bg-surface-alt flex-shrink-0"
       :class="{ 'sticky top-0 z-20': stickyHeader }"
     >
       <!-- Optional leading content (icon, dot indicator). -->
       <slot name="leading" />
 
-      <h2 class="text-xs-plus font-semibold text-primary truncate flex-1 tracking-tight">
+      <h2 class="text-xs-plus font-semibold text-primary flex-1 min-w-0 tracking-tight max-md:[overflow-wrap:anywhere] md:truncate">
         <slot name="title" />
       </h2>
 

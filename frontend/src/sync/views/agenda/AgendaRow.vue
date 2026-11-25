@@ -125,80 +125,98 @@ function onKeydown(event: KeyboardEvent): void {
     @click="fixed && emit('open')"
     @contextmenu.prevent="emit('menu', $event)"
   >
-    <!-- Gutter: the time of a booked job, the grip of any other. -->
-    <div class="flex min-h-5 min-w-[5em] shrink-0 items-center text-xs">
-      <button
-        v-if="time"
-        type="button"
-        class="-mx-1 rounded px-1 text-xs tabular-nums whitespace-nowrap transition-colors hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        :class="overlap ? 'text-status-warning' : 'text-secondary hover:text-primary'"
-        aria-haspopup="dialog"
-        :aria-expanded="!!timeOpen"
-        :aria-label="$t('plan-row-time-aria', { number: String(card.number), time: timeLabel })"
-        :title="overlapTitle || undefined"
-        @pointerdown.stop
-        @click.stop="emit('open-time', $event.currentTarget as HTMLElement)"
+    <!-- Gutter and title wrap as one group (`.plan-lead`, main.css). While
+         the title keeps fourteen and a half of its own ems beside the
+         gutter nothing moves; when it does not (a phone from one stop
+         above the designed size), the time goes above the title, on the
+         line priority and size already hold, and the title takes the
+         row's width. A job with no time closes its gutter to the grip at
+         the same point, so no row gets a line for a grip alone. -->
+    <div class="plan-lead flex min-w-0 flex-1 items-start" :class="time && 'flex-wrap'">
+      <!-- Gutter: the time of a booked job, the grip of any other. -->
+      <div
+        class="flex min-h-(--leading-5) shrink-0 items-center text-xs"
+        :class="time ? 'plan-gutter' : fixed ? 'plan-gutter-empty' : 'plan-gutter-closing'"
       >
-        {{ timeLabel }}<span v-if="overlap" class="sr-only">. {{ overlapTitle }}</span>
-      </button>
-      <span
-        v-else-if="!fixed"
-        data-no-drag
-        class="plan-grip -mx-1 inline-flex h-5 w-5 cursor-grab items-center justify-center rounded text-tertiary transition-opacity hover:text-secondary active:cursor-grabbing"
-        role="img"
-        :aria-label="$t('plan-row-move-aria', { number: String(card.number) })"
-        @pointerdown.stop="emit('grip-down', $event)"
-      >
-        <Icon name="grip" size="sm" />
-      </span>
-    </div>
-
-    <span class="flex h-5 shrink-0 items-center">
-      <WorkflowStateGlyph
-        :category="card.workflow_state.category"
-        :color="card.workflow_state.color"
-        :name="card.workflow_state.name"
-      />
-    </span>
-
-    <!-- Title, then the reference details beside or under it. The
-         details are one fixed-width group, so beside the title they form
-         columns down the list; under it they start on the title's line. -->
-    <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-4 gap-y-0.5">
-      <!-- The title is the row's open control: it takes the focus, the
-           keys and a screen reader's click. A pointer's press on it still
-           drags the row (`data-row-press`). -->
-      <button
-        type="button"
-        data-row-open
-        data-row-press
-        class="min-w-0 flex-1 basis-64 truncate text-left text-sm leading-5 font-medium text-primary focus:outline-none"
-        :title="card.title"
-        :aria-current="selected ? 'true' : undefined"
-        :aria-keyshortcuts="moveKeys"
-        @click.stop="onClick"
-        @keydown="onKeydown"
-      >{{ card.title }}</button>
-      <span class="flex min-w-0 shrink grow-0 basis-56 items-baseline gap-3 text-xs leading-5 text-tertiary">
-        <span class="w-11 shrink-0 font-mono text-2xs tabular-nums">#{{ card.number }}</span>
-        <span class="min-w-0 flex-1 truncate">{{ requester }}</span>
+        <button
+          v-if="time"
+          type="button"
+          class="-mx-1 rounded px-1 text-xs tabular-nums whitespace-nowrap transition-colors hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          :class="overlap ? 'text-status-warning' : 'text-secondary hover:text-primary'"
+          aria-haspopup="dialog"
+          :aria-expanded="!!timeOpen"
+          :aria-label="$t('plan-row-time-aria', { number: String(card.number), time: timeLabel })"
+          :title="overlapTitle || undefined"
+          @pointerdown.stop
+          @click.stop="emit('open-time', $event.currentTarget as HTMLElement)"
+        >
+          {{ timeLabel }}<span v-if="overlap" class="sr-only">. {{ overlapTitle }}</span>
+        </button>
         <span
-          v-if="due"
-          class="shrink-0"
-          :class="due.late && 'text-overdue'"
-          :title="due.title"
-        >{{ due.label }}</span>
-      </span>
+          v-else-if="!fixed"
+          data-no-drag
+          class="plan-grip -mx-1 inline-flex h-5 w-5 cursor-grab items-center justify-center rounded text-tertiary transition-opacity hover:text-secondary active:cursor-grabbing"
+          role="img"
+          :aria-label="$t('plan-row-move-aria', { number: String(card.number) })"
+          @pointerdown.stop="emit('grip-down', $event)"
+        >
+          <Icon name="grip" size="sm" />
+        </span>
+      </div>
+
+      <div class="plan-title flex min-w-0 flex-1 items-start gap-3">
+        <span class="flex h-(--leading-5) shrink-0 items-center">
+          <span class="type-glyph">
+            <WorkflowStateGlyph
+              :category="card.workflow_state.category"
+              :color="card.workflow_state.color"
+              :name="card.workflow_state.name"
+            />
+          </span>
+        </span>
+
+        <!-- Title, then the reference details beside or under it. The
+             details are one fixed-width group, so beside the title they
+             form columns down the list; under it they start on the
+             title's line. On a phone the title wraps instead of
+             truncating, and so do the details. -->
+        <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-4 gap-y-0.5">
+          <!-- The title is the row's open control: it takes the focus, the
+               keys and a screen reader's click. A pointer's press on it still
+               drags the row (`data-row-press`). -->
+          <button
+            type="button"
+            data-row-open
+            data-row-press
+            class="min-w-0 flex-1 basis-64 text-left text-sm leading-5 font-medium text-primary focus:outline-none max-md:[overflow-wrap:anywhere] md:truncate"
+            :title="card.title"
+            :aria-current="selected ? 'true' : undefined"
+            :aria-keyshortcuts="moveKeys"
+            @click.stop="onClick"
+            @keydown="onKeydown"
+          >{{ card.title }}</button>
+          <span class="flex min-w-0 shrink grow-0 basis-56 items-baseline gap-3 text-xs leading-5 text-tertiary max-md:grow max-md:flex-wrap max-md:gap-y-0">
+            <!-- At the 12px floor on a phone, so medium weight in the
+                 secondary colour rather than the smallest and faintest. -->
+            <span class="min-w-11 shrink-0 font-mono text-2xs tabular-nums whitespace-nowrap max-md:font-medium max-md:text-secondary">#{{ card.number }}</span>
+            <span class="min-w-0 flex-1 max-md:flex-[0_1_auto] max-md:[overflow-wrap:anywhere] md:truncate">{{ requester }}</span>
+            <span
+              v-if="due"
+              class="shrink-0 whitespace-nowrap"
+              :class="due.late && 'text-overdue'"
+              :title="due.title"
+            >{{ due.label }}</span>
+          </span>
+        </div>
+      </div>
     </div>
 
     <!-- The right edge: priority, then size. -->
-    <span class="flex h-5 shrink-0 items-center gap-2">
-      <span class="inline-flex w-4 justify-center" :title="priorityLabel(card.priority)">
-        <PriorityIndicator
-          v-if="priorityForBadge(card.priority)"
-          :priority="priorityForBadge(card.priority)!"
-          size="xs"
-        />
+    <span class="flex min-h-(--leading-5) shrink-0 items-center gap-2">
+      <span class="inline-flex min-w-4 justify-center" :title="priorityLabel(card.priority)">
+        <span v-if="priorityForBadge(card.priority)" class="type-glyph">
+          <PriorityIndicator :priority="priorityForBadge(card.priority)!" size="xs" />
+        </span>
       </span>
       <SizeChip
         :minutes="card.estimate_minutes"
@@ -208,3 +226,4 @@ function onKeydown(event: KeyboardEvent): void {
     </span>
   </li>
 </template>
+

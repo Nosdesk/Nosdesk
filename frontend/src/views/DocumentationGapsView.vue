@@ -358,9 +358,10 @@ function signalLabel(signal: Pick<KnowledgeGapSignal, 'signal_type'>): string {
            refresh and back-to-docs actions at the end; the line under it
            says when the queue was checked, or what a refresh found. -->
       <div class="border-b border-default px-4 py-3 flex flex-col gap-1 flex-shrink-0">
-        <div class="flex items-center gap-2">
+        <!-- The actions wrap under the title once larger text leaves no room. -->
+        <div class="flex flex-wrap items-center gap-2">
           <Icon name="warning" class="text-status-warning-ui flex-shrink-0" />
-          <h2 class="text-base font-semibold text-primary truncate">{{ $t('docs-gaps-heading') }}</h2>
+          <h2 class="min-w-0 text-base font-semibold text-primary truncate">{{ $t('docs-gaps-heading') }}</h2>
           <span v-if="!listLoading" class="text-xs text-tertiary bg-surface-alt px-2 py-0.5 rounded-full flex-shrink-0">
             {{ gaps.length }}
           </span>

@@ -68,7 +68,7 @@ describe('the type scale', () => {
   })
 
   it('lifts every size under 12px to 12px on a phone, and moves nothing down', () => {
-    const phone = block(/^@media screen and \(width < 48rem\) \{/m)
+    const phone = block(/^@media screen and \(width < 48rem\), screen and \(pointer: coarse\) and \(height < 30rem\) \{/m)
     for (const name of small) {
       const lifted = phone.get(name)
       const atOne = lifted ? remAtOne(lifted) : remAtOne(theme.get(name)!)
@@ -85,5 +85,45 @@ describe('the type scale', () => {
   it('pins every size inside .type-fixed to its unscaled value', () => {
     const fixed = block(/^\.type-fixed \{/m)
     for (const [name, value] of sizes) expect(fixed.get(name), name).toBe(`${remAtOne(value)}rem`)
+  })
+
+  it('moves every weight up one step under Bold Text, strong text with them', () => {
+    const regular = theme
+    const bold = block(/^:root\[data-bold-text\] \{/m)
+    const steps = ['normal', 'medium', 'semibold', 'bold'].map((name) => [
+      Number(regular.get(`--font-weight-${name}`)),
+      Number(bold.get(`--font-weight-${name}`)),
+    ])
+    expect(steps).toEqual([
+      [400, 500],
+      [500, 600],
+      [600, 700],
+      [700, 800],
+    ])
+    expect(css).toMatch(/@layer base \{\s*b,\s*strong \{\s*font-weight: var\(--font-weight-bold\);/)
+  })
+})
+
+describe('larger text on a phone', () => {
+  // WebKit (every iOS browser) ignores an intrinsic min-height such as
+  // max-content against a fixed height; only a released height grows.
+  const grown = css.slice(css.indexOf('/* Larger text on a phone.'), css.indexOf('/* Something drawn at a fixed size'))
+
+  it('grows a fixed-height control by releasing its height, not with an intrinsic min-height', () => {
+    expect(grown).not.toMatch(/min-height:\s*(max|min|fit)-content/)
+    const rule = /@layer utilities \{\s*@media screen and \(width < 48rem\), screen and \(pointer: coarse\) and \(height < 30rem\) \{\s*:root\[data-text-grown\] :is\(button, a, \[role='button'\]\):is\(\.h-5, \.h-6, \.h-7, \.h-8, \.h-9, \.h-10\):not\(\.min-h-0, \[data-fixed-height\]\) \{\s*height: auto;/
+    expect(grown).toMatch(rule)
+  })
+
+  it('keeps each fixed height as the least, unless the control sets a min-h of its own', () => {
+    for (const n of [5, 6, 7, 8, 9, 10]) {
+      expect(grown).toContain(
+        `:root[data-text-grown] :is(button, a, [role='button']).h-${n}:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {\n      min-height: calc(var(--spacing) * ${n});`,
+      )
+    }
+  })
+
+  it('scopes grown-fit to a phone and releases the height there', () => {
+    expect(grown).toMatch(/@utility grown-fit-\* \{\s*@media screen and \(width < 48rem\), screen and \(pointer: coarse\) and \(height < 30rem\) \{\s*:root\[data-text-grown\] & \{\s*height: auto;\s*min-height: calc\(var\(--spacing\) \* --value\(integer\)\);/)
   })
 })

@@ -1,4 +1,5 @@
 import type { PluginTheme } from '@nosdesk/plugin-sdk';
+import { readTextScale } from '@/composables/useTextScale';
 
 // The plugin design-token contract: the `--nd-*` name a plugin sees, mapped to
 // the host CSS variable it snapshots from (frontend/src/assets/main.css). A
@@ -88,5 +89,11 @@ export function snapshotPluginTheme(colorScheme: 'light' | 'dark', name: string)
     const value = cs.getPropertyValue(hostVar).trim();
     if (value) tokens[ndKey] = value;
   }
+  // The text size in force (`--text-scale`, 1 to 2). The kit's type is
+  // multiplied by it, as the host's is, so a plugin's text grows with the
+  // page around it; a plugin with its own styles can read it too.
+  const scale = readTextScale();
+  tokens['text-scale'] = String(scale);
+  tokens['header-font-size'] = `${Math.round(13 * scale * 100) / 100}px`;
   return { tokens, colorScheme, name };
 }

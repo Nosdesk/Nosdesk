@@ -286,7 +286,7 @@ onMounted(async () => {
 
         <!-- No passkeys -->
         <div v-else-if="!hasPasskeys" class="flex items-center justify-between gap-4 py-1">
-          <div>
+          <div class="min-w-0 flex-1">
             <p class="text-sm text-secondary">{{ $t('settings-passkey-empty-title') }}</p>
             <p class="text-xs text-tertiary mt-0.5">{{ $t('settings-passkey-empty-self-description') }}</p>
           </div>

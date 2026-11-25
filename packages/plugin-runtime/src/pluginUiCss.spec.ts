@@ -92,6 +92,8 @@ const HOST_TOKENS = new Set([
   'overdue',
   'font-sans',
   'font-mono',
+  // The host's text size, 1 to 2 (snapshotPluginTheme).
+  'text-scale',
   'radius',
   'radius-sm',
   'radius-lg',
@@ -136,12 +138,17 @@ describe('PLUGIN_UI_CSS', () => {
 
   it('renders text fields at 16px or more on a coarse pointer, so iOS does not zoom into them', () => {
     const coarse = PLUGIN_UI_CSS.slice(PLUGIN_UI_CSS.indexOf('@media (pointer: coarse)'))
-    expect(coarse).toMatch(/\.nd-input, \.nd-textarea, \.nd-select \{[^}]*font-size: 16px;/)
+    expect(coarse).toMatch(/\.nd-input, \.nd-textarea, \.nd-select \{[^}]*font-size: max\(16px, calc\(16px \* var\(--nd-text-scale, 1\)\)\);/)
     expect(coarse).toMatch(/:where\(input:not\([^)]*\), textarea, select\) \{[^}]*font-size: max\(16px, 1em\);/)
   })
 
-  it('sets the app body size (14px) as the document base', () => {
-    expect(PLUGIN_UI_CSS).toMatch(/body \{[^}]*font-size: 14px;/)
+  it('sets the app body size (14px) as the document base, at the host text size', () => {
+    expect(PLUGIN_UI_CSS).toMatch(/body \{[^}]*font-size: calc\(14px \* var\(--nd-text-scale, 1\)\);/)
+  })
+
+  it('scales every type size and line height with the host text size', () => {
+    expect(PLUGIN_UI_CSS).not.toMatch(/font-size: \d+px;/)
+    expect(PLUGIN_UI_CSS).not.toMatch(/line-height: \d+px;/)
   })
 
   it('has no em dashes', () => {

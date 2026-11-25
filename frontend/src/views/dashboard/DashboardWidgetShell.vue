@@ -413,7 +413,9 @@ function sizeCodeToSpan(code: string): WidgetSpan | null {
   <article
     ref="articleEl"
     :class="[
-      'bg-surface rounded-xl border border-default overflow-hidden flex h-full relative transition-shadow',
+      // On the one-column grid (under xl) the card is as tall as its
+      // content, so a header or footer that larger text wraps stays inside.
+      'bg-surface rounded-xl border border-default overflow-hidden flex h-full max-xl:h-auto relative transition-shadow',
       editMode
         ? 'ring-1 ring-accent/30 hover:ring-accent/40 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none'
         : '',
@@ -452,12 +454,13 @@ function sizeCodeToSpan(code: string): WidgetSpan | null {
          so they still work without snagging the drag. -->
     <header
       :class="[
-        'flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt flex-shrink-0',
+        // 36px; on a phone it grows with a title that larger text wraps.
+        'flex items-center gap-2 px-3 h-9 max-md:h-auto max-md:min-h-9 max-md:py-1.5 border-b border-default bg-surface-alt flex-shrink-0',
         editMode ? 'cursor-grab active:cursor-grabbing touch-none' : '',
       ]"
       @pointerdown="onHeaderPointerDown"
     >
-      <h2 class="text-xs-plus font-semibold text-primary truncate tracking-tight">{{ title }}</h2>
+      <h2 class="min-w-0 text-xs-plus font-semibold text-primary truncate grown-wrap tracking-tight">{{ title }}</h2>
 
       <!-- Optional inline count badge next to the title (e.g. "12"
            assigned tickets). Renders as a pill: h-5, rounded, mono

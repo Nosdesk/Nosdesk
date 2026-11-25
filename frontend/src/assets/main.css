@@ -160,11 +160,11 @@
   --leading-6: calc(1.5rem * var(--text-scale));
   --leading-7: calc(1.75rem * var(--text-scale));
 
-  /* Weights. iOS and Android Bold Text will set `data-bold-text` on
-     the root (through the native shell), and a `:root[data-bold-text]`
-     rule, which lands with the readable screens, remaps these four.
-     Every weight in the app already reads them, so nothing else will
-     need to change for it. `check-type-tokens.mjs` refuses literal
+  /* Weights. iOS and Android Bold Text set `data-bold-text` on the
+     root (through the native shell), and `:root[data-bold-text]`
+     (after this block) moves each of these four up one step. Every
+     weight in the app reads them, including body and #app, so nothing
+     else changes for it. `check-type-tokens.mjs` refuses literal
      weights. Values are Tailwind's own. */
   --font-weight-normal: 400;
   --font-weight-medium: 500;
@@ -434,15 +434,55 @@
   }
 }
 
+/* Bold Text (iOS, and Android's "Bold text"), honoured. A web view does
+   not pick the setting up by itself: the app's face is Inter, not the
+   system font, so nothing would get heavier. The native shell sets
+   `data-bold-text` on the root and every weight moves up one step:
+
+     regular  400 -> 500   comments, details, grey secondary text
+     medium   500 -> 600   row titles, names, chips, numbers at the floor
+     semibold 600 -> 700   headings, the ticket title
+     bold     700 -> 800   the rare strong emphasis
+
+   Because every step moves together, the order of emphasis stays the
+   designed one. Two steps (regular to semibold) read as too heavy on a
+   page of comments. Inter ships as a variable font (100 to 900), so
+   each step is a real weight, not a synthesised one. The monospace
+   stack's faces either carry these weights (SF Mono, Cascadia) or
+   round to their regular and bold faces (Consolas), so the browser
+   does not synthesise bold there either. Whether WKWebView also
+   emboldens system faces by itself under Bold Text (the mono fallback,
+   an email's frame) is still to be checked on a device. Colour, size
+   and spacing do not change: heavier text is a little wider, and rows
+   answer that by wrapping. */
+:root[data-bold-text] {
+  --font-weight-normal: 500;
+  --font-weight-medium: 600;
+  --font-weight-semibold: 700;
+  --font-weight-bold: 800;
+}
+
+/* Preflight makes `b` and `strong` "bolder", which is relative to the text
+   around them and never reads the tokens: under Bold Text a strong word in
+   a 500 paragraph would land on 700, not 800. They take the bold token. */
+@layer base {
+  b,
+  strong {
+    font-weight: var(--font-weight-bold);
+  }
+}
+
 /* The phone baseline. A phone is read close up, and 14px body text
    sits under Apple's 17pt body and Material's 16sp, so under 48rem the
    small sizes move up one step at scale 1: 14/13/12 become 15/14/13,
    and nothing is under 12px. Reading text (`base`), `sm-plus` (already
    15px) and the headings, which hang off `base`, do not move. From
    48rem up a touch device gets the 1.125 root scale below instead,
-   which lands in the same place (14px becomes 15.75px). Screens only:
-   a printed page is narrower than 48rem too. */
-@media screen and (width < 48rem) {
+   which lands in the same place (14px becomes 15.75px). A touch screen
+   under 30rem tall is a phone on its side, and takes the phone step
+   rather than the tablet scale. Screens only: a printed page is narrower
+   than 48rem too. */
+@media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
   :root {
     --text-5xs: calc(0.75rem * var(--text-scale));
     --text-4xs: calc(0.75rem * var(--text-scale));
@@ -451,6 +491,90 @@
     --text-xs: calc(0.8125rem * var(--text-scale));
     --text-xs-plus: calc(0.875rem * var(--text-scale));
     --text-sm: calc(0.9375rem * var(--text-scale));
+  }
+}
+
+/* Larger text on a phone. Controls were laid out for the designed size;
+   once the text is larger than designed (`data-text-grown`, set from
+   `--text-scale` by useTextScale.ts) a phone lets the ones that would clip
+   grow:
+
+   - a button or link held to a fixed height (`h-5` to `h-10`) grows with
+     its label. Its height lets go (`height: auto`; WebKit ignores an
+     intrinsic `min-height` such as `max-content`) and its fixed height
+     stays as its least, unless it sets a `min-h-*` of its own, which
+     then holds (a touch floor stays a floor). `min-h-0` or
+     `data-fixed-height` on the element opts out. In the utilities layer
+     with a higher specificity than `h-*`, so it beats the fixed height;
+   - text cut to a line or clamped keeps its cut unless it opts in to
+     reading whole, with `grown-wrap` (beside `truncate`) or
+     `grown-unclamp` (beside `line-clamp-*`), below.
+
+   "A phone" is under 48rem wide, or a touch screen under 30rem tall (a
+   phone on its side), as for the phone baseline above. */
+@layer utilities {
+  @media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+    :root[data-text-grown] :is(button, a, [role='button']):is(.h-5, .h-6, .h-7, .h-8, .h-9, .h-10):not(.min-h-0, [data-fixed-height]) {
+      height: auto;
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-5:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 5);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-6:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 6);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-7:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 7);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-8:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 8);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-9:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 9);
+    }
+    :root[data-text-grown] :is(button, a, [role='button']).h-10:not([class^='min-h-'], [class*=' min-h-'], [data-fixed-height]) {
+      min-height: calc(var(--spacing) * 10);
+    }
+  }
+}
+
+/* Opt in: this text reads whole at larger text on a phone. A long token
+   (an address, a hostname, a serial) breaks anywhere rather than widen
+   the page. */
+@utility grown-wrap {
+  @media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+    :root[data-text-grown] & {
+      overflow: visible;
+      text-overflow: clip;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      min-width: 0;
+    }
+  }
+}
+
+/* Opt in: this clamp lets go at larger text on a phone. */
+@utility grown-unclamp {
+  @media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+    :root[data-text-grown] & {
+      display: block;
+      overflow: visible;
+      -webkit-line-clamp: none;
+      line-clamp: none;
+    }
+  }
+}
+
+/* Opt in: a row of fixed height that is not a control (a toolbar, a
+   section header) grows to fit its content at larger text on a phone,
+   with its fixed height as its least: `h-10 grown-fit-10`. It keeps its
+   fixed height at the default size. */
+@utility grown-fit-* {
+  @media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+    :root[data-text-grown] & {
+      height: auto;
+      min-height: calc(var(--spacing) * --value(integer));
+    }
   }
 }
 
@@ -476,6 +600,20 @@
   --text-metric-sm: 1.25rem;
   --text-metric-md: 2rem;
   --text-metric-lg: 2.25rem;
+}
+
+/* A glyph that carries meaning by itself beside text (a state or
+   priority mark, an avatar in a comment's head) grows at half the rate
+   of the text, so it stays a mark beside larger words instead of
+   becoming a picture. Icons are sized in rem, so `zoom` is what moves
+   them. Identical at scale 1. */
+:root {
+  --glyph-scale: calc(1 + (var(--text-scale) - 1) * 0.5);
+}
+.type-glyph {
+  display: inline-flex;
+  flex-shrink: 0;
+  zoom: var(--glyph-scale);
 }
 
 /* ============================================
@@ -512,7 +650,7 @@
 
    The factor is a token so it can be tuned in one place after looking
    at it on real hardware. */
-@media (pointer: coarse) and (width >= 48rem) {
+@media (pointer: coarse) and (width >= 48rem) and (height >= 30rem) {
   :root {
     font-size: calc(100% * var(--root-scale-touch, 1.125));
   }
@@ -2461,6 +2599,35 @@ html[data-theme="red-horizon"] body,
 }
 
 /* The unsized chip: offered on hover, never shown at rest. */
+/* A planning row's lead: its gutter (the time, or the grip of a job with
+   none) and its title, as one group that wraps (My day, the calendar's
+   day list). The gutter is five of the detail size's ems plus the space
+   after it, the column the time has always had. Once the title would
+   have less than 14.5 of its own ems beside it (a phone from one stop
+   above the designed size), the time goes above the title, on the line
+   priority and size already hold, and the title takes the row's width. */
+.plan-lead {
+  --plan-gutter: calc(var(--text-xs) * 5 + 0.75rem);
+  --plan-wrap-at: calc(var(--plan-gutter) + var(--text-sm) * 14.5);
+}
+.plan-gutter {
+  flex: 0 0 var(--plan-gutter);
+  padding-right: 0.75rem;
+}
+/* No time: the gutter keeps the column while the times are in one and
+   closes to the grip (or to nothing, with no grip) once they are not,
+   so no row gets a line for a grip alone. */
+.plan-gutter-closing {
+  flex: 0 0 clamp(2rem, (100% - var(--plan-wrap-at)) * 999, var(--plan-gutter));
+  padding-right: 0.75rem;
+}
+.plan-gutter-empty {
+  flex: 0 0 clamp(0px, (100% - var(--plan-wrap-at)) * 999, var(--plan-gutter));
+}
+.plan-title {
+  flex-basis: calc(var(--text-sm) * 14.5);
+}
+
 .plan-size-empty {
   opacity: 0;
 }

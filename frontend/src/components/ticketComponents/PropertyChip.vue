@@ -42,7 +42,8 @@ const removeAriaLabel = computed(() => props.removeTitle || t('ticket-chip-remov
     :class="{ 'opacity-60': loading }"
   >
     <slot name="leading" />
-    <span class="truncate">{{ label }}</span>
+    <!-- Reads whole at larger text on a phone (an asset name, a project). -->
+    <span class="truncate grown-wrap">{{ label }}</span>
     <button
       v-if="removable"
       type="button"

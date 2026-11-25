@@ -976,7 +976,7 @@ function affectedDevicesTooltip(card: CardData): string {
                      tooltip — the colour does the talking; full
                      countdown text lives in the detail view. -->
                 <div class="flex items-start justify-between gap-1.5 mb-1">
-                  <h4 class="text-xs-plus font-medium text-primary line-clamp-2 flex-1 inline-flex items-baseline gap-1">
+                  <h4 class="text-xs-plus font-medium text-primary line-clamp-2 grown-unclamp flex-1 inline-flex items-baseline gap-1">
                     <span
                       v-if="card.recurrence_rule"
                       class="text-tertiary text-xs shrink-0"
@@ -1301,6 +1301,16 @@ function affectedDevicesTooltip(card: CardData): string {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+/* This scoped clamp outranks the layered grown-unclamp utility, so it
+   repeats it: at larger text on a phone a card title reads whole. */
+@media screen and (width < 48rem), screen and (pointer: coarse) and (height < 30rem) {
+  :root[data-text-grown] .line-clamp-2.grown-unclamp {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: none;
+    line-clamp: none;
+  }
 }
 article {
   position: relative;

@@ -18,6 +18,8 @@ import { enhanceTicketLinks } from '@/components/editor/ticketLinkPlugin';
 const props = defineProps<{
   content: string;
   class?: string;
+  /** Reading text (a comment on a phone): body size, not the compact one. */
+  reading?: boolean;
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -96,7 +98,7 @@ watch(renderedHtml, () => {
   <div
     ref="containerRef"
     class="markdown-content"
-    :class="props.class"
+    :class="[props.class, { 'markdown-reading': reading }]"
     v-html="renderedHtml"
   />
 </template>
@@ -106,6 +108,10 @@ watch(renderedHtml, () => {
   font-size: var(--text-sm);
   line-height: 1.625;
   color: var(--color-primary);
+}
+
+.markdown-content.markdown-reading {
+  font-size: var(--text-base);
 }
 
 .markdown-content :deep(p) {

@@ -42,14 +42,17 @@ const dateValue = computed<string>({
 </script>
 
 <template>
-  <div class="flex items-center gap-1" data-date-time>
-    <DatePicker v-model="dateValue" :disabled="disabled" size="sm" block :aria-label="label" />
+  <div class="flex flex-wrap items-center gap-1" data-date-time>
+    <!-- The date takes the line and the time and clear follow it, until
+         the date would have less than eight and a half of the text's ems:
+         then they wrap under it together. -->
+    <DatePicker v-model="dateValue" :disabled="disabled" size="sm" block class="grow basis-[calc(var(--text-sm)*8.5)]" :aria-label="label" />
     <button
       v-if="date && !(disabled && !time)"
       ref="trigger"
       type="button"
       :disabled="disabled"
-      class="h-7 shrink-0 rounded-md px-2 text-xs whitespace-nowrap tabular-nums transition-colors enabled:hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      class="min-h-7 shrink-0 rounded-md px-2 text-xs whitespace-nowrap tabular-nums transition-colors enabled:hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       :class="time ? 'text-primary' : 'text-tertiary hover:text-primary'"
       aria-haspopup="dialog"
       :aria-expanded="open"

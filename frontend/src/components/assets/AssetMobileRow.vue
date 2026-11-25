@@ -50,7 +50,7 @@ const needsWarrantyAttention = computed(
 
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-1.5">
-        <span class="text-sm text-primary font-medium truncate">{{ asset.name }}</span>
+        <span class="text-sm text-primary font-medium truncate grown-wrap">{{ asset.name }}</span>
         <div v-if="asset.groups?.length" class="flex items-center gap-1 flex-shrink-0">
           <span
             v-for="group in asset.groups.slice(0, 3)"
@@ -68,12 +68,12 @@ const needsWarrantyAttention = computed(
              device-only workspace. The low-stock badge below still
              marks the one kind that behaves differently. -->
         <span v-if="asset.model" class="text-secondary">{{ asset.model }}</span>
-        <span v-if="asset.location" class="text-tertiary truncate max-w-[140px]">{{ asset.location }}</span>
+        <span v-if="asset.location" class="text-tertiary truncate grown-wrap max-w-[140px]">{{ asset.location }}</span>
         <span v-if="asset.serial_number" class="text-tertiary font-mono">{{ asset.serial_number }}</span>
       </div>
 
       <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-xs">
-        <span v-if="asset.attributes?.hostname" class="text-tertiary font-mono truncate max-w-[160px]">{{ asset.attributes.hostname }}</span>
+        <span v-if="asset.attributes?.hostname" class="text-tertiary font-mono truncate grown-wrap max-w-[160px]">{{ asset.attributes.hostname }}</span>
         <span
           v-if="usedBy.kind === 'loan'"
           class="inline-flex items-center gap-1 min-w-0 max-w-[140px]"

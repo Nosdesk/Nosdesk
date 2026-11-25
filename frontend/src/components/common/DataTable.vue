@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import Checkbox from './Checkbox.vue'
 import Icon from './Icon.vue'
+import { useMobileDetection } from '@/composables/useMobileDetection'
 
 export interface Column {
   field: string
@@ -217,6 +218,23 @@ const getColumnVisibility = (column: Column) => {
   return ''
 }
 
+/** Phones get cards instead of the grid (see the template). */
+const { isMobile: cards } = useMobileDetection('md')
+
+/** A card shows the columns a tablet would: the first as its title. */
+const cardColumns = computed(() => getVisibleColumns('md'))
+
+/** The cards in their groups, or in one unnamed group when flat. A folded
+ *  group shows its header alone. */
+const cardSections = computed(() =>
+  isGrouped.value
+    ? visibleBuckets.value.map((bucket) => ({
+        bucket,
+        items: props.isCollapsed?.(bucket.key) ? [] : bucket.items,
+      }))
+    : [{ bucket: null, items: props.data }],
+)
+
 const headerCellPadding = computed(() =>
   props.cellPadding || 'px-2 py-2',
 )
@@ -236,7 +254,7 @@ const dataCellPadding = computed(() =>
     }"
   >
     <!-- Grid Container -->
-    <div class="data-table-grid">
+    <div v-if="!cards" class="data-table-grid">
       
       <!-- Sticky Header Row -->
       <div class="contents sticky top-0 z-10">
@@ -464,6 +482,82 @@ const dataCellPadding = computed(() =>
         </template>
       </template>
     </div>
+
+    <!-- On a phone each row is a card: the first column is its title and
+         the rest follow as labelled items that wrap, so no column is
+         squeezed or cut as the text grows. The cells are the view's own
+         slots, as in the table. -->
+    <div v-else class="data-table-cards flex flex-col">
+      <template v-for="section in cardSections" :key="section.bucket?.key ?? 'all'">
+        <button
+          v-if="section.bucket"
+          type="button"
+          class="flex items-center gap-2 border-t border-default bg-surface-alt px-4 py-2 text-left transition-colors first:border-t-0 hover:bg-surface-hover"
+          @click="emit('toggle-bucket', section.bucket.key)"
+        >
+          <Icon
+            name="chevronDown"
+            size="xs"
+            class="text-tertiary transition-transform"
+            :class="isCollapsed?.(section.bucket.key) ? '-rotate-90' : ''"
+          />
+          <span class="min-w-0 text-xs font-medium text-primary break-words">{{ section.bucket.label }}</span>
+          <span class="text-2xs text-tertiary tabular-nums">{{ section.bucket.count ?? section.bucket.items.length }}</span>
+          <span v-if="$slots['bucket-meta']" class="ml-auto min-w-0 pl-3">
+            <slot name="bucket-meta" :bucket="section.bucket" />
+          </span>
+        </button>
+        <div
+          v-for="(item, index) in section.items"
+          :key="String(fieldValue(item, itemIdField))"
+          class="flex min-w-0 cursor-pointer items-start gap-3 border-t border-default bg-app px-4 py-3 transition-colors first:border-t-0 hover:bg-surface-hover"
+          :class="loading && 'opacity-60 pointer-events-none'"
+          data-table-card
+          @click="emit('row-click', item)"
+          @contextmenu="(e) => { e.preventDefault(); emit('row-contextmenu', item, e) }"
+        >
+          <div v-if="selectable" class="flex min-h-(--leading-5) items-center" @click.stop>
+            <Checkbox
+              :model-value="selectedItems.includes(String(fieldValue(item, itemIdField)))"
+              @change="(e) => emit('toggle-selection', e, String(fieldValue(item, itemIdField)))"
+            />
+          </div>
+          <div class="flex min-w-0 flex-1 flex-col gap-1">
+            <div v-if="cardColumns[0]" class="min-w-0 text-sm font-medium text-primary [overflow-wrap:anywhere]">
+              <slot
+                :name="`cell-${cardColumns[0].field}`"
+                :item="item"
+                :value="fieldValue(item, cardColumns[0].field)"
+                :index="index"
+                :column="cardColumns[0]"
+              >
+                <span class="min-w-0 text-primary [overflow-wrap:anywhere]">{{ fieldValue(item, cardColumns[0].field) }}</span>
+              </slot>
+            </div>
+            <dl class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+              <div
+                v-for="column in cardColumns.slice(1)"
+                :key="column.field"
+                class="flex min-w-0 max-w-full items-center gap-1.5"
+              >
+                <dt v-if="column.label" class="text-tertiary whitespace-nowrap">{{ column.label }}</dt>
+                <dd class="flex min-w-0 items-center text-secondary [overflow-wrap:anywhere]">
+                  <slot
+                    :name="`cell-${column.field}`"
+                    :item="item"
+                    :value="fieldValue(item, column.field)"
+                    :index="index"
+                    :column="column"
+                  >
+                    <span class="min-w-0 [overflow-wrap:anywhere]">{{ fieldValue(item, column.field) }}</span>
+                  </slot>
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
@@ -485,6 +579,18 @@ const dataCellPadding = computed(() =>
   .data-table-grid {
     grid-template-columns: var(--grid-cols-lg);
   }
+}
+
+/* A cell written for the table truncates to its column; in a card it has
+   the line to itself, so it wraps instead of cutting, and a long token (an
+   address, a hostname, a serial) breaks anywhere rather than widen the
+   page. */
+.data-table-cards :deep(.truncate) {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 /* Custom scrollbar styling */

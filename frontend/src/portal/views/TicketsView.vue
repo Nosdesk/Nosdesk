@@ -87,22 +87,31 @@ function lastMove(ticket: PortalTicket): string {
             class="w-4 h-4 mt-[3px]"
           />
           <span class="flex flex-col gap-1 flex-1 min-w-0">
+            <!-- On a phone the title wraps whole, like the agent's cards, and
+                 "New reply" moves to the detail line under it. -->
             <span class="flex items-center gap-2 min-w-0">
               <span
-                class="truncate text-sm-plus"
+                class="text-sm-plus sm:truncate max-sm:[overflow-wrap:anywhere]"
                 :class="ticket.unread_reply ? 'font-semibold text-primary' : 'font-medium text-primary'"
               >
                 {{ ticket.title }}
               </span>
               <span
                 v-if="ticket.unread_reply"
-                class="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-accent"
+                class="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-accent max-sm:hidden"
               >
                 <span class="w-1.5 h-1.5 rounded-full bg-accent" aria-hidden="true" />
                 {{ t('portal-requests-new-reply') }}
               </span>
             </span>
             <span class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-secondary">
+              <span
+                v-if="ticket.unread_reply"
+                class="inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-accent sm:hidden"
+              >
+                <span class="w-1.5 h-1.5 rounded-full bg-accent" aria-hidden="true" />
+                {{ t('portal-requests-new-reply') }}
+              </span>
               <span class="tabular-nums text-tertiary">#{{ ticket.number }}</span>
               <span>{{ ticket.state?.name }}</span>
               <span v-if="ticket.approval_state === 'pending'" class="text-status-warning">

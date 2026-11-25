@@ -69,14 +69,16 @@ watch(allRangesValid, (v) => emit('update:valid', v), { immediate: true })
 </script>
 
 <template>
-  <div class="flex flex-col gap-1.5">
+  <!-- One column for the day names, as wide as the widest at the text
+       size, so the tracks start together. -->
+  <div class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5">
     <div
       v-for="day in DAYS"
       :key="day.key"
-      class="flex items-center gap-3"
+      class="contents"
     >
       <span
-        class="w-10 flex-shrink-0 text-2xs font-semibold text-tertiary uppercase tracking-wide"
+        class="min-w-10 flex-shrink-0 whitespace-nowrap text-2xs font-semibold text-tertiary uppercase tracking-wide"
       >
         {{ $t(day.labelKey) }}
       </span>
@@ -87,7 +89,7 @@ watch(allRangesValid, (v) => emit('update:valid', v), { immediate: true })
         @update:ranges="(ranges: DaySchedule) => setDayRanges(day.key, ranges)"
       />
     </div>
-    <p class="text-3xs text-tertiary italic mt-1">
+    <p class="col-span-2 text-3xs text-tertiary italic mt-1">
       {{ $t('admin-sla-schedule-timeline-hint') }}
     </p>
   </div>

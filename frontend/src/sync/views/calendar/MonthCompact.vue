@@ -88,12 +88,12 @@ const keys = useDayGrid({
         :aria-label="label(cell.day)"
         :aria-current="cell.today ? 'date' : undefined"
         :aria-selected="cell.day === selectedDay"
-        class="group flex h-12 flex-col items-center gap-1.5 pt-1 focus:outline-none"
+        class="group flex min-h-12 flex-col items-center gap-1.5 pt-1 pb-1 focus:outline-none"
         @click="emit('select', cell.day)"
         @keydown="keys.onKeydown"
       >
         <span
-          class="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm tabular-nums transition-colors group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-accent"
+          class="inline-flex h-[max(1.75rem,2em)] w-[max(1.75rem,2em)] items-center justify-center rounded-full text-sm tabular-nums transition-colors group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-accent"
           :class="[
             cell.today
               ? 'bg-accent font-semibold text-on-accent'

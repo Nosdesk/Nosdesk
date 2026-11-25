@@ -737,7 +737,7 @@ onBeforeUnmount(() => {
        leave/enter classes. -->
   <div class="h-full">
     <div class="error-page-container min-h-screen w-full flex items-center justify-center bg-app p-4 select-none">
-      <div class="flex flex-col text-center">
+      <div class="flex min-w-0 max-w-full flex-col text-center">
         <div class="error-mark" :style="{ width: markWidth, height: markHeight }">
           <div
             v-if="fallback"
@@ -769,7 +769,7 @@ onBeforeUnmount(() => {
           <p class="mt-2 text-tertiary">
             {{ $t('error-page-description') }}
           </p>
-          <div class="mt-8 flex gap-4 justify-center">
+          <div class="mt-8 flex flex-wrap gap-4 justify-center">
             <button
               type="button"
               @click="goBack"

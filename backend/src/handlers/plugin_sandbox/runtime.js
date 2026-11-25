@@ -481,10 +481,12 @@ html, body { margin: 0; padding: 0; }
    if a height report ever lags. */
 body { overflow-x: hidden; }
 /* 14px on a 20px line is the app's body text (\`text-sm\`): the values in a
-   SectionCard, table cells, md buttons and form controls all use it. */
+   SectionCard, table cells, md buttons and form controls all use it. Every
+   size and line height in the kit is multiplied by \`--nd-text-scale\`, the
+   host's text size (1 to 2), so a plugin's text grows with the page. */
 body {
   font-family: var(--nd-font-sans, system-ui, -apple-system, sans-serif);
-  font-size: 14px;
+  font-size: calc(14px * var(--nd-text-scale, 1));
   line-height: 1.4286;
   color: var(--nd-text, #1f2937);
   background: transparent;
@@ -516,9 +518,9 @@ a { color: var(--nd-accent-text, #ae4404); }
   border: 1px solid var(--nd-border, #e5e7eb);
   background: var(--nd-surface-alt, #f3f4f6);
   color: var(--nd-text, #1f2937);
-  font-size: 14px;
+  font-size: calc(14px * var(--nd-text-scale, 1));
   font-weight: 500;
-  line-height: 20px;
+  line-height: calc(20px * var(--nd-text-scale, 1));
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
@@ -548,8 +550,8 @@ a { color: var(--nd-accent-text, #ae4404); }
   border-radius: var(--nd-radius, 8px);
   background: var(--nd-surface-alt, #f3f4f6);
   color: var(--nd-text, #1f2937);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--nd-text-scale, 1));
+  line-height: calc(20px * var(--nd-text-scale, 1));
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .nd-input::placeholder, .nd-textarea::placeholder { color: var(--nd-text-tertiary, #5d6470); opacity: 1; }
@@ -606,7 +608,7 @@ a { color: var(--nd-accent-text, #ae4404); }
   background: var(--nd-surface-hover, #e5e7eb);
   color: var(--nd-text, #1f2937);
 }
-.nd-btn--sm { font-size: 12px; line-height: 16px; padding: 6px 12px; gap: 6px; }
+.nd-btn--sm { font-size: calc(12px * var(--nd-text-scale, 1)); line-height: calc(16px * var(--nd-text-scale, 1)); padding: 6px 12px; gap: 6px; }
 .nd-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--nd-surface, #ffffff), 0 0 0 4px var(--nd-accent, #FF6B1A);
@@ -626,8 +628,8 @@ a { color: var(--nd-accent-text, #ae4404); }
   border-radius: var(--nd-radius, 8px);
   background-color: var(--nd-surface-alt, #f3f4f6);
   color: var(--nd-text, #1f2937);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--nd-text-scale, 1));
+  line-height: calc(20px * var(--nd-text-scale, 1));
   -webkit-appearance: none;
   appearance: none;
   background-image:
@@ -732,14 +734,14 @@ label:has(> :disabled) { cursor: not-allowed; }
    keeps the plain look. Mark a bad control with aria-invalid="true". */
 .nd-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .nd-field > label:not(:has(input, select, textarea)) {
-  font-size: 12px;
-  line-height: 16px;
+  font-size: calc(12px * var(--nd-text-scale, 1));
+  line-height: calc(16px * var(--nd-text-scale, 1));
   font-weight: 500;
   color: var(--nd-text-tertiary, #5d6470);
   text-transform: uppercase;
   letter-spacing: 0.025em;
 }
-.nd-help, .nd-error { margin: 0; font-size: 12px; line-height: 16px; }
+.nd-help, .nd-error { margin: 0; font-size: calc(12px * var(--nd-text-scale, 1)); line-height: calc(16px * var(--nd-text-scale, 1)); }
 .nd-help { color: var(--nd-text-tertiary, #5d6470); }
 .nd-error { color: var(--nd-error-text, #af041a); }
 .nd-input[aria-invalid="true"], .nd-textarea[aria-invalid="true"], .nd-select[aria-invalid="true"] {
@@ -758,7 +760,7 @@ label:has(> :disabled) { cursor: not-allowed; }
   border-radius: 9999px;
   background: var(--nd-surface-hover, #e5e7eb);
   color: var(--nd-text-tertiary, #5d6470);
-  font-size: 10px;
+  font-size: calc(10px * var(--nd-text-scale, 1));
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.025em;
@@ -834,9 +836,9 @@ label:has(> :disabled) { cursor: not-allowed; }
   border-bottom: 1px solid var(--nd-border-subtle, #f3f4f6);
   background: var(--nd-surface, #ffffff);
   color: var(--nd-text-tertiary, #5d6470);
-  font-size: 10px;
+  font-size: calc(10px * var(--nd-text-scale, 1));
   font-weight: 600;
-  line-height: 15px;
+  line-height: calc(15px * var(--nd-text-scale, 1));
   letter-spacing: 0.05em;
   text-align: left;
   text-transform: uppercase;
@@ -921,9 +923,9 @@ label:has(> :disabled) { cursor: not-allowed; }
   border-radius: 4px;
   background: transparent;
   color: var(--nd-text-secondary, #4b5563);
-  font-size: 12px;
+  font-size: calc(12px * var(--nd-text-scale, 1));
   font-weight: 500;
-  line-height: 16px;
+  line-height: calc(16px * var(--nd-text-scale, 1));
   white-space: nowrap;
   text-decoration: none;
   cursor: pointer;
@@ -993,10 +995,10 @@ label:has(> :disabled) { cursor: not-allowed; }
   gap: 4px;
   padding: 24px 12px;
   color: var(--nd-text-tertiary, #5d6470);
-  font-size: 12px;
+  font-size: calc(12px * var(--nd-text-scale, 1));
   text-align: center;
 }
-.nd-empty-title { color: var(--nd-text-secondary, #4b5563); font-size: 14px; font-weight: 500; }
+.nd-empty-title { color: var(--nd-text-secondary, #4b5563); font-size: calc(14px * var(--nd-text-scale, 1)); font-weight: 500; }
 
 /* Layout helpers. Flex with gap, never margins between children. \`.nd-stack\`
    is a column, \`.nd-row\` a wrapping centred row; both default to an 8px gap
@@ -1048,7 +1050,7 @@ label:has(> :disabled) { cursor: not-allowed; }
   /* Text fields at 16px: iOS zooms the page into a smaller field when it
      takes focus. The raw-element floor has no specificity, so a plugin's
      own class still wins; it covers fields the plugin left unstyled. */
-  .nd-input, .nd-textarea, .nd-select { font-size: 16px; line-height: 24px; }
+  .nd-input, .nd-textarea, .nd-select { font-size: max(16px, calc(16px * var(--nd-text-scale, 1))); line-height: calc(24px * var(--nd-text-scale, 1)); }
   :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"]), textarea, select) { font-size: max(16px, 1em); }
   .nd-select, .nd-tabs [role="tab"], .nd-table th > button { min-height: 44px; }
   /* Checkbox, radio and switch keep their drawn size; the 44px target comes

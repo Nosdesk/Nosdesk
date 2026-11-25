@@ -508,7 +508,9 @@ function formatPurgeAt(deletedAt: string): string {
       @retry="listView.page.handleRetry"
     >
       <template #view-tabs>
-        <div class="flex items-center gap-2">
+        <!-- The two toggles wrap onto a second line when larger text
+             leaves no room for both. -->
+        <div class="flex flex-wrap items-center gap-2">
           <!-- Primary: the People population split (staff Team vs end-user
                Requesters), for staff; it drives the backend filter, which
                doesn't apply to anyone else. -->
@@ -685,10 +687,10 @@ function formatPurgeAt(deletedAt: string): string {
             class="flex-shrink-0"
           />
           <div class="flex-1 min-w-0">
-            <div class="text-sm text-primary font-medium truncate">{{ item.name }}</div>
+            <div class="text-sm text-primary font-medium truncate grown-wrap">{{ item.name }}</div>
             <div v-if="isStaff" class="flex flex-wrap items-center gap-2 mt-1 text-xs">
               <NosdeskAccountChip v-if="isIdentityExternallyManaged(item)" />
-              <span v-if="item.email" class="text-tertiary truncate max-w-[200px]">{{ item.email }}</span>
+              <span v-if="item.email" class="text-tertiary truncate grown-wrap max-w-[200px]">{{ item.email }}</span>
               <span
                 class="inline-flex items-center px-1.5 py-0.5 rounded font-medium capitalize"
                 :class="{

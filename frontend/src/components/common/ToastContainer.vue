@@ -18,7 +18,7 @@ until then.
 -->
 <script setup lang="ts">
 import AssetImg from '@/components/common/AssetImg.vue';
-import { computed, reactive } from 'vue';
+import { computed, onBeforeUnmount, reactive, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import {
@@ -34,6 +34,8 @@ import {
 import { useToastStore, type Toast } from '@nosdesk/core/stores/toast';
 import { ticketPath as ticketPathOf } from '@/utils/ticketNumbers';
 import Icon from '@/components/common/Icon.vue';
+import { useMobileDetection } from '@/composables/useMobileDetection';
+import { useTextScale } from '@/composables/useTextScale';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
@@ -41,7 +43,52 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 const toastStore = useToastStore();
 const router = useRouter();
 
-const toasts = computed(() => toastStore.visibleToasts);
+// At larger text on a phone the newest two only, and from 150% the newest
+// one (the store lists newest first), so the stack never fills the screen.
+// The newest error always has a place: a failure is not left waiting behind
+// a success. A toast held back keeps its own clock (`timerDuration`,
+// `expireHeld`), so it never surfaces after its time, an Undo least of all.
+// Errors win: from 150%, with one place, an error that stays until dismissed
+// holds it, and other toasts raised meanwhile run out unseen.
+const textScale = useTextScale();
+const { isMobile: phone } = useMobileDetection('md');
+const toasts = computed(() => {
+  const all = toastStore.visibleToasts.filter((toast) => remaining(toast) > 0);
+  if (!phone.value || textScale.value <= 1.001) return all;
+  const shown = all.slice(0, textScale.value >= 1.5 ? 1 : 2);
+  const error = all.find((toast) => toast.type === 'error');
+  if (error && !shown.includes(error)) shown[shown.length - 1] = error;
+  return shown;
+});
+
+/** What is left of a toast's time, from when it was raised (not shown). */
+function remaining(toast: Toast): number {
+  return toast.duration > 0 ? toast.createdAt + toast.duration - Date.now() : Number.POSITIVE_INFINITY;
+}
+
+/** A toast held back still ends on time: it leaves the store when its
+ *  time is up, shown or not. */
+const expiries = new Map<string, ReturnType<typeof setTimeout>>();
+watch(
+  () => toastStore.visibleToasts.map((toast) => toast.id),
+  () => {
+    for (const toast of toastStore.visibleToasts) {
+      if (toast.duration <= 0 || expiries.has(toast.id)) continue;
+      expiries.set(
+        toast.id,
+        setTimeout(() => {
+          expiries.delete(toast.id);
+          if (!toasts.value.some((shown) => shown.id === toast.id)) toastStore.removeToast(toast.id);
+        }, Math.max(0, remaining(toast))),
+      );
+    }
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => {
+  for (const timer of expiries.values()) clearTimeout(timer);
+  expiries.clear();
+});
 
 // Exit animation length; the store entry outlives the close by this much.
 const EXIT_MS = 250;
@@ -61,13 +108,16 @@ const announceType = (type: Toast['type']) =>
   type === 'error' || type === 'notification' ? 'foreground' : 'background';
 
 // Reka reports 0 as "already elapsed"; persistent means no timer.
-const timerDuration = (toast: Toast) => (toast.duration > 0 ? toast.duration : Number.POSITIVE_INFINITY);
+// From when the toast was raised, so one shown late runs only what is left.
+const timerDuration = (toast: Toast) => Math.max(0, remaining(toast));
 
 const getToastClasses = (type: Toast['type']) => {
   // Opaque `bg-surface` base across every type: type is conveyed via the
   // coloured border + ring + icon, not via background tint.
   const base =
-    'toast pointer-events-auto w-full max-w-sm rounded-lg bg-surface shadow-lg ring-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-accent';
+    // `shrink-0`: a toast keeps its whole height, never squeezed by its
+    // neighbours.
+    'toast pointer-events-auto w-full max-w-sm shrink-0 rounded-lg bg-surface shadow-lg ring-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
   switch (type) {
     case 'success':
@@ -157,72 +207,77 @@ const invokeAction = (toast: Toast, event: Event) => {
             <Icon v-else-if="toast.type === 'notification'" name="bell" size="md" />
           </div>
 
-          <!-- Content -->
-          <div class="flex-1 pt-0.5 min-w-0">
-            <ToastTitle as="p" class="text-sm font-medium text-primary break-words">
-              {{ toast.title }}
-            </ToastTitle>
-            <ToastDescription
-              v-if="toast.message"
-              as="p"
-              class="mt-1 text-sm text-secondary break-words"
-            >
-              {{ toast.message }}
-            </ToastDescription>
-
-            <!-- Actor info for notifications -->
-            <div v-if="toast.notification?.actorName" class="mt-2 flex items-center gap-2">
-              <AssetImg
-                v-if="toast.notification.actorAvatar"
-                :src="toast.notification.actorAvatar"
-                alt=""
-                class="h-5 w-5 rounded-full object-cover"
-              />
-              <div
-                v-else
-                class="h-5 w-5 rounded-full bg-accent/20 flex items-center justify-center"
-                aria-hidden="true"
+          <!-- Content and its action wrap as one group: the action sits
+               beside the message while the message keeps twelve of its own
+               ems, and moves under it at larger text sizes, so the words
+               are never squeezed into breaking. -->
+          <div class="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2">
+            <div class="min-w-0 flex-1 basis-[12em] pt-0.5 text-sm">
+              <ToastTitle as="p" class="text-sm font-medium text-primary break-words">
+                {{ toast.title }}
+              </ToastTitle>
+              <ToastDescription
+                v-if="toast.message"
+                as="p"
+                class="mt-1 text-sm text-secondary break-words"
               >
-                <span class="text-xs text-accent font-medium">
-                  {{ toast.notification.actorName.charAt(0).toUpperCase() }}
+                {{ toast.message }}
+              </ToastDescription>
+
+              <!-- Actor info for notifications -->
+              <div v-if="toast.notification?.actorName" class="mt-2 flex items-center gap-2">
+                <AssetImg
+                  v-if="toast.notification.actorAvatar"
+                  :src="toast.notification.actorAvatar"
+                  alt=""
+                  class="h-5 w-5 rounded-full object-cover"
+                />
+                <div
+                  v-else
+                  class="h-5 w-5 rounded-full bg-accent/20 flex items-center justify-center"
+                  aria-hidden="true"
+                >
+                  <span class="text-xs text-accent font-medium">
+                    {{ toast.notification.actorName.charAt(0).toUpperCase() }}
+                  </span>
+                </div>
+                <span class="text-xs text-tertiary truncate">
+                  {{ toast.notification.actorName }}
                 </span>
               </div>
-              <span class="text-xs text-tertiary truncate">
-                {{ toast.notification.actorName }}
-              </span>
+
+              <!-- View link for notifications; Reka closes the toast on it. -->
+              <ToastAction
+                v-if="ticketPath(toast)"
+                as-child
+                :alt-text="t('toast-action-alt', { label: t('toast-notification-view'), hotkey: 'F8' })"
+              >
+                <RouterLink
+                  :to="ticketPath(toast)!"
+                  class="mt-2 inline-block text-xs text-accent font-medium hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {{ t('toast-notification-view') }}
+                </RouterLink>
+              </ToastAction>
             </div>
 
-            <!-- View link for notifications; Reka closes the toast on it. -->
+            <!-- Inline action button (e.g. Undo). Sits between the
+                 message and the dismiss button so it reads as part of
+                 the toast, not chrome. -->
             <ToastAction
-              v-if="ticketPath(toast)"
+              v-if="toast.action"
               as-child
-              :alt-text="t('toast-action-alt', { label: t('toast-notification-view'), hotkey: 'F8' })"
+              :alt-text="t('toast-action-alt', { label: toast.action.label, hotkey: 'F8' })"
             >
-              <RouterLink
-                :to="ticketPath(toast)!"
-                class="mt-2 inline-block text-xs text-accent font-medium hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              <button
+                type="button"
+                class="flex-shrink-0 inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent-on-tint rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
+                @click="invokeAction(toast, $event)"
               >
-                {{ t('toast-notification-view') }}
-              </RouterLink>
+                {{ toast.action.label }}
+              </button>
             </ToastAction>
           </div>
-
-          <!-- Inline action button (e.g. Undo). Sits between the
-               message and the dismiss button so it reads as part of
-               the toast, not chrome. -->
-          <ToastAction
-            v-if="toast.action"
-            as-child
-            :alt-text="t('toast-action-alt', { label: toast.action.label, hotkey: 'F8' })"
-          >
-            <button
-              type="button"
-              class="flex-shrink-0 inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent-on-tint rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
-              @click="invokeAction(toast, $event)"
-            >
-              {{ toast.action.label }}
-            </button>
-          </ToastAction>
 
           <!-- Close button -->
           <ToastClose v-if="toast.dismissible" as-child>
@@ -249,7 +304,8 @@ const invokeAction = (toast: Toast, event: Event) => {
     </ToastRoot>
 
     <!-- Newest on top: the viewport lists toasts in mount order, so the
-         column runs in reverse. Named region; F8 focuses it. -->
+         column runs in reverse. Named region; F8 focuses it. At larger
+         text on a phone it holds the newest one or two (`toasts`). -->
     <ToastPortal to="#overlays">
       <ToastViewport
         :label="(hotkey: string) => t('toast-region-label', { hotkey })"
@@ -317,3 +373,4 @@ const invokeAction = (toast: Toast, event: Event) => {
   }
 }
 </style>
+

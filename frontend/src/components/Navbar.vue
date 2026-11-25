@@ -757,7 +757,9 @@ const isOverflowRouteActive = computed(() =>
                 </div>
             </div>
             <nav :aria-label="$t('nav-secondary')">
-                <ul class="grid grid-cols-2 gap-2 p-3">
+                <!-- Two columns while each keeps nine of the label's ems,
+                     one from about 150%; labels wrap rather than cut. -->
+                <ul class="grid grid-cols-[repeat(auto-fill,minmax(calc(var(--text-sm)*9),1fr))] gap-2 p-3">
                     <li v-for="link in sheetRows" :key="link.to" class="flex items-center gap-1">
                         <RouterLink
                             :to="link.to"
@@ -771,7 +773,7 @@ const isOverflowRouteActive = computed(() =>
                             @click="onSheetRowClick($event, link)"
                         >
                             <Icon v-if="link.icon" :name="link.icon" size="md" class="flex-shrink-0" />
-                            <span class="text-sm font-medium truncate">{{ $t(link.text) }}</span>
+                            <span class="min-w-0 text-sm font-medium break-words">{{ $t(link.text) }}</span>
                         </RouterLink>
                         <!-- Star toggle: only in edit mode. Disabled
                              when the cap is full AND this row isn't

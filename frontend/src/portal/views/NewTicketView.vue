@@ -67,7 +67,7 @@ async function submit(): Promise<void> {
         <p class="text-sm text-secondary">{{ t('portal-new-intro') }}</p>
       </header>
 
-      <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] items-start">
+      <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] items-start">
         <form class="flex flex-col gap-5 bg-surface border border-default rounded-xl p-5 sm:p-6" @submit.prevent="submit">
           <RequestTypePicker
             v-if="types.data.value?.length"
@@ -92,7 +92,7 @@ async function submit(): Promise<void> {
           />
           <AttachmentPicker v-model="files" :disabled="submitting" />
           <p v-if="failed" role="alert" class="text-sm text-status-error">{{ t('portal-new-failed') }}</p>
-          <div class="flex items-center gap-3 border-t border-default -mx-5 sm:-mx-6 px-5 sm:px-6 pt-4">
+          <div class="flex flex-wrap items-center gap-3 border-t border-default -mx-5 sm:-mx-6 px-5 sm:px-6 pt-4">
             <Button type="button" variant="ghost" :disabled="submitting" @click="router.back()">
               {{ t('portal-new-cancel') }}
             </Button>
