@@ -902,7 +902,7 @@ function affectedDevicesTooltip(card: CardData): string {
         v-for="lane in lanes"
         :key="lane.id"
         :data-column-id="lane.id"
-        class="kanban-lane w-72 shrink-0 flex flex-col bg-surface rounded-lg border border-default min-h-[22rem] max-md:snap-start"
+        class="kanban-lane w-72 max-w-[calc(100vw-2rem)] shrink-0 flex flex-col bg-surface rounded-lg border border-default min-h-[22rem] max-md:snap-start"
         @click.stop
       >
         <!-- Top radius pad — scrolls away; keeps rounded corners without

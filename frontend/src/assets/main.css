@@ -315,9 +315,11 @@
    at it on real hardware. */
 /* `--device-text-scale` is the phone's own text size in the iOS app
    (platform/textSize.ts), and 1 everywhere else. It multiplies in like the
-   touch factor, so it changes size, not breakpoints. On a wide touch
-   screen (iPad, a phone in landscape) the product stops at 1.2: past it
-   the sidebar layout squeezes the page header's title to a letter or two. */
+   touch factor. Media queries keep their breakpoints (their rem is the
+   initial 16px); container queries in rem do move with the root size,
+   since they resolve against it. On a wide touch screen (iPad, a phone in
+   landscape) the product stops at 1.2: past it the sidebar layout
+   squeezes the page header's title to a letter or two. */
 :root {
   font-size: calc(100% * var(--device-text-scale, 1));
 }
