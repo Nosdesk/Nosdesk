@@ -282,7 +282,7 @@ useSyncActions(() => void refetch(), { aggregates: ['ticket'], debounceMs: 300 }
         </template>
 
         <template v-if="showFilters" #subheader>
-            <div class="flex items-center gap-2 px-3 py-1.5 border-b border-default bg-surface-alt/40">
+            <div class="flex flex-wrap items-center gap-2 px-3 py-1.5 border-b border-default bg-surface-alt/40">
                 <BaseDropdown
                     v-model="config.status"
                     :options="statusOptions"
