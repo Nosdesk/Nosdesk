@@ -13193,18 +13193,21 @@ settings-text-size-device-label = Tekstgrootte van apparaat gebruiken
 # MT: pending native review (nl-NL)
 settings-text-size-device-default = { $platform ->
     [ios] Nosdesk volgt de tekstgrootte die op deze iPhone is ingesteld.
+    [ipad] Nosdesk volgt de tekstgrootte die op deze iPad is ingesteld.
     [android] Nosdesk volgt de lettergrootte die op deze telefoon is ingesteld.
    *[web] Nosdesk volgt de tekstgrootte die in deze browser is ingesteld.
 }
 # MT: pending native review (nl-NL)
 settings-text-size-device-larger = { $platform ->
     [ios] Deze iPhone staat op grotere tekst, en Nosdesk volgt dat.
+    [ipad] Deze iPad staat op grotere tekst, en Nosdesk volgt dat.
     [android] Deze telefoon staat op een grotere letter, en Nosdesk volgt dat.
    *[web] Deze browser staat op grotere tekst, en Nosdesk volgt dat.
 }
 # MT: pending native review (nl-NL)
 settings-text-size-device-capped = { $platform ->
     [ios] Deze iPhone staat op de grootste tekst. Nosdesk volgt dat tot 200%. Knijp om verder te zoomen.
+    [ipad] Deze iPad staat op de grootste tekst. Nosdesk volgt dat tot 200%. Knijp om verder te zoomen.
     [android] Deze telefoon staat op de grootste letter. Nosdesk volgt dat tot 200%. Knijp om verder te zoomen.
    *[web] Deze browser staat op zeer grote tekst. Nosdesk volgt dat tot 200%. Zoom de pagina in voor meer.
 }
@@ -13213,21 +13216,25 @@ settings-text-size-own = Je eigen grootte, bewaard op dit apparaat.
 # MT: pending native review (nl-NL)
 settings-text-size-device-default-bold = { $platform ->
     [ios] Nosdesk volgt de tekstgrootte en vette tekst die op deze iPhone zijn ingesteld.
+    [ipad] Nosdesk volgt de tekstgrootte en vette tekst die op deze iPad zijn ingesteld.
    *[android] Nosdesk volgt de lettergrootte en vette tekst die op deze telefoon zijn ingesteld.
 }
 # MT: pending native review (nl-NL)
 settings-text-size-device-larger-bold = { $platform ->
     [ios] Deze iPhone staat op grotere, vette tekst, en Nosdesk volgt dat.
+    [ipad] Deze iPad staat op grotere, vette tekst, en Nosdesk volgt dat.
    *[android] Deze telefoon staat op een grotere, vette letter, en Nosdesk volgt dat.
 }
 # MT: pending native review (nl-NL)
 settings-text-size-device-capped-bold = { $platform ->
     [ios] Deze iPhone staat op de grootste tekst, vet. Nosdesk volgt dat tot 200%. Knijp om verder te zoomen.
+    [ipad] Deze iPad staat op de grootste tekst, vet. Nosdesk volgt dat tot 200%. Knijp om verder te zoomen.
    *[android] Deze telefoon staat op de grootste letter, vet. Nosdesk volgt dat tot 200%. Knijp om verder te zoomen.
 }
 # MT: pending native review (nl-NL)
 settings-text-size-own-bold = { $platform ->
     [ios] Je eigen grootte, bewaard op dit apparaat. Vette tekst volgt nog steeds deze iPhone.
+    [ipad] Je eigen grootte, bewaard op dit apparaat. Vette tekst volgt nog steeds deze iPad.
    *[android] Je eigen grootte, bewaard op dit apparaat. Vette tekst volgt nog steeds deze telefoon.
 }
 # MT: pending native review (nl-NL)

@@ -67,7 +67,7 @@ describe('text size in a browser', () => {
     expect(userScale()).toBe('')
   })
 
-  it('ignores a size that is not a stop and storage that throws', async () => {
+  it('ignores a size out of range and storage that throws', async () => {
     localStorage.setItem('textSize', JSON.stringify({ follow: false, percent: 400 }))
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('blocked')
@@ -106,12 +106,21 @@ describe('text size in the app', () => {
     expect(userScale()).toBe('')
   })
 
-  it('keeps the size in force as its own when following is switched off', async () => {
+  it('keeps the device size exactly as its own when following is switched off', async () => {
     const size = await load()
     size.initTextSize()
     size.setFollowDeviceText(false)
-    expect(size.textSize.percent).toBe(112)
-    expect(userScale()).toBe('1.12')
+    expect(size.textSize.percent).toBe(111.76)
+    expect(size.textSizePercent.value).toBe(112)
+    expect(userScale()).toBe('1.1176')
+  })
+
+  it('goes back to following when the saved size cannot be applied', async () => {
+    localStorage.setItem('textSize', JSON.stringify({ follow: false, percent: 'large' }))
+    const size = await load()
+    size.initTextSize()
+    expect(size.followsDevice.value).toBe(true)
+    expect(userScale()).toBe('')
   })
 
   it('an own size of 100% still overrides a larger device', async () => {
@@ -134,5 +143,8 @@ describe('text size in the app', () => {
     expect(size.textSizePlatform()).toBe('ios')
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 15)')
     expect(size.textSizePlatform()).toBe('android')
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
+    expect(size.textSizePlatform()).toBe('ipad')
   })
 })

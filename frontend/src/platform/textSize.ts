@@ -16,19 +16,20 @@
  * phone already carries its own setting from device to device.
  */
 import { computed, reactive, readonly } from 'vue'
-import { TEXT_SIZE_STOPS, composeScale, nearestStop } from '@/utils/textScale'
+import { TEXT_SIZE_STOPS, composeScale } from '@/utils/textScale'
 import { FOLLOW_DEVICE_TEXT, deviceText } from './deviceText'
 import { isTauriRuntime } from './runtime'
 
 export const USER_TEXT_SCALE_PROPERTY = '--user-text-scale'
 const STORAGE_KEY = 'textSize'
 
-export type TextSizePlatform = 'ios' | 'android' | 'web'
+export type TextSizePlatform = 'ios' | 'ipad' | 'android' | 'web'
 
 interface TextSizeState {
   /** The device sets the size (the apps only). */
   follow: boolean
-  /** The person's own size, in percent, one of `TEXT_SIZE_STOPS`. */
+  /** The person's own size, in percent, 100 to 200: a stop, or the device's
+   *  size at the moment following was switched off. */
   percent: number
 }
 
@@ -39,7 +40,11 @@ export const textSize = readonly(state)
 /** How the setting names the device. */
 export function textSizePlatform(): TextSizePlatform {
   if (!isTauriRuntime()) return 'web'
-  return /android/i.test(navigator.userAgent) ? 'android' : 'ios'
+  const agent = navigator.userAgent
+  if (/android/i.test(agent)) return 'android'
+  // An iPad's web view reports a desktop Mac unless asked otherwise.
+  if (/iPad/.test(agent) || (/Macintosh/.test(agent) && navigator.maxTouchPoints > 1)) return 'ipad'
+  return 'ios'
 }
 
 /** Whether the device's size can be followed: in the apps, once the app
@@ -60,13 +65,19 @@ function isStop(value: unknown): value is number {
   return typeof value === 'number' && (TEXT_SIZE_STOPS as readonly number[]).includes(value)
 }
 
+function isOwnPercent(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 100 && value <= 200
+}
+
 function load(): void {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return
     const saved = JSON.parse(raw) as Partial<TextSizeState>
+    // A size that cannot be applied is no choice at all: keep following.
+    if (!isOwnPercent(saved.percent)) return
+    state.percent = saved.percent
     if (typeof saved.follow === 'boolean') state.follow = saved.follow
-    if (isStop(saved.percent)) state.percent = saved.percent
   } catch {
     // Storage blocked or a bad value: the designed size, following the device.
   }
@@ -82,7 +93,7 @@ function save(): void {
 
 export function applyTextSize(root: HTMLElement = document.documentElement): void {
   const own = !followsDevice.value && !(!canFollowDevice() && state.percent === 100)
-  if (own) root.style.setProperty(USER_TEXT_SCALE_PROPERTY, String(state.percent / 100))
+  if (own) root.style.setProperty(USER_TEXT_SCALE_PROPERTY, String(Math.round(state.percent * 100) / 10000))
   else root.style.removeProperty(USER_TEXT_SCALE_PROPERTY)
 }
 
@@ -103,9 +114,13 @@ export function chooseTextSize(percent: number): void {
 }
 
 /** Turning following on returns to the device's size; turning it off keeps
- *  the size in force as the person's own. */
+ *  the device's size exactly as the person's own, and the slider snaps to a
+ *  stop the next time it moves. */
 export function setFollowDeviceText(follow: boolean): void {
-  if (!follow) state.percent = TEXT_SIZE_STOPS[nearestStop(textSizePercent.value)]
+  if (!follow) {
+    const device = composeScale(true, deviceText.value?.scale ?? 1, state.percent)
+    state.percent = Math.round(device * 10000) / 100
+  }
   state.follow = follow
   save()
   applyTextSize()
