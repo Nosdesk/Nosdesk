@@ -86,4 +86,20 @@ describe('the type scale', () => {
     const fixed = block(/^\.type-fixed \{/m)
     for (const [name, value] of sizes) expect(fixed.get(name), name).toBe(`${remAtOne(value)}rem`)
   })
+
+  it('moves every weight up one step under Bold Text, strong text with them', () => {
+    const regular = theme
+    const bold = block(/^:root\[data-bold-text\] \{/m)
+    const steps = ['normal', 'medium', 'semibold', 'bold'].map((name) => [
+      Number(regular.get(`--font-weight-${name}`)),
+      Number(bold.get(`--font-weight-${name}`)),
+    ])
+    expect(steps).toEqual([
+      [400, 500],
+      [500, 600],
+      [600, 700],
+      [700, 800],
+    ])
+    expect(css).toMatch(/@layer base \{\s*b,\s*strong \{\s*font-weight: var\(--font-weight-bold\);/)
+  })
 })

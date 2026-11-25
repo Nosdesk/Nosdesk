@@ -462,6 +462,16 @@
   --font-weight-bold: 800;
 }
 
+/* Preflight makes `b` and `strong` "bolder", which is relative to the text
+   around them and never reads the tokens: under Bold Text a strong word in
+   a 500 paragraph would land on 700, not 800. They take the bold token. */
+@layer base {
+  b,
+  strong {
+    font-weight: var(--font-weight-bold);
+  }
+}
+
 /* The phone baseline. A phone is read close up, and 14px body text
    sits under Apple's 17pt body and Material's 16sp, so under 48rem the
    small sizes move up one step at scale 1: 14/13/12 become 15/14/13,
