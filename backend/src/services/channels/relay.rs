@@ -116,7 +116,9 @@ pub fn decide_relay(
         None => {
             // A staff requester reads the reply in the app; the people they
             // added still get it by email.
-            if user_helpers::workspace_role(conn, requester_uuid).is_some_and(|r| r.is_staff()) {
+            if user_helpers::workspace_role_in(conn, ticket.workspace_id, requester_uuid)
+                .is_some_and(|r| r.is_staff())
+            {
                 if relay_participants(conn, ticket, comment)?.is_empty() {
                     return Ok(RelayDecision::SkipStaffRequester);
                 }
@@ -187,7 +189,7 @@ pub fn relay_participants(
         if Some(watcher) == ticket.requester_uuid || watcher == comment.user_uuid {
             continue;
         }
-        match user_helpers::workspace_role(conn, watcher) {
+        match user_helpers::workspace_role_in(conn, ticket.workspace_id, watcher) {
             Some(role) if !role.is_staff() => {}
             _ => continue,
         }

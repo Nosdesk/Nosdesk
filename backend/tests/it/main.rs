@@ -180,6 +180,7 @@ mod oauth_callback_errors;
 mod openssl_exit_cleanup;
 mod outbound_note_lint;
 mod partition_prune;
+mod people_of_another_workspace;
 mod people_removed_under_1_0;
 mod plugin_api_quick_wins;
 mod plugin_audience;

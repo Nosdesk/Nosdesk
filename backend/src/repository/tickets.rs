@@ -634,6 +634,42 @@ pub enum TicketWriteError {
 /// What a caller is told when an assignee is refused.
 pub const INELIGIBLE_ASSIGNEE: &str = "Only agents and admins can be assigned tickets";
 
+/// Why a requester who isn't one of the workspace's people is refused. The
+/// refusal reads as a reference to no record, as a uuid no account has does,
+/// so it says nothing about accounts in other workspaces.
+const UNKNOWN_REQUESTER: &str = "the requester is not one of the workspace's people";
+
+/// Refuse `user` as the requester of a ticket in `workspace_id` unless they
+/// are one of its people (`repository::directory`). Accounts are shared
+/// across workspaces, so a uuid alone could name anyone in the deployment.
+pub fn ensure_requester(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user: Uuid,
+) -> Result<(), TicketWriteError> {
+    if crate::repository::directory::is_person(conn, workspace_id, user)? {
+        Ok(())
+    } else {
+        Err(unknown_requester())
+    }
+}
+
+/// [`ensure_requester`] in the workspace the connection is pinned to, for a
+/// ticket that doesn't exist yet. Refuses when nothing is pinned.
+pub fn ensure_requester_here(conn: &mut DbConnection, user: Uuid) -> Result<(), TicketWriteError> {
+    match crate::sync::session::current_workspace_id(conn)? {
+        Some(workspace_id) => ensure_requester(conn, workspace_id, user),
+        None => Err(unknown_requester()),
+    }
+}
+
+fn unknown_requester() -> TicketWriteError {
+    TicketWriteError::Database(diesel::result::Error::DatabaseError(
+        diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+        Box::new(UNKNOWN_REQUESTER.to_string()),
+    ))
+}
+
 /// What a caller is told when it writes to a merged ticket.
 pub const MERGED_TICKET: &str = "This ticket was merged into another one, so it can't be changed";
 
@@ -744,6 +780,12 @@ pub fn update_ticket_partial(
                     previous.workspace_id,
                     assignee,
                 )?;
+            }
+        }
+        // A new requester is one of the ticket's workspace's people.
+        if let Some(Some(requester)) = ticket_update.requester_uuid {
+            if locked.requester_uuid != Some(requester) {
+                ensure_requester(conn, locked.workspace_id, requester)?;
             }
         }
         let result: Ticket = diesel::update(tickets::table.find(ticket_id))
@@ -1355,15 +1397,16 @@ pub fn import_ticket_from_json(
     if let Some(assignee) = assignee_uuid {
         crate::repository::assignees::ensure_assignable_here(conn, assignee)?;
     }
+    // One of this workspace's people, as for any requester a caller names.
+    let requester = Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7());
+    ensure_requester_here(conn, requester)?;
 
     // Create the ticket
     let new_ticket = NewTicket {
         title: ticket_json.title.clone(),
         workflow_state_id: workflow_state.id,
         priority,
-        requester_uuid: Some(
-            Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7()),
-        ),
+        requester_uuid: Some(requester),
         assignee_uuid,
         ..Default::default()
     };

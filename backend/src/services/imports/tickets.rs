@@ -247,7 +247,8 @@ struct Lookups {
     workflow_states: HashMap<String, i32>,
     /// ticket_categories.name (case-insensitive key) -> id
     categories: HashMap<String, i32>,
-    /// user_emails (lower-cased) -> user_uuid (primary emails only)
+    /// user_emails (lower-cased) -> user_uuid (primary emails of the
+    /// workspace's people only)
     emails: HashMap<String, Uuid>,
     /// Of those users, the ones who can be assigned tickets here.
     assignable: HashSet<Uuid>,
@@ -255,7 +256,7 @@ struct Lookups {
 
 impl Lookups {
     fn load(conn: &mut DbConnection) -> Result<Self, diesel::result::Error> {
-        use crate::schema::{ticket_categories, user_emails, workflow_states};
+        use crate::schema::{ticket_categories, user_emails, users, workflow_states};
 
         let ws: Vec<(i32, String)> = workflow_states::table
             .filter(workflow_states::archived_at.is_null())
@@ -264,10 +265,22 @@ impl Lookups {
         let cats: Vec<(i32, String)> = ticket_categories::table
             .select((ticket_categories::id, ticket_categories::name))
             .load(conn)?;
-        let ems: Vec<(String, Uuid)> = user_emails::table
-            .filter(user_emails::is_primary.eq(true))
-            .select((user_emails::email, user_emails::user_uuid))
-            .load(conn)?;
+        // Only the workspace's own people: addresses are global, and a row
+        // must not name, or learn of, an account in another workspace.
+        let ems: Vec<(String, Uuid)> = match crate::sync::session::current_workspace_id(conn)? {
+            Some(workspace_id) => user_emails::table
+                .filter(user_emails::is_primary.eq(true))
+                .filter(
+                    user_emails::user_uuid.eq_any(
+                        users::table
+                            .filter(crate::repository::directory::listed_people(workspace_id))
+                            .select(users::uuid),
+                    ),
+                )
+                .select((user_emails::email, user_emails::user_uuid))
+                .load(conn)?,
+            None => Vec::new(),
+        };
 
         let users: Vec<Uuid> = ems.iter().map(|(_, u)| *u).collect();
         let assignable = crate::repository::assignees::assignable_among(conn, &users)?;

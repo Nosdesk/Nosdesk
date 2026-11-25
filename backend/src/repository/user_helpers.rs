@@ -3,11 +3,15 @@ use crate::models::{PlatformRole, User, UserEmail, WorkspaceRole};
 use diesel::prelude::*;
 use uuid::Uuid;
 
-/// The user's `WorkspaceRole` in the CURRENT workspace — the one
-/// `app.workspace_id` is scoped to — or `None` if they have no membership
-/// there. `workspace_members` is RLS-isolated by workspace, so a caller
-/// running in a workspace context (`TenantConn` / `with_actor_context` / a
-/// workspace-pinned raw conn) gets the role in THAT workspace.
+/// The user's `WorkspaceRole` in the CURRENT workspace, the one
+/// `app.workspace_id` is pinned to, or `None` if they have no active
+/// membership there or nothing is pinned.
+///
+/// The pin is filtered on explicitly, not left to row security: a caller on
+/// the bypass role (the inbound pipeline's elevated connection, a background
+/// job) would otherwise read a role from whichever workspace's row came first.
+/// On a tenant connection the filter is the RLS policy restated. Callers that
+/// have the workspace in hand use [`workspace_role_in`].
 ///
 /// This replaced a hardcoded `workspace_id = 1` read, which returned `None`
 /// for every non-bootstrap workspace under hosted multi-tenancy. An
@@ -16,6 +20,25 @@ use uuid::Uuid;
 pub fn workspace_role(conn: &mut DbConnection, user_uuid: Uuid) -> Option<WorkspaceRole> {
     use crate::schema::workspace_members;
     workspace_members::table
+        .filter(workspace_members::workspace_id.eq(super::pinned_workspace()))
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .filter(workspace_members::removed_at.is_null())
+        .select(workspace_members::role)
+        .first::<String>(conn)
+        .ok()
+        .map(|r| WorkspaceRole::from_db(&r))
+}
+
+/// The user's `WorkspaceRole` in `workspace_id`, or `None` without an active
+/// membership there. Reads the same on a tenant and a bypass connection.
+pub fn workspace_role_in(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> Option<WorkspaceRole> {
+    use crate::schema::workspace_members;
+    workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
         .filter(workspace_members::user_uuid.eq(user_uuid))
         .filter(workspace_members::removed_at.is_null())
         .select(workspace_members::role)
@@ -25,15 +48,16 @@ pub fn workspace_role(conn: &mut DbConnection, user_uuid: Uuid) -> Option<Worksp
 }
 
 /// Batched `workspace_role` for list/DTO assembly: one query for many users
-/// instead of a per-row lookup. Scoped to the current workspace by RLS on
-/// `workspace_members`, matching the singular `workspace_role`. Users with
-/// no membership row are simply absent from the map.
+/// instead of a per-row lookup. Scoped to the pinned workspace, matching the
+/// singular `workspace_role`. Users with no membership row are simply absent
+/// from the map.
 pub fn workspace_roles_batch(
     user_uuids: &[Uuid],
     conn: &mut DbConnection,
 ) -> std::collections::HashMap<Uuid, WorkspaceRole> {
     use crate::schema::workspace_members;
     workspace_members::table
+        .filter(workspace_members::workspace_id.eq(super::pinned_workspace()))
         .filter(workspace_members::user_uuid.eq_any(user_uuids))
         .filter(workspace_members::removed_at.is_null())
         .select((workspace_members::user_uuid, workspace_members::role))
@@ -44,30 +68,70 @@ pub fn workspace_roles_batch(
         .collect()
 }
 
-/// True when `user` is a baseline, unprivileged account: platform
-/// role `user` and no workspace role above `member` in the current
-/// workspace. Privileged accounts (platform admin / audit reviewer,
-/// or workspace agent/admin/owner) return false. Used by the guest
-/// auto-provisioning paths so a drive-by submission can never reuse
-/// or impersonate a staff account.
-fn is_baseline_user(conn: &mut DbConnection, user: &User) -> bool {
+/// True when `user` is a baseline, unprivileged account: platform role
+/// `user`, and staff (agent, admin or owner) in no workspace. Privileged
+/// accounts (platform admin / audit reviewer, or staff anywhere) return
+/// false. Used by the guest auto-provisioning paths and the inbound DMARC
+/// guard so a drive-by submission or a spoofed `From` can never reuse or
+/// impersonate a staff account.
+///
+/// Every workspace counts, not only the one the request is for. Accounts are
+/// shared, so an agent of one workspace who is a requester (or nobody) in
+/// another is still someone whose account a typed-in address must not open a
+/// ticket as; and the workspace the request is for is one of them, so its own
+/// staff are covered too. The read sees every workspace's seats whatever the
+/// connection is pinned to.
+fn is_baseline_user(conn: &mut DbConnection, user: &User) -> QueryResult<bool> {
     if PlatformRole::from_db(&user.platform_role) != PlatformRole::User {
-        return false;
+        return Ok(false);
     }
-    match workspace_role(conn, user.uuid) {
-        Some(role) => !role.meets(WorkspaceRole::Agent),
-        None => true,
+    Ok(!is_staff_anywhere(conn, user.uuid)?)
+}
+
+/// Whether `user_uuid` holds an active agent, admin or owner seat in any
+/// workspace. Reads through the bypass role inside a savepoint that is then
+/// rolled back, as `workspaces::workspace_ids_of_user` does, so the caller's
+/// transaction carries on with its own role, actor and pin.
+fn is_staff_anywhere(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<bool> {
+    use crate::schema::workspace_members;
+    use diesel::result::Error as DieselError;
+    let mut staff = None;
+    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
+        let actor = crate::sync::actor::ActorContext::system("repository:is_staff_anywhere");
+        // cross-tenant: whether an account is staff in any workspace, so a guest request or spoofed mail in one can't be taken as an agent of another; roles only, and rolled back with the savepoint.
+        let roles = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            workspace_members::table
+                .filter(workspace_members::user_uuid.eq(user_uuid))
+                .filter(workspace_members::removed_at.is_null())
+                .select(workspace_members::role)
+                .load::<String>(conn)
+        })?;
+        staff = Some(roles.iter().any(|r| WorkspaceRole::from_db(r).is_staff()));
+        Err(DieselError::RollbackTransaction)
+    });
+    match (staff, outcome) {
+        (Some(staff), _) => Ok(staff),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(DieselError::NotFound),
     }
 }
 
 /// True when `user` may handle tickets (be assigned, see all
 /// tickets): a platform admin, or a workspace agent/admin/owner in
-/// the current workspace. The DB-side mirror of
+/// the current (pinned) workspace. The DB-side mirror of
 /// `AuthContext::can_handle_tickets` for when only a `User` row is on
 /// hand (assignee validation, SSE fan-out).
 pub fn user_can_handle_tickets(conn: &mut DbConnection, user: &User) -> bool {
     PlatformRole::from_db(&user.platform_role).is_platform_admin()
         || workspace_role(conn, user.uuid).is_some_and(|r| r.meets(WorkspaceRole::Agent))
+}
+
+/// [`user_can_handle_tickets`] in `workspace_id`, for a caller that has the
+/// workspace in hand: the inbound pipeline, a background job.
+pub fn user_can_handle_tickets_in(conn: &mut DbConnection, workspace_id: i32, user: &User) -> bool {
+    PlatformRole::from_db(&user.platform_role).is_platform_admin()
+        || workspace_role_in(conn, workspace_id, user.uuid)
+            .is_some_and(|r| r.meets(WorkspaceRole::Agent))
 }
 
 /// True when `user` is an administrator: a platform admin, or a
@@ -477,8 +541,8 @@ pub fn find_or_create_guest_requester(
 /// emails — primary or secondary), if any.
 ///
 /// "Verified or privileged" means either: the email row itself is
-/// marked `is_verified = true`, OR the user holds a role above
-/// [`"user"`] (technician / admin) on any of their emails.
+/// marked `is_verified = true`, OR the account is not baseline: a platform
+/// role above `user`, or staff in any workspace (see `is_baseline_user`).
 ///
 /// Checking secondaries matters for the channel-pipeline
 /// impersonation guard: a tech with `tech@yourco.com` primary and
@@ -507,9 +571,9 @@ pub fn find_verified_user_by_email(
     }
     // A guest auto-provisioned user lands as a baseline member with
     // platform_role = 'user'. Anything privileged (platform admin /
-    // audit reviewer, or workspace agent+) must not be impersonated
+    // audit reviewer, or agent+ in any workspace) must not be impersonated
     // via the guest path.
-    if !is_baseline_user(conn, &user) {
+    if !is_baseline_user(conn, &user)? {
         Ok(Some(user))
     } else {
         Ok(None)
@@ -549,7 +613,7 @@ fn lookup_for_guest(
     //   - `is_baseline_user`: never reuse an agent / admin / audit reviewer.
     // So a spoofed `From` can at most open a ticket as an unverified end-user,
     // the same trust the guest channel already extends to any sender address.
-    let reusable = !is_verified && is_baseline_user(conn, &user);
+    let reusable = !is_verified && is_baseline_user(conn, &user)?;
 
     Ok(Some(if reusable {
         GuestUserResult::Existing(user)
