@@ -391,6 +391,182 @@ fn check_your_email() -> HttpResponse {
     }))
 }
 
+/// A request-form submission, validated, as [`create_guest_submission`] writes
+/// it.
+pub struct GuestSubmission<'a> {
+    pub email: &'a str,
+    pub name: &'a str,
+    pub title: &'a str,
+    pub description: &'a str,
+    pub priority: TicketPriority,
+    pub category_id: Option<i32>,
+    pub verification_required: bool,
+    pub lookup_token: Uuid,
+}
+
+/// Why [`create_guest_submission`] wrote nothing.
+pub enum CreateError {
+    EmailClaimed,
+    /// The address already has [`MAX_PENDING_PER_ADDRESS`] unconfirmed
+    /// requests; more wait until one is confirmed.
+    TooManyPending,
+    Internal,
+}
+
+impl From<diesel::result::Error> for CreateError {
+    fn from(_: diesel::result::Error) -> Self {
+        Self::Internal
+    }
+}
+
+/// What [`create_guest_submission`] wrote.
+pub struct CreatedSubmission {
+    pub user: crate::models::User,
+    /// A guest account was created for the address (not reused).
+    pub is_new_guest: bool,
+    pub ticket: crate::models::Ticket,
+    pub first_comment_id: Option<i32>,
+}
+
+/// Provision-or-find the requester, resolve the default workflow state, create
+/// the ticket and persist the initial comment. Run it in one transaction
+/// pinned to `workspace_id`, so the workspace_id column default fires for
+/// every INSERT and a partial failure rolls back cleanly.
+pub fn create_guest_submission(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    search: &Arc<SearchService>,
+    submission: &GuestSubmission<'_>,
+) -> Result<CreatedSubmission, CreateError> {
+    let GuestSubmission {
+        email,
+        name,
+        title,
+        description,
+        priority,
+        category_id: requested_type,
+        verification_required,
+        lookup_token,
+    } = *submission;
+    let (user, is_new_guest) = match user_helpers::find_or_create_guest_requester(
+        email,
+        name,
+        workspace_id,
+        conn,
+        Some(search),
+    ) {
+        Ok(GuestUserResult::Created(u)) => (u, true),
+        Ok(GuestUserResult::Existing(u)) => (u, false),
+        Ok(GuestUserResult::EmailClaimed) => return Err(CreateError::EmailClaimed),
+        Err(e) => {
+            error!(error = %e, "Failed to provision guest user");
+            return Err(CreateError::Internal);
+        }
+    };
+
+    // Unconfirmed requests are capped per address, so confirming one
+    // email can only ever release a handful.
+    if verification_required
+        && repository::tickets::count_pending_for_requester(conn, user.uuid)?
+            >= MAX_PENDING_PER_ADDRESS
+    {
+        return Err(CreateError::TooManyPending);
+    }
+
+    let default_state = repository::workflow_states::default_state(conn).map_err(|e| {
+        error!(error = %e, "Failed to resolve default workflow state");
+        CreateError::Internal
+    })?;
+
+    let category_id = repository::categories::offered_request_type(conn, requested_type)?;
+    let new_ticket = NewTicket {
+        title: title.to_string(),
+        workflow_state_id: default_state.id,
+        priority,
+        requester_uuid: Some(user.uuid),
+        category_id,
+        submitted_via: Some("guest".to_string()),
+        guest_lookup_token: Some(lookup_token),
+        verification_state: if verification_required {
+            Some("pending".to_string())
+        } else {
+            None
+        },
+        ..Default::default()
+    };
+
+    // Tag the activity row so the renderer can phrase the entry as
+    // "Created via public portal by <name> <<email>>" instead of the
+    // generic "System created this ticket". Same shape as inbound
+    // email tickets; the renderer switches on `source`.
+    let creation_annotation = repository::tickets::TicketCreationAnnotation {
+        source: Some("guest_portal".to_string()),
+        from_email: Some(email.to_string()),
+        from_name: if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        },
+        subject: Some(title.to_string()),
+    };
+
+    let ticket = repository::tickets::create_ticket_with_annotation(
+        conn,
+        new_ticket,
+        creation_annotation,
+        None,
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to create guest ticket");
+        CreateError::Internal
+    })?;
+
+    // Persist the description as the initial comment from the
+    // guest user so techs see the reported issue in the normal
+    // ticket timeline. A comment-write failure is non-fatal —
+    // the ticket itself is the primary artefact — so we log
+    // and continue with comment_id = None.
+    let new_comment = crate::models::NewComment {
+        content: description.to_string(),
+        user_uuid: user.uuid,
+        ticket_id: ticket.id,
+        content_format: crate::models::ContentFormat::Plaintext,
+        ..Default::default()
+    };
+    let comment_annotation = repository::comments::CommentCreationAnnotation {
+        source: Some("guest_portal".to_string()),
+        from_email: Some(email.to_string()),
+        from_name: if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        },
+    };
+    let first_comment_id = match repository::comments::create_comment_with_annotation(
+        conn,
+        new_comment,
+        comment_annotation,
+        Some(search),
+    ) {
+        Ok(c) => Some(c.id),
+        Err(e) => {
+            warn!(
+                error = %e,
+                ticket_id = ticket.id,
+                "Failed to persist guest-ticket description as comment"
+            );
+            None
+        }
+    };
+
+    Ok(CreatedSubmission {
+        user,
+        is_new_guest,
+        ticket,
+        first_comment_id,
+    })
+}
+
 pub async fn submit_guest_ticket(
     pool: web::Data<Pool>,
     search_service: web::Data<Arc<SearchService>>,
@@ -554,142 +730,25 @@ pub async fn submit_guest_ticket(
     let requested_type = body.category_id;
     let lookup_token = Uuid::new_v4();
 
-    // Provision-or-find user, resolve default workflow state, create
-    // the ticket, and persist the initial comment in a single
-    // workspace-pinned txn so the workspace_id column default fires
-    // for every INSERT and a partial failure rolls back cleanly.
-    enum CreateError {
-        EmailClaimed,
-        /// The address already has [`MAX_PENDING_PER_ADDRESS`] unconfirmed
-        /// requests; more wait until one is confirmed.
-        TooManyPending,
-        Internal,
-    }
-    impl From<diesel::result::Error> for CreateError {
-        fn from(_: diesel::result::Error) -> Self {
-            Self::Internal
-        }
-    }
-
+    let submission = GuestSubmission {
+        email,
+        name,
+        title,
+        description,
+        priority,
+        category_id: requested_type,
+        verification_required,
+        lookup_token,
+    };
     let create_result = session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
-        let (user, is_new_guest) = match user_helpers::find_or_create_guest_user(
-            email,
-            name,
-            conn,
-            Some(search_service.get_ref()),
-        ) {
-            Ok(GuestUserResult::Created(u)) => (u, true),
-            Ok(GuestUserResult::Existing(u)) => (u, false),
-            Ok(GuestUserResult::EmailClaimed) => return Err(CreateError::EmailClaimed),
-            Err(e) => {
-                error!(error = %e, "Failed to provision guest user");
-                return Err(CreateError::Internal);
-            }
-        };
-
-        // Unconfirmed requests are capped per address, so confirming one
-        // email can only ever release a handful.
-        if verification_required
-            && repository::tickets::count_pending_for_requester(conn, user.uuid)?
-                >= MAX_PENDING_PER_ADDRESS
-        {
-            return Err(CreateError::TooManyPending);
-        }
-
-        let default_state = repository::workflow_states::default_state(conn).map_err(|e| {
-            error!(error = %e, "Failed to resolve default workflow state");
-            CreateError::Internal
-        })?;
-
-        let category_id = repository::categories::offered_request_type(conn, requested_type)?;
-        let new_ticket = NewTicket {
-            title: title.to_string(),
-            workflow_state_id: default_state.id,
-            priority,
-            requester_uuid: Some(user.uuid),
-            category_id,
-            submitted_via: Some("guest".to_string()),
-            guest_lookup_token: Some(lookup_token),
-            verification_state: if verification_required {
-                Some("pending".to_string())
-            } else {
-                None
-            },
-            ..Default::default()
-        };
-
-        // Tag the activity row so the renderer can phrase the entry as
-        // "Created via public portal by <name> <<email>>" instead of the
-        // generic "System created this ticket". Same shape as inbound
-        // email tickets; the renderer switches on `source`.
-        let creation_annotation = repository::tickets::TicketCreationAnnotation {
-            source: Some("guest_portal".to_string()),
-            from_email: Some(email.to_string()),
-            from_name: if name.is_empty() {
-                None
-            } else {
-                Some(name.to_string())
-            },
-            subject: Some(title.to_string()),
-        };
-
-        let ticket = repository::tickets::create_ticket_with_annotation(
-            conn,
-            new_ticket,
-            creation_annotation,
-            None,
-        )
-        .map_err(|e| {
-            error!(error = %e, "Failed to create guest ticket");
-            CreateError::Internal
-        })?;
-
-        // Persist the description as the initial comment from the
-        // guest user so techs see the reported issue in the normal
-        // ticket timeline. A comment-write failure is non-fatal —
-        // the ticket itself is the primary artefact — so we log
-        // and continue with comment_id = None.
-        let new_comment = crate::models::NewComment {
-            content: description.to_string(),
-            user_uuid: user.uuid,
-            ticket_id: ticket.id,
-            content_format: crate::models::ContentFormat::Plaintext,
-            ..Default::default()
-        };
-        let comment_annotation = repository::comments::CommentCreationAnnotation {
-            source: Some("guest_portal".to_string()),
-            from_email: Some(email.to_string()),
-            from_name: if name.is_empty() {
-                None
-            } else {
-                Some(name.to_string())
-            },
-        };
-        let first_comment_id = match repository::comments::create_comment_with_annotation(
-            conn,
-            new_comment,
-            comment_annotation,
-            Some(search_service.get_ref()),
-        ) {
-            Ok(c) => Some(c.id),
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    ticket_id = ticket.id,
-                    "Failed to persist guest-ticket description as comment"
-                );
-                None
-            }
-        };
-
-        Ok((user, is_new_guest, ticket, first_comment_id))
+        create_guest_submission(conn, ws.workspace_id, search_service.get_ref(), &submission)
     });
 
     // The same answer whatever the address: an address with an account gets a
     // sign-in link instead (so the form doesn't reveal who has one), and one
     // with too many unconfirmed requests gets nothing more until it confirms.
     let (user, is_new_guest, ticket, first_comment_id) = match create_result {
-        Ok(t) => t,
+        Ok(c) => (c.user, c.is_new_guest, c.ticket, c.first_comment_id),
         Err(CreateError::EmailClaimed) => {
             crate::handlers::portal::spawn_sign_in_link(
                 pool.get_ref().clone(),
