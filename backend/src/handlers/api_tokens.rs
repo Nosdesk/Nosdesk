@@ -116,6 +116,7 @@ pub async fn create_api_token(
         Created(crate::models::ApiTokenCreatedResponse),
         TargetUserNotFound,
         TargetRoleExceedsCaller,
+        TargetNotStaff,
     }
 
     let user_uuid = body.user_uuid;
@@ -140,8 +141,17 @@ pub async fn create_api_token(
         // permissive for the target — the more restrictive interpretation).
         let caller_role = crate::repository::user_helpers::workspace_role(conn, created_by)
             .unwrap_or(WorkspaceRole::Member);
-        let target_role = crate::repository::user_helpers::workspace_role(conn, user_uuid)
-            .unwrap_or(WorkspaceRole::Member);
+        // The token's holder has a seat here. Accounts are shared across
+        // workspaces, so one with none reads as no such user.
+        let Some(target_role) = crate::repository::user_helpers::workspace_role(conn, user_uuid)
+        else {
+            return Ok(Outcome::TargetUserNotFound);
+        };
+        // A token works the agent app, which only staff can use: one for a
+        // requester would authenticate nothing.
+        if !target_role.is_staff() {
+            return Ok(Outcome::TargetNotStaff);
+        }
         if target_role > caller_role {
             return Ok(Outcome::TargetRoleExceedsCaller);
         }
@@ -181,6 +191,9 @@ pub async fn create_api_token(
         Ok(Outcome::TargetUserNotFound) => {
             Err(ApiError::NotFoundMsg("Target user not found".into()))
         }
+        Ok(Outcome::TargetNotStaff) => Err(ApiError::BadRequest(
+            "API tokens are for agents and admins of this workspace".into(),
+        )),
         Ok(Outcome::TargetRoleExceedsCaller) => {
             warn!(
                 "refused API token: {} tried to mint for a higher-privileged user {}",
@@ -378,6 +391,16 @@ mod tests {
                     StatusCode::CREATED,
                 ),
             ];
+            // Staff here, so only the platform role decides (a token is made
+            // only for staff).
+            for (target, _) in &targets[1..] {
+                diesel::update(
+                    workspace_members::table.filter(workspace_members::user_uuid.eq(target.uuid)),
+                )
+                .set(workspace_members::role.eq("agent"))
+                .execute(&mut conn)
+                .expect("make the target an agent");
+            }
             (caller, targets)
         };
         let app = actix_test::init_service(

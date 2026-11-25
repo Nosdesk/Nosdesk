@@ -195,6 +195,7 @@ async fn nsk_api_token_still_authenticates() {
     let db = crate::common::TestDb::new();
     let pool = db.pool_with_size(2);
     let user = crate::common::insert_user(&mut pool.get().expect("conn"), "Bearer Dave");
+    crate::common::seat(&mut pool.get().expect("conn"), 1, user.uuid, "owner");
     let api_token =
         crate::common::mint_api_token(&mut pool.get().expect("conn"), &user, "regression");
 

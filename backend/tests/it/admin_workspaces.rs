@@ -75,14 +75,9 @@ async fn admin_workspaces_lifecycle_contract() {
         .expect("archive seed workspace");
 
     let admin = mint_user(&mut pool.get().expect("conn"), "PlatformAdmin", "admin");
-    let admin_token =
-        common::mint_api_token(&mut pool.get().expect("conn"), &admin, "admin-session");
+    let admin_token = common::session_bearer(&pool, &admin);
     let regular_user = mint_user(&mut pool.get().expect("conn"), "Regular", "user");
-    let user_token = common::mint_api_token(
-        &mut pool.get().expect("conn"),
-        &regular_user,
-        "user-session",
-    );
+    let user_token = common::session_bearer(&pool, &regular_user);
 
     let pool_for_app = pool.clone();
     let srv = actix_test::start(move || {

@@ -165,6 +165,7 @@ pub struct RegisterDeviceRequest {
 
 /// POST /api/notifications/devices — register/refresh this user's push device.
 pub async fn register_push_device(
+    _session: crate::extractors::SessionOnly,
     req: HttpRequest,
     pool: web::Data<Pool>,
     notification_service: web::Data<NotificationService>,
@@ -225,6 +226,7 @@ pub async fn register_push_device(
 
 /// DELETE /api/notifications/devices/{token} — revoke this user's device token.
 pub async fn unregister_push_device(
+    _session: crate::extractors::SessionOnly,
     req: HttpRequest,
     pool: web::Data<Pool>,
     notification_service: web::Data<NotificationService>,
@@ -672,6 +674,7 @@ pub async fn get_preferences(
 ///
 /// PUT /api/notifications/preferences
 pub async fn update_preference(
+    _session: crate::extractors::SessionOnly,
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<UpdatePreferenceRequest>,
@@ -761,6 +764,7 @@ pub struct InterruptPreferencesRequest {
 ///
 /// PUT /api/notifications/interrupt-preferences  body: `{ "human_only": bool }`
 pub async fn set_interrupt_preferences(
+    _session: crate::extractors::SessionOnly,
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<InterruptPreferencesRequest>,

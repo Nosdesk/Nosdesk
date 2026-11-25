@@ -650,7 +650,9 @@ fn resolve_identity(
     conn: &mut DbConnection,
     ctx: &PipelineContext,
 ) -> Result<(crate::models::User, Option<uuid::Uuid>), PipelineError> {
-    use crate::repository::user_helpers::{find_verified_user_by_email, user_can_handle_tickets};
+    use crate::repository::user_helpers::{
+        find_verified_user_by_email, user_can_handle_tickets_in,
+    };
     let observer = ctx
         .search
         .as_ref()
@@ -660,7 +662,8 @@ fn resolve_identity(
         // Tech-forward: only staff may forward on a customer's behalf, and only
         // when the body actually carries forward markers. Then the original
         // customer is the requester and the staff member is the forwarder.
-        if user_can_handle_tickets(conn, &sender) {
+        // Staff of this workspace: a role anywhere else earns no trust here.
+        if user_can_handle_tickets_in(conn, channel.workspace_id, &sender) {
             if let Some(fwd) = super::forward_parser::extract(msg) {
                 let display = fwd
                     .display_name
